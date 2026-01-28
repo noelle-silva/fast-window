@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Fast Window",
+  "version": "0.1.0",
+  "identifier": "com.fastwindow.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Fast Window",
+        "width": 1020,
+        "height": 576,
+        "center": true,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "visible": false,
+        "skipTaskbar": true
+      }
+    ],
+    "security": {
+      "csp": null
+    },
+    "trayIcon": {
+      "iconPath": "icons/icon.png",
+      "iconAsTemplate": true
+    }
+  }
+}

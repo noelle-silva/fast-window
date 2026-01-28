@@ -1,0 +1,9 @@
+{
+  "id": "clipboard-history",
+  "name": "剪贴板历史",
+  "version": "1.0.0",
+  "description": "查看和管理剪贴板历史记录",
+  "main": "index.js",
+  "icon": "📋",
+  "keyword": "cb"
+}
