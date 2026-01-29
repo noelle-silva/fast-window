@@ -48,8 +48,8 @@
     const [showSettings, setShowSettings] = useState(false);
     const currentRef = useRef('');
     const currentImageRef = useRef('');
-    // 内部点击“复制图片”会触发剪贴板变化，避免被自动监控再记录一条重复图片
-    const internalImageCopyAtRef = useRef(0);
+    // 内部点击“复制”会触发剪贴板变化：用于区分内部/外部变化，避免重复记录
+    const internalCopyRef = useRef({ type: '', content: '', at: 0 });
 
     useEffect(() => {
       Promise.all([
@@ -62,6 +62,10 @@
           const textItems = savedHistory.filter(item => typeof item === 'string' || !item.type);
           if (textItems.length > 0) {
             currentRef.current = typeof textItems[0] === 'string' ? textItems[0] : textItems[0].content;
+          }
+          const imageItems = savedHistory.filter(item => typeof item === 'object' && item && item.type === 'image' && item.content);
+          if (imageItems.length > 0) {
+            currentImageRef.current = imageItems[0].content;
           }
         }
         if (savedFavorites && Array.isArray(savedFavorites)) {
@@ -81,50 +85,12 @@
         // 文本读取失败时，不要影响图片检测（有些剪贴板内容没有 text，会让 readText 抛错）
         try {
           const text = await api.clipboard.readText();
-          if (text && text !== currentRef.current) {
-            currentRef.current = text;
-            const newItem = { type: 'text', content: text, time: Date.now() };
-            setHistory(prev => {
-              const filtered = prev.filter(item => {
-                if (typeof item === 'string') return item !== text;
-                return item.content !== text;
-              });
-              const newHistory = [newItem, ...filtered].slice(0, settings.maxHistory);
-              api.storage.set(PLUGIN_ID, STORAGE_KEY, newHistory);
-              return newHistory;
-            });
-          }
+          handleClipboardChange('text', text);
         } catch (e) {}
 
         try {
           const imageData = await api.clipboard.readImage();
-          if (!imageData) return;
-
-          const internalWindowMs = Math.max(1500, settings.pollInterval * 2);
-          const internalCopyAt = internalImageCopyAtRef.current;
-          if (internalCopyAt && (Date.now() - internalCopyAt) < internalWindowMs) {
-            // 这次变化来自本插件的“复制图片”，只更新 currentImageRef，不新增记录
-            internalImageCopyAtRef.current = 0;
-            currentImageRef.current = imageData;
-            return;
-          }
-
-          // 过期就清掉，避免卡住
-          if (internalCopyAt && (Date.now() - internalCopyAt) >= internalWindowMs) {
-            internalImageCopyAtRef.current = 0;
-          }
-
-          if (imageData !== currentImageRef.current) {
-            currentImageRef.current = imageData;
-            const newItem = { type: 'image', content: imageData, time: Date.now() };
-            setHistory(prev => {
-              // 同一份图片 dataUrl 完全一致时去重（编码不同仍可能产生不同 dataUrl，这里只做最保守去重）
-              const filtered = prev.filter(it => !(getType(it) === 'image' && getContent(it) === imageData));
-              const newHistory = [newItem, ...filtered].slice(0, settings.maxHistory);
-              api.storage.set(PLUGIN_ID, STORAGE_KEY, newHistory);
-              return newHistory;
-            });
-          }
+          handleClipboardChange('image', imageData);
         } catch (e) {}
       };
 
@@ -141,6 +107,95 @@
 
     const getContent = (item) => typeof item === 'string' ? item : item.content;
     const getType = (item) => typeof item === 'string' ? 'text' : (item.type || 'text');
+
+    const internalWindowMs = () => Math.max(1500, settings.pollInterval * 2);
+
+    const upsertHistoryItem = (newItem) => {
+      setHistory(prev => {
+        const type = getType(newItem);
+        const content = getContent(newItem);
+        const filtered = prev.filter(it => !(getType(it) === type && getContent(it) === content));
+        const newHistory = [newItem, ...filtered].slice(0, settings.maxHistory);
+        api.storage.set(PLUGIN_ID, STORAGE_KEY, newHistory);
+        return newHistory;
+      });
+    };
+
+    const upsertFavoriteItemIfNeeded = (newItem) => {
+      if (!showFavorites) return;
+      setFavorites(prev => {
+        const type = getType(newItem);
+        const content = getContent(newItem);
+        const filtered = prev.filter(it => !(getType(it) === type && getContent(it) === content));
+        const newFavorites = [newItem, ...filtered];
+        api.storage.set(PLUGIN_ID, FAVORITES_KEY, newFavorites);
+        return newFavorites;
+      });
+    };
+
+    const replaceInternalImageIfNeeded = (internalContent, newContent) => {
+      if (!internalContent || internalContent === newContent) return;
+      const newItem = { type: 'image', content: newContent, time: Date.now() };
+      setHistory(prev => {
+        const filtered = prev.filter(it => {
+          const t = getType(it);
+          const c = getContent(it);
+          return !(t === 'image' && (c === internalContent || c === newContent));
+        });
+        const newHistory = [newItem, ...filtered].slice(0, settings.maxHistory);
+        api.storage.set(PLUGIN_ID, STORAGE_KEY, newHistory);
+        return newHistory;
+      });
+      if (showFavorites) {
+        setFavorites(prev => {
+          const filtered = prev.filter(it => {
+            const t = getType(it);
+            const c = getContent(it);
+            return !(t === 'image' && (c === internalContent || c === newContent));
+          });
+          const newFavorites = [newItem, ...filtered];
+          api.storage.set(PLUGIN_ID, FAVORITES_KEY, newFavorites);
+          return newFavorites;
+        });
+      }
+    };
+
+    const handleClipboardChange = (type, content) => {
+      if (!content) return;
+
+      const internal = internalCopyRef.current;
+      const withinWindow = internal.at && (Date.now() - internal.at) < internalWindowMs();
+      const isInternal =
+        withinWindow &&
+        internal.type === type &&
+        (type === 'image' ? true : internal.content === content);
+
+      if (isInternal) {
+        internalCopyRef.current = { type: '', content: '', at: 0 };
+        if (type === 'text') currentRef.current = content;
+        if (type === 'image') {
+          replaceInternalImageIfNeeded(internal.content, content);
+          currentImageRef.current = content;
+        }
+        return;
+      }
+
+      if (internal.at && !withinWindow) {
+        internalCopyRef.current = { type: '', content: '', at: 0 };
+      }
+
+      if (type === 'text') {
+        if (content === currentRef.current) return;
+        currentRef.current = content;
+      } else if (type === 'image') {
+        if (content === currentImageRef.current) return;
+        currentImageRef.current = content;
+      } else {
+        return;
+      }
+
+      upsertHistoryItem({ type, content, time: Date.now() });
+    };
 
     const filteredList = (showFavorites ? favorites : history).filter(item => {
       if (searchQuery === '') return true;
@@ -199,35 +254,23 @@
       const type = getType(item);
       const content = getContent(item);
       try {
+        internalCopyRef.current = { type, content, at: Date.now() };
+
         if (type === 'image') {
-          internalImageCopyAtRef.current = Date.now();
           await api.clipboard.writeImage(content);
           currentImageRef.current = content;
-
-          // 复制图片后，把该条目“顶到最前面”，行为与文本一致，但不产生重复记录
-          const newItem = { type: 'image', content, time: Date.now() };
-          setHistory(prev => {
-            const filtered = prev.filter(it => !(getType(it) === 'image' && getContent(it) === content));
-            const newHistory = [newItem, ...filtered].slice(0, settings.maxHistory);
-            api.storage.set(PLUGIN_ID, STORAGE_KEY, newHistory);
-            return newHistory;
-          });
-
-          // 如果当前在收藏视图，也同步把收藏里的该条顶到最前面（不改“是否收藏”的语义）
-          if (showFavorites) {
-            setFavorites(prev => {
-              const filtered = prev.filter(it => !(getType(it) === 'image' && getContent(it) === content));
-              const newFavorites = [newItem, ...filtered];
-              api.storage.set(PLUGIN_ID, FAVORITES_KEY, newFavorites);
-              return newFavorites;
-            });
-          }
         } else {
           await api.clipboard.writeText(content);
+          currentRef.current = content;
         }
+
+        const newItem = { type, content, time: Date.now() };
+        upsertHistoryItem(newItem);
+        upsertFavoriteItemIfNeeded(newItem);
         api.ui?.showToast?.('复制成功');
       } catch (e) {
         // 静默失败即可，避免打断使用
+        internalCopyRef.current = { type: '', content: '', at: 0 };
       }
       setContextMenu(null);
     };
