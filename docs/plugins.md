@@ -53,3 +53,12 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
 
 注意：iframe 插件不会拿到 `React`，也不会使用 `registerPluginComponent`；它应该自行渲染 DOM。
 
+## 目录与数据（当前实现）
+
+- 插件目录：默认使用系统 **AppLocalData** 下的 `plugins/` 目录（由 Rust 端 `get_plugins_dir` 决定）。
+- 数据目录：默认使用系统 **AppLocalData** 下的 `data/` 目录（由 Rust 端 `get_data_dir` 决定）。
+- 开发模式（debug）：会把仓库根目录的 `plugins/` 同步到 AppLocalData 的 `plugins/`（方便开发且配合 fs scope 收紧）；`data/` 只在目标目录为空时迁移一次。
+
+## Legacy（已禁用）
+
+`ui.type="react"`（同 WebView eval 执行）属于不安全/强耦合路径，当前宿主已拒绝加载。

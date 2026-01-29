@@ -9,20 +9,33 @@ type Props = {
   onBack: () => void
 }
 
-function buildSrcDoc(pluginId: string, pluginCode: string) {
+function buildSrcDoc(pluginId: string, pluginCode: string, token: string) {
   const sdk = `
 (() => {
   const pluginId = ${JSON.stringify(pluginId)};
   const apiVersion = ${PLUGIN_API_VERSION};
+  const token = ${JSON.stringify(token)};
 
   let seq = 0;
   const pending = new Map();
+  const MAX_PENDING = 128;
+  const DEFAULT_TIMEOUT_MS = 8000;
 
   function call(method, args) {
     const id = ++seq;
     return new Promise((resolve, reject) => {
-      pending.set(id, { resolve, reject });
-      parent.postMessage({ __fastWindowRequest: true, pluginId, apiVersion, id, method, args }, '*');
+      if (pending.size >= MAX_PENDING) {
+        reject(new Error('Too many in-flight requests'));
+        return;
+      }
+
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error('Request timeout'));
+      }, DEFAULT_TIMEOUT_MS);
+
+      pending.set(id, { resolve, reject, timer });
+      parent.postMessage({ __fastWindowRequest: true, pluginId, apiVersion, token, id, method, args }, '*');
     });
   }
 
@@ -30,9 +43,11 @@ function buildSrcDoc(pluginId: string, pluginCode: string) {
     const msg = e && e.data;
     if (!msg || msg.__fastWindowResponse !== true) return;
     if (msg.pluginId !== pluginId) return;
+    if (msg.token !== token) return;
     const entry = pending.get(msg.id);
     if (!entry) return;
     pending.delete(msg.id);
+    clearTimeout(entry.timer);
     if (msg.ok) entry.resolve(msg.result);
     else entry.reject(new Error(msg.error || 'Unknown error'));
   });
@@ -82,7 +97,30 @@ export default function IframePluginView(props: Props) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const ctx = useMemo(() => createPluginContext(pluginId, requires), [pluginId, requires])
 
-  const srcDoc = useMemo(() => buildSrcDoc(pluginId, pluginCode), [pluginId, pluginCode])
+  const tokenRef = useRef<string>('')
+  if (!tokenRef.current) {
+    tokenRef.current = `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  }
+
+  const handlers = useMemo(() => {
+    return {
+      'clipboard.readText': ctx.api.clipboard.readText,
+      'clipboard.writeText': ctx.api.clipboard.writeText,
+      'clipboard.readImage': ctx.api.clipboard.readImage,
+      'clipboard.writeImage': ctx.api.clipboard.writeImage,
+      'storage.get': ctx.api.storage.get,
+      'storage.set': ctx.api.storage.set,
+      'storage.remove': ctx.api.storage.remove,
+      'storage.getAll': ctx.api.storage.getAll,
+      'storage.setAll': ctx.api.storage.setAll,
+      'ui.showToast': ctx.api.ui.showToast,
+    } as const
+  }, [ctx.api])
+
+  const srcDoc = useMemo(
+    () => buildSrcDoc(pluginId, pluginCode, tokenRef.current),
+    [pluginId, pluginCode],
+  )
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -92,11 +130,12 @@ export default function IframePluginView(props: Props) {
       const msg: any = event.data
       if (!msg || msg.__fastWindowRequest !== true) return
       if (msg.pluginId !== pluginId) return
+      if (msg.token !== tokenRef.current) return
 
       const { id, method, args } = msg
 
       const reply = (payload: any) => {
-        iframeWin.postMessage({ __fastWindowResponse: true, pluginId, id, ...payload }, '*')
+        iframeWin.postMessage({ __fastWindowResponse: true, pluginId, token: tokenRef.current, id, ...payload }, '*')
       }
 
       if (method === 'host.back') {
@@ -105,9 +144,8 @@ export default function IframePluginView(props: Props) {
         return
       }
 
-      const [ns, fn] = String(method).split('.', 2)
-      const target: any = (ctx.api as any)[ns]
-      const handler = target?.[fn]
+      const key = String(method)
+      const handler = (handlers as any)[key]
       if (typeof handler !== 'function') {
         reply({ ok: false, error: `Unknown method: ${String(method)}` })
         return
@@ -121,7 +159,7 @@ export default function IframePluginView(props: Props) {
 
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [ctx.api, onBack, pluginId])
+  }, [handlers, onBack, pluginId])
 
   return (
     <iframe

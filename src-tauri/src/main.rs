@@ -2,6 +2,7 @@
 
 use std::time::Duration;
 use std::sync::Mutex;
+use std::path::{Path, PathBuf};
 
 use tauri::{
     Manager, WindowEvent,
@@ -75,20 +76,78 @@ fn restore_or_center(window: &impl Positionable, state: &WindowState) {
     }
 }
 
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_all(&from, &to)?;
+        } else if ty.is_file() {
+            if let Some(parent) = to.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
+
+fn is_dir_empty(dir: &Path) -> bool {
+    match std::fs::read_dir(dir) {
+        Ok(mut it) => it.next().is_none(),
+        Err(_) => true,
+    }
+}
+
 #[tauri::command]
-fn get_plugins_dir() -> String {
-    let cwd = std::env::current_dir().unwrap_or_default();
-    // 开发模式下 cwd 是 src-tauri，需要返回上级目录的 plugins
-    let plugins_dir = cwd.parent().map(|p| p.join("plugins")).unwrap_or_else(|| cwd.join("plugins"));
+fn get_plugins_dir(app: tauri::AppHandle) -> String {
+    // 统一使用 App 本地数据目录（避免 cwd 漂移），插件默认放到这里
+    let base = app.path().app_local_data_dir().unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+    let plugins_dir = base.join("plugins");
+    let _ = std::fs::create_dir_all(&plugins_dir);
+
+    // 开发模式：把仓库里的 plugins 同步到本地数据目录（方便开发，且配合 fs scope 收紧）
+    #[cfg(debug_assertions)]
+    {
+        let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        let repo_plugins = workspace_root.join("plugins");
+        if repo_plugins.is_dir() {
+            // 每次都覆盖同步：以仓库为真源
+            let _ = copy_dir_all(&repo_plugins, &plugins_dir);
+        }
+    }
+
     plugins_dir.to_string_lossy().to_string()
 }
 
 #[tauri::command]
-fn get_data_dir() -> String {
-    let cwd = std::env::current_dir().unwrap_or_default();
-    let data_dir = cwd.parent().map(|p| p.join("data")).unwrap_or_else(|| cwd.join("data"));
-    // 确保目录存在
+fn get_data_dir(app: tauri::AppHandle) -> String {
+    // 统一使用 App 本地数据目录（避免 cwd 漂移）
+    let base = app.path().app_local_data_dir().unwrap_or_else(|_| std::env::current_dir().unwrap_or_default());
+    let data_dir = base.join("data");
     let _ = std::fs::create_dir_all(&data_dir);
+
+    // 开发模式：仅在目标目录为空时，把仓库里的 data 迁移一份过来（不覆盖用户数据）
+    #[cfg(debug_assertions)]
+    {
+        if is_dir_empty(&data_dir) {
+            let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+            let repo_data = workspace_root.join("data");
+            if repo_data.is_dir() {
+                let _ = copy_dir_all(&repo_data, &data_dir);
+            }
+        }
+    }
+
     data_dir.to_string_lossy().to_string()
 }
 
