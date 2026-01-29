@@ -5,6 +5,7 @@ import { loadAllPlugins } from './plugins/pluginLoader'
 import { initPluginApi } from './plugins/pluginApi'
 import * as React from 'react'
 import {
+  Alert,
   Avatar,
   Box,
   CircularProgress,
@@ -15,6 +16,7 @@ import {
   ListItemButton,
   ListItemText,
   Paper,
+  Snackbar,
   TextField,
   Typography,
 } from '@mui/material'
@@ -119,6 +121,11 @@ function App() {
   const [activeIndex, setActiveIndex] = useState(0)
   const [activePlugin, setActivePlugin] = useState<Plugin | null>(null)
   const [loading, setLoading] = useState(true)
+  const [toast, setToast] = useState<{ open: boolean; message: string; key: number }>({
+    open: false,
+    message: '',
+    key: 0,
+  })
 
   // 加载插件
   useEffect(() => {
@@ -150,6 +157,18 @@ function App() {
     }
 
     loadPlugins()
+  }, [])
+
+  // 插件/主程序通用 toast
+  useEffect(() => {
+    const onToast = (event: Event) => {
+      const custom = event as CustomEvent<{ message?: unknown }>
+      const message = typeof custom.detail?.message === 'string' ? custom.detail.message : ''
+      if (!message) return
+      setToast(prev => ({ open: true, message, key: prev.key + 1 }))
+    }
+    window.addEventListener('fast-window:toast', onToast)
+    return () => window.removeEventListener('fast-window:toast', onToast)
   }, [])
 
   // 过滤插件
@@ -199,6 +218,26 @@ function App() {
     bgcolor: 'background.default',
   } as const
 
+  const toastHost = (
+    <Snackbar
+      key={toast.key}
+      open={toast.open}
+      autoHideDuration={900}
+      onClose={() => setToast(prev => ({ ...prev, open: false }))}
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      sx={{ mb: 4 }}
+    >
+      <Alert
+        variant="filled"
+        severity="success"
+        onClose={() => setToast(prev => ({ ...prev, open: false }))}
+        sx={{ borderRadius: 999, py: 0.25, alignItems: 'center' }}
+      >
+        {toast.message}
+      </Alert>
+    </Snackbar>
+  )
+
   // 加载中
   if (loading) {
     return (
@@ -215,6 +254,7 @@ function App() {
           </Box>
           <StatusBar right={APP_VERSION_TEXT} />
         </Paper>
+        {toastHost}
       </Box>
     )
   }
@@ -231,6 +271,7 @@ function App() {
           </Box>
           <StatusBar right={APP_VERSION_TEXT} />
         </Paper>
+        {toastHost}
       </Box>
     )
   }
@@ -307,6 +348,7 @@ function App() {
 
         <StatusBar left="↑↓ 选择 · Enter 打开 · ESC 隐藏" right={APP_VERSION_TEXT} />
       </Paper>
+      {toastHost}
     </Box>
   )
 }

@@ -143,7 +143,7 @@ export const fastWindowApi = {
   // UI 相关
   ui: {
     showToast: (message: string) => {
-      console.log('[Toast]', message)
+      window.dispatchEvent(new CustomEvent('fast-window:toast', { detail: { message } }))
     },
   },
 }

@@ -177,10 +177,15 @@
     const copySingle = async (item) => {
       const type = getType(item);
       const content = getContent(item);
-      if (type === 'image') {
-        await api.clipboard.writeImage(content);
-      } else {
-        await api.clipboard.writeText(content);
+      try {
+        if (type === 'image') {
+          await api.clipboard.writeImage(content);
+        } else {
+          await api.clipboard.writeText(content);
+        }
+        api.ui?.showToast?.('复制成功');
+      } catch (e) {
+        // 静默失败即可，避免打断使用
       }
       setContextMenu(null);
     };
@@ -193,7 +198,12 @@
 
     const copySelected = async () => {
       if (selected.length === 0) return;
-      await api.clipboard.writeText(selected.join('\n'));
+      try {
+        await api.clipboard.writeText(selected.join('\n'));
+        api.ui?.showToast?.('复制成功');
+      } catch (e) {
+        // 静默失败即可
+      }
       setSelected([]);
     };
 
