@@ -46,6 +46,8 @@ async function loadPlugin(pluginPath: string): Promise<LoadedPlugin | null> {
       return { manifest, component }
     }
 
+    console.warn(`[plugin] "${manifest.id}" uses deprecated ui.type="react" (eval). Prefer ui.type="iframe".`)
+
     // 执行插件代码
     const prevFastWindow = (window as any).fastWindow
     const prevCtx = (window as any).__fastWindowPluginContext
