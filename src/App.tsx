@@ -1,9 +1,25 @@
 import { useState, useEffect, useCallback, ComponentType } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { invoke } from '@tauri-apps/api/core'
-import { loadAllPlugins, LoadedPlugin } from './plugins/pluginLoader'
+import { loadAllPlugins } from './plugins/pluginLoader'
 import { initPluginApi } from './plugins/pluginApi'
 import * as React from 'react'
+import {
+  Avatar,
+  Box,
+  CircularProgress,
+  IconButton,
+  InputAdornment,
+  List,
+  ListItemAvatar,
+  ListItemButton,
+  ListItemText,
+  Paper,
+  TextField,
+  Typography,
+} from '@mui/material'
+import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 
 // 暴露 React 给插件使用
 ;(window as any).React = React
@@ -18,6 +34,80 @@ interface Plugin {
   icon: string
   keyword?: string
   component: ComponentType<{ onBack: () => void }>
+}
+
+const APP_TITLE = 'Fast Window'
+const APP_VERSION_TEXT = 'Fast Window v0.1.0'
+
+function TitleBar(props: { title: string; onBack?: () => void }) {
+  const { title, onBack } = props
+  return (
+    <Box
+      sx={{
+        height: 40,
+        display: 'flex',
+        alignItems: 'center',
+        position: 'relative',
+        px: 0.5,
+        bgcolor: 'background.paper',
+        borderBottom: 1,
+        borderColor: 'divider',
+        WebkitAppRegion: 'drag',
+      }}
+    >
+      {onBack ? (
+        <IconButton
+          aria-label="返回"
+          size="small"
+          onClick={onBack}
+          sx={{ position: 'absolute', left: 6, WebkitAppRegion: 'no-drag' }}
+        >
+          <ArrowBackRoundedIcon fontSize="small" />
+        </IconButton>
+      ) : null}
+
+      <Typography
+        variant="body2"
+        color="text.secondary"
+        sx={{
+          width: '100%',
+          textAlign: 'center',
+          fontWeight: 600,
+          letterSpacing: 0.2,
+          px: 4,
+          userSelect: 'none',
+          pointerEvents: 'none',
+        }}
+      >
+        {title}
+      </Typography>
+    </Box>
+  )
+}
+
+function StatusBar(props: { left?: string; right: string }) {
+  const { left, right } = props
+  return (
+    <Box
+      sx={{
+        height: 32,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        px: 1.5,
+        bgcolor: 'background.paper',
+        borderTop: 1,
+        borderColor: 'divider',
+      }}
+    >
+      <Typography variant="caption" color="text.secondary" noWrap>
+        {left ?? ''}
+      </Typography>
+      <Typography variant="caption" color="text.secondary" noWrap>
+        {right}
+      </Typography>
+    </Box>
+  )
 }
 
 function App() {
@@ -93,17 +183,37 @@ function App() {
     }
   }, [plugins, activeIndex, activePlugin])
 
+  const shellRootSx = {
+    height: '100vh',
+    outline: 'none',
+  } as const
+
+  const shellContainerSx = {
+    height: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    borderRadius: 3,
+    overflow: 'hidden',
+    bgcolor: 'background.default',
+  } as const
+
   // 加载中
   if (loading) {
     return (
-      <div className="app-container">
-        <div className="titlebar">
-          <span className="titlebar-title">Fast Window</span>
-        </div>
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <span>加载插件中...</span>
-        </div>
-      </div>
+      <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
+        <Paper variant="outlined" sx={shellContainerSx}>
+          <TitleBar title={APP_TITLE} />
+          <Box sx={{ flex: 1, display: 'grid', placeItems: 'center' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+              <CircularProgress size={18} />
+              <Typography variant="body2" color="text.secondary">
+                加载插件中...
+              </Typography>
+            </Box>
+          </Box>
+          <StatusBar right={APP_VERSION_TEXT} />
+        </Paper>
+      </Box>
     )
   }
 
@@ -111,60 +221,91 @@ function App() {
   if (activePlugin) {
     const PluginComponent = activePlugin.component
     return (
-      <div className="app-container" onKeyDown={handleKeyDown} tabIndex={0}>
-        <div className="titlebar">
-          <button className="back-btn" onClick={() => setActivePlugin(null)}>←</button>
-          <span className="titlebar-title">{activePlugin.name}</span>
-        </div>
-        <PluginComponent onBack={() => setActivePlugin(null)} />
-        <div className="status-bar">
-          <span></span>
-          <span>Fast Window v0.1.0</span>
-        </div>
-      </div>
+      <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
+        <Paper variant="outlined" sx={shellContainerSx}>
+          <TitleBar title={activePlugin.name} onBack={() => setActivePlugin(null)} />
+          <Box sx={{ flex: 1, overflow: 'auto' }}>
+            <PluginComponent onBack={() => setActivePlugin(null)} />
+          </Box>
+          <StatusBar right={APP_VERSION_TEXT} />
+        </Paper>
+      </Box>
     )
   }
 
   return (
-    <div className="app-container" onKeyDown={handleKeyDown} tabIndex={0}>
-      <div className="titlebar">
-        <span className="titlebar-title">Fast Window</span>
-      </div>
-      <div className="search-container">
-        <input
-          className="search-input"
-          placeholder="输入关键词搜索插件..."
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          autoFocus
-        />
-      </div>
-      <div className="plugin-list">
-        {plugins.length === 0 ? (
-          <div style={{ padding: '20px', textAlign: 'center', color: '#666' }}>
-            没有找到插件
-          </div>
-        ) : (
-          plugins.map((plugin, index) => (
-            <div
-              key={plugin.id}
-              className={`plugin-item ${index === activeIndex ? 'active' : ''}`}
-              onClick={() => setActivePlugin(plugin)}
-            >
-              <div className="plugin-icon">{plugin.icon}</div>
-              <div className="plugin-info">
-                <div className="plugin-name">{plugin.name}</div>
-                <div className="plugin-desc">{plugin.description}</div>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-      <div className="status-bar">
-        <span>↑↓ 选择 · Enter 打开 · ESC 隐藏</span>
-        <span>Fast Window v0.1.0</span>
-      </div>
-    </div>
+    <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
+      <Paper variant="outlined" sx={shellContainerSx}>
+        <TitleBar title={APP_TITLE} />
+
+        <Box sx={{ p: 2, bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider' }}>
+          <TextField
+            fullWidth
+            autoFocus
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="输入关键词搜索插件..."
+            variant="outlined"
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchRoundedIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+            inputProps={{ 'aria-label': '搜索插件', autoComplete: 'off' }}
+          />
+        </Box>
+
+        <Box sx={{ flex: 1, overflow: 'auto', p: 1 }}>
+          {plugins.length === 0 ? (
+            <Box sx={{ py: 4, textAlign: 'center' }}>
+              <Typography variant="body2" color="text.secondary">
+                没有找到插件
+              </Typography>
+            </Box>
+          ) : (
+            <List disablePadding sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+              {plugins.map((plugin, index) => (
+                <ListItemButton
+                  key={plugin.id}
+                  selected={index === activeIndex}
+                  onClick={() => setActivePlugin(plugin)}
+                  sx={{
+                    py: 1,
+                    px: 1.25,
+                    '&.Mui-selected': { bgcolor: 'action.selected' },
+                  }}
+                >
+                  <ListItemAvatar sx={{ minWidth: 44 }}>
+                    <Avatar
+                      variant="rounded"
+                      sx={theme => ({
+                        width: 32,
+                        height: 32,
+                        fontSize: 18,
+                        bgcolor: theme.palette.action.hover,
+                        color: theme.palette.text.primary,
+                      })}
+                    >
+                      {plugin.icon}
+                    </Avatar>
+                  </ListItemAvatar>
+                  <ListItemText
+                    primary={plugin.name}
+                    secondary={plugin.description}
+                    primaryTypographyProps={{ variant: 'body1', fontWeight: 600 }}
+                    secondaryTypographyProps={{ variant: 'body2', color: 'text.secondary', noWrap: true }}
+                  />
+                </ListItemButton>
+              ))}
+            </List>
+          )}
+        </Box>
+
+        <StatusBar left="↑↓ 选择 · Enter 打开 · ESC 隐藏" right={APP_VERSION_TEXT} />
+      </Paper>
+    </Box>
   )
 }
 
