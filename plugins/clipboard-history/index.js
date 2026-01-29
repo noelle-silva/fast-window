@@ -128,14 +128,29 @@
       return content.toLowerCase().includes(searchQuery.toLowerCase());
     });
 
-    const toggleSelect = (e, item) => {
-      e.stopPropagation();
+    const toggleSelect = (item) => {
+      if (getType(item) === 'image') return;
       const content = getContent(item);
       setSelected(prev => {
         const index = prev.indexOf(content);
         if (index > -1) return prev.filter(i => i !== content);
         return [...prev, content];
       });
+    };
+
+    const handleItemClick = async (e, item) => {
+      if (getType(item) === 'image') {
+        await copySingle(item);
+        setSelected([]);
+        return;
+      }
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        toggleSelect(item);
+        return;
+      }
+      await copySingle(item);
+      setSelected([]);
     };
 
     const toggleExpand = (index) => {
@@ -495,6 +510,57 @@
                 })
               )
             )
+          ),
+          // 危险操作：清空
+          React.createElement('div', {
+            style: {
+              background: MD.surface,
+              borderRadius: '12px',
+              padding: '16px',
+              marginTop: '12px',
+              boxShadow: MD.elevation1,
+            }
+          },
+            React.createElement('div', {
+              style: {
+                fontSize: '14px',
+                fontWeight: '500',
+                color: MD.onSurface,
+                letterSpacing: '0.1px',
+                marginBottom: '8px',
+              }
+            }, '数据管理'),
+            React.createElement('div', {
+              style: {
+                fontSize: '12px',
+                color: MD.onSurfaceVariant,
+                letterSpacing: '0.4px',
+                marginBottom: '12px',
+              }
+            }, showFavorites ? '将清空所有收藏条目（不可撤销）' : '将清空所有历史记录（不可撤销）'),
+            React.createElement('div', {
+              onClick: async () => {
+                const message = showFavorites
+                  ? '确认清空所有收藏？此操作不可撤销。'
+                  : '确认清空所有历史记录？此操作不可撤销。';
+                if (!window.confirm(message)) return;
+                await clearAll();
+              },
+              style: {
+                padding: '10px 16px',
+                borderRadius: '20px',
+                fontSize: '14px',
+                color: MD.error,
+                cursor: 'pointer',
+                fontWeight: '500',
+                textAlign: 'center',
+                border: `1px solid ${MD.error}`,
+                transition: 'background 0.2s',
+                userSelect: 'none',
+              },
+              onMouseEnter: (e) => e.currentTarget.style.background = 'rgba(211,47,47,0.08)',
+              onMouseLeave: (e) => e.currentTarget.style.background = 'transparent',
+            }, showFavorites ? '清空收藏' : '清空历史')
           )
         )
       );
@@ -514,11 +580,11 @@
       // 搜索栏 - Material Style
       React.createElement('div', {
         style: {
-          padding: '12px 16px',
+          padding: '8px 12px',
           background: MD.surface,
           boxShadow: MD.elevation1,
           display: 'flex',
-          gap: '12px',
+          gap: '8px',
           alignItems: 'center',
           zIndex: 10,
         }
@@ -529,13 +595,13 @@
             display: 'flex',
             alignItems: 'center',
             background: MD.background,
-            borderRadius: '28px',
-            padding: '0 16px',
-            height: '48px',
+            borderRadius: '20px',
+            padding: '0 12px',
+            height: '40px',
           }
         },
           React.createElement('span', {
-            style: { color: MD.onSurfaceVariant, marginRight: '12px', fontSize: '20px' }
+            style: { color: MD.onSurfaceVariant, marginRight: '8px', fontSize: '18px' }
           }, '\uD83D\uDD0D'),
           React.createElement('input', {
             type: 'text',
@@ -546,10 +612,10 @@
               flex: 1,
               border: 'none',
               background: 'transparent',
-              fontSize: '16px',
+              fontSize: '14px',
               color: MD.onSurface,
               outline: 'none',
-              letterSpacing: '0.5px',
+              letterSpacing: '0.25px',
             }
           })
         ),
@@ -557,9 +623,9 @@
         React.createElement('div', {
           onClick: () => setShowSettings(true),
           style: {
-            width: '48px',
-            height: '48px',
-            borderRadius: '24px',
+            width: '40px',
+            height: '40px',
+            borderRadius: '20px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -579,76 +645,44 @@
           borderBottom: `1px solid ${MD.outline}`,
         }
       },
-        React.createElement('div', {
-          onClick: () => setShowFavorites(false),
-          style: {
-            flex: 1,
-            padding: '16px',
-            textAlign: 'center',
-            cursor: 'pointer',
-            fontSize: '14px',
-            fontWeight: '500',
-            letterSpacing: '0.1px',
-            color: !showFavorites ? MD.primary : MD.onSurfaceVariant,
-            borderBottom: !showFavorites ? `2px solid ${MD.primary}` : '2px solid transparent',
-            transition: 'all 0.2s',
+      React.createElement('div', {
+        onClick: () => setShowFavorites(false),
+        style: {
+          flex: 1,
+          padding: '10px',
+          textAlign: 'center',
+          cursor: 'pointer',
+          fontSize: '13px',
+          fontWeight: '500',
+          letterSpacing: '0.1px',
+          color: !showFavorites ? MD.primary : MD.onSurfaceVariant,
+          borderBottom: !showFavorites ? `2px solid ${MD.primary}` : '2px solid transparent',
+          transition: 'all 0.2s',
           }
         }, `全部 (${history.length})`),
-        React.createElement('div', {
-          onClick: () => setShowFavorites(true),
-          style: {
-            flex: 1,
-            padding: '16px',
-            textAlign: 'center',
-            cursor: 'pointer',
-            fontSize: '14px',
-            fontWeight: '500',
-            letterSpacing: '0.1px',
-            color: showFavorites ? MD.primary : MD.onSurfaceVariant,
-            borderBottom: showFavorites ? `2px solid ${MD.primary}` : '2px solid transparent',
-            transition: 'all 0.2s',
+      React.createElement('div', {
+        onClick: () => setShowFavorites(true),
+        style: {
+          flex: 1,
+          padding: '10px',
+          textAlign: 'center',
+          cursor: 'pointer',
+          fontSize: '13px',
+          fontWeight: '500',
+          letterSpacing: '0.1px',
+          color: showFavorites ? MD.primary : MD.onSurfaceVariant,
+          borderBottom: showFavorites ? `2px solid ${MD.primary}` : '2px solid transparent',
+          transition: 'all 0.2s',
           }
         }, `收藏 (${favorites.length})`)
       ),
-      // 操作栏
-      React.createElement('div', {
-        style: {
-          padding: '8px 16px',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          background: MD.surface,
-        }
-      },
-        selected.length > 0
-          ? React.createElement('span', {
-              style: {
-                fontSize: '14px',
-                color: MD.primary,
-                fontWeight: '500',
-              }
-            }, `已选择 ${selected.length} 项`)
-          : React.createElement('span', {
-              style: { fontSize: '14px', color: MD.onSurfaceVariant }
-            }, '点击选择条目'),
-        filteredList.length > 0 && React.createElement('div', {
-          onClick: clearAll,
-          style: {
-            padding: '8px 16px',
-            borderRadius: '20px',
-            fontSize: '14px',
-            color: MD.error,
-            cursor: 'pointer',
-            fontWeight: '500',
-            transition: 'background 0.2s',
-          },
-          onMouseEnter: (e) => e.currentTarget.style.background = 'rgba(211,47,47,0.08)',
-          onMouseLeave: (e) => e.currentTarget.style.background = 'transparent',
-        }, '清空')
-      ),
       // 列表
       React.createElement('div', {
-        style: { flex: 1, overflow: 'auto', padding: '8px 16px' }
+        style: {
+          flex: 1,
+          overflow: 'auto',
+          background: MD.surface,
+        }
       },
         filteredList.length === 0
           ? React.createElement('div', {
@@ -671,17 +705,21 @@
 
               return React.createElement('div', {
                 key: index,
-                onClick: (e) => toggleSelect(e, item),
+                onClick: (e) => handleItemClick(e, item),
                 onContextMenu: (e) => handleContextMenu(e, item, index),
+                onMouseEnter: (e) => {
+                  if (isSelected) return;
+                  e.currentTarget.style.background = 'rgba(0,0,0,0.03)';
+                },
+                onMouseLeave: (e) => {
+                  e.currentTarget.style.background = isSelected ? 'rgba(25,118,210,0.06)' : 'transparent';
+                },
                 style: {
-                  padding: '16px',
-                  marginBottom: '8px',
-                  background: MD.surface,
-                  borderRadius: '12px',
+                  padding: '12px 12px',
+                  background: isSelected ? 'rgba(25,118,210,0.06)' : 'transparent',
+                  borderBottom: `1px solid ${MD.outline}`,
                   cursor: 'pointer',
-                  boxShadow: isSelected ? MD.elevation2 : MD.elevation1,
-                  border: isSelected ? `2px solid ${MD.primary}` : '2px solid transparent',
-                  transition: 'all 0.2s',
+                  transition: 'background 0.2s',
                   position: 'relative',
                 }
               },
@@ -689,34 +727,36 @@
                 isFav && React.createElement('div', {
                   style: {
                     position: 'absolute',
-                    top: '12px',
+                    top: '10px',
                     right: '12px',
                     fontSize: '16px',
                   }
                 }, '\u2B50'),
+                // 选中顺序标记（Ctrl 多选）
+                isSelected && React.createElement('div', {
+                  style: {
+                    position: 'absolute',
+                    top: '10px',
+                    right: isFav ? '36px' : '12px',
+                    minWidth: '20px',
+                    height: '20px',
+                    padding: '0 6px',
+                    borderRadius: '10px',
+                    background: MD.primary,
+                    color: MD.onPrimary,
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    letterSpacing: '0.2px',
+                    userSelect: 'none',
+                  }
+                }, String(selectIndex)),
                 // 内容区
                 React.createElement('div', {
-                  style: { display: 'flex', alignItems: 'flex-start', gap: '16px' }
+                  style: { display: 'flex', alignItems: 'flex-start', gap: '12px' }
                 },
-                  // Checkbox 风格选择器
-                  React.createElement('div', {
-                    style: {
-                      width: '24px',
-                      height: '24px',
-                      borderRadius: '4px',
-                      border: isSelected ? 'none' : `2px solid ${MD.onSurfaceVariant}`,
-                      background: isSelected ? MD.primary : 'transparent',
-                      color: MD.onPrimary,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '14px',
-                      fontWeight: '500',
-                      flexShrink: 0,
-                      marginTop: '2px',
-                      transition: 'all 0.2s',
-                    }
-                  }, isSelected ? (selectIndex < 10 ? selectIndex : '\u2713') : ''),
                   // 内容
                   type === 'image'
                     ? React.createElement('div', {
@@ -778,8 +818,8 @@
                 showExpand && React.createElement('div', {
                   onClick: (e) => { e.stopPropagation(); toggleExpand(index); },
                   style: {
-                    marginTop: '12px',
-                    paddingTop: '12px',
+                    marginTop: '8px',
+                    paddingTop: '8px',
                     borderTop: `1px solid ${MD.outline}`,
                     fontSize: '14px',
                     color: MD.primary,
