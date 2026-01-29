@@ -771,17 +771,29 @@
                   // 内容
                   type === 'image'
                     ? React.createElement('div', {
-                        style: { flex: 1, maxHeight: isExpanded ? 'none' : '150px', overflow: 'hidden' }
+                        style: {
+                          flex: 1,
+                          maxHeight: isExpanded ? 'none' : '150px',
+                          overflow: 'hidden',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          textAlign: 'center',
+                        }
                       },
                         React.createElement('img', {
                           src: content,
                           style: {
+                            display: 'block',
                             maxWidth: '100%',
+                            maxHeight: isExpanded ? 'none' : '150px',
+                            objectFit: 'contain',
                             borderRadius: '8px',
                           }
                         }),
                         React.createElement('div', {
                           style: {
+                            width: '100%',
                             fontSize: '12px',
                             color: MD.onSurfaceVariant,
                             marginTop: '8px',
