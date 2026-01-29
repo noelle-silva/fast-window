@@ -48,6 +48,8 @@
     const [showSettings, setShowSettings] = useState(false);
     const currentRef = useRef('');
     const currentImageRef = useRef('');
+    // 内部点击“复制图片”会触发剪贴板变化，避免被自动监控再记录一条重复图片
+    const internalImageCopyAtRef = useRef(0);
 
     useEffect(() => {
       Promise.all([
@@ -96,11 +98,29 @@
 
         try {
           const imageData = await api.clipboard.readImage();
-          if (imageData && imageData !== currentImageRef.current) {
+          if (!imageData) return;
+
+          const internalWindowMs = Math.max(1500, settings.pollInterval * 2);
+          const internalCopyAt = internalImageCopyAtRef.current;
+          if (internalCopyAt && (Date.now() - internalCopyAt) < internalWindowMs) {
+            // 这次变化来自本插件的“复制图片”，只更新 currentImageRef，不新增记录
+            internalImageCopyAtRef.current = 0;
+            currentImageRef.current = imageData;
+            return;
+          }
+
+          // 过期就清掉，避免卡住
+          if (internalCopyAt && (Date.now() - internalCopyAt) >= internalWindowMs) {
+            internalImageCopyAtRef.current = 0;
+          }
+
+          if (imageData !== currentImageRef.current) {
             currentImageRef.current = imageData;
             const newItem = { type: 'image', content: imageData, time: Date.now() };
             setHistory(prev => {
-              const newHistory = [newItem, ...prev].slice(0, settings.maxHistory);
+              // 同一份图片 dataUrl 完全一致时去重（编码不同仍可能产生不同 dataUrl，这里只做最保守去重）
+              const filtered = prev.filter(it => !(getType(it) === 'image' && getContent(it) === imageData));
+              const newHistory = [newItem, ...filtered].slice(0, settings.maxHistory);
               api.storage.set(PLUGIN_ID, STORAGE_KEY, newHistory);
               return newHistory;
             });
@@ -180,7 +200,28 @@
       const content = getContent(item);
       try {
         if (type === 'image') {
+          internalImageCopyAtRef.current = Date.now();
           await api.clipboard.writeImage(content);
+          currentImageRef.current = content;
+
+          // 复制图片后，把该条目“顶到最前面”，行为与文本一致，但不产生重复记录
+          const newItem = { type: 'image', content, time: Date.now() };
+          setHistory(prev => {
+            const filtered = prev.filter(it => !(getType(it) === 'image' && getContent(it) === content));
+            const newHistory = [newItem, ...filtered].slice(0, settings.maxHistory);
+            api.storage.set(PLUGIN_ID, STORAGE_KEY, newHistory);
+            return newHistory;
+          });
+
+          // 如果当前在收藏视图，也同步把收藏里的该条顶到最前面（不改“是否收藏”的语义）
+          if (showFavorites) {
+            setFavorites(prev => {
+              const filtered = prev.filter(it => !(getType(it) === 'image' && getContent(it) === content));
+              const newFavorites = [newItem, ...filtered];
+              api.storage.set(PLUGIN_ID, FAVORITES_KEY, newFavorites);
+              return newFavorites;
+            });
+          }
         } else {
           await api.clipboard.writeText(content);
         }

@@ -1,6 +1,7 @@
-import { readText, writeText, readImage } from '@tauri-apps/plugin-clipboard-manager'
+import { readText, writeText, readImage, writeImage as writeClipboardImage } from '@tauri-apps/plugin-clipboard-manager'
 import { readTextFile, writeTextFile, exists } from '@tauri-apps/plugin-fs'
 import { invoke } from '@tauri-apps/api/core'
+import { Image as TauriImage } from '@tauri-apps/api/image'
 
 let dataDir: string | null = null
 let readImageErrorLogged = false
@@ -52,9 +53,39 @@ export const fastWindowApi = {
         return null
       }
     },
-    writeImage: async (_dataUrl: string) => {
-      // 暂不支持写入图片，只写文本提示
-      console.log('Image write not fully supported yet')
+    writeImage: async (dataUrl: string) => {
+      if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:')) {
+        throw new Error('writeImage only supports data URL currently')
+      }
+
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new window.Image()
+        el.onload = () => resolve(el)
+        el.onerror = () => reject(new Error('Failed to load image data URL'))
+        el.src = dataUrl
+      })
+
+      const width = img.naturalWidth || img.width
+      const height = img.naturalHeight || img.height
+      if (!width || !height) {
+        throw new Error('Invalid image size')
+      }
+
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        throw new Error('Canvas 2D context unavailable')
+      }
+
+      ctx.drawImage(img, 0, 0, width, height)
+      const imageData = ctx.getImageData(0, 0, width, height)
+      const rgba = new Uint8Array(imageData.data)
+
+      const tauriImage = await TauriImage.new(rgba, width, height)
+      await writeClipboardImage(tauriImage)
     },
   },
 
