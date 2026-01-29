@@ -76,6 +76,7 @@
       if (loading || !settings.autoMonitor) return;
 
       const checkClipboard = async () => {
+        // 文本读取失败时，不要影响图片检测（有些剪贴板内容没有 text，会让 readText 抛错）
         try {
           const text = await api.clipboard.readText();
           if (text && text !== currentRef.current) {
@@ -91,19 +92,19 @@
               return newHistory;
             });
           }
+        } catch (e) {}
 
-          try {
-            const imageData = await api.clipboard.readImage();
-            if (imageData && imageData !== currentImageRef.current) {
-              currentImageRef.current = imageData;
-              const newItem = { type: 'image', content: imageData, time: Date.now() };
-              setHistory(prev => {
-                const newHistory = [newItem, ...prev].slice(0, settings.maxHistory);
-                api.storage.set(PLUGIN_ID, STORAGE_KEY, newHistory);
-                return newHistory;
-              });
-            }
-          } catch (e) {}
+        try {
+          const imageData = await api.clipboard.readImage();
+          if (imageData && imageData !== currentImageRef.current) {
+            currentImageRef.current = imageData;
+            const newItem = { type: 'image', content: imageData, time: Date.now() };
+            setHistory(prev => {
+              const newHistory = [newItem, ...prev].slice(0, settings.maxHistory);
+              api.storage.set(PLUGIN_ID, STORAGE_KEY, newHistory);
+              return newHistory;
+            });
+          }
         } catch (e) {}
       };
 

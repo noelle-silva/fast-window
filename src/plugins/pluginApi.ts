@@ -3,11 +3,11 @@ import { readTextFile, writeTextFile, exists } from '@tauri-apps/plugin-fs'
 import { invoke } from '@tauri-apps/api/core'
 
 let dataDir: string | null = null
+let readImageErrorLogged = false
 
 type ClipboardImageLike = {
   rgba: () => Promise<Uint8Array>
-  width: () => Promise<number>
-  height: () => Promise<number>
+  size: () => Promise<{ width: number; height: number }>
 }
 
 async function getDataDir(): Promise<string> {
@@ -30,8 +30,7 @@ export const fastWindowApi = {
           const clipboardImage = image as unknown as ClipboardImageLike
           // 转换为 base64 data URL
           const rgba = await clipboardImage.rgba()
-          const width = await clipboardImage.width()
-          const height = await clipboardImage.height()
+          const { width, height } = await clipboardImage.size()
 
           // 创建 canvas 转换为 PNG
           const canvas = document.createElement('canvas')
@@ -46,6 +45,10 @@ export const fastWindowApi = {
         }
         return null
       } catch (e) {
+        if (!readImageErrorLogged) {
+          readImageErrorLogged = true
+          console.debug('[fastWindowApi.clipboard.readImage] failed:', e)
+        }
         return null
       }
     },
