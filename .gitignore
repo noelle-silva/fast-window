@@ -6,6 +6,9 @@ dist/
 dist-ssr/
 *.local
 
+# Runtime app data
+data/
+
 # Tauri / Rust
 src-tauri/target/
 
