@@ -3,7 +3,21 @@
   "name": "剪贴板历史",
   "version": "1.0.0",
   "description": "查看和管理剪贴板历史记录",
-  "main": "index.js",
+  "main": "iframe.js",
   "icon": "📋",
-  "keyword": "cb"
+  "keyword": "cb",
+  "apiVersion": 1,
+  "ui": { "type": "iframe" },
+  "requires": [
+    "clipboard.readText",
+    "clipboard.writeText",
+    "clipboard.readImage",
+    "clipboard.writeImage",
+    "storage.get",
+    "storage.set",
+    "storage.remove",
+    "storage.getAll",
+    "storage.setAll",
+    "ui.showToast"
+  ]
 }

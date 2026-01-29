@@ -1,15 +1,8 @@
-import { ComponentType } from 'react'
+import React, { ComponentType } from 'react'
 import { readDir, readTextFile } from '@tauri-apps/plugin-fs'
-
-export interface PluginManifest {
-  id: string
-  name: string
-  version: string
-  description: string
-  main: string
-  icon?: string
-  keyword?: string
-}
+import { createPluginContext } from './pluginApi'
+import { normalizeManifest, PLUGIN_API_VERSION, PluginManifest } from './pluginContract'
+import IframePluginView from './IframePluginView'
 
 export interface LoadedPlugin {
   manifest: PluginManifest
@@ -30,15 +23,49 @@ async function loadPlugin(pluginPath: string): Promise<LoadedPlugin | null> {
     // 读取 manifest
     const manifestPath = `${pluginPath}/manifest.json`
     const manifestContent = await readTextFile(manifestPath)
-    const manifest: PluginManifest = JSON.parse(manifestContent)
+    const rawManifest: PluginManifest = JSON.parse(manifestContent)
+    const manifest = normalizeManifest(rawManifest)
+
+    if (manifest.apiVersion > PLUGIN_API_VERSION) {
+      console.error(`插件 ${manifest.id} 需要 apiVersion=${manifest.apiVersion}，当前宿主版本=${PLUGIN_API_VERSION}，已跳过加载`)
+      return null
+    }
 
     // 读取插件代码
     const codePath = `${pluginPath}/${manifest.main}`
     const code = await readTextFile(codePath)
 
+    if ((rawManifest.ui?.type ?? 'react') === 'iframe') {
+      const component: ComponentType<{ onBack: () => void }> = ({ onBack }) =>
+        React.createElement(IframePluginView, {
+          pluginId: manifest.id,
+          pluginCode: code,
+          requires: rawManifest.requires,
+          onBack,
+        })
+      return { manifest, component }
+    }
+
     // 执行插件代码
-    const wrappedCode = `(function() { ${code} })();`
-    eval(wrappedCode)
+    const prevFastWindow = (window as any).fastWindow
+    const prevCtx = (window as any).__fastWindowPluginContext
+
+    const ctx = createPluginContext(manifest.id, rawManifest.requires)
+    ;(window as any).__fastWindowPluginContext = {
+      id: manifest.id,
+      apiVersion: ctx.apiVersion,
+      requires: rawManifest.requires ?? [],
+      ui: rawManifest.ui?.type ?? 'react',
+    }
+    ;(window as any).fastWindow = ctx.api
+
+    try {
+      const wrappedCode = `(function() { ${code} })();`
+      eval(wrappedCode)
+    } finally {
+      ;(window as any).fastWindow = prevFastWindow
+      ;(window as any).__fastWindowPluginContext = prevCtx
+    }
 
     // 获取注册的组件
     const component = pendingPlugins.get(manifest.id)

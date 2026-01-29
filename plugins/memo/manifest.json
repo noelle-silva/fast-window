@@ -5,5 +5,11 @@
   "description": "快速记录和管理备忘信息",
   "main": "index.js",
   "icon": "📝",
-  "keyword": "memo"
+  "keyword": "memo",
+  "apiVersion": 1,
+  "ui": { "type": "react" },
+  "requires": [
+    "storage.get",
+    "storage.set"
+  ]
 }

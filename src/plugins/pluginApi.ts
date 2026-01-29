@@ -2,6 +2,7 @@ import { readText, writeText, readImage, writeImage as writeClipboardImage } fro
 import { readTextFile, writeTextFile, exists } from '@tauri-apps/plugin-fs'
 import { invoke } from '@tauri-apps/api/core'
 import { Image as TauriImage } from '@tauri-apps/api/image'
+import { isCapabilityAllowed, PLUGIN_API_VERSION, PluginCapability } from './pluginContract'
 
 let dataDir: string | null = null
 let readImageErrorLogged = false
@@ -180,6 +181,96 @@ export const fastWindowApi = {
       window.dispatchEvent(new CustomEvent('fast-window:toast', { detail: { message } }))
     },
   },
+}
+
+export type FastWindowApi = typeof fastWindowApi
+
+export type PluginContext = {
+  apiVersion: number
+  id: string
+  requires?: PluginCapability[]
+  api: FastWindowApi
+}
+
+function assertAllowed(requires: PluginCapability[] | undefined, needed: any) {
+  // 按用户要求：不做强校验（不拦截执行），只做一次性提示；边界主要靠 iframe 隔离来保证
+  if (!requires || requires.length === 0) return
+  if (isCapabilityAllowed(requires, needed)) return
+
+  const key = `${String(needed)}`
+  ;(assertAllowed as any)._warned ??= new Set<string>()
+  const warned: Set<string> = (assertAllowed as any)._warned
+  if (!warned.has(key)) {
+    warned.add(key)
+    console.warn(`[plugin] capability not declared but allowed (no strong enforcement): ${key}`)
+  }
+}
+
+export function createPluginContext(pluginId: string, requires?: PluginCapability[]): PluginContext {
+  const api: FastWindowApi = {
+    clipboard: {
+      readText: async () => {
+        assertAllowed(requires, 'clipboard.readText')
+        return fastWindowApi.clipboard.readText()
+      },
+      writeText: async (text: string) => {
+        assertAllowed(requires, 'clipboard.writeText')
+        return fastWindowApi.clipboard.writeText(text)
+      },
+      readImage: async () => {
+        assertAllowed(requires, 'clipboard.readImage')
+        return fastWindowApi.clipboard.readImage()
+      },
+      writeImage: async (dataUrl: string) => {
+        assertAllowed(requires, 'clipboard.writeImage')
+        return fastWindowApi.clipboard.writeImage(dataUrl)
+      },
+    },
+    storage: {
+      get: async (pluginIdOrKey: string, key?: string) => {
+        assertAllowed(requires, 'storage.get')
+        const pid = key ? pluginIdOrKey : pluginId
+        const k = key ?? pluginIdOrKey
+        return fastWindowApi.storage.get(pid, k)
+      },
+      set: async (pluginIdOrKey: string, keyOrValue: any, value?: unknown) => {
+        assertAllowed(requires, 'storage.set')
+        const pid = value === undefined ? pluginId : pluginIdOrKey
+        const k = value === undefined ? pluginIdOrKey : keyOrValue
+        const v = value === undefined ? keyOrValue : value
+        return fastWindowApi.storage.set(pid, k, v)
+      },
+      remove: async (pluginIdOrKey: string, key?: string) => {
+        assertAllowed(requires, 'storage.remove')
+        const pid = key ? pluginIdOrKey : pluginId
+        const k = key ?? pluginIdOrKey
+        return fastWindowApi.storage.remove(pid, k)
+      },
+      getAll: async (pid?: string) => {
+        assertAllowed(requires, 'storage.getAll')
+        return fastWindowApi.storage.getAll(pid ?? pluginId)
+      },
+      setAll: async (pidOrData: any, data?: Record<string, unknown>) => {
+        assertAllowed(requires, 'storage.setAll')
+        const pid = data ? pidOrData : pluginId
+        const d = data ?? pidOrData
+        return fastWindowApi.storage.setAll(pid, d)
+      },
+    } as any,
+    ui: {
+      showToast: (message: string) => {
+        assertAllowed(requires, 'ui.showToast')
+        return fastWindowApi.ui.showToast(message)
+      },
+    },
+  }
+
+  return {
+    apiVersion: PLUGIN_API_VERSION,
+    id: pluginId,
+    requires,
+    api,
+  }
 }
 
 // 初始化全局 API
