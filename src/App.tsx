@@ -43,6 +43,7 @@ function TitleBar(props: { title: string; onBack?: () => void }) {
   const { title, onBack } = props
   return (
     <Box
+      data-tauri-drag-region="true"
       sx={{
         height: 40,
         display: 'flex',
@@ -57,6 +58,7 @@ function TitleBar(props: { title: string; onBack?: () => void }) {
     >
       {onBack ? (
         <IconButton
+          data-tauri-drag-region="false"
           aria-label="返回"
           size="small"
           onClick={onBack}
@@ -192,7 +194,7 @@ function App() {
     height: '100%',
     display: 'flex',
     flexDirection: 'column',
-    borderRadius: 3,
+    borderRadius: '16px',
     overflow: 'hidden',
     bgcolor: 'background.default',
   } as const

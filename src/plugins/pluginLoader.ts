@@ -1,6 +1,5 @@
 import { ComponentType } from 'react'
 import { readDir, readTextFile } from '@tauri-apps/plugin-fs'
-import { resolve, appDataDir } from '@tauri-apps/api/path'
 
 export interface PluginManifest {
   id: string

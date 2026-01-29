@@ -1,8 +1,14 @@
-import { readText, writeText, readImage, writeImage } from '@tauri-apps/plugin-clipboard-manager'
+import { readText, writeText, readImage } from '@tauri-apps/plugin-clipboard-manager'
 import { readTextFile, writeTextFile, exists } from '@tauri-apps/plugin-fs'
 import { invoke } from '@tauri-apps/api/core'
 
 let dataDir: string | null = null
+
+type ClipboardImageLike = {
+  rgba: () => Promise<Uint8Array>
+  width: () => Promise<number>
+  height: () => Promise<number>
+}
 
 async function getDataDir(): Promise<string> {
   if (!dataDir) {
@@ -21,10 +27,11 @@ export const fastWindowApi = {
       try {
         const image = await readImage()
         if (image) {
+          const clipboardImage = image as unknown as ClipboardImageLike
           // 转换为 base64 data URL
-          const rgba = await image.rgba()
-          const width = await image.width()
-          const height = await image.height()
+          const rgba = await clipboardImage.rgba()
+          const width = await clipboardImage.width()
+          const height = await clipboardImage.height()
 
           // 创建 canvas 转换为 PNG
           const canvas = document.createElement('canvas')
@@ -42,7 +49,7 @@ export const fastWindowApi = {
         return null
       }
     },
-    writeImage: async (dataUrl: string) => {
+    writeImage: async (_dataUrl: string) => {
       // 暂不支持写入图片，只写文本提示
       console.log('Image write not fully supported yet')
     },
