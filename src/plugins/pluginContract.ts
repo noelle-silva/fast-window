@@ -67,4 +67,3 @@ export function isCapabilityAllowed(
     (ns === 'ui' && (requires.includes('ui') || requires.includes('ui.*')))
   )
 }
-

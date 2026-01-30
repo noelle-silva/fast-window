@@ -22,6 +22,8 @@ import {
 } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
+import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
+import SettingsView from './components/SettingsView'
 
 // 暴露 React 给插件使用
 ;(window as any).React = React
@@ -41,8 +43,8 @@ interface Plugin {
 const APP_TITLE = 'Fast Window'
 const APP_VERSION_TEXT = 'Fast Window v0.1.0'
 
-function TitleBar(props: { title: string; onBack?: () => void }) {
-  const { title, onBack } = props
+function TitleBar(props: { title: string; onBack?: () => void; onSettings?: () => void }) {
+  const { title, onBack, onSettings } = props
   return (
     <Box
       data-tauri-drag-region="true"
@@ -67,6 +69,18 @@ function TitleBar(props: { title: string; onBack?: () => void }) {
           sx={{ position: 'absolute', left: 6, WebkitAppRegion: 'no-drag' }}
         >
           <ArrowBackRoundedIcon fontSize="small" />
+        </IconButton>
+      ) : null}
+
+      {!onBack && onSettings ? (
+        <IconButton
+          data-tauri-drag-region="false"
+          aria-label="设置"
+          size="small"
+          onClick={onSettings}
+          sx={{ position: 'absolute', right: 6, WebkitAppRegion: 'no-drag' }}
+        >
+          <SettingsRoundedIcon fontSize="small" />
         </IconButton>
       ) : null}
 
@@ -112,6 +126,15 @@ function StatusBar(props: { left?: string; right: string }) {
       </Typography>
     </Box>
   )
+}
+
+const settingsPlugin: Plugin = {
+  id: '__settings',
+  name: '设置',
+  description: '配置唤醒窗口的全局快捷键',
+  icon: '⚙️',
+  keyword: 'settings',
+  component: SettingsView,
 }
 
 function App() {
@@ -279,7 +302,7 @@ function App() {
   return (
     <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
       <Paper variant="outlined" sx={shellContainerSx}>
-        <TitleBar title={APP_TITLE} />
+        <TitleBar title={APP_TITLE} onSettings={() => setActivePlugin(settingsPlugin)} />
 
         <Box sx={{ p: 2, bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider' }}>
           <TextField

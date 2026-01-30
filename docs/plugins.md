@@ -57,6 +57,7 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
 
 - 插件目录：默认使用系统 **AppLocalData** 下的 `plugins/` 目录（由 Rust 端 `get_plugins_dir` 决定）。
 - 数据目录：默认使用系统 **AppLocalData** 下的 `data/` 目录（由 Rust 端 `get_data_dir` 决定）。
+- 宿主设置：`data/app.json`（例如 `wakeShortcut`：唤醒窗口的全局快捷键）。
 - 开发模式（debug）：会把仓库根目录的 `plugins/` 同步到 AppLocalData 的 `plugins/`（方便开发且配合 fs scope 收紧）；`data/` 只在目标目录为空时迁移一次。
 
 ## Legacy（已禁用）
