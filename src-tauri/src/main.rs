@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+use serde::Serialize;
 use tauri::{
     Manager, WindowEvent,
     tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent},
@@ -16,6 +17,8 @@ use serde_json::{Map, Value};
 const DEFAULT_WAKE_SHORTCUT: &str = "control+alt+Space";
 const APP_CONFIG_FILE: &str = "app.json";
 const WAKE_SHORTCUT_KEY: &str = "wakeShortcut";
+const AUTO_START_KEY: &str = "autoStart";
+const AUTO_START_REG_VALUE: &str = "Fast Window";
 
 #[derive(Default)]
 struct WindowState {
@@ -122,6 +125,73 @@ fn write_json_map(path: &Path, map: &Map<String, Value>) -> Result<(), String> {
         .map_err(|e| format!("序列化配置失败: {e}"))?;
     std::fs::write(path, content).map_err(|e| format!("写入配置失败: {e}"))?;
     Ok(())
+}
+
+#[derive(Clone, Serialize)]
+struct AutoStartStatus {
+    supported: bool,
+    enabled: bool,
+    scope: &'static str,
+}
+
+fn load_auto_start_pref(app: &tauri::AppHandle) -> Option<bool> {
+    let cfg_path = app_config_path(app);
+    let map = read_json_map(&cfg_path);
+
+    if map.contains_key(AUTO_START_KEY) {
+        return map.get(AUTO_START_KEY).and_then(|v| v.as_bool());
+    }
+    if map.contains_key("auto_start") {
+        return map.get("auto_start").and_then(|v| v.as_bool());
+    }
+    None
+}
+
+#[cfg(target_os = "windows")]
+mod auto_start {
+    use std::io;
+
+    use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
+    use winreg::RegKey;
+
+    const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+
+    fn open_run_key(read_only: bool) -> Result<RegKey, String> {
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let flags = if read_only { KEY_READ } else { KEY_READ | KEY_WRITE };
+        hkcu.open_subkey_with_flags(RUN_KEY, flags)
+            .map_err(|e| format!("打开注册表失败: {e}"))
+    }
+
+    fn current_exe_command() -> Result<String, String> {
+        let exe = std::env::current_exe().map_err(|e| format!("获取程序路径失败: {e}"))?;
+        Ok(format!("\"{}\"", exe.to_string_lossy()))
+    }
+
+    pub fn is_enabled(value_name: &str) -> bool {
+        let Ok(key) = open_run_key(true) else {
+            return false;
+        };
+        key.get_raw_value(value_name).is_ok()
+    }
+
+    pub fn set_enabled(value_name: &str, enabled: bool) -> Result<bool, String> {
+        let key = open_run_key(false)?;
+
+        if enabled {
+            let cmd = current_exe_command()?;
+            key.set_value(value_name, &cmd)
+                .map_err(|e| format!("写入自启注册表项失败: {e}"))?;
+        } else {
+            match key.delete_value(value_name) {
+                Ok(_) => {}
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return Err(format!("删除自启注册表项失败: {e}")),
+            }
+        }
+
+        Ok(is_enabled(value_name))
+    }
 }
 
 fn load_wake_shortcut(app: &tauri::AppHandle) -> (Shortcut, String) {
@@ -370,6 +440,56 @@ fn resume_wake_shortcut(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn get_auto_start(_app: tauri::AppHandle) -> AutoStartStatus {
+    #[cfg(target_os = "windows")]
+    {
+        return AutoStartStatus {
+            supported: true,
+            enabled: auto_start::is_enabled(AUTO_START_REG_VALUE),
+            scope: "currentUser",
+        };
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    AutoStartStatus {
+        supported: false,
+        enabled: false,
+        scope: "unsupported",
+    }
+}
+
+#[tauri::command]
+fn set_auto_start(app: tauri::AppHandle, enabled: bool) -> Result<AutoStartStatus, String> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        let _ = enabled;
+        return Err("当前平台不支持开机自启设置".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let cfg_path = app_config_path(&app);
+        let mut map = read_json_map(&cfg_path);
+
+        let prev_registry = auto_start::is_enabled(AUTO_START_REG_VALUE);
+        let next_registry = auto_start::set_enabled(AUTO_START_REG_VALUE, enabled)?;
+
+        map.insert(AUTO_START_KEY.to_string(), Value::Bool(enabled));
+        if let Err(e) = write_json_map(&cfg_path, &map) {
+            let _ = auto_start::set_enabled(AUTO_START_REG_VALUE, prev_registry);
+            return Err(e);
+        }
+
+        Ok(AutoStartStatus {
+            supported: true,
+            enabled: next_registry,
+            scope: "currentUser",
+        })
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -381,7 +501,9 @@ fn main() {
             get_wake_shortcut,
             set_wake_shortcut,
             pause_wake_shortcut,
-            resume_wake_shortcut
+            resume_wake_shortcut,
+            get_auto_start,
+            set_auto_start
         ])
         .setup(|app| {
             app.manage(WindowState::default());
@@ -391,6 +513,14 @@ fn main() {
                 current: Mutex::new(wake_shortcut),
                 paused: Mutex::new(false),
             });
+
+            // 仅当配置文件显式设置过 autoStart 时，才同步到系统自启（避免默认行为影响用户空间）。
+            #[cfg(target_os = "windows")]
+            {
+                if let Some(pref) = load_auto_start_pref(app.handle()) {
+                    let _ = auto_start::set_enabled(AUTO_START_REG_VALUE, pref);
+                }
+            }
 
             // 创建托盘菜单
             let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;

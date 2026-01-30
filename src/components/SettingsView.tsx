@@ -1,11 +1,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { Box, Button, Stack, TextField, Typography } from '@mui/material'
+import { Box, Button, Divider, FormControlLabel, Stack, Switch, TextField, Typography } from '@mui/material'
 
 const DEFAULT_WAKE_SHORTCUT = 'control+alt+Space'
 
 function toast(message: string) {
   window.dispatchEvent(new CustomEvent('fast-window:toast', { detail: { message } }))
+}
+
+type AutoStartStatus = {
+  supported: boolean
+  enabled: boolean
+  scope: string
 }
 
 const modifierCodes = new Set([
@@ -39,20 +45,20 @@ export default function SettingsView(_props: { onBack: () => void }) {
   const [input, setInput] = useState<string>('')
   const [saving, setSaving] = useState(false)
   const [recording, setRecording] = useState(false)
+  const [autoStart, setAutoStart] = useState<AutoStartStatus>({ supported: false, enabled: false, scope: 'unknown' })
+  const [autoStartSaving, setAutoStartSaving] = useState(false)
 
   useEffect(() => {
     async function load() {
-      try {
-        const [dir, cur] = await Promise.all([
-          invoke<string>('get_data_dir'),
-          invoke<string>('get_wake_shortcut'),
-        ])
-        setDataDir(dir)
-        setCurrent(cur)
-        setInput(cur)
-      } catch {
-        setCurrent('')
-      }
+      const [dir, cur, st] = await Promise.all([
+        invoke<string>('get_data_dir').catch(() => ''),
+        invoke<string>('get_wake_shortcut').catch(() => ''),
+        invoke<AutoStartStatus>('get_auto_start').catch(() => ({ supported: false, enabled: false, scope: 'unknown' })),
+      ])
+      setDataDir(dir)
+      setCurrent(cur)
+      setInput(cur || DEFAULT_WAKE_SHORTCUT)
+      setAutoStart(st)
     }
     load()
   }, [])
@@ -81,6 +87,19 @@ export default function SettingsView(_props: { onBack: () => void }) {
     if (!recording) return '点击“开始录制”，然后按下你想要的组合键（ESC 取消）。'
     return '录制中…按下组合键（修饰键 + 主键），ESC 取消。'
   }, [recording])
+
+  async function saveAutoStart(nextEnabled: boolean) {
+    setAutoStartSaving(true)
+    try {
+      const st = await invoke<AutoStartStatus>('set_auto_start', { enabled: nextEnabled })
+      setAutoStart(st)
+      toast(nextEnabled ? '已开启开机自启' : '已关闭开机自启')
+    } catch (e: any) {
+      toast(String(e?.message || e || '设置失败'))
+    } finally {
+      setAutoStartSaving(false)
+    }
+  }
 
   useEffect(() => {
     if (!recording) return
@@ -117,6 +136,51 @@ export default function SettingsView(_props: { onBack: () => void }) {
   return (
     <Box sx={{ p: 2 }}>
       <Stack spacing={1.25}>
+        <Box>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+            开机自启
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {autoStart.supported
+              ? `开启后会在 Windows 登录后自动运行（${autoStart.scope === 'currentUser' ? '当前用户' : autoStart.scope}）。配置写入 ${
+                  dataDir ? `${dataDir}/app.json` : 'data/app.json'
+                } 的 autoStart`
+              : '当前平台不支持开机自启设置'}
+          </Typography>
+        </Box>
+
+        <Box
+          sx={{
+            border: 1,
+            borderColor: 'divider',
+            borderRadius: 2,
+            p: 1.25,
+            bgcolor: 'background.paper',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 1,
+          }}
+        >
+          <FormControlLabel
+            sx={{ m: 0 }}
+            control={
+              <Switch
+                checked={autoStart.enabled}
+                disabled={!autoStart.supported || autoStartSaving || saving || recording}
+                onChange={e => saveAutoStart(e.target.checked)}
+                inputProps={{ 'aria-label': '开机自启' }}
+              />
+            }
+            label={autoStart.enabled ? '已开启' : '已关闭'}
+          />
+          <Typography variant="caption" color="text.secondary">
+            {autoStart.supported ? '仅影响本机当前用户' : '不可用'}
+          </Typography>
+        </Box>
+
+        <Divider />
+
         <Box>
           <Typography variant="body2" sx={{ fontWeight: 700 }}>
             唤醒窗口快捷键

@@ -131,7 +131,7 @@ function StatusBar(props: { left?: string; right: string }) {
 const settingsPlugin: Plugin = {
   id: '__settings',
   name: '设置',
-  description: '配置唤醒窗口的全局快捷键',
+  description: '配置开机自启与唤醒窗口快捷键',
   icon: '⚙️',
   keyword: 'settings',
   component: SettingsView,
