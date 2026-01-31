@@ -233,6 +233,19 @@ export default function SettingsView(_props: { onBack: () => void }) {
           <Button variant="outlined" disabled={saving} onClick={() => save(DEFAULT_WAKE_SHORTCUT)}>
             恢复默认
           </Button>
+          <Button
+            variant="outlined"
+            disabled={saving}
+            onClick={() => save('alt+Space')}
+          >
+            预设 Alt+Space（Windows）
+          </Button>
+          <Button variant="outlined" disabled={saving} onClick={() => save('control+alt+KeyQ')}>
+            预设 Ctrl+Alt+Q
+          </Button>
+          <Button variant="outlined" disabled={saving} onClick={() => save('control+alt+KeyW')}>
+            预设 Ctrl+Alt+W
+          </Button>
         </Stack>
 
         <Typography variant="caption" color={recording ? 'warning.main' : 'text.secondary'}>
