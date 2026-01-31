@@ -134,6 +134,40 @@ fn app_config_path(app: &tauri::AppHandle) -> PathBuf {
     app_data_dir(app).join(APP_CONFIG_FILE)
 }
 
+fn open_dir_in_file_manager(dir: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("创建目录失败: {e}"))?;
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(dir)
+            .spawn()
+            .map_err(|e| format!("打开目录失败: {e}"))?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(dir)
+            .spawn()
+            .map_err(|e| format!("打开目录失败: {e}"))?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(dir)
+            .spawn()
+            .map_err(|e| format!("打开目录失败: {e}"))?;
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    Err("当前平台不支持打开文件管理器".to_string())
+}
+
 fn read_json_map(path: &Path) -> Map<String, Value> {
     let Ok(content) = std::fs::read_to_string(path) else {
         return Map::new();
@@ -358,6 +392,24 @@ fn get_data_dir(app: tauri::AppHandle) -> String {
     }
 
     data_dir.to_string_lossy().to_string()
+}
+
+#[tauri::command]
+fn open_data_root_dir(app: tauri::AppHandle) -> Result<(), String> {
+    let root = app_local_base_dir(&app);
+    open_dir_in_file_manager(&root)
+}
+
+#[tauri::command]
+fn open_data_dir(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = app_data_dir(&app);
+    open_dir_in_file_manager(&dir)
+}
+
+#[tauri::command]
+fn open_plugins_dir(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = app_plugins_dir(&app);
+    open_dir_in_file_manager(&dir)
 }
 
 fn is_safe_id(id: &str) -> bool {
@@ -749,6 +801,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_plugins_dir,
             get_data_dir,
+            open_data_root_dir,
+            open_data_dir,
+            open_plugins_dir,
             list_plugins,
             read_plugin_file,
             read_plugins_dir,

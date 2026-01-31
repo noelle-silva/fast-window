@@ -41,6 +41,7 @@ function buildShortcutFromEvent(e: KeyboardEvent): string | null {
 
 export default function SettingsView(_props: { onBack: () => void }) {
   const [dataDir, setDataDir] = useState<string>('')
+  const [pluginsDir, setPluginsDir] = useState<string>('')
   const [current, setCurrent] = useState<string>('')
   const [input, setInput] = useState<string>('')
   const [saving, setSaving] = useState(false)
@@ -50,18 +51,36 @@ export default function SettingsView(_props: { onBack: () => void }) {
 
   useEffect(() => {
     async function load() {
-      const [dir, cur, st] = await Promise.all([
+      const [dir, pdir, cur, st] = await Promise.all([
         invoke<string>('get_data_dir').catch(() => ''),
+        invoke<string>('get_plugins_dir').catch(() => ''),
         invoke<string>('get_wake_shortcut').catch(() => ''),
         invoke<AutoStartStatus>('get_auto_start').catch(() => ({ supported: false, enabled: false, scope: 'unknown' })),
       ])
       setDataDir(dir)
+      setPluginsDir(pdir)
       setCurrent(cur)
       setInput(cur || DEFAULT_WAKE_SHORTCUT)
       setAutoStart(st)
     }
     load()
   }, [])
+
+  async function openDataDir() {
+    try {
+      await invoke('open_data_dir')
+    } catch (e: any) {
+      toast(String(e?.message || e || '打开目录失败'))
+    }
+  }
+
+  async function openPluginsDir() {
+    try {
+      await invoke('open_plugins_dir')
+    } catch (e: any) {
+      toast(String(e?.message || e || '打开目录失败'))
+    }
+  }
 
   async function save(next: string) {
     const raw = next.trim()
@@ -136,6 +155,28 @@ export default function SettingsView(_props: { onBack: () => void }) {
   return (
     <Box sx={{ p: 2 }}>
       <Stack spacing={1.25}>
+        <Box>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+            数据与插件位置
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            data: {dataDir || '-'}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            plugins: {pluginsDir || '-'}
+          </Typography>
+          <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            <Button size="small" variant="outlined" onClick={openDataDir}>
+              打开数据目录
+            </Button>
+            <Button size="small" variant="outlined" onClick={openPluginsDir} disabled={!pluginsDir}>
+              打开插件目录
+            </Button>
+          </Box>
+        </Box>
+
+        <Divider />
+
         <Box>
           <Typography variant="body2" sx={{ fontWeight: 700 }}>
             开机自启
