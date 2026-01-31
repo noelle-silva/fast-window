@@ -66,6 +66,7 @@
     }
     .btn.primary { border-color: transparent; background: var(--primary); color: white; }
     .btn.danger { border-color: transparent; background: var(--danger); color: white; }
+    .btn:focus-visible { outline: 2px solid rgba(25,118,210,0.45); outline-offset: 1px; }
     .title { font-weight: 700; font-size: 13px; margin-right: auto; }
     .search {
       width: 260px;
@@ -78,23 +79,32 @@
       font-size: 12px;
       background: white;
     }
+    .search:focus-visible { outline: 2px solid rgba(25,118,210,0.45); outline-offset: 1px; }
     .content { flex: 1; overflow: auto; padding: 10px; }
-    .list { display: flex; flex-direction: column; gap: 10px; }
-    .card {
+    .list {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
       background: var(--surface);
       border: 1px solid var(--outline);
       border-radius: 12px;
-      padding: 10px;
-      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .card {
+      background: transparent;
+      border: none;
+      border-radius: 0;
+      padding: 10px 12px;
       cursor: pointer;
     }
-    .card:hover { border-color: #CFCFCF; }
-    .cardTop { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .card + .card { border-top: 1px solid var(--outline); }
+    .card:hover { background: rgba(0,0,0,0.03); }
+    .cardTop { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
     .pill { font-size: 11px; color: var(--muted); border: 1px solid var(--outline); padding: 2px 8px; border-radius: 999px; }
     .spacer { margin-left: auto; }
     .iconBtn {
-      border: 1px solid var(--outline);
-      background: white;
+      border: 1px solid transparent;
+      background: transparent;
       width: 28px;
       height: 28px;
       border-radius: 8px;
@@ -104,6 +114,9 @@
       text-align: center;
       color: var(--muted);
     }
+    .card:hover .iconBtn { border-color: var(--outline); background: white; }
+    .iconBtn:hover { border-color: #CFCFCF; background: white; }
+    .iconBtn:focus-visible { outline: 2px solid rgba(25,118,210,0.45); outline-offset: 1px; }
     .iconBtn.fav { color: #FFB300; }
     .text { white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.55; }
     .imgWrap { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; }
@@ -403,11 +416,13 @@
 
     if (!list.length) {
       listEl.innerHTML = ''
+      listEl.style.display = 'none'
       emptyEl.style.display = 'block'
       emptyEl.textContent = q ? '没有匹配的内容' : (state.showFavorites ? '暂无收藏' : '剪贴板历史为空')
       return
     }
 
+    listEl.style.display = 'flex'
     emptyEl.style.display = 'none'
     listEl.innerHTML = list
       .map((it, idx) => {
@@ -494,4 +509,3 @@
 
   init()
 })()
-
