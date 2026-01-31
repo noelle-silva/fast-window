@@ -55,10 +55,15 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
 
 ## 目录与数据（当前实现）
 
-- 插件目录：默认使用系统 **AppLocalData** 下的 `plugins/` 目录（由 Rust 端 `get_plugins_dir` 决定）。
-- 数据目录：默认使用系统 **AppLocalData** 下的 `data/` 目录（由 Rust 端 `get_data_dir` 决定）。
+- 默认模式：
+  - 插件目录：系统 **AppLocalData** 下的 `plugins/`（由 Rust 端 `get_plugins_dir` 决定）。
+  - 数据目录：系统 **AppLocalData** 下的 `data/`（由 Rust 端 `get_data_dir` 决定）。
+- 便携模式（把数据放到程序目录/当前目录）：
+  - 在程序**当前工作目录**或 **exe 同目录**放一个空文件 `fast-window.portable`，宿主会把 `data/` 与 `plugins/` 都落到该目录下。
+  - 或者设置环境变量 `FAST_WINDOW_DATA_DIR` 指向你想要的数据根目录（同样会使用其中的 `data/` 与 `plugins/`）。
+  - 注意：如果用 MSI 安装到 `Program Files` 这类目录，普通用户通常没有写权限；想用便携模式就安装/解压到可写目录。
 - 宿主设置：`data/app.json`（例如 `wakeShortcut`：唤醒窗口的全局快捷键）。
-- 开发模式（debug）：会把仓库根目录的 `plugins/` 同步到 AppLocalData 的 `plugins/`（方便开发且配合 fs scope 收紧）；`data/` 只在目标目录为空时迁移一次。
+- 开发模式（debug）：会把仓库根目录的 `plugins/` 同步到数据根目录的 `plugins/`（方便开发）；`data/` 只在目标目录为空时迁移一次。
 
 ## Legacy（已禁用）
 

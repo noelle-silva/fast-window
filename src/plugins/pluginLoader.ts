@@ -1,5 +1,5 @@
 import React, { ComponentType } from 'react'
-import { readDir, readTextFile } from '@tauri-apps/plugin-fs'
+import { invoke } from '@tauri-apps/api/core'
 import { normalizeManifest, PLUGIN_API_VERSION, PluginManifest } from './pluginContract'
 import IframePluginView from './IframePluginView'
 
@@ -12,8 +12,7 @@ export interface LoadedPlugin {
 async function loadPlugin(pluginPath: string): Promise<LoadedPlugin | null> {
   try {
     // 读取 manifest
-    const manifestPath = `${pluginPath}/manifest.json`
-    const manifestContent = await readTextFile(manifestPath)
+    const manifestContent = await invoke<string>('read_plugin_file', { pluginId: pluginPath, path: 'manifest.json' })
     const rawManifest: PluginManifest = JSON.parse(manifestContent)
     const manifest = normalizeManifest(rawManifest)
 
@@ -23,8 +22,7 @@ async function loadPlugin(pluginPath: string): Promise<LoadedPlugin | null> {
     }
 
     // 读取插件代码
-    const codePath = `${pluginPath}/${manifest.main}`
-    const code = await readTextFile(codePath)
+    const code = await invoke<string>('read_plugin_file', { pluginId: pluginPath, path: manifest.main })
 
     if ((rawManifest.ui?.type ?? 'react') !== 'iframe') {
       console.error(`[plugin] "${manifest.id}" rejected: ui.type must be "iframe" (legacy eval/react is disabled).`)
@@ -46,20 +44,17 @@ async function loadPlugin(pluginPath: string): Promise<LoadedPlugin | null> {
 }
 
 // 扫描并加载所有插件
-export async function loadAllPlugins(pluginsDir: string): Promise<LoadedPlugin[]> {
+export async function loadAllPlugins(_pluginsDir: string): Promise<LoadedPlugin[]> {
   const plugins: LoadedPlugin[] = []
 
   try {
-    const entries = await readDir(pluginsDir)
+    const pluginIds = await invoke<string[]>('list_plugins')
 
-    for (const entry of entries) {
-      if (entry.isDirectory) {
-        const pluginPath = `${pluginsDir}/${entry.name}`
-        const plugin = await loadPlugin(pluginPath)
-        if (plugin) {
-          plugins.push(plugin)
-          console.log(`Loaded plugin: ${plugin.manifest.name}`)
-        }
+    for (const pluginId of pluginIds) {
+      const plugin = await loadPlugin(pluginId)
+      if (plugin) {
+        plugins.push(plugin)
+        console.log(`Loaded plugin: ${plugin.manifest.name}`)
       }
     }
   } catch (error) {

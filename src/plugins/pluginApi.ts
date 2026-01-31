@@ -1,22 +1,13 @@
 import { readText, writeText, readImage, writeImage as writeClipboardImage } from '@tauri-apps/plugin-clipboard-manager'
-import { readTextFile, writeTextFile, exists } from '@tauri-apps/plugin-fs'
 import { invoke } from '@tauri-apps/api/core'
 import { Image as TauriImage } from '@tauri-apps/api/image'
 import { isCapabilityAllowed, PLUGIN_API_VERSION, PluginCapability } from './pluginContract'
 
-let dataDir: string | null = null
 let readImageErrorLogged = false
 
 type ClipboardImageLike = {
   rgba: () => Promise<Uint8Array>
   size: () => Promise<{ width: number; height: number }>
-}
-
-async function getDataDir(): Promise<string> {
-  if (!dataDir) {
-    dataDir = await invoke<string>('get_data_dir')
-  }
-  return dataDir
 }
 
 // 插件 API，暴露给插件使用
@@ -94,16 +85,7 @@ export const fastWindowApi = {
   storage: {
     get: async (pluginId: string, key: string) => {
       try {
-        const dir = await getDataDir()
-        const filePath = `${dir}/${pluginId}.json`
-
-        if (!await exists(filePath)) {
-          return null
-        }
-
-        const content = await readTextFile(filePath)
-        const data = JSON.parse(content)
-        return data[key] ?? null
+        return await invoke<unknown | null>('storage_get', { pluginId, key })
       } catch (e) {
         console.error('Storage get error:', e)
         return null
@@ -112,18 +94,7 @@ export const fastWindowApi = {
 
     set: async (pluginId: string, key: string, value: unknown) => {
       try {
-        const dir = await getDataDir()
-        const filePath = `${dir}/${pluginId}.json`
-
-        let data: Record<string, unknown> = {}
-
-        if (await exists(filePath)) {
-          const content = await readTextFile(filePath)
-          data = JSON.parse(content)
-        }
-
-        data[key] = value
-        await writeTextFile(filePath, JSON.stringify(data, null, 2))
+        await invoke('storage_set', { pluginId, key, value })
       } catch (e) {
         console.error('Storage set error:', e)
       }
@@ -131,17 +102,7 @@ export const fastWindowApi = {
 
     remove: async (pluginId: string, key: string) => {
       try {
-        const dir = await getDataDir()
-        const filePath = `${dir}/${pluginId}.json`
-
-        if (!await exists(filePath)) {
-          return
-        }
-
-        const content = await readTextFile(filePath)
-        const data = JSON.parse(content)
-        delete data[key]
-        await writeTextFile(filePath, JSON.stringify(data, null, 2))
+        await invoke('storage_remove', { pluginId, key })
       } catch (e) {
         console.error('Storage remove error:', e)
       }
@@ -149,15 +110,7 @@ export const fastWindowApi = {
 
     getAll: async (pluginId: string) => {
       try {
-        const dir = await getDataDir()
-        const filePath = `${dir}/${pluginId}.json`
-
-        if (!await exists(filePath)) {
-          return {}
-        }
-
-        const content = await readTextFile(filePath)
-        return JSON.parse(content)
+        return await invoke<Record<string, unknown>>('storage_get_all', { pluginId })
       } catch (e) {
         console.error('Storage getAll error:', e)
         return {}
@@ -166,9 +119,7 @@ export const fastWindowApi = {
 
     setAll: async (pluginId: string, data: Record<string, unknown>) => {
       try {
-        const dir = await getDataDir()
-        const filePath = `${dir}/${pluginId}.json`
-        await writeTextFile(filePath, JSON.stringify(data, null, 2))
+        await invoke('storage_set_all', { pluginId, data })
       } catch (e) {
         console.error('Storage setAll error:', e)
       }

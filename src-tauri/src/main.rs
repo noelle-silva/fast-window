@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 use std::sync::Mutex;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
 
 use serde::Serialize;
@@ -19,6 +19,8 @@ const APP_CONFIG_FILE: &str = "app.json";
 const WAKE_SHORTCUT_KEY: &str = "wakeShortcut";
 const AUTO_START_KEY: &str = "autoStart";
 const AUTO_START_REG_VALUE: &str = "Fast Window";
+const PORTABLE_MARKER_FILE: &str = "fast-window.portable";
+const DATA_DIR_ENV: &str = "FAST_WINDOW_DATA_DIR";
 
 #[derive(Default)]
 struct WindowState {
@@ -90,7 +92,44 @@ fn restore_or_center(window: &impl Positionable, state: &WindowState) {
     }
 }
 
+fn portable_base_dir_from_env() -> Option<PathBuf> {
+    let Ok(raw) = std::env::var(DATA_DIR_ENV) else {
+        return None;
+    };
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    Some(PathBuf::from(raw))
+}
+
+fn has_portable_marker(dir: &Path) -> bool {
+    dir.join(PORTABLE_MARKER_FILE).is_file()
+}
+
+fn portable_base_dir() -> Option<PathBuf> {
+    if let Some(p) = portable_base_dir_from_env() {
+        return Some(p);
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        if has_portable_marker(&cwd) {
+            return Some(cwd);
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            if has_portable_marker(dir) {
+                return Some(dir.to_path_buf());
+            }
+        }
+    }
+    None
+}
+
 fn app_local_base_dir(app: &tauri::AppHandle) -> PathBuf {
+    if let Some(portable) = portable_base_dir() {
+        return portable;
+    }
     app.path()
         .app_local_data_dir()
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default())
@@ -98,6 +137,10 @@ fn app_local_base_dir(app: &tauri::AppHandle) -> PathBuf {
 
 fn app_data_dir(app: &tauri::AppHandle) -> PathBuf {
     app_local_base_dir(app).join("data")
+}
+
+fn app_plugins_dir(app: &tauri::AppHandle) -> PathBuf {
+    app_local_base_dir(app).join("plugins")
 }
 
 fn app_config_path(app: &tauri::AppHandle) -> PathBuf {
@@ -125,6 +168,14 @@ fn write_json_map(path: &Path, map: &Map<String, Value>) -> Result<(), String> {
         .map_err(|e| format!("序列化配置失败: {e}"))?;
     std::fs::write(path, content).map_err(|e| format!("写入配置失败: {e}"))?;
     Ok(())
+}
+
+#[cfg(debug_assertions)]
+fn same_path(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -247,6 +298,7 @@ fn toggle_main_window(app: &tauri::AppHandle) {
     }
 }
 
+#[cfg(debug_assertions)]
 fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
@@ -266,6 +318,7 @@ fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+#[cfg(debug_assertions)]
 fn is_dir_empty(dir: &Path) -> bool {
     match std::fs::read_dir(dir) {
         Ok(mut it) => it.next().is_none(),
@@ -276,8 +329,7 @@ fn is_dir_empty(dir: &Path) -> bool {
 #[tauri::command]
 fn get_plugins_dir(app: tauri::AppHandle) -> String {
     // 统一使用 App 本地数据目录（避免 cwd 漂移），插件默认放到这里
-    let base = app_local_base_dir(&app);
-    let plugins_dir = base.join("plugins");
+    let plugins_dir = app_plugins_dir(&app);
     let _ = std::fs::create_dir_all(&plugins_dir);
 
     // 开发模式：把仓库里的 plugins 同步到本地数据目录（方便开发，且配合 fs scope 收紧）
@@ -288,7 +340,7 @@ fn get_plugins_dir(app: tauri::AppHandle) -> String {
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         let repo_plugins = workspace_root.join("plugins");
-        if repo_plugins.is_dir() {
+        if repo_plugins.is_dir() && !same_path(&repo_plugins, &plugins_dir) {
             // 每次都覆盖同步：以仓库为真源
             let _ = copy_dir_all(&repo_plugins, &plugins_dir);
         }
@@ -312,13 +364,143 @@ fn get_data_dir(app: tauri::AppHandle) -> String {
                 .map(|p| p.to_path_buf())
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
             let repo_data = workspace_root.join("data");
-            if repo_data.is_dir() {
+            if repo_data.is_dir() && !same_path(&repo_data, &data_dir) {
                 let _ = copy_dir_all(&repo_data, &data_dir);
             }
         }
     }
 
     data_dir.to_string_lossy().to_string()
+}
+
+fn is_safe_id(id: &str) -> bool {
+    if id.is_empty() {
+        return false;
+    }
+    id.chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+fn safe_relative_path(rel: &str) -> Result<PathBuf, String> {
+    let p = Path::new(rel);
+    if p.is_absolute() {
+        return Err("路径不允许为绝对路径".to_string());
+    }
+    for c in p.components() {
+        match c {
+            Component::Normal(_) | Component::CurDir => {}
+            _ => return Err("路径不合法（不允许包含 .. 等）".to_string()),
+        }
+    }
+    Ok(p.to_path_buf())
+}
+
+#[derive(Clone, Serialize)]
+struct FsDirEntry {
+    name: String,
+    #[serde(rename = "isDirectory")]
+    is_directory: bool,
+}
+
+#[tauri::command]
+fn list_plugins(app: tauri::AppHandle) -> Vec<String> {
+    let dir = app_plugins_dir(&app);
+    let mut out: Vec<String> = Vec::new();
+
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return out;
+    };
+
+    for e in entries.flatten() {
+        let Ok(ty) = e.file_type() else {
+            continue;
+        };
+        if !ty.is_dir() {
+            continue;
+        }
+        let name = e.file_name().to_string_lossy().to_string();
+        if is_safe_id(&name) {
+            out.push(name);
+        }
+    }
+
+    out.sort();
+    out
+}
+
+#[tauri::command]
+fn read_plugin_file(app: tauri::AppHandle, plugin_id: String, path: String) -> Result<String, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let rel = safe_relative_path(&path)?;
+
+    let plugin_dir = app_plugins_dir(&app).join(&plugin_id);
+    let full = plugin_dir.join(rel);
+    std::fs::read_to_string(&full).map_err(|e| format!("读取插件文件失败: {e}"))
+}
+
+#[tauri::command]
+fn read_plugins_dir(app: tauri::AppHandle, rel_dir: String) -> Result<Vec<FsDirEntry>, String> {
+    let rel = safe_relative_path(&rel_dir)?;
+    let base = app_plugins_dir(&app);
+    let dir = base.join(rel);
+
+    let entries = std::fs::read_dir(&dir).map_err(|e| format!("读取目录失败: {e}"))?;
+    let mut out: Vec<FsDirEntry> = Vec::new();
+
+    for e in entries {
+        let e = e.map_err(|e| format!("读取目录项失败: {e}"))?;
+        let ty = e.file_type().map_err(|e| format!("读取目录项类型失败: {e}"))?;
+        out.push(FsDirEntry {
+            name: e.file_name().to_string_lossy().to_string(),
+            is_directory: ty.is_dir(),
+        });
+    }
+
+    Ok(out)
+}
+
+fn storage_file_path(app: &tauri::AppHandle, plugin_id: &str) -> Result<PathBuf, String> {
+    if !is_safe_id(plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    Ok(app_data_dir(app).join(format!("{plugin_id}.json")))
+}
+
+#[tauri::command]
+fn storage_get(app: tauri::AppHandle, plugin_id: String, key: String) -> Result<Option<Value>, String> {
+    let path = storage_file_path(&app, &plugin_id)?;
+    let map = read_json_map(&path);
+    Ok(map.get(&key).cloned())
+}
+
+#[tauri::command]
+fn storage_set(app: tauri::AppHandle, plugin_id: String, key: String, value: Value) -> Result<(), String> {
+    let path = storage_file_path(&app, &plugin_id)?;
+    let mut map = read_json_map(&path);
+    map.insert(key, value);
+    write_json_map(&path, &map)
+}
+
+#[tauri::command]
+fn storage_remove(app: tauri::AppHandle, plugin_id: String, key: String) -> Result<(), String> {
+    let path = storage_file_path(&app, &plugin_id)?;
+    let mut map = read_json_map(&path);
+    map.remove(&key);
+    write_json_map(&path, &map)
+}
+
+#[tauri::command]
+fn storage_get_all(app: tauri::AppHandle, plugin_id: String) -> Result<Map<String, Value>, String> {
+    let path = storage_file_path(&app, &plugin_id)?;
+    Ok(read_json_map(&path))
+}
+
+#[tauri::command]
+fn storage_set_all(app: tauri::AppHandle, plugin_id: String, data: Map<String, Value>) -> Result<(), String> {
+    let path = storage_file_path(&app, &plugin_id)?;
+    write_json_map(&path, &data)
 }
 
 #[tauri::command]
@@ -494,10 +676,17 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             get_plugins_dir,
             get_data_dir,
+            list_plugins,
+            read_plugin_file,
+            read_plugins_dir,
+            storage_get,
+            storage_set,
+            storage_remove,
+            storage_get_all,
+            storage_set_all,
             get_wake_shortcut,
             set_wake_shortcut,
             pause_wake_shortcut,
