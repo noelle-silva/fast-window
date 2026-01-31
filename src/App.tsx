@@ -21,9 +21,12 @@ import {
   Typography,
 } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
+import FileUploadRoundedIcon from '@mui/icons-material/FileUploadRounded'
+import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
 import SettingsView from './components/SettingsView'
+import ImportPluginDialog from './components/ImportPluginDialog'
 
 // 暴露 React 给插件使用
 ;(window as any).React = React
@@ -43,8 +46,15 @@ interface Plugin {
 const APP_TITLE = 'Fast Window'
 const APP_VERSION_TEXT = 'Fast Window v0.1.0'
 
-function TitleBar(props: { title: string; onBack?: () => void; onSettings?: () => void }) {
-  const { title, onBack, onSettings } = props
+function TitleBar(props: {
+  title: string
+  onBack?: () => void
+  onImportPlugin?: () => void
+  onSettings?: () => void
+  onReloadPlugins?: () => void
+  reloadDisabled?: boolean
+}) {
+  const { title, onBack, onImportPlugin, onSettings, onReloadPlugins, reloadDisabled } = props
   return (
     <Box
       data-tauri-drag-region="true"
@@ -69,6 +79,31 @@ function TitleBar(props: { title: string; onBack?: () => void; onSettings?: () =
           sx={{ position: 'absolute', left: 6, WebkitAppRegion: 'no-drag' }}
         >
           <ArrowBackRoundedIcon fontSize="small" />
+        </IconButton>
+      ) : null}
+
+      {!onBack && onImportPlugin ? (
+        <IconButton
+          data-tauri-drag-region="false"
+          aria-label="导入插件"
+          size="small"
+          onClick={onImportPlugin}
+          sx={{ position: 'absolute', right: onSettings || onReloadPlugins ? 70 : 6, WebkitAppRegion: 'no-drag' }}
+        >
+          <FileUploadRoundedIcon fontSize="small" />
+        </IconButton>
+      ) : null}
+
+      {!onBack && onReloadPlugins ? (
+        <IconButton
+          data-tauri-drag-region="false"
+          aria-label="刷新插件"
+          size="small"
+          onClick={onReloadPlugins}
+          disabled={reloadDisabled}
+          sx={{ position: 'absolute', right: onSettings ? 38 : 6, WebkitAppRegion: 'no-drag' }}
+        >
+          <RefreshRoundedIcon fontSize="small" />
         </IconButton>
       ) : null}
 
@@ -144,43 +179,50 @@ function App() {
   const [activeIndex, setActiveIndex] = useState(0)
   const [activePlugin, setActivePlugin] = useState<Plugin | null>(null)
   const [loading, setLoading] = useState(true)
+  const [importOpen, setImportOpen] = useState(false)
   const [toast, setToast] = useState<{ open: boolean; message: string; key: number }>({
     open: false,
     message: '',
     key: 0,
   })
 
-  // 加载插件
-  useEffect(() => {
-    async function loadPlugins() {
-      try {
-        // 从 Rust 端获取插件目录的绝对路径
-        const pluginsDir = await invoke<string>('get_plugins_dir')
-        console.log('Plugins directory:', pluginsDir)
+  const loadPlugins = useCallback(async (opts?: { showToast?: boolean }) => {
+    setLoading(true)
+    try {
+      const pluginsDir = await invoke<string>('get_plugins_dir')
+      console.log('Plugins directory:', pluginsDir)
 
-        const loaded = await loadAllPlugins(pluginsDir)
-        console.log('Loaded plugins:', loaded.length)
+      const loaded = await loadAllPlugins(pluginsDir)
+      console.log('Loaded plugins:', loaded.length)
 
-        const pluginList: Plugin[] = loaded.map(p => ({
-          id: p.manifest.id,
-          name: p.manifest.name,
-          description: p.manifest.description,
-          icon: p.manifest.icon || '📦',
-          keyword: p.manifest.keyword,
-          component: p.component,
-        }))
+      const pluginList: Plugin[] = loaded.map(p => ({
+        id: p.manifest.id,
+        name: p.manifest.name,
+        description: p.manifest.description,
+        icon: p.manifest.icon || '📦',
+        keyword: p.manifest.keyword,
+        component: p.component,
+      }))
 
-        setAllPlugins(pluginList)
-        setPlugins(pluginList)
-      } catch (error) {
-        console.error('Failed to load plugins:', error)
-      } finally {
-        setLoading(false)
+      setAllPlugins(pluginList)
+      setPlugins(pluginList)
+      setActiveIndex(0)
+      if (opts?.showToast) {
+        setToast(prev => ({ open: true, message: '插件已刷新', key: prev.key + 1 }))
       }
+    } catch (error) {
+      console.error('Failed to load plugins:', error)
+    } finally {
+      setLoading(false)
     }
-
-    loadPlugins()
   }, [])
+
+  const reloadPlugins = useCallback(() => loadPlugins({ showToast: true }), [loadPlugins])
+
+  // 初次加载插件
+  useEffect(() => {
+    loadPlugins()
+  }, [loadPlugins])
 
   // 插件/主程序通用 toast
   useEffect(() => {
@@ -261,6 +303,17 @@ function App() {
     </Snackbar>
   )
 
+  const importDialog = (
+    <ImportPluginDialog
+      open={importOpen}
+      onClose={() => setImportOpen(false)}
+      onInstalled={() => {
+        setToast(prev => ({ open: true, message: '插件已导入', key: prev.key + 1 }))
+        reloadPlugins()
+      }}
+    />
+  )
+
   // 加载中
   if (loading) {
     return (
@@ -278,6 +331,7 @@ function App() {
           <StatusBar right={APP_VERSION_TEXT} />
         </Paper>
         {toastHost}
+        {importDialog}
       </Box>
     )
   }
@@ -295,6 +349,7 @@ function App() {
           <StatusBar right={APP_VERSION_TEXT} />
         </Paper>
         {toastHost}
+        {importDialog}
       </Box>
     )
   }
@@ -302,7 +357,13 @@ function App() {
   return (
     <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
       <Paper variant="outlined" sx={shellContainerSx}>
-        <TitleBar title={APP_TITLE} onSettings={() => setActivePlugin(settingsPlugin)} />
+        <TitleBar
+          title={APP_TITLE}
+          onImportPlugin={() => setImportOpen(true)}
+          onReloadPlugins={reloadPlugins}
+          reloadDisabled={loading}
+          onSettings={() => setActivePlugin(settingsPlugin)}
+        />
 
         <Box sx={{ p: 2, bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider' }}>
           <TextField
@@ -372,6 +433,7 @@ function App() {
         <StatusBar left="↑↓ 选择 · Enter 打开 · ESC 隐藏" right={APP_VERSION_TEXT} />
       </Paper>
       {toastHost}
+      {importDialog}
     </Box>
   )
 }

@@ -1,11 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::sync::Mutex;
 use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{
     Manager, WindowEvent,
     tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent},
@@ -461,6 +461,89 @@ fn read_plugins_dir(app: tauri::AppHandle, rel_dir: String) -> Result<Vec<FsDirE
     Ok(out)
 }
 
+#[derive(Deserialize)]
+struct PluginWriteFile {
+    path: String,
+    bytes: Vec<u8>,
+}
+
+#[tauri::command]
+fn install_plugin_files(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    overwrite: bool,
+    files: Vec<PluginWriteFile>,
+) -> Result<(), String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    if files.is_empty() {
+        return Err("没有可安装的文件".to_string());
+    }
+    if files.len() > 256 {
+        return Err("文件数量过多".to_string());
+    }
+
+    let total: usize = files.iter().map(|f| f.bytes.len()).sum();
+    if total > 10 * 1024 * 1024 {
+        return Err("插件体积过大".to_string());
+    }
+
+    let base = app_plugins_dir(&app);
+    std::fs::create_dir_all(&base).map_err(|e| format!("创建插件目录失败: {e}"))?;
+
+    let plugin_dir = base.join(&plugin_id);
+    if plugin_dir.exists() && !overwrite {
+        return Err("同 ID 插件已存在（未勾选覆盖）".to_string());
+    }
+
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_millis(0))
+        .as_millis();
+    let tmp_dir = base.join(format!(".tmp-install-{plugin_id}-{stamp}"));
+    if tmp_dir.exists() {
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+    if let Err(e) = std::fs::create_dir_all(&tmp_dir) {
+        return Err(format!("创建临时目录失败: {e}"));
+    }
+
+    for f in &files {
+        let rel = match safe_relative_path(&f.path) {
+            Ok(p) => p,
+            Err(e) => {
+                let _ = std::fs::remove_dir_all(&tmp_dir);
+                return Err(e);
+            }
+        };
+        let full = tmp_dir.join(rel);
+        if let Some(parent) = full.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                let _ = std::fs::remove_dir_all(&tmp_dir);
+                return Err(format!("创建目录失败: {e}"));
+            }
+        }
+        if let Err(e) = std::fs::write(&full, &f.bytes) {
+            let _ = std::fs::remove_dir_all(&tmp_dir);
+            return Err(format!("写入插件文件失败: {e}"));
+        }
+    }
+
+    if plugin_dir.exists() {
+        if let Err(e) = std::fs::remove_dir_all(&plugin_dir) {
+            let _ = std::fs::remove_dir_all(&tmp_dir);
+            return Err(format!("移除旧插件失败: {e}"));
+        }
+    }
+
+    if let Err(e) = std::fs::rename(&tmp_dir, &plugin_dir) {
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        return Err(format!("安装插件失败: {e}"));
+    }
+    Ok(())
+}
+
 fn storage_file_path(app: &tauri::AppHandle, plugin_id: &str) -> Result<PathBuf, String> {
     if !is_safe_id(plugin_id) {
         return Err("pluginId 不合法".to_string());
@@ -682,6 +765,7 @@ fn main() {
             list_plugins,
             read_plugin_file,
             read_plugins_dir,
+            install_plugin_files,
             storage_get,
             storage_set,
             storage_remove,
