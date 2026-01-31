@@ -19,7 +19,6 @@ const APP_CONFIG_FILE: &str = "app.json";
 const WAKE_SHORTCUT_KEY: &str = "wakeShortcut";
 const AUTO_START_KEY: &str = "autoStart";
 const AUTO_START_REG_VALUE: &str = "Fast Window";
-const PORTABLE_MARKER_FILE: &str = "fast-window.portable";
 const DATA_DIR_ENV: &str = "FAST_WINDOW_DATA_DIR";
 
 #[derive(Default)]
@@ -103,36 +102,24 @@ fn portable_base_dir_from_env() -> Option<PathBuf> {
     Some(PathBuf::from(raw))
 }
 
-fn has_portable_marker(dir: &Path) -> bool {
-    dir.join(PORTABLE_MARKER_FILE).is_file()
-}
-
-fn portable_base_dir() -> Option<PathBuf> {
+fn portable_base_dir() -> PathBuf {
     if let Some(p) = portable_base_dir_from_env() {
-        return Some(p);
+        return p;
     }
-    if let Ok(cwd) = std::env::current_dir() {
-        if has_portable_marker(&cwd) {
-            return Some(cwd);
-        }
-    }
+
+    // 默认“便携”：数据跟随 exe 同目录（比 cwd 更稳定）。
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            if has_portable_marker(dir) {
-                return Some(dir.to_path_buf());
-            }
+            return dir.to_path_buf();
         }
     }
-    None
+
+    std::env::current_dir().unwrap_or_default()
 }
 
 fn app_local_base_dir(app: &tauri::AppHandle) -> PathBuf {
-    if let Some(portable) = portable_base_dir() {
-        return portable;
-    }
-    app.path()
-        .app_local_data_dir()
-        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default())
+    let _ = app;
+    portable_base_dir()
 }
 
 fn app_data_dir(app: &tauri::AppHandle) -> PathBuf {
