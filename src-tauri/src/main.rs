@@ -18,7 +18,13 @@ const DEFAULT_WAKE_SHORTCUT: &str = "control+alt+Space";
 const APP_CONFIG_FILE: &str = "app.json";
 const WAKE_SHORTCUT_KEY: &str = "wakeShortcut";
 const AUTO_START_KEY: &str = "autoStart";
+
+// 避免开发版把“开机启动”写到正式版同一个注册表项里（会导致装了 MSI 以后仍然自启 debug exe）。
+#[cfg(debug_assertions)]
+const AUTO_START_REG_VALUE: &str = "Fast Window (Dev)";
+#[cfg(not(debug_assertions))]
 const AUTO_START_REG_VALUE: &str = "Fast Window";
+
 const DATA_DIR_ENV: &str = "FAST_WINDOW_DATA_DIR";
 
 #[derive(Default)]
@@ -102,24 +108,38 @@ fn portable_base_dir_from_env() -> Option<PathBuf> {
     Some(PathBuf::from(raw))
 }
 
-fn portable_base_dir() -> PathBuf {
+fn is_dir_writable(dir: &Path) -> bool {
+    let test = dir.join(".fast-window.write-test");
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(&test)
+    {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&test);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+fn app_local_base_dir(app: &tauri::AppHandle) -> PathBuf {
     if let Some(p) = portable_base_dir_from_env() {
         return p;
     }
 
-    // 默认“便携”：数据跟随 exe 同目录（比 cwd 更稳定）。
+    // 便携优先：exe 同目录（比 cwd 稳定）。但 MSI 默认装在 Program Files，不可写时退回到 AppData。
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            return dir.to_path_buf();
+            if is_dir_writable(dir) {
+                return dir.to_path_buf();
+            }
         }
     }
 
-    std::env::current_dir().unwrap_or_default()
-}
-
-fn app_local_base_dir(app: &tauri::AppHandle) -> PathBuf {
-    let _ = app;
-    portable_base_dir()
+    app.path()
+        .app_data_dir()
+        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default())
 }
 
 fn app_data_dir(app: &tauri::AppHandle) -> PathBuf {
@@ -222,6 +242,7 @@ fn load_auto_start_pref(app: &tauri::AppHandle) -> Option<bool> {
 #[cfg(target_os = "windows")]
 mod auto_start {
     use std::io;
+    use std::path::Path;
 
     use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
     use winreg::RegKey;
@@ -238,6 +259,70 @@ mod auto_start {
     fn current_exe_command() -> Result<String, String> {
         let exe = std::env::current_exe().map_err(|e| format!("获取程序路径失败: {e}"))?;
         Ok(format!("\"{}\"", exe.to_string_lossy()))
+    }
+
+    fn split_command(cmd: &str) -> (String, String) {
+        let s = cmd.trim();
+        if s.starts_with('"') {
+            let rest = &s[1..];
+            if let Some(end) = rest.find('"') {
+                let exe = rest[..end].to_string();
+                let args = rest[end + 1..].trim().to_string();
+                return (exe, args);
+            }
+        }
+
+        if let Some(idx) = s.find(char::is_whitespace) {
+            let exe = s[..idx].to_string();
+            let args = s[idx..].trim().to_string();
+            return (exe, args);
+        }
+
+        (s.to_string(), String::new())
+    }
+
+    fn should_rewrite_to_current_exe(existing_exe: &str) -> bool {
+        if existing_exe.trim().is_empty() {
+            return false;
+        }
+        if !Path::new(existing_exe).exists() {
+            return true;
+        }
+        let lower = existing_exe.to_ascii_lowercase();
+        lower.contains("\\target\\debug\\")
+            || lower.contains("/target/debug/")
+            || lower.contains("\\target\\release\\")
+            || lower.contains("/target/release/")
+    }
+
+    pub fn ensure_enabled_points_to_current_exe(value_name: &str) -> Result<(), String> {
+        let key = open_run_key(false)?;
+        let Ok(existing) = key.get_value::<String, _>(value_name) else {
+            return Ok(());
+        };
+
+        let (existing_exe, existing_args) = split_command(&existing);
+        if !should_rewrite_to_current_exe(&existing_exe) {
+            return Ok(());
+        }
+
+        let current_exe = std::env::current_exe()
+            .map_err(|e| format!("获取程序路径失败: {e}"))?
+            .to_string_lossy()
+            .to_string();
+        if existing_exe.eq_ignore_ascii_case(&current_exe) {
+            return Ok(());
+        }
+
+        let next = if existing_args.is_empty() {
+            format!("\"{}\"", current_exe)
+        } else {
+            format!("\"{}\" {}", current_exe, existing_args)
+        };
+        key.set_value(value_name, &next)
+            .map_err(|e| format!("写入自启注册表项失败: {e}"))?;
+
+        Ok(())
     }
 
     pub fn is_enabled(value_name: &str) -> bool {
@@ -834,6 +919,10 @@ fn main() {
             {
                 if let Some(pref) = load_auto_start_pref(app.handle()) {
                     let _ = auto_start::set_enabled(AUTO_START_REG_VALUE, pref);
+                } else {
+                    // 兼容历史遗留：用户可能在开发版开过自启（Run 项指向 target\\debug）。
+                    // 这里不“开启”自启，只在它已存在时把路径修正到当前 exe。
+                    let _ = auto_start::ensure_enabled_points_to_current_exe(AUTO_START_REG_VALUE);
                 }
             }
 
