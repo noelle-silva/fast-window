@@ -1,0 +1,18 @@
+{
+  "id": "ai-once",
+  "name": "AI 一次性响应",
+  "version": "1.0.0",
+  "description": "每个空间独立模板与默认模型；左侧输入，右侧输出；一次请求一次返回",
+  "main": "iframe.js",
+  "icon": "🤖",
+  "keyword": "ai",
+  "apiVersion": 1,
+  "ui": { "type": "iframe" },
+  "requires": [
+    "storage.get",
+    "storage.set",
+    "ui.showToast",
+    "clipboard.writeText",
+    "net.request"
+  ]
+}
