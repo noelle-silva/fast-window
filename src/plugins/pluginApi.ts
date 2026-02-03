@@ -132,6 +132,23 @@ export const fastWindowApi = {
       window.dispatchEvent(new CustomEvent('fast-window:toast', { detail: { message } }))
     },
   },
+
+  // 网络请求（通过 tauri 后端，避免浏览器 CORS）
+  net: {
+    request: async (req: {
+      method: string
+      url: string
+      headers?: Record<string, string>
+      body?: string | null
+      timeoutMs?: number | null
+    }) => {
+      return invoke<{
+        status: number
+        body: string
+        headers: Record<string, string>
+      }>('http_request', { req })
+    },
+  },
 }
 
 export type FastWindowApi = typeof fastWindowApi
@@ -212,6 +229,12 @@ export function createPluginContext(pluginId: string, requires?: PluginCapabilit
       showToast: (message: string) => {
         assertAllowed(requires, 'ui.showToast')
         return fastWindowApi.ui.showToast(message)
+      },
+    },
+    net: {
+      request: async (req: any) => {
+        assertAllowed(requires, 'net.request')
+        return fastWindowApi.net.request(req)
       },
     },
   }

@@ -13,6 +13,7 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use serde_json::{Map, Value};
+use std::collections::HashMap;
 
 const DEFAULT_WAKE_SHORTCUT: &str = "control+alt+Space";
 const APP_CONFIG_FILE: &str = "app.json";
@@ -26,6 +27,84 @@ const AUTO_START_REG_VALUE: &str = "Fast Window (Dev)";
 const AUTO_START_REG_VALUE: &str = "Fast Window";
 
 const DATA_DIR_ENV: &str = "FAST_WINDOW_DATA_DIR";
+
+#[derive(Deserialize)]
+struct HttpRequest {
+    method: String,
+    url: String,
+    headers: Option<HashMap<String, String>>,
+    body: Option<String>,
+    #[serde(rename = "timeoutMs")]
+    timeout_ms: Option<u64>,
+}
+
+#[derive(Serialize)]
+struct HttpResponse {
+    status: u16,
+    headers: HashMap<String, String>,
+    body: String,
+}
+
+fn is_http_url(url: &str) -> bool {
+    let u = url.trim();
+    u.starts_with("http://") || u.starts_with("https://")
+}
+
+#[tauri::command]
+async fn http_request(req: HttpRequest) -> Result<HttpResponse, String> {
+    let method = req.method.trim().to_uppercase();
+    if method.is_empty() {
+        return Err("method 不能为空".to_string());
+    }
+    if !is_http_url(&req.url) {
+        return Err("url 必须以 http(s):// 开头".to_string());
+    }
+
+    let timeout = Duration::from_millis(req.timeout_ms.unwrap_or(20_000).min(120_000));
+    let client = reqwest::Client::builder()
+        .timeout(timeout)
+        .build()
+        .map_err(|e| format!("创建 http client 失败: {e}"))?;
+
+    let m = reqwest::Method::from_bytes(method.as_bytes()).map_err(|_| "不支持的 method".to_string())?;
+    let mut rb = client.request(m, req.url);
+
+    if let Some(h) = req.headers {
+        if h.len() > 64 {
+            return Err("headers 过多".to_string());
+        }
+        for (k, v) in h {
+            if k.len() > 128 || v.len() > 4096 {
+                return Err("header 太长".to_string());
+            }
+            rb = rb.header(k, v);
+        }
+    }
+
+    if let Some(body) = req.body {
+        if body.len() > 512 * 1024 {
+            return Err("body 过大".to_string());
+        }
+        rb = rb.body(body);
+    }
+
+    let resp = rb.send().await.map_err(|e| format!("请求失败: {e}"))?;
+    let status = resp.status().as_u16();
+
+    let mut headers: HashMap<String, String> = HashMap::new();
+    for (k, v) in resp.headers().iter() {
+        if let Ok(vs) = v.to_str() {
+            headers.insert(k.as_str().to_string(), vs.to_string());
+        }
+    }
+
+    let body = resp.text().await.map_err(|e| format!("读取响应失败: {e}"))?;
+    if body.len() > 2 * 1024 * 1024 {
+        return Err("响应过大".to_string());
+    }
+
+    Ok(HttpResponse { status, headers, body })
+}
 
 #[derive(Default)]
 struct WindowState {
@@ -893,6 +972,7 @@ fn main() {
             read_plugin_file,
             read_plugins_dir,
             install_plugin_files,
+            http_request,
             storage_get,
             storage_set,
             storage_remove,
