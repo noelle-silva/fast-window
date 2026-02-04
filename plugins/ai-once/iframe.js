@@ -9,6 +9,9 @@
     route: { name: 'list', spaceId: '' },
     modal: '',
     menuSpaceId: '',
+    tplEditingIds: [],
+    tplEditors: {},
+    tplNewIds: [],
     models: [],
     modelsLoading: false,
     modelsError: '',
@@ -71,7 +74,7 @@
     .out{ white-space:pre-wrap; word-break:break-word; border:1px solid var(--line); border-radius:10px; padding:10px; background:#f9fafb; font-size:12px; line-height:1.65; flex:1; min-height:0; overflow:auto; }
     .empty{ text-align:center; color:var(--muted); padding:24px 0; font-size:12px; }
     .overlay{ position:fixed; inset:0; background:rgba(17,24,39,0.18); display:flex; align-items:center; justify-content:center; padding:12px; }
-    .modal{ width:min(680px,100%); background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; box-shadow: 0 10px 30px rgba(17,24,39,0.12); }
+    .modal{ width:min(680px,100%); max-height: calc(100vh - 24px); overflow:auto; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; box-shadow: 0 10px 30px rgba(17,24,39,0.12); }
     .hr{ height:1px; background:var(--line); margin:10px 0; }
     .iconBtn{ width:32px; height:32px; padding:0; border-radius:10px; border:1px solid var(--line); background:#ffffff; color:var(--text); cursor:pointer; font-size:18px; line-height:1; display:inline-flex; align-items:center; justify-content:center; }
     .menuWrap{ position:relative; }
@@ -500,6 +503,34 @@
     render()
   }
 
+  function isTplEditing(templateId) {
+    return state.tplEditingIds.includes(templateId)
+  }
+
+  function closeTplEditor(templateId) {
+    const tid = String(templateId || '')
+    if (!tid) return
+    state.tplEditingIds = state.tplEditingIds.filter((x) => x !== tid)
+    state.tplNewIds = state.tplNewIds.filter((x) => x !== tid)
+    if (state.tplEditors && typeof state.tplEditors === 'object') delete state.tplEditors[tid]
+  }
+
+  function openTplEditor(space, templateId, isNew) {
+    if (!space) return
+    const tid = String(templateId || '')
+    if (!tid) return
+    state.tplEditors ??= {}
+    if (!state.tplEditors[tid]) {
+      const t = isNew ? null : space.templates.find((x) => x && x.id === tid)
+      state.tplEditors[tid] = {
+        name: String(t?.name || ''),
+        prompt: String(t?.systemPrompt || ''),
+        isNew: !!isNew,
+      }
+    }
+    if (!state.tplEditingIds.includes(tid)) state.tplEditingIds.push(tid)
+  }
+
   function beginEditTemplate(space, templateId) {
     if (!space) return
     const tpl = templateId ? space.templates.find((t) => t.id === templateId) : null
@@ -521,7 +552,6 @@
     space.activeTemplateId = id2
     space.updatedAt = now()
     await save()
-    beginEditTemplate(space, id2)
     render()
   }
 
@@ -534,7 +564,6 @@
     if (!space.templates.some((t) => t.id === space.activeTemplateId)) space.activeTemplateId = space.templates[0].id
     space.updatedAt = now()
     await save()
-    beginEditTemplate(space, space.activeTemplateId)
     render()
   }
 
@@ -549,7 +578,7 @@
       </div>
     `
 
-    root.addEventListener('click', (e) => {
+    root.addEventListener('click', async (e) => {
       const t = e.target
       if (!(t instanceof HTMLElement)) return
       const act = t.getAttribute('data-act') || ''
@@ -654,7 +683,9 @@
         const s = activeSpace()
         if (!s) return
         state.modal = 'templates'
-        beginEditTemplate(s, s.activeTemplateId)
+        state.tplEditingIds = []
+        state.tplEditors = {}
+        state.tplNewIds = []
         render()
         return
       }
@@ -729,7 +760,6 @@
         s.activeTemplateId = tid
         s.updatedAt = now()
         save()
-        beginEditTemplate(s, tid)
         render()
         return
       }
@@ -737,23 +767,40 @@
         const s = activeSpace()
         if (!s) return
         const tid = t.getAttribute('data-id') || ''
-        beginEditTemplate(s, tid)
+        if (!tid) return
+        if (isTplEditing(tid)) closeTplEditor(tid)
+        else openTplEditor(s, tid, false)
         render()
         return
       }
       if (act === 'new-template') {
         const s = activeSpace()
         if (!s) return
-        state.draft.templateId = ''
-        state.draft.templateName = ''
-        state.draft.templatePrompt = ''
+        const tid = id('tpl')
+        state.tplNewIds.unshift(tid)
+        openTplEditor(s, tid, true)
         render()
         return
       }
-      if (act === 'save-template') {
+      if (act === 'save-template-inline') {
         const s = activeSpace()
         if (!s) return
-        saveTemplate(s, state.draft.templateId, state.draft.templateName, state.draft.templatePrompt)
+        const tid = t.getAttribute('data-id') || ''
+        if (!tid) return
+        const ed = state.tplEditors && typeof state.tplEditors === 'object' ? state.tplEditors[tid] : null
+        if (!ed) return
+        const n = String(ed.name || '').trim()
+        if (!n) return api.ui?.showToast?.('模板名称不能为空')
+        const p = String(ed.prompt || '')
+        closeTplEditor(tid)
+        await saveTemplate(s, tid, n, p)
+        return
+      }
+      if (act === 'close-template-editor') {
+        const tid = t.getAttribute('data-id') || ''
+        if (!tid) return
+        closeTplEditor(tid)
+        render()
         return
       }
       if (act === 'delete-template') {
@@ -761,6 +808,12 @@
         if (!s) return
         const tid = t.getAttribute('data-id') || ''
         if (!tid) return
+        if (state.tplNewIds.includes(tid)) {
+          closeTplEditor(tid)
+          render()
+          return
+        }
+        closeTplEditor(tid)
         deleteTemplate(s, tid)
         return
       }
@@ -769,6 +822,16 @@
     root.addEventListener('input', (e) => {
       const t = e.target
       if (!(t instanceof HTMLElement)) return
+      const tid = t.getAttribute('data-tpl-id') || ''
+      const tk = t.getAttribute('data-tpl-bind') || ''
+      if (tid && tk) {
+        if (!(t instanceof HTMLInputElement) && !(t instanceof HTMLTextAreaElement)) return
+        state.tplEditors ??= {}
+        state.tplEditors[tid] ??= { name: '', prompt: '', isNew: state.tplNewIds.includes(tid) }
+        if (tk === 'name') state.tplEditors[tid].name = t.value
+        if (tk === 'prompt') state.tplEditors[tid].prompt = t.value
+        return
+      }
       const k = t.getAttribute('data-bind') || ''
       if (!k) return
       const v = t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement ? t.value : ''
@@ -1115,25 +1178,76 @@
         return
       }
 
-      const items = s.templates
-        .map((t) => {
-          const on = t.id === s.activeTemplateId
-          const head = on ? `（当前）` : ''
-          const snippet = String(t.systemPrompt || '').trim().slice(0, 120)
-          return `
-            <div class="card" style="padding:10px">
-              <div class="row">
-                <div class="title" style="margin:0">${esc(t.name)} <span class="meta" style="margin:0">${esc(head)}</span></div>
-                <div class="sp"></div>
-                <button class="btn" data-act="set-template" data-id="${esc(t.id)}">设为当前</button>
-                <button class="btn" data-act="edit-template" data-id="${esc(t.id)}">编辑</button>
-                <button class="btn bad" data-act="delete-template" data-id="${esc(t.id)}">删除</button>
-              </div>
-              <div class="meta mono">${esc(snippet)}${String(t.systemPrompt || '').trim().length > 120 ? '…' : ''}</div>
+      const eds = state.tplEditors && typeof state.tplEditors === 'object' ? state.tplEditors : {}
+      const cards = []
+
+      for (const tid of state.tplNewIds) {
+        const open = isTplEditing(tid)
+        const ed = eds[tid] || { name: '', prompt: '' }
+        const snippet = String(ed.prompt || '').trim().slice(0, 120)
+        cards.push(`
+          <div class="card" style="padding:10px">
+            <div class="row">
+              <div class="title" style="margin:0">${esc(ed.name || '新建模板')}</div>
+              <div class="sp"></div>
+              <button class="btn ok" data-act="save-template-inline" data-id="${esc(tid)}">保存</button>
+              <button class="btn" data-act="close-template-editor" data-id="${esc(tid)}">取消</button>
             </div>
-          `
-        })
-        .join('')
+            <div class="meta mono">${esc(snippet)}${String(ed.prompt || '').trim().length > 120 ? '…' : ''}</div>
+            ${
+              open
+                ? `
+                  <div class="hr"></div>
+                  <div class="meta">名称</div>
+                  <input class="field" data-tpl-id="${esc(tid)}" data-tpl-bind="name" placeholder="例如：总结 / 翻译 / 严格审阅" value="${esc(ed.name || '')}" />
+                  <div class="hr"></div>
+                  <div class="meta">System Prompt（仅本空间生效）</div>
+                  <textarea class="field mono ta" data-tpl-id="${esc(tid)}" data-tpl-bind="prompt" placeholder="写入 system 提示词…" style="min-height:140px">${esc(ed.prompt || '')}</textarea>
+                `
+                : ''
+            }
+          </div>
+        `)
+      }
+
+      for (const t of s.templates) {
+        const on = t.id === s.activeTemplateId
+        const head = on ? `（当前）` : ''
+        const open = isTplEditing(t.id)
+        const ed = eds[t.id] || { name: t.name, prompt: t.systemPrompt }
+        const snippet = String(t.systemPrompt || '').trim().slice(0, 120)
+        cards.push(`
+          <div class="card" style="padding:10px">
+            <div class="row">
+              <div class="title" style="margin:0">${esc(t.name)} <span class="meta" style="margin:0">${esc(head)}</span></div>
+              <div class="sp"></div>
+              <button class="btn" data-act="set-template" data-id="${esc(t.id)}">设为当前</button>
+              <button class="btn" data-act="edit-template" data-id="${esc(t.id)}">${open ? '收起' : '编辑'}</button>
+              <button class="btn bad" data-act="delete-template" data-id="${esc(t.id)}">删除</button>
+            </div>
+            <div class="meta mono">${esc(snippet)}${String(t.systemPrompt || '').trim().length > 120 ? '…' : ''}</div>
+            ${
+              open
+                ? `
+                  <div class="hr"></div>
+                  <div class="meta">名称</div>
+                  <input class="field" data-tpl-id="${esc(t.id)}" data-tpl-bind="name" placeholder="例如：总结 / 翻译 / 严格审阅" value="${esc(ed.name || '')}" />
+                  <div class="hr"></div>
+                  <div class="meta">System Prompt（仅本空间生效）</div>
+                  <textarea class="field mono ta" data-tpl-id="${esc(t.id)}" data-tpl-bind="prompt" placeholder="写入 system 提示词…" style="min-height:140px">${esc(ed.prompt || '')}</textarea>
+                  <div class="hr"></div>
+                  <div class="row">
+                    <button class="btn ok" data-act="save-template-inline" data-id="${esc(t.id)}">保存</button>
+                    <button class="btn" data-act="close-template-editor" data-id="${esc(t.id)}">收起</button>
+                  </div>
+                `
+                : ''
+            }
+          </div>
+        `)
+      }
+
+      const items = cards.join('')
 
       el.innerHTML = `
         <div class="overlay" data-act="close-modal">
@@ -1146,18 +1260,6 @@
             </div>
             <div class="hr"></div>
             <div style="display:flex; flex-direction:column; gap:8px">${items || '<div class="empty">暂无模板</div>'}</div>
-            <div class="hr"></div>
-            <div class="row">
-              <div class="title" style="margin:0">${state.draft.templateId ? '编辑模板' : '新建模板'}</div>
-              <div class="sp"></div>
-              <button class="btn ok" data-act="save-template">保存</button>
-            </div>
-            <div class="hr"></div>
-            <div class="meta">名称</div>
-            <input class="field" data-bind="templateName" placeholder="例如：总结 / 翻译 / 严格审阅" value="${esc(state.draft.templateName || '')}" />
-            <div class="hr"></div>
-            <div class="meta">System Prompt（仅本空间生效）</div>
-            <textarea class="field mono" data-bind="templatePrompt" placeholder="写入 system 提示词…" style="min-height:140px">${esc(state.draft.templatePrompt || '')}</textarea>
           </div>
         </div>
       `
