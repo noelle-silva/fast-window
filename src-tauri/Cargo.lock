@@ -729,6 +729,7 @@ checksum = "dea2df4cf52843e0452895c455a1a2cfbb842a1e7329671acf418fdc53ed4c59"
 name = "fast-window"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "reqwest",
  "serde",
  "serde_json",

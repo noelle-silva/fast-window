@@ -140,6 +140,8 @@ export const fastWindowApi = {
       url: string
       headers?: Record<string, string>
       body?: string | null
+      // 以 base64 发送二进制（例如图片）。可接受纯 base64 或 data URL。
+      bodyBase64?: string | null
       timeoutMs?: number | null
     }) => {
       return invoke<{

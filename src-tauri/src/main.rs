@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
 
+use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 use tauri::{
     Manager, WindowEvent,
@@ -34,6 +35,8 @@ struct HttpRequest {
     url: String,
     headers: Option<HashMap<String, String>>,
     body: Option<String>,
+    #[serde(rename = "bodyBase64")]
+    body_base64: Option<String>,
     #[serde(rename = "timeoutMs")]
     timeout_ms: Option<u64>,
 }
@@ -82,7 +85,31 @@ async fn http_request(req: HttpRequest) -> Result<HttpResponse, String> {
         }
     }
 
-    if let Some(body) = req.body {
+    if let Some(body_base64) = req.body_base64 {
+        // 允许插件以 base64 发送二进制（用于图片等），避免 body 只能传字符串的限制
+        // 控制大小：解码后最多 6MB，防止滥用
+        let raw = body_base64.trim();
+        if raw.len() > 12 * 1024 * 1024 {
+            return Err("bodyBase64 过大".to_string());
+        }
+
+        let pure = if raw.starts_with("data:") {
+            match raw.find("base64,") {
+                Some(i) => &raw[(i + "base64,".len())..],
+                None => raw,
+            }
+        } else {
+            raw
+        };
+
+        let bytes = general_purpose::STANDARD
+            .decode(pure.trim())
+            .map_err(|e| format!("bodyBase64 解码失败: {e}"))?;
+        if bytes.len() > 6 * 1024 * 1024 {
+            return Err("bodyBase64 解码后数据过大".to_string());
+        }
+        rb = rb.body(bytes);
+    } else if let Some(body) = req.body {
         if body.len() > 512 * 1024 {
             return Err("body 过大".to_string());
         }
