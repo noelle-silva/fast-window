@@ -1,0 +1,13 @@
+{
+  "id": "anime-finder",
+  "name": "以图找番",
+  "version": "1.0.0",
+  "description": "上传/拖拽/粘贴图片，调用 trace.moe 进行以图找番",
+  "main": "iframe.js",
+  "icon": "🎬",
+  "keyword": "anime",
+  "apiVersion": 1,
+  "ui": { "type": "iframe" },
+  "requires": ["net.request", "ui.showToast", "clipboard.readImage", "clipboard.writeText"]
+}
+
