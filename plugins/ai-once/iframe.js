@@ -8,6 +8,7 @@
     loading: true,
     route: { name: 'list', spaceId: '' },
     modal: '',
+    menuSpaceId: '',
     models: [],
     modelsLoading: false,
     modelsError: '',
@@ -26,6 +27,7 @@
       model: '',
       customModel: '',
       templateId: '',
+      editSpaceId: '',
     },
     data: null,
   }
@@ -52,19 +54,30 @@
     .grid{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
     @media (max-width:760px){ .grid{ grid-template-columns:1fr; } }
     .card{ background:var(--card); border:1px solid var(--line); border-radius:var(--r); padding:12px; box-shadow: 0 8px 24px rgba(17,24,39,0.06); }
+    .spaceCard{ cursor:pointer; }
+    .spaceCard:hover{ border-color: rgba(37,99,235,0.35); box-shadow: 0 10px 26px rgba(37,99,235,0.10); }
+    .spaceCard:focus{ outline:2px solid rgba(37,99,235,0.35); outline-offset:2px; }
     .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .sp{ margin-left:auto; }
     .meta{ font-size:12px; color:var(--muted); margin-top:6px; }
     .field{ width:100%; border:1px solid var(--line); background:#ffffff; color:var(--text); border-radius:10px; padding:9px 10px; font-size:12px; outline:none; }
     .field.sm{ width:auto; min-width: 180px; }
+    .ta{ resize:none; }
     .split{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; }
     @media (max-width:860px){ .split{ grid-template-columns:1fr; } }
     .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-    .out{ white-space:pre-wrap; word-break:break-word; border:1px solid var(--line); border-radius:10px; padding:10px; background:#f9fafb; min-height:240px; font-size:12px; line-height:1.65; }
+    .pane{ display:flex; flex-direction:column; min-height: calc(100vh - 48px - 24px); }
+    .grow{ flex:1; min-height:0; }
+    .out{ white-space:pre-wrap; word-break:break-word; border:1px solid var(--line); border-radius:10px; padding:10px; background:#f9fafb; font-size:12px; line-height:1.65; flex:1; min-height:0; overflow:auto; }
     .empty{ text-align:center; color:var(--muted); padding:24px 0; font-size:12px; }
     .overlay{ position:fixed; inset:0; background:rgba(17,24,39,0.18); display:flex; align-items:center; justify-content:center; padding:12px; }
     .modal{ width:min(680px,100%); background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; box-shadow: 0 10px 30px rgba(17,24,39,0.12); }
     .hr{ height:1px; background:var(--line); margin:10px 0; }
+    .iconBtn{ width:32px; height:32px; padding:0; border-radius:10px; border:1px solid var(--line); background:#ffffff; color:var(--text); cursor:pointer; font-size:18px; line-height:1; display:inline-flex; align-items:center; justify-content:center; }
+    .menuWrap{ position:relative; }
+    .menu{ position:absolute; right:0; top:38px; min-width:140px; background:var(--card); border:1px solid var(--line); border-radius:12px; box-shadow: 0 14px 40px rgba(17,24,39,0.16); padding:6px; display:flex; flex-direction:column; gap:6px; z-index:10; }
+    .menuItem{ height:34px; width:100%; border-radius:10px; border:1px solid var(--line); background:#ffffff; cursor:pointer; font-size:12px; text-align:left; padding:0 10px; }
+    .menuItem.bad{ border-color:rgba(220,38,38,0.25); background:rgba(220,38,38,0.06); color:var(--bad); }
   `
 
   function esc(s) {
@@ -437,7 +450,18 @@
     state.route = { name: 'space', spaceId: sid }
     state.modal = ''
     render()
-    refreshModels(false)
+  }
+
+  async function renameSpace(spaceId, name) {
+    if (!state.data) return
+    const s = getSpace(spaceId)
+    if (!s) return
+    const n = String(name || '').trim()
+    if (!n) return api.ui?.showToast?.('空间名称不能为空')
+    s.name = n
+    s.updatedAt = now()
+    await save()
+    render()
   }
 
   async function deleteSpace(spaceId) {
@@ -449,6 +473,30 @@
     if (state.data.spaces.length === 0) state.data.spaces = defaultData().spaces
     state.route = { name: 'list', spaceId: '' }
     await save()
+    render()
+  }
+
+  function goSpace(spaceId) {
+    const id = String(spaceId || '')
+    if (!id) return
+    state.menuSpaceId = ''
+    state.route = { name: 'space', spaceId: id }
+    state.draft.input = ''
+    state.draft.output = ''
+    state.draft.error = ''
+    state.draft.model = ''
+    state.draft.customModel = ''
+    render()
+  }
+
+  function openEditSpace(spaceId) {
+    const id = String(spaceId || '')
+    const s = id ? getSpace(id) : null
+    if (!s) return
+    state.menuSpaceId = ''
+    state.modal = 'edit-space'
+    state.draft.editSpaceId = id
+    state.draft.spaceName = s.name
     render()
   }
 
@@ -505,6 +553,30 @@
       const t = e.target
       if (!(t instanceof HTMLElement)) return
       const act = t.getAttribute('data-act') || ''
+
+      let closedMenu = false
+      if (!act && state.route.name === 'list' && state.menuSpaceId) {
+        const inMenu = !!t.closest('[data-space-menu="1"]')
+        if (!inMenu) {
+          state.menuSpaceId = ''
+          closedMenu = true
+        }
+      }
+
+      if (!act && state.route.name === 'list') {
+        if (t.closest('[data-space-menu="1"]')) return
+        const card = t.closest('[data-space-card="1"]')
+        if (card instanceof HTMLElement) {
+          goSpace(card.getAttribute('data-id') || '')
+          return
+        }
+      }
+
+      if (closedMenu) {
+        render()
+        return
+      }
+
       if (act === 'open-settings') {
         state.modal = 'settings'
         const p = activeProvider()
@@ -536,9 +608,8 @@
         state.models = []
         state.modelsError = ''
         save()
-        api.ui?.showToast?.('已保存，开始刷新模型…')
+        api.ui?.showToast?.('已保存（请手动刷新模型）')
         render()
-        refreshModels(true)
         return
       }
       if (act === 'add-provider') {
@@ -597,20 +668,36 @@
         createSpace(state.draft.spaceName)
         return
       }
+      if (act === 'toggle-space-menu') {
+        const id = t.getAttribute('data-id') || ''
+        if (!id) return
+        state.menuSpaceId = state.menuSpaceId === id ? '' : id
+        render()
+        return
+      }
+      if (act === 'edit-space') {
+        const id = t.getAttribute('data-id') || ''
+        if (!id) return
+        openEditSpace(id)
+        return
+      }
+      if (act === 'save-edit-space') {
+        const id = String(state.draft.editSpaceId || '')
+        if (!id) return
+        const n = String(state.draft.spaceName || '').trim()
+        if (!n) return api.ui?.showToast?.('空间名称不能为空')
+        state.modal = ''
+        renameSpace(id, n)
+        return
+      }
       if (act === 'open-space') {
         const id = t.getAttribute('data-id') || ''
         if (!id) return
-        state.route = { name: 'space', spaceId: id }
-        state.draft.input = ''
-        state.draft.output = ''
-        state.draft.error = ''
-        state.draft.model = ''
-        state.draft.customModel = ''
-        render()
-        refreshModels(false)
+        goSpace(id)
         return
       }
       if (act === 'space-back') {
+        state.menuSpaceId = ''
         state.route = { name: 'list', spaceId: '' }
         state.draft.input = ''
         state.draft.output = ''
@@ -621,6 +708,8 @@
       if (act === 'delete-space') {
         const id = t.getAttribute('data-id') || ''
         if (!id) return
+        state.menuSpaceId = ''
+        state.modal = ''
         deleteSpace(id)
         return
       }
@@ -728,7 +817,6 @@
           state.draft.apiKey = String(p?.apiKey || '')
         }
         render()
-        refreshModels(false)
         return
       }
       if (k === 'model') {
@@ -763,6 +851,13 @@
     root.addEventListener('keydown', (e) => {
       const t = e.target
       if (!(t instanceof HTMLElement)) return
+      if (state.route.name === 'list' && t.getAttribute('data-space-card') === '1') {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          goSpace(t.getAttribute('data-id') || '')
+        }
+        return
+      }
       if (t.getAttribute('data-act') !== 'user-input') return
       if (!(t instanceof HTMLTextAreaElement)) return
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -814,8 +909,6 @@
       <div class="meta" style="margin:0" title="${esc(state.modelsError || '')}">${esc(m)}</div>
       <button class="btn" data-act="refresh-models" ${state.modelsLoading ? 'disabled' : ''}>刷新模型</button>
       <div class="sp"></div>
-      <button class="btn" data-act="copy-output" ${state.draft.output ? '' : 'disabled'}>复制输出</button>
-      <button class="btn ok" data-act="send" ${state.sending ? 'disabled' : ''}>${state.sending ? '发送中…' : '发送'}</button>
     `
   }
 
@@ -831,17 +924,28 @@
           .map((s) => {
             const model = String((s.defaultModelByProvider && typeof s.defaultModelByProvider === 'object' ? s.defaultModelByProvider[pid] : '') || '').trim() || '未设置'
             const tplCount = Array.isArray(s.templates) ? s.templates.length : 0
+            const menuOn = state.menuSpaceId === s.id
             return `
-              <div class="card">
+              <div class="card spaceCard" data-space-card="1" data-id="${esc(s.id)}" role="button" tabindex="0" aria-label="进入空间：${esc(s.name)}">
                 <div class="row">
                   <div class="title" style="margin:0">${esc(s.name)}</div>
                   <div class="sp"></div>
-                  <button class="btn" data-act="open-space" data-id="${esc(s.id)}">打开</button>
+                  <div class="menuWrap" data-space-menu="1">
+                    <button class="iconBtn" data-act="toggle-space-menu" data-id="${esc(s.id)}" aria-label="空间操作">⋯</button>
+                    ${
+                      menuOn
+                        ? `
+                          <div class="menu" data-space-menu="1">
+                            <button class="menuItem" data-act="edit-space" data-id="${esc(s.id)}">编辑</button>
+                            <button class="menuItem bad" data-act="delete-space" data-id="${esc(s.id)}">删除空间</button>
+                          </div>
+                        `
+                        : ''
+                    }
+                  </div>
                 </div>
                 <div class="meta">默认模型：<span class="mono">${esc(model)}</span></div>
                 <div class="meta">模板：${tplCount} 个</div>
-                <div class="hr"></div>
-                <button class="btn bad" data-act="delete-space" data-id="${esc(s.id)}">删除空间</button>
               </div>
             `
           })
@@ -872,31 +976,23 @@
 
     el.innerHTML = `
       <div class="split">
-        <div class="card">
+        <div class="card pane">
           <div class="row" style="margin-bottom:8px">
             <div class="meta" style="margin:0">模型</div>
             <select class="field" data-bind="model" style="flex:1; min-width: 220px">${modelOptions.join('')}</select>
+            <button class="btn ok" data-act="send" ${state.sending ? 'disabled' : ''}>${state.sending ? '发送中…' : '发送'}</button>
           </div>
           ${showCustom ? `<input class="field mono" data-bind="customModel" placeholder="例如：gpt-4.1-mini / deepseek-chat" value="${esc(state.draft.customModel || cur)}" />` : ''}
-          <div class="hr"></div>
-          <textarea class="field mono" data-bind="input" data-act="user-input" placeholder="输入你的问题…（Ctrl/⌘ + Enter 发送）" style="min-height:160px">${esc(state.draft.input || '')}</textarea>
-          ${state.draft.error ? `<div class="hr"></div><div class="meta" style="color:var(--bad)">${esc(state.draft.error)}</div>` : ''}
-          <div class="hr"></div>
-          <div class="row">
-            <button class="btn ok" data-act="send" ${state.sending ? 'disabled' : ''}>${state.sending ? '发送中…' : '发送'}</button>
-            <button class="btn" data-act="open-settings">连接设置</button>
-            <div class="sp"></div>
-            <div class="meta" style="margin:0">一次性响应（非流式）</div>
-          </div>
+          <textarea class="field mono grow ta" data-bind="input" data-act="user-input" placeholder="输入你的问题…（Ctrl/⌘ + Enter 发送）">${esc(state.draft.input || '')}</textarea>
+          ${state.draft.error ? `<div class="meta" style="color:var(--bad)">${esc(state.draft.error)}</div>` : ''}
         </div>
 
-        <div class="card">
+        <div class="card pane">
           <div class="row">
             <div class="title" style="margin:0">输出</div>
             <div class="sp"></div>
             <button class="btn" data-act="copy-output" ${state.draft.output ? '' : 'disabled'}>复制</button>
           </div>
-          <div class="hr"></div>
           <div class="out mono">${state.draft.output ? esc(state.draft.output) : '<span style="color:var(--muted)">等待输出…</span>'}</div>
         </div>
       </div>
@@ -948,7 +1044,7 @@
             <input class="field mono" type="password" data-bind="apiKey" placeholder="sk-..." value="${esc(state.draft.apiKey || '')}" />
             <div class="hr"></div>
             <div class="row">
-              <button class="btn pri" data-act="save-settings" ${state.modelsLoading ? 'disabled' : ''}>保存并刷新模型</button>
+              <button class="btn pri" data-act="save-settings" ${state.modelsLoading ? 'disabled' : ''}>保存</button>
               <button class="btn" data-act="refresh-models" ${state.modelsLoading ? 'disabled' : ''}>仅刷新模型</button>
               <div class="sp"></div>
               <div class="meta" style="margin:0">${esc(status)}</div>
@@ -974,6 +1070,37 @@
               <button class="btn ok" data-act="save-new-space">保存</button>
               <div class="sp"></div>
               <div class="meta" style="margin:0">空间用于隔离模板与默认模型</div>
+            </div>
+          </div>
+        </div>
+      `
+      return
+    }
+    if (state.modal === 'edit-space') {
+      const id = String(state.draft.editSpaceId || '')
+      const s = id ? getSpace(id) : null
+      if (!s) {
+        state.modal = ''
+        el.innerHTML = ''
+        return
+      }
+      el.innerHTML = `
+        <div class="overlay" data-act="close-modal">
+          <div class="modal">
+            <div class="row">
+              <div class="title" style="margin:0">编辑空间：${esc(s.name)}</div>
+              <div class="sp"></div>
+              <button class="btn" data-act="close-modal">关闭</button>
+            </div>
+            <div class="hr"></div>
+            <div class="meta">名称</div>
+            <input class="field" data-bind="spaceName" placeholder="输入空间名称…" value="${esc(state.draft.spaceName || '')}" />
+            <div class="hr"></div>
+            <div class="row">
+              <button class="btn ok" data-act="save-edit-space">保存</button>
+              <button class="btn bad" data-act="delete-space" data-id="${esc(s.id)}">删除空间</button>
+              <div class="sp"></div>
+              <div class="meta" style="margin:0">删除后不可恢复</div>
             </div>
           </div>
         </div>
