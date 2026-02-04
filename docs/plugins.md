@@ -40,7 +40,7 @@
 - `clipboard.readText` / `clipboard.writeText`
 - `clipboard.readImage` / `clipboard.writeImage`
 - `storage.get` / `storage.set` / `storage.remove` / `storage.getAll` / `storage.setAll`
-- `ui.showToast`
+- `ui.showToast` / `ui.openUrl`
 
 ## Iframe 插件运行方式
 

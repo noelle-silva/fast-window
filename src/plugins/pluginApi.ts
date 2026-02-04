@@ -131,6 +131,11 @@ export const fastWindowApi = {
     showToast: (message: string) => {
       window.dispatchEvent(new CustomEvent('fast-window:toast', { detail: { message } }))
     },
+    openUrl: async (url: string) => {
+      const u = String(url || '').trim()
+      if (!u) return
+      await invoke('open_external_url', { url: u })
+    },
   },
 
   // 网络请求（通过 tauri 后端，避免浏览器 CORS）
@@ -231,6 +236,10 @@ export function createPluginContext(pluginId: string, requires?: PluginCapabilit
       showToast: (message: string) => {
         assertAllowed(requires, 'ui.showToast')
         return fastWindowApi.ui.showToast(message)
+      },
+      openUrl: async (url: string) => {
+        assertAllowed(requires, 'ui.openUrl')
+        return fastWindowApi.ui.openUrl(url)
       },
     },
     net: {

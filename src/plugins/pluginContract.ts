@@ -24,6 +24,7 @@ export type PluginCapability =
   | 'ui'
   | 'ui.*'
   | 'ui.showToast'
+  | 'ui.openUrl'
 
 export type PluginUiType = 'react' | 'iframe'
 

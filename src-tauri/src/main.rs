@@ -55,6 +55,41 @@ fn is_http_url(url: &str) -> bool {
 }
 
 #[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    let u = url.trim();
+    if !is_http_url(u) {
+        return Err("url 必须以 http(s):// 开头".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(u)
+            .spawn()
+            .map_err(|e| format!("打开链接失败: {e}"))?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(u)
+            .spawn()
+            .map_err(|e| format!("打开链接失败: {e}"))?;
+        return Ok(());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(u)
+            .spawn()
+            .map_err(|e| format!("打开链接失败: {e}"))?;
+        return Ok(());
+    }
+}
+
+#[tauri::command]
 async fn http_request(req: HttpRequest) -> Result<HttpResponse, String> {
     let method = req.method.trim().to_uppercase();
     if method.is_empty() {
@@ -1000,6 +1035,7 @@ fn main() {
             read_plugin_file,
             read_plugins_dir,
             install_plugin_files,
+            open_external_url,
             http_request,
             storage_get,
             storage_set,

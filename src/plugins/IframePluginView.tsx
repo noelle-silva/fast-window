@@ -69,6 +69,7 @@ function buildSrcDoc(pluginId: string, pluginCode: string, token: string) {
     },
     ui: {
       showToast: (message) => call('ui.showToast', [message]),
+      openUrl: (url) => call('ui.openUrl', [url]),
       back: () => call('host.back', []),
     },
     net: {
@@ -117,6 +118,7 @@ export default function IframePluginView(props: Props) {
       'storage.getAll': ctx.api.storage.getAll,
       'storage.setAll': ctx.api.storage.setAll,
       'ui.showToast': ctx.api.ui.showToast,
+      'ui.openUrl': ctx.api.ui.openUrl,
       'net.request': (ctx.api as any).net?.request,
     } as const
   }, [ctx.api])
