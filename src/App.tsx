@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, ComponentType } from 'react'
+import { useState, useEffect, useCallback, ComponentType, useRef } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { invoke } from '@tauri-apps/api/core'
 import { loadAllPlugins } from './plugins/pluginLoader'
@@ -21,6 +21,9 @@ import {
   Typography,
 } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
+import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
+import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
+import DragIndicatorRoundedIcon from '@mui/icons-material/DragIndicatorRounded'
 import FileUploadRoundedIcon from '@mui/icons-material/FileUploadRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
@@ -46,6 +49,52 @@ interface Plugin {
 const APP_TITLE = 'Fast Window'
 const APP_VERSION_TEXT = 'Fast Window v0.1.0'
 
+const APP_STORAGE_ID = '__app'
+const PLUGIN_ORDER_KEY = 'pluginOrder'
+
+function normalizeOrder(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const ids: string[] = []
+  for (const item of value) {
+    if (typeof item === 'string' && item.trim()) ids.push(item)
+  }
+  return ids
+}
+
+function applyPluginOrder(list: Plugin[], orderIds: string[]): Plugin[] {
+  if (!orderIds.length) return list
+
+  const byId = new Map(list.map(p => [p.id, p]))
+  const result: Plugin[] = []
+  for (const id of orderIds) {
+    const hit = byId.get(id)
+    if (hit) {
+      result.push(hit)
+      byId.delete(id)
+    }
+  }
+  for (const p of list) {
+    if (byId.has(p.id)) result.push(p)
+  }
+  return result
+}
+
+function movePluginById(list: Plugin[], draggedId: string, targetId: string, dropAfter: boolean): Plugin[] {
+  if (!draggedId || !targetId || draggedId === targetId) return list
+  const fromIndex = list.findIndex(p => p.id === draggedId)
+  const toIndex = list.findIndex(p => p.id === targetId)
+  if (fromIndex < 0 || toIndex < 0) return list
+
+  const next = list.slice()
+  const [item] = next.splice(fromIndex, 1)
+  let insertIndex = toIndex + (dropAfter ? 1 : 0)
+  if (fromIndex < insertIndex) insertIndex -= 1
+  if (insertIndex < 0) insertIndex = 0
+  if (insertIndex > next.length) insertIndex = next.length
+  next.splice(insertIndex, 0, item)
+  return next
+}
+
 function TitleBar(props: {
   title: string
   onBack?: () => void
@@ -53,8 +102,23 @@ function TitleBar(props: {
   onSettings?: () => void
   onReloadPlugins?: () => void
   reloadDisabled?: boolean
+  reorderMode?: boolean
+  onStartReorder?: () => void
+  onSaveReorder?: () => void
+  onCancelReorder?: () => void
 }) {
-  const { title, onBack, onImportPlugin, onSettings, onReloadPlugins, reloadDisabled } = props
+  const {
+    title,
+    onBack,
+    onImportPlugin,
+    onSettings,
+    onReloadPlugins,
+    reloadDisabled,
+    reorderMode,
+    onStartReorder,
+    onSaveReorder,
+    onCancelReorder,
+  } = props
   return (
     <Box
       data-tauri-drag-region="true"
@@ -71,52 +135,59 @@ function TitleBar(props: {
       }}
     >
       {onBack ? (
-        <IconButton
+        <Box
           data-tauri-drag-region="false"
-          aria-label="返回"
-          size="small"
-          onClick={onBack}
-          sx={{ position: 'absolute', left: 6, WebkitAppRegion: 'no-drag' }}
+          sx={{ position: 'absolute', left: 6, display: 'flex', alignItems: 'center', gap: 0.5, WebkitAppRegion: 'no-drag' }}
         >
-          <ArrowBackRoundedIcon fontSize="small" />
-        </IconButton>
+          <IconButton aria-label="返回" size="small" onClick={onBack}>
+            <ArrowBackRoundedIcon fontSize="small" />
+          </IconButton>
+        </Box>
       ) : null}
 
-      {!onBack && onImportPlugin ? (
-        <IconButton
+      {!onBack ? (
+        <Box
           data-tauri-drag-region="false"
-          aria-label="导入插件"
-          size="small"
-          onClick={onImportPlugin}
-          sx={{ position: 'absolute', right: onSettings || onReloadPlugins ? 70 : 6, WebkitAppRegion: 'no-drag' }}
+          sx={{ position: 'absolute', right: 6, display: 'flex', alignItems: 'center', gap: 0.5, WebkitAppRegion: 'no-drag' }}
         >
-          <FileUploadRoundedIcon fontSize="small" />
-        </IconButton>
-      ) : null}
-
-      {!onBack && onReloadPlugins ? (
-        <IconButton
-          data-tauri-drag-region="false"
-          aria-label="刷新插件"
-          size="small"
-          onClick={onReloadPlugins}
-          disabled={reloadDisabled}
-          sx={{ position: 'absolute', right: onSettings ? 38 : 6, WebkitAppRegion: 'no-drag' }}
-        >
-          <RefreshRoundedIcon fontSize="small" />
-        </IconButton>
-      ) : null}
-
-      {!onBack && onSettings ? (
-        <IconButton
-          data-tauri-drag-region="false"
-          aria-label="设置"
-          size="small"
-          onClick={onSettings}
-          sx={{ position: 'absolute', right: 6, WebkitAppRegion: 'no-drag' }}
-        >
-          <SettingsRoundedIcon fontSize="small" />
-        </IconButton>
+          {reorderMode ? (
+            <>
+              {onCancelReorder ? (
+                <IconButton aria-label="取消排序" size="small" onClick={onCancelReorder}>
+                  <CloseRoundedIcon fontSize="small" />
+                </IconButton>
+              ) : null}
+              {onSaveReorder ? (
+                <IconButton aria-label="保存排序" size="small" onClick={onSaveReorder}>
+                  <CheckRoundedIcon fontSize="small" />
+                </IconButton>
+              ) : null}
+            </>
+          ) : (
+            <>
+              {onImportPlugin ? (
+                <IconButton aria-label="导入插件" size="small" onClick={onImportPlugin}>
+                  <FileUploadRoundedIcon fontSize="small" />
+                </IconButton>
+              ) : null}
+              {onReloadPlugins ? (
+                <IconButton aria-label="刷新插件" size="small" onClick={onReloadPlugins} disabled={reloadDisabled}>
+                  <RefreshRoundedIcon fontSize="small" />
+                </IconButton>
+              ) : null}
+              {onStartReorder ? (
+                <IconButton aria-label="拖拽排序模式" size="small" onClick={onStartReorder}>
+                  <DragIndicatorRoundedIcon fontSize="small" />
+                </IconButton>
+              ) : null}
+              {onSettings ? (
+                <IconButton aria-label="设置" size="small" onClick={onSettings}>
+                  <SettingsRoundedIcon fontSize="small" />
+                </IconButton>
+              ) : null}
+            </>
+          )}
+        </Box>
       ) : null}
 
       <Typography
@@ -180,6 +251,15 @@ function App() {
   const [activePlugin, setActivePlugin] = useState<Plugin | null>(null)
   const [loading, setLoading] = useState(true)
   const [importOpen, setImportOpen] = useState(false)
+  const [reorderMode, setReorderMode] = useState(false)
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const [dragOverId, setDragOverId] = useState<string | null>(null)
+  const [dragOverAfter, setDragOverAfter] = useState(false)
+  const selectedIdRef = useRef<string | null>(null)
+  const prevQueryRef = useRef<string>('')
+  const dragMovedRef = useRef(false)
+  const reorderBackupRef = useRef<Plugin[] | null>(null)
+  const reorderQueryBackupRef = useRef<string>('')
   const [toast, setToast] = useState<{ open: boolean; message: string; key: number }>({
     open: false,
     message: '',
@@ -204,8 +284,13 @@ function App() {
         component: p.component,
       }))
 
-      setAllPlugins(pluginList)
-      setPlugins(pluginList)
+      const saved = await invoke<unknown | null>('storage_get', { pluginId: APP_STORAGE_ID, key: PLUGIN_ORDER_KEY }).catch(
+        () => null,
+      )
+      const ordered = applyPluginOrder(pluginList, normalizeOrder(saved))
+
+      setAllPlugins(ordered)
+      setPlugins(ordered)
       setActiveIndex(0)
       if (opts?.showToast) {
         setToast(prev => ({ open: true, message: '插件已刷新', key: prev.key + 1 }))
@@ -238,17 +323,122 @@ function App() {
 
   // 过滤插件
   useEffect(() => {
-    if (query.trim() === '') {
-      setPlugins(allPlugins)
-    } else {
-      const filtered = allPlugins.filter(p =>
-        p.name.toLowerCase().includes(query.toLowerCase()) ||
-        p.keyword?.toLowerCase() === query.toLowerCase()
-      )
-      setPlugins(filtered)
+    const q = query.trim()
+    const isQueryChanged = prevQueryRef.current !== query
+    prevQueryRef.current = query
+
+    const nextPlugins =
+      q === ''
+        ? allPlugins
+        : allPlugins.filter(
+            p => p.name.toLowerCase().includes(q.toLowerCase()) || p.keyword?.toLowerCase() === q.toLowerCase(),
+          )
+
+    setPlugins(nextPlugins)
+
+    if (isQueryChanged) {
+      setActiveIndex(0)
+      return
     }
-    setActiveIndex(0)
+
+    const selectedId = selectedIdRef.current
+    if (!selectedId) {
+      setActiveIndex(0)
+      return
+    }
+    const nextIndex = nextPlugins.findIndex(p => p.id === selectedId)
+    setActiveIndex(nextIndex >= 0 ? nextIndex : 0)
   }, [query, allPlugins])
+
+  useEffect(() => {
+    selectedIdRef.current = plugins[activeIndex]?.id ?? null
+  }, [plugins, activeIndex])
+
+  const persistPluginOrder = useCallback((orderedPlugins: Plugin[]) => {
+    const ids = orderedPlugins.map(p => p.id)
+    void invoke('storage_set', { pluginId: APP_STORAGE_ID, key: PLUGIN_ORDER_KEY, value: ids }).catch(e => {
+      console.error('Failed to persist plugin order:', e)
+    })
+  }, [])
+
+  const startReorder = useCallback(() => {
+    reorderBackupRef.current = allPlugins
+    reorderQueryBackupRef.current = query
+    setQuery('')
+    setReorderMode(true)
+    setToast(prev => ({ open: true, message: '进入拖拽排序模式：拖动列表，点右上角保存', key: prev.key + 1 }))
+  }, [allPlugins, query])
+
+  const cancelReorder = useCallback(() => {
+    const backup = reorderBackupRef.current
+    if (backup) setAllPlugins(backup)
+    setReorderMode(false)
+    setDraggingId(null)
+    setDragOverId(null)
+    setDragOverAfter(false)
+    setQuery(reorderQueryBackupRef.current)
+    reorderBackupRef.current = null
+    setToast(prev => ({ open: true, message: '已取消排序', key: prev.key + 1 }))
+  }, [])
+
+  const saveReorder = useCallback(() => {
+    persistPluginOrder(allPlugins)
+    setReorderMode(false)
+    setDraggingId(null)
+    setDragOverId(null)
+    setDragOverAfter(false)
+    setQuery(reorderQueryBackupRef.current)
+    reorderBackupRef.current = null
+    setToast(prev => ({ open: true, message: '排序已保存', key: prev.key + 1 }))
+  }, [allPlugins, persistPluginOrder])
+
+  const handlePointerDown = useCallback((e: React.PointerEvent, pluginId: string) => {
+    if (!reorderMode) return
+    if (e.button !== 0) return
+
+    dragMovedRef.current = false
+    setDraggingId(pluginId)
+    setDragOverId(pluginId)
+    setDragOverAfter(false)
+
+    try {
+      ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    } catch {
+      // ignore
+    }
+    e.preventDefault()
+  }, [reorderMode])
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (!reorderMode) return
+    if (!draggingId) return
+
+    dragMovedRef.current = true
+
+    const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
+    const host = el?.closest?.('[data-plugin-id]') as HTMLElement | null
+    const targetId = host?.dataset?.pluginId
+    if (!targetId || targetId === draggingId) return
+
+    setDragOverId(targetId)
+    const rect = host.getBoundingClientRect()
+    setDragOverAfter(e.clientY > rect.top + rect.height / 2)
+  }, [draggingId, reorderMode])
+
+  const handlePointerUp = useCallback(() => {
+    if (!reorderMode) return
+    if (!draggingId) return
+
+    const targetId = dragOverId
+    if (targetId && targetId !== draggingId) {
+      const nextAll = movePluginById(allPlugins, draggingId, targetId, dragOverAfter)
+      if (nextAll !== allPlugins) setAllPlugins(nextAll)
+    }
+
+    setDraggingId(null)
+    setDragOverId(null)
+    setDragOverAfter(false)
+  }, [allPlugins, dragOverAfter, dragOverId, draggingId, reorderMode])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
@@ -259,6 +449,7 @@ function App() {
       setActiveIndex(i => Math.max(i - 1, 0))
     } else if (e.key === 'Enter' && plugins[activeIndex]) {
       e.preventDefault()
+      if (reorderMode) return
       setActivePlugin(plugins[activeIndex])
     } else if (e.key === 'Escape') {
       if (activePlugin) {
@@ -267,7 +458,7 @@ function App() {
         getCurrentWindow().hide()
       }
     }
-  }, [plugins, activeIndex, activePlugin])
+  }, [plugins, activeIndex, activePlugin, reorderMode])
 
   const shellRootSx = {
     height: '100vh',
@@ -356,14 +547,18 @@ function App() {
 
   return (
     <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
-      <Paper variant="outlined" sx={shellContainerSx}>
-        <TitleBar
-          title={APP_TITLE}
-          onImportPlugin={() => setImportOpen(true)}
-          onReloadPlugins={reloadPlugins}
-          reloadDisabled={loading}
-          onSettings={() => setActivePlugin(settingsPlugin)}
-        />
+        <Paper variant="outlined" sx={shellContainerSx}>
+          <TitleBar
+            title={APP_TITLE}
+            onImportPlugin={reorderMode ? undefined : () => setImportOpen(true)}
+            onReloadPlugins={reorderMode ? undefined : reloadPlugins}
+            reloadDisabled={loading}
+            onStartReorder={reorderMode ? undefined : startReorder}
+            reorderMode={reorderMode}
+            onCancelReorder={reorderMode ? cancelReorder : undefined}
+            onSaveReorder={reorderMode ? saveReorder : undefined}
+            onSettings={reorderMode ? undefined : () => setActivePlugin(settingsPlugin)}
+          />
 
         <Box sx={{ p: 2, bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider' }}>
           <TextField
@@ -373,6 +568,7 @@ function App() {
             onChange={e => setQuery(e.target.value)}
             placeholder="输入关键词搜索插件..."
             variant="outlined"
+            disabled={reorderMode}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -396,12 +592,38 @@ function App() {
               {plugins.map((plugin, index) => (
                 <ListItemButton
                   key={plugin.id}
+                  data-plugin-id={plugin.id}
                   selected={index === activeIndex}
-                  onClick={() => setActivePlugin(plugin)}
+                  onPointerDown={reorderMode ? (e => handlePointerDown(e, plugin.id)) : undefined}
+                  onPointerMove={reorderMode ? handlePointerMove : undefined}
+                  onPointerUp={reorderMode ? handlePointerUp : undefined}
+                  onPointerCancel={reorderMode ? handlePointerUp : undefined}
+                  onClick={() => {
+                    if (reorderMode) {
+                      setActiveIndex(index)
+                      return
+                    }
+                    if (dragMovedRef.current) {
+                      dragMovedRef.current = false
+                      return
+                    }
+                    setActivePlugin(plugin)
+                  }}
                   sx={{
                     py: 1,
                     px: 1.25,
                     '&.Mui-selected': { bgcolor: 'action.selected' },
+                    cursor: reorderMode ? (draggingId ? 'grabbing' : 'grab') : undefined,
+                    opacity: draggingId === plugin.id ? 0.6 : 1,
+                    userSelect: reorderMode ? 'none' : undefined,
+                    touchAction: reorderMode ? 'none' : undefined,
+                    boxShadow:
+                      dragOverId === plugin.id
+                        ? (theme =>
+                            dragOverAfter
+                              ? `inset 0 -2px 0 ${theme.palette.primary.main}`
+                              : `inset 0 2px 0 ${theme.palette.primary.main}`)
+                        : undefined,
                   }}
                 >
                   <ListItemAvatar sx={{ minWidth: 44 }}>
@@ -430,7 +652,10 @@ function App() {
           )}
         </Box>
 
-        <StatusBar left="↑↓ 选择 · Enter 打开 · ESC 隐藏" right={APP_VERSION_TEXT} />
+        <StatusBar
+          left={reorderMode ? '拖拽排序模式：拖动条目 · 右上角保存/取消 · ESC 隐藏' : '↑↓ 选择 · Enter 打开 · ESC 隐藏'}
+          right={APP_VERSION_TEXT}
+        />
       </Paper>
       {toastHost}
       {importDialog}
