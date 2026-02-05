@@ -158,7 +158,26 @@ export const fastWindowApi = {
   },
 }
 
-export type FastWindowApi = typeof fastWindowApi
+export type FastWindowApi = {
+  clipboard: typeof fastWindowApi.clipboard
+  storage: {
+    get: (key: string) => Promise<unknown | null>
+    set: (key: string, value: unknown) => Promise<void>
+    remove: (key: string) => Promise<void>
+    getAll: () => Promise<Record<string, unknown>>
+    setAll: (data: Record<string, unknown>) => Promise<void>
+  }
+  ui: typeof fastWindowApi.ui & {
+    back?: () => Promise<void> | void
+  }
+  net: typeof fastWindowApi.net
+  files: {
+    getOutputDir: () => Promise<string>
+    pickOutputDir: () => Promise<string | null>
+    openOutputDir: () => Promise<void>
+    saveImageBase64: (dataUrlOrBase64: string) => Promise<string>
+  }
+}
 
 export type PluginContext = {
   apiVersion: number
@@ -246,6 +265,24 @@ export function createPluginContext(pluginId: string, requires?: PluginCapabilit
       request: async (req: any) => {
         assertAllowed(requires, 'net.request')
         return fastWindowApi.net.request(req)
+      },
+    },
+    files: {
+      getOutputDir: async () => {
+        assertAllowed(requires, 'files.getOutputDir')
+        return invoke<string>('plugin_get_output_dir', { pluginId })
+      },
+      pickOutputDir: async () => {
+        assertAllowed(requires, 'files.pickOutputDir')
+        return invoke<string | null>('plugin_pick_output_dir', { pluginId })
+      },
+      openOutputDir: async () => {
+        assertAllowed(requires, 'files.openOutputDir')
+        await invoke('plugin_open_output_dir', { pluginId })
+      },
+      saveImageBase64: async (dataUrlOrBase64: string) => {
+        assertAllowed(requires, 'files.saveImageBase64')
+        return invoke<string>('plugin_save_image_base64', { pluginId, data: dataUrlOrBase64 })
       },
     },
   }

@@ -67,6 +67,12 @@ function buildSrcDoc(pluginId: string, pluginCode: string, token: string) {
       getAll: () => call('storage.getAll', []),
       setAll: (data) => call('storage.setAll', [data]),
     },
+    files: {
+      getOutputDir: () => call('files.getOutputDir', []),
+      pickOutputDir: () => call('files.pickOutputDir', []),
+      openOutputDir: () => call('files.openOutputDir', []),
+      saveImageBase64: (dataUrlOrBase64) => call('files.saveImageBase64', [dataUrlOrBase64]),
+    },
     ui: {
       showToast: (message) => call('ui.showToast', [message]),
       openUrl: (url) => call('ui.openUrl', [url]),
@@ -117,6 +123,10 @@ export default function IframePluginView(props: Props) {
       'storage.remove': ctx.api.storage.remove,
       'storage.getAll': ctx.api.storage.getAll,
       'storage.setAll': ctx.api.storage.setAll,
+      'files.getOutputDir': (ctx.api as any).files?.getOutputDir,
+      'files.pickOutputDir': (ctx.api as any).files?.pickOutputDir,
+      'files.openOutputDir': (ctx.api as any).files?.openOutputDir,
+      'files.saveImageBase64': (ctx.api as any).files?.saveImageBase64,
       'ui.showToast': ctx.api.ui.showToast,
       'ui.openUrl': ctx.api.ui.openUrl,
       'net.request': (ctx.api as any).net?.request,

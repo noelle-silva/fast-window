@@ -8,6 +8,12 @@ export type PluginCapability =
   | 'net'
   | 'net.*'
   | 'net.request'
+  | 'files'
+  | 'files.*'
+  | 'files.getOutputDir'
+  | 'files.pickOutputDir'
+  | 'files.openOutputDir'
+  | 'files.saveImageBase64'
   | 'clipboard'
   | 'clipboard.*'
   | 'clipboard.readText'
@@ -59,7 +65,7 @@ export function isCapabilityAllowed(
   requires: PluginCapability[] | undefined,
   needed: Exclude<
     PluginCapability,
-    '*' | 'net' | 'clipboard' | 'storage' | 'ui' | 'net.*' | 'clipboard.*' | 'storage.*' | 'ui.*'
+    '*' | 'net' | 'files' | 'clipboard' | 'storage' | 'ui' | 'net.*' | 'files.*' | 'clipboard.*' | 'storage.*' | 'ui.*'
   >,
 ): boolean {
   // 兼容：老插件不写 requires 时，默认放行（不然现有生态直接全挂）
@@ -70,6 +76,7 @@ export function isCapabilityAllowed(
   return (
     requires.includes(needed) ||
     (ns === 'net' && (requires.includes('net') || requires.includes('net.*'))) ||
+    (ns === 'files' && (requires.includes('files') || requires.includes('files.*'))) ||
     (ns === 'clipboard' && (requires.includes('clipboard') || requires.includes('clipboard.*'))) ||
     (ns === 'storage' && (requires.includes('storage') || requires.includes('storage.*'))) ||
     (ns === 'ui' && (requires.includes('ui') || requires.includes('ui.*')))

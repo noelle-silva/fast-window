@@ -20,6 +20,7 @@ const DEFAULT_WAKE_SHORTCUT: &str = "control+alt+Space";
 const APP_CONFIG_FILE: &str = "app.json";
 const WAKE_SHORTCUT_KEY: &str = "wakeShortcut";
 const AUTO_START_KEY: &str = "autoStart";
+const PLUGIN_OUTPUT_DIRS_KEY: &str = "pluginOutputDirs";
 
 // 避免开发版把“开机启动”写到正式版同一个注册表项里（会导致装了 MSI 以后仍然自启 debug exe）。
 #[cfg(debug_assertions)]
@@ -330,6 +331,64 @@ fn open_dir_in_file_manager(dir: &Path) -> Result<(), String> {
     Err("当前平台不支持打开文件管理器".to_string())
 }
 
+fn plugin_default_output_dir(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf {
+    // 默认输出到 data/<pluginId>/output-images
+    app_data_dir(app).join(plugin_id).join("output-images")
+}
+
+fn read_plugin_output_dir_from_config(app: &tauri::AppHandle, plugin_id: &str) -> Option<PathBuf> {
+    let cfg_path = app_config_path(app);
+    let map = read_json_map(&cfg_path);
+    let Some(Value::Object(obj)) = map.get(PLUGIN_OUTPUT_DIRS_KEY) else {
+        return None;
+    };
+    let Some(Value::String(s)) = obj.get(plugin_id) else {
+        return None;
+    };
+    let raw = s.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    Some(PathBuf::from(raw))
+}
+
+fn write_plugin_output_dir_to_config(app: &tauri::AppHandle, plugin_id: &str, dir: &Path) -> Result<(), String> {
+    let cfg_path = app_config_path(app);
+    let mut map = read_json_map(&cfg_path);
+
+    let v = map
+        .entry(PLUGIN_OUTPUT_DIRS_KEY.to_string())
+        .or_insert_with(|| Value::Object(Map::new()));
+    if !v.is_object() {
+        *v = Value::Object(Map::new());
+    }
+    let obj = v.as_object_mut().unwrap();
+    obj.insert(plugin_id.to_string(), Value::String(dir.to_string_lossy().to_string()));
+
+    write_json_map(&cfg_path, &map)
+}
+
+fn ensure_writable_dir(dir: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("创建目录失败: {e}"))?;
+    if !dir.is_dir() {
+        return Err("输出路径不是目录".to_string());
+    }
+    if !is_dir_writable(dir) {
+        return Err("目录不可写（权限不足或被占用）".to_string());
+    }
+    Ok(())
+}
+
+fn resolve_plugin_output_dir(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf {
+    // 配置优先；若不可用则回退到默认目录（避免破坏用户空间）
+    if let Some(p) = read_plugin_output_dir_from_config(app, plugin_id) {
+        if ensure_writable_dir(&p).is_ok() {
+            return p;
+        }
+    }
+    plugin_default_output_dir(app, plugin_id)
+}
+
 fn read_json_map(path: &Path) -> Map<String, Value> {
     let Ok(content) = std::fs::read_to_string(path) else {
         return Map::new();
@@ -351,6 +410,112 @@ fn write_json_map(path: &Path, map: &Map<String, Value>) -> Result<(), String> {
         .map_err(|e| format!("序列化配置失败: {e}"))?;
     std::fs::write(path, content).map_err(|e| format!("写入配置失败: {e}"))?;
     Ok(())
+}
+
+fn decode_base64_image_payload(raw: &str) -> Result<(Vec<u8>, String), String> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return Err("图片数据为空".to_string());
+    }
+
+    // data URL: data:image/png;base64,....
+    if s.starts_with("data:") {
+        let base64_pos = s.find("base64,").ok_or_else(|| "data URL 缺少 base64,".to_string())?;
+        let meta = &s["data:".len()..base64_pos];
+        let b64 = &s[(base64_pos + "base64,".len())..];
+
+        let ext = if meta.contains("image/png") {
+            "png"
+        } else if meta.contains("image/jpeg") {
+            "jpg"
+        } else if meta.contains("image/webp") {
+            "webp"
+        } else {
+            "png"
+        };
+
+        if b64.len() > 40 * 1024 * 1024 {
+            return Err("图片数据过大".to_string());
+        }
+        let bytes = general_purpose::STANDARD
+            .decode(b64.trim())
+            .map_err(|e| format!("base64 解码失败: {e}"))?;
+        if bytes.len() > 25 * 1024 * 1024 {
+            return Err("图片过大".to_string());
+        }
+        return Ok((bytes, ext.to_string()));
+    }
+
+    if s.len() > 40 * 1024 * 1024 {
+        return Err("图片数据过大".to_string());
+    }
+    let bytes = general_purpose::STANDARD
+        .decode(s)
+        .map_err(|e| format!("base64 解码失败: {e}"))?;
+    if bytes.len() > 25 * 1024 * 1024 {
+        return Err("图片过大".to_string());
+    }
+    Ok((bytes, "png".to_string()))
+}
+
+#[tauri::command]
+fn plugin_get_output_dir(app: tauri::AppHandle, plugin_id: String) -> Result<String, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let dir = resolve_plugin_output_dir(&app, &plugin_id);
+    let _ = std::fs::create_dir_all(&dir);
+    Ok(dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn plugin_pick_output_dir(app: tauri::AppHandle, plugin_id: String) -> Result<Option<String>, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+
+    let picked = rfd::FileDialog::new()
+        .set_title("选择输出目录")
+        .pick_folder();
+
+    let Some(dir) = picked else {
+        return Ok(None);
+    };
+
+    ensure_writable_dir(&dir)?;
+    write_plugin_output_dir_to_config(&app, &plugin_id, &dir)?;
+    Ok(Some(dir.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+fn plugin_open_output_dir(app: tauri::AppHandle, plugin_id: String) -> Result<(), String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let dir = resolve_plugin_output_dir(&app, &plugin_id);
+    open_dir_in_file_manager(&dir)
+}
+
+#[tauri::command]
+fn plugin_save_image_base64(app: tauri::AppHandle, plugin_id: String, data: String) -> Result<String, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+
+    let out_dir = resolve_plugin_output_dir(&app, &plugin_id);
+    ensure_writable_dir(&out_dir)?;
+
+    let (bytes, ext) = decode_base64_image_payload(&data)?;
+
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_millis(0))
+        .as_millis();
+    let filename = format!("ai-image-{stamp}.{ext}");
+    let full = out_dir.join(filename);
+
+    std::fs::write(&full, bytes).map_err(|e| format!("写入图片失败: {e}"))?;
+    Ok(full.to_string_lossy().to_string())
 }
 
 #[cfg(debug_assertions)]
@@ -1042,6 +1207,10 @@ fn main() {
             storage_remove,
             storage_get_all,
             storage_set_all,
+            plugin_get_output_dir,
+            plugin_pick_output_dir,
+            plugin_open_output_dir,
+            plugin_save_image_base64,
             get_wake_shortcut,
             set_wake_shortcut,
             pause_wake_shortcut,
