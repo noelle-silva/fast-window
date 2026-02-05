@@ -20,6 +20,19 @@ function buildSrcDoc(pluginId: string, pluginCode: string, token: string) {
   const pending = new Map();
   const MAX_PENDING = 128;
   const DEFAULT_TIMEOUT_MS = 8000;
+  const LONG_TIMEOUT_MS = 15 * 60 * 1000;
+
+  function resolveTimeoutMs(method, args) {
+    try {
+      if (method === 'files.pickOutputDir') return LONG_TIMEOUT_MS;
+      if (method === 'net.request') {
+        const req = args && args[0];
+        const t = req && typeof req.timeoutMs === 'number' ? req.timeoutMs : 0;
+        if (t > 0) return Math.max(DEFAULT_TIMEOUT_MS, Math.min(t + 5000, 5 * 60 * 1000));
+      }
+    } catch {}
+    return DEFAULT_TIMEOUT_MS;
+  }
 
   function call(method, args) {
     const id = ++seq;
@@ -29,10 +42,11 @@ function buildSrcDoc(pluginId: string, pluginCode: string, token: string) {
         return;
       }
 
+      const timeoutMs = resolveTimeoutMs(method, args);
       const timer = setTimeout(() => {
         pending.delete(id);
         reject(new Error('Request timeout'));
-      }, DEFAULT_TIMEOUT_MS);
+      }, timeoutMs);
 
       pending.set(id, { resolve, reject, timer });
       parent.postMessage({ __fastWindowRequest: true, pluginId, apiVersion, token, id, method, args }, '*');
