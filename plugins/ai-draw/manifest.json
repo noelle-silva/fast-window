@@ -1,0 +1,23 @@
+{
+  "id": "ai-draw",
+  "name": "AI 绘图",
+  "version": "1.1.0",
+  "description": "左侧输入提示词，右侧出图；一次请求一次返回（无上下文）；默认保存到 data/ai-draw/output-images，可通过资源管理器选择输出目录",
+  "main": "iframe.js",
+  "icon": "🎨",
+  "keyword": "ai",
+  "apiVersion": 1,
+  "ui": { "type": "iframe" },
+  "requires": [
+    "storage.get",
+    "storage.set",
+    "storage.remove",
+    "ui.showToast",
+    "net.request",
+    "clipboard.writeImage",
+    "files.getOutputDir",
+    "files.pickOutputDir",
+    "files.openOutputDir",
+    "files.saveImageBase64"
+  ]
+}
