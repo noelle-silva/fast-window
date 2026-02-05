@@ -162,10 +162,15 @@ async fn http_request(req: HttpRequest) -> Result<HttpResponse, String> {
         }
     }
 
-    let body = resp.text().await.map_err(|e| format!("读取响应失败: {e}"))?;
-    if body.len() > 2 * 1024 * 1024 {
-        return Err("响应过大".to_string());
+    // 图片相关的 JSON/base64 响应可能很大（尤其是 chat/completions 返回 b64）。
+    // 这里做上限保护，避免插件拉取无限大响应导致内存爆炸。
+    const MAX_HTTP_RESPONSE_BYTES: usize = 25 * 1024 * 1024; // 25MB
+
+    let bytes = resp.bytes().await.map_err(|e| format!("读取响应失败: {e}"))?;
+    if bytes.len() > MAX_HTTP_RESPONSE_BYTES {
+        return Err(format!("响应过大（{} > {}）", bytes.len(), MAX_HTTP_RESPONSE_BYTES));
     }
+    let body = String::from_utf8(bytes.to_vec()).map_err(|_| "响应不是 UTF-8 文本".to_string())?;
 
     Ok(HttpResponse { status, headers, body })
 }
