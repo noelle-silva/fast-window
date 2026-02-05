@@ -120,12 +120,6 @@
     return `${prefix}-${now()}-${Math.random().toString(16).slice(2)}`
   }
 
-  function defaultChatSystemPrompt() {
-    return (
-      '你是一个“图片生成器”。请根据用户提示词生成一张图片，并只用 JSON 输出：{"b64_png":"<base64>"}。不要输出任何额外文字，不要用 markdown，不要包代码块。'
-    )
-  }
-
   function defaultProvider() {
     return {
       id: id('prov'),
@@ -137,7 +131,7 @@
       model: 'gpt-image-1',
       customModel: '',
       size: '1024x1024',
-      chatSystemPrompt: defaultChatSystemPrompt(),
+      chatSystemPrompt: '',
     }
   }
 
@@ -174,7 +168,8 @@
     out.model = String(out.model || out.models[0] || '')
     out.customModel = String(out.customModel || '')
     out.size = String(out.size || '1024x1024')
-    out.chatSystemPrompt = String(out.chatSystemPrompt || defaultChatSystemPrompt())
+    // 空字符串也算用户显式设置：不要用默认值覆盖
+    out.chatSystemPrompt = typeof out.chatSystemPrompt === 'string' ? out.chatSystemPrompt : ''
     return out
   }
 
@@ -185,7 +180,7 @@
     p.apiKey = String(s.apiKey || '')
     p.protocol = String(s.protocol || 'images') === 'chat' ? 'chat' : 'images'
     p.size = String(s.size || p.size)
-    p.chatSystemPrompt = String(s.chatSystemPrompt || p.chatSystemPrompt)
+    p.chatSystemPrompt = typeof s.chatSystemPrompt === 'string' ? s.chatSystemPrompt : ''
     const m = String(s.model || '').trim()
     if (m) {
       p.models = normalizeModels([m])
@@ -297,7 +292,7 @@
     state.draft.protocol = String(p.protocol || 'images') === 'chat' ? 'chat' : 'images'
     state.draft.modelsText = Array.isArray(p.models) ? p.models.join('\n') : ''
     state.draft.size = String(p.size || '1024x1024')
-    state.draft.chatSystemPrompt = String(p.chatSystemPrompt || defaultChatSystemPrompt())
+    state.draft.chatSystemPrompt = typeof p.chatSystemPrompt === 'string' ? p.chatSystemPrompt : ''
     state.draft.autoSave = !!(state.data && state.data.autoSave)
     render()
   }
@@ -329,7 +324,8 @@
     p.protocol = protocol
     p.models = models
     p.size = String(state.draft.size || p.size || '1024x1024')
-    p.chatSystemPrompt = String(state.draft.chatSystemPrompt || defaultChatSystemPrompt())
+    // 允许空字符串：用户可能希望完全不加 system prompt
+    p.chatSystemPrompt = typeof state.draft.chatSystemPrompt === 'string' ? state.draft.chatSystemPrompt : ''
 
     // 如果当前选中的 model 不在 models 里，则回退到第一个；为空则切到自定义
     const cur = String(p.model || '').trim()
