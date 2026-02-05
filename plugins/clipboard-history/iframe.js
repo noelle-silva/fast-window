@@ -48,6 +48,9 @@
     currentImage: '',
     internalCopy: { type: '', content: '', at: 0 },
 
+    ctxMenu: { open: false, x: 0, y: 0, nodeId: '' },
+    movePicker: { open: false, movingId: '', query: '' },
+
     timer: null,
   }
 
@@ -251,6 +254,40 @@
     }
     .menuItem:hover { background: rgba(0,0,0,0.03); }
     .menuHeader { padding: 10px 12px; font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--outline); }
+
+    .overlay { position: fixed; inset: 0; z-index: 80; display: none; }
+    .overlay.open { display: block; }
+    .backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.10); }
+    .ctxMenu {
+      position: absolute;
+      background: var(--surface);
+      border: 1px solid var(--outline);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      min-width: 220px;
+      z-index: 90;
+    }
+    .dialog {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: min(560px, 92vw);
+      max-height: 80vh;
+      background: var(--surface);
+      border: 1px solid var(--outline);
+      border-radius: 12px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      z-index: 90;
+    }
+    .dialogHeader { padding: 10px 12px; border-bottom: 1px solid var(--outline); display: flex; align-items: center; gap: 8px; }
+    .dialogTitle { font-weight: 700; font-size: 13px; }
+    .dialogBody { padding: 10px; overflow: auto; }
+    .dialogList { margin-top: 10px; border: 1px solid var(--outline); border-radius: 12px; overflow: hidden; }
 
     .placeholder {
       border: 2px dashed rgba(25,118,210,0.45);
@@ -642,6 +679,115 @@
     }
   }
 
+  function closeOverlays() {
+    state.ctxMenu.open = false
+    state.ctxMenu.nodeId = ''
+    state.movePicker.open = false
+    state.movePicker.movingId = ''
+    state.movePicker.query = ''
+  }
+
+  function renderMovePickerList() {
+    const list = document.querySelector('[data-area="movePickList"]')
+    if (!(list instanceof HTMLElement)) return
+    if (!state.collections) return
+
+    const movingId = state.movePicker.movingId
+    const moving = getNode(movingId)
+    if (!moving || moving.type !== 'folder') {
+      list.innerHTML = '<div class="menuHeader">无效的收藏夹</div>'
+      return
+    }
+
+    const q = (state.movePicker.query || '').trim().toLowerCase()
+    const folders = Object.values(state.collections.nodes || {})
+      .filter((n) => n && n.type === 'folder')
+      .map((n) => n.id)
+      .filter((id) => canMoveInto(id, movingId))
+      .map((id) => ({ id, label: folderLabelById(id) }))
+      .filter((x) => (q ? x.label.toLowerCase().includes(q) : true))
+      .sort((a, b) => a.label.localeCompare(b.label, 'zh-Hans-CN'))
+
+    if (!folders.length) {
+      list.innerHTML = '<div class="menuHeader">没有可用的目标收藏夹</div>'
+      return
+    }
+
+    list.innerHTML = folders
+      .map((f) => `<button class="menuItem" data-act="movePickTarget" data-id="${escapeHtml(f.id)}">📁 ${escapeHtml(f.label)}</button>`)
+      .join('')
+  }
+
+  function fitCtxMenuIntoViewport() {
+    const el = document.querySelector('[data-role="ctxMenu"]')
+    if (!(el instanceof HTMLElement)) return
+    const pad = 8
+    const rect = el.getBoundingClientRect()
+    const maxX = Math.max(pad, window.innerWidth - rect.width - pad)
+    const maxY = Math.max(pad, window.innerHeight - rect.height - pad)
+    const x = Math.max(pad, Math.min(state.ctxMenu.x, maxX))
+    const y = Math.max(pad, Math.min(state.ctxMenu.y, maxY))
+    el.style.left = `${x}px`
+    el.style.top = `${y}px`
+  }
+
+  function renderOverlay() {
+    const overlay = document.querySelector('[data-area="overlay"]')
+    if (!(overlay instanceof HTMLElement)) return
+
+    if (state.view !== 'folders') closeOverlays()
+
+    if (state.movePicker.open) {
+      const moving = getNode(state.movePicker.movingId)
+      const name = moving && moving.type === 'folder' ? moving.name : ''
+      overlay.className = 'overlay open'
+      overlay.innerHTML = `
+        <div class="backdrop" data-act="closeOverlay"></div>
+        <div class="dialog" role="dialog" aria-modal="true" aria-label="移动收藏夹">
+          <div class="dialogHeader">
+            <div class="dialogTitle">移动收藏夹</div>
+            <span class="spacer"></span>
+            <button class="btn" data-act="movePickCancel">取消</button>
+          </div>
+          <div class="dialogBody">
+            <div class="hint">
+              <span>将「${escapeHtml(name)}」移动到：</span>
+              <span>不能移动到自身或子收藏夹</span>
+            </div>
+            <input class="input" placeholder="搜索目标收藏夹（按路径）" data-act="movePickQuery" value="${escapeHtml(state.movePicker.query)}" />
+            <div class="dialogList" data-area="movePickList"></div>
+          </div>
+        </div>
+      `
+      renderMovePickerList()
+      const input = overlay.querySelector('input[data-act="movePickQuery"]')
+      if (input instanceof HTMLInputElement) {
+        setTimeout(() => {
+          try {
+            input.focus()
+            input.setSelectionRange(input.value.length, input.value.length)
+          } catch {}
+        }, 0)
+      }
+      return
+    }
+
+    if (state.ctxMenu.open && state.ctxMenu.nodeId) {
+      overlay.className = 'overlay open'
+      overlay.innerHTML = `
+        <div class="backdrop" data-act="closeOverlay"></div>
+        <div class="ctxMenu" data-role="ctxMenu" style="left:${state.ctxMenu.x}px;top:${state.ctxMenu.y}px">
+          <button class="menuItem" data-act="ctxMoveTo">📁 移动到...</button>
+        </div>
+      `
+      requestAnimationFrame(fitCtxMenuIntoViewport)
+      return
+    }
+
+    overlay.className = 'overlay'
+    overlay.innerHTML = ''
+  }
+
   function mount() {
     const root = document.getElementById('app') || document.body
 
@@ -675,6 +821,7 @@
           </div>
         </div>
       </div>
+      <div class="overlay" data-area="overlay"></div>
     `
 
     root.addEventListener('click', async (e) => {
@@ -682,6 +829,39 @@
       if (!(t instanceof HTMLElement)) return
 
       const act = t.getAttribute('data-act')
+      if (act === 'closeOverlay') {
+        closeOverlays()
+        renderOverlay()
+        return
+      }
+      if (act === 'movePickCancel') {
+        closeOverlays()
+        renderOverlay()
+        return
+      }
+      if (act === 'ctxMoveTo') {
+        const movingId = state.ctxMenu.nodeId
+        const n = getNode(movingId)
+        closeOverlays()
+        if (n && n.type === 'folder') {
+          state.movePicker.open = true
+          state.movePicker.movingId = movingId
+          state.movePicker.query = ''
+        }
+        renderOverlay()
+        return
+      }
+      if (act === 'movePickTarget') {
+        const toParentId = t.getAttribute('data-id') || ''
+        const movingId = state.movePicker.movingId
+        const ok = moveNode(movingId, toParentId)
+        if (ok) api.ui?.showToast?.(`已移动到：${folderLabelById(toParentId)}`)
+        else api.ui?.showToast?.('移动失败')
+        closeOverlays()
+        renderOverlay()
+        renderFolderList()
+        return
+      }
       if (act === 'back') {
         api.ui?.back ? api.ui.back() : api.ui?.showToast?.('无法返回')
         return
@@ -925,6 +1105,33 @@
       }
     })
 
+    root.addEventListener('contextmenu', (e) => {
+      const t = e.target
+      if (!(t instanceof HTMLElement)) return
+      if (state.view !== 'folders') return
+      if (state.folderSearchQuery.trim()) return
+      if (state.ctxMenu.open || state.movePicker.open) {
+        e.preventDefault()
+        return
+      }
+
+      const card = t.closest?.('[data-role="folderCard"]')
+      if (!(card instanceof HTMLElement)) return
+      const nodeId = card.getAttribute('data-id') || ''
+      const n = getNode(nodeId)
+      if (!n || n.type !== 'folder') return
+
+      e.preventDefault()
+      state.showRecentMenu = false
+      state.showMoreMenu = false
+      state.ctxMenu.open = true
+      state.ctxMenu.nodeId = nodeId
+      state.ctxMenu.x = e.clientX
+      state.ctxMenu.y = e.clientY
+      renderTopbar()
+      renderOverlay()
+    })
+
     root.addEventListener('input', (e) => {
       const t = e.target
       if (!(t instanceof HTMLElement)) return
@@ -939,6 +1146,11 @@
         renderFolderList()
         return
       }
+      if (act === 'movePickQuery') {
+        state.movePicker.query = (t instanceof HTMLInputElement ? t.value : '') || ''
+        renderMovePickerList()
+        return
+      }
       if (act === 'draftTitle') {
         state.draftTitle = (t instanceof HTMLInputElement ? t.value : '') || ''
         return
@@ -950,6 +1162,13 @@
       if (act === 'draftContent') {
         state.draftContent = (t instanceof HTMLTextAreaElement ? t.value : '') || ''
       }
+    })
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return
+      if (!state.ctxMenu.open && !state.movePicker.open) return
+      closeOverlays()
+      renderOverlay()
     })
 
     function endDrag(commit) {
@@ -1411,12 +1630,14 @@
     if (state.view === 'clipboard') {
       renderSettings()
       renderClipboardList()
+      renderOverlay()
       return
     }
 
     renderFoldersSubbar()
     renderItemEditor()
     renderFolderList()
+    renderOverlay()
   }
 
   async function checkClipboard() {
