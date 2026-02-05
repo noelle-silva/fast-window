@@ -2,26 +2,28 @@
 ;(function () {
   const api = window.fastWindow
   const STORAGE_KEY = 'settings'
+  const VERSION = 1
 
   const state = {
     loading: true,
     busy: false,
     modal: '',
+    menuOpen: false,
     prompt: '',
     imageDataUrl: '',
     savedPath: '',
     outputDir: '',
     error: '',
-    settings: {
-      providerName: 'OpenAI 兼容',
-      baseUrl: 'https://api.openai.com/v1',
+    data: null,
+    draft: {
+      providerName: '',
+      baseUrl: '',
       apiKey: '',
-      protocol: 'images', // 'images' | 'chat'
-      model: 'gpt-image-1',
+      protocol: 'images',
+      modelsText: '',
       size: '1024x1024',
+      chatSystemPrompt: '',
       autoSave: true,
-      chatSystemPrompt:
-        '你是一个“图片生成器”。请根据用户提示词生成一张图片，并只用 JSON 输出：{"b64_png":"<base64>"}。不要输出任何额外文字，不要用 markdown，不要包代码块。',
     },
   }
 
@@ -90,6 +92,17 @@
     return v.endsWith('/') ? v.slice(0, -1) : v
   }
 
+  function isHttpBaseUrl(s) {
+    const raw = String(s || '').trim()
+    if (!raw) return false
+    try {
+      const u = new URL(raw)
+      return (u.protocol === 'http:' || u.protocol === 'https:') && !!u.host
+    } catch (_) {
+      return false
+    }
+  }
+
   function parseErrorBody(body) {
     try {
       const j = JSON.parse(String(body || ''))
@@ -99,30 +112,145 @@
     return String(body || '')
   }
 
+  function now() {
+    return Date.now()
+  }
+
+  function id(prefix) {
+    return `${prefix}-${now()}-${Math.random().toString(16).slice(2)}`
+  }
+
+  function defaultChatSystemPrompt() {
+    return (
+      '你是一个“图片生成器”。请根据用户提示词生成一张图片，并只用 JSON 输出：{"b64_png":"<base64>"}。不要输出任何额外文字，不要用 markdown，不要包代码块。'
+    )
+  }
+
+  function defaultProvider() {
+    return {
+      id: id('prov'),
+      name: '默认供应商',
+      baseUrl: 'https://api.openai.com/v1',
+      apiKey: '',
+      protocol: 'images', // 'images' | 'chat'
+      models: ['gpt-image-1'],
+      model: 'gpt-image-1',
+      customModel: '',
+      size: '1024x1024',
+      chatSystemPrompt: defaultChatSystemPrompt(),
+    }
+  }
+
+  function defaultData() {
+    const p = defaultProvider()
+    return {
+      version: VERSION,
+      autoSave: true,
+      activeProviderId: p.id,
+      providers: [p],
+    }
+  }
+
+  function normalizeModels(list) {
+    const raw = Array.isArray(list) ? list : []
+    const out = []
+    for (const x of raw) {
+      const s = String(x || '').trim()
+      if (!s) continue
+      if (!out.includes(s)) out.push(s)
+      if (out.length >= 200) break
+    }
+    return out
+  }
+
+  function normalizeProvider(p) {
+    const out = p && typeof p === 'object' ? p : {}
+    out.id = String(out.id || id('prov'))
+    out.name = String(out.name || '供应商')
+    out.baseUrl = trimSlash(String(out.baseUrl || 'https://api.openai.com/v1'))
+    out.apiKey = String(out.apiKey || '')
+    out.protocol = String(out.protocol || 'images') === 'chat' ? 'chat' : 'images'
+    out.models = normalizeModels(out.models)
+    out.model = String(out.model || out.models[0] || '')
+    out.customModel = String(out.customModel || '')
+    out.size = String(out.size || '1024x1024')
+    out.chatSystemPrompt = String(out.chatSystemPrompt || defaultChatSystemPrompt())
+    return out
+  }
+
+  function migrateLegacySettingsToData(s) {
+    const p = defaultProvider()
+    p.name = String(s.providerName || p.name)
+    p.baseUrl = trimSlash(String(s.baseUrl || p.baseUrl))
+    p.apiKey = String(s.apiKey || '')
+    p.protocol = String(s.protocol || 'images') === 'chat' ? 'chat' : 'images'
+    p.size = String(s.size || p.size)
+    p.chatSystemPrompt = String(s.chatSystemPrompt || p.chatSystemPrompt)
+    const m = String(s.model || '').trim()
+    if (m) {
+      p.models = normalizeModels([m])
+      p.model = m
+    }
+    const out = defaultData()
+    out.providers = [p]
+    out.activeProviderId = p.id
+    out.autoSave = typeof s.autoSave === 'boolean' ? s.autoSave : true
+    return out
+  }
+
+  function normalizeData(raw) {
+    if (!raw || typeof raw !== 'object') return defaultData()
+
+    // legacy: 旧版把所有配置直接平铺在 settings 里
+    if (!Array.isArray(raw.providers)) {
+      return migrateLegacySettingsToData(raw)
+    }
+
+    const d = raw
+    const out = defaultData()
+    out.version = VERSION
+    out.autoSave = typeof d.autoSave === 'boolean' ? d.autoSave : true
+
+    out.providers = Array.isArray(d.providers) ? d.providers.map(normalizeProvider) : defaultData().providers
+    if (!out.providers.length) out.providers = defaultData().providers
+
+    const pid = String(d.activeProviderId || '')
+    out.activeProviderId = out.providers.some((x) => x.id === pid) ? pid : out.providers[0].id
+    return out
+  }
+
+  function activeProvider() {
+    const d = state.data
+    if (!d) return null
+    const pid = String(d.activeProviderId || '')
+    const ps = Array.isArray(d.providers) ? d.providers : []
+    return ps.find((p) => p && p.id === pid) || ps[0] || null
+  }
+
+  function resolveModel(p) {
+    if (!p) return ''
+    const pick = String(p.model || '').trim()
+    if (pick === '__custom__') return String(p.customModel || '').trim()
+    return pick
+  }
+
+  async function save() {
+    if (!state.data) return
+    await api.storage.set(STORAGE_KEY, state.data)
+  }
+
   async function load() {
     state.loading = true
     render()
 
     const saved = await api.storage.get(STORAGE_KEY).catch(() => null)
-    if (saved && typeof saved === 'object') {
-      const s = saved
-      if (typeof s.baseUrl === 'string') state.settings.baseUrl = s.baseUrl
-      if (typeof s.apiKey === 'string') state.settings.apiKey = s.apiKey
-      if (typeof s.protocol === 'string') state.settings.protocol = s.protocol
-      if (typeof s.model === 'string') state.settings.model = s.model
-      if (typeof s.size === 'string') state.settings.size = s.size
-      if (typeof s.autoSave === 'boolean') state.settings.autoSave = s.autoSave
-      if (typeof s.providerName === 'string') state.settings.providerName = s.providerName
-      if (typeof s.chatSystemPrompt === 'string') state.settings.chatSystemPrompt = s.chatSystemPrompt
-    }
+    state.data = normalizeData(saved)
+    // 迁移后立即落盘一次（只改结构，不改变用户意图）
+    await save().catch(() => {})
 
     state.outputDir = await api.files.getOutputDir().catch(() => '')
     state.loading = false
     render()
-  }
-
-  async function saveSettings() {
-    await api.storage.set(STORAGE_KEY, state.settings)
   }
 
   function stripCodeFences(s) {
@@ -159,28 +287,66 @@
     return ''
   }
 
-  function syncSettingsFromDom() {
-    const root = document.getElementById('app')
-    if (!root) return
+  function openSettings() {
+    const p = activeProvider()
+    if (!p) return
+    state.modal = 'settings'
+    state.draft.providerName = String(p.name || '')
+    state.draft.baseUrl = String(p.baseUrl || '')
+    state.draft.apiKey = String(p.apiKey || '')
+    state.draft.protocol = String(p.protocol || 'images') === 'chat' ? 'chat' : 'images'
+    state.draft.modelsText = Array.isArray(p.models) ? p.models.join('\n') : ''
+    state.draft.size = String(p.size || '1024x1024')
+    state.draft.chatSystemPrompt = String(p.chatSystemPrompt || defaultChatSystemPrompt())
+    state.draft.autoSave = !!(state.data && state.data.autoSave)
+    render()
+  }
 
-    const getVal = (k) => {
-      const el = root.querySelector(`[data-bind="${k}"]`)
-      if (!el) return null
-      if (el instanceof HTMLInputElement) {
-        if (el.type === 'checkbox') return !!el.checked
-        return String(el.value ?? '')
-      }
-      if (el instanceof HTMLTextAreaElement) return String(el.value ?? '')
-      if (el instanceof HTMLSelectElement) return String(el.value ?? '')
-      return null
+  function parseModelsText(text) {
+    const lines = String(text || '')
+      .split(/\r?\n/)
+      .map((x) => String(x || '').trim())
+      .filter((x) => !!x)
+    return normalizeModels(lines)
+  }
+
+  function applyDraftToActiveProvider() {
+    if (!state.data) return { ok: false, error: '内部状态缺失' }
+    const p = activeProvider()
+    if (!p) return { ok: false, error: '未选择供应商' }
+
+    const name = String(state.draft.providerName || '').trim() || '供应商'
+    const baseUrl = trimSlash(String(state.draft.baseUrl || ''))
+    const apiKey = String(state.draft.apiKey || '').trim()
+    const protocol = String(state.draft.protocol || 'images') === 'chat' ? 'chat' : 'images'
+    const models = parseModelsText(state.draft.modelsText)
+
+    if (baseUrl && !isHttpBaseUrl(baseUrl)) return { ok: false, error: `Base URL 无效：${baseUrl}` }
+
+    p.name = name
+    p.baseUrl = baseUrl || p.baseUrl
+    p.apiKey = apiKey
+    p.protocol = protocol
+    p.models = models
+    p.size = String(state.draft.size || p.size || '1024x1024')
+    p.chatSystemPrompt = String(state.draft.chatSystemPrompt || defaultChatSystemPrompt())
+
+    // 如果当前选中的 model 不在 models 里，则回退到第一个；为空则切到自定义
+    const cur = String(p.model || '').trim()
+    const resolved = cur === '__custom__' ? String(p.customModel || '').trim() : cur
+    if (resolved && models.includes(resolved)) {
+      p.model = resolved
+      p.customModel = ''
+    } else if (models.length) {
+      p.model = models[0]
+      p.customModel = ''
+    } else {
+      p.model = '__custom__'
+      if (!String(p.customModel || '').trim()) p.customModel = resolved || ''
     }
 
-    const keys = ['providerName', 'baseUrl', 'apiKey', 'protocol', 'model', 'size', 'autoSave', 'chatSystemPrompt']
-    for (const k of keys) {
-      const v = getVal(k)
-      if (v === null) continue
-      state.settings[k] = v
-    }
+    state.data.autoSave = !!state.draft.autoSave
+    return { ok: true, error: '' }
   }
 
   function setError(msg) {
@@ -237,9 +403,24 @@
       setError('请输入提示词')
       return
     }
-    if (!String(state.settings.apiKey || '').trim()) {
-      state.modal = 'settings'
+
+    const p = activeProvider()
+    const baseUrl = trimSlash(String(p?.baseUrl || ''))
+    const apiKey = String(p?.apiKey || '').trim()
+    if (!isHttpBaseUrl(baseUrl)) {
+      openSettings()
+      setError('请先在设置里配置 Base URL（http:// 或 https://）')
+      return
+    }
+    if (!apiKey) {
+      openSettings()
       setError('请先在设置里填写 API Key')
+      return
+    }
+    const model = resolveModel(p)
+    if (!model) {
+      openSettings()
+      setError('请先配置模型')
       return
     }
 
@@ -248,9 +429,7 @@
     state.savedPath = ''
     render()
 
-    const baseUrl = trimSlash(state.settings.baseUrl || 'https://api.openai.com/v1')
-    const protocol = String(state.settings.protocol || 'images')
-    const model = String(state.settings.model || '').trim() || 'gpt-image-1'
+    const protocol = String(p?.protocol || 'images') === 'chat' ? 'chat' : 'images'
 
     try {
       let url = ''
@@ -258,7 +437,7 @@
 
       if (protocol === 'chat') {
         url = `${baseUrl}/chat/completions`
-        const sys = String(state.settings.chatSystemPrompt || '').trim()
+        const sys = String(p?.chatSystemPrompt || '').trim()
         payload = {
           model,
           messages: [
@@ -272,7 +451,7 @@
         payload = {
           model,
           prompt,
-          size: String(state.settings.size || '').trim() || '1024x1024',
+          size: String(p?.size || '').trim() || '1024x1024',
           n: 1,
           response_format: 'b64_json',
         }
@@ -283,7 +462,7 @@
         url,
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${String(state.settings.apiKey || '').trim()}`,
+          Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(payload),
         timeoutMs: 120000,
@@ -330,7 +509,7 @@
       state.imageDataUrl = String(dataUrl).trim()
       render()
 
-      if (state.settings.autoSave) {
+      if (state.data && state.data.autoSave) {
         const p = await api.files.saveImageBase64(state.imageDataUrl)
         state.savedPath = p || ''
         render()
@@ -347,8 +526,15 @@
   }
 
   function view() {
-    const s = state.settings
-    const isChat = String(s.protocol || 'images') === 'chat'
+    const d = state.data
+    const p = activeProvider()
+    const ps = d && Array.isArray(d.providers) ? d.providers : []
+    const pid = d ? String(d.activeProviderId || '') : ''
+    const providerOptions = ps
+      .map((x) => `<option value="${esc(x.id)}" ${x.id === pid ? 'selected' : ''}>${esc(x.name)}</option>`)
+      .join('')
+
+    const isChat = String(p?.protocol || 'images') === 'chat'
     const topMeta = state.outputDir ? `<span class="kbd mono" title="${esc(state.outputDir)}">输出：${esc(state.outputDir)}</span>` : ''
 
     const img =
@@ -369,58 +555,51 @@
         <div class="modal" role="dialog" aria-modal="true" aria-label="连接设置">
           <div class="row">
             <div class="title" style="margin:0">连接设置（OpenAI 兼容）</div>
+            <div class="sp"></div>
+            <select class="field sm" data-bind="activeProviderId" aria-label="生效供应商">${providerOptions}</select>
+            <button class="btn" data-act="add-provider">新增</button>
+            <button class="btn bad" data-act="delete-provider" ${ps.length <= 1 ? 'disabled' : ''}>删除</button>
             <button class="btn" data-act="close-modal">关闭</button>
           </div>
           <div class="hr"></div>
 
           <label>供应商名称（可选）</label>
-          <input class="field" data-bind="providerName" placeholder="例如：OpenAI / DeepSeek / 本地网关" value="${esc(s.providerName)}" />
+          <input class="field" data-bind="providerName" placeholder="例如：OpenAI / DeepSeek / 本地网关" value="${esc(state.draft.providerName)}" />
 
           <label>Base URL</label>
-          <input class="field mono" data-bind="baseUrl" placeholder="https://api.openai.com/v1" value="${esc(s.baseUrl)}" />
+          <input class="field mono" data-bind="baseUrl" placeholder="https://api.openai.com/v1" value="${esc(state.draft.baseUrl)}" />
 
           <label>API Key</label>
-          <input class="field mono" type="password" data-bind="apiKey" placeholder="sk-..." value="${esc(s.apiKey)}" />
+          <input class="field mono" type="password" data-bind="apiKey" placeholder="sk-..." value="${esc(state.draft.apiKey)}" />
 
           <label>协议</label>
           <select class="field" data-bind="protocol" aria-label="协议">
-            <option value="images" ${!isChat ? 'selected' : ''}>图片生成（/images/generations）</option>
-            <option value="chat" ${isChat ? 'selected' : ''}>聊天补全（/chat/completions）</option>
+            <option value="images" ${String(state.draft.protocol) === 'chat' ? '' : 'selected'}>图片生成（/images/generations）</option>
+            <option value="chat" ${String(state.draft.protocol) === 'chat' ? 'selected' : ''}>聊天补全（/chat/completions）</option>
           </select>
 
-          <div class="row">
-            <div style="flex:1">
-              <label>模型</label>
-              <input class="field mono" data-bind="model" placeholder="gpt-image-1 / dall-e-3 ..." value="${esc(s.model)}" />
-            </div>
-            ${
-              !isChat
-                ? `
-            <div style="flex:1">
-              <label>尺寸</label>
-              <select class="field" data-bind="size" aria-label="尺寸">
-                ${['1024x1024', '1024x1536', '1536x1024', '512x512'].map((x) => `<option value="${x}" ${s.size === x ? 'selected' : ''}>${x}</option>`).join('')}
-              </select>
-            </div>
-            `
-                : ''
-            }
-          </div>
+          <label>模型列表（每行一个）</label>
+          <textarea class="field ta mono" data-bind="modelsText" placeholder="例如：\ngpt-image-1\ndall-e-3">${esc(state.draft.modelsText)}</textarea>
 
           ${
-            isChat
+            String(state.draft.protocol) === 'chat'
               ? `
           <label>聊天系统提示词（chat 专用）</label>
           <textarea class="field ta mono" data-bind="chatSystemPrompt" placeholder="要求模型返回 base64 图片...">${esc(
-            s.chatSystemPrompt || '',
+            state.draft.chatSystemPrompt || '',
           )}</textarea>
           <div class="meta">建议让服务端只输出 JSON：{"b64_png":"..."} 或 data:image/png;base64,...（否则很难稳定解析）。</div>
           `
-              : ''
+              : `
+          <label>尺寸（images 专用）</label>
+          <select class="field" data-bind="size" aria-label="尺寸">
+            ${['1024x1024', '1024x1536', '1536x1024', '512x512'].map((x) => `<option value="${x}" ${String(state.draft.size) === x ? 'selected' : ''}>${x}</option>`).join('')}
+          </select>
+          `
           }
 
           <label style="margin-top:12px">
-            <input type="checkbox" data-bind="autoSave" ${s.autoSave ? 'checked' : ''} />
+            <input type="checkbox" data-bind="autoSave" ${state.draft.autoSave ? 'checked' : ''} />
             <span style="margin-left:8px">生成后自动保存到输出目录</span>
           </label>
 
@@ -436,12 +615,20 @@
       </div>`
         : ''
 
+    const model = resolveModel(p)
+    const models = p && Array.isArray(p.models) ? p.models : []
+    const modelOptions = models
+      .map((m) => `<option value="${esc(m)}" ${m === String(p.model || '') ? 'selected' : ''}>${esc(m)}</option>`)
+      .join('')
+    const showCustom = String(p?.model || '') === '__custom__' || (!models.length && !String(p?.model || '').trim())
+
     return `
       <style>${css}</style>
       <div class="wrap">
         <div class="top">
           <div class="title">AI 绘图</div>
           ${topMeta}
+          <select class="field sm" data-bind="activeProviderId" aria-label="供应商">${providerOptions}</select>
           <button class="btn" data-act="open-settings">设置</button>
           <button class="btn" data-act="pick-output-dir">输出目录</button>
           <button class="btn bad" data-act="clear-all" ${state.busy ? 'disabled' : ''}>清空</button>
@@ -454,14 +641,25 @@
               <div class="row">
                 <div class="meta">提示词（一次性，无上下文）</div>
                 <div class="sp"></div>
-                <span class="meta">模型：<span class="mono">${esc(String(s.model || ''))}</span></span>
+                <span class="meta">模型：</span>
+                <select class="field sm" data-bind="activeModel" aria-label="模型" ${state.busy ? 'disabled' : ''}>
+                  ${modelOptions}
+                  <option value="__custom__" ${String(p?.model || '') === '__custom__' ? 'selected' : ''}>自定义…</option>
+                </select>
               </div>
+              ${
+                showCustom
+                  ? `<input class="field mono" data-bind="activeCustomModel" placeholder="输入模型 ID…" value="${esc(
+                      String(p?.customModel || model || ''),
+                    )}" ${state.busy ? 'disabled' : ''} />`
+                  : ''
+              }
               <textarea class="field ta" data-bind="prompt" placeholder="例如：赛博朋克城市夜景，雨，霓虹灯，电影感，高细节…" ${state.busy ? 'disabled' : ''}>${esc(state.prompt)}</textarea>
               <div class="row" style="margin-top:10px">
                 <button class="btn pri" data-act="generate" ${state.busy ? 'disabled' : ''}>${state.busy ? '生成中…' : '生成'}</button>
                 <button class="btn" data-act="open-output-dir">打开输出目录</button>
                 <div class="sp"></div>
-                <span class="meta">自动保存：${s.autoSave ? '开' : '关'}</span>
+                <span class="meta">自动保存：${d && d.autoSave ? '开' : '关'}</span>
               </div>
               <div style="margin-top:10px">${err}</div>
             </div>
@@ -505,8 +703,7 @@
       if (!act) return
 
       if (act === 'open-settings') {
-        state.modal = 'settings'
-        render()
+        openSettings()
       } else if (act === 'close-modal') {
         state.modal = ''
         render()
@@ -524,10 +721,29 @@
       } else if (act === 'copy-image') {
         copyImage()
       } else if (act === 'save-settings') {
-        syncSettingsFromDom()
-        saveSettings()
+        const r = applyDraftToActiveProvider()
+        if (!r.ok) return api.ui.showToast(r.error || '保存失败')
+        save()
           .then(() => api.ui.showToast('设置已保存'))
+          .then(() => render())
           .catch((e) => api.ui.showToast(`保存失败：${String(e?.message || e)}`))
+      } else if (act === 'add-provider') {
+        if (!state.data) return
+        const p = defaultProvider()
+        state.data.providers.unshift(p)
+        state.data.activeProviderId = p.id
+        openSettings()
+        save().catch(() => {})
+      } else if (act === 'delete-provider') {
+        if (!state.data) return
+        if (state.data.providers.length <= 1) return api.ui.showToast('至少保留一个供应商')
+        const p = activeProvider()
+        if (!p) return
+        if (!confirm(`删除供应商「${p.name}」？`)) return
+        state.data.providers = state.data.providers.filter((x) => x.id !== p.id)
+        state.data.activeProviderId = String(state.data.providers[0].id)
+        openSettings()
+        save().catch(() => {})
       }
     })
 
@@ -542,10 +758,21 @@
         return
       }
 
-      if (bind in state.settings) {
-        if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) {
-          state.settings[bind] = String(t.value || '')
+      if (state.modal === 'settings') {
+        if (bind in state.draft) {
+          if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) {
+            state.draft[bind] = String(t.value || '')
+          }
         }
+        return
+      }
+
+      if (bind === 'activeCustomModel') {
+        const p = activeProvider()
+        if (!p) return
+        p.customModel = String(t.value || '')
+        save().catch(() => {})
+        return
       }
     })
 
@@ -554,10 +781,37 @@
       if (!t || !t.getAttribute) return
       const bind = t.getAttribute('data-bind')
       if (!bind) return
-      if (!(bind in state.settings)) return
 
-      if (t instanceof HTMLSelectElement) state.settings[bind] = String(t.value || '')
-      if (t instanceof HTMLInputElement && t.type === 'checkbox') state.settings[bind] = !!t.checked
+      if (bind === 'activeProviderId') {
+        if (!state.data) return
+        const pid = String(t.value || '')
+        if (!pid) return
+        if (!state.data.providers.some((x) => x.id === pid)) return
+        state.data.activeProviderId = pid
+        if (state.modal === 'settings') openSettings()
+        save().catch(() => {})
+        render()
+        return
+      }
+
+      if (bind === 'activeModel') {
+        const p = activeProvider()
+        if (!p) return
+        const v = String(t.value || '')
+        p.model = v
+        if (v !== '__custom__') p.customModel = ''
+        save().catch(() => {})
+        render()
+        return
+      }
+
+      if (state.modal === 'settings') {
+        if (bind in state.draft) {
+          if (t instanceof HTMLSelectElement) state.draft[bind] = String(t.value || '')
+          if (t instanceof HTMLInputElement && t.type === 'checkbox') state.draft[bind] = !!t.checked
+          render()
+        }
+      }
     })
   }
 
