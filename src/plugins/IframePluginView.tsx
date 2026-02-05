@@ -173,7 +173,7 @@ export default function IframePluginView(props: Props) {
       title={pluginId}
       sandbox="allow-scripts"
       srcDoc={srcDoc}
-      style={{ width: '100%', height: '100%', border: '0' }}
+      style={{ display: 'block', width: '100%', height: '100%', border: '0' }}
     />
   )
 }

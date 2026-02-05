@@ -534,7 +534,7 @@ function App() {
       <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
         <Paper variant="outlined" sx={shellContainerSx}>
           <TitleBar title={activePlugin.name} onBack={() => setActivePlugin(null)} />
-          <Box sx={{ flex: 1, overflow: 'auto' }}>
+          <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
             <PluginComponent onBack={() => setActivePlugin(null)} />
           </Box>
           <StatusBar right={APP_VERSION_TEXT} />
