@@ -288,7 +288,7 @@ function App() {
         keyword: p.manifest.keyword,
         requires: p.manifest.requires,
         backgroundCode: p.backgroundCode,
-        backgroundAutoStart: !!(p.manifest.background && p.manifest.background.main && p.manifest.background.autoStart !== false),
+        backgroundAutoStart: !!(p.manifest.background && p.manifest.background.autoStart !== false),
         component: p.component,
       }))
 
