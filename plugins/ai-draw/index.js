@@ -6,8 +6,12 @@
   if (runtime === 'background') {
     const SETTINGS_KEY = 'settings'
     const SAVED_RESULTS_KEY = 'bgSavedResults'
+    const SAVE_REQUESTS_KEY = 'bgSaveRequests'
+    const SAVE_RESPONSES_KEY = 'bgSaveResponses'
     const POLL_INTERVAL = 1200
     const MAX_SAVED_RESULTS = 200
+    const MAX_SAVE_ITEMS = 50
+    const MAX_SAVE_PER_TICK = 3
     let ticking = false
 
     function stripCodeFences(s) {
@@ -84,8 +88,28 @@
       return out
     }
 
+    function trimSaveMap(map) {
+      const entries = Object.entries(map || {})
+        .filter(([k, v]) => k && v && typeof v === 'object')
+        .sort((a, b) => Number((b[1] && b[1].at) || 0) - Number((a[1] && a[1].at) || 0))
+        .slice(0, MAX_SAVE_ITEMS)
+      const out = {}
+      for (const [k, v] of entries) out[k] = v
+      return out
+    }
+
     async function readSavedResults() {
       const raw = await api.storage.get(SAVED_RESULTS_KEY).catch(() => null)
+      return raw && typeof raw === 'object' ? { ...raw } : {}
+    }
+
+    async function readSaveRequests() {
+      const raw = await api.storage.get(SAVE_REQUESTS_KEY).catch(() => null)
+      return raw && typeof raw === 'object' ? { ...raw } : {}
+    }
+
+    async function readSaveResponses() {
+      const raw = await api.storage.get(SAVE_RESPONSES_KEY).catch(() => null)
       return raw && typeof raw === 'object' ? { ...raw } : {}
     }
 
@@ -99,6 +123,45 @@
       ticking = true
       try {
         const autoSave = await isAutoSaveEnabled()
+        // 手动保存请求始终由 background 处理（autoSave 开关不影响手动保存）。
+        const reqMap = await readSaveRequests()
+        const resMap = await readSaveResponses()
+        const reqEntries = Object.entries(reqMap)
+          .filter(([k, v]) => k && v && typeof v === 'object' && typeof v.dataUrl === 'string' && String(v.dataUrl).trim())
+          .sort((a, b) => Number((a[1] && a[1].at) || 0) - Number((b[1] && b[1].at) || 0))
+
+        let saveChanged = false
+        let processed = 0
+        for (const [rid, req] of reqEntries) {
+          if (processed >= MAX_SAVE_PER_TICK) break
+
+          if (resMap[rid] && resMap[rid].savedPath) {
+            delete reqMap[rid]
+            saveChanged = true
+            continue
+          }
+
+          const dataUrl = String(req && req.dataUrl ? req.dataUrl : '').trim()
+          if (!dataUrl) {
+            delete reqMap[rid]
+            saveChanged = true
+            continue
+          }
+
+          const savedPath = await api.files.saveImageBase64(dataUrl).catch(() => '')
+          if (!savedPath) continue
+
+          resMap[rid] = { savedPath: String(savedPath), at: Date.now(), by: 'background' }
+          delete reqMap[rid]
+          saveChanged = true
+          processed++
+        }
+
+        if (saveChanged) {
+          await api.storage.set(SAVE_REQUESTS_KEY, trimSaveMap(reqMap)).catch(() => {})
+          await api.storage.set(SAVE_RESPONSES_KEY, trimSaveMap(resMap)).catch(() => {})
+        }
+
         if (!autoSave) return
 
         const tasks = await api.task.list(40).catch(() => [])
@@ -149,6 +212,8 @@
 
   const STORAGE_KEY = 'settings'
   const BG_SAVED_RESULTS_KEY = 'bgSavedResults'
+  const BG_SAVE_REQUESTS_KEY = 'bgSaveRequests'
+  const BG_SAVE_RESPONSES_KEY = 'bgSaveResponses'
   const VERSION = 1
   const DEFAULT_PROMPT_HISTORY_LIMIT = 50
   const MAX_PROMPT_HISTORY_LIMIT = 200
@@ -426,7 +491,7 @@
     await api.storage.set(STORAGE_KEY, state.data)
   }
 
-  async function takeBackgroundSavedPath(taskId) {
+  async function getBackgroundSavedPath(taskId) {
     const tid = String(taskId || '').trim()
     if (!tid) return ''
     const raw = await api.storage.get(BG_SAVED_RESULTS_KEY).catch(() => null)
@@ -434,23 +499,55 @@
     const hit = map[tid]
     const path = hit && typeof hit.savedPath === 'string' ? String(hit.savedPath).trim() : ''
     if (!path) return ''
-    delete map[tid]
-    await api.storage.set(BG_SAVED_RESULTS_KEY, map).catch(() => {})
     return path
   }
 
-  async function markBackgroundSavedPath(taskId, savedPath, by = 'ui') {
+  function sleepMs(ms) {
+    const t = Number(ms)
+    const safe = Number.isFinite(t) && t > 0 ? t : 0
+    return new Promise((resolve) => setTimeout(resolve, safe))
+  }
+
+  async function waitBackgroundSavedPath(taskId, timeoutMs = 4500, intervalMs = 250) {
     const tid = String(taskId || '').trim()
-    const path = String(savedPath || '').trim()
-    if (!tid || !path) return
-    const raw = await api.storage.get(BG_SAVED_RESULTS_KEY).catch(() => null)
-    const map = raw && typeof raw === 'object' ? { ...raw } : {}
-    map[tid] = {
-      savedPath: path,
-      at: Date.now(),
-      by,
+    if (!tid) return ''
+    const timeout = Number(timeoutMs)
+    const interval = Number(intervalMs)
+    const startedAt = Date.now()
+    while (Date.now() - startedAt < (Number.isFinite(timeout) && timeout > 0 ? timeout : 0)) {
+      const hit = await getBackgroundSavedPath(tid)
+      if (hit) return hit
+      await sleepMs(Number.isFinite(interval) && interval > 0 ? interval : 250)
     }
-    await api.storage.set(BG_SAVED_RESULTS_KEY, map).catch(() => {})
+    return ''
+  }
+
+  async function waitBackgroundSaveResponse(reqId, timeoutMs = 6000, intervalMs = 250) {
+    const rid = String(reqId || '').trim()
+    if (!rid) return ''
+    const timeout = Number(timeoutMs)
+    const interval = Number(intervalMs)
+    const startedAt = Date.now()
+    while (Date.now() - startedAt < (Number.isFinite(timeout) && timeout > 0 ? timeout : 0)) {
+      const raw = await api.storage.get(BG_SAVE_RESPONSES_KEY).catch(() => null)
+      const map = raw && typeof raw === 'object' ? raw : null
+      const hit = map && map[rid] ? map[rid] : null
+      const p = hit && typeof hit.savedPath === 'string' ? String(hit.savedPath).trim() : ''
+      if (p) return p
+      await sleepMs(Number.isFinite(interval) && interval > 0 ? interval : 250)
+    }
+    return ''
+  }
+
+  async function enqueueBackgroundSave(dataUrl) {
+    const data = String(dataUrl || '').trim()
+    if (!data) return ''
+    const rid = `save-${Date.now()}-${Math.random().toString(16).slice(2)}`
+    const raw = await api.storage.get(BG_SAVE_REQUESTS_KEY).catch(() => null)
+    const map = raw && typeof raw === 'object' ? { ...raw } : {}
+    map[rid] = { dataUrl: data, at: Date.now(), by: 'ui' }
+    await api.storage.set(BG_SAVE_REQUESTS_KEY, map).catch(() => {})
+    return rid
   }
 
   function syncPromptHistoryToData(persist = false) {
@@ -578,8 +675,15 @@
     if (status === 'succeeded') {
       try {
         const taskId = String(task && task.id ? task.id : '').trim()
-        const bgSavedPath = state.data && state.data.autoSave ? await takeBackgroundSavedPath(taskId) : ''
+        const isSuperseded = () => {
+          const pending = String(state && state.data && state.data.pendingTaskId ? state.data.pendingTaskId : '').trim()
+          return !!(pending && pending !== taskId)
+        }
+        if (isSuperseded()) return
+
+        const bgSavedPath = state.data && state.data.autoSave ? await getBackgroundSavedPath(taskId) : ''
         if (bgSavedPath) {
+          if (isSuperseded()) return
           state.savedPath = bgSavedPath
           await refreshImageHistoryFromOutputDir(state.savedPath)
           api.ui.showToast('已生成并保存')
@@ -621,11 +725,22 @@
 
         const generatedDataUrl = String(dataUrl).trim()
         if (state.data && state.data.autoSave) {
-          const savedPath = await api.files.saveImageBase64(generatedDataUrl)
-          state.savedPath = String(savedPath || '')
-          await markBackgroundSavedPath(taskId, state.savedPath, 'ui')
-          await refreshImageHistoryFromOutputDir(state.savedPath)
-          api.ui.showToast('已生成并保存')
+          // 让 background 成为单一写入者：UI 只展示图片，并等待 background 写入完成后刷新 savedPath。
+          if (isSuperseded()) return
+          state.imageDataUrl = generatedDataUrl
+          state.savedPath = ''
+          render()
+
+          const waited = await waitBackgroundSavedPath(taskId, 6000, 250)
+          if (waited) {
+            if (isSuperseded()) return
+            state.savedPath = String(waited || '')
+            await refreshImageHistoryFromOutputDir(state.savedPath)
+            api.ui.showToast('已生成并保存')
+            return
+          }
+
+          api.ui.showToast('已生成（后台保存中…）')
         } else {
           state.imageDataUrl = generatedDataUrl
           render()
@@ -949,15 +1064,18 @@
 
   async function saveImageNow() {
     if (!state.imageDataUrl) return
-    const p = await api.files.saveImageBase64(state.imageDataUrl).catch((e) => {
-      api.ui.showToast(`保存失败：${String(e?.message || e)}`)
-      return ''
-    })
-    if (p) {
-      state.savedPath = p
-      await refreshImageHistoryFromOutputDir(state.savedPath)
-      api.ui.showToast('已保存图片')
+    if (state.data && state.data.autoSave) {
+      api.ui.showToast('已开启自动保存，无需手动保存')
+      return
     }
+    const rid = await enqueueBackgroundSave(state.imageDataUrl).catch(() => '')
+    if (!rid) return api.ui.showToast('保存失败：无法发起后台保存')
+    api.ui.showToast('已请求后台保存…')
+    const p = await waitBackgroundSaveResponse(rid).catch(() => '')
+    if (!p) return
+    state.savedPath = p
+    await refreshImageHistoryFromOutputDir(state.savedPath)
+    api.ui.showToast('已保存图片')
   }
 
   async function copyImage() {
@@ -1218,7 +1336,7 @@
                 <span class="meta" aria-label="图片历史计数">${imageIndexText}</span>
                 <button class="btn" data-act="image-prev" ${canImagePrev ? '' : 'disabled'} aria-label="上一张图片">←</button>
                 <button class="btn" data-act="image-next" ${canImageNext ? '' : 'disabled'} aria-label="下一张图片">→</button>
-                <button class="btn ok" data-act="save-image" ${state.imageDataUrl && !state.busy ? '' : 'disabled'}>保存</button>
+                ${d && d.autoSave ? '' : `<button class="btn ok" data-act="save-image" ${state.imageDataUrl && !state.busy ? '' : 'disabled'}>保存</button>`}
                 <button class="btn" data-act="copy-image" ${state.imageDataUrl && !state.busy ? '' : 'disabled'}>复制图片</button>
               </div>
               <div style="flex:1; min-height:0;">${img}</div>
