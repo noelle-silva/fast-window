@@ -450,7 +450,11 @@
 
   function canSwitchPromptNext() {
     if (!state.promptHistory.length) return false
-    return state.promptHistoryIndex !== -1
+    if (state.promptHistoryIndex === -1) return false
+    if (state.promptHistoryIndex < state.promptHistory.length - 1) return true
+    const draft = String(state.promptHistoryDraft || '').trim()
+    const latest = String(state.promptHistory[state.promptHistory.length - 1] || '').trim()
+    return draft !== latest
   }
 
   function switchPromptHistory(direction) {
@@ -470,6 +474,14 @@
     const next = state.promptHistoryIndex + step
     if (next < 0) return
     if (next >= state.promptHistory.length) {
+      const draft = String(state.promptHistoryDraft || '').trim()
+      const latest = String(state.promptHistory[state.promptHistory.length - 1] || '').trim()
+      if (draft === latest) {
+        state.promptHistoryIndex = state.promptHistory.length - 1
+        state.prompt = String(state.promptHistory[state.promptHistoryIndex] || '')
+        render()
+        return
+      }
       state.promptHistoryIndex = -1
       state.prompt = state.promptHistoryDraft
       state.promptHistoryDraft = ''
@@ -480,6 +492,26 @@
     state.promptHistoryIndex = next
     state.prompt = String(state.promptHistory[next] || '')
     render()
+  }
+
+  function syncPromptNavigationWithCurrentInput() {
+    const current = String(state.prompt || '')
+    if (!state.promptHistory.length) {
+      state.promptHistoryIndex = -1
+      state.promptHistoryDraft = current
+      return
+    }
+
+    const latestIndex = state.promptHistory.length - 1
+    const latest = String(state.promptHistory[latestIndex] || '')
+    if (current.trim() && current.trim() === latest.trim()) {
+      state.promptHistoryIndex = latestIndex
+      state.promptHistoryDraft = latest
+      return
+    }
+
+    state.promptHistoryIndex = -1
+    state.promptHistoryDraft = current
   }
 
   async function applyImageHistoryIndex(index) {
@@ -977,9 +1009,7 @@
 
       if (bind === 'prompt') {
         state.prompt = String(t.value || '')
-        if (state.promptHistoryIndex === -1) {
-          state.promptHistoryDraft = state.prompt
-        }
+        syncPromptNavigationWithCurrentInput()
         return
       }
 
