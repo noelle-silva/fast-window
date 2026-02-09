@@ -15,6 +15,7 @@ function buildSrcDoc(pluginId: string, pluginCode: string, token: string) {
   const pluginId = ${JSON.stringify(pluginId)};
   const apiVersion = ${PLUGIN_API_VERSION};
   const token = ${JSON.stringify(token)};
+  const runtime = 'ui';
 
   let seq = 0;
   const pending = new Map();
@@ -67,7 +68,7 @@ function buildSrcDoc(pluginId: string, pluginCode: string, token: string) {
   });
 
   window.fastWindow = {
-    __meta: { pluginId, apiVersion },
+    __meta: { pluginId, apiVersion, runtime },
     clipboard: {
       readText: () => call('clipboard.readText', []),
       writeText: (text) => call('clipboard.writeText', [text]),

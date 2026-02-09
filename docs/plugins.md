@@ -17,8 +17,11 @@
 - `ui.type`：
   - `react`：旧模式（同一 WebView 内执行）
   - `iframe`：沙箱模式（`sandbox iframe` 执行，通过 `postMessage` 调宿主能力）
+- `background`：后台运行策略（可选）
+  - `autoStart?: boolean`：是否启动即运行后台上下文（默认 `true`）
+  - `main?: string`：可选 legacy 双入口；不填时默认复用 `main`（推荐单入口）
 
-示例（iframe 插件）：
+示例（iframe 插件，单入口 + 后台自启动）：
 
 ```json
 {
@@ -27,6 +30,7 @@
   "version": "1.0.0",
   "description": "demo",
   "main": "index.js",
+  "background": { "autoStart": true },
   "ui": { "type": "iframe" },
   "apiVersion": 1,
   "requires": ["ui.showToast", "clipboard.readText"]
@@ -75,6 +79,19 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
 - `fastWindow.storage.*`（默认绑定当前插件 id：`get(key)` / `set(key, value)` …）
 - `fastWindow.ui.showToast(message)`
 - `fastWindow.ui.back()`（请求宿主返回）
+
+运行时元信息：
+
+- `fastWindow.__meta.runtime`：`'ui' | 'background'`
+- 单入口插件可在同一文件内按 runtime 分支：
+  - `runtime === 'ui'`：渲染界面、处理交互
+  - `runtime === 'background'`：常驻后台轮询任务、落盘、同步状态
+
+推荐范式：
+
+- 默认使用 **单入口**（`main`）+ `background.autoStart`
+- 插件自己在入口里根据 `__meta.runtime` 分流逻辑
+- 宿主只提供通用 API 原语，不实现插件业务解析
 
 注意：iframe 插件不会拿到 `React`，也不会使用 `registerPluginComponent`；它应该自行渲染 DOM。
 

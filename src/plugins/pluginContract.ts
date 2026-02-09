@@ -60,7 +60,8 @@ export interface PluginManifest {
     type: PluginUiType
   }
   background?: {
-    main: string
+    // 统一入口模式下不再必填；若提供 main，则按 legacy 双入口处理
+    main?: string
     autoStart?: boolean
   }
 }

@@ -30,9 +30,15 @@ async function loadPlugin(pluginPath: string): Promise<LoadedPlugin | null> {
       return null
     }
 
-    const backgroundCode = rawManifest.background?.main
-      ? await invoke<string>('read_plugin_file', { pluginId: pluginPath, path: rawManifest.background.main }).catch(() => '')
-      : ''
+    let backgroundCode = ''
+    if (rawManifest.background) {
+      const bgMain = String(rawManifest.background.main || '').trim()
+      if (bgMain) {
+        backgroundCode = await invoke<string>('read_plugin_file', { pluginId: pluginPath, path: bgMain }).catch(() => '')
+      } else {
+        backgroundCode = code
+      }
+    }
 
     const component: ComponentType<{ onBack: () => void }> = ({ onBack }) =>
       React.createElement(IframePluginView, {
