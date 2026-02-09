@@ -2,9 +2,12 @@
 ;(function () {
   const api = window.fastWindow
   const STORAGE_KEY = 'settings'
+  const BG_SAVED_RESULTS_KEY = 'bgSavedResults'
   const VERSION = 1
   const DEFAULT_PROMPT_HISTORY_LIMIT = 50
   const MAX_PROMPT_HISTORY_LIMIT = 200
+  const TASK_KIND_HTTP_REQUEST = 'http.request'
+  const TASK_POLL_INTERVAL = 1200
 
   const state = {
     loading: true,
@@ -19,6 +22,9 @@
     imageHistory: [],
     imageHistoryIndex: -1,
     savedPath: '',
+    currentTaskId: '',
+    taskPollTimer: null,
+    taskPolling: false,
     outputDir: '',
     error: '',
     data: null,
@@ -150,6 +156,7 @@
       autoSave: true,
       promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
       promptHistory: [],
+      pendingTaskId: '',
       activeProviderId: p.id,
       providers: [p],
     }
@@ -243,6 +250,7 @@
     out.autoSave = typeof d.autoSave === 'boolean' ? d.autoSave : true
     out.promptHistoryLimit = normalizePromptHistoryLimit(d.promptHistoryLimit)
     out.promptHistory = normalizePromptHistory(d.promptHistory, out.promptHistoryLimit)
+    out.pendingTaskId = String(d.pendingTaskId || '').trim()
 
     out.providers = Array.isArray(d.providers) ? d.providers.map(normalizeProvider) : defaultData().providers
     if (!out.providers.length) out.providers = defaultData().providers
@@ -272,6 +280,33 @@
     await api.storage.set(STORAGE_KEY, state.data)
   }
 
+  async function takeBackgroundSavedPath(taskId) {
+    const tid = String(taskId || '').trim()
+    if (!tid) return ''
+    const raw = await api.storage.get(BG_SAVED_RESULTS_KEY).catch(() => null)
+    const map = raw && typeof raw === 'object' ? { ...raw } : {}
+    const hit = map[tid]
+    const path = hit && typeof hit.savedPath === 'string' ? String(hit.savedPath).trim() : ''
+    if (!path) return ''
+    delete map[tid]
+    await api.storage.set(BG_SAVED_RESULTS_KEY, map).catch(() => {})
+    return path
+  }
+
+  async function markBackgroundSavedPath(taskId, savedPath, by = 'ui') {
+    const tid = String(taskId || '').trim()
+    const path = String(savedPath || '').trim()
+    if (!tid || !path) return
+    const raw = await api.storage.get(BG_SAVED_RESULTS_KEY).catch(() => null)
+    const map = raw && typeof raw === 'object' ? { ...raw } : {}
+    map[tid] = {
+      savedPath: path,
+      at: Date.now(),
+      by,
+    }
+    await api.storage.set(BG_SAVED_RESULTS_KEY, map).catch(() => {})
+  }
+
   function syncPromptHistoryToData(persist = false) {
     if (!state.data) return
     state.data.promptHistory = state.promptHistory.slice()
@@ -292,9 +327,58 @@
     await save().catch(() => {})
 
     state.outputDir = await api.files.getOutputDir().catch(() => '')
+
+    let resumedTask = null
+    const savedPendingTaskId = String(state.data && state.data.pendingTaskId ? state.data.pendingTaskId : '').trim()
+    if (savedPendingTaskId) {
+      resumedTask = await api.task.get(savedPendingTaskId).catch(() => null)
+      if (!resumedTask && state.data) {
+        state.data.pendingTaskId = ''
+        await save().catch(() => {})
+      }
+    }
+
+    if (!resumedTask) {
+      const pending = await api.task.list(20).catch(() => [])
+      resumedTask = Array.isArray(pending)
+        ? pending.find((t) => {
+            const status = String(t && t.status ? t.status : '')
+            return !isTaskDone(status)
+          }) || null
+        : null
+    }
+
+    if (resumedTask) {
+      const resumeTaskId = String(resumedTask.id || '').trim()
+      const resumeStatus = String(resumedTask.status || '')
+      if (resumeTaskId && !isTaskDone(resumeStatus)) {
+        state.currentTaskId = resumeTaskId
+        state.busy = true
+        if (state.data) {
+          state.data.pendingTaskId = resumeTaskId
+          await save().catch(() => {})
+        }
+      } else if (resumeTaskId && isTaskDone(resumeStatus)) {
+        state.currentTaskId = ''
+        state.busy = false
+        await applyTaskCompletion(resumedTask)
+        if (state.data) {
+          state.data.pendingTaskId = ''
+          await save().catch(() => {})
+        }
+      } else {
+        state.currentTaskId = ''
+        state.busy = false
+      }
+    } else {
+      state.currentTaskId = ''
+      state.busy = false
+    }
+
     state.loading = false
     render()
     await refreshImageHistoryFromOutputDir()
+    if (state.currentTaskId) pollTask(state.currentTaskId)
   }
 
   function stripCodeFences(s) {
@@ -329,6 +413,122 @@
     }
 
     return ''
+  }
+
+  function isTaskDone(status) {
+    return status === 'succeeded' || status === 'failed' || status === 'canceled'
+  }
+
+  function stopTaskPolling() {
+    if (state.taskPollTimer) {
+      clearTimeout(state.taskPollTimer)
+      state.taskPollTimer = null
+    }
+    state.taskPolling = false
+  }
+
+  async function applyTaskCompletion(task) {
+    const status = String(task?.status || '')
+    if (status === 'succeeded') {
+      try {
+        const taskId = String(task && task.id ? task.id : '').trim()
+        const bgSavedPath = state.data && state.data.autoSave ? await takeBackgroundSavedPath(taskId) : ''
+        if (bgSavedPath) {
+          state.savedPath = bgSavedPath
+          await refreshImageHistoryFromOutputDir(state.savedPath)
+          api.ui.showToast('已生成并保存')
+          return
+        }
+
+        const r = task && task.result && typeof task.result === 'object' ? task.result : {}
+        const httpStatus = Number(r.status)
+        const bodyText = typeof r.body === 'string' ? r.body : ''
+        if (!Number.isFinite(httpStatus)) {
+          throw new Error('请求失败：无响应')
+        }
+        if (httpStatus < 200 || httpStatus >= 300) {
+          throw new Error(`HTTP ${httpStatus}：${parseErrorBody(bodyText)}`)
+        }
+
+        const j = JSON.parse(String(bodyText || '{}'))
+        const item = (Array.isArray(j?.data) && j.data[0]) || (Array.isArray(j?.images) && j.images[0]) || null
+        const b64 = item?.b64_json || item?.b64 || item?.base64 || ''
+        const direct =
+          typeof item?.data_url === 'string'
+            ? item.data_url
+            : typeof item?.dataUrl === 'string'
+              ? item.dataUrl
+              : ''
+        const content =
+          (Array.isArray(j?.choices) && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || ''
+        const dataUrl =
+          (direct && String(direct).trim()) ||
+          (b64 && `data:image/png;base64,${String(b64).trim()}`) ||
+          extractImageFromText(content)
+
+        if (!dataUrl) {
+          if (item?.url) {
+            throw new Error('服务端返回 url（宿主无法下载二进制）。请配置为返回 base64（b64_json / b64_png / data_url）。')
+          }
+          throw new Error('未拿到图片数据（b64_json）')
+        }
+
+        const generatedDataUrl = String(dataUrl).trim()
+        if (state.data && state.data.autoSave) {
+          const savedPath = await api.files.saveImageBase64(generatedDataUrl)
+          state.savedPath = String(savedPath || '')
+          await markBackgroundSavedPath(taskId, state.savedPath, 'ui')
+          await refreshImageHistoryFromOutputDir(state.savedPath)
+          api.ui.showToast('已生成并保存')
+        } else {
+          state.imageDataUrl = generatedDataUrl
+          render()
+          api.ui.showToast('已生成')
+        }
+        return
+      } catch (e) {
+        setError(String(e?.message || e))
+        return
+      }
+    }
+
+    if (status === 'canceled') {
+      setError('任务已取消')
+      return
+    }
+
+    const err = String(task?.error || '').trim()
+    setError(err || '生成失败')
+  }
+
+  async function pollTask(taskId) {
+    if (!taskId || state.currentTaskId !== taskId) return
+    if (state.taskPolling) return
+    state.taskPolling = true
+    try {
+      const task = await api.task.get(taskId).catch(() => null)
+      if (!task || state.currentTaskId !== taskId) return
+      const status = String(task.status || '')
+      if (!isTaskDone(status)) {
+        state.taskPollTimer = setTimeout(() => {
+          state.taskPolling = false
+          pollTask(taskId)
+        }, TASK_POLL_INTERVAL)
+        return
+      }
+
+      state.currentTaskId = ''
+      state.busy = false
+      stopTaskPolling()
+      await applyTaskCompletion(task)
+      if (state.data) {
+        state.data.pendingTaskId = ''
+        await save().catch(() => {})
+      }
+      render()
+    } finally {
+      state.taskPolling = false
+    }
   }
 
   function openSettings() {
@@ -658,96 +858,54 @@
     const protocol = String(p?.protocol || 'images') === 'chat' ? 'chat' : 'images'
 
     try {
-      let url = ''
-      let payload = null
-
-      if (protocol === 'chat') {
-        url = `${baseUrl}/chat/completions`
-        const sys = String(p?.chatSystemPrompt || '').trim()
-        payload = {
-          model,
-          messages: [
-            ...(sys ? [{ role: 'system', content: sys }] : []),
-            { role: 'user', content: prompt },
-          ],
-          temperature: 0.2,
-        }
-      } else {
-        url = `${baseUrl}/images/generations`
-        payload = {
-          model,
-          prompt,
-          size: String(p?.size || '').trim() || '1024x1024',
-          n: 1,
-          response_format: 'b64_json',
-        }
-      }
-
-      const resp = await api.net.request({
-        method: 'POST',
-        url,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
+      const task = await api.task.create({
+        kind: TASK_KIND_HTTP_REQUEST,
+        payload: {
+          method: 'POST',
+          url:
+            protocol === 'chat'
+              ? `${baseUrl}/chat/completions`
+              : `${baseUrl}/images/generations`,
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify(
+            protocol === 'chat'
+              ? {
+                  model,
+                  messages: [
+                    ...(String(p?.chatSystemPrompt || '').trim()
+                      ? [{ role: 'system', content: String(p?.chatSystemPrompt || '').trim() }]
+                      : []),
+                    { role: 'user', content: prompt },
+                  ],
+                  temperature: 0.2,
+                }
+              : {
+                  model,
+                  prompt,
+                  size: String(p?.size || '').trim() || '1024x1024',
+                  n: 1,
+                  response_format: 'b64_json',
+                },
+          ),
+          timeoutMs: 120000,
         },
-        body: JSON.stringify(payload),
-        timeoutMs: 120000,
       })
 
-      if (!resp || typeof resp.status !== 'number') {
-        throw new Error('请求失败：无响应')
+      const taskId = String(task && task.id ? task.id : '').trim()
+      if (!taskId) throw new Error('创建后台任务失败')
+      state.currentTaskId = taskId
+      if (state.data) {
+        state.data.pendingTaskId = taskId
+        await save().catch(() => {})
       }
-      if (resp.status < 200 || resp.status >= 300) {
-        throw new Error(`HTTP ${resp.status}：${parseErrorBody(resp.body)}`)
-      }
-
-      const j = JSON.parse(String(resp.body || '{}'))
-
-      // images 协议（OpenAI 兼容）
-      const item = (Array.isArray(j?.data) && j.data[0]) || (Array.isArray(j?.images) && j.images[0]) || null
-      const b64 = item?.b64_json || item?.b64 || item?.base64 || ''
-      const direct =
-        typeof item?.data_url === 'string'
-          ? item.data_url
-          : typeof item?.dataUrl === 'string'
-            ? item.dataUrl
-            : ''
-
-      // chat 协议：从 message.content 抽取
-      const content =
-        (Array.isArray(j?.choices) && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || ''
-
-      const dataUrl =
-        (direct && String(direct).trim()) ||
-        (b64 && `data:image/png;base64,${String(b64).trim()}`) ||
-        extractImageFromText(content)
-
-      if (!dataUrl) {
-        if (item?.url) {
-          throw new Error('服务端返回 url（宿主无法下载二进制）。请配置为返回 base64（b64_json / b64_png / data_url）。')
-        }
-        if (protocol === 'chat') {
-          throw new Error('聊天补全未解析到图片。请让服务端只输出 JSON：{"b64_png":"<base64>"} 或直接输出 data:image/png;base64,...')
-        }
-        throw new Error('未拿到图片数据（b64_json）')
-      }
-
-      const generatedDataUrl = String(dataUrl).trim()
-
-      if (state.data && state.data.autoSave) {
-        const p = await api.files.saveImageBase64(generatedDataUrl)
-        state.savedPath = p || ''
-        await refreshImageHistoryFromOutputDir(state.savedPath)
-        api.ui.showToast('已生成并保存')
-      } else {
-        state.imageDataUrl = generatedDataUrl
-        render()
-        api.ui.showToast('已生成')
-      }
+      render()
+      pollTask(taskId)
     } catch (e) {
-      setError(String(e?.message || e))
-    } finally {
       state.busy = false
+      setError(String(e?.message || e))
       render()
     }
   }
@@ -899,6 +1057,7 @@
               </div>
               <div class="row" style="margin-top:10px">
                 <button class="btn pri" data-act="generate" ${state.busy ? 'disabled' : ''}>${state.busy ? '生成中…' : '生成'}</button>
+                <button class="btn bad" data-act="cancel-generate" ${state.currentTaskId ? '' : 'disabled'}>取消任务</button>
                 <button class="btn" data-act="open-output-dir">打开输出目录</button>
                 <div class="sp"></div>
                 <span class="meta">自动保存：${d && d.autoSave ? '开' : '关'}</span>
@@ -954,6 +1113,15 @@
         render()
       } else if (act === 'generate') {
         generate()
+      } else if (act === 'cancel-generate') {
+        const tid = String(state.currentTaskId || '').trim()
+        if (!tid) return
+        api.task
+          .cancel(tid)
+          .then(() => {
+            api.ui.showToast('已请求取消')
+          })
+          .catch((e) => api.ui.showToast(`取消失败：${String(e?.message || e)}`))
       } else if (act === 'prompt-prev') {
         switchPromptHistory(-1)
       } else if (act === 'prompt-next') {

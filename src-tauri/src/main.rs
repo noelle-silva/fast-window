@@ -1,17 +1,20 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
 
 use base64::{engine::general_purpose, Engine as _};
+use image::codecs::png::PngEncoder;
+use image::{ColorType, ImageEncoder};
 use serde::{Deserialize, Serialize};
 use tauri::{
-    Manager, WindowEvent,
+    AppHandle, Manager, WindowEvent,
     tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent},
     menu::{Menu, MenuItem},
 };
+use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
@@ -21,6 +24,8 @@ const APP_CONFIG_FILE: &str = "app.json";
 const WAKE_SHORTCUT_KEY: &str = "wakeShortcut";
 const AUTO_START_KEY: &str = "autoStart";
 const PLUGIN_OUTPUT_DIRS_KEY: &str = "pluginOutputDirs";
+const TASKS_RETENTION_LIMIT: usize = 120;
+const TASKS_PER_PLUGIN_LIMIT: usize = 40;
 
 // 避免开发版把“开机启动”写到正式版同一个注册表项里（会导致装了 MSI 以后仍然自启 debug exe）。
 #[cfg(debug_assertions)]
@@ -49,10 +54,291 @@ struct HttpResponse {
     body: String,
 }
 
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum TaskStatus {
+    Queued,
+    Running,
+    Succeeded,
+    Failed,
+    Canceled,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskSummary {
+    id: String,
+    plugin_id: String,
+    kind: String,
+    status: TaskStatus,
+    created_at_ms: u64,
+    updated_at_ms: u64,
+    started_at_ms: Option<u64>,
+    finished_at_ms: Option<u64>,
+    cancel_requested: bool,
+    error: Option<String>,
+    result: Option<Value>,
+}
+
+#[derive(Clone)]
+struct TaskRecord {
+    id: String,
+    plugin_id: String,
+    kind: String,
+    status: TaskStatus,
+    created_at_ms: u64,
+    updated_at_ms: u64,
+    started_at_ms: Option<u64>,
+    finished_at_ms: Option<u64>,
+    cancel_requested: bool,
+    error: Option<String>,
+    payload: Value,
+    result: Option<Value>,
+}
+
+impl TaskRecord {
+    fn summary(&self) -> TaskSummary {
+        TaskSummary {
+            id: self.id.clone(),
+            plugin_id: self.plugin_id.clone(),
+            kind: self.kind.clone(),
+            status: self.status,
+            created_at_ms: self.created_at_ms,
+            updated_at_ms: self.updated_at_ms,
+            started_at_ms: self.started_at_ms,
+            finished_at_ms: self.finished_at_ms,
+            cancel_requested: self.cancel_requested,
+            error: self.error.clone(),
+            result: self.result.clone(),
+        }
+    }
+}
+
+#[derive(Default)]
+struct TaskManagerState {
+    tasks: Mutex<HashMap<String, TaskRecord>>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskCreateReq {
+    kind: String,
+    #[serde(default)]
+    payload: Option<Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ClipboardWatchTaskPayload {
+    interval_ms: Option<u64>,
+    max_history: Option<usize>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClipboardSnapshotItem {
+    r#type: String,
+    content: String,
+    time: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ClipboardWatchTaskResult {
+    items: Vec<ClipboardSnapshotItem>,
+}
+
 fn is_http_url(url: &str) -> bool {
     let u = url.trim();
     let u = u.to_ascii_lowercase();
     u.starts_with("http://") || u.starts_with("https://")
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_millis(0))
+        .as_millis() as u64
+}
+
+fn rand_u32(seed: u64) -> u32 {
+    let mut x = (seed as u32).wrapping_mul(1664525).wrapping_add(1013904223);
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^ (x << 5)
+}
+
+fn make_task_id() -> String {
+    let stamp = now_ms();
+    let rnd = format!("{:08x}", rand_u32(stamp));
+    format!("task-{stamp}-{rnd}")
+}
+
+fn is_task_finished(status: TaskStatus) -> bool {
+    matches!(status, TaskStatus::Succeeded | TaskStatus::Failed | TaskStatus::Canceled)
+}
+
+fn trim_task_records(tasks: &mut HashMap<String, TaskRecord>) {
+    if tasks.len() <= TASKS_RETENTION_LIMIT {
+        return;
+    }
+    let mut all: Vec<(String, u64)> = tasks
+        .iter()
+        .filter(|(_, rec)| is_task_finished(rec.status))
+        .map(|(id, rec)| (id.clone(), rec.updated_at_ms))
+        .collect();
+    all.sort_by(|a, b| b.1.cmp(&a.1));
+    for (idx, (id, _)) in all.into_iter().enumerate() {
+        if idx < TASKS_RETENTION_LIMIT {
+            continue;
+        }
+        tasks.remove(&id);
+    }
+}
+
+fn trim_plugin_task_records(tasks: &mut HashMap<String, TaskRecord>, plugin_id: &str) {
+    let mut plugin_items: Vec<(String, u64)> = tasks
+        .iter()
+        .filter(|(_, rec)| rec.plugin_id == plugin_id && is_task_finished(rec.status))
+        .map(|(id, rec)| (id.clone(), rec.updated_at_ms))
+        .collect();
+    if plugin_items.len() <= TASKS_PER_PLUGIN_LIMIT {
+        return;
+    }
+    plugin_items.sort_by(|a, b| b.1.cmp(&a.1));
+    for (idx, (id, _)) in plugin_items.into_iter().enumerate() {
+        if idx < TASKS_PER_PLUGIN_LIMIT {
+            continue;
+        }
+        tasks.remove(&id);
+    }
+}
+
+fn encode_rgba_to_png_data_url(rgba: &[u8], width: u32, height: u32) -> Result<String, String> {
+    if width == 0 || height == 0 {
+        return Err("图片尺寸无效".to_string());
+    }
+    let expect = width as usize * height as usize * 4;
+    if rgba.len() != expect {
+        return Err("图片数据长度无效".to_string());
+    }
+    let mut png = Vec::<u8>::new();
+    let encoder = PngEncoder::new(&mut png);
+    encoder
+        .write_image(rgba, width, height, ColorType::Rgba8.into())
+        .map_err(|e| format!("PNG 编码失败: {e}"))?;
+    Ok(format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(png)))
+}
+
+async fn read_clipboard_snapshot(app: &AppHandle) -> Result<(String, String), String> {
+    let app_text = app.clone();
+    let text = tauri::async_runtime::spawn_blocking(move || {
+        app_text
+            .clipboard()
+            .read_text()
+            .unwrap_or_default()
+    })
+    .await
+    .map_err(|e| format!("读取文本剪贴板失败: {e}"))?;
+
+    let app_image = app.clone();
+    let image_data_url = tauri::async_runtime::spawn_blocking(move || {
+        let image = app_image.clipboard().read_image().ok();
+        match image {
+            Some(img) => encode_rgba_to_png_data_url(img.rgba(), img.width(), img.height()).unwrap_or_default(),
+            None => String::new(),
+        }
+    })
+    .await
+    .map_err(|e| format!("读取图片剪贴板失败: {e}"))?;
+
+    Ok((text, image_data_url))
+}
+
+async fn run_clipboard_watch_task(
+    app: &AppHandle,
+    payload: ClipboardWatchTaskPayload,
+    manager: Arc<TaskManagerState>,
+    task_id: String,
+) -> Result<Value, String> {
+    let interval_ms = payload.interval_ms.unwrap_or(1000).clamp(200, 15_000);
+    let max_history = payload.max_history.unwrap_or(50).clamp(10, 1000);
+
+    let mut items: Vec<ClipboardSnapshotItem> = Vec::new();
+    let mut last_text = String::new();
+    let mut last_image = String::new();
+
+    loop {
+        {
+            let tasks = manager
+                .tasks
+                .lock()
+                .map_err(|_| "任务状态锁定失败".to_string())?;
+            let Some(rec) = tasks.get(&task_id) else {
+                break;
+            };
+            if rec.cancel_requested {
+                break;
+            }
+            drop(tasks);
+        }
+
+        let (text, image_data_url) = read_clipboard_snapshot(app).await?;
+        let now = now_ms();
+        let mut latest_item: Option<ClipboardSnapshotItem> = None;
+
+        let text_trim = text.trim().to_string();
+        if !text_trim.is_empty() && text_trim != last_text {
+            last_text = text_trim.clone();
+            let snapshot = ClipboardSnapshotItem {
+                r#type: "text".to_string(),
+                content: text_trim,
+                time: now,
+            };
+            latest_item = Some(snapshot.clone());
+            items.insert(0, snapshot);
+            if items.len() > max_history {
+                items.truncate(max_history);
+            }
+        }
+
+        if !image_data_url.is_empty() && image_data_url != last_image {
+            last_image = image_data_url.clone();
+            let snapshot = ClipboardSnapshotItem {
+                r#type: "image".to_string(),
+                content: image_data_url,
+                time: now,
+            };
+            latest_item = Some(snapshot.clone());
+            items.insert(0, snapshot);
+            if items.len() > max_history {
+                items.truncate(max_history);
+            }
+        }
+
+        if let Some(latest) = latest_item {
+            let mut tasks = manager
+                .tasks
+                .lock()
+                .map_err(|_| "任务状态锁定失败".to_string())?;
+            let Some(rec) = tasks.get_mut(&task_id) else {
+                break;
+            };
+            if rec.cancel_requested {
+                break;
+            }
+            rec.result = Some(serde_json::json!({
+                "latest": latest,
+                "items": items.clone()
+            }));
+            rec.updated_at_ms = now_ms();
+        }
+
+        tokio::time::sleep(Duration::from_millis(interval_ms)).await;
+    }
+
+    serde_json::to_value(ClipboardWatchTaskResult { items })
+        .map_err(|e| format!("任务结果序列化失败: {e}"))
 }
 
 #[tauri::command]
@@ -173,6 +459,263 @@ async fn http_request(req: HttpRequest) -> Result<HttpResponse, String> {
     let body = String::from_utf8(bytes.to_vec()).map_err(|_| "响应不是 UTF-8 文本".to_string())?;
 
     Ok(HttpResponse { status, headers, body })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct HttpRequestTaskPayload {
+    method: String,
+    url: String,
+    headers: Option<HashMap<String, String>>,
+    body: Option<String>,
+    body_base64: Option<String>,
+    timeout_ms: Option<u64>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HttpRequestTaskResult {
+    status: u16,
+    headers: HashMap<String, String>,
+    body: String,
+}
+
+async fn run_http_request_task(payload: HttpRequestTaskPayload) -> Result<Value, String> {
+    let req = HttpRequest {
+        method: payload.method,
+        url: payload.url,
+        headers: payload.headers,
+        body: payload.body,
+        body_base64: payload.body_base64,
+        timeout_ms: payload.timeout_ms,
+    };
+    let resp = http_request(req).await?;
+    serde_json::to_value(HttpRequestTaskResult {
+        status: resp.status,
+        headers: resp.headers,
+        body: resp.body,
+    })
+    .map_err(|e| format!("任务结果序列化失败: {e}"))
+}
+
+async fn execute_task(app: AppHandle, manager: Arc<TaskManagerState>, task_id: String) {
+    let (kind, payload, cancel_requested) = {
+        let mut tasks = match manager.tasks.lock() {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        let Some(rec) = tasks.get_mut(&task_id) else {
+            return;
+        };
+        if rec.status != TaskStatus::Queued {
+            return;
+        }
+        rec.status = TaskStatus::Running;
+        rec.started_at_ms = Some(now_ms());
+        rec.updated_at_ms = now_ms();
+        (
+            rec.kind.clone(),
+            rec.payload.clone(),
+            rec.cancel_requested,
+        )
+    };
+
+    if cancel_requested {
+        let mut tasks = match manager.tasks.lock() {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        if let Some(rec) = tasks.get_mut(&task_id) {
+            rec.status = TaskStatus::Canceled;
+            rec.updated_at_ms = now_ms();
+            rec.finished_at_ms = Some(now_ms());
+            rec.error = Some("任务已取消".to_string());
+        }
+        return;
+    }
+
+    let fail_invalid_payload = |message: String| {
+        let mut tasks = match manager.tasks.lock() {
+            Ok(v) => v,
+            Err(_) => return,
+        };
+        if let Some(rec) = tasks.get_mut(&task_id) {
+            rec.status = TaskStatus::Failed;
+            rec.updated_at_ms = now_ms();
+            rec.finished_at_ms = Some(now_ms());
+            rec.error = Some(message);
+        }
+    };
+
+    let result = match kind.as_str() {
+        "http.request" => {
+            let payload: HttpRequestTaskPayload = match serde_json::from_value(payload) {
+                Ok(v) => v,
+                Err(e) => {
+                    fail_invalid_payload(format!("任务参数无效: {e}"));
+                    return;
+                }
+            };
+            run_http_request_task(payload).await
+        }
+        "clipboard.watch" => {
+            let payload: ClipboardWatchTaskPayload = match serde_json::from_value(payload) {
+                Ok(v) => v,
+                Err(e) => {
+                    fail_invalid_payload(format!("任务参数无效: {e}"));
+                    return;
+                }
+            };
+            run_clipboard_watch_task(&app, payload, manager.clone(), task_id.clone()).await
+        }
+        _ => Err(format!("不支持的任务类型: {kind}")),
+    };
+
+    let mut tasks = match manager.tasks.lock() {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    if let Some(rec) = tasks.get_mut(&task_id) {
+        rec.updated_at_ms = now_ms();
+        rec.finished_at_ms = Some(now_ms());
+        if rec.cancel_requested {
+            rec.status = TaskStatus::Canceled;
+            rec.error = Some("任务已取消".to_string());
+            rec.result = None;
+            return;
+        }
+        match result {
+            Ok(value) => {
+                rec.status = TaskStatus::Succeeded;
+                rec.error = None;
+                rec.result = Some(value);
+            }
+            Err(err) => {
+                rec.status = TaskStatus::Failed;
+                rec.error = Some(err);
+                rec.result = None;
+            }
+        }
+    }
+}
+
+#[tauri::command]
+fn task_create(app: tauri::AppHandle, plugin_id: String, req: TaskCreateReq) -> Result<TaskSummary, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let kind = req.kind.trim().to_string();
+    if kind.is_empty() {
+        return Err("task kind 不能为空".to_string());
+    }
+
+    let manager = app.state::<Arc<TaskManagerState>>().inner().clone();
+    let now = now_ms();
+    let task_id = make_task_id();
+    let record = TaskRecord {
+        id: task_id.clone(),
+        plugin_id: plugin_id.clone(),
+        kind,
+        status: TaskStatus::Queued,
+        created_at_ms: now,
+        updated_at_ms: now,
+        started_at_ms: None,
+        finished_at_ms: None,
+        cancel_requested: false,
+        error: None,
+        payload: req.payload.unwrap_or(Value::Null),
+        result: None,
+    };
+
+    {
+        let mut tasks = manager
+            .tasks
+            .lock()
+            .map_err(|_| "任务状态锁定失败".to_string())?;
+        tasks.insert(task_id.clone(), record.clone());
+        trim_plugin_task_records(&mut tasks, &plugin_id);
+        trim_task_records(&mut tasks);
+    }
+
+    let app_clone = app.clone();
+    let manager_clone = manager.clone();
+    tauri::async_runtime::spawn(async move {
+        execute_task(app_clone, manager_clone, task_id).await;
+    });
+
+    Ok(record.summary())
+}
+
+#[tauri::command]
+fn task_get(app: tauri::AppHandle, plugin_id: String, task_id: String) -> Result<Option<TaskSummary>, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let task_id = task_id.trim();
+    if task_id.is_empty() {
+        return Ok(None);
+    }
+    let manager = app.state::<Arc<TaskManagerState>>().inner().clone();
+    let tasks = manager
+        .tasks
+        .lock()
+        .map_err(|_| "任务状态锁定失败".to_string())?;
+    let item = tasks.get(task_id).filter(|rec| rec.plugin_id == plugin_id);
+    Ok(item.map(|rec| rec.summary()))
+}
+
+#[tauri::command]
+fn task_list(app: tauri::AppHandle, plugin_id: String, limit: Option<usize>) -> Result<Vec<TaskSummary>, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let max = limit.unwrap_or(20).clamp(1, 200);
+    let manager = app.state::<Arc<TaskManagerState>>().inner().clone();
+    let tasks = manager
+        .tasks
+        .lock()
+        .map_err(|_| "任务状态锁定失败".to_string())?;
+
+    let mut list: Vec<TaskSummary> = tasks
+        .values()
+        .filter(|rec| rec.plugin_id == plugin_id)
+        .map(|rec| rec.summary())
+        .collect();
+    list.sort_by(|a, b| b.updated_at_ms.cmp(&a.updated_at_ms));
+    if list.len() > max {
+        list.truncate(max);
+    }
+    Ok(list)
+}
+
+#[tauri::command]
+fn task_cancel(app: tauri::AppHandle, plugin_id: String, task_id: String) -> Result<TaskSummary, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let tid = task_id.trim();
+    if tid.is_empty() {
+        return Err("taskId 不能为空".to_string());
+    }
+    let manager = app.state::<Arc<TaskManagerState>>().inner().clone();
+    let mut tasks = manager
+        .tasks
+        .lock()
+        .map_err(|_| "任务状态锁定失败".to_string())?;
+    let rec = tasks
+        .get_mut(tid)
+        .ok_or_else(|| "任务不存在".to_string())?;
+    if rec.plugin_id != plugin_id {
+        return Err("任务不存在".to_string());
+    }
+    rec.cancel_requested = true;
+    rec.updated_at_ms = now_ms();
+    if rec.status == TaskStatus::Queued {
+        rec.status = TaskStatus::Canceled;
+        rec.finished_at_ms = Some(now_ms());
+        rec.error = Some("任务已取消".to_string());
+    }
+    Ok(rec.summary())
 }
 
 #[derive(Default)]
@@ -1306,6 +1849,10 @@ fn main() {
             plugin_save_image_base64,
             plugin_list_output_images,
             plugin_read_output_image,
+            task_create,
+            task_get,
+            task_list,
+            task_cancel,
             get_wake_shortcut,
             set_wake_shortcut,
             pause_wake_shortcut,
@@ -1315,6 +1862,7 @@ fn main() {
         ])
         .setup(|app| {
             app.manage(WindowState::default());
+            app.manage(Arc::new(TaskManagerState::default()));
 
             let (wake_shortcut, wake_shortcut_text) = load_wake_shortcut(app.handle());
             app.manage(WakeShortcutState {
@@ -1377,6 +1925,15 @@ fn main() {
         })
         // 监听窗口事件：失焦时隐藏
         .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let app = window.app_handle();
+                let state = app.state::<WindowState>();
+                save_position_if_valid(window, &state);
+                let _ = window.set_position(tauri::PhysicalPosition::new(-10000, -10000));
+                let _ = window.hide();
+                return;
+            }
             if let WindowEvent::Moved(_) = event {
                 let app = window.app_handle();
                 let state = app.state::<WindowState>();

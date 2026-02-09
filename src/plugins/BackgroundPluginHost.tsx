@@ -6,7 +6,6 @@ type Props = {
   pluginId: string
   pluginCode: string
   requires?: PluginCapability[]
-  onBack: () => void
 }
 
 function buildSrcDoc(pluginId: string, pluginCode: string, token: string) {
@@ -92,7 +91,6 @@ function buildSrcDoc(pluginId: string, pluginCode: string, token: string) {
     ui: {
       showToast: (message) => call('ui.showToast', [message]),
       openUrl: (url) => call('ui.openUrl', [url]),
-      back: () => call('host.back', []),
     },
     net: {
       request: (req) => call('net.request', [req]),
@@ -111,21 +109,16 @@ function buildSrcDoc(pluginId: string, pluginCode: string, token: string) {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <style>
-      html, body { height: 100%; }
-      body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
-    </style>
   </head>
   <body>
-    <div id="app"></div>
     <script>;(new Function(${JSON.stringify(sdk)}))();</script>
     <script>;(new Function(${JSON.stringify(pluginCode)}))();</script>
   </body>
 </html>`
 }
 
-export default function IframePluginView(props: Props) {
-  const { pluginId, pluginCode, requires, onBack } = props
+export default function BackgroundPluginHost(props: Props) {
+  const { pluginId, pluginCode, requires } = props
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const ctx = useMemo(() => createPluginContext(pluginId, requires), [pluginId, requires])
 
@@ -177,19 +170,13 @@ export default function IframePluginView(props: Props) {
       if (msg.token !== tokenRef.current) return
 
       const { id, method, args } = msg
+      const key = String(method)
+      const handler = (handlers as any)[key]
 
       const reply = (payload: any) => {
         iframeWin.postMessage({ __fastWindowResponse: true, pluginId, token: tokenRef.current, id, ...payload }, '*')
       }
 
-      if (method === 'host.back') {
-        onBack()
-        reply({ ok: true, result: null })
-        return
-      }
-
-      const key = String(method)
-      const handler = (handlers as any)[key]
       if (typeof handler !== 'function') {
         reply({ ok: false, error: `Unknown method: ${String(method)}` })
         return
@@ -203,15 +190,16 @@ export default function IframePluginView(props: Props) {
 
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [handlers, onBack, pluginId])
+  }, [handlers, pluginId])
 
   return (
     <iframe
       ref={iframeRef}
-      title={pluginId}
+      title={`bg-${pluginId}`}
       sandbox="allow-scripts"
       srcDoc={srcDoc}
-      style={{ display: 'block', width: '100%', height: '100%', border: '0' }}
+      style={{ position: 'fixed', width: 0, height: 0, border: 0, opacity: 0, pointerEvents: 'none' }}
     />
   )
 }
+

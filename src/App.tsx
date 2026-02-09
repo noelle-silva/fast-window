@@ -3,6 +3,8 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { invoke } from '@tauri-apps/api/core'
 import { loadAllPlugins } from './plugins/pluginLoader'
 import { initPluginApi } from './plugins/pluginApi'
+import BackgroundPluginHost from './plugins/BackgroundPluginHost'
+import { PluginCapability } from './plugins/pluginContract'
 import * as React from 'react'
 import {
   Alert,
@@ -43,6 +45,9 @@ interface Plugin {
   description: string
   icon: string
   keyword?: string
+  requires?: PluginCapability[]
+  backgroundCode?: string
+  backgroundAutoStart?: boolean
   component: ComponentType<{ onBack: () => void }>
 }
 
@@ -281,6 +286,9 @@ function App() {
         description: p.manifest.description,
         icon: p.manifest.icon || '📦',
         keyword: p.manifest.keyword,
+        requires: p.manifest.requires,
+        backgroundCode: p.backgroundCode,
+        backgroundAutoStart: !!(p.manifest.background && p.manifest.background.main && p.manifest.background.autoStart !== false),
         component: p.component,
       }))
 
@@ -303,6 +311,17 @@ function App() {
   }, [])
 
   const reloadPlugins = useCallback(() => loadPlugins({ showToast: true }), [loadPlugins])
+
+  const backgroundHosts = allPlugins
+    .filter(p => p.backgroundAutoStart && p.backgroundCode)
+    .map(p => (
+      <BackgroundPluginHost
+        key={`bg-${p.id}`}
+        pluginId={p.id}
+        pluginCode={p.backgroundCode || ''}
+        requires={p.requires}
+      />
+    ))
 
   // 初次加载插件
   useEffect(() => {
@@ -523,6 +542,7 @@ function App() {
         </Paper>
         {toastHost}
         {importDialog}
+        {backgroundHosts}
       </Box>
     )
   }
@@ -541,6 +561,7 @@ function App() {
         </Paper>
         {toastHost}
         {importDialog}
+        {backgroundHosts}
       </Box>
     )
   }
@@ -659,6 +680,7 @@ function App() {
       </Paper>
       {toastHost}
       {importDialog}
+      {backgroundHosts}
     </Box>
   )
 }

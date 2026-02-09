@@ -6,6 +6,8 @@
   const SETTINGS_KEY = 'settings'
   const COLLECTIONS_KEY = 'collections'
   const RECENT_FOLDERS_KEY = 'recentFolders'
+  const TASK_KIND_CLIPBOARD_WATCH = 'clipboard.watch'
+  const TASK_QUERY_INTERVAL = 250
 
   const DEFAULT_SETTINGS = {
     maxHistory: 50,
@@ -51,7 +53,10 @@
     ctxMenu: { open: false, x: 0, y: 0, nodeId: '' },
     movePicker: { open: false, movingId: '', query: '' },
 
-    timer: null,
+    monitorTaskId: '',
+    monitorQueryTimer: null,
+    monitorQuerying: false,
+    persistTimer: null,
   }
 
   const styles = `
@@ -326,9 +331,42 @@
     return state.internalCopy.at && (now() - state.internalCopy.at) < internalWindowMs()
   }
 
+  function historyUniqKey(item) {
+    return `${item.type}\n${item.content}`
+  }
+
+  function mergeHistoryItems(primary, secondary, limit = state.settings.maxHistory) {
+    const map = new Map()
+    const merged = [...(Array.isArray(primary) ? primary : []), ...(Array.isArray(secondary) ? secondary : [])]
+    for (const item of merged) {
+      const normalized = normalizeHistoryItem(item)
+      if (!normalized) continue
+      const key = historyUniqKey(normalized)
+      const prev = map.get(key)
+      if (!prev || normalized.time > prev.time) {
+        map.set(key, normalized)
+      }
+    }
+    return Array.from(map.values())
+      .sort((a, b) => b.time - a.time)
+      .slice(0, limit)
+  }
+
+  function isSameHistory(a, b) {
+    const listA = Array.isArray(a) ? a : []
+    const listB = Array.isArray(b) ? b : []
+    if (listA.length !== listB.length) return false
+    for (let i = 0; i < listA.length; i++) {
+      const left = listA[i]
+      const right = listB[i]
+      if (!left || !right) return false
+      if (left.type !== right.type || left.content !== right.content || left.time !== right.time) return false
+    }
+    return true
+  }
+
   function upsertHistoryItem(item) {
-    state.history = [item, ...state.history.filter((it) => !(it.type === item.type && it.content === item.content))]
-      .slice(0, state.settings.maxHistory)
+    state.history = mergeHistoryItems([item], state.history, state.settings.maxHistory)
   }
 
   function replaceInternalImageIfNeeded(internalContent, newContent) {
@@ -336,6 +374,163 @@
     const item = { type: 'image', content: newContent, time: now() }
     state.history = [item, ...state.history.filter((it) => !(it.type === 'image' && (it.content === internalContent || it.content === newContent)))]
       .slice(0, state.settings.maxHistory)
+  }
+
+  function normalizeSettings(raw) {
+    const merged = raw && typeof raw === 'object' ? { ...DEFAULT_SETTINGS, ...raw } : { ...DEFAULT_SETTINGS }
+    const pollRaw = Number(merged.pollInterval)
+    const maxRaw = Number(merged.maxHistory)
+    return {
+      autoMonitor: merged.autoMonitor !== false,
+      pollInterval: Math.min(15000, Math.max(200, Number.isFinite(pollRaw) ? Math.floor(pollRaw) : DEFAULT_SETTINGS.pollInterval)),
+      maxHistory: Math.min(1000, Math.max(10, Number.isFinite(maxRaw) ? Math.floor(maxRaw) : DEFAULT_SETTINGS.maxHistory)),
+    }
+  }
+
+  function normalizeHistoryItem(raw) {
+    const type = raw && raw.type === 'image' ? 'image' : 'text'
+    const content = String(raw && raw.content ? raw.content : '').trim()
+    if (!content) return null
+    const timeRaw = Number(raw && raw.time)
+    return {
+      type,
+      content,
+      time: Number.isFinite(timeRaw) && timeRaw > 0 ? Math.floor(timeRaw) : now(),
+    }
+  }
+
+  function normalizeHistoryItems(raw, limit = state.settings.maxHistory) {
+    const list = Array.isArray(raw) ? raw : []
+    const out = []
+    const seen = new Set()
+    for (const item of list) {
+      const normalized = normalizeHistoryItem(item)
+      if (!normalized) continue
+      const key = historyUniqKey(normalized)
+      if (seen.has(key)) continue
+      seen.add(key)
+      out.push(normalized)
+      if (out.length >= limit) break
+    }
+    return out
+  }
+
+  function normalizeHostSnapshotItems(result) {
+    const latest = normalizeHistoryItem(result && result.latest)
+    const items = normalizeHistoryItems(result && result.items, state.settings.maxHistory)
+    if (latest) {
+      return mergeHistoryItems([latest], items, state.settings.maxHistory)
+    }
+    return items
+  }
+
+  function stopMonitorQueryLoop() {
+    if (state.monitorQueryTimer) {
+      clearTimeout(state.monitorQueryTimer)
+      state.monitorQueryTimer = null
+    }
+    state.monitorQuerying = false
+  }
+
+  function schedulePersistClipboard(delayMs = 120) {
+    if (state.persistTimer) {
+      clearTimeout(state.persistTimer)
+      state.persistTimer = null
+    }
+    state.persistTimer = setTimeout(() => {
+      state.persistTimer = null
+      void persistClipboard()
+    }, Math.max(0, Number(delayMs) || 0))
+  }
+
+  async function syncFromMonitorTaskSnapshot(task) {
+    const result = task && task.result && typeof task.result === 'object' ? task.result : {}
+    const snapshotItems = normalizeHostSnapshotItems(result)
+    const merged = mergeHistoryItems(state.history, snapshotItems, state.settings.maxHistory)
+    const changed = !isSameHistory(state.history, merged)
+    if (changed) {
+      state.history = merged
+      schedulePersistClipboard()
+      if (state.view === 'clipboard') renderClipboardList()
+    }
+    const firstText = state.history.find((it) => it && it.type === 'text' && it.content)
+    if (firstText) state.currentText = firstText.content
+    const firstImage = state.history.find((it) => it && it.type === 'image' && it.content)
+    if (firstImage) state.currentImage = firstImage.content
+  }
+
+  async function queryMonitorTask(taskId) {
+    if (!taskId || state.monitorTaskId !== taskId || state.monitorQuerying) return
+    state.monitorQuerying = true
+    try {
+      const task = await api.task.get(taskId).catch(() => null)
+      if (!task || state.monitorTaskId !== taskId) return
+
+      const status = String(task.status || '')
+      if (status === 'running' || status === 'queued') {
+        await syncFromMonitorTaskSnapshot(task)
+      }
+
+      if (status === 'succeeded') {
+        await syncFromMonitorTaskSnapshot(task)
+        state.monitorTaskId = ''
+        if (state.settings.autoMonitor) {
+          await ensureMonitorTaskRunning(true)
+        }
+        return
+      }
+
+      if (status === 'failed' || status === 'canceled') {
+        state.monitorTaskId = ''
+        if (state.settings.autoMonitor) {
+          await ensureMonitorTaskRunning(true)
+        }
+        return
+      }
+
+      state.monitorQueryTimer = setTimeout(() => {
+        state.monitorQuerying = false
+        queryMonitorTask(taskId)
+      }, TASK_QUERY_INTERVAL)
+      return
+    } finally {
+      state.monitorQuerying = false
+    }
+  }
+
+  async function ensureMonitorTaskRunning(forceCreate = false) {
+    stopMonitorQueryLoop()
+    if (!state.settings.autoMonitor) {
+      if (state.monitorTaskId) {
+        await api.task.cancel(state.monitorTaskId).catch(() => {})
+      }
+      state.monitorTaskId = ''
+      return
+    }
+
+    if (!forceCreate && state.monitorTaskId) {
+      queryMonitorTask(state.monitorTaskId)
+      return
+    }
+
+    if (state.monitorTaskId) {
+      await api.task.cancel(state.monitorTaskId).catch(() => {})
+      state.monitorTaskId = ''
+    }
+
+    const task = await api.task
+      .create({
+        kind: TASK_KIND_CLIPBOARD_WATCH,
+        payload: {
+          intervalMs: state.settings.pollInterval,
+          maxHistory: state.settings.maxHistory,
+        },
+      })
+      .catch(() => null)
+    const tid = String(task && task.id ? task.id : '').trim()
+    if (!tid) return
+    state.monitorTaskId = tid
+    queryMonitorTask(tid)
   }
 
   function handleClipboardChange(type, content) {
@@ -1372,7 +1567,10 @@
       if (!(t instanceof HTMLElement)) return
       const act = t.getAttribute('data-act')
       if (act === 'toggleAuto') {
-        state.settings.autoMonitor = !state.settings.autoMonitor
+        state.settings = normalizeSettings({
+          ...state.settings,
+          autoMonitor: !state.settings.autoMonitor,
+        })
         await persistClipboard()
         restartMonitor()
         render()
@@ -1382,8 +1580,12 @@
         const maxH = area.querySelector('input[data-act="maxHistory"]')
         const pollInterval = poll instanceof HTMLInputElement ? Number(poll.value) : state.settings.pollInterval
         const maxHistory = maxH instanceof HTMLInputElement ? Number(maxH.value) : state.settings.maxHistory
-        state.settings.pollInterval = Math.max(200, Number.isFinite(pollInterval) ? pollInterval : DEFAULT_SETTINGS.pollInterval)
-        state.settings.maxHistory = Math.max(10, Number.isFinite(maxHistory) ? maxHistory : DEFAULT_SETTINGS.maxHistory)
+        state.settings = normalizeSettings({
+          ...state.settings,
+          pollInterval,
+          maxHistory,
+        })
+        state.history = normalizeHistoryItems(state.history, state.settings.maxHistory)
         await persistClipboard()
         restartMonitor()
         render()
@@ -1640,30 +1842,8 @@
     renderOverlay()
   }
 
-  async function checkClipboard() {
-    if (!state.settings.autoMonitor) return
-
-    try {
-      const text = await api.clipboard.readText()
-      handleClipboardChange('text', text)
-    } catch (e) {}
-
-    try {
-      const img = await api.clipboard.readImage()
-      handleClipboardChange('image', img)
-    } catch (e) {}
-
-    await persistClipboard()
-    if (state.view === 'clipboard') renderClipboardList()
-  }
-
   function restartMonitor() {
-    if (state.timer) {
-      clearInterval(state.timer)
-      state.timer = null
-    }
-    if (!state.settings.autoMonitor) return
-    state.timer = setInterval(checkClipboard, state.settings.pollInterval)
+    void ensureMonitorTaskRunning(true)
   }
 
   async function init() {
@@ -1675,8 +1855,8 @@
         api.storage.get(RECENT_FOLDERS_KEY),
       ])
 
-      if (Array.isArray(savedHistory)) state.history = savedHistory
-      if (savedSettings && typeof savedSettings === 'object') state.settings = { ...DEFAULT_SETTINGS, ...savedSettings }
+      state.settings = normalizeSettings(savedSettings)
+      state.history = normalizeHistoryItems(savedHistory, state.settings.maxHistory)
       state.collections = ensureCollections(savedCollections)
       state.currentFolderId = state.collections.rootId || 'root'
       if (Array.isArray(savedRecent)) state.recentFolders = savedRecent.filter((x) => typeof x === 'string')
@@ -1690,8 +1870,18 @@
 
     mount()
     render()
-    restartMonitor()
-    checkClipboard()
+
+    const recentTasks = await api.task.list(20).catch(() => [])
+    const runningTask = Array.isArray(recentTasks)
+      ? recentTasks.find((t) => {
+          const status = String(t && t.status ? t.status : '')
+          const kind = String(t && t.kind ? t.kind : '')
+          return (status === 'queued' || status === 'running') && kind === TASK_KIND_CLIPBOARD_WATCH
+        })
+      : null
+    state.monitorTaskId = runningTask && runningTask.id ? String(runningTask.id) : ''
+
+    await ensureMonitorTaskRunning(false)
   }
 
   init()

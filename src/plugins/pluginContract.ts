@@ -33,6 +33,12 @@ export type PluginCapability =
   | 'ui.*'
   | 'ui.showToast'
   | 'ui.openUrl'
+  | 'task'
+  | 'task.*'
+  | 'task.create'
+  | 'task.get'
+  | 'task.list'
+  | 'task.cancel'
 
 export type PluginUiType = 'react' | 'iframe'
 
@@ -53,6 +59,10 @@ export interface PluginManifest {
   ui?: {
     type: PluginUiType
   }
+  background?: {
+    main: string
+    autoStart?: boolean
+  }
 }
 
 export function normalizeManifest(manifest: PluginManifest): Required<Pick<PluginManifest, 'apiVersion'>> &
@@ -67,7 +77,19 @@ export function isCapabilityAllowed(
   requires: PluginCapability[] | undefined,
   needed: Exclude<
     PluginCapability,
-    '*' | 'net' | 'files' | 'clipboard' | 'storage' | 'ui' | 'net.*' | 'files.*' | 'clipboard.*' | 'storage.*' | 'ui.*'
+    | '*'
+    | 'net'
+    | 'files'
+    | 'clipboard'
+    | 'storage'
+    | 'ui'
+    | 'task'
+    | 'net.*'
+    | 'files.*'
+    | 'clipboard.*'
+    | 'storage.*'
+    | 'ui.*'
+    | 'task.*'
   >,
 ): boolean {
   // 兼容：老插件不写 requires 时，默认放行（不然现有生态直接全挂）
@@ -81,6 +103,7 @@ export function isCapabilityAllowed(
     (ns === 'files' && (requires.includes('files') || requires.includes('files.*'))) ||
     (ns === 'clipboard' && (requires.includes('clipboard') || requires.includes('clipboard.*'))) ||
     (ns === 'storage' && (requires.includes('storage') || requires.includes('storage.*'))) ||
-    (ns === 'ui' && (requires.includes('ui') || requires.includes('ui.*')))
+    (ns === 'ui' && (requires.includes('ui') || requires.includes('ui.*'))) ||
+    (ns === 'task' && (requires.includes('task') || requires.includes('task.*')))
   )
 }

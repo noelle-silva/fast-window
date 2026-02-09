@@ -41,6 +41,31 @@
 - `clipboard.readImage` / `clipboard.writeImage`
 - `storage.get` / `storage.set` / `storage.remove` / `storage.getAll` / `storage.setAll`
 - `ui.showToast` / `ui.openUrl`
+- `task.create` / `task.get` / `task.list` / `task.cancel`
+
+## 后台任务（Task API）
+
+目标：把长耗时工作从插件 iframe 中剥离到宿主后端，插件只负责发起、查询和展示。
+
+- `fastWindow.task.create({ kind, payload })`：创建后台任务，立即返回任务信息（含 `id`）
+- `fastWindow.task.get(taskId)`：查询单个任务状态与结果
+- `fastWindow.task.list(limit?)`：查询当前插件最近任务
+- `fastWindow.task.cancel(taskId)`：请求取消任务
+
+任务状态：`queued` -> `running` -> `succeeded | failed | canceled`
+
+约束：
+
+- 任务数据按插件隔离，插件只能访问自己的任务
+- 宿主会限制每个插件保留的任务条数，避免无上限增长
+- 任务能力必须在 `manifest.requires` 显式声明
+
+通用任务原语示例：
+
+- `http.request`：宿主执行 HTTP 请求，返回 `status/headers/body`
+- `clipboard.watch`：宿主持续监听剪贴板，返回 `items` 快照
+
+插件可以基于这些原语自行编排业务，不需要宿主内置插件业务逻辑。
 
 ## Iframe 插件运行方式
 

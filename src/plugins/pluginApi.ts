@@ -10,6 +10,22 @@ type ClipboardImageLike = {
   size: () => Promise<{ width: number; height: number }>
 }
 
+export type PluginTaskStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
+
+export type PluginTaskInfo = {
+  id: string
+  pluginId: string
+  kind: string
+  status: PluginTaskStatus
+  createdAtMs: number
+  updatedAtMs: number
+  startedAtMs: number | null
+  finishedAtMs: number | null
+  cancelRequested: boolean
+  error: string | null
+  result: unknown | null
+}
+
 // 插件 API，暴露给插件使用
 export const fastWindowApi = {
   // 剪贴板操作
@@ -156,6 +172,40 @@ export const fastWindowApi = {
       }>('http_request', { req })
     },
   },
+
+  task: {
+    create: async (
+      pluginId: string,
+      req: {
+        kind: string
+        payload?: unknown
+      },
+    ) => {
+      const kind = String(req?.kind || '').trim()
+      if (!kind) throw new Error('task kind is required')
+      return invoke<PluginTaskInfo>('task_create', {
+        pluginId,
+        req: {
+          kind,
+          payload: req?.payload ?? null,
+        },
+      })
+    },
+    get: async (pluginId: string, taskId: string) => {
+      const tid = String(taskId || '').trim()
+      if (!tid) return null
+      return invoke<PluginTaskInfo | null>('task_get', { pluginId, taskId: tid })
+    },
+    list: async (pluginId: string, limit?: number) => {
+      const lim = typeof limit === 'number' && Number.isFinite(limit) ? Math.max(1, Math.floor(limit)) : undefined
+      return invoke<PluginTaskInfo[]>('task_list', { pluginId, limit: lim })
+    },
+    cancel: async (pluginId: string, taskId: string) => {
+      const tid = String(taskId || '').trim()
+      if (!tid) throw new Error('taskId is required')
+      return invoke<PluginTaskInfo>('task_cancel', { pluginId, taskId: tid })
+    },
+  },
 }
 
 export type FastWindowApi = {
@@ -171,6 +221,12 @@ export type FastWindowApi = {
     back?: () => Promise<void> | void
   }
   net: typeof fastWindowApi.net
+  task: {
+    create: (req: { kind: string; payload?: unknown }) => Promise<PluginTaskInfo>
+    get: (taskId: string) => Promise<PluginTaskInfo | null>
+    list: (limit?: number) => Promise<PluginTaskInfo[]>
+    cancel: (taskId: string) => Promise<PluginTaskInfo>
+  }
   files: {
     getOutputDir: () => Promise<string>
     pickOutputDir: () => Promise<string | null>
@@ -267,6 +323,24 @@ export function createPluginContext(pluginId: string, requires?: PluginCapabilit
       request: async (req: any) => {
         assertAllowed(requires, 'net.request')
         return fastWindowApi.net.request(req)
+      },
+    },
+    task: {
+      create: async (req: { kind: string; payload?: unknown }) => {
+        assertAllowed(requires, 'task.create')
+        return fastWindowApi.task.create(pluginId, req)
+      },
+      get: async (taskId: string) => {
+        assertAllowed(requires, 'task.get')
+        return fastWindowApi.task.get(pluginId, taskId)
+      },
+      list: async (limit?: number) => {
+        assertAllowed(requires, 'task.list')
+        return fastWindowApi.task.list(pluginId, limit)
+      },
+      cancel: async (taskId: string) => {
+        assertAllowed(requires, 'task.cancel')
+        return fastWindowApi.task.cancel(pluginId, taskId)
       },
     },
     files: {

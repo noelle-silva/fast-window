@@ -6,6 +6,7 @@ import IframePluginView from './IframePluginView'
 export interface LoadedPlugin {
   manifest: PluginManifest
   component: ComponentType<{ onBack: () => void }>
+  backgroundCode?: string
 }
 
 // 加载单个插件
@@ -29,6 +30,10 @@ async function loadPlugin(pluginPath: string): Promise<LoadedPlugin | null> {
       return null
     }
 
+    const backgroundCode = rawManifest.background?.main
+      ? await invoke<string>('read_plugin_file', { pluginId: pluginPath, path: rawManifest.background.main }).catch(() => '')
+      : ''
+
     const component: ComponentType<{ onBack: () => void }> = ({ onBack }) =>
       React.createElement(IframePluginView, {
         pluginId: manifest.id,
@@ -36,7 +41,7 @@ async function loadPlugin(pluginPath: string): Promise<LoadedPlugin | null> {
         requires: rawManifest.requires,
         onBack,
       })
-    return { manifest, component }
+    return { manifest, component, backgroundCode: backgroundCode || undefined }
   } catch (error) {
     console.error(`Failed to load plugin from ${pluginPath}:`, error)
     return null
