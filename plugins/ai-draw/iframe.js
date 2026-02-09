@@ -3,6 +3,8 @@
   const api = window.fastWindow
   const STORAGE_KEY = 'settings'
   const VERSION = 1
+  const DEFAULT_PROMPT_HISTORY_LIMIT = 50
+  const MAX_PROMPT_HISTORY_LIMIT = 200
 
   const state = {
     loading: true,
@@ -10,7 +12,12 @@
     modal: '',
     menuOpen: false,
     prompt: '',
+    promptHistory: [],
+    promptHistoryIndex: -1,
+    promptHistoryDraft: '',
     imageDataUrl: '',
+    imageHistory: [],
+    imageHistoryIndex: -1,
     savedPath: '',
     outputDir: '',
     error: '',
@@ -23,6 +30,7 @@
       modelsText: '',
       size: '1024x1024',
       chatSystemPrompt: '',
+      promptHistoryLimit: String(DEFAULT_PROMPT_HISTORY_LIMIT),
       autoSave: true,
     },
   }
@@ -140,9 +148,19 @@
     return {
       version: VERSION,
       autoSave: true,
+      promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
       activeProviderId: p.id,
       providers: [p],
     }
+  }
+
+  function normalizePromptHistoryLimit(raw) {
+    const n = Number(raw)
+    if (!Number.isFinite(n)) return DEFAULT_PROMPT_HISTORY_LIMIT
+    const v = Math.floor(n)
+    if (v < 1) return 1
+    if (v > MAX_PROMPT_HISTORY_LIMIT) return MAX_PROMPT_HISTORY_LIMIT
+    return v
   }
 
   function normalizeModels(list) {
@@ -190,6 +208,7 @@
     out.providers = [p]
     out.activeProviderId = p.id
     out.autoSave = typeof s.autoSave === 'boolean' ? s.autoSave : true
+    out.promptHistoryLimit = normalizePromptHistoryLimit(s.promptHistoryLimit)
     return out
   }
 
@@ -205,6 +224,7 @@
     const out = defaultData()
     out.version = VERSION
     out.autoSave = typeof d.autoSave === 'boolean' ? d.autoSave : true
+    out.promptHistoryLimit = normalizePromptHistoryLimit(d.promptHistoryLimit)
 
     out.providers = Array.isArray(d.providers) ? d.providers.map(normalizeProvider) : defaultData().providers
     if (!out.providers.length) out.providers = defaultData().providers
@@ -246,6 +266,7 @@
     state.outputDir = await api.files.getOutputDir().catch(() => '')
     state.loading = false
     render()
+    await refreshImageHistoryFromOutputDir()
   }
 
   function stripCodeFences(s) {
@@ -293,6 +314,9 @@
     state.draft.modelsText = Array.isArray(p.models) ? p.models.join('\n') : ''
     state.draft.size = String(p.size || '1024x1024')
     state.draft.chatSystemPrompt = typeof p.chatSystemPrompt === 'string' ? p.chatSystemPrompt : ''
+    state.draft.promptHistoryLimit = String(
+      normalizePromptHistoryLimit(state.data && state.data.promptHistoryLimit),
+    )
     state.draft.autoSave = !!(state.data && state.data.autoSave)
     render()
   }
@@ -342,6 +366,8 @@
     }
 
     state.data.autoSave = !!state.draft.autoSave
+    state.data.promptHistoryLimit = normalizePromptHistoryLimit(state.draft.promptHistoryLimit)
+    trimPromptHistoryToLimit()
     return { ok: true, error: '' }
   }
 
@@ -352,9 +378,148 @@
 
   function clearResult() {
     state.imageDataUrl = ''
+    state.imageHistoryIndex = -1
     state.savedPath = ''
     state.error = ''
     render()
+  }
+
+  function clearPromptHistory() {
+    state.promptHistory = []
+    state.promptHistoryIndex = -1
+    state.promptHistoryDraft = ''
+  }
+
+  function addPromptHistory(prompt) {
+    const text = String(prompt || '').trim()
+    if (!text) return
+
+    const existed = state.promptHistory.indexOf(text)
+    if (existed >= 0) state.promptHistory.splice(existed, 1)
+
+    state.promptHistory.push(text)
+    trimPromptHistoryToLimit()
+    state.promptHistoryIndex = -1
+    state.promptHistoryDraft = ''
+  }
+
+  function trimPromptHistoryToLimit() {
+    const limit = normalizePromptHistoryLimit(state.data && state.data.promptHistoryLimit)
+    if (state.promptHistory.length <= limit) return
+    state.promptHistory = state.promptHistory.slice(state.promptHistory.length - limit)
+    state.promptHistoryIndex = -1
+    state.promptHistoryDraft = ''
+  }
+
+  function canSwitchPromptPrev() {
+    if (!state.promptHistory.length) return false
+    return state.promptHistoryIndex === -1 || state.promptHistoryIndex > 0
+  }
+
+  function canSwitchPromptNext() {
+    if (!state.promptHistory.length) return false
+    return state.promptHistoryIndex !== -1
+  }
+
+  function switchPromptHistory(direction) {
+    if (!state.promptHistory.length) return
+    const step = direction < 0 ? -1 : 1
+
+    if (step < 0 && state.promptHistoryIndex === -1) {
+      state.promptHistoryDraft = String(state.prompt || '')
+      state.promptHistoryIndex = state.promptHistory.length - 1
+      state.prompt = String(state.promptHistory[state.promptHistoryIndex] || '')
+      render()
+      return
+    }
+
+    if (step > 0 && state.promptHistoryIndex === -1) return
+
+    const next = state.promptHistoryIndex + step
+    if (next < 0) return
+    if (next >= state.promptHistory.length) {
+      state.promptHistoryIndex = -1
+      state.prompt = state.promptHistoryDraft
+      state.promptHistoryDraft = ''
+      render()
+      return
+    }
+
+    state.promptHistoryIndex = next
+    state.prompt = String(state.promptHistory[next] || '')
+    render()
+  }
+
+  async function applyImageHistoryIndex(index) {
+    if (index < 0 || index >= state.imageHistory.length) return
+    const item = state.imageHistory[index]
+    if (!item) return
+    state.imageHistoryIndex = index
+    state.imageDataUrl = String(item.dataUrl || '')
+    state.savedPath = String(item.savedPath || '')
+    if (state.imageDataUrl) {
+      render()
+      return
+    }
+
+    const loaded = await api.files.readOutputImage(state.savedPath).catch(() => '')
+    if (!loaded) {
+      render()
+      return
+    }
+
+    if (state.imageHistoryIndex !== index) return
+    item.dataUrl = String(loaded).trim()
+    state.imageDataUrl = item.dataUrl
+    render()
+  }
+
+  function canSwitchImagePrev() {
+    if (!state.imageHistory.length) return false
+    return state.imageHistoryIndex === -1 || state.imageHistoryIndex > 0
+  }
+
+  function canSwitchImageNext() {
+    return state.imageHistory.length > 0 && state.imageHistoryIndex >= 0 && state.imageHistoryIndex < state.imageHistory.length - 1
+  }
+
+  async function switchImageHistory(direction) {
+    if (!state.imageHistory.length) return
+    const step = direction < 0 ? -1 : 1
+    if (step < 0 && state.imageHistoryIndex === -1) {
+      await applyImageHistoryIndex(state.imageHistory.length - 1)
+      return
+    }
+
+    const next = state.imageHistoryIndex + step
+    if (next < 0 || next >= state.imageHistory.length) return
+    await applyImageHistoryIndex(next)
+  }
+
+  async function refreshImageHistoryFromOutputDir(preferPath = '') {
+    const paths = await api.files.listOutputImages().catch(() => [])
+    const list = (Array.isArray(paths) ? paths : []).map((x) => String(x || '').trim()).filter((x) => !!x)
+
+    // listOutputImages 返回最新在前，这里翻转成“最旧 -> 最新”，与左右切换习惯保持一致。
+    state.imageHistory = list.reverse().map((savedPath) => ({ dataUrl: '', savedPath }))
+
+    if (!state.imageHistory.length) {
+      state.imageHistoryIndex = -1
+      state.savedPath = ''
+      render()
+      return
+    }
+
+    let target = String(preferPath || '').trim()
+    if (!target) target = String(state.savedPath || '').trim()
+
+    let index = state.imageHistory.length - 1
+    if (target) {
+      const found = state.imageHistory.findIndex((it) => String(it.savedPath || '') === target)
+      if (found >= 0) index = found
+    }
+
+    await applyImageHistoryIndex(index)
   }
 
   async function pickOutputDir() {
@@ -365,7 +530,7 @@
     if (!picked) return
     state.outputDir = picked
     api.ui.showToast('输出目录已更新')
-    render()
+    await refreshImageHistoryFromOutputDir()
   }
 
   async function openOutputDir() {
@@ -380,8 +545,8 @@
     })
     if (p) {
       state.savedPath = p
+      await refreshImageHistoryFromOutputDir(state.savedPath)
       api.ui.showToast('已保存图片')
-      render()
     }
   }
 
@@ -423,6 +588,7 @@
     state.busy = true
     state.error = ''
     state.savedPath = ''
+    addPromptHistory(prompt)
     render()
 
     const protocol = String(p?.protocol || 'images') === 'chat' ? 'chat' : 'images'
@@ -502,15 +668,16 @@
         throw new Error('未拿到图片数据（b64_json）')
       }
 
-      state.imageDataUrl = String(dataUrl).trim()
-      render()
+      const generatedDataUrl = String(dataUrl).trim()
 
       if (state.data && state.data.autoSave) {
-        const p = await api.files.saveImageBase64(state.imageDataUrl)
+        const p = await api.files.saveImageBase64(generatedDataUrl)
         state.savedPath = p || ''
-        render()
+        await refreshImageHistoryFromOutputDir(state.savedPath)
         api.ui.showToast('已生成并保存')
       } else {
+        state.imageDataUrl = generatedDataUrl
+        render()
         api.ui.showToast('已生成')
       }
     } catch (e) {
@@ -532,6 +699,13 @@
 
     const isChat = String(p?.protocol || 'images') === 'chat'
     const topMeta = state.outputDir ? `<span class="kbd mono" title="${esc(state.outputDir)}">输出：${esc(state.outputDir)}</span>` : ''
+    const canPromptPrev = canSwitchPromptPrev() && !state.busy
+    const canPromptNext = canSwitchPromptNext() && !state.busy
+    const canImagePrev = canSwitchImagePrev() && !state.busy
+    const canImageNext = canSwitchImageNext() && !state.busy
+    const imageCount = state.imageHistory.length
+    const currentImageIndex = state.imageHistoryIndex >= 0 ? state.imageHistoryIndex + 1 : 0
+    const imageIndexText = `${currentImageIndex}/${imageCount}`
 
     const img =
       state.imageDataUrl
@@ -599,6 +773,9 @@
             <span style="margin-left:8px">生成后自动保存到输出目录</span>
           </label>
 
+          <label>提示词历史条数（1-${MAX_PROMPT_HISTORY_LIMIT}）</label>
+          <input class="field sm" data-bind="promptHistoryLimit" type="number" min="1" max="${MAX_PROMPT_HISTORY_LIMIT}" step="1" value="${esc(state.draft.promptHistoryLimit)}" />
+
           <div class="hr"></div>
           <div class="row">
             <button class="btn pri" data-act="save-settings">保存设置</button>
@@ -651,6 +828,11 @@
                   : ''
               }
               <textarea class="field ta" data-bind="prompt" placeholder="例如：赛博朋克城市夜景，雨，霓虹灯，电影感，高细节…" ${state.busy ? 'disabled' : ''}>${esc(state.prompt)}</textarea>
+              <div class="row" style="margin-top:8px">
+                <span class="meta">提示词历史</span>
+                <button class="btn" data-act="prompt-prev" ${canPromptPrev ? '' : 'disabled'} aria-label="上一条提示词">←</button>
+                <button class="btn" data-act="prompt-next" ${canPromptNext ? '' : 'disabled'} aria-label="下一条提示词">→</button>
+              </div>
               <div class="row" style="margin-top:10px">
                 <button class="btn pri" data-act="generate" ${state.busy ? 'disabled' : ''}>${state.busy ? '生成中…' : '生成'}</button>
                 <button class="btn" data-act="open-output-dir">打开输出目录</button>
@@ -664,6 +846,9 @@
               <div class="row">
                 <div class="meta">输出</div>
                 <div class="sp"></div>
+                <span class="meta" aria-label="图片历史计数">${imageIndexText}</span>
+                <button class="btn" data-act="image-prev" ${canImagePrev ? '' : 'disabled'} aria-label="上一张图片">←</button>
+                <button class="btn" data-act="image-next" ${canImageNext ? '' : 'disabled'} aria-label="下一张图片">→</button>
                 <button class="btn ok" data-act="save-image" ${state.imageDataUrl && !state.busy ? '' : 'disabled'}>保存</button>
                 <button class="btn" data-act="copy-image" ${state.imageDataUrl && !state.busy ? '' : 'disabled'}>复制图片</button>
               </div>
@@ -705,13 +890,22 @@
         render()
       } else if (act === 'generate') {
         generate()
+      } else if (act === 'prompt-prev') {
+        switchPromptHistory(-1)
+      } else if (act === 'prompt-next') {
+        switchPromptHistory(1)
       } else if (act === 'clear-all') {
         state.prompt = ''
+        clearPromptHistory()
         clearResult()
       } else if (act === 'pick-output-dir') {
         pickOutputDir()
       } else if (act === 'open-output-dir') {
         openOutputDir()
+      } else if (act === 'image-prev') {
+        switchImageHistory(-1)
+      } else if (act === 'image-next') {
+        switchImageHistory(1)
       } else if (act === 'save-image') {
         saveImageNow()
       } else if (act === 'copy-image') {
@@ -751,6 +945,9 @@
 
       if (bind === 'prompt') {
         state.prompt = String(t.value || '')
+        if (state.promptHistoryIndex === -1) {
+          state.promptHistoryDraft = state.prompt
+        }
         return
       }
 

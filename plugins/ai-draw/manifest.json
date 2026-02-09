@@ -18,6 +18,8 @@
     "files.getOutputDir",
     "files.pickOutputDir",
     "files.openOutputDir",
-    "files.saveImageBase64"
+    "files.saveImageBase64",
+    "files.listOutputImages",
+    "files.readOutputImage"
   ]
 }
