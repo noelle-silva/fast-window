@@ -25,7 +25,9 @@ async function loadPlugin(pluginPath: string): Promise<LoadedPlugin | null> {
     // 读取插件代码
     const code = await invoke<string>('read_plugin_file', { pluginId: pluginPath, path: manifest.main })
 
-    if ((rawManifest.ui?.type ?? 'react') !== 'iframe') {
+    // 仅支持 iframe 沙箱；老插件若未声明 ui.type，默认按 iframe 处理
+    const uiType = rawManifest.ui?.type
+    if (uiType && uiType !== 'iframe') {
       console.error(`[plugin] "${manifest.id}" rejected: ui.type must be "iframe" (legacy eval/react is disabled).`)
       return null
     }

@@ -1,4 +1,4 @@
-// ai-once (iframe sandbox)
+// ai-once (iframe sandbox) (entry: index.js)
 ;(function () {
   const api = window.fastWindow
   const STORAGE_KEY = 'data'

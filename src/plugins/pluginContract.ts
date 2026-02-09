@@ -40,7 +40,8 @@ export type PluginCapability =
   | 'task.list'
   | 'task.cancel'
 
-export type PluginUiType = 'react' | 'iframe'
+// 仅支持 iframe 沙箱；legacy react/eval 已禁用（见 pluginLoader）
+export type PluginUiType = 'iframe'
 
 export interface PluginManifest {
   id: string
@@ -55,7 +56,7 @@ export interface PluginManifest {
   apiVersion?: number
   // 新增：能力申请列表（不填默认放行，兼容老插件；建议新插件显式声明）
   requires?: PluginCapability[]
-  // 新增：UI 运行方式（不填默认 react）
+  // UI 运行方式（legacy react/eval 已禁用；不填默认认为是 iframe）
   ui?: {
     type: PluginUiType
   }

@@ -5,7 +5,6 @@ import { loadAllPlugins } from './plugins/pluginLoader'
 import { initPluginApi } from './plugins/pluginApi'
 import BackgroundPluginHost from './plugins/BackgroundPluginHost'
 import { PluginCapability } from './plugins/pluginContract'
-import * as React from 'react'
 import {
   Alert,
   Avatar,
@@ -32,9 +31,6 @@ import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
 import SettingsView from './components/SettingsView'
 import ImportPluginDialog from './components/ImportPluginDialog'
-
-// 暴露 React 给插件使用
-;(window as any).React = React
 
 // 初始化插件 API
 initPluginApi()

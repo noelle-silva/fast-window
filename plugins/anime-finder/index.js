@@ -1,4 +1,4 @@
-// anime-finder (iframe sandbox)
+// anime-finder (iframe sandbox) (entry: index.js)
 ;(function () {
   const api = window.fastWindow
 

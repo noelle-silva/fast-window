@@ -14,12 +14,13 @@
 
 - `apiVersion`：宿主契约版本（当前为 `1`）
 - `requires`：能力申请列表（建议必填；老插件不填默认放行）
-- `ui.type`：
-  - `react`：旧模式（同一 WebView 内执行）
-  - `iframe`：沙箱模式（`sandbox iframe` 执行，通过 `postMessage` 调宿主能力）
+- `ui.type`：目前仅支持 `iframe`（沙箱模式；`sandbox iframe` 执行，通过 `postMessage` 调宿主能力）。
+  - 兼容：老插件不写 `ui.type` 时，默认按 `iframe` 处理。
 - `background`：后台运行策略（可选）
   - `autoStart?: boolean`：是否启动即运行后台上下文（默认 `true`）
   - `main?: string`：可选 legacy 双入口；不填时默认复用 `main`（推荐单入口）
+- `icon`：列表显示图标（可选，emoji 字符串）
+- `keyword`：快速直达关键字（可选；在主界面搜索框里输入完全匹配时命中）
 
 示例（iframe 插件，单入口 + 后台自启动）：
 
@@ -45,7 +46,10 @@
 - `clipboard.readImage` / `clipboard.writeImage`
 - `storage.get` / `storage.set` / `storage.remove` / `storage.getAll` / `storage.setAll`
 - `ui.showToast` / `ui.openUrl`
+- `net.request`（直接 HTTP 请求；走宿主后端以绕过浏览器 CORS）
 - `task.create` / `task.get` / `task.list` / `task.cancel`
+- `files.getOutputDir` / `files.pickOutputDir` / `files.openOutputDir`
+- `files.saveImageBase64` / `files.listOutputImages` / `files.readOutputImage`
 
 ## 后台任务（Task API）
 
@@ -78,7 +82,9 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
 - `fastWindow.clipboard.*`
 - `fastWindow.storage.*`（默认绑定当前插件 id：`get(key)` / `set(key, value)` …）
 - `fastWindow.ui.showToast(message)`
-- `fastWindow.ui.back()`（请求宿主返回）
+- `fastWindow.ui.back()`（请求宿主返回；不需要在 `requires` 里声明）
+- `fastWindow.net.request(req)`（需要 `requires` 声明 `net.request`）
+- `fastWindow.files.*`（需要对应 `files.*` 能力）
 
 运行时元信息：
 
