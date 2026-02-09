@@ -93,6 +93,13 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
 - 插件自己在入口里根据 `__meta.runtime` 分流逻辑
 - 宿主只提供通用 API 原语，不实现插件业务解析
 
+迁移说明（从旧结构到统一结构）：
+
+- 旧插件可继续使用 `main: "iframe.js"`，不强制立即迁移
+- 建议迁移到 `main: "index.js"`，并把原 `iframe.js` 逻辑合并到 `index.js`
+- 需要后台常驻时，添加 `background.autoStart: true`
+- 若保留旧双入口，也可使用 `background.main`，宿主仍兼容
+
 注意：iframe 插件不会拿到 `React`，也不会使用 `registerPluginComponent`；它应该自行渲染 DOM。
 
 ## 目录与数据（当前实现）
