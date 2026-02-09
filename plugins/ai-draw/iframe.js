@@ -149,6 +149,7 @@
       version: VERSION,
       autoSave: true,
       promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
+      promptHistory: [],
       activeProviderId: p.id,
       providers: [p],
     }
@@ -161,6 +162,21 @@
     if (v < 1) return 1
     if (v > MAX_PROMPT_HISTORY_LIMIT) return MAX_PROMPT_HISTORY_LIMIT
     return v
+  }
+
+  function normalizePromptHistory(list, limitRaw) {
+    const limit = normalizePromptHistoryLimit(limitRaw)
+    const raw = Array.isArray(list) ? list : []
+    const out = []
+    for (const item of raw) {
+      const text = String(item || '').trim()
+      if (!text) continue
+      const existed = out.indexOf(text)
+      if (existed >= 0) out.splice(existed, 1)
+      out.push(text)
+      if (out.length > limit) out.shift()
+    }
+    return out
   }
 
   function normalizeModels(list) {
@@ -209,6 +225,7 @@
     out.activeProviderId = p.id
     out.autoSave = typeof s.autoSave === 'boolean' ? s.autoSave : true
     out.promptHistoryLimit = normalizePromptHistoryLimit(s.promptHistoryLimit)
+    out.promptHistory = normalizePromptHistory(s.promptHistory, out.promptHistoryLimit)
     return out
   }
 
@@ -225,6 +242,7 @@
     out.version = VERSION
     out.autoSave = typeof d.autoSave === 'boolean' ? d.autoSave : true
     out.promptHistoryLimit = normalizePromptHistoryLimit(d.promptHistoryLimit)
+    out.promptHistory = normalizePromptHistory(d.promptHistory, out.promptHistoryLimit)
 
     out.providers = Array.isArray(d.providers) ? d.providers.map(normalizeProvider) : defaultData().providers
     if (!out.providers.length) out.providers = defaultData().providers
@@ -254,12 +272,22 @@
     await api.storage.set(STORAGE_KEY, state.data)
   }
 
+  function syncPromptHistoryToData(persist = false) {
+    if (!state.data) return
+    state.data.promptHistory = state.promptHistory.slice()
+    if (!persist) return
+    save().catch(() => {})
+  }
+
   async function load() {
     state.loading = true
     render()
 
     const saved = await api.storage.get(STORAGE_KEY).catch(() => null)
     state.data = normalizeData(saved)
+    state.promptHistory = normalizePromptHistory(state.data && state.data.promptHistory, state.data && state.data.promptHistoryLimit)
+    state.promptHistoryIndex = -1
+    state.promptHistoryDraft = ''
     // 迁移后立即落盘一次（只改结构，不改变用户意图）
     await save().catch(() => {})
 
@@ -368,6 +396,7 @@
     state.data.autoSave = !!state.draft.autoSave
     state.data.promptHistoryLimit = normalizePromptHistoryLimit(state.draft.promptHistoryLimit)
     trimPromptHistoryToLimit()
+    syncPromptHistoryToData(false)
     return { ok: true, error: '' }
   }
 
@@ -388,6 +417,7 @@
     state.promptHistory = []
     state.promptHistoryIndex = -1
     state.promptHistoryDraft = ''
+    syncPromptHistoryToData(true)
   }
 
   function addPromptHistory(prompt) {
@@ -401,6 +431,7 @@
     trimPromptHistoryToLimit()
     state.promptHistoryIndex = -1
     state.promptHistoryDraft = ''
+    syncPromptHistoryToData(true)
   }
 
   function trimPromptHistoryToLimit() {
@@ -409,6 +440,7 @@
     state.promptHistory = state.promptHistory.slice(state.promptHistory.length - limit)
     state.promptHistoryIndex = -1
     state.promptHistoryDraft = ''
+    syncPromptHistoryToData(false)
   }
 
   function canSwitchPromptPrev() {
