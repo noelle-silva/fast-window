@@ -31,6 +31,8 @@
       customModel: '',
       templateId: '',
       editSpaceId: '',
+      deleteSpaceId: '',
+      deleteSpaceReturnModal: '',
     },
     data: null,
   }
@@ -361,6 +363,10 @@
     return pick
   }
 
+  function canSendInSpace(space) {
+    return !!String(resolveModel(space) || '').trim()
+  }
+
   async function sendOnce() {
     if (state.sending || !state.data) return
     const space = activeSpace()
@@ -445,13 +451,18 @@
       name: n,
       createdAt: now(),
       updatedAt: now(),
-      defaultModel: '',
+      defaultModelByProvider: {},
       activeTemplateId: tid,
       templates: [{ id: tid, name: '默认', systemPrompt: '' }],
     })
     await save()
     state.route = { name: 'space', spaceId: sid }
     state.modal = ''
+    state.draft.input = ''
+    state.draft.output = ''
+    state.draft.error = ''
+    state.draft.model = ''
+    state.draft.customModel = ''
     render()
   }
 
@@ -471,12 +482,41 @@
     if (!state.data) return
     const s = getSpace(spaceId)
     if (!s) return
-    if (!confirm(`删除空间「${s.name}」？`)) return
     state.data.spaces = state.data.spaces.filter((x) => x.id !== spaceId)
     if (state.data.spaces.length === 0) state.data.spaces = defaultData().spaces
     state.route = { name: 'list', spaceId: '' }
     await save()
     render()
+  }
+
+  function openDeleteSpaceConfirm(spaceId, returnModal) {
+    const id = String(spaceId || '')
+    if (!id || !getSpace(id)) return
+    state.menuSpaceId = ''
+    state.draft.deleteSpaceId = id
+    state.draft.deleteSpaceReturnModal = String(returnModal || '')
+    state.modal = 'confirm-delete-space'
+    render()
+  }
+
+  function cancelDeleteSpaceConfirm() {
+    const back = String(state.draft.deleteSpaceReturnModal || '')
+    state.draft.deleteSpaceId = ''
+    state.draft.deleteSpaceReturnModal = ''
+    state.modal = back
+    render()
+  }
+
+  function confirmDeleteSpace() {
+    const id = String(state.draft.deleteSpaceId || '')
+    state.draft.deleteSpaceId = ''
+    state.draft.deleteSpaceReturnModal = ''
+    state.modal = ''
+    if (!id) {
+      render()
+      return
+    }
+    deleteSpace(id)
   }
 
   function goSpace(spaceId) {
@@ -617,8 +657,12 @@
         return
       }
       if (act === 'close-modal') {
-        state.modal = ''
-        render()
+        if (state.modal === 'confirm-delete-space') {
+          cancelDeleteSpaceConfirm()
+        } else {
+          state.modal = ''
+          render()
+        }
         return
       }
       if (act === 'save-settings') {
@@ -739,9 +783,15 @@
       if (act === 'delete-space') {
         const id = t.getAttribute('data-id') || ''
         if (!id) return
-        state.menuSpaceId = ''
-        state.modal = ''
-        deleteSpace(id)
+        openDeleteSpaceConfirm(id, state.modal === 'edit-space' ? 'edit-space' : '')
+        return
+      }
+      if (act === 'cancel-delete-space') {
+        cancelDeleteSpaceConfirm()
+        return
+      }
+      if (act === 'confirm-delete-space') {
+        confirmDeleteSpace()
         return
       }
       if (act === 'send') {
@@ -1030,12 +1080,16 @@
     const models = state.models || []
     const cur = String(currentModel(s) || '').trim()
     const inList = cur && models.includes(cur)
-    const customOn = String(state.draft.model || '') === '__custom__'
+    const picked = String(state.draft.model || '').trim()
+    const customOn = picked === '__custom__'
+    const chosen = customOn ? '' : String(picked || cur)
     const modelOptions = []
-    if (cur && !inList) modelOptions.push(`<option value="${esc(cur)}" ${customOn ? '' : 'selected'}>当前：${esc(cur)}（不在列表）</option>`)
-    for (const m of models) modelOptions.push(`<option value="${esc(m)}" ${!customOn && m === cur ? 'selected' : ''}>${esc(m)}</option>`)
+    modelOptions.push(`<option value="" ${!chosen && !customOn ? 'selected' : ''}>请选择模型…</option>`)
+    if (cur && !inList) modelOptions.push(`<option value="${esc(cur)}" ${!customOn && cur === chosen ? 'selected' : ''}>当前：${esc(cur)}（不在列表）</option>`)
+    for (const m of models) modelOptions.push(`<option value="${esc(m)}" ${!customOn && m === chosen ? 'selected' : ''}>${esc(m)}</option>`)
     modelOptions.push(`<option value="__custom__" ${customOn ? 'selected' : ''}>手动输入…</option>`)
     const showCustom = (state.draft.model || '') === '__custom__'
+    const canSend = canSendInSpace(s)
 
     el.innerHTML = `
       <div class="split">
@@ -1043,7 +1097,7 @@
           <div class="row" style="margin-bottom:8px">
             <div class="meta" style="margin:0">模型</div>
             <select class="field" data-bind="model" style="flex:1; min-width: 220px">${modelOptions.join('')}</select>
-            <button class="btn ok" data-act="send" ${state.sending ? 'disabled' : ''}>${state.sending ? '发送中…' : '发送'}</button>
+            <button class="btn ok" data-act="send" ${state.sending || !canSend ? 'disabled' : ''}>${state.sending ? '发送中…' : '发送'}</button>
           </div>
           ${showCustom ? `<input class="field mono" data-bind="customModel" placeholder="例如：gpt-4.1-mini / deepseek-chat" value="${esc(state.draft.customModel || cur)}" />` : ''}
           <textarea class="field mono grow ta" data-bind="input" data-act="user-input" placeholder="输入你的问题…（Ctrl/⌘ + Enter 发送）">${esc(state.draft.input || '')}</textarea>
@@ -1164,6 +1218,36 @@
               <button class="btn bad" data-act="delete-space" data-id="${esc(s.id)}">删除空间</button>
               <div class="sp"></div>
               <div class="meta" style="margin:0">删除后不可恢复</div>
+            </div>
+          </div>
+        </div>
+      `
+      return
+    }
+    if (state.modal === 'confirm-delete-space') {
+      const id = String(state.draft.deleteSpaceId || '')
+      const s = id ? getSpace(id) : null
+      if (!s) {
+        state.modal = String(state.draft.deleteSpaceReturnModal || '')
+        state.draft.deleteSpaceId = ''
+        state.draft.deleteSpaceReturnModal = ''
+        renderModal()
+        return
+      }
+      el.innerHTML = `
+        <div class="overlay" data-act="close-modal">
+          <div class="modal">
+            <div class="row">
+              <div class="title" style="margin:0">确认删除空间</div>
+              <div class="sp"></div>
+              <button class="btn" data-act="cancel-delete-space">取消</button>
+            </div>
+            <div class="hr"></div>
+            <div class="meta">删除后不可恢复，空间「${esc(s.name)}」下的模板与默认模型配置将一并移除。</div>
+            <div class="hr"></div>
+            <div class="row">
+              <button class="btn bad" data-act="confirm-delete-space">确认删除</button>
+              <button class="btn" data-act="cancel-delete-space">取消</button>
             </div>
           </div>
         </div>
