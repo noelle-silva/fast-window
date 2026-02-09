@@ -176,6 +176,8 @@ export type FastWindowApi = {
     pickOutputDir: () => Promise<string | null>
     openOutputDir: () => Promise<void>
     saveImageBase64: (dataUrlOrBase64: string) => Promise<string>
+    listOutputImages: () => Promise<string[]>
+    readOutputImage: (path: string) => Promise<string>
   }
 }
 
@@ -283,6 +285,14 @@ export function createPluginContext(pluginId: string, requires?: PluginCapabilit
       saveImageBase64: async (dataUrlOrBase64: string) => {
         assertAllowed(requires, 'files.saveImageBase64')
         return invoke<string>('plugin_save_image_base64', { pluginId, data: dataUrlOrBase64 })
+      },
+      listOutputImages: async () => {
+        assertAllowed(requires, 'files.listOutputImages')
+        return invoke<string[]>('plugin_list_output_images', { pluginId })
+      },
+      readOutputImage: async (path: string) => {
+        assertAllowed(requires, 'files.readOutputImage')
+        return invoke<string>('plugin_read_output_image', { pluginId, path })
       },
     },
   }

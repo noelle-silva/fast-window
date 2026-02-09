@@ -14,6 +14,8 @@ export type PluginCapability =
   | 'files.pickOutputDir'
   | 'files.openOutputDir'
   | 'files.saveImageBase64'
+  | 'files.listOutputImages'
+  | 'files.readOutputImage'
   | 'clipboard'
   | 'clipboard.*'
   | 'clipboard.readText'
