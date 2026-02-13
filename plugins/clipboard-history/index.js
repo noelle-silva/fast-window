@@ -1889,7 +1889,7 @@
 
     if (state.view === 'clipboard') {
       topbar.innerHTML = `
-        <button class="btn" data-act="back">返回</button>
+        <button class="btn" data-act="back" aria-label="返回主页" title="返回主页">←</button>
         <div class="title">剪贴板历史</div>
         <input class="search" placeholder="搜索文本（图片不参与）" data-act="searchClipboard" value="${escapeHtml(state.clipboardSearchQuery)}" />
         <div class="dropdown" data-role="recentDropdown">
@@ -1921,7 +1921,7 @@
     }
 
     topbar.innerHTML = `
-      <button class="btn" data-act="back">返回</button>
+      <button class="btn" data-act="back" aria-label="返回主页" title="返回主页">←</button>
       <div class="title">收藏夹</div>
       <input class="search" placeholder="${state.folderSearchScope === 'global' ? '全局搜索（标题/内容）' : '当前收藏夹内搜索（含子收藏夹）'}" data-act="searchFolders" value="${escapeHtml(state.folderSearchQuery)}" />
       <button class="btn" data-act="toggleFolderSearchScope">${state.folderSearchScope === 'global' ? '全局' : '当前'}</button>

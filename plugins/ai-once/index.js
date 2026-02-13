@@ -663,6 +663,11 @@
       if (!(t instanceof HTMLElement)) return
       const act = t.getAttribute('data-act') || ''
 
+      if (act === 'back') {
+        api.ui?.back ? api.ui.back() : api.ui?.showToast?.('无法返回')
+        return
+      }
+
       let closedMenu = false
       if (!act && state.route.name === 'list' && state.menuSpaceId) {
         const inMenu = !!t.closest('[data-space-menu="1"]')
@@ -1133,6 +1138,7 @@
       const p = activeProvider()
       const info = p ? esc(trimSlash(p.baseUrl || '')) : ''
       el.innerHTML = `
+        <button class="iconBtn" data-act="back" aria-label="返回主页" title="返回主页">←</button>
         <div class="title">AI 一次性响应</div>
         <select class="field sm" data-bind="activeProviderId" title="当前生效供应商">${pOptions}</select>
         <div class="meta mono" title="${info}" style="margin:0">${info}</div>
@@ -1162,6 +1168,7 @@
           .join('')
       : ''
     el.innerHTML = `
+      <button class="iconBtn" data-act="back" aria-label="返回主页" title="返回主页">←</button>
       <button class="btn" data-act="space-back">空间</button>
       <div class="title">${esc(s ? s.name : '')}</div>
       <select class="field sm" data-bind="activeProviderId" title="当前生效供应商">${pOptions}</select>

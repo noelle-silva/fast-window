@@ -151,15 +151,15 @@
   function mount() {
     const root = document.getElementById('app') || document.body
     root.innerHTML = `
-      <style>${styles}</style>
-      <div class="wrap">
-        <div class="topbar">
-          <button class="btn" data-act="back">返回</button>
-          <div class="title">快捷备忘录</div>
-          <button class="btn primary" data-act="save">保存</button>
-        </div>
-        <div class="content">
-          <div class="editor">
+        <style>${styles}</style>
+        <div class="wrap">
+          <div class="topbar">
+          <button class="btn" data-act="back" aria-label="返回主页" title="返回主页">←</button>
+            <div class="title">快捷备忘录</div>
+            <button class="btn primary" data-act="save">保存</button>
+          </div>
+          <div class="content">
+            <div class="editor">
             <textarea class="textarea" placeholder="输入备忘内容，Enter 保存，Shift+Enter 换行" data-act="input"></textarea>
             <div class="hint">
               <span>共 <span data-role="count">0</span> 条</span>

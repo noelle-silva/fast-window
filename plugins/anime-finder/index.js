@@ -341,7 +341,7 @@
       <style>${styles}</style>
       <div class="wrap" data-role="wrap">
         <div class="topbar">
-          <button class="btn" data-act="back">返回</button>
+          <button class="btn" data-act="back" aria-label="返回主页" title="返回主页">←</button>
           <div class="title">以图找番 (trace.moe)</div>
           <button class="btn" data-act="pick">选择图片</button>
           <button class="btn" data-act="clip">读剪贴板</button>

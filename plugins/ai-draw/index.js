@@ -1445,6 +1445,7 @@
       <style>${css}</style>
       <div class="wrap">
         <div class="top">
+          <button class="btn icon" data-act="back" aria-label="返回主页" title="返回主页">←</button>
           <div class="title">AI 绘图</div>
           <button class="btn" data-act="open-output-dir" ${state.outputDir ? '' : 'disabled'}>打开输出目录</button>
           <span class="kbd mono" aria-label="自动保存开关状态">自动保存：${d && d.autoSave ? '开' : '关'}</span>
@@ -1574,6 +1575,11 @@
 
       const act = el.getAttribute('data-act')
       if (!act) return
+
+      if (act === 'back') {
+        api.ui?.back ? api.ui.back() : api.ui?.showToast?.('无法返回')
+        return
+      }
 
       if (act === 'open-settings') {
         openSettings()
