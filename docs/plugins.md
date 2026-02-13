@@ -10,12 +10,11 @@
 - `name` / `version` / `description`
 - `main`：入口文件
 
-新增契约字段：
+新增契约字段（v2 起为必填/强约束）：
 
-- `apiVersion`：宿主契约版本（当前为 `1`）
-- `requires`：能力申请列表（建议必填；老插件不填默认放行）
-- `ui.type`：目前仅支持 `iframe`（沙箱模式；`sandbox iframe` 执行，通过 `postMessage` 调宿主能力）。
-  - 兼容：老插件不写 `ui.type` 时，默认按 `iframe` 处理。
+- `apiVersion`：宿主契约版本（当前为 `2`）
+- `requires`：能力申请列表（**必填**；未声明的能力调用会被宿主拒绝）
+- `ui.type`：目前仅支持 `iframe`（**必填**；沙箱模式；`sandbox iframe` 执行，通过 `postMessage` 调宿主能力）。
 - `background`：后台运行策略（可选）
   - `autoStart?: boolean`：是否启动即运行后台上下文（默认 `true`）
   - `main?: string`：可选 legacy 双入口；不填时默认复用 `main`（推荐单入口）
@@ -33,20 +32,20 @@
   "main": "index.js",
   "background": { "autoStart": true },
   "ui": { "type": "iframe" },
-  "apiVersion": 1,
+  "apiVersion": 2,
   "requires": ["ui.showToast", "clipboard.readText"]
 }
 ```
 
 ## 能力（`requires`）
 
-目前按“方法名”授权（见 `src/plugins/pluginContract.ts`），常用：
+目前按“方法名”授权（见 `src/plugins/pluginContract.ts`），未声明的能力会被拒绝，常用：
 
 - `clipboard.readText` / `clipboard.writeText`
 - `clipboard.readImage` / `clipboard.writeImage`
 - `storage.get` / `storage.set` / `storage.remove` / `storage.getAll` / `storage.setAll`
 - `ui.showToast` / `ui.openUrl`
-- `net.request`（直接 HTTP 请求；走宿主后端以绕过浏览器 CORS）
+- `net.request`（直接 HTTP 请求；走宿主后端以绕过浏览器 CORS；也支持 `mode: "task"` 以任务方式执行）
 - `task.create` / `task.get` / `task.list` / `task.cancel`
 - `files.getOutputDir` / `files.pickOutputDir` / `files.openOutputDir`
 - `files.saveImageBase64` / `files.listOutputImages` / `files.readOutputImage`
@@ -68,7 +67,7 @@
 - 宿主会限制每个插件保留的任务条数，避免无上限增长
 - 任务能力必须在 `manifest.requires` 显式声明
 
-通用任务原语示例：
+通用任务原语示例（注意：网络请求请走 `net.request`，不要直接 `task.create("http.request")`）：
 
 - `http.request`：宿主执行 HTTP 请求，返回 `status/headers/body`
 - `clipboard.watch`：宿主持续监听剪贴板，返回 `items` 快照
@@ -83,7 +82,7 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
 - `fastWindow.storage.*`（默认绑定当前插件 id：`get(key)` / `set(key, value)` …）
 - `fastWindow.ui.showToast(message)`
 - `fastWindow.ui.back()`（请求宿主返回；不需要在 `requires` 里声明）
-- `fastWindow.net.request(req)`（需要 `requires` 声明 `net.request`）
+  - `fastWindow.net.request(req)`（需要 `requires` 声明 `net.request`；可传 `mode: "task"` 返回任务句柄）
 - `fastWindow.files.*`（需要对应 `files.*` 能力）
 
 运行时元信息：
@@ -99,12 +98,12 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
 - 插件自己在入口里根据 `__meta.runtime` 分流逻辑
 - 宿主只提供通用 API 原语，不实现插件业务解析
 
-迁移说明（从旧结构到统一结构）：
+迁移说明（到 v2 契约）：
 
-- 旧插件可继续使用 `main: "iframe.js"`，不强制立即迁移
-- 建议迁移到 `main: "index.js"`，并把原 `iframe.js` 逻辑合并到 `index.js`
+- 必须显式声明 `apiVersion: 2`、`requires: [...]`、`ui.type: "iframe"`，否则宿主会拒绝加载
+- 入口文件名自由：可继续使用 `main: "iframe.js"`，或改为 `main: "index.js"`，以 `manifest.main` 为准
 - 需要后台常驻时，添加 `background.autoStart: true`
-- 若保留旧双入口，也可使用 `background.main`，宿主仍兼容
+- 若需要双入口，可使用 `background.main`（不填时默认复用 `main`）
 
 注意：iframe 插件不会拿到 `React`，也不会使用 `registerPluginComponent`；它应该自行渲染 DOM。
 

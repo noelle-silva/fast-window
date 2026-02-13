@@ -13,7 +13,7 @@ import {
   LinearProgress,
   Typography,
 } from '@mui/material'
-import { PLUGIN_API_VERSION, PluginManifest } from '../plugins/pluginContract'
+import { ALL_PLUGIN_CAPABILITIES, PLUGIN_API_VERSION, PluginManifest } from '../plugins/pluginContract'
 
 type Props = {
   open: boolean
@@ -137,13 +137,16 @@ export default function ImportPluginDialog(props: Props) {
       if (typeof manifest.version !== 'string' || !manifest.version.trim()) throw new Error('manifest.version 不能为空')
       if (typeof manifest.description !== 'string') throw new Error('manifest.description 必须是字符串')
       if (typeof manifest.main !== 'string' || !manifest.main.trim()) throw new Error('manifest.main 不能为空')
-      if (manifest.ui?.type && manifest.ui.type !== 'iframe') {
-        throw new Error('仅支持 ui.type="iframe" 的插件（legacy react 已禁用）')
+      if (manifest.ui?.type !== 'iframe') throw new Error('manifest.ui.type 必须为 "iframe"')
+
+      if (manifest.apiVersion !== PLUGIN_API_VERSION) {
+        throw new Error(`插件需要 apiVersion=${manifest.apiVersion}，当前宿主版本=${PLUGIN_API_VERSION}`)
       }
 
-      const apiVersion = typeof manifest.apiVersion === 'number' ? manifest.apiVersion : PLUGIN_API_VERSION
-      if (apiVersion > PLUGIN_API_VERSION) {
-        throw new Error(`插件需要 apiVersion=${apiVersion}，当前宿主版本=${PLUGIN_API_VERSION}`)
+      if (!Array.isArray(manifest.requires)) throw new Error('manifest.requires 必须是数组（即使为空）')
+      const known = new Set<string>(ALL_PLUGIN_CAPABILITIES as readonly string[])
+      for (const item of manifest.requires) {
+        if (!known.has(String(item))) throw new Error(`manifest.requires 存在未知能力：${String(item)}`)
       }
 
       if (!isSafeRelPath(manifest.main)) throw new Error('manifest.main 路径不合法（不允许绝对路径或 ..）')
@@ -233,8 +236,8 @@ export default function ImportPluginDialog(props: Props) {
         {selected ? (
           <Box sx={{ mt: 1 }}>
             <Typography variant="caption" color="text.secondary">
-              ID：{selected.manifest.id} · apiVersion：{selected.manifest.apiVersion ?? PLUGIN_API_VERSION} · ui.type：
-              {selected.manifest.ui?.type ?? 'iframe'}
+              ID：{selected.manifest.id} · apiVersion：{selected.manifest.apiVersion} · ui.type：{selected.manifest.ui?.type} · requires：
+              {Array.isArray(selected.manifest.requires) ? selected.manifest.requires.length : 0}
             </Typography>
           </Box>
         ) : null}

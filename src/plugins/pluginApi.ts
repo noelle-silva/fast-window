@@ -1,7 +1,7 @@
 import { readText, writeText, readImage, writeImage as writeClipboardImage } from '@tauri-apps/plugin-clipboard-manager'
 import { invoke } from '@tauri-apps/api/core'
 import { Image as TauriImage } from '@tauri-apps/api/image'
-import { isCapabilityAllowed, PLUGIN_API_VERSION, PluginCapability } from './pluginContract'
+import { PLUGIN_API_VERSION, PluginCapability } from './pluginContract'
 
 let readImageErrorLogged = false
 
@@ -220,7 +220,24 @@ export type FastWindowApi = {
   ui: typeof fastWindowApi.ui & {
     back?: () => Promise<void> | void
   }
-  net: typeof fastWindowApi.net
+  net: {
+    request: (req: {
+      mode?: 'direct' | 'task'
+      method: string
+      url: string
+      headers?: Record<string, string>
+      body?: string | null
+      bodyBase64?: string | null
+      timeoutMs?: number | null
+    }) => Promise<
+      | {
+          status: number
+          body: string
+          headers: Record<string, string>
+        }
+      | PluginTaskInfo
+    >
+  }
   task: {
     create: (req: { kind: string; payload?: unknown }) => Promise<PluginTaskInfo>
     get: (taskId: string) => Promise<PluginTaskInfo | null>
@@ -240,132 +257,101 @@ export type FastWindowApi = {
 export type PluginContext = {
   apiVersion: number
   id: string
-  requires?: PluginCapability[]
+  requires: PluginCapability[]
   api: FastWindowApi
 }
 
-function assertAllowed(requires: PluginCapability[] | undefined, needed: any) {
-  // 按用户要求：不做强校验（不拦截执行），只做一次性提示；边界主要靠 iframe 隔离来保证
-  if (!requires || requires.length === 0) return
-  if (isCapabilityAllowed(requires, needed)) return
-
-  const key = `${String(needed)}`
-  ;(assertAllowed as any)._warned ??= new Set<string>()
-  const warned: Set<string> = (assertAllowed as any)._warned
-  if (!warned.has(key)) {
-    warned.add(key)
-    console.warn(`[plugin] capability not declared but allowed (no strong enforcement): ${key}`)
-  }
-}
-
-export function createPluginContext(pluginId: string, requires?: PluginCapability[]): PluginContext {
+export function createPluginContext(pluginId: string, requires: PluginCapability[]): PluginContext {
   const api: FastWindowApi = {
     clipboard: {
       readText: async () => {
-        assertAllowed(requires, 'clipboard.readText')
         return fastWindowApi.clipboard.readText()
       },
       writeText: async (text: string) => {
-        assertAllowed(requires, 'clipboard.writeText')
         return fastWindowApi.clipboard.writeText(text)
       },
       readImage: async () => {
-        assertAllowed(requires, 'clipboard.readImage')
         return fastWindowApi.clipboard.readImage()
       },
       writeImage: async (dataUrl: string) => {
-        assertAllowed(requires, 'clipboard.writeImage')
         return fastWindowApi.clipboard.writeImage(dataUrl)
       },
     },
     storage: {
-      get: async (pluginIdOrKey: string, key?: string) => {
-        assertAllowed(requires, 'storage.get')
-        const pid = key ? pluginIdOrKey : pluginId
-        const k = key ?? pluginIdOrKey
-        return fastWindowApi.storage.get(pid, k)
+      get: async (key: string) => {
+        return fastWindowApi.storage.get(pluginId, key)
       },
-      set: async (pluginIdOrKey: string, keyOrValue: any, value?: unknown) => {
-        assertAllowed(requires, 'storage.set')
-        const pid = value === undefined ? pluginId : pluginIdOrKey
-        const k = value === undefined ? pluginIdOrKey : keyOrValue
-        const v = value === undefined ? keyOrValue : value
-        return fastWindowApi.storage.set(pid, k, v)
+      set: async (key: string, value: unknown) => {
+        return fastWindowApi.storage.set(pluginId, key, value)
       },
-      remove: async (pluginIdOrKey: string, key?: string) => {
-        assertAllowed(requires, 'storage.remove')
-        const pid = key ? pluginIdOrKey : pluginId
-        const k = key ?? pluginIdOrKey
-        return fastWindowApi.storage.remove(pid, k)
+      remove: async (key: string) => {
+        return fastWindowApi.storage.remove(pluginId, key)
       },
-      getAll: async (pid?: string) => {
-        assertAllowed(requires, 'storage.getAll')
-        return fastWindowApi.storage.getAll(pid ?? pluginId)
+      getAll: async () => {
+        return fastWindowApi.storage.getAll(pluginId)
       },
-      setAll: async (pidOrData: any, data?: Record<string, unknown>) => {
-        assertAllowed(requires, 'storage.setAll')
-        const pid = data ? pidOrData : pluginId
-        const d = data ?? pidOrData
-        return fastWindowApi.storage.setAll(pid, d)
+      setAll: async (data: Record<string, unknown>) => {
+        return fastWindowApi.storage.setAll(pluginId, data)
       },
-    } as any,
+    },
     ui: {
       showToast: (message: string) => {
-        assertAllowed(requires, 'ui.showToast')
         return fastWindowApi.ui.showToast(message)
       },
       openUrl: async (url: string) => {
-        assertAllowed(requires, 'ui.openUrl')
         return fastWindowApi.ui.openUrl(url)
       },
     },
     net: {
       request: async (req: any) => {
-        assertAllowed(requires, 'net.request')
+        const mode = String(req?.mode || 'direct')
+        if (mode === 'task') {
+          return fastWindowApi.task.create(pluginId, {
+            kind: 'http.request',
+            payload: {
+              method: String(req?.method || ''),
+              url: String(req?.url || ''),
+              headers: req?.headers ?? null,
+              body: req?.body ?? null,
+              bodyBase64: req?.bodyBase64 ?? null,
+              timeoutMs: req?.timeoutMs ?? null,
+            },
+          })
+        }
         return fastWindowApi.net.request(req)
       },
     },
     task: {
       create: async (req: { kind: string; payload?: unknown }) => {
-        assertAllowed(requires, 'task.create')
         return fastWindowApi.task.create(pluginId, req)
       },
       get: async (taskId: string) => {
-        assertAllowed(requires, 'task.get')
         return fastWindowApi.task.get(pluginId, taskId)
       },
       list: async (limit?: number) => {
-        assertAllowed(requires, 'task.list')
         return fastWindowApi.task.list(pluginId, limit)
       },
       cancel: async (taskId: string) => {
-        assertAllowed(requires, 'task.cancel')
         return fastWindowApi.task.cancel(pluginId, taskId)
       },
     },
     files: {
       getOutputDir: async () => {
-        assertAllowed(requires, 'files.getOutputDir')
         return invoke<string>('plugin_get_output_dir', { pluginId })
       },
       pickOutputDir: async () => {
-        assertAllowed(requires, 'files.pickOutputDir')
         return invoke<string | null>('plugin_pick_output_dir', { pluginId })
       },
       openOutputDir: async () => {
-        assertAllowed(requires, 'files.openOutputDir')
         await invoke('plugin_open_output_dir', { pluginId })
       },
       saveImageBase64: async (dataUrlOrBase64: string) => {
-        assertAllowed(requires, 'files.saveImageBase64')
         return invoke<string>('plugin_save_image_base64', { pluginId, data: dataUrlOrBase64 })
       },
       listOutputImages: async () => {
-        assertAllowed(requires, 'files.listOutputImages')
         return invoke<string[]>('plugin_list_output_images', { pluginId })
       },
       readOutputImage: async (path: string) => {
-        assertAllowed(requires, 'files.readOutputImage')
         return invoke<string>('plugin_read_output_image', { pluginId, path })
       },
     },

@@ -1,4 +1,4 @@
-export const PLUGIN_API_VERSION = 1 as const
+export const PLUGIN_API_VERSION = 2 as const
 
 export type PluginApiVersion = typeof PLUGIN_API_VERSION
 
@@ -40,6 +40,44 @@ export type PluginCapability =
   | 'task.list'
   | 'task.cancel'
 
+export const ALL_PLUGIN_CAPABILITIES: readonly PluginCapability[] = [
+  '*',
+  'net',
+  'net.*',
+  'net.request',
+  'files',
+  'files.*',
+  'files.getOutputDir',
+  'files.pickOutputDir',
+  'files.openOutputDir',
+  'files.saveImageBase64',
+  'files.listOutputImages',
+  'files.readOutputImage',
+  'clipboard',
+  'clipboard.*',
+  'clipboard.readText',
+  'clipboard.writeText',
+  'clipboard.readImage',
+  'clipboard.writeImage',
+  'storage',
+  'storage.*',
+  'storage.get',
+  'storage.set',
+  'storage.remove',
+  'storage.getAll',
+  'storage.setAll',
+  'ui',
+  'ui.*',
+  'ui.showToast',
+  'ui.openUrl',
+  'task',
+  'task.*',
+  'task.create',
+  'task.get',
+  'task.list',
+  'task.cancel',
+] as const
+
 // 仅支持 iframe 沙箱；legacy react/eval 已禁用（见 pluginLoader）
 export type PluginUiType = 'iframe'
 
@@ -54,9 +92,9 @@ export interface PluginManifest {
 
   // 新增：插件契约版本（不填默认认为是当前版本）
   apiVersion?: number
-  // 新增：能力申请列表（不填默认放行，兼容老插件；建议新插件显式声明）
+  // 能力申请列表（v2 起为强约束：未声明的能力会被宿主拒绝）
   requires?: PluginCapability[]
-  // UI 运行方式（legacy react/eval 已禁用；不填默认认为是 iframe）
+  // UI 运行方式（v2 起要求显式为 iframe；legacy react/eval 已禁用）
   ui?: {
     type: PluginUiType
   }
@@ -77,25 +115,10 @@ export function normalizeManifest(manifest: PluginManifest): Required<Pick<Plugi
 
 export function isCapabilityAllowed(
   requires: PluginCapability[] | undefined,
-  needed: Exclude<
-    PluginCapability,
-    | '*'
-    | 'net'
-    | 'files'
-    | 'clipboard'
-    | 'storage'
-    | 'ui'
-    | 'task'
-    | 'net.*'
-    | 'files.*'
-    | 'clipboard.*'
-    | 'storage.*'
-    | 'ui.*'
-    | 'task.*'
-  >,
+  needed: PluginMethodCapability,
 ): boolean {
-  // 兼容：老插件不写 requires 时，默认放行（不然现有生态直接全挂）
-  if (!requires || requires.length === 0) return true
+  // v2：默认拒绝（缺失/空列表 = 没有权限）
+  if (!requires || requires.length === 0) return false
   if (requires.includes('*')) return true
 
   const [ns] = needed.split('.', 1)
@@ -109,3 +132,20 @@ export function isCapabilityAllowed(
     (ns === 'task' && (requires.includes('task') || requires.includes('task.*')))
   )
 }
+
+export type PluginMethodCapability = Exclude<
+  PluginCapability,
+  | '*'
+  | 'net'
+  | 'files'
+  | 'clipboard'
+  | 'storage'
+  | 'ui'
+  | 'task'
+  | 'net.*'
+  | 'files.*'
+  | 'clipboard.*'
+  | 'storage.*'
+  | 'ui.*'
+  | 'task.*'
+>

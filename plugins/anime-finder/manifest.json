@@ -6,7 +6,7 @@
   "main": "index.js",
   "icon": "🎬",
   "keyword": "anime",
-  "apiVersion": 1,
+  "apiVersion": 2,
   "ui": { "type": "iframe" },
   "requires": ["net.request", "ui.showToast", "clipboard.readImage", "clipboard.writeText"]
 }

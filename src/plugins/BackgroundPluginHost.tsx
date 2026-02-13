@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { createPluginContext } from './pluginApi'
-import { PLUGIN_API_VERSION, PluginCapability } from './pluginContract'
+import { PluginCapability } from './pluginContract'
+import { buildPluginSrcDoc } from './pluginSandbox'
+import { dispatchPluginMethod } from './pluginMethods'
+import { toBridgeError } from './pluginBridge'
 
 type Props = {
   pluginId: string
@@ -8,155 +11,18 @@ type Props = {
   requires?: PluginCapability[]
 }
 
-function buildSrcDoc(pluginId: string, pluginCode: string, token: string) {
-  const sdk = `
-(() => {
-  const pluginId = ${JSON.stringify(pluginId)};
-  const apiVersion = ${PLUGIN_API_VERSION};
-  const token = ${JSON.stringify(token)};
-  const runtime = 'background';
-
-  let seq = 0;
-  const pending = new Map();
-  const MAX_PENDING = 128;
-  const DEFAULT_TIMEOUT_MS = 8000;
-  const LONG_TIMEOUT_MS = 15 * 60 * 1000;
-
-  function resolveTimeoutMs(method, args) {
-    try {
-      if (method === 'files.pickOutputDir') return LONG_TIMEOUT_MS;
-      if (method === 'net.request') {
-        const req = args && args[0];
-        const t = req && typeof req.timeoutMs === 'number' ? req.timeoutMs : 0;
-        if (t > 0) return Math.max(DEFAULT_TIMEOUT_MS, Math.min(t + 5000, 5 * 60 * 1000));
-      }
-    } catch {}
-    return DEFAULT_TIMEOUT_MS;
-  }
-
-  function call(method, args) {
-    const id = ++seq;
-    return new Promise((resolve, reject) => {
-      if (pending.size >= MAX_PENDING) {
-        reject(new Error('Too many in-flight requests'));
-        return;
-      }
-
-      const timeoutMs = resolveTimeoutMs(method, args);
-      const timer = setTimeout(() => {
-        pending.delete(id);
-        reject(new Error('Request timeout'));
-      }, timeoutMs);
-
-      pending.set(id, { resolve, reject, timer });
-      parent.postMessage({ __fastWindowRequest: true, pluginId, apiVersion, token, id, method, args }, '*');
-    });
-  }
-
-  window.addEventListener('message', (e) => {
-    const msg = e && e.data;
-    if (!msg || msg.__fastWindowResponse !== true) return;
-    if (msg.pluginId !== pluginId) return;
-    if (msg.token !== token) return;
-    const entry = pending.get(msg.id);
-    if (!entry) return;
-    pending.delete(msg.id);
-    clearTimeout(entry.timer);
-    if (msg.ok) entry.resolve(msg.result);
-    else entry.reject(new Error(msg.error || 'Unknown error'));
-  });
-
-  window.fastWindow = {
-    __meta: { pluginId, apiVersion, runtime },
-    clipboard: {
-      readText: () => call('clipboard.readText', []),
-      writeText: (text) => call('clipboard.writeText', [text]),
-      readImage: () => call('clipboard.readImage', []),
-      writeImage: (dataUrl) => call('clipboard.writeImage', [dataUrl]),
-    },
-    storage: {
-      get: (key) => call('storage.get', [key]),
-      set: (key, value) => call('storage.set', [key, value]),
-      remove: (key) => call('storage.remove', [key]),
-      getAll: () => call('storage.getAll', []),
-      setAll: (data) => call('storage.setAll', [data]),
-    },
-    files: {
-      getOutputDir: () => call('files.getOutputDir', []),
-      pickOutputDir: () => call('files.pickOutputDir', []),
-      openOutputDir: () => call('files.openOutputDir', []),
-      saveImageBase64: (dataUrlOrBase64) => call('files.saveImageBase64', [dataUrlOrBase64]),
-      listOutputImages: () => call('files.listOutputImages', []),
-      readOutputImage: (path) => call('files.readOutputImage', [path]),
-    },
-    ui: {
-      showToast: (message) => call('ui.showToast', [message]),
-      openUrl: (url) => call('ui.openUrl', [url]),
-    },
-    net: {
-      request: (req) => call('net.request', [req]),
-    },
-    task: {
-      create: (req) => call('task.create', [req]),
-      get: (taskId) => call('task.get', [taskId]),
-      list: (limit) => call('task.list', [limit]),
-      cancel: (taskId) => call('task.cancel', [taskId]),
-    },
-  };
-})();`
-
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-  </head>
-  <body>
-    <script>;(new Function(${JSON.stringify(sdk)}))();</script>
-    <script>;(new Function(${JSON.stringify(pluginCode)}))();</script>
-  </body>
-</html>`
-}
-
 export default function BackgroundPluginHost(props: Props) {
   const { pluginId, pluginCode, requires } = props
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
-  const ctx = useMemo(() => createPluginContext(pluginId, requires), [pluginId, requires])
+  const ctx = useMemo(() => createPluginContext(pluginId, requires ?? []), [pluginId, requires])
 
   const tokenRef = useRef<string>('')
   if (!tokenRef.current) {
     tokenRef.current = `${Date.now()}-${Math.random().toString(16).slice(2)}`
   }
 
-  const handlers = useMemo(() => {
-    return {
-      'clipboard.readText': ctx.api.clipboard.readText,
-      'clipboard.writeText': ctx.api.clipboard.writeText,
-      'clipboard.readImage': ctx.api.clipboard.readImage,
-      'clipboard.writeImage': ctx.api.clipboard.writeImage,
-      'storage.get': ctx.api.storage.get,
-      'storage.set': ctx.api.storage.set,
-      'storage.remove': ctx.api.storage.remove,
-      'storage.getAll': ctx.api.storage.getAll,
-      'storage.setAll': ctx.api.storage.setAll,
-      'files.getOutputDir': (ctx.api as any).files?.getOutputDir,
-      'files.pickOutputDir': (ctx.api as any).files?.pickOutputDir,
-      'files.openOutputDir': (ctx.api as any).files?.openOutputDir,
-      'files.saveImageBase64': (ctx.api as any).files?.saveImageBase64,
-      'files.listOutputImages': (ctx.api as any).files?.listOutputImages,
-      'files.readOutputImage': (ctx.api as any).files?.readOutputImage,
-      'ui.showToast': ctx.api.ui.showToast,
-      'ui.openUrl': ctx.api.ui.openUrl,
-      'net.request': (ctx.api as any).net?.request,
-      'task.create': (ctx.api as any).task?.create,
-      'task.get': (ctx.api as any).task?.get,
-      'task.list': (ctx.api as any).task?.list,
-      'task.cancel': (ctx.api as any).task?.cancel,
-    } as const
-  }, [ctx.api])
-
   const srcDoc = useMemo(
-    () => buildSrcDoc(pluginId, pluginCode, tokenRef.current),
+    () => buildPluginSrcDoc({ pluginId, pluginCode, token: tokenRef.current, runtime: 'background' }),
     [pluginId, pluginCode],
   )
 
@@ -171,27 +37,23 @@ export default function BackgroundPluginHost(props: Props) {
       if (msg.token !== tokenRef.current) return
 
       const { id, method, args } = msg
-      const key = String(method)
-      const handler = (handlers as any)[key]
 
       const reply = (payload: any) => {
         iframeWin.postMessage({ __fastWindowResponse: true, pluginId, token: tokenRef.current, id, ...payload }, '*')
       }
 
-      if (typeof handler !== 'function') {
-        reply({ ok: false, error: `Unknown method: ${String(method)}` })
-        return
-      }
-
       Promise.resolve()
-        .then(() => handler(...(Array.isArray(args) ? args : [])))
-        .then((result) => reply({ ok: true, result }))
-        .catch((err) => reply({ ok: false, error: String(err?.message || err) }))
+        .then(() => dispatchPluginMethod(ctx, String(method), args, {}))
+        .then(result => reply({ ok: true, result }))
+        .catch(err => {
+          const e = toBridgeError(err)
+          reply({ ok: false, error: e.message, code: e.code, data: e.data })
+        })
     }
 
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [handlers, pluginId])
+  }, [ctx, pluginId])
 
   return (
     <iframe

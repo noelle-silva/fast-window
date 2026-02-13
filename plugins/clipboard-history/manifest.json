@@ -7,7 +7,7 @@
   "background": { "autoStart": true },
   "icon": "📋",
   "keyword": "cb",
-  "apiVersion": 1,
+  "apiVersion": 2,
   "ui": { "type": "iframe" },
   "requires": [
     "clipboard.writeText",

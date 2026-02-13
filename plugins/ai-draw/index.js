@@ -1122,40 +1122,35 @@
     const protocol = String(p?.protocol || 'images') === 'chat' ? 'chat' : 'images'
 
     try {
-      const task = await api.task.create({
-        kind: TASK_KIND_HTTP_REQUEST,
-        payload: {
-          method: 'POST',
-          url:
-            protocol === 'chat'
-              ? `${baseUrl}/chat/completions`
-              : `${baseUrl}/images/generations`,
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify(
-            protocol === 'chat'
-              ? {
-                  model,
-                  messages: [
-                    ...(String(p?.chatSystemPrompt || '').trim()
-                      ? [{ role: 'system', content: String(p?.chatSystemPrompt || '').trim() }]
-                      : []),
-                    { role: 'user', content: prompt },
-                  ],
-                  temperature: 0.2,
-                }
-              : {
-                  model,
-                  prompt,
-                  size: String(p?.size || '').trim() || '1024x1024',
-                  n: 1,
-                  response_format: 'b64_json',
-                },
-          ),
-          timeoutMs: 120000,
+      const task = await api.net.request({
+        mode: 'task',
+        method: 'POST',
+        url: protocol === 'chat' ? `${baseUrl}/chat/completions` : `${baseUrl}/images/generations`,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
         },
+        body: JSON.stringify(
+          protocol === 'chat'
+            ? {
+                model,
+                messages: [
+                  ...(String(p?.chatSystemPrompt || '').trim()
+                    ? [{ role: 'system', content: String(p?.chatSystemPrompt || '').trim() }]
+                    : []),
+                  { role: 'user', content: prompt },
+                ],
+                temperature: 0.2,
+              }
+            : {
+                model,
+                prompt,
+                size: String(p?.size || '').trim() || '1024x1024',
+                n: 1,
+                response_format: 'b64_json',
+              },
+        ),
+        timeoutMs: 120000,
       })
 
       const taskId = String(task && task.id ? task.id : '').trim()

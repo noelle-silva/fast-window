@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, ComponentType, useRef } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { invoke } from '@tauri-apps/api/core'
-import { loadAllPlugins } from './plugins/pluginLoader'
+import { loadAllPluginsReport, type PluginLoadRejection } from './plugins/pluginLoader'
 import { initPluginApi } from './plugins/pluginApi'
 import BackgroundPluginHost from './plugins/BackgroundPluginHost'
 import { PluginCapability } from './plugins/pluginContract'
@@ -9,6 +9,7 @@ import {
   Alert,
   Avatar,
   Box,
+  Button,
   CircularProgress,
   IconButton,
   InputAdornment,
@@ -251,6 +252,8 @@ function App() {
   const [activeIndex, setActiveIndex] = useState(0)
   const [activePlugin, setActivePlugin] = useState<Plugin | null>(null)
   const [loading, setLoading] = useState(true)
+  const [pluginsDir, setPluginsDir] = useState<string>('')
+  const [pluginRejected, setPluginRejected] = useState<PluginLoadRejection[]>([])
   const [importOpen, setImportOpen] = useState(false)
   const [reorderMode, setReorderMode] = useState(false)
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -270,13 +273,18 @@ function App() {
   const loadPlugins = useCallback(async (opts?: { showToast?: boolean }) => {
     setLoading(true)
     try {
-      const pluginsDir = await invoke<string>('get_plugins_dir')
-      console.log('Plugins directory:', pluginsDir)
+      const dir = await invoke<string>('get_plugins_dir')
+      setPluginsDir(dir)
+      console.log('Plugins directory:', dir)
 
-      const loaded = await loadAllPlugins(pluginsDir)
-      console.log('Loaded plugins:', loaded.length)
+      const report = await loadAllPluginsReport()
+      setPluginRejected(report.rejected)
+      console.log('Loaded plugins:', report.plugins.length)
+      if (report.rejected.length) {
+        console.warn('[plugin] rejected:', report.rejected)
+      }
 
-      const pluginList: Plugin[] = loaded.map(p => ({
+      const pluginList: Plugin[] = report.plugins.map(p => ({
         id: p.manifest.id,
         name: p.manifest.name,
         description: p.manifest.description,
@@ -603,6 +611,55 @@ function App() {
               <Typography variant="body2" color="text.secondary">
                 没有找到插件
               </Typography>
+              {pluginsDir ? (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: 'block', mt: 1, px: 2, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' }}
+                >
+                  插件目录：{pluginsDir}
+                </Typography>
+              ) : null}
+              <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center', gap: 1, flexWrap: 'wrap' }}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => void invoke('open_plugins_dir').catch(() => {})}
+                >
+                  打开插件目录
+                </Button>
+                <Button size="small" variant="outlined" onClick={reloadPlugins} disabled={loading}>
+                  重新扫描
+                </Button>
+              </Box>
+              {pluginRejected.length ? (
+                <Box sx={{ mt: 2, mx: 'auto', maxWidth: 720, textAlign: 'left', px: 2 }}>
+                  <Alert severity="warning" variant="outlined">
+                    <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                      发现 {pluginRejected.length} 个插件目录，但加载被拒绝
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                      常见原因：apiVersion 不匹配、ui.type 不是 iframe、requires 缺失/含未知能力、manifest.id 与目录名不一致。
+                    </Typography>
+                    <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2 }}>
+                      {pluginRejected.slice(0, 6).map(r => (
+                        <li key={`${r.pluginId}:${r.reason}`}>
+                          <Typography variant="caption">
+                            {r.pluginId}：{r.reason}
+                          </Typography>
+                        </li>
+                      ))}
+                      {pluginRejected.length > 6 ? (
+                        <li>
+                          <Typography variant="caption" color="text.secondary">
+                            …还有 {pluginRejected.length - 6} 个（详情见控制台日志）
+                          </Typography>
+                        </li>
+                      ) : null}
+                    </Box>
+                  </Alert>
+                </Box>
+              ) : null}
             </Box>
           ) : (
             <List disablePadding sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>

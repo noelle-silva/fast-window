@@ -1,6 +1,6 @@
 import React, { ComponentType } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { normalizeManifest, PLUGIN_API_VERSION, PluginManifest } from './pluginContract'
+import { ALL_PLUGIN_CAPABILITIES, PLUGIN_API_VERSION, PluginManifest, PluginCapability } from './pluginContract'
 import IframePluginView from './IframePluginView'
 
 export interface LoadedPlugin {
@@ -9,28 +9,76 @@ export interface LoadedPlugin {
   backgroundCode?: string
 }
 
+export type PluginLoadRejection = {
+  pluginId: string
+  reason: string
+}
+
 // 加载单个插件
-async function loadPlugin(pluginPath: string): Promise<LoadedPlugin | null> {
+async function loadPlugin(pluginPath: string): Promise<{ plugin: LoadedPlugin | null; rejection?: PluginLoadRejection }> {
   try {
     // 读取 manifest
     const manifestContent = await invoke<string>('read_plugin_file', { pluginId: pluginPath, path: 'manifest.json' })
     const rawManifest: PluginManifest = JSON.parse(manifestContent)
-    const manifest = normalizeManifest(rawManifest)
 
-    if (manifest.apiVersion > PLUGIN_API_VERSION) {
-      console.error(`插件 ${manifest.id} 需要 apiVersion=${manifest.apiVersion}，当前宿主版本=${PLUGIN_API_VERSION}，已跳过加载`)
-      return null
+    const isSafeId = (id: string) => /^[A-Za-z0-9_-]+$/.test(id)
+
+    const manifestId = String(rawManifest?.id || '').trim()
+    if (!manifestId || !isSafeId(manifestId)) {
+      const reason = 'invalid manifest.id'
+      console.error(`[plugin] rejected: ${reason} for "${pluginPath}"`)
+      return { plugin: null, rejection: { pluginId: pluginPath, reason } }
+    }
+    if (manifestId !== pluginPath) {
+      const reason = `manifest.id "${manifestId}" must match directory "${pluginPath}"`
+      console.error(`[plugin] rejected: ${reason}`)
+      return { plugin: null, rejection: { pluginId: pluginPath, reason } }
+    }
+
+    if (rawManifest.apiVersion !== PLUGIN_API_VERSION) {
+      const reason = `apiVersion mismatch: plugin=${rawManifest.apiVersion}, host=${PLUGIN_API_VERSION}`
+      console.error(`插件 ${manifestId} 需要 apiVersion=${rawManifest.apiVersion}，当前宿主版本=${PLUGIN_API_VERSION}，已跳过加载`)
+      return { plugin: null, rejection: { pluginId: pluginPath, reason } }
+    }
+
+    const uiType = rawManifest.ui?.type
+    if (uiType !== 'iframe') {
+      const reason = 'ui.type must be "iframe"'
+      console.error(`[plugin] "${manifestId}" rejected: ${reason}.`)
+      return { plugin: null, rejection: { pluginId: pluginPath, reason } }
+    }
+
+    const requires = rawManifest.requires
+    if (!Array.isArray(requires)) {
+      const reason = 'manifest.requires must be an array'
+      console.error(`[plugin] "${manifestId}" rejected: ${reason}.`)
+      return { plugin: null, rejection: { pluginId: pluginPath, reason } }
+    }
+    const known = new Set<string>(ALL_PLUGIN_CAPABILITIES as readonly string[])
+    for (const item of requires) {
+      if (!known.has(String(item))) {
+        const reason = `unknown capability "${String(item)}"`
+        console.error(`[plugin] "${manifestId}" rejected: ${reason}.`)
+        return { plugin: null, rejection: { pluginId: pluginPath, reason } }
+      }
+    }
+
+    const main = String(rawManifest.main || '').trim()
+    if (!main) {
+      const reason = 'manifest.main is required'
+      console.error(`[plugin] "${manifestId}" rejected: ${reason}.`)
+      return { plugin: null, rejection: { pluginId: pluginPath, reason } }
+    }
+
+    const manifest: PluginManifest = {
+      ...rawManifest,
+      id: manifestId,
+      main,
+      requires: requires as PluginCapability[],
     }
 
     // 读取插件代码
     const code = await invoke<string>('read_plugin_file', { pluginId: pluginPath, path: manifest.main })
-
-    // 仅支持 iframe 沙箱；老插件若未声明 ui.type，默认按 iframe 处理
-    const uiType = rawManifest.ui?.type
-    if (uiType && uiType !== 'iframe') {
-      console.error(`[plugin] "${manifest.id}" rejected: ui.type must be "iframe" (legacy eval/react is disabled).`)
-      return null
-    }
 
     let backgroundCode = ''
     if (rawManifest.background) {
@@ -46,33 +94,47 @@ async function loadPlugin(pluginPath: string): Promise<LoadedPlugin | null> {
       React.createElement(IframePluginView, {
         pluginId: manifest.id,
         pluginCode: code,
-        requires: rawManifest.requires,
+        requires: manifest.requires,
         onBack,
       })
-    return { manifest, component, backgroundCode: backgroundCode || undefined }
+    return { plugin: { manifest, component, backgroundCode: backgroundCode || undefined } }
   } catch (error) {
+    const reason = String((error as any)?.message || error || 'failed to load plugin')
     console.error(`Failed to load plugin from ${pluginPath}:`, error)
-    return null
+    return { plugin: null, rejection: { pluginId: pluginPath, reason } }
   }
 }
 
 // 扫描并加载所有插件
 export async function loadAllPlugins(_pluginsDir: string): Promise<LoadedPlugin[]> {
+  const report = await loadAllPluginsReport()
+  return report.plugins
+}
+
+export async function loadAllPluginsReport(): Promise<{
+  pluginIds: string[]
+  plugins: LoadedPlugin[]
+  rejected: PluginLoadRejection[]
+}> {
   const plugins: LoadedPlugin[] = []
+  const rejected: PluginLoadRejection[] = []
+  let pluginIds: string[] = []
 
   try {
-    const pluginIds = await invoke<string[]>('list_plugins')
+    pluginIds = await invoke<string[]>('list_plugins')
 
     for (const pluginId of pluginIds) {
-      const plugin = await loadPlugin(pluginId)
+      const { plugin, rejection } = await loadPlugin(pluginId)
       if (plugin) {
         plugins.push(plugin)
         console.log(`Loaded plugin: ${plugin.manifest.name}`)
+      } else if (rejection) {
+        rejected.push(rejection)
       }
     }
   } catch (error) {
     console.error('Failed to scan plugins directory:', error)
   }
 
-  return plugins
+  return { pluginIds, plugins, rejected }
 }
