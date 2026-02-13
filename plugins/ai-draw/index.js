@@ -218,6 +218,7 @@
   const DEFAULT_PROMPT_HISTORY_LIMIT = 50
   const MAX_PROMPT_HISTORY_LIMIT = 200
   const MAX_BATCH_COUNT = 20
+  const MAX_REF_IMAGES = 8
   const TASK_KIND_HTTP_REQUEST = 'http.request'
   const TASK_POLL_INTERVAL = 1200
 
@@ -232,6 +233,7 @@
     revealApiKey: false,
     prompt: '',
     batchCount: '1',
+    refImages: [],
     promptHistory: [],
     promptHistoryIndex: -1,
     promptHistoryDraft: '',
@@ -292,7 +294,7 @@
     .field.sm{ width:auto; min-width: 180px; }
     .row.nowrap .field.sm{ min-width: 140px; }
     .row.nowrap .meta{ white-space:nowrap; }
-    .field.xs{ width: 84px; min-width: 84px; }
+    .field.xs{ width: 64px; min-width: 64px; }
     .ta{ resize:none; min-height: 180px; }
     .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
     .imgBox{
@@ -344,6 +346,43 @@
     .menu .btn{ width:100%; justify-content:flex-start; }
     .menuItem{ display:flex; align-items:center; gap:8px; padding:6px; border-radius:10px; }
     .menuItem:hover{ background:#f9fafb; }
+    .refTop{ margin-top:6px; }
+    .refStrip{
+      display:flex;
+      gap:8px;
+      overflow-x:auto;
+      padding:6px 2px;
+      scrollbar-gutter: stable;
+    }
+    .thumb{
+      width:44px;
+      height:44px;
+      border:1px solid var(--line);
+      border-radius:12px;
+      background:#fafafa;
+      overflow:hidden;
+      position:relative;
+      flex:0 0 auto;
+    }
+    .thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+    .thumbDel{
+      position:absolute;
+      top:2px;
+      right:2px;
+      width:18px;
+      height:18px;
+      border-radius:999px;
+      border:1px solid rgba(0,0,0,0.08);
+      background:rgba(255,255,255,0.9);
+      cursor:pointer;
+      font-size:12px;
+      line-height:16px;
+      padding:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .thumbDel:hover{ background:#fff; }
     .overlay{ position:fixed; inset:0; background:rgba(17,24,39,0.18); display:flex; align-items:center; justify-content:center; padding:12px; }
     .modal{ width:min(720px,100%); max-height: calc(100vh - 24px); overflow:auto; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; box-shadow: 0 10px 30px rgba(17,24,39,0.12); }
     .hr{ height:1px; background:var(--line); margin:10px 0; }
@@ -400,6 +439,20 @@
 
   function id(prefix) {
     return `${prefix}-${now()}-${Math.random().toString(16).slice(2)}`
+  }
+
+  function normalizePickedImages(raw) {
+    const list = Array.isArray(raw) ? raw : []
+    const out = []
+    for (const it of list) {
+      const name = typeof it?.name === 'string' ? it.name : ''
+      const dataUrl = typeof it?.dataUrl === 'string' ? it.dataUrl : typeof it?.data_url === 'string' ? it.data_url : ''
+      const u = String(dataUrl || '').trim()
+      if (!u.startsWith('data:image/')) continue
+      out.push({ id: id('ref'), name: String(name || ''), dataUrl: u })
+      if (out.length >= MAX_REF_IMAGES) break
+    }
+    return out
   }
 
   function defaultProvider() {
@@ -1226,6 +1279,18 @@
     render()
 
     const protocol = String(p?.protocol || 'images') === 'chat' ? 'chat' : 'images'
+    const refUrls = (Array.isArray(state.refImages) ? state.refImages : [])
+      .map((x) => String(x && x.dataUrl ? x.dataUrl : '').trim())
+      .filter((x) => x.startsWith('data:image/'))
+      .slice(0, MAX_REF_IMAGES)
+
+    if (refUrls.length && protocol !== 'chat') {
+      api.ui.showToast('参考图当前仅对 chat 协议生效（建议切到聊天补全）')
+    }
+    const chatUserContent = refUrls.length
+      ? [{ type: 'text', text: prompt }, ...refUrls.map((url) => ({ type: 'image_url', image_url: { url } }))]
+      : prompt
+
     const req = {
       mode: 'task',
       method: 'POST',
@@ -1242,7 +1307,7 @@
                 ...(String(p?.chatSystemPrompt || '').trim()
                   ? [{ role: 'system', content: String(p?.chatSystemPrompt || '').trim() }]
                   : []),
-                { role: 'user', content: prompt },
+                { role: 'user', content: chatUserContent },
               ],
               temperature: 0.2,
             }
@@ -1486,6 +1551,7 @@
               <div class="row nowrap">
                 <button class="btn pri stable" data-act="generate" ${state.submitting ? 'disabled' : ''}>${state.submitting ? '提交中…' : '生成'}</button>
                 <input class="field xs" data-bind="batchCount" type="number" min="1" max="${MAX_BATCH_COUNT}" step="1" value="${esc(state.batchCount)}" aria-label="批量次数" title="批量次数（并行提交）" />
+                <button class="btn" data-act="pick-ref-images">参考图</button>
                 <button class="btn" data-act="prompt-prev" ${canPromptPrev ? '' : 'disabled'} aria-label="上一条提示词">←</button>
                 <button class="btn" data-act="prompt-next" ${canPromptNext ? '' : 'disabled'} aria-label="下一条提示词">→</button>
                 <div class="sp"></div>
@@ -1494,6 +1560,26 @@
                   ${modelOptions}
                   <option value="__custom__" ${String(p?.model || '') === '__custom__' ? 'selected' : ''}>自定义…</option>
                 </select>
+              </div>
+              <div class="row refTop">
+                <span class="meta" style="margin-top:0">参考图</span>
+                <span class="kbd mono" aria-label="参考图数量">${state.refImages.length}/${MAX_REF_IMAGES}</span>
+                <button class="btn" data-act="ref-scroll-left" ${state.refImages.length ? '' : 'disabled'} aria-label="参考图左移">←</button>
+                <button class="btn" data-act="ref-scroll-right" ${state.refImages.length ? '' : 'disabled'} aria-label="参考图右移">→</button>
+              </div>
+              <div id="ref-strip" class="refStrip" aria-label="参考图列表">
+                ${
+                  state.refImages.length
+                    ? state.refImages
+                        .map(
+                          (it) => `<div class="thumb" title="${esc(it.name || '')}">
+                            <img alt="参考图" src="${esc(it.dataUrl)}" />
+                            <button class="thumbDel" data-act="remove-ref-image" data-ref-id="${esc(it.id)}" aria-label="删除参考图">×</button>
+                          </div>`,
+                        )
+                        .join('')
+                    : `<div class="meta" style="margin:2px 0">未选择参考图（可选）</div>`
+                }
               </div>
               ${
                 showCustom
@@ -1635,6 +1721,31 @@
         render()
       } else if (act === 'delete-current-image') {
         deleteCurrentImage()
+      } else if (act === 'pick-ref-images') {
+        api.files
+          .pickImages(MAX_REF_IMAGES)
+          .then((picked) => {
+            const items = normalizePickedImages(picked)
+            if (!items.length) return
+            const merged = state.refImages.concat(items).slice(0, MAX_REF_IMAGES)
+            if (merged.length < state.refImages.length + items.length) {
+              api.ui.showToast(`参考图最多 ${MAX_REF_IMAGES} 张`)
+            }
+            state.refImages = merged
+            render()
+          })
+          .catch((e) => api.ui.showToast(`选择图片失败：${String(e?.message || e)}`))
+      } else if (act === 'remove-ref-image') {
+        const rid = String(el.getAttribute('data-ref-id') || '').trim()
+        if (!rid) return
+        state.refImages = (Array.isArray(state.refImages) ? state.refImages : []).filter((x) => x && x.id !== rid)
+        render()
+      } else if (act === 'ref-scroll-left') {
+        const box = document.getElementById('ref-strip')
+        if (box) box.scrollBy({ left: -240, behavior: 'smooth' })
+      } else if (act === 'ref-scroll-right') {
+        const box = document.getElementById('ref-strip')
+        if (box) box.scrollBy({ left: 240, behavior: 'smooth' })
       } else if (act === 'generate') {
         generate()
       } else if (act === 'prompt-prev') {

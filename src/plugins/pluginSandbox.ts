@@ -90,6 +90,7 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
       listOutputImages: () => call('files.listOutputImages', []),
       readOutputImage: (path) => call('files.readOutputImage', [path]),
       deleteOutputImage: (path) => call('files.deleteOutputImage', [path]),
+      pickImages: (maxCount) => call('files.pickImages', [maxCount]),
     },
     ui: {
       showToast: (message) => call('ui.showToast', [message]),

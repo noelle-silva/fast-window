@@ -26,6 +26,11 @@ export type PluginTaskInfo = {
   result: unknown | null
 }
 
+export type PluginPickedImage = {
+  name: string
+  dataUrl: string
+}
+
 // 插件 API，暴露给插件使用
 export const fastWindowApi = {
   // 剪贴板操作
@@ -252,6 +257,7 @@ export type FastWindowApi = {
     listOutputImages: () => Promise<string[]>
     readOutputImage: (path: string) => Promise<string>
     deleteOutputImage: (path: string) => Promise<void>
+    pickImages: (maxCount?: number | null) => Promise<PluginPickedImage[]>
   }
 }
 
@@ -357,6 +363,9 @@ export function createPluginContext(pluginId: string, requires: PluginCapability
       },
       deleteOutputImage: async (path: string) => {
         await invoke('plugin_delete_output_image', { pluginId, path })
+      },
+      pickImages: async (maxCount?: number | null) => {
+        return invoke<PluginPickedImage[]>('plugin_pick_images', { pluginId, maxCount: maxCount ?? null })
       },
     },
   }

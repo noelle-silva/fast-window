@@ -25,6 +25,7 @@
     "files.saveImageBase64",
     "files.listOutputImages",
     "files.readOutputImage",
-    "files.deleteOutputImage"
+    "files.deleteOutputImage",
+    "files.pickImages"
   ]
 }

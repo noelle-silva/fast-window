@@ -1125,6 +1125,22 @@ fn plugin_pick_output_dir(app: tauri::AppHandle, plugin_id: String) -> Result<Op
         return Err("pluginId 不合法".to_string());
     }
 
+    struct AlwaysOnTopGuard {
+        window: Option<tauri::WebviewWindow>,
+    }
+    impl Drop for AlwaysOnTopGuard {
+        fn drop(&mut self) {
+            if let Some(w) = self.window.take() {
+                let _ = w.set_always_on_top(true);
+            }
+        }
+    }
+    let mut guard = AlwaysOnTopGuard { window: None };
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_always_on_top(false);
+        guard.window = Some(w);
+    }
+
     let picked = rfd::FileDialog::new()
         .set_title("选择输出目录")
         .pick_folder();
@@ -1285,6 +1301,71 @@ fn plugin_delete_output_image(app: tauri::AppHandle, plugin_id: String, path: St
 
     std::fs::remove_file(&full).map_err(|e| format!("删除图片失败: {e}"))?;
     Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginPickedImage {
+    name: String,
+    data_url: String,
+}
+
+#[tauri::command]
+fn plugin_pick_images(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    max_count: Option<usize>,
+) -> Result<Vec<PluginPickedImage>, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+
+    let max = max_count.unwrap_or(8).clamp(1, 20);
+    struct AlwaysOnTopGuard {
+        window: Option<tauri::WebviewWindow>,
+    }
+    impl Drop for AlwaysOnTopGuard {
+        fn drop(&mut self) {
+            if let Some(w) = self.window.take() {
+                let _ = w.set_always_on_top(true);
+            }
+        }
+    }
+    let mut guard = AlwaysOnTopGuard { window: None };
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_always_on_top(false);
+        guard.window = Some(w);
+    }
+    let picked = rfd::FileDialog::new()
+        .set_title("选择图片")
+        .add_filter("Image", &["png", "jpg", "jpeg", "webp"])
+        .pick_files();
+
+    let Some(files) = picked else {
+        return Ok(vec![]);
+    };
+
+    const MAX_BYTES: usize = 10 * 1024 * 1024; // 10MB
+    let mut out: Vec<PluginPickedImage> = Vec::new();
+    for path in files.into_iter().take(max) {
+        if !path.is_file() || !path_has_image_ext(&path) {
+            continue;
+        }
+        let bytes = std::fs::read(&path).map_err(|e| format!("读取图片失败: {e}"))?;
+        if bytes.len() > MAX_BYTES {
+            return Err("图片过大（> 10MB）".to_string());
+        }
+        let mime = image_mime_by_ext(&path);
+        let b64 = general_purpose::STANDARD.encode(bytes);
+        let data_url = format!("data:{mime};base64,{b64}");
+        let name = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("image")
+            .to_string();
+        out.push(PluginPickedImage { name, data_url });
+    }
+    Ok(out)
 }
 
 #[cfg(debug_assertions)]
@@ -1983,6 +2064,7 @@ fn main() {
             plugin_list_output_images,
             plugin_read_output_image,
             plugin_delete_output_image,
+            plugin_pick_images,
             task_create,
             task_get,
             task_list,

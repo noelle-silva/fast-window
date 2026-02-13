@@ -20,6 +20,7 @@ export type PluginMethodName =
   | 'files.listOutputImages'
   | 'files.readOutputImage'
   | 'files.deleteOutputImage'
+  | 'files.pickImages'
   | 'ui.showToast'
   | 'ui.openUrl'
   | 'net.request'
@@ -83,6 +84,10 @@ const methods: Record<PluginMethodName, MethodDef> = {
   'files.deleteOutputImage': {
     capability: 'files.deleteOutputImage',
     handler: (ctx, args) => ctx.api.files.deleteOutputImage(String(args?.[0] ?? '')),
+  },
+  'files.pickImages': {
+    capability: 'files.pickImages',
+    handler: (ctx, args) => ctx.api.files.pickImages(args?.[0] as any),
   },
 
   'ui.showToast': {

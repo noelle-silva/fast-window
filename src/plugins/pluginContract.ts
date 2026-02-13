@@ -17,6 +17,7 @@ export type PluginCapability =
   | 'files.listOutputImages'
   | 'files.readOutputImage'
   | 'files.deleteOutputImage'
+  | 'files.pickImages'
   | 'clipboard'
   | 'clipboard.*'
   | 'clipboard.readText'
@@ -55,6 +56,7 @@ export const ALL_PLUGIN_CAPABILITIES: readonly PluginCapability[] = [
   'files.listOutputImages',
   'files.readOutputImage',
   'files.deleteOutputImage',
+  'files.pickImages',
   'clipboard',
   'clipboard.*',
   'clipboard.readText',
