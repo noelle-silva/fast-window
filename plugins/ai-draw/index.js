@@ -248,6 +248,10 @@
     tasks: [],
     taskPollTimer: null,
     taskPolling: false,
+    refLibraryLoading: false,
+    refLibraryBusy: false,
+    refLibraryItems: [],
+    refLibrarySelected: {},
     outputDir: '',
     error: '',
     data: null,
@@ -386,6 +390,51 @@
       justify-content:center;
     }
     .thumbDel:hover{ background:#fff; }
+    .libTop{ margin: 6px 0 8px; }
+    .libGrid{
+      display:grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 8px;
+    }
+    @media (max-width: 860px){
+      .libGrid{ grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+    @media (max-width: 520px){
+      .libGrid{ grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    .libItem{
+      border:1px solid var(--line);
+      background:#fff;
+      border-radius:12px;
+      overflow:hidden;
+      padding:0;
+      cursor:pointer;
+      position:relative;
+      aspect-ratio: 1 / 1;
+      display:flex;
+      align-items:stretch;
+      justify-content:stretch;
+    }
+    .libItem:hover{ border-color: rgba(37,99,235,0.45); }
+    .libItem.sel{ outline:2px solid rgba(37,99,235,0.55); outline-offset:1px; }
+    .libItem img{ width:100%; height:100%; object-fit:cover; display:block; }
+    .libCheck{
+      position:absolute;
+      top:6px;
+      right:6px;
+      width:18px;
+      height:18px;
+      border-radius:999px;
+      background: rgba(37,99,235,0.92);
+      color:#fff;
+      font-size:12px;
+      line-height:18px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      box-shadow: 0 6px 16px rgba(17,24,39,0.18);
+    }
+    .libItem:not(.sel) .libCheck{ display:none; }
     .overlay{ position:fixed; inset:0; background:rgba(17,24,39,0.18); display:flex; align-items:center; justify-content:center; padding:12px; }
     .modal{ width:min(720px,100%); max-height: calc(100vh - 24px); overflow:auto; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; box-shadow: 0 10px 30px rgba(17,24,39,0.12); }
     .hr{ height:1px; background:var(--line); margin:10px 0; }
@@ -1268,6 +1317,123 @@
     await api.files.openOutputDir().catch((e) => api.ui.showToast(`打开目录失败：${String(e?.message || e)}`))
   }
 
+  function basename(p) {
+    const s = String(p || '').trim()
+    if (!s) return ''
+    const parts = s.split(/[\\/]/g).filter((x) => !!x)
+    return parts.length ? parts[parts.length - 1] : s
+  }
+
+  async function openRefLibrary() {
+    state.modal = 'ref-library'
+    state.refLibraryLoading = true
+    state.refLibraryBusy = false
+    state.refLibraryItems = []
+    state.refLibrarySelected = {}
+    render()
+    await loadRefLibrary()
+  }
+
+  async function loadRefLibrary() {
+    state.refLibraryLoading = true
+    render()
+
+    const paths = await api.files.listRefImages().catch(() => [])
+    const list = (Array.isArray(paths) ? paths : [])
+      .map((x) => String(x || '').trim())
+      .filter((x) => !!x)
+      .slice(0, 120)
+
+    const items = []
+    for (const p of list) {
+      if (state.modal !== 'ref-library') return
+      const dataUrl = await api.files.readRefImage(p).catch(() => '')
+      items.push({ path: p, name: basename(p), dataUrl: String(dataUrl || '').trim() })
+      if (items.length % 18 === 0) {
+        state.refLibraryItems = items.slice()
+        render()
+      }
+    }
+
+    state.refLibraryItems = items
+    state.refLibraryLoading = false
+    render()
+  }
+
+  function toggleRefLibrarySelect(path) {
+    const p = String(path || '').trim()
+    if (!p) return
+    const sel = state.refLibrarySelected && typeof state.refLibrarySelected === 'object' ? { ...state.refLibrarySelected } : {}
+    if (sel[p]) delete sel[p]
+    else sel[p] = true
+    state.refLibrarySelected = sel
+    render()
+  }
+
+  async function uploadRefLibraryImages() {
+    if (state.refLibraryBusy) return
+    state.refLibraryBusy = true
+    render()
+    try {
+      const picked = await api.files.pickImages(50).catch((e) => {
+        api.ui.showToast(`选择图片失败：${String(e?.message || e)}`)
+        return []
+      })
+      const list = Array.isArray(picked) ? picked : []
+      if (!list.length) return
+
+      api.ui.showToast('正在上传到参考图库…')
+      let ok = 0
+      for (const it of list) {
+        const u = String(it?.dataUrl || it?.data_url || '').trim()
+        if (!u.startsWith('data:image/')) continue
+        const safeUrl = await shrinkRefImageDataUrl(u).catch(() => u)
+        const saved = await api.files.saveRefImageBase64(safeUrl).catch(() => '')
+        if (saved) ok++
+      }
+      api.ui.showToast(ok ? `已加入参考图库：${ok} 张` : '加入失败')
+      await loadRefLibrary()
+    } finally {
+      state.refLibraryBusy = false
+      render()
+    }
+  }
+
+  async function confirmRefLibrarySelection() {
+    const keys = state.refLibrarySelected && typeof state.refLibrarySelected === 'object' ? Object.keys(state.refLibrarySelected) : []
+    const chosen = keys.map((x) => String(x || '').trim()).filter((x) => !!x)
+    if (!chosen.length) {
+      state.modal = ''
+      render()
+      return
+    }
+
+    const remaining = MAX_REF_IMAGES - (Array.isArray(state.refImages) ? state.refImages.length : 0)
+    if (remaining <= 0) {
+      api.ui.showToast(`参考图最多 ${MAX_REF_IMAGES} 张`)
+      state.modal = ''
+      render()
+      return
+    }
+
+    api.ui.showToast('正在载入参考图…')
+    const out = []
+    for (const p of chosen.slice(0, remaining)) {
+      const dataUrl = await api.files.readRefImage(p).catch(() => '')
+      const u = String(dataUrl || '').trim()
+      if (!u.startsWith('data:image/')) continue
+      out.push({ id: id('ref'), name: basename(p), dataUrl: u })
+    }
+    if (!out.length) {
+      api.ui.showToast('载入失败')
+      return
+    }
+
+    state.refImages = (Array.isArray(state.refImages) ? state.refImages : []).concat(out).slice(0, MAX_REF_IMAGES)
+    state.modal = ''
+    render()
+  }
+
   async function deleteCurrentImage() {
     const path = String(state.savedPath || '').trim()
     if (!path) {
@@ -1581,7 +1747,41 @@
           <div class="meta">输出目录会保存在宿主配置里（不是插件可随意写文件）。</div>
         </div>
       </div>`
-          : ''
+          : state.modal === 'ref-library'
+            ? `
+      <div class="overlay" data-act="close-modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-label="参考图库">
+          <div class="row nowrap">
+            <div class="title" style="margin:0">参考图库</div>
+            <div class="sp"></div>
+            <button class="btn" data-act="ref-lib-upload" ${state.refLibraryBusy ? 'disabled' : ''}>上传</button>
+            <button class="btn pri stable" data-act="ref-lib-confirm" ${state.refLibraryBusy ? 'disabled' : ''}>确定</button>
+            <button class="btn" data-act="close-modal">关闭</button>
+          </div>
+          <div class="meta libTop">存放在 <span class="mono">data/&lt;pluginId&gt;/ref-images</span>（和输出图片目录并列）</div>
+          <div class="hr"></div>
+          ${
+            state.refLibraryLoading
+              ? `<div class="meta">加载中…</div>`
+              : state.refLibraryItems.length
+                ? `<div class="libGrid" aria-label="参考图库图片列表">
+                    ${state.refLibraryItems
+                      .map((it) => {
+                        const p = String(it?.path || '').trim()
+                        const u = String(it?.dataUrl || '').trim()
+                        const sel = !!(state.refLibrarySelected && state.refLibrarySelected[p])
+                        return `<button class="libItem ${sel ? 'sel' : ''}" data-act="ref-lib-toggle" data-path="${esc(p)}" aria-label="参考图库图片">
+                          ${u ? `<img alt="${esc(String(it?.name || ''))}" src="${esc(u)}" />` : `<div class="empty" style="width:100%">加载中…</div>`}
+                          <div class="libCheck" aria-hidden="true">✓</div>
+                        </button>`
+                      })
+                      .join('')}
+                  </div>`
+                : `<div class="meta">图库为空，点击“上传”添加图片。</div>`
+          }
+        </div>
+      </div>`
+            : ''
 
     const model = resolveModel(p)
     const models = p && Array.isArray(p.models) ? p.models : []
@@ -1636,6 +1836,7 @@
                 <button class="btn pri stable" data-act="generate" ${state.submitting ? 'disabled' : ''}>${state.submitting ? '提交中…' : '生成'}</button>
                 <input class="field xs" data-bind="batchCount" type="number" min="1" max="${MAX_BATCH_COUNT}" step="1" value="${esc(state.batchCount)}" aria-label="批量次数" title="批量次数（并行提交）" />
                 <button class="btn" data-act="pick-ref-images">参考图</button>
+                <button class="btn" data-act="open-ref-library">参考图库</button>
                 <button class="btn" data-act="prompt-prev" ${canPromptPrev ? '' : 'disabled'} aria-label="上一条提示词">←</button>
                 <button class="btn" data-act="prompt-next" ${canPromptNext ? '' : 'disabled'} aria-label="下一条提示词">→</button>
                 <div class="sp"></div>
@@ -1757,6 +1958,8 @@
         state.modal = ''
         state.revealApiKey = false
         render()
+      } else if (act === 'open-ref-library') {
+        openRefLibrary()
       } else if (act === 'open-plugin-settings') {
         openPluginSettings()
       } else if (act === 'toggle-api-key') {
@@ -1828,6 +2031,14 @@
             render()
           })
           .catch((e) => api.ui.showToast(`选择图片失败：${String(e?.message || e)}`))
+      } else if (act === 'ref-lib-upload') {
+        uploadRefLibraryImages()
+      } else if (act === 'ref-lib-toggle') {
+        const p = String(el.getAttribute('data-path') || '').trim()
+        if (!p) return
+        toggleRefLibrarySelect(p)
+      } else if (act === 'ref-lib-confirm') {
+        confirmRefLibrarySelection()
       } else if (act === 'remove-ref-image') {
         const rid = String(el.getAttribute('data-ref-id') || '').trim()
         if (!rid) return

@@ -17,9 +17,13 @@ export type PluginMethodName =
   | 'files.pickOutputDir'
   | 'files.openOutputDir'
   | 'files.saveImageBase64'
+  | 'files.saveRefImageBase64'
   | 'files.listOutputImages'
   | 'files.readOutputImage'
   | 'files.deleteOutputImage'
+  | 'files.listRefImages'
+  | 'files.readRefImage'
+  | 'files.deleteRefImage'
   | 'files.pickImages'
   | 'ui.showToast'
   | 'ui.openUrl'
@@ -76,6 +80,10 @@ const methods: Record<PluginMethodName, MethodDef> = {
     capability: 'files.saveImageBase64',
     handler: (ctx, args) => ctx.api.files.saveImageBase64(String(args?.[0] ?? '')),
   },
+  'files.saveRefImageBase64': {
+    capability: 'files.saveRefImageBase64',
+    handler: (ctx, args) => ctx.api.files.saveRefImageBase64(String(args?.[0] ?? '')),
+  },
   'files.listOutputImages': { capability: 'files.listOutputImages', handler: ctx => ctx.api.files.listOutputImages() },
   'files.readOutputImage': {
     capability: 'files.readOutputImage',
@@ -84,6 +92,15 @@ const methods: Record<PluginMethodName, MethodDef> = {
   'files.deleteOutputImage': {
     capability: 'files.deleteOutputImage',
     handler: (ctx, args) => ctx.api.files.deleteOutputImage(String(args?.[0] ?? '')),
+  },
+  'files.listRefImages': { capability: 'files.listRefImages', handler: ctx => ctx.api.files.listRefImages() },
+  'files.readRefImage': {
+    capability: 'files.readRefImage',
+    handler: (ctx, args) => ctx.api.files.readRefImage(String(args?.[0] ?? '')),
+  },
+  'files.deleteRefImage': {
+    capability: 'files.deleteRefImage',
+    handler: (ctx, args) => ctx.api.files.deleteRefImage(String(args?.[0] ?? '')),
   },
   'files.pickImages': {
     capability: 'files.pickImages',

@@ -14,9 +14,13 @@ export type PluginCapability =
   | 'files.pickOutputDir'
   | 'files.openOutputDir'
   | 'files.saveImageBase64'
+  | 'files.saveRefImageBase64'
   | 'files.listOutputImages'
   | 'files.readOutputImage'
   | 'files.deleteOutputImage'
+  | 'files.listRefImages'
+  | 'files.readRefImage'
+  | 'files.deleteRefImage'
   | 'files.pickImages'
   | 'clipboard'
   | 'clipboard.*'
@@ -53,9 +57,13 @@ export const ALL_PLUGIN_CAPABILITIES: readonly PluginCapability[] = [
   'files.pickOutputDir',
   'files.openOutputDir',
   'files.saveImageBase64',
+  'files.saveRefImageBase64',
   'files.listOutputImages',
   'files.readOutputImage',
   'files.deleteOutputImage',
+  'files.listRefImages',
+  'files.readRefImage',
+  'files.deleteRefImage',
   'files.pickImages',
   'clipboard',
   'clipboard.*',

@@ -89,9 +89,13 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
       pickOutputDir: () => call('files.pickOutputDir', []),
       openOutputDir: () => call('files.openOutputDir', []),
       saveImageBase64: (dataUrlOrBase64) => call('files.saveImageBase64', [dataUrlOrBase64]),
+      saveRefImageBase64: (dataUrlOrBase64) => call('files.saveRefImageBase64', [dataUrlOrBase64]),
       listOutputImages: () => call('files.listOutputImages', []),
       readOutputImage: (path) => call('files.readOutputImage', [path]),
       deleteOutputImage: (path) => call('files.deleteOutputImage', [path]),
+      listRefImages: () => call('files.listRefImages', []),
+      readRefImage: (path) => call('files.readRefImage', [path]),
+      deleteRefImage: (path) => call('files.deleteRefImage', [path]),
       pickImages: (maxCount) => call('files.pickImages', [maxCount]),
     },
     ui: {

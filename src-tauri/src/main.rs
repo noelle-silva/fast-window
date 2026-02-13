@@ -993,6 +993,11 @@ fn plugin_default_output_dir(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf
     app_data_dir(app).join(plugin_id).join("output-images")
 }
 
+fn plugin_default_ref_images_dir(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf {
+    // 参考图库固定存放在 data/<pluginId>/ref-images（不走可配置输出目录，避免混入用户空间）
+    app_data_dir(app).join(plugin_id).join("ref-images")
+}
+
 fn read_plugin_output_dir_from_config(app: &tauri::AppHandle, plugin_id: &str) -> Option<PathBuf> {
     let cfg_path = app_config_path(app);
     let map = read_json_map(&cfg_path);
@@ -1191,6 +1196,28 @@ fn plugin_save_image_base64(app: tauri::AppHandle, plugin_id: String, data: Stri
     Ok(full.to_string_lossy().to_string())
 }
 
+#[tauri::command]
+fn plugin_save_ref_image_base64(app: tauri::AppHandle, plugin_id: String, data: String) -> Result<String, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+
+    let dir = plugin_default_ref_images_dir(&app, &plugin_id);
+    ensure_writable_dir(&dir)?;
+
+    let (bytes, ext) = decode_base64_image_payload(&data)?;
+
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_millis(0))
+        .as_millis();
+    let filename = format!("ref-image-{stamp}.{ext}");
+    let full = dir.join(filename);
+
+    std::fs::write(&full, bytes).map_err(|e| format!("写入图片失败: {e}"))?;
+    Ok(full.to_string_lossy().to_string())
+}
+
 fn path_has_image_ext(path: &Path) -> bool {
     let ext = path
         .extension()
@@ -1198,6 +1225,102 @@ fn path_has_image_ext(path: &Path) -> bool {
         .unwrap_or("")
         .to_ascii_lowercase();
     matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp")
+}
+
+#[tauri::command]
+fn plugin_list_ref_images(app: tauri::AppHandle, plugin_id: String) -> Result<Vec<String>, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+
+    let dir = plugin_default_ref_images_dir(&app, &plugin_id);
+    ensure_writable_dir(&dir)?;
+
+    let mut items: Vec<(SystemTime, PathBuf)> = Vec::new();
+    let rd = std::fs::read_dir(&dir).map_err(|e| format!("读取参考图库失败: {e}"))?;
+    for entry in rd {
+        let entry = entry.map_err(|e| format!("读取目录项失败: {e}"))?;
+        let path = entry.path();
+        if !path.is_file() || !path_has_image_ext(&path) {
+            continue;
+        }
+        let modified = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(UNIX_EPOCH);
+        items.push((modified, path));
+    }
+
+    items.sort_by(|a, b| b.0.cmp(&a.0));
+    Ok(items
+        .into_iter()
+        .map(|(_, p)| p.to_string_lossy().to_string())
+        .collect())
+}
+
+#[tauri::command]
+fn plugin_read_ref_image(app: tauri::AppHandle, plugin_id: String, path: String) -> Result<String, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+
+    let input = PathBuf::from(path.trim());
+    if input.as_os_str().is_empty() {
+        return Err("图片路径不能为空".to_string());
+    }
+
+    let dir = plugin_default_ref_images_dir(&app, &plugin_id);
+    ensure_writable_dir(&dir)?;
+
+    let root = std::fs::canonicalize(&dir).map_err(|e| format!("参考图库不可用: {e}"))?;
+    let full = std::fs::canonicalize(&input).map_err(|e| format!("图片路径无效: {e}"))?;
+    if !full.starts_with(&root) {
+        return Err("图片路径越界".to_string());
+    }
+    if !full.is_file() {
+        return Err("图片不存在".to_string());
+    }
+    if !path_has_image_ext(&full) {
+        return Err("不支持的图片类型".to_string());
+    }
+
+    let bytes = std::fs::read(&full).map_err(|e| format!("读取图片失败: {e}"))?;
+    if bytes.len() > 25 * 1024 * 1024 {
+        return Err("图片过大".to_string());
+    }
+    let mime = image_mime_by_ext(&full);
+    let b64 = general_purpose::STANDARD.encode(bytes);
+    Ok(format!("data:{mime};base64,{b64}"))
+}
+
+#[tauri::command]
+fn plugin_delete_ref_image(app: tauri::AppHandle, plugin_id: String, path: String) -> Result<(), String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+
+    let input = PathBuf::from(path.trim());
+    if input.as_os_str().is_empty() {
+        return Err("图片路径不能为空".to_string());
+    }
+
+    let dir = plugin_default_ref_images_dir(&app, &plugin_id);
+    ensure_writable_dir(&dir)?;
+
+    let root = std::fs::canonicalize(&dir).map_err(|e| format!("参考图库不可用: {e}"))?;
+    let full = std::fs::canonicalize(&input).map_err(|e| format!("图片路径无效: {e}"))?;
+    if !full.starts_with(&root) {
+        return Err("图片路径越界".to_string());
+    }
+    if !full.is_file() {
+        return Err("图片不存在".to_string());
+    }
+    if !path_has_image_ext(&full) {
+        return Err("不支持的图片类型".to_string());
+    }
+
+    std::fs::remove_file(&full).map_err(|e| format!("删除图片失败: {e}"))?;
+    Ok(())
 }
 
 fn image_mime_by_ext(path: &Path) -> &'static str {
@@ -2067,9 +2190,13 @@ fn main() {
             plugin_pick_output_dir,
             plugin_open_output_dir,
             plugin_save_image_base64,
+            plugin_save_ref_image_base64,
             plugin_list_output_images,
             plugin_read_output_image,
             plugin_delete_output_image,
+            plugin_list_ref_images,
+            plugin_read_ref_image,
+            plugin_delete_ref_image,
             plugin_pick_images,
             task_create,
             task_get,

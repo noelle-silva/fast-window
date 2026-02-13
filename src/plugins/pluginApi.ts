@@ -254,9 +254,13 @@ export type FastWindowApi = {
     pickOutputDir: () => Promise<string | null>
     openOutputDir: () => Promise<void>
     saveImageBase64: (dataUrlOrBase64: string) => Promise<string>
+    saveRefImageBase64: (dataUrlOrBase64: string) => Promise<string>
     listOutputImages: () => Promise<string[]>
     readOutputImage: (path: string) => Promise<string>
     deleteOutputImage: (path: string) => Promise<void>
+    listRefImages: () => Promise<string[]>
+    readRefImage: (path: string) => Promise<string>
+    deleteRefImage: (path: string) => Promise<void>
     pickImages: (maxCount?: number | null) => Promise<PluginPickedImage[]>
   }
 }
@@ -355,6 +359,9 @@ export function createPluginContext(pluginId: string, requires: PluginCapability
       saveImageBase64: async (dataUrlOrBase64: string) => {
         return invoke<string>('plugin_save_image_base64', { pluginId, data: dataUrlOrBase64 })
       },
+      saveRefImageBase64: async (dataUrlOrBase64: string) => {
+        return invoke<string>('plugin_save_ref_image_base64', { pluginId, data: dataUrlOrBase64 })
+      },
       listOutputImages: async () => {
         return invoke<string[]>('plugin_list_output_images', { pluginId })
       },
@@ -363,6 +370,15 @@ export function createPluginContext(pluginId: string, requires: PluginCapability
       },
       deleteOutputImage: async (path: string) => {
         await invoke('plugin_delete_output_image', { pluginId, path })
+      },
+      listRefImages: async () => {
+        return invoke<string[]>('plugin_list_ref_images', { pluginId })
+      },
+      readRefImage: async (path: string) => {
+        return invoke<string>('plugin_read_ref_image', { pluginId, path })
+      },
+      deleteRefImage: async (path: string) => {
+        await invoke('plugin_delete_ref_image', { pluginId, path })
       },
       pickImages: async (maxCount?: number | null) => {
         return invoke<PluginPickedImage[]>('plugin_pick_images', { pluginId, maxCount: maxCount ?? null })

@@ -23,9 +23,12 @@
     "files.pickOutputDir",
     "files.openOutputDir",
     "files.saveImageBase64",
+    "files.saveRefImageBase64",
     "files.listOutputImages",
     "files.readOutputImage",
     "files.deleteOutputImage",
+    "files.listRefImages",
+    "files.readRefImage",
     "files.pickImages"
   ]
 }
