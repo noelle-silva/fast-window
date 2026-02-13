@@ -9,6 +9,11 @@
     route: { name: 'list', spaceId: '' },
     modal: '',
     menuSpaceId: '',
+    sortMode: false,
+    sortSnapshotSpaces: null,
+    sortDragEl: null,
+    sortDropEl: null,
+    sortPointerId: 0,
     tplEditingIds: [],
     tplEditors: {},
     tplNewIds: [],
@@ -62,6 +67,13 @@
     .spaceCard{ cursor:pointer; }
     .spaceCard:hover{ border-color: rgba(37,99,235,0.35); box-shadow: 0 10px 26px rgba(37,99,235,0.10); }
     .spaceCard:focus{ outline:2px solid rgba(37,99,235,0.35); outline-offset:2px; }
+    body[data-sort="1"] .spaceCard{ cursor:grab; }
+    body[data-sort="1"] .spaceCard:active{ cursor:grabbing; }
+    body[data-sort="1"] .spaceCard:hover{ border-color: var(--line); box-shadow: 0 8px 24px rgba(17,24,39,0.06); }
+    .dragHandle{ width:32px; height:32px; border-radius:10px; border:1px dashed var(--line); background:#ffffff; display:inline-flex; align-items:center; justify-content:center; cursor:grab; user-select:none; touch-action:none; }
+    .dragHandle:active{ cursor:grabbing; }
+    [data-dragging="1"]{ opacity:0.6; }
+    [data-drop="1"]{ outline:2px dashed rgba(37,99,235,0.45); outline-offset:2px; }
     .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .sp{ margin-left:auto; }
     .meta{ font-size:12px; color:var(--muted); margin-top:6px; }
@@ -607,6 +619,34 @@
     render()
   }
 
+  function clearSortDragUi() {
+    if (state.sortDragEl instanceof HTMLElement) state.sortDragEl.removeAttribute('data-dragging')
+    if (state.sortDropEl instanceof HTMLElement) state.sortDropEl.removeAttribute('data-drop')
+    state.sortDragEl = null
+    state.sortDropEl = null
+  }
+
+  function syncSpacesOrderFromGrid(grid) {
+    if (!state.data || !Array.isArray(state.data.spaces)) return
+    if (!(grid instanceof HTMLElement)) return
+    const ids = Array.from(grid.querySelectorAll('[data-sort-item="1"]'))
+      .map((x) => (x instanceof HTMLElement ? x.getAttribute('data-id') || '' : ''))
+      .filter(Boolean)
+    if (!ids.length) return
+    const map = new Map(state.data.spaces.map((s) => [String(s?.id || ''), s]))
+    const next = []
+    for (const id of ids) {
+      const s = map.get(id)
+      if (s) next.push(s)
+      map.delete(id)
+    }
+    for (const s of state.data.spaces) {
+      const id = String(s?.id || '')
+      if (map.has(id)) next.push(s)
+    }
+    state.data.spaces = next
+  }
+
   function mount() {
     const root = document.getElementById('app') || document.body
     root.innerHTML = `
@@ -632,7 +672,7 @@
         }
       }
 
-      if (!act && state.route.name === 'list') {
+      if (!act && state.route.name === 'list' && !state.sortMode) {
         if (t.closest('[data-space-menu="1"]')) return
         const card = t.closest('[data-space-card="1"]')
         if (card instanceof HTMLElement) {
@@ -642,6 +682,37 @@
       }
 
       if (closedMenu) {
+        render()
+        return
+      }
+
+      if (act === 'enter-sort') {
+        if (!state.data) return
+        state.menuSpaceId = ''
+        state.sortSnapshotSpaces = Array.isArray(state.data.spaces) ? state.data.spaces.slice() : []
+        state.sortMode = true
+        clearSortDragUi()
+        render()
+        return
+      }
+      if (act === 'cancel-sort') {
+        if (!state.data) return
+        if (Array.isArray(state.sortSnapshotSpaces)) state.data.spaces = state.sortSnapshotSpaces.slice()
+        state.sortSnapshotSpaces = null
+        state.sortMode = false
+        state.menuSpaceId = ''
+        clearSortDragUi()
+        render()
+        return
+      }
+      if (act === 'save-sort') {
+        if (!state.data) return
+        await save()
+        api.ui?.showToast?.('已保存排序')
+        state.sortSnapshotSpaces = null
+        state.sortMode = false
+        state.menuSpaceId = ''
+        clearSortDragUi()
         render()
         return
       }
@@ -964,7 +1035,7 @@
     root.addEventListener('keydown', (e) => {
       const t = e.target
       if (!(t instanceof HTMLElement)) return
-      if (state.route.name === 'list' && t.getAttribute('data-space-card') === '1') {
+      if (state.route.name === 'list' && !state.sortMode && t.getAttribute('data-space-card') === '1') {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
           goSpace(t.getAttribute('data-id') || '')
@@ -978,11 +1049,81 @@
         sendOnce()
       }
     })
+
+    root.addEventListener('pointerdown', (e) => {
+      if (!state.sortMode || state.route.name !== 'list') return
+      const t = e.target
+      if (!(t instanceof HTMLElement)) return
+      const handle = t.closest('[data-sort-handle="1"]')
+      if (!(handle instanceof HTMLElement)) return
+      const card = handle.closest('[data-sort-item="1"]')
+      if (!(card instanceof HTMLElement)) return
+
+      clearSortDragUi()
+      state.sortDragEl = card
+      state.sortPointerId = e.pointerId
+      card.setAttribute('data-dragging', '1')
+      try {
+        card.setPointerCapture(e.pointerId)
+      } catch (_) {}
+      e.preventDefault()
+    })
+
+    root.addEventListener('pointermove', (e) => {
+      if (!state.sortMode || state.route.name !== 'list') return
+      if (!(state.sortDragEl instanceof HTMLElement)) return
+      if (state.sortPointerId !== e.pointerId) return
+
+      const under = document.elementFromPoint(e.clientX, e.clientY)
+      const overCard = under instanceof HTMLElement ? under.closest('[data-sort-item="1"]') : null
+      if (!(overCard instanceof HTMLElement)) return
+      if (overCard === state.sortDragEl) return
+      const grid = overCard.closest('[data-sort-grid="1"]')
+      if (!(grid instanceof HTMLElement)) return
+
+      const r = overCard.getBoundingClientRect()
+      const after = e.clientY > r.top + r.height / 2
+      grid.insertBefore(state.sortDragEl, after ? overCard.nextSibling : overCard)
+
+      if (state.sortDropEl !== overCard) {
+        if (state.sortDropEl instanceof HTMLElement) state.sortDropEl.removeAttribute('data-drop')
+        state.sortDropEl = overCard
+        overCard.setAttribute('data-drop', '1')
+      }
+
+      syncSpacesOrderFromGrid(grid)
+      e.preventDefault()
+    })
+
+    function endSortPointer() {
+      if (state.sortDragEl instanceof HTMLElement) state.sortDragEl.removeAttribute('data-dragging')
+      if (state.sortDropEl instanceof HTMLElement) state.sortDropEl.removeAttribute('data-drop')
+      state.sortDragEl = null
+      state.sortDropEl = null
+      state.sortPointerId = 0
+    }
+
+    root.addEventListener('pointerup', (e) => {
+      if (!state.sortMode || state.route.name !== 'list') return
+      if (state.sortPointerId !== e.pointerId) return
+      endSortPointer()
+      e.preventDefault()
+    })
+
+    root.addEventListener('pointercancel', (e) => {
+      if (!state.sortMode || state.route.name !== 'list') return
+      if (state.sortPointerId !== e.pointerId) return
+      endSortPointer()
+    })
   }
 
   function renderTop() {
     const el = document.querySelector('[data-area="top"]')
     if (!(el instanceof HTMLElement)) return
+
+    if (state.route.name === 'list' && state.sortMode) document.body.setAttribute('data-sort', '1')
+    else document.body.removeAttribute('data-sort')
+
     if (state.route.name === 'list') {
       const ps = state.data ? state.data.settings.providers : []
       const pid = state.data ? String(state.data.settings.activeProviderId || '') : ''
@@ -996,8 +1137,15 @@
         <select class="field sm" data-bind="activeProviderId" title="当前生效供应商">${pOptions}</select>
         <div class="meta mono" title="${info}" style="margin:0">${info}</div>
         <div class="sp"></div>
-        <button class="btn" data-act="open-settings">设置</button>
-        <button class="btn pri" data-act="create-space">新建空间</button>
+        ${
+          state.sortMode
+            ? `<div class="meta" style="margin:0">拖拽排序模式</div>
+               <button class="btn ok" data-act="save-sort">保存</button>
+               <button class="btn" data-act="cancel-sort">退出</button>`
+            : `<button class="btn" data-act="open-settings">设置</button>
+               <button class="btn pri" data-act="create-space">新建空间</button>
+               <button class="btn" data-act="enter-sort">排序</button>`
+        }
       `
       return
     }
@@ -1032,30 +1180,43 @@
     const pid = activeProviderId()
     const spaces = state.data.spaces || []
     el.innerHTML = `
-      <div class="grid">
+      <div class="grid" data-sort-grid="1">
         ${spaces
           .map((s) => {
             const model = String((s.defaultModelByProvider && typeof s.defaultModelByProvider === 'object' ? s.defaultModelByProvider[pid] : '') || '').trim() || '未设置'
             const tplCount = Array.isArray(s.templates) ? s.templates.length : 0
             const menuOn = state.menuSpaceId === s.id
+            const canEnter = !state.sortMode
+            const a11yLabel = canEnter ? `进入空间：${String(s.name || '')}` : `空间：${String(s.name || '')}`
             return `
-              <div class="card spaceCard" data-space-card="1" data-id="${esc(s.id)}" role="button" tabindex="0" aria-label="进入空间：${esc(s.name)}">
+              <div class="card spaceCard" data-space-card="1" data-sort-item="1" data-id="${esc(s.id)}" aria-label="${esc(a11yLabel)}" ${canEnter ? 'role="button" tabindex="0"' : ''}>
                 <div class="row">
+                  ${
+                    state.sortMode
+                      ? `<div class="dragHandle" data-sort-handle="1" aria-label="拖拽排序" role="button" tabindex="0" title="拖拽排序">⠿</div>`
+                      : ''
+                  }
                   <div class="title" style="margin:0">${esc(s.name)}</div>
                   <div class="sp"></div>
-                  <div class="menuWrap" data-space-menu="1">
-                    <button class="iconBtn" data-act="toggle-space-menu" data-id="${esc(s.id)}" aria-label="空间操作">⋯</button>
-                    ${
-                      menuOn
-                        ? `
-                          <div class="menu" data-space-menu="1">
-                            <button class="menuItem" data-act="edit-space" data-id="${esc(s.id)}">编辑</button>
-                            <button class="menuItem bad" data-act="delete-space" data-id="${esc(s.id)}">删除空间</button>
-                          </div>
-                        `
-                        : ''
-                    }
-                  </div>
+                  ${
+                    state.sortMode
+                      ? ''
+                      : `
+                        <div class="menuWrap" data-space-menu="1">
+                          <button class="iconBtn" data-act="toggle-space-menu" data-id="${esc(s.id)}" aria-label="空间操作">⋯</button>
+                          ${
+                            menuOn
+                              ? `
+                                <div class="menu" data-space-menu="1">
+                                  <button class="menuItem" data-act="edit-space" data-id="${esc(s.id)}">编辑</button>
+                                  <button class="menuItem bad" data-act="delete-space" data-id="${esc(s.id)}">删除空间</button>
+                                </div>
+                              `
+                              : ''
+                          }
+                        </div>
+                      `
+                  }
                 </div>
                 <div class="meta">默认模型：<span class="mono">${esc(model)}</span></div>
                 <div class="meta">模板：${tplCount} 个</div>
