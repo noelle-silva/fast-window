@@ -225,6 +225,7 @@
     busy: false,
     modal: '',
     menuOpen: false,
+    revealApiKey: false,
     prompt: '',
     promptHistory: [],
     promptHistoryIndex: -1,
@@ -270,6 +271,8 @@
     .btn.ok{ border-color:rgba(22,163,74,0.25); background:rgba(22,163,74,0.08); color:var(--ok); }
     .btn.bad{ border-color:rgba(220,38,38,0.25); background:rgba(220,38,38,0.06); color:var(--bad); }
     .btn:disabled{ opacity:0.6; cursor:not-allowed; }
+    .btn.icon{ width:32px; padding:0; display:inline-flex; align-items:center; justify-content:center; }
+    .btn.icon svg{ width:16px; height:16px; display:block; }
     .content{ flex:1; overflow:auto; padding:12px; }
     .split{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; }
     @media (max-width:860px){ .split{ grid-template-columns:1fr; } }
@@ -813,6 +816,7 @@
     const p = activeProvider()
     if (!p) return
     state.modal = 'settings'
+    state.revealApiKey = false
     state.draft.providerName = String(p.name || '')
     state.draft.baseUrl = String(p.baseUrl || '')
     state.draft.apiKey = String(p.apiKey || '')
@@ -827,6 +831,7 @@
   function openPluginSettings() {
     if (!state.data) return
     state.modal = 'plugin-settings'
+    state.revealApiKey = false
     state.draft.promptHistoryLimit = String(normalizePromptHistoryLimit(state.data.promptHistoryLimit))
     state.draft.autoSave = !!state.data.autoSave
     render()
@@ -1247,7 +1252,23 @@
           <input class="field mono" data-bind="baseUrl" placeholder="https://api.openai.com/v1" value="${esc(state.draft.baseUrl)}" />
 
           <label>API Key</label>
-          <input class="field mono" type="password" data-bind="apiKey" placeholder="sk-..." value="${esc(state.draft.apiKey)}" />
+          <div class="row">
+            <input class="field mono" style="flex:1; min-width:240px" type="${state.revealApiKey ? 'text' : 'password'}" data-bind="apiKey" placeholder="sk-..." value="${esc(state.draft.apiKey)}" />
+            <button class="btn icon" data-act="toggle-api-key" aria-label="${state.revealApiKey ? '隐藏 API Key' : '查看 API Key'}" aria-pressed="${state.revealApiKey ? 'true' : 'false'}">
+              ${
+                state.revealApiKey
+                  ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"></path>
+                      <circle cx="12" cy="12" r="3"></circle>
+                      <path d="M2 2l20 20"></path>
+                    </svg>`
+                  : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"></path>
+                      <circle cx="12" cy="12" r="3"></circle>
+                    </svg>`
+              }
+            </button>
+          </div>
 
           <label>协议</label>
           <select class="field" data-bind="protocol" aria-label="协议">
@@ -1410,9 +1431,13 @@
         openSettings()
       } else if (act === 'close-modal') {
         state.modal = ''
+        state.revealApiKey = false
         render()
       } else if (act === 'open-plugin-settings') {
         openPluginSettings()
+      } else if (act === 'toggle-api-key') {
+        state.revealApiKey = !state.revealApiKey
+        render()
       } else if (act === 'generate') {
         generate()
       } else if (act === 'cancel-generate') {
@@ -1464,6 +1489,12 @@
       } else if (act === 'add-provider') {
         if (!state.data) return
         const p = defaultProvider()
+        // 新增供应商默认使用聊天补全协议（更常见的网关/兼容实现）
+        p.protocol = 'chat'
+        // 避免把默认图片模型误用到 chat 协议：让用户显式填写模型
+        p.models = []
+        p.model = '__custom__'
+        p.customModel = ''
         state.data.providers.unshift(p)
         state.data.activeProviderId = p.id
         openSettings()
