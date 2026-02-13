@@ -1905,8 +1905,6 @@
                 <button class="btn" data-act="pick-ref-images">外部参考图</button>
                 <button class="btn" data-act="open-ref-library">参考图库</button>
                 <span class="kbd mono" aria-label="参考图数量">${state.refImages.length}/${MAX_REF_IMAGES}</span>
-                <button class="btn" data-act="ref-scroll-left" ${state.refImages.length ? '' : 'disabled'} aria-label="参考图左移">←</button>
-                <button class="btn" data-act="ref-scroll-right" ${state.refImages.length ? '' : 'disabled'} aria-label="参考图右移">→</button>
               </div>
               <div id="ref-strip" class="refStrip" aria-label="参考图列表">
                 ${
@@ -2100,12 +2098,6 @@
         if (!rid) return
         state.refImages = (Array.isArray(state.refImages) ? state.refImages : []).filter((x) => x && x.id !== rid)
         render()
-      } else if (act === 'ref-scroll-left') {
-        const box = document.getElementById('ref-strip')
-        if (box) box.scrollBy({ left: -240, behavior: 'smooth' })
-      } else if (act === 'ref-scroll-right') {
-        const box = document.getElementById('ref-strip')
-        if (box) box.scrollBy({ left: 240, behavior: 'smooth' })
       } else if (act === 'generate') {
         generate()
       } else if (act === 'prompt-prev') {
