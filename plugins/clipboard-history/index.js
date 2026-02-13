@@ -9,11 +9,13 @@
   const RECENT_FOLDERS_KEY = 'recentFolders'
   const TASK_KIND_CLIPBOARD_WATCH = 'clipboard.watch'
   const TASK_QUERY_INTERVAL = 250
+  const CLIPBOARD_PAGE_SIZE = 40
 
   const DEFAULT_SETTINGS = {
     maxHistory: 50,
     autoMonitor: true,
     pollInterval: 1000,
+    collapseLines: 6,
   }
 
   if (runtime === 'background') {
@@ -37,10 +39,12 @@
       const merged = raw && typeof raw === 'object' ? { ...DEFAULT_SETTINGS, ...raw } : { ...DEFAULT_SETTINGS }
       const pollRaw = Number(merged.pollInterval)
       const maxRaw = Number(merged.maxHistory)
+      const collapseRaw = Number(merged.collapseLines)
       return {
         autoMonitor: merged.autoMonitor !== false,
         pollInterval: Math.min(15000, Math.max(200, Number.isFinite(pollRaw) ? Math.floor(pollRaw) : DEFAULT_SETTINGS.pollInterval)),
         maxHistory: Math.min(1000, Math.max(10, Number.isFinite(maxRaw) ? Math.floor(maxRaw) : DEFAULT_SETTINGS.maxHistory)),
+        collapseLines: Math.min(50, Math.max(1, Number.isFinite(collapseRaw) ? Math.floor(collapseRaw) : DEFAULT_SETTINGS.collapseLines)),
       }
     }
 
@@ -49,11 +53,14 @@
       const content = String(raw && raw.content ? raw.content : '').trim()
       if (!content) return null
       const timeRaw = Number(raw && raw.time)
-      return {
+      const path = type === 'image' && raw && typeof raw.path === 'string' ? String(raw.path).trim() : ''
+      const out = {
         type,
         content,
         time: Number.isFinite(timeRaw) && timeRaw > 0 ? Math.floor(timeRaw) : now(),
       }
+      if (type === 'image' && path) out.path = path
+      return out
     }
 
     function bgNormalizeHistoryItems(raw, limit = bgState.settings.maxHistory) {
@@ -98,6 +105,7 @@
         const right = listB[i]
         if (!left || !right) return false
         if (left.type !== right.type || left.content !== right.content || left.time !== right.time) return false
+        if (left.type === 'image' && String(left.path || '') !== String(right.path || '')) return false
       }
       return true
     }
@@ -232,6 +240,10 @@
     view: 'clipboard', // 'clipboard' | 'folders'
 
     clipboardSearchQuery: '',
+    clipboardLimit: CLIPBOARD_PAGE_SIZE,
+    clipboardExpanded: {},
+    clipboardImageCache: {},
+    clipboardImageLoading: {},
 
     collections: null,
     currentFolderId: 'root',
@@ -362,6 +374,28 @@
     .iconBtn:hover { border-color: #CFCFCF; background: white; }
     .iconBtn:focus-visible { outline: 2px solid rgba(25,118,210,0.45); outline-offset: 1px; }
     .text { white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.55; }
+    .text.clamp {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: var(--clamp-lines, 6);
+      overflow: hidden;
+    }
+    .textWrap { display: flex; flex-direction: column; gap: 6px; }
+    .foldBtn { border: none; background: transparent; color: var(--primary); cursor: pointer; font-size: 12px; padding: 0; }
+    .foldBtn.hidden { display: none; }
+    .imgPlaceholder {
+      width: 100%;
+      max-height: 220px;
+      min-height: 120px;
+      border: 1px dashed var(--outline);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      background: rgba(0,0,0,0.02);
+    }
+    .loadMoreRow { padding: 10px 12px; border-top: 1px solid var(--outline); display: flex; justify-content: center; background: var(--surface); }
     .imgWrap { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; }
     .img { display: block; max-width: 100%; max-height: 220px; object-fit: contain; border-radius: 10px; }
     .empty { color: var(--muted); text-align: center; padding: 24px 0; font-size: 13px; }
@@ -570,6 +604,7 @@
       const right = listB[i]
       if (!left || !right) return false
       if (left.type !== right.type || left.content !== right.content || left.time !== right.time) return false
+      if (left.type === 'image' && String(left.path || '') !== String(right.path || '')) return false
     }
     return true
   }
@@ -589,10 +624,12 @@
     const merged = raw && typeof raw === 'object' ? { ...DEFAULT_SETTINGS, ...raw } : { ...DEFAULT_SETTINGS }
     const pollRaw = Number(merged.pollInterval)
     const maxRaw = Number(merged.maxHistory)
+    const collapseRaw = Number(merged.collapseLines)
     return {
       autoMonitor: merged.autoMonitor !== false,
       pollInterval: Math.min(15000, Math.max(200, Number.isFinite(pollRaw) ? Math.floor(pollRaw) : DEFAULT_SETTINGS.pollInterval)),
       maxHistory: Math.min(1000, Math.max(10, Number.isFinite(maxRaw) ? Math.floor(maxRaw) : DEFAULT_SETTINGS.maxHistory)),
+      collapseLines: Math.min(50, Math.max(1, Number.isFinite(collapseRaw) ? Math.floor(collapseRaw) : DEFAULT_SETTINGS.collapseLines)),
     }
   }
 
@@ -601,11 +638,14 @@
     const content = String(raw && raw.content ? raw.content : '').trim()
     if (!content) return null
     const timeRaw = Number(raw && raw.time)
-    return {
+    const path = type === 'image' && raw && typeof raw.path === 'string' ? String(raw.path).trim() : ''
+    const out = {
       type,
       content,
       time: Number.isFinite(timeRaw) && timeRaw > 0 ? Math.floor(timeRaw) : now(),
     }
+    if (type === 'image' && path) out.path = path
+    return out
   }
 
   function normalizeHistoryItems(raw, limit = state.settings.maxHistory) {
@@ -1233,6 +1273,14 @@
       if (!(t instanceof HTMLElement)) return
 
       const act = t.getAttribute('data-act')
+      if (act === 'toggleExpandHistory') {
+        const hid = t.getAttribute('data-hid') || ''
+        if (!hid) return
+        if (state.clipboardExpanded[hid]) delete state.clipboardExpanded[hid]
+        else state.clipboardExpanded[hid] = true
+        renderClipboardList()
+        return
+      }
       if (act === 'closeOverlay') {
         closeOverlays()
         renderOverlay()
@@ -1274,6 +1322,7 @@
         state.view = 'folders'
         state.showSettings = false
         state.showRecentMenu = false
+        detachClipboardSentinelObserver()
         render()
         return
       }
@@ -1281,6 +1330,7 @@
         state.view = 'clipboard'
         state.showSettings = false
         state.showRecentMenu = false
+        state.clipboardLimit = CLIPBOARD_PAGE_SIZE
         render()
         return
       }
@@ -1318,6 +1368,9 @@
         }
         state.clearArmedAt = 0
         state.history = []
+        state.clipboardExpanded = {}
+        state.clipboardImageCache = {}
+        state.clipboardLimit = CLIPBOARD_PAGE_SIZE
         await persistClipboard()
         api.ui?.showToast?.('已清空')
         render()
@@ -1464,6 +1517,9 @@
           state.deleteArmedId = ''
           state.deleteArmedAt = 0
           state.history = state.history.filter((h) => historyKey(h) !== key)
+          if (state.clipboardExpanded[key]) delete state.clipboardExpanded[key]
+          if (state.clipboardImageCache[key]) delete state.clipboardImageCache[key]
+          if (state.clipboardImageLoading[key]) delete state.clipboardImageLoading[key]
           await persistClipboard()
           api.ui?.showToast?.('已删除')
           renderClipboardList()
@@ -1472,8 +1528,25 @@
 
         try {
           setInternalCopy(item.type, item.content)
-          if (item.type === 'image') await api.clipboard.writeImage(item.content)
-          else await api.clipboard.writeText(item.content)
+          if (item.type === 'image') {
+            const hidKey = historyKey(item)
+            let dataUrl = ''
+            if (isDataUrl(item.content)) {
+              dataUrl = item.content
+            } else if (state.clipboardImageCache[hidKey]) {
+              dataUrl = state.clipboardImageCache[hidKey]
+            } else {
+              const path = pickImagePath(item)
+              if (path) {
+                dataUrl = await api.files.readOutputImage(path).catch(() => '')
+                if (dataUrl) state.clipboardImageCache[hidKey] = dataUrl
+              }
+            }
+            if (!dataUrl) throw new Error('image not available')
+            await api.clipboard.writeImage(dataUrl)
+          } else {
+            await api.clipboard.writeText(item.content)
+          }
 
           const newItem = { ...item, time: now() }
           if (item.type === 'image') state.currentImage = item.content
@@ -1542,6 +1615,7 @@
       const act = t.getAttribute('data-act')
       if (act === 'searchClipboard') {
         state.clipboardSearchQuery = (t instanceof HTMLInputElement ? t.value : '') || ''
+        state.clipboardLimit = CLIPBOARD_PAGE_SIZE
         renderClipboardList()
         return
       }
@@ -1767,6 +1841,10 @@
         <input type="number" min="10" step="10" value="${state.settings.maxHistory}" data-act="maxHistory" />
       </div>
       <div class="row">
+        <label>折叠行数</label>
+        <input type="number" min="1" step="1" value="${state.settings.collapseLines}" data-act="collapseLines" />
+      </div>
+      <div class="row">
         <button class="btn primary" data-act="saveSettings">保存</button>
       </div>
     `
@@ -1787,12 +1865,15 @@
       if (act === 'saveSettings') {
         const poll = area.querySelector('input[data-act="pollInterval"]')
         const maxH = area.querySelector('input[data-act="maxHistory"]')
+        const collapse = area.querySelector('input[data-act="collapseLines"]')
         const pollInterval = poll instanceof HTMLInputElement ? Number(poll.value) : state.settings.pollInterval
         const maxHistory = maxH instanceof HTMLInputElement ? Number(maxH.value) : state.settings.maxHistory
+        const collapseLines = collapse instanceof HTMLInputElement ? Number(collapse.value) : state.settings.collapseLines
         state.settings = normalizeSettings({
           ...state.settings,
           pollInterval,
           maxHistory,
+          collapseLines,
         })
         state.history = normalizeHistoryItems(state.history, state.settings.maxHistory)
         await persistClipboard()
@@ -1849,6 +1930,60 @@
     `
   }
 
+  function isDataUrl(s) {
+    return typeof s === 'string' && s.startsWith('data:')
+  }
+
+  function pickImagePath(item) {
+    if (!item || item.type !== 'image') return ''
+    if (typeof item.path === 'string' && item.path.trim()) return item.path.trim()
+    const c = String(item.content || '').trim()
+    if (!c || isDataUrl(c)) return ''
+    return c
+  }
+
+  let clipboardSentinelObserver = null
+
+  function detachClipboardSentinelObserver() {
+    try {
+      clipboardSentinelObserver?.disconnect?.()
+    } catch (e) {}
+    clipboardSentinelObserver = null
+  }
+
+  function attachClipboardSentinelObserver(listEl, total, limit) {
+    detachClipboardSentinelObserver()
+    if (!(listEl instanceof HTMLElement)) return
+    if (limit >= total) return
+
+    const sentinel = listEl.querySelector('[data-role="clipboardSentinel"]')
+    if (!(sentinel instanceof HTMLElement)) return
+
+    const root = document.querySelector('.content')
+    const rootEl = root instanceof HTMLElement ? root : null
+
+    clipboardSentinelObserver = new IntersectionObserver(
+      (entries) => {
+        const hit = entries && entries[0] && entries[0].isIntersecting
+        if (!hit) return
+        detachClipboardSentinelObserver()
+        const next = Math.min(state.settings.maxHistory, limit + CLIPBOARD_PAGE_SIZE, total)
+        if (next <= limit) return
+        state.clipboardLimit = next
+        renderClipboardList()
+      },
+      {
+        root: rootEl,
+        rootMargin: '240px 0px',
+        threshold: 0,
+      },
+    )
+
+    try {
+      clipboardSentinelObserver.observe(sentinel)
+    } catch (e) {}
+  }
+
   function renderClipboardList() {
     const listEl = document.querySelector('[data-area="clipboardList"]')
     const emptyEl = document.querySelector('[data-area="clipboardEmpty"]')
@@ -1860,7 +1995,9 @@
       list = list.filter((it) => it.type !== 'image' && String(it.content).toLowerCase().includes(q))
     }
 
-    if (!list.length) {
+    const total = list.length
+    if (!total) {
+      detachClipboardSentinelObserver()
       listEl.innerHTML = ''
       listEl.style.display = 'none'
       emptyEl.style.display = 'block'
@@ -1868,28 +2005,121 @@
       return
     }
 
+    const limit = Math.min(total, Math.max(1, Number(state.clipboardLimit) || CLIPBOARD_PAGE_SIZE))
+    const visible = list.slice(0, limit)
+    const hasMore = limit < total
+
     listEl.style.display = 'flex'
     emptyEl.style.display = 'none'
-    listEl.innerHTML = list
-      .map((it, idx) => {
-        const typeLabel = it.type === 'image' ? '图片' : '文本'
-        const timeLabel = it.time ? formatTime(it.time) : ''
-        const key = historyKey(it)
-        const top = `
-          <div class="cardTop">
-            <span class="pill">${escapeHtml(typeLabel)}</span>
-            <span class="pill">${escapeHtml(timeLabel)}</span>
-            <span class="spacer"></span>
-            <button class="iconBtn" data-act="delHistory" title="${isDeleteArmed(key) ? '再点一次确认删除' : '删除'}">${isDeleteArmed(key) ? '⚠' : '🗑'}</button>
-          </div>`
 
-        const body = it.type === 'image'
-          ? `<div class="imgWrap"><img class="img" src="${escapeHtml(it.content)}" /><div class="pill">🖼 图片</div></div>`
-          : `<div class="text">${escapeHtml(it.content || '')}</div>`
+    listEl.innerHTML =
+      visible
+        .map((it) => {
+          const typeLabel = it.type === 'image' ? '图片' : '文本'
+          const timeLabel = it.time ? formatTime(it.time) : ''
+          const key = historyKey(it)
+          const expanded = !!state.clipboardExpanded[key]
+          const top = `
+            <div class="cardTop">
+              <span class="pill">${escapeHtml(typeLabel)}</span>
+              <span class="pill">${escapeHtml(timeLabel)}</span>
+              <span class="spacer"></span>
+              <button class="iconBtn" data-act="delHistory" title="${isDeleteArmed(key) ? '再点一次确认删除' : '删除'}">${isDeleteArmed(key) ? '⚠' : '🗑'}</button>
+            </div>`
 
-        return `<div class="card" data-role="clipboardCard" data-hid="${escapeHtml(key)}">${top}${body}</div>`
-      })
-      .join('')
+          if (it.type === 'image') {
+            const directDataUrl = isDataUrl(it.content) ? it.content : ''
+            const cached = state.clipboardImageCache[key] || directDataUrl || ''
+            const body = `
+              <div class="textWrap">
+                <div class="imgWrap">
+                  <div class="imgPlaceholder" data-role="imgPh" data-hid="${escapeHtml(key)}" style="${cached ? 'display:none' : ''}">加载中...</div>
+                  <img class="img" data-role="lazyImg" data-hid="${escapeHtml(key)}" style="${cached ? '' : 'display:none'}" src="${cached ? escapeHtml(cached) : ''}" />
+                  <div class="pill">🖼 图片</div>
+                </div>
+              </div>`
+            return `<div class="card" data-role="clipboardCard" data-hid="${escapeHtml(key)}">${top}${body}</div>`
+          }
+
+          const textClass = expanded ? 'text' : 'text clamp'
+          const btnClass = expanded ? 'foldBtn' : 'foldBtn hidden'
+          const btnLabel = expanded ? '收起' : '展开'
+          const body = `
+            <div class="textWrap">
+              <div class="${textClass}" data-role="clipText" style="--clamp-lines:${state.settings.collapseLines}">${escapeHtml(it.content || '')}</div>
+              <button class="${btnClass}" data-role="foldBtn" data-act="toggleExpandHistory" data-hid="${escapeHtml(key)}">${btnLabel}</button>
+            </div>`
+          return `<div class="card" data-role="clipboardCard" data-hid="${escapeHtml(key)}">${top}${body}</div>`
+        })
+        .join('') +
+      (hasMore ? `<div class="loadMoreRow" data-role="clipboardSentinel"><span class="pill">继续下滑加载更多（${limit}/${total}）</span></div>` : '')
+
+    attachClipboardSentinelObserver(listEl, total, limit)
+
+    requestAnimationFrame(() => {
+      try {
+        const texts = listEl.querySelectorAll('[data-role="clipText"].clamp')
+        for (const el of texts) {
+          if (!(el instanceof HTMLElement)) continue
+          const btn = el.parentElement?.querySelector?.('button[data-role="foldBtn"]')
+          if (!(btn instanceof HTMLElement)) continue
+          const overflow = el.scrollHeight > el.clientHeight + 1
+          if (overflow) btn.classList.remove('hidden')
+          else btn.classList.add('hidden')
+        }
+      } catch (e) {}
+
+      try {
+        const imgs = listEl.querySelectorAll('img[data-role="lazyImg"]')
+        for (const img of imgs) {
+          if (!(img instanceof HTMLImageElement)) continue
+          const hid = img.getAttribute('data-hid') || ''
+          if (!hid) continue
+          if (state.clipboardImageCache[hid]) continue
+          if (state.clipboardImageLoading[hid]) continue
+          const item = state.history.find((it) => historyKey(it) === hid)
+          if (!item || item.type !== 'image') continue
+
+          const cached = state.clipboardImageCache[hid] || ''
+          if (cached) continue
+          if (isDataUrl(item.content)) {
+            state.clipboardImageCache[hid] = item.content
+            img.src = item.content
+            img.style.display = ''
+            const ph = img.parentElement?.querySelector?.('[data-role="imgPh"]')
+            if (ph instanceof HTMLElement) ph.style.display = 'none'
+            continue
+          }
+
+          const path = pickImagePath(item)
+          if (!path) {
+            const ph = img.parentElement?.querySelector?.('[data-role="imgPh"]')
+            if (ph instanceof HTMLElement) ph.textContent = '图片不可用'
+            continue
+          }
+
+          state.clipboardImageLoading[hid] = true
+          void api.files
+            .readOutputImage(path)
+            .then((dataUrl) => {
+              const v = String(dataUrl || '')
+              if (!v) return
+              state.clipboardImageCache[hid] = v
+              img.src = v
+              img.style.display = ''
+              const ph = img.parentElement?.querySelector?.('[data-role="imgPh"]')
+              if (ph instanceof HTMLElement) ph.style.display = 'none'
+            })
+            .catch(() => {
+              const ph = img.parentElement?.querySelector?.('[data-role="imgPh"]')
+              if (ph instanceof HTMLElement) ph.textContent = '加载失败'
+            })
+            .finally(() => {
+              state.clipboardImageLoading[hid] = false
+            })
+        }
+      } catch (e) {}
+    })
   }
 
   function renderFoldersSubbar() {

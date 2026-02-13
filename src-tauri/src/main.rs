@@ -139,6 +139,8 @@ struct ClipboardWatchTaskPayload {
 struct ClipboardSnapshotItem {
     r#type: String,
     content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
     time: u64,
 }
 
@@ -166,6 +168,24 @@ fn rand_u32(seed: u64) -> u32 {
     x ^= x << 13;
     x ^= x >> 17;
     x ^ (x << 5)
+}
+
+fn hash32_sampled_bytes(bytes: &[u8]) -> u32 {
+    let n = bytes.len();
+    let mut h: u32 = 5381;
+    if n > 4096 {
+        for &b in &bytes[..2048] {
+            h = ((h << 5).wrapping_add(h)) ^ (b as u32);
+        }
+        for &b in &bytes[(n - 2048)..] {
+            h = ((h << 5).wrapping_add(h)) ^ (b as u32);
+        }
+        return h;
+    }
+    for &b in bytes {
+        h = ((h << 5).wrapping_add(h)) ^ (b as u32);
+    }
+    h
 }
 
 fn make_task_id() -> String {
@@ -214,7 +234,7 @@ fn trim_plugin_task_records(tasks: &mut HashMap<String, TaskRecord>, plugin_id: 
     }
 }
 
-fn encode_rgba_to_png_data_url(rgba: &[u8], width: u32, height: u32) -> Result<String, String> {
+fn encode_rgba_to_png_bytes(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
     if width == 0 || height == 0 {
         return Err("图片尺寸无效".to_string());
     }
@@ -227,10 +247,15 @@ fn encode_rgba_to_png_data_url(rgba: &[u8], width: u32, height: u32) -> Result<S
     encoder
         .write_image(rgba, width, height, ColorType::Rgba8.into())
         .map_err(|e| format!("PNG 编码失败: {e}"))?;
-    Ok(format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(png)))
+    Ok(png)
 }
 
-async fn read_clipboard_snapshot(app: &AppHandle) -> Result<(String, String), String> {
+struct ClipboardImageSnapshot {
+    hash: u32,
+    png: Vec<u8>,
+}
+
+async fn read_clipboard_snapshot(app: &AppHandle) -> Result<(String, Option<ClipboardImageSnapshot>), String> {
     let app_text = app.clone();
     let text = tauri::async_runtime::spawn_blocking(move || {
         app_text
@@ -242,17 +267,26 @@ async fn read_clipboard_snapshot(app: &AppHandle) -> Result<(String, String), St
     .map_err(|e| format!("读取文本剪贴板失败: {e}"))?;
 
     let app_image = app.clone();
-    let image_data_url = tauri::async_runtime::spawn_blocking(move || {
+    let image = tauri::async_runtime::spawn_blocking(move || {
         let image = app_image.clipboard().read_image().ok();
         match image {
-            Some(img) => encode_rgba_to_png_data_url(img.rgba(), img.width(), img.height()).unwrap_or_default(),
-            None => String::new(),
+            Some(img) => {
+                let rgba = img.rgba();
+                let hash = hash32_sampled_bytes(rgba);
+                let png = encode_rgba_to_png_bytes(rgba, img.width(), img.height()).unwrap_or_default();
+                if png.is_empty() {
+                    None
+                } else {
+                    Some(ClipboardImageSnapshot { hash, png })
+                }
+            }
+            None => None,
         }
     })
     .await
     .map_err(|e| format!("读取图片剪贴板失败: {e}"))?;
 
-    Ok((text, image_data_url))
+    Ok((text, image))
 }
 
 async fn run_clipboard_watch_task(
@@ -260,13 +294,17 @@ async fn run_clipboard_watch_task(
     payload: ClipboardWatchTaskPayload,
     manager: Arc<TaskManagerState>,
     task_id: String,
+    plugin_id: String,
 ) -> Result<Value, String> {
     let interval_ms = payload.interval_ms.unwrap_or(1000).clamp(200, 15_000);
     let max_history = payload.max_history.unwrap_or(50).clamp(10, 1000);
 
+    let out_dir = resolve_plugin_output_dir(app, &plugin_id);
+    ensure_writable_dir(&out_dir)?;
+
     let mut items: Vec<ClipboardSnapshotItem> = Vec::new();
     let mut last_text = String::new();
-    let mut last_image = String::new();
+    let mut last_image_hash: u32 = 0;
 
     loop {
         {
@@ -283,16 +321,20 @@ async fn run_clipboard_watch_task(
             drop(tasks);
         }
 
-        let (text, image_data_url) = read_clipboard_snapshot(app).await?;
+        let (text, image) = read_clipboard_snapshot(app).await?;
         let now = now_ms();
         let mut latest_item: Option<ClipboardSnapshotItem> = None;
 
         let text_trim = text.trim().to_string();
+        if text_trim.is_empty() {
+            last_text.clear();
+        }
         if !text_trim.is_empty() && text_trim != last_text {
             last_text = text_trim.clone();
             let snapshot = ClipboardSnapshotItem {
                 r#type: "text".to_string(),
                 content: text_trim,
+                path: None,
                 time: now,
             };
             latest_item = Some(snapshot.clone());
@@ -302,17 +344,30 @@ async fn run_clipboard_watch_task(
             }
         }
 
-        if !image_data_url.is_empty() && image_data_url != last_image {
-            last_image = image_data_url.clone();
+        if image.is_none() {
+            last_image_hash = 0;
+        }
+        if let Some(img) = image {
+            if img.hash == last_image_hash {
+                // same image
+            } else {
+                last_image_hash = img.hash;
+                let hash_hex = format!("{:08x}", img.hash);
+                let filename = format!("clipboard-image-{hash_hex}.png");
+                let full = out_dir.join(filename);
+                std::fs::write(&full, img.png).map_err(|e| format!("写入图片失败: {e}"))?;
+                let full_path = full.to_string_lossy().to_string();
             let snapshot = ClipboardSnapshotItem {
                 r#type: "image".to_string(),
-                content: image_data_url,
+                    content: format!("img:{hash_hex}"),
+                    path: Some(full_path),
                 time: now,
             };
             latest_item = Some(snapshot.clone());
             items.insert(0, snapshot);
             if items.len() > max_history {
                 items.truncate(max_history);
+            }
             }
         }
 
@@ -499,7 +554,7 @@ async fn run_http_request_task(payload: HttpRequestTaskPayload) -> Result<Value,
 }
 
 async fn execute_task(app: AppHandle, manager: Arc<TaskManagerState>, task_id: String) {
-    let (kind, payload, cancel_requested) = {
+    let (plugin_id, kind, payload, cancel_requested) = {
         let mut tasks = match manager.tasks.lock() {
             Ok(v) => v,
             Err(_) => return,
@@ -514,6 +569,7 @@ async fn execute_task(app: AppHandle, manager: Arc<TaskManagerState>, task_id: S
         rec.started_at_ms = Some(now_ms());
         rec.updated_at_ms = now_ms();
         (
+            rec.plugin_id.clone(),
             rec.kind.clone(),
             rec.payload.clone(),
             rec.cancel_requested,
@@ -566,7 +622,7 @@ async fn execute_task(app: AppHandle, manager: Arc<TaskManagerState>, task_id: S
                     return;
                 }
             };
-            run_clipboard_watch_task(&app, payload, manager.clone(), task_id.clone()).await
+            run_clipboard_watch_task(&app, payload, manager.clone(), task_id.clone(), plugin_id).await
         }
         _ => Err(format!("不支持的任务类型: {kind}")),
     };
