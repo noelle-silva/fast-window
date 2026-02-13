@@ -298,6 +298,21 @@
     .err{ color:var(--bad); font-size:12px; }
     .promptCard{ display:flex; flex-direction:column; gap:10px; min-height:420px; }
     .promptCard .ta{ flex:1; }
+    .switch{ position:relative; display:inline-block; width:44px; height:24px; flex:0 0 auto; }
+    .switch input{ opacity:0; width:0; height:0; }
+    .slider{
+      position:absolute; inset:0; cursor:pointer;
+      background:#e5e7eb; border-radius:999px; transition: background 0.15s ease;
+    }
+    .slider:before{
+      content:""; position:absolute; left:3px; top:3px;
+      width:18px; height:18px; border-radius:999px; background:#fff;
+      box-shadow: 0 1px 2px rgba(17,24,39,0.18);
+      transition: transform 0.15s ease;
+    }
+    .switch input:checked + .slider{ background: rgba(22,163,74,0.55); }
+    .switch input:checked + .slider:before{ transform: translateX(20px); }
+    .switch input:focus-visible + .slider{ outline:2px solid rgba(37,99,235,0.55); outline-offset:2px; }
     .overlay{ position:fixed; inset:0; background:rgba(17,24,39,0.18); display:flex; align-items:center; justify-content:center; padding:12px; }
     .modal{ width:min(720px,100%); max-height: calc(100vh - 24px); overflow:auto; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; box-shadow: 0 10px 30px rgba(17,24,39,0.12); }
     .hr{ height:1px; background:var(--line); margin:10px 0; }
@@ -805,10 +820,15 @@
     state.draft.modelsText = Array.isArray(p.models) ? p.models.join('\n') : ''
     state.draft.size = String(p.size || '1024x1024')
     state.draft.chatSystemPrompt = typeof p.chatSystemPrompt === 'string' ? p.chatSystemPrompt : ''
-    state.draft.promptHistoryLimit = String(
-      normalizePromptHistoryLimit(state.data && state.data.promptHistoryLimit),
-    )
-    state.draft.autoSave = !!(state.data && state.data.autoSave)
+    // 插件本体设置请走单独入口
+    render()
+  }
+
+  function openPluginSettings() {
+    if (!state.data) return
+    state.modal = 'plugin-settings'
+    state.draft.promptHistoryLimit = String(normalizePromptHistoryLimit(state.data.promptHistoryLimit))
+    state.draft.autoSave = !!state.data.autoSave
     render()
   }
 
@@ -820,7 +840,7 @@
     return normalizeModels(lines)
   }
 
-  function applyDraftToActiveProvider() {
+  function applyDraftProviderToActiveProvider() {
     if (!state.data) return { ok: false, error: '内部状态缺失' }
     const p = activeProvider()
     if (!p) return { ok: false, error: '未选择供应商' }
@@ -856,6 +876,11 @@
       if (!String(p.customModel || '').trim()) p.customModel = resolved || ''
     }
 
+    return { ok: true, error: '' }
+  }
+
+  function applyDraftPluginSettings() {
+    if (!state.data) return { ok: false, error: '内部状态缺失' }
     state.data.autoSave = !!state.draft.autoSave
     state.data.promptHistoryLimit = normalizePromptHistoryLimit(state.draft.promptHistoryLimit)
     trimPromptHistoryToLimit()
@@ -1181,7 +1206,6 @@
       .join('')
 
     const isChat = String(p?.protocol || 'images') === 'chat'
-    const topMeta = state.outputDir ? `<span class="kbd mono" title="${esc(state.outputDir)}">输出：${esc(state.outputDir)}</span>` : ''
     const canPromptPrev = canSwitchPromptPrev() && !state.busy
     const canPromptNext = canSwitchPromptNext() && !state.busy
     const canImagePrev = canSwitchImagePrev() && !state.busy
@@ -1205,9 +1229,9 @@
       state.modal === 'settings'
         ? `
       <div class="overlay" data-act="close-modal">
-        <div class="modal" role="dialog" aria-modal="true" aria-label="连接设置">
+        <div class="modal" role="dialog" aria-modal="true" aria-label="供应商设置">
           <div class="row">
-            <div class="title" style="margin:0">连接设置（OpenAI 兼容）</div>
+            <div class="title" style="margin:0">供应商设置（OpenAI 兼容）</div>
             <div class="sp"></div>
             <select class="field sm" data-bind="activeProviderId" aria-label="生效供应商">${providerOptions}</select>
             <button class="btn" data-act="add-provider">新增</button>
@@ -1251,25 +1275,47 @@
           `
           }
 
-          <label style="margin-top:12px">
-            <input type="checkbox" data-bind="autoSave" ${state.draft.autoSave ? 'checked' : ''} />
-            <span style="margin-left:8px">生成后自动保存到输出目录</span>
-          </label>
+          <div class="hr"></div>
+          <div class="row">
+            <button class="btn pri" data-act="save-provider-settings">保存供应商设置</button>
+            <div class="sp"></div>
+          </div>
+        </div>
+      </div>`
+        : state.modal === 'plugin-settings'
+          ? `
+      <div class="overlay" data-act="close-modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-label="插件设置">
+          <div class="row">
+            <div class="title" style="margin:0">插件设置</div>
+            <div class="sp"></div>
+            <button class="btn pri" data-act="save-plugin-settings">保存插件设置</button>
+            <button class="btn" data-act="close-modal">关闭</button>
+          </div>
+          <div class="hr"></div>
+
+          <div class="row" style="margin-top:10px">
+            <label for="ai-draw-autoSaveSwitch" style="margin:0; color:var(--muted); font-size:12px">生成后自动保存到输出目录</label>
+            <div class="sp"></div>
+            <label class="switch" aria-label="自动保存开关">
+              <input id="ai-draw-autoSaveSwitch" type="checkbox" data-bind="autoSave" ${state.draft.autoSave ? 'checked' : ''} />
+              <span class="slider" aria-hidden="true"></span>
+            </label>
+          </div>
 
           <label>提示词历史条数（1-${MAX_PROMPT_HISTORY_LIMIT}）</label>
           <input class="field sm" data-bind="promptHistoryLimit" type="number" min="1" max="${MAX_PROMPT_HISTORY_LIMIT}" step="1" value="${esc(state.draft.promptHistoryLimit)}" />
 
           <div class="hr"></div>
           <div class="row">
-            <button class="btn pri" data-act="save-settings">保存设置</button>
-            <div class="sp"></div>
             <button class="btn" data-act="pick-output-dir">选择输出目录</button>
             <button class="btn" data-act="open-output-dir">打开输出目录</button>
           </div>
+          <div class="meta mono" title="${esc(state.outputDir || '')}">当前输出：${esc(state.outputDir || '未设置')}</div>
           <div class="meta">输出目录会保存在宿主配置里（不是插件可随意写文件）。</div>
         </div>
       </div>`
-        : ''
+          : ''
 
     const model = resolveModel(p)
     const models = p && Array.isArray(p.models) ? p.models : []
@@ -1284,13 +1330,12 @@
         <div class="top">
           <div class="title">AI 绘图</div>
           <button class="btn" data-act="open-output-dir" ${state.outputDir ? '' : 'disabled'}>打开输出目录</button>
-          ${topMeta}
           <span class="kbd mono" aria-label="自动保存开关状态">自动保存：${d && d.autoSave ? '开' : '关'}</span>
           <div class="sp"></div>
           <select class="field sm" data-bind="activeProviderId" aria-label="供应商">${providerOptions}</select>
-          <button class="btn" data-act="open-settings">设置</button>
+          <button class="btn" data-act="open-settings">供应商设置</button>
+          <button class="btn" data-act="open-plugin-settings">插件设置</button>
           <button class="btn" data-act="pick-output-dir">输出目录</button>
-          <button class="btn bad" data-act="clear-all" ${state.busy ? 'disabled' : ''}>清空</button>
         </div>
 
         <div class="content">
@@ -1366,6 +1411,8 @@
       } else if (act === 'close-modal') {
         state.modal = ''
         render()
+      } else if (act === 'open-plugin-settings') {
+        openPluginSettings()
       } else if (act === 'generate') {
         generate()
       } else if (act === 'cancel-generate') {
@@ -1381,10 +1428,6 @@
         switchPromptHistory(-1)
       } else if (act === 'prompt-next') {
         switchPromptHistory(1)
-      } else if (act === 'clear-all') {
-        state.prompt = ''
-        clearPromptHistory()
-        clearResult()
       } else if (act === 'pick-output-dir') {
         pickOutputDir()
       } else if (act === 'open-output-dir') {
@@ -1398,10 +1441,24 @@
       } else if (act === 'copy-image') {
         copyImage()
       } else if (act === 'save-settings') {
-        const r = applyDraftToActiveProvider()
+        const r = applyDraftProviderToActiveProvider()
         if (!r.ok) return api.ui.showToast(r.error || '保存失败')
         save()
           .then(() => api.ui.showToast('设置已保存'))
+          .then(() => render())
+          .catch((e) => api.ui.showToast(`保存失败：${String(e?.message || e)}`))
+      } else if (act === 'save-provider-settings') {
+        const r = applyDraftProviderToActiveProvider()
+        if (!r.ok) return api.ui.showToast(r.error || '保存失败')
+        save()
+          .then(() => api.ui.showToast('供应商设置已保存'))
+          .then(() => render())
+          .catch((e) => api.ui.showToast(`保存失败：${String(e?.message || e)}`))
+      } else if (act === 'save-plugin-settings') {
+        const r = applyDraftPluginSettings()
+        if (!r.ok) return api.ui.showToast(r.error || '保存失败')
+        save()
+          .then(() => api.ui.showToast('插件设置已保存'))
           .then(() => render())
           .catch((e) => api.ui.showToast(`保存失败：${String(e?.message || e)}`))
       } else if (act === 'add-provider') {
@@ -1437,6 +1494,15 @@
       }
 
       if (state.modal === 'settings') {
+        if (bind in state.draft) {
+          if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) {
+            state.draft[bind] = String(t.value || '')
+          }
+        }
+        return
+      }
+
+      if (state.modal === 'plugin-settings') {
         if (bind in state.draft) {
           if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) {
             state.draft[bind] = String(t.value || '')
@@ -1484,6 +1550,14 @@
       }
 
       if (state.modal === 'settings') {
+        if (bind in state.draft) {
+          if (t instanceof HTMLSelectElement) state.draft[bind] = String(t.value || '')
+          if (t instanceof HTMLInputElement && t.type === 'checkbox') state.draft[bind] = !!t.checked
+          render()
+        }
+      }
+
+      if (state.modal === 'plugin-settings') {
         if (bind in state.draft) {
           if (t instanceof HTMLSelectElement) state.draft[bind] = String(t.value || '')
           if (t instanceof HTMLInputElement && t.type === 'checkbox') state.draft[bind] = !!t.checked
