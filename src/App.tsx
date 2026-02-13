@@ -49,7 +49,6 @@ interface Plugin {
 }
 
 const APP_TITLE = 'Fast Window'
-const APP_VERSION_TEXT = 'Fast Window v0.1.0'
 
 const APP_STORAGE_ID = '__app'
 const PLUGIN_ORDER_KEY = 'pluginOrder'
@@ -206,31 +205,6 @@ function TitleBar(props: {
         }}
       >
         {title}
-      </Typography>
-    </Box>
-  )
-}
-
-function StatusBar(props: { left?: string; right: string }) {
-  const { left, right } = props
-  return (
-    <Box
-      sx={{
-        height: 32,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        px: 1.5,
-        bgcolor: 'background.paper',
-        borderTop: 1,
-        borderColor: 'divider',
-      }}
-    >
-      <Typography variant="caption" color="text.secondary" noWrap>
-        {left ?? ''}
-      </Typography>
-      <Typography variant="caption" color="text.secondary" noWrap>
-        {right}
       </Typography>
     </Box>
   )
@@ -542,7 +516,6 @@ function App() {
               </Typography>
             </Box>
           </Box>
-          <StatusBar right={APP_VERSION_TEXT} />
         </Paper>
         {toastHost}
         {importDialog}
@@ -561,7 +534,6 @@ function App() {
           <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
             <PluginComponent onBack={() => setActivePlugin(null)} />
           </Box>
-          <StatusBar right={APP_VERSION_TEXT} />
         </Paper>
         {toastHost}
         {importDialog}
@@ -726,10 +698,6 @@ function App() {
           )}
         </Box>
 
-        <StatusBar
-          left={reorderMode ? '拖拽排序模式：拖动条目 · 右上角保存/取消 · ESC 隐藏' : '↑↓ 选择 · Enter 打开 · ESC 隐藏'}
-          right={APP_VERSION_TEXT}
-        />
       </Paper>
       {toastHost}
       {importDialog}
