@@ -20,7 +20,9 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
 
   function resolveTimeoutMs(method, args) {
     try {
-      if (method === 'files.pickOutputDir') return LONG_TIMEOUT_MS;
+      // 文件选择类是“人类交互时长”，不该按普通 RPC 8s 超时算。
+      // 统一放宽：避免用户打开选择框后思考几秒就被判定超时。
+      if (String(method || '').startsWith('files.pick')) return LONG_TIMEOUT_MS;
       if (method === 'net.request') {
         const req = args && args[0];
         const t = req && typeof req.timeoutMs === 'number' ? req.timeoutMs : 0;
