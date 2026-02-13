@@ -1596,7 +1596,11 @@
         render()
         api.task
           .cancel(tid)
-          .then(() => api.ui.showToast('已请求取消'))
+          .then((info) => {
+            removeTask(String(info && info.id ? info.id : tid))
+            render()
+            api.ui.showToast('已取消')
+          })
           .catch((e) => api.ui.showToast(`取消失败：${String(e?.message || e)}`))
       } else if (act === 'cancel-all-tasks') {
         const list = getActiveTasks()
@@ -1612,8 +1616,13 @@
         for (const t of list) markTaskCanceling(String(t.id || ''))
         render()
         Promise.allSettled(list.map((t) => api.task.cancel(String(t.id || '')))).then((results) => {
-          const failed = results.filter((r) => r.status !== 'fulfilled').length
-          api.ui.showToast(failed ? `已请求取消（失败 ${failed} 个）` : '已请求取消所有任务')
+          let failed = 0
+          for (const r of results) {
+            if (r.status === 'fulfilled') removeTask(String(r.value && r.value.id ? r.value.id : ''))
+            else failed++
+          }
+          render()
+          api.ui.showToast(failed ? `已取消（失败 ${failed} 个）` : '已取消所有任务')
         })
       } else if (act === 'toggle-output-menu') {
         state.menuOpen = !state.menuOpen
