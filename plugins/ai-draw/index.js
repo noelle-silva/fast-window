@@ -1252,10 +1252,10 @@
       .join('')
 
     const isChat = String(p?.protocol || 'images') === 'chat'
-    const canPromptPrev = canSwitchPromptPrev() && !state.busy
-    const canPromptNext = canSwitchPromptNext() && !state.busy
-    const canImagePrev = canSwitchImagePrev() && !state.busy
-    const canImageNext = canSwitchImageNext() && !state.busy
+    const canPromptPrev = canSwitchPromptPrev()
+    const canPromptNext = canSwitchPromptNext()
+    const canImagePrev = canSwitchImagePrev()
+    const canImageNext = canSwitchImageNext()
     const imageCount = state.imageHistory.length
     const currentImageIndex = state.imageHistoryIndex >= 0 ? state.imageHistoryIndex + 1 : 0
     const imageIndexText = `${currentImageIndex}/${imageCount}`
@@ -1411,7 +1411,7 @@
                 <button class="btn" data-act="prompt-next" ${canPromptNext ? '' : 'disabled'} aria-label="下一条提示词">→</button>
                 <div class="sp"></div>
                 <span class="meta" style="margin-top:0">模型：</span>
-                <select class="field sm" data-bind="activeModel" aria-label="模型" ${state.busy ? 'disabled' : ''}>
+                <select class="field sm" data-bind="activeModel" aria-label="模型">
                   ${modelOptions}
                   <option value="__custom__" ${String(p?.model || '') === '__custom__' ? 'selected' : ''}>自定义…</option>
                 </select>
@@ -1420,10 +1420,10 @@
                 showCustom
                   ? `<input class="field mono" data-bind="activeCustomModel" placeholder="输入模型 ID…" value="${esc(
                       String(p?.customModel || model || ''),
-                    )}" ${state.busy ? 'disabled' : ''} />`
+                    )}" />`
                   : ''
               }
-              <textarea class="field ta" data-bind="prompt" placeholder="例如：赛博朋克城市夜景，雨，霓虹灯，电影感，高细节…" ${state.busy ? 'disabled' : ''}>${esc(state.prompt)}</textarea>
+              <textarea class="field ta" data-bind="prompt" placeholder="例如：赛博朋克城市夜景，雨，霓虹灯，电影感，高细节…">${esc(state.prompt)}</textarea>
               <div>${err}</div>
             </div>
 
@@ -1434,8 +1434,8 @@
                 <span class="meta" aria-label="图片历史计数">${imageIndexText}</span>
                 <button class="btn" data-act="image-prev" ${canImagePrev ? '' : 'disabled'} aria-label="上一张图片">←</button>
                 <button class="btn" data-act="image-next" ${canImageNext ? '' : 'disabled'} aria-label="下一张图片">→</button>
-                ${d && d.autoSave ? '' : `<button class="btn ok" data-act="save-image" ${state.imageDataUrl && !state.busy ? '' : 'disabled'}>保存</button>`}
-                <button class="btn" data-act="copy-image" ${state.imageDataUrl && !state.busy ? '' : 'disabled'}>复制图片</button>
+                ${d && d.autoSave ? '' : `<button class="btn ok" data-act="save-image" ${state.imageDataUrl ? '' : 'disabled'}>保存</button>`}
+                <button class="btn" data-act="copy-image" ${state.imageDataUrl ? '' : 'disabled'}>复制图片</button>
                 <div class="outMenuWrap">
                   <button class="btn icon" data-act="toggle-output-menu" aria-label="更多操作" aria-expanded="${state.menuOpen ? 'true' : 'false'}">
                     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
