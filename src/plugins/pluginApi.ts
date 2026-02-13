@@ -251,6 +251,7 @@ export type FastWindowApi = {
     saveImageBase64: (dataUrlOrBase64: string) => Promise<string>
     listOutputImages: () => Promise<string[]>
     readOutputImage: (path: string) => Promise<string>
+    deleteOutputImage: (path: string) => Promise<void>
   }
 }
 
@@ -353,6 +354,9 @@ export function createPluginContext(pluginId: string, requires: PluginCapability
       },
       readOutputImage: async (path: string) => {
         return invoke<string>('plugin_read_output_image', { pluginId, path })
+      },
+      deleteOutputImage: async (path: string) => {
+        await invoke('plugin_delete_output_image', { pluginId, path })
       },
     },
   }

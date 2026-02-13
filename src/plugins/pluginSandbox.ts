@@ -89,6 +89,7 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
       saveImageBase64: (dataUrlOrBase64) => call('files.saveImageBase64', [dataUrlOrBase64]),
       listOutputImages: () => call('files.listOutputImages', []),
       readOutputImage: (path) => call('files.readOutputImage', [path]),
+      deleteOutputImage: (path) => call('files.deleteOutputImage', [path]),
     },
     ui: {
       showToast: (message) => call('ui.showToast', [message]),
@@ -124,4 +125,3 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
   </body>
 </html>`
 }
-

@@ -1210,6 +1210,36 @@ fn plugin_read_output_image(app: tauri::AppHandle, plugin_id: String, path: Stri
     Ok(format!("data:{mime};base64,{b64}"))
 }
 
+#[tauri::command]
+fn plugin_delete_output_image(app: tauri::AppHandle, plugin_id: String, path: String) -> Result<(), String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+
+    let input = PathBuf::from(path.trim());
+    if input.as_os_str().is_empty() {
+        return Err("图片路径不能为空".to_string());
+    }
+
+    let out_dir = resolve_plugin_output_dir(&app, &plugin_id);
+    ensure_writable_dir(&out_dir)?;
+
+    let root = std::fs::canonicalize(&out_dir).map_err(|e| format!("输出目录不可用: {e}"))?;
+    let full = std::fs::canonicalize(&input).map_err(|e| format!("图片路径无效: {e}"))?;
+    if !full.starts_with(&root) {
+        return Err("图片路径越界".to_string());
+    }
+    if !full.is_file() {
+        return Err("图片不存在".to_string());
+    }
+    if !path_has_image_ext(&full) {
+        return Err("不支持的图片类型".to_string());
+    }
+
+    std::fs::remove_file(&full).map_err(|e| format!("删除图片失败: {e}"))?;
+    Ok(())
+}
+
 #[cfg(debug_assertions)]
 fn same_path(a: &Path, b: &Path) -> bool {
     match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
@@ -1905,6 +1935,7 @@ fn main() {
             plugin_save_image_base64,
             plugin_list_output_images,
             plugin_read_output_image,
+            plugin_delete_output_image,
             task_create,
             task_get,
             task_list,

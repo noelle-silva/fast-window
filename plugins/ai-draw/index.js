@@ -316,6 +316,20 @@
     .switch input:checked + .slider{ background: rgba(22,163,74,0.55); }
     .switch input:checked + .slider:before{ transform: translateX(20px); }
     .switch input:focus-visible + .slider{ outline:2px solid rgba(37,99,235,0.55); outline-offset:2px; }
+    .outMenuWrap{ position:relative; }
+    .menu{
+      position:absolute;
+      top: 36px;
+      right: 0;
+      min-width: 160px;
+      padding: 6px;
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 10px 24px rgba(17,24,39,0.12);
+      z-index: 5;
+    }
+    .menu .btn{ width:100%; justify-content:flex-start; }
     .overlay{ position:fixed; inset:0; background:rgba(17,24,39,0.18); display:flex; align-items:center; justify-content:center; padding:12px; }
     .modal{ width:min(720px,100%); max-height: calc(100vh - 24px); overflow:auto; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; box-shadow: 0 10px 30px rgba(17,24,39,0.12); }
     .hr{ height:1px; background:var(--line); margin:10px 0; }
@@ -1062,6 +1076,7 @@
 
     if (!state.imageHistory.length) {
       state.imageHistoryIndex = -1
+      state.imageDataUrl = ''
       state.savedPath = ''
       render()
       return
@@ -1092,6 +1107,28 @@
 
   async function openOutputDir() {
     await api.files.openOutputDir().catch((e) => api.ui.showToast(`打开目录失败：${String(e?.message || e)}`))
+  }
+
+  async function deleteCurrentImage() {
+    const path = String(state.savedPath || '').trim()
+    if (!path) {
+      state.menuOpen = false
+      render()
+      api.ui.showToast('未保存，无法删除')
+      return
+    }
+
+    state.menuOpen = false
+    render()
+
+    await api.files
+      .deleteOutputImage(path)
+      .then(async () => {
+        api.ui.showToast('已删除图片')
+        state.savedPath = ''
+        await refreshImageHistoryFromOutputDir()
+      })
+      .catch((e) => api.ui.showToast(`删除失败：${String(e?.message || e)}`))
   }
 
   async function saveImageNow() {
@@ -1395,6 +1432,22 @@
                 <button class="btn" data-act="image-next" ${canImageNext ? '' : 'disabled'} aria-label="下一张图片">→</button>
                 ${d && d.autoSave ? '' : `<button class="btn ok" data-act="save-image" ${state.imageDataUrl && !state.busy ? '' : 'disabled'}>保存</button>`}
                 <button class="btn" data-act="copy-image" ${state.imageDataUrl && !state.busy ? '' : 'disabled'}>复制图片</button>
+                <div class="outMenuWrap">
+                  <button class="btn icon" data-act="toggle-output-menu" aria-label="更多操作" aria-expanded="${state.menuOpen ? 'true' : 'false'}">
+                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <circle cx="12" cy="5" r="2"></circle>
+                      <circle cx="12" cy="12" r="2"></circle>
+                      <circle cx="12" cy="19" r="2"></circle>
+                    </svg>
+                  </button>
+                  ${
+                    state.menuOpen
+                      ? `<div class="menu" role="menu" aria-label="输出菜单">
+                          <button class="btn bad" data-act="delete-current-image">删除当前图片</button>
+                        </div>`
+                      : ''
+                  }
+                </div>
               </div>
               <div style="flex:1; min-height:0;">${img}</div>
               ${saved}
@@ -1420,9 +1473,18 @@
       const node = raw && raw.nodeType === 3 ? raw.parentElement : raw
       if (!node || !node.closest) return
 
+      let closedMenu = false
+      if (state.menuOpen && !node.closest('.outMenuWrap')) {
+        state.menuOpen = false
+        closedMenu = true
+      }
+
       // 关键：在 modal 内部点击时，不要“穿透”到 overlay 的 data-act
       const el = node.closest('.modal') ? node.closest('.modal [data-act]') : node.closest('[data-act]')
-      if (!el) return
+      if (!el) {
+        if (closedMenu) render()
+        return
+      }
 
       const act = el.getAttribute('data-act')
       if (!act) return
@@ -1438,6 +1500,11 @@
       } else if (act === 'toggle-api-key') {
         state.revealApiKey = !state.revealApiKey
         render()
+      } else if (act === 'toggle-output-menu') {
+        state.menuOpen = !state.menuOpen
+        render()
+      } else if (act === 'delete-current-image') {
+        deleteCurrentImage()
       } else if (act === 'generate') {
         generate()
       } else if (act === 'cancel-generate') {

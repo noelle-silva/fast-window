@@ -19,6 +19,7 @@ export type PluginMethodName =
   | 'files.saveImageBase64'
   | 'files.listOutputImages'
   | 'files.readOutputImage'
+  | 'files.deleteOutputImage'
   | 'ui.showToast'
   | 'ui.openUrl'
   | 'net.request'
@@ -78,6 +79,10 @@ const methods: Record<PluginMethodName, MethodDef> = {
   'files.readOutputImage': {
     capability: 'files.readOutputImage',
     handler: (ctx, args) => ctx.api.files.readOutputImage(String(args?.[0] ?? '')),
+  },
+  'files.deleteOutputImage': {
+    capability: 'files.deleteOutputImage',
+    handler: (ctx, args) => ctx.api.files.deleteOutputImage(String(args?.[0] ?? '')),
   },
 
   'ui.showToast': {

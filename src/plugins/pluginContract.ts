@@ -16,6 +16,7 @@ export type PluginCapability =
   | 'files.saveImageBase64'
   | 'files.listOutputImages'
   | 'files.readOutputImage'
+  | 'files.deleteOutputImage'
   | 'clipboard'
   | 'clipboard.*'
   | 'clipboard.readText'
@@ -53,6 +54,7 @@ export const ALL_PLUGIN_CAPABILITIES: readonly PluginCapability[] = [
   'files.saveImageBase64',
   'files.listOutputImages',
   'files.readOutputImage',
+  'files.deleteOutputImage',
   'clipboard',
   'clipboard.*',
   'clipboard.readText',
