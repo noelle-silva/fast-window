@@ -466,6 +466,10 @@ async fn http_request(req: HttpRequest) -> Result<HttpResponse, String> {
         }
     }
 
+    // JSON 里内嵌 data:image/... base64（例如多模态 chat）会非常大。
+    // 这里给 body 做一个更现实的上限；否则参考图一上来就会“秒失败”。
+    const MAX_HTTP_REQUEST_BODY_BYTES: usize = 12 * 1024 * 1024; // 12MB
+
     if let Some(body_base64) = req.body_base64 {
         // 允许插件以 base64 发送二进制（用于图片等），避免 body 只能传字符串的限制
         // 控制大小：解码后最多 6MB，防止滥用
@@ -491,8 +495,8 @@ async fn http_request(req: HttpRequest) -> Result<HttpResponse, String> {
         }
         rb = rb.body(bytes);
     } else if let Some(body) = req.body {
-        if body.len() > 512 * 1024 {
-            return Err("body 过大".to_string());
+        if body.len() > MAX_HTTP_REQUEST_BODY_BYTES {
+            return Err(format!("body 过大（{} > {}）", body.len(), MAX_HTTP_REQUEST_BODY_BYTES));
         }
         rb = rb.body(body);
     }
@@ -589,10 +593,12 @@ async fn execute_task(app: AppHandle, manager: Arc<TaskManagerState>, task_id: S
         rec.status = TaskStatus::Running;
         rec.started_at_ms = Some(now_ms());
         rec.updated_at_ms = now_ms();
+        // payload 可能很大（例如 JSON 内嵌 base64）。任务开始后就不再需要保留它，避免内存长期占用。
+        let payload = std::mem::take(&mut rec.payload);
         (
             rec.plugin_id.clone(),
             rec.kind.clone(),
-            rec.payload.clone(),
+            payload,
             rec.cancel_requested,
         )
     };

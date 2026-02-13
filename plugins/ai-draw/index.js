@@ -221,6 +221,9 @@
   const MAX_REF_IMAGES = 8
   const TASK_KIND_HTTP_REQUEST = 'http.request'
   const TASK_POLL_INTERVAL = 1200
+  const MAX_TASK_JSON_BODY_CHARS = 10 * 1024 * 1024 // 约 10MB，给后端留余量
+  const REF_SHRINK_MAX_DIMENSION = 960
+  const REF_SHRINK_IF_OVER_BYTES = 900 * 1024
 
   const state = {
     loading: true,
@@ -439,6 +442,75 @@
 
   function id(prefix) {
     return `${prefix}-${now()}-${Math.random().toString(16).slice(2)}`
+  }
+
+  function estimateBytesFromBase64(b64) {
+    const s = String(b64 || '').trim()
+    if (!s) return 0
+    const pad = s.endsWith('==') ? 2 : s.endsWith('=') ? 1 : 0
+    return Math.floor((s.length * 3) / 4) - pad
+  }
+
+  function dataUrlToBase64(dataUrl) {
+    const s = String(dataUrl || '')
+    const i = s.indexOf('base64,')
+    if (i === -1) return ''
+    return s.slice(i + 'base64,'.length)
+  }
+
+  function formatBytes(n) {
+    const v = Number(n)
+    if (!Number.isFinite(v) || v <= 0) return '0B'
+    if (v < 1024) return `${Math.floor(v)}B`
+    if (v < 1024 * 1024) return `${(v / 1024).toFixed(0)}KB`
+    return `${(v / 1024 / 1024).toFixed(2)}MB`
+  }
+
+  async function loadImageFromDataUrl(dataUrl) {
+    return await new Promise((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => resolve(img)
+      img.onerror = () => reject(new Error('解析图片失败'))
+      img.src = String(dataUrl || '')
+    })
+  }
+
+  async function shrinkRefImageDataUrl(dataUrl) {
+    const rawUrl = String(dataUrl || '').trim()
+    if (!rawUrl.startsWith('data:image/')) return rawUrl
+
+    const b64 = dataUrlToBase64(rawUrl)
+    const bytes = estimateBytesFromBase64(b64)
+    const img = await loadImageFromDataUrl(rawUrl)
+    const w0 = img.naturalWidth || img.width
+    const h0 = img.naturalHeight || img.height
+    if (!w0 || !h0) return rawUrl
+
+    const scale = Math.min(1, REF_SHRINK_MAX_DIMENSION / Math.max(w0, h0))
+    if (scale === 1 && bytes > 0 && bytes <= REF_SHRINK_IF_OVER_BYTES) return rawUrl
+
+    const w = Math.max(1, Math.round(w0 * scale))
+    const h = Math.max(1, Math.round(h0 * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return rawUrl
+
+    // JPEG 不支持透明：填白底，避免默认黑底。
+    ctx.fillStyle = '#fff'
+    ctx.fillRect(0, 0, w, h)
+    ctx.drawImage(img, 0, 0, w, h)
+
+    let q = 0.86
+    let out = canvas.toDataURL('image/jpeg', q)
+    for (let i = 0; i < 3; i++) {
+      const outBytes = estimateBytesFromBase64(dataUrlToBase64(out))
+      if (outBytes > 0 && outBytes <= REF_SHRINK_IF_OVER_BYTES) return out
+      q = Math.max(0.6, q - 0.1)
+      out = canvas.toDataURL('image/jpeg', q)
+    }
+    return out
   }
 
   function normalizePickedImages(raw) {
@@ -1291,6 +1363,37 @@
       ? [{ type: 'text', text: prompt }, ...refUrls.map((url) => ({ type: 'image_url', image_url: { url } }))]
       : prompt
 
+    const body = JSON.stringify(
+      protocol === 'chat'
+        ? {
+            model,
+            messages: [
+              ...(String(p?.chatSystemPrompt || '').trim()
+                ? [{ role: 'system', content: String(p?.chatSystemPrompt || '').trim() }]
+                : []),
+              { role: 'user', content: chatUserContent },
+            ],
+            temperature: 0.2,
+          }
+        : {
+            model,
+            prompt,
+            size: String(p?.size || '').trim() || '1024x1024',
+            n: 1,
+            response_format: 'b64_json',
+          },
+    )
+
+    if (body.length > MAX_TASK_JSON_BODY_CHARS) {
+      state.submitting = false
+      api.ui.showToast('请求体过大：请减少参考图/换更小图片')
+      setError(
+        `请求体过大（约 ${formatBytes(body.length)}）。请减少参考图数量/换更小图片（建议裁剪或压缩），再试一次。`,
+      )
+      render()
+      return
+    }
+
     const req = {
       mode: 'task',
       method: 'POST',
@@ -1299,26 +1402,7 @@
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify(
-        protocol === 'chat'
-          ? {
-              model,
-              messages: [
-                ...(String(p?.chatSystemPrompt || '').trim()
-                  ? [{ role: 'system', content: String(p?.chatSystemPrompt || '').trim() }]
-                  : []),
-                { role: 'user', content: chatUserContent },
-              ],
-              temperature: 0.2,
-            }
-          : {
-              model,
-              prompt,
-              size: String(p?.size || '').trim() || '1024x1024',
-              n: 1,
-              response_format: 'b64_json',
-            },
-      ),
+      body,
       timeoutMs: 120000,
     }
 
@@ -1724,13 +1808,22 @@
       } else if (act === 'pick-ref-images') {
         api.files
           .pickImages(MAX_REF_IMAGES)
-          .then((picked) => {
+          .then(async (picked) => {
             const items = normalizePickedImages(picked)
             if (!items.length) return
-            const merged = state.refImages.concat(items).slice(0, MAX_REF_IMAGES)
-            if (merged.length < state.refImages.length + items.length) {
-              api.ui.showToast(`参考图最多 ${MAX_REF_IMAGES} 张`)
+
+            api.ui.showToast('正在处理参考图…')
+            let shrunk = 0
+            const processed = []
+            for (const it of items) {
+              const nextUrl = await shrinkRefImageDataUrl(it.dataUrl).catch(() => it.dataUrl)
+              if (nextUrl && String(nextUrl).length < String(it.dataUrl).length) shrunk++
+              processed.push({ ...it, dataUrl: nextUrl })
             }
+            if (shrunk) api.ui.showToast(`已压缩 ${shrunk} 张参考图`)
+
+            const merged = state.refImages.concat(processed).slice(0, MAX_REF_IMAGES)
+            if (merged.length < state.refImages.length + processed.length) api.ui.showToast(`参考图最多 ${MAX_REF_IMAGES} 张`)
             state.refImages = merged
             render()
           })
