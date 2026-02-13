@@ -267,6 +267,7 @@
     .top{ height:48px; display:flex; align-items:center; gap:8px; padding:0 10px; border-bottom:1px solid var(--line); background:#ffffff; }
     .title{ font-weight:900; font-size:13px; letter-spacing:0.3px; }
     .btn{ height:32px; padding:0 10px; border-radius:10px; border:1px solid var(--line); background:#ffffff; color:var(--text); cursor:pointer; font-size:12px; }
+    .btn.stable{ min-width:76px; }
     .btn.pri{ border-color:rgba(37,99,235,0.25); background:rgba(37,99,235,0.08); color:var(--pri); }
     .btn.ok{ border-color:rgba(22,163,74,0.25); background:rgba(22,163,74,0.08); color:var(--ok); }
     .btn.bad{ border-color:rgba(220,38,38,0.25); background:rgba(220,38,38,0.06); color:var(--bad); }
@@ -278,10 +279,13 @@
     @media (max-width:860px){ .split{ grid-template-columns:1fr; } }
     .card{ background:var(--card); border:1px solid var(--line); border-radius:var(--r); padding:12px; box-shadow: 0 8px 24px rgba(17,24,39,0.06); }
     .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .row.nowrap{ flex-wrap:nowrap; }
     .sp{ margin-left:auto; }
     .meta{ font-size:12px; color:var(--muted); margin-top:6px; }
     .field{ width:100%; border:1px solid var(--line); background:#ffffff; color:var(--text); border-radius:10px; padding:9px 10px; font-size:12px; outline:none; }
     .field.sm{ width:auto; min-width: 180px; }
+    .row.nowrap .field.sm{ min-width: 140px; }
+    .row.nowrap .meta{ white-space:nowrap; }
     .ta{ resize:none; min-height: 180px; }
     .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
     .imgBox{
@@ -1400,8 +1404,8 @@
           ${state.loading ? `<div class="empty">加载中…</div>` : `
           <div class="split">
             <div class="card promptCard">
-              <div class="row">
-                <button class="btn pri" data-act="generate" ${state.busy ? 'disabled' : ''}>${state.busy ? '生成中…' : '生成'}</button>
+              <div class="row nowrap">
+                <button class="btn pri stable" data-act="generate" ${state.busy ? 'disabled' : ''}>${state.busy ? '生成中…' : '生成'}</button>
                 <button class="btn bad" data-act="cancel-generate" ${state.currentTaskId ? '' : 'disabled'}>取消任务</button>
                 <button class="btn" data-act="prompt-prev" ${canPromptPrev ? '' : 'disabled'} aria-label="上一条提示词">←</button>
                 <button class="btn" data-act="prompt-next" ${canPromptNext ? '' : 'disabled'} aria-label="下一条提示词">→</button>
