@@ -119,6 +119,7 @@ impl TaskRecord {
 #[derive(Default)]
 struct TaskManagerState {
     tasks: Mutex<HashMap<String, TaskRecord>>,
+    handles: Mutex<HashMap<String, tauri::async_runtime::JoinHandle<()>>>,
 }
 
 #[derive(Deserialize)]
@@ -557,6 +558,23 @@ async fn run_http_request_task(payload: HttpRequestTaskPayload) -> Result<Value,
 }
 
 async fn execute_task(app: AppHandle, manager: Arc<TaskManagerState>, task_id: String) {
+    struct HandleCleanup {
+        manager: Arc<TaskManagerState>,
+        task_id: String,
+    }
+    impl Drop for HandleCleanup {
+        fn drop(&mut self) {
+            if let Ok(mut handles) = self.manager.handles.lock() {
+                handles.remove(&self.task_id);
+            }
+        }
+    }
+
+    let _cleanup = HandleCleanup {
+        manager: manager.clone(),
+        task_id: task_id.clone(),
+    };
+
     let (plugin_id, kind, payload, cancel_requested) = {
         let mut tasks = match manager.tasks.lock() {
             Ok(v) => v,
@@ -698,9 +716,16 @@ fn task_create(app: tauri::AppHandle, plugin_id: String, req: TaskCreateReq) -> 
 
     let app_clone = app.clone();
     let manager_clone = manager.clone();
-    tauri::async_runtime::spawn(async move {
+    let handle = tauri::async_runtime::spawn(async move {
         execute_task(app_clone, manager_clone, task_id).await;
     });
+    {
+        let mut handles = manager
+            .handles
+            .lock()
+            .map_err(|_| "任务状态锁定失败".to_string())?;
+        handles.insert(record.id.clone(), handle);
+    }
 
     Ok(record.summary())
 }
@@ -757,15 +782,15 @@ fn task_cancel(app: tauri::AppHandle, plugin_id: String, task_id: String) -> Res
         return Err("taskId 不能为空".to_string());
     }
     let manager = app.state::<Arc<TaskManagerState>>().inner().clone();
-    let mut tasks = manager
-        .tasks
-        .lock()
-        .map_err(|_| "任务状态锁定失败".to_string())?;
+    let mut tasks = manager.tasks.lock().map_err(|_| "任务状态锁定失败".to_string())?;
     let rec = tasks
         .get_mut(tid)
         .ok_or_else(|| "任务不存在".to_string())?;
     if rec.plugin_id != plugin_id {
         return Err("任务不存在".to_string());
+    }
+    if is_task_finished(rec.status) {
+        return Ok(rec.summary());
     }
     rec.cancel_requested = true;
     rec.updated_at_ms = now_ms();
@@ -773,6 +798,25 @@ fn task_cancel(app: tauri::AppHandle, plugin_id: String, task_id: String) -> Res
         rec.status = TaskStatus::Canceled;
         rec.finished_at_ms = Some(now_ms());
         rec.error = Some("任务已取消".to_string());
+        rec.result = None;
+        return Ok(rec.summary());
+    }
+    if rec.status == TaskStatus::Running {
+        rec.status = TaskStatus::Canceled;
+        rec.finished_at_ms = Some(now_ms());
+        rec.error = Some("任务已取消".to_string());
+        rec.result = None;
+
+        let handle = {
+            let mut handles = manager
+                .handles
+                .lock()
+                .map_err(|_| "任务状态锁定失败".to_string())?;
+            handles.remove(tid)
+        };
+        if let Some(h) = handle {
+            h.abort();
+        }
     }
     Ok(rec.summary())
 }
