@@ -217,16 +217,21 @@
   const VERSION = 1
   const DEFAULT_PROMPT_HISTORY_LIMIT = 50
   const MAX_PROMPT_HISTORY_LIMIT = 200
+  const MAX_BATCH_COUNT = 20
   const TASK_KIND_HTTP_REQUEST = 'http.request'
   const TASK_POLL_INTERVAL = 1200
 
   const state = {
     loading: true,
     busy: false,
+    submitting: false,
     modal: '',
     menuOpen: false,
+    taskMenuOpen: false,
+    cancelAllArmedUntil: 0,
     revealApiKey: false,
     prompt: '',
+    batchCount: '1',
     promptHistory: [],
     promptHistoryIndex: -1,
     promptHistoryDraft: '',
@@ -235,6 +240,7 @@
     imageHistoryIndex: -1,
     savedPath: '',
     currentTaskId: '',
+    tasks: [],
     taskPollTimer: null,
     taskPolling: false,
     outputDir: '',
@@ -286,6 +292,7 @@
     .field.sm{ width:auto; min-width: 180px; }
     .row.nowrap .field.sm{ min-width: 140px; }
     .row.nowrap .meta{ white-space:nowrap; }
+    .field.xs{ width: 84px; min-width: 84px; }
     .ta{ resize:none; min-height: 180px; }
     .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
     .imgBox{
@@ -321,6 +328,7 @@
     .switch input:checked + .slider:before{ transform: translateX(20px); }
     .switch input:focus-visible + .slider{ outline:2px solid rgba(37,99,235,0.55); outline-offset:2px; }
     .outMenuWrap{ position:relative; }
+    .taskMenuWrap{ position:relative; }
     .menu{
       position:absolute;
       top: 36px;
@@ -334,6 +342,8 @@
       z-index: 5;
     }
     .menu .btn{ width:100%; justify-content:flex-start; }
+    .menuItem{ display:flex; align-items:center; gap:8px; padding:6px; border-radius:10px; }
+    .menuItem:hover{ background:#f9fafb; }
     .overlay{ position:fixed; inset:0; background:rgba(17,24,39,0.18); display:flex; align-items:center; justify-content:center; padding:12px; }
     .modal{ width:min(720px,100%); max-height: calc(100vh - 24px); overflow:auto; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; box-shadow: 0 10px 30px rgba(17,24,39,0.12); }
     .hr{ height:1px; background:var(--line); margin:10px 0; }
@@ -377,6 +387,15 @@
 
   function now() {
     return Date.now()
+  }
+
+  function normalizeBatchCount(raw) {
+    const n = Number(raw)
+    if (!Number.isFinite(n)) return 1
+    const v = Math.floor(n)
+    if (v < 1) return 1
+    if (v > MAX_BATCH_COUNT) return MAX_BATCH_COUNT
+    return v
   }
 
   function id(prefix) {
@@ -609,57 +628,36 @@
 
     state.outputDir = await api.files.getOutputDir().catch(() => '')
 
-    let resumedTask = null
+    state.currentTaskId = ''
+    state.busy = false
+    state.submitting = false
+    state.tasks = []
+
+    const pending = await api.task.list(50).catch(() => [])
+    const running = Array.isArray(pending)
+      ? pending.filter((t) => {
+          const status = String(t && t.status ? t.status : '')
+          return !isTaskDone(status)
+        })
+      : []
+    for (const t of running) {
+      const tid = String(t && t.id ? t.id : '').trim()
+      if (!tid) continue
+      upsertTask({ id: tid, status: String(t.status || '') })
+    }
+
     const savedPendingTaskId = String(state.data && state.data.pendingTaskId ? state.data.pendingTaskId : '').trim()
-    if (savedPendingTaskId) {
-      resumedTask = await api.task.get(savedPendingTaskId).catch(() => null)
-      if (!resumedTask && state.data) {
+    if (savedPendingTaskId && !running.some((t) => String(t && t.id ? t.id : '').trim() === savedPendingTaskId)) {
+      if (state.data) {
         state.data.pendingTaskId = ''
         await save().catch(() => {})
       }
     }
 
-    if (!resumedTask) {
-      const pending = await api.task.list(20).catch(() => [])
-      resumedTask = Array.isArray(pending)
-        ? pending.find((t) => {
-            const status = String(t && t.status ? t.status : '')
-            return !isTaskDone(status)
-          }) || null
-        : null
-    }
-
-    if (resumedTask) {
-      const resumeTaskId = String(resumedTask.id || '').trim()
-      const resumeStatus = String(resumedTask.status || '')
-      if (resumeTaskId && !isTaskDone(resumeStatus)) {
-        state.currentTaskId = resumeTaskId
-        state.busy = true
-        if (state.data) {
-          state.data.pendingTaskId = resumeTaskId
-          await save().catch(() => {})
-        }
-      } else if (resumeTaskId && isTaskDone(resumeStatus)) {
-        state.currentTaskId = ''
-        state.busy = false
-        await applyTaskCompletion(resumedTask)
-        if (state.data) {
-          state.data.pendingTaskId = ''
-          await save().catch(() => {})
-        }
-      } else {
-        state.currentTaskId = ''
-        state.busy = false
-      }
-    } else {
-      state.currentTaskId = ''
-      state.busy = false
-    }
-
     state.loading = false
     render()
     await refreshImageHistoryFromOutputDir()
-    if (state.currentTaskId) pollTask(state.currentTaskId)
+    if (getActiveTasks().length) pollTasks()
   }
 
   function stripCodeFences(s) {
@@ -708,20 +706,84 @@
     state.taskPolling = false
   }
 
+  function upsertTask(item) {
+    const t = item && typeof item === 'object' ? item : {}
+    const id = String(t.id || '').trim()
+    if (!id) return
+    const status = String(t.status || '').trim() || 'pending'
+    const prompt = typeof t.prompt === 'string' ? t.prompt : ''
+    const at = typeof t.at === 'number' ? t.at : Date.now()
+
+    const list = Array.isArray(state.tasks) ? state.tasks : []
+    const idx = list.findIndex((x) => x && x.id === id)
+    const next = { id, status, prompt, at }
+    if (idx >= 0) list[idx] = { ...list[idx], ...next }
+    else list.unshift(next)
+    state.tasks = list.slice(0, 50)
+  }
+
+  function removeTask(taskId) {
+    const tid = String(taskId || '').trim()
+    if (!tid) return
+    state.tasks = (Array.isArray(state.tasks) ? state.tasks : []).filter((x) => x && x.id !== tid)
+  }
+
+  function getActiveTasks() {
+    const list = Array.isArray(state.tasks) ? state.tasks : []
+    return list.filter((t) => t && !isTaskDone(String(t.status || '')))
+  }
+
+  function markTaskCanceling(taskId) {
+    const tid = String(taskId || '').trim()
+    if (!tid) return
+    upsertTask({ id: tid, status: 'canceling' })
+  }
+
+  async function pollTasks() {
+    if (state.taskPolling) return
+    const active = getActiveTasks()
+    if (!active.length) {
+      stopTaskPolling()
+      return
+    }
+
+    state.taskPolling = true
+    try {
+      const infos = await Promise.all(
+        active.map((t) => api.task.get(String(t.id || '')).catch(() => null)),
+      )
+
+      for (const info of infos) {
+        if (!info) continue
+        const tid = String(info.id || '').trim()
+        if (!tid) continue
+        upsertTask({ id: tid, status: String(info.status || '') })
+        const st = String(info.status || '')
+        if (isTaskDone(st)) {
+          await applyTaskCompletion(info)
+          removeTask(tid)
+        }
+      }
+
+      render()
+    } finally {
+      state.taskPolling = false
+      if (getActiveTasks().length) {
+        state.taskPollTimer = setTimeout(() => {
+          pollTasks()
+        }, TASK_POLL_INTERVAL)
+      }
+    }
+  }
+
   async function applyTaskCompletion(task) {
     const status = String(task?.status || '')
     if (status === 'succeeded') {
       try {
         const taskId = String(task && task.id ? task.id : '').trim()
-        const isSuperseded = () => {
-          const pending = String(state && state.data && state.data.pendingTaskId ? state.data.pendingTaskId : '').trim()
-          return !!(pending && pending !== taskId)
-        }
-        if (isSuperseded()) return
 
         const bgSavedPath = state.data && state.data.autoSave ? await getBackgroundSavedPath(taskId) : ''
         if (bgSavedPath) {
-          if (isSuperseded()) return
           state.savedPath = bgSavedPath
           await refreshImageHistoryFromOutputDir(state.savedPath)
           api.ui.showToast('已生成并保存')
@@ -764,14 +826,12 @@
         const generatedDataUrl = String(dataUrl).trim()
         if (state.data && state.data.autoSave) {
           // 让 background 成为单一写入者：UI 只展示图片，并等待 background 写入完成后刷新 savedPath。
-          if (isSuperseded()) return
           state.imageDataUrl = generatedDataUrl
           state.savedPath = ''
           render()
 
           const waited = await waitBackgroundSavedPath(taskId, 6000, 250)
           if (waited) {
-            if (isSuperseded()) return
             state.savedPath = String(waited || '')
             await refreshImageHistoryFromOutputDir(state.savedPath)
             api.ui.showToast('已生成并保存')
@@ -792,42 +852,12 @@
     }
 
     if (status === 'canceled') {
-      setError('任务已取消')
+      api.ui.showToast('任务已取消')
       return
     }
 
     const err = String(task?.error || '').trim()
     setError(err || '生成失败')
-  }
-
-  async function pollTask(taskId) {
-    if (!taskId || state.currentTaskId !== taskId) return
-    if (state.taskPolling) return
-    state.taskPolling = true
-    try {
-      const task = await api.task.get(taskId).catch(() => null)
-      if (!task || state.currentTaskId !== taskId) return
-      const status = String(task.status || '')
-      if (!isTaskDone(status)) {
-        state.taskPollTimer = setTimeout(() => {
-          state.taskPolling = false
-          pollTask(taskId)
-        }, TASK_POLL_INTERVAL)
-        return
-      }
-
-      state.currentTaskId = ''
-      state.busy = false
-      stopTaskPolling()
-      await applyTaskCompletion(task)
-      if (state.data) {
-        state.data.pendingTaskId = ''
-        await save().catch(() => {})
-      }
-      render()
-    } finally {
-      state.taskPolling = false
-    }
   }
 
   function openSettings() {
@@ -1186,57 +1216,80 @@
       return
     }
 
-    state.busy = true
+    const rawBatch = String(state.batchCount || '')
+    const batch = normalizeBatchCount(rawBatch)
+    if (String(batch) !== rawBatch.trim()) state.batchCount = String(batch)
+
+    state.submitting = true
     state.error = ''
-    state.savedPath = ''
     addPromptHistory(prompt)
     render()
 
     const protocol = String(p?.protocol || 'images') === 'chat' ? 'chat' : 'images'
+    const req = {
+      mode: 'task',
+      method: 'POST',
+      url: protocol === 'chat' ? `${baseUrl}/chat/completions` : `${baseUrl}/images/generations`,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(
+        protocol === 'chat'
+          ? {
+              model,
+              messages: [
+                ...(String(p?.chatSystemPrompt || '').trim()
+                  ? [{ role: 'system', content: String(p?.chatSystemPrompt || '').trim() }]
+                  : []),
+                { role: 'user', content: prompt },
+              ],
+              temperature: 0.2,
+            }
+          : {
+              model,
+              prompt,
+              size: String(p?.size || '').trim() || '1024x1024',
+              n: 1,
+              response_format: 'b64_json',
+            },
+      ),
+      timeoutMs: 120000,
+    }
 
     try {
-      const task = await api.net.request({
-        mode: 'task',
-        method: 'POST',
-        url: protocol === 'chat' ? `${baseUrl}/chat/completions` : `${baseUrl}/images/generations`,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(
-          protocol === 'chat'
-            ? {
-                model,
-                messages: [
-                  ...(String(p?.chatSystemPrompt || '').trim()
-                    ? [{ role: 'system', content: String(p?.chatSystemPrompt || '').trim() }]
-                    : []),
-                  { role: 'user', content: prompt },
-                ],
-                temperature: 0.2,
-              }
-            : {
-                model,
-                prompt,
-                size: String(p?.size || '').trim() || '1024x1024',
-                n: 1,
-                response_format: 'b64_json',
-              },
-        ),
-        timeoutMs: 120000,
-      })
+      const results = await Promise.allSettled(
+        Array.from({ length: batch }, () => api.net.request({ ...req })),
+      )
 
-      const taskId = String(task && task.id ? task.id : '').trim()
-      if (!taskId) throw new Error('创建后台任务失败')
-      state.currentTaskId = taskId
+      const ids = []
+      let failed = 0
+      for (const r of results) {
+        if (r.status !== 'fulfilled') {
+          failed++
+          continue
+        }
+        const taskId = String(r.value && r.value.id ? r.value.id : '').trim()
+        if (!taskId) {
+          failed++
+          continue
+        }
+        ids.push(taskId)
+        upsertTask({ id: taskId, status: 'pending', prompt, at: Date.now() })
+      }
+
+      if (!ids.length) throw new Error('创建后台任务失败')
+      if (failed) api.ui.showToast(`部分任务创建失败：${failed} 个`)
+
       if (state.data) {
-        state.data.pendingTaskId = taskId
+        state.data.pendingTaskId = ids[ids.length - 1]
         await save().catch(() => {})
       }
+      state.submitting = false
       render()
-      pollTask(taskId)
+      pollTasks()
     } catch (e) {
-      state.busy = false
+      state.submitting = false
       setError(String(e?.message || e))
       render()
     }
@@ -1252,6 +1305,8 @@
       .join('')
 
     const isChat = String(p?.protocol || 'images') === 'chat'
+    const activeTasks = getActiveTasks()
+    const activeTaskCount = activeTasks.length
     const canPromptPrev = canSwitchPromptPrev()
     const canPromptNext = canSwitchPromptNext()
     const canImagePrev = canSwitchImagePrev()
@@ -1393,6 +1448,29 @@
           <div class="title">AI 绘图</div>
           <button class="btn" data-act="open-output-dir" ${state.outputDir ? '' : 'disabled'}>打开输出目录</button>
           <span class="kbd mono" aria-label="自动保存开关状态">自动保存：${d && d.autoSave ? '开' : '关'}</span>
+          <div class="taskMenuWrap">
+            <button class="btn" data-act="toggle-task-menu" aria-expanded="${state.taskMenuOpen ? 'true' : 'false'}">任务${activeTaskCount ? `(${activeTaskCount})` : ''}</button>
+            <button class="btn bad" data-act="cancel-all-tasks" ${activeTaskCount ? '' : 'disabled'} title="取消所有进行中的任务">全部取消</button>
+            ${
+              state.taskMenuOpen
+                ? `<div class="menu" role="menu" aria-label="任务列表">
+                    ${
+                      activeTasks.length
+                        ? activeTasks
+                            .map(
+                              (t) => `<div class="menuItem">
+                                <span class="meta mono" style="margin-top:0" title="${esc(String(t.id || ''))}">#${esc(String(t.id || '').slice(-6))} ${esc(String(t.status || ''))}</span>
+                                <div class="sp"></div>
+                                <button class="btn bad" data-act="cancel-task" data-task-id="${esc(String(t.id || ''))}">取消</button>
+                              </div>`,
+                            )
+                            .join('')
+                        : `<div class="meta" style="margin:6px 8px">无进行中任务</div>`
+                    }
+                  </div>`
+                : ''
+            }
+          </div>
           <div class="sp"></div>
           <select class="field sm" data-bind="activeProviderId" aria-label="供应商">${providerOptions}</select>
           <button class="btn" data-act="open-settings">供应商设置</button>
@@ -1405,8 +1483,8 @@
           <div class="split">
             <div class="card promptCard">
               <div class="row nowrap">
-                <button class="btn pri stable" data-act="generate" ${state.busy ? 'disabled' : ''}>${state.busy ? '生成中…' : '生成'}</button>
-                <button class="btn bad" data-act="cancel-generate" ${state.currentTaskId ? '' : 'disabled'}>取消任务</button>
+                <button class="btn pri stable" data-act="generate" ${state.submitting ? 'disabled' : ''}>${state.submitting ? '提交中…' : '生成'}</button>
+                <input class="field xs" data-bind="batchCount" type="number" min="1" max="${MAX_BATCH_COUNT}" step="1" value="${esc(state.batchCount)}" aria-label="批量次数" title="批量次数（并行提交）" />
                 <button class="btn" data-act="prompt-prev" ${canPromptPrev ? '' : 'disabled'} aria-label="上一条提示词">←</button>
                 <button class="btn" data-act="prompt-next" ${canPromptNext ? '' : 'disabled'} aria-label="下一条提示词">→</button>
                 <div class="sp"></div>
@@ -1482,6 +1560,10 @@
         state.menuOpen = false
         closedMenu = true
       }
+      if (state.taskMenuOpen && !node.closest('.taskMenuWrap')) {
+        state.taskMenuOpen = false
+        closedMenu = true
+      }
 
       // 关键：在 modal 内部点击时，不要“穿透”到 overlay 的 data-act
       const el = node.closest('.modal') ? node.closest('.modal [data-act]') : node.closest('[data-act]')
@@ -1504,6 +1586,35 @@
       } else if (act === 'toggle-api-key') {
         state.revealApiKey = !state.revealApiKey
         render()
+      } else if (act === 'toggle-task-menu') {
+        state.taskMenuOpen = !state.taskMenuOpen
+        render()
+      } else if (act === 'cancel-task') {
+        const tid = String(el.getAttribute('data-task-id') || '').trim()
+        if (!tid) return
+        markTaskCanceling(tid)
+        render()
+        api.task
+          .cancel(tid)
+          .then(() => api.ui.showToast('已请求取消'))
+          .catch((e) => api.ui.showToast(`取消失败：${String(e?.message || e)}`))
+      } else if (act === 'cancel-all-tasks') {
+        const list = getActiveTasks()
+        if (!list.length) return api.ui.showToast('没有进行中任务')
+        const now = Date.now()
+        if (!(Number.isFinite(state.cancelAllArmedUntil) && state.cancelAllArmedUntil > now)) {
+          state.cancelAllArmedUntil = now + 4000
+          api.ui.showToast('再次点击“全部取消”以确认')
+          return
+        }
+        state.cancelAllArmedUntil = 0
+        state.taskMenuOpen = false
+        for (const t of list) markTaskCanceling(String(t.id || ''))
+        render()
+        Promise.allSettled(list.map((t) => api.task.cancel(String(t.id || '')))).then((results) => {
+          const failed = results.filter((r) => r.status !== 'fulfilled').length
+          api.ui.showToast(failed ? `已请求取消（失败 ${failed} 个）` : '已请求取消所有任务')
+        })
       } else if (act === 'toggle-output-menu') {
         state.menuOpen = !state.menuOpen
         render()
@@ -1511,15 +1622,6 @@
         deleteCurrentImage()
       } else if (act === 'generate') {
         generate()
-      } else if (act === 'cancel-generate') {
-        const tid = String(state.currentTaskId || '').trim()
-        if (!tid) return
-        api.task
-          .cancel(tid)
-          .then(() => {
-            api.ui.showToast('已请求取消')
-          })
-          .catch((e) => api.ui.showToast(`取消失败：${String(e?.message || e)}`))
       } else if (act === 'prompt-prev') {
         switchPromptHistory(-1)
       } else if (act === 'prompt-next') {
@@ -1592,6 +1694,11 @@
       if (bind === 'prompt') {
         state.prompt = String(t.value || '')
         syncPromptNavigationWithCurrentInput()
+        return
+      }
+
+      if (bind === 'batchCount') {
+        state.batchCount = String(t.value || '')
         return
       }
 
