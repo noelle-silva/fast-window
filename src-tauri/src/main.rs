@@ -2,6 +2,7 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
 
@@ -26,6 +27,7 @@ const AUTO_START_KEY: &str = "autoStart";
 const PLUGIN_OUTPUT_DIRS_KEY: &str = "pluginOutputDirs";
 const TASKS_RETENTION_LIMIT: usize = 120;
 const TASKS_PER_PLUGIN_LIMIT: usize = 40;
+static TASK_ID_SEQ: AtomicU32 = AtomicU32::new(0);
 
 // 避免开发版把“开机启动”写到正式版同一个注册表项里（会导致装了 MSI 以后仍然自启 debug exe）。
 #[cfg(debug_assertions)]
@@ -190,8 +192,9 @@ fn hash32_sampled_bytes(bytes: &[u8]) -> u32 {
 
 fn make_task_id() -> String {
     let stamp = now_ms();
-    let rnd = format!("{:08x}", rand_u32(stamp));
-    format!("task-{stamp}-{rnd}")
+    let seq = TASK_ID_SEQ.fetch_add(1, Ordering::Relaxed);
+    let rnd = format!("{:08x}", rand_u32(stamp ^ (seq as u64)));
+    format!("task-{stamp}-{seq:08x}-{rnd}")
 }
 
 fn is_task_finished(status: TaskStatus) -> bool {
