@@ -252,6 +252,9 @@
     refLibraryBusy: false,
     refLibraryItems: [],
     refLibrarySelected: {},
+    refLibraryPaths: [],
+    refLibraryCursor: 0,
+    refLibraryLoadingMore: false,
     outputDir: '',
     error: '',
     data: null,
@@ -301,7 +304,7 @@
     .field.sm{ width:auto; min-width: 180px; }
     .row.nowrap .field.sm{ min-width: 140px; }
     .row.nowrap .meta{ white-space:nowrap; }
-    .field.xs{ width: 64px; min-width: 64px; }
+    .field.xs{ width: 48px; min-width: 48px; }
     .ta{ resize:none; min-height: 180px; }
     .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
     .imgBox{
@@ -435,6 +438,19 @@
       box-shadow: 0 6px 16px rgba(17,24,39,0.18);
     }
     .libItem:not(.sel) .libCheck{ display:none; }
+    .refLibModal{
+      width:min(860px,100%);
+      display:flex;
+      flex-direction:column;
+      overflow:hidden;
+    }
+    .refLibHead{ flex:0 0 auto; }
+    .refLibBody{
+      flex:1 1 auto;
+      min-height:0;
+      overflow:auto;
+      padding-right:2px;
+    }
     .overlay{ position:fixed; inset:0; background:rgba(17,24,39,0.18); display:flex; align-items:center; justify-content:center; padding:12px; }
     .modal{ width:min(720px,100%); max-height: calc(100vh - 24px); overflow:auto; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; box-shadow: 0 10px 30px rgba(17,24,39,0.12); }
     .hr{ height:1px; background:var(--line); margin:10px 0; }
@@ -1326,15 +1342,18 @@
 
   async function openRefLibrary() {
     state.modal = 'ref-library'
-    state.refLibraryLoading = true
     state.refLibraryBusy = false
     state.refLibraryItems = []
     state.refLibrarySelected = {}
+    state.refLibraryPaths = []
+    state.refLibraryCursor = 0
+    state.refLibraryLoading = true
+    state.refLibraryLoadingMore = false
     render()
-    await loadRefLibrary()
+    await initRefLibrary()
   }
 
-  async function loadRefLibrary() {
+  async function initRefLibrary() {
     state.refLibraryLoading = true
     render()
 
@@ -1344,20 +1363,48 @@
       .filter((x) => !!x)
       .slice(0, 120)
 
-    const items = []
-    for (const p of list) {
-      if (state.modal !== 'ref-library') return
-      const dataUrl = await api.files.readRefImage(p).catch(() => '')
-      items.push({ path: p, name: basename(p), dataUrl: String(dataUrl || '').trim() })
-      if (items.length % 18 === 0) {
-        state.refLibraryItems = items.slice()
-        render()
-      }
-    }
-
-    state.refLibraryItems = items
+    state.refLibraryPaths = list
+    state.refLibraryItems = []
+    state.refLibraryCursor = 0
     state.refLibraryLoading = false
     render()
+
+    await loadMoreRefLibrary()
+  }
+
+  async function loadMoreRefLibrary() {
+    if (state.modal !== 'ref-library') return
+    if (state.refLibraryLoadingMore) return
+    const paths = Array.isArray(state.refLibraryPaths) ? state.refLibraryPaths : []
+    const start = Number(state.refLibraryCursor) || 0
+    if (start >= paths.length) return
+
+    state.refLibraryLoadingMore = true
+    render()
+    try {
+      const batch = 24
+      const end = Math.min(paths.length, start + batch)
+      const items = Array.isArray(state.refLibraryItems) ? state.refLibraryItems.slice() : []
+      for (let i = start; i < end; i++) {
+        if (state.modal !== 'ref-library') return
+        const p = String(paths[i] || '').trim()
+        if (!p) continue
+        const dataUrl = await api.files.readRefImage(p).catch(() => '')
+        items.push({ path: p, name: basename(p), dataUrl: String(dataUrl || '').trim() })
+        if (items.length % 12 === 0) {
+          state.refLibraryItems = items.slice()
+          state.refLibraryCursor = i + 1
+          render()
+        }
+      }
+
+      state.refLibraryItems = items
+      state.refLibraryCursor = end
+      render()
+    } finally {
+      state.refLibraryLoadingMore = false
+      render()
+    }
   }
 
   function toggleRefLibrarySelect(path) {
@@ -1392,7 +1439,7 @@
         if (saved) ok++
       }
       api.ui.showToast(ok ? `已加入参考图库：${ok} 张` : '加入失败')
-      await loadRefLibrary()
+      await initRefLibrary()
     } finally {
       state.refLibraryBusy = false
       render()
@@ -1750,35 +1797,45 @@
           : state.modal === 'ref-library'
             ? `
       <div class="overlay" data-act="close-modal">
-        <div class="modal" role="dialog" aria-modal="true" aria-label="参考图库">
-          <div class="row nowrap">
-            <div class="title" style="margin:0">参考图库</div>
-            <div class="sp"></div>
-            <button class="btn" data-act="ref-lib-upload" ${state.refLibraryBusy ? 'disabled' : ''}>上传</button>
-            <button class="btn pri stable" data-act="ref-lib-confirm" ${state.refLibraryBusy ? 'disabled' : ''}>确定</button>
-            <button class="btn" data-act="close-modal">关闭</button>
+        <div class="modal refLibModal" role="dialog" aria-modal="true" aria-label="参考图库">
+          <div class="refLibHead">
+            <div class="row nowrap">
+              <div class="title" style="margin:0">参考图库</div>
+              <div class="sp"></div>
+              <button class="btn" data-act="ref-lib-upload" ${state.refLibraryBusy ? 'disabled' : ''}>上传</button>
+              <button class="btn pri stable" data-act="ref-lib-confirm" ${state.refLibraryBusy ? 'disabled' : ''}>确定</button>
+              <button class="btn" data-act="close-modal">关闭</button>
+            </div>
+            <div class="meta libTop">存放在 <span class="mono">data/&lt;pluginId&gt;/ref-images</span>（和输出图片目录并列）</div>
+            <div class="hr"></div>
           </div>
-          <div class="meta libTop">存放在 <span class="mono">data/&lt;pluginId&gt;/ref-images</span>（和输出图片目录并列）</div>
-          <div class="hr"></div>
-          ${
-            state.refLibraryLoading
-              ? `<div class="meta">加载中…</div>`
-              : state.refLibraryItems.length
-                ? `<div class="libGrid" aria-label="参考图库图片列表">
-                    ${state.refLibraryItems
-                      .map((it) => {
-                        const p = String(it?.path || '').trim()
-                        const u = String(it?.dataUrl || '').trim()
-                        const sel = !!(state.refLibrarySelected && state.refLibrarySelected[p])
-                        return `<button class="libItem ${sel ? 'sel' : ''}" data-act="ref-lib-toggle" data-path="${esc(p)}" aria-label="参考图库图片">
-                          ${u ? `<img alt="${esc(String(it?.name || ''))}" src="${esc(u)}" />` : `<div class="empty" style="width:100%">加载中…</div>`}
-                          <div class="libCheck" aria-hidden="true">✓</div>
-                        </button>`
-                      })
-                      .join('')}
-                  </div>`
-                : `<div class="meta">图库为空，点击“上传”添加图片。</div>`
-          }
+
+          <div id="ref-lib-scroll" class="refLibBody" aria-label="参考图库滚动区">
+            ${
+              state.refLibraryLoading
+                ? `<div class="meta">加载中…</div>`
+                : state.refLibraryItems.length
+                  ? `<div class="libGrid" aria-label="参考图库图片列表">
+                      ${state.refLibraryItems
+                        .map((it) => {
+                          const p = String(it?.path || '').trim()
+                          const u = String(it?.dataUrl || '').trim()
+                          const sel = !!(state.refLibrarySelected && state.refLibrarySelected[p])
+                          return `<button class="libItem ${sel ? 'sel' : ''}" data-act="ref-lib-toggle" data-path="${esc(p)}" aria-label="参考图库图片">
+                            ${u ? `<img alt="${esc(String(it?.name || ''))}" src="${esc(u)}" />` : `<div class="empty" style="width:100%">加载中…</div>`}
+                            <div class="libCheck" aria-hidden="true">✓</div>
+                          </button>`
+                        })
+                        .join('')}
+                    </div>`
+                  : `<div class="meta">图库为空，点击“上传”添加图片。</div>`
+            }
+            ${
+              !state.refLibraryLoading && (Number(state.refLibraryCursor) || 0) < (Array.isArray(state.refLibraryPaths) ? state.refLibraryPaths.length : 0)
+                ? `<div class="meta" style="margin-top:10px">${state.refLibraryLoadingMore ? '加载更多…' : '继续向下滚动以加载更多'}</div>`
+                : ''
+            }
+          </div>
         </div>
       </div>`
             : ''
@@ -1835,12 +1892,9 @@
               <div class="row nowrap">
                 <button class="btn pri stable" data-act="generate" ${state.submitting ? 'disabled' : ''}>${state.submitting ? '提交中…' : '生成'}</button>
                 <input class="field xs" data-bind="batchCount" type="number" min="1" max="${MAX_BATCH_COUNT}" step="1" value="${esc(state.batchCount)}" aria-label="批量次数" title="批量次数（并行提交）" />
-                <button class="btn" data-act="pick-ref-images">参考图</button>
-                <button class="btn" data-act="open-ref-library">参考图库</button>
                 <button class="btn" data-act="prompt-prev" ${canPromptPrev ? '' : 'disabled'} aria-label="上一条提示词">←</button>
                 <button class="btn" data-act="prompt-next" ${canPromptNext ? '' : 'disabled'} aria-label="下一条提示词">→</button>
                 <div class="sp"></div>
-                <span class="meta" style="margin-top:0">模型：</span>
                 <select class="field sm" data-bind="activeModel" aria-label="模型">
                   ${modelOptions}
                   <option value="__custom__" ${String(p?.model || '') === '__custom__' ? 'selected' : ''}>自定义…</option>
@@ -1848,6 +1902,8 @@
               </div>
               <div class="row refTop">
                 <span class="meta" style="margin-top:0">参考图</span>
+                <button class="btn" data-act="pick-ref-images">外部参考图</button>
+                <button class="btn" data-act="open-ref-library">参考图库</button>
                 <span class="kbd mono" aria-label="参考图数量">${state.refImages.length}/${MAX_REF_IMAGES}</span>
                 <button class="btn" data-act="ref-scroll-left" ${state.refImages.length ? '' : 'disabled'} aria-label="参考图左移">←</button>
                 <button class="btn" data-act="ref-scroll-right" ${state.refImages.length ? '' : 'disabled'} aria-label="参考图右移">→</button>
@@ -2114,6 +2170,23 @@
         save().catch(() => {})
       }
     })
+
+    // 懒加载：参考图库滚动到接近底部时自动加载下一批
+    root.addEventListener(
+      'scroll',
+      (e) => {
+        if (state.modal !== 'ref-library') return
+        const t = e && e.target
+        if (!t || !t.getAttribute) return
+        if (String(t.getAttribute('id') || '') !== 'ref-lib-scroll') return
+
+        const top = Number(t.scrollTop) || 0
+        const h = Number(t.clientHeight) || 0
+        const sh = Number(t.scrollHeight) || 0
+        if (top + h >= sh - 240) loadMoreRefLibrary()
+      },
+      true,
+    )
 
     root.addEventListener('input', (e) => {
       const t = e.target
