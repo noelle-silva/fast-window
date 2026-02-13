@@ -264,7 +264,7 @@
     body{ margin:0; background:var(--bg); color:var(--text); }
     .wrap{ height:100vh; display:flex; flex-direction:column; }
     .top{ height:48px; display:flex; align-items:center; gap:8px; padding:0 10px; border-bottom:1px solid var(--line); background:#ffffff; }
-    .title{ font-weight:900; font-size:13px; letter-spacing:0.3px; margin-right:auto; }
+    .title{ font-weight:900; font-size:13px; letter-spacing:0.3px; }
     .btn{ height:32px; padding:0 10px; border-radius:10px; border:1px solid var(--line); background:#ffffff; color:var(--text); cursor:pointer; font-size:12px; }
     .btn.pri{ border-color:rgba(37,99,235,0.25); background:rgba(37,99,235,0.08); color:var(--pri); }
     .btn.ok{ border-color:rgba(22,163,74,0.25); background:rgba(22,163,74,0.08); color:var(--ok); }
@@ -296,6 +296,8 @@
     .imgBox img{ max-width:100%; max-height:100%; display:block; }
     .empty{ color:var(--muted); font-size:12px; padding:18px; text-align:center; }
     .err{ color:var(--bad); font-size:12px; }
+    .promptCard{ display:flex; flex-direction:column; gap:10px; min-height:420px; }
+    .promptCard .ta{ flex:1; }
     .overlay{ position:fixed; inset:0; background:rgba(17,24,39,0.18); display:flex; align-items:center; justify-content:center; padding:12px; }
     .modal{ width:min(720px,100%); max-height: calc(100vh - 24px); overflow:auto; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; box-shadow: 0 10px 30px rgba(17,24,39,0.12); }
     .hr{ height:1px; background:var(--line); margin:10px 0; }
@@ -1281,7 +1283,10 @@
       <div class="wrap">
         <div class="top">
           <div class="title">AI 绘图</div>
+          <button class="btn" data-act="open-output-dir" ${state.outputDir ? '' : 'disabled'}>打开输出目录</button>
           ${topMeta}
+          <span class="kbd mono" aria-label="自动保存开关状态">自动保存：${d && d.autoSave ? '开' : '关'}</span>
+          <div class="sp"></div>
           <select class="field sm" data-bind="activeProviderId" aria-label="供应商">${providerOptions}</select>
           <button class="btn" data-act="open-settings">设置</button>
           <button class="btn" data-act="pick-output-dir">输出目录</button>
@@ -1291,11 +1296,14 @@
         <div class="content">
           ${state.loading ? `<div class="empty">加载中…</div>` : `
           <div class="split">
-            <div class="card">
+            <div class="card promptCard">
               <div class="row">
-                <div class="meta">提示词（一次性，无上下文）</div>
+                <button class="btn pri" data-act="generate" ${state.busy ? 'disabled' : ''}>${state.busy ? '生成中…' : '生成'}</button>
+                <button class="btn bad" data-act="cancel-generate" ${state.currentTaskId ? '' : 'disabled'}>取消任务</button>
+                <button class="btn" data-act="prompt-prev" ${canPromptPrev ? '' : 'disabled'} aria-label="上一条提示词">←</button>
+                <button class="btn" data-act="prompt-next" ${canPromptNext ? '' : 'disabled'} aria-label="下一条提示词">→</button>
                 <div class="sp"></div>
-                <span class="meta">模型：</span>
+                <span class="meta" style="margin-top:0">模型：</span>
                 <select class="field sm" data-bind="activeModel" aria-label="模型" ${state.busy ? 'disabled' : ''}>
                   ${modelOptions}
                   <option value="__custom__" ${String(p?.model || '') === '__custom__' ? 'selected' : ''}>自定义…</option>
@@ -1309,19 +1317,7 @@
                   : ''
               }
               <textarea class="field ta" data-bind="prompt" placeholder="例如：赛博朋克城市夜景，雨，霓虹灯，电影感，高细节…" ${state.busy ? 'disabled' : ''}>${esc(state.prompt)}</textarea>
-              <div class="row" style="margin-top:8px">
-                <span class="meta">提示词历史</span>
-                <button class="btn" data-act="prompt-prev" ${canPromptPrev ? '' : 'disabled'} aria-label="上一条提示词">←</button>
-                <button class="btn" data-act="prompt-next" ${canPromptNext ? '' : 'disabled'} aria-label="下一条提示词">→</button>
-              </div>
-              <div class="row" style="margin-top:10px">
-                <button class="btn pri" data-act="generate" ${state.busy ? 'disabled' : ''}>${state.busy ? '生成中…' : '生成'}</button>
-                <button class="btn bad" data-act="cancel-generate" ${state.currentTaskId ? '' : 'disabled'}>取消任务</button>
-                <button class="btn" data-act="open-output-dir">打开输出目录</button>
-                <div class="sp"></div>
-                <span class="meta">自动保存：${d && d.autoSave ? '开' : '关'}</span>
-              </div>
-              <div style="margin-top:10px">${err}</div>
+              <div>${err}</div>
             </div>
 
             <div class="card" style="display:flex; flex-direction:column; gap:10px; min-height:420px;">
