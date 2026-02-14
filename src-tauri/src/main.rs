@@ -56,6 +56,14 @@ struct HttpResponse {
     body: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HttpResponseBase64 {
+    status: u16,
+    headers: HashMap<String, String>,
+    body_base64: String,
+}
+
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 enum TaskStatus {
@@ -437,6 +445,23 @@ fn open_external_url(url: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn http_request(req: HttpRequest) -> Result<HttpResponse, String> {
+    let (status, headers, bytes) = http_request_raw(req).await?;
+    let body = String::from_utf8(bytes.to_vec()).map_err(|_| "响应不是 UTF-8 文本".to_string())?;
+    Ok(HttpResponse { status, headers, body })
+}
+
+#[tauri::command]
+async fn http_request_base64(req: HttpRequest) -> Result<HttpResponseBase64, String> {
+    let (status, headers, bytes) = http_request_raw(req).await?;
+    let body_base64 = general_purpose::STANDARD.encode(bytes);
+    Ok(HttpResponseBase64 {
+        status,
+        headers,
+        body_base64,
+    })
+}
+
+async fn http_request_raw(req: HttpRequest) -> Result<(u16, HashMap<String, String>, bytes::Bytes), String> {
     let method = req.method.trim().to_uppercase();
     if method.is_empty() {
         return Err("method 不能为空".to_string());
@@ -519,9 +544,7 @@ async fn http_request(req: HttpRequest) -> Result<HttpResponse, String> {
     if bytes.len() > MAX_HTTP_RESPONSE_BYTES {
         return Err(format!("响应过大（{} > {}）", bytes.len(), MAX_HTTP_RESPONSE_BYTES));
     }
-    let body = String::from_utf8(bytes.to_vec()).map_err(|_| "响应不是 UTF-8 文本".to_string())?;
-
-    Ok(HttpResponse { status, headers, body })
+    Ok((status, headers, bytes))
 }
 
 #[derive(Deserialize)]
@@ -2181,6 +2204,7 @@ fn main() {
             install_plugin_files,
             open_external_url,
             http_request,
+            http_request_base64,
             storage_get,
             storage_set,
             storage_remove,

@@ -176,6 +176,21 @@ export const fastWindowApi = {
         headers: Record<string, string>
       }>('http_request', { req })
     },
+
+    requestBase64: async (req: {
+      method: string
+      url: string
+      headers?: Record<string, string>
+      body?: string | null
+      bodyBase64?: string | null
+      timeoutMs?: number | null
+    }) => {
+      return invoke<{
+        status: number
+        bodyBase64: string
+        headers: Record<string, string>
+      }>('http_request_base64', { req })
+    },
   },
 
   task: {
@@ -242,6 +257,19 @@ export type FastWindowApi = {
         }
       | PluginTaskInfo
     >
+
+    requestBase64: (req: {
+      method: string
+      url: string
+      headers?: Record<string, string>
+      body?: string | null
+      bodyBase64?: string | null
+      timeoutMs?: number | null
+    }) => Promise<{
+      status: number
+      bodyBase64: string
+      headers: Record<string, string>
+    }>
   }
   task: {
     create: (req: { kind: string; payload?: unknown }) => Promise<PluginTaskInfo>
@@ -330,6 +358,13 @@ export function createPluginContext(pluginId: string, requires: PluginCapability
           })
         }
         return fastWindowApi.net.request(req)
+      },
+      requestBase64: async (req: any) => {
+        const mode = String(req?.mode || 'direct')
+        if (mode === 'task') {
+          throw new Error('net.requestBase64 does not support mode="task"')
+        }
+        return fastWindowApi.net.requestBase64(req)
       },
     },
     task: {

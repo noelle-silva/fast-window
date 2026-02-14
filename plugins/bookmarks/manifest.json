@@ -8,5 +8,15 @@
   "keyword": "bm",
   "apiVersion": 2,
   "ui": { "type": "iframe" },
-  "requires": ["storage.get", "storage.set", "ui.openUrl", "ui.showToast", "net.request"]
+  "requires": [
+    "storage.get",
+    "storage.set",
+    "ui.openUrl",
+    "ui.showToast",
+    "net.request",
+    "net.requestBase64",
+    "files.saveImageBase64",
+    "files.readOutputImage",
+    "files.deleteOutputImage"
+  ]
 }

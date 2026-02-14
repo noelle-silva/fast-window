@@ -28,6 +28,7 @@ export type PluginMethodName =
   | 'ui.showToast'
   | 'ui.openUrl'
   | 'net.request'
+  | 'net.requestBase64'
   | 'task.create'
   | 'task.get'
   | 'task.list'
@@ -113,7 +114,33 @@ const methods: Record<PluginMethodName, MethodDef> = {
   },
   'ui.openUrl': { capability: 'ui.openUrl', handler: (ctx, args) => ctx.api.ui.openUrl(String(args?.[0] ?? '')) },
 
-  'net.request': { capability: 'net.request', handler: (ctx, args) => ctx.api.net.request(args?.[0] as any) },
+  'net.request': {
+    capability: 'net.request',
+    handler: (ctx, args) => {
+      const req = (args?.[0] as any) ?? null
+      const responseType = String(req?.responseType || 'text')
+
+      if (responseType === 'base64') {
+        if (!isCapabilityAllowed(ctx.requires, 'net.requestBase64')) {
+          throw new PluginBridgeError('CAPABILITY_DENIED', 'Capability denied: net.requestBase64', {
+            needed: 'net.requestBase64',
+          })
+        }
+        const mode = String(req?.mode || 'direct')
+        if (mode === 'task') {
+          throw new PluginBridgeError('BAD_REQUEST', 'net.request({ responseType: \"base64\" }) does not support mode=\"task\"')
+        }
+        const { responseType: _rt, mode: _mode, ...rest } = req || {}
+        return ctx.api.net.requestBase64(rest)
+      }
+
+      return ctx.api.net.request(req)
+    },
+  },
+  'net.requestBase64': {
+    capability: 'net.requestBase64',
+    handler: (ctx, args) => ctx.api.net.requestBase64(args?.[0] as any),
+  },
 
   'task.create': {
     capability: 'task.create',

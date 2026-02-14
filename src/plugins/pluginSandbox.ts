@@ -105,6 +105,7 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
     },
     net: {
       request: (req) => call('net.request', [req]),
+      requestBase64: (req) => call('net.requestBase64', [req]),
     },
     task: {
       create: (req) => call('task.create', [req]),

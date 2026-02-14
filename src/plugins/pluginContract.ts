@@ -8,6 +8,7 @@ export type PluginCapability =
   | 'net'
   | 'net.*'
   | 'net.request'
+  | 'net.requestBase64'
   | 'files'
   | 'files.*'
   | 'files.getOutputDir'
@@ -51,6 +52,7 @@ export const ALL_PLUGIN_CAPABILITIES: readonly PluginCapability[] = [
   'net',
   'net.*',
   'net.request',
+  'net.requestBase64',
   'files',
   'files.*',
   'files.getOutputDir',

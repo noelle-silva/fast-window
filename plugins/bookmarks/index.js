@@ -19,7 +19,10 @@
     addUrl: '',
     addGroupId: DEFAULT_GROUP_ID,
     addIconUrl: '',
+    addIconDataUrl: '',
     sniffingAddIcon: false,
+    iconCacheById: {},
+    iconLoadingById: {},
     newGroupName: '',
     groupNameEdits: {},
     confirmKey: '',
@@ -258,6 +261,115 @@
     return base
   }
 
+  function getHeader(headers, name) {
+    if (!headers || typeof headers !== 'object') return ''
+    const target = String(name || '').toLowerCase()
+    for (const [k, v] of Object.entries(headers)) {
+      if (String(k || '').toLowerCase() === target) return String(v || '')
+    }
+    return ''
+  }
+
+  function guessImageMimeByUrl(url) {
+    const u = String(url || '').toLowerCase()
+    if (u.includes('.svg')) return 'image/svg+xml'
+    if (u.includes('.webp')) return 'image/webp'
+    if (u.includes('.jpg') || u.includes('.jpeg')) return 'image/jpeg'
+    if (u.includes('.png')) return 'image/png'
+    if (u.includes('.ico')) return 'image/x-icon'
+    return 'image/png'
+  }
+
+  function mimeFromContentTypeOrUrl(contentType, url) {
+    const ct = String(contentType || '').toLowerCase()
+    if (ct.includes('image/')) {
+      const pure = ct.split(';')[0].trim()
+      return pure || guessImageMimeByUrl(url)
+    }
+    return guessImageMimeByUrl(url)
+  }
+
+  async function rasterizeToPngDataUrl(srcDataUrl, size) {
+    const s = typeof size === 'number' && Number.isFinite(size) ? Math.max(16, Math.min(256, Math.floor(size))) : 64
+    const src = String(srcDataUrl || '').trim()
+    if (!src.startsWith('data:')) return null
+
+    const img = await new Promise((resolve, reject) => {
+      const el = new window.Image()
+      el.decoding = 'async'
+      el.onload = () => resolve(el)
+      el.onerror = () => reject(new Error('ICON_LOAD_FAILED'))
+      el.src = src
+    }).catch(() => null)
+
+    if (!(img instanceof HTMLImageElement)) return null
+    const iw = img.naturalWidth || img.width
+    const ih = img.naturalHeight || img.height
+    if (!iw || !ih) return null
+
+    const canvas = document.createElement('canvas')
+    canvas.width = s
+    canvas.height = s
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+
+    ctx.clearRect(0, 0, s, s)
+    const scale = Math.min(s / iw, s / ih)
+    const dw = Math.max(1, Math.floor(iw * scale))
+    const dh = Math.max(1, Math.floor(ih * scale))
+    const dx = Math.floor((s - dw) / 2)
+    const dy = Math.floor((s - dh) / 2)
+    ctx.drawImage(img, dx, dy, dw, dh)
+    return canvas.toDataURL('image/png')
+  }
+
+  async function saveIconPngToFile(pngDataUrl, prevPath) {
+    if (!api.files?.saveImageBase64) return null
+    const src = String(pngDataUrl || '').trim()
+    if (!src.startsWith('data:image/')) return null
+    const path = await api.files.saveImageBase64(src)
+    const oldPath = String(prevPath || '').trim()
+    if (oldPath) {
+      api.files?.deleteOutputImage?.(oldPath).catch(() => {})
+    }
+    return path
+  }
+
+  async function downloadIconDataUrl(iconUrl) {
+    const raw = String(iconUrl || '').trim()
+    if (!raw) return null
+    const lower = raw.toLowerCase()
+    if (lower.startsWith('data:image/')) return raw
+    if (!/^https?:\/\//i.test(raw)) return null
+
+    if (!api.net?.request) return null
+
+    const resp = await api.net.request({
+      method: 'GET',
+      url: raw,
+      responseType: 'base64',
+      headers: {
+        Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) fast-window/0.1',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.7',
+      },
+      timeoutMs: 12000,
+    })
+
+    const status = Number(resp?.status || 0)
+    if (!(status >= 200 && status < 400)) return null
+
+    const b64 = String(resp?.bodyBase64 || '')
+    if (!b64) return null
+
+    // 图标别太离谱：避免把几 MB 的东西塞进 storage。
+    const approxBytes = Math.floor((b64.length * 3) / 4)
+    if (approxBytes > 512 * 1024) return null
+
+    const mime = mimeFromContentTypeOrUrl(getHeader(resp?.headers, 'content-type'), raw)
+    return `data:${mime};base64,${b64}`
+  }
+
   async function sniffIconUrl(pageUrl) {
     const url = normalizeUrl(pageUrl)
     if (!url) return null
@@ -342,6 +454,8 @@
           title: String(x?.title || ''),
           url: String(x?.url || ''),
           iconUrl: typeof x?.iconUrl === 'string' ? String(x.iconUrl || '') : '',
+          iconDataUrl: typeof x?.iconDataUrl === 'string' ? String(x.iconDataUrl || '') : '',
+          iconPath: typeof x?.iconPath === 'string' ? String(x.iconPath || '') : '',
           groupId: groupIds.has(String(x?.groupId || '')) ? String(x?.groupId || '') : DEFAULT_GROUP_ID,
           createdAt: typeof x?.createdAt === 'number' ? x.createdAt : now,
           updatedAt: typeof x?.updatedAt === 'number' ? x.updatedAt : now,
@@ -405,6 +519,7 @@
       state.addUrl = ''
       state.addGroupId = state.groupId === ALL_GROUP_ID ? DEFAULT_GROUP_ID : state.groupId
       state.addIconUrl = ''
+      state.addIconDataUrl = ''
       state.sniffingAddIcon = false
     }
     if (kind === 'groups') {
@@ -440,6 +555,7 @@
     const url = normalizeUrl(state.addUrl)
     const groupId = String(state.addGroupId || DEFAULT_GROUP_ID)
     const iconUrl = String(state.addIconUrl || '').trim()
+    const iconDataUrl = String(state.addIconDataUrl || '').trim()
 
     if (!url) {
       api.ui?.showToast?.('URL 只支持 http(s)://，可省略协议')
@@ -452,11 +568,19 @@
 
     const now = Date.now()
     const itemId = uid()
+    let iconPath = ''
+    if (iconDataUrl) {
+      const png = (await rasterizeToPngDataUrl(iconDataUrl, 64)) || iconDataUrl
+      const savedPath = await saveIconPngToFile(png, '')
+      if (savedPath) iconPath = savedPath
+    }
     state.data.items.unshift({
       id: itemId,
       title: title || url,
       url,
       iconUrl,
+      iconDataUrl: '',
+      iconPath,
       groupId,
       createdAt: now,
       updatedAt: now,
@@ -466,7 +590,7 @@
     api.ui?.showToast?.('已添加')
     closeModal()
 
-    if (!iconUrl) {
+    if (!iconUrl && !iconPath) {
       Promise.resolve()
         .then(() => refreshIconForItem(itemId))
         .catch(() => {})
@@ -474,9 +598,15 @@
   }
 
   async function deleteBookmark(id) {
+    const existing = state.data.items.find((x) => x.id === id)
     const before = state.data.items.length
     state.data.items = state.data.items.filter((x) => x.id !== id)
     if (state.data.items.length === before) return
+    if (existing && String(existing.iconPath || '').trim()) {
+      api.files?.deleteOutputImage?.(String(existing.iconPath || '').trim()).catch(() => {})
+    }
+    delete state.iconCacheById[id]
+    delete state.iconLoadingById[id]
     await save()
     api.ui?.showToast?.('已删除')
     render()
@@ -506,29 +636,57 @@
   async function refreshIconForItem(id) {
     const item = state.data.items.find((x) => x.id === id)
     if (!item) return
-    const icon = await sniffIconUrl(item.url)
-    if (!icon) {
+    api.ui?.showToast?.('正在嗅探图标...')
+    const iconUrl = await sniffIconUrl(item.url)
+    if (!iconUrl) {
       api.ui?.showToast?.('未找到图标')
       return
     }
-    item.iconUrl = icon
+    item.iconUrl = iconUrl
+    const dataUrl = await downloadIconDataUrl(iconUrl)
+    if (!dataUrl) {
+      item.updatedAt = Date.now()
+      await save()
+      api.ui?.showToast?.('已设置图标地址（未下载）')
+      render()
+      return
+    }
+
+    const png = (await rasterizeToPngDataUrl(dataUrl, 64)) || null
+    if (!png) {
+      api.ui?.showToast?.('图标下载成功，但无法转换为 PNG')
+      return
+    }
+    const path = await saveIconPngToFile(png, item.iconPath || '')
+    if (path) {
+      item.iconPath = path
+      item.iconDataUrl = ''
+      delete state.iconCacheById[id]
+    }
     item.updatedAt = Date.now()
     await save()
-    api.ui?.showToast?.('图标已更新')
+    api.ui?.showToast?.(path ? '图标已下载到本地' : '图标保存失败')
     render()
   }
 
   async function sniffAddIcon() {
     if (state.sniffingAddIcon) return
     state.sniffingAddIcon = true
-    api.ui?.showToast?.('正在嗅探图标...')
+    api.ui?.showToast?.('正在嗅探并下载图标...')
     try {
-      const icon = await sniffIconUrl(state.addUrl)
-      if (!icon) {
+      const iconUrl = await sniffIconUrl(state.addUrl)
+      if (!iconUrl) {
         api.ui?.showToast?.('未找到图标')
         return
       }
-      state.addIconUrl = icon
+      const dataUrl = await downloadIconDataUrl(iconUrl)
+      state.addIconUrl = iconUrl
+      if (dataUrl) {
+        const png = await rasterizeToPngDataUrl(dataUrl, 64)
+        state.addIconDataUrl = png || ''
+      } else {
+        state.addIconDataUrl = ''
+      }
       render()
     } finally {
       state.sniffingAddIcon = false
@@ -630,10 +788,10 @@
                     <span class="fallback">🌐</span>
                     <img data-role="addIconImg" alt="网站图标" />
                   </div>
-                  <div class="help">图标可自动嗅探（不下载，直接引用 URL）</div>
+                  <div class="help">图标会嗅探并下载到本地（离线可用）</div>
                 </div>
                 <div class="spacer"></div>
-                <button class="btn" data-act="sniffAddIcon">嗅探图标</button>
+                <button class="btn" data-act="sniffAddIcon">嗅探并下载</button>
                 <button class="btn" data-act="clearAddIcon">清除</button>
               </div>
               <label class="field">
@@ -682,6 +840,7 @@
       if (act === 'sniffAddIcon') return sniffAddIcon()
       if (act === 'clearAddIcon') {
         state.addIconUrl = ''
+        state.addIconDataUrl = ''
         render()
         return
       }
@@ -836,7 +995,10 @@
         .map((x) => {
           const gname = groupNameOf(x.groupId)
           const when = x.lastOpenedAt ? `最近打开：${formatTime(x.lastOpenedAt)}` : `创建：${formatTime(x.createdAt)}`
-          const icon = String(x.iconUrl || '').trim()
+          const icon = String(state.iconCacheById[x.id] || '').trim()
+          if (!icon) {
+            ensureItemIconLoaded(x)
+          }
           const iconImg = icon
             ? `<img alt="网站图标" loading="lazy" referrerpolicy="no-referrer" src="${escapeHtml(icon)}" />`
             : `<img alt="网站图标" loading="lazy" referrerpolicy="no-referrer" />`
@@ -851,7 +1013,7 @@
                   <div class="name">${escapeHtml(x.title || x.url)}</div>
                 </div>
                 <div class="spacer"></div>
-                <button class="iconBtn" data-act="sniffIcon" data-id="${escapeHtml(x.id)}" title="嗅探图标">⟳</button>
+                <button class="iconBtn" data-act="sniffIcon" data-id="${escapeHtml(x.id)}" title="嗅探并下载图标">⟳</button>
                 <button class="iconBtn" data-act="openBtn" data-id="${escapeHtml(x.id)}" title="打开">↗</button>
                 <button class="iconBtn danger" data-act="del" data-id="${escapeHtml(x.id)}" title="删除">🗑</button>
               </div>
@@ -900,7 +1062,7 @@
     const addIconImg = document.querySelector('img[data-role="addIconImg"]')
     if (addIconImg instanceof HTMLImageElement) {
       addIconImg.setAttribute('referrerpolicy', 'no-referrer')
-      const icon = String(state.addIconUrl || '').trim()
+      const icon = String(state.addIconDataUrl || '').trim() || String(state.addIconUrl || '').trim()
       const wrap = addIconImg.closest('.siteIcon')
       if (icon) {
         addIconImg.src = icon
@@ -915,6 +1077,59 @@
         }
       }
     }
+  }
+
+  function ensureItemIconLoaded(item) {
+    const id = String(item?.id || '')
+    if (!id) return
+    if (state.iconCacheById[id]) return
+    if (state.iconLoadingById[id]) return
+
+    const p = String(item.iconPath || '').trim()
+    if (!p) {
+      // 兼容迁移：旧数据可能把 iconDataUrl 存在 storage 里，趁机落盘。
+      const legacy = String(item.iconDataUrl || '').trim()
+      if (!legacy) return
+      state.iconLoadingById[id] = true
+      Promise.resolve()
+        .then(async () => {
+          const png = await rasterizeToPngDataUrl(legacy, 64)
+          const okLegacy =
+            legacy.includes('data:image/png') || legacy.includes('data:image/jpeg') || legacy.includes('data:image/webp')
+          const payload = png || (okLegacy ? legacy : '')
+          if (!payload) return
+          const savedPath = await saveIconPngToFile(payload, '')
+          if (savedPath) {
+            item.iconPath = savedPath
+            item.iconDataUrl = ''
+            await save()
+            state.iconCacheById[id] = await api.files.readOutputImage(savedPath)
+            render()
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          delete state.iconLoadingById[id]
+        })
+      return
+    }
+
+    if (!api.files?.readOutputImage) return
+    state.iconLoadingById[id] = true
+    api.files
+      .readOutputImage(p)
+      .then((dataUrl) => {
+        state.iconCacheById[id] = String(dataUrl || '')
+      })
+      .catch(() => {
+        // 文件丢了就清掉，避免每次都读失败。
+        item.iconPath = ''
+        save().catch(() => {})
+      })
+      .finally(() => {
+        delete state.iconLoadingById[id]
+        render()
+      })
   }
 
   async function init() {
