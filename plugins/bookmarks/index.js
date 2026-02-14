@@ -217,18 +217,32 @@
   }
 
   function isHttpUrl(u) {
-    return /^https?:\/\//i.test(u)
+    return /^https?:\/\//i.test(String(u || ''))
   }
 
   function normalizeUrl(raw) {
-    const s = String(raw || '').trim()
-    if (!s) return null
-    const lower = s.toLowerCase()
-    if (isHttpUrl(s)) return s
-    if (/^[a-z]+:\/\//i.test(s)) return null
-    if (s.startsWith('//')) return `https:${s}`
-    if (lower.startsWith('javascript:') || lower.startsWith('data:')) return null
-    return `https://${s}`
+    const input = String(raw || '').trim()
+    if (!input) return null
+
+    // Windows 复制出来的链接经常混入反斜杠：会被当成路径，导致 explorer 打开资源管理器。
+    const s = input.replaceAll('\\', '/')
+
+    let candidate = s
+    if (/^[a-z]+:\/\//i.test(candidate)) {
+      // 只允许 http(s)
+    } else if (candidate.startsWith('//')) {
+      candidate = `https:${candidate}`
+    } else {
+      candidate = `https://${candidate}`
+    }
+
+    try {
+      const u = new URL(candidate)
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+      return u.toString()
+    } catch {
+      return null
+    }
   }
 
   function toOrigin(url) {

@@ -410,43 +410,27 @@ async fn run_clipboard_watch_task(
 
 #[tauri::command]
 fn open_external_url(url: String) -> Result<(), String> {
-    let u = url.trim();
-    if !is_http_url(u) {
+    let mut u = url.trim().to_string();
+    if u.chars().any(|c| c.is_whitespace()) {
+        return Err("url 不允许包含空白字符，请先进行 URL 编码（例如空格用 %20）".to_string());
+    }
+    if u.contains('\\') {
+        // 避免 Windows 上被当成路径导致 explorer 打开资源管理器。
+        u = u.replace('\\', "/");
+    }
+
+    if !is_http_url(&u) {
         return Err("url 必须以 http(s):// 开头".to_string());
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("explorer")
-            .arg(u)
-            .spawn()
-            .map_err(|e| format!("打开链接失败: {e}"))?;
-        return Ok(());
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(u)
-            .spawn()
-            .map_err(|e| format!("打开链接失败: {e}"))?;
-        return Ok(());
-    }
-
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(u)
-            .spawn()
-            .map_err(|e| format!("打开链接失败: {e}"))?;
-        return Ok(());
-    }
+    open::that(&u).map_err(|e| format!("打开链接失败: {e}"))?;
+    Ok(())
 }
 
 #[tauri::command]
 async fn http_request(req: HttpRequest) -> Result<HttpResponse, String> {
     let (status, headers, bytes) = http_request_raw(req).await?;
-    let body = String::from_utf8(bytes.to_vec()).map_err(|_| "响应不是 UTF-8 文本".to_string())?;
+    let body = String::from_utf8(bytes).map_err(|_| "响应不是 UTF-8 文本".to_string())?;
     Ok(HttpResponse { status, headers, body })
 }
 
@@ -461,7 +445,7 @@ async fn http_request_base64(req: HttpRequest) -> Result<HttpResponseBase64, Str
     })
 }
 
-async fn http_request_raw(req: HttpRequest) -> Result<(u16, HashMap<String, String>, bytes::Bytes), String> {
+async fn http_request_raw(req: HttpRequest) -> Result<(u16, HashMap<String, String>, Vec<u8>), String> {
     let method = req.method.trim().to_uppercase();
     if method.is_empty() {
         return Err("method 不能为空".to_string());
@@ -544,7 +528,7 @@ async fn http_request_raw(req: HttpRequest) -> Result<(u16, HashMap<String, Stri
     if bytes.len() > MAX_HTTP_RESPONSE_BYTES {
         return Err(format!("响应过大（{} > {}）", bytes.len(), MAX_HTTP_RESPONSE_BYTES));
     }
-    Ok((status, headers, bytes))
+    Ok((status, headers, bytes.to_vec()))
 }
 
 #[derive(Deserialize)]
