@@ -18,6 +18,8 @@
     addTitle: '',
     addUrl: '',
     addGroupId: DEFAULT_GROUP_ID,
+    addIconUrl: '',
+    sniffingAddIcon: false,
     newGroupName: '',
     groupNameEdits: {},
     confirmKey: '',
@@ -174,6 +176,28 @@
       background: white;
     }
     .groupRow input { flex: 1; }
+
+    .iconLine { display: flex; align-items: center; gap: 10px; }
+    .siteIcon {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      border: 1px solid var(--outline);
+      background: white;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .siteIcon img { width: 100%; height: 100%; display: block; }
+    .siteIcon.ok .fallback { display: none; }
+    .siteIcon.err img { display: none; }
+    .fallback { font-size: 13px; color: var(--muted); line-height: 1; }
+
+    .cardTop { align-items: center; }
+    .cardTitleLine { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+    .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   `
 
   function escapeHtml(s) {
@@ -202,6 +226,90 @@
     if (s.startsWith('//')) return `https:${s}`
     if (lower.startsWith('javascript:') || lower.startsWith('data:')) return null
     return `https://${s}`
+  }
+
+  function toOrigin(url) {
+    try {
+      const u = new URL(url)
+      return `${u.protocol}//${u.host}`
+    } catch {
+      return null
+    }
+  }
+
+  function scoreIconLink(rel, sizes, href) {
+    const r = String(rel || '').toLowerCase()
+    const h = String(href || '')
+    if (!h) return -1
+
+    let base = 0
+    if (r.includes('apple-touch-icon')) base += 40
+    if (r.includes('icon')) base += 30
+    if (r.includes('mask-icon')) base += 10
+
+    const s = String(sizes || '').toLowerCase()
+    if (s.includes('any')) base += 5
+    const m = s.match(/(\d+)\s*x\s*(\d+)/)
+    if (m) {
+      const w = Number(m[1] || 0)
+      const h2 = Number(m[2] || 0)
+      if (w > 0 && h2 > 0) base += Math.min(100, Math.floor((w * h2) / 256))
+    }
+    return base
+  }
+
+  async function sniffIconUrl(pageUrl) {
+    const url = normalizeUrl(pageUrl)
+    if (!url) return null
+
+    const origin = toOrigin(url)
+    const fallback = origin ? `${origin}/favicon.ico` : null
+
+    if (!api.net?.request) return fallback
+
+    try {
+      const resp = await api.net.request({
+        method: 'GET',
+        url,
+        headers: {
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) fast-window/0.1',
+          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.7',
+        },
+        timeoutMs: 12000,
+      })
+
+      const html = String(resp?.body || '')
+      if (!html) return fallback
+
+      const doc = new DOMParser().parseFromString(html, 'text/html')
+      const baseHref = doc.querySelector('base[href]')?.getAttribute('href') || ''
+      const base = baseHref ? String(new URL(baseHref, url)) : url
+
+      const links = Array.from(doc.querySelectorAll('link[rel][href]'))
+      const candidates = []
+      for (const el of links) {
+        const rel = el.getAttribute('rel') || ''
+        const href = el.getAttribute('href') || ''
+        if (!href) continue
+        const r = rel.toLowerCase()
+        if (!r.includes('icon')) continue
+
+        const sizes = el.getAttribute('sizes') || ''
+        candidates.push({ rel, href, sizes, score: scoreIconLink(rel, sizes, href) })
+      }
+
+      candidates.sort((a, b) => b.score - a.score)
+      const top = candidates[0]
+      if (top && top.href) {
+        const resolved = new URL(top.href, base).toString()
+        if (/^https?:\/\//i.test(resolved) || resolved.toLowerCase().startsWith('data:image/')) return resolved
+      }
+
+      return fallback
+    } catch (_) {
+      return fallback
+    }
   }
 
   function ensureData(saved) {
@@ -233,6 +341,7 @@
           id: String(x?.id || ''),
           title: String(x?.title || ''),
           url: String(x?.url || ''),
+          iconUrl: typeof x?.iconUrl === 'string' ? String(x.iconUrl || '') : '',
           groupId: groupIds.has(String(x?.groupId || '')) ? String(x?.groupId || '') : DEFAULT_GROUP_ID,
           createdAt: typeof x?.createdAt === 'number' ? x.createdAt : now,
           updatedAt: typeof x?.updatedAt === 'number' ? x.updatedAt : now,
@@ -295,6 +404,8 @@
       state.addTitle = ''
       state.addUrl = ''
       state.addGroupId = state.groupId === ALL_GROUP_ID ? DEFAULT_GROUP_ID : state.groupId
+      state.addIconUrl = ''
+      state.sniffingAddIcon = false
     }
     if (kind === 'groups') {
       state.newGroupName = ''
@@ -328,6 +439,7 @@
     const title = String(state.addTitle || '').trim()
     const url = normalizeUrl(state.addUrl)
     const groupId = String(state.addGroupId || DEFAULT_GROUP_ID)
+    const iconUrl = String(state.addIconUrl || '').trim()
 
     if (!url) {
       api.ui?.showToast?.('URL 只支持 http(s)://，可省略协议')
@@ -339,10 +451,12 @@
     }
 
     const now = Date.now()
+    const itemId = uid()
     state.data.items.unshift({
-      id: uid(),
+      id: itemId,
       title: title || url,
       url,
+      iconUrl,
       groupId,
       createdAt: now,
       updatedAt: now,
@@ -351,6 +465,12 @@
     await save()
     api.ui?.showToast?.('已添加')
     closeModal()
+
+    if (!iconUrl) {
+      Promise.resolve()
+        .then(() => refreshIconForItem(itemId))
+        .catch(() => {})
+    }
   }
 
   async function deleteBookmark(id) {
@@ -380,6 +500,38 @@
       render()
     } catch (_) {
       api.ui?.showToast?.('打开失败')
+    }
+  }
+
+  async function refreshIconForItem(id) {
+    const item = state.data.items.find((x) => x.id === id)
+    if (!item) return
+    const icon = await sniffIconUrl(item.url)
+    if (!icon) {
+      api.ui?.showToast?.('未找到图标')
+      return
+    }
+    item.iconUrl = icon
+    item.updatedAt = Date.now()
+    await save()
+    api.ui?.showToast?.('图标已更新')
+    render()
+  }
+
+  async function sniffAddIcon() {
+    if (state.sniffingAddIcon) return
+    state.sniffingAddIcon = true
+    api.ui?.showToast?.('正在嗅探图标...')
+    try {
+      const icon = await sniffIconUrl(state.addUrl)
+      if (!icon) {
+        api.ui?.showToast?.('未找到图标')
+        return
+      }
+      state.addIconUrl = icon
+      render()
+    } finally {
+      state.sniffingAddIcon = false
     }
   }
 
@@ -472,6 +624,18 @@
                 <span class="label">URL</span>
                 <input data-act="addUrl" placeholder="https://example.com（可省略协议）" />
               </label>
+              <div class="row">
+                <div class="iconLine">
+                  <div class="siteIcon" data-role="addIconWrap">
+                    <span class="fallback">🌐</span>
+                    <img data-role="addIconImg" alt="网站图标" />
+                  </div>
+                  <div class="help">图标可自动嗅探（不下载，直接引用 URL）</div>
+                </div>
+                <div class="spacer"></div>
+                <button class="btn" data-act="sniffAddIcon">嗅探图标</button>
+                <button class="btn" data-act="clearAddIcon">清除</button>
+              </div>
               <label class="field">
                 <span class="label">分组</span>
                 <select data-act="addGroup" aria-label="选择分组"></select>
@@ -515,6 +679,12 @@
       if (act === 'groups') return openModal('groups')
       if (act === 'closeAdd' || act === 'closeGroups') return closeModal()
       if (act === 'confirmAdd') return addBookmark()
+      if (act === 'sniffAddIcon') return sniffAddIcon()
+      if (act === 'clearAddIcon') {
+        state.addIconUrl = ''
+        render()
+        return
+      }
       if (act === 'addGroup') return addGroup()
       if (act === 'saveGroup') return renameGroup(String(t.getAttribute('data-id') || ''))
       if (act === 'delGroup') return deleteGroup(String(t.getAttribute('data-id') || ''))
@@ -523,6 +693,11 @@
         if (!id) return
         if (!confirmOnce(`del:${id}`, '再点一次删除这条收藏')) return
         return deleteBookmark(id)
+      }
+      if (act === 'sniffIcon') {
+        const id = String(t.getAttribute('data-id') || '')
+        if (!id) return
+        return refreshIconForItem(id)
       }
       if (act === 'openBtn') {
         const id = String(t.getAttribute('data-id') || '')
@@ -583,6 +758,31 @@
       }
     })
 
+    root.addEventListener(
+      'load',
+      (e) => {
+        const t = e.target
+        if (!(t instanceof HTMLImageElement)) return
+        const wrap = t.closest('.siteIcon')
+        if (!(wrap instanceof HTMLElement)) return
+        wrap.classList.add('ok')
+        wrap.classList.remove('err')
+      },
+      true,
+    )
+    root.addEventListener(
+      'error',
+      (e) => {
+        const t = e.target
+        if (!(t instanceof HTMLImageElement)) return
+        const wrap = t.closest('.siteIcon')
+        if (!(wrap instanceof HTMLElement)) return
+        wrap.classList.add('err')
+        wrap.classList.remove('ok')
+      },
+      true,
+    )
+
     root.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return
       if (state.modal) closeModal()
@@ -636,11 +836,22 @@
         .map((x) => {
           const gname = groupNameOf(x.groupId)
           const when = x.lastOpenedAt ? `最近打开：${formatTime(x.lastOpenedAt)}` : `创建：${formatTime(x.createdAt)}`
+          const icon = String(x.iconUrl || '').trim()
+          const iconImg = icon
+            ? `<img alt="网站图标" loading="lazy" referrerpolicy="no-referrer" src="${escapeHtml(icon)}" />`
+            : `<img alt="网站图标" loading="lazy" referrerpolicy="no-referrer" />`
           return `
             <div class="card" data-act="open" data-id="${escapeHtml(x.id)}" title="点击打开">
               <div class="cardTop">
-                <div class="name">${escapeHtml(x.title || x.url)}</div>
+                <div class="cardTitleLine">
+                  <div class="siteIcon">
+                    <span class="fallback">🌐</span>
+                    ${iconImg}
+                  </div>
+                  <div class="name">${escapeHtml(x.title || x.url)}</div>
+                </div>
                 <div class="spacer"></div>
+                <button class="iconBtn" data-act="sniffIcon" data-id="${escapeHtml(x.id)}" title="嗅探图标">⟳</button>
                 <button class="iconBtn" data-act="openBtn" data-id="${escapeHtml(x.id)}" title="打开">↗</button>
                 <button class="iconBtn danger" data-act="del" data-id="${escapeHtml(x.id)}" title="删除">🗑</button>
               </div>
@@ -685,6 +896,25 @@
     if (addTitle instanceof HTMLInputElement) addTitle.value = state.addTitle
     if (addUrl instanceof HTMLInputElement) addUrl.value = state.addUrl
     if (newGroupName instanceof HTMLInputElement) newGroupName.value = state.newGroupName
+
+    const addIconImg = document.querySelector('img[data-role="addIconImg"]')
+    if (addIconImg instanceof HTMLImageElement) {
+      addIconImg.setAttribute('referrerpolicy', 'no-referrer')
+      const icon = String(state.addIconUrl || '').trim()
+      const wrap = addIconImg.closest('.siteIcon')
+      if (icon) {
+        addIconImg.src = icon
+        if (wrap instanceof HTMLElement) {
+          wrap.classList.remove('err')
+        }
+      } else {
+        addIconImg.removeAttribute('src')
+        if (wrap instanceof HTMLElement) {
+          wrap.classList.remove('ok')
+          wrap.classList.remove('err')
+        }
+      }
+    }
   }
 
   async function init() {

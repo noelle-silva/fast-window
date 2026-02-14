@@ -8,6 +8,5 @@
   "keyword": "bm",
   "apiVersion": 2,
   "ui": { "type": "iframe" },
-  "requires": ["storage.get", "storage.set", "ui.openUrl", "ui.showToast"]
+  "requires": ["storage.get", "storage.set", "ui.openUrl", "ui.showToast", "net.request"]
 }
-
