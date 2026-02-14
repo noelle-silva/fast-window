@@ -5,6 +5,7 @@
 
   const STORAGE_KEY = 'history'
   const SETTINGS_KEY = 'settings'
+  const DELETED_KEY = 'deletedHistory'
   const COLLECTIONS_KEY = 'collections'
   const RECENT_FOLDERS_KEY = 'recentFolders'
   const TASK_KIND_CLIPBOARD_WATCH = 'clipboard.watch'
@@ -24,6 +25,7 @@
       monitorTaskId: '',
       settings: { ...DEFAULT_SETTINGS },
       history: [],
+      deleted: {},
       ticking: false,
     }
 
@@ -33,6 +35,32 @@
 
     function historyUniqKey(item) {
       return `${item.type}\n${item.content}`
+    }
+
+    function bgNormalizeDeletedMap(raw) {
+      const map = raw && typeof raw === 'object' ? raw : {}
+      const out = {}
+      const maxAgeMs = 30 * 24 * 60 * 60 * 1000
+      const cutoff = now() - maxAgeMs
+      for (const k of Object.keys(map)) {
+        const v = Number(map[k])
+        if (!Number.isFinite(v) || v <= 0) continue
+        if (v < cutoff) continue
+        out[String(k)] = Math.floor(v)
+      }
+      const items = Object.entries(out).sort((a, b) => Number(b[1]) - Number(a[1]))
+      if (items.length <= 800) return out
+      const pruned = {}
+      for (const [k, v] of items.slice(0, 800)) pruned[k] = v
+      return pruned
+    }
+
+    function bgIsDeleted(item) {
+      const k = historyUniqKey(item)
+      const deletedAt = Number(bgState.deleted && bgState.deleted[k] ? bgState.deleted[k] : 0)
+      if (!deletedAt) return false
+      const t = Number(item && item.time ? item.time : 0)
+      return Number.isFinite(t) && t > 0 ? t <= deletedAt : true
     }
 
     function bgNormalizeSettings(raw) {
@@ -126,14 +154,17 @@
     }
 
     async function bgLoadState() {
-      const [savedHistory, savedSettings] = await Promise.all([
+      const [savedHistory, savedSettings, savedDeleted] = await Promise.all([
         api.storage.get(STORAGE_KEY).catch(() => null),
         api.storage.get(SETTINGS_KEY).catch(() => null),
+        api.storage.get(DELETED_KEY).catch(() => null),
       ])
       bgState.settings = bgNormalizeSettings(savedSettings)
-      bgState.history = bgNormalizeHistoryItems(savedHistory, bgState.settings.maxHistory)
+      bgState.deleted = bgNormalizeDeletedMap(savedDeleted)
+      bgState.history = bgNormalizeHistoryItems(savedHistory, bgState.settings.maxHistory).filter((it) => !bgIsDeleted(it))
       await api.storage.set(STORAGE_KEY, bgState.history).catch(() => {})
       await api.storage.set(SETTINGS_KEY, bgState.settings).catch(() => {})
+      await api.storage.set(DELETED_KEY, bgState.deleted).catch(() => {})
     }
 
     function bgPickRunningMonitorTask(tasks) {
@@ -191,8 +222,9 @@
       const status = String(task.status || '')
       if (status === 'queued' || status === 'running' || status === 'succeeded') {
         const result = task && task.result && typeof task.result === 'object' ? task.result : {}
-        const snapshotItems = bgNormalizeHostSnapshotItems(result)
-        const merged = bgMergeHistoryItems(bgState.history, snapshotItems, bgState.settings.maxHistory)
+        const snapshotItems = bgNormalizeHostSnapshotItems(result).filter((it) => !bgIsDeleted(it))
+        const base = (Array.isArray(bgState.history) ? bgState.history : []).filter((it) => !bgIsDeleted(it))
+        const merged = bgMergeHistoryItems(base, snapshotItems, bgState.settings.maxHistory)
         await bgSaveHistoryIfChanged(merged)
       }
 
@@ -215,6 +247,11 @@
           bgState.monitorTaskId = ''
         }
 
+        const savedDeleted = await api.storage.get(DELETED_KEY).catch(() => null)
+        bgState.deleted = bgNormalizeDeletedMap(savedDeleted)
+        const filtered = (Array.isArray(bgState.history) ? bgState.history : []).filter((it) => !bgIsDeleted(it))
+        await bgSaveHistoryIfChanged(filtered)
+
         await bgEnsureMonitorTaskRunning()
         await bgPollMonitorTask()
       } finally {
@@ -235,6 +272,7 @@
   const state = {
     history: [],
     settings: { ...DEFAULT_SETTINGS },
+    deleted: {},
     showSettings: false,
 
     view: 'clipboard', // 'clipboard' | 'folders'
@@ -578,6 +616,37 @@
     return `${item.type}\n${item.content}`
   }
 
+  function normalizeDeletedMap(raw) {
+    const map = raw && typeof raw === 'object' ? raw : {}
+    const out = {}
+    const maxAgeMs = 30 * 24 * 60 * 60 * 1000
+    const cutoff = now() - maxAgeMs
+    for (const k of Object.keys(map)) {
+      const v = Number(map[k])
+      if (!Number.isFinite(v) || v <= 0) continue
+      if (v < cutoff) continue
+      out[String(k)] = Math.floor(v)
+    }
+    const items = Object.entries(out).sort((a, b) => Number(b[1]) - Number(a[1]))
+    if (items.length <= 800) return out
+    const pruned = {}
+    for (const [k, v] of items.slice(0, 800)) pruned[k] = v
+    return pruned
+  }
+
+  function markDeleted(item) {
+    if (!item || !item.type || !item.content) return
+    state.deleted = normalizeDeletedMap({ ...(state.deleted || {}), [historyUniqKey(item)]: now() })
+  }
+
+  function isDeleted(item) {
+    const k = historyUniqKey(item)
+    const deletedAt = Number(state.deleted && state.deleted[k] ? state.deleted[k] : 0)
+    if (!deletedAt) return false
+    const t = Number(item && item.time ? item.time : 0)
+    return Number.isFinite(t) && t > 0 ? t <= deletedAt : true
+  }
+
   function mergeHistoryItems(primary, secondary, limit = state.settings.maxHistory) {
     const map = new Map()
     const merged = [...(Array.isArray(primary) ? primary : []), ...(Array.isArray(secondary) ? secondary : [])]
@@ -694,8 +763,12 @@
 
   async function syncFromMonitorTaskSnapshot(task) {
     const result = task && task.result && typeof task.result === 'object' ? task.result : {}
-    const snapshotItems = normalizeHostSnapshotItems(result)
-    const merged = mergeHistoryItems(state.history, snapshotItems, state.settings.maxHistory)
+    const snapshotItems = normalizeHostSnapshotItems(result).filter((it) => !isDeleted(it))
+    const merged = mergeHistoryItems(
+      (Array.isArray(state.history) ? state.history : []).filter((it) => !isDeleted(it)),
+      snapshotItems,
+      state.settings.maxHistory,
+    )
     const changed = !isSameHistory(state.history, merged)
     if (changed) {
       state.history = merged
@@ -822,6 +895,7 @@
     try {
       await api.storage.set(STORAGE_KEY, state.history)
       await api.storage.set(SETTINGS_KEY, state.settings)
+      await api.storage.set(DELETED_KEY, state.deleted)
     } catch (e) {}
   }
 
@@ -1367,11 +1441,20 @@
           return
         }
         state.clearArmedAt = 0
+        const toDelete = Array.isArray(state.history) ? state.history.slice() : []
+        const tasks = []
+        for (const it of toDelete) {
+          if (!it || it.type !== 'image') continue
+          tasks.push(tryDeleteManagedImageFile(it))
+        }
+        await Promise.allSettled(tasks)
         state.history = []
         state.clipboardExpanded = {}
         state.clipboardImageCache = {}
+        state.clipboardImageLoading = {}
         state.clipboardLimit = CLIPBOARD_PAGE_SIZE
         await persistClipboard()
+        restartMonitor()
         api.ui?.showToast?.('已清空')
         render()
         return
@@ -1516,10 +1599,12 @@
           }
           state.deleteArmedId = ''
           state.deleteArmedAt = 0
+          markDeleted(item)
           state.history = state.history.filter((h) => historyKey(h) !== key)
           if (state.clipboardExpanded[key]) delete state.clipboardExpanded[key]
           if (state.clipboardImageCache[key]) delete state.clipboardImageCache[key]
           if (state.clipboardImageLoading[key]) delete state.clipboardImageLoading[key]
+          await tryDeleteManagedImageFile(item)
           await persistClipboard()
           api.ui?.showToast?.('已删除')
           renderClipboardList()
@@ -1942,6 +2027,28 @@
     return c
   }
 
+  function basenameFromPath(path) {
+    const s = String(path || '').trim()
+    if (!s) return ''
+    const normalized = s.replaceAll('\\', '/')
+    const i = normalized.lastIndexOf('/')
+    return i >= 0 ? normalized.slice(i + 1) : normalized
+  }
+
+  function isManagedClipboardImagePath(path) {
+    const b = basenameFromPath(path)
+    return /^clipboard-image-[0-9a-f]{8}\.png$/i.test(b)
+  }
+
+  async function tryDeleteManagedImageFile(item) {
+    if (!item || item.type !== 'image') return
+    const path = pickImagePath(item)
+    if (!path) return
+    if (!isManagedClipboardImagePath(path)) return
+    if (!api.files || typeof api.files.deleteOutputImage !== 'function') return
+    await api.files.deleteOutputImage(path).catch(() => {})
+  }
+
   let clipboardSentinelObserver = null
 
   function detachClipboardSentinelObserver() {
@@ -2287,19 +2394,24 @@
 
   async function init() {
     try {
-      const [savedHistory, savedSettings, savedCollections, savedRecent] = await Promise.all([
+      const [savedHistory, savedSettings, savedDeleted, savedCollections, savedRecent] = await Promise.all([
         api.storage.get(STORAGE_KEY),
         api.storage.get(SETTINGS_KEY),
+        api.storage.get(DELETED_KEY),
         api.storage.get(COLLECTIONS_KEY),
         api.storage.get(RECENT_FOLDERS_KEY),
       ])
 
       state.settings = normalizeSettings(savedSettings)
-      state.history = normalizeHistoryItems(savedHistory, state.settings.maxHistory)
+      const normalizedHistory = normalizeHistoryItems(savedHistory, state.settings.maxHistory)
+      state.history = normalizedHistory
+      state.deleted = normalizeDeletedMap(savedDeleted)
+      state.history = (Array.isArray(state.history) ? state.history : []).filter((it) => !isDeleted(it))
       state.collections = ensureCollections(savedCollections)
       state.currentFolderId = state.collections.rootId || 'root'
       if (Array.isArray(savedRecent)) state.recentFolders = savedRecent.filter((x) => typeof x === 'string')
       if (!savedCollections) await persistCollections()
+      if (!savedDeleted || state.history.length !== normalizedHistory.length) await persistClipboard()
 
       const firstText = state.history.find((it) => it && it.type === 'text' && it.content)
       if (firstText) state.currentText = firstText.content

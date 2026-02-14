@@ -22,6 +22,7 @@
     "storage.getAll",
     "storage.setAll",
     "files.readOutputImage",
+    "files.deleteOutputImage",
     "ui.showToast"
   ]
 }
