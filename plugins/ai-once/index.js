@@ -38,6 +38,11 @@
       editSpaceId: '',
       deleteSpaceId: '',
       deleteSpaceReturnModal: '',
+      deleteTemplateId: '',
+      deleteTemplateSpaceId: '',
+      deleteTemplateReturnModal: '',
+      deleteProviderId: '',
+      deleteProviderReturnModal: '',
     },
     data: null,
   }
@@ -531,6 +536,101 @@
     deleteSpace(id)
   }
 
+  function openDeleteTemplateConfirm(spaceId, templateId, returnModal) {
+    const sid = String(spaceId || '')
+    const tid = String(templateId || '')
+    const s = sid ? getSpace(sid) : null
+    if (!s) return
+    if (!tid || !s.templates.some((t) => t && t.id === tid)) return
+    state.draft.deleteTemplateSpaceId = sid
+    state.draft.deleteTemplateId = tid
+    state.draft.deleteTemplateReturnModal = String(returnModal || '')
+    state.modal = 'confirm-delete-template'
+    render()
+  }
+
+  function cancelDeleteTemplateConfirm() {
+    const back = String(state.draft.deleteTemplateReturnModal || '')
+    state.draft.deleteTemplateId = ''
+    state.draft.deleteTemplateSpaceId = ''
+    state.draft.deleteTemplateReturnModal = ''
+    state.modal = back
+    render()
+  }
+
+  function confirmDeleteTemplate() {
+    const tid = String(state.draft.deleteTemplateId || '')
+    const sid = String(state.draft.deleteTemplateSpaceId || '')
+    const back = String(state.draft.deleteTemplateReturnModal || '')
+    state.draft.deleteTemplateId = ''
+    state.draft.deleteTemplateSpaceId = ''
+    state.draft.deleteTemplateReturnModal = ''
+    state.modal = back
+    if (!sid || !tid) {
+      render()
+      return
+    }
+    const s = getSpace(sid)
+    if (!s) {
+      render()
+      return
+    }
+    closeTplEditor(tid)
+    deleteTemplate(s, tid)
+  }
+
+  function openDeleteProviderConfirm(providerId, returnModal) {
+    if (!state.data) return
+    const pid = String(providerId || '')
+    if (!pid) return
+    if (state.data.settings.providers.length <= 1) return api.ui?.showToast?.('至少保留一个供应商')
+    const p = state.data.settings.providers.find((x) => x && x.id === pid)
+    if (!p) return
+    state.draft.deleteProviderId = pid
+    state.draft.deleteProviderReturnModal = String(returnModal || '')
+    state.modal = 'confirm-delete-provider'
+    render()
+  }
+
+  function cancelDeleteProviderConfirm() {
+    const back = String(state.draft.deleteProviderReturnModal || '')
+    state.draft.deleteProviderId = ''
+    state.draft.deleteProviderReturnModal = ''
+    state.modal = back
+    render()
+  }
+
+  function confirmDeleteProvider() {
+    if (!state.data) return
+    const pid = String(state.draft.deleteProviderId || '')
+    const back = String(state.draft.deleteProviderReturnModal || '')
+    state.draft.deleteProviderId = ''
+    state.draft.deleteProviderReturnModal = ''
+    state.modal = back
+    if (!pid) {
+      render()
+      return
+    }
+
+    if (state.data.settings.providers.length <= 1) {
+      api.ui?.showToast?.('至少保留一个供应商')
+      render()
+      return
+    }
+
+    state.data.settings.providers = state.data.settings.providers.filter((x) => x.id !== pid)
+    state.data.settings.activeProviderId = String(state.data.settings.providers[0].id)
+    save()
+    const p2 = activeProvider()
+    state.draft.activeProviderId = String(p2?.id || '')
+    state.draft.providerName = String(p2?.name || '')
+    state.draft.baseUrl = String(p2?.baseUrl || '')
+    state.draft.apiKey = String(p2?.apiKey || '')
+    state.models = []
+    state.modelsError = ''
+    render()
+  }
+
   function goSpace(spaceId) {
     const id = String(spaceId || '')
     if (!id) return
@@ -611,7 +711,7 @@
     if (!space) return
     if (space.templates.length <= 1) return api.ui?.showToast?.('至少保留一个模板')
     const tpl = space.templates.find((t) => t.id === templateId)
-    if (!confirm(`删除模板「${tpl ? tpl.name : ''}」？`)) return
+    if (!tpl) return
     space.templates = space.templates.filter((t) => t.id !== templateId)
     if (!space.templates.some((t) => t.id === space.activeTemplateId)) space.activeTemplateId = space.templates[0].id
     space.updatedAt = now()
@@ -733,12 +833,11 @@
         return
       }
       if (act === 'close-modal') {
-        if (state.modal === 'confirm-delete-space') {
-          cancelDeleteSpaceConfirm()
-        } else {
-          state.modal = ''
-          render()
-        }
+        if (state.modal === 'confirm-delete-space') return cancelDeleteSpaceConfirm()
+        if (state.modal === 'confirm-delete-template') return cancelDeleteTemplateConfirm()
+        if (state.modal === 'confirm-delete-provider') return cancelDeleteProviderConfirm()
+        state.modal = ''
+        render()
         return
       }
       if (act === 'save-settings') {
@@ -779,20 +878,8 @@
       if (act === 'delete-provider') {
         if (!state.data) return
         const pid = String(state.data.settings.activeProviderId || '')
-        if (state.data.settings.providers.length <= 1) return api.ui?.showToast?.('至少保留一个供应商')
-        const p = state.data.settings.providers.find((x) => x && x.id === pid)
-        if (!confirm(`删除供应商「${p ? p.name : ''}」？`)) return
-        state.data.settings.providers = state.data.settings.providers.filter((x) => x.id !== pid)
-        state.data.settings.activeProviderId = String(state.data.settings.providers[0].id)
-        save()
-        const p2 = activeProvider()
-        state.draft.activeProviderId = String(p2?.id || '')
-        state.draft.providerName = String(p2?.name || '')
-        state.draft.baseUrl = String(p2?.baseUrl || '')
-        state.draft.apiKey = String(p2?.apiKey || '')
-        state.models = []
-        state.modelsError = ''
-        render()
+        if (!pid) return
+        openDeleteProviderConfirm(pid, state.modal || 'settings')
         return
       }
       if (act === 'refresh-models') {
@@ -870,6 +957,22 @@
         confirmDeleteSpace()
         return
       }
+      if (act === 'cancel-delete-template') {
+        cancelDeleteTemplateConfirm()
+        return
+      }
+      if (act === 'confirm-delete-template') {
+        confirmDeleteTemplate()
+        return
+      }
+      if (act === 'cancel-delete-provider') {
+        cancelDeleteProviderConfirm()
+        return
+      }
+      if (act === 'confirm-delete-provider') {
+        confirmDeleteProvider()
+        return
+      }
       if (act === 'send') {
         sendOnce()
         return
@@ -939,8 +1042,7 @@
           render()
           return
         }
-        closeTplEditor(tid)
-        deleteTemplate(s, tid)
+        openDeleteTemplateConfirm(String(s.id || ''), tid, 'templates')
         return
       }
     })
@@ -1416,6 +1518,70 @@
             <div class="row">
               <button class="btn bad" data-act="confirm-delete-space">确认删除</button>
               <button class="btn" data-act="cancel-delete-space">取消</button>
+            </div>
+          </div>
+        </div>
+      `
+      return
+    }
+    if (state.modal === 'confirm-delete-template') {
+      const sid = String(state.draft.deleteTemplateSpaceId || '')
+      const tid = String(state.draft.deleteTemplateId || '')
+      const s = sid ? getSpace(sid) : null
+      const tpl = s && tid ? s.templates.find((t) => t && t.id === tid) : null
+      if (!s || !tpl) {
+        state.modal = String(state.draft.deleteTemplateReturnModal || '')
+        state.draft.deleteTemplateId = ''
+        state.draft.deleteTemplateSpaceId = ''
+        state.draft.deleteTemplateReturnModal = ''
+        renderModal()
+        return
+      }
+      el.innerHTML = `
+        <div class="overlay" data-act="close-modal">
+          <div class="modal">
+            <div class="row">
+              <div class="title" style="margin:0">确认删除模板</div>
+              <div class="sp"></div>
+              <button class="btn" data-act="cancel-delete-template">取消</button>
+            </div>
+            <div class="hr"></div>
+            <div class="meta">删除后不可恢复，将从空间「${esc(s.name)}」移除模板「${esc(tpl.name)}」。</div>
+            <div class="hr"></div>
+            <div class="row">
+              <button class="btn bad" data-act="confirm-delete-template">确认删除</button>
+              <button class="btn" data-act="cancel-delete-template">取消</button>
+            </div>
+          </div>
+        </div>
+      `
+      return
+    }
+    if (state.modal === 'confirm-delete-provider') {
+      const pid = String(state.draft.deleteProviderId || '')
+      const ps = state.data ? state.data.settings.providers : []
+      const p = pid && Array.isArray(ps) ? ps.find((x) => x && x.id === pid) : null
+      if (!state.data || !p) {
+        state.modal = String(state.draft.deleteProviderReturnModal || '')
+        state.draft.deleteProviderId = ''
+        state.draft.deleteProviderReturnModal = ''
+        renderModal()
+        return
+      }
+      el.innerHTML = `
+        <div class="overlay" data-act="close-modal">
+          <div class="modal">
+            <div class="row">
+              <div class="title" style="margin:0">确认删除供应商</div>
+              <div class="sp"></div>
+              <button class="btn" data-act="cancel-delete-provider">取消</button>
+            </div>
+            <div class="hr"></div>
+            <div class="meta">删除后不可恢复，将移除供应商「${esc(p.name)}」的连接配置。</div>
+            <div class="hr"></div>
+            <div class="row">
+              <button class="btn bad" data-act="confirm-delete-provider">确认删除</button>
+              <button class="btn" data-act="cancel-delete-provider">取消</button>
             </div>
           </div>
         </div>

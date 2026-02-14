@@ -268,6 +268,8 @@
       chatSystemPrompt: '',
       promptHistoryLimit: String(DEFAULT_PROMPT_HISTORY_LIMIT),
       autoSave: true,
+      deleteProviderId: '',
+      deleteProviderReturnModal: '',
     },
   }
 
@@ -1066,6 +1068,45 @@
     render()
   }
 
+  function openDeleteProviderConfirm(providerId, returnModal) {
+    if (!state.data) return
+    const pid = String(providerId || '')
+    if (!pid) return
+    if (state.data.providers.length <= 1) return api.ui.showToast('至少保留一个供应商')
+    const p = state.data.providers.find((x) => x && x.id === pid)
+    if (!p) return
+    state.draft.deleteProviderId = pid
+    state.draft.deleteProviderReturnModal = String(returnModal || '')
+    state.modal = 'confirm-delete-provider'
+    render()
+  }
+
+  function cancelDeleteProviderConfirm() {
+    const back = String(state.draft.deleteProviderReturnModal || '')
+    state.draft.deleteProviderId = ''
+    state.draft.deleteProviderReturnModal = ''
+    state.modal = back
+    render()
+  }
+
+  function confirmDeleteProvider() {
+    if (!state.data) return
+    const pid = String(state.draft.deleteProviderId || '')
+    const back = String(state.draft.deleteProviderReturnModal || '')
+    state.draft.deleteProviderId = ''
+    state.draft.deleteProviderReturnModal = ''
+    state.modal = back
+    if (!pid) return render()
+    if (state.data.providers.length <= 1) {
+      api.ui.showToast('至少保留一个供应商')
+      return render()
+    }
+    state.data.providers = state.data.providers.filter((x) => x.id !== pid)
+    state.data.activeProviderId = String(state.data.providers[0].id)
+    openSettings()
+    save().catch(() => {})
+  }
+
   function openPluginSettings() {
     if (!state.data) return
     state.modal = 'plugin-settings'
@@ -1665,6 +1706,8 @@
     const providerOptions = ps
       .map((x) => `<option value="${esc(x.id)}" ${x.id === pid ? 'selected' : ''}>${esc(x.name)}</option>`)
       .join('')
+    const delPid = String(state.draft.deleteProviderId || '')
+    const delP = delPid ? ps.find((x) => x && String(x.id || '') === delPid) : null
 
     const isChat = String(p?.protocol || 'images') === 'chat'
     const activeTasks = getActiveTasks()
@@ -1689,7 +1732,25 @@
     const err = state.error ? `<div class="err" role="alert">${esc(state.error)}</div>` : ''
 
     const modal =
-      state.modal === 'settings'
+      state.modal === 'confirm-delete-provider'
+        ? `
+      <div class="overlay" data-act="close-modal">
+        <div class="modal" role="dialog" aria-modal="true" aria-label="确认删除供应商">
+          <div class="row">
+            <div class="title" style="margin:0">确认删除供应商</div>
+            <div class="sp"></div>
+            <button class="btn" data-act="cancel-delete-provider">取消</button>
+          </div>
+          <div class="hr"></div>
+          <div class="meta">删除后不可恢复，将移除供应商「${esc(delP ? delP.name : '')}」的连接配置。</div>
+          <div class="hr"></div>
+          <div class="row">
+            <button class="btn bad" data-act="confirm-delete-provider">确认删除</button>
+            <button class="btn" data-act="cancel-delete-provider">取消</button>
+          </div>
+        </div>
+      </div>`
+        : state.modal === 'settings'
         ? `
       <div class="overlay" data-act="close-modal">
         <div class="modal" role="dialog" aria-modal="true" aria-label="供应商设置">
@@ -2009,9 +2070,14 @@
       if (act === 'open-settings') {
         openSettings()
       } else if (act === 'close-modal') {
+        if (state.modal === 'confirm-delete-provider') return cancelDeleteProviderConfirm()
         state.modal = ''
         state.revealApiKey = false
         render()
+      } else if (act === 'cancel-delete-provider') {
+        cancelDeleteProviderConfirm()
+      } else if (act === 'confirm-delete-provider') {
+        confirmDeleteProvider()
       } else if (act === 'open-ref-library') {
         openRefLibrary()
       } else if (act === 'open-plugin-settings') {
@@ -2155,11 +2221,7 @@
         if (state.data.providers.length <= 1) return api.ui.showToast('至少保留一个供应商')
         const p = activeProvider()
         if (!p) return
-        if (!confirm(`删除供应商「${p.name}」？`)) return
-        state.data.providers = state.data.providers.filter((x) => x.id !== p.id)
-        state.data.activeProviderId = String(state.data.providers[0].id)
-        openSettings()
-        save().catch(() => {})
+        openDeleteProviderConfirm(String(p.id || ''), state.modal || 'settings')
       }
     })
 

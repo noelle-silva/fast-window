@@ -107,6 +107,17 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
 
 注意：iframe 插件不会拿到 `React`，也不会使用 `registerPluginComponent`；它应该自行渲染 DOM。
 
+## Iframe 沙箱注意事项（重要）
+
+插件 UI/后台都运行在 `sandbox iframe` 中（宿主目前仅开启 `allow-scripts`）。因此：
+
+- 不要使用 `window.confirm()` / `window.alert()` / `window.prompt()`：会被浏览器直接拦截，表现为“点击无响应/没弹窗/逻辑提前 return”。
+- 需要确认操作（删除、清空、覆盖等）时，推荐两种方式：
+  - **插件自绘 Modal**：用 overlay + dialog 的 DOM/状态机实现确认/取消（推荐，体验更一致）。
+  - **二次点击确认**：第一次点击仅提示 `fastWindow.ui.showToast('再点一次…')`，短时间内第二次点击才执行。
+
+设计原则：不要依赖浏览器原生弹窗，确认交互应完全由插件自身 UI 控制。
+
 ## 目录与数据（当前实现）
 
 - 默认（便携）模式：
