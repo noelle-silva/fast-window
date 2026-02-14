@@ -1,0 +1,13 @@
+{
+  "id": "bookmarks",
+  "name": "网站收藏",
+  "version": "1.0.0",
+  "description": "收藏、分组管理常用网站，点击即可用浏览器打开",
+  "main": "index.js",
+  "icon": "🔖",
+  "keyword": "bm",
+  "apiVersion": 2,
+  "ui": { "type": "iframe" },
+  "requires": ["storage.get", "storage.set", "ui.openUrl", "ui.showToast"]
+}
+

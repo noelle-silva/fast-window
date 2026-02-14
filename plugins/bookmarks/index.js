@@ -1,0 +1,697 @@
+// bookmarks (iframe sandbox) (entry: index.js)
+;(function () {
+  const api = window.fastWindow
+  const STORAGE_KEY = 'data'
+  const DEFAULT_GROUP_ID = 'default'
+  const ALL_GROUP_ID = '__all__'
+
+  const state = {
+    loading: true,
+    groupId: ALL_GROUP_ID,
+    search: '',
+    data: {
+      schemaVersion: 1,
+      groups: [],
+      items: [],
+    },
+    modal: null, // 'add' | 'groups' | null
+    addTitle: '',
+    addUrl: '',
+    addGroupId: DEFAULT_GROUP_ID,
+    newGroupName: '',
+    groupNameEdits: {},
+    confirmKey: '',
+    confirmUntil: 0,
+  }
+
+  const styles = `
+    :root {
+      --bg: #FAFAFA;
+      --surface: #FFFFFF;
+      --text: #212121;
+      --muted: #757575;
+      --outline: #E0E0E0;
+      --primary: #1976D2;
+      --danger: #D32F2F;
+      --shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+      --radius: 12px;
+    }
+    * { box-sizing: border-box; }
+    body { background: var(--bg); color: var(--text); }
+    .wrap { height: 100vh; display: flex; flex-direction: column; }
+    .topbar {
+      height: 44px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--outline);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 10px;
+      box-shadow: var(--shadow);
+      flex-shrink: 0;
+    }
+    .title { font-weight: 800; font-size: 13px; margin-right: auto; }
+    .btn {
+      border: 1px solid var(--outline);
+      background: var(--surface);
+      color: var(--text);
+      height: 30px;
+      padding: 0 10px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      line-height: 28px;
+    }
+    .btn.primary { border-color: transparent; background: var(--primary); color: white; }
+    .btn.danger { border-color: transparent; background: var(--danger); color: white; }
+
+    .filters {
+      display: flex;
+      gap: 10px;
+      padding: 10px;
+      flex-shrink: 0;
+    }
+    .field { display: flex; flex-direction: column; gap: 6px; min-width: 120px; }
+    .field.grow { flex: 1; min-width: 0; }
+    .label { font-size: 11px; color: var(--muted); }
+    select, input {
+      height: 34px;
+      border: 1px solid var(--outline);
+      border-radius: 10px;
+      padding: 0 10px;
+      font-size: 13px;
+      outline: none;
+      background: white;
+      color: var(--text);
+    }
+
+    .content { flex: 1; overflow: auto; padding: 10px; }
+    .list { display: flex; flex-direction: column; gap: 10px; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--outline);
+      border-radius: var(--radius);
+      padding: 10px;
+      box-shadow: var(--shadow);
+      cursor: pointer;
+    }
+    .cardTop { display: flex; align-items: center; gap: 8px; }
+    .name { font-weight: 700; font-size: 13px; line-height: 1.2; }
+    .spacer { margin-left: auto; }
+    .iconBtn {
+      border: 1px solid var(--outline);
+      background: white;
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 26px;
+      text-align: center;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+    .iconBtn.danger { color: var(--danger); }
+    .url { margin-top: 6px; font-size: 12px; color: var(--muted); word-break: break-all; }
+    .meta { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      height: 20px;
+      padding: 0 8px;
+      border-radius: 999px;
+      border: 1px solid var(--outline);
+      background: #fff;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 18px;
+      max-width: 65%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .time { font-size: 11px; color: var(--muted); }
+    .empty { color: var(--muted); text-align: center; padding: 28px 0; font-size: 13px; }
+
+    .overlay[hidden] { display: none; }
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    .modal {
+      width: min(560px, 100%);
+      background: var(--surface);
+      border: 1px solid var(--outline);
+      border-radius: 14px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+      overflow: hidden;
+    }
+    .modalHead {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px;
+      border-bottom: 1px solid var(--outline);
+    }
+    .modalTitle { font-size: 13px; font-weight: 800; margin-right: auto; }
+    .modalBody { padding: 10px; display: flex; flex-direction: column; gap: 10px; }
+    .row { display: flex; gap: 10px; align-items: center; }
+    .row.grow { align-items: stretch; }
+    .row .grow { flex: 1; min-width: 0; }
+    .help { font-size: 12px; color: var(--muted); }
+    .groupRow {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 8px;
+      border: 1px solid var(--outline);
+      border-radius: 12px;
+      background: white;
+    }
+    .groupRow input { flex: 1; }
+  `
+
+  function escapeHtml(s) {
+    return String(s)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;')
+  }
+
+  function uid() {
+    return `${Date.now()}_${Math.random().toString(16).slice(2)}`
+  }
+
+  function isHttpUrl(u) {
+    return /^https?:\/\//i.test(u)
+  }
+
+  function normalizeUrl(raw) {
+    const s = String(raw || '').trim()
+    if (!s) return null
+    const lower = s.toLowerCase()
+    if (isHttpUrl(s)) return s
+    if (/^[a-z]+:\/\//i.test(s)) return null
+    if (s.startsWith('//')) return `https:${s}`
+    if (lower.startsWith('javascript:') || lower.startsWith('data:')) return null
+    return `https://${s}`
+  }
+
+  function ensureData(saved) {
+    const now = Date.now()
+    const base = {
+      schemaVersion: 1,
+      groups: [{ id: DEFAULT_GROUP_ID, name: '默认', createdAt: now }],
+      items: [],
+    }
+    if (!saved || typeof saved !== 'object') return base
+    const g = Array.isArray(saved.groups) ? saved.groups : []
+    const items = Array.isArray(saved.items) ? saved.items : []
+    const groups = g
+      .map((x) => ({
+        id: String(x?.id || ''),
+        name: String(x?.name || ''),
+        createdAt: typeof x?.createdAt === 'number' ? x.createdAt : now,
+      }))
+      .filter((x) => x.id && x.name)
+    if (!groups.some((x) => x.id === DEFAULT_GROUP_ID)) {
+      groups.unshift({ id: DEFAULT_GROUP_ID, name: '默认', createdAt: now })
+    }
+    const groupIds = new Set(groups.map((x) => x.id))
+    return {
+      schemaVersion: 1,
+      groups,
+      items: items
+        .map((x) => ({
+          id: String(x?.id || ''),
+          title: String(x?.title || ''),
+          url: String(x?.url || ''),
+          groupId: groupIds.has(String(x?.groupId || '')) ? String(x?.groupId || '') : DEFAULT_GROUP_ID,
+          createdAt: typeof x?.createdAt === 'number' ? x.createdAt : now,
+          updatedAt: typeof x?.updatedAt === 'number' ? x.updatedAt : now,
+          lastOpenedAt: typeof x?.lastOpenedAt === 'number' ? x.lastOpenedAt : null,
+        }))
+        .filter((x) => x.id && x.url),
+    }
+  }
+
+  function groupNameOf(groupId) {
+    const g = state.data.groups.find((x) => x.id === groupId)
+    return g ? g.name : '默认'
+  }
+
+  function formatTime(ts) {
+    if (!ts || typeof ts !== 'number') return ''
+    try {
+      return new Date(ts).toLocaleString()
+    } catch {
+      return ''
+    }
+  }
+
+  function confirmOnce(key, message) {
+    const now = Date.now()
+    if (state.confirmKey === key && state.confirmUntil > now) {
+      state.confirmKey = ''
+      state.confirmUntil = 0
+      return true
+    }
+    state.confirmKey = key
+    state.confirmUntil = now + 2500
+    api.ui?.showToast?.(message || '再点一次确认')
+    return false
+  }
+
+  async function load() {
+    try {
+      const saved = await api.storage.get(STORAGE_KEY)
+      state.data = ensureData(saved)
+    } catch (_) {
+      state.data = ensureData(null)
+    }
+
+    if (!state.data.groups.some((x) => x.id === state.addGroupId)) {
+      state.addGroupId = DEFAULT_GROUP_ID
+    }
+    state.loading = false
+  }
+
+  async function save() {
+    try {
+      await api.storage.set(STORAGE_KEY, state.data)
+    } catch (_) {}
+  }
+
+  function openModal(kind) {
+    state.modal = kind
+    if (kind === 'add') {
+      state.addTitle = ''
+      state.addUrl = ''
+      state.addGroupId = state.groupId === ALL_GROUP_ID ? DEFAULT_GROUP_ID : state.groupId
+    }
+    if (kind === 'groups') {
+      state.newGroupName = ''
+      state.groupNameEdits = {}
+    }
+    render()
+  }
+
+  function closeModal() {
+    state.modal = null
+    render()
+  }
+
+  function getVisibleItems() {
+    const q = String(state.search || '').trim().toLowerCase()
+    const gid = state.groupId
+    return state.data.items
+      .filter((x) => {
+        if (gid !== ALL_GROUP_ID && x.groupId !== gid) return false
+        if (!q) return true
+        return String(x.title || '').toLowerCase().includes(q) || String(x.url || '').toLowerCase().includes(q)
+      })
+      .sort((a, b) => {
+        const ta = a.lastOpenedAt ?? a.updatedAt ?? a.createdAt
+        const tb = b.lastOpenedAt ?? b.updatedAt ?? b.createdAt
+        return tb - ta
+      })
+  }
+
+  async function addBookmark() {
+    const title = String(state.addTitle || '').trim()
+    const url = normalizeUrl(state.addUrl)
+    const groupId = String(state.addGroupId || DEFAULT_GROUP_ID)
+
+    if (!url) {
+      api.ui?.showToast?.('URL 只支持 http(s)://，可省略协议')
+      return
+    }
+    if (!state.data.groups.some((x) => x.id === groupId)) {
+      api.ui?.showToast?.('分组不存在')
+      return
+    }
+
+    const now = Date.now()
+    state.data.items.unshift({
+      id: uid(),
+      title: title || url,
+      url,
+      groupId,
+      createdAt: now,
+      updatedAt: now,
+      lastOpenedAt: null,
+    })
+    await save()
+    api.ui?.showToast?.('已添加')
+    closeModal()
+  }
+
+  async function deleteBookmark(id) {
+    const before = state.data.items.length
+    state.data.items = state.data.items.filter((x) => x.id !== id)
+    if (state.data.items.length === before) return
+    await save()
+    api.ui?.showToast?.('已删除')
+    render()
+  }
+
+  async function openBookmark(id) {
+    const item = state.data.items.find((x) => x.id === id)
+    if (!item) return
+    const url = normalizeUrl(item.url)
+    if (!url || !isHttpUrl(url)) {
+      api.ui?.showToast?.('URL 不合法')
+      return
+    }
+    try {
+      await api.ui.openUrl(url)
+      const now = Date.now()
+      item.url = url
+      item.updatedAt = now
+      item.lastOpenedAt = now
+      await save()
+      render()
+    } catch (_) {
+      api.ui?.showToast?.('打开失败')
+    }
+  }
+
+  async function addGroup() {
+    const name = String(state.newGroupName || '').trim()
+    if (!name) return
+    const lower = name.toLowerCase()
+    if (state.data.groups.some((x) => String(x.name || '').toLowerCase() === lower)) {
+      api.ui?.showToast?.('分组名已存在')
+      return
+    }
+    state.data.groups.push({ id: uid(), name, createdAt: Date.now() })
+    state.newGroupName = ''
+    await save()
+    render()
+  }
+
+  async function renameGroup(groupId) {
+    const raw = state.groupNameEdits[groupId]
+    const name = String(raw ?? '').trim()
+    if (!name) return
+    const g = state.data.groups.find((x) => x.id === groupId)
+    if (!g) return
+    const lower = name.toLowerCase()
+    if (state.data.groups.some((x) => x.id !== groupId && String(x.name || '').toLowerCase() === lower)) {
+      api.ui?.showToast?.('分组名已存在')
+      return
+    }
+    g.name = name
+    await save()
+    api.ui?.showToast?.('已保存')
+    render()
+  }
+
+  async function deleteGroup(groupId) {
+    if (groupId === DEFAULT_GROUP_ID) return
+    if (!state.data.groups.some((x) => x.id === groupId)) return
+    if (!confirmOnce(`delGroup:${groupId}`, '再点一次删除分组（收藏会移到「默认」）')) return
+
+    state.data.groups = state.data.groups.filter((x) => x.id !== groupId)
+    for (const it of state.data.items) {
+      if (it.groupId === groupId) it.groupId = DEFAULT_GROUP_ID
+    }
+    if (state.groupId === groupId) state.groupId = ALL_GROUP_ID
+    await save()
+    api.ui?.showToast?.('已删除')
+    render()
+  }
+
+  function mount() {
+    const root = document.getElementById('app') || document.body
+    root.innerHTML = `
+      <style>${styles}</style>
+      <div class="wrap">
+        <div class="topbar">
+          <button class="btn" data-act="back" aria-label="返回主页" title="返回主页">←</button>
+          <div class="title">网站收藏</div>
+          <button class="btn" data-act="groups" aria-label="分组管理" title="分组管理">分组</button>
+          <button class="btn primary" data-act="add" aria-label="新增收藏" title="新增收藏">新增</button>
+        </div>
+
+        <div class="filters">
+          <label class="field">
+            <span class="label">分组</span>
+            <select data-act="group" aria-label="分组筛选"></select>
+          </label>
+          <label class="field grow">
+            <span class="label">搜索</span>
+            <input data-act="search" aria-label="搜索" placeholder="按标题 / URL 搜索" />
+          </label>
+        </div>
+
+        <div class="content">
+          <div class="list" data-area="list"></div>
+          <div class="empty" data-area="empty" style="display:none"></div>
+        </div>
+
+        <div class="overlay" data-role="overlayAdd" hidden>
+          <div class="modal" role="dialog" aria-modal="true" aria-label="新增收藏">
+            <div class="modalHead">
+              <div class="modalTitle">新增收藏</div>
+              <button class="btn" data-act="closeAdd">关闭</button>
+            </div>
+            <div class="modalBody">
+              <label class="field">
+                <span class="label">标题（可选）</span>
+                <input data-act="addTitle" placeholder="例如：GitHub" />
+              </label>
+              <label class="field">
+                <span class="label">URL</span>
+                <input data-act="addUrl" placeholder="https://example.com（可省略协议）" />
+              </label>
+              <label class="field">
+                <span class="label">分组</span>
+                <select data-act="addGroup" aria-label="选择分组"></select>
+              </label>
+              <div class="row">
+                <div class="help">仅支持 http(s)://</div>
+                <div class="spacer"></div>
+                <button class="btn" data-act="closeAdd">取消</button>
+                <button class="btn primary" data-act="confirmAdd">添加</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="overlay" data-role="overlayGroups" hidden>
+          <div class="modal" role="dialog" aria-modal="true" aria-label="分组管理">
+            <div class="modalHead">
+              <div class="modalTitle">分组管理</div>
+              <button class="btn" data-act="closeGroups">关闭</button>
+            </div>
+            <div class="modalBody">
+              <div class="help">删除分组会把收藏移动到「默认」</div>
+              <div data-area="groupsList"></div>
+              <div class="row grow">
+                <input class="grow" data-act="newGroupName" placeholder="新分组名" />
+                <button class="btn primary" data-act="addGroup">添加</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `
+
+    root.addEventListener('click', (e) => {
+      const t = e.target
+      if (!(t instanceof HTMLElement)) return
+      const act = t.getAttribute('data-act')
+
+      if (act === 'back') return api.ui?.back ? api.ui.back() : api.ui?.showToast?.('无法返回')
+      if (act === 'add') return openModal('add')
+      if (act === 'groups') return openModal('groups')
+      if (act === 'closeAdd' || act === 'closeGroups') return closeModal()
+      if (act === 'confirmAdd') return addBookmark()
+      if (act === 'addGroup') return addGroup()
+      if (act === 'saveGroup') return renameGroup(String(t.getAttribute('data-id') || ''))
+      if (act === 'delGroup') return deleteGroup(String(t.getAttribute('data-id') || ''))
+      if (act === 'del') {
+        const id = String(t.getAttribute('data-id') || '')
+        if (!id) return
+        if (!confirmOnce(`del:${id}`, '再点一次删除这条收藏')) return
+        return deleteBookmark(id)
+      }
+      if (act === 'openBtn') {
+        const id = String(t.getAttribute('data-id') || '')
+        if (!id) return
+        return openBookmark(id)
+      }
+
+      const openEl = t.closest('[data-act=\"open\"]')
+      if (openEl instanceof HTMLElement) {
+        const id = String(openEl.getAttribute('data-id') || '')
+        if (!id) return
+        return openBookmark(id)
+      }
+    })
+
+    root.addEventListener('input', (e) => {
+      const t = e.target
+      if (!(t instanceof HTMLElement)) return
+      const act = t.getAttribute('data-act')
+
+      if (act === 'search' && t instanceof HTMLInputElement) {
+        state.search = t.value
+        render()
+        return
+      }
+      if (act === 'addTitle' && t instanceof HTMLInputElement) {
+        state.addTitle = t.value
+        return
+      }
+      if (act === 'addUrl' && t instanceof HTMLInputElement) {
+        state.addUrl = t.value
+        return
+      }
+      if (act === 'newGroupName' && t instanceof HTMLInputElement) {
+        state.newGroupName = t.value
+        return
+      }
+
+      if (act === 'groupName' && t instanceof HTMLInputElement) {
+        const gid = String(t.getAttribute('data-id') || '')
+        if (!gid) return
+        state.groupNameEdits[gid] = t.value
+      }
+    })
+
+    root.addEventListener('change', (e) => {
+      const t = e.target
+      if (!(t instanceof HTMLElement)) return
+      const act = t.getAttribute('data-act')
+      if (act === 'group' && t instanceof HTMLSelectElement) {
+        state.groupId = t.value || ALL_GROUP_ID
+        render()
+        return
+      }
+      if (act === 'addGroup' && t instanceof HTMLSelectElement) {
+        state.addGroupId = t.value || DEFAULT_GROUP_ID
+        return
+      }
+    })
+
+    root.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return
+      if (state.modal) closeModal()
+    })
+  }
+
+  function render() {
+    const overlayAdd = document.querySelector('[data-role="overlayAdd"]')
+    const overlayGroups = document.querySelector('[data-role="overlayGroups"]')
+    if (overlayAdd instanceof HTMLElement) overlayAdd.hidden = state.modal !== 'add'
+    if (overlayGroups instanceof HTMLElement) overlayGroups.hidden = state.modal !== 'groups'
+
+    const searchEl = document.querySelector('input[data-act="search"]')
+    if (searchEl instanceof HTMLInputElement) searchEl.value = state.search
+
+    const groupSel = document.querySelector('select[data-act="group"]')
+    const addGroupSel = document.querySelector('select[data-act="addGroup"]')
+    if (groupSel instanceof HTMLSelectElement) {
+      const opts = [
+        { id: ALL_GROUP_ID, name: '全部' },
+        ...state.data.groups.map((x) => ({ id: x.id, name: x.name })),
+      ]
+      groupSel.innerHTML = opts.map((x) => `<option value="${escapeHtml(x.id)}">${escapeHtml(x.name)}</option>`).join('')
+      groupSel.value = state.groupId || ALL_GROUP_ID
+    }
+    if (addGroupSel instanceof HTMLSelectElement) {
+      const opts = state.data.groups.map((x) => ({ id: x.id, name: x.name }))
+      addGroupSel.innerHTML = opts.map((x) => `<option value="${escapeHtml(x.id)}">${escapeHtml(x.name)}</option>`).join('')
+      addGroupSel.value = state.addGroupId || DEFAULT_GROUP_ID
+    }
+
+    const listEl = document.querySelector('[data-area="list"]')
+    const emptyEl = document.querySelector('[data-area="empty"]')
+    if (!(listEl instanceof HTMLElement) || !(emptyEl instanceof HTMLElement)) return
+
+    if (state.loading) {
+      listEl.innerHTML = ''
+      emptyEl.style.display = 'block'
+      emptyEl.textContent = '加载中...'
+      return
+    }
+
+    const items = getVisibleItems()
+    if (!items.length) {
+      listEl.innerHTML = ''
+      emptyEl.style.display = 'block'
+      emptyEl.textContent = state.search ? '未找到匹配的收藏' : '暂无收藏'
+    } else {
+      emptyEl.style.display = 'none'
+      listEl.innerHTML = items
+        .map((x) => {
+          const gname = groupNameOf(x.groupId)
+          const when = x.lastOpenedAt ? `最近打开：${formatTime(x.lastOpenedAt)}` : `创建：${formatTime(x.createdAt)}`
+          return `
+            <div class="card" data-act="open" data-id="${escapeHtml(x.id)}" title="点击打开">
+              <div class="cardTop">
+                <div class="name">${escapeHtml(x.title || x.url)}</div>
+                <div class="spacer"></div>
+                <button class="iconBtn" data-act="openBtn" data-id="${escapeHtml(x.id)}" title="打开">↗</button>
+                <button class="iconBtn danger" data-act="del" data-id="${escapeHtml(x.id)}" title="删除">🗑</button>
+              </div>
+              <div class="url">${escapeHtml(x.url)}</div>
+              <div class="meta">
+                <span class="chip" title="${escapeHtml(gname)}">${escapeHtml(gname)}</span>
+                <span class="time">${escapeHtml(when)}</span>
+              </div>
+            </div>
+          `
+        })
+        .join('')
+    }
+
+    const groupsList = document.querySelector('[data-area="groupsList"]')
+    if (groupsList instanceof HTMLElement) {
+      groupsList.innerHTML = state.data.groups
+        .slice()
+        .sort((a, b) => a.createdAt - b.createdAt)
+        .map((g) => {
+          const val = state.groupNameEdits[g.id]
+          const name = typeof val === 'string' ? val : g.name
+          const canDel = g.id !== DEFAULT_GROUP_ID
+          return `
+            <div class="groupRow">
+              <input data-act="groupName" data-id="${escapeHtml(g.id)}" value="${escapeHtml(name)}" aria-label="分组名" />
+              <button class="btn" data-act="saveGroup" data-id="${escapeHtml(g.id)}">保存</button>
+              ${
+                canDel
+                  ? `<button class="btn danger" data-act="delGroup" data-id="${escapeHtml(g.id)}">删除</button>`
+                  : `<button class="btn" disabled title="默认分组不可删除">锁定</button>`
+              }
+            </div>
+          `
+        })
+        .join('')
+    }
+
+    const addTitle = document.querySelector('input[data-act="addTitle"]')
+    const addUrl = document.querySelector('input[data-act="addUrl"]')
+    const newGroupName = document.querySelector('input[data-act="newGroupName"]')
+    if (addTitle instanceof HTMLInputElement) addTitle.value = state.addTitle
+    if (addUrl instanceof HTMLInputElement) addUrl.value = state.addUrl
+    if (newGroupName instanceof HTMLInputElement) newGroupName.value = state.newGroupName
+  }
+
+  async function init() {
+    await load()
+    mount()
+    render()
+  }
+
+  init()
+})()
