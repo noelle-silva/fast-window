@@ -30,6 +30,8 @@ import FileUploadRoundedIcon from '@mui/icons-material/FileUploadRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
+import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
+import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import SettingsView from './components/SettingsView'
 import ImportPluginDialog from './components/ImportPluginDialog'
 
@@ -52,6 +54,13 @@ const APP_TITLE = 'Fast Window'
 
 const APP_STORAGE_ID = '__app'
 const PLUGIN_ORDER_KEY = 'pluginOrder'
+const PLUGIN_BROWSE_LAYOUT_KEY = 'pluginBrowseLayout'
+
+type PluginBrowseLayout = 'list' | 'grid'
+
+function normalizeBrowseLayout(value: unknown): PluginBrowseLayout {
+  return value === 'grid' ? 'grid' : 'list'
+}
 
 function normalizeOrder(value: unknown): string[] {
   if (!Array.isArray(value)) return []
@@ -107,6 +116,8 @@ function TitleBar(props: {
   onStartReorder?: () => void
   onSaveReorder?: () => void
   onCancelReorder?: () => void
+  browseLayout?: PluginBrowseLayout
+  onToggleBrowseLayout?: () => void
 }) {
   const {
     title,
@@ -119,6 +130,8 @@ function TitleBar(props: {
     onStartReorder,
     onSaveReorder,
     onCancelReorder,
+    browseLayout,
+    onToggleBrowseLayout,
   } = props
   return (
     <Box
@@ -176,6 +189,19 @@ function TitleBar(props: {
                   <RefreshRoundedIcon fontSize="small" />
                 </IconButton>
               ) : null}
+              {onToggleBrowseLayout ? (
+                <IconButton
+                  aria-label={browseLayout === 'grid' ? '切换为列表布局' : '切换为网格布局'}
+                  size="small"
+                  onClick={onToggleBrowseLayout}
+                >
+                  {browseLayout === 'grid' ? (
+                    <ViewListRoundedIcon fontSize="small" />
+                  ) : (
+                    <ViewModuleRoundedIcon fontSize="small" />
+                  )}
+                </IconButton>
+              ) : null}
               {onStartReorder ? (
                 <IconButton aria-label="拖拽排序模式" size="small" onClick={onStartReorder}>
                   <DragIndicatorRoundedIcon fontSize="small" />
@@ -230,6 +256,7 @@ function App() {
   const [pluginRejected, setPluginRejected] = useState<PluginLoadRejection[]>([])
   const [importOpen, setImportOpen] = useState(false)
   const [reorderMode, setReorderMode] = useState(false)
+  const [browseLayout, setBrowseLayout] = useState<PluginBrowseLayout>('list')
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
   const [dragOverAfter, setDragOverAfter] = useState(false)
@@ -305,6 +332,13 @@ function App() {
   useEffect(() => {
     loadPlugins()
   }, [loadPlugins])
+
+  // 加载宿主主页面浏览布局
+  useEffect(() => {
+    void invoke<unknown | null>('storage_get', { pluginId: APP_STORAGE_ID, key: PLUGIN_BROWSE_LAYOUT_KEY })
+      .then(saved => setBrowseLayout(normalizeBrowseLayout(saved)))
+      .catch(() => {})
+  }, [])
 
   // 插件/主程序通用 toast
   useEffect(() => {
@@ -388,6 +422,14 @@ function App() {
     reorderBackupRef.current = null
     setToast(prev => ({ open: true, message: '排序已保存', key: prev.key + 1 }))
   }, [allPlugins, persistPluginOrder])
+
+  const toggleBrowseLayout = useCallback(() => {
+    setBrowseLayout(prev => {
+      const next: PluginBrowseLayout = prev === 'grid' ? 'list' : 'grid'
+      void invoke('storage_set', { pluginId: APP_STORAGE_ID, key: PLUGIN_BROWSE_LAYOUT_KEY, value: next }).catch(() => {})
+      return next
+    })
+  }, [])
 
   const handlePointerDown = useCallback((e: React.PointerEvent, pluginId: string) => {
     if (!reorderMode) return
@@ -550,6 +592,8 @@ function App() {
             onImportPlugin={reorderMode ? undefined : () => setImportOpen(true)}
             onReloadPlugins={reorderMode ? undefined : reloadPlugins}
             reloadDisabled={loading}
+            browseLayout={browseLayout}
+            onToggleBrowseLayout={reorderMode ? undefined : toggleBrowseLayout}
             onStartReorder={reorderMode ? undefined : startReorder}
             reorderMode={reorderMode}
             onCancelReorder={reorderMode ? cancelReorder : undefined}
@@ -587,7 +631,15 @@ function App() {
                 <Typography
                   variant="caption"
                   color="text.secondary"
-                  sx={{ display: 'block', mt: 1, px: 2, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' }}
+                  sx={{
+                    display: 'block',
+                    mt: 1,
+                    px: 2,
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
                 >
                   插件目录：{pluginsDir}
                 </Typography>
@@ -634,67 +686,139 @@ function App() {
               ) : null}
             </Box>
           ) : (
-            <List disablePadding sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-              {plugins.map((plugin, index) => (
-                <ListItemButton
-                  key={plugin.id}
-                  data-plugin-id={plugin.id}
-                  selected={index === activeIndex}
-                  onPointerDown={reorderMode ? (e => handlePointerDown(e, plugin.id)) : undefined}
-                  onPointerMove={reorderMode ? handlePointerMove : undefined}
-                  onPointerUp={reorderMode ? handlePointerUp : undefined}
-                  onPointerCancel={reorderMode ? handlePointerUp : undefined}
-                  onClick={() => {
-                    if (reorderMode) {
+            browseLayout === 'grid' && !reorderMode ? (
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                  gap: 1,
+                  p: 0.5,
+                }}
+              >
+                {plugins.map((plugin, index) => (
+                  <ListItemButton
+                    key={plugin.id}
+                    data-plugin-id={plugin.id}
+                    selected={index === activeIndex}
+                    onClick={() => {
                       setActiveIndex(index)
-                      return
-                    }
-                    if (dragMovedRef.current) {
-                      dragMovedRef.current = false
-                      return
-                    }
-                    setActivePlugin(plugin)
-                  }}
-                  sx={{
-                    py: 1,
-                    px: 1.25,
-                    '&.Mui-selected': { bgcolor: 'action.selected' },
-                    cursor: reorderMode ? (draggingId ? 'grabbing' : 'grab') : undefined,
-                    opacity: draggingId === plugin.id ? 0.6 : 1,
-                    userSelect: reorderMode ? 'none' : undefined,
-                    touchAction: reorderMode ? 'none' : undefined,
-                    boxShadow:
-                      dragOverId === plugin.id
-                        ? (theme =>
-                            dragOverAfter
-                              ? `inset 0 -2px 0 ${theme.palette.primary.main}`
-                              : `inset 0 2px 0 ${theme.palette.primary.main}`)
-                        : undefined,
-                  }}
-                >
-                  <ListItemAvatar sx={{ minWidth: 44 }}>
-                    <Avatar
-                      variant="rounded"
-                      sx={theme => ({
-                        width: 32,
-                        height: 32,
-                        fontSize: 18,
-                        bgcolor: theme.palette.action.hover,
-                        color: theme.palette.text.primary,
-                      })}
-                    >
-                      {plugin.icon}
+                      if (dragMovedRef.current) {
+                        dragMovedRef.current = false
+                        return
+                      }
+                      setActivePlugin(plugin)
+                    }}
+                    sx={theme => ({
+                      borderRadius: 2,
+                      alignItems: 'stretch',
+                      flexDirection: 'column',
+                      gap: 1,
+                      py: 1.25,
+                      px: 1.25,
+                      border: `1px solid ${theme.palette.divider}`,
+                      '&.Mui-selected': {
+                        bgcolor: 'action.selected',
+                        borderColor: theme.palette.primary.main,
+                      },
+                    })}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Avatar
+                        variant="rounded"
+                        sx={theme => ({
+                          width: 36,
+                          height: 36,
+                          fontSize: 18,
+                          bgcolor: theme.palette.action.hover,
+                          color: theme.palette.text.primary,
+                        })}
+                      >
+                        {plugin.icon}
                     </Avatar>
-                  </ListItemAvatar>
-                  <ListItemText
-                    primary={plugin.name}
-                    secondary={plugin.description}
-                    primaryTypographyProps={{ variant: 'body1', fontWeight: 600 }}
-                    secondaryTypographyProps={{ variant: 'body2', color: 'text.secondary', noWrap: true }}
-                  />
-                </ListItemButton>
-              ))}
-            </List>
+                      <Box sx={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
+                        <Typography
+                          variant="body2"
+                          sx={{ fontWeight: 700, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis' }}
+                          noWrap
+                        >
+                          {plugin.name}
+                        </Typography>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}
+                          noWrap
+                        >
+                          {plugin.description}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </ListItemButton>
+                ))}
+              </Box>
+            ) : (
+              <List disablePadding sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                {plugins.map((plugin, index) => (
+                  <ListItemButton
+                    key={plugin.id}
+                    data-plugin-id={plugin.id}
+                    selected={index === activeIndex}
+                    onPointerDown={reorderMode ? (e => handlePointerDown(e, plugin.id)) : undefined}
+                    onPointerMove={reorderMode ? handlePointerMove : undefined}
+                    onPointerUp={reorderMode ? handlePointerUp : undefined}
+                    onPointerCancel={reorderMode ? handlePointerUp : undefined}
+                    onClick={() => {
+                      if (reorderMode) {
+                        setActiveIndex(index)
+                        return
+                      }
+                      if (dragMovedRef.current) {
+                        dragMovedRef.current = false
+                        return
+                      }
+                      setActivePlugin(plugin)
+                    }}
+                    sx={{
+                      py: 1,
+                      px: 1.25,
+                      '&.Mui-selected': { bgcolor: 'action.selected' },
+                      cursor: reorderMode ? (draggingId ? 'grabbing' : 'grab') : undefined,
+                      opacity: draggingId === plugin.id ? 0.6 : 1,
+                      userSelect: reorderMode ? 'none' : undefined,
+                      touchAction: reorderMode ? 'none' : undefined,
+                      boxShadow:
+                        dragOverId === plugin.id
+                          ? (theme =>
+                              dragOverAfter
+                                ? `inset 0 -2px 0 ${theme.palette.primary.main}`
+                                : `inset 0 2px 0 ${theme.palette.primary.main}`)
+                          : undefined,
+                    }}
+                  >
+                    <ListItemAvatar sx={{ minWidth: 44 }}>
+                      <Avatar
+                        variant="rounded"
+                        sx={theme => ({
+                          width: 32,
+                          height: 32,
+                          fontSize: 18,
+                          bgcolor: theme.palette.action.hover,
+                          color: theme.palette.text.primary,
+                        })}
+                      >
+                        {plugin.icon}
+                      </Avatar>
+                    </ListItemAvatar>
+                    <ListItemText
+                      primary={plugin.name}
+                      secondary={plugin.description}
+                      primaryTypographyProps={{ variant: 'body1', fontWeight: 600, noWrap: true }}
+                      secondaryTypographyProps={{ variant: 'body2', color: 'text.secondary', noWrap: true }}
+                    />
+                  </ListItemButton>
+                ))}
+              </List>
+            )
           )}
         </Box>
 
