@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, ComponentType, useRef } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { invoke } from '@tauri-apps/api/core'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { loadAllPluginsReport, type PluginLoadRejection } from './plugins/pluginLoader'
 import { initPluginApi } from './plugins/pluginApi'
 import BackgroundPluginHost from './plugins/BackgroundPluginHost'
@@ -261,6 +262,8 @@ function App() {
   const [dragOverId, setDragOverId] = useState<string | null>(null)
   const [dragOverAfter, setDragOverAfter] = useState(false)
   const selectedIdRef = useRef<string | null>(null)
+  const allPluginsRef = useRef<Plugin[]>([])
+  const pendingActivatePluginIdRef = useRef<string | null>(null)
   const prevQueryRef = useRef<string>('')
   const dragMovedRef = useRef(false)
   const reorderBackupRef = useRef<Plugin[] | null>(null)
@@ -332,6 +335,43 @@ function App() {
   useEffect(() => {
     loadPlugins()
   }, [loadPlugins])
+
+  useEffect(() => {
+    allPluginsRef.current = allPlugins
+    const pending = pendingActivatePluginIdRef.current
+    if (!pending) return
+    const found = allPlugins.find(p => p.id === pending)
+    if (found) {
+      pendingActivatePluginIdRef.current = null
+      setActivePlugin(found)
+    }
+  }, [allPlugins])
+
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null
+
+    const activateById = (pluginId: string) => {
+      const id = String(pluginId || '').trim()
+      if (!id) return
+      const list = allPluginsRef.current
+      const found = list.find(p => p.id === id) || null
+      if (found) {
+        setActivePlugin(found)
+      } else {
+        pendingActivatePluginIdRef.current = id
+      }
+    }
+
+    void (async () => {
+      unlisten = await listen<{ pluginId: string }>('fast-window:activate-plugin', event => {
+        activateById((event as any)?.payload?.pluginId)
+      })
+    })()
+
+    return () => {
+      if (unlisten) unlisten()
+    }
+  }, [])
 
   // 加载宿主主页面浏览布局
   useEffect(() => {

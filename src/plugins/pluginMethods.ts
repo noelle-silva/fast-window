@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core'
 import type { PluginContext } from './pluginApi'
 import { isCapabilityAllowed, type PluginMethodCapability } from './pluginContract'
 import { PluginBridgeError } from './pluginBridge'
@@ -27,6 +28,7 @@ export type PluginMethodName =
   | 'files.pickImages'
   | 'ui.showToast'
   | 'ui.openUrl'
+  | 'ui.openBrowserWindow'
   | 'net.request'
   | 'net.requestBase64'
   | 'task.create'
@@ -113,6 +115,15 @@ const methods: Record<PluginMethodName, MethodDef> = {
     handler: (ctx, args) => ctx.api.ui.showToast(String(args?.[0] ?? '')),
   },
   'ui.openUrl': { capability: 'ui.openUrl', handler: (ctx, args) => ctx.api.ui.openUrl(String(args?.[0] ?? '')) },
+  'ui.openBrowserWindow': {
+    capability: 'ui.openBrowserWindow',
+    handler: async (ctx, args) => {
+      const url = String(args?.[0] ?? '').trim()
+      if (!url) throw new PluginBridgeError('BAD_REQUEST', 'url is required')
+      await invoke('open_browser_window', { url, pluginId: ctx.id })
+      return null
+    },
+  },
 
   'net.request': {
     capability: 'net.request',

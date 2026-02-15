@@ -101,6 +101,7 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
     ui: {
       showToast: (message) => call('ui.showToast', [message]),
       openUrl: (url) => call('ui.openUrl', [url]),
+      openBrowserWindow: (url) => call('ui.openBrowserWindow', [url]),
       back: () => call('host.back', []),
     },
     net: {

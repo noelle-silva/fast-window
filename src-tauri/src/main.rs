@@ -11,7 +11,7 @@ use image::codecs::png::PngEncoder;
 use image::{ColorType, ImageEncoder};
 use serde::{Deserialize, Serialize};
 use tauri::{
-    AppHandle, Manager, WindowEvent,
+    AppHandle, Emitter, EventTarget, Manager, WindowEvent,
     tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent},
     menu::{Menu, MenuItem},
 };
@@ -36,6 +36,8 @@ const AUTO_START_REG_VALUE: &str = "Fast Window (Dev)";
 const AUTO_START_REG_VALUE: &str = "Fast Window";
 
 const DATA_DIR_ENV: &str = "FAST_WINDOW_DATA_DIR";
+const BROWSER_WINDOW_LABEL: &str = "browser";
+const ACTIVATE_PLUGIN_EVENT: &str = "fast-window:activate-plugin";
 
 #[derive(Deserialize)]
 struct HttpRequest {
@@ -424,6 +426,80 @@ fn open_external_url(url: String) -> Result<(), String> {
     }
 
     open::that(&u).map_err(|e| format!("打开链接失败: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_browser_window(app: tauri::AppHandle, url: String, plugin_id: String) -> Result<(), String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+
+    let mut u = url.trim().to_string();
+    if u.chars().any(|c| c.is_whitespace()) {
+        return Err("url 不允许包含空白字符，请先进行 URL 编码（例如空格用 %20）".to_string());
+    }
+    if u.contains('\\') {
+        u = u.replace('\\', "/");
+    }
+    if !is_http_url(&u) {
+        return Err("url 必须以 http(s):// 开头".to_string());
+    }
+
+    let parsed = tauri::Url::parse(&u).map_err(|e| format!("url 解析失败: {e}"))?;
+
+    {
+        let state = app.state::<BrowserWindowState>();
+        let lock = state.return_to_plugin_id.lock();
+        if let Ok(mut guard) = lock {
+            *guard = Some(plugin_id);
+        }
+    }
+
+    if let Some(w) = app.get_webview_window(BROWSER_WINDOW_LABEL) {
+        let _ = w.navigate(parsed);
+        let _ = w.show();
+        let _ = w.set_focus();
+        return Ok(());
+    }
+
+    let title = "Web";
+    let app_ = app.clone();
+    let win = tauri::WebviewWindowBuilder::new(&app, BROWSER_WINDOW_LABEL, tauri::WebviewUrl::External(parsed))
+        .title(title)
+        .on_new_window(move |url, _features| {
+            // 很多网站（例如 B 站）会用 window.open / target=_blank 打开“新标签页”。
+            // Tauri 的 webview 没有标签页概念；如果不接管，这类点击看起来就像“没反应”。
+            if is_http_url(url.as_str()) {
+                if let Some(w) = app_.get_webview_window(BROWSER_WINDOW_LABEL) {
+                    let _ = w.navigate(url);
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            } else {
+                // 非 http(s) 的链接（例如自定义 scheme）交给系统处理。
+                let _ = open::that(url.as_str());
+            }
+            tauri::webview::NewWindowResponse::Deny
+        })
+        .inner_size(1020.0, 605.0)
+        .resizable(true)
+        .decorations(true)
+        .visible(true)
+        .build()
+        .map_err(|e| format!("创建窗口失败: {e}"))?;
+
+    let _ = win.center();
+    let _ = win.show();
+    let _ = win.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+async fn close_browser_window(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(BROWSER_WINDOW_LABEL) {
+        let _ = w.close();
+    }
     Ok(())
 }
 
@@ -837,6 +913,17 @@ fn task_cancel(app: tauri::AppHandle, plugin_id: String, task_id: String) -> Res
 #[derive(Default)]
 struct WindowState {
     last_position: Mutex<Option<tauri::PhysicalPosition<i32>>>,
+}
+
+#[derive(Default)]
+struct BrowserWindowState {
+    return_to_plugin_id: Mutex<Option<String>>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ActivatePluginPayload {
+    plugin_id: String,
 }
 
 struct WakeShortcutState {
@@ -2187,6 +2274,8 @@ fn main() {
             read_plugins_dir,
             install_plugin_files,
             open_external_url,
+            open_browser_window,
+            close_browser_window,
             http_request,
             http_request_base64,
             storage_get,
@@ -2220,6 +2309,7 @@ fn main() {
         .setup(|app| {
             app.manage(WindowState::default());
             app.manage(Arc::new(TaskManagerState::default()));
+            app.manage(BrowserWindowState::default());
 
             let (wake_shortcut, wake_shortcut_text) = load_wake_shortcut(app.handle());
             app.manage(WakeShortcutState {
@@ -2282,6 +2372,31 @@ fn main() {
         })
         // 监听窗口事件：失焦时隐藏
         .on_window_event(|window, event| {
+            // 仅 main 窗口需要“失焦自动隐藏/拦截关闭”；其它窗口按普通窗口行为处理。
+            if window.label() == BROWSER_WINDOW_LABEL {
+                if let WindowEvent::CloseRequested { .. } = event {
+                    let app = window.app_handle();
+                    let state = app.state::<BrowserWindowState>();
+                    let pid = state
+                        .return_to_plugin_id
+                        .lock()
+                        .ok()
+                        .and_then(|g| g.clone());
+                    if let Some(plugin_id) = pid {
+                        let _ = app.emit_to(
+                            EventTarget::webview_window("main"),
+                            ACTIVATE_PLUGIN_EVENT,
+                            ActivatePluginPayload { plugin_id },
+                        );
+                    }
+                    show_main_window(&app);
+                }
+                return;
+            }
+            if window.label() != "main" {
+                return;
+            }
+
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let app = window.app_handle();

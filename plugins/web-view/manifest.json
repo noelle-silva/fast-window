@@ -1,0 +1,17 @@
+{
+  "id": "web-view",
+  "name": "Web View",
+  "version": "1.0.0",
+  "description": "管理网站地址，点击后在新窗口打开网页",
+  "main": "index.js",
+  "icon": "🌐",
+  "keyword": "wv",
+  "apiVersion": 2,
+  "ui": { "type": "iframe" },
+  "requires": [
+    "storage.get",
+    "storage.set",
+    "ui.showToast",
+    "ui.openBrowserWindow"
+  ]
+}
