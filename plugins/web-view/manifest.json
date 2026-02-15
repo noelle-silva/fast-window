@@ -12,6 +12,11 @@
     "storage.get",
     "storage.set",
     "ui.showToast",
-    "ui.openBrowserWindow"
+    "ui.openBrowserWindow",
+    "net.request",
+    "net.requestBase64",
+    "files.saveImageBase64",
+    "files.readOutputImage",
+    "files.deleteOutputImage"
   ]
 }
