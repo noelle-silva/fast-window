@@ -37,7 +37,10 @@ const AUTO_START_REG_VALUE: &str = "Fast Window";
 
 const DATA_DIR_ENV: &str = "FAST_WINDOW_DATA_DIR";
 const BROWSER_WINDOW_LABEL: &str = "browser";
+const BROWSER_BAR_WINDOW_LABEL: &str = "browser_bar";
 const ACTIVATE_PLUGIN_EVENT: &str = "fast-window:activate-plugin";
+const BROWSER_BAR_HEIGHT: f64 = 40.0;
+const BROWSER_STACK_TOTAL_HEIGHT: f64 = 605.0;
 
 #[derive(Deserialize)]
 struct HttpRequest {
@@ -450,56 +453,142 @@ async fn open_browser_window(app: tauri::AppHandle, url: String, plugin_id: Stri
 
     {
         let state = app.state::<BrowserWindowState>();
-        let lock = state.return_to_plugin_id.lock();
-        if let Ok(mut guard) = lock {
-            *guard = Some(plugin_id);
+        if let Ok(mut g) = state.return_to_plugin_id.lock() {
+            *g = Some(plugin_id);
+        }
+        if let Ok(mut g) = state.active.lock() {
+            *g = true;
+        };
+    }
+    // 首次打开会经历“创建两个窗口 + 定位 + 聚焦”的抖动期，先加门闩避免误隐藏。
+    browser_stack_set_suppress_hide(&app, 1500);
+
+    // 进入“浏览栈模式”时隐藏主窗口：快捷键将优先唤醒这个浏览栈。
+    // 首次打开时把主窗口位置当作浏览栈初始位置，避免“只顶部栏居中”造成的错位感。
+    if !browser_stack_exists(&app) {
+        if let Some(main) = app.get_webview_window("main") {
+            if let Ok(pos) = main.outer_position() {
+                if pos.x > -9000 && pos.y > -9000 {
+                    let state = app.state::<BrowserWindowState>();
+                    if let Ok(mut g) = state.last_position.lock() {
+                        *g = Some(pos);
+                    };
+                }
+            }
         }
     }
+    hide_main_window(&app);
 
-    if let Some(w) = app.get_webview_window(BROWSER_WINDOW_LABEL) {
-        let _ = w.navigate(parsed);
-        let _ = w.show();
-        let _ = w.set_focus();
+    if browser_stack_exists(&app) {
+        if let Some(w) = app.get_webview_window(BROWSER_WINDOW_LABEL) {
+            let _ = w.navigate(parsed);
+        }
+        browser_stack_show(&app);
         return Ok(());
     }
 
     let title = "Web";
+
+    let bar = tauri::WebviewWindowBuilder::new(
+        &app,
+        BROWSER_BAR_WINDOW_LABEL,
+        tauri::WebviewUrl::App("index.html".into()),
+    )
+    .title(title)
+    .inner_size(1020.0, BROWSER_BAR_HEIGHT)
+    .resizable(false)
+    .maximizable(false)
+    .minimizable(false)
+    .decorations(false)
+    .transparent(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .visible(false)
+    .build()
+    .map_err(|e| format!("创建顶部栏窗口失败: {e}"))?;
+
     let app_ = app.clone();
-    let win = tauri::WebviewWindowBuilder::new(&app, BROWSER_WINDOW_LABEL, tauri::WebviewUrl::External(parsed))
+    let content = tauri::WebviewWindowBuilder::new(&app, BROWSER_WINDOW_LABEL, tauri::WebviewUrl::External(parsed))
         .title(title)
         .on_new_window(move |url, _features| {
-            // 很多网站（例如 B 站）会用 window.open / target=_blank 打开“新标签页”。
-            // Tauri 的 webview 没有标签页概念；如果不接管，这类点击看起来就像“没反应”。
+            // 很多网站会用 window.open / target=_blank 打开“新标签页”。
+            // 我们没有标签页：把它折叠成“当前窗口跳转”。
             if is_http_url(url.as_str()) {
                 if let Some(w) = app_.get_webview_window(BROWSER_WINDOW_LABEL) {
                     let _ = w.navigate(url);
-                    let _ = w.show();
-                    let _ = w.set_focus();
                 }
             } else {
-                // 非 http(s) 的链接（例如自定义 scheme）交给系统处理。
                 let _ = open::that(url.as_str());
             }
             tauri::webview::NewWindowResponse::Deny
         })
-        .inner_size(1020.0, 605.0)
-        .resizable(true)
-        .decorations(true)
-        .visible(true)
+        .inner_size(1020.0, (BROWSER_STACK_TOTAL_HEIGHT - BROWSER_BAR_HEIGHT).max(200.0))
+        .resizable(false)
+        .maximizable(false)
+        .minimizable(false)
+        .decorations(false)
+        .transparent(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible(false)
         .build()
-        .map_err(|e| format!("创建窗口失败: {e}"))?;
+        .map_err(|e| format!("创建浏览窗口失败: {e}"))?;
 
-    let _ = win.center();
-    let _ = win.show();
-    let _ = win.set_focus();
+    // 初次创建时不要跟随 main（因为 main 已被移到屏幕外隐藏了），用浏览栈的恢复/居中逻辑。
+    browser_stack_restore_or_center(&app);
+
+    let _ = bar.show();
+    let _ = content.show();
+    let _ = content.set_focus();
     Ok(())
 }
 
 #[tauri::command]
 async fn close_browser_window(app: tauri::AppHandle) -> Result<(), String> {
+    browser_stack_end_session(&app);
+    Ok(())
+}
+
+#[tauri::command]
+async fn hide_browser_stack(app: tauri::AppHandle) -> Result<(), String> {
+    browser_stack_hide(&app);
+    Ok(())
+}
+
+#[tauri::command]
+async fn browser_go_back(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window(BROWSER_WINDOW_LABEL) {
-        let _ = w.close();
+        let _ = w.eval("history.back()");
     }
+    Ok(())
+}
+
+#[tauri::command]
+async fn browser_go_forward(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(BROWSER_WINDOW_LABEL) {
+        let _ = w.eval("history.forward()");
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn browser_reload(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(BROWSER_WINDOW_LABEL) {
+        let _ = w.eval("location.reload()");
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn browser_stack_toggle_fullscreen(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<BrowserWindowState>();
+    let next = state
+        .fullscreen
+        .lock()
+        .ok()
+        .map(|g| !*g)
+        .unwrap_or(true);
+    browser_stack_apply_fullscreen(&app, next)?;
     Ok(())
 }
 
@@ -918,6 +1007,11 @@ struct WindowState {
 #[derive(Default)]
 struct BrowserWindowState {
     return_to_plugin_id: Mutex<Option<String>>,
+    active: Mutex<bool>,
+    last_position: Mutex<Option<tauri::PhysicalPosition<i32>>>,
+    suppress_hide_until_ms: Mutex<u64>,
+    fullscreen: Mutex<bool>,
+    restore_bounds: Mutex<Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>)>>,
 }
 
 #[derive(Clone, Serialize)]
@@ -1771,17 +1865,293 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
+fn hide_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let state = app.state::<WindowState>();
+        save_position_if_valid(&window, &state);
+        let _ = window.set_position(tauri::PhysicalPosition::new(-10000, -10000));
+        let _ = window.hide();
+    }
+}
+
 fn toggle_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         if window.is_visible().unwrap_or(false) {
-            let state = app.state::<WindowState>();
-            save_position_if_valid(&window, &state);
-            let _ = window.set_position(tauri::PhysicalPosition::new(-10000, -10000));
-            let _ = window.hide();
+            hide_main_window(app);
         } else {
             show_main_window(app);
         }
     }
+}
+
+fn emit_activate_plugin_if_any(app: &tauri::AppHandle) {
+    let state = app.state::<BrowserWindowState>();
+    let pid = state
+        .return_to_plugin_id
+        .lock()
+        .ok()
+        .and_then(|g| g.clone());
+    if let Some(plugin_id) = pid {
+        let _ = app.emit_to(
+            EventTarget::webview_window("main"),
+            ACTIVATE_PLUGIN_EVENT,
+            ActivatePluginPayload { plugin_id },
+        );
+    }
+}
+
+fn browser_stack_exists(app: &tauri::AppHandle) -> bool {
+    app.get_webview_window(BROWSER_BAR_WINDOW_LABEL).is_some()
+        && app.get_webview_window(BROWSER_WINDOW_LABEL).is_some()
+}
+
+fn browser_stack_is_visible(app: &tauri::AppHandle) -> bool {
+    let bar = app.get_webview_window(BROWSER_BAR_WINDOW_LABEL);
+    let content = app.get_webview_window(BROWSER_WINDOW_LABEL);
+    bar.as_ref()
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false)
+        && content
+            .as_ref()
+            .and_then(|w| w.is_visible().ok())
+            .unwrap_or(false)
+}
+
+fn browser_stack_is_focused(app: &tauri::AppHandle) -> bool {
+    let bar = app.get_webview_window(BROWSER_BAR_WINDOW_LABEL);
+    let content = app.get_webview_window(BROWSER_WINDOW_LABEL);
+    bar.as_ref()
+        .and_then(|w| w.is_focused().ok())
+        .unwrap_or(false)
+        || content
+            .as_ref()
+            .and_then(|w| w.is_focused().ok())
+            .unwrap_or(false)
+}
+
+fn browser_stack_set_suppress_hide(app: &tauri::AppHandle, duration_ms: u64) {
+    let state = app.state::<BrowserWindowState>();
+    let until = now_ms().saturating_add(duration_ms);
+    if let Ok(mut g) = state.suppress_hide_until_ms.lock() {
+        *g = (*g).max(until);
+    };
+}
+
+fn browser_stack_should_suppress_hide(app: &tauri::AppHandle) -> bool {
+    let state = app.state::<BrowserWindowState>();
+    let until = state
+        .suppress_hide_until_ms
+        .lock()
+        .ok()
+        .map(|g| *g)
+        .unwrap_or(0);
+    now_ms() < until
+}
+
+fn browser_stack_restore_or_center(app: &tauri::AppHandle) {
+    let bar = match app.get_webview_window(BROWSER_BAR_WINDOW_LABEL) {
+        Some(w) => w,
+        None => return,
+    };
+    let content = match app.get_webview_window(BROWSER_WINDOW_LABEL) {
+        Some(w) => w,
+        None => return,
+    };
+
+    let state = app.state::<BrowserWindowState>();
+    let saved = state.last_position.lock().ok().and_then(|g| g.clone());
+
+    if let Some(pos) = saved {
+        let _ = bar.set_position(pos);
+    } else {
+        // 让“整个浏览栈（顶部栏+网页）”居中，而不是只让顶部栏居中。
+        let bar_size = bar.outer_size().ok();
+        let content_size = content.outer_size().ok();
+        let total_w = bar_size
+            .map(|s| s.width)
+            .or_else(|| content_size.map(|s| s.width))
+            .unwrap_or(1020);
+        let total_h = bar_size
+            .map(|s| s.height)
+            .unwrap_or(BROWSER_BAR_HEIGHT.round().max(1.0) as u32)
+            .saturating_add(content_size.map(|s| s.height).unwrap_or(565));
+
+        let monitor = bar
+            .primary_monitor()
+            .ok()
+            .flatten()
+            .or_else(|| bar.current_monitor().ok().flatten());
+        if let Some(m) = monitor {
+            let wa = *m.work_area();
+            let x = wa.position.x + ((wa.size.width as i32 - total_w as i32) / 2);
+            let y = wa.position.y + ((wa.size.height as i32 - total_h as i32) / 2);
+            let _ = bar.set_position(tauri::PhysicalPosition::new(x, y));
+        } else {
+            let _ = bar.center();
+        }
+    }
+
+    let bar_pos = bar.outer_position().ok();
+    let bar_h = bar.outer_size().ok().map(|s| s.height).unwrap_or(40);
+    if let Some(p) = bar_pos {
+        let _ = content.set_position(tauri::PhysicalPosition::new(p.x, p.y + bar_h as i32));
+    }
+}
+
+fn browser_stack_show(app: &tauri::AppHandle) {
+    if !browser_stack_exists(app) {
+        return;
+    }
+    // 显示/聚焦时会有短暂的焦点抖动，避免误触发“失焦隐藏”。
+    browser_stack_set_suppress_hide(app, 800);
+    browser_stack_restore_or_center(app);
+
+    if let Some(w) = app.get_webview_window(BROWSER_BAR_WINDOW_LABEL) {
+        let _ = w.show();
+    }
+    if let Some(w) = app.get_webview_window(BROWSER_WINDOW_LABEL) {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+fn browser_stack_hide(app: &tauri::AppHandle) {
+    let bar = match app.get_webview_window(BROWSER_BAR_WINDOW_LABEL) {
+        Some(w) => w,
+        None => return,
+    };
+    let content = match app.get_webview_window(BROWSER_WINDOW_LABEL) {
+        Some(w) => w,
+        None => return,
+    };
+
+    let state = app.state::<BrowserWindowState>();
+    if let Ok(pos) = bar.outer_position() {
+        // 隐藏时会把窗口移到屏幕外（-10000, -10000），不要把这种位置记成“上次位置”
+        if pos.x > -9000 && pos.y > -9000 {
+            if let Ok(mut g) = state.last_position.lock() {
+                *g = Some(pos);
+            }
+        }
+    }
+
+    let _ = bar.set_position(tauri::PhysicalPosition::new(-10000, -10000));
+    let _ = content.set_position(tauri::PhysicalPosition::new(-10000, -10000));
+    let _ = bar.hide();
+    let _ = content.hide();
+}
+
+fn browser_stack_end_session(app: &tauri::AppHandle) {
+    browser_stack_hide(app);
+    let state = app.state::<BrowserWindowState>();
+    if let Ok(mut g) = state.active.lock() {
+        *g = false;
+    }
+    if let Ok(mut g) = state.fullscreen.lock() {
+        *g = false;
+    }
+    if let Ok(mut g) = state.restore_bounds.lock() {
+        *g = None;
+    }
+    emit_activate_plugin_if_any(app);
+    show_main_window(app);
+}
+
+fn browser_stack_apply_fullscreen(app: &tauri::AppHandle, enable: bool) -> Result<(), String> {
+    let bar = app
+        .get_webview_window(BROWSER_BAR_WINDOW_LABEL)
+        .ok_or_else(|| "顶部栏窗口不存在".to_string())?;
+    let content = app
+        .get_webview_window(BROWSER_WINDOW_LABEL)
+        .ok_or_else(|| "浏览窗口不存在".to_string())?;
+
+    let state = app.state::<BrowserWindowState>();
+
+    // 如果窗口处于“最大化”状态，set_size/set_position 可能会被系统忽略。
+    let _ = bar.unmaximize();
+    let _ = content.unmaximize();
+
+    if enable {
+        // 记录“还原边界”（只记录一次，避免全屏状态下覆盖）
+        if let Ok(mut g) = state.restore_bounds.lock() {
+            if g.is_none() {
+                let pos = bar.outer_position().unwrap_or(tauri::PhysicalPosition::new(0, 0));
+                let bar_size = bar.outer_size().unwrap_or(tauri::PhysicalSize::new(1020, BROWSER_BAR_HEIGHT as u32));
+                let content_size = content
+                    .outer_size()
+                    .unwrap_or(tauri::PhysicalSize::new(1020, (BROWSER_STACK_TOTAL_HEIGHT - BROWSER_BAR_HEIGHT) as u32));
+                let total = tauri::PhysicalSize::new(bar_size.width, bar_size.height.saturating_add(content_size.height));
+                *g = Some((pos, total));
+            }
+        }
+
+        let monitor = bar
+            .current_monitor()
+            .map_err(|e| format!("读取显示器信息失败: {e}"))?
+            .or_else(|| bar.primary_monitor().ok().flatten())
+            .ok_or_else(|| "无法获取显示器信息".to_string())?;
+
+        let wa = *monitor.work_area();
+        let pos = wa.position;
+        let size = wa.size;
+
+        let bar_h = BROWSER_BAR_HEIGHT.round().max(1.0) as u32;
+        let content_h = size.height.saturating_sub(bar_h).max(1);
+
+        let _ = bar.set_position(pos);
+        let _ = bar.set_size(tauri::PhysicalSize::new(size.width, bar_h));
+
+        let _ = content.set_position(tauri::PhysicalPosition::new(pos.x, pos.y + bar_h as i32));
+        let _ = content.set_size(tauri::PhysicalSize::new(size.width, content_h));
+
+        if let Ok(mut g) = state.fullscreen.lock() {
+            *g = true;
+        }
+        // 布局调整期间焦点会抖动，避免误隐藏
+        browser_stack_set_suppress_hide(app, 1200);
+        let _ = bar.show();
+        let _ = content.show();
+        let _ = content.set_focus();
+        return Ok(());
+    }
+
+    // disable
+    let restore = state.restore_bounds.lock().ok().and_then(|g| g.clone());
+    let (pos, total) = if let Some(v) = restore {
+        v
+    } else {
+        let pos = state
+            .last_position
+            .lock()
+            .ok()
+            .and_then(|g| g.clone())
+            .unwrap_or(tauri::PhysicalPosition::new(0, 0));
+        (
+            pos,
+            tauri::PhysicalSize::new(1020, BROWSER_STACK_TOTAL_HEIGHT.round().max(200.0) as u32),
+        )
+    };
+
+    let bar_h = BROWSER_BAR_HEIGHT.round().max(1.0) as u32;
+    let content_h = total.height.saturating_sub(bar_h).max(1);
+
+    let _ = bar.set_position(pos);
+    let _ = bar.set_size(tauri::PhysicalSize::new(total.width, bar_h));
+
+    let _ = content.set_position(tauri::PhysicalPosition::new(pos.x, pos.y + bar_h as i32));
+    let _ = content.set_size(tauri::PhysicalSize::new(total.width, content_h));
+
+    if let Ok(mut g) = state.fullscreen.lock() {
+        *g = false;
+    }
+    if let Ok(mut g) = state.restore_bounds.lock() {
+        *g = None;
+    }
+    browser_stack_set_suppress_hide(app, 800);
+    let _ = bar.show();
+    let _ = content.show();
+    let _ = content.set_focus();
+    Ok(())
 }
 
 #[cfg(debug_assertions)]
@@ -2276,6 +2646,11 @@ fn main() {
             open_external_url,
             open_browser_window,
             close_browser_window,
+            hide_browser_stack,
+            browser_go_back,
+            browser_go_forward,
+            browser_reload,
+            browser_stack_toggle_fullscreen,
             http_request,
             http_request_base64,
             storage_get,
@@ -2363,6 +2738,16 @@ fn main() {
                 if event.state != ShortcutState::Pressed {
                     return;
                 }
+                let state = app.state::<BrowserWindowState>();
+                let active = state.active.lock().ok().map(|g| *g).unwrap_or(false);
+                if active && browser_stack_exists(app) {
+                    if browser_stack_is_visible(app) {
+                        browser_stack_hide(app);
+                    } else {
+                        browser_stack_show(app);
+                    }
+                    return;
+                }
                 toggle_main_window(app);
             }) {
                 eprintln!("Failed to register wake shortcut {}: {}", wake_shortcut_text, e);
@@ -2373,23 +2758,61 @@ fn main() {
         // 监听窗口事件：失焦时隐藏
         .on_window_event(|window, event| {
             // 仅 main 窗口需要“失焦自动隐藏/拦截关闭”；其它窗口按普通窗口行为处理。
-            if window.label() == BROWSER_WINDOW_LABEL {
-                if let WindowEvent::CloseRequested { .. } = event {
-                    let app = window.app_handle();
-                    let state = app.state::<BrowserWindowState>();
-                    let pid = state
-                        .return_to_plugin_id
-                        .lock()
-                        .ok()
-                        .and_then(|g| g.clone());
-                    if let Some(plugin_id) = pid {
-                        let _ = app.emit_to(
-                            EventTarget::webview_window("main"),
-                            ACTIVATE_PLUGIN_EVENT,
-                            ActivatePluginPayload { plugin_id },
-                        );
+            if window.label() == BROWSER_BAR_WINDOW_LABEL {
+                let app = window.app_handle();
+                if let WindowEvent::Moved(_) = event {
+                    if let (Some(bar), Some(content)) = (
+                        app.get_webview_window(BROWSER_BAR_WINDOW_LABEL),
+                        app.get_webview_window(BROWSER_WINDOW_LABEL),
+                    ) {
+                        let bar_pos = bar.outer_position().ok();
+                        let bar_h = bar.outer_size().ok().map(|s| s.height).unwrap_or(40);
+                        if let Some(p) = bar_pos {
+                            let _ = content.set_position(tauri::PhysicalPosition::new(p.x, p.y + bar_h as i32));
+                        }
                     }
-                    show_main_window(&app);
+                }
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    browser_stack_end_session(app);
+                }
+                if let WindowEvent::Focused(focused) = event {
+                    if !focused {
+                        let app = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            tokio::time::sleep(Duration::from_millis(120)).await;
+                            if browser_stack_is_focused(&app) {
+                                return;
+                            }
+                            if browser_stack_should_suppress_hide(&app) {
+                                return;
+                            }
+                            browser_stack_hide(&app);
+                        });
+                    }
+                }
+                return;
+            }
+            if window.label() == BROWSER_WINDOW_LABEL {
+                let app = window.app_handle();
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    browser_stack_end_session(app);
+                }
+                if let WindowEvent::Focused(focused) = event {
+                    if !focused {
+                        let app = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            tokio::time::sleep(Duration::from_millis(120)).await;
+                            if browser_stack_is_focused(&app) {
+                                return;
+                            }
+                            if browser_stack_should_suppress_hide(&app) {
+                                return;
+                            }
+                            browser_stack_hide(&app);
+                        });
+                    }
                 }
                 return;
             }

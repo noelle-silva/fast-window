@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, ComponentType, useRef } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { loadAllPluginsReport, type PluginLoadRejection } from './plugins/pluginLoader'
 import { initPluginApi } from './plugins/pluginApi'
 import BackgroundPluginHost from './plugins/BackgroundPluginHost'
@@ -35,6 +36,7 @@ import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import SettingsView from './components/SettingsView'
 import ImportPluginDialog from './components/ImportPluginDialog'
+import BrowserBarWindow from './components/BrowserBarWindow'
 
 // 初始化插件 API
 initPluginApi()
@@ -247,6 +249,10 @@ const settingsPlugin: Plugin = {
 }
 
 function App() {
+  if (WebviewWindow.getCurrent().label === 'browser_bar') {
+    return <BrowserBarWindow />
+  }
+
   const [query, setQuery] = useState('')
   const [plugins, setPlugins] = useState<Plugin[]>([])
   const [allPlugins, setAllPlugins] = useState<Plugin[]>([])
