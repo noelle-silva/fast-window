@@ -7,11 +7,11 @@ body,
 #root {
   height: 100%;
   overflow: hidden;
-  background: #fffbfe;
+  background: transparent;
 }
 
 body {
   margin: 0;
   user-select: none;
-  background: #fffbfe;
+  background: transparent;
 }

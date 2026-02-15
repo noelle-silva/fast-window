@@ -500,7 +500,7 @@ async fn open_browser_window(app: tauri::AppHandle, url: String, plugin_id: Stri
     .maximizable(false)
     .minimizable(false)
     .decorations(false)
-    .transparent(false)
+    .transparent(true)
     .shadow(false)
     .always_on_top(true)
     .skip_taskbar(true)

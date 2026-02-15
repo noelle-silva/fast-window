@@ -41,6 +41,8 @@ export default function BrowserBarWindow() {
         borderColor: 'divider',
         WebkitAppRegion: 'drag',
         userSelect: 'none',
+        borderRadius: '16px 16px 0 0',
+        overflow: 'hidden',
       }}
     >
       <Box
