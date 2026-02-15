@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Box, IconButton, Typography } from '@mui/material'
@@ -6,17 +6,37 @@ import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import FullscreenRoundedIcon from '@mui/icons-material/FullscreenRounded'
+import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
+import PushPinRoundedIcon from '@mui/icons-material/PushPinRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import RemoveRoundedIcon from '@mui/icons-material/RemoveRounded'
 
 export default function BrowserBarWindow() {
   const [busy, setBusy] = useState(false)
+  const [pinned, setPinned] = useState(false)
+
+  useEffect(() => {
+    void invoke<boolean>('browser_stack_get_pinned')
+      .then(v => setPinned(Boolean(v)))
+      .catch(() => {})
+  }, [])
 
   const call = useCallback(async (cmd: string) => {
     if (busy) return
     try {
       setBusy(true)
       await invoke(cmd)
+    } finally {
+      setBusy(false)
+    }
+  }, [busy])
+
+  const togglePinned = useCallback(async () => {
+    if (busy) return
+    try {
+      setBusy(true)
+      const next = await invoke<boolean>('browser_stack_toggle_pinned')
+      setPinned(Boolean(next))
     } finally {
       setBusy(false)
     }
@@ -58,6 +78,14 @@ export default function BrowserBarWindow() {
         </IconButton>
         <IconButton aria-label="全屏切换" size="small" onClick={() => call('browser_stack_toggle_fullscreen')}>
           <FullscreenRoundedIcon fontSize="small" />
+        </IconButton>
+        <IconButton
+          aria-label={pinned ? '取消图钉' : '图钉置顶'}
+          size="small"
+          color={pinned ? 'primary' : 'default'}
+          onClick={() => void togglePinned()}
+        >
+          {pinned ? <PushPinRoundedIcon fontSize="small" /> : <PushPinOutlinedIcon fontSize="small" />}
         </IconButton>
         <IconButton aria-label="后退" size="small" onClick={() => call('browser_go_back')}>
           <ArrowBackRoundedIcon fontSize="small" />

@@ -594,6 +594,43 @@ async fn browser_stack_toggle_fullscreen(app: tauri::AppHandle) -> Result<(), St
     Ok(())
 }
 
+fn browser_stack_set_always_on_top(app: &tauri::AppHandle, enable: bool) {
+    if let Some(w) = app.get_webview_window(BROWSER_BAR_WINDOW_LABEL) {
+        let _ = w.set_always_on_top(enable);
+    }
+    if let Some(w) = app.get_webview_window(BROWSER_WINDOW_LABEL) {
+        let _ = w.set_always_on_top(enable);
+    }
+}
+
+fn browser_stack_is_pinned(app: &tauri::AppHandle) -> bool {
+    let state = app.state::<BrowserWindowState>();
+    state.pinned.lock().ok().map(|g| *g).unwrap_or(false)
+}
+
+#[tauri::command]
+async fn browser_stack_get_pinned(app: tauri::AppHandle) -> Result<bool, String> {
+    Ok(browser_stack_is_pinned(&app))
+}
+
+#[tauri::command]
+async fn browser_stack_toggle_pinned(app: tauri::AppHandle) -> Result<bool, String> {
+    let state = app.state::<BrowserWindowState>();
+    let next = {
+        let mut g = state
+            .pinned
+            .lock()
+            .map_err(|_| "浏览窗口状态锁定失败".to_string())?;
+        *g = !*g;
+        *g
+    };
+    if next {
+        // 保险：确保窗口处于置顶态
+        browser_stack_set_always_on_top(&app, true);
+    }
+    Ok(next)
+}
+
 #[tauri::command]
 async fn http_request(req: HttpRequest) -> Result<HttpResponse, String> {
     let (status, headers, bytes) = http_request_raw(req).await?;
@@ -1006,7 +1043,6 @@ struct WindowState {
     last_position: Mutex<Option<tauri::PhysicalPosition<i32>>>,
 }
 
-#[derive(Default)]
 struct BrowserWindowState {
     return_to_plugin_id: Mutex<Option<String>>,
     active: Mutex<bool>,
@@ -1014,6 +1050,22 @@ struct BrowserWindowState {
     suppress_hide_until_ms: Mutex<u64>,
     fullscreen: Mutex<bool>,
     restore_bounds: Mutex<Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>)>>,
+    pinned: Mutex<bool>,
+}
+
+impl Default for BrowserWindowState {
+    fn default() -> Self {
+        Self {
+            return_to_plugin_id: Mutex::new(None),
+            active: Mutex::new(false),
+            last_position: Mutex::new(None),
+            suppress_hide_until_ms: Mutex::new(0),
+            fullscreen: Mutex::new(false),
+            restore_bounds: Mutex::new(None),
+            // 图钉：默认不启用（维持“失焦自动隐藏”的原交互）。
+            pinned: Mutex::new(false),
+        }
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -2655,6 +2707,8 @@ fn main() {
             browser_go_forward,
             browser_reload,
             browser_stack_toggle_fullscreen,
+            browser_stack_get_pinned,
+            browser_stack_toggle_pinned,
             http_request,
             http_request_base64,
             storage_get,
@@ -2785,6 +2839,9 @@ fn main() {
                         let app = app.clone();
                         tauri::async_runtime::spawn(async move {
                             tokio::time::sleep(Duration::from_millis(120)).await;
+                            if browser_stack_is_pinned(&app) {
+                                return;
+                            }
                             if browser_stack_is_focused(&app) {
                                 return;
                             }
@@ -2808,6 +2865,9 @@ fn main() {
                         let app = app.clone();
                         tauri::async_runtime::spawn(async move {
                             tokio::time::sleep(Duration::from_millis(120)).await;
+                            if browser_stack_is_pinned(&app) {
+                                return;
+                            }
                             if browser_stack_is_focused(&app) {
                                 return;
                             }
