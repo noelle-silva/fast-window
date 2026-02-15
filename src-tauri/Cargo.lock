@@ -988,6 +988,7 @@ dependencies = [
  "tauri-plugin-clipboard-manager",
  "tauri-plugin-global-shortcut",
  "tokio",
+ "windows",
  "winreg",
 ]
 

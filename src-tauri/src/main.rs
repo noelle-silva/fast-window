@@ -42,6 +42,74 @@ const ACTIVATE_PLUGIN_EVENT: &str = "fast-window:activate-plugin";
 const BROWSER_BAR_HEIGHT: f64 = 40.0;
 const BROWSER_STACK_TOTAL_HEIGHT: f64 = 605.0;
 
+#[cfg(windows)]
+fn apply_bottom_rounded_corners(window: &tauri::WebviewWindow, radius_dip: f64) {
+    use windows::Win32::Graphics::Gdi::{
+        CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, SetWindowRgn, GDI_REGION_TYPE, RGN_OR,
+    };
+
+    let hwnd = match window.hwnd() {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+    let scale = window.scale_factor().unwrap_or(1.0);
+    let size = match window.outer_size() {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+
+    let w = size.width as i32;
+    let h = size.height as i32;
+    if w <= 0 || h <= 0 {
+        return;
+    }
+
+    let mut r = (radius_dip * scale).round() as i32;
+    r = r.max(0).min(w / 2).min(h / 2);
+
+    unsafe {
+        // r=0：移除 region（恢复矩形窗口）
+        if r == 0 {
+            let _ = SetWindowRgn(hwnd, None, true);
+            return;
+        }
+
+        // 先做“全圆角”的 round rect，再把顶部条形区域并回去 => 只保留底部两角圆角
+        let round = CreateRoundRectRgn(0, 0, w + 1, h + 1, r * 2, r * 2);
+        if round.0 == std::ptr::null_mut() {
+            return;
+        }
+        let top = CreateRectRgn(0, 0, w + 1, r + 1);
+        if top.0 == std::ptr::null_mut() {
+            let _ = DeleteObject(round.into());
+            return;
+        }
+        let combined = CreateRectRgn(0, 0, 0, 0);
+        if combined.0 == std::ptr::null_mut() {
+            let _ = DeleteObject(round.into());
+            let _ = DeleteObject(top.into());
+            return;
+        }
+
+        // combined = round OR top
+        let ok = CombineRgn(Some(combined), Some(round), Some(top), RGN_OR);
+        let _ = DeleteObject(round.into());
+        let _ = DeleteObject(top.into());
+        if ok == GDI_REGION_TYPE(0) {
+            let _ = DeleteObject(combined.into());
+            return;
+        }
+
+        // 成功后 combined 归系统所有，不能 DeleteObject
+        if SetWindowRgn(hwnd, Some(combined), true) == 0 {
+            let _ = DeleteObject(combined.into());
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn apply_bottom_rounded_corners(_window: &tauri::WebviewWindow, _radius_dip: f64) {}
+
 #[derive(Deserialize)]
 struct HttpRequest {
     method: String,
@@ -535,6 +603,9 @@ async fn open_browser_window(app: tauri::AppHandle, url: String, plugin_id: Stri
         .visible(false)
         .build()
         .map_err(|e| format!("创建浏览窗口失败: {e}"))?;
+
+    // 让“网页主体窗口”只有底部两个角是圆角（顶部两个角会和顶部栏拼接，不要圆角）。
+    apply_bottom_rounded_corners(&content, 16.0);
 
     // 初次创建时不要跟随 main（因为 main 已被移到屏幕外隐藏了），用浏览栈的恢复/居中逻辑。
     browser_stack_restore_or_center(&app);
@@ -2059,6 +2130,9 @@ fn browser_stack_show(app: &tauri::AppHandle) {
     // 显示/聚焦时会有短暂的焦点抖动，避免误触发“失焦隐藏”。
     browser_stack_set_suppress_hide(app, 800);
     browser_stack_restore_or_center(app);
+    if let Some(w) = app.get_webview_window(BROWSER_WINDOW_LABEL) {
+        apply_bottom_rounded_corners(&w, 16.0);
+    }
 
     if let Some(w) = app.get_webview_window(BROWSER_BAR_WINDOW_LABEL) {
         let _ = w.show();
@@ -2158,6 +2232,7 @@ fn browser_stack_apply_fullscreen(app: &tauri::AppHandle, enable: bool) -> Resul
 
         let _ = content.set_position(tauri::PhysicalPosition::new(pos.x, pos.y + bar_h as i32));
         let _ = content.set_size(tauri::PhysicalSize::new(size.width, content_h));
+        apply_bottom_rounded_corners(&content, 16.0);
 
         if let Ok(mut g) = state.fullscreen.lock() {
             *g = true;
@@ -2196,6 +2271,7 @@ fn browser_stack_apply_fullscreen(app: &tauri::AppHandle, enable: bool) -> Resul
 
     let _ = content.set_position(tauri::PhysicalPosition::new(pos.x, pos.y + bar_h as i32));
     let _ = content.set_size(tauri::PhysicalSize::new(total.width, content_h));
+    apply_bottom_rounded_corners(&content, 16.0);
 
     if let Ok(mut g) = state.fullscreen.lock() {
         *g = false;
