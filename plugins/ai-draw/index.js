@@ -224,6 +224,8 @@
   const MAX_TASK_JSON_BODY_CHARS = 10 * 1024 * 1024 // 约 10MB，给后端留余量
   const REF_SHRINK_MAX_DIMENSION = 960
   const REF_SHRINK_IF_OVER_BYTES = 900 * 1024
+  const UI_MODE_NORMAL = 'normal'
+  const UI_MODE_LOCAL_EDIT = 'local-edit'
 
   const state = {
     loading: true,
@@ -237,6 +239,14 @@
     prompt: '',
     batchCount: '1',
     refImages: [],
+    edit: {
+      baseName: '',
+      baseDataUrl: '',
+      baseW: 0,
+      baseH: 0,
+      sel: null, // { x, y, w, h }：0..1 的相对坐标
+      drag: null, // { pointerId, startX, startY }
+    },
     promptHistory: [],
     promptHistoryIndex: -1,
     promptHistoryDraft: '',
@@ -322,6 +332,26 @@
       position:relative;
     }
     .imgBox img{ max-width:100%; max-height:100%; display:block; }
+    .editArea{
+      border:1px solid var(--line);
+      border-radius:12px;
+      background:#fafafa;
+      padding:8px;
+      display:flex;
+      justify-content:center;
+      align-items:center;
+      min-height: 260px;
+      overflow:hidden;
+    }
+    .editWrap{ position:relative; display:inline-block; max-width:100%; cursor:crosshair; user-select:none; }
+    .editWrap img{ display:block; max-width:100%; max-height:360px; border-radius:10px; }
+    .selRect{
+      position:absolute;
+      border:2px solid rgba(37,99,235,0.95);
+      background: rgba(37,99,235,0.12);
+      border-radius:8px;
+      pointer-events:none;
+    }
     .empty{ color:var(--muted); font-size:12px; padding:18px; text-align:center; }
     .err{ color:var(--bad); font-size:12px; }
     .promptCard{ display:flex; flex-direction:column; gap:10px; min-height:420px; }
@@ -580,6 +610,98 @@
     return out
   }
 
+  function clamp01(n) {
+    const v = Number(n)
+    if (!Number.isFinite(v)) return 0
+    if (v < 0) return 0
+    if (v > 1) return 1
+    return v
+  }
+
+  function normalizeSelRect(sel) {
+    if (!sel || typeof sel !== 'object') return null
+    const x = clamp01(sel.x)
+    const y = clamp01(sel.y)
+    const w = clamp01(sel.w)
+    const h = clamp01(sel.h)
+    if (!(w > 0 && h > 0)) return null
+    if (x + w <= 0 || y + h <= 0) return null
+    return { x, y, w: Math.min(1 - x, w), h: Math.min(1 - y, h) }
+  }
+
+  function selRectToPixels(sel, imgW, imgH) {
+    const s = normalizeSelRect(sel)
+    const w0 = Number(imgW) || 0
+    const h0 = Number(imgH) || 0
+    if (!s || !w0 || !h0) return null
+
+    const x = Math.max(0, Math.floor(s.x * w0))
+    const y = Math.max(0, Math.floor(s.y * h0))
+    const w = Math.max(1, Math.floor(s.w * w0))
+    const h = Math.max(1, Math.floor(s.h * h0))
+    const w1 = Math.min(w0 - x, w)
+    const h1 = Math.min(h0 - y, h)
+    if (!(w1 > 0 && h1 > 0)) return null
+    return { x, y, w: w1, h: h1 }
+  }
+
+  async function cropDataUrlByPixels(dataUrl, rect) {
+    const srcUrl = String(dataUrl || '').trim()
+    if (!srcUrl.startsWith('data:image/')) return ''
+    const r = rect && typeof rect === 'object' ? rect : null
+    const x = Math.max(0, Math.floor(Number(r?.x) || 0))
+    const y = Math.max(0, Math.floor(Number(r?.y) || 0))
+    const w = Math.max(1, Math.floor(Number(r?.w) || 0))
+    const h = Math.max(1, Math.floor(Number(r?.h) || 0))
+
+    const img = await loadImageFromDataUrl(srcUrl)
+    const w0 = img.naturalWidth || img.width
+    const h0 = img.naturalHeight || img.height
+    if (!w0 || !h0) return ''
+    const w1 = Math.min(w0 - x, w)
+    const h1 = Math.min(h0 - y, h)
+    if (!(w1 > 0 && h1 > 0)) return ''
+
+    const canvas = document.createElement('canvas')
+    canvas.width = w1
+    canvas.height = h1
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return ''
+    ctx.drawImage(img, x, y, w1, h1, 0, 0, w1, h1)
+    return canvas.toDataURL('image/png')
+  }
+
+  async function compositePatchToBase(baseDataUrl, patchDataUrl, rect) {
+    const baseUrl = String(baseDataUrl || '').trim()
+    const patchUrl = String(patchDataUrl || '').trim()
+    if (!baseUrl.startsWith('data:image/')) return ''
+    if (!patchUrl.startsWith('data:image/')) return ''
+
+    const b = rect && typeof rect === 'object' ? rect : null
+    const x = Math.max(0, Math.floor(Number(b?.x) || 0))
+    const y = Math.max(0, Math.floor(Number(b?.y) || 0))
+    const w = Math.max(1, Math.floor(Number(b?.w) || 0))
+    const h = Math.max(1, Math.floor(Number(b?.h) || 0))
+
+    const baseImg = await loadImageFromDataUrl(baseUrl)
+    const patchImg = await loadImageFromDataUrl(patchUrl)
+    const bw = baseImg.naturalWidth || baseImg.width
+    const bh = baseImg.naturalHeight || baseImg.height
+    if (!bw || !bh) return ''
+
+    const canvas = document.createElement('canvas')
+    canvas.width = bw
+    canvas.height = bh
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return ''
+
+    ctx.drawImage(baseImg, 0, 0, bw, bh)
+    const w1 = Math.min(bw - x, w)
+    const h1 = Math.min(bh - y, h)
+    if (w1 > 0 && h1 > 0) ctx.drawImage(patchImg, 0, 0, patchImg.naturalWidth || patchImg.width, patchImg.naturalHeight || patchImg.height, x, y, w1, h1)
+    return canvas.toDataURL('image/png')
+  }
+
   function normalizePickedImages(raw) {
     const list = Array.isArray(raw) ? raw : []
     const out = []
@@ -614,6 +736,7 @@
     return {
       version: VERSION,
       autoSave: true,
+      uiMode: UI_MODE_NORMAL,
       promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
       promptHistory: [],
       pendingTaskId: '',
@@ -691,9 +814,15 @@
     out.providers = [p]
     out.activeProviderId = p.id
     out.autoSave = typeof s.autoSave === 'boolean' ? s.autoSave : true
+    out.uiMode = UI_MODE_NORMAL
     out.promptHistoryLimit = normalizePromptHistoryLimit(s.promptHistoryLimit)
     out.promptHistory = normalizePromptHistory(s.promptHistory, out.promptHistoryLimit)
     return out
+  }
+
+  function normalizeUiMode(raw) {
+    const v = String(raw || '').trim()
+    return v === UI_MODE_LOCAL_EDIT ? UI_MODE_LOCAL_EDIT : UI_MODE_NORMAL
   }
 
   function normalizeData(raw) {
@@ -708,6 +837,7 @@
     const out = defaultData()
     out.version = VERSION
     out.autoSave = typeof d.autoSave === 'boolean' ? d.autoSave : true
+    out.uiMode = normalizeUiMode(d.uiMode)
     out.promptHistoryLimit = normalizePromptHistoryLimit(d.promptHistoryLimit)
     out.promptHistory = normalizePromptHistory(d.promptHistory, out.promptHistoryLimit)
     out.pendingTaskId = String(d.pendingTaskId || '').trim()
@@ -884,6 +1014,25 @@
     }
 
     return ''
+  }
+
+  function parseImageDataUrlFromHttpBodyText(bodyText) {
+    const raw = String(bodyText || '')
+    try {
+      const j = JSON.parse(raw)
+      const item = (Array.isArray(j?.data) && j.data[0]) || (Array.isArray(j?.images) && j.images[0]) || null
+      const b64 = item?.b64_json || item?.b64 || item?.base64 || ''
+      const direct = typeof item?.data_url === 'string' ? item.data_url : typeof item?.dataUrl === 'string' ? item.dataUrl : ''
+      const content = (Array.isArray(j?.choices) && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || ''
+      return (
+        (direct && String(direct).trim()) ||
+        (b64 && `data:image/png;base64,${String(b64).trim()}`) ||
+        extractImageFromText(content) ||
+        extractImageFromText(raw)
+      )
+    } catch {
+      return extractImageFromText(raw)
+    }
   }
 
   function isTaskDone(status) {
@@ -1374,6 +1523,53 @@
     await api.files.openOutputDir().catch((e) => api.ui.showToast(`打开目录失败：${String(e?.message || e)}`))
   }
 
+  async function pickEditImage() {
+    const picked = await api.files.pickImages(1).catch((e) => {
+      api.ui.showToast(`选择图片失败：${String(e?.message || e)}`)
+      return []
+    })
+    const it = Array.isArray(picked) && picked[0] ? picked[0] : null
+    const name = typeof it?.name === 'string' ? it.name : ''
+    const dataUrl = typeof it?.dataUrl === 'string' ? it.dataUrl : typeof it?.data_url === 'string' ? it.data_url : ''
+    const u = String(dataUrl || '').trim()
+    if (!u.startsWith('data:image/')) return api.ui.showToast('图片数据无效')
+
+    try {
+      const img = await loadImageFromDataUrl(u)
+      const w = img.naturalWidth || img.width
+      const h = img.naturalHeight || img.height
+      state.edit.baseName = String(name || '图片')
+      state.edit.baseDataUrl = u
+      state.edit.baseW = Number(w) || 0
+      state.edit.baseH = Number(h) || 0
+      state.edit.sel = null
+      state.edit.drag = null
+      state.error = ''
+      render()
+    } catch (e) {
+      api.ui.showToast(`解析图片失败：${String(e?.message || e)}`)
+    }
+  }
+
+  function clearEditImage() {
+    state.edit.baseName = ''
+    state.edit.baseDataUrl = ''
+    state.edit.baseW = 0
+    state.edit.baseH = 0
+    state.edit.sel = null
+    state.edit.drag = null
+    state.error = ''
+    render()
+  }
+
+  function clearEditSelection() {
+    state.edit.sel = null
+    state.edit.drag = null
+    const el = document.getElementById('edit-sel-rect')
+    if (el) el.setAttribute('style', 'display:none;')
+    render()
+  }
+
   function basename(p) {
     const s = String(p || '').trim()
     if (!s) return ''
@@ -1568,7 +1764,146 @@
     )
   }
 
+  async function generateLocalEdit() {
+    const prompt = String(state.prompt || '').trim()
+    if (!prompt) {
+      setError('请输入提示词')
+      return
+    }
+
+    const baseUrl = String(state.edit?.baseDataUrl || '').trim()
+    if (!baseUrl.startsWith('data:image/')) {
+      setError('请先选择一张图片')
+      return
+    }
+
+    const selPx = selRectToPixels(state.edit?.sel, state.edit?.baseW, state.edit?.baseH)
+    if (!selPx) {
+      setError('请在图片上拖拽选择矩形区域')
+      return
+    }
+
+    const p = activeProvider()
+    const base = trimSlash(String(p?.baseUrl || ''))
+    const apiKey = String(p?.apiKey || '').trim()
+    if (!isHttpBaseUrl(base)) {
+      openSettings()
+      setError('请先在设置里配置 Base URL（http:// 或 https://）')
+      return
+    }
+    if (!apiKey) {
+      openSettings()
+      setError('请先在设置里填写 API Key')
+      return
+    }
+    if (String(p?.protocol || 'images') !== 'chat') {
+      openSettings()
+      setError('局部修改需要 chat 协议（/chat/completions）')
+      return
+    }
+
+    const model = resolveModel(p)
+    if (!model) {
+      openSettings()
+      setError('请先配置模型')
+      return
+    }
+
+    state.submitting = true
+    state.error = ''
+    addPromptHistory(prompt)
+    render()
+
+    try {
+      const cropPng = await cropDataUrlByPixels(baseUrl, selPx)
+      if (!cropPng) throw new Error('裁剪失败：无法生成选区图片')
+      const cropForSend = await shrinkRefImageDataUrl(cropPng).catch(() => cropPng)
+
+      const instruction =
+        `请根据要求修改图片：${prompt}\n` +
+        `只输出一张最终图片（PNG），尺寸必须与输入图片一致。\n` +
+        `输出格式必须是 data URL（data:image/png;base64,...）或 JSON（{"data_url":"..."} / {"b64_png":"..."} / {"b64_json":"..."}），不要输出其它文字。`
+
+      const body = JSON.stringify({
+        model,
+        messages: [
+          ...(String(p?.chatSystemPrompt || '').trim()
+            ? [{ role: 'system', content: String(p?.chatSystemPrompt || '').trim() }]
+            : []),
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: instruction },
+              { type: 'image_url', image_url: { url: cropForSend } },
+            ],
+          },
+        ],
+        temperature: 0.2,
+      })
+
+      if (body.length > MAX_TASK_JSON_BODY_CHARS) {
+        throw new Error(`请求体过大（约 ${formatBytes(body.length)}）。请缩小选区或换更小图片。`)
+      }
+
+      const res = await api.net.request({
+        method: 'POST',
+        url: `${base}/chat/completions`,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body,
+        timeoutMs: 120000,
+      })
+
+      const httpStatus = Number(res?.status)
+      const bodyText = typeof res?.body === 'string' ? res.body : ''
+      if (!Number.isFinite(httpStatus)) throw new Error('请求失败：无响应')
+      if (httpStatus < 200 || httpStatus >= 300) throw new Error(`HTTP ${httpStatus}：${parseErrorBody(bodyText)}`)
+
+      const patch = parseImageDataUrlFromHttpBodyText(bodyText)
+      if (!patch) throw new Error('未拿到图片数据（请确保服务端返回 base64 图片）')
+
+      const finalDataUrl = await compositePatchToBase(baseUrl, String(patch || '').trim(), selPx)
+      if (!finalDataUrl) throw new Error('合成失败：无法把结果贴回原图')
+
+      state.imageDataUrl = finalDataUrl
+      state.savedPath = ''
+      // 便于多轮局部修改：把输出回填为新的编辑图，并清空选区。
+      state.edit.baseDataUrl = finalDataUrl
+      state.edit.baseW = Number(state.edit.baseW) || 0
+      state.edit.baseH = Number(state.edit.baseH) || 0
+      state.edit.sel = null
+      state.edit.drag = null
+      render()
+
+      if (state.data && state.data.autoSave) {
+        const rid = await enqueueBackgroundSave(finalDataUrl).catch(() => '')
+        if (!rid) throw new Error('保存失败：无法发起后台保存')
+        api.ui.showToast('已生成（保存中…）')
+        const savedPath = await waitBackgroundSaveResponse(rid).catch(() => '')
+        if (savedPath) {
+          state.savedPath = savedPath
+          await refreshImageHistoryFromOutputDir(state.savedPath)
+          api.ui.showToast('已生成并保存')
+        }
+      } else {
+        api.ui.showToast('已生成（已贴回选区）')
+      }
+    } catch (e) {
+      setError(String(e?.message || e))
+    } finally {
+      state.submitting = false
+      render()
+    }
+  }
+
   async function generate() {
+    if (state.data && normalizeUiMode(state.data.uiMode) === UI_MODE_LOCAL_EDIT) {
+      await generateLocalEdit()
+      return
+    }
+
     const prompt = String(state.prompt || '').trim()
     if (!prompt) {
       setError('请输入提示词')
@@ -1708,6 +2043,8 @@
       .join('')
     const delPid = String(state.draft.deleteProviderId || '')
     const delP = delPid ? ps.find((x) => x && String(x.id || '') === delPid) : null
+    const uiMode = normalizeUiMode(d && d.uiMode)
+    const modeBtnText = uiMode === UI_MODE_LOCAL_EDIT ? '模式：局部' : '模式：普通'
 
     const isChat = String(p?.protocol || 'images') === 'chat'
     const activeTasks = getActiveTasks()
@@ -1719,6 +2056,20 @@
     const imageCount = state.imageHistory.length
     const currentImageIndex = state.imageHistoryIndex >= 0 ? state.imageHistoryIndex + 1 : 0
     const imageIndexText = `${currentImageIndex}/${imageCount}`
+
+    const edit = state.edit && typeof state.edit === 'object' ? state.edit : {}
+    const editHasBase = !!String(edit.baseDataUrl || '').trim()
+    const editSel = normalizeSelRect(edit.sel)
+    const editSelPx = editSel ? selRectToPixels(editSel, edit.baseW, edit.baseH) : null
+    const editRectStyle = editSel
+      ? `left:${(editSel.x * 100).toFixed(3)}%; top:${(editSel.y * 100).toFixed(3)}%; width:${(editSel.w * 100).toFixed(
+          3,
+        )}%; height:${(editSel.h * 100).toFixed(3)}%;`
+      : 'display:none;'
+    const editBaseText = editHasBase
+      ? `已选：${String(edit.baseName || '图片')} (${String(edit.baseW || 0)}x${String(edit.baseH || 0)})`
+      : '未选择图片'
+    const editSelText = editSelPx ? `选区：${editSelPx.x},${editSelPx.y} ${editSelPx.w}x${editSelPx.h}` : '未选择区域'
 
     const img =
       state.imageDataUrl
@@ -1914,6 +2265,7 @@
         <div class="top">
           <button class="btn icon" data-act="back" aria-label="返回主页" title="返回主页">←</button>
           <div class="title">AI 绘图</div>
+          <button class="btn" data-act="toggle-ui-mode" title="切换普通/局部修改">${esc(modeBtnText)}</button>
           <button class="btn" data-act="open-output-dir" ${state.outputDir ? '' : 'disabled'}>打开输出目录</button>
           <span class="kbd mono" aria-label="自动保存开关状态">自动保存：${d && d.autoSave ? '开' : '关'}</span>
           <div class="taskMenuWrap">
@@ -1952,7 +2304,11 @@
             <div class="card promptCard">
               <div class="row nowrap">
                 <button class="btn pri stable" data-act="generate" ${state.submitting ? 'disabled' : ''}>${state.submitting ? '提交中…' : '生成'}</button>
-                <input class="field xs" data-bind="batchCount" type="number" min="1" max="${MAX_BATCH_COUNT}" step="1" value="${esc(state.batchCount)}" aria-label="批量次数" title="批量次数（并行提交）" />
+                ${
+                  uiMode === UI_MODE_LOCAL_EDIT
+                    ? ''
+                    : `<input class="field xs" data-bind="batchCount" type="number" min="1" max="${MAX_BATCH_COUNT}" step="1" value="${esc(state.batchCount)}" aria-label="批量次数" title="批量次数（并行提交）" />`
+                }
                 <button class="btn" data-act="prompt-prev" ${canPromptPrev ? '' : 'disabled'} aria-label="上一条提示词">←</button>
                 <button class="btn" data-act="prompt-next" ${canPromptNext ? '' : 'disabled'} aria-label="下一条提示词">→</button>
                 <div class="sp"></div>
@@ -1961,6 +2317,29 @@
                   <option value="__custom__" ${String(p?.model || '') === '__custom__' ? 'selected' : ''}>自定义…</option>
                 </select>
               </div>
+              ${
+                uiMode === UI_MODE_LOCAL_EDIT
+                  ? `
+              <div class="row refTop">
+                <span class="meta" style="margin-top:0">局部修改</span>
+                <button class="btn" data-act="pick-edit-image">选择图片</button>
+                <button class="btn" data-act="clear-edit-image" ${editHasBase ? '' : 'disabled'}>清除</button>
+                <button class="btn" data-act="clear-edit-selection" ${editSel ? '' : 'disabled'}>清空选区</button>
+                <span class="kbd mono" aria-label="局部修改状态">${esc(editBaseText)}${editHasBase ? ` | ${esc(editSelText)}` : ''}</span>
+              </div>
+              ${
+                editHasBase
+                  ? `<div class="editArea" aria-label="局部修改选区">
+                      <div id="edit-img-wrap" class="editWrap" aria-label="拖拽选择矩形区域">
+                        <img id="edit-base-img" alt="待局部修改的图片" src="${esc(edit.baseDataUrl)}" draggable="false" />
+                        <div id="edit-sel-rect" class="selRect" style="${esc(editRectStyle)}"></div>
+                      </div>
+                    </div>
+                    <div class="meta">在图片上拖拽选择矩形区域；会把返回结果贴回该区域。</div>`
+                  : `<div class="editArea" aria-label="未选择图片"><div class="empty">未选择图片，点击“选择图片”。</div></div>`
+              }
+              `
+                  : `
               <div class="row refTop">
                 <span class="meta" style="margin-top:0">参考图</span>
                 <button class="btn" data-act="pick-ref-images">外部参考图</button>
@@ -1981,6 +2360,8 @@
                     : `<div class="meta" style="margin:2px 0">未选择参考图（可选）</div>`
                 }
               </div>
+              `
+              }
               ${
                 showCustom
                   ? `<input class="field mono" data-bind="activeCustomModel" placeholder="输入模型 ID…" value="${esc(
@@ -2067,6 +2448,16 @@
         return
       }
 
+      if (act === 'toggle-ui-mode') {
+        if (!state.data) return
+        const cur = normalizeUiMode(state.data.uiMode)
+        state.data.uiMode = cur === UI_MODE_LOCAL_EDIT ? UI_MODE_NORMAL : UI_MODE_LOCAL_EDIT
+        state.error = ''
+        save().catch(() => {})
+        render()
+        return
+      }
+
       if (act === 'open-settings') {
         openSettings()
       } else if (act === 'close-modal') {
@@ -2128,6 +2519,12 @@
         render()
       } else if (act === 'delete-current-image') {
         deleteCurrentImage()
+      } else if (act === 'pick-edit-image') {
+        pickEditImage()
+      } else if (act === 'clear-edit-image') {
+        clearEditImage()
+      } else if (act === 'clear-edit-selection') {
+        clearEditSelection()
       } else if (act === 'pick-ref-images') {
         api.files
           .pickImages(MAX_REF_IMAGES)
@@ -2331,6 +2728,90 @@
         }
       }
     })
+
+    function isLocalEditMode() {
+      return !!(state.data && normalizeUiMode(state.data.uiMode) === UI_MODE_LOCAL_EDIT)
+    }
+
+    function pointToFrac(e) {
+      const img = document.getElementById('edit-base-img')
+      if (!img || !(img instanceof HTMLImageElement)) return null
+      const r = img.getBoundingClientRect()
+      if (!r || !r.width || !r.height) return null
+      const x = clamp01((Number(e?.clientX) - r.left) / r.width)
+      const y = clamp01((Number(e?.clientY) - r.top) / r.height)
+      return { x, y }
+    }
+
+    function applyOverlayStyle(sel) {
+      const el = document.getElementById('edit-sel-rect')
+      if (!el) return
+      const s = normalizeSelRect(sel)
+      if (!s) {
+        el.setAttribute('style', 'display:none;')
+        return
+      }
+      el.setAttribute(
+        'style',
+        `left:${(s.x * 100).toFixed(3)}%; top:${(s.y * 100).toFixed(3)}%; width:${(s.w * 100).toFixed(3)}%; height:${(s.h * 100).toFixed(3)}%;`,
+      )
+    }
+
+    root.addEventListener('pointerdown', (e) => {
+      if (!isLocalEditMode()) return
+      if (!String(state.edit?.baseDataUrl || '').trim()) return
+
+      const raw = e.target
+      const node = raw && raw.nodeType === 3 ? raw.parentElement : raw
+      if (!node || !node.closest) return
+      const wrap = node.closest('#edit-img-wrap')
+      if (!wrap) return
+
+      const pt = pointToFrac(e)
+      if (!pt) return
+
+      state.edit.drag = { pointerId: e.pointerId, startX: pt.x, startY: pt.y }
+      state.edit.sel = { x: pt.x, y: pt.y, w: 0, h: 0 }
+      applyOverlayStyle(state.edit.sel)
+      try {
+        wrap.setPointerCapture(e.pointerId)
+      } catch {}
+      e.preventDefault()
+    })
+
+    root.addEventListener('pointermove', (e) => {
+      if (!isLocalEditMode()) return
+      const d = state.edit && state.edit.drag ? state.edit.drag : null
+      if (!d || d.pointerId !== e.pointerId) return
+
+      const pt = pointToFrac(e)
+      if (!pt) return
+
+      const x0 = clamp01(d.startX)
+      const y0 = clamp01(d.startY)
+      const x1 = pt.x
+      const y1 = pt.y
+      const x = Math.min(x0, x1)
+      const y = Math.min(y0, y1)
+      const w = Math.abs(x1 - x0)
+      const h = Math.abs(y1 - y0)
+      state.edit.sel = { x, y, w, h }
+      applyOverlayStyle(state.edit.sel)
+      e.preventDefault()
+    })
+
+    function endPointerDrag(e) {
+      if (!isLocalEditMode()) return
+      const d = state.edit && state.edit.drag ? state.edit.drag : null
+      if (!d || d.pointerId !== e.pointerId) return
+      state.edit.drag = null
+      state.edit.sel = normalizeSelRect(state.edit.sel)
+      applyOverlayStyle(state.edit.sel)
+      render()
+    }
+
+    root.addEventListener('pointerup', endPointerDrag)
+    root.addEventListener('pointercancel', endPointerDrag)
   }
 
   bindEvents()
