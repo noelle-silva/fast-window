@@ -501,6 +501,7 @@ async fn open_browser_window(app: tauri::AppHandle, url: String, plugin_id: Stri
     .minimizable(false)
     .decorations(false)
     .transparent(false)
+    .shadow(false)
     .always_on_top(true)
     .skip_taskbar(true)
     .visible(false)
@@ -528,6 +529,7 @@ async fn open_browser_window(app: tauri::AppHandle, url: String, plugin_id: Stri
         .minimizable(false)
         .decorations(false)
         .transparent(false)
+        .shadow(false)
         .always_on_top(true)
         .skip_taskbar(true)
         .visible(false)
@@ -1992,7 +1994,7 @@ fn browser_stack_restore_or_center(app: &tauri::AppHandle) {
     }
 
     let bar_pos = bar.outer_position().ok();
-    let bar_h = bar.outer_size().ok().map(|s| s.height).unwrap_or(40);
+    let bar_h = bar.inner_size().ok().map(|s| s.height).unwrap_or(BROWSER_BAR_HEIGHT.round().max(1.0) as u32);
     if let Some(p) = bar_pos {
         let _ = content.set_position(tauri::PhysicalPosition::new(p.x, p.y + bar_h as i32));
     }
@@ -2095,7 +2097,8 @@ fn browser_stack_apply_fullscreen(app: &tauri::AppHandle, enable: bool) -> Resul
         let pos = wa.position;
         let size = wa.size;
 
-        let bar_h = BROWSER_BAR_HEIGHT.round().max(1.0) as u32;
+        let scale = monitor.scale_factor();
+        let bar_h = (BROWSER_BAR_HEIGHT * scale).round().max(1.0) as u32;
         let content_h = size.height.saturating_sub(bar_h).max(1);
 
         let _ = bar.set_position(pos);
@@ -2132,7 +2135,8 @@ fn browser_stack_apply_fullscreen(app: &tauri::AppHandle, enable: bool) -> Resul
         )
     };
 
-    let bar_h = BROWSER_BAR_HEIGHT.round().max(1.0) as u32;
+    let scale = bar.scale_factor().unwrap_or(1.0);
+    let bar_h = (BROWSER_BAR_HEIGHT * scale).round().max(1.0) as u32;
     let content_h = total.height.saturating_sub(bar_h).max(1);
 
     let _ = bar.set_position(pos);
@@ -2766,7 +2770,7 @@ fn main() {
                         app.get_webview_window(BROWSER_WINDOW_LABEL),
                     ) {
                         let bar_pos = bar.outer_position().ok();
-                        let bar_h = bar.outer_size().ok().map(|s| s.height).unwrap_or(40);
+                        let bar_h = bar.inner_size().ok().map(|s| s.height).unwrap_or(BROWSER_BAR_HEIGHT.round().max(1.0) as u32);
                         if let Some(p) = bar_pos {
                             let _ = content.set_position(tauri::PhysicalPosition::new(p.x, p.y + bar_h as i32));
                         }

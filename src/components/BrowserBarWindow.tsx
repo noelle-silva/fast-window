@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Box, IconButton, Typography } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
@@ -24,6 +25,11 @@ export default function BrowserBarWindow() {
   return (
     <Box
       data-tauri-drag-region="true"
+      onPointerDown={e => {
+        if (e.button !== 0) return
+        // drag-region 在某些环境下会偶发失效，这里用 startDragging 兜底。
+        void getCurrentWindow().startDragging().catch(() => {})
+      }}
       sx={{
         height: '100vh',
         display: 'flex',
@@ -39,6 +45,7 @@ export default function BrowserBarWindow() {
     >
       <Box
         data-tauri-drag-region="false"
+        onPointerDown={e => e.stopPropagation()}
         sx={{ position: 'absolute', left: 6, display: 'flex', alignItems: 'center', gap: 0.5, WebkitAppRegion: 'no-drag' }}
       >
         <IconButton aria-label="关闭浏览" size="small" onClick={() => call('close_browser_window')}>
