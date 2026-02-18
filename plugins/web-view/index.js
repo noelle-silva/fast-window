@@ -12,6 +12,7 @@
     sniffingFormIcon: false,
     iconCacheById: {},
     iconLoadingById: {},
+    ctxMenu: { open: false, id: '', url: '', x: 0, y: 0 },
     confirmKey: '',
     confirmUntil: 0,
   }
@@ -74,35 +75,49 @@
     }
 
     .content { flex: 1; min-height: 0; overflow: auto; padding: 10px; }
-    .list { display: flex; flex-direction: column; gap: 10px; }
-    .card {
+    .list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+      gap: 12px;
+      align-content: start;
+    }
+    .tile {
       background: var(--surface);
       border: 1px solid var(--outline);
       border-radius: var(--radius);
-      padding: 10px;
+      padding: 12px 10px;
       box-shadow: var(--shadow);
       cursor: pointer;
+      user-select: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
     }
-    .cardTop { display: flex; align-items: center; gap: 8px; }
-    .name { font-weight: 800; font-size: 13px; line-height: 1.2; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .spacer { margin-left: auto; }
-    .iconBtn {
-      border: 1px solid var(--outline);
-      background: white;
-      width: 28px;
-      height: 28px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 14px;
-      line-height: 26px;
+    .tile:focus { outline: none; }
+    .tileName {
+      font-weight: 800;
+      font-size: 12px;
+      line-height: 1.2;
+      width: 100%;
       text-align: center;
-      color: var(--muted);
-      flex-shrink: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
-    .iconBtn.danger { color: var(--danger); }
-    .url { margin-top: 6px; font-size: 12px; color: var(--muted); word-break: break-all; }
+    .spacer { margin-left: auto; }
     .hint { font-size: 12px; color: var(--muted); padding: 6px 2px; text-align: center; }
     .help { font-size: 12px; color: var(--muted); }
+
+    .tile .siteIcon {
+      width: 52px;
+      height: 52px;
+      border-radius: 999px;
+      border: 1px solid var(--outline);
+      background: white;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+    }
+    .tile .fallback { font-size: 22px; }
 
     .overlay[hidden] { display: none; }
     .overlay {
@@ -144,7 +159,43 @@
     .siteIcon.ok .fallback { display: none; }
     .siteIcon.err img { display: none; }
     .fallback { font-size: 13px; color: var(--muted); line-height: 1; }
-    .cardTitleLine { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+
+    .ctxBackdrop[hidden] { display: none; }
+    .ctxBackdrop {
+      position: fixed;
+      inset: 0;
+      background: transparent;
+      z-index: 50;
+    }
+    .ctxMenu[hidden] { display: none; }
+    .ctxMenu {
+      position: fixed;
+      z-index: 60;
+      min-width: 160px;
+      background: var(--surface);
+      border: 1px solid var(--outline);
+      border-radius: 12px;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.22);
+      padding: 6px;
+    }
+    .ctxItem {
+      width: 100%;
+      height: 34px;
+      padding: 0 10px;
+      border: 0;
+      background: transparent;
+      border-radius: 10px;
+      cursor: pointer;
+      text-align: left;
+      color: var(--text);
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .ctxItem:hover { background: rgba(0,0,0,0.06); }
+    .ctxItem.danger { color: var(--danger); }
+    .ctxSep { height: 1px; background: var(--outline); margin: 6px 4px; }
   `
 
   function escapeHtml(s) {
@@ -158,6 +209,42 @@
 
   function uid() {
     return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+  }
+
+  function closeCtxMenu() {
+    state.ctxMenu.open = false
+    state.ctxMenu.id = ''
+    state.ctxMenu.url = ''
+  }
+
+  function renderCtxMenu() {
+    const menu = document.querySelector('[data-role="ctxMenu"]')
+    const backdrop = document.querySelector('[data-role="ctxBackdrop"]')
+    if (!(menu instanceof HTMLElement) || !(backdrop instanceof HTMLElement)) return
+
+    const show = state.ctxMenu.open && !state.modal && String(state.ctxMenu.id || '').trim()
+    menu.hidden = !show
+    backdrop.hidden = !show
+    if (!show) return
+
+    const x0 = Number(state.ctxMenu.x || 0)
+    const y0 = Number(state.ctxMenu.y || 0)
+    menu.style.left = `${x0}px`
+    menu.style.top = `${y0}px`
+
+    requestAnimationFrame(() => {
+      if (menu.hidden) return
+      const pad = 8
+      const rect = menu.getBoundingClientRect()
+      let x = x0
+      let y = y0
+      if (x + rect.width > window.innerWidth - pad) x = window.innerWidth - pad - rect.width
+      if (y + rect.height > window.innerHeight - pad) y = window.innerHeight - pad - rect.height
+      x = Math.max(pad, x)
+      y = Math.max(pad, y)
+      menu.style.left = `${x}px`
+      menu.style.top = `${y}px`
+    })
   }
 
   function normalizeUrl(raw) {
@@ -766,6 +853,15 @@
             </div>
           </div>
         </div>
+
+        <div class="ctxBackdrop" data-role="ctxBackdrop" hidden></div>
+        <div class="ctxMenu" data-role="ctxMenu" hidden role="menu" aria-label="网站操作">
+          <button class="ctxItem" data-act="ctxOpen" role="menuitem">↗ 打开</button>
+          <button class="ctxItem" data-act="ctxEdit" role="menuitem">✎ 编辑</button>
+          <button class="ctxItem" data-act="ctxSniff" role="menuitem">⟳ 刷新图标</button>
+          <div class="ctxSep" role="separator"></div>
+          <button class="ctxItem danger" data-act="ctxDelete" role="menuitem">🗑 删除</button>
+        </div>
       </div>
     `
 
@@ -773,6 +869,45 @@
       const t = e.target
       if (!(t instanceof HTMLElement)) return
       const act = t.getAttribute('data-act')
+
+      if (act === 'ctxOpen') {
+        const url = String(state.ctxMenu.url || '').trim()
+        closeCtxMenu()
+        renderCtxMenu()
+        if (url) return openInWindow(url)
+        return
+      }
+      if (act === 'ctxEdit') {
+        const id = String(state.ctxMenu.id || '').trim()
+        const item = state.items.find((x) => x.id === id)
+        closeCtxMenu()
+        renderCtxMenu()
+        if (!item) return
+        return openModal('edit', item)
+      }
+      if (act === 'ctxSniff') {
+        const id = String(state.ctxMenu.id || '').trim()
+        closeCtxMenu()
+        renderCtxMenu()
+        if (!id) return
+        return refreshIconForItem(id)
+      }
+      if (act === 'ctxDelete') {
+        const id = String(state.ctxMenu.id || '').trim()
+        closeCtxMenu()
+        renderCtxMenu()
+        if (!id) return
+        return deleteItem(id)
+      }
+      if (t.getAttribute('data-role') === 'ctxBackdrop') {
+        closeCtxMenu()
+        renderCtxMenu()
+        return
+      }
+      if (state.ctxMenu.open && !t.closest('[data-role="ctxMenu"]')) {
+        closeCtxMenu()
+        renderCtxMenu()
+      }
 
       if (act === 'back') return api.ui?.back ? api.ui.back() : api.ui?.showToast?.('无法返回')
       if (act === 'add') return openModal('add')
@@ -811,6 +946,24 @@
         if (!url) return
         return openInWindow(url)
       }
+    })
+
+    root.addEventListener('contextmenu', (e) => {
+      const t = e.target
+      if (!(t instanceof HTMLElement)) return
+      if (state.modal) return
+      const tile = t.closest('[data-role="tile"]')
+      if (!(tile instanceof HTMLElement)) return
+      const id = String(tile.getAttribute('data-id') || '').trim()
+      const url = String(tile.getAttribute('data-url') || '').trim()
+      if (!id) return
+      e.preventDefault()
+      state.ctxMenu.open = true
+      state.ctxMenu.id = id
+      state.ctxMenu.url = url
+      state.ctxMenu.x = e.clientX
+      state.ctxMenu.y = e.clientY
+      renderCtxMenu()
     })
 
     root.addEventListener(
@@ -860,13 +1013,40 @@
 
     root.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
+        if (state.ctxMenu.open) {
+          closeCtxMenu()
+          renderCtxMenu()
+          return
+        }
         if (state.modal) closeModal()
       }
       if (e.key === 'Enter') {
         if (state.modal === 'add') return addItem()
         if (state.modal === 'edit') return editItem()
+        if (!state.modal && !state.ctxMenu.open) {
+          const ae = document.activeElement
+          if (ae instanceof HTMLInputElement || ae instanceof HTMLTextAreaElement || ae instanceof HTMLSelectElement) return
+          if (ae instanceof HTMLElement) {
+            const tile = ae.closest?.('[data-role="tile"]')
+            if (tile instanceof HTMLElement) {
+              const url = String(tile.getAttribute('data-url') || '').trim()
+              if (!url) return
+              return openInWindow(url)
+            }
+          }
+        }
       }
     })
+
+    root.addEventListener(
+      'scroll',
+      () => {
+        if (!state.ctxMenu.open) return
+        closeCtxMenu()
+        renderCtxMenu()
+      },
+      true,
+    )
   }
 
   function render() {
@@ -939,27 +1119,19 @@
             ? `<img alt="网站图标" loading="lazy" referrerpolicy="no-referrer" src="${escapeHtml(icon)}" />`
             : `<img alt="网站图标" loading="lazy" referrerpolicy="no-referrer" />`
           return `
-            <div class="card" data-act="open" data-url="${escapeHtml(x.url)}" title="点击用新窗口打开">
-              <div class="cardTop">
-                <div class="cardTitleLine">
-                  <div class="siteIcon">
-                    <span class="fallback">🌐</span>
-                    ${iconImg}
-                  </div>
-                  <div class="name">${escapeHtml(x.title || x.url)}</div>
-                </div>
-                <div class="spacer"></div>
-                <button class="iconBtn" data-act="sniffIcon" data-id="${escapeHtml(x.id)}" title="嗅探并下载图标">⟳</button>
-                <button class="iconBtn" data-act="openBtn" data-url="${escapeHtml(x.url)}" title="打开">↗</button>
-                <button class="iconBtn" data-act="editBtn" data-id="${escapeHtml(x.id)}" title="编辑">✎</button>
-                <button class="iconBtn danger" data-act="delBtn" data-id="${escapeHtml(x.id)}" title="删除">🗑</button>
+            <div class="tile" tabindex="0" data-role="tile" data-act="open" data-id="${escapeHtml(x.id)}" data-url="${escapeHtml(x.url)}" title="${escapeHtml(x.url)}">
+              <div class="siteIcon" aria-hidden="true">
+                <span class="fallback">🌐</span>
+                ${iconImg}
               </div>
-              <div class="url">${escapeHtml(x.url)}</div>
+              <div class="tileName">${escapeHtml(x.title || x.url)}</div>
             </div>
           `
         })
         .join('')
     }
+
+    renderCtxMenu()
   }
 
   async function init() {
