@@ -743,7 +743,7 @@ function App() {
               ) : null}
             </Box>
           ) : (
-            browseLayout === 'grid' && !reorderMode ? (
+            browseLayout === 'grid' ? (
               <Box
                 sx={{
                   display: 'grid',
@@ -757,12 +757,20 @@ function App() {
                     key={plugin.id}
                     data-plugin-id={plugin.id}
                     selected={index === activeIndex}
+                    onPointerDown={reorderMode ? (e => handlePointerDown(e, plugin.id)) : undefined}
+                    onPointerMove={reorderMode ? handlePointerMove : undefined}
+                    onPointerUp={reorderMode ? handlePointerUp : undefined}
+                    onPointerCancel={reorderMode ? handlePointerUp : undefined}
                     onClick={() => {
-                      setActiveIndex(index)
+                      if (reorderMode) {
+                        setActiveIndex(index)
+                        return
+                      }
                       if (dragMovedRef.current) {
                         dragMovedRef.current = false
                         return
                       }
+                      setActiveIndex(index)
                       setActivePlugin(plugin)
                     }}
                     sx={{
@@ -776,6 +784,17 @@ function App() {
                       '&.Mui-selected': {
                         bgcolor: 'action.selected',
                       },
+                      cursor: reorderMode ? (draggingId ? 'grabbing' : 'grab') : undefined,
+                      opacity: draggingId === plugin.id ? 0.6 : 1,
+                      userSelect: reorderMode ? 'none' : undefined,
+                      touchAction: reorderMode ? 'none' : undefined,
+                      boxShadow:
+                        dragOverId === plugin.id
+                          ? (theme =>
+                              dragOverAfter
+                                ? `inset 0 -2px 0 ${theme.palette.primary.main}`
+                                : `inset 0 2px 0 ${theme.palette.primary.main}`)
+                          : undefined,
                     }}
                   >
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -812,7 +831,7 @@ function App() {
                   </ListItemButton>
                 ))}
               </Box>
-            ) : browseLayout === 'icon' && !reorderMode ? (
+            ) : browseLayout === 'icon' ? (
               <Box
                 sx={{
                   display: 'grid',
@@ -826,12 +845,20 @@ function App() {
                     key={plugin.id}
                     data-plugin-id={plugin.id}
                     selected={index === activeIndex}
+                    onPointerDown={reorderMode ? (e => handlePointerDown(e, plugin.id)) : undefined}
+                    onPointerMove={reorderMode ? handlePointerMove : undefined}
+                    onPointerUp={reorderMode ? handlePointerUp : undefined}
+                    onPointerCancel={reorderMode ? handlePointerUp : undefined}
                     onClick={() => {
-                      setActiveIndex(index)
+                      if (reorderMode) {
+                        setActiveIndex(index)
+                        return
+                      }
                       if (dragMovedRef.current) {
                         dragMovedRef.current = false
                         return
                       }
+                      setActiveIndex(index)
                       setActivePlugin(plugin)
                     }}
                     sx={{
@@ -843,6 +870,17 @@ function App() {
                       px: 1,
                       gap: 0.75,
                       '&.Mui-selected': { bgcolor: 'action.selected' },
+                      cursor: reorderMode ? (draggingId ? 'grabbing' : 'grab') : undefined,
+                      opacity: draggingId === plugin.id ? 0.6 : 1,
+                      userSelect: reorderMode ? 'none' : undefined,
+                      touchAction: reorderMode ? 'none' : undefined,
+                      boxShadow:
+                        dragOverId === plugin.id
+                          ? (theme =>
+                              dragOverAfter
+                                ? `inset 0 -2px 0 ${theme.palette.primary.main}`
+                                : `inset 0 2px 0 ${theme.palette.primary.main}`)
+                          : undefined,
                     }}
                   >
                     <Avatar
