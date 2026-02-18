@@ -754,19 +754,18 @@ function App() {
                       }
                       setActivePlugin(plugin)
                     }}
-                    sx={theme => ({
+                    sx={{
                       borderRadius: 2,
                       alignItems: 'stretch',
                       flexDirection: 'column',
                       gap: 1,
                       py: 1.25,
                       px: 1.25,
-                      border: `1px solid ${theme.palette.divider}`,
+                      border: 'none',
                       '&.Mui-selected': {
                         bgcolor: 'action.selected',
-                        borderColor: theme.palette.primary.main,
                       },
-                    })}
+                    }}
                   >
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <Avatar
