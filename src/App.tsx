@@ -19,6 +19,8 @@ import {
   ListItemAvatar,
   ListItemButton,
   ListItemText,
+  Menu,
+  MenuItem,
   Paper,
   Snackbar,
   TextField,
@@ -66,6 +68,64 @@ function normalizeBrowseLayout(value: unknown): PluginBrowseLayout {
   if (value === 'grid') return 'grid'
   if (value === 'icon') return 'icon'
   return 'list'
+}
+
+function isDataImageUrl(value: string): boolean {
+  return value.startsWith('data:image/')
+}
+
+async function pickImageFile(): Promise<File | null> {
+  return new Promise(resolve => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'image/png,image/jpeg,image/webp'
+    input.onchange = () => {
+      const file = input.files?.[0] ?? null
+      resolve(file)
+      input.remove()
+    }
+    input.oncancel = () => {
+      resolve(null)
+      input.remove()
+    }
+    input.style.position = 'fixed'
+    input.style.left = '-9999px'
+    document.body.appendChild(input)
+    input.click()
+  })
+}
+
+async function makeThumbnailPngDataUrl(file: File, maxPx: number): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('读取图片失败'))
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.readAsDataURL(file)
+  })
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image()
+    el.onload = () => resolve(el)
+    el.onerror = () => reject(new Error('加载图片失败'))
+    el.src = dataUrl
+  })
+
+  const w = img.naturalWidth || img.width
+  const h = img.naturalHeight || img.height
+  if (!w || !h) throw new Error('图片尺寸无效')
+
+  const scale = Math.min(1, maxPx / Math.max(w, h))
+  const outW = Math.max(1, Math.round(w * scale))
+  const outH = Math.max(1, Math.round(h * scale))
+
+  const canvas = document.createElement('canvas')
+  canvas.width = outW
+  canvas.height = outH
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Canvas 不可用')
+  ctx.drawImage(img, 0, 0, outW, outH)
+
+  return canvas.toDataURL('image/png')
 }
 
 function normalizeOrder(value: unknown): string[] {
@@ -275,6 +335,7 @@ function App() {
   const [importOpen, setImportOpen] = useState(false)
   const [reorderMode, setReorderMode] = useState(false)
   const [browseLayout, setBrowseLayout] = useState<PluginBrowseLayout>('list')
+  const [pluginMenu, setPluginMenu] = useState<{ plugin: Plugin; mouseX: number; mouseY: number } | null>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
   const [dragOverAfter, setDragOverAfter] = useState(false)
@@ -305,11 +366,15 @@ function App() {
         console.warn('[plugin] rejected:', report.rejected)
       }
 
+      const iconOverrides = await invoke<Record<string, string>>('get_plugin_icon_overrides').catch(
+        () => ({} as Record<string, string>),
+      )
+
       const pluginList: Plugin[] = report.plugins.map(p => ({
         id: p.manifest.id,
         name: p.manifest.name,
         description: p.manifest.description,
-        icon: p.manifest.icon || '📦',
+        icon: iconOverrides[p.manifest.id] || p.manifest.icon || '📦',
         keyword: p.manifest.keyword,
         requires: p.manifest.requires,
         backgroundCode: p.backgroundCode,
@@ -336,6 +401,59 @@ function App() {
   }, [])
 
   const reloadPlugins = useCallback(() => loadPlugins({ showToast: true }), [loadPlugins])
+
+  const openPluginMenu = useCallback((e: React.MouseEvent, plugin: Plugin) => {
+    e.preventDefault()
+    if (reorderMode) return
+    setPluginMenu({ plugin, mouseX: e.clientX + 2, mouseY: e.clientY + 2 })
+  }, [reorderMode])
+
+  const closePluginMenu = useCallback(() => setPluginMenu(null), [])
+
+  const changePluginIcon = useCallback(async () => {
+    const plugin = pluginMenu?.plugin
+    if (!plugin) return
+    setPluginMenu(null)
+
+    try {
+      const file = await pickImageFile()
+      if (!file) return
+      if (file.size > 50 * 1024 * 1024) {
+        setToast(prev => ({ open: true, message: '图片过大（> 50MB）', key: prev.key + 1 }))
+        return
+      }
+      const dataUrl = await makeThumbnailPngDataUrl(file, 128)
+      await invoke('set_plugin_icon_override', { pluginId: plugin.id, dataUrl })
+      setToast(prev => ({ open: true, message: '图标已更新', key: prev.key + 1 }))
+      void loadPlugins()
+    } catch (e) {
+      console.error('Failed to change plugin icon:', e)
+      const msg =
+        typeof e === 'string'
+          ? e
+          : typeof (e as any)?.message === 'string'
+            ? (e as any).message
+            : typeof (e as any)?.toString === 'function'
+              ? String(e)
+              : ''
+      setToast(prev => ({ open: true, message: msg ? `更改图标失败：${msg}` : '更改图标失败', key: prev.key + 1 }))
+    }
+  }, [pluginMenu, loadPlugins])
+
+  const resetPluginIcon = useCallback(async () => {
+    const plugin = pluginMenu?.plugin
+    if (!plugin) return
+    setPluginMenu(null)
+
+    try {
+      await invoke('remove_plugin_icon_override', { pluginId: plugin.id })
+      setToast(prev => ({ open: true, message: '已恢复默认图标', key: prev.key + 1 }))
+      void loadPlugins()
+    } catch (e) {
+      console.error('Failed to reset plugin icon:', e)
+      setToast(prev => ({ open: true, message: '恢复默认图标失败（详情见控制台）', key: prev.key + 1 }))
+    }
+  }, [pluginMenu, loadPlugins])
 
   const backgroundHosts = allPlugins
     .filter(p => p.backgroundAutoStart && p.backgroundCode)
@@ -590,6 +708,30 @@ function App() {
     </Snackbar>
   )
 
+  const pluginContextMenu = (
+    <Menu
+      open={!!pluginMenu}
+      onClose={closePluginMenu}
+      anchorReference="anchorPosition"
+      anchorPosition={pluginMenu ? { top: pluginMenu.mouseY, left: pluginMenu.mouseX } : { top: 0, left: 0 }}
+    >
+      <MenuItem
+        onClick={() => {
+          void changePluginIcon()
+        }}
+      >
+        更改图标…
+      </MenuItem>
+      <MenuItem
+        onClick={() => {
+          void resetPluginIcon()
+        }}
+      >
+        恢复默认图标
+      </MenuItem>
+    </Menu>
+  )
+
   const importDialog = (
     <ImportPluginDialog
       open={importOpen}
@@ -617,6 +759,7 @@ function App() {
           </Box>
         </Paper>
         {toastHost}
+        {pluginContextMenu}
         {importDialog}
         {backgroundHosts}
       </Box>
@@ -635,6 +778,7 @@ function App() {
           </Box>
         </Paper>
         {toastHost}
+        {pluginContextMenu}
         {importDialog}
         {backgroundHosts}
       </Box>
@@ -757,6 +901,7 @@ function App() {
                     key={plugin.id}
                     data-plugin-id={plugin.id}
                     selected={index === activeIndex}
+                    onContextMenu={e => openPluginMenu(e, plugin)}
                     onPointerDown={reorderMode ? (e => handlePointerDown(e, plugin.id)) : undefined}
                     onPointerMove={reorderMode ? handlePointerMove : undefined}
                     onPointerUp={reorderMode ? handlePointerUp : undefined}
@@ -800,6 +945,8 @@ function App() {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                       <Avatar
                         variant="rounded"
+                        src={isDataImageUrl(plugin.icon) ? plugin.icon : undefined}
+                        imgProps={{ alt: plugin.name }}
                         sx={theme => ({
                           width: 36,
                           height: 36,
@@ -808,7 +955,7 @@ function App() {
                           color: theme.palette.text.primary,
                         })}
                       >
-                        {plugin.icon}
+                        {isDataImageUrl(plugin.icon) ? null : plugin.icon}
                     </Avatar>
                       <Box sx={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
                         <Typography
@@ -845,6 +992,7 @@ function App() {
                     key={plugin.id}
                     data-plugin-id={plugin.id}
                     selected={index === activeIndex}
+                    onContextMenu={e => openPluginMenu(e, plugin)}
                     onPointerDown={reorderMode ? (e => handlePointerDown(e, plugin.id)) : undefined}
                     onPointerMove={reorderMode ? handlePointerMove : undefined}
                     onPointerUp={reorderMode ? handlePointerUp : undefined}
@@ -884,6 +1032,8 @@ function App() {
                     }}
                   >
                     <Avatar
+                      src={isDataImageUrl(plugin.icon) ? plugin.icon : undefined}
+                      imgProps={{ alt: plugin.name }}
                       sx={{
                         width: 56,
                         height: 56,
@@ -892,7 +1042,7 @@ function App() {
                         color: 'text.primary',
                       }}
                     >
-                      {plugin.icon}
+                      {isDataImageUrl(plugin.icon) ? null : plugin.icon}
                     </Avatar>
                     <Typography
                       variant="caption"
@@ -919,6 +1069,7 @@ function App() {
                     key={plugin.id}
                     data-plugin-id={plugin.id}
                     selected={index === activeIndex}
+                    onContextMenu={e => openPluginMenu(e, plugin)}
                     onPointerDown={reorderMode ? (e => handlePointerDown(e, plugin.id)) : undefined}
                     onPointerMove={reorderMode ? handlePointerMove : undefined}
                     onPointerUp={reorderMode ? handlePointerUp : undefined}
@@ -954,6 +1105,8 @@ function App() {
                     <ListItemAvatar sx={{ minWidth: 44 }}>
                       <Avatar
                         variant="rounded"
+                        src={isDataImageUrl(plugin.icon) ? plugin.icon : undefined}
+                        imgProps={{ alt: plugin.name }}
                         sx={theme => ({
                           width: 32,
                           height: 32,
@@ -962,7 +1115,7 @@ function App() {
                           color: theme.palette.text.primary,
                         })}
                       >
-                        {plugin.icon}
+                        {isDataImageUrl(plugin.icon) ? null : plugin.icon}
                       </Avatar>
                     </ListItemAvatar>
                     <ListItemText
@@ -980,6 +1133,7 @@ function App() {
 
       </Paper>
       {toastHost}
+      {pluginContextMenu}
       {importDialog}
       {backgroundHosts}
     </Box>

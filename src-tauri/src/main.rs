@@ -2447,6 +2447,22 @@ fn read_plugin_file(app: tauri::AppHandle, plugin_id: String, path: String) -> R
 }
 
 #[tauri::command]
+fn read_plugin_file_base64(app: tauri::AppHandle, plugin_id: String, path: String) -> Result<String, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let rel = safe_relative_path(&path)?;
+
+    let plugin_dir = app_plugins_dir(&app).join(&plugin_id);
+    let full = plugin_dir.join(rel);
+    let bytes = std::fs::read(&full).map_err(|e| format!("读取插件文件失败: {e}"))?;
+    if bytes.len() > 512 * 1024 {
+        return Err("图标文件过大（>512KB）".to_string());
+    }
+    Ok(general_purpose::STANDARD.encode(bytes))
+}
+
+#[tauri::command]
 fn read_plugins_dir(app: tauri::AppHandle, rel_dir: String) -> Result<Vec<FsDirEntry>, String> {
     let rel = safe_relative_path(&rel_dir)?;
     let base = app_plugins_dir(&app);
@@ -2590,6 +2606,113 @@ fn storage_get_all(app: tauri::AppHandle, plugin_id: String) -> Result<Map<Strin
 fn storage_set_all(app: tauri::AppHandle, plugin_id: String, data: Map<String, Value>) -> Result<(), String> {
     let path = storage_file_path(&app, &plugin_id)?;
     write_json_map(&path, &data)
+}
+
+const APP_ICON_OVERRIDES_KEY: &str = "pluginIconOverrides";
+
+#[tauri::command]
+fn get_plugin_icon_overrides(app: tauri::AppHandle) -> Result<HashMap<String, String>, String> {
+    let path = storage_file_path(&app, "__app")?;
+    let map = read_json_map(&path);
+
+    let Some(Value::Object(overrides)) = map.get(APP_ICON_OVERRIDES_KEY) else {
+        return Ok(HashMap::new());
+    };
+
+    let data_root = app_data_dir(&app);
+    let mut out: HashMap<String, String> = HashMap::new();
+    for (plugin_id, v) in overrides {
+        let Value::String(rel_path) = v else {
+            continue;
+        };
+        if !is_safe_id(plugin_id) {
+            continue;
+        }
+        let Ok(rel) = safe_relative_path(rel_path) else {
+            continue;
+        };
+        let full = data_root.join(rel);
+        let Ok(bytes) = std::fs::read(&full) else {
+            continue;
+        };
+        if bytes.is_empty() || bytes.len() > 512 * 1024 {
+            continue;
+        }
+        let mime = image_mime_by_ext(&full);
+        let b64 = general_purpose::STANDARD.encode(bytes);
+        out.insert(plugin_id.to_string(), format!("data:{mime};base64,{b64}"));
+    }
+
+    Ok(out)
+}
+
+#[tauri::command]
+fn set_plugin_icon_override(app: tauri::AppHandle, plugin_id: String, data_url: String) -> Result<(), String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let (bytes, ext) = decode_base64_image_payload(&data_url)?;
+    if bytes.is_empty() {
+        return Err("图片数据为空".to_string());
+    }
+    if bytes.len() > 512 * 1024 {
+        return Err("缩略图过大（>512KB）".to_string());
+    }
+
+    let path = storage_file_path(&app, "__app")?;
+    let mut map = read_json_map(&path);
+
+    let mut overrides = match map.get(APP_ICON_OVERRIDES_KEY) {
+        Some(Value::Object(obj)) => obj.clone(),
+        _ => Map::new(),
+    };
+
+    let icons_dir_rel = "plugin-icons";
+    let filename = format!("{plugin_id}.{ext}");
+    let new_rel = format!("{icons_dir_rel}/{filename}");
+
+    if let Some(Value::String(old_rel_raw)) = overrides.get(&plugin_id) {
+        if old_rel_raw != &new_rel {
+            if let Ok(old_rel) = safe_relative_path(old_rel_raw) {
+                let old_full = app_data_dir(&app).join(old_rel);
+                let _ = std::fs::remove_file(old_full);
+            }
+        }
+    }
+
+    let icons_dir = app_data_dir(&app).join(icons_dir_rel);
+    std::fs::create_dir_all(&icons_dir).map_err(|e| format!("创建目录失败: {e}"))?;
+    let full = icons_dir.join(&filename);
+    std::fs::write(&full, bytes).map_err(|e| format!("写入图标失败: {e}"))?;
+
+    overrides.insert(
+        plugin_id.clone(),
+        Value::String(new_rel),
+    );
+    map.insert(APP_ICON_OVERRIDES_KEY.to_string(), Value::Object(overrides));
+    write_json_map(&path, &map)
+}
+
+#[tauri::command]
+fn remove_plugin_icon_override(app: tauri::AppHandle, plugin_id: String) -> Result<(), String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let path = storage_file_path(&app, "__app")?;
+    let mut map = read_json_map(&path);
+    let Some(Value::Object(mut overrides)) = map.get(APP_ICON_OVERRIDES_KEY).cloned() else {
+        return Ok(());
+    };
+
+    if let Some(Value::String(old_rel)) = overrides.remove(&plugin_id) {
+        if let Ok(old_rel) = safe_relative_path(&old_rel) {
+            let old_full = app_data_dir(&app).join(old_rel);
+            let _ = std::fs::remove_file(old_full);
+        }
+    }
+
+    map.insert(APP_ICON_OVERRIDES_KEY.to_string(), Value::Object(overrides));
+    write_json_map(&path, &map)
 }
 
 #[tauri::command]
@@ -2773,6 +2896,7 @@ fn main() {
             open_plugins_dir,
             list_plugins,
             read_plugin_file,
+            read_plugin_file_base64,
             read_plugins_dir,
             install_plugin_files,
             open_external_url,
@@ -2792,6 +2916,9 @@ fn main() {
             storage_remove,
             storage_get_all,
             storage_set_all,
+            get_plugin_icon_overrides,
+            set_plugin_icon_override,
+            remove_plugin_icon_override,
             plugin_get_output_dir,
             plugin_pick_output_dir,
             plugin_open_output_dir,
