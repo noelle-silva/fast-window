@@ -34,6 +34,7 @@ import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
+import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
 import SettingsView from './components/SettingsView'
 import ImportPluginDialog from './components/ImportPluginDialog'
 import BrowserBarWindow from './components/BrowserBarWindow'
@@ -59,10 +60,12 @@ const APP_STORAGE_ID = '__app'
 const PLUGIN_ORDER_KEY = 'pluginOrder'
 const PLUGIN_BROWSE_LAYOUT_KEY = 'pluginBrowseLayout'
 
-type PluginBrowseLayout = 'list' | 'grid'
+type PluginBrowseLayout = 'list' | 'grid' | 'icon'
 
 function normalizeBrowseLayout(value: unknown): PluginBrowseLayout {
-  return value === 'grid' ? 'grid' : 'list'
+  if (value === 'grid') return 'grid'
+  if (value === 'icon') return 'icon'
+  return 'list'
 }
 
 function normalizeOrder(value: unknown): string[] {
@@ -194,14 +197,22 @@ function TitleBar(props: {
               ) : null}
               {onToggleBrowseLayout ? (
                 <IconButton
-                  aria-label={browseLayout === 'grid' ? '切换为列表布局' : '切换为网格布局'}
+                  aria-label={
+                    browseLayout === 'list'
+                      ? '切换为网格布局'
+                      : browseLayout === 'grid'
+                        ? '切换为图标布局'
+                        : '切换为列表布局'
+                  }
                   size="small"
                   onClick={onToggleBrowseLayout}
                 >
-                  {browseLayout === 'grid' ? (
-                    <ViewListRoundedIcon fontSize="small" />
-                  ) : (
+                  {browseLayout === 'list' ? (
                     <ViewModuleRoundedIcon fontSize="small" />
+                  ) : browseLayout === 'grid' ? (
+                    <AppsRoundedIcon fontSize="small" />
+                  ) : (
+                    <ViewListRoundedIcon fontSize="small" />
                   )}
                 </IconButton>
               ) : null}
@@ -471,7 +482,7 @@ function App() {
 
   const toggleBrowseLayout = useCallback(() => {
     setBrowseLayout(prev => {
-      const next: PluginBrowseLayout = prev === 'grid' ? 'list' : 'grid'
+      const next: PluginBrowseLayout = prev === 'list' ? 'grid' : prev === 'grid' ? 'icon' : 'list'
       void invoke('storage_set', { pluginId: APP_STORAGE_ID, key: PLUGIN_BROWSE_LAYOUT_KEY, value: next }).catch(() => {})
       return next
     })
@@ -798,6 +809,68 @@ function App() {
                         </Typography>
                       </Box>
                     </Box>
+                  </ListItemButton>
+                ))}
+              </Box>
+            ) : browseLayout === 'icon' && !reorderMode ? (
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))',
+                  gap: 1,
+                  p: 0.5,
+                }}
+              >
+                {plugins.map((plugin, index) => (
+                  <ListItemButton
+                    key={plugin.id}
+                    data-plugin-id={plugin.id}
+                    selected={index === activeIndex}
+                    onClick={() => {
+                      setActiveIndex(index)
+                      if (dragMovedRef.current) {
+                        dragMovedRef.current = false
+                        return
+                      }
+                      setActivePlugin(plugin)
+                    }}
+                    sx={{
+                      borderRadius: 2,
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      py: 1.25,
+                      px: 1,
+                      gap: 0.75,
+                      '&.Mui-selected': { bgcolor: 'action.selected' },
+                    }}
+                  >
+                    <Avatar
+                      sx={{
+                        width: 56,
+                        height: 56,
+                        fontSize: 26,
+                        bgcolor: 'action.hover',
+                        color: 'text.primary',
+                      }}
+                    >
+                      {plugin.icon}
+                    </Avatar>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        fontWeight: 700,
+                        lineHeight: 1.2,
+                        textAlign: 'center',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        display: '-webkit-box',
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: 'vertical',
+                      }}
+                    >
+                      {plugin.name}
+                    </Typography>
                   </ListItemButton>
                 ))}
               </Box>
