@@ -7,6 +7,7 @@
     loading: true,
     query: '',
     items: [],
+    reorderMode: false,
     modal: null, // 'add' | 'edit' | null
     form: { id: '', title: '', url: '', iconUrl: '', iconDataUrl: '', iconCleared: false },
     sniffingFormIcon: false,
@@ -15,6 +16,15 @@
     ctxMenu: { open: false, id: '', url: '', x: 0, y: 0 },
     confirmKey: '',
     confirmUntil: 0,
+  }
+
+  const reorder = {
+    pointerId: null,
+    draggingId: '',
+    overId: '',
+    startX: 0,
+    startY: 0,
+    moved: false,
   }
 
   const styles = `
@@ -58,6 +68,7 @@
     }
     .btn.primary { border-color: transparent; background: var(--primary); color: white; }
     .btn.danger { border-color: transparent; background: var(--danger); color: white; }
+    .btn.active { border-color: transparent; background: rgba(25,118,210,0.12); color: var(--primary); }
 
     .filters { display: flex; gap: 10px; padding: 10px; flex-shrink: 0; }
     .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
@@ -89,11 +100,35 @@
       box-shadow: var(--shadow);
       cursor: pointer;
       user-select: none;
+      position: relative;
       display: flex;
       flex-direction: column;
       align-items: center;
       gap: 8px;
     }
+    .tile.dragging { opacity: 0.65; }
+    .tile.dragOver { outline: 2px dashed var(--primary); outline-offset: 2px; }
+    .dragHandle {
+      position: absolute;
+      top: 6px;
+      left: 6px;
+      width: 26px;
+      height: 26px;
+      border-radius: 8px;
+      border: 1px solid var(--outline);
+      background: rgba(255,255,255,0.92);
+      color: var(--muted);
+      cursor: grab;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      font-size: 14px;
+      line-height: 1;
+      touch-action: none;
+    }
+    .dragHandle:active { cursor: grabbing; }
+    .dragHandle:hover { background: rgba(0,0,0,0.04); }
     .tile:focus { outline: none; }
     .tileName {
       font-weight: 800;
@@ -470,6 +505,47 @@
     })
   }
 
+  function moveItemById(list, draggedId, targetId) {
+    if (!draggedId || !targetId || draggedId === targetId) return list
+    const fromIndex = list.findIndex((x) => x.id === draggedId)
+    const toIndex = list.findIndex((x) => x.id === targetId)
+    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return list
+    const next = list.slice()
+    const [it] = next.splice(fromIndex, 1)
+    const insertIndex = fromIndex < toIndex ? toIndex - 1 : toIndex
+    next.splice(insertIndex, 0, it)
+    return next
+  }
+
+  function getTileElById(id) {
+    if (!id) return null
+    const el = document.querySelector(`[data-role="tile"][data-id="${id}"]`)
+    return el instanceof HTMLElement ? el : null
+  }
+
+  function clearReorderDomState() {
+    if (reorder.draggingId) {
+      const draggingEl = getTileElById(reorder.draggingId)
+      if (draggingEl) draggingEl.classList.remove('dragging')
+    }
+    if (reorder.overId) {
+      const overEl = getTileElById(reorder.overId)
+      if (overEl) overEl.classList.remove('dragOver')
+    }
+  }
+
+  function setReorderMode(next) {
+    const v = Boolean(next)
+    if (state.reorderMode === v) return
+    state.reorderMode = v
+    if (state.reorderMode) {
+      api.ui?.showToast?.('已进入拖拽排序：拖动左上角把手')
+    } else {
+      api.ui?.showToast?.('已退出拖拽排序')
+    }
+    render()
+  }
+
   async function load() {
     try {
       const saved = await api.storage.get(STORAGE_KEY)
@@ -765,6 +841,7 @@
         <div class="topbar">
           <button class="btn" data-act="back" aria-label="返回主页" title="返回主页">←</button>
           <div class="title">Web View</div>
+          <button class="btn" data-act="toggleReorder" aria-label="拖拽排序模式" title="拖拽排序模式">拖拽排序</button>
           <button class="btn primary" data-act="add" aria-label="新增网站" title="新增网站">新增</button>
         </div>
 
@@ -865,9 +942,114 @@
       </div>
     `
 
+    root.addEventListener('pointerdown', (e) => {
+      if (state.loading || state.modal) return
+      if (!state.reorderMode) return
+      if (String(state.query || '').trim()) return
+
+      const t = e.target
+      if (!(t instanceof HTMLElement)) return
+      const handleEl = t.closest('[data-role="dragHandle"]')
+      if (!(handleEl instanceof HTMLElement)) return
+
+      const tile = handleEl.closest('[data-role="tile"]')
+      if (!(tile instanceof HTMLElement)) return
+      const id = String(tile.getAttribute('data-id') || '').trim()
+      if (!id) return
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      if (state.ctxMenu.open) {
+        closeCtxMenu()
+        renderCtxMenu()
+      }
+
+      clearReorderDomState()
+      reorder.pointerId = e.pointerId
+      reorder.draggingId = id
+      reorder.overId = ''
+      reorder.startX = e.clientX
+      reorder.startY = e.clientY
+      reorder.moved = false
+      tile.classList.add('dragging')
+    })
+
+    window.addEventListener('pointermove', (e) => {
+      if (!reorder.draggingId) return
+      if (reorder.pointerId !== null && e.pointerId !== reorder.pointerId) return
+
+      const dx = Math.abs(e.clientX - reorder.startX)
+      const dy = Math.abs(e.clientY - reorder.startY)
+      if (dx + dy > 4) reorder.moved = true
+
+      const el = document.elementFromPoint(e.clientX, e.clientY)
+      const tile = el?.closest?.('[data-role="tile"]')
+      if (!(tile instanceof HTMLElement)) {
+        if (reorder.overId) {
+          const prev = getTileElById(reorder.overId)
+          if (prev) prev.classList.remove('dragOver')
+          reorder.overId = ''
+        }
+        return
+      }
+      const id = String(tile.getAttribute('data-id') || '').trim()
+      if (!id || id === reorder.draggingId) {
+        if (reorder.overId) {
+          const prev = getTileElById(reorder.overId)
+          if (prev) prev.classList.remove('dragOver')
+          reorder.overId = ''
+        }
+        return
+      }
+
+      if (reorder.overId === id) return
+      if (reorder.overId) {
+        const prev = getTileElById(reorder.overId)
+        if (prev) prev.classList.remove('dragOver')
+      }
+      reorder.overId = id
+      tile.classList.add('dragOver')
+    })
+
+    function endReorder() {
+      if (!reorder.draggingId) return
+
+      const draggedId = reorder.draggingId
+      const targetId = reorder.overId
+      const moved = reorder.moved
+      clearReorderDomState()
+
+      reorder.pointerId = null
+      reorder.draggingId = ''
+      reorder.overId = ''
+      reorder.startX = 0
+      reorder.startY = 0
+      reorder.moved = false
+
+      if (!moved || !targetId || targetId === draggedId) return
+      const next = moveItemById(state.items, draggedId, targetId)
+      if (next === state.items) return
+      state.items = next
+      ;(async () => {
+        await save()
+        render()
+      })()
+    }
+
+    window.addEventListener('pointerup', (e) => {
+      if (reorder.pointerId !== null && e.pointerId !== reorder.pointerId) return
+      endReorder()
+    })
+    window.addEventListener('pointercancel', (e) => {
+      if (reorder.pointerId !== null && e.pointerId !== reorder.pointerId) return
+      endReorder()
+    })
+
     root.addEventListener('click', (e) => {
       const t = e.target
       if (!(t instanceof HTMLElement)) return
+      if (t.closest('[data-role="dragHandle"]')) return
       const act = t.getAttribute('data-act')
 
       if (act === 'ctxOpen') {
@@ -911,6 +1093,7 @@
 
       if (act === 'back') return api.ui?.back ? api.ui.back() : api.ui?.showToast?.('无法返回')
       if (act === 'add') return openModal('add')
+      if (act === 'toggleReorder') return setReorderMode(!state.reorderMode)
       if (act === 'closeModal') return closeModal()
       if (act === 'confirmAdd') return addItem()
       if (act === 'confirmEdit') return editItem()
@@ -1058,6 +1241,20 @@
     const searchEl = document.querySelector('input[data-act="search"]')
     if (searchEl instanceof HTMLInputElement) searchEl.value = state.query
 
+    const reorderBtn = document.querySelector('button[data-act="toggleReorder"]')
+    if (reorderBtn instanceof HTMLButtonElement) {
+      reorderBtn.textContent = state.reorderMode ? '完成排序' : '拖拽排序'
+      if (state.reorderMode) reorderBtn.classList.add('active')
+      else reorderBtn.classList.remove('active')
+      if (String(state.query || '').trim()) {
+        reorderBtn.disabled = true
+        reorderBtn.title = '搜索中不可排序'
+      } else {
+        reorderBtn.disabled = false
+        reorderBtn.title = '拖拽排序模式'
+      }
+    }
+
     if (state.modal === 'add' || state.modal === 'edit') {
       const scope = state.modal === 'add' ? '[data-role="overlayAdd"]' : '[data-role="overlayEdit"]'
       const titleEl = document.querySelector(`${scope} input[data-act="formTitle"]`)
@@ -1118,8 +1315,13 @@
           const iconImg = icon
             ? `<img alt="网站图标" loading="lazy" referrerpolicy="no-referrer" src="${escapeHtml(icon)}" />`
             : `<img alt="网站图标" loading="lazy" referrerpolicy="no-referrer" />`
+          const dragHandle =
+            !state.reorderMode || String(state.query || '').trim()
+              ? ''
+              : `<button class="dragHandle" data-role="dragHandle" type="button" tabindex="-1" aria-label="拖拽排序" title="拖拽排序">⠿</button>`
           return `
             <div class="tile" tabindex="0" data-role="tile" data-act="open" data-id="${escapeHtml(x.id)}" data-url="${escapeHtml(x.url)}" title="${escapeHtml(x.url)}">
+              ${dragHandle}
               <div class="siteIcon" aria-hidden="true">
                 <span class="fallback">🌐</span>
                 ${iconImg}
