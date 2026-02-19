@@ -12,6 +12,9 @@ data/
 # Tauri / Rust
 src-tauri/target/
 
+# 打包前由脚本同步生成（不要提交）
+src-tauri/plugins/
+
 # IDE
 .vscode/*
 !.vscode/extensions.json

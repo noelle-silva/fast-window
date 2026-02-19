@@ -2982,10 +2982,22 @@ fn seed_plugins_from_resources(app: &tauri::AppHandle) {
     let Ok(resource_dir) = app.path().resource_dir() else {
         return;
     };
-    let bundled_plugins = resource_dir.join("plugins");
-    if !bundled_plugins.is_dir() {
-        return;
-    }
+    // tauri 的 resources 支持 glob，且当资源路径在 src-tauri 目录之外时，
+    // bundler 会把它们放到 resource_dir/_up_/... 下。
+    // 这里兼容两种布局：resource_dir/plugins 与 resource_dir/_up_/plugins。
+    let bundled_plugins = {
+        let direct = resource_dir.join("plugins");
+        if direct.is_dir() {
+            direct
+        } else {
+            let up = resource_dir.join("_up_").join("plugins");
+            if up.is_dir() {
+                up
+            } else {
+                return;
+            }
+        }
+    };
 
     let Ok(entries) = std::fs::read_dir(&bundled_plugins) else {
         return;
