@@ -126,6 +126,7 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
   - 数据根目录：默认使用 **exe 同目录**（更稳定，不依赖启动时 cwd）。
   - 也可以设置环境变量 `FAST_WINDOW_DATA_DIR` 指向你想要的数据根目录。
   - 插件目录：`<数据根>/plugins/`（由 Rust 端 `get_plugins_dir` 决定）。
+  - 正式版（release/MSI）：安装包会携带内置插件“种子”，首次启动时自动补齐到 `<数据根>/plugins/`（只补缺失项，不覆盖用户已有插件）。
   - 数据目录：`<数据根>/data/`（由 Rust 端 `get_data_dir` 决定）。
   - 注意：如果用 MSI 安装到 `Program Files` 这类目录，普通用户通常没有写权限；请使用可写目录（例如解压到 `D:\Apps\FastWindow\`），或设置 `FAST_WINDOW_DATA_DIR` 到可写路径。
 - 宿主设置：`data/app.json`（例如 `wakeShortcut`：唤醒窗口的全局快捷键）。

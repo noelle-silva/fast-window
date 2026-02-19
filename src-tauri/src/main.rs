@@ -2921,6 +2921,42 @@ fn is_dir_empty(dir: &Path) -> bool {
     }
 }
 
+#[cfg(not(debug_assertions))]
+fn seed_plugins_from_resources(app: &tauri::AppHandle) {
+    let plugins_dir = app_plugins_dir(app);
+    let _ = std::fs::create_dir_all(&plugins_dir);
+
+    let Ok(resource_dir) = app.path().resource_dir() else {
+        return;
+    };
+    let bundled_plugins = resource_dir.join("plugins");
+    if !bundled_plugins.is_dir() {
+        return;
+    }
+
+    let Ok(entries) = std::fs::read_dir(&bundled_plugins) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let Ok(ty) = e.file_type() else {
+            continue;
+        };
+        if !ty.is_dir() {
+            continue;
+        }
+        let plugin_id = e.file_name().to_string_lossy().to_string();
+        if !is_safe_id(&plugin_id) {
+            continue;
+        }
+
+        let dst = plugins_dir.join(&plugin_id);
+        if dst.exists() {
+            continue;
+        }
+        let _ = copy_dir_all(&e.path(), &dst);
+    }
+}
+
 #[tauri::command]
 fn get_plugins_dir(app: tauri::AppHandle) -> String {
     // 统一使用 App 本地数据目录（避免 cwd 漂移），插件默认放到这里
@@ -3615,6 +3651,13 @@ fn main() {
             app.manage(WindowState::default());
             app.manage(Arc::new(TaskManagerState::default()));
             app.manage(BrowserWindowState::default());
+
+            // Release：把 MSI 随包的内置插件“种子”拷到可写的插件目录（仅拷缺失项，不覆盖用户已有插件）。
+            #[cfg(not(debug_assertions))]
+            {
+                let handle = app.handle();
+                seed_plugins_from_resources(&handle);
+            }
 
             let (wake_shortcut, wake_shortcut_text) = load_wake_shortcut(app.handle());
             app.manage(WakeShortcutState {
