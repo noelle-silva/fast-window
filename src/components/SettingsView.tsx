@@ -21,6 +21,7 @@ import BackspaceRoundedIcon from '@mui/icons-material/BackspaceRounded'
 
 const DEFAULT_WAKE_SHORTCUT = 'control+alt+Space'
 const MAX_VIDEO_RATE = 16
+const PROJECT_GITHUB_URL = 'https://github.com/noelle-silva/fast-window'
 
 function toast(message: string) {
   window.dispatchEvent(new CustomEvent('fast-window:toast', { detail: { message } }))
@@ -134,6 +135,14 @@ export default function SettingsView(_props: { onBack: () => void }) {
       await invoke('open_plugins_dir')
     } catch (e: any) {
       toast(String(e?.message || e || '打开目录失败'))
+    }
+  }
+
+  async function openProjectGithub() {
+    try {
+      await invoke('open_external_url', { url: PROJECT_GITHUB_URL })
+    } catch (e: any) {
+      toast(String(e?.message || e || '打开链接失败'))
     }
   }
 
@@ -286,6 +295,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
           <Tab label="常规" id="settings-tab-0" aria-controls="settings-tabpanel-0" />
           <Tab label="快捷键" id="settings-tab-1" aria-controls="settings-tabpanel-1" />
           <Tab label="WebView" id="settings-tab-2" aria-controls="settings-tabpanel-2" />
+          <Tab label="关于" id="settings-tab-3" aria-controls="settings-tabpanel-3" />
         </Tabs>
       </Box>
 
@@ -632,6 +642,26 @@ export default function SettingsView(_props: { onBack: () => void }) {
               <Typography variant="caption" color={recordingPresetIndex != null ? 'warning.main' : 'text.secondary'}>
                 {recordingPresetIndex != null ? '录制中…按下组合键（ESC 取消）。' : '提示：快捷键会在浏览窗口里即时生效。'}
               </Typography>
+            </Box>
+          </Stack>
+        ) : null}
+      </Box>
+
+      <Box role="tabpanel" hidden={tabIndex !== 3} id="settings-tabpanel-3" aria-labelledby="settings-tab-3" sx={{ pt: 0.5 }}>
+        {tabIndex === 3 ? (
+          <Stack spacing={1.25}>
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                项目
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                在浏览器中打开项目主页
+              </Typography>
+              <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                <Button size="small" variant="outlined" onClick={openProjectGithub} aria-label="打开项目 GitHub">
+                  打开 GitHub
+                </Button>
+              </Box>
             </Box>
           </Stack>
         ) : null}
