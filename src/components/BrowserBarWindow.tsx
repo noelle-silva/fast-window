@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import { Box, IconButton, Menu, MenuItem, Typography } from '@mui/material'
+import { Box, IconButton, Typography } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
+import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded'
+import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import FullscreenRoundedIcon from '@mui/icons-material/FullscreenRounded'
 import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
@@ -25,6 +27,12 @@ type WebviewSettings = {
     maxRate: number
     presets: WebviewVideoSpeedPreset[]
   }
+}
+
+type SpeedCycleItem = {
+  key: string
+  label: string
+  rate: number
 }
 
 const WEBVIEW_SETTINGS_UPDATED_EVENT = 'fast-window:webview-settings-updated'
@@ -57,7 +65,8 @@ export default function BrowserBarWindow() {
   const [pinned, setPinned] = useState(false)
   const [webview, setWebview] = useState<WebviewSettings | null>(null)
   const [currentRate, setCurrentRate] = useState<number>(1)
-  const [speedAnchor, setSpeedAnchor] = useState<HTMLElement | null>(null)
+  const [speedOpen, setSpeedOpen] = useState(false)
+  const [speedIndex, setSpeedIndex] = useState<number>(0)
   const currentRateRef = useRef(1)
   const defaultRateRef = useRef(1)
   const toggleRef = useRef<{ activeKey: string | null; prevRate: number | null }>({ activeKey: null, prevRate: null })
@@ -114,6 +123,30 @@ export default function BrowserBarWindow() {
     return map
   }, [webview])
 
+  const speedItems: SpeedCycleItem[] = useMemo(() => {
+    if (!webview) return []
+    const items: SpeedCycleItem[] = []
+    const dr = Number.isFinite(webview.video.defaultRate) ? webview.video.defaultRate : 1
+    items.push({ key: 'default', label: `默认（${dr}x）`, rate: dr })
+
+    for (let i = 0; i < (webview.video.presets || []).length; i++) {
+      const p = webview.video.presets[i]
+      if (!p) continue
+      const label = (p.label || `${p.rate}x`).trim() || `${p.rate}x`
+      items.push({ key: `preset:${i}`, label, rate: p.rate })
+    }
+
+    return items.filter(it => Number.isFinite(it.rate))
+  }, [webview])
+
+  const findSpeedIndex = useCallback((rate: number) => {
+    const eps = 0.001
+    for (let i = 0; i < speedItems.length; i++) {
+      if (Math.abs(speedItems[i].rate - rate) < eps) return i
+    }
+    return -1
+  }, [speedItems])
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.repeat) return
@@ -132,7 +165,7 @@ export default function BrowserBarWindow() {
         const back = Number.isFinite(toggle.prevRate ?? NaN) ? (toggle.prevRate as number) : defaultRateRef.current
         toggle.activeKey = null
         toggle.prevRate = null
-        void invoke('browser_video_set_rate', { rate: back }).catch(() => {})
+        void invoke('browser_video_toggle_preset', { shortcut: shot, rate: p.rate }).catch(() => {})
         setCurrentRate(back)
       } else {
         toggle.activeKey = shot
@@ -167,10 +200,13 @@ export default function BrowserBarWindow() {
     }
   }, [busy])
 
-  const presets = webview?.video.presets || []
-  const defaultRate = webview?.video.defaultRate ?? 1
-  const speedOpen = Boolean(speedAnchor)
   const speedLabel = `${(Number.isFinite(currentRate) ? currentRate : 1).toFixed(2).replace(/\.00$/, '')}x`
+
+  useEffect(() => {
+    if (!speedOpen) return
+    const idx = findSpeedIndex(currentRateRef.current)
+    setSpeedIndex(idx >= 0 ? idx : 0)
+  }, [speedOpen, findSpeedIndex])
 
   return (
     <Box
@@ -229,11 +265,89 @@ export default function BrowserBarWindow() {
         <IconButton
           aria-label={`倍速 ${speedLabel}`}
           size="small"
-          onClick={e => setSpeedAnchor(e.currentTarget)}
+          onClick={() => setSpeedOpen(v => !v)}
           disabled={!webview}
         >
           <SpeedRoundedIcon fontSize="small" />
         </IconButton>
+
+        {speedOpen ? (
+          <Box
+            onPointerDown={e => e.stopPropagation()}
+            sx={{
+              ml: 0.5,
+              px: 0.5,
+              py: 0.25,
+              border: 1,
+              borderColor: 'divider',
+              borderRadius: 999,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.25,
+              bgcolor: 'background.paper',
+              boxShadow: 1,
+              maxWidth: 360,
+            }}
+          >
+            <IconButton
+              aria-label="上一个倍速预设"
+              size="small"
+              disabled={!speedItems.length}
+              onClick={() => {
+                if (!speedItems.length) return
+                const next = (speedIndex - 1 + speedItems.length) % speedItems.length
+                setSpeedIndex(next)
+                toggleRef.current.activeKey = null
+                toggleRef.current.prevRate = null
+                const item = speedItems[next]
+                void invoke('browser_video_set_rate', { rate: item.rate }).catch(() => {})
+                setCurrentRate(item.rate)
+              }}
+            >
+              <ChevronLeftRoundedIcon fontSize="small" />
+            </IconButton>
+
+            <Box sx={{ px: 0.5, minWidth: 140, overflow: 'hidden' }}>
+              <Typography
+                variant="body2"
+                sx={{
+                  fontWeight: 700,
+                  lineHeight: 1.15,
+                  whiteSpace: 'nowrap',
+                  textOverflow: 'ellipsis',
+                  overflow: 'hidden',
+                }}
+              >
+                {speedItems[speedIndex]?.label || `当前：${speedLabel}`}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.1 }}>
+                {speedItems.length ? `${speedIndex + 1}/${speedItems.length}` : '-'}
+              </Typography>
+            </Box>
+
+            <IconButton
+              aria-label="下一个倍速预设"
+              size="small"
+              disabled={!speedItems.length}
+              onClick={() => {
+                if (!speedItems.length) return
+                const next = (speedIndex + 1) % speedItems.length
+                setSpeedIndex(next)
+                toggleRef.current.activeKey = null
+                toggleRef.current.prevRate = null
+                const item = speedItems[next]
+                void invoke('browser_video_set_rate', { rate: item.rate }).catch(() => {})
+                setCurrentRate(item.rate)
+              }}
+            >
+              <ChevronRightRoundedIcon fontSize="small" />
+            </IconButton>
+
+            <IconButton aria-label="关闭倍速菜单" size="small" onClick={() => setSpeedOpen(false)}>
+              <CloseRoundedIcon fontSize="small" />
+            </IconButton>
+          </Box>
+        ) : null}
       </Box>
 
       <Typography
@@ -250,42 +364,6 @@ export default function BrowserBarWindow() {
       >
         Web
       </Typography>
-
-      <Menu
-        anchorEl={speedAnchor}
-        open={speedOpen}
-        onClose={() => setSpeedAnchor(null)}
-        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-      >
-        <MenuItem
-          selected={Math.abs(currentRate - defaultRate) < 0.001}
-          onClick={() => {
-            setSpeedAnchor(null)
-            toggleRef.current.activeKey = null
-            toggleRef.current.prevRate = null
-            void invoke('browser_video_set_rate', { rate: defaultRate }).catch(() => {})
-            setCurrentRate(defaultRate)
-          }}
-        >
-          默认（{`${defaultRate}x`}）
-        </MenuItem>
-        {presets.map((p, idx) => (
-          <MenuItem
-            key={`${idx}-${p.label}-${p.rate}`}
-            selected={Math.abs(currentRate - p.rate) < 0.001}
-            onClick={() => {
-              setSpeedAnchor(null)
-              toggleRef.current.activeKey = null
-              toggleRef.current.prevRate = null
-              void invoke('browser_video_set_rate', { rate: p.rate }).catch(() => {})
-              setCurrentRate(p.rate)
-            }}
-          >
-            {p.label || `${p.rate}x`}
-          </MenuItem>
-        ))}
-      </Menu>
     </Box>
   )
 }
