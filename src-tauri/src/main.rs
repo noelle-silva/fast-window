@@ -2893,7 +2893,6 @@ fn browser_stack_apply_fullscreen(app: &tauri::AppHandle, enable: bool) -> Resul
     Ok(())
 }
 
-#[cfg(debug_assertions)]
 fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
