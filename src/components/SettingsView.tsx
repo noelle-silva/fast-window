@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import {
+  Avatar,
   Box,
   Button,
+  CircularProgress,
   Divider,
   FormControlLabel,
   IconButton,
@@ -22,9 +24,24 @@ import BackspaceRoundedIcon from '@mui/icons-material/BackspaceRounded'
 const DEFAULT_WAKE_SHORTCUT = 'control+alt+Space'
 const MAX_VIDEO_RATE = 16
 const PROJECT_GITHUB_URL = 'https://github.com/noelle-silva/fast-window'
+const APP_STORAGE_ID = '__app'
+const DISABLED_PLUGINS_KEY = 'disabledPlugins'
 
 function toast(message: string) {
   window.dispatchEvent(new CustomEvent('fast-window:toast', { detail: { message } }))
+}
+
+function normalizeStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const list: string[] = []
+  for (const item of value) {
+    if (typeof item === 'string' && item.trim()) list.push(item)
+  }
+  return list
+}
+
+function isDataImageUrl(value: string): boolean {
+  return value.startsWith('data:image/')
 }
 
 function clampRate(raw: number) {
@@ -50,6 +67,14 @@ type WebviewSettings = {
     maxRate: number
     presets: WebviewVideoSpeedPreset[]
   }
+}
+
+type PluginManageItem = {
+  id: string
+  name: string
+  version: string
+  description: string
+  icon?: string
 }
 
 const DEFAULT_WEBVIEW_SETTINGS: WebviewSettings = {
@@ -102,6 +127,10 @@ export default function SettingsView(_props: { onBack: () => void }) {
   const [autoStart, setAutoStart] = useState<AutoStartStatus>({ supported: false, enabled: false, scope: 'unknown' })
   const [autoStartSaving, setAutoStartSaving] = useState(false)
   const [tabIndex, setTabIndex] = useState(0)
+  const [pluginManageList, setPluginManageList] = useState<PluginManageItem[]>([])
+  const [pluginManageDisabledIds, setPluginManageDisabledIds] = useState<string[]>([])
+  const [pluginManageLoading, setPluginManageLoading] = useState(false)
+  const [pluginManageSavingId, setPluginManageSavingId] = useState<string>('')
 
   useEffect(() => {
     async function load() {
@@ -121,6 +150,75 @@ export default function SettingsView(_props: { onBack: () => void }) {
     }
     load()
   }, [])
+
+  async function loadPluginManage() {
+    setPluginManageLoading(true)
+    try {
+      const [ids, disabledRaw] = await Promise.all([
+        invoke<string[]>('list_plugins').catch(() => [] as string[]),
+        invoke<unknown | null>('storage_get', { pluginId: APP_STORAGE_ID, key: DISABLED_PLUGINS_KEY }).catch(() => null),
+      ])
+      const disabledIds = normalizeStringList(disabledRaw)
+      const uniqueDisabledIds = Array.from(new Set(disabledIds))
+
+      const manifests = await Promise.all(ids.map(async (id): Promise<PluginManageItem | null> => {
+        const pluginId = String(id || '').trim()
+        if (!pluginId) return null
+        try {
+          const manifestText = await invoke<string>('read_plugin_file', { pluginId, path: 'manifest.json' })
+          const m = JSON.parse(manifestText || '{}') as any
+          const name = typeof m?.name === 'string' ? m.name.trim() : ''
+          const version = typeof m?.version === 'string' ? m.version.trim() : ''
+          const description = typeof m?.description === 'string' ? m.description : ''
+          const icon = typeof m?.icon === 'string' ? m.icon.trim() : ''
+          return {
+            id: pluginId,
+            name: name || pluginId,
+            version: version || '-',
+            description,
+            icon: icon || undefined,
+          }
+        } catch (e) {
+          console.warn('[plugin-manage] failed to read manifest:', pluginId, e)
+          return { id: pluginId, name: pluginId, version: '-', description: '', icon: undefined }
+        }
+      }))
+
+      const list = manifests.filter(Boolean) as PluginManageItem[]
+      list.sort((a, b) => a.name.localeCompare(b.name))
+      setPluginManageList(list)
+      setPluginManageDisabledIds(uniqueDisabledIds)
+    } finally {
+      setPluginManageLoading(false)
+    }
+  }
+
+  async function setPluginDisabled(pluginId: string, disabled: boolean) {
+    const id = String(pluginId || '').trim()
+    if (!id) return
+    if (pluginManageSavingId) return
+    setPluginManageSavingId(id)
+    try {
+      const current = new Set(pluginManageDisabledIds)
+      if (disabled) current.add(id)
+      else current.delete(id)
+      const next = Array.from(current)
+      await invoke('storage_set', { pluginId: APP_STORAGE_ID, key: DISABLED_PLUGINS_KEY, value: next })
+      setPluginManageDisabledIds(next)
+      window.dispatchEvent(new CustomEvent('fast-window:plugins-changed'))
+      toast(disabled ? '插件已禁用' : '插件已启用')
+    } catch (e: any) {
+      toast(String(e?.message || e || '设置失败'))
+      await loadPluginManage()
+    } finally {
+      setPluginManageSavingId('')
+    }
+  }
+
+  useEffect(() => {
+    if (tabIndex !== 1) return
+    loadPluginManage()
+  }, [tabIndex])
 
   async function openDataDir() {
     try {
@@ -293,9 +391,10 @@ export default function SettingsView(_props: { onBack: () => void }) {
           sx={{ borderBottom: 1, borderColor: 'divider' }}
         >
           <Tab label="常规" id="settings-tab-0" aria-controls="settings-tabpanel-0" />
-          <Tab label="快捷键" id="settings-tab-1" aria-controls="settings-tabpanel-1" />
-          <Tab label="WebView" id="settings-tab-2" aria-controls="settings-tabpanel-2" />
-          <Tab label="关于" id="settings-tab-3" aria-controls="settings-tabpanel-3" />
+          <Tab label="插件管理" id="settings-tab-1" aria-controls="settings-tabpanel-1" />
+          <Tab label="快捷键" id="settings-tab-2" aria-controls="settings-tabpanel-2" />
+          <Tab label="WebView" id="settings-tab-3" aria-controls="settings-tabpanel-3" />
+          <Tab label="关于" id="settings-tab-4" aria-controls="settings-tabpanel-4" />
         </Tabs>
       </Box>
 
@@ -372,6 +471,107 @@ export default function SettingsView(_props: { onBack: () => void }) {
 
       <Box role="tabpanel" hidden={tabIndex !== 1} id="settings-tabpanel-1" aria-labelledby="settings-tab-1" sx={{ pt: 0.5 }}>
         {tabIndex === 1 ? (
+          <Stack spacing={1.25}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                  插件管理
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  禁用后插件不会出现在主页，也不会启动后台（如有）。
+                </Typography>
+              </Box>
+              <Button size="small" variant="outlined" onClick={loadPluginManage} disabled={pluginManageLoading || !!pluginManageSavingId}>
+                刷新
+              </Button>
+            </Box>
+
+            {pluginManageLoading ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CircularProgress size={16} />
+                <Typography variant="body2" color="text.secondary">
+                  加载插件列表中…
+                </Typography>
+              </Box>
+            ) : null}
+
+            <Stack spacing={1}>
+              {pluginManageList.map(p => {
+                const disabled = pluginManageDisabledIds.includes(p.id)
+                const busy = pluginManageSavingId === p.id
+                const icon = typeof p.icon === 'string' ? p.icon : ''
+                const canShowIcon = !!icon && !icon.startsWith('file:') && !icon.startsWith('svg:')
+
+                return (
+                  <Box
+                    key={p.id}
+                    sx={{
+                      border: 1,
+                      borderColor: 'divider',
+                      borderRadius: 2,
+                      p: 1.25,
+                      bgcolor: 'background.paper',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 1,
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: 1 }}>
+                      <Avatar
+                        variant="rounded"
+                        src={canShowIcon && isDataImageUrl(icon) ? icon : undefined}
+                        sx={{ width: 32, height: 32, fontSize: 18, bgcolor: 'action.hover', color: 'text.primary' }}
+                      >
+                        {canShowIcon && !isDataImageUrl(icon) ? icon : '📦'}
+                      </Avatar>
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
+                          {p.name}
+                        </Typography>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ display: 'block', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' }}
+                          noWrap
+                        >
+                          {p.id} · v{p.version}
+                        </Typography>
+                        {p.description ? (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }} noWrap>
+                            {p.description}
+                          </Typography>
+                        ) : null}
+                      </Box>
+                    </Box>
+
+                    <FormControlLabel
+                      sx={{ m: 0 }}
+                      control={
+                        <Switch
+                          checked={!disabled}
+                          disabled={busy || pluginManageLoading || !!pluginManageSavingId}
+                          onChange={e => void setPluginDisabled(p.id, !e.target.checked)}
+                          inputProps={{ 'aria-label': `启用插件 ${p.name}` }}
+                        />
+                      }
+                      label={disabled ? '已禁用' : '已启用'}
+                    />
+                  </Box>
+                )
+              })}
+              {!pluginManageLoading && pluginManageList.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  未发现任何插件
+                </Typography>
+              ) : null}
+            </Stack>
+          </Stack>
+        ) : null}
+      </Box>
+
+      <Box role="tabpanel" hidden={tabIndex !== 2} id="settings-tabpanel-2" aria-labelledby="settings-tab-2" sx={{ pt: 0.5 }}>
+        {tabIndex === 2 ? (
           <Stack spacing={1.25}>
             <Box>
               <Typography variant="body2" sx={{ fontWeight: 700 }}>
@@ -459,8 +659,8 @@ export default function SettingsView(_props: { onBack: () => void }) {
         ) : null}
       </Box>
 
-      <Box role="tabpanel" hidden={tabIndex !== 2} id="settings-tabpanel-2" aria-labelledby="settings-tab-2" sx={{ pt: 0.5 }}>
-        {tabIndex === 2 ? (
+      <Box role="tabpanel" hidden={tabIndex !== 3} id="settings-tabpanel-3" aria-labelledby="settings-tab-3" sx={{ pt: 0.5 }}>
+        {tabIndex === 3 ? (
           <Stack spacing={1.25}>
             <Box>
               <Typography variant="body2" sx={{ fontWeight: 700 }}>
@@ -647,21 +847,22 @@ export default function SettingsView(_props: { onBack: () => void }) {
         ) : null}
       </Box>
 
-      <Box role="tabpanel" hidden={tabIndex !== 3} id="settings-tabpanel-3" aria-labelledby="settings-tab-3" sx={{ pt: 0.5 }}>
-        {tabIndex === 3 ? (
+      <Box role="tabpanel" hidden={tabIndex !== 4} id="settings-tabpanel-4" aria-labelledby="settings-tab-4" sx={{ pt: 0.5 }}>
+        {tabIndex === 4 ? (
           <Stack spacing={1.25}>
             <Box>
               <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                项目
+                关于
               </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                在浏览器中打开项目主页
+              <Typography variant="caption" color="text.secondary">
+                Fast Window · 开源项目
               </Typography>
-              <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                <Button size="small" variant="outlined" onClick={openProjectGithub} aria-label="打开项目 GitHub">
-                  打开 GitHub
-                </Button>
-              </Box>
+            </Box>
+
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              <Button size="small" variant="outlined" onClick={openProjectGithub}>
+                打开 GitHub
+              </Button>
             </Box>
           </Stack>
         ) : null}

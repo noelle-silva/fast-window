@@ -58,6 +58,7 @@ interface Plugin {
   backgroundCode?: string
   backgroundAutoStart?: boolean
   manifest?: PluginManifest
+  disabled: boolean
   component: ComponentType<{ onBack: () => void }>
 }
 
@@ -66,6 +67,7 @@ const APP_TITLE = 'Fast Window'
 const APP_STORAGE_ID = '__app'
 const PLUGIN_ORDER_KEY = 'pluginOrder'
 const PLUGIN_BROWSE_LAYOUT_KEY = 'pluginBrowseLayout'
+const DISABLED_PLUGINS_KEY = 'disabledPlugins'
 
 type PluginBrowseLayout = 'list' | 'grid' | 'icon'
 
@@ -134,6 +136,15 @@ async function makeThumbnailPngDataUrl(file: File, maxPx: number): Promise<strin
 }
 
 function normalizeOrder(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const ids: string[] = []
+  for (const item of value) {
+    if (typeof item === 'string' && item.trim()) ids.push(item)
+  }
+  return ids
+}
+
+function normalizeDisabledPlugins(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   const ids: string[] = []
   for (const item of value) {
@@ -321,6 +332,7 @@ const settingsPlugin: Plugin = {
   description: '配置开机自启与唤醒窗口快捷键',
   icon: '⚙️',
   keyword: 'settings',
+  disabled: false,
   component: SettingsView,
 }
 
@@ -376,6 +388,11 @@ function App() {
         () => ({} as Record<string, string>),
       )
 
+      const disabledSaved = await invoke<unknown | null>('storage_get', { pluginId: APP_STORAGE_ID, key: DISABLED_PLUGINS_KEY }).catch(
+        () => null,
+      )
+      const disabledSet = new Set(normalizeDisabledPlugins(disabledSaved))
+
       const pluginList: Plugin[] = report.plugins.map(p => ({
         id: p.manifest.id,
         name: p.manifest.name,
@@ -386,6 +403,7 @@ function App() {
         backgroundCode: p.backgroundCode,
         backgroundAutoStart: !!(p.manifest.background && p.manifest.background.autoStart !== false),
         manifest: p.manifest,
+        disabled: disabledSet.has(p.manifest.id),
         component: p.component,
       }))
 
@@ -468,7 +486,7 @@ function App() {
   }, [])
 
   const backgroundHosts = allPlugins
-    .filter(p => p.backgroundAutoStart && p.backgroundCode)
+    .filter(p => !p.disabled && p.backgroundAutoStart && p.backgroundCode)
     .map(p => (
       <BackgroundPluginHost
         key={`bg-${p.id}`}
@@ -482,6 +500,22 @@ function App() {
   useEffect(() => {
     loadPlugins()
   }, [loadPlugins])
+
+  useEffect(() => {
+    const onChanged = () => {
+      void loadPlugins()
+    }
+    window.addEventListener('fast-window:plugins-changed', onChanged as any)
+    return () => window.removeEventListener('fast-window:plugins-changed', onChanged as any)
+  }, [loadPlugins])
+
+  useEffect(() => {
+    if (!activePlugin) return
+    const hit = allPlugins.find(p => p.id === activePlugin.id)
+    if (!hit || !hit.disabled) return
+    setActivePlugin(null)
+    setToast(prev => ({ open: true, message: `插件已禁用：${hit.name}`, key: prev.key + 1 }))
+  }, [activePlugin, allPlugins])
 
   useEffect(() => {
     allPluginsRef.current = allPlugins
@@ -503,6 +537,10 @@ function App() {
       const list = allPluginsRef.current
       const found = list.find(p => p.id === id) || null
       if (found) {
+        if (found.disabled) {
+          setToast(prev => ({ open: true, message: `插件已禁用：${found.name}`, key: prev.key + 1 }))
+          return
+        }
         setActivePlugin(found)
       } else {
         pendingActivatePluginIdRef.current = id
@@ -545,10 +583,12 @@ function App() {
     const isQueryChanged = prevQueryRef.current !== query
     prevQueryRef.current = query
 
+    const visibleAll = allPlugins.filter(p => !p.disabled)
+
     const nextPlugins =
       q === ''
-        ? allPlugins
-        : allPlugins.filter(
+        ? visibleAll
+        : visibleAll.filter(
             p => p.name.toLowerCase().includes(q.toLowerCase()) || p.keyword?.toLowerCase() === q.toLowerCase(),
           )
 
@@ -657,8 +697,21 @@ function App() {
 
     const targetId = dragOverId
     if (targetId && targetId !== draggingId) {
-      const nextAll = movePluginById(allPlugins, draggingId, targetId, dragOverAfter)
-      if (nextAll !== allPlugins) setAllPlugins(nextAll)
+      const enabled = allPlugins.filter(p => !p.disabled)
+      const nextEnabled = movePluginById(enabled, draggingId, targetId, dragOverAfter)
+      if (nextEnabled !== enabled) {
+        const nextAll: Plugin[] = []
+        let enabledIndex = 0
+        for (const p of allPlugins) {
+          if (p.disabled) nextAll.push(p)
+          else {
+            const hit = nextEnabled[enabledIndex]
+            enabledIndex += 1
+            nextAll.push(hit || p)
+          }
+        }
+        if (nextAll.length === allPlugins.length) setAllPlugins(nextAll)
+      }
     }
 
     setDraggingId(null)
@@ -1225,6 +1278,7 @@ function App() {
                         dragMovedRef.current = false
                         return
                       }
+                      setActiveIndex(index)
                       setActivePlugin(plugin)
                     }}
                     sx={{
@@ -1262,7 +1316,9 @@ function App() {
                     </ListItemAvatar>
                     <ListItemText
                       primary={plugin.name}
-                      secondary={plugin.description}
+                      secondary={
+                        plugin.description
+                      }
                       primaryTypographyProps={{ variant: 'body1', fontWeight: 600, noWrap: true }}
                       secondaryTypographyProps={{ variant: 'body2', color: 'text.secondary', noWrap: true }}
                     />
