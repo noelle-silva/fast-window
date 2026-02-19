@@ -1651,16 +1651,14 @@
         if (!p) continue
         const dataUrl = await api.files.readRefImage(p).catch(() => '')
         items.push({ path: p, name: basename(p), dataUrl: String(dataUrl || '').trim() })
-        if (items.length % 12 === 0) {
-          state.refLibraryItems = items.slice()
-          state.refLibraryCursor = i + 1
-          render()
+        // 让 UI 有机会响应滚动/输入，避免加载过程中“滚动条像卡住”
+        if ((i - start + 1) % 4 === 0) {
+          await new Promise((r) => requestAnimationFrame(() => r()))
         }
       }
 
       state.refLibraryItems = items
       state.refLibraryCursor = end
-      render()
     } finally {
       state.refLibraryLoadingMore = false
       render()
@@ -2476,7 +2474,24 @@
       const html = view()
       if (html === render._lastHtml) return
       render._lastHtml = html
+      const preservedScrollTops = (() => {
+        const out = {}
+        // 参考图库：整页重绘会丢失滚动位置，导致“懒加载/点击选择”时跳回顶部
+        const ids = ['ref-lib-scroll']
+        for (const id of ids) {
+          const el = document.getElementById(id)
+          if (!el) continue
+          const top = Number(el.scrollTop)
+          if (Number.isFinite(top)) out[id] = top
+        }
+        return out
+      })()
       root.innerHTML = html
+      for (const [id, top] of Object.entries(preservedScrollTops)) {
+        const el = document.getElementById(id)
+        if (!el) continue
+        el.scrollTop = Number(top) || 0
+      }
     })
   }
 
