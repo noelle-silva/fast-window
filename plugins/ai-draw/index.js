@@ -1050,23 +1050,44 @@
   function upsertTask(item) {
     const t = item && typeof item === 'object' ? item : {}
     const id = String(t.id || '').trim()
-    if (!id) return
-    const status = String(t.status || '').trim() || 'pending'
-    const prompt = typeof t.prompt === 'string' ? t.prompt : ''
-    const at = typeof t.at === 'number' ? t.at : Date.now()
+    if (!id) return false
 
     const list = Array.isArray(state.tasks) ? state.tasks : []
     const idx = list.findIndex((x) => x && x.id === id)
-    const next = { id, status, prompt, at }
-    if (idx >= 0) list[idx] = { ...list[idx], ...next }
-    else list.unshift(next)
+    const prev = idx >= 0 ? list[idx] : null
+
+    const hasStatus = Object.prototype.hasOwnProperty.call(t, 'status')
+    const status = hasStatus ? String(t.status || '').trim() || 'pending' : String(prev && prev.status ? prev.status : 'pending')
+    const hasPrompt = Object.prototype.hasOwnProperty.call(t, 'prompt') && typeof t.prompt === 'string'
+    const hasAt = Object.prototype.hasOwnProperty.call(t, 'at') && typeof t.at === 'number' && Number.isFinite(t.at)
+
+    const next = { id, status }
+    if (hasPrompt) next.prompt = t.prompt
+    else if (!prev) next.prompt = ''
+
+    if (hasAt) next.at = t.at
+    else if (!prev) next.at = Date.now()
+
+    const merged = prev ? { ...prev, ...next } : next
+    const changed =
+      !prev ||
+      String(prev.status || '') !== String(merged.status || '') ||
+      (hasPrompt && String(prev.prompt || '') !== String(merged.prompt || '')) ||
+      (hasAt && Number(prev.at) !== Number(merged.at))
+
+    if (idx >= 0) list[idx] = merged
+    else list.unshift(merged)
     state.tasks = list.slice(0, 50)
+    return changed
   }
 
   function removeTask(taskId) {
     const tid = String(taskId || '').trim()
-    if (!tid) return
-    state.tasks = (Array.isArray(state.tasks) ? state.tasks : []).filter((x) => x && x.id !== tid)
+    if (!tid) return false
+    const list = Array.isArray(state.tasks) ? state.tasks : []
+    const next = list.filter((x) => x && x.id !== tid)
+    state.tasks = next
+    return next.length !== list.length
   }
 
   function getActiveTasks() {
@@ -1094,19 +1115,21 @@
         active.map((t) => api.task.get(String(t.id || '')).catch(() => null)),
       )
 
+      let changed = false
       for (const info of infos) {
         if (!info) continue
         const tid = String(info.id || '').trim()
         if (!tid) continue
-        upsertTask({ id: tid, status: String(info.status || '') })
         const st = String(info.status || '')
+        if (upsertTask({ id: tid, status: st })) changed = true
         if (isTaskDone(st)) {
           await applyTaskCompletion(info)
           removeTask(tid)
+          changed = true
         }
       }
 
-      render()
+      if (changed) render()
     } finally {
       state.taskPolling = false
       if (getActiveTasks().length) {
@@ -2413,7 +2436,15 @@
   function render() {
     const root = document.getElementById('app')
     if (!root) return
-    root.innerHTML = view()
+    if (render._scheduled) return
+    render._scheduled = true
+    requestAnimationFrame(() => {
+      render._scheduled = false
+      const html = view()
+      if (html === render._lastHtml) return
+      render._lastHtml = html
+      root.innerHTML = html
+    })
   }
 
   function bindEvents() {
