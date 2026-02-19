@@ -395,6 +395,7 @@
     .card:hover { background: rgba(0,0,0,0.03); }
     .cardTop { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
     .pill { font-size: 11px; color: var(--muted); border: 1px solid var(--outline); padding: 2px 8px; border-radius: 999px; }
+    .meta { font-size: 11px; color: var(--muted); white-space: nowrap; }
     .spacer { margin-left: auto; }
     .iconBtn {
       border: 1px solid transparent;
@@ -2128,9 +2129,9 @@
           const expanded = !!state.clipboardExpanded[key]
           const top = `
             <div class="cardTop">
-              <span class="pill">${escapeHtml(typeLabel)}</span>
-              <span class="pill">${escapeHtml(timeLabel)}</span>
               <span class="spacer"></span>
+              <span class="meta">${escapeHtml(typeLabel)}</span>
+              <span class="meta">${escapeHtml(timeLabel)}</span>
               <button class="iconBtn" data-act="delHistory" title="${isDeleteArmed(key) ? '再点一次确认删除' : '删除'}">${isDeleteArmed(key) ? '⚠' : '🗑'}</button>
             </div>`
 
