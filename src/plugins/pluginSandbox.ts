@@ -87,7 +87,9 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
     files: {
       getOutputDir: () => call('files.getOutputDir', []),
       pickOutputDir: () => call('files.pickOutputDir', []),
+      pickDir: () => call('files.pickDir', []),
       openOutputDir: () => call('files.openOutputDir', []),
+      openDir: (dir) => call('files.openDir', [dir]),
       saveImageBase64: (dataUrlOrBase64) => call('files.saveImageBase64', [dataUrlOrBase64]),
       saveRefImageBase64: (dataUrlOrBase64) => call('files.saveRefImageBase64', [dataUrlOrBase64]),
       listOutputImages: () => call('files.listOutputImages', []),

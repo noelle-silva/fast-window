@@ -13,7 +13,9 @@ export type PluginCapability =
   | 'files.*'
   | 'files.getOutputDir'
   | 'files.pickOutputDir'
+  | 'files.pickDir'
   | 'files.openOutputDir'
+  | 'files.openDir'
   | 'files.saveImageBase64'
   | 'files.saveRefImageBase64'
   | 'files.listOutputImages'
@@ -58,7 +60,9 @@ export const ALL_PLUGIN_CAPABILITIES: readonly PluginCapability[] = [
   'files.*',
   'files.getOutputDir',
   'files.pickOutputDir',
+  'files.pickDir',
   'files.openOutputDir',
+  'files.openDir',
   'files.saveImageBase64',
   'files.saveRefImageBase64',
   'files.listOutputImages',

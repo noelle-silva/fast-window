@@ -2045,12 +2045,66 @@ fn plugin_pick_output_dir(
 }
 
 #[tauri::command]
+fn plugin_pick_dir(app: tauri::AppHandle, plugin_id: String) -> Result<Option<String>, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+
+    struct AlwaysOnTopGuard {
+        window: Option<tauri::WebviewWindow>,
+    }
+    impl Drop for AlwaysOnTopGuard {
+        fn drop(&mut self) {
+            if let Some(w) = self.window.take() {
+                let _ = w.set_always_on_top(true);
+            }
+        }
+    }
+    let mut guard = AlwaysOnTopGuard { window: None };
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_always_on_top(false);
+        guard.window = Some(w);
+    }
+
+    let picked = rfd::FileDialog::new().set_title("选择文件夹").pick_folder();
+    let Some(dir) = picked else {
+        return Ok(None);
+    };
+    Ok(Some(dir.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
 fn plugin_open_output_dir(app: tauri::AppHandle, plugin_id: String) -> Result<(), String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
     let dir = resolve_plugin_output_dir(&app, &plugin_id);
     open_dir_in_file_manager(&dir)
+}
+
+#[tauri::command]
+fn plugin_open_dir(_app: tauri::AppHandle, plugin_id: String, dir: String) -> Result<(), String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+
+    let s = dir.trim();
+    if s.is_empty() {
+        return Err("dir 不能为空".to_string());
+    }
+
+    let p = PathBuf::from(s);
+    if !p.is_absolute() {
+        return Err("dir 必须是绝对路径".to_string());
+    }
+    if !p.exists() {
+        return Err("目录不存在".to_string());
+    }
+    if !p.is_dir() {
+        return Err("路径不是目录".to_string());
+    }
+
+    open_dir_in_file_manager(&p)
 }
 
 #[tauri::command]
@@ -3625,7 +3679,9 @@ fn main() {
             remove_plugin_icon_override,
             plugin_get_output_dir,
             plugin_pick_output_dir,
+            plugin_pick_dir,
             plugin_open_output_dir,
+            plugin_open_dir,
             plugin_save_image_base64,
             plugin_save_ref_image_base64,
             plugin_list_output_images,

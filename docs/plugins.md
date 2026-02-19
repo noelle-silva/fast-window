@@ -50,6 +50,7 @@
 - `net.requestBase64`（兼容保留；等价于 `net.request({ responseType: "base64" })`）
 - `task.create` / `task.get` / `task.list` / `task.cancel`
 - `files.getOutputDir` / `files.pickOutputDir` / `files.openOutputDir`
+- `files.pickDir` / `files.openDir`（选择/打开本地目录）
 - `files.saveImageBase64` / `files.listOutputImages` / `files.readOutputImage`
 
 ## 后台任务（Task API）

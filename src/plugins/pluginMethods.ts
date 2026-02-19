@@ -16,7 +16,9 @@ export type PluginMethodName =
   | 'storage.setAll'
   | 'files.getOutputDir'
   | 'files.pickOutputDir'
+  | 'files.pickDir'
   | 'files.openOutputDir'
+  | 'files.openDir'
   | 'files.saveImageBase64'
   | 'files.saveRefImageBase64'
   | 'files.listOutputImages'
@@ -78,7 +80,12 @@ const methods: Record<PluginMethodName, MethodDef> = {
 
   'files.getOutputDir': { capability: 'files.getOutputDir', handler: ctx => ctx.api.files.getOutputDir() },
   'files.pickOutputDir': { capability: 'files.pickOutputDir', handler: ctx => ctx.api.files.pickOutputDir() },
+  'files.pickDir': { capability: 'files.pickDir', handler: ctx => ctx.api.files.pickDir() },
   'files.openOutputDir': { capability: 'files.openOutputDir', handler: ctx => ctx.api.files.openOutputDir() },
+  'files.openDir': {
+    capability: 'files.openDir',
+    handler: (ctx, args) => ctx.api.files.openDir(String(args?.[0] ?? '')),
+  },
   'files.saveImageBase64': {
     capability: 'files.saveImageBase64',
     handler: (ctx, args) => ctx.api.files.saveImageBase64(String(args?.[0] ?? '')),

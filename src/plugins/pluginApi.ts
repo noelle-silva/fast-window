@@ -280,7 +280,9 @@ export type FastWindowApi = {
   files: {
     getOutputDir: () => Promise<string>
     pickOutputDir: () => Promise<string | null>
+    pickDir: () => Promise<string | null>
     openOutputDir: () => Promise<void>
+    openDir: (dir: string) => Promise<void>
     saveImageBase64: (dataUrlOrBase64: string) => Promise<string>
     saveRefImageBase64: (dataUrlOrBase64: string) => Promise<string>
     listOutputImages: () => Promise<string[]>
@@ -388,8 +390,14 @@ export function createPluginContext(pluginId: string, requires: PluginCapability
       pickOutputDir: async () => {
         return invoke<string | null>('plugin_pick_output_dir', { pluginId })
       },
+      pickDir: async () => {
+        return invoke<string | null>('plugin_pick_dir', { pluginId })
+      },
       openOutputDir: async () => {
         await invoke('plugin_open_output_dir', { pluginId })
+      },
+      openDir: async (dir: string) => {
+        await invoke('plugin_open_dir', { pluginId, dir: String(dir ?? '') })
       },
       saveImageBase64: async (dataUrlOrBase64: string) => {
         return invoke<string>('plugin_save_image_base64', { pluginId, data: dataUrlOrBase64 })
