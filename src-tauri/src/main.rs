@@ -25,6 +25,7 @@ const APP_CONFIG_FILE: &str = "app.json";
 const WAKE_SHORTCUT_KEY: &str = "wakeShortcut";
 const AUTO_START_KEY: &str = "autoStart";
 const PLUGIN_OUTPUT_DIRS_KEY: &str = "pluginOutputDirs";
+const WEBVIEW_SETTINGS_KEY: &str = "webview";
 const TASKS_RETENTION_LIMIT: usize = 120;
 const TASKS_PER_PLUGIN_LIMIT: usize = 40;
 static TASK_ID_SEQ: AtomicU32 = AtomicU32::new(0);
@@ -39,6 +40,7 @@ const DATA_DIR_ENV: &str = "FAST_WINDOW_DATA_DIR";
 const BROWSER_WINDOW_LABEL: &str = "browser";
 const BROWSER_BAR_WINDOW_LABEL: &str = "browser_bar";
 const ACTIVATE_PLUGIN_EVENT: &str = "fast-window:activate-plugin";
+const WEBVIEW_SETTINGS_UPDATED_EVENT: &str = "fast-window:webview-settings-updated";
 const BROWSER_BAR_HEIGHT: f64 = 40.0;
 const BROWSER_STACK_TOTAL_HEIGHT: f64 = 605.0;
 
@@ -556,6 +558,8 @@ async fn open_browser_window(app: tauri::AppHandle, url: String, plugin_id: Stri
     }
 
     let title = "Web";
+    let webview_settings = load_webview_settings(&app);
+    let video_script = browser_video_injection_script(&webview_settings.video)?;
 
     let bar = tauri::WebviewWindowBuilder::new(
         &app,
@@ -579,6 +583,7 @@ async fn open_browser_window(app: tauri::AppHandle, url: String, plugin_id: Stri
     let app_ = app.clone();
     let content = tauri::WebviewWindowBuilder::new(&app, BROWSER_WINDOW_LABEL, tauri::WebviewUrl::External(parsed))
         .title(title)
+        .initialization_script(video_script)
         .on_new_window(move |url, _features| {
             // 很多网站会用 window.open / target=_blank 打开“新标签页”。
             // 我们没有标签页：把它折叠成“当前窗口跳转”。
@@ -649,6 +654,110 @@ async fn browser_reload(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(w) = app.get_webview_window(BROWSER_WINDOW_LABEL) {
         let _ = w.eval("location.reload()");
     }
+    Ok(())
+}
+
+#[tauri::command]
+fn get_webview_settings(app: tauri::AppHandle) -> WebviewSettings {
+    load_webview_settings(&app)
+}
+
+#[tauri::command]
+fn set_webview_settings(app: tauri::AppHandle, settings: WebviewSettings) -> Result<WebviewSettings, String> {
+    let next = write_webview_settings(&app, settings)?;
+
+    if let Some(w) = app.get_webview_window(BROWSER_WINDOW_LABEL) {
+        if let Ok(script) = browser_video_injection_script(&next.video) {
+            let _ = w.eval(&script);
+        }
+    }
+
+    let _ = app.emit_to(
+        EventTarget::webview_window(BROWSER_BAR_WINDOW_LABEL),
+        WEBVIEW_SETTINGS_UPDATED_EVENT,
+        next.clone(),
+    );
+    let _ = app.emit_to(
+        EventTarget::webview_window("main"),
+        WEBVIEW_SETTINGS_UPDATED_EVENT,
+        next.clone(),
+    );
+
+    Ok(next)
+}
+
+#[tauri::command]
+fn browser_video_set_rate(app: tauri::AppHandle, rate: f64) -> Result<(), String> {
+    let settings = load_webview_settings(&app);
+    let r = clamp_video_rate(rate, settings.video.max_rate);
+
+    let Some(w) = app.get_webview_window(BROWSER_WINDOW_LABEL) else {
+        return Ok(());
+    };
+
+    let js = format!(
+        r#"(function () {{
+  try {{
+    if (window.__fastwindowVideoSpeedToggleState) {{
+      window.__fastwindowVideoSpeedToggleState.activeKey = null;
+      window.__fastwindowVideoSpeedToggleState.prevRate = null;
+    }}
+    if (typeof window.__fastwindowVideoSpeedApplyRate === 'function') {{
+      window.__fastwindowVideoSpeedApplyRate({r});
+      return;
+    }}
+    const list = document.querySelectorAll('video');
+    for (const v of list) {{
+      try {{
+        v.playbackRate = {r};
+        v.defaultPlaybackRate = {r};
+      }} catch (_) {{}}
+    }}
+    window.__fastwindowVideoSpeedCurrentRate = {r};
+  }} catch (_) {{}}
+}})();"#
+    );
+    let _ = w.eval(&js);
+    Ok(())
+}
+
+#[tauri::command]
+fn browser_video_toggle_preset(app: tauri::AppHandle, shortcut: String, rate: f64) -> Result<(), String> {
+    let key = shortcut.trim();
+    if key.is_empty() {
+        return Err("shortcut 不能为空".to_string());
+    }
+    let settings = load_webview_settings(&app);
+    let r = clamp_video_rate(rate, settings.video.max_rate);
+
+    let Some(w) = app.get_webview_window(BROWSER_WINDOW_LABEL) else {
+        return Ok(());
+    };
+
+    let key_js = serde_json::to_string(&key).map_err(|e| format!("序列化快捷键失败: {e}"))?;
+    let js = format!(
+        r#"(function () {{
+  try {{
+    if (typeof window.__fastwindowVideoSpeedTogglePreset === 'function') {{
+      window.__fastwindowVideoSpeedTogglePreset({key_js}, {r});
+      return;
+    }}
+    if (typeof window.__fastwindowVideoSpeedApplyRate === 'function') {{
+      window.__fastwindowVideoSpeedApplyRate({r});
+      return;
+    }}
+    const list = document.querySelectorAll('video');
+    for (const v of list) {{
+      try {{
+        v.playbackRate = {r};
+        v.defaultPlaybackRate = {r};
+      }} catch (_) {{}}
+    }}
+    window.__fastwindowVideoSpeedCurrentRate = {r};
+  }} catch (_) {{}}
+}})();"#,
+    );
+    let _ = w.eval(&js);
     Ok(())
 }
 
@@ -1385,6 +1494,361 @@ fn write_json_map(path: &Path, map: &Map<String, Value>) -> Result<(), String> {
         .map_err(|e| format!("序列化配置失败: {e}"))?;
     std::fs::write(path, content).map_err(|e| format!("写入配置失败: {e}"))?;
     Ok(())
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WebviewVideoSpeedPreset {
+    label: String,
+    rate: f64,
+    #[serde(default)]
+    shortcut: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WebviewVideoSettings {
+    default_rate: f64,
+    max_rate: f64,
+    #[serde(default)]
+    presets: Vec<WebviewVideoSpeedPreset>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WebviewSettings {
+    video: WebviewVideoSettings,
+}
+
+impl Default for WebviewVideoSettings {
+    fn default() -> Self {
+        Self {
+            default_rate: 1.0,
+            max_rate: 16.0,
+            presets: vec![
+                WebviewVideoSpeedPreset {
+                    label: "1x".to_string(),
+                    rate: 1.0,
+                    shortcut: None,
+                },
+                WebviewVideoSpeedPreset {
+                    label: "1.5x".to_string(),
+                    rate: 1.5,
+                    shortcut: None,
+                },
+                WebviewVideoSpeedPreset {
+                    label: "2x".to_string(),
+                    rate: 2.0,
+                    shortcut: None,
+                },
+            ],
+        }
+    }
+}
+
+impl Default for WebviewSettings {
+    fn default() -> Self {
+        Self {
+            video: WebviewVideoSettings::default(),
+        }
+    }
+}
+
+fn clamp_video_rate(rate: f64, max_rate: f64) -> f64 {
+    let max_rate = if max_rate.is_finite() { max_rate } else { 16.0 };
+    let max_rate = max_rate.max(0.25).min(16.0);
+    let mut r = if rate.is_finite() { rate } else { 1.0 };
+    r = r.max(0.25).min(max_rate);
+    (r * 100.0).round() / 100.0
+}
+
+fn normalize_shortcut(raw: &str) -> Option<(String, bool)> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return None;
+    }
+
+    let mut has_modifier = false;
+    let mut control = false;
+    let mut alt = false;
+    let mut shift = false;
+    let mut super_key = false;
+
+    let parts: Vec<&str> = s.split('+').map(|p| p.trim()).filter(|p| !p.is_empty()).collect();
+    if parts.is_empty() {
+        return None;
+    }
+
+    let code = parts[parts.len() - 1];
+    if code.eq_ignore_ascii_case("control")
+        || code.eq_ignore_ascii_case("ctrl")
+        || code.eq_ignore_ascii_case("alt")
+        || code.eq_ignore_ascii_case("shift")
+        || code.eq_ignore_ascii_case("super")
+        || code.eq_ignore_ascii_case("meta")
+        || code.eq_ignore_ascii_case("cmd")
+    {
+        return None;
+    }
+
+    for p in &parts[..parts.len() - 1] {
+        if p.eq_ignore_ascii_case("control") || p.eq_ignore_ascii_case("ctrl") {
+            control = true;
+            has_modifier = true;
+        } else if p.eq_ignore_ascii_case("alt") {
+            alt = true;
+            has_modifier = true;
+        } else if p.eq_ignore_ascii_case("shift") {
+            shift = true;
+            has_modifier = true;
+        } else if p.eq_ignore_ascii_case("super")
+            || p.eq_ignore_ascii_case("meta")
+            || p.eq_ignore_ascii_case("cmd")
+        {
+            super_key = true;
+            has_modifier = true;
+        } else {
+            return None;
+        }
+    }
+
+    let mut out: Vec<String> = Vec::new();
+    if control {
+        out.push("control".to_string());
+    }
+    if alt {
+        out.push("alt".to_string());
+    }
+    if shift {
+        out.push("shift".to_string());
+    }
+    if super_key {
+        out.push("super".to_string());
+    }
+    out.push(code.to_string());
+    Some((out.join("+"), has_modifier))
+}
+
+fn sanitize_webview_settings_for_load(mut settings: WebviewSettings) -> WebviewSettings {
+    settings.video.max_rate = clamp_video_rate(settings.video.max_rate, 16.0);
+    settings.video.default_rate = clamp_video_rate(settings.video.default_rate, settings.video.max_rate);
+
+    let mut seen_shortcuts: HashMap<String, ()> = HashMap::new();
+    let mut presets: Vec<WebviewVideoSpeedPreset> = Vec::new();
+    for mut p in settings.video.presets.into_iter().take(64) {
+        p.rate = clamp_video_rate(p.rate, settings.video.max_rate);
+        p.label = p.label.trim().to_string();
+        if p.label.is_empty() {
+            p.label = format!("{}x", p.rate);
+        }
+
+        p.shortcut = match p.shortcut.take().and_then(|s| normalize_shortcut(&s)) {
+            Some((normalized, _has_modifier)) => {
+                if seen_shortcuts.contains_key(&normalized) {
+                    None
+                } else {
+                    seen_shortcuts.insert(normalized.clone(), ());
+                    Some(normalized)
+                }
+            }
+            _ => None,
+        };
+
+        presets.push(p);
+    }
+
+    settings.video.presets = presets;
+    settings
+}
+
+fn validate_webview_settings_for_save(mut settings: WebviewSettings) -> Result<WebviewSettings, String> {
+    settings.video.max_rate = clamp_video_rate(settings.video.max_rate, 16.0);
+    settings.video.default_rate = clamp_video_rate(settings.video.default_rate, settings.video.max_rate);
+
+    let mut seen_shortcuts: HashMap<String, ()> = HashMap::new();
+    let mut presets: Vec<WebviewVideoSpeedPreset> = Vec::new();
+    for (idx, mut p) in settings.video.presets.into_iter().take(64).enumerate() {
+        p.rate = clamp_video_rate(p.rate, settings.video.max_rate);
+        p.label = p.label.trim().to_string();
+        if p.label.is_empty() {
+            p.label = format!("{}x", p.rate);
+        }
+
+        if let Some(raw) = p.shortcut.take() {
+            let raw = raw.trim().to_string();
+            if raw.is_empty() {
+                p.shortcut = None;
+            } else {
+                let Some((normalized, has_modifier)) = normalize_shortcut(&raw) else {
+                    return Err(format!("预设快捷键格式不合法（第 {} 条）", idx + 1));
+                };
+                let _ = has_modifier;
+                if seen_shortcuts.contains_key(&normalized) {
+                    return Err(format!("快捷键重复: {normalized}"));
+                }
+                seen_shortcuts.insert(normalized.clone(), ());
+                p.shortcut = Some(normalized);
+            }
+        }
+
+        presets.push(p);
+    }
+
+    settings.video.presets = presets;
+    Ok(settings)
+}
+
+fn load_webview_settings(app: &tauri::AppHandle) -> WebviewSettings {
+    let cfg_path = app_config_path(app);
+    let map = read_json_map(&cfg_path);
+    let v = map.get(WEBVIEW_SETTINGS_KEY).cloned().unwrap_or(Value::Null);
+    let parsed = serde_json::from_value::<WebviewSettings>(v).unwrap_or_default();
+    sanitize_webview_settings_for_load(parsed)
+}
+
+fn write_webview_settings(app: &tauri::AppHandle, settings: WebviewSettings) -> Result<WebviewSettings, String> {
+    let cfg_path = app_config_path(app);
+    let mut map = read_json_map(&cfg_path);
+    let normalized = validate_webview_settings_for_save(settings)?;
+    map.insert(
+        WEBVIEW_SETTINGS_KEY.to_string(),
+        serde_json::to_value(normalized.clone()).map_err(|e| format!("序列化配置失败: {e}"))?,
+    );
+    write_json_map(&cfg_path, &map)?;
+    Ok(normalized)
+}
+
+fn browser_video_injection_script(video: &WebviewVideoSettings) -> Result<String, String> {
+    let json = serde_json::to_string(video).map_err(|e| format!("序列化配置失败: {e}"))?;
+    let quoted = serde_json::to_string(&json).map_err(|e| format!("序列化配置失败: {e}"))?;
+
+    Ok(format!(
+        r#"(function () {{
+  const cfg = JSON.parse({quoted});
+  const clamp = (r) => {{
+    const max = (Number.isFinite(cfg.maxRate) ? cfg.maxRate : 16);
+    const max2 = Math.min(16, Math.max(0.25, max));
+    const v = (Number.isFinite(r) ? r : 1);
+    return Math.min(max2, Math.max(0.25, v));
+  }};
+
+  const normalizeEvent = (e) => {{
+    const parts = [];
+    if (e.ctrlKey) parts.push('control');
+    if (e.altKey) parts.push('alt');
+    if (e.shiftKey) parts.push('shift');
+    if (e.metaKey) parts.push('super');
+    const code = typeof e.code === 'string' ? e.code : '';
+    if (!code || code === 'Unidentified') return null;
+    parts.push(code);
+    return parts.join('+');
+  }};
+
+  const isEditable = (t) => {{
+    try {{
+      const el = t && t.nodeType === 1 ? t : null;
+      if (!el) return false;
+      const tag = (el.tagName || '').toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      if (el.isContentEditable) return true;
+      if (typeof el.closest === 'function' && el.closest('[contenteditable=\"true\"],[role=\"textbox\"]')) return true;
+      return false;
+    }} catch (_) {{
+      return false;
+    }}
+  }};
+
+  const applyRate = (rate) => {{
+    const r = clamp(rate);
+    const list = document.querySelectorAll('video');
+    for (const v of list) {{
+      try {{
+        v.playbackRate = r;
+        v.defaultPlaybackRate = r;
+      }} catch (_) {{}}
+    }}
+    return r;
+  }};
+
+  const ensure = () => {{
+    const r = applyRate(cfg.defaultRate);
+    window.__fastwindowVideoSpeedCurrentRate = r;
+    window.__fastwindowVideoSpeedToggleState = {{ activeKey: null, prevRate: null }};
+  }};
+
+  if (!window.__fastwindowVideoSpeedInstalled) {{
+    window.__fastwindowVideoSpeedInstalled = true;
+
+    window.__fastwindowVideoSpeedApplyRate = (rate) => {{
+      const r = applyRate(rate);
+      window.__fastwindowVideoSpeedCurrentRate = r;
+      return r;
+    }};
+
+    window.__fastwindowVideoSpeedTogglePreset = (key, rate) => {{
+      try {{
+        const st = window.__fastwindowVideoSpeedToggleState || {{ activeKey: null, prevRate: null }};
+        if (st.activeKey === key) {{
+          const back = (typeof st.prevRate === 'number') ? st.prevRate : cfg.defaultRate;
+          st.activeKey = null;
+          st.prevRate = null;
+          window.__fastwindowVideoSpeedToggleState = st;
+          return window.__fastwindowVideoSpeedApplyRate(back);
+        }}
+        const cur = (typeof window.__fastwindowVideoSpeedCurrentRate === 'number')
+          ? window.__fastwindowVideoSpeedCurrentRate
+          : cfg.defaultRate;
+        st.activeKey = key;
+        st.prevRate = cur;
+        window.__fastwindowVideoSpeedToggleState = st;
+        return window.__fastwindowVideoSpeedApplyRate(rate);
+      }} catch (_) {{
+        return window.__fastwindowVideoSpeedApplyRate(rate);
+      }}
+    }};
+
+    window.addEventListener('keydown', (e) => {{
+      try {{
+        if (e.repeat) return;
+        if (isEditable(e.target)) return;
+        const key = normalizeEvent(e);
+        if (!key) return;
+        const presets = Array.isArray(window.__fastwindowVideoSpeedConfig?.presets)
+          ? window.__fastwindowVideoSpeedConfig.presets
+          : [];
+        for (const p of presets) {{
+          if (!p || typeof p.shortcut !== 'string') continue;
+          if (p.shortcut === key && typeof p.rate === 'number') {{
+            e.preventDefault();
+            e.stopPropagation();
+            if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+            window.__fastwindowVideoSpeedTogglePreset(key, p.rate);
+            return;
+          }}
+        }}
+      }} catch (_) {{}}
+    }}, true);
+
+    let scheduled = false;
+    const scheduleApply = () => {{
+      if (scheduled) return;
+      scheduled = true;
+      setTimeout(() => {{
+        scheduled = false;
+        try {{
+          if (typeof window.__fastwindowVideoSpeedCurrentRate !== 'number') return;
+          applyRate(window.__fastwindowVideoSpeedCurrentRate);
+        }} catch (_) {{}}
+      }}, 200);
+    }};
+    const obs = new MutationObserver(scheduleApply);
+    obs.observe(document.documentElement || document, {{ childList: true, subtree: true }});
+  }}
+
+  window.__fastwindowVideoSpeedConfig = cfg;
+  ensure();
+}})();"#,
+    ))
 }
 
 fn decode_base64_image_payload(raw: &str) -> Result<(Vec<u8>, String), String> {
@@ -2906,6 +3370,10 @@ fn main() {
             browser_go_back,
             browser_go_forward,
             browser_reload,
+            get_webview_settings,
+            set_webview_settings,
+            browser_video_set_rate,
+            browser_video_toggle_preset,
             browser_stack_toggle_fullscreen,
             browser_stack_get_pinned,
             browser_stack_toggle_pinned,

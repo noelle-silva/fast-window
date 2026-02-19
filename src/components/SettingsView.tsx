@@ -1,17 +1,64 @@
 import { useEffect, useMemo, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { Box, Button, Divider, FormControlLabel, Stack, Switch, TextField, Typography } from '@mui/material'
+import {
+  Box,
+  Button,
+  Divider,
+  FormControlLabel,
+  IconButton,
+  Slider,
+  Stack,
+  Switch,
+  TextField,
+  Typography,
+} from '@mui/material'
+import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
+import FiberManualRecordRoundedIcon from '@mui/icons-material/FiberManualRecordRounded'
+import StopRoundedIcon from '@mui/icons-material/StopRounded'
+import BackspaceRoundedIcon from '@mui/icons-material/BackspaceRounded'
 
 const DEFAULT_WAKE_SHORTCUT = 'control+alt+Space'
+const MAX_VIDEO_RATE = 16
 
 function toast(message: string) {
   window.dispatchEvent(new CustomEvent('fast-window:toast', { detail: { message } }))
+}
+
+function clampRate(raw: number) {
+  if (!Number.isFinite(raw)) return 1
+  return Math.min(MAX_VIDEO_RATE, Math.max(0.25, raw))
 }
 
 type AutoStartStatus = {
   supported: boolean
   enabled: boolean
   scope: string
+}
+
+type WebviewVideoSpeedPreset = {
+  label: string
+  rate: number
+  shortcut?: string | null
+}
+
+type WebviewSettings = {
+  video: {
+    defaultRate: number
+    maxRate: number
+    presets: WebviewVideoSpeedPreset[]
+  }
+}
+
+const DEFAULT_WEBVIEW_SETTINGS: WebviewSettings = {
+  video: {
+    defaultRate: 1,
+    maxRate: MAX_VIDEO_RATE,
+    presets: [
+      { label: '1x', rate: 1, shortcut: null },
+      { label: '1.5x', rate: 1.5, shortcut: null },
+      { label: '2x', rate: 2, shortcut: null },
+    ],
+  },
 }
 
 const modifierCodes = new Set([
@@ -46,22 +93,27 @@ export default function SettingsView(_props: { onBack: () => void }) {
   const [input, setInput] = useState<string>('')
   const [saving, setSaving] = useState(false)
   const [recording, setRecording] = useState(false)
+  const [webview, setWebview] = useState<WebviewSettings | null>(null)
+  const [webviewSaving, setWebviewSaving] = useState(false)
+  const [recordingPresetIndex, setRecordingPresetIndex] = useState<number | null>(null)
   const [autoStart, setAutoStart] = useState<AutoStartStatus>({ supported: false, enabled: false, scope: 'unknown' })
   const [autoStartSaving, setAutoStartSaving] = useState(false)
 
   useEffect(() => {
     async function load() {
-      const [dir, pdir, cur, st] = await Promise.all([
+      const [dir, pdir, cur, st, wv] = await Promise.all([
         invoke<string>('get_data_dir').catch(() => ''),
         invoke<string>('get_plugins_dir').catch(() => ''),
         invoke<string>('get_wake_shortcut').catch(() => ''),
         invoke<AutoStartStatus>('get_auto_start').catch(() => ({ supported: false, enabled: false, scope: 'unknown' })),
+        invoke<WebviewSettings>('get_webview_settings').catch(() => null),
       ])
       setDataDir(dir)
       setPluginsDir(pdir)
       setCurrent(cur)
       setInput(cur || DEFAULT_WAKE_SHORTCUT)
       setAutoStart(st)
+      setWebview(wv || DEFAULT_WEBVIEW_SETTINGS)
     }
     load()
   }, [])
@@ -152,8 +204,56 @@ export default function SettingsView(_props: { onBack: () => void }) {
     }
   }, [recording])
 
+  useEffect(() => {
+    if (recordingPresetIndex == null) return
+
+    invoke('pause_wake_shortcut').catch(() => {})
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      ;(e as any).stopImmediatePropagation?.()
+
+      if (e.key === 'Escape') {
+        setRecordingPresetIndex(null)
+        toast('已取消录制')
+        return
+      }
+
+      if (e.repeat) return
+      const shot = buildShortcutFromEvent(e)
+      if (!shot) return
+
+      setRecordingPresetIndex(null)
+      setWebview(prev => {
+        if (!prev) return prev
+        const nextPresets = prev.video.presets.map((p, idx) => (idx === recordingPresetIndex ? { ...p, shortcut: shot } : p))
+        return { ...prev, video: { ...prev.video, presets: nextPresets } }
+      })
+    }
+
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true)
+      invoke('resume_wake_shortcut').catch(() => {})
+    }
+  }, [recordingPresetIndex])
+
+  async function saveWebview(next: WebviewSettings) {
+    setWebviewSaving(true)
+    try {
+      const normalized = await invoke<WebviewSettings>('set_webview_settings', { settings: next })
+      setWebview(normalized)
+      toast('已更新 WebView 设置')
+    } catch (e: any) {
+      toast(String(e?.message || e || '设置失败'))
+    } finally {
+      setWebviewSaving(false)
+    }
+  }
+
   return (
-    <Box sx={{ p: 2 }}>
+    <Box sx={{ p: 2, height: '100%', overflowY: 'auto', overflowX: 'hidden', boxSizing: 'border-box' }}>
       <Stack spacing={1.25}>
         <Box>
           <Typography variant="body2" sx={{ fontWeight: 700 }}>
@@ -266,25 +366,25 @@ export default function SettingsView(_props: { onBack: () => void }) {
           <Button
             variant={recording ? 'contained' : 'outlined'}
             color={recording ? 'warning' : 'primary'}
-            disabled={saving}
+            disabled={saving || recordingPresetIndex != null || webviewSaving}
             onClick={() => setRecording(v => !v)}
           >
             {recording ? '录制中…' : '开始录制'}
           </Button>
-          <Button variant="outlined" disabled={saving} onClick={() => save(DEFAULT_WAKE_SHORTCUT)}>
+          <Button variant="outlined" disabled={saving || recordingPresetIndex != null || webviewSaving} onClick={() => save(DEFAULT_WAKE_SHORTCUT)}>
             恢复默认
           </Button>
           <Button
             variant="outlined"
-            disabled={saving}
+            disabled={saving || recordingPresetIndex != null || webviewSaving}
             onClick={() => save('alt+Space')}
           >
             预设 Alt+Space（Windows）
           </Button>
-          <Button variant="outlined" disabled={saving} onClick={() => save('control+alt+KeyQ')}>
+          <Button variant="outlined" disabled={saving || recordingPresetIndex != null || webviewSaving} onClick={() => save('control+alt+KeyQ')}>
             预设 Ctrl+Alt+Q
           </Button>
-          <Button variant="outlined" disabled={saving} onClick={() => save('control+alt+KeyW')}>
+          <Button variant="outlined" disabled={saving || recordingPresetIndex != null || webviewSaving} onClick={() => save('control+alt+KeyW')}>
             预设 Ctrl+Alt+W
           </Button>
         </Stack>
@@ -292,6 +392,190 @@ export default function SettingsView(_props: { onBack: () => void }) {
         <Typography variant="caption" color={recording ? 'warning.main' : 'text.secondary'}>
           {recordHint}
         </Typography>
+
+        <Divider />
+
+        <Box>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+            WebView（浏览）
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            配置写入 {dataDir ? `${dataDir}/app.json` : 'data/app.json'} 的 webview.video（快捷键仅在浏览窗口内生效）
+          </Typography>
+        </Box>
+
+        <Box
+          sx={{
+            border: 1,
+            borderColor: 'divider',
+            borderRadius: 2,
+            p: 1.25,
+            bgcolor: 'background.paper',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 1,
+          }}
+        >
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 700 }}>
+              视频默认倍速
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              当前：{`${clampRate(webview?.video.defaultRate ?? 1)}x`}（范围 0.25 ~ {MAX_VIDEO_RATE}）
+            </Typography>
+            <Slider
+              aria-label="视频默认倍速"
+              value={clampRate(webview?.video.defaultRate ?? 1)}
+              min={0.25}
+              max={MAX_VIDEO_RATE}
+              step={0.25}
+              valueLabelDisplay="auto"
+              disabled={!webview || webviewSaving || saving || recording || recordingPresetIndex != null}
+              onChange={(_, next) => {
+                const v = Array.isArray(next) ? next[0] : next
+                setWebview(prev => (prev ? { ...prev, video: { ...prev.video, defaultRate: clampRate(Number(v)) } } : prev))
+              }}
+            />
+          </Box>
+
+          <Typography variant="caption" color="text.secondary">
+            倍速预设与快捷键映射（允许不带修饰键；在输入框/可编辑区域内不会抢按键）
+          </Typography>
+
+          <Stack spacing={1}>
+            {(webview?.video.presets || []).map((p, idx) => {
+              const rowBusy = recordingPresetIndex === idx
+              return (
+                <Box
+                  key={`${idx}-${p.label}-${p.rate}`}
+                  sx={{
+                    border: 1,
+                    borderColor: 'divider',
+                    borderRadius: 2,
+                    p: 1,
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 120px 1fr auto auto auto',
+                    gap: 1,
+                    alignItems: 'center',
+                  }}
+                >
+                  <TextField
+                    label="名称"
+                    size="small"
+                    value={p.label}
+                    onChange={e => {
+                      const label = e.target.value
+                      setWebview(prev => {
+                        if (!prev) return prev
+                        const next = prev.video.presets.map((it, i) => (i === idx ? { ...it, label } : it))
+                        return { ...prev, video: { ...prev.video, presets: next } }
+                      })
+                    }}
+                    inputProps={{ 'aria-label': `倍速预设名称 ${idx + 1}` }}
+                    disabled={!webview || webviewSaving || saving || recording || recordingPresetIndex != null}
+                  />
+
+                  <TextField
+                    label="倍速"
+                    type="number"
+                    size="small"
+                    value={p.rate}
+                    onChange={e => {
+                      const rate = Number.parseFloat(e.target.value)
+                      if (!Number.isFinite(rate)) return
+                      setWebview(prev => {
+                        if (!prev) return prev
+                        const next = prev.video.presets.map((it, i) => (i === idx ? { ...it, rate } : it))
+                        return { ...prev, video: { ...prev.video, presets: next } }
+                      })
+                    }}
+                    inputProps={{ min: 0.25, max: MAX_VIDEO_RATE, step: 0.25, 'aria-label': `倍速预设倍速 ${idx + 1}` }}
+                    disabled={!webview || webviewSaving || saving || recording || recordingPresetIndex != null}
+                  />
+
+                  <TextField
+                    label="快捷键（只读）"
+                    size="small"
+                    value={p.shortcut || ''}
+                    placeholder="点击右侧录制"
+                    inputProps={{ readOnly: true, 'aria-readonly': true }}
+                    disabled={!webview || webviewSaving || saving || recording || recordingPresetIndex != null}
+                  />
+
+                  <Button
+                    size="small"
+                    variant={rowBusy ? 'contained' : 'outlined'}
+                    color={rowBusy ? 'warning' : 'primary'}
+                    disabled={!webview || webviewSaving || saving || recording || (recordingPresetIndex != null && !rowBusy)}
+                    onClick={() => setRecordingPresetIndex(v => (v === idx ? null : idx))}
+                    startIcon={rowBusy ? <StopRoundedIcon fontSize="small" /> : <FiberManualRecordRoundedIcon fontSize="small" />}
+                  >
+                    {rowBusy ? '录制中…' : '录制'}
+                  </Button>
+
+                  <IconButton
+                    aria-label="清除快捷键"
+                    size="small"
+                    disabled={!webview || webviewSaving || saving || recording || recordingPresetIndex != null}
+                    onClick={() => {
+                      setWebview(prev => {
+                        if (!prev) return prev
+                        const next = prev.video.presets.map((it, i) => (i === idx ? { ...it, shortcut: null } : it))
+                        return { ...prev, video: { ...prev.video, presets: next } }
+                      })
+                    }}
+                  >
+                    <BackspaceRoundedIcon fontSize="small" />
+                  </IconButton>
+
+                  <IconButton
+                    aria-label="删除预设"
+                    size="small"
+                    disabled={!webview || webviewSaving || saving || recording || recordingPresetIndex != null}
+                    onClick={() => {
+                      setWebview(prev => {
+                        if (!prev) return prev
+                        const next = prev.video.presets.filter((_, i) => i !== idx)
+                        return { ...prev, video: { ...prev.video, presets: next } }
+                      })
+                    }}
+                  >
+                    <DeleteRoundedIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              )
+            })}
+          </Stack>
+
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+            <Button
+              size="small"
+              variant="outlined"
+              disabled={!webview || webviewSaving || saving || recording || recordingPresetIndex != null}
+              onClick={() => {
+                setWebview(prev => {
+                  if (!prev) return prev
+                  const next = prev.video.presets.concat([{ label: '新预设', rate: 2, shortcut: null }])
+                  return { ...prev, video: { ...prev.video, presets: next } }
+                })
+              }}
+            >
+              添加预设
+            </Button>
+            <Button
+              size="small"
+              variant="contained"
+              disabled={!webview || webviewSaving || saving || recording || recordingPresetIndex != null}
+              onClick={() => webview && saveWebview(webview)}
+            >
+              保存 WebView 设置
+            </Button>
+          </Stack>
+
+          <Typography variant="caption" color={recordingPresetIndex != null ? 'warning.main' : 'text.secondary'}>
+            {recordingPresetIndex != null ? '录制中…按下组合键（ESC 取消）。' : '提示：快捷键会在浏览窗口里即时生效。'}
+          </Typography>
+        </Box>
       </Stack>
     </Box>
   )
