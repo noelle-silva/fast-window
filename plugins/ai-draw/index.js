@@ -1842,10 +1842,22 @@
       if (!cropPng) throw new Error('裁剪失败：无法生成选区图片')
       const cropForSend = await shrinkRefImageDataUrl(cropPng).catch(() => cropPng)
 
+      const refUrls = (Array.isArray(state.refImages) ? state.refImages : [])
+        .map((x) => String(x && x.dataUrl ? x.dataUrl : '').trim())
+        .filter((x) => x.startsWith('data:image/'))
+        .slice(0, MAX_REF_IMAGES)
+
       const instruction =
         `请根据要求修改图片：${prompt}\n` +
+        `图 1 是需要修改的“选区图片”；后续图片（如果有）是参考图（风格/细节参考）。\n` +
         `只输出一张最终图片（PNG），尺寸必须与输入图片一致。\n` +
         `输出格式必须是 data URL（data:image/png;base64,...）或 JSON（{"data_url":"..."} / {"b64_png":"..."} / {"b64_json":"..."}），不要输出其它文字。`
+
+      const refForSend = []
+      for (const u of refUrls) {
+        const safeUrl = await shrinkRefImageDataUrl(u).catch(() => u)
+        if (String(safeUrl || '').startsWith('data:image/')) refForSend.push(safeUrl)
+      }
 
       const body = JSON.stringify({
         model,
@@ -1858,6 +1870,7 @@
             content: [
               { type: 'text', text: instruction },
               { type: 'image_url', image_url: { url: cropForSend } },
+              ...refForSend.map((url) => ({ type: 'image_url', image_url: { url } })),
             ],
           },
         ],
@@ -1865,7 +1878,7 @@
       })
 
       if (body.length > MAX_TASK_JSON_BODY_CHARS) {
-        throw new Error(`请求体过大（约 ${formatBytes(body.length)}）。请缩小选区或换更小图片。`)
+        throw new Error(`请求体过大（约 ${formatBytes(body.length)}）。请缩小选区/减少参考图/换更小图片。`)
       }
 
       const res = await api.net.request({
@@ -2361,6 +2374,26 @@
                     <div class="meta">在图片上拖拽选择矩形区域；会把返回结果贴回该区域。</div>`
                   : `<div class="editArea" aria-label="未选择图片"><div class="empty">未选择图片，点击“选择图片”。</div></div>`
               }
+              <div class="row refTop" style="margin-top:10px">
+                <span class="meta" style="margin-top:0">参考图</span>
+                <button class="btn" data-act="pick-ref-images">外部参考图</button>
+                <button class="btn" data-act="open-ref-library">参考图库</button>
+                <span class="kbd mono" aria-label="参考图数量">${state.refImages.length}/${MAX_REF_IMAGES}</span>
+              </div>
+              <div id="ref-strip" class="refStrip" aria-label="参考图列表">
+                ${
+                  state.refImages.length
+                    ? state.refImages
+                        .map(
+                          (it) => `<div class="thumb" title="${esc(it.name || '')}">
+                            <img alt="参考图" src="${esc(it.dataUrl)}" />
+                            <button class="thumbDel" data-act="remove-ref-image" data-ref-id="${esc(it.id)}" aria-label="删除参考图">×</button>
+                          </div>`,
+                        )
+                        .join('')
+                    : `<div class="meta" style="margin:2px 0">未选择参考图（可选）</div>`
+                }
+              </div>
               `
                   : `
               <div class="row refTop">
