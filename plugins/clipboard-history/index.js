@@ -396,6 +396,7 @@
     .cardTop { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
     .pill { font-size: 11px; color: var(--muted); border: 1px solid var(--outline); padding: 2px 8px; border-radius: 999px; }
     .meta { font-size: 11px; color: var(--muted); white-space: nowrap; }
+    .clipTools { display: flex; align-items: center; gap: 8px; }
     .spacer { margin-left: auto; }
     .iconBtn {
       border: 1px solid transparent;
@@ -420,6 +421,16 @@
       overflow: hidden;
     }
     .textWrap { display: flex; flex-direction: column; gap: 6px; }
+    .textWrap.clipTextWrap {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      column-gap: 10px;
+      row-gap: 6px;
+      align-items: start;
+    }
+    .textWrap.clipTextWrap [data-role="clipText"] { grid-column: 1; grid-row: 1; min-width: 0; }
+    .textWrap.clipTextWrap .clipTools { grid-column: 2; grid-row: 1; justify-self: end; }
+    .textWrap.clipTextWrap button[data-role="foldBtn"] { grid-column: 1 / -1; grid-row: 2; }
     .foldBtn { border: none; background: transparent; color: var(--primary); cursor: pointer; font-size: 12px; padding: 0; }
     .foldBtn.hidden { display: none; }
     .imgPlaceholder {
@@ -435,7 +446,8 @@
       background: rgba(0,0,0,0.02);
     }
     .loadMoreRow { padding: 10px 12px; border-top: 1px solid var(--outline); display: flex; justify-content: center; background: var(--surface); }
-    .imgWrap { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; }
+    .imgWrap { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; position: relative; }
+    .imgWrap .clipTools { position: absolute; top: 0; right: 0; }
     .img { display: block; max-width: 100%; max-height: 220px; object-fit: contain; border-radius: 10px; }
     .empty { color: var(--muted); text-align: center; padding: 24px 0; font-size: 13px; }
     .settings { border: 1px dashed var(--outline); background: var(--surface); border-radius: 12px; padding: 10px; margin-bottom: 10px; }
@@ -2127,9 +2139,8 @@
           const timeLabel = it.time ? formatTime(it.time) : ''
           const key = historyKey(it)
           const expanded = !!state.clipboardExpanded[key]
-          const top = `
-            <div class="cardTop">
-              <span class="spacer"></span>
+          const tools = `
+            <div class="clipTools">
               <span class="meta">${escapeHtml(typeLabel)}</span>
               <span class="meta">${escapeHtml(timeLabel)}</span>
               <button class="iconBtn" data-act="delHistory" title="${isDeleteArmed(key) ? '再点一次确认删除' : '删除'}">${isDeleteArmed(key) ? '⚠' : '🗑'}</button>
@@ -2141,23 +2152,25 @@
             const body = `
               <div class="textWrap">
                 <div class="imgWrap">
+                  ${tools}
                   <div class="imgPlaceholder" data-role="imgPh" data-hid="${escapeHtml(key)}" style="${cached ? 'display:none' : ''}">加载中...</div>
                   <img class="img" data-role="lazyImg" data-hid="${escapeHtml(key)}" style="${cached ? '' : 'display:none'}" src="${cached ? escapeHtml(cached) : ''}" />
                   <div class="pill">🖼 图片</div>
                 </div>
               </div>`
-            return `<div class="card" data-role="clipboardCard" data-hid="${escapeHtml(key)}">${top}${body}</div>`
+            return `<div class="card" data-role="clipboardCard" data-hid="${escapeHtml(key)}">${body}</div>`
           }
 
           const textClass = expanded ? 'text' : 'text clamp'
           const btnClass = expanded ? 'foldBtn' : 'foldBtn hidden'
           const btnLabel = expanded ? '收起' : '展开'
           const body = `
-            <div class="textWrap">
+            <div class="textWrap clipTextWrap">
               <div class="${textClass}" data-role="clipText" style="--clamp-lines:${state.settings.collapseLines}">${escapeHtml(it.content || '')}</div>
+              ${tools}
               <button class="${btnClass}" data-role="foldBtn" data-act="toggleExpandHistory" data-hid="${escapeHtml(key)}">${btnLabel}</button>
             </div>`
-          return `<div class="card" data-role="clipboardCard" data-hid="${escapeHtml(key)}">${top}${body}</div>`
+          return `<div class="card" data-role="clipboardCard" data-hid="${escapeHtml(key)}">${body}</div>`
         })
         .join('') +
       (hasMore ? `<div class="loadMoreRow" data-role="clipboardSentinel"><span class="pill">继续下滑加载更多（${limit}/${total}）</span></div>` : '')
