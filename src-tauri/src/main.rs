@@ -1,24 +1,24 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::{engine::general_purpose, Engine as _};
 use image::codecs::png::PngEncoder;
 use image::{ColorType, ImageEncoder};
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+use std::collections::HashMap;
 use tauri::{
-    AppHandle, Emitter, EventTarget, Manager, WindowEvent,
-    tray::{TrayIconBuilder, MouseButton, MouseButtonState, TrayIconEvent},
     menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    AppHandle, Emitter, EventTarget, Manager, WindowEvent,
 };
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
-use serde_json::{Map, Value};
-use std::collections::HashMap;
 
 const DEFAULT_WAKE_SHORTCUT: &str = "control+alt+Space";
 const APP_CONFIG_FILE: &str = "app.json";
@@ -47,7 +47,8 @@ const BROWSER_STACK_TOTAL_HEIGHT: f64 = 605.0;
 #[cfg(windows)]
 fn apply_bottom_rounded_corners(window: &tauri::WebviewWindow, radius_dip: f64) {
     use windows::Win32::Graphics::Gdi::{
-        CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, SetWindowRgn, GDI_REGION_TYPE, RGN_OR,
+        CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, SetWindowRgn, GDI_REGION_TYPE,
+        RGN_OR,
     };
 
     let hwnd = match window.hwnd() {
@@ -282,7 +283,10 @@ fn make_task_id() -> String {
 }
 
 fn is_task_finished(status: TaskStatus) -> bool {
-    matches!(status, TaskStatus::Succeeded | TaskStatus::Failed | TaskStatus::Canceled)
+    matches!(
+        status,
+        TaskStatus::Succeeded | TaskStatus::Failed | TaskStatus::Canceled
+    )
 }
 
 fn trim_task_records(tasks: &mut HashMap<String, TaskRecord>) {
@@ -342,13 +346,12 @@ struct ClipboardImageSnapshot {
     png: Vec<u8>,
 }
 
-async fn read_clipboard_snapshot(app: &AppHandle) -> Result<(String, Option<ClipboardImageSnapshot>), String> {
+async fn read_clipboard_snapshot(
+    app: &AppHandle,
+) -> Result<(String, Option<ClipboardImageSnapshot>), String> {
     let app_text = app.clone();
     let text = tauri::async_runtime::spawn_blocking(move || {
-        app_text
-            .clipboard()
-            .read_text()
-            .unwrap_or_default()
+        app_text.clipboard().read_text().unwrap_or_default()
     })
     .await
     .map_err(|e| format!("读取文本剪贴板失败: {e}"))?;
@@ -360,7 +363,8 @@ async fn read_clipboard_snapshot(app: &AppHandle) -> Result<(String, Option<Clip
             Some(img) => {
                 let rgba = img.rgba();
                 let hash = hash32_sampled_bytes(rgba);
-                let png = encode_rgba_to_png_bytes(rgba, img.width(), img.height()).unwrap_or_default();
+                let png =
+                    encode_rgba_to_png_bytes(rgba, img.width(), img.height()).unwrap_or_default();
                 if png.is_empty() {
                     None
                 } else {
@@ -444,17 +448,17 @@ async fn run_clipboard_watch_task(
                 let full = out_dir.join(filename);
                 std::fs::write(&full, img.png).map_err(|e| format!("写入图片失败: {e}"))?;
                 let full_path = full.to_string_lossy().to_string();
-            let snapshot = ClipboardSnapshotItem {
-                r#type: "image".to_string(),
+                let snapshot = ClipboardSnapshotItem {
+                    r#type: "image".to_string(),
                     content: format!("img:{hash_hex}"),
                     path: Some(full_path),
-                time: now,
-            };
-            latest_item = Some(snapshot.clone());
-            items.insert(0, snapshot);
-            if items.len() > max_history {
-                items.truncate(max_history);
-            }
+                    time: now,
+                };
+                latest_item = Some(snapshot.clone());
+                items.insert(0, snapshot);
+                if items.len() > max_history {
+                    items.truncate(max_history);
+                }
             }
         }
 
@@ -503,7 +507,11 @@ fn open_external_url(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn open_browser_window(app: tauri::AppHandle, url: String, plugin_id: String) -> Result<(), String> {
+async fn open_browser_window(
+    app: tauri::AppHandle,
+    url: String,
+    plugin_id: String,
+) -> Result<(), String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
@@ -581,33 +589,40 @@ async fn open_browser_window(app: tauri::AppHandle, url: String, plugin_id: Stri
     .map_err(|e| format!("创建顶部栏窗口失败: {e}"))?;
 
     let app_ = app.clone();
-    let content = tauri::WebviewWindowBuilder::new(&app, BROWSER_WINDOW_LABEL, tauri::WebviewUrl::External(parsed))
-        .title(title)
-        .initialization_script(video_script)
-        .on_new_window(move |url, _features| {
-            // 很多网站会用 window.open / target=_blank 打开“新标签页”。
-            // 我们没有标签页：把它折叠成“当前窗口跳转”。
-            if is_http_url(url.as_str()) {
-                if let Some(w) = app_.get_webview_window(BROWSER_WINDOW_LABEL) {
-                    let _ = w.navigate(url);
-                }
-            } else {
-                let _ = open::that(url.as_str());
+    let content = tauri::WebviewWindowBuilder::new(
+        &app,
+        BROWSER_WINDOW_LABEL,
+        tauri::WebviewUrl::External(parsed),
+    )
+    .title(title)
+    .initialization_script(video_script)
+    .on_new_window(move |url, _features| {
+        // 很多网站会用 window.open / target=_blank 打开“新标签页”。
+        // 我们没有标签页：把它折叠成“当前窗口跳转”。
+        if is_http_url(url.as_str()) {
+            if let Some(w) = app_.get_webview_window(BROWSER_WINDOW_LABEL) {
+                let _ = w.navigate(url);
             }
-            tauri::webview::NewWindowResponse::Deny
-        })
-        .inner_size(1020.0, (BROWSER_STACK_TOTAL_HEIGHT - BROWSER_BAR_HEIGHT).max(200.0))
-        .resizable(false)
-        .maximizable(false)
-        .minimizable(false)
-        .decorations(false)
-        .transparent(false)
-        .shadow(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .visible(false)
-        .build()
-        .map_err(|e| format!("创建浏览窗口失败: {e}"))?;
+        } else {
+            let _ = open::that(url.as_str());
+        }
+        tauri::webview::NewWindowResponse::Deny
+    })
+    .inner_size(
+        1020.0,
+        (BROWSER_STACK_TOTAL_HEIGHT - BROWSER_BAR_HEIGHT).max(200.0),
+    )
+    .resizable(false)
+    .maximizable(false)
+    .minimizable(false)
+    .decorations(false)
+    .transparent(false)
+    .shadow(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .visible(false)
+    .build()
+    .map_err(|e| format!("创建浏览窗口失败: {e}"))?;
 
     // 让“网页主体窗口”只有底部两个角是圆角（顶部两个角会和顶部栏拼接，不要圆角）。
     apply_bottom_rounded_corners(&content, 16.0);
@@ -663,7 +678,10 @@ fn get_webview_settings(app: tauri::AppHandle) -> WebviewSettings {
 }
 
 #[tauri::command]
-fn set_webview_settings(app: tauri::AppHandle, settings: WebviewSettings) -> Result<WebviewSettings, String> {
+fn set_webview_settings(
+    app: tauri::AppHandle,
+    settings: WebviewSettings,
+) -> Result<WebviewSettings, String> {
     let next = write_webview_settings(&app, settings)?;
 
     if let Some(w) = app.get_webview_window(BROWSER_WINDOW_LABEL) {
@@ -722,7 +740,11 @@ fn browser_video_set_rate(app: tauri::AppHandle, rate: f64) -> Result<(), String
 }
 
 #[tauri::command]
-fn browser_video_toggle_preset(app: tauri::AppHandle, shortcut: String, rate: f64) -> Result<(), String> {
+fn browser_video_toggle_preset(
+    app: tauri::AppHandle,
+    shortcut: String,
+    rate: f64,
+) -> Result<(), String> {
     let key = shortcut.trim();
     if key.is_empty() {
         return Err("shortcut 不能为空".to_string());
@@ -764,12 +786,7 @@ fn browser_video_toggle_preset(app: tauri::AppHandle, shortcut: String, rate: f6
 #[tauri::command]
 async fn browser_stack_toggle_fullscreen(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<BrowserWindowState>();
-    let next = state
-        .fullscreen
-        .lock()
-        .ok()
-        .map(|g| !*g)
-        .unwrap_or(true);
+    let next = state.fullscreen.lock().ok().map(|g| !*g).unwrap_or(true);
     browser_stack_apply_fullscreen(&app, next)?;
     Ok(())
 }
@@ -815,7 +832,11 @@ async fn browser_stack_toggle_pinned(app: tauri::AppHandle) -> Result<bool, Stri
 async fn http_request(req: HttpRequest) -> Result<HttpResponse, String> {
     let (status, headers, bytes) = http_request_raw(req).await?;
     let body = String::from_utf8(bytes).map_err(|_| "响应不是 UTF-8 文本".to_string())?;
-    Ok(HttpResponse { status, headers, body })
+    Ok(HttpResponse {
+        status,
+        headers,
+        body,
+    })
 }
 
 #[tauri::command]
@@ -829,7 +850,9 @@ async fn http_request_base64(req: HttpRequest) -> Result<HttpResponseBase64, Str
     })
 }
 
-async fn http_request_raw(req: HttpRequest) -> Result<(u16, HashMap<String, String>, Vec<u8>), String> {
+async fn http_request_raw(
+    req: HttpRequest,
+) -> Result<(u16, HashMap<String, String>, Vec<u8>), String> {
     let method = req.method.trim().to_uppercase();
     if method.is_empty() {
         return Err("method 不能为空".to_string());
@@ -844,7 +867,8 @@ async fn http_request_raw(req: HttpRequest) -> Result<(u16, HashMap<String, Stri
         .build()
         .map_err(|e| format!("创建 http client 失败: {e}"))?;
 
-    let m = reqwest::Method::from_bytes(method.as_bytes()).map_err(|_| "不支持的 method".to_string())?;
+    let m = reqwest::Method::from_bytes(method.as_bytes())
+        .map_err(|_| "不支持的 method".to_string())?;
     let mut rb = client.request(m, req.url);
 
     if let Some(h) = req.headers {
@@ -889,7 +913,11 @@ async fn http_request_raw(req: HttpRequest) -> Result<(u16, HashMap<String, Stri
         rb = rb.body(bytes);
     } else if let Some(body) = req.body {
         if body.len() > MAX_HTTP_REQUEST_BODY_BYTES {
-            return Err(format!("body 过大（{} > {}）", body.len(), MAX_HTTP_REQUEST_BODY_BYTES));
+            return Err(format!(
+                "body 过大（{} > {}）",
+                body.len(),
+                MAX_HTTP_REQUEST_BODY_BYTES
+            ));
         }
         rb = rb.body(body);
     }
@@ -908,9 +936,16 @@ async fn http_request_raw(req: HttpRequest) -> Result<(u16, HashMap<String, Stri
     // 这里做上限保护，避免插件拉取无限大响应导致内存爆炸。
     const MAX_HTTP_RESPONSE_BYTES: usize = 25 * 1024 * 1024; // 25MB
 
-    let bytes = resp.bytes().await.map_err(|e| format!("读取响应失败: {e}"))?;
+    let bytes = resp
+        .bytes()
+        .await
+        .map_err(|e| format!("读取响应失败: {e}"))?;
     if bytes.len() > MAX_HTTP_RESPONSE_BYTES {
-        return Err(format!("响应过大（{} > {}）", bytes.len(), MAX_HTTP_RESPONSE_BYTES));
+        return Err(format!(
+            "响应过大（{} > {}）",
+            bytes.len(),
+            MAX_HTTP_RESPONSE_BYTES
+        ));
     }
     Ok((status, headers, bytes.to_vec()))
 }
@@ -1040,7 +1075,8 @@ async fn execute_task(app: AppHandle, manager: Arc<TaskManagerState>, task_id: S
                     return;
                 }
             };
-            run_clipboard_watch_task(&app, payload, manager.clone(), task_id.clone(), plugin_id).await
+            run_clipboard_watch_task(&app, payload, manager.clone(), task_id.clone(), plugin_id)
+                .await
         }
         _ => Err(format!("不支持的任务类型: {kind}")),
     };
@@ -1074,7 +1110,11 @@ async fn execute_task(app: AppHandle, manager: Arc<TaskManagerState>, task_id: S
 }
 
 #[tauri::command]
-fn task_create(app: tauri::AppHandle, plugin_id: String, req: TaskCreateReq) -> Result<TaskSummary, String> {
+fn task_create(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    req: TaskCreateReq,
+) -> Result<TaskSummary, String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
@@ -1128,7 +1168,11 @@ fn task_create(app: tauri::AppHandle, plugin_id: String, req: TaskCreateReq) -> 
 }
 
 #[tauri::command]
-fn task_get(app: tauri::AppHandle, plugin_id: String, task_id: String) -> Result<Option<TaskSummary>, String> {
+fn task_get(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    task_id: String,
+) -> Result<Option<TaskSummary>, String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
@@ -1146,7 +1190,11 @@ fn task_get(app: tauri::AppHandle, plugin_id: String, task_id: String) -> Result
 }
 
 #[tauri::command]
-fn task_list(app: tauri::AppHandle, plugin_id: String, limit: Option<usize>) -> Result<Vec<TaskSummary>, String> {
+fn task_list(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    limit: Option<usize>,
+) -> Result<Vec<TaskSummary>, String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
@@ -1170,7 +1218,11 @@ fn task_list(app: tauri::AppHandle, plugin_id: String, limit: Option<usize>) -> 
 }
 
 #[tauri::command]
-fn task_cancel(app: tauri::AppHandle, plugin_id: String, task_id: String) -> Result<TaskSummary, String> {
+fn task_cancel(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    task_id: String,
+) -> Result<TaskSummary, String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
@@ -1179,10 +1231,11 @@ fn task_cancel(app: tauri::AppHandle, plugin_id: String, task_id: String) -> Res
         return Err("taskId 不能为空".to_string());
     }
     let manager = app.state::<Arc<TaskManagerState>>().inner().clone();
-    let mut tasks = manager.tasks.lock().map_err(|_| "任务状态锁定失败".to_string())?;
-    let rec = tasks
-        .get_mut(tid)
-        .ok_or_else(|| "任务不存在".to_string())?;
+    let mut tasks = manager
+        .tasks
+        .lock()
+        .map_err(|_| "任务状态锁定失败".to_string())?;
+    let rec = tasks.get_mut(tid).ok_or_else(|| "任务不存在".to_string())?;
     if rec.plugin_id != plugin_id {
         return Err("任务不存在".to_string());
     }
@@ -1306,11 +1359,7 @@ fn save_position_if_valid(window: &impl Positionable, state: &WindowState) {
 }
 
 fn restore_or_center(window: &impl Positionable, state: &WindowState) {
-    let last = state
-        .last_position
-        .lock()
-        .ok()
-        .and_then(|g| *g);
+    let last = state.last_position.lock().ok().and_then(|g| *g);
 
     if let Some(pos) = last {
         let _ = window.set_position(pos);
@@ -1370,6 +1419,33 @@ fn app_data_dir(app: &tauri::AppHandle) -> PathBuf {
 
 fn app_plugins_dir(app: &tauri::AppHandle) -> PathBuf {
     app_local_base_dir(app).join("plugins")
+}
+
+fn migrate_legacy_plugin_storage_layout(app: &tauri::AppHandle) {
+    let dir = app_data_dir(app);
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
+
+    for e in entries.flatten() {
+        let Ok(ty) = e.file_type() else {
+            continue;
+        };
+        if !ty.is_file() {
+            continue;
+        }
+        let name = e.file_name().to_string_lossy().to_string();
+        if name == APP_CONFIG_FILE {
+            continue;
+        }
+        let Some(plugin_id) = name.strip_suffix(".json") else {
+            continue;
+        };
+        if !is_safe_id(plugin_id) {
+            continue;
+        }
+        let _ = storage_file_path(app, plugin_id);
+    }
 }
 
 fn app_config_path(app: &tauri::AppHandle) -> PathBuf {
@@ -1436,7 +1512,11 @@ fn read_plugin_output_dir_from_config(app: &tauri::AppHandle, plugin_id: &str) -
     Some(PathBuf::from(raw))
 }
 
-fn write_plugin_output_dir_to_config(app: &tauri::AppHandle, plugin_id: &str, dir: &Path) -> Result<(), String> {
+fn write_plugin_output_dir_to_config(
+    app: &tauri::AppHandle,
+    plugin_id: &str,
+    dir: &Path,
+) -> Result<(), String> {
     let cfg_path = app_config_path(app);
     let mut map = read_json_map(&cfg_path);
 
@@ -1447,7 +1527,10 @@ fn write_plugin_output_dir_to_config(app: &tauri::AppHandle, plugin_id: &str, di
         *v = Value::Object(Map::new());
     }
     let obj = v.as_object_mut().unwrap();
-    obj.insert(plugin_id.to_string(), Value::String(dir.to_string_lossy().to_string()));
+    obj.insert(
+        plugin_id.to_string(),
+        Value::String(dir.to_string_lossy().to_string()),
+    );
 
     write_json_map(&cfg_path, &map)
 }
@@ -1574,7 +1657,11 @@ fn normalize_shortcut(raw: &str) -> Option<(String, bool)> {
     let mut shift = false;
     let mut super_key = false;
 
-    let parts: Vec<&str> = s.split('+').map(|p| p.trim()).filter(|p| !p.is_empty()).collect();
+    let parts: Vec<&str> = s
+        .split('+')
+        .map(|p| p.trim())
+        .filter(|p| !p.is_empty())
+        .collect();
     if parts.is_empty() {
         return None;
     }
@@ -1631,7 +1718,8 @@ fn normalize_shortcut(raw: &str) -> Option<(String, bool)> {
 
 fn sanitize_webview_settings_for_load(mut settings: WebviewSettings) -> WebviewSettings {
     settings.video.max_rate = clamp_video_rate(settings.video.max_rate, 16.0);
-    settings.video.default_rate = clamp_video_rate(settings.video.default_rate, settings.video.max_rate);
+    settings.video.default_rate =
+        clamp_video_rate(settings.video.default_rate, settings.video.max_rate);
 
     let mut seen_shortcuts: HashMap<String, ()> = HashMap::new();
     let mut presets: Vec<WebviewVideoSpeedPreset> = Vec::new();
@@ -1661,9 +1749,12 @@ fn sanitize_webview_settings_for_load(mut settings: WebviewSettings) -> WebviewS
     settings
 }
 
-fn validate_webview_settings_for_save(mut settings: WebviewSettings) -> Result<WebviewSettings, String> {
+fn validate_webview_settings_for_save(
+    mut settings: WebviewSettings,
+) -> Result<WebviewSettings, String> {
     settings.video.max_rate = clamp_video_rate(settings.video.max_rate, 16.0);
-    settings.video.default_rate = clamp_video_rate(settings.video.default_rate, settings.video.max_rate);
+    settings.video.default_rate =
+        clamp_video_rate(settings.video.default_rate, settings.video.max_rate);
 
     let mut seen_shortcuts: HashMap<String, ()> = HashMap::new();
     let mut presets: Vec<WebviewVideoSpeedPreset> = Vec::new();
@@ -1701,12 +1792,18 @@ fn validate_webview_settings_for_save(mut settings: WebviewSettings) -> Result<W
 fn load_webview_settings(app: &tauri::AppHandle) -> WebviewSettings {
     let cfg_path = app_config_path(app);
     let map = read_json_map(&cfg_path);
-    let v = map.get(WEBVIEW_SETTINGS_KEY).cloned().unwrap_or(Value::Null);
+    let v = map
+        .get(WEBVIEW_SETTINGS_KEY)
+        .cloned()
+        .unwrap_or(Value::Null);
     let parsed = serde_json::from_value::<WebviewSettings>(v).unwrap_or_default();
     sanitize_webview_settings_for_load(parsed)
 }
 
-fn write_webview_settings(app: &tauri::AppHandle, settings: WebviewSettings) -> Result<WebviewSettings, String> {
+fn write_webview_settings(
+    app: &tauri::AppHandle,
+    settings: WebviewSettings,
+) -> Result<WebviewSettings, String> {
     let cfg_path = app_config_path(app);
     let mut map = read_json_map(&cfg_path);
     let normalized = validate_webview_settings_for_save(settings)?;
@@ -1859,7 +1956,9 @@ fn decode_base64_image_payload(raw: &str) -> Result<(Vec<u8>, String), String> {
 
     // data URL: data:image/png;base64,....
     if s.starts_with("data:") {
-        let base64_pos = s.find("base64,").ok_or_else(|| "data URL 缺少 base64,".to_string())?;
+        let base64_pos = s
+            .find("base64,")
+            .ok_or_else(|| "data URL 缺少 base64,".to_string())?;
         let meta = &s["data:".len()..base64_pos];
         let b64 = &s[(base64_pos + "base64,".len())..];
 
@@ -1908,7 +2007,10 @@ fn plugin_get_output_dir(app: tauri::AppHandle, plugin_id: String) -> Result<Str
 }
 
 #[tauri::command]
-fn plugin_pick_output_dir(app: tauri::AppHandle, plugin_id: String) -> Result<Option<String>, String> {
+fn plugin_pick_output_dir(
+    app: tauri::AppHandle,
+    plugin_id: String,
+) -> Result<Option<String>, String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
@@ -1952,7 +2054,11 @@ fn plugin_open_output_dir(app: tauri::AppHandle, plugin_id: String) -> Result<()
 }
 
 #[tauri::command]
-fn plugin_save_image_base64(app: tauri::AppHandle, plugin_id: String, data: String) -> Result<String, String> {
+fn plugin_save_image_base64(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    data: String,
+) -> Result<String, String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
@@ -1974,7 +2080,11 @@ fn plugin_save_image_base64(app: tauri::AppHandle, plugin_id: String, data: Stri
 }
 
 #[tauri::command]
-fn plugin_save_ref_image_base64(app: tauri::AppHandle, plugin_id: String, data: String) -> Result<String, String> {
+fn plugin_save_ref_image_base64(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    data: String,
+) -> Result<String, String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
@@ -2036,7 +2146,11 @@ fn plugin_list_ref_images(app: tauri::AppHandle, plugin_id: String) -> Result<Ve
 }
 
 #[tauri::command]
-fn plugin_read_ref_image(app: tauri::AppHandle, plugin_id: String, path: String) -> Result<String, String> {
+fn plugin_read_ref_image(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    path: String,
+) -> Result<String, String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
@@ -2071,7 +2185,11 @@ fn plugin_read_ref_image(app: tauri::AppHandle, plugin_id: String, path: String)
 }
 
 #[tauri::command]
-fn plugin_delete_ref_image(app: tauri::AppHandle, plugin_id: String, path: String) -> Result<(), String> {
+fn plugin_delete_ref_image(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    path: String,
+) -> Result<(), String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
@@ -2114,7 +2232,10 @@ fn image_mime_by_ext(path: &Path) -> &'static str {
 }
 
 #[tauri::command]
-fn plugin_list_output_images(app: tauri::AppHandle, plugin_id: String) -> Result<Vec<String>, String> {
+fn plugin_list_output_images(
+    app: tauri::AppHandle,
+    plugin_id: String,
+) -> Result<Vec<String>, String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
@@ -2145,7 +2266,11 @@ fn plugin_list_output_images(app: tauri::AppHandle, plugin_id: String) -> Result
 }
 
 #[tauri::command]
-fn plugin_read_output_image(app: tauri::AppHandle, plugin_id: String, path: String) -> Result<String, String> {
+fn plugin_read_output_image(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    path: String,
+) -> Result<String, String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
@@ -2180,7 +2305,11 @@ fn plugin_read_output_image(app: tauri::AppHandle, plugin_id: String, path: Stri
 }
 
 #[tauri::command]
-fn plugin_delete_output_image(app: tauri::AppHandle, plugin_id: String, path: String) -> Result<(), String> {
+fn plugin_delete_output_image(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    path: String,
+) -> Result<(), String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
@@ -2314,7 +2443,11 @@ mod auto_start {
 
     fn open_run_key(read_only: bool) -> Result<RegKey, String> {
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        let flags = if read_only { KEY_READ } else { KEY_READ | KEY_WRITE };
+        let flags = if read_only {
+            KEY_READ
+        } else {
+            KEY_READ | KEY_WRITE
+        };
         hkcu.open_subkey_with_flags(RUN_KEY, flags)
             .map_err(|e| format!("打开注册表失败: {e}"))
     }
@@ -2434,9 +2567,7 @@ fn load_wake_shortcut(app: &tauri::AppHandle) -> (Shortcut, String) {
         Err(e) => {
             eprintln!(
                 "[config] invalid wakeShortcut \"{}\" in {:?}: {}",
-                raw,
-                cfg_path,
-                e
+                raw, cfg_path, e
             );
             let fallback = Shortcut::from_str(DEFAULT_WAKE_SHORTCUT)
                 .expect("DEFAULT_WAKE_SHORTCUT must be parseable");
@@ -2581,7 +2712,11 @@ fn browser_stack_restore_or_center(app: &tauri::AppHandle) {
     }
 
     let bar_pos = bar.outer_position().ok();
-    let bar_h = bar.inner_size().ok().map(|s| s.height).unwrap_or(BROWSER_BAR_HEIGHT.round().max(1.0) as u32);
+    let bar_h = bar
+        .inner_size()
+        .ok()
+        .map(|s| s.height)
+        .unwrap_or(BROWSER_BAR_HEIGHT.round().max(1.0) as u32);
     if let Some(p) = bar_pos {
         let _ = content.set_position(tauri::PhysicalPosition::new(p.x, p.y + bar_h as i32));
     }
@@ -2667,12 +2802,20 @@ fn browser_stack_apply_fullscreen(app: &tauri::AppHandle, enable: bool) -> Resul
         // 记录“还原边界”（只记录一次，避免全屏状态下覆盖）
         if let Ok(mut g) = state.restore_bounds.lock() {
             if g.is_none() {
-                let pos = bar.outer_position().unwrap_or(tauri::PhysicalPosition::new(0, 0));
-                let bar_size = bar.outer_size().unwrap_or(tauri::PhysicalSize::new(1020, BROWSER_BAR_HEIGHT as u32));
-                let content_size = content
+                let pos = bar
+                    .outer_position()
+                    .unwrap_or(tauri::PhysicalPosition::new(0, 0));
+                let bar_size = bar
                     .outer_size()
-                    .unwrap_or(tauri::PhysicalSize::new(1020, (BROWSER_STACK_TOTAL_HEIGHT - BROWSER_BAR_HEIGHT) as u32));
-                let total = tauri::PhysicalSize::new(bar_size.width, bar_size.height.saturating_add(content_size.height));
+                    .unwrap_or(tauri::PhysicalSize::new(1020, BROWSER_BAR_HEIGHT as u32));
+                let content_size = content.outer_size().unwrap_or(tauri::PhysicalSize::new(
+                    1020,
+                    (BROWSER_STACK_TOTAL_HEIGHT - BROWSER_BAR_HEIGHT) as u32,
+                ));
+                let total = tauri::PhysicalSize::new(
+                    bar_size.width,
+                    bar_size.height.saturating_add(content_size.height),
+                );
                 *g = Some((pos, total));
             }
         }
@@ -2806,6 +2949,7 @@ fn get_data_dir(app: tauri::AppHandle) -> String {
     // 统一使用 App 本地数据目录（避免 cwd 漂移）
     let data_dir = app_data_dir(&app);
     let _ = std::fs::create_dir_all(&data_dir);
+    migrate_legacy_plugin_storage_layout(&app);
 
     // 开发模式：仅在目标目录为空时，把仓库里的 data 迁移一份过来（不覆盖用户数据）
     #[cfg(debug_assertions)]
@@ -2899,7 +3043,11 @@ fn list_plugins(app: tauri::AppHandle) -> Vec<String> {
 }
 
 #[tauri::command]
-fn read_plugin_file(app: tauri::AppHandle, plugin_id: String, path: String) -> Result<String, String> {
+fn read_plugin_file(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    path: String,
+) -> Result<String, String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
@@ -2911,7 +3059,11 @@ fn read_plugin_file(app: tauri::AppHandle, plugin_id: String, path: String) -> R
 }
 
 #[tauri::command]
-fn read_plugin_file_base64(app: tauri::AppHandle, plugin_id: String, path: String) -> Result<String, String> {
+fn read_plugin_file_base64(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    path: String,
+) -> Result<String, String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
@@ -2937,7 +3089,9 @@ fn read_plugins_dir(app: tauri::AppHandle, rel_dir: String) -> Result<Vec<FsDirE
 
     for e in entries {
         let e = e.map_err(|e| format!("读取目录项失败: {e}"))?;
-        let ty = e.file_type().map_err(|e| format!("读取目录项类型失败: {e}"))?;
+        let ty = e
+            .file_type()
+            .map_err(|e| format!("读取目录项类型失败: {e}"))?;
         out.push(FsDirEntry {
             name: e.file_name().to_string_lossy().to_string(),
             is_directory: ty.is_dir(),
@@ -3034,18 +3188,45 @@ fn storage_file_path(app: &tauri::AppHandle, plugin_id: &str) -> Result<PathBuf,
     if !is_safe_id(plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
-    Ok(app_data_dir(app).join(format!("{plugin_id}.json")))
+
+    // 统一：每个插件的数据都放在 data/<pluginId>/ 目录内，避免 data 根目录杂乱。
+    // 兼容迁移：旧版使用 data/<pluginId>.json
+    let new_path = app_data_dir(app).join(plugin_id).join("storage.json");
+    let old_path = app_data_dir(app).join(format!("{plugin_id}.json"));
+
+    if !new_path.is_file() && old_path.is_file() {
+        if let Some(parent) = new_path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("创建插件数据目录失败: {e}"))?;
+        }
+        if let Err(e) = std::fs::rename(&old_path, &new_path) {
+            // Windows 上遇到占用等情况，rename 可能失败；退回到 copy + remove。
+            std::fs::copy(&old_path, &new_path)
+                .map_err(|copy_e| format!("迁移插件数据失败: {e}; copy 失败: {copy_e}"))?;
+            let _ = std::fs::remove_file(&old_path);
+        }
+    }
+
+    Ok(new_path)
 }
 
 #[tauri::command]
-fn storage_get(app: tauri::AppHandle, plugin_id: String, key: String) -> Result<Option<Value>, String> {
+fn storage_get(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    key: String,
+) -> Result<Option<Value>, String> {
     let path = storage_file_path(&app, &plugin_id)?;
     let map = read_json_map(&path);
     Ok(map.get(&key).cloned())
 }
 
 #[tauri::command]
-fn storage_set(app: tauri::AppHandle, plugin_id: String, key: String, value: Value) -> Result<(), String> {
+fn storage_set(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    key: String,
+    value: Value,
+) -> Result<(), String> {
     let path = storage_file_path(&app, &plugin_id)?;
     let mut map = read_json_map(&path);
     map.insert(key, value);
@@ -3067,7 +3248,11 @@ fn storage_get_all(app: tauri::AppHandle, plugin_id: String) -> Result<Map<Strin
 }
 
 #[tauri::command]
-fn storage_set_all(app: tauri::AppHandle, plugin_id: String, data: Map<String, Value>) -> Result<(), String> {
+fn storage_set_all(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    data: Map<String, Value>,
+) -> Result<(), String> {
     let path = storage_file_path(&app, &plugin_id)?;
     write_json_map(&path, &data)
 }
@@ -3111,7 +3296,11 @@ fn get_plugin_icon_overrides(app: tauri::AppHandle) -> Result<HashMap<String, St
 }
 
 #[tauri::command]
-fn set_plugin_icon_override(app: tauri::AppHandle, plugin_id: String, data_url: String) -> Result<(), String> {
+fn set_plugin_icon_override(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    data_url: String,
+) -> Result<(), String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
@@ -3149,10 +3338,7 @@ fn set_plugin_icon_override(app: tauri::AppHandle, plugin_id: String, data_url: 
     let full = icons_dir.join(&filename);
     std::fs::write(&full, bytes).map_err(|e| format!("写入图标失败: {e}"))?;
 
-    overrides.insert(
-        plugin_id.clone(),
-        Value::String(new_rel),
-    );
+    overrides.insert(plugin_id.clone(), Value::String(new_rel));
     map.insert(APP_ICON_OVERRIDES_KEY.to_string(), Value::Object(overrides));
     write_json_map(&path, &map)
 }
@@ -3200,14 +3386,20 @@ fn set_wake_shortcut(app: tauri::AppHandle, shortcut: String) -> Result<String, 
     let normalized = next.to_string();
 
     let state = app.state::<WakeShortcutState>();
-    let mut guard = state.current.lock().map_err(|_| "内部状态锁失败".to_string())?;
+    let mut guard = state
+        .current
+        .lock()
+        .map_err(|_| "内部状态锁失败".to_string())?;
     let prev = *guard;
     let was_paused = state.paused.lock().map(|g| *g).unwrap_or(false);
 
     if prev.id() == next.id() {
         let cfg_path = app_config_path(&app);
         let mut map = read_json_map(&cfg_path);
-        map.insert(WAKE_SHORTCUT_KEY.to_string(), Value::String(normalized.clone()));
+        map.insert(
+            WAKE_SHORTCUT_KEY.to_string(),
+            Value::String(normalized.clone()),
+        );
         write_json_map(&cfg_path, &map)?;
         *guard = next;
 
@@ -3240,7 +3432,10 @@ fn set_wake_shortcut(app: tauri::AppHandle, shortcut: String) -> Result<String, 
 
     let cfg_path = app_config_path(&app);
     let mut map = read_json_map(&cfg_path);
-    map.insert(WAKE_SHORTCUT_KEY.to_string(), Value::String(normalized.clone()));
+    map.insert(
+        WAKE_SHORTCUT_KEY.to_string(),
+        Value::String(normalized.clone()),
+    );
     if let Err(e) = write_json_map(&cfg_path, &map) {
         let _ = app.global_shortcut().unregister(next);
         return Err(e);
@@ -3257,7 +3452,10 @@ fn set_wake_shortcut(app: tauri::AppHandle, shortcut: String) -> Result<String, 
 #[tauri::command]
 fn pause_wake_shortcut(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<WakeShortcutState>();
-    let current = state.current.lock().map_err(|_| "内部状态锁失败".to_string())?;
+    let current = state
+        .current
+        .lock()
+        .map_err(|_| "内部状态锁失败".to_string())?;
 
     if let Ok(mut p) = state.paused.lock() {
         if *p {
@@ -3273,7 +3471,10 @@ fn pause_wake_shortcut(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn resume_wake_shortcut(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<WakeShortcutState>();
-    let current = state.current.lock().map_err(|_| "内部状态锁失败".to_string())?;
+    let current = state
+        .current
+        .lock()
+        .map_err(|_| "内部状态锁失败".to_string())?;
 
     let mut should_resume = false;
     if let Ok(p) = state.paused.lock() {
@@ -3443,19 +3644,22 @@ fn main() {
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
                 .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| {
-                    match event.id.as_ref() {
-                        "quit" => {
-                            app.exit(0);
-                        }
-                        "show" => {
-                            show_main_window(&app);
-                        }
-                        _ => {}
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "quit" => {
+                        app.exit(0);
                     }
+                    "show" => {
+                        show_main_window(&app);
+                    }
+                    _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
                         let app = tray.app_handle();
                         show_main_window(app);
                     }
@@ -3463,23 +3667,29 @@ fn main() {
                 .build(app)?;
 
             // 注册全局快捷键（默认：Ctrl+Alt+Space，可在 data/app.json 的 wakeShortcut 配置）
-            if let Err(e) = app.global_shortcut().on_shortcut(wake_shortcut, move |app, _shortcut, event| {
-                if event.state != ShortcutState::Pressed {
-                    return;
-                }
-                let state = app.state::<BrowserWindowState>();
-                let active = state.active.lock().ok().map(|g| *g).unwrap_or(false);
-                if active && browser_stack_exists(app) {
-                    if browser_stack_is_visible(app) {
-                        browser_stack_hide(app);
-                    } else {
-                        browser_stack_show(app);
-                    }
-                    return;
-                }
-                toggle_main_window(app);
-            }) {
-                eprintln!("Failed to register wake shortcut {}: {}", wake_shortcut_text, e);
+            if let Err(e) =
+                app.global_shortcut()
+                    .on_shortcut(wake_shortcut, move |app, _shortcut, event| {
+                        if event.state != ShortcutState::Pressed {
+                            return;
+                        }
+                        let state = app.state::<BrowserWindowState>();
+                        let active = state.active.lock().ok().map(|g| *g).unwrap_or(false);
+                        if active && browser_stack_exists(app) {
+                            if browser_stack_is_visible(app) {
+                                browser_stack_hide(app);
+                            } else {
+                                browser_stack_show(app);
+                            }
+                            return;
+                        }
+                        toggle_main_window(app);
+                    })
+            {
+                eprintln!(
+                    "Failed to register wake shortcut {}: {}",
+                    wake_shortcut_text, e
+                );
             }
 
             Ok(())
@@ -3495,9 +3705,16 @@ fn main() {
                         app.get_webview_window(BROWSER_WINDOW_LABEL),
                     ) {
                         let bar_pos = bar.outer_position().ok();
-                        let bar_h = bar.inner_size().ok().map(|s| s.height).unwrap_or(BROWSER_BAR_HEIGHT.round().max(1.0) as u32);
+                        let bar_h = bar
+                            .inner_size()
+                            .ok()
+                            .map(|s| s.height)
+                            .unwrap_or(BROWSER_BAR_HEIGHT.round().max(1.0) as u32);
                         if let Some(p) = bar_pos {
-                            let _ = content.set_position(tauri::PhysicalPosition::new(p.x, p.y + bar_h as i32));
+                            let _ = content.set_position(tauri::PhysicalPosition::new(
+                                p.x,
+                                p.y + bar_h as i32,
+                            ));
                         }
                     }
                 }
