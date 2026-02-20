@@ -147,6 +147,7 @@ type PluginManageItem = {
   version: string
   description: string
   icon?: string
+  allowOverwriteOnUpdate: boolean
 }
 
 const DEFAULT_WEBVIEW_SETTINGS: WebviewSettings = {
@@ -316,16 +317,18 @@ export default function SettingsView(_props: { onBack: () => void }) {
           const version = typeof m?.version === 'string' ? m.version.trim() : ''
           const description = typeof m?.description === 'string' ? m.description : ''
           const icon = typeof m?.icon === 'string' ? m.icon.trim() : ''
+          const allowOverwriteOnUpdate = !!m?.allowOverwriteOnUpdate
           return {
             id: pluginId,
             name: name || pluginId,
             version: version || '-',
             description,
             icon: icon || undefined,
+            allowOverwriteOnUpdate,
           }
         } catch (e) {
           console.warn('[plugin-manage] failed to read manifest:', pluginId, e)
-          return { id: pluginId, name: pluginId, version: '-', description: '', icon: undefined }
+          return { id: pluginId, name: pluginId, version: '-', description: '', icon: undefined, allowOverwriteOnUpdate: false }
         }
       }))
 
@@ -352,6 +355,25 @@ export default function SettingsView(_props: { onBack: () => void }) {
       setPluginManageDisabledIds(next)
       window.dispatchEvent(new CustomEvent('fast-window:plugins-changed'))
       toast(disabled ? '插件已禁用' : '插件已启用')
+    } catch (e: any) {
+      toast(String(e?.message || e || '设置失败'))
+      await loadPluginManage()
+    } finally {
+      setPluginManageSavingId('')
+    }
+  }
+
+  async function setPluginAllowOverwriteOnUpdate(pluginId: string, enabled: boolean) {
+    const id = String(pluginId || '').trim()
+    if (!id) return
+    if (pluginManageSavingId) return
+    setPluginManageSavingId(id)
+    try {
+      await invoke('set_plugin_allow_overwrite_on_update', { pluginId: id, enabled })
+      setPluginManageList(prev =>
+        prev.map(p => (p.id === id ? { ...p, allowOverwriteOnUpdate: enabled } : p)),
+      )
+      toast(enabled ? '已允许覆盖更新' : '已关闭覆盖更新')
     } catch (e: any) {
       toast(String(e?.message || e || '设置失败'))
       await loadPluginManage()
@@ -785,6 +807,9 @@ export default function SettingsView(_props: { onBack: () => void }) {
                 <Typography variant="caption" color="text.secondary">
                   禁用后插件不会出现在主页，也不会启动后台（如有）。
                 </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                  覆盖更新：宿主升级后可用随包版本覆盖更新（仅对内置插件生效，默认关闭）。
+                </Typography>
               </Box>
               <Button size="small" variant="outlined" onClick={loadPluginManage} disabled={pluginManageLoading || !!pluginManageSavingId}>
                 刷新
@@ -846,18 +871,34 @@ export default function SettingsView(_props: { onBack: () => void }) {
                       </Box>
                     </Box>
 
-                    <FormControlLabel
-                      sx={{ m: 0 }}
-                      control={
-                        <Switch
-                          checked={!disabled}
-                          disabled={busy || pluginManageLoading || !!pluginManageSavingId}
-                          onChange={e => void setPluginDisabled(p.id, !e.target.checked)}
-                          inputProps={{ 'aria-label': `启用插件 ${p.name}` }}
-                        />
-                      }
-                      label={disabled ? '已禁用' : '已启用'}
-                    />
+                    <Stack direction="column" spacing={0} sx={{ alignItems: 'flex-end' }}>
+                      <FormControlLabel
+                        sx={{ m: 0 }}
+                        control={
+                          <Switch
+                            size="small"
+                            checked={p.allowOverwriteOnUpdate}
+                            disabled={busy || pluginManageLoading || !!pluginManageSavingId}
+                            onChange={e => void setPluginAllowOverwriteOnUpdate(p.id, e.target.checked)}
+                            inputProps={{ 'aria-label': `允许覆盖更新 ${p.name}` }}
+                          />
+                        }
+                        label="覆盖更新"
+                      />
+                      <FormControlLabel
+                        sx={{ m: 0 }}
+                        control={
+                          <Switch
+                            size="small"
+                            checked={!disabled}
+                            disabled={busy || pluginManageLoading || !!pluginManageSavingId}
+                            onChange={e => void setPluginDisabled(p.id, !e.target.checked)}
+                            inputProps={{ 'aria-label': `启用插件 ${p.name}` }}
+                          />
+                        }
+                        label={disabled ? '已禁用' : '已启用'}
+                      />
+                    </Stack>
                   </Box>
                 )
               })}

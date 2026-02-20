@@ -107,10 +107,13 @@ export interface PluginManifest {
   id: string
   name: string
   version: string
+  author?: string
   description: string
   main: string
   icon?: string
   keyword?: string
+  // Release：宿主更新时是否允许用随包版本覆盖该插件（默认 false）
+  allowOverwriteOnUpdate?: boolean
 
   // 新增：插件契约版本（不填默认认为是当前版本）
   apiVersion?: number

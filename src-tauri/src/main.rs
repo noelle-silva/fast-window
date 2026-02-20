@@ -3006,6 +3006,35 @@ fn is_dir_empty(dir: &Path) -> bool {
 }
 
 #[cfg(not(debug_assertions))]
+fn read_manifest_value(path: &Path) -> Option<Value> {
+    let content = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str::<Value>(&content).ok()
+}
+
+#[cfg(not(debug_assertions))]
+fn manifest_string_field(manifest: &Value, key: &str) -> Option<String> {
+    manifest
+        .get(key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+#[cfg(not(debug_assertions))]
+fn manifest_allow_overwrite_on_update(manifest: &Value) -> bool {
+    manifest
+        .get("allowOverwriteOnUpdate")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
+#[cfg(not(debug_assertions))]
+fn write_manifest_value(path: &Path, manifest: &Value) -> std::io::Result<()> {
+    let content = serde_json::to_string_pretty(manifest).unwrap_or_else(|_| "{}".to_string());
+    std::fs::write(path, format!("{content}\n"))
+}
+
+#[cfg(not(debug_assertions))]
 fn seed_plugins_from_resources(app: &tauri::AppHandle) {
     let plugins_dir = app_plugins_dir(app);
     let _ = std::fs::create_dir_all(&plugins_dir);
@@ -3046,10 +3075,66 @@ fn seed_plugins_from_resources(app: &tauri::AppHandle) {
         }
 
         let dst = plugins_dir.join(&plugin_id);
-        if dst.exists() {
+        let src_dir = e.path();
+
+        if !dst.exists() {
+            let _ = copy_dir_all(&src_dir, &dst);
             continue;
         }
-        let _ = copy_dir_all(&e.path(), &dst);
+
+        // 默认不覆盖用户已有插件；只有 manifest 显式同意时，才在宿主更新后用随包版本覆盖。
+        // 注意：覆盖更新会保留 allowOverwriteOnUpdate=true 这个用户选择。
+        if !dst.is_dir() {
+            continue;
+        }
+
+        let dst_manifest_path = dst.join("manifest.json");
+        let Some(dst_manifest) = read_manifest_value(&dst_manifest_path) else {
+            continue;
+        };
+        if !manifest_allow_overwrite_on_update(&dst_manifest) {
+            continue;
+        }
+
+        let src_manifest_path = src_dir.join("manifest.json");
+        let Some(src_manifest) = read_manifest_value(&src_manifest_path) else {
+            continue;
+        };
+
+        let dst_version = manifest_string_field(&dst_manifest, "version");
+        let src_version = manifest_string_field(&src_manifest, "version");
+        if dst_version.is_some() && src_version.is_some() && dst_version == src_version {
+            continue;
+        }
+
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| Duration::from_millis(0))
+            .as_millis();
+        let tmp_dir = plugins_dir.join(format!(".tmp-seed-{plugin_id}-{stamp}"));
+        if tmp_dir.exists() {
+            let _ = std::fs::remove_dir_all(&tmp_dir);
+        }
+        if copy_dir_all(&src_dir, &tmp_dir).is_err() {
+            let _ = std::fs::remove_dir_all(&tmp_dir);
+            continue;
+        }
+
+        // 覆盖更新时，把用户的同意字段写回新 manifest，避免一次更新后又“掉回默认关闭”。
+        let mut patched = src_manifest.clone();
+        if let Some(obj) = patched.as_object_mut() {
+            obj.insert("allowOverwriteOnUpdate".to_string(), Value::Bool(true));
+        }
+        let _ = write_manifest_value(&tmp_dir.join("manifest.json"), &patched);
+
+        if std::fs::remove_dir_all(&dst).is_err() {
+            let _ = std::fs::remove_dir_all(&tmp_dir);
+            continue;
+        }
+        if std::fs::rename(&tmp_dir, &dst).is_err() {
+            let _ = std::fs::remove_dir_all(&tmp_dir);
+            continue;
+        }
     }
 }
 
@@ -3212,6 +3297,40 @@ fn read_plugin_file_base64(
         return Err("图标文件过大（>512KB）".to_string());
     }
     Ok(general_purpose::STANDARD.encode(bytes))
+}
+
+#[tauri::command]
+fn set_plugin_allow_overwrite_on_update(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+
+    let plugin_dir = app_plugins_dir(&app).join(&plugin_id);
+    let manifest_path = plugin_dir.join("manifest.json");
+
+    let content =
+        std::fs::read_to_string(&manifest_path).map_err(|e| format!("读取 manifest 失败: {e}"))?;
+    let mut v = serde_json::from_str::<Value>(&content)
+        .map_err(|e| format!("manifest.json 不是合法 JSON: {e}"))?;
+    if !v.is_object() {
+        return Err("manifest.json 必须是对象".to_string());
+    }
+
+    let obj = v.as_object_mut().unwrap();
+    obj.insert(
+        "allowOverwriteOnUpdate".to_string(),
+        Value::Bool(enabled),
+    );
+
+    let out =
+        serde_json::to_string_pretty(&v).map_err(|e| format!("序列化 manifest 失败: {e}"))?;
+    std::fs::write(&manifest_path, format!("{out}\n"))
+        .map_err(|e| format!("写入 manifest 失败: {e}"))?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -3994,6 +4113,7 @@ fn main() {
             list_plugins,
             read_plugin_file,
             read_plugin_file_base64,
+            set_plugin_allow_overwrite_on_update,
             read_plugins_dir,
             install_plugin_files,
             open_external_url,

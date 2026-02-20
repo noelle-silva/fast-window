@@ -7,7 +7,7 @@
 最小字段：
 
 - `id`：插件 ID（目录名建议一致）
-- `name` / `version` / `description`
+- `name` / `version` / `description`（可选：`author`）
 - `main`：入口文件
 
 新增契约字段（v2 起为必填/强约束）：
@@ -15,6 +15,7 @@
 - `apiVersion`：宿主契约版本（当前为 `2`）
 - `requires`：能力申请列表（**必填**；未声明的能力调用会被宿主拒绝）
 - `ui.type`：目前仅支持 `iframe`（**必填**；沙箱模式；`sandbox iframe` 执行，通过 `postMessage` 调宿主能力）。
+- `allowOverwriteOnUpdate`：是否同意在 **宿主安装/升级** 后，用随包内置插件覆盖更新当前插件（可选；默认 `false`；仅对“随包内置插件种子”生效）
 - `background`：后台运行策略（可选）
   - `autoStart?: boolean`：是否启动即运行后台上下文（默认 `true`）
   - `main?: string`：可选 legacy 双入口；不填时默认复用 `main`（推荐单入口）
@@ -129,7 +130,7 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
   - 数据根目录：默认使用 **exe 同目录**（更稳定，不依赖启动时 cwd）。
   - 也可以设置环境变量 `FAST_WINDOW_DATA_DIR` 指向你想要的数据根目录。
   - 插件目录：`<数据根>/plugins/`（由 Rust 端 `get_plugins_dir` 决定）。
-  - 正式版（release/MSI）：安装包会携带内置插件“种子”，首次启动时自动补齐到 `<数据根>/plugins/`（只补缺失项，不覆盖用户已有插件）。
+  - 正式版（release/MSI）：安装包会携带内置插件“种子”，首次启动时自动补齐到 `<数据根>/plugins/`（默认只补缺失项；若目标插件已存在，仅当该插件 `manifest.allowOverwriteOnUpdate=true` 时，才会在宿主升级后覆盖更新）。
   - 数据目录：`<数据根>/data/`（由 Rust 端 `get_data_dir` 决定）。
   - 注意：如果用 MSI 安装到 `Program Files` 这类目录，普通用户通常没有写权限；请使用可写目录（例如解压到 `D:\Apps\FastWindow\`），或设置 `FAST_WINDOW_DATA_DIR` 到可写路径。
 - 宿主设置：`data/app.json`（例如 `wakeShortcut`：唤醒窗口的全局快捷键）。
