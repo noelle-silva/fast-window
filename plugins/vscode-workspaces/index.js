@@ -7,6 +7,7 @@
     loading: true,
     items: [],
     addOpen: false,
+    helpOpen: false,
     addName: '',
     addPath: '',
     confirmKey: '',
@@ -54,6 +55,25 @@
     .path{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
     .actions{display:flex;gap:8px;margin-top:auto;}
     .empty{color:var(--muted);text-align:center;padding:26px 0;font-size:13px;}
+
+    .helpBackdrop[hidden]{display:none;}
+    .helpBackdrop{position:fixed;inset:0;background:transparent;z-index:80;}
+    .helpPop[hidden]{display:none;}
+    .helpPop{
+      position:fixed;top:52px;right:10px;z-index:90;
+      width:min(520px,calc(100vw - 20px));
+      background:var(--surface);border:1px solid var(--outline);border-radius:14px;
+      box-shadow:0 16px 40px rgba(0,0,0,.22);
+      padding:10px;
+    }
+    .helpTitle{font-weight:900;font-size:13px;margin:0 0 6px 0;}
+    .helpText{font-size:12px;color:var(--text);line-height:1.55;margin:0 0 8px 0;}
+    .helpMuted{color:var(--muted);}
+    .helpPop code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,\"Liberation Mono\",\"Courier New\",monospace;}
+    .helpPop pre{
+      margin:8px 0 0 0;padding:8px 10px;border-radius:12px;
+      background:#f6f6f6;border:1px solid var(--outline);overflow:auto;font-size:11px;
+    }
   `
 
   function escapeHtml(s) {
@@ -207,8 +227,28 @@
       <div class="wrap">
         <div class="topbar">
           <div class="title">VSCode 工作区</div>
+          <button class="btn" data-act="help" title="帮助" aria-label="帮助">?</button>
           <button class="btn ${state.addOpen ? '' : 'primary'}" data-act="toggleAdd">${state.addOpen ? '收起' : '添加'}</button>
         </div>
+
+        <div class="helpBackdrop" ${state.helpOpen ? '' : 'hidden'} data-act="closeHelp"></div>
+        <div class="helpPop" ${state.helpOpen ? '' : 'hidden'}>
+          <div class="helpTitle">关于 VS Code 的“外部应用确认”弹窗</div>
+          <div class="helpText">
+            如果你每次打开都看到「外部应用程序想要在 Code 中打开…是否打开此文件或文件夹？」：这是 VS Code 对
+            <code>vscode://file/...</code> 协议的安全确认，不是本插件弹的。
+          </div>
+          <div class="helpText helpMuted">
+            解决：在 VS Code 设置里关闭 <code>security.promptForLocalFileProtocolHandling</code>；如果你用的是远程协议，再关闭
+            <code>security.promptForRemoteFileProtocolHandling</code>。
+          </div>
+          <div class="helpText helpMuted">也可以直接编辑 VS Code 的 settings.json：</div>
+          <pre><code>{
+  "security.promptForLocalFileProtocolHandling": false,
+  "security.promptForRemoteFileProtocolHandling": false
+}</code></pre>
+        </div>
+
         ${state.addOpen ? `
           <div class="panel">
             <div class="row">
@@ -243,6 +283,10 @@
     el.querySelectorAll('button[data-act="rm"]').forEach(btn => {
       btn.addEventListener('click', () => removeItem(btn.getAttribute('data-id') || ''))
     })
+    const help = el.querySelector('button[data-act="help"]')
+    if (help) help.addEventListener('click', () => ((state.helpOpen = !state.helpOpen), render()))
+    const closeHelp = el.querySelector('[data-act="closeHelp"]')
+    if (closeHelp) closeHelp.addEventListener('click', () => ((state.helpOpen = false), render()))
     const toggle = el.querySelector('button[data-act="toggleAdd"]')
     if (toggle) toggle.addEventListener('click', () => ((state.addOpen = !state.addOpen), render()))
     const pick = el.querySelector('button[data-act="pick"]')
@@ -262,4 +306,3 @@
 
   mount()
 })()
-
