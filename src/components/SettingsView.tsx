@@ -382,6 +382,35 @@ export default function SettingsView(_props: { onBack: () => void }) {
     }
   }
 
+  async function approveAllOverwriteUpdates() {
+    if (pluginManageSavingId) return
+    if (pluginManageLoading) return
+    if (pluginManageList.length === 0) {
+      toast('未发现任何插件')
+      return
+    }
+
+    const pending = pluginManageList.filter(p => !p.allowOverwriteOnUpdate).map(p => p.id)
+    if (pending.length === 0) {
+      toast('已全部允许覆盖更新')
+      return
+    }
+
+    setPluginManageSavingId('__bulk__')
+    try {
+      for (const pluginId of pending) {
+        await invoke('set_plugin_allow_overwrite_on_update', { pluginId, enabled: true })
+      }
+      setPluginManageList(prev => prev.map(p => ({ ...p, allowOverwriteOnUpdate: true })))
+      toast('已全部允许覆盖更新')
+    } catch (e: any) {
+      toast(String(e?.message || e || '设置失败'))
+      await loadPluginManage()
+    } finally {
+      setPluginManageSavingId('')
+    }
+  }
+
   useEffect(() => {
     if (tabIndex !== TAB_PLUGINS) return
     loadPluginManage()
@@ -810,11 +839,27 @@ export default function SettingsView(_props: { onBack: () => void }) {
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                   覆盖更新：宿主升级后可用随包版本覆盖更新（仅对内置插件生效，默认关闭）。
                 </Typography>
-              </Box>
-              <Button size="small" variant="outlined" onClick={loadPluginManage} disabled={pluginManageLoading || !!pluginManageSavingId}>
-                刷新
-              </Button>
-            </Box>
+	              </Box>
+	              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+	                <Button
+	                  size="small"
+	                  variant="contained"
+	                  onClick={() => void approveAllOverwriteUpdates()}
+	                  disabled={pluginManageLoading || !!pluginManageSavingId || pluginManageList.length === 0}
+	                  aria-label="一键全部同意覆盖更新"
+	                >
+	                  全部同意覆盖更新
+	                </Button>
+	                <Button
+	                  size="small"
+	                  variant="outlined"
+	                  onClick={loadPluginManage}
+	                  disabled={pluginManageLoading || !!pluginManageSavingId}
+	                >
+	                  刷新
+	                </Button>
+	              </Box>
+	            </Box>
 
             {pluginManageLoading ? (
               <Box sx={theme => ({ ...panelSx(theme), display: 'flex', alignItems: 'center', gap: 1 })}>
