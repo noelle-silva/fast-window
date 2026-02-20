@@ -568,6 +568,9 @@ async fn open_browser_window(
         if let Ok(mut g) = state.active.lock() {
             *g = true;
         };
+        if let Ok(mut g) = state.closing.lock() {
+            *g = false;
+        };
     }
     // 首次打开会经历“创建两个窗口 + 定位 + 聚焦”的抖动期，先加门闩避免误隐藏。
     browser_stack_set_suppress_hide(&app, 1500);
@@ -669,7 +672,7 @@ async fn open_browser_window(
 
 #[tauri::command]
 async fn close_browser_window(app: tauri::AppHandle) -> Result<(), String> {
-    browser_stack_end_session(&app);
+    browser_stack_close(&app);
     Ok(())
 }
 
@@ -1315,6 +1318,7 @@ struct BrowserWindowState {
     fullscreen: Mutex<bool>,
     restore_bounds: Mutex<Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>)>>,
     pinned: Mutex<bool>,
+    closing: Mutex<bool>,
 }
 
 impl Default for BrowserWindowState {
@@ -1328,6 +1332,8 @@ impl Default for BrowserWindowState {
             restore_bounds: Mutex::new(None),
             // 图钉：默认不启用（维持“失焦自动隐藏”的原交互）。
             pinned: Mutex::new(false),
+            // 关闭防抖：我们有两个窗口（顶部栏 + 内容），关闭时需要避免 CloseRequested 互相触发导致循环。
+            closing: Mutex::new(false),
         }
     }
 }
@@ -2867,6 +2873,31 @@ fn browser_stack_end_session(app: &tauri::AppHandle) {
     }
     emit_activate_plugin_if_any(app);
     show_main_window(app);
+}
+
+fn browser_stack_is_closing(app: &tauri::AppHandle) -> bool {
+    let state = app.state::<BrowserWindowState>();
+    state.closing.lock().ok().map(|g| *g).unwrap_or(false)
+}
+
+fn browser_stack_set_closing(app: &tauri::AppHandle, closing: bool) {
+    let state = app.state::<BrowserWindowState>();
+    if let Ok(mut g) = state.closing.lock() {
+        *g = closing;
+    };
+}
+
+fn browser_stack_close(app: &tauri::AppHandle) {
+    // “关闭浏览”应当真正销毁 WebView：否则只是 hide，会导致网页音频继续播放。
+    browser_stack_set_closing(app, true);
+    browser_stack_end_session(app);
+
+    if let Some(w) = app.get_webview_window(BROWSER_WINDOW_LABEL) {
+        let _ = w.close();
+    }
+    if let Some(w) = app.get_webview_window(BROWSER_BAR_WINDOW_LABEL) {
+        let _ = w.close();
+    }
 }
 
 fn browser_stack_apply_fullscreen(app: &tauri::AppHandle, enable: bool) -> Result<(), String> {
@@ -4570,8 +4601,11 @@ fn main() {
                     }
                 }
                 if let WindowEvent::CloseRequested { api, .. } = event {
+                    if browser_stack_is_closing(app) {
+                        return;
+                    }
                     api.prevent_close();
-                    browser_stack_end_session(app);
+                    browser_stack_close(app);
                 }
                 if let WindowEvent::Focused(focused) = event {
                     if !focused {
@@ -4596,8 +4630,11 @@ fn main() {
             if window.label() == BROWSER_WINDOW_LABEL {
                 let app = window.app_handle();
                 if let WindowEvent::CloseRequested { api, .. } = event {
+                    if browser_stack_is_closing(app) {
+                        return;
+                    }
                     api.prevent_close();
-                    browser_stack_end_session(app);
+                    browser_stack_close(app);
                 }
                 if let WindowEvent::Focused(focused) = event {
                     if !focused {
