@@ -1,0 +1,19 @@
+{
+  "id": "calculator",
+  "name": "计算器",
+  "version": "1.0.0",
+  "description": "安全表达式计算：+ - * / ^，支持括号、历史记录、复制/粘贴",
+  "main": "index.js",
+  "icon": "🧮",
+  "keyword": "calc",
+  "apiVersion": 2,
+  "ui": { "type": "iframe" },
+  "requires": [
+    "clipboard.readText",
+    "clipboard.writeText",
+    "storage.get",
+    "storage.set",
+    "ui.showToast"
+  ]
+}
+
