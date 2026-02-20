@@ -855,13 +855,14 @@ function App() {
       <DialogContent sx={{ pt: 1 }}>
         {pluginDetail ? (() => {
           const m = pluginDetail.manifest
-          const id = (m?.id || pluginDetail.id || '').trim()
-          const name = (m?.name || pluginDetail.name || '').trim()
-          const version = (m?.version || '').trim()
-          const main = (m?.main || '').trim()
-          const keyword = (m?.keyword || pluginDetail.keyword || '').trim()
-          const apiVersion = typeof m?.apiVersion === 'number' ? m.apiVersion : undefined
-          const uiType = m?.ui?.type
+	          const id = (m?.id || pluginDetail.id || '').trim()
+	          const name = (m?.name || pluginDetail.name || '').trim()
+	          const author = (m?.author || '').trim()
+	          const version = (m?.version || '').trim()
+	          const main = (m?.main || '').trim()
+	          const keyword = (m?.keyword || pluginDetail.keyword || '').trim()
+	          const apiVersion = typeof m?.apiVersion === 'number' ? m.apiVersion : undefined
+	          const uiType = m?.ui?.type
           const requires = Array.isArray(m?.requires) ? m!.requires : pluginDetail.requires
           const hasBackground = !!m?.background
           const backgroundAutoStart = hasBackground ? (m!.background!.autoStart !== false) : undefined
@@ -899,14 +900,18 @@ function App() {
                 </Box>
               </Box>
 
-              <Box sx={fieldRowSx}>
-                <Typography sx={labelSx}>目录</Typography>
-                <Typography sx={{ ...valueSx, wordBreak: 'break-all' }}>{pluginPath || '(未知)'}</Typography>
-              </Box>
-              <Box sx={fieldRowSx}>
-                <Typography sx={labelSx}>入口（main）</Typography>
-                <Typography sx={valueSx}>{main || '(未知)'}</Typography>
-              </Box>
+	              <Box sx={fieldRowSx}>
+	                <Typography sx={labelSx}>目录</Typography>
+	                <Typography sx={{ ...valueSx, wordBreak: 'break-all' }}>{pluginPath || '(未知)'}</Typography>
+	              </Box>
+	              <Box sx={fieldRowSx}>
+	                <Typography sx={labelSx}>作者</Typography>
+	                <Typography sx={valueSx}>{author || '(无)'}</Typography>
+	              </Box>
+	              <Box sx={fieldRowSx}>
+	                <Typography sx={labelSx}>入口（main）</Typography>
+	                <Typography sx={valueSx}>{main || '(未知)'}</Typography>
+	              </Box>
               <Box sx={fieldRowSx}>
                 <Typography sx={labelSx}>关键字（keyword）</Typography>
                 <Typography sx={valueSx}>{keyword || '(无)'}</Typography>
