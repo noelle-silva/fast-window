@@ -26,6 +26,13 @@ const MAX_VIDEO_RATE = 16
 const PROJECT_GITHUB_URL = 'https://github.com/noelle-silva/fast-window'
 const APP_STORAGE_ID = '__app'
 const DISABLED_PLUGINS_KEY = 'disabledPlugins'
+const TAB_GENERAL = 0
+const TAB_APPEARANCE = 1
+const TAB_DATA = 2
+const TAB_PLUGINS = 3
+const TAB_SHORTCUT = 4
+const TAB_WEBVIEW = 5
+const TAB_ABOUT = 6
 
 function toast(message: string) {
   window.dispatchEvent(new CustomEvent('fast-window:toast', { detail: { message } }))
@@ -193,7 +200,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
   const [recordingPresetIndex, setRecordingPresetIndex] = useState<number | null>(null)
   const [autoStart, setAutoStart] = useState<AutoStartStatus>({ supported: false, enabled: false, scope: 'unknown' })
   const [autoStartSaving, setAutoStartSaving] = useState(false)
-  const [tabIndex, setTabIndex] = useState(0)
+  const [tabIndex, setTabIndex] = useState(TAB_GENERAL)
   const [pluginManageList, setPluginManageList] = useState<PluginManageItem[]>([])
   const [pluginManageDisabledIds, setPluginManageDisabledIds] = useState<string[]>([])
   const [pluginManageLoading, setPluginManageLoading] = useState(false)
@@ -356,7 +363,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
   }
 
   useEffect(() => {
-    if (tabIndex !== 1) return
+    if (tabIndex !== TAB_PLUGINS) return
     loadPluginManage()
   }, [tabIndex])
 
@@ -508,7 +515,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
         <Tabs
           value={tabIndex}
           onChange={(_, next) => {
-            const nextIndex = typeof next === 'number' ? next : 0
+            const nextIndex = typeof next === 'number' ? next : TAB_GENERAL
             if ((recording || recordingPresetIndex != null) && nextIndex !== tabIndex) {
               setRecording(false)
               setRecordingPresetIndex(null)
@@ -521,37 +528,19 @@ export default function SettingsView(_props: { onBack: () => void }) {
           aria-label="设置分类"
           sx={{ minHeight: 40 }}
         >
-          <Tab label="常规" id="settings-tab-0" aria-controls="settings-tabpanel-0" />
-          <Tab label="插件管理" id="settings-tab-1" aria-controls="settings-tabpanel-1" />
-          <Tab label="快捷键" id="settings-tab-2" aria-controls="settings-tabpanel-2" />
-          <Tab label="WebView" id="settings-tab-3" aria-controls="settings-tabpanel-3" />
-          <Tab label="关于" id="settings-tab-4" aria-controls="settings-tabpanel-4" />
+          <Tab value={TAB_GENERAL} label="常规" id="settings-tab-0" aria-controls="settings-tabpanel-0" />
+          <Tab value={TAB_APPEARANCE} label="外观" id="settings-tab-1" aria-controls="settings-tabpanel-1" />
+          <Tab value={TAB_DATA} label="数据" id="settings-tab-2" aria-controls="settings-tabpanel-2" />
+          <Tab value={TAB_PLUGINS} label="插件管理" id="settings-tab-3" aria-controls="settings-tabpanel-3" />
+          <Tab value={TAB_SHORTCUT} label="快捷键" id="settings-tab-4" aria-controls="settings-tabpanel-4" />
+          <Tab value={TAB_WEBVIEW} label="WebView" id="settings-tab-5" aria-controls="settings-tabpanel-5" />
+          <Tab value={TAB_ABOUT} label="关于" id="settings-tab-6" aria-controls="settings-tabpanel-6" />
         </Tabs>
       </Box>
 
-      <Box role="tabpanel" hidden={tabIndex !== 0} id="settings-tabpanel-0" aria-labelledby="settings-tab-0" sx={{ pt: 0.5 }}>
-        {tabIndex === 0 ? (
+      <Box role="tabpanel" hidden={tabIndex !== TAB_GENERAL} id="settings-tabpanel-0" aria-labelledby="settings-tab-0" sx={{ pt: 0.5 }}>
+        {tabIndex === TAB_GENERAL ? (
           <Stack spacing={1.25}>
-            <Box sx={panelSx}>
-              <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                数据与插件位置
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                data: {dataDir || '-'}
-              </Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                plugins: {pluginsDir || '-'}
-              </Typography>
-              <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                <Button size="small" variant="outlined" onClick={openDataDir}>
-                  打开数据目录
-                </Button>
-                <Button size="small" variant="outlined" onClick={openPluginsDir} disabled={!pluginsDir}>
-                  打开插件目录
-                </Button>
-              </Box>
-            </Box>
-
             <Box sx={panelSx}>
               <Typography variant="body2" sx={{ fontWeight: 700 }}>
                 开机自启
@@ -582,6 +571,13 @@ export default function SettingsView(_props: { onBack: () => void }) {
               </Box>
             </Box>
 
+          </Stack>
+        ) : null}
+      </Box>
+
+      <Box role="tabpanel" hidden={tabIndex !== TAB_APPEARANCE} id="settings-tabpanel-1" aria-labelledby="settings-tab-1" sx={{ pt: 0.5 }}>
+        {tabIndex === TAB_APPEARANCE ? (
+          <Stack spacing={1.25}>
             <Box sx={theme => ({ ...panelSx(theme), display: 'grid', gap: 1 })}>
               <Box>
                 <Typography variant="body2" sx={{ fontWeight: 700 }}>
@@ -756,8 +752,34 @@ export default function SettingsView(_props: { onBack: () => void }) {
         ) : null}
       </Box>
 
-      <Box role="tabpanel" hidden={tabIndex !== 1} id="settings-tabpanel-1" aria-labelledby="settings-tab-1" sx={{ pt: 0.5 }}>
-        {tabIndex === 1 ? (
+      <Box role="tabpanel" hidden={tabIndex !== TAB_DATA} id="settings-tabpanel-2" aria-labelledby="settings-tab-2" sx={{ pt: 0.5 }}>
+        {tabIndex === TAB_DATA ? (
+          <Stack spacing={1.25}>
+            <Box sx={panelSx}>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                数据与插件位置
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                data: {dataDir || '-'}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                plugins: {pluginsDir || '-'}
+              </Typography>
+              <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                <Button size="small" variant="outlined" onClick={openDataDir}>
+                  打开数据目录
+                </Button>
+                <Button size="small" variant="outlined" onClick={openPluginsDir} disabled={!pluginsDir}>
+                  打开插件目录
+                </Button>
+              </Box>
+            </Box>
+          </Stack>
+        ) : null}
+      </Box>
+
+      <Box role="tabpanel" hidden={tabIndex !== TAB_PLUGINS} id="settings-tabpanel-3" aria-labelledby="settings-tab-3" sx={{ pt: 0.5 }}>
+        {tabIndex === TAB_PLUGINS ? (
           <Stack spacing={1.25}>
             <Box sx={theme => ({ ...panelSx(theme), display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 })}>
               <Box>
@@ -860,8 +882,8 @@ export default function SettingsView(_props: { onBack: () => void }) {
         ) : null}
       </Box>
 
-      <Box role="tabpanel" hidden={tabIndex !== 2} id="settings-tabpanel-2" aria-labelledby="settings-tab-2" sx={{ pt: 0.5 }}>
-        {tabIndex === 2 ? (
+      <Box role="tabpanel" hidden={tabIndex !== TAB_SHORTCUT} id="settings-tabpanel-4" aria-labelledby="settings-tab-4" sx={{ pt: 0.5 }}>
+        {tabIndex === TAB_SHORTCUT ? (
           <Stack spacing={1.25}>
             <Box sx={panelSx}>
               <Typography variant="body2" sx={{ fontWeight: 700 }}>
@@ -940,8 +962,8 @@ export default function SettingsView(_props: { onBack: () => void }) {
         ) : null}
       </Box>
 
-      <Box role="tabpanel" hidden={tabIndex !== 3} id="settings-tabpanel-3" aria-labelledby="settings-tab-3" sx={{ pt: 0.5 }}>
-        {tabIndex === 3 ? (
+      <Box role="tabpanel" hidden={tabIndex !== TAB_WEBVIEW} id="settings-tabpanel-5" aria-labelledby="settings-tab-5" sx={{ pt: 0.5 }}>
+        {tabIndex === TAB_WEBVIEW ? (
           <Stack spacing={1.25}>
             <Box sx={panelSx}>
               <Typography variant="body2" sx={{ fontWeight: 700 }}>
@@ -1119,8 +1141,8 @@ export default function SettingsView(_props: { onBack: () => void }) {
         ) : null}
       </Box>
 
-      <Box role="tabpanel" hidden={tabIndex !== 4} id="settings-tabpanel-4" aria-labelledby="settings-tab-4" sx={{ pt: 0.5 }}>
-        {tabIndex === 4 ? (
+      <Box role="tabpanel" hidden={tabIndex !== TAB_ABOUT} id="settings-tabpanel-6" aria-labelledby="settings-tab-6" sx={{ pt: 0.5 }}>
+        {tabIndex === TAB_ABOUT ? (
           <Stack spacing={1.25}>
             <Box sx={panelSx}>
               <Typography variant="body2" sx={{ fontWeight: 700 }}>
