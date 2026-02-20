@@ -484,16 +484,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
 
   return (
     <Box sx={{ p: 2, height: '100%', overflowY: 'auto', overflowX: 'hidden', boxSizing: 'border-box' }}>
-      <Box
-        sx={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 1,
-          bgcolor: wallpaper?.enabled ? 'transparent' : 'background.default',
-          pt: 0.25,
-          pb: 1,
-        }}
-      >
+      <Box sx={{ pt: 0.25, pb: 1, bgcolor: 'transparent' }}>
         <Tabs
           value={tabIndex}
           onChange={(_, next) => {
