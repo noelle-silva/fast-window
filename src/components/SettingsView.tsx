@@ -1074,12 +1074,11 @@ export default function SettingsView(_props: { onBack: () => void }) {
               <Typography variant="caption" color="text.secondary">
                 Fast Window · 开源项目
               </Typography>
-            </Box>
-
-            <Box sx={theme => ({ ...panelSx(theme), display: 'flex', gap: 1, flexWrap: 'wrap' })}>
-              <Button size="small" variant="outlined" onClick={openProjectGithub}>
-                打开 GitHub
-              </Button>
+              <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                <Button size="small" variant="outlined" onClick={openProjectGithub}>
+                  打开 GitHub
+                </Button>
+              </Box>
             </Box>
           </Stack>
         ) : null}
