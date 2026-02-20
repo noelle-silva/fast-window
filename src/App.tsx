@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, ComponentType, useRef } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { invoke } from '@tauri-apps/api/core'
+import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { loadAllPluginsReport, type PluginLoadRejection } from './plugins/pluginLoader'
@@ -71,6 +71,14 @@ const PLUGIN_BROWSE_LAYOUT_KEY = 'pluginBrowseLayout'
 const DISABLED_PLUGINS_KEY = 'disabledPlugins'
 
 type PluginBrowseLayout = 'list' | 'grid' | 'icon'
+
+type WallpaperSettings = {
+  enabled: boolean
+  opacity: number
+  blur: number
+  filePath?: string | null
+  rev?: number
+}
 
 function normalizeBrowseLayout(value: unknown): PluginBrowseLayout {
   if (value === 'grid') return 'grid'
@@ -360,6 +368,7 @@ function App() {
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
   const [dragOverAfter, setDragOverAfter] = useState(false)
+  const [wallpaper, setWallpaper] = useState<WallpaperSettings | null>(null)
   const selectedIdRef = useRef<string | null>(null)
   const allPluginsRef = useRef<Plugin[]>([])
   const pendingActivatePluginIdRef = useRef<string | null>(null)
@@ -429,6 +438,15 @@ function App() {
   }, [])
 
   const reloadPlugins = useCallback(() => loadPlugins({ showToast: true }), [loadPlugins])
+
+  const loadWallpaper = useCallback(async () => {
+    try {
+      const wp = await invoke<WallpaperSettings>('get_wallpaper_settings')
+      setWallpaper(wp)
+    } catch (_) {
+      setWallpaper({ enabled: false, opacity: 0.65, blur: 0, filePath: null })
+    }
+  }, [])
 
   const openPluginMenu = useCallback((e: React.MouseEvent, plugin: Plugin) => {
     e.preventDefault()
@@ -502,7 +520,14 @@ function App() {
   // 初次加载插件
   useEffect(() => {
     loadPlugins()
-  }, [loadPlugins])
+    void loadWallpaper()
+  }, [loadPlugins, loadWallpaper])
+
+  useEffect(() => {
+    const onChanged = () => void loadWallpaper()
+    window.addEventListener('fast-window:wallpaper-changed', onChanged as any)
+    return () => window.removeEventListener('fast-window:wallpaper-changed', onChanged as any)
+  }, [loadWallpaper])
 
   useEffect(() => {
     const onChanged = () => {
@@ -756,6 +781,26 @@ function App() {
     bgcolor: 'background.default',
   } as const
 
+  const wallpaperUrl =
+    wallpaper?.enabled && wallpaper.filePath ? `${convertFileSrc('wallpaper', 'wallpaper')}?rev=${wallpaper.rev ?? 0}` : ''
+  const wallpaperLayer = wallpaperUrl ? (
+    <Box
+      aria-hidden
+      sx={{
+        position: 'absolute',
+        inset: 0,
+        backgroundImage: `url(${wallpaperUrl})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        opacity: Math.max(0, Math.min(1, wallpaper?.opacity ?? 0.65)),
+        filter: `blur(${Math.max(0, Math.min(40, wallpaper?.blur ?? 0))}px)`,
+        transform: 'scale(1.05)',
+        pointerEvents: 'none',
+      }}
+    />
+  ) : null
+
   const toastHost = (
     <Snackbar
       key={toast.key}
@@ -943,7 +988,11 @@ function App() {
   if (loading) {
     return (
       <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
-        <Paper variant="outlined" sx={shellContainerSx}>
+        <Paper
+          variant="outlined"
+          sx={[shellContainerSx, { position: 'relative' }]}
+        >
+          {wallpaperLayer}
           <TitleBar title={APP_TITLE} />
           <Box sx={{ flex: 1, display: 'grid', placeItems: 'center' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
@@ -968,7 +1017,11 @@ function App() {
     const PluginComponent = activePlugin.component
     return (
       <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
-        <Paper variant="outlined" sx={shellContainerSx}>
+        <Paper
+          variant="outlined"
+          sx={[shellContainerSx, { position: 'relative' }]}
+        >
+          {wallpaperLayer}
           <TitleBar title={activePlugin.name} onBack={() => setActivePlugin(null)} />
           <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
             <PluginComponent onBack={() => setActivePlugin(null)} />
@@ -985,7 +1038,11 @@ function App() {
 
   return (
     <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
-        <Paper variant="outlined" sx={shellContainerSx}>
+        <Paper
+          variant="outlined"
+          sx={[shellContainerSx, { position: 'relative' }]}
+        >
+          {wallpaperLayer}
           <TitleBar
             title={APP_TITLE}
             onImportPlugin={reorderMode ? undefined : () => setImportOpen(true)}

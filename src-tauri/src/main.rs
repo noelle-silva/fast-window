@@ -43,6 +43,7 @@ const ACTIVATE_PLUGIN_EVENT: &str = "fast-window:activate-plugin";
 const WEBVIEW_SETTINGS_UPDATED_EVENT: &str = "fast-window:webview-settings-updated";
 const BROWSER_BAR_HEIGHT: f64 = 40.0;
 const BROWSER_STACK_TOTAL_HEIGHT: f64 = 605.0;
+const WALLPAPER_SETTINGS_KEY: &str = "wallpaper";
 
 #[cfg(windows)]
 fn apply_bottom_rounded_corners(window: &tauri::WebviewWindow, radius_dip: f64) {
@@ -3360,6 +3361,202 @@ fn storage_set_all(
 
 const APP_ICON_OVERRIDES_KEY: &str = "pluginIconOverrides";
 
+#[derive(Clone)]
+struct WallpaperConfig {
+    enabled: bool,
+    opacity: f32,
+    blur: f32,
+    rel_path: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+struct WallpaperSettingsOut {
+    enabled: bool,
+    opacity: f32,
+    blur: f32,
+    #[serde(rename = "filePath")]
+    file_path: Option<String>,
+    rev: u64,
+}
+
+fn clamp_f32(v: f32, min: f32, max: f32) -> f32 {
+    if v.is_nan() {
+        return min;
+    }
+    v.max(min).min(max)
+}
+
+fn read_wallpaper_config(app: &tauri::AppHandle) -> Result<WallpaperConfig, String> {
+    let path = storage_file_path(app, "__app")?;
+    let map = read_json_map(&path);
+    let Some(Value::Object(obj)) = map.get(WALLPAPER_SETTINGS_KEY) else {
+        return Ok(WallpaperConfig {
+            enabled: false,
+            opacity: 0.65,
+            blur: 0.0,
+            rel_path: None,
+        });
+    };
+
+    let enabled = obj.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+    let opacity = obj
+        .get("opacity")
+        .and_then(|v| v.as_f64())
+        .map(|v| v as f32)
+        .unwrap_or(0.65);
+    let blur = obj
+        .get("blur")
+        .and_then(|v| v.as_f64())
+        .map(|v| v as f32)
+        .unwrap_or(0.0);
+    let rel_path = obj
+        .get("path")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .and_then(|s| safe_relative_path(&s).ok().map(|_| s));
+
+    Ok(WallpaperConfig {
+        enabled,
+        opacity: clamp_f32(opacity, 0.0, 1.0),
+        blur: clamp_f32(blur, 0.0, 40.0),
+        rel_path,
+    })
+}
+
+fn write_wallpaper_config(app: &tauri::AppHandle, cfg: &WallpaperConfig) -> Result<(), String> {
+    let path = storage_file_path(app, "__app")?;
+    let mut map = read_json_map(&path);
+
+    let mut obj = Map::new();
+    obj.insert("enabled".to_string(), Value::Bool(cfg.enabled));
+    obj.insert(
+        "opacity".to_string(),
+        Value::Number(
+            serde_json::Number::from_f64(clamp_f32(cfg.opacity, 0.0, 1.0) as f64)
+                .unwrap_or_else(|| serde_json::Number::from_f64(0.65).unwrap()),
+        ),
+    );
+    obj.insert(
+        "blur".to_string(),
+        Value::Number(
+            serde_json::Number::from_f64(clamp_f32(cfg.blur, 0.0, 40.0) as f64)
+                .unwrap_or_else(|| serde_json::Number::from_f64(0.0).unwrap()),
+        ),
+    );
+    if let Some(p) = &cfg.rel_path {
+        obj.insert("path".to_string(), Value::String(p.clone()));
+    }
+
+    map.insert(WALLPAPER_SETTINGS_KEY.to_string(), Value::Object(obj));
+    write_json_map(&path, &map)
+}
+
+fn wallpaper_settings_out(app: &tauri::AppHandle, cfg: &WallpaperConfig) -> WallpaperSettingsOut {
+    let file_path = cfg
+        .rel_path
+        .as_ref()
+        .and_then(|rel| safe_relative_path(rel).ok().map(|rel_ok| app_data_dir(app).join(rel_ok)))
+        .filter(|full| full.is_file())
+        .map(|full| full.to_string_lossy().to_string());
+
+    let rev = cfg
+        .rel_path
+        .as_ref()
+        .and_then(|rel| safe_relative_path(rel).ok().map(|rel_ok| app_data_dir(app).join(rel_ok)))
+        .and_then(|full| std::fs::metadata(full).ok())
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    let enabled = cfg.enabled && file_path.is_some();
+    WallpaperSettingsOut {
+        enabled,
+        opacity: clamp_f32(cfg.opacity, 0.0, 1.0),
+        blur: clamp_f32(cfg.blur, 0.0, 40.0),
+        file_path,
+        rev,
+    }
+}
+
+#[tauri::command]
+fn get_wallpaper_settings(app: tauri::AppHandle) -> Result<WallpaperSettingsOut, String> {
+    let cfg = read_wallpaper_config(&app)?;
+    Ok(wallpaper_settings_out(&app, &cfg))
+}
+
+#[tauri::command]
+fn set_wallpaper_settings(
+    app: tauri::AppHandle,
+    enabled: bool,
+    opacity: f32,
+    blur: f32,
+) -> Result<WallpaperSettingsOut, String> {
+    let mut cfg = read_wallpaper_config(&app)?;
+    cfg.opacity = clamp_f32(opacity, 0.0, 1.0);
+    cfg.blur = clamp_f32(blur, 0.0, 40.0);
+    let has_file = cfg
+        .rel_path
+        .as_ref()
+        .and_then(|rel| safe_relative_path(rel).ok().map(|rel_ok| app_data_dir(&app).join(rel_ok)))
+        .filter(|full| full.is_file())
+        .is_some();
+    cfg.enabled = enabled && has_file;
+    write_wallpaper_config(&app, &cfg)?;
+    Ok(wallpaper_settings_out(&app, &cfg))
+}
+
+#[tauri::command]
+fn set_wallpaper_image(app: tauri::AppHandle, data_url: String) -> Result<WallpaperSettingsOut, String> {
+    let (bytes, ext) = decode_base64_image_payload(&data_url)?;
+    if bytes.is_empty() {
+        return Err("图片数据为空".to_string());
+    }
+    if bytes.len() > 12 * 1024 * 1024 {
+        return Err("图片过大（>12MB）".to_string());
+    }
+
+    let rel_dir = "wallpaper";
+    let filename = format!("wallpaper.{ext}");
+    let new_rel = format!("{rel_dir}/{filename}");
+
+    let mut cfg = read_wallpaper_config(&app)?;
+    if let Some(old_rel_raw) = cfg.rel_path.as_ref() {
+        if old_rel_raw != &new_rel {
+            if let Ok(old_rel) = safe_relative_path(old_rel_raw) {
+                let old_full = app_data_dir(&app).join(old_rel);
+                let _ = std::fs::remove_file(old_full);
+            }
+        }
+    }
+
+    let dir = app_data_dir(&app).join(rel_dir);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建目录失败: {e}"))?;
+    let full = dir.join(&filename);
+    std::fs::write(&full, bytes).map_err(|e| format!("写入壁纸失败: {e}"))?;
+
+    cfg.rel_path = Some(new_rel);
+    cfg.enabled = true;
+    write_wallpaper_config(&app, &cfg)?;
+    Ok(wallpaper_settings_out(&app, &cfg))
+}
+
+#[tauri::command]
+fn remove_wallpaper(app: tauri::AppHandle) -> Result<WallpaperSettingsOut, String> {
+    let mut cfg = read_wallpaper_config(&app)?;
+    if let Some(old_rel_raw) = cfg.rel_path.take() {
+        if let Ok(old_rel) = safe_relative_path(&old_rel_raw) {
+            let old_full = app_data_dir(&app).join(old_rel);
+            let _ = std::fs::remove_file(old_full);
+        }
+    }
+    cfg.enabled = false;
+    write_wallpaper_config(&app, &cfg)?;
+    Ok(wallpaper_settings_out(&app, &cfg))
+}
+
 #[tauri::command]
 fn get_plugin_icon_overrides(app: tauri::AppHandle) -> Result<HashMap<String, String>, String> {
     let path = storage_file_path(&app, "__app")?;
@@ -3652,11 +3849,67 @@ fn set_auto_start(app: tauri::AppHandle, enabled: bool) -> Result<AutoStartStatu
 
 fn main() {
     tauri::Builder::default()
+        .register_uri_scheme_protocol("wallpaper", |ctx, _request| {
+            let app = ctx.app_handle();
+            let cfg = match read_wallpaper_config(app) {
+                Ok(v) => v,
+                Err(e) => {
+                    return tauri::http::Response::builder()
+                        .status(tauri::http::StatusCode::INTERNAL_SERVER_ERROR)
+                        .header(tauri::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")
+                        .body(format!("failed to load wallpaper config: {e}").as_bytes().to_vec())
+                        .unwrap();
+                }
+            };
+
+            if !cfg.enabled {
+                return tauri::http::Response::builder()
+                    .status(tauri::http::StatusCode::NOT_FOUND)
+                    .header(tauri::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")
+                    .body(b"wallpaper disabled".to_vec())
+                    .unwrap();
+            }
+
+            let Some(rel) = cfg.rel_path.as_ref().and_then(|p| safe_relative_path(p).ok()) else {
+                return tauri::http::Response::builder()
+                    .status(tauri::http::StatusCode::NOT_FOUND)
+                    .header(tauri::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")
+                    .body(b"wallpaper not set".to_vec())
+                    .unwrap();
+            };
+            let full = app_data_dir(app).join(rel);
+            if !full.is_file() {
+                return tauri::http::Response::builder()
+                    .status(tauri::http::StatusCode::NOT_FOUND)
+                    .header(tauri::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")
+                    .body(b"wallpaper file not found".to_vec())
+                    .unwrap();
+            }
+            let Ok(bytes) = std::fs::read(&full) else {
+                return tauri::http::Response::builder()
+                    .status(tauri::http::StatusCode::INTERNAL_SERVER_ERROR)
+                    .header(tauri::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")
+                    .body(b"failed to read wallpaper".to_vec())
+                    .unwrap();
+            };
+
+            let mime = image_mime_by_ext(&full);
+            tauri::http::Response::builder()
+                .status(tauri::http::StatusCode::OK)
+                .header(tauri::http::header::CONTENT_TYPE, mime)
+                .header(tauri::http::header::CACHE_CONTROL, "no-store")
+                .body(bytes)
+                .unwrap()
+        })
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .invoke_handler(tauri::generate_handler![
             get_plugins_dir,
             get_data_dir,
+            get_wallpaper_settings,
+            set_wallpaper_settings,
+            set_wallpaper_image,
+            remove_wallpaper,
             open_data_root_dir,
             open_data_dir,
             open_plugins_dir,

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { invoke } from '@tauri-apps/api/core'
+import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import {
   Avatar,
   Box,
@@ -44,6 +44,61 @@ function isDataImageUrl(value: string): boolean {
   return value.startsWith('data:image/')
 }
 
+async function pickImageFile(): Promise<File | null> {
+  return new Promise(resolve => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = 'image/png,image/jpeg,image/webp'
+    input.onchange = () => {
+      const file = input.files?.[0] ?? null
+      resolve(file)
+      input.remove()
+    }
+    input.oncancel = () => {
+      resolve(null)
+      input.remove()
+    }
+    input.style.position = 'fixed'
+    input.style.left = '-9999px'
+    document.body.appendChild(input)
+    input.click()
+  })
+}
+
+async function makeWallpaperDataUrl(file: File, maxPx: number): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('读取图片失败'))
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.readAsDataURL(file)
+  })
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const el = new Image()
+    el.onload = () => resolve(el)
+    el.onerror = () => reject(new Error('加载图片失败'))
+    el.src = dataUrl
+  })
+
+  const w = img.naturalWidth || img.width
+  const h = img.naturalHeight || img.height
+  if (!w || !h) throw new Error('图片尺寸无效')
+
+  const scale = Math.min(1, maxPx / Math.max(w, h))
+  const outW = Math.max(1, Math.round(w * scale))
+  const outH = Math.max(1, Math.round(h * scale))
+
+  const canvas = document.createElement('canvas')
+  canvas.width = outW
+  canvas.height = outH
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Canvas 不可用')
+  ctx.drawImage(img, 0, 0, outW, outH)
+
+  const webp = canvas.toDataURL('image/webp', 0.86)
+  return webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', 0.88)
+}
+
 function clampRate(raw: number) {
   if (!Number.isFinite(raw)) return 1
   return Math.min(MAX_VIDEO_RATE, Math.max(0.25, raw))
@@ -67,6 +122,14 @@ type WebviewSettings = {
     maxRate: number
     presets: WebviewVideoSpeedPreset[]
   }
+}
+
+type WallpaperSettings = {
+  enabled: boolean
+  opacity: number
+  blur: number
+  filePath?: string | null
+  rev?: number
 }
 
 type PluginManageItem = {
@@ -123,6 +186,8 @@ export default function SettingsView(_props: { onBack: () => void }) {
   const [recording, setRecording] = useState(false)
   const [webview, setWebview] = useState<WebviewSettings | null>(null)
   const [webviewSaving, setWebviewSaving] = useState(false)
+  const [wallpaper, setWallpaper] = useState<WallpaperSettings | null>(null)
+  const [wallpaperSaving, setWallpaperSaving] = useState(false)
   const [recordingPresetIndex, setRecordingPresetIndex] = useState<number | null>(null)
   const [autoStart, setAutoStart] = useState<AutoStartStatus>({ supported: false, enabled: false, scope: 'unknown' })
   const [autoStartSaving, setAutoStartSaving] = useState(false)
@@ -134,12 +199,13 @@ export default function SettingsView(_props: { onBack: () => void }) {
 
   useEffect(() => {
     async function load() {
-      const [dir, pdir, cur, st, wv] = await Promise.all([
+      const [dir, pdir, cur, st, wv, wp] = await Promise.all([
         invoke<string>('get_data_dir').catch(() => ''),
         invoke<string>('get_plugins_dir').catch(() => ''),
         invoke<string>('get_wake_shortcut').catch(() => ''),
         invoke<AutoStartStatus>('get_auto_start').catch(() => ({ supported: false, enabled: false, scope: 'unknown' })),
         invoke<WebviewSettings>('get_webview_settings').catch(() => null),
+        invoke<WallpaperSettings>('get_wallpaper_settings').catch(() => null),
       ])
       setDataDir(dir)
       setPluginsDir(pdir)
@@ -147,9 +213,63 @@ export default function SettingsView(_props: { onBack: () => void }) {
       setInput(cur || DEFAULT_WAKE_SHORTCUT)
       setAutoStart(st)
       setWebview(wv || DEFAULT_WEBVIEW_SETTINGS)
+      setWallpaper(wp || { enabled: false, opacity: 0.65, blur: 0, filePath: null })
     }
     load()
   }, [])
+
+  async function applyWallpaperSettings(next: { enabled?: boolean; opacity?: number; blur?: number }) {
+    setWallpaperSaving(true)
+    try {
+      const prev = wallpaper || { enabled: false, opacity: 0.65, blur: 0, filePath: null }
+      const normalized = await invoke<WallpaperSettings>('set_wallpaper_settings', {
+        enabled: typeof next.enabled === 'boolean' ? next.enabled : prev.enabled,
+        opacity: typeof next.opacity === 'number' ? next.opacity : prev.opacity,
+        blur: typeof next.blur === 'number' ? next.blur : prev.blur,
+      })
+      setWallpaper(normalized)
+      window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
+    } catch (e: any) {
+      toast(String(e?.message || e || '设置失败'))
+    } finally {
+      setWallpaperSaving(false)
+    }
+  }
+
+  async function chooseWallpaperImage() {
+    setWallpaperSaving(true)
+    try {
+      const file = await pickImageFile()
+      if (!file) return
+      if (file.size > 80 * 1024 * 1024) {
+        toast('图片过大（> 80MB）')
+        return
+      }
+      const dataUrl = await makeWallpaperDataUrl(file, 2560)
+      const normalized = await invoke<WallpaperSettings>('set_wallpaper_image', { dataUrl })
+      setWallpaper(normalized)
+      window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
+      toast('壁纸已更新')
+    } catch (e: any) {
+      toast(String(e?.message || e || '设置失败'))
+    } finally {
+      setWallpaperSaving(false)
+    }
+  }
+
+  async function clearWallpaper() {
+    setWallpaperSaving(true)
+    try {
+      const normalized = await invoke<WallpaperSettings>('remove_wallpaper')
+      setWallpaper(normalized)
+      window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
+      toast('已清除壁纸')
+    } catch (e: any) {
+      toast(String(e?.message || e || '设置失败'))
+    } finally {
+      setWallpaperSaving(false)
+    }
+  }
 
   async function loadPluginManage() {
     setPluginManageLoading(true)
@@ -464,6 +584,145 @@ export default function SettingsView(_props: { onBack: () => void }) {
               <Typography variant="caption" color="text.secondary">
                 {autoStart.supported ? '仅影响本机当前用户' : '不可用'}
               </Typography>
+            </Box>
+
+            <Divider />
+
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                壁纸背景（主窗口）
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                仅影响宿主主窗口；可调透明度与模糊，不影响插件自身渲染。
+              </Typography>
+            </Box>
+
+            <Box
+              sx={{
+                border: 1,
+                borderColor: 'divider',
+                borderRadius: 2,
+                p: 1.25,
+                bgcolor: 'background.paper',
+                display: 'grid',
+                gap: 1,
+              }}
+            >
+              <Box
+                sx={{
+                  position: 'relative',
+                  height: 120,
+                  borderRadius: 2,
+                  overflow: 'hidden',
+                  border: 1,
+                  borderColor: 'divider',
+                  bgcolor: 'action.hover',
+                }}
+              >
+                {wallpaper?.filePath ? (
+                  <>
+                    <Box
+                      aria-hidden
+                      sx={{
+                        position: 'absolute',
+                        inset: 0,
+                        backgroundImage: `url(${convertFileSrc('wallpaper', 'wallpaper')}?rev=${wallpaper.rev ?? 0})`,
+                        backgroundSize: 'cover',
+                        backgroundPosition: 'center',
+                        opacity: Math.max(0, Math.min(1, wallpaper.opacity || 0)),
+                        filter: `blur(${Math.max(0, Math.min(40, wallpaper.blur || 0))}px)`,
+                        transform: 'scale(1.05)',
+                      }}
+                    />
+                    <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <Typography
+                        variant="caption"
+                        sx={{ px: 1, py: 0.25, borderRadius: 999, bgcolor: 'rgba(0,0,0,0.35)', color: '#fff' }}
+                      >
+                        预览
+                      </Typography>
+                    </Box>
+                  </>
+                ) : (
+                  <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Typography variant="caption" color="text.secondary">
+                      未设置壁纸
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                <Button size="small" variant="outlined" onClick={chooseWallpaperImage} disabled={wallpaperSaving || saving || recording}>
+                  选择壁纸
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="error"
+                  onClick={clearWallpaper}
+                  disabled={wallpaperSaving || saving || recording || !wallpaper?.filePath}
+                >
+                  清除
+                </Button>
+              </Box>
+
+              <FormControlLabel
+                sx={{ m: 0 }}
+                control={
+                  <Switch
+                    checked={!!wallpaper?.enabled}
+                    disabled={wallpaperSaving || saving || recording || !wallpaper?.filePath}
+                    onChange={e => void applyWallpaperSettings({ enabled: e.target.checked })}
+                    inputProps={{ 'aria-label': '启用壁纸背景' }}
+                  />
+                }
+                label={wallpaper?.enabled ? '已启用' : '未启用'}
+              />
+
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                  透明度：{Math.round(((wallpaper?.opacity ?? 0.65) || 0) * 100)}%
+                </Typography>
+                <Slider
+                  value={Math.round(((wallpaper?.opacity ?? 0.65) || 0) * 100)}
+                  min={0}
+                  max={100}
+                  step={1}
+                  disabled={wallpaperSaving || saving || recording || !wallpaper?.filePath}
+                  onChange={(_, v) => {
+                    const val = typeof v === 'number' ? v : v[0] ?? 0
+                    setWallpaper(prev => (prev ? { ...prev, opacity: val / 100 } : prev))
+                  }}
+                  onChangeCommitted={(_, v) => {
+                    const val = typeof v === 'number' ? v : v[0] ?? 0
+                    void applyWallpaperSettings({ opacity: val / 100 })
+                  }}
+                  aria-label="壁纸透明度"
+                />
+              </Box>
+
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                  模糊：{Math.round((wallpaper?.blur ?? 0) || 0)}px
+                </Typography>
+                <Slider
+                  value={Math.round((wallpaper?.blur ?? 0) || 0)}
+                  min={0}
+                  max={40}
+                  step={1}
+                  disabled={wallpaperSaving || saving || recording || !wallpaper?.filePath}
+                  onChange={(_, v) => {
+                    const val = typeof v === 'number' ? v : v[0] ?? 0
+                    setWallpaper(prev => (prev ? { ...prev, blur: val } : prev))
+                  }}
+                  onChangeCommitted={(_, v) => {
+                    const val = typeof v === 'number' ? v : v[0] ?? 0
+                    void applyWallpaperSettings({ blur: val })
+                  }}
+                  aria-label="壁纸模糊程度"
+                />
+              </Box>
             </Box>
           </Stack>
         ) : null}

@@ -1751,13 +1751,6 @@
       if (!drag.active) return
       drag.active = false
 
-      if (drag.originEl instanceof HTMLElement) {
-        drag.originEl.style.display = ''
-      }
-
-      if (drag.ghost instanceof HTMLElement) drag.ghost.remove()
-      if (drag.placeholder instanceof HTMLElement) drag.placeholder.remove()
-
       if (commit && drag.id && state.collections && state.view === 'folders' && !state.folderSearchQuery.trim()) {
         if (isFolder(state.currentFolderId) && drag.listEl instanceof HTMLElement) {
           let insertIndex = 0
@@ -1773,6 +1766,13 @@
         }
         render()
       }
+
+      if (drag.originEl instanceof HTMLElement) {
+        drag.originEl.style.display = ''
+      }
+
+      if (drag.ghost instanceof HTMLElement) drag.ghost.remove()
+      if (drag.placeholder instanceof HTMLElement) drag.placeholder.remove()
 
       drag.id = ''
       drag.originEl = null
