@@ -139,6 +139,8 @@ type WallpaperSettings = {
   titlebarBlur: number
   filePath?: string | null
   rev?: number
+  items?: { id: string; rev: number }[]
+  activeId?: string | null
 }
 
 type PluginManageItem = {
@@ -214,6 +216,8 @@ export default function SettingsView(_props: { onBack: () => void }) {
     backdropFilter: wallpaper?.enabled ? 'blur(12px)' : undefined,
   })
 
+  const wallpaperBaseUrl = useMemo(() => convertFileSrc('wallpaper', 'wallpaper'), [])
+
   useEffect(() => {
     async function load() {
       const [dir, pdir, cur, st, wv, wp] = await Promise.all([
@@ -230,7 +234,9 @@ export default function SettingsView(_props: { onBack: () => void }) {
       setInput(cur || DEFAULT_WAKE_SHORTCUT)
       setAutoStart(st)
       setWebview(wv || DEFAULT_WEBVIEW_SETTINGS)
-      setWallpaper(wp || { enabled: false, opacity: 0.65, blur: 0, titlebarOpacity: 0.62, titlebarBlur: 12, filePath: null })
+      setWallpaper(
+        wp || { enabled: false, opacity: 0.65, blur: 0, titlebarOpacity: 0.62, titlebarBlur: 12, filePath: null, items: [], activeId: null },
+      )
     }
     load()
   }, [])
@@ -275,9 +281,40 @@ export default function SettingsView(_props: { onBack: () => void }) {
       const normalized = await invoke<WallpaperSettings>('set_wallpaper_image', { dataUrl })
       setWallpaper(normalized)
       window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
-      toast('壁纸已更新')
+      toast('壁纸已添加')
     } catch (e: any) {
       toast(String(e?.message || e || '设置失败'))
+    } finally {
+      setWallpaperSaving(false)
+    }
+  }
+
+  async function setActiveWallpaper(id: string) {
+    const wid = String(id || '').trim()
+    if (!wid) return
+    setWallpaperSaving(true)
+    try {
+      const normalized = await invoke<WallpaperSettings>('set_active_wallpaper', { id: wid })
+      setWallpaper(normalized)
+      window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
+    } catch (e: any) {
+      toast(String(e?.message || e || '切换失败'))
+    } finally {
+      setWallpaperSaving(false)
+    }
+  }
+
+  async function deleteWallpaperItem(id: string) {
+    const wid = String(id || '').trim()
+    if (!wid) return
+    setWallpaperSaving(true)
+    try {
+      const normalized = await invoke<WallpaperSettings>('remove_wallpaper_item', { id: wid })
+      setWallpaper(normalized)
+      window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
+      toast('已删除壁纸')
+    } catch (e: any) {
+      toast(String(e?.message || e || '删除失败'))
     } finally {
       setWallpaperSaving(false)
     }
@@ -653,7 +690,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
                       sx={{
                         position: 'absolute',
                         inset: 0,
-                        backgroundImage: `url(${convertFileSrc('wallpaper', 'wallpaper')}?rev=${wallpaper.rev ?? 0})`,
+                        backgroundImage: `url(${wallpaperBaseUrl}?rev=${wallpaper.rev ?? 0})`,
                         backgroundSize: 'cover',
                         backgroundPosition: 'center',
                         opacity: Math.max(0, Math.min(1, wallpaper.opacity || 0)),
@@ -681,7 +718,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
 
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                 <Button size="small" variant="outlined" onClick={chooseWallpaperImage} disabled={wallpaperSaving || saving || recording}>
-                  选择壁纸
+                  添加壁纸
                 </Button>
                 <Button
                   size="small"
@@ -693,6 +730,73 @@ export default function SettingsView(_props: { onBack: () => void }) {
                   清除
                 </Button>
               </Box>
+
+              {Array.isArray(wallpaper?.items) && wallpaper.items.length ? (
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                  {wallpaper.items.map(it => {
+                    const active = !!wallpaper?.activeId && wallpaper.activeId === it.id
+                    const thumbUrl = `${wallpaperBaseUrl}?id=${encodeURIComponent(it.id)}&rev=${it.rev ?? 0}`
+                    return (
+                      <Box
+                        key={it.id}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={active ? '当前壁纸' : '切换壁纸'}
+                        onClick={() => void setActiveWallpaper(it.id)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            void setActiveWallpaper(it.id)
+                          }
+                        }}
+                        sx={{
+                          width: 88,
+                          height: 52,
+                          borderRadius: 1.5,
+                          overflow: 'hidden',
+                          position: 'relative',
+                          cursor: wallpaperSaving || saving || recording ? 'not-allowed' : 'pointer',
+                          pointerEvents: wallpaperSaving || saving || recording ? 'none' : 'auto',
+                          border: 1,
+                          borderColor: active ? 'primary.main' : 'divider',
+                          boxShadow: active ? 2 : 0,
+                          bgcolor: 'action.hover',
+                        }}
+                      >
+                        <Box
+                          aria-hidden
+                          sx={{
+                            position: 'absolute',
+                            inset: 0,
+                            backgroundImage: `url(${thumbUrl})`,
+                            backgroundSize: 'cover',
+                            backgroundPosition: 'center',
+                            transform: 'scale(1.02)',
+                          }}
+                        />
+                        <Box sx={{ position: 'absolute', top: 2, right: 2 }}>
+                          <IconButton
+                            aria-label="删除壁纸"
+                            size="small"
+                            color="error"
+                            onClick={e => {
+                              e.stopPropagation()
+                              void deleteWallpaperItem(it.id)
+                            }}
+                            sx={{
+                              bgcolor: 'rgba(0,0,0,0.35)',
+                              color: '#fff',
+                              '&:hover': { bgcolor: 'rgba(0,0,0,0.55)' },
+                            }}
+                          >
+                            <DeleteRoundedIcon fontSize="inherit" />
+                          </IconButton>
+                        </Box>
+                      </Box>
+                    )
+                  })}
+                </Box>
+              ) : null}
 
               <FormControlLabel
                 sx={{ m: 0 }}

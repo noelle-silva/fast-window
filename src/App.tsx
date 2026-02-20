@@ -42,6 +42,8 @@ import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
+import NavigateBeforeRoundedIcon from '@mui/icons-material/NavigateBeforeRounded'
+import NavigateNextRoundedIcon from '@mui/icons-material/NavigateNextRounded'
 import SettingsView from './components/SettingsView'
 import ImportPluginDialog from './components/ImportPluginDialog'
 import BrowserBarWindow from './components/BrowserBarWindow'
@@ -80,6 +82,8 @@ type WallpaperSettings = {
   titlebarBlur: number
   filePath?: string | null
   rev?: number
+  items?: { id: string; rev: number }[]
+  activeId?: string | null
 }
 
 function normalizeBrowseLayout(value: unknown): PluginBrowseLayout {
@@ -204,6 +208,9 @@ function TitleBar(props: {
   translucentOpacity?: number
   translucentBlur?: number
   onBack?: () => void
+  onPrevWallpaper?: () => void
+  onNextWallpaper?: () => void
+  wallpaperSwitchDisabled?: boolean
   onImportPlugin?: () => void
   onSettings?: () => void
   onReloadPlugins?: () => void
@@ -222,6 +229,9 @@ function TitleBar(props: {
     translucentOpacity,
     translucentBlur,
     onBack,
+    onPrevWallpaper,
+    onNextWallpaper,
+    wallpaperSwitchDisabled,
     onImportPlugin,
     onSettings,
     onReloadPlugins,
@@ -286,6 +296,16 @@ function TitleBar(props: {
             </>
           ) : (
             <>
+              {onPrevWallpaper && onNextWallpaper ? (
+                <>
+                  <IconButton aria-label="上一张壁纸" size="small" onClick={onPrevWallpaper} disabled={wallpaperSwitchDisabled}>
+                    <NavigateBeforeRoundedIcon fontSize="small" />
+                  </IconButton>
+                  <IconButton aria-label="下一张壁纸" size="small" onClick={onNextWallpaper} disabled={wallpaperSwitchDisabled}>
+                    <NavigateNextRoundedIcon fontSize="small" />
+                  </IconButton>
+                </>
+              ) : null}
               {onImportPlugin ? (
                 <IconButton aria-label="导入插件" size="small" onClick={onImportPlugin}>
                   <FileUploadRoundedIcon fontSize="small" />
@@ -459,6 +479,25 @@ function App() {
       setWallpaper(wp)
     } catch (_) {
       setWallpaper({ enabled: false, opacity: 0.65, blur: 0, titlebarOpacity: 0.62, titlebarBlur: 12, filePath: null })
+    }
+  }, [])
+
+  const [wallpaperSwitching, setWallpaperSwitching] = useState(false)
+  const wallpaperSwitchingRef = useRef(false)
+
+  const cycleWallpaper = useCallback(async (delta: number) => {
+    if (wallpaperSwitchingRef.current) return
+    wallpaperSwitchingRef.current = true
+    setWallpaperSwitching(true)
+    try {
+      const wp = await invoke<WallpaperSettings>('cycle_wallpaper', { delta })
+      setWallpaper(wp)
+      window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
+    } catch (e) {
+      console.warn('[wallpaper] failed to cycle:', e)
+    } finally {
+      wallpaperSwitchingRef.current = false
+      setWallpaperSwitching(false)
     }
   }, [])
 
@@ -798,6 +837,12 @@ function App() {
   const wallpaperUrl =
     wallpaper?.enabled && wallpaper.filePath ? `${convertFileSrc('wallpaper', 'wallpaper')}?rev=${wallpaper.rev ?? 0}` : ''
   const hasWallpaper = !!wallpaperUrl
+  const canSwitchWallpaper = !!(
+    wallpaper?.enabled &&
+    wallpaper.filePath &&
+    Array.isArray(wallpaper.items) &&
+    wallpaper.items.length > 1
+  )
   const titlebarOpacity = typeof wallpaper?.titlebarOpacity === 'number' ? wallpaper.titlebarOpacity : 0.62
   const titlebarBlur = typeof wallpaper?.titlebarBlur === 'number' ? wallpaper.titlebarBlur : 12
   const wallpaperLayer = wallpaperUrl ? (
@@ -1086,6 +1131,9 @@ function App() {
             translucent={hasWallpaper}
             translucentOpacity={titlebarOpacity}
             translucentBlur={titlebarBlur}
+            onPrevWallpaper={canSwitchWallpaper ? () => void cycleWallpaper(-1) : undefined}
+            onNextWallpaper={canSwitchWallpaper ? () => void cycleWallpaper(1) : undefined}
+            wallpaperSwitchDisabled={wallpaperSwitching}
             onImportPlugin={reorderMode ? undefined : () => setImportOpen(true)}
             onReloadPlugins={reorderMode ? undefined : reloadPlugins}
             reloadDisabled={loading}
