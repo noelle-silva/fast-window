@@ -207,8 +207,6 @@ export default function SettingsView(_props: { onBack: () => void }) {
   const [pluginManageSavingId, setPluginManageSavingId] = useState<string>('')
 
   const panelSx = (theme: any) => ({
-    border: 1,
-    borderColor: 'divider',
     borderRadius: 2,
     p: 1.25,
     bgcolor: wallpaper?.enabled ? alpha(theme.palette.background.paper, 0.62) : theme.palette.background.paper,
@@ -594,8 +592,6 @@ export default function SettingsView(_props: { onBack: () => void }) {
                   height: 120,
                   borderRadius: 2,
                   overflow: 'hidden',
-                  border: 1,
-                  borderColor: 'divider',
                   bgcolor: 'action.hover',
                 }}
               >
@@ -815,12 +811,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
                   <Box
                     key={p.id}
                     sx={theme => ({
-                      border: 1,
-                      borderColor: 'divider',
-                      borderRadius: 2,
-                      p: 1.25,
-                      bgcolor: wallpaper?.enabled ? alpha(theme.palette.background.paper, 0.62) : theme.palette.background.paper,
-                      backdropFilter: wallpaper?.enabled ? 'blur(12px)' : undefined,
+                      ...panelSx(theme),
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
@@ -1008,8 +999,6 @@ export default function SettingsView(_props: { onBack: () => void }) {
                     <Box
                       key={`${idx}-${p.label}-${p.rate}`}
                       sx={theme => ({
-                        border: 1,
-                        borderColor: 'divider',
                         borderRadius: 2,
                         p: 1,
                         bgcolor: wallpaper?.enabled ? alpha(theme.palette.background.paper, 0.62) : undefined,
