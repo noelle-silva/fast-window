@@ -310,7 +310,7 @@
     internalCopy: { type: '', content: '', at: 0 },
 
     ctxMenu: { open: false, x: 0, y: 0, nodeId: '' },
-    movePicker: { open: false, movingId: '', query: '' },
+    movePicker: { open: false, movingId: '', query: '', action: 'move' }, // action: 'move' | 'copy'
 
     monitorTaskId: '',
     monitorQueryTimer: null,
@@ -1216,6 +1216,7 @@
     state.movePicker.open = false
     state.movePicker.movingId = ''
     state.movePicker.query = ''
+    state.movePicker.action = 'move'
   }
 
   function renderMovePickerList() {
@@ -1225,8 +1226,8 @@
 
     const movingId = state.movePicker.movingId
     const moving = getNode(movingId)
-    if (!moving || moving.type !== 'folder') {
-      list.innerHTML = '<div class="menuHeader">无效的收藏夹</div>'
+    if (!moving || (moving.type !== 'folder' && moving.type !== 'item')) {
+      list.innerHTML = '<div class="menuHeader">无效的条目</div>'
       return
     }
 
@@ -1270,20 +1271,25 @@
 
     if (state.movePicker.open) {
       const moving = getNode(state.movePicker.movingId)
-      const name = moving && moving.type === 'folder' ? moving.name : ''
+      const action = state.movePicker.action === 'copy' ? 'copy' : 'move'
+      const isFolderMove = !!moving && moving.type === 'folder' && action === 'move'
+      const kindLabel = moving && moving.type === 'folder' ? '收藏夹' : '条目'
+      const name = moving && moving.type === 'folder' ? moving.name : moving && moving.type === 'item' ? (moving.title || '') : ''
+      const dialogTitle = `${action === 'copy' ? '复制' : '移动'}${kindLabel}`
+      const hintVerb = action === 'copy' ? '复制到' : '移动到'
       overlay.className = 'overlay open'
       overlay.innerHTML = `
         <div class="backdrop" data-act="closeOverlay"></div>
-        <div class="dialog" role="dialog" aria-modal="true" aria-label="移动收藏夹">
+        <div class="dialog" role="dialog" aria-modal="true" aria-label="${escapeHtml(dialogTitle)}">
           <div class="dialogHeader">
-            <div class="dialogTitle">移动收藏夹</div>
+            <div class="dialogTitle">${escapeHtml(dialogTitle)}</div>
             <span class="spacer"></span>
             <button class="btn" data-act="movePickCancel">取消</button>
           </div>
           <div class="dialogBody">
             <div class="hint">
-              <span>将「${escapeHtml(name)}」移动到：</span>
-              <span>不能移动到自身或子收藏夹</span>
+              <span>将「${escapeHtml(name)}」${hintVerb}：</span>
+              ${isFolderMove ? '<span>不能移动到自身或子收藏夹</span>' : ''}
             </div>
             <input class="input" placeholder="搜索目标收藏夹（按路径）" data-act="movePickQuery" value="${escapeHtml(state.movePicker.query)}" />
             <div class="dialogList" data-area="movePickList"></div>
@@ -1304,11 +1310,25 @@
     }
 
     if (state.ctxMenu.open && state.ctxMenu.nodeId) {
+      const n = getNode(state.ctxMenu.nodeId)
+      if (!n || (n.type !== 'folder' && n.type !== 'item')) {
+        closeOverlays()
+        overlay.className = 'overlay'
+        overlay.innerHTML = ''
+        return
+      }
+      const items =
+        n.type === 'item'
+          ? `
+            <button class="menuItem" data-act="ctxCopyTo">📋 复制到...</button>
+            <button class="menuItem" data-act="ctxMoveTo">📁 移动到...</button>
+          `
+          : `<button class="menuItem" data-act="ctxMoveTo">📁 移动到...</button>`
       overlay.className = 'overlay open'
       overlay.innerHTML = `
         <div class="backdrop" data-act="closeOverlay"></div>
         <div class="ctxMenu" data-role="ctxMenu" style="left:${state.ctxMenu.x}px;top:${state.ctxMenu.y}px">
-          <button class="menuItem" data-act="ctxMoveTo">📁 移动到...</button>
+          ${items}
         </div>
       `
       requestAnimationFrame(fitCtxMenuIntoViewport)
@@ -1382,10 +1402,24 @@
         const movingId = state.ctxMenu.nodeId
         const n = getNode(movingId)
         closeOverlays()
-        if (n && n.type === 'folder') {
+        if (n && (n.type === 'folder' || n.type === 'item')) {
           state.movePicker.open = true
           state.movePicker.movingId = movingId
           state.movePicker.query = ''
+          state.movePicker.action = 'move'
+        }
+        renderOverlay()
+        return
+      }
+      if (act === 'ctxCopyTo') {
+        const movingId = state.ctxMenu.nodeId
+        const n = getNode(movingId)
+        closeOverlays()
+        if (n && n.type === 'item') {
+          state.movePicker.open = true
+          state.movePicker.movingId = movingId
+          state.movePicker.query = ''
+          state.movePicker.action = 'copy'
         }
         renderOverlay()
         return
@@ -1393,9 +1427,18 @@
       if (act === 'movePickTarget') {
         const toParentId = t.getAttribute('data-id') || ''
         const movingId = state.movePicker.movingId
-        const ok = moveNode(movingId, toParentId)
-        if (ok) api.ui?.showToast?.(`已移动到：${folderLabelById(toParentId)}`)
-        else api.ui?.showToast?.('移动失败')
+        const action = state.movePicker.action === 'copy' ? 'copy' : 'move'
+        const moving = getNode(movingId)
+        let ok = false
+        if (action === 'copy') {
+          if (moving && moving.type === 'item') {
+            ok = !!createItem(toParentId, moving.title, moving.content)
+          }
+        } else {
+          ok = moveNode(movingId, toParentId)
+        }
+        if (ok) api.ui?.showToast?.(`${action === 'copy' ? '已复制到' : '已移动到'}：${folderLabelById(toParentId)}`)
+        else api.ui?.showToast?.(`${action === 'copy' ? '复制失败' : '移动失败'}`)
         closeOverlays()
         renderOverlay()
         renderFolderList()
@@ -1684,7 +1727,6 @@
       const t = e.target
       if (!(t instanceof HTMLElement)) return
       if (state.view !== 'folders') return
-      if (state.folderSearchQuery.trim()) return
       if (state.ctxMenu.open || state.movePicker.open) {
         e.preventDefault()
         return
@@ -1694,7 +1736,7 @@
       if (!(card instanceof HTMLElement)) return
       const nodeId = card.getAttribute('data-id') || ''
       const n = getNode(nodeId)
-      if (!n || n.type !== 'folder') return
+      if (!n || (n.type !== 'folder' && n.type !== 'item')) return
 
       e.preventDefault()
       state.showRecentMenu = false
