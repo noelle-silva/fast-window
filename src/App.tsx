@@ -200,6 +200,7 @@ function TitleBar(props: {
   onCancelReorder?: () => void
   browseLayout?: PluginBrowseLayout
   onToggleBrowseLayout?: () => void
+  showDivider?: boolean
 }) {
   const {
     title,
@@ -214,6 +215,7 @@ function TitleBar(props: {
     onCancelReorder,
     browseLayout,
     onToggleBrowseLayout,
+    showDivider = true,
   } = props
   return (
     <Box
@@ -225,8 +227,8 @@ function TitleBar(props: {
         position: 'relative',
         px: 0.5,
         bgcolor: 'background.paper',
-        borderBottom: 1,
-        borderColor: 'divider',
+        borderBottom: showDivider ? 1 : 0,
+        borderColor: showDivider ? 'divider' : undefined,
         WebkitAppRegion: 'drag',
       }}
     >
@@ -995,6 +997,7 @@ function App() {
             onCancelReorder={reorderMode ? cancelReorder : undefined}
             onSaveReorder={reorderMode ? saveReorder : undefined}
             onSettings={reorderMode ? undefined : () => setActivePlugin(settingsPlugin)}
+            showDivider={false}
           />
 
         <Box sx={{ p: 2, bgcolor: 'background.paper' }}>
