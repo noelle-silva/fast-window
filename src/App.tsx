@@ -30,6 +30,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
@@ -1009,6 +1010,15 @@ function App() {
             placeholder="输入关键词搜索插件..."
             variant="outlined"
             disabled={reorderMode}
+            sx={{
+              '& .MuiOutlinedInput-root': {
+                '& .MuiOutlinedInput-notchedOutline': { border: 0 },
+                '&:hover .MuiOutlinedInput-notchedOutline': { border: 0 },
+                '&.Mui-focused': {
+                  boxShadow: theme => `0 0 0 2px ${alpha(theme.palette.primary.main, 0.35)}`,
+                },
+              },
+            }}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
