@@ -1068,7 +1068,7 @@ function App() {
             showDivider={false}
           />
 
-        <Box sx={{ p: 2, bgcolor: 'background.paper' }}>
+        <Box sx={{ p: 2, bgcolor: 'transparent' }}>
           <TextField
             fullWidth
             autoFocus

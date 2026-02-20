@@ -489,7 +489,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
           position: 'sticky',
           top: 0,
           zIndex: 1,
-          bgcolor: 'background.default',
+          bgcolor: wallpaper?.enabled ? 'transparent' : 'background.default',
           pt: 0.25,
           pb: 1,
         }}
