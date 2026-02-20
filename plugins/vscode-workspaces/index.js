@@ -239,7 +239,7 @@
             <code>vscode://file/...</code> 协议的安全确认，不是本插件弹的。
           </div>
           <div class="helpText helpMuted">
-            解决：在 VS Code 设置里关闭 <code>security.promptForLocalFileProtocolHandling</code>；如果你用的是远程协议，再关闭
+            解决：在 VS Code 设置里搜索并取消勾选 <code>security.promptForLocalFileProtocolHandling</code>；如果你用的是远程协议，再关闭
             <code>security.promptForRemoteFileProtocolHandling</code>。
           </div>
           <div class="helpText helpMuted">也可以直接编辑 VS Code 的 settings.json：</div>
