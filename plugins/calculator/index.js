@@ -71,7 +71,7 @@
   .exprRow { display: flex; gap: 8px; align-items: center; }
   .expr {
     width: 100%;
-    height: 38px;
+    height: 76px;
     border: 1px solid var(--outline);
     border-radius: 10px;
     padding: 0 10px;
@@ -81,12 +81,16 @@
     color: var(--text);
   }
   .rightCol { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-  .subRow { margin-top: 8px; display: flex; justify-content: space-between; gap: 8px; }
+  .subRow { margin-top: 8px; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
   .hint { font-size: 12px; color: var(--muted); }
   .result {
     font-size: 28px;
     font-weight: 900;
     text-align: right;
+    min-height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
