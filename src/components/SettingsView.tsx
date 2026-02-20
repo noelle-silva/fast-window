@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
+import { alpha } from '@mui/material/styles'
 import {
   Avatar,
   Box,
   Button,
   CircularProgress,
-  Divider,
   FormControlLabel,
   IconButton,
   Slider,
@@ -196,6 +196,15 @@ export default function SettingsView(_props: { onBack: () => void }) {
   const [pluginManageDisabledIds, setPluginManageDisabledIds] = useState<string[]>([])
   const [pluginManageLoading, setPluginManageLoading] = useState(false)
   const [pluginManageSavingId, setPluginManageSavingId] = useState<string>('')
+
+  const panelSx = (theme: any) => ({
+    border: 1,
+    borderColor: 'divider',
+    borderRadius: 2,
+    p: 1.25,
+    bgcolor: wallpaper?.enabled ? alpha(theme.palette.background.paper, 0.62) : theme.palette.background.paper,
+    backdropFilter: wallpaper?.enabled ? 'blur(12px)' : undefined,
+  })
 
   useEffect(() => {
     async function load() {
@@ -484,7 +493,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
 
   return (
     <Box sx={{ p: 2, height: '100%', overflowY: 'auto', overflowX: 'hidden', boxSizing: 'border-box' }}>
-      <Box sx={{ pt: 0.25, pb: 1, bgcolor: 'transparent' }}>
+      <Box sx={theme => ({ ...panelSx(theme), p: 0.5, px: 0.75, pt: 0.25, pb: 0.25 })}>
         <Tabs
           value={tabIndex}
           onChange={(_, next) => {
@@ -499,7 +508,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
           variant="scrollable"
           allowScrollButtonsMobile
           aria-label="设置分类"
-          sx={{ borderBottom: 1, borderColor: 'divider' }}
+          sx={{ minHeight: 40 }}
         >
           <Tab label="常规" id="settings-tab-0" aria-controls="settings-tabpanel-0" />
           <Tab label="插件管理" id="settings-tab-1" aria-controls="settings-tabpanel-1" />
@@ -512,7 +521,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
       <Box role="tabpanel" hidden={tabIndex !== 0} id="settings-tabpanel-0" aria-labelledby="settings-tab-0" sx={{ pt: 0.5 }}>
         {tabIndex === 0 ? (
           <Stack spacing={1.25}>
-            <Box>
+            <Box sx={panelSx}>
               <Typography variant="body2" sx={{ fontWeight: 700 }}>
                 数据与插件位置
               </Typography>
@@ -532,9 +541,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
               </Box>
             </Box>
 
-            <Divider />
-
-            <Box>
+            <Box sx={panelSx}>
               <Typography variant="body2" sx={{ fontWeight: 700 }}>
                 开机自启
               </Typography>
@@ -545,60 +552,35 @@ export default function SettingsView(_props: { onBack: () => void }) {
                     } 的 autoStart`
                   : '当前平台不支持开机自启设置'}
               </Typography>
+              <Box sx={{ mt: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
+                <FormControlLabel
+                  sx={{ m: 0 }}
+                  control={
+                    <Switch
+                      checked={autoStart.enabled}
+                      disabled={!autoStart.supported || autoStartSaving || saving || recording}
+                      onChange={e => saveAutoStart(e.target.checked)}
+                      inputProps={{ 'aria-label': '开机自启' }}
+                    />
+                  }
+                  label={autoStart.enabled ? '已开启' : '已关闭'}
+                />
+                <Typography variant="caption" color="text.secondary">
+                  {autoStart.supported ? '仅影响本机当前用户' : '不可用'}
+                </Typography>
+              </Box>
             </Box>
 
-            <Box
-              sx={{
-                border: 1,
-                borderColor: 'divider',
-                borderRadius: 2,
-                p: 1.25,
-                bgcolor: 'background.paper',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                gap: 1,
-              }}
-            >
-              <FormControlLabel
-                sx={{ m: 0 }}
-                control={
-                  <Switch
-                    checked={autoStart.enabled}
-                    disabled={!autoStart.supported || autoStartSaving || saving || recording}
-                    onChange={e => saveAutoStart(e.target.checked)}
-                    inputProps={{ 'aria-label': '开机自启' }}
-                  />
-                }
-                label={autoStart.enabled ? '已开启' : '已关闭'}
-              />
-              <Typography variant="caption" color="text.secondary">
-                {autoStart.supported ? '仅影响本机当前用户' : '不可用'}
-              </Typography>
-            </Box>
+            <Box sx={theme => ({ ...panelSx(theme), display: 'grid', gap: 1 })}>
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                  壁纸背景（主窗口）
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  仅影响宿主主窗口；可调透明度与模糊，不影响插件自身渲染。
+                </Typography>
+              </Box>
 
-            <Divider />
-
-            <Box>
-              <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                壁纸背景（主窗口）
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                仅影响宿主主窗口；可调透明度与模糊，不影响插件自身渲染。
-              </Typography>
-            </Box>
-
-            <Box
-              sx={{
-                border: 1,
-                borderColor: 'divider',
-                borderRadius: 2,
-                p: 1.25,
-                bgcolor: 'background.paper',
-                display: 'grid',
-                gap: 1,
-              }}
-            >
               <Box
                 sx={{
                   position: 'relative',
@@ -722,7 +704,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
       <Box role="tabpanel" hidden={tabIndex !== 1} id="settings-tabpanel-1" aria-labelledby="settings-tab-1" sx={{ pt: 0.5 }}>
         {tabIndex === 1 ? (
           <Stack spacing={1.25}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
+            <Box sx={theme => ({ ...panelSx(theme), display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 })}>
               <Box>
                 <Typography variant="body2" sx={{ fontWeight: 700 }}>
                   插件管理
@@ -737,7 +719,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
             </Box>
 
             {pluginManageLoading ? (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={theme => ({ ...panelSx(theme), display: 'flex', alignItems: 'center', gap: 1 })}>
                 <CircularProgress size={16} />
                 <Typography variant="body2" color="text.secondary">
                   加载插件列表中…
@@ -755,17 +737,18 @@ export default function SettingsView(_props: { onBack: () => void }) {
                 return (
                   <Box
                     key={p.id}
-                    sx={{
+                    sx={theme => ({
                       border: 1,
                       borderColor: 'divider',
                       borderRadius: 2,
                       p: 1.25,
-                      bgcolor: 'background.paper',
+                      bgcolor: wallpaper?.enabled ? alpha(theme.palette.background.paper, 0.62) : theme.palette.background.paper,
+                      backdropFilter: wallpaper?.enabled ? 'blur(12px)' : undefined,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
                       gap: 1,
-                    }}
+                    })}
                   >
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: 1 }}>
                       <Avatar
@@ -811,9 +794,11 @@ export default function SettingsView(_props: { onBack: () => void }) {
                 )
               })}
               {!pluginManageLoading && pluginManageList.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">
-                  未发现任何插件
-                </Typography>
+                <Box sx={theme => ({ ...panelSx(theme), p: 1 })}>
+                  <Typography variant="body2" color="text.secondary">
+                    未发现任何插件
+                  </Typography>
+                </Box>
               ) : null}
             </Stack>
           </Stack>
@@ -823,7 +808,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
       <Box role="tabpanel" hidden={tabIndex !== 2} id="settings-tabpanel-2" aria-labelledby="settings-tab-2" sx={{ pt: 0.5 }}>
         {tabIndex === 2 ? (
           <Stack spacing={1.25}>
-            <Box>
+            <Box sx={panelSx}>
               <Typography variant="body2" sx={{ fontWeight: 700 }}>
                 唤醒窗口快捷键
               </Typography>
@@ -832,18 +817,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
               </Typography>
             </Box>
 
-            <Box
-              sx={{
-                border: 1,
-                borderColor: 'divider',
-                borderRadius: 2,
-                p: 1.25,
-                bgcolor: 'background.paper',
-                display: 'flex',
-                justifyContent: 'space-between',
-                gap: 1,
-              }}
-            >
+            <Box sx={theme => ({ ...panelSx(theme), display: 'flex', justifyContent: 'space-between', gap: 1 })}>
               <Typography variant="caption" color="text.secondary">
                 当前
               </Typography>
@@ -902,9 +876,11 @@ export default function SettingsView(_props: { onBack: () => void }) {
               </Button>
             </Stack>
 
-            <Typography variant="caption" color={recording ? 'warning.main' : 'text.secondary'}>
-              {recordHint}
-            </Typography>
+            <Box sx={theme => ({ ...panelSx(theme), p: 1 })}>
+              <Typography variant="caption" color={recording ? 'warning.main' : 'text.secondary'}>
+                {recordHint}
+              </Typography>
+            </Box>
           </Stack>
         ) : null}
       </Box>
@@ -912,7 +888,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
       <Box role="tabpanel" hidden={tabIndex !== 3} id="settings-tabpanel-3" aria-labelledby="settings-tab-3" sx={{ pt: 0.5 }}>
         {tabIndex === 3 ? (
           <Stack spacing={1.25}>
-            <Box>
+            <Box sx={panelSx}>
               <Typography variant="body2" sx={{ fontWeight: 700 }}>
                 WebView（浏览）
               </Typography>
@@ -921,18 +897,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
               </Typography>
             </Box>
 
-            <Box
-              sx={{
-                border: 1,
-                borderColor: 'divider',
-                borderRadius: 2,
-                p: 1.25,
-                bgcolor: 'background.paper',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 1,
-              }}
-            >
+            <Box sx={theme => ({ ...panelSx(theme), display: 'flex', flexDirection: 'column', gap: 1 })}>
               <Box>
                 <Typography variant="body2" sx={{ fontWeight: 700 }}>
                   视频默认倍速
@@ -965,16 +930,18 @@ export default function SettingsView(_props: { onBack: () => void }) {
                   return (
                     <Box
                       key={`${idx}-${p.label}-${p.rate}`}
-                      sx={{
+                      sx={theme => ({
                         border: 1,
                         borderColor: 'divider',
                         borderRadius: 2,
                         p: 1,
+                        bgcolor: wallpaper?.enabled ? alpha(theme.palette.background.paper, 0.62) : undefined,
+                        backdropFilter: wallpaper?.enabled ? 'blur(12px)' : undefined,
                         display: 'grid',
                         gridTemplateColumns: '1fr 120px 1fr auto auto auto',
                         gap: 1,
                         alignItems: 'center',
-                      }}
+                      })}
                     >
                       <TextField
                         label="名称"
@@ -1100,7 +1067,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
       <Box role="tabpanel" hidden={tabIndex !== 4} id="settings-tabpanel-4" aria-labelledby="settings-tab-4" sx={{ pt: 0.5 }}>
         {tabIndex === 4 ? (
           <Stack spacing={1.25}>
-            <Box>
+            <Box sx={panelSx}>
               <Typography variant="body2" sx={{ fontWeight: 700 }}>
                 关于
               </Typography>
@@ -1109,7 +1076,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
               </Typography>
             </Box>
 
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            <Box sx={theme => ({ ...panelSx(theme), display: 'flex', gap: 1, flexWrap: 'wrap' })}>
               <Button size="small" variant="outlined" onClick={openProjectGithub}>
                 打开 GitHub
               </Button>
