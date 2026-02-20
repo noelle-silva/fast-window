@@ -157,6 +157,11 @@ export const fastWindowApi = {
       if (!u) return
       await invoke('open_external_url', { url: u })
     },
+    openExternal: async (uri: string) => {
+      const u = String(uri || '').trim()
+      if (!u) return
+      await invoke('open_external_uri', { uri: u })
+    },
   },
 
   // 网络请求（通过 tauri 后端，避免浏览器 CORS）
@@ -341,6 +346,9 @@ export function createPluginContext(pluginId: string, requires: PluginCapability
       },
       openUrl: async (url: string) => {
         return fastWindowApi.ui.openUrl(url)
+      },
+      openExternal: async (uri: string) => {
+        return fastWindowApi.ui.openExternal(uri)
       },
     },
     net: {

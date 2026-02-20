@@ -508,6 +508,36 @@ fn open_external_url(url: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn open_external_uri(uri: String) -> Result<(), String> {
+    let mut u = uri.trim().to_string();
+    if u.is_empty() {
+        return Ok(());
+    }
+    if u.chars().any(|c| c.is_whitespace()) {
+        return Err("uri 不允许包含空白字符，请先进行 URL 编码（例如空格用 %20）".to_string());
+    }
+    if u.contains('\\') {
+        u = u.replace('\\', "/");
+    }
+
+    let parsed = tauri::Url::parse(&u).map_err(|e| format!("uri 解析失败: {e}"))?;
+    let scheme = parsed.scheme().to_ascii_lowercase();
+    // 避免把 Windows 路径（如 C:/xxx）误判成 scheme。
+    if scheme.len() < 2 {
+        return Err("uri scheme 不合法（太短）".to_string());
+    }
+    if scheme == "file" {
+        return Err("不允许打开 file:// uri".to_string());
+    }
+    if scheme == "javascript" {
+        return Err("不允许打开 javascript: uri".to_string());
+    }
+
+    open::that(parsed.as_str()).map_err(|e| format!("打开失败: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
 async fn open_browser_window(
     app: tauri::AppHandle,
     url: String,
@@ -3134,6 +3164,10 @@ fn list_plugins(app: tauri::AppHandle) -> Vec<String> {
         if !ty.is_dir() {
             continue;
         }
+        // 目录里没有 manifest.json 就不认为是插件，避免空目录/残留目录造成噪音。
+        if !e.path().join("manifest.json").is_file() {
+            continue;
+        }
         let name = e.file_name().to_string_lossy().to_string();
         if is_safe_id(&name) {
             out.push(name);
@@ -3963,6 +3997,7 @@ fn main() {
             read_plugins_dir,
             install_plugin_files,
             open_external_url,
+            open_external_uri,
             open_browser_window,
             close_browser_window,
             hide_browser_stack,

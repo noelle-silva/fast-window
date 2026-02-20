@@ -103,6 +103,7 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
     ui: {
       showToast: (message) => call('ui.showToast', [message]),
       openUrl: (url) => call('ui.openUrl', [url]),
+      openExternal: (uri) => call('ui.openExternal', [uri]),
       openBrowserWindow: (url) => call('ui.openBrowserWindow', [url]),
       back: () => call('host.back', []),
     },

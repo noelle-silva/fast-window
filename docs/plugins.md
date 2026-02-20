@@ -44,7 +44,9 @@
 - `clipboard.readText` / `clipboard.writeText`
 - `clipboard.readImage` / `clipboard.writeImage`
 - `storage.get` / `storage.set` / `storage.remove` / `storage.getAll` / `storage.setAll`
-- `ui.showToast` / `ui.openUrl` / `ui.openBrowserWindow`（在应用内新窗口打开网页）
+- `ui.showToast` / `ui.openUrl` / `ui.openExternal` / `ui.openBrowserWindow`（在应用内新窗口打开网页）
+  - `ui.openUrl`：仅允许 `http(s)://`
+  - `ui.openExternal`：用于打开外部 URI（例如 `vscode://...`），禁用 `file://` / `javascript:`
 - `net.request`（直接 HTTP 请求；走宿主后端以绕过浏览器 CORS；支持 `mode: "task"`；默认返回 UTF-8 文本）
   - `net.request({ ..., responseType: "base64" })`：返回 `bodyBase64`（用于图片/二进制等非 UTF-8 响应；不支持 `mode: "task"`；需要额外声明 `net.requestBase64` 能力）
 - `net.requestBase64`（兼容保留；等价于 `net.request({ responseType: "base64" })`）

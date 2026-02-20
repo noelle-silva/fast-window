@@ -30,6 +30,7 @@ export type PluginMethodName =
   | 'files.pickImages'
   | 'ui.showToast'
   | 'ui.openUrl'
+  | 'ui.openExternal'
   | 'ui.openBrowserWindow'
   | 'net.request'
   | 'net.requestBase64'
@@ -122,6 +123,10 @@ const methods: Record<PluginMethodName, MethodDef> = {
     handler: (ctx, args) => ctx.api.ui.showToast(String(args?.[0] ?? '')),
   },
   'ui.openUrl': { capability: 'ui.openUrl', handler: (ctx, args) => ctx.api.ui.openUrl(String(args?.[0] ?? '')) },
+  'ui.openExternal': {
+    capability: 'ui.openExternal',
+    handler: (ctx, args) => ctx.api.ui.openExternal(String(args?.[0] ?? '')),
+  },
   'ui.openBrowserWindow': {
     capability: 'ui.openBrowserWindow',
     handler: async (ctx, args) => {

@@ -42,6 +42,7 @@ export type PluginCapability =
   | 'ui.*'
   | 'ui.showToast'
   | 'ui.openUrl'
+  | 'ui.openExternal'
   | 'ui.openBrowserWindow'
   | 'task'
   | 'task.*'
@@ -89,6 +90,7 @@ export const ALL_PLUGIN_CAPABILITIES: readonly PluginCapability[] = [
   'ui.*',
   'ui.showToast',
   'ui.openUrl',
+  'ui.openExternal',
   'ui.openBrowserWindow',
   'task',
   'task.*',
