@@ -76,6 +76,8 @@ type WallpaperSettings = {
   enabled: boolean
   opacity: number
   blur: number
+  titlebarOpacity: number
+  titlebarBlur: number
   filePath?: string | null
   rev?: number
 }
@@ -198,6 +200,9 @@ function movePluginById(list: Plugin[], draggedId: string, targetId: string, dro
 
 function TitleBar(props: {
   title: string
+  translucent?: boolean
+  translucentOpacity?: number
+  translucentBlur?: number
   onBack?: () => void
   onImportPlugin?: () => void
   onSettings?: () => void
@@ -213,6 +218,9 @@ function TitleBar(props: {
 }) {
   const {
     title,
+    translucent,
+    translucentOpacity,
+    translucentBlur,
     onBack,
     onImportPlugin,
     onSettings,
@@ -235,7 +243,13 @@ function TitleBar(props: {
         alignItems: 'center',
         position: 'relative',
         px: 0.5,
-        bgcolor: 'background.paper',
+        bgcolor: translucent
+          ? (theme: any) =>
+              alpha(theme.palette.background.paper, Math.max(0, Math.min(1, typeof translucentOpacity === 'number' ? translucentOpacity : 0.62)))
+          : 'background.paper',
+        backdropFilter: translucent
+          ? `blur(${Math.max(0, Math.min(40, typeof translucentBlur === 'number' ? translucentBlur : 12))}px)`
+          : undefined,
         borderBottom: showDivider ? 1 : 0,
         borderColor: showDivider ? 'divider' : undefined,
         WebkitAppRegion: 'drag',
@@ -444,7 +458,7 @@ function App() {
       const wp = await invoke<WallpaperSettings>('get_wallpaper_settings')
       setWallpaper(wp)
     } catch (_) {
-      setWallpaper({ enabled: false, opacity: 0.65, blur: 0, filePath: null })
+      setWallpaper({ enabled: false, opacity: 0.65, blur: 0, titlebarOpacity: 0.62, titlebarBlur: 12, filePath: null })
     }
   }, [])
 
@@ -783,6 +797,9 @@ function App() {
 
   const wallpaperUrl =
     wallpaper?.enabled && wallpaper.filePath ? `${convertFileSrc('wallpaper', 'wallpaper')}?rev=${wallpaper.rev ?? 0}` : ''
+  const hasWallpaper = !!wallpaperUrl
+  const titlebarOpacity = typeof wallpaper?.titlebarOpacity === 'number' ? wallpaper.titlebarOpacity : 0.62
+  const titlebarBlur = typeof wallpaper?.titlebarBlur === 'number' ? wallpaper.titlebarBlur : 12
   const wallpaperLayer = wallpaperUrl ? (
     <Box
       aria-hidden
@@ -997,7 +1014,7 @@ function App() {
           ]}
         >
           {wallpaperLayer}
-          <TitleBar title={APP_TITLE} />
+          <TitleBar title={APP_TITLE} translucent={hasWallpaper} translucentOpacity={titlebarOpacity} translucentBlur={titlebarBlur} />
           <Box sx={{ flex: 1, display: 'grid', placeItems: 'center' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
               <CircularProgress size={18} />
@@ -1029,7 +1046,13 @@ function App() {
           ]}
         >
           {wallpaperLayer}
-          <TitleBar title={activePlugin.name} onBack={() => setActivePlugin(null)} />
+          <TitleBar
+            title={activePlugin.name}
+            onBack={() => setActivePlugin(null)}
+            translucent={hasWallpaper}
+            translucentOpacity={titlebarOpacity}
+            translucentBlur={titlebarBlur}
+          />
           <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
             <PluginComponent onBack={() => setActivePlugin(null)} />
           </Box>
@@ -1055,6 +1078,9 @@ function App() {
           {wallpaperLayer}
           <TitleBar
             title={APP_TITLE}
+            translucent={hasWallpaper}
+            translucentOpacity={titlebarOpacity}
+            translucentBlur={titlebarBlur}
             onImportPlugin={reorderMode ? undefined : () => setImportOpen(true)}
             onReloadPlugins={reorderMode ? undefined : reloadPlugins}
             reloadDisabled={loading}

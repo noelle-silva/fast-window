@@ -3366,6 +3366,8 @@ struct WallpaperConfig {
     enabled: bool,
     opacity: f32,
     blur: f32,
+    titlebar_opacity: f32,
+    titlebar_blur: f32,
     rel_path: Option<String>,
 }
 
@@ -3374,6 +3376,10 @@ struct WallpaperSettingsOut {
     enabled: bool,
     opacity: f32,
     blur: f32,
+    #[serde(rename = "titlebarOpacity")]
+    titlebar_opacity: f32,
+    #[serde(rename = "titlebarBlur")]
+    titlebar_blur: f32,
     #[serde(rename = "filePath")]
     file_path: Option<String>,
     rev: u64,
@@ -3394,6 +3400,8 @@ fn read_wallpaper_config(app: &tauri::AppHandle) -> Result<WallpaperConfig, Stri
             enabled: false,
             opacity: 0.65,
             blur: 0.0,
+            titlebar_opacity: 0.62,
+            titlebar_blur: 12.0,
             rel_path: None,
         });
     };
@@ -3409,6 +3417,16 @@ fn read_wallpaper_config(app: &tauri::AppHandle) -> Result<WallpaperConfig, Stri
         .and_then(|v| v.as_f64())
         .map(|v| v as f32)
         .unwrap_or(0.0);
+    let titlebar_opacity = obj
+        .get("titlebarOpacity")
+        .and_then(|v| v.as_f64())
+        .map(|v| v as f32)
+        .unwrap_or(0.62);
+    let titlebar_blur = obj
+        .get("titlebarBlur")
+        .and_then(|v| v.as_f64())
+        .map(|v| v as f32)
+        .unwrap_or(12.0);
     let rel_path = obj
         .get("path")
         .and_then(|v| v.as_str())
@@ -3421,6 +3439,8 @@ fn read_wallpaper_config(app: &tauri::AppHandle) -> Result<WallpaperConfig, Stri
         enabled,
         opacity: clamp_f32(opacity, 0.0, 1.0),
         blur: clamp_f32(blur, 0.0, 40.0),
+        titlebar_opacity: clamp_f32(titlebar_opacity, 0.0, 1.0),
+        titlebar_blur: clamp_f32(titlebar_blur, 0.0, 40.0),
         rel_path,
     })
 }
@@ -3443,6 +3463,20 @@ fn write_wallpaper_config(app: &tauri::AppHandle, cfg: &WallpaperConfig) -> Resu
         Value::Number(
             serde_json::Number::from_f64(clamp_f32(cfg.blur, 0.0, 40.0) as f64)
                 .unwrap_or_else(|| serde_json::Number::from_f64(0.0).unwrap()),
+        ),
+    );
+    obj.insert(
+        "titlebarOpacity".to_string(),
+        Value::Number(
+            serde_json::Number::from_f64(clamp_f32(cfg.titlebar_opacity, 0.0, 1.0) as f64)
+                .unwrap_or_else(|| serde_json::Number::from_f64(0.62).unwrap()),
+        ),
+    );
+    obj.insert(
+        "titlebarBlur".to_string(),
+        Value::Number(
+            serde_json::Number::from_f64(clamp_f32(cfg.titlebar_blur, 0.0, 40.0) as f64)
+                .unwrap_or_else(|| serde_json::Number::from_f64(12.0).unwrap()),
         ),
     );
     if let Some(p) = &cfg.rel_path {
@@ -3476,6 +3510,8 @@ fn wallpaper_settings_out(app: &tauri::AppHandle, cfg: &WallpaperConfig) -> Wall
         enabled,
         opacity: clamp_f32(cfg.opacity, 0.0, 1.0),
         blur: clamp_f32(cfg.blur, 0.0, 40.0),
+        titlebar_opacity: clamp_f32(cfg.titlebar_opacity, 0.0, 1.0),
+        titlebar_blur: clamp_f32(cfg.titlebar_blur, 0.0, 40.0),
         file_path,
         rev,
     }
@@ -3493,10 +3529,18 @@ fn set_wallpaper_settings(
     enabled: bool,
     opacity: f32,
     blur: f32,
+    titlebar_opacity: Option<f32>,
+    titlebar_blur: Option<f32>,
 ) -> Result<WallpaperSettingsOut, String> {
     let mut cfg = read_wallpaper_config(&app)?;
     cfg.opacity = clamp_f32(opacity, 0.0, 1.0);
     cfg.blur = clamp_f32(blur, 0.0, 40.0);
+    if let Some(v) = titlebar_opacity {
+        cfg.titlebar_opacity = clamp_f32(v, 0.0, 1.0);
+    }
+    if let Some(v) = titlebar_blur {
+        cfg.titlebar_blur = clamp_f32(v, 0.0, 40.0);
+    }
     let has_file = cfg
         .rel_path
         .as_ref()

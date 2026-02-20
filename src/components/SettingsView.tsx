@@ -128,6 +128,8 @@ type WallpaperSettings = {
   enabled: boolean
   opacity: number
   blur: number
+  titlebarOpacity: number
+  titlebarBlur: number
   filePath?: string | null
   rev?: number
 }
@@ -222,20 +224,29 @@ export default function SettingsView(_props: { onBack: () => void }) {
       setInput(cur || DEFAULT_WAKE_SHORTCUT)
       setAutoStart(st)
       setWebview(wv || DEFAULT_WEBVIEW_SETTINGS)
-      setWallpaper(wp || { enabled: false, opacity: 0.65, blur: 0, filePath: null })
+      setWallpaper(wp || { enabled: false, opacity: 0.65, blur: 0, titlebarOpacity: 0.62, titlebarBlur: 12, filePath: null })
     }
     load()
   }, [])
 
-  async function applyWallpaperSettings(next: { enabled?: boolean; opacity?: number; blur?: number }) {
+  async function applyWallpaperSettings(next: {
+    enabled?: boolean
+    opacity?: number
+    blur?: number
+    titlebarOpacity?: number
+    titlebarBlur?: number
+  }) {
     setWallpaperSaving(true)
     try {
-      const prev = wallpaper || { enabled: false, opacity: 0.65, blur: 0, filePath: null }
-      const normalized = await invoke<WallpaperSettings>('set_wallpaper_settings', {
+      const prev = wallpaper || { enabled: false, opacity: 0.65, blur: 0, titlebarOpacity: 0.62, titlebarBlur: 12, filePath: null }
+      const payload: any = {
         enabled: typeof next.enabled === 'boolean' ? next.enabled : prev.enabled,
         opacity: typeof next.opacity === 'number' ? next.opacity : prev.opacity,
         blur: typeof next.blur === 'number' ? next.blur : prev.blur,
-      })
+      }
+      if (typeof next.titlebarOpacity === 'number') payload.titlebarOpacity = next.titlebarOpacity
+      if (typeof next.titlebarBlur === 'number') payload.titlebarBlur = next.titlebarBlur
+      const normalized = await invoke<WallpaperSettings>('set_wallpaper_settings', payload)
       setWallpaper(normalized)
       window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
     } catch (e: any) {
@@ -694,6 +705,50 @@ export default function SettingsView(_props: { onBack: () => void }) {
                     void applyWallpaperSettings({ blur: val })
                   }}
                   aria-label="壁纸模糊程度"
+                />
+              </Box>
+
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                  顶部栏透明度（仅壁纸启用时生效）：{Math.round(((wallpaper?.titlebarOpacity ?? 0.62) || 0) * 100)}%
+                </Typography>
+                <Slider
+                  value={Math.round(((wallpaper?.titlebarOpacity ?? 0.62) || 0) * 100)}
+                  min={0}
+                  max={100}
+                  step={1}
+                  disabled={wallpaperSaving || saving || recording || !wallpaper?.filePath}
+                  onChange={(_, v) => {
+                    const val = typeof v === 'number' ? v : v[0] ?? 0
+                    setWallpaper(prev => (prev ? { ...prev, titlebarOpacity: val / 100 } : prev))
+                  }}
+                  onChangeCommitted={(_, v) => {
+                    const val = typeof v === 'number' ? v : v[0] ?? 0
+                    void applyWallpaperSettings({ titlebarOpacity: val / 100 })
+                  }}
+                  aria-label="顶部栏透明度"
+                />
+              </Box>
+
+              <Box>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                  顶部栏磨砂（仅壁纸启用时生效）：{Math.round((wallpaper?.titlebarBlur ?? 12) || 0)}px
+                </Typography>
+                <Slider
+                  value={Math.round((wallpaper?.titlebarBlur ?? 12) || 0)}
+                  min={0}
+                  max={40}
+                  step={1}
+                  disabled={wallpaperSaving || saving || recording || !wallpaper?.filePath}
+                  onChange={(_, v) => {
+                    const val = typeof v === 'number' ? v : v[0] ?? 0
+                    setWallpaper(prev => (prev ? { ...prev, titlebarBlur: val } : prev))
+                  }}
+                  onChangeCommitted={(_, v) => {
+                    const val = typeof v === 'number' ? v : v[0] ?? 0
+                    void applyWallpaperSettings({ titlebarBlur: val })
+                  }}
+                  aria-label="顶部栏磨砂程度"
                 />
               </Box>
             </Box>
