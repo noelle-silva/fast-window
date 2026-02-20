@@ -997,7 +997,7 @@ function App() {
             onSettings={reorderMode ? undefined : () => setActivePlugin(settingsPlugin)}
           />
 
-        <Box sx={{ p: 2, bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider' }}>
+        <Box sx={{ p: 2, bgcolor: 'background.paper' }}>
           <TextField
             fullWidth
             autoFocus
