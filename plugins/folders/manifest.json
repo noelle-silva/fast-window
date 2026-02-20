@@ -1,6 +1,7 @@
 {
   "id": "folders",
   "name": "文件夹收藏",
+  "author": "fast-window",
   "version": "1.0.0",
   "description": "收藏常用本地文件夹，点击即可在文件管理器打开",
   "main": "index.js",
@@ -10,4 +11,3 @@
   "ui": { "type": "iframe" },
   "requires": ["storage.get", "storage.set", "files.pickDir", "files.openDir", "ui.showToast"]
 }
-

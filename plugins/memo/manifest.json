@@ -1,6 +1,7 @@
 {
   "id": "memo",
   "name": "快捷备忘录",
+  "author": "fast-window",
   "version": "1.0.0",
   "description": "快速记录和管理备忘信息",
   "main": "index.js",

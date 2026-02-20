@@ -1,6 +1,7 @@
 {
   "id": "bookmarks",
   "name": "网站收藏",
+  "author": "fast-window",
   "version": "1.0.0",
   "description": "收藏、分组管理常用网站，点击即可用浏览器打开",
   "main": "index.js",

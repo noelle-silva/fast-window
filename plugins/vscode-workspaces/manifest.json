@@ -1,6 +1,7 @@
 {
   "id": "vscode-workspaces",
   "name": "VSCode 工作区",
+  "author": "fast-window",
   "version": "1.0.0",
   "description": "收藏常用目录，一键用 VSCode 打开",
   "main": "index.js",
@@ -10,4 +11,3 @@
   "ui": { "type": "iframe" },
   "requires": ["storage.get", "storage.set", "ui.showToast", "files.pickDir", "ui.openExternal"]
 }
-

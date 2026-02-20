@@ -1,6 +1,7 @@
 {
   "id": "clipboard-history",
   "name": "剪贴板历史",
+  "author": "fast-window",
   "version": "1.0.0",
   "description": "查看和管理剪贴板历史记录",
   "main": "index.js",

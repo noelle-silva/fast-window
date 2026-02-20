@@ -1,6 +1,7 @@
 {
   "id": "web-view",
   "name": "Web View",
+  "author": "fast-window",
   "version": "1.0.0",
   "description": "管理网站地址，点击后在新窗口打开网页",
   "main": "index.js",

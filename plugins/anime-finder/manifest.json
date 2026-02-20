@@ -1,6 +1,7 @@
 {
   "id": "anime-finder",
   "name": "以图找番",
+  "author": "fast-window",
   "version": "1.0.0",
   "description": "上传/拖拽/粘贴图片，调用 trace.moe 进行以图找番",
   "main": "index.js",
