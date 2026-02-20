@@ -20,6 +20,15 @@ import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import FiberManualRecordRoundedIcon from '@mui/icons-material/FiberManualRecordRounded'
 import StopRoundedIcon from '@mui/icons-material/StopRounded'
 import BackspaceRoundedIcon from '@mui/icons-material/BackspaceRounded'
+import {
+  addWallpaperImage,
+  getWallpaperSettings,
+  removeAllWallpapers,
+  removeWallpaperItem,
+  setActiveWallpaper as setActiveWallpaperCmd,
+  setWallpaperSettings,
+  type WallpaperSettings,
+} from '../wallpaper'
 
 const DEFAULT_WAKE_SHORTCUT = 'control+alt+Space'
 const MAX_VIDEO_RATE = 16
@@ -131,18 +140,6 @@ type WebviewSettings = {
   }
 }
 
-type WallpaperSettings = {
-  enabled: boolean
-  opacity: number
-  blur: number
-  titlebarOpacity: number
-  titlebarBlur: number
-  filePath?: string | null
-  rev?: number
-  items?: { id: string; rev: number }[]
-  activeId?: string | null
-}
-
 type PluginManageItem = {
   id: string
   name: string
@@ -226,7 +223,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
         invoke<string>('get_wake_shortcut').catch(() => ''),
         invoke<AutoStartStatus>('get_auto_start').catch(() => ({ supported: false, enabled: false, scope: 'unknown' })),
         invoke<WebviewSettings>('get_webview_settings').catch(() => null),
-        invoke<WallpaperSettings>('get_wallpaper_settings').catch(() => null),
+        getWallpaperSettings().catch(() => null),
       ])
       setDataDir(dir)
       setPluginsDir(pdir)
@@ -258,7 +255,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
       }
       if (typeof next.titlebarOpacity === 'number') payload.titlebarOpacity = next.titlebarOpacity
       if (typeof next.titlebarBlur === 'number') payload.titlebarBlur = next.titlebarBlur
-      const normalized = await invoke<WallpaperSettings>('set_wallpaper_settings', payload)
+      const normalized = await setWallpaperSettings(payload)
       setWallpaper(normalized)
       window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
     } catch (e: any) {
@@ -278,7 +275,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
         return
       }
       const dataUrl = await makeWallpaperDataUrl(file, 2560)
-      const normalized = await invoke<WallpaperSettings>('set_wallpaper_image', { dataUrl })
+      const normalized = await addWallpaperImage(dataUrl)
       setWallpaper(normalized)
       window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
       toast('壁纸已添加')
@@ -294,7 +291,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
     if (!wid) return
     setWallpaperSaving(true)
     try {
-      const normalized = await invoke<WallpaperSettings>('set_active_wallpaper', { id: wid })
+      const normalized = await setActiveWallpaperCmd(wid)
       setWallpaper(normalized)
       window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
     } catch (e: any) {
@@ -309,7 +306,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
     if (!wid) return
     setWallpaperSaving(true)
     try {
-      const normalized = await invoke<WallpaperSettings>('remove_wallpaper_item', { id: wid })
+      const normalized = await removeWallpaperItem(wid)
       setWallpaper(normalized)
       window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
       toast('已删除壁纸')
@@ -323,7 +320,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
   async function clearWallpaper() {
     setWallpaperSaving(true)
     try {
-      const normalized = await invoke<WallpaperSettings>('remove_wallpaper')
+      const normalized = await removeAllWallpapers()
       setWallpaper(normalized)
       window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
       toast('已清除壁纸')

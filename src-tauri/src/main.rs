@@ -3226,6 +3226,60 @@ fn safe_relative_path(rel: &str) -> Result<PathBuf, String> {
     Ok(p.to_path_buf())
 }
 
+fn hex_val(c: u8) -> Option<u8> {
+    match c {
+        b'0'..=b'9' => Some(c - b'0'),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        b'A'..=b'F' => Some(c - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn percent_decode_query_component(raw: &str) -> Option<String> {
+    let bytes = raw.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0usize;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b'%' => {
+                if i + 2 >= bytes.len() {
+                    return None;
+                }
+                let hi = hex_val(bytes[i + 1])?;
+                let lo = hex_val(bytes[i + 2])?;
+                out.push((hi << 4) | lo);
+                i += 3;
+            }
+            b => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+fn query_get_param(uri: &tauri::http::Uri, key: &str) -> Option<String> {
+    let q = uri.query()?;
+    for part in q.split('&') {
+        if part.is_empty() {
+            continue;
+        }
+        let (k_raw, v_raw) = part.split_once('=').unwrap_or((part, ""));
+        let k = percent_decode_query_component(k_raw).unwrap_or_else(|| k_raw.to_string());
+        if k != key {
+            continue;
+        }
+        let v = percent_decode_query_component(v_raw).unwrap_or_else(|| v_raw.to_string());
+        return Some(v);
+    }
+    None
+}
+
 #[derive(Clone, Serialize)]
 struct FsDirEntry {
     name: String,
@@ -4288,14 +4342,11 @@ fn main() {
                 }
             };
 
-            let want_id = request
-                .uri()
-                .query()
-                .and_then(|q| q.split('&').find_map(|kv| kv.split_once('=').filter(|(k, _)| *k == "id").map(|(_, v)| v)))
-                .map(|s| s.trim())
+            let want_id = query_get_param(request.uri(), "id")
+                .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty());
 
-            let Some(it) = resolve_wallpaper_item(app, &cfg, want_id) else {
+            let Some(it) = resolve_wallpaper_item(app, &cfg, want_id.as_deref()) else {
                 return tauri::http::Response::builder()
                     .status(tauri::http::StatusCode::NOT_FOUND)
                     .header(tauri::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")

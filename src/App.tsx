@@ -47,6 +47,7 @@ import NavigateNextRoundedIcon from '@mui/icons-material/NavigateNextRounded'
 import SettingsView from './components/SettingsView'
 import ImportPluginDialog from './components/ImportPluginDialog'
 import BrowserBarWindow from './components/BrowserBarWindow'
+import { cycleWallpaper as cycleWallpaperCmd, getWallpaperSettings, type WallpaperSettings } from './wallpaper'
 
 // 初始化插件 API
 initPluginApi()
@@ -73,18 +74,6 @@ const PLUGIN_BROWSE_LAYOUT_KEY = 'pluginBrowseLayout'
 const DISABLED_PLUGINS_KEY = 'disabledPlugins'
 
 type PluginBrowseLayout = 'list' | 'grid' | 'icon'
-
-type WallpaperSettings = {
-  enabled: boolean
-  opacity: number
-  blur: number
-  titlebarOpacity: number
-  titlebarBlur: number
-  filePath?: string | null
-  rev?: number
-  items?: { id: string; rev: number }[]
-  activeId?: string | null
-}
 
 function normalizeBrowseLayout(value: unknown): PluginBrowseLayout {
   if (value === 'grid') return 'grid'
@@ -475,7 +464,7 @@ function App() {
 
   const loadWallpaper = useCallback(async () => {
     try {
-      const wp = await invoke<WallpaperSettings>('get_wallpaper_settings')
+      const wp = await getWallpaperSettings()
       setWallpaper(wp)
     } catch (_) {
       setWallpaper({ enabled: false, opacity: 0.65, blur: 0, titlebarOpacity: 0.62, titlebarBlur: 12, filePath: null })
@@ -490,7 +479,7 @@ function App() {
     wallpaperSwitchingRef.current = true
     setWallpaperSwitching(true)
     try {
-      const wp = await invoke<WallpaperSettings>('cycle_wallpaper', { delta })
+      const wp = await cycleWallpaperCmd(delta)
       setWallpaper(wp)
       window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
     } catch (e) {
