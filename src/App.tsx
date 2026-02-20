@@ -789,6 +789,7 @@ function App() {
       sx={{
         position: 'absolute',
         inset: 0,
+        zIndex: 0,
         backgroundImage: `url(${wallpaperUrl})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
@@ -990,7 +991,10 @@ function App() {
       <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
         <Paper
           variant="outlined"
-          sx={[shellContainerSx, { position: 'relative' }]}
+          sx={[
+            shellContainerSx,
+            { position: 'relative', '& > :not([aria-hidden])': { position: 'relative', zIndex: 1 } },
+          ]}
         >
           {wallpaperLayer}
           <TitleBar title={APP_TITLE} />
@@ -1019,7 +1023,10 @@ function App() {
       <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
         <Paper
           variant="outlined"
-          sx={[shellContainerSx, { position: 'relative' }]}
+          sx={[
+            shellContainerSx,
+            { position: 'relative', '& > :not([aria-hidden])': { position: 'relative', zIndex: 1 } },
+          ]}
         >
           {wallpaperLayer}
           <TitleBar title={activePlugin.name} onBack={() => setActivePlugin(null)} />
@@ -1040,7 +1047,10 @@ function App() {
     <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
         <Paper
           variant="outlined"
-          sx={[shellContainerSx, { position: 'relative' }]}
+          sx={[
+            shellContainerSx,
+            { position: 'relative', '& > :not([aria-hidden])': { position: 'relative', zIndex: 1 } },
+          ]}
         >
           {wallpaperLayer}
           <TitleBar
