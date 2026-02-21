@@ -47,7 +47,7 @@ import NavigateNextRoundedIcon from '@mui/icons-material/NavigateNextRounded'
 import SettingsView from './components/SettingsView'
 import ImportPluginDialog from './components/ImportPluginDialog'
 import BrowserBarWindow from './components/BrowserBarWindow'
-import { cycleWallpaper as cycleWallpaperCmd, getWallpaperSettings, type WallpaperSettings } from './wallpaper'
+import { cycleWallpaper as cycleWallpaperCmd, DEFAULT_WALLPAPER_VIEW, getWallpaperSettings, type WallpaperSettings } from './wallpaper'
 
 // 初始化插件 API
 initPluginApi()
@@ -826,6 +826,17 @@ function App() {
   const wallpaperUrl =
     wallpaper?.enabled && wallpaper.filePath ? `${convertFileSrc('wallpaper', 'wallpaper')}?rev=${wallpaper.rev ?? 0}` : ''
   const hasWallpaper = !!wallpaperUrl
+  const wallpaperView = (() => {
+    const v: any = wallpaper?.view || null
+    const x = typeof v?.x === 'number' ? v.x : DEFAULT_WALLPAPER_VIEW.x
+    const y = typeof v?.y === 'number' ? v.y : DEFAULT_WALLPAPER_VIEW.y
+    const scale = typeof v?.scale === 'number' ? v.scale : DEFAULT_WALLPAPER_VIEW.scale
+    return {
+      x: Math.max(0, Math.min(100, x)),
+      y: Math.max(0, Math.min(100, y)),
+      scale: Math.max(1, Math.min(4, scale)),
+    }
+  })()
   const canSwitchWallpaper = !!(
     wallpaper?.enabled &&
     wallpaper.filePath &&
@@ -841,16 +852,29 @@ function App() {
         position: 'absolute',
         inset: 0,
         zIndex: 0,
-        backgroundImage: `url(${wallpaperUrl})`,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat',
-        opacity: Math.max(0, Math.min(1, wallpaper?.opacity ?? 0.65)),
-        filter: `blur(${Math.max(0, Math.min(40, wallpaper?.blur ?? 0))}px)`,
-        transform: 'scale(1.05)',
         pointerEvents: 'none',
+        opacity: Math.max(0, Math.min(1, wallpaper?.opacity ?? 0.65)),
       }}
-    />
+    >
+      <Box
+        component="img"
+        alt=""
+        draggable={false}
+        src={wallpaperUrl}
+        sx={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          objectFit: 'cover',
+          objectPosition: `${wallpaperView.x}% ${wallpaperView.y}%`,
+          transform: `scale(${wallpaperView.scale * 1.05})`,
+          transformOrigin: `${wallpaperView.x}% ${wallpaperView.y}%`,
+          filter: `blur(${Math.max(0, Math.min(40, wallpaper?.blur ?? 0))}px)`,
+          userSelect: 'none',
+        }}
+      />
+    </Box>
   ) : null
 
   const toastHost = (

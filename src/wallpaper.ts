@@ -1,5 +1,13 @@
 import { invoke } from '@tauri-apps/api/core'
 
+export type WallpaperView = {
+  x: number
+  y: number
+  scale: number
+}
+
+export const DEFAULT_WALLPAPER_VIEW: WallpaperView = { x: 50, y: 50, scale: 1 }
+
 export type WallpaperItem = {
   id: string
   rev: number
@@ -15,6 +23,7 @@ export type WallpaperSettings = {
   rev?: number
   items?: WallpaperItem[]
   activeId?: string | null
+  view?: WallpaperView | null
 }
 
 export function getWallpaperSettings() {
@@ -49,4 +58,8 @@ export function removeWallpaperItem(id: string) {
 
 export function cycleWallpaper(delta: number) {
   return invoke<WallpaperSettings>('cycle_wallpaper', { delta })
+}
+
+export function setWallpaperView(payload: { id?: string | null; x: number; y: number; scale: number }) {
+  return invoke<WallpaperSettings>('set_wallpaper_view', payload)
 }

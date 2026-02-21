@@ -3669,9 +3669,79 @@ fn storage_set_all(
 const APP_ICON_OVERRIDES_KEY: &str = "pluginIconOverrides";
 
 #[derive(Clone)]
+struct WallpaperView {
+    x: f32,
+    y: f32,
+    scale: f32,
+}
+
+fn parse_wallpaper_view(v: &Value) -> Option<WallpaperView> {
+    let Value::Object(obj) = v else {
+        return None;
+    };
+    let x = obj.get("x").and_then(|v| v.as_f64()).map(|v| v as f32)?;
+    let y = obj.get("y").and_then(|v| v.as_f64()).map(|v| v as f32)?;
+    let scale = obj.get("scale").and_then(|v| v.as_f64()).map(|v| v as f32)?;
+    Some(WallpaperView {
+        x: clamp_f32(x, 0.0, 100.0),
+        y: clamp_f32(y, 0.0, 100.0),
+        scale: clamp_f32(scale, 1.0, 4.0),
+    })
+}
+
+fn wallpaper_view_to_value(view: &WallpaperView) -> Value {
+    let mut obj = Map::new();
+    obj.insert(
+        "x".to_string(),
+        Value::Number(
+            serde_json::Number::from_f64(clamp_f32(view.x, 0.0, 100.0) as f64)
+                .unwrap_or_else(|| serde_json::Number::from_f64(50.0).unwrap()),
+        ),
+    );
+    obj.insert(
+        "y".to_string(),
+        Value::Number(
+            serde_json::Number::from_f64(clamp_f32(view.y, 0.0, 100.0) as f64)
+                .unwrap_or_else(|| serde_json::Number::from_f64(50.0).unwrap()),
+        ),
+    );
+    obj.insert(
+        "scale".to_string(),
+        Value::Number(
+            serde_json::Number::from_f64(clamp_f32(view.scale, 1.0, 4.0) as f64)
+                .unwrap_or_else(|| serde_json::Number::from_f64(1.0).unwrap()),
+        ),
+    );
+    Value::Object(obj)
+}
+
+#[derive(Clone, Serialize)]
+struct WallpaperViewOut {
+    x: f32,
+    y: f32,
+    scale: f32,
+}
+
+fn wallpaper_view_out(v: Option<&WallpaperView>) -> WallpaperViewOut {
+    let Some(v) = v else {
+        return WallpaperViewOut {
+            x: 50.0,
+            y: 50.0,
+            scale: 1.0,
+        };
+    };
+    WallpaperViewOut {
+        x: clamp_f32(v.x, 0.0, 100.0),
+        y: clamp_f32(v.y, 0.0, 100.0),
+        scale: clamp_f32(v.scale, 1.0, 4.0),
+    }
+}
+
+#[derive(Clone)]
 struct WallpaperItem {
     id: String,
     rel_path: String,
+    view: Option<WallpaperView>,
 }
 
 #[derive(Clone)]
@@ -3706,6 +3776,7 @@ struct WallpaperSettingsOut {
     items: Vec<WallpaperItemOut>,
     #[serde(rename = "activeId")]
     active_id: Option<String>,
+    view: Option<WallpaperViewOut>,
 }
 
 fn clamp_f32(v: f32, min: f32, max: f32) -> f32 {
@@ -3778,9 +3849,11 @@ fn read_wallpaper_config(app: &tauri::AppHandle) -> Result<WallpaperConfig, Stri
             if items.iter().any(|x| x.id == id) {
                 continue;
             }
+            let view = it.get("view").and_then(parse_wallpaper_view);
             items.push(WallpaperItem {
                 id: id.to_string(),
                 rel_path: rel,
+                view,
             });
         }
     }
@@ -3799,6 +3872,7 @@ fn read_wallpaper_config(app: &tauri::AppHandle) -> Result<WallpaperConfig, Stri
             items.push(WallpaperItem {
                 id: "legacy".to_string(),
                 rel_path: rel,
+                view: None,
             });
             legacy_added = true;
         }
@@ -3907,6 +3981,9 @@ fn write_wallpaper_config(app: &tauri::AppHandle, cfg: &WallpaperConfig) -> Resu
         let mut it_obj = Map::new();
         it_obj.insert("id".to_string(), Value::String(it.id.clone()));
         it_obj.insert("path".to_string(), Value::String(it.rel_path.clone()));
+        if let Some(view) = it.view.as_ref() {
+            it_obj.insert("view".to_string(), wallpaper_view_to_value(view));
+        }
         arr.push(Value::Object(it_obj));
     }
     obj.insert("items".to_string(), Value::Array(arr));
@@ -3931,6 +4008,9 @@ fn wallpaper_settings_out(app: &tauri::AppHandle, cfg: &WallpaperConfig) -> Wall
         .filter(|full| full.is_file())
         .map(|full| full.to_string_lossy().to_string());
     let rev = resolved.map(|it| wallpaper_item_rev(app, &it.rel_path)).unwrap_or(0);
+    let view = file_path
+        .as_ref()
+        .and_then(|_| resolved.map(|it| wallpaper_view_out(it.view.as_ref())));
 
     let mut items: Vec<WallpaperItemOut> = Vec::new();
     for it in &cfg.items {
@@ -3956,6 +4036,7 @@ fn wallpaper_settings_out(app: &tauri::AppHandle, cfg: &WallpaperConfig) -> Wall
         rev,
         items,
         active_id: resolved.map(|it| it.id.clone()),
+        view,
     }
 }
 
@@ -3985,6 +4066,43 @@ fn set_wallpaper_settings(
     }
     let has_file = resolve_wallpaper_item(&app, &cfg, None).is_some();
     cfg.enabled = enabled && has_file;
+    write_wallpaper_config(&app, &cfg)?;
+    Ok(wallpaper_settings_out(&app, &cfg))
+}
+
+#[tauri::command]
+fn set_wallpaper_view(
+    app: tauri::AppHandle,
+    id: Option<String>,
+    x: f32,
+    y: f32,
+    scale: f32,
+) -> Result<WallpaperSettingsOut, String> {
+    let want_id = id
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+    if let Some(id) = want_id.as_ref() {
+        if !is_safe_id(id) {
+            return Err("壁纸 id 不合法".to_string());
+        }
+    }
+
+    let mut cfg = read_wallpaper_config(&app)?;
+    let resolved_id = resolve_wallpaper_item(&app, &cfg, want_id.as_deref()).map(|it| it.id.clone());
+    let Some(resolved_id) = resolved_id else {
+        return Err("壁纸不存在".to_string());
+    };
+    let Some(target) = cfg.items.iter_mut().find(|it| it.id == resolved_id) else {
+        return Err("壁纸不存在".to_string());
+    };
+
+    target.view = Some(WallpaperView {
+        x: clamp_f32(x, 0.0, 100.0),
+        y: clamp_f32(y, 0.0, 100.0),
+        scale: clamp_f32(scale, 1.0, 4.0),
+    });
     write_wallpaper_config(&app, &cfg)?;
     Ok(wallpaper_settings_out(&app, &cfg))
 }
@@ -4033,6 +4151,11 @@ fn set_wallpaper_image(app: tauri::AppHandle, data_url: String) -> Result<Wallpa
     cfg.items.push(WallpaperItem {
         id: id.clone(),
         rel_path: new_rel,
+        view: Some(WallpaperView {
+            x: 50.0,
+            y: 50.0,
+            scale: 1.0,
+        }),
     });
     cfg.active_id = Some(id);
     cfg.enabled = true;
@@ -4491,6 +4614,7 @@ fn main() {
             get_data_dir,
             get_wallpaper_settings,
             set_wallpaper_settings,
+            set_wallpaper_view,
             set_wallpaper_image,
             remove_wallpaper,
             set_active_wallpaper,

@@ -22,13 +22,17 @@ import StopRoundedIcon from '@mui/icons-material/StopRounded'
 import BackspaceRoundedIcon from '@mui/icons-material/BackspaceRounded'
 import {
   addWallpaperImage,
+  DEFAULT_WALLPAPER_VIEW,
   getWallpaperSettings,
   removeAllWallpapers,
   removeWallpaperItem,
   setActiveWallpaper as setActiveWallpaperCmd,
   setWallpaperSettings,
+  setWallpaperView,
+  type WallpaperView,
   type WallpaperSettings,
 } from '../wallpaper'
+import WallpaperViewEditorDialog from './WallpaperViewEditorDialog'
 
 const DEFAULT_WAKE_SHORTCUT = 'control+alt+Space'
 const MAX_VIDEO_RATE = 16
@@ -197,6 +201,12 @@ export default function SettingsView(_props: { onBack: () => void }) {
   const [webviewSaving, setWebviewSaving] = useState(false)
   const [wallpaper, setWallpaper] = useState<WallpaperSettings | null>(null)
   const [wallpaperSaving, setWallpaperSaving] = useState(false)
+  const [wallpaperViewOpen, setWallpaperViewOpen] = useState(false)
+  const [targetAspect, setTargetAspect] = useState(() => {
+    const w = window.innerWidth || 0
+    const h = window.innerHeight || 0
+    return w > 0 && h > 0 ? w / h : 16 / 9
+  })
   const [recordingPresetIndex, setRecordingPresetIndex] = useState<number | null>(null)
   const [autoStart, setAutoStart] = useState<AutoStartStatus>({ supported: false, enabled: false, scope: 'unknown' })
   const [autoStartSaving, setAutoStartSaving] = useState(false)
@@ -214,6 +224,27 @@ export default function SettingsView(_props: { onBack: () => void }) {
   })
 
   const wallpaperBaseUrl = useMemo(() => convertFileSrc('wallpaper', 'wallpaper'), [])
+  const wallpaperView: WallpaperView = useMemo(() => {
+    const v: any = wallpaper?.view || null
+    const x = typeof v?.x === 'number' ? v.x : DEFAULT_WALLPAPER_VIEW.x
+    const y = typeof v?.y === 'number' ? v.y : DEFAULT_WALLPAPER_VIEW.y
+    const scale = typeof v?.scale === 'number' ? v.scale : DEFAULT_WALLPAPER_VIEW.scale
+    return {
+      x: Math.max(0, Math.min(100, x)),
+      y: Math.max(0, Math.min(100, y)),
+      scale: Math.max(1, Math.min(4, scale)),
+    }
+  }, [wallpaper?.view])
+
+  useEffect(() => {
+    const onResize = () => {
+      const w = window.innerWidth || 0
+      const h = window.innerHeight || 0
+      if (w > 0 && h > 0) setTargetAspect(w / h)
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   useEffect(() => {
     async function load() {
@@ -260,6 +291,23 @@ export default function SettingsView(_props: { onBack: () => void }) {
       window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
     } catch (e: any) {
       toast(String(e?.message || e || '设置失败'))
+    } finally {
+      setWallpaperSaving(false)
+    }
+  }
+
+  async function saveWallpaperView(next: WallpaperView) {
+    if (!wallpaper?.filePath) return
+    setWallpaperSaving(true)
+    try {
+      const normalized = await setWallpaperView({ id: wallpaper.activeId || null, x: next.x, y: next.y, scale: next.scale })
+      setWallpaper(normalized)
+      window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
+      toast('已保存取景')
+      setWallpaperViewOpen(false)
+    } catch (e) {
+      console.warn('[wallpaper] failed to save view:', e)
+      toast('保存取景失败（详情见控制台）')
     } finally {
       setWallpaperSaving(false)
     }
@@ -683,16 +731,22 @@ export default function SettingsView(_props: { onBack: () => void }) {
                 {wallpaper?.filePath ? (
                   <>
                     <Box
+                      component="img"
+                      alt=""
+                      draggable={false}
+                      src={`${wallpaperBaseUrl}?rev=${wallpaper.rev ?? 0}`}
                       aria-hidden
                       sx={{
                         position: 'absolute',
                         inset: 0,
-                        backgroundImage: `url(${wallpaperBaseUrl}?rev=${wallpaper.rev ?? 0})`,
-                        backgroundSize: 'cover',
-                        backgroundPosition: 'center',
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        objectPosition: `${wallpaperView.x}% ${wallpaperView.y}%`,
+                        transform: `scale(${(wallpaperView.scale || 1) * 1.05})`,
+                        transformOrigin: `${wallpaperView.x}% ${wallpaperView.y}%`,
                         opacity: Math.max(0, Math.min(1, wallpaper.opacity || 0)),
                         filter: `blur(${Math.max(0, Math.min(40, wallpaper.blur || 0))}px)`,
-                        transform: 'scale(1.05)',
                       }}
                     />
                     <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -720,6 +774,14 @@ export default function SettingsView(_props: { onBack: () => void }) {
                 <Button
                   size="small"
                   variant="outlined"
+                  onClick={() => setWallpaperViewOpen(true)}
+                  disabled={wallpaperSaving || saving || recording || !wallpaper?.filePath}
+                >
+                  调整取景
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
                   color="error"
                   onClick={clearWallpaper}
                   disabled={wallpaperSaving || saving || recording || !wallpaper?.filePath}
@@ -727,6 +789,17 @@ export default function SettingsView(_props: { onBack: () => void }) {
                   清除
                 </Button>
               </Box>
+
+              {wallpaper?.filePath ? (
+                <WallpaperViewEditorDialog
+                  open={wallpaperViewOpen}
+                  imageUrl={`${wallpaperBaseUrl}?rev=${wallpaper.rev ?? 0}`}
+                  targetAspect={targetAspect}
+                  initialView={wallpaperView}
+                  onClose={() => setWallpaperViewOpen(false)}
+                  onSave={v => void saveWallpaperView(v)}
+                />
+              ) : null}
 
               {Array.isArray(wallpaper?.items) && wallpaper.items.length ? (
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
