@@ -3,7 +3,7 @@
 use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::{engine::general_purpose, Engine as _};
@@ -1612,8 +1612,52 @@ fn write_json_map(path: &Path, map: &Map<String, Value>) -> Result<(), String> {
     }
     let content = serde_json::to_string_pretty(&Value::Object(map.clone()))
         .map_err(|e| format!("序列化配置失败: {e}"))?;
-    std::fs::write(path, content).map_err(|e| format!("写入配置失败: {e}"))?;
+
+    let parent = path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let name = path
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "config".to_string());
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_millis(0))
+        .as_millis();
+    let tmp = parent.join(format!(".tmp-{name}-{stamp}.json"));
+
+    std::fs::write(&tmp, &content).map_err(|e| format!("写入临时配置失败: {e}"))?;
+
+    // 尽量原子替换，避免写入过程中进程退出导致配置文件半写/空文件。
+    match std::fs::rename(&tmp, path) {
+        Ok(_) => {}
+        Err(_) => {
+            // Windows 上 rename 不能覆盖已有文件：先删再试；仍失败则退回 copy。
+            if path.exists() {
+                let _ = std::fs::remove_file(path);
+                if std::fs::rename(&tmp, path).is_ok() {
+                    return Ok(());
+                }
+            }
+            std::fs::copy(&tmp, path).map_err(|e| format!("写入配置失败: {e}"))?;
+            let _ = std::fs::remove_file(&tmp);
+        }
+    }
     Ok(())
+}
+
+static STORAGE_LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+
+fn storage_lock_for(plugin_id: &str) -> Arc<Mutex<()>> {
+    let locks = STORAGE_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = locks.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(v) = guard.get(plugin_id) {
+        return v.clone();
+    }
+    let v = Arc::new(Mutex::new(()));
+    guard.insert(plugin_id.to_string(), v.clone());
+    v
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -3555,6 +3599,11 @@ fn storage_get(
     plugin_id: String,
     key: String,
 ) -> Result<Option<Value>, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let lock = storage_lock_for(&plugin_id);
+    let _g = lock.lock().unwrap_or_else(|e| e.into_inner());
     let path = storage_file_path(&app, &plugin_id)?;
     let map = read_json_map(&path);
     Ok(map.get(&key).cloned())
@@ -3567,6 +3616,11 @@ fn storage_set(
     key: String,
     value: Value,
 ) -> Result<(), String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let lock = storage_lock_for(&plugin_id);
+    let _g = lock.lock().unwrap_or_else(|e| e.into_inner());
     let path = storage_file_path(&app, &plugin_id)?;
     let mut map = read_json_map(&path);
     map.insert(key, value);
@@ -3575,6 +3629,11 @@ fn storage_set(
 
 #[tauri::command]
 fn storage_remove(app: tauri::AppHandle, plugin_id: String, key: String) -> Result<(), String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let lock = storage_lock_for(&plugin_id);
+    let _g = lock.lock().unwrap_or_else(|e| e.into_inner());
     let path = storage_file_path(&app, &plugin_id)?;
     let mut map = read_json_map(&path);
     map.remove(&key);
@@ -3583,6 +3642,11 @@ fn storage_remove(app: tauri::AppHandle, plugin_id: String, key: String) -> Resu
 
 #[tauri::command]
 fn storage_get_all(app: tauri::AppHandle, plugin_id: String) -> Result<Map<String, Value>, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let lock = storage_lock_for(&plugin_id);
+    let _g = lock.lock().unwrap_or_else(|e| e.into_inner());
     let path = storage_file_path(&app, &plugin_id)?;
     Ok(read_json_map(&path))
 }
@@ -3593,6 +3657,11 @@ fn storage_set_all(
     plugin_id: String,
     data: Map<String, Value>,
 ) -> Result<(), String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let lock = storage_lock_for(&plugin_id);
+    let _g = lock.lock().unwrap_or_else(|e| e.into_inner());
     let path = storage_file_path(&app, &plugin_id)?;
     write_json_map(&path, &data)
 }
