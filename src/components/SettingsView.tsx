@@ -24,7 +24,6 @@ import {
   addWallpaperImage,
   DEFAULT_WALLPAPER_VIEW,
   getWallpaperSettings,
-  removeAllWallpapers,
   removeWallpaperItem,
   setActiveWallpaper as setActiveWallpaperCmd,
   setWallpaperSettings,
@@ -360,20 +359,6 @@ export default function SettingsView(_props: { onBack: () => void }) {
       toast('已删除壁纸')
     } catch (e: any) {
       toast(String(e?.message || e || '删除失败'))
-    } finally {
-      setWallpaperSaving(false)
-    }
-  }
-
-  async function clearWallpaper() {
-    setWallpaperSaving(true)
-    try {
-      const normalized = await removeAllWallpapers()
-      setWallpaper(normalized)
-      window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
-      toast('已清除壁纸')
-    } catch (e: any) {
-      toast(String(e?.message || e || '设置失败'))
     } finally {
       setWallpaperSaving(false)
     }
@@ -778,15 +763,6 @@ export default function SettingsView(_props: { onBack: () => void }) {
                   disabled={wallpaperSaving || saving || recording || !wallpaper?.filePath}
                 >
                   调整取景
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="error"
-                  onClick={clearWallpaper}
-                  disabled={wallpaperSaving || saving || recording || !wallpaper?.filePath}
-                >
-                  清除
                 </Button>
               </Box>
 
