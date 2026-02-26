@@ -75,6 +75,7 @@ pnpm tauri build
 仓库内置插件位于 `plugins/`，当前包含：
 
 - `ai-draw`：AI 绘图
+- `ai-api-debugger`：AI API 调试（可视化构造请求头/请求体）
 - `ai-once`：AI 一次性响应
 - `anime-finder`：以图找番（trace.moe）
 - `bookmarks`：网站收藏
