@@ -2,12 +2,13 @@
 ;(function () {
   const api = window.fastWindow
   const STORAGE_KEY = 'data'
-  const VERSION = 1
+  const VERSION = 2
 
   const state = {
     loading: true,
     sending: false,
     modal: '',
+    sideTab: 'roles', // roles | chats
     models: { loading: false, error: '', items: [] },
     draft: {
       input: '',
@@ -66,6 +67,7 @@
   function defaultData() {
     const pid = uid('p')
     const rid = uid('r')
+    const cid = uid('c')
     return {
       version: VERSION,
       settings: {
@@ -91,16 +93,56 @@
           updatedAt: now(),
         },
       ],
-      chats: {
-        [rid]: { messages: [], updatedAt: now() },
+      chatsByRole: {
+        [rid]: {
+          activeChatId: cid,
+          chats: [{ id: cid, title: '新聊天', createdAt: now(), updatedAt: now(), messages: [] }],
+        },
       },
       ui: { activeRoleId: rid },
     }
   }
 
   function normalizeData(raw) {
-    const d = raw && typeof raw === 'object' ? raw : {}
-    if (d.version !== VERSION) return defaultData()
+    const d0 = raw && typeof raw === 'object' ? raw : {}
+
+    // v1 -> v2 迁移：原本每个角色只有一个 messages[]，升级为“多会话”
+    if (d0.version === 1) {
+      const out = {
+        version: VERSION,
+        settings: d0.settings && typeof d0.settings === 'object' ? d0.settings : {},
+        roles: Array.isArray(d0.roles) ? d0.roles : [],
+        chatsByRole: {},
+        ui: d0.ui && typeof d0.ui === 'object' ? d0.ui : {},
+      }
+
+      const baseProviders = Array.isArray(out.settings?.providers) && out.settings.providers.length ? out.settings.providers : defaultData().settings.providers
+      out.settings.providers = baseProviders
+
+      const baseRoles = Array.isArray(out.roles) && out.roles.length ? out.roles : defaultData().roles
+      out.roles = baseRoles
+
+      const v1Chats = d0.chats && typeof d0.chats === 'object' ? d0.chats : {}
+
+      for (const r of out.roles) {
+        const rid = String(r?.id || uid('r'))
+        const v1 = v1Chats[rid] && typeof v1Chats[rid] === 'object' ? v1Chats[rid] : { messages: [], updatedAt: 0 }
+        const msgs = Array.isArray(v1.messages) ? v1.messages : []
+        const createdAt = Number(msgs[0]?.createdAt || now())
+        const updatedAt = Number(v1.updatedAt || createdAt || now())
+        const cid = uid('c')
+        out.chatsByRole[rid] = {
+          activeChatId: cid,
+          chats: [{ id: cid, title: '聊天 1', createdAt, updatedAt, messages: msgs }],
+        }
+      }
+
+      // 接着走 v2 normalize
+      return normalizeData(out)
+    }
+
+    if (d0.version !== VERSION) return defaultData()
+    const d = d0
 
     if (!d.settings || typeof d.settings !== 'object') d.settings = {}
     if (!Array.isArray(d.settings.providers) || d.settings.providers.length === 0) d.settings.providers = defaultData().settings.providers
@@ -132,21 +174,46 @@
       r.updatedAt = Number(r.updatedAt || now())
     }
 
-    if (!d.chats || typeof d.chats !== 'object') d.chats = {}
+    if (!d.chatsByRole || typeof d.chatsByRole !== 'object') d.chatsByRole = {}
     for (const r of d.roles) {
       const rid = String(r.id)
-      if (!d.chats[rid] || typeof d.chats[rid] !== 'object') d.chats[rid] = { messages: [], updatedAt: now() }
-      const c = d.chats[rid]
-      if (!Array.isArray(c.messages)) c.messages = []
-      c.updatedAt = Number(c.updatedAt || now())
-      c.messages = c.messages
-        .filter((m) => m && typeof m === 'object')
-        .map((m) => ({
-          id: String(m.id || uid('m')),
-          role: m.role === 'assistant' ? 'assistant' : 'user',
-          content: String(m.content || ''),
-          createdAt: Number(m.createdAt || now()),
-        }))
+      if (!d.chatsByRole[rid] || typeof d.chatsByRole[rid] !== 'object') d.chatsByRole[rid] = { activeChatId: '', chats: [] }
+      const box = d.chatsByRole[rid]
+      if (!Array.isArray(box.chats)) box.chats = []
+      box.activeChatId = String(box.activeChatId || '')
+
+      box.chats = box.chats
+        .filter((c) => c && typeof c === 'object')
+        .map((c) => {
+          const cc = c
+          const cid = String(cc.id || uid('c'))
+          const title = typeof cc.title === 'string' && cc.title.trim() ? cc.title : '新聊天'
+          const createdAt = Number(cc.createdAt || now())
+          const updatedAt = Number(cc.updatedAt || createdAt || now())
+          const messages = Array.isArray(cc.messages) ? cc.messages : []
+          return {
+            id: cid,
+            title,
+            createdAt,
+            updatedAt,
+            messages: messages
+              .filter((m) => m && typeof m === 'object')
+              .map((m) => ({
+                id: String(m.id || uid('m')),
+                role: m.role === 'assistant' ? 'assistant' : 'user',
+                content: String(m.content || ''),
+                createdAt: Number(m.createdAt || now()),
+              })),
+          }
+        })
+
+      if (!box.chats.length) {
+        const cid = uid('c')
+        box.chats = [{ id: cid, title: '新聊天', createdAt: now(), updatedAt: now(), messages: [] }]
+        box.activeChatId = cid
+      }
+
+      if (!box.activeChatId || !box.chats.some((c) => String(c.id) === box.activeChatId)) box.activeChatId = String(box.chats[0]?.id || '')
     }
 
     if (!d.ui || typeof d.ui !== 'object') d.ui = {}
@@ -192,7 +259,11 @@
   function activeChat() {
     const r = activeRole()
     if (!r || !state.data) return null
-    return state.data.chats[String(r.id)] || null
+    const box = state.data.chatsByRole?.[String(r.id)]
+    if (!box) return null
+    const activeChatId = String(box.activeChatId || '')
+    const chats = Array.isArray(box.chats) ? box.chats : []
+    return chats.find((c) => String(c?.id) === activeChatId) || chats[0] || null
   }
 
   function ensureRoleDefaults(role) {
@@ -505,8 +576,13 @@
     if (!apiKey) return api.ui?.showToast?.('请在供应商设置里配置 API Key')
     if (!modelId) return api.ui?.showToast?.('请在角色设置里选择模型（供应商 + 模型ID）')
 
+    const wasEmpty = !Array.isArray(chat.messages) || chat.messages.length === 0
     chat.messages.push({ id: uid('m'), role: 'user', content: input, createdAt: now() })
     chat.updatedAt = now()
+    if (wasEmpty && String(chat.title || '') === '新聊天') {
+      const t = input.replace(/\s+/g, ' ').trim()
+      chat.title = t.length > 16 ? t.slice(0, 16) + '…' : t || '新聊天'
+    }
     state.draft.input = ''
     state.sending = true
     render()
@@ -559,6 +635,16 @@
   .role+.role{margin-top:8px;} .role[data-active="1"]{border-color:rgba(37,99,235,.35);background:rgba(37,99,235,.04);}
   .avatar{width:28px;height:28px;border-radius:10px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;background:#f9fafb;}
   .roleName{font-weight:800;font-size:12px;} .muted{color:var(--muted);font-size:12px;} .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;}
+  .tabs{display:flex;gap:6px;align-items:center;} .tab{height:28px;padding:0 10px;border-radius:10px;border:1px solid var(--line);background:#fff;color:var(--text);cursor:pointer;font-size:12px;}
+  .tab.on{border-color:rgba(37,99,235,.25);background:rgba(37,99,235,.08);color:var(--pri);}
+  .chatList{display:flex;flex-direction:column;gap:8px;}
+  .chatItem{padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:#fff;cursor:pointer;}
+  .chatItem[data-active="1"]{border-color:rgba(37,99,235,.35);background:rgba(37,99,235,.04);}
+  .chatItem:hover{border-color:rgba(37,99,235,.25);background:rgba(37,99,235,.03);}
+  .chatTop{display:flex;gap:8px;align-items:center;}
+  .chatTitle{font-weight:900;font-size:12px;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .chatTime{font-size:11px;color:var(--muted);}
+  .chatText{font-size:12px;color:var(--muted);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .sp{margin-left:auto;}
   .chat{flex:1;min-height:0;overflow:auto;padding:12px;background:#fafafa;}
   .composer{border-top:1px solid var(--line);padding:10px;display:flex;gap:8px;align-items:flex-end;background:#fff;}
@@ -612,6 +698,7 @@
       <div class="title">💬 AI 聊天</div>
       <button class="btn" data-act="open-providers">供应商</button>
       <button class="btn pri" data-act="new-role">新角色</button>
+      <button class="btn pri" data-act="new-chat">新建聊天</button>
       <button class="btn" data-act="edit-role">角色设置</button>
     `
   }
@@ -623,13 +710,15 @@
 
     const roles = state.data?.roles || []
     const active = String(state.draft.activeRoleId || '')
+    const tab = state.sideTab === 'chats' ? 'chats' : 'roles'
 
-    el.innerHTML = `
-      <div class="row" style="margin-bottom:10px">
-        <div class="muted">角色</div>
-        <div class="sp"></div>
-      </div>
-      ${roles
+    function tabBtn(name, label) {
+      const on = tab === name ? ' on' : ''
+      return `<button class="tab${on}" data-act="side-tab" data-tab="${esc(name)}">${esc(label)}</button>`
+    }
+
+    function renderRoles() {
+      return roles
         .map((r) => {
           const on = String(r.id) === active ? '1' : '0'
           return `
@@ -644,7 +733,53 @@
           </div>
         `
         })
-        .join('')}
+        .join('')
+    }
+
+    function renderChats() {
+      const role = activeRole()
+      if (!role || !state.data) return `<div class="muted">请选择角色</div>`
+      const box = state.data.chatsByRole?.[String(role.id)]
+      const chats = Array.isArray(box?.chats) ? box.chats : []
+      const activeChatId = String(box?.activeChatId || '')
+      if (!chats.length) return `<div class="muted">暂无会话</div>`
+
+      const list = chats
+        .slice()
+        .sort((a, b) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0))
+        .map((c) => {
+          const on = String(c.id) === activeChatId ? '1' : '0'
+          const msgs = Array.isArray(c.messages) ? c.messages : []
+          const last = msgs.length ? msgs[msgs.length - 1] : null
+          const who = last?.role === 'user' ? '你' : String(role.avatar || '🤖')
+          const raw = String(last?.content || '').replace(/\s+/g, ' ').trim()
+          const snippet = raw.length > 40 ? raw.slice(0, 40) + '…' : raw
+          const time = fmtTime(c.updatedAt || c.createdAt)
+          return `
+            <div class="chatItem" data-act="pick-chat" data-id="${esc(c.id)}" data-active="${on}">
+              <div class="chatTop">
+                <div class="chatTitle">${esc(String(c.title || '新聊天'))}</div>
+                <div class="sp"></div>
+                <div class="chatTime">${esc(time)}</div>
+              </div>
+              <div class="chatText">${esc(who)}：${esc(snippet || '(空)')}</div>
+            </div>
+          `
+        })
+        .join('')
+
+      return `<div class="chatList">${list}</div>`
+    }
+
+    el.innerHTML = `
+      <div class="row" style="margin-bottom:10px">
+        <div class="tabs">
+          ${tabBtn('roles', '角色')}
+          ${tabBtn('chats', '记录')}
+        </div>
+        <div class="sp"></div>
+      </div>
+      ${tab === 'roles' ? renderRoles() : renderChats()}
     `
   }
 
@@ -673,7 +808,7 @@
           : `<div class="msgActions"><button class="mini" data-act="copy-msg" data-id="${esc(m.id)}">复制</button></div>`
 
         return `
-          <div class="msg ${isUser ? 'user' : 'assistant'}">
+          <div class="msg ${isUser ? 'user' : 'assistant'}" data-mid="${esc(m.id)}">
             <div class="bubble">
               <div class="msgHead">
                 <div class="msgRole">${esc(who)}</div>
@@ -910,6 +1045,7 @@
   function createRole() {
     if (!state.data) return
     const rid = uid('r')
+    const cid = uid('c')
     const role = {
       id: rid,
       name: '新角色',
@@ -922,7 +1058,11 @@
     }
     ensureRoleDefaults(role)
     state.data.roles.unshift(role)
-    state.data.chats[rid] = { messages: [], updatedAt: now() }
+    if (!state.data.chatsByRole || typeof state.data.chatsByRole !== 'object') state.data.chatsByRole = {}
+    state.data.chatsByRole[rid] = {
+      activeChatId: cid,
+      chats: [{ id: cid, title: '新聊天', createdAt: now(), updatedAt: now(), messages: [] }],
+    }
     state.draft.activeRoleId = rid
     save().catch(() => {})
     openRoleEditor(rid)
@@ -979,13 +1119,13 @@
     if (!state.data) return
     const rid = String(roleId || '')
     state.data.roles = state.data.roles.filter((r) => String(r?.id) !== rid)
-    delete state.data.chats[rid]
+    if (state.data.chatsByRole && typeof state.data.chatsByRole === 'object') delete state.data.chatsByRole[rid]
 
     if (!state.data.roles.length) {
       const d = defaultData()
       state.data.settings.providers = state.data.settings.providers.length ? state.data.settings.providers : d.settings.providers
       state.data.roles = d.roles
-      state.data.chats = d.chats
+      state.data.chatsByRole = d.chatsByRole
       state.data.ui = d.ui
     }
 
@@ -1054,11 +1194,70 @@
     save().catch(() => {})
   }
 
+  function ensureChatsBox(roleId) {
+    if (!state.data) return null
+    const rid = String(roleId || '')
+    if (!rid) return null
+    if (!state.data.chatsByRole || typeof state.data.chatsByRole !== 'object') state.data.chatsByRole = {}
+    if (!state.data.chatsByRole[rid] || typeof state.data.chatsByRole[rid] !== 'object') state.data.chatsByRole[rid] = { activeChatId: '', chats: [] }
+    const box = state.data.chatsByRole[rid]
+    if (!Array.isArray(box.chats)) box.chats = []
+    box.activeChatId = String(box.activeChatId || '')
+    if (!box.chats.length) {
+      const cid = uid('c')
+      box.chats = [{ id: cid, title: '新聊天', createdAt: now(), updatedAt: now(), messages: [] }]
+      box.activeChatId = cid
+    }
+    if (!box.activeChatId || !box.chats.some((c) => String(c?.id) === box.activeChatId)) box.activeChatId = String(box.chats[0]?.id || '')
+    return box
+  }
+
+  function createChatForRole(roleId) {
+    const rid = String(roleId || '')
+    const box = ensureChatsBox(rid)
+    if (!box) return null
+    const cid = uid('c')
+    const chat = { id: cid, title: '新聊天', createdAt: now(), updatedAt: now(), messages: [] }
+    box.chats.unshift(chat)
+    box.activeChatId = cid
+    return chat
+  }
+
+  function createChatForActiveRole() {
+    const role = activeRole()
+    if (!role) return api.ui?.showToast?.('请先选择角色')
+    createChatForRole(String(role.id))
+    state.sideTab = 'chats'
+    save().catch(() => {})
+    render()
+    scrollToBottomSoon()
+  }
+
+  function pickChatForActiveRole(chatId) {
+    const role = activeRole()
+    if (!role || !state.data) return
+    const box = ensureChatsBox(String(role.id))
+    if (!box) return
+    const cid = String(chatId || '')
+    if (!cid || !box.chats.some((c) => String(c?.id) === cid)) return
+    box.activeChatId = cid
+    save().catch(() => {})
+    render()
+    scrollToBottomSoon()
+  }
+
   function onClick(e) {
     const t = e?.target
     if (!(t instanceof HTMLElement)) return
     const act = t.getAttribute('data-act') || ''
     if (!act) return
+
+    if (act === 'side-tab') {
+      const tab = String(t.getAttribute('data-tab') || '')
+      state.sideTab = tab === 'chats' ? 'chats' : 'roles'
+      render()
+      return
+    }
 
     if (act === 'close-modal') {
       const stop = t.getAttribute('data-stop')
@@ -1069,6 +1268,7 @@
 
     if (act === 'open-providers') return openProvidersEditor()
     if (act === 'new-role') return createRole()
+    if (act === 'new-chat') return createChatForActiveRole()
 
     if (act === 'edit-role') {
       const r = activeRole()
@@ -1080,11 +1280,14 @@
 
     if (act === 'pick-role') {
       state.draft.activeRoleId = String(t.getAttribute('data-id') || '')
+      ensureChatsBox(state.draft.activeRoleId)
       save().catch(() => {})
       render()
       scrollToBottomSoon()
       return
     }
+
+    if (act === 'pick-chat') return pickChatForActiveRole(String(t.getAttribute('data-id') || ''))
 
     if (act === 'send') return sendChat()
     if (act === 'refresh-models') return refreshModels(String(state.draft.roleProviderId || ''), true)
