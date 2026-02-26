@@ -325,29 +325,86 @@
     return tpl.innerHTML
   }
 
+  function preprocessMathBlocks(source) {
+    const blocks = []
+    const src = String(source || '').replace(/\r\n/g, '\n')
+
+    function stash(tex) {
+      const id = blocks.length
+      blocks.push(String(tex || ''))
+      return `@@BLOCK_MATH_${id}@@`
+    }
+
+    function replaceInText(text) {
+      let s = String(text || '')
+      s = s.replace(/\$\$\s*([\s\S]*?)\s*\$\$/g, (_, tex) => stash(tex))
+      s = s.replace(/\\\[\s*([\s\S]*?)\s*\\\]/g, (_, tex) => stash(tex))
+      return s
+    }
+
+    const fenceRe = /```[\s\S]*?```/g
+    let out = ''
+    let last = 0
+    let m
+    while ((m = fenceRe.exec(src))) {
+      out += replaceInText(src.slice(last, m.index))
+      out += m[0]
+      last = m.index + m[0].length
+    }
+    out += replaceInText(src.slice(last))
+
+    return { text: out, blocks }
+  }
+
   function renderAssistantInto(el, text) {
     const raw = String(text || '')
     let html = ''
 
+    const pre = preprocessMathBlocks(raw)
+
     if (window.marked && window.marked.parse) {
       try {
         window.marked.setOptions?.({ gfm: true, breaks: true })
-        html = window.marked.parse(raw)
+        html = window.marked.parse(pre.text)
       } catch (_) {
-        html = `<pre>${esc(raw)}</pre>`
+        html = `<pre>${esc(pre.text)}</pre>`
       }
     } else {
-      html = `<pre>${esc(raw)}</pre>`
+      html = `<pre>${esc(pre.text)}</pre>`
     }
 
-    el.innerHTML = sanitizeHtml(html)
+    let safe = sanitizeHtml(html)
+    if (Array.isArray(pre.blocks) && pre.blocks.length) {
+      safe = safe.replace(/@@BLOCK_MATH_(\d+)@@/g, (_, id) => {
+        const tex = pre.blocks[Number(id)] ?? ''
+        return `<div class="math-block" data-tex="${esc(tex)}"></div>`
+      })
+    }
+
+    el.innerHTML = safe
+
+    // 块级公式：优先用 katex.render（避免 $$ 换行/BR 导致 auto-render 识别失败）
+    const blocks = Array.from(el.querySelectorAll?.('.math-block[data-tex]') || [])
+    if (blocks.length && window.katex && window.katex.render) {
+      for (const b of blocks) {
+        if (!(b instanceof HTMLElement)) continue
+        if (b.getAttribute('data-rendered') === '1') continue
+        const tex = b.getAttribute('data-tex') || ''
+        try {
+          window.katex.render(tex, b, { displayMode: true, throwOnError: false })
+          b.setAttribute('data-rendered', '1')
+        } catch (_) {}
+      }
+    }
 
     if (window.renderMathInElement) {
       try {
         window.renderMathInElement(el, {
           delimiters: [
             { left: '$$', right: '$$', display: true },
+            { left: '\\[', right: '\\]', display: true },
             { left: '$', right: '$', display: false },
+            { left: '\\(', right: '\\)', display: false },
           ],
           throwOnError: false,
         })
@@ -510,7 +567,7 @@
   .msgHead{display:flex;align-items:center;gap:8px;margin-bottom:6px;} .msgRole{font-weight:900;font-size:12px;} .msgTime{font-size:11px;color:var(--muted);margin-left:auto;} .msgActions{display:flex;gap:6px;}
   .mini{height:26px;padding:0 8px;border-radius:10px;border:1px solid var(--line);background:#fff;cursor:pointer;font-size:12px;}
   .prose{font-size:12px;line-height:1.65;word-break:break-word;} .prose pre{overflow:auto;padding:10px;background:#0b1220;color:#e5e7eb;border-radius:10px;border:1px solid rgba(255,255,255,.08);} .prose code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;}
-  .prose p{margin:8px 0;} .prose ul,.prose ol{margin:8px 0 8px 18px;} .prose blockquote{margin:8px 0;padding:8px 10px;border-left:3px solid rgba(37,99,235,.35);background:rgba(37,99,235,.04);border-radius:10px;} .prose hr{border:0;border-top:1px solid var(--line);margin:10px 0;}
+  .prose p{margin:8px 0;} .prose ul,.prose ol{margin:8px 0 8px 18px;} .prose blockquote{margin:8px 0;padding:8px 10px;border-left:3px solid rgba(37,99,235,.35);background:rgba(37,99,235,.04);border-radius:10px;} .prose hr{border:0;border-top:1px solid var(--line);margin:10px 0;} .math-block{margin:8px 0;overflow-x:auto;}
   .overlay{position:fixed;inset:0;background:rgba(17,24,39,.18);display:flex;align-items:center;justify-content:center;padding:12px;}
   .modal{width:min(760px,100%);max-height:calc(100vh - 24px);overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;box-shadow:0 10px 30px rgba(17,24,39,.12);}
   .card{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff;} .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;} .hr{height:1px;background:var(--line);margin:10px 0;}
