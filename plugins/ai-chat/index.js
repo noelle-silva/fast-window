@@ -296,6 +296,7 @@
   }
 
   let rendererPromise = null
+  let domPurifyHooked = false
   function ensureRenderer() {
     if (rendererPromise) return rendererPromise
     rendererPromise = (async () => {
@@ -316,11 +317,76 @@
 
   function sanitizeHtml(html) {
     const raw = String(html || '')
+
+    function isSafeHref(href) {
+      const s = String(href || '').trim().toLowerCase()
+      return s.startsWith('http://') || s.startsWith('https://') || s.startsWith('mailto:')
+    }
+
+    function isAllowedAttr(tag, name) {
+      const n = String(name || '').toLowerCase()
+      const t = String(tag || '').toUpperCase()
+
+      if (!n) return false
+      if (n.startsWith('on')) return false
+      if (n === 'id') return true
+      if (n === 'class' || n === 'style') return true
+      if (n.startsWith('data-')) return true
+      if (n.startsWith('aria-') || n === 'role' || n === 'tabindex') return true
+
+      if (t === 'A') return n === 'href' || n === 'target' || n === 'rel' || n === 'title'
+      if (t === 'BUTTON') return n === 'type' || n === 'disabled' || n === 'title'
+      if (t === 'INPUT') return n === 'type' || n === 'value' || n === 'checked' || n === 'disabled' || n === 'placeholder' || n === 'title'
+      if (t === 'TD' || t === 'TH') return n === 'colspan' || n === 'rowspan' || n === 'title'
+      if (t === 'DETAILS') return n === 'open'
+      return false
+    }
+
+    function sanitizeStyleValue(style) {
+      const s = String(style || '')
+      if (!s.trim()) return ''
+      const out = []
+      const parts = s.split(';')
+      for (const part of parts) {
+        const p = part.trim()
+        if (!p) continue
+        const idx = p.indexOf(':')
+        if (idx <= 0) continue
+        const key = p.slice(0, idx).trim().toLowerCase()
+        let value = p.slice(idx + 1).trim()
+        if (!key || !value) continue
+
+        const v = value.toLowerCase()
+        if (v.includes('expression(') || v.includes('javascript:') || v.includes('@import') || v.includes('url(')) continue
+        if (value.includes('<') || value.includes('>')) continue
+        out.push(`${key}:${value}`)
+      }
+      return out.join(';')
+    }
+
     if (window.DOMPurify && window.DOMPurify.sanitize) {
       try {
+        if (!domPurifyHooked && window.DOMPurify.addHook) {
+          domPurifyHooked = true
+          window.DOMPurify.addHook('uponSanitizeAttribute', (_node, data) => {
+            try {
+              const name = String(data?.attrName || '').toLowerCase()
+              if (name.startsWith('on')) data.keepAttr = false
+              if (name === 'href' && data.attrValue && !isSafeHref(data.attrValue)) data.keepAttr = false
+              if (name === 'style') {
+                const v = sanitizeStyleValue(String(data.attrValue || ''))
+                if (!v) data.keepAttr = false
+                else data.attrValue = v
+              }
+            } catch (_) {}
+          })
+        }
+
         return window.DOMPurify.sanitize(raw, {
           FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed'],
-          FORBID_ATTR: ['style'],
+          ALLOW_DATA_ATTR: true,
+          ADD_TAGS: ['button', 'details', 'summary', 'input', 'label', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
+          ADD_ATTR: ['id', 'style', 'class', 'role', 'tabindex', 'colspan', 'rowspan'],
         })
       } catch (_) {}
     }
@@ -342,6 +408,17 @@
       'LI',
       'BLOCKQUOTE',
       'A',
+      'BUTTON',
+      'DETAILS',
+      'SUMMARY',
+      'INPUT',
+      'LABEL',
+      'TABLE',
+      'THEAD',
+      'TBODY',
+      'TR',
+      'TH',
+      'TD',
       'H1',
       'H2',
       'H3',
@@ -350,11 +427,6 @@
       'H6',
       'HR',
     ])
-
-    function isSafeHref(href) {
-      const s = String(href || '').trim().toLowerCase()
-      return s.startsWith('http://') || s.startsWith('https://') || s.startsWith('mailto:')
-    }
 
     const walker = document.createTreeWalker(tpl.content, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT, null)
     const toRemove = []
@@ -376,11 +448,15 @@
       const attrs = Array.from(el.attributes || [])
       for (const a of attrs) {
         const name = String(a.name || '').toLowerCase()
-        if (name.startsWith('on') || name === 'style') el.removeAttribute(a.name)
-        else if (name === 'class') continue
-        else if (name.startsWith('data-')) continue
-        else if (tag === 'A' && (name === 'href' || name === 'target' || name === 'rel' || name === 'title')) continue
-        else el.removeAttribute(a.name)
+        if (!isAllowedAttr(tag, name)) {
+          el.removeAttribute(a.name)
+          continue
+        }
+        if (name === 'style') {
+          const v = sanitizeStyleValue(el.getAttribute('style') || '')
+          if (!v) el.removeAttribute('style')
+          else el.setAttribute('style', v)
+        }
       }
 
       if (tag === 'A') {
@@ -427,11 +503,37 @@
     return { text: out, blocks }
   }
 
+  function preprocessHtmlIndentation(source) {
+    const src = String(source || '').replace(/\r\n/g, '\n')
+    const fenceRe = /```[\s\S]*?```/g
+
+    function dedentHtmlLines(s) {
+      const t = String(s || '')
+      // Markdown：4 空格缩进会被当作代码块；HTML 内部常见缩进会触发这个坑。
+      // 仅在“非代码围栏”区域，把以 4 空格/Tab 开头且后面紧跟 < 或 <!-- 的行去掉缩进。
+      return t
+        .replace(/^(?:\t| {4})+(?=<)/gm, '')
+        .replace(/^(?:\t| {4})+(?=<!--)/gm, '')
+    }
+
+    let out = ''
+    let last = 0
+    let m
+    while ((m = fenceRe.exec(src))) {
+      out += dedentHtmlLines(src.slice(last, m.index))
+      out += m[0]
+      last = m.index + m[0].length
+    }
+    out += dedentHtmlLines(src.slice(last))
+    return out
+  }
+
   function renderAssistantInto(el, text) {
     const raw = String(text || '')
     let html = ''
 
-    const pre = preprocessMathBlocks(raw)
+    const noIndent = preprocessHtmlIndentation(raw)
+    const pre = preprocessMathBlocks(noIndent)
 
     if (window.marked && window.marked.parse) {
       try {
@@ -1260,8 +1362,6 @@
     }
 
     if (act === 'close-modal') {
-      const stop = t.getAttribute('data-stop')
-      if (stop === '1') return
       closeModal()
       return
     }
