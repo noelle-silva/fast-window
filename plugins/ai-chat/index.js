@@ -318,6 +318,25 @@
   let rendererPromise = null
   let domPurifyHooked = false
   let mermaidInited = false
+  function initMermaidOnce() {
+    const m = window.mermaid
+    if (mermaidInited || !m || !m.initialize) return
+    try {
+      mermaidInited = true
+      m.initialize({
+        startOnLoad: false,
+        securityLevel: 'strict',
+        theme: 'default',
+        themeVariables: {
+          fontFamily:
+            'system-ui,-apple-system,"Segoe UI","Microsoft YaHei","PingFang SC","Noto Sans CJK SC",Roboto,Arial,sans-serif',
+        },
+        flowchart: { htmlLabels: false },
+        state: { htmlLabels: false },
+        class: { htmlLabels: false },
+      })
+    } catch (_) {}
+  }
   function ensureRenderer() {
     if (rendererPromise) return rendererPromise
     rendererPromise = (async () => {
@@ -334,10 +353,7 @@
       } catch (_) {}
       try {
         await loadScriptOnce('https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js', 'mermaid')
-        if (!mermaidInited && window.mermaid && window.mermaid.initialize) {
-          mermaidInited = true
-          window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' })
-        }
+        initMermaidOnce()
       } catch (_) {}
     })()
     return rendererPromise
@@ -665,12 +681,7 @@
     })
     if (!codes.length) return
 
-    if (!mermaidInited && m.initialize) {
-      try {
-        mermaidInited = true
-        m.initialize({ startOnLoad: false, securityLevel: 'strict' })
-      } catch (_) {}
-    }
+    initMermaidOnce()
 
     async function doRender(id, code, container) {
       try {
