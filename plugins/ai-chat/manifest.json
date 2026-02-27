@@ -17,6 +17,9 @@
     "storage.getAll",
     "ui.showToast",
     "clipboard.writeText",
+    "files.pickImages",
+    "files.saveRefImageBase64",
+    "files.readRefImage",
     "net.request",
     "net.requestStream",
     "net.requestStreamCancel"

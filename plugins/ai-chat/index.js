@@ -6,6 +6,11 @@
   const BG_STREAM_KEY_PREFIX = 'bg.stream.'
   const VERSION = 2
   const runtime = String(api?.__meta?.runtime || 'ui')
+  const MAX_DRAFT_IMAGES = 8
+  const REF_IMG_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
+
+  const uiRefImgCache = new Map()
+  const uiRefImgPending = new Set()
 
   const state = {
     loading: true,
@@ -17,6 +22,7 @@
     models: { loading: false, error: '', items: [] },
     draft: {
       input: '',
+      images: [],
       activeRoleId: '',
 
       editRoleId: '',
@@ -67,6 +73,19 @@
     const n = Number(v)
     if (!isFinite(n)) return 0.7
     return Math.max(0, Math.min(2, n))
+  }
+
+  function normImagePaths(v) {
+    const list = Array.isArray(v) ? v : []
+    const out = []
+    for (const x of list) {
+      const s = typeof x === 'string' ? x.trim() : ''
+      if (!s) continue
+      if (s.length > 4096) continue
+      out.push(s)
+      if (out.length >= MAX_DRAFT_IMAGES) break
+    }
+    return out
   }
 
   function clamp(n, a, b) {
@@ -211,16 +230,17 @@
             updatedAt,
             messages: messages
               .filter((m) => m && typeof m === 'object')
-              .map((m) => ({
-                id: String(m.id || uid('m')),
-                role: m.role === 'assistant' ? 'assistant' : 'user',
-                content: String(m.content || ''),
-                pending: !!m.pending,
-                streaming: !!m.streaming,
-                createdAt: Number(m.createdAt || now()),
-              })),
-          }
-        })
+                .map((m) => ({
+                  id: String(m.id || uid('m')),
+                  role: m.role === 'assistant' ? 'assistant' : 'user',
+                  content: String(m.content || ''),
+                  images: normImagePaths(m.images),
+                  pending: !!m.pending,
+                  streaming: !!m.streaming,
+                  createdAt: Number(m.createdAt || now()),
+                })),
+            }
+          })
 
       if (!box.chats.length) {
         const cid = uid('c')
@@ -891,6 +911,60 @@
     return `${BG_STREAM_KEY_PREFIX}${String(mid || '')}`
   }
 
+  function looksLikeImageDataUrl(s) {
+    const t = String(s || '')
+    return t.startsWith('data:image/')
+  }
+
+  function addDraftImage(name, dataUrl) {
+    if (!looksLikeImageDataUrl(dataUrl)) return false
+    if (!Array.isArray(state.draft.images)) state.draft.images = []
+    if (state.draft.images.length >= MAX_DRAFT_IMAGES) return false
+    state.draft.images.push({ id: uid('img'), name: String(name || '图片'), dataUrl: String(dataUrl || '') })
+    return true
+  }
+
+  function removeDraftImage(id) {
+    const rid = String(id || '')
+    if (!rid) return
+    if (!Array.isArray(state.draft.images)) state.draft.images = []
+    state.draft.images = state.draft.images.filter((x) => String(x?.id || '') !== rid)
+  }
+
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      if (!(file instanceof File)) return reject(new Error('file 无效'))
+      const r = new FileReader()
+      r.onload = () => resolve(String(r.result || ''))
+      r.onerror = () => reject(new Error('读取图片失败'))
+      r.readAsDataURL(file)
+    })
+  }
+
+  async function pickImages() {
+    if (state.loading || state.sending) return
+    if (typeof api?.files?.pickImages !== 'function') return api.ui?.showToast?.('未授权：files.pickImages')
+
+    const left = Math.max(0, MAX_DRAFT_IMAGES - (Array.isArray(state.draft.images) ? state.draft.images.length : 0))
+    if (!left) return api.ui?.showToast?.(`最多选择 ${MAX_DRAFT_IMAGES} 张图片`)
+
+    try {
+      const items = await api.files.pickImages(left)
+      const list = Array.isArray(items) ? items : []
+      let added = 0
+      for (const it of list) {
+        const name = String(it?.name || '图片')
+        const dataUrl = String(it?.dataUrl || '')
+        if (addDraftImage(name, dataUrl)) added++
+      }
+      if (!added) api.ui?.showToast?.('未选择图片')
+    } catch (e) {
+      api.ui?.showToast?.(String(e?.message || e || '选择图片失败'))
+    } finally {
+      renderComposer()
+    }
+  }
+
   async function sendChat() {
     if (state.sending || state.loading || !state.data) return
 
@@ -900,7 +974,8 @@
     ensureRoleDefaults(role)
 
     const input = String(state.draft.input || '').trim()
-    if (!input) return api.ui?.showToast?.('输入不能为空')
+    const draftImages = Array.isArray(state.draft.images) ? state.draft.images : []
+    if (!input && !draftImages.length) return api.ui?.showToast?.('输入不能为空')
 
     const providerId = String(role.modelRef?.providerId || '')
     const modelId = String(role.modelRef?.modelId || '').trim()
@@ -914,26 +989,38 @@
     if (!apiKey) return api.ui?.showToast?.('请在供应商设置里配置 API Key')
     if (!modelId) return api.ui?.showToast?.('请在角色设置里选择模型（供应商 + 模型ID）')
 
-    const streamEnabled = !!state.data?.settings?.streamEnabled
-    const assistantMid = uid('m')
-
-    const wasEmpty = !Array.isArray(chat.messages) || chat.messages.length === 0
-    chat.messages.push({ id: uid('m'), role: 'user', content: input, createdAt: now() })
-    chat.updatedAt = now()
-    if (wasEmpty && String(chat.title || '') === '新聊天') {
-      const t = input.replace(/\s+/g, ' ').trim()
-      chat.title = t.length > 16 ? t.slice(0, 16) + '…' : t || '新聊天'
-    }
-    state.draft.input = ''
-    state.sending = true
-    render()
-
+    let assistantMid = ''
     try {
-      const sys = String(role.systemPrompt || '').trim()
-      const history = limitHistory(chat.messages, 40)
-      const messages = []
-      if (sys) messages.push({ role: 'system', content: sys })
-      for (const m of history) messages.push({ role: m.role, content: String(m.content || '') })
+      if (draftImages.length && typeof api?.files?.saveRefImageBase64 !== 'function') {
+        return api.ui?.showToast?.('未授权：files.saveRefImageBase64')
+      }
+
+      state.sending = true
+      renderComposer()
+
+      const savedPaths = []
+      for (const img of draftImages.slice(0, MAX_DRAFT_IMAGES)) {
+        const dataUrl = String(img?.dataUrl || '')
+        if (!looksLikeImageDataUrl(dataUrl)) continue
+        const saved = await api.files.saveRefImageBase64(dataUrl)
+        const path = String(saved || '').trim()
+        if (path) savedPaths.push(path)
+      }
+
+      const streamEnabled = !!state.data?.settings?.streamEnabled
+      assistantMid = uid('m')
+
+      const wasEmpty = !Array.isArray(chat.messages) || chat.messages.length === 0
+      chat.messages.push({ id: uid('m'), role: 'user', content: input, images: savedPaths, createdAt: now() })
+      chat.updatedAt = now()
+      if (wasEmpty && String(chat.title || '') === '新聊天') {
+        const t = input.replace(/\s+/g, ' ').trim()
+        const base = t || (savedPaths.length ? '图片' : '新聊天')
+        chat.title = base.length > 16 ? base.slice(0, 16) + '…' : base || '新聊天'
+      }
+
+      state.draft.input = ''
+      state.draft.images = []
 
       chat.messages.push({
         id: assistantMid,
@@ -955,13 +1042,6 @@
         chatId: String(chat.id || ''),
         assistantMid,
         stream: streamEnabled,
-        req: {
-          method: 'POST',
-          url: `${baseUrl}/chat/completions`,
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({ model: modelId, messages, temperature: clampTemp(role.temperature), stream: streamEnabled }),
-          timeoutMs: streamEnabled ? 15 * 60 * 1000 : 120000,
-        },
       }
 
       await save()
@@ -970,7 +1050,7 @@
     } catch (e) {
       const msg = String(e?.message || e || '请求失败')
       const items = Array.isArray(chat.messages) ? chat.messages : []
-      const am = items.find((m) => String(m?.id) === assistantMid)
+      const am = assistantMid ? items.find((m) => String(m?.id || '') === assistantMid) : null
       if (am) {
         am.content = `（请求失败：${msg}）`
         am.pending = false
@@ -1101,10 +1181,89 @@
     }, 800)
   }
 
+  async function buildOpenAiChatReqFromStorage(job) {
+    const roleId = String(job?.roleId || '')
+    const chatId = String(job?.chatId || '')
+    if (!roleId || !chatId) throw new Error('job 缺少 roleId/chatId')
+
+    const raw = await api.storage.get(STORAGE_KEY)
+    const d = normalizeData(raw)
+
+    const role = Array.isArray(d?.roles) ? d.roles.find((r) => String(r?.id || '') === roleId) : null
+    if (!role) throw new Error('角色不存在')
+    const fallbackPid = String(d?.settings?.providers?.[0]?.id || '')
+    if (!role.modelRef || typeof role.modelRef !== 'object') role.modelRef = { providerId: fallbackPid, modelId: '' }
+    if (!role.modelRef.providerId) role.modelRef.providerId = fallbackPid
+    if (typeof role.modelRef.modelId !== 'string') role.modelRef.modelId = ''
+
+    const providerId = String(role.modelRef?.providerId || '')
+    const modelId = String(role.modelRef?.modelId || '').trim()
+    const p = (Array.isArray(d?.settings?.providers) ? d.settings.providers : []).find((x) => String(x?.id || '') === providerId) || null
+    if (!p) throw new Error('供应商不存在')
+
+    const baseUrl = trimSlash(p.baseUrl || '')
+    const apiKey = String(p.apiKey || '').trim()
+    if (!isHttpBaseUrl(baseUrl)) throw new Error('Base URL 无效（需 http/https）')
+    if (!apiKey) throw new Error('API Key 为空')
+    if (!modelId) throw new Error('模型ID 为空')
+
+    const box = d?.chatsByRole?.[roleId]
+    const chats = Array.isArray(box?.chats) ? box.chats : []
+    const chat = chats.find((c) => String(c?.id || '') === chatId) || null
+    if (!chat) throw new Error('会话不存在')
+
+    const msgs0 = Array.isArray(chat.messages) ? chat.messages : []
+    const msgs = msgs0.filter((m) => !(m && m.role === 'assistant' && m.pending))
+    const history = limitHistory(msgs, 40)
+
+    const sys = String(role.systemPrompt || '').trim()
+    const messages = []
+    if (sys) messages.push({ role: 'system', content: sys })
+
+    for (const m of history) {
+      const r = m?.role === 'assistant' ? 'assistant' : 'user'
+      const text = String(m?.content || '')
+      if (r === 'user') {
+        const paths = normImagePaths(m?.images)
+        if (paths.length) {
+          if (typeof api?.files?.readRefImage !== 'function') throw new Error('未授权：files.readRefImage')
+          const parts = [{ type: 'text', text }]
+          for (const path of paths) {
+            let dataUrl = ''
+            try {
+              dataUrl = await api.files.readRefImage(path)
+            } catch (e) {
+              throw new Error(`读取图片失败：${String(e?.message || e || 'unknown')}`)
+            }
+            if (!looksLikeImageDataUrl(dataUrl)) throw new Error('读取图片失败：格式不支持')
+            parts.push({ type: 'image_url', image_url: { url: dataUrl } })
+          }
+          messages.push({ role: 'user', content: parts })
+          continue
+        }
+      }
+      messages.push({ role: r, content: text })
+    }
+
+    const stream = !!job?.stream
+    return {
+      method: 'POST',
+      url: `${baseUrl}/chat/completions`,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: modelId, messages, temperature: clampTemp(role.temperature), stream }),
+      timeoutMs: stream ? 15 * 60 * 1000 : 120000,
+    }
+  }
+
   async function runBackgroundJob(job) {
     const streamWanted = !!job?.stream
-    const req = job?.req || null
+    let req = job?.req || null
     const mid = String(job?.assistantMid || '')
+    if (!req || typeof req !== 'object') {
+      if (String(job?.kind || '') === 'openai.chat.completions') {
+        req = await buildOpenAiChatReqFromStorage(job)
+      }
+    }
     if (!req || typeof req !== 'object') throw new Error('job.req 无效')
 
     let out = ''
@@ -1242,11 +1401,18 @@
   .chatText{font-size:12px;color:var(--muted);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .sp{margin-left:auto;}
   .chat{flex:1;min-height:0;overflow:auto;padding:12px;background:#fafafa;overscroll-behavior:contain;}
-  .composer{border-top:1px solid var(--line);padding:10px;display:flex;gap:8px;align-items:flex-end;background:#fff;}
+  .composer{border-top:1px solid var(--line);padding:10px;display:flex;flex-direction:column;gap:8px;background:#fff;}
+  .composeRow{display:flex;gap:8px;align-items:flex-end;}
+  .draftImgs{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .draftImg{width:54px;height:54px;border:1px solid var(--line);border-radius:12px;position:relative;overflow:hidden;background:#fff;}
+  .draftImg img{width:100%;height:100%;object-fit:cover;display:block;}
+  .draftX{position:absolute;top:4px;right:4px;width:20px;height:20px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.92);cursor:pointer;line-height:18px;padding:0;font-size:14px;}
   .ta{flex:1;min-height:42px;max-height:160px;resize:vertical;border:1px solid var(--line);border-radius:12px;padding:9px 10px;font-size:12px;outline:none;}
   .msg{display:flex;gap:8px;margin-bottom:10px;} .bubble{max-width:880px;border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff;box-shadow:0 6px 18px rgba(17,24,39,.06);} .msg.user{justify-content:flex-end;} .msg.user .bubble{background:rgba(37,99,235,.06);border-color:rgba(37,99,235,.18);}
   .msgHead{display:flex;align-items:center;gap:8px;margin-bottom:6px;} .msgRole{font-weight:900;font-size:12px;} .msgTime{font-size:11px;color:var(--muted);margin-left:auto;} .msgActions{display:flex;gap:6px;}
   .mini{height:26px;padding:0 8px;border-radius:10px;border:1px solid var(--line);background:#fff;cursor:pointer;font-size:12px;}
+  .msgImgs{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 8px;}
+  .msgImg{width:180px;height:120px;object-fit:cover;border-radius:12px;border:1px solid var(--line);background:#fff;display:block;}
   .prose{font-size:12px;line-height:1.65;word-break:break-word;} .prose pre{overflow:auto;padding:10px;background:#0b1220;color:#e5e7eb;border-radius:10px;border:1px solid rgba(255,255,255,.08);} .prose code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:12px;}
   .prose p{margin:8px 0;} .prose ul,.prose ol{margin:8px 0 8px 18px;} .prose blockquote{margin:8px 0;padding:8px 10px;border-left:3px solid rgba(37,99,235,.35);background:rgba(37,99,235,.04);border-radius:10px;} .prose hr{border:0;border-top:1px solid var(--line);margin:10px 0;} .math-block{margin:8px 0;overflow-x:auto;}
   .prose .katex,.prose .katex-display{max-width:100%;}
@@ -1286,6 +1452,7 @@
     document.body.addEventListener('input', onInput)
     document.body.addEventListener('change', onChange)
     document.body.addEventListener('keydown', onKeyDown)
+    document.body.addEventListener('paste', onPaste)
     try {
       document.body.addEventListener('wheel', onWheel, { passive: false, capture: true })
     } catch (_) {
@@ -1367,6 +1534,7 @@
           const who = last?.role === 'user' ? '你' : String(role.avatar || '🤖')
           const raw = String(last?.content || '').replace(/\s+/g, ' ').trim()
           const snippet = raw.length > 40 ? raw.slice(0, 40) + '…' : raw
+          const hasImg = Array.isArray(last?.images) && last.images.length > 0
           const time = fmtTime(c.updatedAt || c.createdAt)
           return `
             <div class="chatItem" data-act="pick-chat" data-id="${esc(c.id)}" data-active="${on}">
@@ -1375,7 +1543,7 @@
                 <div class="sp"></div>
                 <div class="chatTime">${esc(time)}</div>
               </div>
-              <div class="chatText">${esc(who)}：${esc(snippet || '(空)')}</div>
+              <div class="chatText">${esc(who)}：${esc(snippet || (hasImg ? '(图片)' : '(空)'))}</div>
             </div>
           `
         })
@@ -1413,9 +1581,24 @@
         const isUser = m.role === 'user'
         const who = isUser ? '你' : `${String(role.avatar || '🤖')} ${String(role.name || 'AI')}`
         const time = fmtTime(m.createdAt)
-        const body = isUser
-          ? `<div class="prose">${esc(String(m.content || '')).replace(/\n/g, '<br />')}</div>`
-          : `<div class="prose" data-render-assistant="1" data-mid="${esc(m.id)}"></div>`
+        const imgPaths = isUser ? normImagePaths(m.images) : []
+        const imgs =
+          imgPaths.length > 0
+            ? `<div class="msgImgs">
+              ${imgPaths
+                .map((p) => {
+                  const cached = uiRefImgCache.get(p)
+                  const src = typeof cached === 'string' && cached ? cached : REF_IMG_PLACEHOLDER
+                  return `<img class="msgImg" data-ref-img="${esc(p)}" src="${esc(src)}" alt="图片" />`
+                })
+                .join('')}
+            </div>`
+            : ''
+
+        const text = String(m.content || '')
+        const textHtml = text ? `<div class="prose">${esc(text).replace(/\n/g, '<br />')}</div>` : ''
+
+        const body = isUser ? `${imgs}${textHtml}` : `<div class="prose" data-render-assistant="1" data-mid="${esc(m.id)}"></div>`
         const actions = isUser
           ? ''
           : `<div class="msgActions"><button class="mini" data-act="copy-msg" data-id="${esc(m.id)}">复制</button></div>`
@@ -1447,17 +1630,87 @@
       }
       renderAssistantInto(h, content)
     }
+
+    hydrateRefImages(el)
+  }
+
+  function hydrateRefImages(root) {
+    if (!(root instanceof HTMLElement)) return
+    if (typeof api?.files?.readRefImage !== 'function') return
+
+    const els = Array.from(root.querySelectorAll('[data-ref-img]'))
+    const byPath = new Map()
+
+    for (const el of els) {
+      if (!(el instanceof HTMLImageElement)) continue
+      const path = String(el.getAttribute('data-ref-img') || '').trim()
+      if (!path) continue
+
+      const cached = uiRefImgCache.get(path)
+      if (typeof cached === 'string' && cached) {
+        el.src = cached
+        continue
+      }
+
+      if (!byPath.has(path)) byPath.set(path, [])
+      byPath.get(path).push(el)
+    }
+
+    for (const [path, list] of byPath) {
+      if (uiRefImgPending.has(path)) continue
+      uiRefImgPending.add(path)
+      api.files
+        .readRefImage(path)
+        .then((dataUrl) => {
+          const ok = typeof dataUrl === 'string' && dataUrl.startsWith('data:')
+          if (ok) uiRefImgCache.set(path, dataUrl)
+          const src = ok ? dataUrl : REF_IMG_PLACEHOLDER
+          for (const img of list) {
+            if (!(img instanceof HTMLImageElement)) continue
+            if (!img.isConnected) continue
+            img.src = src
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          uiRefImgPending.delete(path)
+        })
+    }
   }
 
   function renderComposer() {
     const el = document.querySelector('[data-area="composer"]')
     if (!(el instanceof HTMLElement)) return
     const disabled = state.loading || state.sending || !activeRole()
+    const draftImages = Array.isArray(state.draft.images) ? state.draft.images : []
+    const canPickImages = !disabled && api?.files?.pickImages
+    const imgsHtml = draftImages.length
+      ? `<div class="draftImgs">
+        ${draftImages
+          .map((img) => {
+            const src = typeof img?.dataUrl === 'string' ? img.dataUrl : ''
+            const id = String(img?.id || '')
+            const name = String(img?.name || '图片')
+            if (!src || !id) return ''
+            return `
+              <div class="draftImg">
+                <img src="${esc(src)}" alt="${esc(name)}" />
+                <button class="draftX" data-act="rm-draft-img" data-id="${esc(id)}" title="移除">×</button>
+              </div>
+            `
+          })
+          .join('')}
+      </div>`
+      : ''
     el.innerHTML = `
-      <textarea class="ta" data-bind="input" placeholder="输入消息…（Enter 发送 / Shift+Enter 换行）" ${disabled ? 'disabled' : ''}>${esc(
-      state.draft.input || '',
-    )}</textarea>
-      <button class="btn pri" data-act="send" ${disabled ? 'disabled' : ''}>${state.sending ? '发送中…' : '发送'}</button>
+      ${imgsHtml}
+      <div class="composeRow">
+        <button class="btn" data-act="pick-images" ${canPickImages ? '' : 'disabled'} title="选择图片">图片</button>
+        <textarea class="ta" data-bind="input" placeholder="输入消息…（Enter 发送 / Shift+Enter 换行；支持粘贴图片）" ${disabled ? 'disabled' : ''}>${esc(
+          state.draft.input || '',
+        )}</textarea>
+        <button class="btn pri" data-act="send" ${disabled ? 'disabled' : ''}>${state.sending ? '发送中…' : '发送'}</button>
+      </div>
     `
   }
 
@@ -1696,11 +1949,13 @@
   async function syncDataFromStorage() {
     const keepActive = String(state.draft.activeRoleId || '')
     const keepInput = String(state.draft.input || '')
+    const keepImages = Array.isArray(state.draft.images) ? state.draft.images : []
     const raw = await api.storage.get(STORAGE_KEY)
     state.data = normalizeData(raw)
     if (keepActive) state.draft.activeRoleId = keepActive
     else state.draft.activeRoleId = String(state.data?.ui?.activeRoleId || '')
     state.draft.input = keepInput
+    state.draft.images = keepImages
   }
 
   async function uiPollTick() {
@@ -2052,6 +2307,13 @@
 
     if (act === 'pick-chat') return pickChatForActiveRole(String(t.getAttribute('data-id') || ''))
 
+    if (act === 'pick-images') return pickImages()
+    if (act === 'rm-draft-img') {
+      removeDraftImage(String(t.getAttribute('data-id') || ''))
+      renderComposer()
+      return
+    }
+
     if (act === 'send') return sendChat()
     if (act === 'refresh-models') return refreshModels(String(state.draft.roleProviderId || ''), true)
     if (act === 'save-role') return saveRoleEditor()
@@ -2200,6 +2462,43 @@
       e.preventDefault()
       sendChat()
     }
+  }
+
+  function onPaste(e) {
+    const t = e?.target
+    if (!(t instanceof HTMLElement)) return
+    if (t.getAttribute('data-bind') !== 'input') return
+    if (state.loading || state.sending) return
+
+    const dt = e?.clipboardData
+    const items = dt?.items ? Array.from(dt.items) : []
+    const files = []
+    for (const it of items) {
+      if (!it || it.kind !== 'file') continue
+      const type = String(it.type || '')
+      if (!type.startsWith('image/')) continue
+      const f = it.getAsFile?.()
+      if (f) files.push(f)
+    }
+    if (!files.length) return
+
+    const left = Math.max(0, MAX_DRAFT_IMAGES - (Array.isArray(state.draft.images) ? state.draft.images.length : 0))
+    if (!left) return api.ui?.showToast?.(`最多选择 ${MAX_DRAFT_IMAGES} 张图片`)
+
+    e.preventDefault()
+    e.stopPropagation()
+
+    ;(async () => {
+      let added = 0
+      for (const f of files.slice(0, left)) {
+        try {
+          const dataUrl = await readFileAsDataUrl(f)
+          if (addDraftImage(String(f?.name || '粘贴图片'), dataUrl)) added++
+        } catch (_) {}
+      }
+      if (!added) api.ui?.showToast?.('未识别到图片')
+      renderComposer()
+    })().catch(() => {})
   }
 
   async function init() {
