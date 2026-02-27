@@ -27,9 +27,10 @@ async function main() {
   const isBuild = sub === 'build'
 
   const runTauri = (tauriArgs) => run('pnpm', ['exec', 'tauri', ...tauriArgs])
+  const pluginFilter = String(process.env.FAST_WINDOW_PLUGIN || '').trim()
 
   if (isDev) {
-    const watch = run('pnpm', ['run', 'plugins:watch'])
+    const watch = run('pnpm', pluginFilter ? ['run', 'plugins:watch', '--', '--plugin', pluginFilter] : ['run', 'plugins:watch'])
     const tauri = runTauri(args)
     const procs = [watch, tauri]
 
@@ -47,7 +48,7 @@ async function main() {
   }
 
   if (isBuild) {
-    const code1 = await waitExit(run('pnpm', ['run', 'plugins:build']))
+    const code1 = await waitExit(run('pnpm', pluginFilter ? ['run', 'plugins:build', '--', '--plugin', pluginFilter] : ['run', 'plugins:build']))
     if (code1 !== 0) process.exit(code1)
     const code2 = await waitExit(run('node', ['scripts/prepare-tauri-resources.mjs']))
     if (code2 !== 0) process.exit(code2)
