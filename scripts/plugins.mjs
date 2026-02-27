@@ -168,6 +168,10 @@ function createBuildOptions(opts) {
     sourcemap: sourcemap ? 'external' : false,
     metafile: true,
     absWorkingDir: pluginDir,
+    loader: {
+      '.css': 'text',
+      '.txt': 'text',
+    },
     logLevel: 'silent',
     legalComments: 'none',
     charset: 'utf8',

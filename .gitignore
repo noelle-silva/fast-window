@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+.pnpm-store/
 
 # Build outputs
 dist/
@@ -8,6 +9,7 @@ dist-ssr/
 
 # Runtime app data
 data/
+plugins/**/backup/
 
 # Tauri / Rust
 src-tauri/target/

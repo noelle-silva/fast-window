@@ -1,0 +1,15 @@
+{
+  "name": "@fast-window/plugin-ai-chat",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "dompurify": "^3.0.11",
+    "katex": "^0.16.11",
+    "marked": "^12.0.2",
+    "mermaid": "^10.9.1"
+  },
+  "fastWindowPlugin": {
+    "entry": "src/index.ts"
+  }
+}
