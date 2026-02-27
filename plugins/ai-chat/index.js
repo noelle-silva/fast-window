@@ -669,6 +669,36 @@
     renderMermaidModalDom(true)
   }
 
+  let mermaidDrag = null
+  function cancelMermaidDrag() {
+    const d = mermaidDrag
+    if (!d) return
+    mermaidDrag = null
+    try {
+      d.stage?.removeAttribute?.('data-mm-drag')
+    } catch (_) {}
+    try {
+      window.removeEventListener('mousemove', onMouseMoveMermaid)
+      window.removeEventListener('mouseup', onMouseUpMermaid)
+      window.removeEventListener('blur', onMouseUpMermaid)
+    } catch (_) {}
+  }
+
+  function onMouseMoveMermaid(e) {
+    const d = mermaidDrag
+    if (!d) return
+    e.preventDefault()
+    const dx = Number(e.clientX || 0) - d.x
+    const dy = Number(e.clientY || 0) - d.y
+    d.stage.scrollLeft = d.sl - dx
+    d.stage.scrollTop = d.st - dy
+  }
+
+  function onMouseUpMermaid(_e) {
+    if (!mermaidDrag) return
+    cancelMermaidDrag()
+  }
+
   async function renderMermaidInto(el) {
     if (!(el instanceof HTMLElement)) return
     const m = window.mermaid
@@ -1225,8 +1255,9 @@
   .prose .katex-display>.katex{display:block;overflow-x:visible;}
   .mermaid-block{margin:8px 0;overflow-x:auto;cursor:zoom-in;}
   .mermaid-block svg{max-width:100%;height:auto;display:block;}
-  .modal.mm{width:min(1100px,100%);display:flex;flex-direction:column;overflow:hidden;}
+  .modal.mm{width:min(1100px,100%);height:640px;max-height:calc(100vh - 24px);display:flex;flex-direction:column;overflow:hidden;}
   .mmStage{margin-top:10px;flex:1;min-height:0;overflow:auto;border:1px solid var(--line);border-radius:12px;background:#fff;padding:10px;}
+  .mmStage[data-mm-drag="1"]{cursor:grabbing;}
   .mmCanvas{display:inline-block;transform-origin:0 0;}
   .overlay{position:fixed;inset:0;background:rgba(17,24,39,.18);display:flex;align-items:center;justify-content:center;padding:12px;}
   .modal{width:min(760px,100%);max-height:calc(100vh - 24px);overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;box-shadow:0 10px 30px rgba(17,24,39,.12);}
@@ -1251,13 +1282,14 @@
     `
 
     document.body.addEventListener('click', onClick)
+    document.body.addEventListener('mousedown', onMouseDown)
     document.body.addEventListener('input', onInput)
     document.body.addEventListener('change', onChange)
     document.body.addEventListener('keydown', onKeyDown)
     try {
-      document.body.addEventListener('wheel', onWheel, { passive: false })
+      document.body.addEventListener('wheel', onWheel, { passive: false, capture: true })
     } catch (_) {
-      document.body.addEventListener('wheel', onWheel)
+      document.body.addEventListener('wheel', onWheel, true)
     }
   }
 
@@ -1726,6 +1758,7 @@
   }
 
   function closeModal() {
+    cancelMermaidDrag()
     state.modal = ''
     state.draft.deleteRoleId = ''
     state.draft.deleteProviderId = ''
@@ -2083,16 +2116,50 @@
   function onWheel(e) {
     if (state.modal !== 'mermaid') return
     const t = e?.target
-    if (!(t instanceof HTMLElement)) return
+    if (!(t instanceof Element)) return
     const stage = document.querySelector('[data-mm-stage="1"]')
     if (!(stage instanceof HTMLElement)) return
     if (!stage.contains(t)) return
 
     e.preventDefault()
+    e.stopPropagation()
     const dir = Number(e?.deltaY || 0) < 0 ? 1 : -1
     const factor = dir > 0 ? 1.08 : 1 / 1.08
     state.mermaid.scale = clamp(Number(state.mermaid.scale || 1) * factor, 0.2, 6)
     applyMermaidScaleDom()
+  }
+
+  function onMouseDown(e) {
+    if (state.modal !== 'mermaid') return
+    const t = e?.target
+    if (!(t instanceof Element)) return
+    if (e.button !== 1) return
+
+    const stage = document.querySelector('[data-mm-stage="1"]')
+    if (!(stage instanceof HTMLElement)) return
+    if (!stage.contains(t)) return
+
+    e.preventDefault()
+    e.stopPropagation()
+
+    mermaidDrag = {
+      stage,
+      x: Number(e.clientX || 0),
+      y: Number(e.clientY || 0),
+      sl: Number(stage.scrollLeft || 0),
+      st: Number(stage.scrollTop || 0),
+    }
+    stage.setAttribute('data-mm-drag', '1')
+
+    try {
+      window.addEventListener('mousemove', onMouseMoveMermaid, { passive: false })
+      window.addEventListener('mouseup', onMouseUpMermaid, { passive: true })
+      window.addEventListener('blur', onMouseUpMermaid, { passive: true })
+    } catch (_) {
+      window.addEventListener('mousemove', onMouseMoveMermaid)
+      window.addEventListener('mouseup', onMouseUpMermaid)
+      window.addEventListener('blur', onMouseUpMermaid)
+    }
   }
 
   function onInput(e) {
