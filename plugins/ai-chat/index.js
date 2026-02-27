@@ -12,6 +12,7 @@
     sending: false,
     sendingJobId: '',
     modal: '',
+    mermaid: { items: [], index: 0, scale: 1 },
     sideTab: 'roles', // roles | chats
     models: { loading: false, error: '', items: [] },
     draft: {
@@ -66,6 +67,12 @@
     const n = Number(v)
     if (!isFinite(n)) return 0.7
     return Math.max(0, Math.min(2, n))
+  }
+
+  function clamp(n, a, b) {
+    const x = Number(n)
+    if (!isFinite(x)) return a
+    return Math.max(a, Math.min(b, x))
   }
 
   function defaultData() {
@@ -310,6 +317,7 @@
 
   let rendererPromise = null
   let domPurifyHooked = false
+  let mermaidInited = false
   function ensureRenderer() {
     if (rendererPromise) return rendererPromise
     rendererPromise = (async () => {
@@ -323,6 +331,13 @@
         loadCssOnce('https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css', 'katex-css')
         await loadScriptOnce('https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js', 'katex')
         await loadScriptOnce('https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js', 'renderMathInElement')
+      } catch (_) {}
+      try {
+        await loadScriptOnce('https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js', 'mermaid')
+        if (!mermaidInited && window.mermaid && window.mermaid.initialize) {
+          mermaidInited = true
+          window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' })
+        }
       } catch (_) {}
     })()
     return rendererPromise
@@ -541,6 +556,163 @@
     return out
   }
 
+  function sanitizeSvg(svg) {
+    const raw = String(svg || '')
+    if (!raw) return ''
+    if (window.DOMPurify && window.DOMPurify.sanitize) {
+      try {
+        return window.DOMPurify.sanitize(raw, { USE_PROFILES: { svg: true, svgFilters: true } })
+      } catch (_) {}
+    }
+    return raw
+  }
+
+  function mermaidItemsFromDom() {
+    const chat = document.querySelector('[data-area="chat"]')
+    const list = Array.from(chat?.querySelectorAll?.('.mermaid-block[data-mermaid="1"]') || [])
+    const items = []
+    for (const b of list) {
+      if (!(b instanceof HTMLElement)) continue
+      const svgEl = b.querySelector('svg')
+      if (svgEl) items.push({ svg: sanitizeSvg(svgEl.outerHTML || '') })
+      else items.push({ svg: sanitizeHtml(b.innerHTML || '') })
+    }
+    return { blocks: list, items }
+  }
+
+  function mermaidModalEls() {
+    const root = document.querySelector('[data-mm-modal="1"]')
+    if (!(root instanceof HTMLElement)) return null
+    const stage = root.querySelector('[data-mm-stage="1"]')
+    const canvas = root.querySelector('[data-mm-canvas="1"]')
+    const label = root.querySelector('[data-mm-label="1"]')
+    const zoom = root.querySelector('[data-mm-zoom="1"]')
+    const prev = root.querySelector('[data-act="mm-prev"]')
+    const next = root.querySelector('[data-act="mm-next"]')
+    return {
+      root,
+      stage: stage instanceof HTMLElement ? stage : null,
+      canvas: canvas instanceof HTMLElement ? canvas : null,
+      label: label instanceof HTMLElement ? label : null,
+      zoom: zoom instanceof HTMLElement ? zoom : null,
+      prev: prev instanceof HTMLButtonElement ? prev : null,
+      next: next instanceof HTMLButtonElement ? next : null,
+    }
+  }
+
+  function applyMermaidScaleDom() {
+    if (state.modal !== 'mermaid') return
+    const els = mermaidModalEls()
+    if (!els?.canvas) return
+    const scale = clamp(state.mermaid.scale, 0.2, 6)
+    state.mermaid.scale = scale
+    els.canvas.style.transform = `scale(${scale})`
+    if (els.zoom) els.zoom.textContent = `${Math.round(scale * 100)}%`
+  }
+
+  function renderMermaidModalDom(resetScroll) {
+    if (state.modal !== 'mermaid') return
+    const els = mermaidModalEls()
+    if (!els?.canvas) return
+    const len = Array.isArray(state.mermaid.items) ? state.mermaid.items.length : 0
+    if (!len) return
+
+    const idx = clamp(state.mermaid.index, 0, len - 1)
+    state.mermaid.index = idx
+
+    const svg = String(state.mermaid.items[idx]?.svg || '')
+    els.canvas.innerHTML = svg || `<div class="muted">空图</div>`
+    if (els.label) els.label.textContent = `${idx + 1}/${len}`
+    if (els.prev) els.prev.disabled = len <= 1
+    if (els.next) els.next.disabled = len <= 1
+
+    if (resetScroll && els.stage) {
+      els.stage.scrollTop = 0
+      els.stage.scrollLeft = 0
+    }
+
+    applyMermaidScaleDom()
+  }
+
+  function openMermaidViewer(blockEl) {
+    const srcEl = blockEl instanceof Element ? blockEl : null
+    const r = mermaidItemsFromDom()
+    if (!r.items.length) return
+
+    let idx = 0
+    if (srcEl) {
+      const i = r.blocks.findIndex((b) => b === srcEl || (b instanceof HTMLElement && b.contains(srcEl)))
+      if (i >= 0) idx = i
+    }
+
+    state.mermaid.items = r.items
+    state.mermaid.index = idx
+    state.mermaid.scale = 1
+    state.modal = 'mermaid'
+    renderModal()
+    renderMermaidModalDom(true)
+  }
+
+  async function renderMermaidInto(el) {
+    if (!(el instanceof HTMLElement)) return
+    const m = window.mermaid
+    if (!m || !m.render) return
+
+    const codes = Array.from(el.querySelectorAll?.('pre>code') || []).filter((c) => {
+      if (!(c instanceof HTMLElement)) return false
+      const cls = String(c.className || '')
+      return cls.includes('language-mermaid') || cls.includes('lang-mermaid') || cls.includes('mermaid')
+    })
+    if (!codes.length) return
+
+    if (!mermaidInited && m.initialize) {
+      try {
+        mermaidInited = true
+        m.initialize({ startOnLoad: false, securityLevel: 'strict' })
+      } catch (_) {}
+    }
+
+    async function doRender(id, code, container) {
+      try {
+        return await m.render(id, code)
+      } catch (_) {
+        return await m.render(id, code, container)
+      }
+    }
+
+    for (const codeEl of codes) {
+      const pre = codeEl.closest('pre')
+      if (!(pre instanceof HTMLElement)) continue
+      if (pre.getAttribute('data-mermaid') === '1') continue
+
+      const src = String(codeEl.textContent || '').trim()
+      pre.setAttribute('data-mermaid', '1')
+      if (!src) continue
+
+      const holder = document.createElement('div')
+      holder.className = 'mermaid-block'
+      holder.setAttribute('data-mermaid', '1')
+      holder.setAttribute('data-act', 'open-mermaid')
+      pre.replaceWith(holder)
+
+      try {
+        const id = uid('mm')
+        const r = await doRender(id, src, holder)
+        const svg = typeof r === 'string' ? r : String(r?.svg || '')
+        const safe = sanitizeSvg(svg)
+        if (!safe) throw new Error('empty svg')
+        holder.innerHTML = safe
+        if (r && typeof r.bindFunctions === 'function') {
+          try {
+            r.bindFunctions(holder)
+          } catch (_) {}
+        }
+      } catch (_) {
+        holder.innerHTML = `<pre><code class="language-mermaid">${esc(src)}</code></pre>`
+      }
+    }
+  }
+
   function renderAssistantInto(el, text) {
     const raw = String(text || '')
     let html = ''
@@ -596,6 +768,8 @@
         })
       } catch (_) {}
     }
+
+    renderMermaidInto(el).catch(() => {})
   }
 
   async function refreshModels(providerId, force) {
@@ -1038,6 +1212,11 @@
   .prose span.katex{display:inline-block;overflow-x:auto;overflow-y:hidden;vertical-align:middle;}
   .prose .katex-display{overflow-x:auto;overflow-y:hidden;}
   .prose .katex-display>.katex{display:block;overflow-x:visible;}
+  .mermaid-block{margin:8px 0;overflow-x:auto;cursor:zoom-in;}
+  .mermaid-block svg{max-width:100%;height:auto;display:block;}
+  .modal.mm{width:min(1100px,100%);display:flex;flex-direction:column;overflow:hidden;}
+  .mmStage{margin-top:10px;flex:1;min-height:0;overflow:auto;border:1px solid var(--line);border-radius:12px;background:#fff;padding:10px;}
+  .mmCanvas{display:inline-block;transform-origin:0 0;}
   .overlay{position:fixed;inset:0;background:rgba(17,24,39,.18);display:flex;align-items:center;justify-content:center;padding:12px;}
   .modal{width:min(760px,100%);max-height:calc(100vh - 24px);overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;box-shadow:0 10px 30px rgba(17,24,39,.12);}
   .card{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fff;} .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;} .hr{height:1px;background:var(--line);margin:10px 0;}
@@ -1064,6 +1243,11 @@
     document.body.addEventListener('input', onInput)
     document.body.addEventListener('change', onChange)
     document.body.addEventListener('keydown', onKeyDown)
+    try {
+      document.body.addEventListener('wheel', onWheel, { passive: false })
+    } catch (_) {
+      document.body.addEventListener('wheel', onWheel)
+    }
   }
 
   function fmtTime(ts) {
@@ -1238,6 +1422,35 @@
     const el = document.querySelector('[data-area="modal"]')
     if (!(el instanceof HTMLElement)) return
     if (!state.modal) return (el.innerHTML = '')
+
+    if (state.modal === 'mermaid') {
+      const len = Array.isArray(state.mermaid.items) ? state.mermaid.items.length : 0
+      const idx = len ? clamp(state.mermaid.index, 0, len - 1) : 0
+      const scale = clamp(state.mermaid.scale, 0.2, 6)
+      const svg = len ? String(state.mermaid.items[idx]?.svg || '') : ''
+
+      el.innerHTML = `
+        <div class="overlay" data-act="close-modal">
+          <div class="modal mm" data-stop="1" data-mm-modal="1">
+            <div class="row">
+              <div class="title" style="margin:0">Mermaid 预览 <span class="muted" data-mm-label="1">${len ? `${idx + 1}/${len}` : ''}</span></div>
+              <div class="sp"></div>
+              <button class="btn" data-act="mm-prev" title="上一张" ${len <= 1 ? 'disabled' : ''}>←</button>
+              <button class="btn" data-act="mm-next" title="下一张" ${len <= 1 ? 'disabled' : ''}>→</button>
+              <button class="btn" data-act="mm-zoom-out" title="缩小">－</button>
+              <div class="muted" data-mm-zoom="1" style="min-width:54px;text-align:center">${Math.round(scale * 100)}%</div>
+              <button class="btn" data-act="mm-zoom-in" title="放大">＋</button>
+              <button class="btn" data-act="mm-reset" title="重置缩放">重置</button>
+              <button class="btn" data-act="close-modal">关闭</button>
+            </div>
+            <div class="mmStage" data-mm-stage="1">
+              <div class="mmCanvas" data-mm-canvas="1" style="transform:scale(${scale})">${svg || '<div class="muted">无可预览的 Mermaid</div>'}</div>
+            </div>
+          </div>
+        </div>
+      `
+      return
+    }
 
     if (state.modal === 'role') {
       const role = state.data?.roles.find((r) => String(r?.id) === String(state.draft.editRoleId || ''))
@@ -1713,10 +1926,44 @@
   }
 
   function onClick(e) {
-    const t = e?.target
-    if (!(t instanceof HTMLElement)) return
-    const act = t.getAttribute('data-act') || ''
-    if (!act) return
+    const t0 = e?.target
+    if (!(t0 instanceof Element)) return
+
+    let t = t0
+    let act = ''
+    while (t) {
+      if (t instanceof Element && t.getAttribute('data-stop') === '1') return
+      act = (t instanceof Element && t.getAttribute('data-act')) || ''
+      if (act) break
+      t = t.parentElement
+    }
+    if (!t || !act) return
+
+    if (act === 'open-mermaid') {
+      openMermaidViewer(t)
+      return
+    }
+
+    if (act === 'mm-prev' || act === 'mm-next') {
+      if (state.modal !== 'mermaid') return
+      const len = Array.isArray(state.mermaid.items) ? state.mermaid.items.length : 0
+      if (!len) return
+      const delta = act === 'mm-prev' ? -1 : 1
+      state.mermaid.index = (state.mermaid.index + delta + len) % len
+      renderMermaidModalDom(true)
+      return
+    }
+
+    if (act === 'mm-zoom-in' || act === 'mm-zoom-out' || act === 'mm-reset') {
+      if (state.modal !== 'mermaid') return
+      if (act === 'mm-reset') state.mermaid.scale = 1
+      else {
+        const factor = act === 'mm-zoom-in' ? 1.12 : 1 / 1.12
+        state.mermaid.scale = clamp(Number(state.mermaid.scale || 1) * factor, 0.2, 6)
+      }
+      applyMermaidScaleDom()
+      return
+    }
 
     if (act === 'side-tab') {
       const tab = String(t.getAttribute('data-tab') || '')
@@ -1820,6 +2067,21 @@
       )
       return
     }
+  }
+
+  function onWheel(e) {
+    if (state.modal !== 'mermaid') return
+    const t = e?.target
+    if (!(t instanceof HTMLElement)) return
+    const stage = document.querySelector('[data-mm-stage="1"]')
+    if (!(stage instanceof HTMLElement)) return
+    if (!stage.contains(t)) return
+
+    e.preventDefault()
+    const dir = Number(e?.deltaY || 0) < 0 ? 1 : -1
+    const factor = dir > 0 ? 1.08 : 1 / 1.08
+    state.mermaid.scale = clamp(Number(state.mermaid.scale || 1) * factor, 0.2, 6)
+    applyMermaidScaleDom()
   }
 
   function onInput(e) {
