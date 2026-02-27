@@ -4,10 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "plugins:build": "node scripts/plugins.mjs build",
+    "plugins:watch": "node scripts/plugins.mjs watch",
+    "dev:all": "node scripts/dev-all.mjs",
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "pnpm run plugins:build && tsc && vite build",
     "preview": "vite preview",
-    "tauri": "node scripts/prepare-tauri-resources.mjs && tauri"
+    "tauri": "node scripts/tauri.mjs"
   },
   "dependencies": {
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",

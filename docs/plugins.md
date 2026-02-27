@@ -2,6 +2,40 @@
 
 目标：**本体独立运行**，插件只依赖宿主暴露的稳定契约（Plugin API），不依赖本体内部实现细节。
 
+## 插件开发（多模块/独立依赖）
+
+运行时约束不变：宿主依然只会读取 `manifest.main` 指向的 **单个 JS 文件**，注入 iframe 执行。
+
+开发体验的“多模块/独立依赖”，通过 **pnpm workspace + 构建期打包**实现：
+
+- 每个插件目录可以有自己的 `package.json`，在里面写自己的 `dependencies`
+- 根目录统一 `pnpm install`（生成 1 份 `pnpm-lock.yaml`，依赖按各包的依赖图隔离）
+- 通过一条命令把插件源码（多文件/多依赖）打包成 `manifest.main` 对应的单文件入口
+
+### 目录结构（推荐）
+
+```
+plugins/<id>/
+  manifest.json          # main 指向最终产物（例如 index.js）
+  package.json           # 插件自己的依赖（可选，但推荐）
+  src/index.ts           # 默认入口（可自定义，见下）
+  index.js               # 构建输出（被宿主加载）
+```
+
+### 插件构建配置（可选）
+
+在 `plugins/<id>/package.json` 里加：
+
+- `fastWindowPlugin.entry`：UI/单入口源码入口（相对路径）
+- `fastWindowPlugin.backgroundEntry`：当 `manifest.background.main` 存在且不同于 `main` 时的后台源码入口（相对路径）
+
+### 命令
+
+- `pnpm plugins:build`：构建所有“可打包”的插件（有源码入口的插件）；纯手写单文件的插件会被跳过
+- `pnpm plugins:watch`：监听并自动重建插件产物（开发用）
+- `pnpm dev:all`：同时跑 `plugins:watch` + `vite dev`
+- `pnpm tauri`：已接入 `plugins:build`，确保打包/运行前插件产物是最新
+
 ## Manifest（`plugins/<id>/manifest.json`）
 
 最小字段：

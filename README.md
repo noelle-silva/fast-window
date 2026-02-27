@@ -40,7 +40,8 @@ pnpm tauri dev
 
 说明：
 
-- `pnpm tauri ...` 会先执行 `scripts/prepare-tauri-resources.mjs`，把仓库根目录的 `plugins/` 同步到 `src-tauri/plugins/`，用于打包资源。
+- `pnpm tauri dev` 会自动启动 `pnpm plugins:watch`：插件源码改动会自动打包输出到 `manifest.main` 指向的单文件入口（必要时在 App 内点“刷新插件”以重新加载）。
+- `pnpm tauri build ...` 会先执行 `pnpm plugins:build`（把可构建插件打包成 `manifest.main` 的单文件入口），再执行 `scripts/prepare-tauri-resources.mjs` 把 `plugins/` 同步到 `src-tauri/plugins/`，用于打包资源。
 - Tauri 配置在 `src-tauri/tauri.conf.json`。
 - 当前 `tauri.conf.json` 的 `beforeDevCommand/beforeBuildCommand` 配置为 `npm run dev/build`（确保你的环境里有 `npm`，或自行改成 `pnpm run ...`）。
 
@@ -91,3 +92,4 @@ pnpm tauri build
 - 插件契约/Manifest/能力声明：见 `docs/plugins.md`
 - 插件源码：`plugins/<pluginId>/`
 - 插件打包资源：`src-tauri/plugins/`（由脚本从 `plugins/` 同步生成）
+- 插件构建：`pnpm plugins:build` / 开发监听：`pnpm plugins:watch`（可用 `pnpm dev:all` 同时跑监听与前端 dev）
