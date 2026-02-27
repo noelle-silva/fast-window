@@ -12,6 +12,7 @@ use image::{ColorType, ImageEncoder};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
+use tauri::ipc::Channel;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -29,6 +30,7 @@ const WEBVIEW_SETTINGS_KEY: &str = "webview";
 const TASKS_RETENTION_LIMIT: usize = 120;
 const TASKS_PER_PLUGIN_LIMIT: usize = 40;
 static TASK_ID_SEQ: AtomicU32 = AtomicU32::new(0);
+static HTTP_STREAM_ID_SEQ: AtomicU32 = AtomicU32::new(0);
 
 // 避免开发版把“开机启动”写到正式版同一个注册表项里（会导致装了 MSI 以后仍然自启 debug exe）。
 #[cfg(debug_assertions)]
@@ -139,6 +141,29 @@ struct HttpResponseBase64 {
     status: u16,
     headers: HashMap<String, String>,
     body_base64: String,
+}
+
+#[derive(Default)]
+struct HttpStreamManagerState {
+    cancels: Mutex<HashMap<String, tokio::sync::oneshot::Sender<()>>>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+enum HttpStreamEvent {
+    Start {
+        status: u16,
+        headers: HashMap<String, String>,
+    },
+    Chunk {
+        text: String,
+    },
+    End {
+        canceled: bool,
+    },
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -281,6 +306,13 @@ fn make_task_id() -> String {
     let seq = TASK_ID_SEQ.fetch_add(1, Ordering::Relaxed);
     let rnd = format!("{:08x}", rand_u32(stamp ^ (seq as u64)));
     format!("task-{stamp}-{seq:08x}-{rnd}")
+}
+
+fn make_http_stream_id() -> String {
+    let stamp = now_ms();
+    let seq = HTTP_STREAM_ID_SEQ.fetch_add(1, Ordering::Relaxed);
+    let rnd = format!("{:08x}", rand_u32(stamp ^ (seq as u64)));
+    format!("httpstream-{stamp}-{seq:08x}-{rnd}")
 }
 
 fn is_task_finished(status: TaskStatus) -> bool {
@@ -884,9 +916,162 @@ async fn http_request_base64(req: HttpRequest) -> Result<HttpResponseBase64, Str
     })
 }
 
-async fn http_request_raw(
+#[tauri::command]
+async fn http_request_stream(
+    app: tauri::AppHandle,
     req: HttpRequest,
-) -> Result<(u16, HashMap<String, String>, Vec<u8>), String> {
+    channel: Channel<HttpStreamEvent>,
+) -> Result<String, String> {
+    let stream_id = make_http_stream_id();
+    let manager = app
+        .state::<Arc<HttpStreamManagerState>>()
+        .inner()
+        .clone();
+
+    let (tx, mut rx) = tokio::sync::oneshot::channel::<()>();
+    {
+        let mut cancels = manager
+            .cancels
+            .lock()
+            .map_err(|_| "流式请求状态锁定失败".to_string())?;
+        cancels.insert(stream_id.clone(), tx);
+    }
+
+    struct Cleanup {
+        manager: Arc<HttpStreamManagerState>,
+        stream_id: String,
+    }
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            if let Ok(mut cancels) = self.manager.cancels.lock() {
+                cancels.remove(&self.stream_id);
+            }
+        }
+    }
+
+    let manager_clone = manager.clone();
+    let stream_id_clone = stream_id.clone();
+    tauri::async_runtime::spawn(async move {
+        let _cleanup = Cleanup {
+            manager: manager_clone,
+            stream_id: stream_id_clone,
+        };
+
+        const MAX_TIMEOUT_MS: u64 = 15 * 60 * 1000;
+        let (status, headers, mut resp) = match http_request_send(req, MAX_TIMEOUT_MS).await {
+            Ok(v) => v,
+            Err(e) => {
+                let _ = channel.send(HttpStreamEvent::Error { message: e });
+                let _ = channel.send(HttpStreamEvent::End { canceled: false });
+                return;
+            }
+        };
+
+        if channel
+            .send(HttpStreamEvent::Start { status, headers })
+            .is_err()
+        {
+            return;
+        }
+
+        const MAX_HTTP_STREAM_BYTES: usize = 50 * 1024 * 1024; // 50MB
+        let mut total: usize = 0;
+        let mut pending: Vec<u8> = Vec::new();
+
+        let mut canceled = false;
+        loop {
+            tokio::select! {
+                _ = &mut rx => {
+                    canceled = true;
+                    break;
+                }
+                chunk = resp.chunk() => {
+                    match chunk {
+                        Ok(Some(bytes)) => {
+                            total = total.saturating_add(bytes.len());
+                            if total > MAX_HTTP_STREAM_BYTES {
+                                let _ = channel.send(HttpStreamEvent::Error { message: "响应过大（超过 50MB）".to_string() });
+                                break;
+                            }
+                            pending.extend_from_slice(&bytes);
+
+                            loop {
+                                if pending.is_empty() { break; }
+                                match std::str::from_utf8(&pending) {
+                                    Ok(s) => {
+                                        let text = s.to_string();
+                                        pending.clear();
+                                        if !text.is_empty()
+                                            && channel.send(HttpStreamEvent::Chunk { text }).is_err()
+                                        {
+                                            return;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        let n = e.valid_up_to();
+                                        if n == 0 {
+                                            // 无效 UTF-8：丢掉 1 字节避免卡死
+                                            pending.remove(0);
+                                            break;
+                                        }
+                                        let text = String::from_utf8_lossy(&pending[..n]).to_string();
+                                        pending.drain(..n);
+                                        if !text.is_empty() && channel.send(HttpStreamEvent::Chunk { text }).is_err() {
+                                            return;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Ok(None) => break,
+                        Err(e) => {
+                            let _ = channel.send(HttpStreamEvent::Error { message: format!("读取响应失败: {e}") });
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // flush pending utf8
+        if !pending.is_empty() {
+            if let Ok(s) = std::str::from_utf8(&pending) {
+                let _ = channel.send(HttpStreamEvent::Chunk { text: s.to_string() });
+            }
+        }
+
+        let _ = channel.send(HttpStreamEvent::End { canceled });
+    });
+
+    Ok(stream_id)
+}
+
+#[tauri::command]
+fn http_request_stream_cancel(app: tauri::AppHandle, stream_id: String) -> Result<(), String> {
+    if stream_id.trim().is_empty() {
+        return Err("streamId 不能为空".to_string());
+    }
+    let manager = app
+        .state::<Arc<HttpStreamManagerState>>()
+        .inner()
+        .clone();
+    let tx = {
+        let mut cancels = manager
+            .cancels
+            .lock()
+            .map_err(|_| "流式请求状态锁定失败".to_string())?;
+        cancels.remove(stream_id.trim())
+    };
+    if let Some(tx) = tx {
+        let _ = tx.send(());
+    }
+    Ok(())
+}
+
+async fn http_request_send(
+    req: HttpRequest,
+    timeout_cap_ms: u64,
+) -> Result<(u16, HashMap<String, String>, reqwest::Response), String> {
     let method = req.method.trim().to_uppercase();
     if method.is_empty() {
         return Err("method 不能为空".to_string());
@@ -895,7 +1080,11 @@ async fn http_request_raw(
         return Err("url 必须以 http(s):// 开头".to_string());
     }
 
-    let timeout = Duration::from_millis(req.timeout_ms.unwrap_or(20_000).min(120_000));
+    let timeout = Duration::from_millis(
+        req.timeout_ms
+            .unwrap_or(20_000)
+            .min(timeout_cap_ms.max(10_000)),
+    );
     let client = reqwest::Client::builder()
         .timeout(timeout)
         .build()
@@ -965,6 +1154,14 @@ async fn http_request_raw(
             headers.insert(k.as_str().to_string(), vs.to_string());
         }
     }
+
+    Ok((status, headers, resp))
+}
+
+async fn http_request_raw(
+    req: HttpRequest,
+) -> Result<(u16, HashMap<String, String>, Vec<u8>), String> {
+    let (status, headers, resp) = http_request_send(req, 120_000).await?;
 
     // 图片相关的 JSON/base64 响应可能很大（尤其是 chat/completions 返回 b64）。
     // 这里做上限保护，避免插件拉取无限大响应导致内存爆炸。
@@ -4646,6 +4843,8 @@ fn main() {
             browser_stack_toggle_pinned,
             http_request,
             http_request_base64,
+            http_request_stream,
+            http_request_stream_cancel,
             storage_get,
             storage_set,
             storage_remove,
@@ -4682,6 +4881,7 @@ fn main() {
         .setup(|app| {
             app.manage(WindowState::default());
             app.manage(Arc::new(TaskManagerState::default()));
+            app.manage(Arc::new(HttpStreamManagerState::default()));
             app.manage(BrowserWindowState::default());
 
             // Release：把 MSI 随包的内置插件“种子”拷到可写的插件目录（仅拷缺失项，不覆盖用户已有插件）。

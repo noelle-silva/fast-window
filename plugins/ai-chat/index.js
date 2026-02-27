@@ -2,11 +2,15 @@
 ;(function () {
   const api = window.fastWindow
   const STORAGE_KEY = 'data'
+  const BG_JOB_KEY_PREFIX = 'bg.job.'
+  const BG_STREAM_KEY_PREFIX = 'bg.stream.'
   const VERSION = 2
+  const runtime = String(api?.__meta?.runtime || 'ui')
 
   const state = {
     loading: true,
     sending: false,
+    sendingJobId: '',
     modal: '',
     sideTab: 'roles', // roles | chats
     models: { loading: false, error: '', items: [] },
@@ -71,6 +75,7 @@
     return {
       version: VERSION,
       settings: {
+        streamEnabled: true,
         providers: [
           {
             id: pid,
@@ -145,6 +150,7 @@
     const d = d0
 
     if (!d.settings || typeof d.settings !== 'object') d.settings = {}
+    if (typeof d.settings.streamEnabled !== 'boolean') d.settings.streamEnabled = true
     if (!Array.isArray(d.settings.providers) || d.settings.providers.length === 0) d.settings.providers = defaultData().settings.providers
 
     for (const p of d.settings.providers) {
@@ -202,6 +208,8 @@
                 id: String(m.id || uid('m')),
                 role: m.role === 'assistant' ? 'assistant' : 'user',
                 content: String(m.content || ''),
+                pending: !!m.pending,
+                streaming: !!m.streaming,
                 createdAt: Number(m.createdAt || now()),
               })),
           }
@@ -221,6 +229,11 @@
     if (!activeRoleId || !d.roles.some((r) => String(r?.id) === activeRoleId)) d.ui.activeRoleId = String(d.roles[0]?.id || '')
 
     return d
+  }
+
+  if (runtime === 'background') {
+    backgroundMain().catch(() => {})
+    return
   }
 
   async function load() {
@@ -655,6 +668,14 @@
     return ua.slice(Math.max(0, ua.length - maxTurns))
   }
 
+  function jobKey(jobId) {
+    return `${BG_JOB_KEY_PREFIX}${String(jobId || '')}`
+  }
+
+  function streamKey(mid) {
+    return `${BG_STREAM_KEY_PREFIX}${String(mid || '')}`
+  }
+
   async function sendChat() {
     if (state.sending || state.loading || !state.data) return
 
@@ -678,6 +699,9 @@
     if (!apiKey) return api.ui?.showToast?.('请在供应商设置里配置 API Key')
     if (!modelId) return api.ui?.showToast?.('请在角色设置里选择模型（供应商 + 模型ID）')
 
+    const streamEnabled = !!state.data?.settings?.streamEnabled
+    const assistantMid = uid('m')
+
     const wasEmpty = !Array.isArray(chat.messages) || chat.messages.length === 0
     chat.messages.push({ id: uid('m'), role: 'user', content: input, createdAt: now() })
     chat.updatedAt = now()
@@ -696,29 +720,283 @@
       if (sys) messages.push({ role: 'system', content: sys })
       for (const m of history) messages.push({ role: m.role, content: String(m.content || '') })
 
-      const r = await api.net.request({
-        method: 'POST',
-        url: `${baseUrl}/chat/completions`,
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: modelId, messages, temperature: clampTemp(role.temperature), stream: false }),
-        timeoutMs: 120000,
+      chat.messages.push({
+        id: assistantMid,
+        role: 'assistant',
+        content: '（生成中…）',
+        pending: true,
+        streaming: streamEnabled,
+        createdAt: now(),
       })
-
-      const status = Number(r?.status || 0)
-      const bodyText = String(r?.body || '')
-      const json = JSON.parse(bodyText || '{}')
-      if (status < 200 || status >= 300) throw new Error(json?.error?.message || bodyText || `HTTP ${status}`)
-
-      const out = json?.choices?.[0]?.message?.content ?? json?.choices?.[0]?.text ?? json?.output_text ?? ''
-      chat.messages.push({ id: uid('m'), role: 'assistant', content: String(out || ''), createdAt: now() })
       chat.updatedAt = now()
+
+      const jobId = uid('job')
+      const job = {
+        id: jobId,
+        kind: 'openai.chat.completions',
+        status: 'queued',
+        createdAt: now(),
+        roleId: String(role.id || ''),
+        chatId: String(chat.id || ''),
+        assistantMid,
+        stream: streamEnabled,
+        req: {
+          method: 'POST',
+          url: `${baseUrl}/chat/completions`,
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({ model: modelId, messages, temperature: clampTemp(role.temperature), stream: streamEnabled }),
+          timeoutMs: streamEnabled ? 15 * 60 * 1000 : 120000,
+        },
+      }
+
       await save()
+      await api.storage.set(jobKey(jobId), job)
+      state.sendingJobId = jobId
     } catch (e) {
-      api.ui?.showToast?.(String(e?.message || e || '请求失败'))
-    } finally {
+      const msg = String(e?.message || e || '请求失败')
+      const items = Array.isArray(chat.messages) ? chat.messages : []
+      const am = items.find((m) => String(m?.id) === assistantMid)
+      if (am) {
+        am.content = `（请求失败：${msg}）`
+        am.pending = false
+        am.streaming = false
+      }
+      save().catch(() => {})
+
       state.sending = false
+      state.sendingJobId = ''
+      api.ui?.showToast?.(msg)
+    } finally {
       render()
       scrollToBottomSoon()
+    }
+  }
+
+  function extractOpenAiDelta(json) {
+    return (
+      json?.choices?.[0]?.delta?.content ??
+      json?.choices?.[0]?.delta?.text ??
+      json?.choices?.[0]?.text ??
+      json?.output_text ??
+      ''
+    )
+  }
+
+  function sseFeed(state, chunkText, onJson) {
+    if (!state || typeof state !== 'object') return false
+    const add = String(chunkText || '')
+    if (!add) return !!state.done
+
+    state.buf = String(state.buf || '') + add
+    if (state.buf.indexOf('\r') >= 0) state.buf = state.buf.replace(/\r/g, '')
+
+    while (true) {
+      const idx = state.buf.indexOf('\n\n')
+      if (idx < 0) break
+      const block = state.buf.slice(0, idx)
+      state.buf = state.buf.slice(idx + 2)
+
+      const lines = block.split('\n')
+      const datas = []
+      for (const line of lines) {
+        if (!line || line[0] === ':') continue
+        if (line.startsWith('data:')) datas.push(line.slice(5).replace(/^\s+/, ''))
+      }
+      const data = datas.join('\n').trim()
+      if (!data) continue
+      if (data === '[DONE]') {
+        state.done = true
+        break
+      }
+
+      let json = null
+      try {
+        json = JSON.parse(data)
+      } catch (_) {
+        continue
+      }
+      onJson && onJson(json)
+    }
+
+    return !!state.done
+  }
+
+  async function patchAssistantMessage(job, content) {
+    const roleId = String(job?.roleId || '')
+    const chatId = String(job?.chatId || '')
+    const mid = String(job?.assistantMid || '')
+    if (!roleId || !chatId || !mid) return
+
+    const raw = await api.storage.get(STORAGE_KEY)
+    const d = normalizeData(raw)
+    const box = d?.chatsByRole?.[roleId]
+    const chats = Array.isArray(box?.chats) ? box.chats : []
+    const chat = chats.find((c) => String(c?.id) === chatId)
+    if (!chat) return
+
+    const msgs = Array.isArray(chat.messages) ? chat.messages : []
+    const m = msgs.find((x) => String(x?.id) === mid)
+    if (!m) return
+
+    m.content = String(content || '')
+    m.pending = false
+    m.streaming = false
+    chat.updatedAt = now()
+
+    await api.storage.set(STORAGE_KEY, d)
+  }
+
+  async function backgroundMain() {
+    let running = false
+
+    const tick = async () => {
+      if (running) return
+      running = true
+      try {
+        const all = await api.storage.getAll()
+        const entries = all && typeof all === 'object' ? Object.entries(all) : []
+        const jobs = []
+
+        for (const [k, v] of entries) {
+          if (!String(k || '').startsWith(BG_JOB_KEY_PREFIX)) continue
+          const job = v && typeof v === 'object' ? v : null
+          if (!job) continue
+          if (String(job.status || '') !== 'queued') continue
+          jobs.push(job)
+        }
+
+        jobs.sort((a, b) => Number(a?.createdAt || 0) - Number(b?.createdAt || 0))
+        const job = jobs[0]
+        if (!job) return
+
+        job.status = 'running'
+        job.startedAt = now()
+        await api.storage.set(jobKey(job.id), job)
+
+        await runBackgroundJob(job)
+      } catch (_) {
+      } finally {
+        running = false
+      }
+    }
+
+    await tick()
+    setInterval(() => {
+      tick().catch(() => {})
+    }, 800)
+  }
+
+  async function runBackgroundJob(job) {
+    const streamWanted = !!job?.stream
+    const req = job?.req || null
+    const mid = String(job?.assistantMid || '')
+    if (!req || typeof req !== 'object') throw new Error('job.req 无效')
+
+    let out = ''
+    let status = 0
+    let bad = false
+    let badBody = ''
+    let lastFlush = 0
+
+    const flush = async (force) => {
+      if (!mid) return
+      const t = now()
+      if (!force && t - lastFlush < 220) return
+      lastFlush = t
+      await api.storage.set(streamKey(mid), { text: out, updatedAt: t })
+    }
+
+    try {
+      const canStream = streamWanted && typeof api?.net?.requestStream === 'function'
+      if (canStream) {
+        const stream = await api.net.requestStream(req)
+        const sse = { buf: '', done: false }
+
+        for await (const ev of stream) {
+          const t = String(ev?.type || '')
+          if (t === 'start') {
+            status = Number(ev?.status || 0)
+            bad = status < 200 || status >= 300
+            continue
+          }
+          if (t === 'chunk') {
+            const text = String(ev?.text || '')
+            if (!text) continue
+            if (bad) {
+              badBody += text
+              continue
+            }
+
+            sseFeed(sse, text, (json) => {
+              if (json?.error?.message) throw new Error(String(json.error.message))
+              const delta = extractOpenAiDelta(json)
+              if (typeof delta === 'string' && delta) out += delta
+            })
+
+            await flush(false)
+            if (sse.done) break
+            continue
+          }
+          if (t === 'error') throw new Error(String(ev?.message || '请求失败'))
+          if (t === 'end') break
+        }
+
+        if (bad) {
+          let msg = String(badBody || '').trim()
+          try {
+            const j = JSON.parse(msg || '{}')
+            msg = String(j?.error?.message || msg || `HTTP ${status}`)
+          } catch (_) {}
+          throw new Error(msg || `HTTP ${status}`)
+        }
+      } else {
+        const r = await api.net.request(req)
+        status = Number(r?.status || 0)
+        const bodyText = String(r?.body || '')
+        bad = status < 200 || status >= 300
+
+        if (streamWanted) {
+          const sse = { buf: '', done: false }
+          sseFeed(sse, bodyText, (json) => {
+            if (json?.error?.message) throw new Error(String(json.error.message))
+            const delta = extractOpenAiDelta(json)
+            if (typeof delta === 'string' && delta) out += delta
+          })
+        } else {
+          const json = JSON.parse(bodyText || '{}')
+          if (bad) throw new Error(json?.error?.message || bodyText || `HTTP ${status}`)
+          out = json?.choices?.[0]?.message?.content ?? json?.choices?.[0]?.text ?? json?.output_text ?? ''
+          out = String(out || '')
+        }
+
+        if (bad) {
+          let msg = String(bodyText || '').trim()
+          try {
+            const j = JSON.parse(msg || '{}')
+            msg = String(j?.error?.message || msg || `HTTP ${status}`)
+          } catch (_) {}
+          throw new Error(msg || `HTTP ${status}`)
+        }
+      }
+
+      await flush(true)
+      await patchAssistantMessage(job, out)
+    } catch (e) {
+      const msg = String(e?.message || e || '请求失败')
+      out = out || `（请求失败：${msg}）`
+      try {
+        await flush(true)
+      } catch (_) {}
+      await patchAssistantMessage(job, out)
+    } finally {
+      if (mid) {
+        try {
+          await api.storage.remove(streamKey(mid))
+        } catch (_) {}
+      }
+      try {
+        await api.storage.remove(jobKey(job.id))
+      } catch (_) {}
     }
   }
 
@@ -796,8 +1074,10 @@
   function renderTop() {
     const el = document.querySelector('[data-area="top"]')
     if (!(el instanceof HTMLElement)) return
+    const on = !!state.data?.settings?.streamEnabled
     el.innerHTML = `
       <div class="title">💬 AI 聊天</div>
+      <button class="btn ${on ? 'ok' : ''}" data-act="toggle-stream">${on ? '流式：开' : '流式：关'}</button>
       <button class="btn" data-act="open-providers">供应商</button>
       <button class="btn pri" data-act="new-role">新角色</button>
       <button class="btn pri" data-act="new-chat">新建聊天</button>
@@ -929,7 +1209,12 @@
       if (!(h instanceof HTMLElement)) continue
       const mid = String(h.getAttribute('data-mid') || '')
       const msg = items.find((x) => String(x?.id) === mid)
-      renderAssistantInto(h, String(msg?.content || ''))
+      let content = String(msg?.content || '')
+      if (msg?.pending && msg?.streaming) {
+        const cached = uiStreamCache.get(mid)
+        if (typeof cached === 'string' && cached) content = cached
+      }
+      renderAssistantInto(h, content)
     }
   }
 
@@ -1135,6 +1420,81 @@
         el.scrollTop = el.scrollHeight
       } catch (_) {}
     })
+  }
+
+  let uiPollTimer = 0
+  let uiLastSyncMs = 0
+  const uiStreamCache = new Map()
+
+  function startUiPollers() {
+    if (uiPollTimer) return
+    uiPollTimer = window.setInterval(() => {
+      uiPollTick().catch(() => {})
+    }, 350)
+  }
+
+  async function syncDataFromStorage() {
+    const keepActive = String(state.draft.activeRoleId || '')
+    const keepInput = String(state.draft.input || '')
+    const raw = await api.storage.get(STORAGE_KEY)
+    state.data = normalizeData(raw)
+    if (keepActive) state.draft.activeRoleId = keepActive
+    else state.draft.activeRoleId = String(state.data?.ui?.activeRoleId || '')
+    state.draft.input = keepInput
+  }
+
+  async function uiPollTick() {
+    if (state.loading || !state.data) return
+
+    const role = activeRole()
+    const chat = activeChat()
+    if (!role || !chat) return
+
+    const items = Array.isArray(chat.messages) ? chat.messages : []
+    const pending = items.filter((m) => m && m.role === 'assistant' && m.pending).slice(-3)
+
+    if (pending.length) {
+      for (const m of pending) {
+        if (!m.streaming) continue
+        const s = await api.storage.get(streamKey(String(m.id || '')))
+        const text = String(s?.text || '')
+        if (!text) continue
+        const mid = String(m.id || '')
+        if (uiStreamCache.get(mid) === text) continue
+        uiStreamCache.set(mid, text)
+        m.content = text
+
+        const el = document.querySelector(`[data-render-assistant="1"][data-mid="${mid}"]`)
+        if (el instanceof HTMLElement) {
+          renderAssistantInto(el, text)
+          scrollToBottomSoon()
+        }
+      }
+
+      const t = now()
+      if (t - uiLastSyncMs > 900) {
+        uiLastSyncMs = t
+        await syncDataFromStorage()
+        renderSide()
+        renderChat()
+        renderComposer()
+      }
+
+      if (state.sendingJobId) {
+        const job = await api.storage.get(jobKey(state.sendingJobId))
+        if (!job) state.sendingJobId = ''
+      }
+
+      return
+    }
+
+    uiStreamCache.clear()
+
+    if (state.sending || state.sendingJobId) {
+      state.sending = false
+      state.sendingJobId = ''
+      renderComposer()
+    }
   }
 
   function closeModal() {
@@ -1366,6 +1726,14 @@
       return
     }
 
+    if (act === 'toggle-stream') {
+      if (!state.data) return
+      state.data.settings.streamEnabled = !state.data.settings.streamEnabled
+      save().catch(() => {})
+      renderTop()
+      return
+    }
+
     if (act === 'open-providers') return openProvidersEditor()
     if (act === 'new-role') return createRole()
     if (act === 'new-chat') return createChatForActiveRole()
@@ -1494,6 +1862,7 @@
     await ensureRenderer().catch(() => {})
     await load()
     mount()
+    startUiPollers()
     render()
     scrollToBottomSoon()
   }

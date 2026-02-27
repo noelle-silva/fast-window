@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core'
+import { Channel, invoke } from '@tauri-apps/api/core'
 import type { PluginContext } from './pluginApi'
 import { isCapabilityAllowed, type PluginMethodCapability } from './pluginContract'
 import { PluginBridgeError } from './pluginBridge'
@@ -34,6 +34,8 @@ export type PluginMethodName =
   | 'ui.openBrowserWindow'
   | 'net.request'
   | 'net.requestBase64'
+  | 'net.requestStream'
+  | 'net.requestStreamCancel'
   | 'task.create'
   | 'task.get'
   | 'task.list'
@@ -41,7 +43,11 @@ export type PluginMethodName =
 
 type MethodDef = {
   capability?: PluginMethodCapability
-  handler: (ctx: PluginContext, args: unknown[], extra: { onBack?: () => void }) => unknown | Promise<unknown>
+  handler: (
+    ctx: PluginContext,
+    args: unknown[],
+    extra: { onBack?: () => void; postStream?: (payload: { streamId: string; event: any }) => void },
+  ) => unknown | Promise<unknown>
 }
 
 const methods: Record<PluginMethodName, MethodDef> = {
@@ -165,6 +171,36 @@ const methods: Record<PluginMethodName, MethodDef> = {
     handler: (ctx, args) => ctx.api.net.requestBase64(args?.[0] as any),
   },
 
+  'net.requestStream': {
+    capability: 'net.requestStream',
+    handler: async (_ctx, args, extra) => {
+      if (!extra.postStream) throw new PluginBridgeError('BAD_REQUEST', 'postStream is required for net.requestStream')
+
+      const req = (args?.[0] as any) ?? null
+      let streamId = ''
+      const pending: any[] = []
+
+      const channel = new Channel<any>(event => {
+        if (streamId) extra.postStream?.({ streamId, event })
+        else pending.push(event)
+      })
+
+      streamId = await invoke<string>('http_request_stream', { req, channel })
+      for (const event of pending) extra.postStream?.({ streamId, event })
+      return { streamId }
+    },
+  },
+
+  'net.requestStreamCancel': {
+    capability: 'net.requestStreamCancel',
+    handler: async (_ctx, args) => {
+      const streamId = String(args?.[0] ?? '').trim()
+      if (!streamId) throw new PluginBridgeError('BAD_REQUEST', 'streamId is required')
+      await invoke('http_request_stream_cancel', { streamId })
+      return null
+    },
+  },
+
   'task.create': {
     capability: 'task.create',
     handler: (ctx, args) => {
@@ -185,7 +221,7 @@ export async function dispatchPluginMethod(
   ctx: PluginContext,
   method: string,
   args: unknown,
-  extra: { onBack?: () => void },
+  extra: { onBack?: () => void; postStream?: (payload: { streamId: string; event: any }) => void },
 ) {
   const key = method as PluginMethodName
   const def = (methods as any)[key] as MethodDef | undefined

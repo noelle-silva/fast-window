@@ -9,6 +9,16 @@
   "keyword": "ai",
   "apiVersion": 2,
   "ui": { "type": "iframe" },
-  "requires": ["storage.get", "storage.set", "ui.showToast", "clipboard.writeText", "net.request"]
+  "background": { "autoStart": true },
+  "requires": [
+    "storage.get",
+    "storage.set",
+    "storage.remove",
+    "storage.getAll",
+    "ui.showToast",
+    "clipboard.writeText",
+    "net.request",
+    "net.requestStream",
+    "net.requestStreamCancel"
+  ]
 }
-

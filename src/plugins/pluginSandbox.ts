@@ -18,6 +18,79 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
   const DEFAULT_TIMEOUT_MS = 8000;
   const LONG_TIMEOUT_MS = 15 * 60 * 1000;
 
+  const streams = new Map();
+  const pendingStreamEvents = new Map();
+  const canceledStreamIds = new Set();
+
+  function enqueueStreamEvent(streamId, event) {
+    if (!streamId) return;
+    if (canceledStreamIds.has(streamId)) return;
+    const st = streams.get(streamId);
+    if (st) return st._push(event);
+
+    const list = pendingStreamEvents.get(streamId) || [];
+    if (list.length < 256) list.push(event);
+    pendingStreamEvents.set(streamId, list);
+  }
+
+  function createStream(streamId) {
+    if (!streamId) throw new Error('streamId is required');
+    canceledStreamIds.delete(streamId);
+    if (streams.has(streamId)) return streams.get(streamId);
+
+    const st = {
+      streamId,
+      queue: [],
+      waiters: [],
+      closed: false,
+      error: null,
+      _push(event) {
+        if (this.closed) return;
+        const type = event && event.type;
+        if (type === 'error') {
+          this.error = new Error(event && event.message ? String(event.message) : 'Stream error');
+          this.closed = true;
+          while (this.waiters.length) this.waiters.shift().reject(this.error);
+          return;
+        }
+        if (type === 'end') {
+          this.closed = true;
+          while (this.waiters.length) this.waiters.shift().resolve({ value: undefined, done: true });
+          return;
+        }
+
+        this.queue.push(event);
+        if (this.waiters.length) this.waiters.shift().resolve({ value: this.queue.shift(), done: false });
+      },
+      cancel() {
+        this.closed = true;
+        streams.delete(streamId);
+        pendingStreamEvents.delete(streamId);
+        canceledStreamIds.add(streamId);
+        return call('net.requestStreamCancel', [streamId]).catch(() => {});
+      },
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+      next() {
+        if (this.error) return Promise.reject(this.error);
+        if (this.queue.length) return Promise.resolve({ value: this.queue.shift(), done: false });
+        if (this.closed) return Promise.resolve({ value: undefined, done: true });
+        return new Promise((resolve, reject) => this.waiters.push({ resolve, reject }));
+      },
+      return() {
+        this.cancel();
+        return Promise.resolve({ value: undefined, done: true });
+      },
+    };
+
+    streams.set(streamId, st);
+    const list = pendingStreamEvents.get(streamId) || [];
+    pendingStreamEvents.delete(streamId);
+    for (const ev of list) st._push(ev);
+    return st;
+  }
+
   function resolveTimeoutMs(method, args) {
     try {
       // 文件选择类是“人类交互时长”，不该按普通 RPC 8s 超时算。
@@ -53,6 +126,12 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
 
   window.addEventListener('message', (e) => {
     const msg = e && e.data;
+    if (msg && msg.__fastWindowStream === true) {
+      if (msg.pluginId !== pluginId) return;
+      if (msg.token !== token) return;
+      enqueueStreamEvent(String(msg.streamId || ''), msg.event);
+      return;
+    }
     if (!msg || msg.__fastWindowResponse !== true) return;
     if (msg.pluginId !== pluginId) return;
     if (msg.token !== token) return;
@@ -110,6 +189,11 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
     net: {
       request: (req) => call('net.request', [req]),
       requestBase64: (req) => call('net.requestBase64', [req]),
+      requestStream: async (req) => {
+        const r = await call('net.requestStream', [req]);
+        const streamId = r && r.streamId ? String(r.streamId) : '';
+        return createStream(streamId);
+      },
     },
     task: {
       create: (req) => call('task.create', [req]),

@@ -42,9 +42,12 @@ export default function IframePluginView(props: Props) {
       const reply = (payload: any) => {
         iframeWin.postMessage({ __fastWindowResponse: true, pluginId, token: tokenRef.current, id, ...payload }, '*')
       }
+      const postStream = (payload: any) => {
+        iframeWin.postMessage({ __fastWindowStream: true, pluginId, token: tokenRef.current, ...payload }, '*')
+      }
 
       Promise.resolve()
-        .then(() => dispatchPluginMethod(ctx, String(method), args, { onBack }))
+        .then(() => dispatchPluginMethod(ctx, String(method), args, { onBack, postStream }))
         .then(result => reply({ ok: true, result }))
         .catch(err => {
           const e = toBridgeError(err)

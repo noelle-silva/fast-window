@@ -50,6 +50,8 @@
   - `ui.openExternal`：用于打开外部 URI（例如 `vscode://...`），禁用 `file://` / `javascript:`
 - `net.request`（直接 HTTP 请求；走宿主后端以绕过浏览器 CORS；支持 `mode: "task"`；默认返回 UTF-8 文本）
   - `net.request({ ..., responseType: "base64" })`：返回 `bodyBase64`（用于图片/二进制等非 UTF-8 响应；不支持 `mode: "task"`；需要额外声明 `net.requestBase64` 能力）
+- `net.requestStream`（流式 HTTP 请求；适合 SSE / `text/event-stream`；返回一个可 `for await` 的异步迭代器，事件类型为 `start/chunk/end/error`）
+  - 取消：调用返回对象的 `cancel()`（宿主侧能力为 `net.requestStreamCancel`）
 - `net.requestBase64`（兼容保留；等价于 `net.request({ responseType: "base64" })`）
 - `task.create` / `task.get` / `task.list` / `task.cancel`
 - `files.getOutputDir` / `files.pickOutputDir` / `files.openOutputDir`

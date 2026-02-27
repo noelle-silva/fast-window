@@ -41,9 +41,12 @@ export default function BackgroundPluginHost(props: Props) {
       const reply = (payload: any) => {
         iframeWin.postMessage({ __fastWindowResponse: true, pluginId, token: tokenRef.current, id, ...payload }, '*')
       }
+      const postStream = (payload: any) => {
+        iframeWin.postMessage({ __fastWindowStream: true, pluginId, token: tokenRef.current, ...payload }, '*')
+      }
 
       Promise.resolve()
-        .then(() => dispatchPluginMethod(ctx, String(method), args, {}))
+        .then(() => dispatchPluginMethod(ctx, String(method), args, { postStream }))
         .then(result => reply({ ok: true, result }))
         .catch(err => {
           const e = toBridgeError(err)
