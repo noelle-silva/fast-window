@@ -10,6 +10,7 @@ dist-ssr/
 # Runtime app data
 data/
 plugins/**/backup/
+plugins/**/*.map
 
 # Tauri / Rust
 src-tauri/target/
