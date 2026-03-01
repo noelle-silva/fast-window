@@ -165,6 +165,9 @@ export function AiChatApp(props: { controller: any }) {
   const onSend = useEvent(() => controller.actions.send())
   const onPickImages = useEvent(() => controller.actions.pickImages())
 
+  const [page, setPage] = React.useState<'chat' | 'settings'>('chat')
+  const [settingsTab, setSettingsTab] = React.useState<'roles' | 'providers'>('roles')
+
   const [rolePickerEl, setRolePickerEl] = React.useState<HTMLElement | null>(null)
   const [chatPickerEl, setChatPickerEl] = React.useState<HTMLElement | null>(null)
 
@@ -172,6 +175,14 @@ export function AiChatApp(props: { controller: any }) {
   const closeRolePicker = useEvent(() => setRolePickerEl(null))
   const openChatPicker = useEvent((e: React.MouseEvent<HTMLElement>) => setChatPickerEl(e.currentTarget))
   const closeChatPicker = useEvent(() => setChatPickerEl(null))
+
+  const openPluginSettings = useEvent((tab: 'roles' | 'providers' = 'roles') => {
+    setRolePickerEl(null)
+    setChatPickerEl(null)
+    setSettingsTab(tab)
+    setPage('settings')
+  })
+  const closePluginSettings = useEvent(() => setPage('chat'))
 
   const onPaste = useEvent((e: React.ClipboardEvent) => {
     if (s.loading || s.sending) return
@@ -264,84 +275,117 @@ export function AiChatApp(props: { controller: any }) {
         >
           <Toolbar
             variant="dense"
-            sx={{
-              gap: 0.5,
-              minHeight: 40,
-              px: 1,
-              '&.MuiToolbar-root': { minHeight: 40 },
-            }}
+           sx={{
+             gap: 0.5,
+             minHeight: 40,
+             px: 1,
+             '&.MuiToolbar-root': { minHeight: 40 },
+           }}
           >
-            <Typography variant="subtitle2" sx={{ fontWeight: 900, mr: 0.5 }}>
-              AI 聊天
-            </Typography>
+            {page === 'settings' ? (
+              <>
+                <IconButton onClick={closePluginSettings} size="small">
+                  <ChevronLeftIcon fontSize="small" />
+                </IconButton>
 
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={openRolePicker}
-              disabled={s.loading || !roles.length}
-              sx={{ borderRadius: 999, px: 1, py: 0.25, minWidth: 0, gap: 0.75, borderColor: 'divider' }}
-            >
-              <Avatar sx={{ width: 22, height: 22, fontSize: 12 }}>{String(activeRole?.avatar || '🙂')}</Avatar>
-              <Typography variant="body2" sx={{ fontWeight: 900, maxWidth: 180 }} noWrap>
-                {activeRole ? String(activeRole?.name || '') : '请选择角色'}
-              </Typography>
-            </Button>
-
-            <Tooltip title="流式输出">
-              <Stack direction="row" alignItems="center" spacing={1} sx={{ mr: 1 }}>
-                <Switch
-                  size="small"
-                  checked={!!data?.settings?.streamEnabled}
-                  onChange={() => controller.actions.toggleStream()}
-                  disabled={!data}
-                />
-                <Typography variant="body2" color="text.secondary">
-                  流式
+                <Typography variant="subtitle2" sx={{ fontWeight: 900, mr: 0.5 }}>
+                  插件设置
                 </Typography>
-              </Stack>
-            </Tooltip>
 
-            <Box sx={{ flex: 1 }} />
+                <Box sx={{ flex: 1 }} />
 
-            <Tooltip title="聊天记录">
-              <IconButton onClick={openChatPicker} size="small">
-                <HistoryIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="供应商">
-              <IconButton onClick={() => controller.actions.openProviders()} size="small">
-                <StorageIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="新角色">
-              <IconButton onClick={() => controller.actions.createRole()} size="small">
-                <AddIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="新建聊天">
-              <span>
-                <IconButton onClick={() => controller.actions.createChat()} size="small" disabled={!activeRole}>
-                  <ChatIcon fontSize="small" />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip title="角色设置">
-              <span>
-                <IconButton onClick={() => activeRole && controller.actions.openRoleEditor(activeRole.id)} size="small" disabled={!activeRole}>
-                  <SettingsIcon fontSize="small" />
-                </IconButton>
-              </span>
-            </Tooltip>
+                <Button
+                  size="small"
+                  variant={settingsTab === 'roles' ? 'contained' : 'outlined'}
+                  onClick={() => setSettingsTab('roles')}
+                  sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
+                >
+                  角色管理
+                </Button>
+                <Button
+                  size="small"
+                  variant={settingsTab === 'providers' ? 'contained' : 'outlined'}
+                  onClick={() => setSettingsTab('providers')}
+                  sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
+                >
+                  供应商管理
+                </Button>
+              </>
+            ) : (
+              <>
+                <Typography variant="subtitle2" sx={{ fontWeight: 900, mr: 0.5 }}>
+                  AI 聊天
+                </Typography>
+
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={openRolePicker}
+                  disabled={s.loading || !roles.length}
+                  sx={{ borderRadius: 999, px: 1, py: 0.25, minWidth: 0, gap: 0.75, borderColor: 'divider' }}
+                >
+                  <Avatar sx={{ width: 22, height: 22, fontSize: 12 }}>{String(activeRole?.avatar || '🙂')}</Avatar>
+                  <Typography variant="body2" sx={{ fontWeight: 900, maxWidth: 180 }} noWrap>
+                    {activeRole ? String(activeRole?.name || '') : '请选择角色'}
+                  </Typography>
+                </Button>
+
+                <Tooltip title="流式输出">
+                  <Stack direction="row" alignItems="center" spacing={1} sx={{ mr: 1 }}>
+                    <Switch
+                      size="small"
+                      checked={!!data?.settings?.streamEnabled}
+                      onChange={() => controller.actions.toggleStream()}
+                      disabled={!data}
+                    />
+                    <Typography variant="body2" color="text.secondary">
+                      流式
+                    </Typography>
+                  </Stack>
+                </Tooltip>
+
+                <Box sx={{ flex: 1 }} />
+
+                <Tooltip title="聊天记录">
+                  <IconButton onClick={openChatPicker} size="small">
+                    <HistoryIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="供应商">
+                  <IconButton onClick={() => controller.actions.openProviders()} size="small">
+                    <StorageIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="新角色">
+                  <IconButton onClick={() => controller.actions.createRole()} size="small">
+                    <AddIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="新建聊天">
+                  <span>
+                    <IconButton onClick={() => controller.actions.createChat()} size="small" disabled={!activeRole}>
+                      <ChatIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="插件设置">
+                  <IconButton onClick={() => openPluginSettings('roles')} size="small">
+                    <SettingsIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </>
+            )}
           </Toolbar>
         </AppBar>
 
-        <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', bgcolor: 'background.default' }}>
-            <Box ref={chatRootRef} sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', p: 2, bgcolor: 'grey.50' }}>
-              {s.loading ? (
-                <Typography variant="body2" color="text.secondary">
-                  加载中…
-                </Typography>
+        {page === 'chat' ? (
+          <>
+            <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', bgcolor: 'background.default' }}>
+             <Box ref={chatRootRef} sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', p: 2, bgcolor: 'grey.50' }}>
+               {s.loading ? (
+                 <Typography variant="body2" color="text.secondary">
+                   加载中…
+                 </Typography>
               ) : !activeRole || !activeChat ? (
                 <Typography variant="body2" color="text.secondary">
                   请选择角色
@@ -618,6 +662,19 @@ export function AiChatApp(props: { controller: any }) {
             })()}
           </Box>
         </Popover>
+          </>
+        ) : (
+          <PluginSettingsPage
+            controller={controller}
+            loading={!!s.loading}
+            data={data}
+            roles={roles}
+            providers={providers}
+            draft={s.draft}
+            activeRoleId={String(s.draft?.activeRoleId || '')}
+            tab={settingsTab}
+          />
+        )}
 
         <ProvidersDialog open={s.modal === 'providers'} controller={controller} providers={providers} draft={s.draft} />
         <RoleDialog open={s.modal === 'role'} controller={controller} providers={providers} draft={s.draft} models={s.models} />
@@ -625,6 +682,172 @@ export function AiChatApp(props: { controller: any }) {
         <MermaidDialog open={s.modal === 'mermaid'} controller={controller} mermaid={s.mermaid} />
       </Box>
     </ThemeProvider>
+  )
+}
+
+function PluginSettingsPage(props: {
+  controller: any
+  loading: boolean
+  data: any
+  roles: any[]
+  providers: any[]
+  draft: any
+  activeRoleId: string
+  tab: 'roles' | 'providers'
+}) {
+  const { controller, loading, data, roles, providers, draft, activeRoleId, tab } = props
+
+  if (!data) {
+    return (
+      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', p: 2, bgcolor: 'grey.50' }}>
+        <Typography variant="body2" color="text.secondary">
+          {loading ? '加载中…' : '未加载到数据'}
+        </Typography>
+      </Box>
+    )
+  }
+
+  if (tab === 'roles') {
+    return (
+      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', p: 2, bgcolor: 'grey.50' }}>
+        <Paper variant="outlined" sx={{ p: 1.5 }}>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography sx={{ fontWeight: 900 }}>角色管理</Typography>
+            <Box sx={{ flex: 1 }} />
+            <Button startIcon={<AddIcon />} onClick={() => controller.actions.createRole()} disabled={loading}>
+              新建角色
+            </Button>
+          </Stack>
+          <Divider sx={{ my: 1.5 }} />
+          <Stack spacing={1.25}>
+            {roles.length ? (
+              roles.map((r: any) => {
+                const rid = String(r?.id || '')
+                const isActive = rid && rid === activeRoleId
+                const providerId = String(r?.modelRef?.providerId || '')
+                const modelId = String(r?.modelRef?.modelId || '')
+                return (
+                  <Paper
+                    key={rid}
+                    variant="outlined"
+                    sx={{
+                      p: 1.25,
+                      borderColor: isActive ? 'primary.main' : 'divider',
+                      bgcolor: isActive ? 'rgba(25,118,210,.06)' : 'background.paper',
+                    }}
+                  >
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', sm: 'center' }}>
+                      <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
+                        <Avatar sx={{ width: 28, height: 28, fontSize: 14 }}>{String(r?.avatar || '🙂')}</Avatar>
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography sx={{ fontWeight: 900 }} noWrap>
+                            {String(r?.name || '')}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" noWrap>
+                            {providerId}
+                            {modelId ? ` / ${modelId}` : ''}
+                          </Typography>
+                        </Box>
+                      </Stack>
+
+                      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <Button
+                          size="small"
+                          variant={isActive ? 'contained' : 'outlined'}
+                          onClick={() => controller.actions.setActiveRole(rid)}
+                          disabled={!rid}
+                        >
+                          {isActive ? '当前' : '设为当前'}
+                        </Button>
+                        <Button size="small" onClick={() => controller.actions.openRoleEditor(rid)} disabled={!rid}>
+                          编辑
+                        </Button>
+                        <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => controller.actions.askDeleteRole(rid)} disabled={!rid}>
+                          删除
+                        </Button>
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                )
+              })
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                暂无角色
+              </Typography>
+            )}
+          </Stack>
+        </Paper>
+      </Box>
+    )
+  }
+
+  const editingId = String(draft?.editProviderId || '')
+
+  return (
+    <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', p: 2, bgcolor: 'grey.50' }}>
+      <Paper variant="outlined" sx={{ p: 1.5 }}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Typography sx={{ fontWeight: 900 }}>供应商管理</Typography>
+          <Box sx={{ flex: 1 }} />
+          <Button startIcon={<AddIcon />} onClick={() => controller.actions.createProvider()} disabled={loading}>
+            新建供应商
+          </Button>
+        </Stack>
+        <Divider sx={{ my: 1.5 }} />
+        <Stack spacing={1.5}>
+          {providers.map((p: any) => {
+            const pid = String(p?.id || '')
+            const isEditing = pid && pid === editingId
+            return (
+              <Paper key={pid} variant="outlined" sx={{ p: 1.5 }}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', sm: 'center' }}>
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography sx={{ fontWeight: 900 }} noWrap>
+                      {String(p?.name || '')}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" noWrap>
+                      {String(p?.baseUrl || '')}
+                    </Typography>
+                  </Box>
+
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <Button
+                      size="small"
+                      variant={isEditing ? 'outlined' : 'text'}
+                      onClick={() => (isEditing ? controller.actions.closeProviderEditor() : controller.actions.openProviderEditor(pid))}
+                      disabled={!pid}
+                    >
+                      {isEditing ? '收起' : '编辑'}
+                    </Button>
+                    <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => controller.actions.askDeleteProvider(pid)} disabled={!pid}>
+                      删除
+                    </Button>
+                  </Stack>
+                </Stack>
+
+                {isEditing ? (
+                  <Stack spacing={1.5} sx={{ mt: 1.5 }}>
+                    <TextField label="名称" value={String(draft?.providerName || '')} onChange={(e) => controller.actions.setDraft('providerName', e.target.value)} />
+                    <TextField
+                      label="Base URL"
+                      value={String(draft?.providerBaseUrl || '')}
+                      onChange={(e) => controller.actions.setDraft('providerBaseUrl', e.target.value)}
+                      placeholder="https://api.openai.com/v1"
+                    />
+                    <TextField label="API Key" type="password" value={String(draft?.providerApiKey || '')} onChange={(e) => controller.actions.setDraft('providerApiKey', e.target.value)} />
+                    <Stack direction="row" spacing={1} justifyContent="flex-end">
+                      <Button variant="contained" onClick={() => controller.actions.saveProvider()}>
+                        保存
+                      </Button>
+                    </Stack>
+                  </Stack>
+                ) : null}
+              </Paper>
+            )
+          })}
+        </Stack>
+      </Paper>
+    </Box>
   )
 }
 
