@@ -11,7 +11,6 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
-  Drawer,
   FormControl,
   GlobalStyles,
   IconButton,
@@ -22,12 +21,11 @@ import {
   ListItemText,
   MenuItem,
   Paper,
+  Popover,
   Select,
   Slider,
   Stack,
   Switch,
-  Tab,
-  Tabs,
   TextField,
   ThemeProvider,
   Toolbar,
@@ -40,6 +38,7 @@ import ChatIcon from '@mui/icons-material/Chat'
 import CloseIcon from '@mui/icons-material/Close'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import HistoryIcon from '@mui/icons-material/History'
 import ImageIcon from '@mui/icons-material/Image'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import SettingsIcon from '@mui/icons-material/Settings'
@@ -147,7 +146,6 @@ export function AiChatApp(props: { controller: any }) {
 
   const activeRole = controller.activeRole()
   const activeChat = controller.activeChat()
-  const sideTab = s.sideTab === 'chats' ? 'chats' : 'roles'
 
   const chatRootRef = React.useRef<HTMLDivElement | null>(null)
   const lastMsg = Array.isArray(activeChat?.messages) && activeChat.messages.length ? activeChat.messages[activeChat.messages.length - 1] : null
@@ -166,6 +164,14 @@ export function AiChatApp(props: { controller: any }) {
 
   const onSend = useEvent(() => controller.actions.send())
   const onPickImages = useEvent(() => controller.actions.pickImages())
+
+  const [rolePickerEl, setRolePickerEl] = React.useState<HTMLElement | null>(null)
+  const [chatPickerEl, setChatPickerEl] = React.useState<HTMLElement | null>(null)
+
+  const openRolePicker = useEvent((e: React.MouseEvent<HTMLElement>) => setRolePickerEl(e.currentTarget))
+  const closeRolePicker = useEvent(() => setRolePickerEl(null))
+  const openChatPicker = useEvent((e: React.MouseEvent<HTMLElement>) => setChatPickerEl(e.currentTarget))
+  const closeChatPicker = useEvent(() => setChatPickerEl(null))
 
   const onPaste = useEvent((e: React.ClipboardEvent) => {
     if (s.loading || s.sending) return
@@ -189,8 +195,6 @@ export function AiChatApp(props: { controller: any }) {
       onSend()
     }
   })
-
-  const drawerWidth = 320
 
   return (
     <ThemeProvider theme={theme}>
@@ -271,6 +275,19 @@ export function AiChatApp(props: { controller: any }) {
               AI 聊天
             </Typography>
 
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={openRolePicker}
+              disabled={s.loading || !roles.length}
+              sx={{ borderRadius: 999, px: 1, py: 0.25, minWidth: 0, gap: 0.75, borderColor: 'divider' }}
+            >
+              <Avatar sx={{ width: 22, height: 22, fontSize: 12 }}>{String(activeRole?.avatar || '🙂')}</Avatar>
+              <Typography variant="body2" sx={{ fontWeight: 900, maxWidth: 180 }} noWrap>
+                {activeRole ? String(activeRole?.name || '') : '请选择角色'}
+              </Typography>
+            </Button>
+
             <Tooltip title="流式输出">
               <Stack direction="row" alignItems="center" spacing={1} sx={{ mr: 1 }}>
                 <Switch
@@ -287,6 +304,11 @@ export function AiChatApp(props: { controller: any }) {
 
             <Box sx={{ flex: 1 }} />
 
+            <Tooltip title="聊天记录">
+              <IconButton onClick={openChatPicker} size="small">
+                <HistoryIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
             <Tooltip title="供应商">
               <IconButton onClick={() => controller.actions.openProviders()} size="small">
                 <StorageIcon fontSize="small" />
@@ -314,136 +336,7 @@ export function AiChatApp(props: { controller: any }) {
           </Toolbar>
         </AppBar>
 
-        <Box sx={{ flex: 1, minHeight: 0, display: 'flex' }}>
-          <Drawer
-            variant="permanent"
-            sx={{
-              width: drawerWidth,
-              flexShrink: 0,
-              '& .MuiDrawer-paper': {
-                width: drawerWidth,
-                boxSizing: 'border-box',
-                position: 'relative',
-                borderRight: '1px solid',
-                borderColor: 'divider',
-                display: 'flex',
-                flexDirection: 'column',
-                overflowX: 'hidden',
-              },
-            }}
-          >
-            <Box sx={{ p: 1.5, pt: 1 }}>
-              <Tabs value={sideTab} onChange={(_e, v) => controller.actions.setSideTab(v)} variant="fullWidth" sx={{ minHeight: 38 }}>
-                <Tab value="roles" label="角色" sx={{ minHeight: 38 }} />
-                <Tab value="chats" label="记录" sx={{ minHeight: 38 }} />
-              </Tabs>
-            </Box>
-
-            <Divider />
-
-            <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
-              {s.loading ? (
-                <Box sx={{ p: 2 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    加载中…
-                  </Typography>
-                </Box>
-              ) : sideTab === 'roles' ? (
-                <List dense sx={{ py: 0 }}>
-                  {roles.map((r: any) => {
-                    const on = String(r?.id || '') === String(s.draft?.activeRoleId || '')
-                    const providerId = String(r?.modelRef?.providerId || '')
-                    const modelId = String(r?.modelRef?.modelId || '')
-                    return (
-                      <ListItemButton
-                        key={String(r?.id || '')}
-                        selected={on}
-                        onClick={() => controller.actions.setActiveRole(String(r?.id || ''))}
-                        sx={{ borderBottom: '1px solid', borderColor: 'divider' }}
-                      >
-                        <ListItemAvatar>
-                          <Avatar sx={{ width: 28, height: 28, fontSize: 14 }}>{String(r?.avatar || '🙂')}</Avatar>
-                        </ListItemAvatar>
-                        <ListItemText
-                          sx={{ minWidth: 0 }}
-                          primary={
-                            <Typography sx={{ fontWeight: 900, fontSize: 13 }} noWrap>
-                              {String(r?.name || '')}
-                            </Typography>
-                          }
-                          secondary={
-                            <Typography variant="caption" color="text.secondary" noWrap>
-                              {providerId}
-                              {modelId ? ` / ${modelId}` : ''}
-                            </Typography>
-                          }
-                        />
-                        <Tooltip title="设置">
-                          <IconButton
-                            size="small"
-                            onClick={(e) => {
-                              e.preventDefault()
-                              e.stopPropagation()
-                              controller.actions.openRoleEditor(String(r?.id || ''))
-                            }}
-                          >
-                            <SettingsIcon fontSize="inherit" />
-                          </IconButton>
-                        </Tooltip>
-                      </ListItemButton>
-                    )
-                  })}
-                </List>
-              ) : (
-                <List dense sx={{ py: 0 }}>
-                  {(() => {
-                    const role = activeRole
-                    const box = role ? data?.chatsByRole?.[String(role.id)] : null
-                    const chats = Array.isArray(box?.chats) ? box.chats.slice() : []
-                    const activeChatId = String(box?.activeChatId || '')
-                    chats.sort((a: any, b: any) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0))
-                    return chats.map((c: any) => {
-                      const on = String(c?.id || '') === activeChatId
-                      const msgs = Array.isArray(c?.messages) ? c.messages : []
-                      const last = msgs.length ? msgs[msgs.length - 1] : null
-                      const raw = String(last?.content || '').replace(/\\s+/g, ' ').trim()
-                      const snippet = raw.length > 40 ? raw.slice(0, 40) + '…' : raw
-                      const time = controller.fmtTime(Number(c?.updatedAt || c?.createdAt || 0))
-                      return (
-                        <ListItemButton
-                          key={String(c?.id || '')}
-                          selected={on}
-                          onClick={() => controller.actions.setActiveChat(String(c?.id || ''))}
-                          sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}
-                        >
-                          <ListItemText
-                            sx={{ minWidth: 0 }}
-                            primary={
-                              <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
-                                <Typography sx={{ fontWeight: 900, fontSize: 13, flex: 1, minWidth: 0 }} noWrap>
-                                  {String(c?.title || '新聊天')}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  {time}
-                                </Typography>
-                              </Stack>
-                            }
-                            secondary={
-                              <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', minWidth: 0 }}>
-                                {snippet || '（空）'}
-                              </Typography>
-                            }
-                          />
-                        </ListItemButton>
-                      )
-                    })
-                  })()}
-                </List>
-              )}
-            </Box>
-          </Drawer>
-
-          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', bgcolor: 'background.default' }}>
+        <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', bgcolor: 'background.default' }}>
             <Box ref={chatRootRef} sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', p: 2, bgcolor: 'grey.50' }}>
               {s.loading ? (
                 <Typography variant="body2" color="text.secondary">
@@ -583,8 +476,148 @@ export function AiChatApp(props: { controller: any }) {
                 </Stack>
               </Stack>
             </Box>
-          </Box>
         </Box>
+
+        <Popover
+          open={!!rolePickerEl}
+          anchorEl={rolePickerEl}
+          onClose={closeRolePicker}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+          transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        >
+          <Box sx={{ width: 380, maxHeight: '70vh', overflowY: 'auto' }}>
+            <Box sx={{ p: 1.5, pb: 1 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+                选择角色
+              </Typography>
+            </Box>
+            <Divider />
+            <List dense sx={{ py: 0 }}>
+              {roles.map((r: any) => {
+                const on = String(r?.id || '') === String(s.draft?.activeRoleId || '')
+                const providerId = String(r?.modelRef?.providerId || '')
+                const modelId = String(r?.modelRef?.modelId || '')
+                return (
+                  <ListItemButton
+                    key={String(r?.id || '')}
+                    selected={on}
+                    onClick={() => {
+                      controller.actions.setActiveRole(String(r?.id || ''))
+                      closeRolePicker()
+                    }}
+                    sx={{ borderBottom: '1px solid', borderColor: 'divider' }}
+                  >
+                    <ListItemAvatar>
+                      <Avatar sx={{ width: 28, height: 28, fontSize: 14 }}>{String(r?.avatar || '🙂')}</Avatar>
+                    </ListItemAvatar>
+                    <ListItemText
+                      sx={{ minWidth: 0 }}
+                      primary={
+                        <Typography sx={{ fontWeight: 900, fontSize: 13 }} noWrap>
+                          {String(r?.name || '')}
+                        </Typography>
+                      }
+                      secondary={
+                        <Typography variant="caption" color="text.secondary" noWrap>
+                          {providerId}
+                          {modelId ? ` / ${modelId}` : ''}
+                        </Typography>
+                      }
+                    />
+                    <Tooltip title="设置">
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          closeRolePicker()
+                          controller.actions.openRoleEditor(String(r?.id || ''))
+                        }}
+                      >
+                        <SettingsIcon fontSize="inherit" />
+                      </IconButton>
+                    </Tooltip>
+                  </ListItemButton>
+                )
+              })}
+            </List>
+          </Box>
+        </Popover>
+
+        <Popover
+          open={!!chatPickerEl}
+          anchorEl={chatPickerEl}
+          onClose={closeChatPicker}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+          transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        >
+          <Box sx={{ width: 420, maxHeight: '70vh', overflowY: 'auto' }}>
+            <Box sx={{ p: 1.5, pb: 1 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+                聊天记录
+              </Typography>
+            </Box>
+            <Divider />
+            {(() => {
+              const role = activeRole
+              if (!role) {
+                return (
+                  <Box sx={{ p: 2 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      先选择角色
+                    </Typography>
+                  </Box>
+                )
+              }
+              const box = data?.chatsByRole?.[String(role.id)]
+              const chats = Array.isArray(box?.chats) ? box.chats.slice() : []
+              const activeChatId = String(box?.activeChatId || '')
+              chats.sort((a: any, b: any) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0))
+              return (
+                <List dense sx={{ py: 0 }}>
+                  {chats.map((c: any) => {
+                    const on = String(c?.id || '') === activeChatId
+                    const msgs = Array.isArray(c?.messages) ? c.messages : []
+                    const last = msgs.length ? msgs[msgs.length - 1] : null
+                    const raw = String(last?.content || '').replace(/\\s+/g, ' ').trim()
+                    const snippet = raw.length > 40 ? raw.slice(0, 40) + '…' : raw
+                    const time = controller.fmtTime(Number(c?.updatedAt || c?.createdAt || 0))
+                    return (
+                      <ListItemButton
+                        key={String(c?.id || '')}
+                        selected={on}
+                        onClick={() => {
+                          controller.actions.setActiveChat(String(c?.id || ''))
+                          closeChatPicker()
+                        }}
+                        sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}
+                      >
+                        <ListItemText
+                          sx={{ minWidth: 0 }}
+                          primary={
+                            <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+                              <Typography sx={{ fontWeight: 900, fontSize: 13, flex: 1, minWidth: 0 }} noWrap>
+                                {String(c?.title || '新聊天')}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {time}
+                              </Typography>
+                            </Stack>
+                          }
+                          secondary={
+                            <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', minWidth: 0 }}>
+                              {snippet || '（空）'}
+                            </Typography>
+                          }
+                        />
+                      </ListItemButton>
+                    )
+                  })}
+                </List>
+              )
+            })()}
+          </Box>
+        </Popover>
 
         <ProvidersDialog open={s.modal === 'providers'} controller={controller} providers={providers} draft={s.draft} />
         <RoleDialog open={s.modal === 'role'} controller={controller} providers={providers} draft={s.draft} models={s.models} />
