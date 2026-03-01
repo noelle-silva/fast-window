@@ -351,16 +351,6 @@ export function AiChatApp(props: { controller: any }) {
                     <HistoryIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="供应商">
-                  <IconButton onClick={() => controller.actions.openProviders()} size="small">
-                    <StorageIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title="新角色">
-                  <IconButton onClick={() => controller.actions.createRole()} size="small">
-                    <AddIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
                 <Tooltip title="新建聊天">
                   <span>
                     <IconButton onClick={() => controller.actions.createChat()} size="small" disabled={!activeRole}>
