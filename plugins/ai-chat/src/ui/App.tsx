@@ -393,7 +393,9 @@ export function AiChatApp(props: { controller: any }) {
                 <Stack spacing={1.25}>
                   {activeChat.messages.map((m: any) => {
                     const isUser = m?.role === 'user'
-                    const who = isUser ? '你' : `${String(activeRole?.avatar || '🤖')} ${String(activeRole?.name || 'AI')}`
+                    const roleName = String(activeRole?.name || 'AI')
+                    const roleAvatarEmoji = String(activeRole?.avatar || '🤖')
+                    const roleAvatarImage = String(activeRole?.avatarImage || '')
                     const time = controller.fmtTime(Number(m?.createdAt || 0))
                     const imgPaths = isUser ? (Array.isArray(m?.images) ? m.images : []) : []
                     return (
@@ -409,9 +411,20 @@ export function AiChatApp(props: { controller: any }) {
                           }}
                         >
                           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.75 }}>
-                            <Typography variant="body2" sx={{ fontWeight: 900 }}>
-                              {who}
-                            </Typography>
+                            {isUser ? (
+                              <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                                你
+                              </Typography>
+                            ) : (
+                              <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+                                <Avatar src={roleAvatarImage || undefined} sx={{ width: 66, height: 66, fontSize: 28 }}>
+                                  {roleAvatarEmoji}
+                                </Avatar>
+                                <Typography variant="subtitle1" sx={{ fontWeight: 900, minWidth: 0, fontSize: 20 }} noWrap>
+                                  {roleName}
+                                </Typography>
+                              </Stack>
+                            )}
                             <Box sx={{ flex: 1 }} />
                             <Typography variant="caption" color="text.secondary">
                               {time}
