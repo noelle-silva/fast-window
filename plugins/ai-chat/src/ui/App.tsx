@@ -579,7 +579,7 @@ export function AiChatApp(props: { controller: any }) {
                     const on = String(c?.id || '') === activeChatId
                     const msgs = Array.isArray(c?.messages) ? c.messages : []
                     const last = msgs.length ? msgs[msgs.length - 1] : null
-                    const raw = String(last?.content || '').replace(/\\s+/g, ' ').trim()
+                    const raw = String(last?.content || '').replace(/\s+/g, ' ').trim()
                     const snippet = raw.length > 40 ? raw.slice(0, 40) + '…' : raw
                     const time = controller.fmtTime(Number(c?.updatedAt || c?.createdAt || 0))
                     return (
