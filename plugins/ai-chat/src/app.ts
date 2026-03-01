@@ -265,8 +265,26 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   async function load() {
     try {
       const raw = await api.storage.get(STORAGE_KEY)
+      const needPersistProviderIdMigration =
+        raw &&
+        typeof raw === 'object' &&
+        raw.settings &&
+        typeof raw.settings === 'object' &&
+        Array.isArray(raw.settings.providers) &&
+        raw.settings.providers.some((p) => {
+          const id = String(p?.id || '')
+          const name = String(p?.name || '')
+            .replace(/\s+/g, ' ')
+            .trim()
+          return id && name && id !== name
+        })
       state.data = normalizeData(raw)
       state.draft.activeRoleId = String(state.data.ui.activeRoleId || '')
+      if (needPersistProviderIdMigration) {
+        try {
+          await save()
+        } catch (_) {}
+      }
     } catch (_) {
       state.data = defaultData()
       state.draft.activeRoleId = String(state.data.ui.activeRoleId || '')
@@ -1967,12 +1985,17 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     state.draft.roleTemperature = String(role.temperature ?? 0.7)
     state.draft.roleProviderId = String(role.modelRef?.providerId || '')
     const curModelId = String(role.modelRef?.modelId || '').trim()
-    state.draft.roleModelId = curModelId ? '__custom__' : ''
-    state.draft.roleCustomModelId = curModelId
+
+    const p = getProvider(state.draft.roleProviderId)
+    const cachedItems = Array.isArray(p?.modelsCache?.items) ? p.modelsCache.items : []
+    state.models = { loading: false, error: '', items: cachedItems.slice(0, 300) }
+
+    const inCache = !!curModelId && cachedItems.some((x) => String(x) === curModelId)
+    state.draft.roleModelId = inCache ? curModelId : curModelId ? '__custom__' : ''
+    state.draft.roleCustomModelId = inCache ? '' : curModelId
 
     state.modal = 'role'
     render()
-    refreshModels(state.draft.roleProviderId, false).catch(() => {})
   }
 
   function saveRoleEditor() {
@@ -2374,10 +2397,11 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     state.draft[bind] = t.value
 
     if (bind === 'roleProviderId') {
-      state.models = { loading: false, error: '', items: [] }
+      const p = getProvider(String(state.draft.roleProviderId || ''))
+      const cachedItems = Array.isArray(p?.modelsCache?.items) ? p.modelsCache.items : []
+      state.models = { loading: false, error: '', items: cachedItems.slice(0, 300) }
       state.draft.roleModelId = ''
       state.draft.roleCustomModelId = ''
-      refreshModels(String(state.draft.roleProviderId || ''), false).catch(() => {})
       render()
       return
     }
@@ -2558,10 +2582,11 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       },
       roleProviderChanged: (providerId) => {
         state.draft.roleProviderId = String(providerId || '')
-        state.models = { loading: false, error: '', items: [] }
+        const p = getProvider(state.draft.roleProviderId)
+        const cachedItems = Array.isArray(p?.modelsCache?.items) ? p.modelsCache.items : []
+        state.models = { loading: false, error: '', items: cachedItems.slice(0, 300) }
         state.draft.roleModelId = ''
         state.draft.roleCustomModelId = ''
-        refreshModels(String(state.draft.roleProviderId || ''), false).catch(() => {})
         emit()
       },
       roleModelChanged: (modelId) => {

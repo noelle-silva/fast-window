@@ -669,6 +669,8 @@ function RoleDialog(props: { open: boolean; controller: any; providers: any[]; d
   const modelPick = String(draft?.roleModelId || '')
   const customModel = String(draft?.roleCustomModelId || '')
   const temp = Number(draft?.roleTemperature || 0.7)
+  const modelItems = Array.isArray(models?.items) ? (models.items as any[]).map((x) => String(x)) : []
+  const hasPickInList = !!modelPick && modelPick !== '__custom__' && modelItems.some((x) => x === modelPick)
 
   return (
     <Dialog open={open} onClose={() => controller.actions.closeModal()} fullWidth maxWidth="md">
@@ -713,13 +715,14 @@ function RoleDialog(props: { open: boolean; controller: any; providers: any[]; d
               <InputLabel>模型</InputLabel>
               <Select label="模型" value={modelPick} onChange={(e) => controller.actions.roleModelChanged(e.target.value)}>
                 <MenuItem value="">请选择模型</MenuItem>
-                {Array.isArray(models?.items) ? (
-                  (models.items as any[]).map((id) => (
-                    <MenuItem key={String(id)} value={String(id)}>
-                      {String(id)}
-                    </MenuItem>
-                  ))
+                {!hasPickInList && modelPick && modelPick !== '__custom__' ? (
+                  <MenuItem value={modelPick}>{modelPick}</MenuItem>
                 ) : null}
+                {modelItems.map((id) => (
+                  <MenuItem key={id} value={id}>
+                    {id}
+                  </MenuItem>
+                ))}
                 <MenuItem value="__custom__">自定义模型ID…</MenuItem>
               </Select>
             </FormControl>
