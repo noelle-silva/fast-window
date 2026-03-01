@@ -1655,33 +1655,6 @@ fn app_plugins_dir(app: &tauri::AppHandle) -> PathBuf {
     app_local_base_dir(app).join("plugins")
 }
 
-fn migrate_legacy_plugin_storage_layout(app: &tauri::AppHandle) {
-    let dir = app_data_dir(app);
-    let Ok(entries) = std::fs::read_dir(&dir) else {
-        return;
-    };
-
-    for e in entries.flatten() {
-        let Ok(ty) = e.file_type() else {
-            continue;
-        };
-        if !ty.is_file() {
-            continue;
-        }
-        let name = e.file_name().to_string_lossy().to_string();
-        if name == APP_CONFIG_FILE {
-            continue;
-        }
-        let Some(plugin_id) = name.strip_suffix(".json") else {
-            continue;
-        };
-        if !is_safe_id(plugin_id) {
-            continue;
-        }
-        let _ = storage_file_path(app, plugin_id);
-    }
-}
-
 fn app_config_path(app: &tauri::AppHandle) -> PathBuf {
     app_data_dir(app).join(APP_CONFIG_FILE)
 }
@@ -1831,6 +1804,49 @@ fn write_json_map(path: &Path, map: &Map<String, Value>) -> Result<(), String> {
         Ok(_) => {}
         Err(_) => {
             // Windows 上 rename 不能覆盖已有文件：先删再试；仍失败则退回 copy。
+            if path.exists() {
+                let _ = std::fs::remove_file(path);
+                if std::fs::rename(&tmp, path).is_ok() {
+                    return Ok(());
+                }
+            }
+            std::fs::copy(&tmp, path).map_err(|e| format!("写入配置失败: {e}"))?;
+            let _ = std::fs::remove_file(&tmp);
+        }
+    }
+    Ok(())
+}
+
+fn read_json_value(path: &Path) -> Result<Value, String> {
+    let content = std::fs::read_to_string(path).map_err(|e| format!("读取配置失败: {e}"))?;
+    serde_json::from_str::<Value>(&content).map_err(|e| format!("解析 JSON 失败: {e}"))
+}
+
+fn write_json_value(path: &Path, value: &Value) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("创建配置目录失败: {e}"))?;
+    }
+    let content = serde_json::to_string_pretty(value).map_err(|e| format!("序列化配置失败: {e}"))?;
+
+    let parent = path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let name = path
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "value".to_string());
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_millis(0))
+        .as_millis();
+    let tmp = parent.join(format!(".tmp-{name}-{stamp}.json"));
+
+    std::fs::write(&tmp, &content).map_err(|e| format!("写入临时配置失败: {e}"))?;
+
+    match std::fs::rename(&tmp, path) {
+        Ok(_) => {}
+        Err(_) => {
             if path.exists() {
                 let _ = std::fs::remove_file(path);
                 if std::fs::rename(&tmp, path).is_ok() {
@@ -3438,7 +3454,7 @@ fn get_data_dir(app: tauri::AppHandle) -> String {
     // 统一使用 App 本地数据目录（避免 cwd 漂移）
     let data_dir = app_data_dir(&app);
     let _ = std::fs::create_dir_all(&data_dir);
-    migrate_legacy_plugin_storage_layout(&app);
+    // storage 仅保留新布局，不做旧数据迁移
 
     // 开发模式：仅在目标目录为空时，把仓库里的 data 迁移一份过来（不覆盖用户数据）
     #[cfg(debug_assertions)]
@@ -3790,6 +3806,91 @@ fn storage_file_path(app: &tauri::AppHandle, plugin_id: &str) -> Result<PathBuf,
     Ok(new_path)
 }
 
+fn storage_kv_dir_path(app: &tauri::AppHandle, plugin_id: &str) -> Result<PathBuf, String> {
+    if !is_safe_id(plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    Ok(app_data_dir(app).join(plugin_id).join("storage"))
+}
+
+fn storage_value_path(app: &tauri::AppHandle, plugin_id: &str, key: &str) -> Result<PathBuf, String> {
+    if !is_safe_id(plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let k = key.replace('\\', "/");
+    if k.trim().is_empty() {
+        return Err("key 不能为空".to_string());
+    }
+    if k.ends_with('/') {
+        return Err("key 不允许以 / 结尾".to_string());
+    }
+    let rel = safe_relative_path(&k)?;
+    let dir = storage_kv_dir_path(app, plugin_id)?;
+    let mut full = dir.join(rel);
+
+    let name = full
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "value".to_string());
+    full.set_file_name(format!("{name}.json"));
+    Ok(full)
+}
+
+fn storage_walk_json_files(root: &Path) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    if !root.is_dir() {
+        return out;
+    }
+    let mut stack: Vec<PathBuf> = vec![root.to_path_buf()];
+    while let Some(cur) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&cur) else {
+            continue;
+        };
+        for ent in entries.flatten() {
+            let p = ent.path();
+            if p.is_dir() {
+                stack.push(p);
+                continue;
+            }
+            if !p.is_file() {
+                continue;
+            }
+            if p.extension().and_then(|s| s.to_str()) != Some("json") {
+                continue;
+            }
+            out.push(p);
+        }
+    }
+    out
+}
+
+fn storage_file_key_from_value_path(root: &Path, path: &Path) -> Option<String> {
+    let rel = path.strip_prefix(root).ok()?;
+    let mut s = rel.to_string_lossy().replace('\\', "/");
+    if !s.ends_with(".json") {
+        return None;
+    }
+    s.truncate(s.len().saturating_sub(5));
+    Some(s)
+}
+
+fn storage_cleanup_empty_dirs(storage_root: &Path, from_file: &Path) {
+    let mut cur = from_file.parent().map(|p| p.to_path_buf());
+    while let Some(dir) = cur {
+        if dir == storage_root {
+            break;
+        }
+        let Ok(mut rd) = std::fs::read_dir(&dir) else {
+            break;
+        };
+        if rd.next().is_some() {
+            break;
+        }
+        let _ = std::fs::remove_dir(&dir);
+        cur = dir.parent().map(|p| p.to_path_buf());
+    }
+}
+
 #[tauri::command]
 fn storage_get(
     app: tauri::AppHandle,
@@ -3801,9 +3902,12 @@ fn storage_get(
     }
     let lock = storage_lock_for(&plugin_id);
     let _g = lock.lock().unwrap_or_else(|e| e.into_inner());
-    let path = storage_file_path(&app, &plugin_id)?;
-    let map = read_json_map(&path);
-    Ok(map.get(&key).cloned())
+
+    let vp = storage_value_path(&app, &plugin_id, &key)?;
+    if !vp.is_file() {
+        return Ok(None);
+    }
+    read_json_value(&vp).map(Some)
 }
 
 #[tauri::command]
@@ -3818,10 +3922,9 @@ fn storage_set(
     }
     let lock = storage_lock_for(&plugin_id);
     let _g = lock.lock().unwrap_or_else(|e| e.into_inner());
-    let path = storage_file_path(&app, &plugin_id)?;
-    let mut map = read_json_map(&path);
-    map.insert(key, value);
-    write_json_map(&path, &map)
+
+    let vp = storage_value_path(&app, &plugin_id, &key)?;
+    write_json_value(&vp, &value)
 }
 
 #[tauri::command]
@@ -3831,10 +3934,14 @@ fn storage_remove(app: tauri::AppHandle, plugin_id: String, key: String) -> Resu
     }
     let lock = storage_lock_for(&plugin_id);
     let _g = lock.lock().unwrap_or_else(|e| e.into_inner());
-    let path = storage_file_path(&app, &plugin_id)?;
-    let mut map = read_json_map(&path);
-    map.remove(&key);
-    write_json_map(&path, &map)
+
+    let storage_root = storage_kv_dir_path(&app, &plugin_id)?;
+    let vp = storage_value_path(&app, &plugin_id, &key)?;
+    if vp.exists() {
+        let _ = std::fs::remove_file(&vp);
+        storage_cleanup_empty_dirs(&storage_root, &vp);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -3844,8 +3951,18 @@ fn storage_get_all(app: tauri::AppHandle, plugin_id: String) -> Result<Map<Strin
     }
     let lock = storage_lock_for(&plugin_id);
     let _g = lock.lock().unwrap_or_else(|e| e.into_inner());
-    let path = storage_file_path(&app, &plugin_id)?;
-    Ok(read_json_map(&path))
+
+    let mut out: Map<String, Value> = Map::new();
+    let storage_root = storage_kv_dir_path(&app, &plugin_id)?;
+    for p in storage_walk_json_files(&storage_root) {
+        let Some(key) = storage_file_key_from_value_path(&storage_root, &p) else {
+            continue;
+        };
+        let v = read_json_value(&p)?;
+        out.insert(key, v);
+    }
+
+    Ok(out)
 }
 
 #[tauri::command]
@@ -3859,8 +3976,19 @@ fn storage_set_all(
     }
     let lock = storage_lock_for(&plugin_id);
     let _g = lock.lock().unwrap_or_else(|e| e.into_inner());
-    let path = storage_file_path(&app, &plugin_id)?;
-    write_json_map(&path, &data)
+    let storage_root = storage_kv_dir_path(&app, &plugin_id)?;
+    if storage_root.exists() {
+        std::fs::remove_dir_all(&storage_root).map_err(|e| format!("清空插件存储失败: {e}"))?;
+    }
+    std::fs::create_dir_all(&storage_root).map_err(|e| format!("创建插件存储目录失败: {e}"))?;
+
+    // 新逻辑：全部按 key->文件存储
+    for (k, v) in data {
+        let vp = storage_value_path(&app, &plugin_id, &k)?;
+        write_json_value(&vp, &v)?;
+    }
+
+    Ok(())
 }
 
 const APP_ICON_OVERRIDES_KEY: &str = "pluginIconOverrides";
