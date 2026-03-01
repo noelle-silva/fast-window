@@ -126,6 +126,8 @@ export interface PluginManifest {
   // UI 运行方式（v2 起要求显式为 iframe；legacy react/eval 已禁用）
   ui?: {
     type: PluginUiType
+    // 可选：UI 是否保活（返回主界面时不卸载 iframe；再次打开可秒开并保留状态）
+    keepAlive?: boolean
   }
   background?: {
     // 统一入口模式下不再必填；若提供 main，则按 legacy 双入口处理

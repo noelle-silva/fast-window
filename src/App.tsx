@@ -380,6 +380,7 @@ function App() {
   const [allPlugins, setAllPlugins] = useState<Plugin[]>([])
   const [activeIndex, setActiveIndex] = useState(0)
   const [activePlugin, setActivePlugin] = useState<Plugin | null>(null)
+  const [keepAliveUiPluginIds, setKeepAliveUiPluginIds] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [pluginsDir, setPluginsDir] = useState<string>('')
   const [pluginRejected, setPluginRejected] = useState<PluginLoadRejection[]>([])
@@ -586,6 +587,22 @@ function App() {
     setActivePlugin(null)
     setToast(prev => ({ open: true, message: `插件已禁用：${hit.name}`, key: prev.key + 1 }))
   }, [activePlugin, allPlugins])
+
+  useEffect(() => {
+    if (!activePlugin) return
+    if (activePlugin.disabled) return
+    if (activePlugin.manifest?.ui?.keepAlive !== true) return
+    setKeepAliveUiPluginIds(prev => (prev.includes(activePlugin.id) ? prev : prev.concat(activePlugin.id)))
+  }, [activePlugin])
+
+  useEffect(() => {
+    if (!keepAliveUiPluginIds.length) return
+    const alive = new Set(allPlugins.filter(p => !p.disabled && p.manifest?.ui?.keepAlive === true).map(p => p.id))
+    setKeepAliveUiPluginIds(prev => {
+      const next = prev.filter(id => alive.has(id))
+      return next.length === prev.length ? prev : next
+    })
+  }, [allPlugins, keepAliveUiPluginIds.length])
 
   useEffect(() => {
     allPluginsRef.current = allPlugins
@@ -1097,37 +1114,16 @@ function App() {
   }
 
   // 如果有激活的插件，渲染插件视图
-  if (activePlugin) {
-    const PluginComponent = activePlugin.component
-    return (
-      <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
-        <Paper
-          variant="outlined"
-          sx={[
-            shellContainerSx,
-            { position: 'relative', '& > :not([aria-hidden])': { position: 'relative', zIndex: 1 } },
-          ]}
-        >
-          {wallpaperLayer}
-          <TitleBar
-            title={activePlugin.name}
-            onBack={() => setActivePlugin(null)}
-            translucent={hasWallpaper}
-            translucentOpacity={titlebarOpacity}
-            translucentBlur={titlebarBlur}
-          />
-          <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-            <PluginComponent onBack={() => setActivePlugin(null)} />
-          </Box>
-        </Paper>
-        {toastHost}
-        {pluginContextMenu}
-        {pluginDetailDialog}
-        {importDialog}
-        {backgroundHosts}
-      </Box>
-    )
-  }
+  const showPluginView = !!activePlugin
+  const activePluginId = activePlugin?.id || ''
+  const activePluginName = activePlugin?.name || ''
+  const activePluginKeepAlive = activePlugin?.manifest?.ui?.keepAlive === true
+  const ActivePluginComponent = activePlugin ? activePlugin.component : null
+  const onBackFromPlugin = () => setActivePlugin(null)
+  const renderKeepAliveUiPluginIds =
+    activePluginKeepAlive && activePluginId && !keepAliveUiPluginIds.includes(activePluginId)
+      ? keepAliveUiPluginIds.concat(activePluginId)
+      : keepAliveUiPluginIds
 
   return (
     <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
@@ -1139,29 +1135,71 @@ function App() {
           ]}
         >
           {wallpaperLayer}
-          <TitleBar
-            title={APP_TITLE}
-            translucent={hasWallpaper}
-            translucentOpacity={titlebarOpacity}
-            translucentBlur={titlebarBlur}
-            onPrevWallpaper={canSwitchWallpaper ? () => void cycleWallpaper(-1) : undefined}
-            onNextWallpaper={canSwitchWallpaper ? () => void cycleWallpaper(1) : undefined}
-            wallpaperSwitchDisabled={wallpaperSwitching}
-            onImportPlugin={reorderMode ? undefined : () => setImportOpen(true)}
-            onReloadPlugins={reorderMode ? undefined : reloadPlugins}
-            reloadDisabled={loading}
-            browseLayout={browseLayout}
-            onToggleBrowseLayout={reorderMode ? undefined : toggleBrowseLayout}
-            onStartReorder={reorderMode ? undefined : startReorder}
-            reorderMode={reorderMode}
-            onCancelReorder={reorderMode ? cancelReorder : undefined}
-            onSaveReorder={reorderMode ? saveReorder : undefined}
-            onSettings={reorderMode ? undefined : () => setActivePlugin(settingsPlugin)}
-            showDivider={false}
-          />
+          {showPluginView ? (
+            <TitleBar
+              title={activePluginName}
+              onBack={onBackFromPlugin}
+              translucent={hasWallpaper}
+              translucentOpacity={titlebarOpacity}
+              translucentBlur={titlebarBlur}
+            />
+          ) : (
+            <TitleBar
+              title={APP_TITLE}
+              translucent={hasWallpaper}
+              translucentOpacity={titlebarOpacity}
+              translucentBlur={titlebarBlur}
+              onPrevWallpaper={canSwitchWallpaper ? () => void cycleWallpaper(-1) : undefined}
+              onNextWallpaper={canSwitchWallpaper ? () => void cycleWallpaper(1) : undefined}
+              wallpaperSwitchDisabled={wallpaperSwitching}
+              onImportPlugin={reorderMode ? undefined : () => setImportOpen(true)}
+              onReloadPlugins={reorderMode ? undefined : reloadPlugins}
+              reloadDisabled={loading}
+              browseLayout={browseLayout}
+              onToggleBrowseLayout={reorderMode ? undefined : toggleBrowseLayout}
+              onStartReorder={reorderMode ? undefined : startReorder}
+              reorderMode={reorderMode}
+              onCancelReorder={reorderMode ? cancelReorder : undefined}
+              onSaveReorder={reorderMode ? saveReorder : undefined}
+              onSettings={reorderMode ? undefined : () => setActivePlugin(settingsPlugin)}
+              showDivider={false}
+            />
+          )}
 
-        <Box sx={{ p: 2, bgcolor: 'transparent' }}>
-          <TextField
+          <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+            <Box sx={{ height: '100%', display: showPluginView ? 'block' : 'none', overflow: 'hidden' }}>
+              {renderKeepAliveUiPluginIds.map(id => {
+                const p = allPlugins.find(x => x.id === id) || null
+                if (!p) return null
+                if (p.disabled) return null
+                if (p.manifest?.ui?.keepAlive !== true) return null
+
+                const PluginComponent = p.component
+                const visible = activePluginId === id
+                return (
+                  <Box key={id} sx={{ height: '100%', display: visible ? 'block' : 'none', overflow: 'hidden' }}>
+                    <PluginComponent onBack={onBackFromPlugin} />
+                  </Box>
+                )
+              })}
+
+              {showPluginView && ActivePluginComponent && !activePluginKeepAlive ? (
+                <Box sx={{ height: '100%', overflow: 'hidden' }}>
+                  <ActivePluginComponent onBack={onBackFromPlugin} />
+                </Box>
+              ) : null}
+            </Box>
+
+            <Box
+              sx={{
+                height: '100%',
+                display: showPluginView ? 'none' : 'flex',
+                flexDirection: 'column',
+                minHeight: 0,
+              }}
+            >
+              <Box sx={{ p: 2, bgcolor: 'transparent' }}>
+                <TextField
             fullWidth
             autoFocus
             value={query}
@@ -1500,6 +1538,8 @@ function App() {
             )
           )}
         </Box>
+            </Box>
+          </Box>
 
       </Paper>
       {toastHost}
