@@ -64,7 +64,8 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   }
 
   function defaultData() {
-    const pid = uid('p')
+    const providerName = '默认供应商（OpenAI 兼容）'
+    const pid = providerName
     const rid = uid('r')
     const cid = uid('c')
     return {
@@ -74,7 +75,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
         providers: [
           {
             id: pid,
-            name: '默认供应商（OpenAI 兼容）',
+            name: providerName,
             baseUrl: 'https://api.openai.com/v1',
             apiKey: '',
             modelsCache: { items: [], fetchedAt: 0 },
@@ -148,10 +149,35 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     if (typeof d.settings.streamEnabled !== 'boolean') d.settings.streamEnabled = true
     if (!Array.isArray(d.settings.providers) || d.settings.providers.length === 0) d.settings.providers = defaultData().settings.providers
 
+    function normName(s) {
+      return String(s || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+    }
+    function makeUniqueName(desired, used) {
+      const base = normName(desired) || '未命名供应商'
+      if (!used.has(base)) {
+        used.add(base)
+        return base
+      }
+      let i = 2
+      while (used.has(`${base}（${i}）`)) i++
+      const out = `${base}（${i}）`
+      used.add(out)
+      return out
+    }
+
+    // providerId 迁移：从随机 id 改为“用供应商名字当 id”，并保证全局唯一
+    const providerIdMap = new Map()
+    const usedProviderNames = new Set()
     for (const p of d.settings.providers) {
       if (!p || typeof p !== 'object') continue
-      if (!p.id) p.id = uid('p')
-      if (typeof p.name !== 'string' || !p.name.trim()) p.name = '未命名供应商'
+      const oldId = normName(p.id)
+      const baseName = typeof p.name === 'string' ? p.name : ''
+      const nextName = makeUniqueName(baseName, usedProviderNames)
+      p.name = nextName
+      p.id = nextName
+      if (oldId && oldId !== nextName) providerIdMap.set(oldId, nextName)
       if (typeof p.baseUrl !== 'string' || !p.baseUrl.trim()) p.baseUrl = 'http://'
       if (typeof p.apiKey !== 'string') p.apiKey = ''
       if (!p.modelsCache || typeof p.modelsCache !== 'object') p.modelsCache = { items: [], fetchedAt: 0 }
@@ -171,6 +197,10 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       if (!r.modelRef || typeof r.modelRef !== 'object') r.modelRef = { providerId: String(d.settings.providers[0]?.id || ''), modelId: '' }
       if (typeof r.modelRef.providerId !== 'string') r.modelRef.providerId = String(d.settings.providers[0]?.id || '')
       if (typeof r.modelRef.modelId !== 'string') r.modelRef.modelId = ''
+      const mappedPid = providerIdMap.get(normName(r.modelRef.providerId))
+      if (mappedPid) r.modelRef.providerId = mappedPid
+      const pid = String(r.modelRef.providerId || '')
+      if (!d.settings.providers.some((p) => String(p?.id || '') === pid)) r.modelRef.providerId = String(d.settings.providers[0]?.id || '')
       r.createdAt = Number(r.createdAt || now())
       r.updatedAt = Number(r.updatedAt || now())
     }
@@ -2009,11 +2039,30 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     const p = getProvider(pid)
     if (!p) return
 
-    p.name = String(state.draft.providerName || '').trim() || '未命名供应商'
+    const desiredName = String(state.draft.providerName || '').replace(/\s+/g, ' ').trim() || '未命名供应商'
+    const used = new Set((state.data?.settings?.providers || []).filter((x) => x && typeof x === 'object').map((x) => String(x.name || '')).filter(Boolean))
+    used.delete(String(p.name || ''))
+    let nextName = desiredName
+    if (used.has(nextName)) {
+      let i = 2
+      while (used.has(`${desiredName}（${i}）`)) i++
+      nextName = `${desiredName}（${i}）`
+    }
+
+    const oldId = String(p.id || '')
+    p.name = nextName
+    p.id = nextName
     p.baseUrl = String(state.draft.providerBaseUrl || '').trim() || 'http://'
     p.apiKey = String(state.draft.providerApiKey || '').trim()
     p.modelsCache = { items: [], fetchedAt: 0 }
 
+    if (state.data) {
+      for (const r of state.data.roles) {
+        if (!r?.modelRef) continue
+        if (String(r.modelRef.providerId || '') === oldId) r.modelRef.providerId = String(p.id || '')
+      }
+    }
+    if (String(state.draft.roleProviderId || '') === oldId) state.draft.roleProviderId = String(p.id || '')
     state.draft.editProviderId = ''
     save().catch(() => {})
     render()
@@ -2021,10 +2070,18 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
 
   function createProvider() {
     if (!state.data) return
-    const pid = uid('p')
+    const desiredName = '新供应商（OpenAI 兼容）'
+    const used = new Set(state.data.settings.providers.map((p) => String(p?.name || '')).filter(Boolean))
+    let name = desiredName
+    if (used.has(name)) {
+      let i = 2
+      while (used.has(`${desiredName}（${i}）`)) i++
+      name = `${desiredName}（${i}）`
+    }
+    const pid = name
     state.data.settings.providers.unshift({
       id: pid,
-      name: '新供应商（OpenAI 兼容）',
+      name,
       baseUrl: 'http://',
       apiKey: '',
       modelsCache: { items: [], fetchedAt: 0 },
