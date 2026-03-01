@@ -2138,6 +2138,25 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   let uiLastSyncMs = 0
   const uiStreamCache = new Map()
 
+  function reapplyUiStreamCache() {
+    const role = activeRole()
+    const chat = activeChat()
+    if (!role || !chat) return false
+
+    const items = Array.isArray(chat.messages) ? chat.messages : []
+    let changed = false
+    for (const m of items.slice(-30)) {
+      if (!m || !m.pending || !m.streaming) continue
+      const mid = String(m.id || '')
+      const cached = uiStreamCache.get(mid)
+      if (typeof cached !== 'string' || !cached) continue
+      if (String(m.content || '') === cached) continue
+      m.content = cached
+      changed = true
+    }
+    return changed
+  }
+
   function startUiPollers() {
     if (uiPollTimer) return
     uiPollTimer = window.setInterval(() => {
@@ -2187,6 +2206,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       if (t - uiLastSyncMs > 900) {
         uiLastSyncMs = t
         await syncDataFromStorage()
+        reapplyUiStreamCache()
         emit()
       }
 
