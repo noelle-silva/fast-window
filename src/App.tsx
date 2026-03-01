@@ -1200,34 +1200,34 @@ function App() {
             >
               <Box sx={{ p: 2, bgcolor: 'transparent' }}>
                 <TextField
-            fullWidth
-            autoFocus
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="输入关键词搜索插件..."
-            variant="outlined"
-            disabled={reorderMode}
-            sx={{
-              '& .MuiOutlinedInput-root': {
-                '& .MuiOutlinedInput-notchedOutline': { border: 0 },
-                '&:hover .MuiOutlinedInput-notchedOutline': { border: 0 },
-                '&.Mui-focused': {
-                  boxShadow: theme => `0 0 0 2px ${alpha(theme.palette.primary.main, 0.35)}`,
-                },
-              },
-            }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchRoundedIcon fontSize="small" />
-                </InputAdornment>
-              ),
-            }}
-            inputProps={{ 'aria-label': '搜索插件', autoComplete: 'off' }}
-          />
-        </Box>
+                  fullWidth
+                  autoFocus
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
+                  placeholder="输入关键词搜索插件..."
+                  variant="outlined"
+                  disabled={reorderMode}
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      '& .MuiOutlinedInput-notchedOutline': { border: 0 },
+                      '&:hover .MuiOutlinedInput-notchedOutline': { border: 0 },
+                      '&.Mui-focused': {
+                        boxShadow: theme => `0 0 0 2px ${alpha(theme.palette.primary.main, 0.35)}`,
+                      },
+                    },
+                  }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchRoundedIcon fontSize="small" />
+                      </InputAdornment>
+                    ),
+                  }}
+                  inputProps={{ 'aria-label': '搜索插件', autoComplete: 'off' }}
+                />
+              </Box>
 
-        <Box sx={{ flex: 1, overflow: 'auto', p: 1 }}>
+              <Box sx={{ flex: 1, overflow: 'auto', p: 1 }}>
           {plugins.length === 0 ? (
             <Box sx={{ py: 4, textAlign: 'center' }}>
               <Typography variant="body2" color="text.secondary">
