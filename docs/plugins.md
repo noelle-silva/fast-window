@@ -49,6 +49,7 @@ plugins/<id>/
 - `apiVersion`：宿主契约版本（当前为 `2`）
 - `requires`：能力申请列表（**必填**；未声明的能力调用会被宿主拒绝）
 - `ui.type`：目前仅支持 `iframe`（**必填**；沙箱模式；`sandbox iframe` 执行，通过 `postMessage` 调宿主能力）。
+- `ui.keepAlive`：是否保活 UI（可选；默认 `false`）。开启后返回主界面时不卸载 iframe，再次打开可秒开并保留状态（代价是占用内存/可能继续跑定时器）。
 - `allowOverwriteOnUpdate`：是否同意在 **宿主安装/升级** 后，用随包内置插件覆盖更新当前插件（可选；默认 `false`；仅对“随包内置插件种子”生效）
 - `background`：后台运行策略（可选）
   - `autoStart?: boolean`：是否启动即运行后台上下文（默认 `true`）
