@@ -12,6 +12,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   const runtime = String(api?.__meta?.runtime || 'ui')
   const MAX_DRAFT_IMAGES = 8
   const REF_IMG_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
+  const NEW_ROLE_ID = '__new__'
 
   const uiRefImgCache = new Map()
   const uiRefImgPending = new Set()
@@ -2232,33 +2233,42 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     state.modal = ''
     state.draft.deleteRoleId = ''
     state.draft.deleteProviderId = ''
+    if (String(state.draft.editRoleId || '') === NEW_ROLE_ID) {
+      state.draft.editRoleId = ''
+      state.draft.roleName = ''
+      state.draft.roleAvatar = ''
+      state.draft.roleSystemPrompt = ''
+      state.draft.roleProviderId = ''
+      state.draft.roleModelId = ''
+      state.draft.roleCustomModelId = ''
+      state.draft.roleTemperature = '0.7'
+    }
+    render()
+  }
+
+  function openNewRoleEditor() {
+    if (!state.data) return
+    const fallbackPid = String(state.data.settings.providers?.[0]?.id || '')
+
+    state.draft.editRoleId = NEW_ROLE_ID
+    state.draft.roleName = '新角色'
+    state.draft.roleAvatar = '🙂'
+    state.draft.roleSystemPrompt = ''
+    state.draft.roleTemperature = '0.7'
+    state.draft.roleProviderId = fallbackPid
+
+    const p = getProvider(fallbackPid)
+    const cachedItems = Array.isArray(p?.modelsCache?.items) ? p.modelsCache.items : []
+    state.models = { loading: false, error: '', items: cachedItems.slice(0, 300) }
+    state.draft.roleModelId = ''
+    state.draft.roleCustomModelId = ''
+
+    state.modal = 'role'
     render()
   }
 
   function createRole() {
-    if (!state.data) return
-    const rid = uid('r')
-    const cid = uid('c')
-    const role = {
-      id: rid,
-      name: '新角色',
-      avatar: '🙂',
-      systemPrompt: '',
-      temperature: 0.7,
-      modelRef: { providerId: String(state.data.settings.providers?.[0]?.id || ''), modelId: '' },
-      createdAt: now(),
-      updatedAt: now(),
-    }
-    ensureRoleDefaults(role)
-    state.data.roles.unshift(role)
-    if (!state.data.chatsByRole || typeof state.data.chatsByRole !== 'object') state.data.chatsByRole = {}
-    state.data.chatsByRole[rid] = {
-      activeChatId: cid,
-      chats: [{ id: cid, title: '新聊天', createdAt: now(), updatedAt: now(), messages: [] }],
-    }
-    state.draft.activeRoleId = rid
-    save().catch(() => {})
-    openRoleEditor(rid)
+    openNewRoleEditor()
   }
 
   function openRoleEditor(roleId) {
@@ -2291,8 +2301,6 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   function saveRoleEditor() {
     if (!state.data) return
     const rid = String(state.draft.editRoleId || '')
-    const role = state.data.roles.find((r) => String(r?.id) === rid)
-    if (!role) return
 
     const name = String(state.draft.roleName || '').trim() || '未命名角色'
     const avatar = String(state.draft.roleAvatar || '').trim() || '🙂'
@@ -2301,6 +2309,35 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     const providerId = String(state.draft.roleProviderId || '').trim()
     let modelId = String(state.draft.roleModelId || '').trim()
     if (modelId === '__custom__') modelId = String(state.draft.roleCustomModelId || '').trim()
+
+    if (rid === NEW_ROLE_ID) {
+      const newRid = uid('r')
+      const cid = uid('c')
+      const role = {
+        id: newRid,
+        name,
+        avatar,
+        systemPrompt: sys,
+        temperature,
+        modelRef: { providerId, modelId },
+        createdAt: now(),
+        updatedAt: now(),
+      }
+      ensureRoleDefaults(role)
+      state.data.roles.unshift(role)
+      if (!state.data.chatsByRole || typeof state.data.chatsByRole !== 'object') state.data.chatsByRole = {}
+      state.data.chatsByRole[newRid] = {
+        activeChatId: cid,
+        chats: [{ id: cid, title: '新聊天', createdAt: now(), updatedAt: now(), messages: [] }],
+      }
+      state.draft.activeRoleId = newRid
+      save().catch(() => {})
+      closeModal()
+      return
+    }
+
+    const role = state.data.roles.find((r) => String(r?.id) === rid)
+    if (!role) return
 
     role.name = name
     role.avatar = avatar
@@ -2806,7 +2843,9 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       createRole: () => createRole(),
       saveRole: () => saveRoleEditor(),
       askDeleteRole: (roleId) => {
-        state.draft.deleteRoleId = String(roleId || '')
+        const rid = String(roleId || '')
+        if (!rid || rid === NEW_ROLE_ID) return
+        state.draft.deleteRoleId = rid
         state.draft.deleteProviderId = ''
         state.modal = 'confirm'
         emit()

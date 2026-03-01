@@ -911,6 +911,9 @@ function ProvidersDialog(props: { open: boolean; controller: any; providers: any
 function RoleDialog(props: { open: boolean; controller: any; providers: any[]; draft: any; models: any }) {
   const { open, controller, providers, draft, models } = props
 
+  const editRoleId = String(draft?.editRoleId || '')
+  const isNew = editRoleId === '__new__'
+
   const providerId = String(draft?.roleProviderId || '')
   const modelPick = String(draft?.roleModelId || '')
   const customModel = String(draft?.roleCustomModelId || '')
@@ -922,7 +925,7 @@ function RoleDialog(props: { open: boolean; controller: any; providers: any[]; d
     <Dialog open={open} onClose={() => controller.actions.closeModal()} fullWidth maxWidth="md">
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <SettingsIcon fontSize="small" />
-        角色设置
+        {isNew ? '新建角色' : '角色设置'}
         <Box sx={{ flex: 1 }} />
         <IconButton onClick={() => controller.actions.closeModal()} size="small">
           <CloseIcon fontSize="small" />
@@ -1004,9 +1007,13 @@ function RoleDialog(props: { open: boolean; controller: any; providers: any[]; d
         </Stack>
       </DialogContent>
       <DialogActions sx={{ justifyContent: 'space-between' }}>
-        <Button color="error" startIcon={<DeleteOutlineIcon />} onClick={() => controller.actions.askDeleteRole(String(draft?.editRoleId || ''))}>
-          删除角色
-        </Button>
+        {isNew ? (
+          <Box />
+        ) : (
+          <Button color="error" startIcon={<DeleteOutlineIcon />} onClick={() => controller.actions.askDeleteRole(editRoleId)}>
+            删除角色
+          </Button>
+        )}
         <Stack direction="row" spacing={1}>
           <Button onClick={() => controller.actions.closeModal()}>取消</Button>
           <Button variant="contained" onClick={() => controller.actions.saveRole()}>
