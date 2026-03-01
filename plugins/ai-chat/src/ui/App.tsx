@@ -197,10 +197,18 @@ export function AiChatApp(props: { controller: any }) {
       <CssBaseline />
       <GlobalStyles
         styles={{
+          'html, body': {
+            height: '100%',
+            width: '100%',
+            overflow: 'hidden',
+            overscrollBehavior: 'none',
+          },
+          '#fast-window-ai-chat-root': { height: '100%', overflow: 'hidden' },
           '.prose': {
             fontSize: 14,
             lineHeight: 1.75,
             wordBreak: 'break-word',
+            overflowWrap: 'anywhere',
           },
           '.prose pre': {
             overflow: 'auto',
@@ -218,14 +226,28 @@ export function AiChatApp(props: { controller: any }) {
             background: 'rgba(25,118,210,.06)',
             borderRadius: 12,
           },
-          '.prose table': { borderCollapse: 'collapse', width: '100%', overflow: 'hidden', borderRadius: 12 },
+          '.prose img': { maxWidth: '100%', height: 'auto' },
+          '.prose table': {
+            borderCollapse: 'collapse',
+            width: '100%',
+            maxWidth: '100%',
+            overflowX: 'auto',
+            overflowY: 'hidden',
+            borderRadius: 12,
+            display: 'block',
+          },
           '.prose th, .prose td': { border: '1px solid rgba(0,0,0,.12)', padding: 8, verticalAlign: 'top' },
+          '.math-block': { margin: '10px 0', overflowX: 'auto' },
+          '.prose .katex, .prose .katex-display': { maxWidth: '100%' },
+          '.prose span.katex': { display: 'inline-block', overflowX: 'auto', overflowY: 'hidden', verticalAlign: 'middle' },
+          '.prose .katex-display': { overflowX: 'auto', overflowY: 'hidden' },
+          '.prose .katex-display > .katex': { display: 'block', overflowX: 'visible' },
           '.mermaid-block': { margin: '10px 0', overflowX: 'auto', cursor: 'zoom-in' },
           '.mermaid-block svg': { maxWidth: '100%', height: 'auto', display: 'block' },
         }}
       />
 
-      <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ height: '100%', minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <AppBar position="static" elevation={0} sx={{ borderBottom: '1px solid', borderColor: 'divider' }}>
           <Toolbar sx={{ gap: 1 }}>
             <ChatIcon fontSize="small" />
@@ -288,6 +310,9 @@ export function AiChatApp(props: { controller: any }) {
                 position: 'relative',
                 borderRight: '1px solid',
                 borderColor: 'divider',
+                display: 'flex',
+                flexDirection: 'column',
+                overflowX: 'hidden',
               },
             }}
           >
@@ -300,7 +325,7 @@ export function AiChatApp(props: { controller: any }) {
 
             <Divider />
 
-            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+            <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
               {s.loading ? (
                 <Box sx={{ p: 2 }}>
                   <Typography variant="body2" color="text.secondary">
@@ -324,9 +349,14 @@ export function AiChatApp(props: { controller: any }) {
                           <Avatar sx={{ width: 28, height: 28, fontSize: 14 }}>{String(r?.avatar || '🙂')}</Avatar>
                         </ListItemAvatar>
                         <ListItemText
-                          primary={<Typography sx={{ fontWeight: 900, fontSize: 13 }}>{String(r?.name || '')}</Typography>}
+                          sx={{ minWidth: 0 }}
+                          primary={
+                            <Typography sx={{ fontWeight: 900, fontSize: 13 }} noWrap>
+                              {String(r?.name || '')}
+                            </Typography>
+                          }
                           secondary={
-                            <Typography variant="caption" color="text.secondary">
+                            <Typography variant="caption" color="text.secondary" noWrap>
                               {providerId}
                               {modelId ? ` / ${modelId}` : ''}
                             </Typography>
@@ -371,8 +401,9 @@ export function AiChatApp(props: { controller: any }) {
                           sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}
                         >
                           <ListItemText
+                            sx={{ minWidth: 0 }}
                             primary={
-                              <Stack direction="row" alignItems="center" spacing={1}>
+                              <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
                                 <Typography sx={{ fontWeight: 900, fontSize: 13, flex: 1, minWidth: 0 }} noWrap>
                                   {String(c?.title || '新聊天')}
                                 </Typography>
@@ -382,7 +413,7 @@ export function AiChatApp(props: { controller: any }) {
                               </Stack>
                             }
                             secondary={
-                              <Typography variant="caption" color="text.secondary" noWrap>
+                              <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', minWidth: 0 }}>
                                 {snippet || '（空）'}
                               </Typography>
                             }
@@ -397,7 +428,7 @@ export function AiChatApp(props: { controller: any }) {
           </Drawer>
 
           <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', bgcolor: 'background.default' }}>
-            <Box ref={chatRootRef} sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: 2, bgcolor: 'grey.50' }}>
+            <Box ref={chatRootRef} sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', p: 2, bgcolor: 'grey.50' }}>
               {s.loading ? (
                 <Typography variant="body2" color="text.secondary">
                   加载中…
@@ -464,7 +495,9 @@ export function AiChatApp(props: { controller: any }) {
                           ) : null}
 
                           {isUser ? (
-                            <Typography sx={{ whiteSpace: 'pre-wrap' }}>{String(m?.content || '')}</Typography>
+                            <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                              {String(m?.content || '')}
+                            </Typography>
                           ) : (
                             <AssistantContent controller={controller} className="prose" text={String(m?.content || '')} mid={String(m?.id || '')} chatRootRef={chatRootRef} />
                           )}

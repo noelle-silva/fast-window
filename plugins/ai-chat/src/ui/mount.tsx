@@ -8,9 +8,17 @@ export function mountAiChatUi(controller: any) {
   const w = window as any
   if (w.__fastWindowAiChatRoot) return
 
-  document.documentElement.style.height = '100%'
-  document.body.style.height = '100%'
-  document.body.style.margin = '0'
+  const rootStyle = document.documentElement.style
+  const bodyStyle = document.body.style
+  rootStyle.height = '100%'
+  rootStyle.width = '100%'
+  rootStyle.overflow = 'hidden'
+  ;(rootStyle as any).overscrollBehavior = 'none'
+  bodyStyle.height = '100%'
+  bodyStyle.width = '100%'
+  bodyStyle.margin = '0'
+  bodyStyle.overflow = 'hidden'
+  ;(bodyStyle as any).overscrollBehavior = 'none'
 
   let el = document.getElementById(ROOT_ID)
   if (!el) {
@@ -18,6 +26,7 @@ export function mountAiChatUi(controller: any) {
     el = document.getElementById(ROOT_ID)
   }
   if (!el) return
+  el.style.height = '100%'
 
   const root: Root = createRoot(el)
   w.__fastWindowAiChatRoot = root
