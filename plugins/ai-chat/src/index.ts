@@ -1,2 +1,2 @@
 import './render/vendor'
-import './app'
+import './bootstrap'

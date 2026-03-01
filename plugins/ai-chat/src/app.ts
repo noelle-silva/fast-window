@@ -47,6 +47,22 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     data: null,
   }
 
+  let ver = 0
+  const subs = new Set()
+  function emit() {
+    ver++
+    for (const fn of Array.from(subs)) {
+      try {
+        fn()
+      } catch (_) {}
+    }
+  }
+  function subscribe(fn) {
+    if (typeof fn !== 'function') return () => {}
+    subs.add(fn)
+    return () => subs.delete(fn)
+  }
+
   function defaultData() {
     const pid = uid('p')
     const rid = uid('r')
@@ -1003,7 +1019,6 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       api.ui?.showToast?.(msg)
     } finally {
       render()
-      scrollToBottomSoon()
     }
   }
 
@@ -1324,32 +1339,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   `
 
   function mount() {
-    document.head.insertAdjacentHTML('beforeend', `<style>${css}</style>`)
-    document.body.innerHTML = `
-      <div class="wrap">
-        <div class="top" data-area="top"></div>
-        <div class="content">
-          <div class="side" data-area="side"></div>
-          <div class="main">
-            <div class="chat" data-area="chat"></div>
-            <div class="composer" data-area="composer"></div>
-          </div>
-        </div>
-        <div data-area="modal"></div>
-      </div>
-    `
-
-    document.body.addEventListener('click', onClick)
-    document.body.addEventListener('mousedown', onMouseDown)
-    document.body.addEventListener('input', onInput)
-    document.body.addEventListener('change', onChange)
-    document.body.addEventListener('keydown', onKeyDown)
-    document.body.addEventListener('paste', onPaste)
-    try {
-      document.body.addEventListener('wheel', onWheel, { passive: false, capture: true })
-    } catch (_) {
-      document.body.addEventListener('wheel', onWheel, true)
-    }
+    // legacy DOM UI 已弃用（改为 React+MUI）
   }
 
   function fmtTime(ts) {
@@ -1362,6 +1352,8 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   }
 
   function renderTop() {
+    emit()
+    return
     const el = document.querySelector('[data-area="top"]')
     if (!(el instanceof HTMLElement)) return
     const on = !!state.data?.settings?.streamEnabled
@@ -1376,6 +1368,8 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   }
 
   function renderSide() {
+    emit()
+    return
     const el = document.querySelector('[data-area="side"]')
     if (!(el instanceof HTMLElement)) return
     if (state.loading) return (el.innerHTML = `<div class="muted">加载中…</div>`)
@@ -1457,6 +1451,8 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   }
 
   function renderChat() {
+    emit()
+    return
     const el = document.querySelector('[data-area="chat"]')
     if (!(el instanceof HTMLElement)) return
     if (state.loading) return (el.innerHTML = `<div class="muted">加载中…</div>`)
@@ -1571,6 +1567,8 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   }
 
   function renderComposer() {
+    emit()
+    return
     const el = document.querySelector('[data-area="composer"]')
     if (!(el instanceof HTMLElement)) return
     const disabled = state.loading || state.sending || !activeRole()
@@ -1607,6 +1605,8 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   }
 
   function renderModal() {
+    emit()
+    return
     const el = document.querySelector('[data-area="modal"]')
     if (!(el instanceof HTMLElement)) return
     if (!state.modal) return (el.innerHTML = '')
@@ -1810,21 +1810,11 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   }
 
   function render() {
-    renderTop()
-    renderSide()
-    renderChat()
-    renderComposer()
-    renderModal()
+    emit()
   }
 
   function scrollToBottomSoon() {
-    const el = document.querySelector('[data-area="chat"]')
-    if (!(el instanceof HTMLElement)) return
-    requestAnimationFrame(() => {
-      try {
-        el.scrollTop = el.scrollHeight
-      } catch (_) {}
-    })
+    // UI 负责滚动逻辑（React）
   }
 
   let uiPollTimer = 0
@@ -1861,6 +1851,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     const pending = items.filter((m) => m && m.role === 'assistant' && m.pending).slice(-3)
 
     if (pending.length) {
+      let changed = false
       for (const m of pending) {
         if (!m.streaming) continue
         const s = await api.storage.get(streamKey(String(m.id || '')))
@@ -1870,21 +1861,15 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
         if (uiStreamCache.get(mid) === text) continue
         uiStreamCache.set(mid, text)
         m.content = text
-
-        const el = document.querySelector(`[data-render-assistant="1"][data-mid="${mid}"]`)
-        if (el instanceof HTMLElement) {
-          renderAssistantInto(el, text)
-          scrollToBottomSoon()
-        }
+        changed = true
       }
+      if (changed) emit()
 
       const t = now()
       if (t - uiLastSyncMs > 900) {
         uiLastSyncMs = t
         await syncDataFromStorage()
-        renderSide()
-        renderChat()
-        renderComposer()
+        emit()
       }
 
       if (state.sendingJobId) {
@@ -1900,7 +1885,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     if (state.sending || state.sendingJobId) {
       state.sending = false
       state.sendingJobId = ''
-      renderComposer()
+      emit()
     }
   }
 
@@ -2396,10 +2381,157 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   async function init() {
     await ensureRenderer().catch(() => {})
     await load()
-    mount()
     startUiPollers()
     render()
-    scrollToBottomSoon()
+  }
+
+  ;(window as any).__fastWindowAiChat = {
+    api,
+    getState: () => state,
+    getSnapshot: () => ver,
+    subscribe,
+    fmtTime,
+    activeRole,
+    activeChat,
+    getProvider,
+    renderAssistantInto,
+    actions: {
+      emit,
+      setSideTab: (tab) => {
+        state.sideTab = tab === 'chats' ? 'chats' : 'roles'
+        emit()
+      },
+      setActiveRole: (roleId) => {
+        state.draft.activeRoleId = String(roleId || '')
+        ensureChatsBox(state.draft.activeRoleId)
+        save().catch(() => {})
+        emit()
+      },
+      setActiveChat: (chatId) => {
+        pickChatForActiveRole(String(chatId || ''))
+      },
+      toggleStream: () => {
+        if (!state.data) return
+        state.data.settings.streamEnabled = !state.data.settings.streamEnabled
+        save().catch(() => {})
+        emit()
+      },
+      closeModal: () => closeModal(),
+      openProviders: () => openProvidersEditor(),
+      createProvider: () => createProvider(),
+      openProviderEditor: (providerId) => openProviderInlineEditor(String(providerId || '')),
+      closeProviderEditor: () => {
+        state.draft.editProviderId = ''
+        emit()
+      },
+      saveProvider: () => saveProviderInlineEditor(),
+      askDeleteProvider: (providerId) => {
+        state.draft.deleteProviderId = String(providerId || '')
+        state.draft.deleteRoleId = ''
+        state.modal = 'confirm'
+        emit()
+      },
+      openRoleEditor: (roleId) => openRoleEditor(String(roleId || '')),
+      createRole: () => createRole(),
+      saveRole: () => saveRoleEditor(),
+      askDeleteRole: (roleId) => {
+        state.draft.deleteRoleId = String(roleId || '')
+        state.draft.deleteProviderId = ''
+        state.modal = 'confirm'
+        emit()
+      },
+      confirmDelete: () => {
+        const rid = String(state.draft.deleteRoleId || '')
+        const pid = String(state.draft.deleteProviderId || '')
+        closeModal()
+        if (rid) deleteRole(rid)
+        if (pid) deleteProvider(pid)
+        emit()
+      },
+      openMermaidViewer: (rootEl, srcEl) => {
+        const root = rootEl instanceof Element ? rootEl : document.body
+        const blocks = Array.from(root.querySelectorAll?.('.mermaid-block[data-mermaid=\"1\"]') || [])
+        const items = []
+        for (const b of blocks) {
+          const svg = b instanceof HTMLElement ? String(b.innerHTML || '') : ''
+          if (!svg) continue
+          items.push({ svg })
+        }
+        if (!items.length) return
+
+        let idx = 0
+        const src = srcEl instanceof Element ? srcEl : null
+        if (src) {
+          const i = blocks.findIndex((b) => b === src || (b instanceof HTMLElement && b.contains(src)))
+          if (i >= 0) idx = i
+        }
+        state.mermaid.items = items
+        state.mermaid.index = clamp(idx, 0, Math.max(0, items.length - 1))
+        state.mermaid.scale = 1
+        state.modal = 'mermaid'
+        emit()
+      },
+      mermaidPrev: () => {
+        const len = Array.isArray(state.mermaid.items) ? state.mermaid.items.length : 0
+        if (!len) return
+        state.mermaid.index = (Number(state.mermaid.index || 0) - 1 + len) % len
+        emit()
+      },
+      mermaidNext: () => {
+        const len = Array.isArray(state.mermaid.items) ? state.mermaid.items.length : 0
+        if (!len) return
+        state.mermaid.index = (Number(state.mermaid.index || 0) + 1) % len
+        emit()
+      },
+      mermaidZoom: (dir) => {
+        const factor = Number(dir || 0) >= 0 ? 1.12 : 1 / 1.12
+        state.mermaid.scale = clamp(Number(state.mermaid.scale || 1) * factor, 0.2, 6)
+        emit()
+      },
+      mermaidReset: () => {
+        state.mermaid.scale = 1
+        emit()
+      },
+      createChat: () => createChatForActiveRole(),
+      setDraft: (key, value) => {
+        const k = String(key || '')
+        if (!k) return
+        ;(state.draft as any)[k] = value
+        emit()
+      },
+      roleProviderChanged: (providerId) => {
+        state.draft.roleProviderId = String(providerId || '')
+        state.models = { loading: false, error: '', items: [] }
+        state.draft.roleModelId = ''
+        state.draft.roleCustomModelId = ''
+        refreshModels(String(state.draft.roleProviderId || ''), false).catch(() => {})
+        emit()
+      },
+      roleModelChanged: (modelId) => {
+        state.draft.roleModelId = String(modelId || '')
+        emit()
+      },
+      refreshModels: (providerId, force) => refreshModels(String(providerId || ''), !!force),
+      removeDraftImage: (id) => {
+        removeDraftImage(String(id || ''))
+        emit()
+      },
+      pickImages: () => pickImages(),
+      addDraftImagesFromFiles: async (files) => {
+        const list = Array.isArray(files) ? files : []
+        const left = Math.max(0, MAX_DRAFT_IMAGES - (Array.isArray(state.draft.images) ? state.draft.images.length : 0))
+        let added = 0
+        for (const f of list.slice(0, left)) {
+          try {
+            const dataUrl = await readFileAsDataUrl(f)
+            if (addDraftImage(String(f?.name || '图片'), dataUrl)) added++
+          } catch (_) {}
+        }
+        if (!added) api.ui?.showToast?.('未识别到图片')
+        emit()
+      },
+      send: () => sendChat(),
+    },
   }
 
   init()
