@@ -3,10 +3,12 @@ import { now, uid, esc, trimSlash, isHttpBaseUrl, clampTemp, normImagePaths, cla
 import { extractOpenAiDelta, sseFeed } from './core/sse'
 ;(function () {
   const api = window.fastWindow
-  const STORAGE_KEY = 'data'
   const BG_JOB_KEY_PREFIX = 'bg.job.'
   const BG_STREAM_KEY_PREFIX = 'bg.stream.'
+  const BG_QUEUE_KEY = 'bg.queue'
   const VERSION = 2
+  const SPLIT_SCHEMA_VERSION = 1
+  const SPLIT_META_KEY = 'meta/index'
   const runtime = String(api?.__meta?.runtime || 'ui')
   const MAX_DRAFT_IMAGES = 8
   const REF_IMG_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
@@ -63,6 +65,314 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     return () => subs.delete(fn)
   }
 
+  let splitMetaCache = null
+
+  function safeDirName(input, fallback) {
+    const raw = String(input || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    const base = raw || String(fallback || '未命名')
+    let s = base.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
+    s = s.replace(/[. ]+$/g, '').trim()
+    if (!s) s = String(fallback || '未命名')
+
+    const up = s.toUpperCase()
+    const reserved =
+      up === 'CON' ||
+      up === 'PRN' ||
+      up === 'AUX' ||
+      up === 'NUL' ||
+      /^COM[1-9]$/.test(up) ||
+      /^LPT[1-9]$/.test(up) ||
+      s === '.' ||
+      s === '..'
+    if (reserved) s = '_' + s
+
+    if (s.length > 60) s = s.slice(0, 60).trim()
+    return s || String(fallback || '未命名')
+  }
+
+  function roleFolderName(role) {
+    return safeDirName(role?.name, '角色')
+  }
+
+  function splitRoleKey(folder) {
+    return `roles/${String(folder || '')}/role`
+  }
+
+  function splitChatKey(folder, chatId) {
+    return `chats/${String(folder || '')}/${String(chatId || '')}`
+  }
+
+  function normalizeSplitMeta(raw) {
+    if (!raw || typeof raw !== 'object') return null
+    const schemaVersion = Number(raw.schemaVersion || 0)
+    if (schemaVersion !== SPLIT_SCHEMA_VERSION) return null
+
+    const roleOrder = Array.isArray(raw.roleOrder) ? raw.roleOrder.map((x) => String(x || '')).filter((x) => !!x) : []
+    const roleFolders = raw.roleFolders && typeof raw.roleFolders === 'object' ? raw.roleFolders : {}
+    const chatIndexByRole = raw.chatIndexByRole && typeof raw.chatIndexByRole === 'object' ? raw.chatIndexByRole : {}
+
+    return {
+      schemaVersion: SPLIT_SCHEMA_VERSION,
+      dataVersion: Number(raw.dataVersion || VERSION),
+      updatedAt: Number(raw.updatedAt || 0),
+      ui: raw.ui && typeof raw.ui === 'object' ? raw.ui : {},
+      settings: raw.settings && typeof raw.settings === 'object' ? raw.settings : {},
+      roleOrder,
+      roleFolders,
+      chatIndexByRole,
+    }
+  }
+
+  async function loadSplitMeta() {
+    const raw = await api.storage.get(SPLIT_META_KEY)
+    if (raw == null) return null
+    const meta = normalizeSplitMeta(raw)
+    if (!meta) throw new Error('存储索引损坏：meta/index 格式不正确')
+    splitMetaCache = meta
+    return meta
+  }
+
+  async function loadSplitData() {
+    const meta = (await loadSplitMeta()) || splitMetaCache
+    if (!meta) return null
+
+    const d = {
+      version: VERSION,
+      settings: meta.settings && typeof meta.settings === 'object' ? meta.settings : {},
+      roles: [],
+      chatsByRole: {},
+      ui: meta.ui && typeof meta.ui === 'object' ? meta.ui : {},
+    }
+
+    for (const rid of meta.roleOrder) {
+      const folder = String(meta.roleFolders?.[rid] || '')
+      if (!folder) throw new Error('存储索引损坏：roleFolders 缺失')
+
+      const r = await api.storage.get(splitRoleKey(folder))
+      const role = r && typeof r === 'object' ? r : null
+      if (!role) throw new Error('存储损坏：角色文件缺失或无效')
+
+      d.roles.push(role)
+
+      const idx = meta.chatIndexByRole?.[rid]
+      const box = idx && typeof idx === 'object' ? idx : {}
+      const activeChatId = String(box.activeChatId || '')
+      const chatIds = Array.isArray(box.chatIds) ? box.chatIds.map((x) => String(x || '')).filter((x) => !!x) : []
+
+      const chats = []
+      for (const cid of chatIds) {
+        const c0 = await api.storage.get(splitChatKey(folder, cid))
+        const c = c0 && typeof c0 === 'object' ? c0 : null
+        if (!c) throw new Error('存储损坏：会话文件缺失或无效')
+        chats.push(c)
+      }
+
+      d.chatsByRole[String(role.id || rid)] = {
+        activeChatId,
+        chats,
+      }
+    }
+
+    return normalizeData(d)
+  }
+
+  async function ensureSplitStoreReady() {
+    const meta = (await loadSplitMeta()) || splitMetaCache
+    if (meta) return
+    await saveSplitData(defaultData())
+  }
+
+  async function saveSplitData(d) {
+    if (!d || typeof d !== 'object') return
+    const roles = Array.isArray(d.roles) ? d.roles : []
+    const chatsByRole = d.chatsByRole && typeof d.chatsByRole === 'object' ? d.chatsByRole : {}
+
+    const old = splitMetaCache || (await loadSplitMeta())
+    const oldRoleFolders = old?.roleFolders && typeof old.roleFolders === 'object' ? old.roleFolders : {}
+    const oldChatIndexByRole = old?.chatIndexByRole && typeof old.chatIndexByRole === 'object' ? old.chatIndexByRole : {}
+
+    const roleOrder = roles.map((r) => String(r?.id || '')).filter((x) => !!x)
+    const roleFolders = {}
+    const chatIndexByRole = {}
+
+    const usedFolders = new Set()
+    for (const r of roles) {
+      const rid = String(r?.id || '')
+      if (!rid) continue
+      const base = roleFolderName(r)
+      let folder = base
+      if (usedFolders.has(folder)) {
+        const tail = rid.slice(Math.max(0, rid.length - 8)) || uid('r')
+        folder = `${base}__${tail}`
+      }
+      usedFolders.add(folder)
+      roleFolders[rid] = folder
+    }
+
+    for (const r of roles) {
+      const rid = String(r?.id || '')
+      if (!rid) continue
+      const folder = String(roleFolders[rid] || '')
+      const box0 = chatsByRole[rid] && typeof chatsByRole[rid] === 'object' ? chatsByRole[rid] : { activeChatId: '', chats: [] }
+      const activeChatId = String(box0.activeChatId || '')
+      const chats = Array.isArray(box0.chats) ? box0.chats : []
+      const chatIds = chats.map((c) => String(c?.id || '')).filter((x) => !!x)
+      const chatUpdatedAt = {}
+      for (const c of chats) {
+        const cid = String(c?.id || '')
+        if (!cid) continue
+        chatUpdatedAt[cid] = Number(c?.updatedAt || 0)
+      }
+      chatIndexByRole[rid] = { activeChatId, chatIds, chatUpdatedAt }
+
+      // 角色文件：小，不做增量优化
+      try {
+        await api.storage.set(splitRoleKey(folder), r)
+      } catch (_) {}
+
+      const oldFolder = String(oldRoleFolders?.[rid] || '')
+      const oldIdx = oldChatIndexByRole?.[rid]
+      const oldUpdated = oldIdx && typeof oldIdx === 'object' && oldIdx.chatUpdatedAt && typeof oldIdx.chatUpdatedAt === 'object' ? oldIdx.chatUpdatedAt : {}
+
+      for (const c of chats) {
+        const cid = String(c?.id || '')
+        if (!cid) continue
+        const newKey = splitChatKey(folder, cid)
+        const oldKey = oldFolder ? splitChatKey(oldFolder, cid) : ''
+        const updatedAt = Number(c?.updatedAt || 0)
+        const prev = Number(oldUpdated?.[cid] || 0)
+        const needWrite = folder !== oldFolder || updatedAt !== prev || !prev
+        if (!needWrite) continue
+        try {
+          await api.storage.set(newKey, c)
+        } catch (_) {}
+        if (oldKey && oldKey !== newKey) {
+          try {
+            await api.storage.remove(oldKey)
+          } catch (_) {}
+        }
+      }
+    }
+
+    const meta = {
+      schemaVersion: SPLIT_SCHEMA_VERSION,
+      dataVersion: VERSION,
+      updatedAt: now(),
+      ui: d.ui && typeof d.ui === 'object' ? d.ui : {},
+      settings: d.settings && typeof d.settings === 'object' ? d.settings : {},
+      roleOrder,
+      roleFolders,
+      chatIndexByRole,
+    }
+
+    // 先写索引，再清理旧文件：避免 crash 时出现“索引指向不存在文件”
+    try {
+      await api.storage.set(SPLIT_META_KEY, meta)
+      splitMetaCache = meta
+    } catch (_) {}
+
+    // 清理：删除被移除的角色/会话；以及角色改名导致的旧目录文件
+    if (old) {
+      const newRoleSet = new Set(roleOrder)
+      const newChatSetByRole = {}
+      for (const rid of roleOrder) {
+        const idx = chatIndexByRole?.[rid]
+        const ids = Array.isArray(idx?.chatIds) ? idx.chatIds.map((x) => String(x || '')).filter((x) => !!x) : []
+        newChatSetByRole[rid] = new Set(ids)
+      }
+
+      const oldRoles = Array.isArray(old.roleOrder) ? old.roleOrder : []
+      for (const rid0 of oldRoles) {
+        const rid = String(rid0 || '')
+        if (!rid) continue
+        const oldFolder = String(oldRoleFolders?.[rid] || '')
+        if (!oldFolder) continue
+
+        if (!newRoleSet.has(rid)) {
+          try {
+            await api.storage.remove(splitRoleKey(oldFolder))
+          } catch (_) {}
+          const oldIdx = oldChatIndexByRole?.[rid]
+          const oldChatIds = Array.isArray(oldIdx?.chatIds) ? oldIdx.chatIds : []
+          for (const cid0 of oldChatIds) {
+            const cid = String(cid0 || '')
+            if (!cid) continue
+            try {
+              await api.storage.remove(splitChatKey(oldFolder, cid))
+            } catch (_) {}
+          }
+          continue
+        }
+
+        const newFolder = String(roleFolders?.[rid] || '')
+        if (newFolder && newFolder !== oldFolder) {
+          try {
+            await api.storage.remove(splitRoleKey(oldFolder))
+          } catch (_) {}
+          const oldIdx = oldChatIndexByRole?.[rid]
+          const oldChatIds = Array.isArray(oldIdx?.chatIds) ? oldIdx.chatIds : []
+          for (const cid0 of oldChatIds) {
+            const cid = String(cid0 || '')
+            if (!cid) continue
+            try {
+              await api.storage.remove(splitChatKey(oldFolder, cid))
+            } catch (_) {}
+          }
+          continue
+        }
+
+        const keep = newChatSetByRole[rid]
+        const oldIdx = oldChatIndexByRole?.[rid]
+        const oldChatIds = Array.isArray(oldIdx?.chatIds) ? oldIdx.chatIds : []
+        for (const cid0 of oldChatIds) {
+          const cid = String(cid0 || '')
+          if (!cid) continue
+          if (keep && keep.has(cid)) continue
+          try {
+            await api.storage.remove(splitChatKey(oldFolder, cid))
+          } catch (_) {}
+        }
+      }
+    }
+  }
+
+  async function readJobQueue() {
+    try {
+      const raw = await api.storage.get(BG_QUEUE_KEY)
+      const list = Array.isArray(raw) ? raw : []
+      return list.map((x) => String(x || '')).filter((x) => !!x).slice(0, 2000)
+    } catch (_) {
+      return []
+    }
+  }
+
+  async function writeJobQueue(ids) {
+    try {
+      const list = Array.isArray(ids) ? ids.map((x) => String(x || '')).filter((x) => !!x) : []
+      await api.storage.set(BG_QUEUE_KEY, list.slice(0, 2000))
+    } catch (_) {}
+  }
+
+  async function enqueueJob(jobId) {
+    const id = String(jobId || '')
+    if (!id) return
+    const q = await readJobQueue()
+    if (q.includes(id)) return
+    q.push(id)
+    await writeJobQueue(q)
+  }
+
+  async function dequeueJob(jobId) {
+    const id = String(jobId || '')
+    if (!id) return
+    const q = await readJobQueue()
+    const out = q.filter((x) => x !== id)
+    if (out.length === q.length) return
+    await writeJobQueue(out)
+  }
+
   function defaultData() {
     const providerName = '默认供应商（OpenAI 兼容）'
     const pid = providerName
@@ -107,77 +417,17 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   function normalizeData(raw) {
     const d0 = raw && typeof raw === 'object' ? raw : {}
 
-    // v1 -> v2 迁移：原本每个角色只有一个 messages[]，升级为“多会话”
-    if (d0.version === 1) {
-      const out = {
-        version: VERSION,
-        settings: d0.settings && typeof d0.settings === 'object' ? d0.settings : {},
-        roles: Array.isArray(d0.roles) ? d0.roles : [],
-        chatsByRole: {},
-        ui: d0.ui && typeof d0.ui === 'object' ? d0.ui : {},
-      }
-
-      const baseProviders = Array.isArray(out.settings?.providers) && out.settings.providers.length ? out.settings.providers : defaultData().settings.providers
-      out.settings.providers = baseProviders
-
-      const baseRoles = Array.isArray(out.roles) && out.roles.length ? out.roles : defaultData().roles
-      out.roles = baseRoles
-
-      const v1Chats = d0.chats && typeof d0.chats === 'object' ? d0.chats : {}
-
-      for (const r of out.roles) {
-        const rid = String(r?.id || uid('r'))
-        const v1 = v1Chats[rid] && typeof v1Chats[rid] === 'object' ? v1Chats[rid] : { messages: [], updatedAt: 0 }
-        const msgs = Array.isArray(v1.messages) ? v1.messages : []
-        const createdAt = Number(msgs[0]?.createdAt || now())
-        const updatedAt = Number(v1.updatedAt || createdAt || now())
-        const cid = uid('c')
-        out.chatsByRole[rid] = {
-          activeChatId: cid,
-          chats: [{ id: cid, title: '聊天 1', createdAt, updatedAt, messages: msgs }],
-        }
-      }
-
-      // 接着走 v2 normalize
-      return normalizeData(out)
-    }
-
-    if (d0.version !== VERSION) return defaultData()
+    if (d0.version !== VERSION) throw new Error(`数据版本不支持：${String(d0.version)}（期望 ${VERSION}）`)
     const d = d0
 
     if (!d.settings || typeof d.settings !== 'object') d.settings = {}
     if (typeof d.settings.streamEnabled !== 'boolean') d.settings.streamEnabled = true
     if (!Array.isArray(d.settings.providers) || d.settings.providers.length === 0) d.settings.providers = defaultData().settings.providers
 
-    function normName(s) {
-      return String(s || '')
-        .replace(/\s+/g, ' ')
-        .trim()
-    }
-    function makeUniqueName(desired, used) {
-      const base = normName(desired) || '未命名供应商'
-      if (!used.has(base)) {
-        used.add(base)
-        return base
-      }
-      let i = 2
-      while (used.has(`${base}（${i}）`)) i++
-      const out = `${base}（${i}）`
-      used.add(out)
-      return out
-    }
-
-    // providerId 迁移：从随机 id 改为“用供应商名字当 id”，并保证全局唯一
-    const providerIdMap = new Map()
-    const usedProviderNames = new Set()
     for (const p of d.settings.providers) {
       if (!p || typeof p !== 'object') continue
-      const oldId = normName(p.id)
-      const baseName = typeof p.name === 'string' ? p.name : ''
-      const nextName = makeUniqueName(baseName, usedProviderNames)
-      p.name = nextName
-      p.id = nextName
-      if (oldId && oldId !== nextName) providerIdMap.set(oldId, nextName)
+      if (typeof p.name !== 'string' || !p.name.trim()) p.name = '未命名供应商'
+      if (typeof p.id !== 'string' || !p.id.trim()) p.id = String(p.name || '').trim() || uid('p')
       if (typeof p.baseUrl !== 'string' || !p.baseUrl.trim()) p.baseUrl = 'http://'
       if (typeof p.apiKey !== 'string') p.apiKey = ''
       if (!p.modelsCache || typeof p.modelsCache !== 'object') p.modelsCache = { items: [], fetchedAt: 0 }
@@ -197,8 +447,6 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       if (!r.modelRef || typeof r.modelRef !== 'object') r.modelRef = { providerId: String(d.settings.providers[0]?.id || ''), modelId: '' }
       if (typeof r.modelRef.providerId !== 'string') r.modelRef.providerId = String(d.settings.providers[0]?.id || '')
       if (typeof r.modelRef.modelId !== 'string') r.modelRef.modelId = ''
-      const mappedPid = providerIdMap.get(normName(r.modelRef.providerId))
-      if (mappedPid) r.modelRef.providerId = mappedPid
       const pid = String(r.modelRef.providerId || '')
       if (!d.settings.providers.some((p) => String(p?.id || '') === pid)) r.modelRef.providerId = String(d.settings.providers[0]?.id || '')
       r.createdAt = Number(r.createdAt || now())
@@ -264,33 +512,15 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
 
   async function load() {
     try {
-      const raw = await api.storage.get(STORAGE_KEY)
-      const needPersistProviderIdMigration =
-        raw &&
-        typeof raw === 'object' &&
-        raw.settings &&
-        typeof raw.settings === 'object' &&
-        Array.isArray(raw.settings.providers) &&
-        raw.settings.providers.some((p) => {
-          const id = String(p?.id || '')
-          const name = String(p?.name || '')
-            .replace(/\s+/g, ' ')
-            .trim()
-          return id && name && id !== name
-        })
-      state.data = normalizeData(raw)
-      state.draft.activeRoleId = String(state.data.ui.activeRoleId || '')
-      if (needPersistProviderIdMigration) {
-        try {
-          await save()
-        } catch (_) {}
-      }
-    } catch (_) {
-      state.data = defaultData()
-      state.draft.activeRoleId = String(state.data.ui.activeRoleId || '')
-      try {
-        await save()
-      } catch (_) {}
+      await ensureSplitStoreReady()
+      const split = await loadSplitData()
+      if (!split) throw new Error('存储未初始化')
+      state.data = split
+      state.draft.activeRoleId = String(state.data?.ui?.activeRoleId || '')
+    } catch (e) {
+      state.data = null
+      state.draft.activeRoleId = ''
+      api.ui?.showToast?.(String(e?.message || e || '加载失败'))
     } finally {
       state.loading = false
     }
@@ -299,7 +529,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   async function save() {
     if (!state.data) return
     state.data.ui.activeRoleId = String(state.draft.activeRoleId || '')
-    await api.storage.set(STORAGE_KEY, state.data)
+    await saveSplitData(state.data)
   }
 
   function getProvider(pid) {
@@ -1050,6 +1280,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
 
       await save()
       await api.storage.set(jobKey(jobId), job)
+      await enqueueJob(jobId)
       state.sendingJobId = jobId
     } catch (e) {
       const msg = String(e?.message || e || '请求失败')
@@ -1077,11 +1308,14 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     const mid = String(job?.assistantMid || '')
     if (!roleId || !chatId || !mid) return
 
-    const raw = await api.storage.get(STORAGE_KEY)
-    const d = normalizeData(raw)
-    const box = d?.chatsByRole?.[roleId]
-    const chats = Array.isArray(box?.chats) ? box.chats : []
-    const chat = chats.find((c) => String(c?.id) === chatId)
+    const meta = await loadSplitMeta()
+    if (!meta) return
+
+    const folder = String(meta.roleFolders?.[roleId] || '')
+    if (!folder) return
+    const key = splitChatKey(folder, chatId)
+    const raw = await api.storage.get(key)
+    const chat = raw && typeof raw === 'object' ? raw : null
     if (!chat) return
 
     const msgs = Array.isArray(chat.messages) ? chat.messages : []
@@ -1093,7 +1327,18 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     m.streaming = false
     chat.updatedAt = now()
 
-    await api.storage.set(STORAGE_KEY, d)
+    await api.storage.set(key, chat)
+
+    try {
+      const idx = meta.chatIndexByRole?.[roleId]
+      if (idx && typeof idx === 'object') {
+        if (!idx.chatUpdatedAt || typeof idx.chatUpdatedAt !== 'object') idx.chatUpdatedAt = {}
+        idx.chatUpdatedAt[String(chatId)] = Number(chat.updatedAt || 0)
+        meta.updatedAt = now()
+        await api.storage.set(SPLIT_META_KEY, meta)
+        splitMetaCache = meta
+      }
+    } catch (_) {}
   }
 
   async function backgroundMain() {
@@ -1103,27 +1348,37 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       if (running) return
       running = true
       try {
-        const all = await api.storage.getAll()
-        const entries = all && typeof all === 'object' ? Object.entries(all) : []
-        const jobs = []
+        const q = await readJobQueue()
+        if (!q.length) return
 
-        for (const [k, v] of entries) {
-          if (!String(k || '').startsWith(BG_JOB_KEY_PREFIX)) continue
-          const job = v && typeof v === 'object' ? v : null
-          if (!job) continue
-          if (String(job.status || '') !== 'queued') continue
-          jobs.push(job)
+        let job = null
+        let jobId = ''
+        for (const id of q.slice(0, 20)) {
+          const j = await api.storage.get(jobKey(id))
+          const ok = j && typeof j === 'object' ? j : null
+          if (!ok) {
+            await dequeueJob(id)
+            continue
+          }
+          if (String(ok.status || '') !== 'queued') {
+            await dequeueJob(id)
+            continue
+          }
+          job = ok
+          jobId = id
+          break
         }
-
-        jobs.sort((a, b) => Number(a?.createdAt || 0) - Number(b?.createdAt || 0))
-        const job = jobs[0]
-        if (!job) return
+        if (!job || !jobId) return
 
         job.status = 'running'
         job.startedAt = now()
         await api.storage.set(jobKey(job.id), job)
 
-        await runBackgroundJob(job)
+        try {
+          await runBackgroundJob(job)
+        } finally {
+          await dequeueJob(jobId)
+        }
       } catch (_) {
       } finally {
         running = false
@@ -1141,11 +1396,30 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     const chatId = String(job?.chatId || '')
     if (!roleId || !chatId) throw new Error('job 缺少 roleId/chatId')
 
-    const raw = await api.storage.get(STORAGE_KEY)
-    const d = normalizeData(raw)
+    const meta = await loadSplitMeta()
+    if (!meta) throw new Error('存储未初始化')
 
-    const role = Array.isArray(d?.roles) ? d.roles.find((r) => String(r?.id || '') === roleId) : null
+    const folder = String(meta.roleFolders?.[roleId] || '')
+    if (!folder) throw new Error('角色不存在')
+
+    const r0 = await api.storage.get(splitRoleKey(folder))
+    const role = r0 && typeof r0 === 'object' ? r0 : null
     if (!role) throw new Error('角色不存在')
+
+    const d = normalizeData({
+      version: VERSION,
+      settings: meta.settings && typeof meta.settings === 'object' ? meta.settings : {},
+      roles: [role],
+      chatsByRole: {},
+      ui: meta.ui && typeof meta.ui === 'object' ? meta.ui : {},
+    })
+
+    const c0 = await api.storage.get(splitChatKey(folder, chatId))
+    const chat = c0 && typeof c0 === 'object' ? c0 : null
+    if (!chat) throw new Error('会话不存在')
+
+    d.chatsByRole[String(roleId)] = { activeChatId: String(chatId), chats: [chat] }
+
     const fallbackPid = String(d?.settings?.providers?.[0]?.id || '')
     if (!role.modelRef || typeof role.modelRef !== 'object') role.modelRef = { providerId: fallbackPid, modelId: '' }
     if (!role.modelRef.providerId) role.modelRef.providerId = fallbackPid
@@ -1161,11 +1435,6 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     if (!isHttpBaseUrl(baseUrl)) throw new Error('Base URL 无效（需 http/https）')
     if (!apiKey) throw new Error('API Key 为空')
     if (!modelId) throw new Error('模型ID 为空')
-
-    const box = d?.chatsByRole?.[roleId]
-    const chats = Array.isArray(box?.chats) ? box.chats : []
-    const chat = chats.find((c) => String(c?.id || '') === chatId) || null
-    if (!chat) throw new Error('会话不存在')
 
     const msgs0 = Array.isArray(chat.messages) ? chat.messages : []
     const msgs = msgs0.filter((m) => !(m && m.role === 'assistant' && m.pending))
@@ -1880,8 +2149,9 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     const keepActive = String(state.draft.activeRoleId || '')
     const keepInput = String(state.draft.input || '')
     const keepImages = Array.isArray(state.draft.images) ? state.draft.images : []
-    const raw = await api.storage.get(STORAGE_KEY)
-    state.data = normalizeData(raw)
+    const split = await loadSplitData()
+    if (!split) return
+    state.data = split
     if (keepActive) state.draft.activeRoleId = keepActive
     else state.draft.activeRoleId = String(state.data?.ui?.activeRoleId || '')
     state.draft.input = keepInput
