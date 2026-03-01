@@ -248,10 +248,26 @@ export function AiChatApp(props: { controller: any }) {
       />
 
       <Box sx={{ height: '100%', minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <AppBar position="static" elevation={0} sx={{ borderBottom: '1px solid', borderColor: 'divider' }}>
-          <Toolbar sx={{ gap: 1 }}>
-            <ChatIcon fontSize="small" />
-            <Typography variant="subtitle1" sx={{ fontWeight: 900, mr: 1 }}>
+        <AppBar
+          position="static"
+          elevation={0}
+          sx={{
+            bgcolor: '#fff',
+            color: 'text.primary',
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+          }}
+        >
+          <Toolbar
+            variant="dense"
+            sx={{
+              gap: 0.5,
+              minHeight: 40,
+              px: 1,
+              '&.MuiToolbar-root': { minHeight: 40 },
+            }}
+          >
+            <Typography variant="subtitle2" sx={{ fontWeight: 900, mr: 0.5 }}>
               AI 聊天
             </Typography>
 
