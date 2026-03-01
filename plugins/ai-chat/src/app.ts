@@ -33,6 +33,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       editRoleId: '',
       roleName: '',
       roleAvatar: '',
+      roleAvatarImage: '',
       roleSystemPrompt: '',
       roleProviderId: '',
       roleModelId: '',
@@ -443,6 +444,8 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       if (!r.id) r.id = uid('r')
       if (typeof r.name !== 'string' || !r.name.trim()) r.name = '未命名角色'
       if (typeof r.avatar !== 'string' || !r.avatar.trim()) r.avatar = '🙂'
+      if (typeof r.avatarImage !== 'string') r.avatarImage = ''
+      if (r.avatarImage && !looksLikeImageDataUrl(r.avatarImage)) r.avatarImage = ''
       if (typeof r.systemPrompt !== 'string') r.systemPrompt = ''
       if (typeof r.temperature !== 'number' || !isFinite(r.temperature)) r.temperature = 0.7
       if (!r.modelRef || typeof r.modelRef !== 'object') r.modelRef = { providerId: String(d.settings.providers[0]?.id || ''), modelId: '' }
@@ -1149,6 +1152,47 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   function looksLikeImageDataUrl(s) {
     const t = String(s || '')
     return t.startsWith('data:image/')
+  }
+
+  function shrinkAvatarDataUrl(dataUrl) {
+    return new Promise((resolve) => {
+      try {
+        const u = String(dataUrl || '').trim()
+        if (!looksLikeImageDataUrl(u)) return resolve('')
+
+        const img = new Image()
+        img.decoding = 'async'
+        img.onload = () => {
+          try {
+            const w0 = Number(img.naturalWidth || 0)
+            const h0 = Number(img.naturalHeight || 0)
+            if (!w0 || !h0) return resolve('')
+
+            const max = 96
+            const s = Math.min(1, max / Math.max(w0, h0))
+            const w = Math.max(1, Math.round(w0 * s))
+            const h = Math.max(1, Math.round(h0 * s))
+
+            const canvas = document.createElement('canvas')
+            canvas.width = w
+            canvas.height = h
+            const ctx = canvas.getContext('2d')
+            if (!ctx) return resolve('')
+            ctx.clearRect(0, 0, w, h)
+            ctx.drawImage(img, 0, 0, w, h)
+
+            const out = canvas.toDataURL('image/png')
+            resolve(looksLikeImageDataUrl(out) ? out : '')
+          } catch (_) {
+            resolve('')
+          }
+        }
+        img.onerror = () => resolve('')
+        img.src = u
+      } catch (_) {
+        resolve('')
+      }
+    })
   }
 
   function addDraftImage(name, dataUrl) {
@@ -2228,6 +2272,33 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     }
   }
 
+  async function pickRoleAvatarImage() {
+    if (state.loading) return
+    if (typeof api?.files?.pickImages !== 'function') return api.ui?.showToast?.('未授权：files.pickImages')
+
+    try {
+      const items = await api.files.pickImages(1)
+      const list = Array.isArray(items) ? items : []
+      const it = list.length ? list[0] : null
+      const u0 = String(it?.dataUrl || '')
+      if (!looksLikeImageDataUrl(u0)) return api.ui?.showToast?.('未选择图片')
+
+      const shrunk = await shrinkAvatarDataUrl(u0)
+      const u = shrunk || u0
+      if (!looksLikeImageDataUrl(u)) return api.ui?.showToast?.('头像图片无效')
+
+      state.draft.roleAvatarImage = u
+      render()
+    } catch (e) {
+      api.ui?.showToast?.(String(e?.message || e || '选择头像失败'))
+    }
+  }
+
+  function clearRoleAvatarImage() {
+    state.draft.roleAvatarImage = ''
+    render()
+  }
+
   function closeModal() {
     cancelMermaidDrag()
     state.modal = ''
@@ -2237,6 +2308,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       state.draft.editRoleId = ''
       state.draft.roleName = ''
       state.draft.roleAvatar = ''
+      state.draft.roleAvatarImage = ''
       state.draft.roleSystemPrompt = ''
       state.draft.roleProviderId = ''
       state.draft.roleModelId = ''
@@ -2253,6 +2325,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     state.draft.editRoleId = NEW_ROLE_ID
     state.draft.roleName = '新角色'
     state.draft.roleAvatar = '🙂'
+    state.draft.roleAvatarImage = ''
     state.draft.roleSystemPrompt = ''
     state.draft.roleTemperature = '0.7'
     state.draft.roleProviderId = fallbackPid
@@ -2281,6 +2354,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     state.draft.editRoleId = rid
     state.draft.roleName = String(role.name || '')
     state.draft.roleAvatar = String(role.avatar || '')
+    state.draft.roleAvatarImage = looksLikeImageDataUrl(role.avatarImage) ? String(role.avatarImage || '') : ''
     state.draft.roleSystemPrompt = String(role.systemPrompt || '')
     state.draft.roleTemperature = String(role.temperature ?? 0.7)
     state.draft.roleProviderId = String(role.modelRef?.providerId || '')
@@ -2304,6 +2378,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
 
     const name = String(state.draft.roleName || '').trim() || '未命名角色'
     const avatar = String(state.draft.roleAvatar || '').trim() || '🙂'
+    const avatarImage = looksLikeImageDataUrl(state.draft.roleAvatarImage) ? String(state.draft.roleAvatarImage || '') : ''
     const sys = String(state.draft.roleSystemPrompt || '').trim()
     const temperature = clampTemp(state.draft.roleTemperature)
     const providerId = String(state.draft.roleProviderId || '').trim()
@@ -2317,6 +2392,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
         id: newRid,
         name,
         avatar,
+        avatarImage,
         systemPrompt: sys,
         temperature,
         modelRef: { providerId, modelId },
@@ -2341,6 +2417,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
 
     role.name = name
     role.avatar = avatar
+    role.avatarImage = avatarImage
     role.systemPrompt = sys
     role.temperature = temperature
     role.modelRef = { providerId, modelId }
@@ -2923,6 +3000,8 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
         emit()
       },
       refreshModels: (providerId, force) => refreshModels(String(providerId || ''), !!force),
+      pickRoleAvatarImage: () => pickRoleAvatarImage(),
+      clearRoleAvatarImage: () => clearRoleAvatarImage(),
       removeDraftImage: (id) => {
         removeDraftImage(String(id || ''))
         emit()

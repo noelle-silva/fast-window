@@ -324,7 +324,12 @@ export function AiChatApp(props: { controller: any }) {
                   disabled={s.loading || !roles.length}
                   sx={{ borderRadius: 999, px: 1, py: 0.25, minWidth: 0, gap: 0.75, borderColor: 'divider' }}
                 >
-                  <Avatar sx={{ width: 22, height: 22, fontSize: 12 }}>{String(activeRole?.avatar || '🙂')}</Avatar>
+                  <Avatar
+                    src={String(activeRole?.avatarImage || '') || undefined}
+                    sx={{ width: 22, height: 22, fontSize: 12 }}
+                  >
+                    {String(activeRole?.avatar || '🙂')}
+                  </Avatar>
                   <Typography variant="body2" sx={{ fontWeight: 900, maxWidth: 180 }} noWrap>
                     {activeRole ? String(activeRole?.name || '') : '请选择角色'}
                   </Typography>
@@ -527,11 +532,11 @@ export function AiChatApp(props: { controller: any }) {
             </Box>
             <Divider />
             <List dense sx={{ py: 0 }}>
-              {roles.map((r: any) => {
-                const on = String(r?.id || '') === String(s.draft?.activeRoleId || '')
-                const providerId = String(r?.modelRef?.providerId || '')
-                const modelId = String(r?.modelRef?.modelId || '')
-                return (
+                  {roles.map((r: any) => {
+                    const on = String(r?.id || '') === String(s.draft?.activeRoleId || '')
+                    const providerId = String(r?.modelRef?.providerId || '')
+                    const modelId = String(r?.modelRef?.modelId || '')
+                    return (
                   <ListItemButton
                     key={String(r?.id || '')}
                     selected={on}
@@ -540,12 +545,14 @@ export function AiChatApp(props: { controller: any }) {
                       closeRolePicker()
                     }}
                     sx={{ borderBottom: '1px solid', borderColor: 'divider' }}
-                  >
-                    <ListItemAvatar>
-                      <Avatar sx={{ width: 28, height: 28, fontSize: 14 }}>{String(r?.avatar || '🙂')}</Avatar>
-                    </ListItemAvatar>
-                    <ListItemText
-                      sx={{ minWidth: 0 }}
+                      >
+                        <ListItemAvatar>
+                          <Avatar src={String(r?.avatarImage || '') || undefined} sx={{ width: 28, height: 28, fontSize: 14 }}>
+                            {String(r?.avatar || '🙂')}
+                          </Avatar>
+                        </ListItemAvatar>
+                        <ListItemText
+                          sx={{ minWidth: 0 }}
                       primary={
                         <Typography sx={{ fontWeight: 900, fontSize: 13 }} noWrap>
                           {String(r?.name || '')}
@@ -728,7 +735,9 @@ function PluginSettingsPage(props: {
                   >
                     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', sm: 'center' }}>
                       <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
-                        <Avatar sx={{ width: 28, height: 28, fontSize: 14 }}>{String(r?.avatar || '🙂')}</Avatar>
+                        <Avatar src={String(r?.avatarImage || '') || undefined} sx={{ width: 28, height: 28, fontSize: 14 }}>
+                          {String(r?.avatar || '🙂')}
+                        </Avatar>
                         <Box sx={{ minWidth: 0 }}>
                           <Typography sx={{ fontWeight: 900 }} noWrap>
                             {String(r?.name || '')}
@@ -914,6 +923,9 @@ function RoleDialog(props: { open: boolean; controller: any; providers: any[]; d
   const editRoleId = String(draft?.editRoleId || '')
   const isNew = editRoleId === '__new__'
 
+  const avatarEmoji = String(draft?.roleAvatar || '').trim() || '🙂'
+  const avatarImage = String(draft?.roleAvatarImage || '').trim()
+
   const providerId = String(draft?.roleProviderId || '')
   const modelPick = String(draft?.roleModelId || '')
   const customModel = String(draft?.roleCustomModelId || '')
@@ -935,7 +947,27 @@ function RoleDialog(props: { open: boolean; controller: any; providers: any[]; d
         <Stack spacing={2}>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
             <TextField label="角色名" value={String(draft?.roleName || '')} onChange={(e) => controller.actions.setDraft('roleName', e.target.value)} fullWidth />
-            <TextField label="头像" value={String(draft?.roleAvatar || '')} onChange={(e) => controller.actions.setDraft('roleAvatar', e.target.value)} sx={{ width: { xs: '100%', sm: 160 } }} />
+            <TextField label="头像（表情，可选）" value={String(draft?.roleAvatar || '')} onChange={(e) => controller.actions.setDraft('roleAvatar', e.target.value)} sx={{ width: { xs: '100%', sm: 200 } }} />
+          </Stack>
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Avatar src={avatarImage || undefined} sx={{ width: 44, height: 44, fontSize: 18 }}>
+                {avatarEmoji}
+              </Avatar>
+              <Typography variant="body2" color="text.secondary">
+                头像图片（可选）
+              </Typography>
+            </Stack>
+            <Box sx={{ flex: 1 }} />
+            <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ flexWrap: 'wrap' }}>
+              <Button variant="outlined" onClick={() => controller.actions.pickRoleAvatarImage()}>
+                选择图片
+              </Button>
+              <Button variant="text" onClick={() => controller.actions.clearRoleAvatarImage()} disabled={!avatarImage}>
+                清除图片
+              </Button>
+            </Stack>
           </Stack>
 
           <TextField
