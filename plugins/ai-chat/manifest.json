@@ -8,7 +8,7 @@
   "icon": "💬",
   "keyword": "ai",
   "apiVersion": 2,
-  "ui": { "type": "iframe" },
+  "ui": { "type": "iframe", "keepAlive": true },
   "background": { "autoStart": true },
   "requires": [
     "storage.get",
