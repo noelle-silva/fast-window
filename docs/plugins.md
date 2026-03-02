@@ -91,7 +91,9 @@ plugins/<id>/
 - `task.create` / `task.get` / `task.list` / `task.cancel`
 - `files.getOutputDir` / `files.pickOutputDir` / `files.openOutputDir`
 - `files.pickDir` / `files.openDir`（选择/打开本地目录）
-- `files.saveImageBase64` / `files.listOutputImages` / `files.readOutputImage`
+- `files.images.writeBase64` / `files.images.list` / `files.images.read` / `files.images.delete`
+  - `scope: "data"`：插件私有图片目录（不走可配置输出目录）
+  - `scope: "output"`：插件输出目录（可配置）
 
 ## 后台任务（Task API）
 

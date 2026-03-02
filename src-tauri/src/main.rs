@@ -1699,7 +1699,7 @@ fn plugin_default_output_dir(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf
 }
 
 fn plugin_default_ref_images_dir(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf {
-    // 参考图库固定存放在 data/<pluginId>/ref-images（不走可配置输出目录，避免混入用户空间）
+    // 插件私有图片存放在 data/<pluginId>/ref-images（不走可配置输出目录，避免混入用户空间）
     app_data_dir(app).join(plugin_id).join("ref-images")
 }
 
@@ -2402,57 +2402,6 @@ fn plugin_open_dir(_app: tauri::AppHandle, plugin_id: String, dir: String) -> Re
 }
 
 #[tauri::command]
-fn plugin_save_image_base64(
-    app: tauri::AppHandle,
-    plugin_id: String,
-    data: String,
-) -> Result<String, String> {
-    if !is_safe_id(&plugin_id) {
-        return Err("pluginId 不合法".to_string());
-    }
-
-    let out_dir = resolve_plugin_output_dir(&app, &plugin_id);
-    ensure_writable_dir(&out_dir)?;
-
-    let (bytes, ext) = decode_base64_image_payload(&data)?;
-
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_millis(0))
-        .as_millis();
-    let filename = format!("ai-image-{stamp}.{ext}");
-    let full = out_dir.join(filename);
-
-    std::fs::write(&full, bytes).map_err(|e| format!("写入图片失败: {e}"))?;
-    Ok(full.to_string_lossy().to_string())
-}
-
-#[tauri::command]
-fn plugin_save_ref_image_base64(
-    app: tauri::AppHandle,
-    plugin_id: String,
-    data: String,
-) -> Result<String, String> {
-    if !is_safe_id(&plugin_id) {
-        return Err("pluginId 不合法".to_string());
-    }
-
-    let dir = plugin_default_ref_images_dir(&app, &plugin_id);
-    ensure_writable_dir(&dir)?;
-
-    let (bytes, ext) = decode_base64_image_payload(&data)?;
-
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_millis(0))
-        .as_millis();
-    let filename = format!("ref-image-{stamp}.{ext}");
-    let full = dir.join(filename);
-
-    std::fs::write(&full, bytes).map_err(|e| format!("写入图片失败: {e}"))?;
-    Ok(full.to_string_lossy().to_string())
-}
-
 fn path_has_image_ext(path: &Path) -> bool {
     let ext = path
         .extension()
@@ -2462,108 +2411,141 @@ fn path_has_image_ext(path: &Path) -> bool {
     matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp")
 }
 
-#[tauri::command]
-fn plugin_list_ref_images(app: tauri::AppHandle, plugin_id: String) -> Result<Vec<String>, String> {
-    if !is_safe_id(&plugin_id) {
-        return Err("pluginId 不合法".to_string());
+fn normalize_image_ext(ext: &str) -> String {
+    let e = ext.trim().to_ascii_lowercase();
+    if e == "jpeg" {
+        "jpg".to_string()
+    } else {
+        e
+    }
+}
+
+fn image_ext_from_path(path: &Path) -> Option<String> {
+    let ext = path.extension().and_then(|s| s.to_str())?;
+    Some(normalize_image_ext(ext))
+}
+
+fn resolve_plugin_images_root(
+    app: &tauri::AppHandle,
+    plugin_id: &str,
+    scope: &str,
+) -> Result<PathBuf, String> {
+    match scope {
+        // 插件私有数据：固定在 data/<pluginId>/ref-images（历史目录，保留以避免破坏旧数据）
+        "data" => Ok(plugin_default_ref_images_dir(app, plugin_id)),
+        // 用户输出目录：可配置（默认 data/<pluginId>/output-images）
+        "output" => Ok(resolve_plugin_output_dir(app, plugin_id)),
+        _ => Err("scope 不支持（仅支持 data/output）".to_string()),
+    }
+}
+
+fn resolve_image_path_in_scope(
+    app: &tauri::AppHandle,
+    plugin_id: &str,
+    scope: &str,
+    path: &str,
+    must_exist: bool,
+) -> Result<(PathBuf, PathBuf), String> {
+    let root = resolve_plugin_images_root(app, plugin_id, scope)?;
+    ensure_writable_dir(&root)?;
+    let root_c = std::fs::canonicalize(&root).map_err(|e| format!("图片目录不可用: {e}"))?;
+
+    let raw = path.trim();
+    if raw.is_empty() {
+        return Err("图片路径不能为空".to_string());
     }
 
-    let dir = plugin_default_ref_images_dir(&app, &plugin_id);
-    ensure_writable_dir(&dir)?;
+    let input = PathBuf::from(raw);
+    let full = if input.is_absolute() {
+        input
+    } else {
+        let rel = safe_relative_path(raw)?;
+        root.join(rel)
+    };
 
-    let mut items: Vec<(SystemTime, PathBuf)> = Vec::new();
-    let rd = std::fs::read_dir(&dir).map_err(|e| format!("读取参考图库失败: {e}"))?;
-    for entry in rd {
-        let entry = entry.map_err(|e| format!("读取目录项失败: {e}"))?;
-        let path = entry.path();
-        if !path.is_file() || !path_has_image_ext(&path) {
-            continue;
+    if must_exist {
+        if !full.exists() {
+            return Err("图片不存在".to_string());
         }
-        let modified = entry
-            .metadata()
-            .and_then(|m| m.modified())
-            .unwrap_or(UNIX_EPOCH);
-        items.push((modified, path));
+        let full_c = std::fs::canonicalize(&full).map_err(|e| format!("图片路径无效: {e}"))?;
+        if !full_c.starts_with(&root_c) {
+            return Err("图片路径越界".to_string());
+        }
+        return Ok((root_c, full_c));
     }
 
-    items.sort_by(|a, b| b.0.cmp(&a.0));
-    Ok(items
-        .into_iter()
-        .map(|(_, p)| p.to_string_lossy().to_string())
-        .collect())
+    // must_exist=false：用于写入，full 可能尚不存在；改为校验 parent 目录是否仍在 root 内。
+    let parent = full.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| root.clone());
+    std::fs::create_dir_all(&parent).map_err(|e| format!("创建目录失败: {e}"))?;
+    let parent_c = std::fs::canonicalize(&parent).map_err(|e| format!("目录路径无效: {e}"))?;
+    if !parent_c.starts_with(&root_c) {
+        return Err("图片路径越界".to_string());
+    }
+    Ok((root_c, full))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginImagesWriteBase64Req {
+    scope: String,
+    data_url_or_base64: String,
+    rel_path: Option<String>,
+    overwrite: Option<bool>,
 }
 
 #[tauri::command]
-fn plugin_read_ref_image(
+fn plugin_images_write_base64(
     app: tauri::AppHandle,
     plugin_id: String,
-    path: String,
+    req: PluginImagesWriteBase64Req,
 ) -> Result<String, String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
 
-    let input = PathBuf::from(path.trim());
-    if input.as_os_str().is_empty() {
-        return Err("图片路径不能为空".to_string());
+    let scope = req.scope.trim().to_string();
+    let data = req.data_url_or_base64;
+    let rel_path = req
+        .rel_path
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let overwrite = req.overwrite.unwrap_or(false);
+
+    let (bytes, payload_ext) = decode_base64_image_payload(&data)?;
+    let payload_ext = normalize_image_ext(&payload_ext);
+
+    if let Some(rp) = rel_path {
+        let rel = safe_relative_path(&rp)?;
+        if !path_has_image_ext(&rel) {
+            return Err("不支持的图片类型（仅支持 png/jpg/jpeg/webp）".to_string());
+        }
+        let Some(rel_ext) = image_ext_from_path(&rel) else {
+            return Err("图片路径缺少后缀".to_string());
+        };
+        if rel_ext != payload_ext {
+            return Err("图片类型与目标后缀不一致".to_string());
+        }
+
+        let (_root_c, full) = resolve_image_path_in_scope(&app, &plugin_id, &scope, &rp, false)?;
+        if full.exists() && !overwrite {
+            return Err("图片已存在（overwrite=false）".to_string());
+        }
+        std::fs::write(&full, bytes).map_err(|e| format!("写入图片失败: {e}"))?;
+        return Ok(full.to_string_lossy().to_string());
     }
 
-    let dir = plugin_default_ref_images_dir(&app, &plugin_id);
-    ensure_writable_dir(&dir)?;
+    let root = resolve_plugin_images_root(&app, &plugin_id, &scope)?;
+    ensure_writable_dir(&root)?;
 
-    let root = std::fs::canonicalize(&dir).map_err(|e| format!("参考图库不可用: {e}"))?;
-    let full = std::fs::canonicalize(&input).map_err(|e| format!("图片路径无效: {e}"))?;
-    if !full.starts_with(&root) {
-        return Err("图片路径越界".to_string());
-    }
-    if !full.is_file() {
-        return Err("图片不存在".to_string());
-    }
-    if !path_has_image_ext(&full) {
-        return Err("不支持的图片类型".to_string());
-    }
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_millis(0))
+        .as_millis();
+    let filename = format!("image-{stamp}.{payload_ext}");
+    let full = root.join(filename);
 
-    let bytes = std::fs::read(&full).map_err(|e| format!("读取图片失败: {e}"))?;
-    if bytes.len() > 25 * 1024 * 1024 {
-        return Err("图片过大".to_string());
-    }
-    let mime = image_mime_by_ext(&full);
-    let b64 = general_purpose::STANDARD.encode(bytes);
-    Ok(format!("data:{mime};base64,{b64}"))
-}
-
-#[tauri::command]
-fn plugin_delete_ref_image(
-    app: tauri::AppHandle,
-    plugin_id: String,
-    path: String,
-) -> Result<(), String> {
-    if !is_safe_id(&plugin_id) {
-        return Err("pluginId 不合法".to_string());
-    }
-
-    let input = PathBuf::from(path.trim());
-    if input.as_os_str().is_empty() {
-        return Err("图片路径不能为空".to_string());
-    }
-
-    let dir = plugin_default_ref_images_dir(&app, &plugin_id);
-    ensure_writable_dir(&dir)?;
-
-    let root = std::fs::canonicalize(&dir).map_err(|e| format!("参考图库不可用: {e}"))?;
-    let full = std::fs::canonicalize(&input).map_err(|e| format!("图片路径无效: {e}"))?;
-    if !full.starts_with(&root) {
-        return Err("图片路径越界".to_string());
-    }
-    if !full.is_file() {
-        return Err("图片不存在".to_string());
-    }
-    if !path_has_image_ext(&full) {
-        return Err("不支持的图片类型".to_string());
-    }
-
-    std::fs::remove_file(&full).map_err(|e| format!("删除图片失败: {e}"))?;
-    Ok(())
+    std::fs::write(&full, bytes).map_err(|e| format!("写入图片失败: {e}"))?;
+    Ok(full.to_string_lossy().to_string())
 }
 
 fn image_mime_by_ext(path: &Path) -> &'static str {
@@ -2579,20 +2561,44 @@ fn image_mime_by_ext(path: &Path) -> &'static str {
     }
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginImagesListReq {
+    scope: String,
+    dir: Option<String>,
+}
+
 #[tauri::command]
-fn plugin_list_output_images(
+fn plugin_images_list(
     app: tauri::AppHandle,
     plugin_id: String,
+    req: PluginImagesListReq,
 ) -> Result<Vec<String>, String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
 
-    let out_dir = resolve_plugin_output_dir(&app, &plugin_id);
-    ensure_writable_dir(&out_dir)?;
+    let scope = req.scope.trim().to_string();
+    let root = resolve_plugin_images_root(&app, &plugin_id, &scope)?;
+    ensure_writable_dir(&root)?;
+    let root_c = std::fs::canonicalize(&root).map_err(|e| format!("图片目录不可用: {e}"))?;
+
+    let dir_rel = req.dir.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let dir = if let Some(dr) = dir_rel {
+        let rel = safe_relative_path(&dr)?;
+        let full = root.join(rel);
+        std::fs::create_dir_all(&full).map_err(|e| format!("创建目录失败: {e}"))?;
+        let full_c = std::fs::canonicalize(&full).map_err(|e| format!("目录路径无效: {e}"))?;
+        if !full_c.starts_with(&root_c) {
+            return Err("目录路径越界".to_string());
+        }
+        full_c
+    } else {
+        root_c.clone()
+    };
 
     let mut items: Vec<(SystemTime, PathBuf)> = Vec::new();
-    let rd = std::fs::read_dir(&out_dir).map_err(|e| format!("读取输出目录失败: {e}"))?;
+    let rd = std::fs::read_dir(&dir).map_err(|e| format!("读取目录失败: {e}"))?;
     for entry in rd {
         let entry = entry.map_err(|e| format!("读取目录项失败: {e}"))?;
         let path = entry.path();
@@ -2613,76 +2619,89 @@ fn plugin_list_output_images(
         .collect())
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginImagesReadReq {
+    scope: String,
+    path: String,
+}
+
 #[tauri::command]
-fn plugin_read_output_image(
+fn plugin_images_read(
     app: tauri::AppHandle,
     plugin_id: String,
-    path: String,
+    req: PluginImagesReadReq,
 ) -> Result<String, String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
 
-    let input = PathBuf::from(path.trim());
-    if input.as_os_str().is_empty() {
-        return Err("图片路径不能为空".to_string());
-    }
+    let scope = req.scope.trim().to_string();
+    let (_root_c, full_c) = resolve_image_path_in_scope(&app, &plugin_id, &scope, &req.path, true)?;
 
-    let out_dir = resolve_plugin_output_dir(&app, &plugin_id);
-    ensure_writable_dir(&out_dir)?;
-
-    let root = std::fs::canonicalize(&out_dir).map_err(|e| format!("输出目录不可用: {e}"))?;
-    let full = std::fs::canonicalize(&input).map_err(|e| format!("图片路径无效: {e}"))?;
-    if !full.starts_with(&root) {
-        return Err("图片路径越界".to_string());
-    }
-    if !full.is_file() {
+    if !full_c.is_file() {
         return Err("图片不存在".to_string());
     }
-    if !path_has_image_ext(&full) {
+    if !path_has_image_ext(&full_c) {
         return Err("不支持的图片类型".to_string());
     }
 
-    let bytes = std::fs::read(&full).map_err(|e| format!("读取图片失败: {e}"))?;
+    let bytes = std::fs::read(&full_c).map_err(|e| format!("读取图片失败: {e}"))?;
     if bytes.len() > 25 * 1024 * 1024 {
         return Err("图片过大".to_string());
     }
-    let mime = image_mime_by_ext(&full);
+    let mime = image_mime_by_ext(&full_c);
     let b64 = general_purpose::STANDARD.encode(bytes);
     Ok(format!("data:{mime};base64,{b64}"))
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginImagesDeleteReq {
+    scope: String,
+    path: String,
+}
+
 #[tauri::command]
-fn plugin_delete_output_image(
+fn plugin_images_delete(
     app: tauri::AppHandle,
     plugin_id: String,
-    path: String,
+    req: PluginImagesDeleteReq,
 ) -> Result<(), String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
 
-    let input = PathBuf::from(path.trim());
-    if input.as_os_str().is_empty() {
-        return Err("图片路径不能为空".to_string());
-    }
+    let scope = req.scope.trim().to_string();
+    let (root_c, full_c) = resolve_image_path_in_scope(&app, &plugin_id, &scope, &req.path, true)?;
 
-    let out_dir = resolve_plugin_output_dir(&app, &plugin_id);
-    ensure_writable_dir(&out_dir)?;
-
-    let root = std::fs::canonicalize(&out_dir).map_err(|e| format!("输出目录不可用: {e}"))?;
-    let full = std::fs::canonicalize(&input).map_err(|e| format!("图片路径无效: {e}"))?;
-    if !full.starts_with(&root) {
-        return Err("图片路径越界".to_string());
-    }
-    if !full.is_file() {
+    if !full_c.is_file() {
         return Err("图片不存在".to_string());
     }
-    if !path_has_image_ext(&full) {
+    if !path_has_image_ext(&full_c) {
         return Err("不支持的图片类型".to_string());
     }
 
-    std::fs::remove_file(&full).map_err(|e| format!("删除图片失败: {e}"))?;
+    std::fs::remove_file(&full_c).map_err(|e| format!("删除图片失败: {e}"))?;
+
+    // 仅清理 plugin 私有 data scope 产生的空目录；output scope 不做清理（避免误删用户目录结构）。
+    if scope == "data" {
+        let mut cur = full_c.parent().map(|p| p.to_path_buf());
+        while let Some(dir) = cur {
+            if dir == root_c {
+                break;
+            }
+            let Ok(mut rd) = std::fs::read_dir(&dir) else {
+                break;
+            };
+            if rd.next().is_some() {
+                break;
+            }
+            let _ = std::fs::remove_dir(&dir);
+            cur = dir.parent().map(|p| p.to_path_buf());
+        }
+    }
+
     Ok(())
 }
 
@@ -4986,14 +5005,10 @@ fn main() {
             plugin_pick_dir,
             plugin_open_output_dir,
             plugin_open_dir,
-            plugin_save_image_base64,
-            plugin_save_ref_image_base64,
-            plugin_list_output_images,
-            plugin_read_output_image,
-            plugin_delete_output_image,
-            plugin_list_ref_images,
-            plugin_read_ref_image,
-            plugin_delete_ref_image,
+            plugin_images_write_base64,
+            plugin_images_list,
+            plugin_images_read,
+            plugin_images_delete,
             plugin_pick_images,
             task_create,
             task_get,

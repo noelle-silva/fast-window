@@ -19,14 +19,10 @@ export type PluginMethodName =
   | 'files.pickDir'
   | 'files.openOutputDir'
   | 'files.openDir'
-  | 'files.saveImageBase64'
-  | 'files.saveRefImageBase64'
-  | 'files.listOutputImages'
-  | 'files.readOutputImage'
-  | 'files.deleteOutputImage'
-  | 'files.listRefImages'
-  | 'files.readRefImage'
-  | 'files.deleteRefImage'
+  | 'files.images.writeBase64'
+  | 'files.images.read'
+  | 'files.images.list'
+  | 'files.images.delete'
   | 'files.pickImages'
   | 'ui.showToast'
   | 'ui.openUrl'
@@ -93,31 +89,21 @@ const methods: Record<PluginMethodName, MethodDef> = {
     capability: 'files.openDir',
     handler: (ctx, args) => ctx.api.files.openDir(String(args?.[0] ?? '')),
   },
-  'files.saveImageBase64': {
-    capability: 'files.saveImageBase64',
-    handler: (ctx, args) => ctx.api.files.saveImageBase64(String(args?.[0] ?? '')),
+  'files.images.writeBase64': {
+    capability: 'files.images.writeBase64',
+    handler: (ctx, args) => ctx.api.files.images.writeBase64((args?.[0] as any) ?? null),
   },
-  'files.saveRefImageBase64': {
-    capability: 'files.saveRefImageBase64',
-    handler: (ctx, args) => ctx.api.files.saveRefImageBase64(String(args?.[0] ?? '')),
+  'files.images.read': {
+    capability: 'files.images.read',
+    handler: (ctx, args) => ctx.api.files.images.read((args?.[0] as any) ?? null),
   },
-  'files.listOutputImages': { capability: 'files.listOutputImages', handler: ctx => ctx.api.files.listOutputImages() },
-  'files.readOutputImage': {
-    capability: 'files.readOutputImage',
-    handler: (ctx, args) => ctx.api.files.readOutputImage(String(args?.[0] ?? '')),
+  'files.images.list': {
+    capability: 'files.images.list',
+    handler: (ctx, args) => ctx.api.files.images.list((args?.[0] as any) ?? null),
   },
-  'files.deleteOutputImage': {
-    capability: 'files.deleteOutputImage',
-    handler: (ctx, args) => ctx.api.files.deleteOutputImage(String(args?.[0] ?? '')),
-  },
-  'files.listRefImages': { capability: 'files.listRefImages', handler: ctx => ctx.api.files.listRefImages() },
-  'files.readRefImage': {
-    capability: 'files.readRefImage',
-    handler: (ctx, args) => ctx.api.files.readRefImage(String(args?.[0] ?? '')),
-  },
-  'files.deleteRefImage': {
-    capability: 'files.deleteRefImage',
-    handler: (ctx, args) => ctx.api.files.deleteRefImage(String(args?.[0] ?? '')),
+  'files.images.delete': {
+    capability: 'files.images.delete',
+    handler: (ctx, args) => ctx.api.files.images.delete((args?.[0] as any) ?? null),
   },
   'files.pickImages': {
     capability: 'files.pickImages',

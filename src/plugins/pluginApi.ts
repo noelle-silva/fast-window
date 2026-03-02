@@ -31,6 +31,33 @@ export type PluginPickedImage = {
   dataUrl: string
 }
 
+export type PluginImageScope = 'data' | 'output'
+
+export type PluginImagesWriteBase64Request = {
+  scope: PluginImageScope
+  dataUrlOrBase64: string
+  // 相对 scope 根目录的路径；允许子目录（会自动创建）。
+  relPath?: string | null
+  overwrite?: boolean | null
+}
+
+export type PluginImagesReadRequest = {
+  scope: PluginImageScope
+  // 允许绝对路径（会做越界检查）或相对路径（相对 scope 根目录）
+  path: string
+}
+
+export type PluginImagesListRequest = {
+  scope: PluginImageScope
+  // 相对 scope 根目录的子目录；为空表示根目录（仅列出该目录下的文件，不递归）
+  dir?: string | null
+}
+
+export type PluginImagesDeleteRequest = {
+  scope: PluginImageScope
+  path: string
+}
+
 // 插件 API，暴露给插件使用
 export const fastWindowApi = {
   // 剪贴板操作
@@ -288,14 +315,12 @@ export type FastWindowApi = {
     pickDir: () => Promise<string | null>
     openOutputDir: () => Promise<void>
     openDir: (dir: string) => Promise<void>
-    saveImageBase64: (dataUrlOrBase64: string) => Promise<string>
-    saveRefImageBase64: (dataUrlOrBase64: string) => Promise<string>
-    listOutputImages: () => Promise<string[]>
-    readOutputImage: (path: string) => Promise<string>
-    deleteOutputImage: (path: string) => Promise<void>
-    listRefImages: () => Promise<string[]>
-    readRefImage: (path: string) => Promise<string>
-    deleteRefImage: (path: string) => Promise<void>
+    images: {
+      writeBase64: (req: PluginImagesWriteBase64Request) => Promise<string>
+      read: (req: PluginImagesReadRequest) => Promise<string>
+      list: (req: PluginImagesListRequest) => Promise<string[]>
+      delete: (req: PluginImagesDeleteRequest) => Promise<void>
+    }
     pickImages: (maxCount?: number | null) => Promise<PluginPickedImage[]>
   }
 }
@@ -407,29 +432,19 @@ export function createPluginContext(pluginId: string, requires: PluginCapability
       openDir: async (dir: string) => {
         await invoke('plugin_open_dir', { pluginId, dir: String(dir ?? '') })
       },
-      saveImageBase64: async (dataUrlOrBase64: string) => {
-        return invoke<string>('plugin_save_image_base64', { pluginId, data: dataUrlOrBase64 })
-      },
-      saveRefImageBase64: async (dataUrlOrBase64: string) => {
-        return invoke<string>('plugin_save_ref_image_base64', { pluginId, data: dataUrlOrBase64 })
-      },
-      listOutputImages: async () => {
-        return invoke<string[]>('plugin_list_output_images', { pluginId })
-      },
-      readOutputImage: async (path: string) => {
-        return invoke<string>('plugin_read_output_image', { pluginId, path })
-      },
-      deleteOutputImage: async (path: string) => {
-        await invoke('plugin_delete_output_image', { pluginId, path })
-      },
-      listRefImages: async () => {
-        return invoke<string[]>('plugin_list_ref_images', { pluginId })
-      },
-      readRefImage: async (path: string) => {
-        return invoke<string>('plugin_read_ref_image', { pluginId, path })
-      },
-      deleteRefImage: async (path: string) => {
-        await invoke('plugin_delete_ref_image', { pluginId, path })
+      images: {
+        writeBase64: async (req: PluginImagesWriteBase64Request) => {
+          return invoke<string>('plugin_images_write_base64', { pluginId, req })
+        },
+        read: async (req: PluginImagesReadRequest) => {
+          return invoke<string>('plugin_images_read', { pluginId, req })
+        },
+        list: async (req: PluginImagesListRequest) => {
+          return invoke<string[]>('plugin_images_list', { pluginId, req })
+        },
+        delete: async (req: PluginImagesDeleteRequest) => {
+          await invoke('plugin_images_delete', { pluginId, req })
+        },
       },
       pickImages: async (maxCount?: number | null) => {
         return invoke<PluginPickedImage[]>('plugin_pick_images', { pluginId, maxCount: maxCount ?? null })
