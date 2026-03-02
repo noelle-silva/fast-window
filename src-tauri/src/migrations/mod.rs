@@ -1,17 +1,9 @@
 use serde_json::Value;
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::path::PathBuf;
 
 mod m001_flat_json_to_storage_json;
 mod m002_storage_json_to_kv;
-
-fn stamp_ms() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_millis(0))
-        .as_millis()
-}
 
 fn migrations_state_path(app: &tauri::AppHandle) -> PathBuf {
     crate::app_data_dir(app)
@@ -39,27 +31,6 @@ fn write_applied(app: &tauri::AppHandle, applied: &BTreeSet<String>) -> Result<(
     let mut obj = serde_json::Map::new();
     obj.insert("applied".to_string(), Value::Array(arr));
     crate::write_json_value(&path, &Value::Object(obj))
-}
-
-fn backup_root(app: &tauri::AppHandle, migration_id: &str, stamp: u128) -> PathBuf {
-    crate::app_data_dir(app)
-        .join(".backup")
-        .join("migrations")
-        .join(migration_id)
-        .join(format!("{stamp}"))
-}
-
-fn ensure_parent(path: &Path) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    Ok(())
-}
-
-fn backup_file(src: &Path, dst: &Path) -> std::io::Result<()> {
-    ensure_parent(dst)?;
-    std::fs::copy(src, dst)?;
-    Ok(())
 }
 
 fn list_plugin_ids_from_data_dir(app: &tauri::AppHandle) -> Vec<String> {
@@ -131,4 +102,3 @@ pub fn run_all(app: &tauri::AppHandle) {
         m002_storage_json_to_kv::run,
     );
 }
-
