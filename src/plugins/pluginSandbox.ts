@@ -162,6 +162,7 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
       remove: (key) => call('storage.remove', [key]),
       getAll: () => call('storage.getAll', []),
       setAll: (data) => call('storage.setAll', [data]),
+      migrate: () => call('storage.migrate', []),
     },
     files: {
       getOutputDir: () => call('files.getOutputDir', []),

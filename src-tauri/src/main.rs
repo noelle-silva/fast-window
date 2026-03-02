@@ -24,6 +24,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 mod migrations;
 
 const DEFAULT_WAKE_SHORTCUT: &str = "control+alt+Space";
+const APP_STORAGE_ID: &str = "__app";
 const APP_CONFIG_FILE: &str = "app.json";
 const WAKE_SHORTCUT_KEY: &str = "wakeShortcut";
 const AUTO_START_KEY: &str = "autoStart";
@@ -1658,7 +1659,37 @@ fn app_plugins_dir(app: &tauri::AppHandle) -> PathBuf {
 }
 
 fn app_config_path(app: &tauri::AppHandle) -> PathBuf {
+    app_data_dir(app).join(APP_STORAGE_ID).join(APP_CONFIG_FILE)
+}
+
+fn app_config_legacy_path(app: &tauri::AppHandle) -> PathBuf {
     app_data_dir(app).join(APP_CONFIG_FILE)
+}
+
+fn read_json_map_opt(path: &Path) -> Option<Map<String, Value>> {
+    if !path.is_file() {
+        return None;
+    }
+    let content = std::fs::read_to_string(path).ok()?;
+    let v = serde_json::from_str::<Value>(&content).ok()?;
+    match v {
+        Value::Object(map) => Some(map),
+        _ => None,
+    }
+}
+
+fn read_app_config_map(app: &tauri::AppHandle) -> Map<String, Value> {
+    let p = app_config_path(app);
+    if let Some(map) = read_json_map_opt(&p) {
+        return map;
+    }
+    let legacy = app_config_legacy_path(app);
+    read_json_map_opt(&legacy).unwrap_or_else(Map::new)
+}
+
+fn write_app_config_map(app: &tauri::AppHandle, map: &Map<String, Value>) -> Result<(), String> {
+    let p = app_config_path(app);
+    write_json_map(&p, map)
 }
 
 fn open_dir_in_file_manager(dir: &Path) -> Result<(), String> {
@@ -1706,8 +1737,7 @@ fn plugin_default_ref_images_dir(app: &tauri::AppHandle, plugin_id: &str) -> Pat
 }
 
 fn read_plugin_output_dir_from_config(app: &tauri::AppHandle, plugin_id: &str) -> Option<PathBuf> {
-    let cfg_path = app_config_path(app);
-    let map = read_json_map(&cfg_path);
+    let map = read_app_config_map(app);
     let Some(Value::Object(obj)) = map.get(PLUGIN_OUTPUT_DIRS_KEY) else {
         return None;
     };
@@ -1726,8 +1756,7 @@ fn write_plugin_output_dir_to_config(
     plugin_id: &str,
     dir: &Path,
 ) -> Result<(), String> {
-    let cfg_path = app_config_path(app);
-    let mut map = read_json_map(&cfg_path);
+    let mut map = read_app_config_map(app);
 
     let v = map
         .entry(PLUGIN_OUTPUT_DIRS_KEY.to_string())
@@ -1741,7 +1770,7 @@ fn write_plugin_output_dir_to_config(
         Value::String(dir.to_string_lossy().to_string()),
     );
 
-    write_json_map(&cfg_path, &map)
+    write_app_config_map(app, &map)
 }
 
 fn ensure_writable_dir(dir: &Path) -> Result<(), String> {
@@ -1763,19 +1792,6 @@ fn resolve_plugin_output_dir(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf
         }
     }
     plugin_default_output_dir(app, plugin_id)
-}
-
-fn read_json_map(path: &Path) -> Map<String, Value> {
-    let Ok(content) = std::fs::read_to_string(path) else {
-        return Map::new();
-    };
-    let Ok(v) = serde_json::from_str::<Value>(&content) else {
-        return Map::new();
-    };
-    match v {
-        Value::Object(map) => map,
-        _ => Map::new(),
-    }
 }
 
 fn write_json_map(path: &Path, map: &Map<String, Value>) -> Result<(), String> {
@@ -2086,8 +2102,7 @@ fn validate_webview_settings_for_save(
 }
 
 fn load_webview_settings(app: &tauri::AppHandle) -> WebviewSettings {
-    let cfg_path = app_config_path(app);
-    let map = read_json_map(&cfg_path);
+    let map = read_app_config_map(app);
     let v = map
         .get(WEBVIEW_SETTINGS_KEY)
         .cloned()
@@ -2100,14 +2115,13 @@ fn write_webview_settings(
     app: &tauri::AppHandle,
     settings: WebviewSettings,
 ) -> Result<WebviewSettings, String> {
-    let cfg_path = app_config_path(app);
-    let mut map = read_json_map(&cfg_path);
+    let mut map = read_app_config_map(app);
     let normalized = validate_webview_settings_for_save(settings)?;
     map.insert(
         WEBVIEW_SETTINGS_KEY.to_string(),
         serde_json::to_value(normalized.clone()).map_err(|e| format!("序列化配置失败: {e}"))?,
     );
-    write_json_map(&cfg_path, &map)?;
+    write_app_config_map(app, &map)?;
     Ok(normalized)
 }
 
@@ -2788,8 +2802,7 @@ struct AutoStartStatus {
 }
 
 fn load_auto_start_pref(app: &tauri::AppHandle) -> Option<bool> {
-    let cfg_path = app_config_path(app);
-    let map = read_json_map(&cfg_path);
+    let map = read_app_config_map(app);
 
     if map.contains_key(AUTO_START_KEY) {
         return map.get(AUTO_START_KEY).and_then(|v| v.as_bool());
@@ -2918,7 +2931,7 @@ mod auto_start {
 
 fn load_wake_shortcut(app: &tauri::AppHandle) -> (Shortcut, String) {
     let cfg_path = app_config_path(app);
-    let map = read_json_map(&cfg_path);
+    let map = read_app_config_map(app);
 
     let raw = map
         .get(WAKE_SHORTCUT_KEY)
@@ -3807,8 +3820,15 @@ fn storage_file_path(app: &tauri::AppHandle, plugin_id: &str) -> Result<PathBuf,
     }
 
     // 统一：每个插件的数据都放在 data/<pluginId>/ 目录内，避免 data 根目录杂乱。
-    // 迁移逻辑统一在启动阶段执行（见 migrations 模块）。
+    // legacy：历史遗留存储文件（对象 map）。新版存储使用 storage/<key>.json。
     Ok(app_data_dir(app).join(plugin_id).join("storage.json"))
+}
+
+fn storage_flat_legacy_file_path(app: &tauri::AppHandle, plugin_id: &str) -> Result<PathBuf, String> {
+    if !is_safe_id(plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    Ok(app_data_dir(app).join(format!("{plugin_id}.json")))
 }
 
 fn storage_kv_dir_path(app: &tauri::AppHandle, plugin_id: &str) -> Result<PathBuf, String> {
@@ -3839,6 +3859,82 @@ fn storage_value_path(app: &tauri::AppHandle, plugin_id: &str, key: &str) -> Res
         .unwrap_or_else(|| "value".to_string());
     full.set_file_name(format!("{name}.json"));
     Ok(full)
+}
+
+fn read_json_object_map(path: &Path) -> Option<Map<String, Value>> {
+    let v = read_json_value(path).ok()?;
+    match v {
+        Value::Object(map) => Some(map),
+        _ => None,
+    }
+}
+
+fn read_legacy_storage_value(app: &tauri::AppHandle, plugin_id: &str, key: &str) -> Option<Value> {
+    let legacy_storage_json = storage_file_path(app, plugin_id).ok();
+    if let Some(p) = legacy_storage_json.as_ref().filter(|p| p.is_file()) {
+        if let Some(map) = read_json_object_map(p) {
+            if let Some(v) = map.get(key) {
+                return Some(v.clone());
+            }
+        }
+    }
+
+    let legacy_flat = storage_flat_legacy_file_path(app, plugin_id).ok();
+    if let Some(p) = legacy_flat.as_ref().filter(|p| p.is_file()) {
+        if let Some(map) = read_json_object_map(p) {
+            if let Some(v) = map.get(key) {
+                return Some(v.clone());
+            }
+        }
+    }
+
+    None
+}
+
+fn read_legacy_storage_all(app: &tauri::AppHandle, plugin_id: &str) -> Vec<Map<String, Value>> {
+    let mut out: Vec<Map<String, Value>> = Vec::new();
+
+    if let Ok(p) = storage_file_path(app, plugin_id) {
+        if p.is_file() {
+            if let Some(map) = read_json_object_map(&p) {
+                out.push(map);
+            }
+        }
+    }
+
+    if let Ok(p) = storage_flat_legacy_file_path(app, plugin_id) {
+        if p.is_file() {
+            if let Some(map) = read_json_object_map(&p) {
+                out.push(map);
+            }
+        }
+    }
+
+    out
+}
+
+fn remove_key_from_legacy_storage(app: &tauri::AppHandle, plugin_id: &str, key: &str) {
+    let paths = [
+        storage_file_path(app, plugin_id).ok(),
+        storage_flat_legacy_file_path(app, plugin_id).ok(),
+    ];
+
+    for p in paths.into_iter().flatten() {
+        if !p.is_file() {
+            continue;
+        }
+        let Some(mut map) = read_json_object_map(&p) else {
+            continue;
+        };
+        if map.remove(key).is_none() {
+            continue;
+        }
+        if map.is_empty() {
+            let _ = std::fs::remove_file(&p);
+            continue;
+        }
+        let _ = write_json_value(&p, &Value::Object(map));
+    }
 }
 
 fn storage_walk_json_files(root: &Path) -> Vec<PathBuf> {
@@ -3910,7 +4006,7 @@ fn storage_get(
 
     let vp = storage_value_path(&app, &plugin_id, &key)?;
     if !vp.is_file() {
-        return Ok(None);
+        return Ok(read_legacy_storage_value(&app, &plugin_id, &key));
     }
     read_json_value(&vp).map(Some)
 }
@@ -3946,6 +4042,9 @@ fn storage_remove(app: tauri::AppHandle, plugin_id: String, key: String) -> Resu
         let _ = std::fs::remove_file(&vp);
         storage_cleanup_empty_dirs(&storage_root, &vp);
     }
+
+    // 兼容 legacy：允许移除旧 map 中的 key，避免“删不掉”。
+    remove_key_from_legacy_storage(&app, &plugin_id, &key);
     Ok(())
 }
 
@@ -3965,6 +4064,16 @@ fn storage_get_all(app: tauri::AppHandle, plugin_id: String) -> Result<Map<Strin
         };
         let v = read_json_value(&p)?;
         out.insert(key, v);
+    }
+
+    // 兼容 legacy：只补齐“新存储中不存在的 key”。
+    for legacy in read_legacy_storage_all(&app, &plugin_id) {
+        for (k, v) in legacy {
+            if out.contains_key(&k) {
+                continue;
+            }
+            out.insert(k, v);
+        }
     }
 
     Ok(out)
@@ -3993,7 +4102,20 @@ fn storage_set_all(
         write_json_value(&vp, &v)?;
     }
 
+    // setAll 是“权威覆盖”：写入成功后清理 legacy 文件，避免后续 getAll 混入旧数据。
+    if let Ok(p) = storage_file_path(&app, &plugin_id) {
+        let _ = std::fs::remove_file(&p);
+    }
+    if let Ok(p) = storage_flat_legacy_file_path(&app, &plugin_id) {
+        let _ = std::fs::remove_file(&p);
+    }
+
     Ok(())
+}
+
+#[tauri::command]
+fn storage_migrate(app: tauri::AppHandle, plugin_id: String) -> Result<bool, String> {
+    migrations::migrate_plugin_storage(&app, &plugin_id)
 }
 
 const APP_ICON_OVERRIDES_KEY: &str = "pluginIconOverrides";
@@ -4451,7 +4573,7 @@ fn set_wallpaper_image(app: tauri::AppHandle, data_url: String) -> Result<Wallpa
         return Err("图片过大（>12MB）".to_string());
     }
 
-    let rel_dir = "wallpaper";
+    let rel_dir = "__app/wallpaper";
     let mut cfg = read_wallpaper_config(&app)?;
     let dir = app_data_dir(&app).join(rel_dir);
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建目录失败: {e}"))?;
@@ -4742,13 +4864,12 @@ fn set_wake_shortcut(app: tauri::AppHandle, shortcut: String) -> Result<String, 
     let was_paused = state.paused.lock().map(|g| *g).unwrap_or(false);
 
     if prev.id() == next.id() {
-        let cfg_path = app_config_path(&app);
-        let mut map = read_json_map(&cfg_path);
+        let mut map = read_app_config_map(&app);
         map.insert(
             WAKE_SHORTCUT_KEY.to_string(),
             Value::String(normalized.clone()),
         );
-        write_json_map(&cfg_path, &map)?;
+        write_app_config_map(&app, &map)?;
         *guard = next;
 
         if was_paused {
@@ -4778,13 +4899,12 @@ fn set_wake_shortcut(app: tauri::AppHandle, shortcut: String) -> Result<String, 
         })
         .map_err(|e| format!("注册全局快捷键失败: {e}"))?;
 
-    let cfg_path = app_config_path(&app);
-    let mut map = read_json_map(&cfg_path);
+    let mut map = read_app_config_map(&app);
     map.insert(
         WAKE_SHORTCUT_KEY.to_string(),
         Value::String(normalized.clone()),
     );
-    if let Err(e) = write_json_map(&cfg_path, &map) {
+    if let Err(e) = write_app_config_map(&app, &map) {
         let _ = app.global_shortcut().unregister(next);
         return Err(e);
     }
@@ -4877,14 +4997,13 @@ fn set_auto_start(app: tauri::AppHandle, enabled: bool) -> Result<AutoStartStatu
 
     #[cfg(target_os = "windows")]
     {
-        let cfg_path = app_config_path(&app);
-        let mut map = read_json_map(&cfg_path);
+        let mut map = read_app_config_map(&app);
 
         let prev_registry = auto_start::is_enabled(AUTO_START_REG_VALUE);
         let next_registry = auto_start::set_enabled(AUTO_START_REG_VALUE, enabled)?;
 
         map.insert(AUTO_START_KEY.to_string(), Value::Bool(enabled));
-        if let Err(e) = write_json_map(&cfg_path, &map) {
+        if let Err(e) = write_app_config_map(&app, &map) {
             let _ = auto_start::set_enabled(AUTO_START_REG_VALUE, prev_registry);
             return Err(e);
         }
@@ -5000,6 +5119,7 @@ fn main() {
             storage_remove,
             storage_get_all,
             storage_set_all,
+            storage_migrate,
             get_plugin_icon_overrides,
             set_plugin_icon_override,
             remove_plugin_icon_override,
@@ -5030,8 +5150,9 @@ fn main() {
             app.manage(Arc::new(HttpStreamManagerState::default()));
             app.manage(BrowserWindowState::default());
 
-            // 数据迁移：在 UI 读写 storage 前完成（可重复执行，失败不删除旧数据）。
-            migrations::run_all(app.handle());
+            // 宿主数据迁移：仅迁移宿主私有存储（__app）。插件数据由插件自行调用 storage.migrate 处理。
+            let _ = migrations::migrate_plugin_storage(app.handle(), APP_STORAGE_ID);
+            let _ = migrations::migrate_host_files_into_app_dir(app.handle());
 
             // Release：把 MSI 随包的内置插件“种子”拷到可写的插件目录（仅拷缺失项，不覆盖用户已有插件）。
             #[cfg(not(debug_assertions))]

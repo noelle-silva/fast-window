@@ -14,6 +14,7 @@ export type PluginMethodName =
   | 'storage.remove'
   | 'storage.getAll'
   | 'storage.setAll'
+  | 'storage.migrate'
   | 'files.getOutputDir'
   | 'files.pickOutputDir'
   | 'files.pickDir'
@@ -79,6 +80,11 @@ const methods: Record<PluginMethodName, MethodDef> = {
   'storage.setAll': {
     capability: 'storage.setAll',
     handler: (ctx, args) => ctx.api.storage.setAll((args?.[0] as any) ?? {}),
+  },
+  'storage.migrate': {
+    // 迁移会写盘：要求具备写入能力即可。
+    capability: 'storage.set',
+    handler: ctx => ctx.api.storage.migrate(),
   },
 
   'files.getOutputDir': { capability: 'files.getOutputDir', handler: ctx => ctx.api.files.getOutputDir() },

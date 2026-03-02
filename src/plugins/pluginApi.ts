@@ -172,6 +172,15 @@ export const fastWindowApi = {
         console.error('Storage setAll error:', e)
       }
     },
+
+    migrate: async (pluginId: string) => {
+      try {
+        return await invoke<boolean>('storage_migrate', { pluginId })
+      } catch (e) {
+        console.error('Storage migrate error:', e)
+        return false
+      }
+    },
   },
 
   // UI 相关
@@ -268,6 +277,7 @@ export type FastWindowApi = {
     remove: (key: string) => Promise<void>
     getAll: () => Promise<Record<string, unknown>>
     setAll: (data: Record<string, unknown>) => Promise<void>
+    migrate: () => Promise<boolean>
   }
   ui: typeof fastWindowApi.ui & {
     back?: () => Promise<void> | void
@@ -363,6 +373,9 @@ export function createPluginContext(pluginId: string, requires: PluginCapability
       },
       setAll: async (data: Record<string, unknown>) => {
         return fastWindowApi.storage.setAll(pluginId, data)
+      },
+      migrate: async () => {
+        return fastWindowApi.storage.migrate(pluginId)
       },
     },
     ui: {
