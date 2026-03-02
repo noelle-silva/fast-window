@@ -177,6 +177,39 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
 - 插件存储迁移（可选）：从旧版升级时，插件历史数据可能还在 `data/<pluginId>.json` 或 `data/<pluginId>/storage.json`。插件可调用 `await fastWindow.storage.migrate()` 将其迁移到新布局（幂等；失败不会删除旧文件）。
 - 开发模式（debug）：会把仓库根目录的 `plugins/` 同步到数据根目录的 `plugins/`（方便开发）；`data/` 只在目标目录为空时迁移一次。
 
+## 插件数据迁移标准（建议）
+
+这里的“迁移”分两层：
+
+1) **存储布局迁移（宿主提供能力）**：把旧文件布局迁到新的 `storage/<key>.json` 布局。插件在启动时可先调用：
+
+```js
+await fastWindow.storage.migrate()
+```
+
+2) **业务 schema 迁移（插件自己负责）**：插件自己决定数据结构的版本号与迁移链，并把“当前迁移到哪一步”记录在插件自己的 storage 里。
+
+推荐约定：
+
+- 状态 key：`__meta/schema`
+- 状态结构：`{ schemaVersion: number, updatedAtMs: number }`
+- 迁移规则：每个迁移函数只负责 **v -> v+1**，且应尽量幂等（可重复执行）。
+
+宿主已内置一个可选 helper：
+
+```js
+await fastWindow.migrations.run({
+  latestVersion: 3,
+  // 可选：默认 '__meta/schema'
+  // stateKey: '__meta/schema',
+  migrations: {
+    0: async (api) => { /* v0 -> v1 */ },
+    1: async (api) => { /* v1 -> v2 */ },
+    2: async (api) => { /* v2 -> v3 */ },
+  },
+})
+```
+
 ## Legacy（已禁用）
 
 `ui.type="react"`（同 WebView eval 执行）属于不安全/强耦合路径，当前宿主已拒绝加载。

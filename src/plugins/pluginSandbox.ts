@@ -124,6 +124,32 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
     });
   }
 
+  async function migrationsRun(spec) {
+    const latest = Math.max(0, Math.floor(Number(spec && spec.latestVersion)));
+    const stateKey = String((spec && spec.stateKey) || '__meta/schema');
+    const steps = (spec && spec.migrations) || {};
+
+    // 先把“旧文件布局”迁到新布局（幂等）。失败也不阻塞：后续 get/getAll 仍有 legacy 兼容兜底。
+    try { await call('storage.migrate', []); } catch {}
+
+    let state = null;
+    try { state = await call('storage.get', [stateKey]); } catch {}
+    let cur = 0;
+    if (state && typeof state === 'object') {
+      const v = Number(state.schemaVersion);
+      if (Number.isFinite(v)) cur = Math.max(0, Math.floor(v));
+    }
+
+    for (let v = cur; v < latest; v++) {
+      const fn = steps[v];
+      if (typeof fn !== 'function') throw new Error('Missing migration for version ' + v);
+      await fn(window.fastWindow);
+      await call('storage.set', [stateKey, { schemaVersion: v + 1, updatedAtMs: Date.now() }]);
+    }
+
+    return { fromVersion: cur, toVersion: latest };
+  }
+
   window.addEventListener('message', (e) => {
     const msg = e && e.data;
     if (msg && msg.__fastWindowStream === true) {
@@ -163,6 +189,9 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
       getAll: () => call('storage.getAll', []),
       setAll: (data) => call('storage.setAll', [data]),
       migrate: () => call('storage.migrate', []),
+    },
+    migrations: {
+      run: (spec) => migrationsRun(spec),
     },
     files: {
       getOutputDir: () => call('files.getOutputDir', []),
