@@ -21,6 +21,8 @@ use tauri::{
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
+mod migrations;
+
 const DEFAULT_WAKE_SHORTCUT: &str = "control+alt+Space";
 const APP_CONFIG_FILE: &str = "app.json";
 const WAKE_SHORTCUT_KEY: &str = "wakeShortcut";
@@ -3469,11 +3471,10 @@ fn get_plugins_dir(app: tauri::AppHandle) -> String {
 }
 
 #[tauri::command]
-fn get_data_dir(app: tauri::AppHandle) -> String {
+ fn get_data_dir(app: tauri::AppHandle) -> String {
     // 统一使用 App 本地数据目录（避免 cwd 漂移）
     let data_dir = app_data_dir(&app);
     let _ = std::fs::create_dir_all(&data_dir);
-    // storage 仅保留新布局，不做旧数据迁移
 
     // 开发模式：仅在目标目录为空时，把仓库里的 data 迁移一份过来（不覆盖用户数据）
     #[cfg(debug_assertions)]
@@ -3806,23 +3807,8 @@ fn storage_file_path(app: &tauri::AppHandle, plugin_id: &str) -> Result<PathBuf,
     }
 
     // 统一：每个插件的数据都放在 data/<pluginId>/ 目录内，避免 data 根目录杂乱。
-    // 兼容迁移：旧版使用 data/<pluginId>.json
-    let new_path = app_data_dir(app).join(plugin_id).join("storage.json");
-    let old_path = app_data_dir(app).join(format!("{plugin_id}.json"));
-
-    if !new_path.is_file() && old_path.is_file() {
-        if let Some(parent) = new_path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("创建插件数据目录失败: {e}"))?;
-        }
-        if let Err(e) = std::fs::rename(&old_path, &new_path) {
-            // Windows 上遇到占用等情况，rename 可能失败；退回到 copy + remove。
-            std::fs::copy(&old_path, &new_path)
-                .map_err(|copy_e| format!("迁移插件数据失败: {e}; copy 失败: {copy_e}"))?;
-            let _ = std::fs::remove_file(&old_path);
-        }
-    }
-
-    Ok(new_path)
+    // 迁移逻辑统一在启动阶段执行（见 migrations 模块）。
+    Ok(app_data_dir(app).join(plugin_id).join("storage.json"))
 }
 
 fn storage_kv_dir_path(app: &tauri::AppHandle, plugin_id: &str) -> Result<PathBuf, String> {
@@ -4131,9 +4117,16 @@ fn clamp_f32(v: f32, min: f32, max: f32) -> f32 {
 }
 
 fn read_wallpaper_config(app: &tauri::AppHandle) -> Result<WallpaperConfig, String> {
-    let path = storage_file_path(app, "__app")?;
-    let map = read_json_map(&path);
-    let Some(Value::Object(obj)) = map.get(WALLPAPER_SETTINGS_KEY) else {
+    let vp = storage_value_path(app, "__app", WALLPAPER_SETTINGS_KEY)?;
+    let obj = if vp.is_file() {
+        match read_json_value(&vp)? {
+            Value::Object(obj) => Some(obj),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let Some(obj) = obj else {
         return Ok(WallpaperConfig {
             enabled: false,
             opacity: 0.65,
@@ -4280,9 +4273,6 @@ fn resolve_wallpaper_item<'a>(app: &tauri::AppHandle, cfg: &'a WallpaperConfig, 
 }
 
 fn write_wallpaper_config(app: &tauri::AppHandle, cfg: &WallpaperConfig) -> Result<(), String> {
-    let path = storage_file_path(app, "__app")?;
-    let mut map = read_json_map(&path);
-
     let mut obj = Map::new();
     obj.insert("enabled".to_string(), Value::Bool(cfg.enabled));
     obj.insert(
@@ -4341,8 +4331,8 @@ fn write_wallpaper_config(app: &tauri::AppHandle, cfg: &WallpaperConfig) -> Resu
         obj.insert("path".to_string(), Value::String(it.rel_path.clone()));
     }
 
-    map.insert(WALLPAPER_SETTINGS_KEY.to_string(), Value::Object(obj));
-    write_json_map(&path, &map)
+    let vp = storage_value_path(app, "__app", WALLPAPER_SETTINGS_KEY)?;
+    write_json_value(&vp, &Value::Object(obj))
 }
 
 fn wallpaper_settings_out(app: &tauri::AppHandle, cfg: &WallpaperConfig) -> WallpaperSettingsOut {
@@ -4606,10 +4596,16 @@ fn cycle_wallpaper(app: tauri::AppHandle, delta: i32) -> Result<WallpaperSetting
 
 #[tauri::command]
 fn get_plugin_icon_overrides(app: tauri::AppHandle) -> Result<HashMap<String, String>, String> {
-    let path = storage_file_path(&app, "__app")?;
-    let map = read_json_map(&path);
-
-    let Some(Value::Object(overrides)) = map.get(APP_ICON_OVERRIDES_KEY) else {
+    let vp = storage_value_path(&app, "__app", APP_ICON_OVERRIDES_KEY)?;
+    let overrides = if vp.is_file() {
+        match read_json_value(&vp)? {
+            Value::Object(obj) => Some(obj),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let Some(overrides) = overrides else {
         return Ok(HashMap::new());
     };
 
@@ -4619,10 +4615,10 @@ fn get_plugin_icon_overrides(app: tauri::AppHandle) -> Result<HashMap<String, St
         let Value::String(rel_path) = v else {
             continue;
         };
-        if !is_safe_id(plugin_id) {
+        if !is_safe_id(&plugin_id) {
             continue;
         }
-        let Ok(rel) = safe_relative_path(rel_path) else {
+        let Ok(rel) = safe_relative_path(&rel_path) else {
             continue;
         };
         let full = data_root.join(rel);
@@ -4657,12 +4653,14 @@ fn set_plugin_icon_override(
         return Err("缩略图过大（>512KB）".to_string());
     }
 
-    let path = storage_file_path(&app, "__app")?;
-    let mut map = read_json_map(&path);
-
-    let mut overrides = match map.get(APP_ICON_OVERRIDES_KEY) {
-        Some(Value::Object(obj)) => obj.clone(),
-        _ => Map::new(),
+    let vp = storage_value_path(&app, "__app", APP_ICON_OVERRIDES_KEY)?;
+    let mut overrides = if vp.is_file() {
+        match read_json_value(&vp)? {
+            Value::Object(obj) => obj,
+            _ => Map::new(),
+        }
+    } else {
+        Map::new()
     };
 
     let icons_dir_rel = "plugin-icons";
@@ -4684,8 +4682,7 @@ fn set_plugin_icon_override(
     std::fs::write(&full, bytes).map_err(|e| format!("写入图标失败: {e}"))?;
 
     overrides.insert(plugin_id.clone(), Value::String(new_rel));
-    map.insert(APP_ICON_OVERRIDES_KEY.to_string(), Value::Object(overrides));
-    write_json_map(&path, &map)
+    write_json_value(&vp, &Value::Object(overrides))
 }
 
 #[tauri::command]
@@ -4693,9 +4690,16 @@ fn remove_plugin_icon_override(app: tauri::AppHandle, plugin_id: String) -> Resu
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
-    let path = storage_file_path(&app, "__app")?;
-    let mut map = read_json_map(&path);
-    let Some(Value::Object(mut overrides)) = map.get(APP_ICON_OVERRIDES_KEY).cloned() else {
+    let vp = storage_value_path(&app, "__app", APP_ICON_OVERRIDES_KEY)?;
+    let overrides = if vp.is_file() {
+        match read_json_value(&vp)? {
+            Value::Object(obj) => Some(obj),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let Some(mut overrides) = overrides else {
         return Ok(());
     };
 
@@ -4706,8 +4710,7 @@ fn remove_plugin_icon_override(app: tauri::AppHandle, plugin_id: String) -> Resu
         }
     }
 
-    map.insert(APP_ICON_OVERRIDES_KEY.to_string(), Value::Object(overrides));
-    write_json_map(&path, &map)
+    write_json_value(&vp, &Value::Object(overrides))
 }
 
 #[tauri::command]
@@ -5026,6 +5029,9 @@ fn main() {
             app.manage(Arc::new(TaskManagerState::default()));
             app.manage(Arc::new(HttpStreamManagerState::default()));
             app.manage(BrowserWindowState::default());
+
+            // 数据迁移：在 UI 读写 storage 前完成（可重复执行，失败不删除旧数据）。
+            migrations::run_all(app.handle());
 
             // Release：把 MSI 随包的内置插件“种子”拷到可写的插件目录（仅拷缺失项，不覆盖用户已有插件）。
             #[cfg(not(debug_assertions))]
