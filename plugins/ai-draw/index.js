@@ -148,7 +148,7 @@
             continue
           }
 
-          const savedPath = await api.files.saveImageBase64(dataUrl).catch(() => '')
+          const savedPath = await api.files.images.writeBase64({ scope: 'output', dataUrlOrBase64: dataUrl }).catch(() => '')
           if (!savedPath) continue
 
           resMap[rid] = { savedPath: String(savedPath), at: Date.now(), by: 'background' }
@@ -184,7 +184,7 @@
           const dataUrl = parseTaskImageData(task)
           if (!dataUrl) continue
 
-          const savedPath = await api.files.saveImageBase64(dataUrl).catch(() => '')
+          const savedPath = await api.files.images.writeBase64({ scope: 'output', dataUrlOrBase64: dataUrl }).catch(() => '')
           if (!savedPath) continue
 
           saved[taskId] = {
@@ -1470,7 +1470,7 @@
       return
     }
 
-    const loaded = await api.files.readOutputImage(state.savedPath).catch(() => '')
+    const loaded = await api.files.images.read({ scope: 'output', path: state.savedPath }).catch(() => '')
     if (!loaded) {
       render()
       return
@@ -1505,10 +1505,10 @@
   }
 
   async function refreshImageHistoryFromOutputDir(preferPath = '') {
-    const paths = await api.files.listOutputImages().catch(() => [])
+    const paths = await api.files.images.list({ scope: 'output' }).catch(() => [])
     const list = (Array.isArray(paths) ? paths : []).map((x) => String(x || '').trim()).filter((x) => !!x)
 
-    // listOutputImages 返回最新在前，这里翻转成“最旧 -> 最新”，与左右切换习惯保持一致。
+    // files.images.list(scope="output") 返回最新在前，这里翻转成“最旧 -> 最新”，与左右切换习惯保持一致。
     state.imageHistory = list.reverse().map((savedPath) => ({ dataUrl: '', savedPath }))
 
     if (!state.imageHistory.length) {
@@ -1617,7 +1617,7 @@
     state.refLibraryLoading = true
     render()
 
-    const paths = await api.files.listRefImages().catch(() => [])
+    const paths = await api.files.images.list({ scope: 'data' }).catch(() => [])
     const list = (Array.isArray(paths) ? paths : [])
       .map((x) => String(x || '').trim())
       .filter((x) => !!x)
@@ -1649,7 +1649,7 @@
         if (state.modal !== 'ref-library') return
         const p = String(paths[i] || '').trim()
         if (!p) continue
-        const dataUrl = await api.files.readRefImage(p).catch(() => '')
+        const dataUrl = await api.files.images.read({ scope: 'data', path: p }).catch(() => '')
         items.push({ path: p, name: basename(p), dataUrl: String(dataUrl || '').trim() })
         // 让 UI 有机会响应滚动/输入，避免加载过程中“滚动条像卡住”
         if ((i - start + 1) % 4 === 0) {
@@ -1693,7 +1693,7 @@
         const u = String(it?.dataUrl || it?.data_url || '').trim()
         if (!u.startsWith('data:image/')) continue
         const safeUrl = await shrinkRefImageDataUrl(u).catch(() => u)
-        const saved = await api.files.saveRefImageBase64(safeUrl).catch(() => '')
+        const saved = await api.files.images.writeBase64({ scope: 'data', dataUrlOrBase64: safeUrl }).catch(() => '')
         if (saved) ok++
       }
       api.ui.showToast(ok ? `已加入参考图库：${ok} 张` : '加入失败')
@@ -1724,7 +1724,7 @@
     api.ui.showToast('正在载入参考图…')
     const out = []
     for (const p of chosen.slice(0, remaining)) {
-      const dataUrl = await api.files.readRefImage(p).catch(() => '')
+      const dataUrl = await api.files.images.read({ scope: 'data', path: p }).catch(() => '')
       const u = String(dataUrl || '').trim()
       if (!u.startsWith('data:image/')) continue
       out.push({ id: id('ref'), name: basename(p), dataUrl: u })
@@ -1751,8 +1751,8 @@
     state.menuOpen = false
     render()
 
-    await api.files
-      .deleteOutputImage(path)
+    await api.files.images
+      .delete({ scope: 'output', path })
       .then(async () => {
         api.ui.showToast('已删除图片')
         state.savedPath = ''

@@ -18,8 +18,9 @@
     "ui.showToast",
     "clipboard.writeText",
     "files.pickImages",
-    "files.saveRefImageBase64",
-    "files.readRefImage",
+    "files.images.writeBase64",
+    "files.images.read",
+    "files.images.delete",
     "net.request",
     "net.requestStream",
     "net.requestStreamCancel"

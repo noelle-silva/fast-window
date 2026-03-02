@@ -387,13 +387,14 @@
   }
 
   async function saveIconPngToFile(pngDataUrl, prevPath) {
-    if (!api.files?.saveImageBase64) return null
+    if (!api.files?.images?.writeBase64) return null
     const src = String(pngDataUrl || '').trim()
     if (!src.startsWith('data:image/')) return null
-    const path = await api.files.saveImageBase64(src)
+    const path = await api.files.images.writeBase64({ scope: 'data', dataUrlOrBase64: src })
     const oldPath = String(prevPath || '').trim()
     if (oldPath) {
-      api.files?.deleteOutputImage?.(oldPath).catch(() => {})
+      api.files?.images?.delete?.({ scope: 'data', path: oldPath }).catch(() => {})
+      api.files?.images?.delete?.({ scope: 'output', path: oldPath }).catch(() => {})
     }
     return path
   }
@@ -637,7 +638,7 @@
             item.iconPath = savedPath
             item.iconDataUrl = ''
             await save()
-            state.iconCacheById[id] = await api.files.readOutputImage(savedPath)
+            state.iconCacheById[id] = await api.files.images.read({ scope: 'data', path: savedPath })
             render()
           }
         })
@@ -648,10 +649,11 @@
       return
     }
 
-    if (!api.files?.readOutputImage) return
+    if (!api.files?.images?.read) return
     state.iconLoadingById[id] = true
-    api.files
-      .readOutputImage(p)
+    api.files.images
+      .read({ scope: 'data', path: p })
+      .catch(() => api.files.images.read({ scope: 'output', path: p }))
       .then((dataUrl) => {
         state.iconCacheById[id] = String(dataUrl || '')
       })
@@ -789,7 +791,10 @@
     let iconPath = String(existing.iconPath || '').trim()
 
     if (state.form.iconCleared) {
-      if (iconPath) api.files?.deleteOutputImage?.(iconPath).catch(() => {})
+      if (iconPath) {
+        api.files?.images?.delete?.({ scope: 'data', path: iconPath }).catch(() => {})
+        api.files?.images?.delete?.({ scope: 'output', path: iconPath }).catch(() => {})
+      }
       iconPath = ''
       delete state.iconCacheById[id]
       delete state.iconLoadingById[id]
@@ -824,7 +829,11 @@
     state.items = state.items.filter((x) => x.id !== id)
     if (state.items.length === before) return
     if (existing && String(existing.iconPath || '').trim()) {
-      api.files?.deleteOutputImage?.(String(existing.iconPath || '').trim()).catch(() => {})
+      const p = String(existing.iconPath || '').trim()
+      if (p) {
+        api.files?.images?.delete?.({ scope: 'data', path: p }).catch(() => {})
+        api.files?.images?.delete?.({ scope: 'output', path: p }).catch(() => {})
+      }
     }
     delete state.iconCacheById[id]
     delete state.iconLoadingById[id]

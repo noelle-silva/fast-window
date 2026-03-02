@@ -23,13 +23,10 @@
     "files.getOutputDir",
     "files.pickOutputDir",
     "files.openOutputDir",
-    "files.saveImageBase64",
-    "files.saveRefImageBase64",
-    "files.listOutputImages",
-    "files.readOutputImage",
-    "files.deleteOutputImage",
-    "files.listRefImages",
-    "files.readRefImage",
+    "files.images.writeBase64",
+    "files.images.read",
+    "files.images.list",
+    "files.images.delete",
     "files.pickImages"
   ]
 }

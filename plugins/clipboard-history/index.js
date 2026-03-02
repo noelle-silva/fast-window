@@ -1679,7 +1679,7 @@
             } else {
               const path = pickImagePath(item)
               if (path) {
-                dataUrl = await api.files.readOutputImage(path).catch(() => '')
+                dataUrl = await api.files.images.read({ scope: 'output', path }).catch(() => '')
                 if (dataUrl) state.clipboardImageCache[hidKey] = dataUrl
               }
             }
@@ -2100,8 +2100,8 @@
     const path = pickImagePath(item)
     if (!path) return
     if (!isManagedClipboardImagePath(path)) return
-    if (!api.files || typeof api.files.deleteOutputImage !== 'function') return
-    await api.files.deleteOutputImage(path).catch(() => {})
+    if (!api.files?.images || typeof api.files.images.delete !== 'function') return
+    await api.files.images.delete({ scope: 'output', path }).catch(() => {})
   }
 
   let clipboardSentinelObserver = null
@@ -2262,8 +2262,8 @@
           }
 
           state.clipboardImageLoading[hid] = true
-          void api.files
-            .readOutputImage(path)
+          void api.files.images
+            .read({ scope: 'output', path })
             .then((dataUrl) => {
               const v = String(dataUrl || '')
               if (!v) return

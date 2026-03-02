@@ -92,9 +92,9 @@ function RefImageThumb(props: { controller: any; path: string }) {
   React.useEffect(() => {
     let alive = true
     const api = controller?.api
-    if (!api?.files?.readRefImage) return
-    api.files
-      .readRefImage(path)
+    if (!api?.files?.images?.read) return
+    api.files.images
+      .read({ scope: 'data', path })
       .then((url: string) => {
         if (!alive) return
         setSrc(String(url || ''))

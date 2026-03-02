@@ -98,6 +98,25 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     return safeDirName(role?.name, '角色')
   }
 
+  async function syncRoleAvatarFile(folder, role) {
+    const f = String(folder || '').trim()
+    if (!f) return
+
+    const relPath = `roles/${f}/avatar.png`
+    const avatarImage = String(role?.avatarImage || '').trim()
+
+    if (looksLikeImageDataUrl(avatarImage)) {
+      if (typeof api?.files?.images?.writeBase64 !== 'function') return
+      await api.files.images
+        .writeBase64({ scope: 'data', relPath, overwrite: true, dataUrlOrBase64: avatarImage })
+        .catch(() => {})
+      return
+    }
+
+    if (typeof api?.files?.images?.delete !== 'function') return
+    await api.files.images.delete({ scope: 'data', path: relPath }).catch(() => {})
+  }
+
   function splitRoleKey(folder) {
     return `roles/${String(folder || '')}/role`
   }
@@ -233,6 +252,8 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       try {
         await api.storage.set(splitRoleKey(folder), r)
       } catch (_) {}
+
+      await syncRoleAvatarFile(folder, r)
 
       const oldFolder = String(oldRoleFolders?.[rid] || '')
       const oldIdx = oldChatIndexByRole?.[rid]
@@ -1270,8 +1291,8 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
 
     let assistantMid = ''
     try {
-      if (draftImages.length && typeof api?.files?.saveRefImageBase64 !== 'function') {
-        return api.ui?.showToast?.('未授权：files.saveRefImageBase64')
+      if (draftImages.length && typeof api?.files?.images?.writeBase64 !== 'function') {
+        return api.ui?.showToast?.('未授权：files.images.writeBase64')
       }
 
       state.sending = true
@@ -1281,7 +1302,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       for (const img of draftImages.slice(0, MAX_DRAFT_IMAGES)) {
         const dataUrl = String(img?.dataUrl || '')
         if (!looksLikeImageDataUrl(dataUrl)) continue
-        const saved = await api.files.saveRefImageBase64(dataUrl)
+        const saved = await api.files.images.writeBase64({ scope: 'data', dataUrlOrBase64: dataUrl })
         const path = String(saved || '').trim()
         if (path) savedPaths.push(path)
       }
@@ -1495,12 +1516,12 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       if (r === 'user') {
         const paths = normImagePaths(m?.images)
         if (paths.length) {
-          if (typeof api?.files?.readRefImage !== 'function') throw new Error('未授权：files.readRefImage')
+          if (typeof api?.files?.images?.read !== 'function') throw new Error('未授权：files.images.read')
           const parts = [{ type: 'text', text }]
           for (const path of paths) {
             let dataUrl = ''
             try {
-              dataUrl = await api.files.readRefImage(path)
+              dataUrl = await api.files.images.read({ scope: 'data', path })
             } catch (e) {
               throw new Error(`读取图片失败：${String(e?.message || e || 'unknown')}`)
             }
@@ -1886,7 +1907,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
 
   function hydrateRefImages(root) {
     if (!(root instanceof HTMLElement)) return
-    if (typeof api?.files?.readRefImage !== 'function') return
+    if (typeof api?.files?.images?.read !== 'function') return
 
     const els = Array.from(root.querySelectorAll('[data-ref-img]'))
     const byPath = new Map()
@@ -1910,7 +1931,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       if (uiRefImgPending.has(path)) continue
       uiRefImgPending.add(path)
       api.files
-        .readRefImage(path)
+        .images.read({ scope: 'data', path })
         .then((dataUrl) => {
           const ok = typeof dataUrl === 'string' && dataUrl.startsWith('data:')
           if (ok) uiRefImgCache.set(path, dataUrl)

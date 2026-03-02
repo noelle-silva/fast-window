@@ -22,8 +22,8 @@
     "storage.remove",
     "storage.getAll",
     "storage.setAll",
-    "files.readOutputImage",
-    "files.deleteOutputImage",
+    "files.images.read",
+    "files.images.delete",
     "ui.showToast"
   ]
 }
