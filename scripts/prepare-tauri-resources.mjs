@@ -18,12 +18,76 @@ async function exists(p) {
   }
 }
 
+function normalizeRel(p) {
+  return String(p || "").trim().replaceAll("\\", "/");
+}
+
+function assertSafeRel(rel, what) {
+  const r = normalizeRel(rel);
+  if (!r) throw new Error(`Invalid ${what}: empty`);
+  if (path.isAbsolute(r)) throw new Error(`Invalid ${what}: must be relative: ${r}`);
+  const parts = r.split("/");
+  for (const part of parts) {
+    if (!part || part === "." || part === "..") {
+      throw new Error(`Invalid ${what}: unsafe path: ${r}`);
+    }
+  }
+  return r;
+}
+
+async function readJson(filePath) {
+  const raw = await fs.readFile(filePath, "utf8");
+  return JSON.parse(raw);
+}
+
+async function copyFile(srcBase, dstBase, rel) {
+  const r = normalizeRel(rel);
+  const src = path.join(srcBase, r);
+  const dst = path.join(dstBase, r);
+  await fs.mkdir(path.dirname(dst), { recursive: true });
+  await fs.copyFile(src, dst);
+}
+
+function collectReferencedFiles(manifest) {
+  const out = new Set();
+  out.add("manifest.json");
+
+  const main = assertSafeRel(manifest?.main, "manifest.main");
+  out.add(main);
+
+  const bgMain = normalizeRel(manifest?.background?.main);
+  if (bgMain && bgMain !== main) {
+    out.add(assertSafeRel(bgMain, "manifest.background.main"));
+  }
+
+  return Array.from(out);
+}
+
 async function main() {
   if (!(await exists(srcPluginsDir))) return;
 
   await fs.rm(dstPluginsDir, { recursive: true, force: true });
   await fs.mkdir(dstPluginsDir, { recursive: true });
-  await fs.cp(srcPluginsDir, dstPluginsDir, { recursive: true });
+
+  const entries = await fs.readdir(srcPluginsDir, { withFileTypes: true });
+  for (const ent of entries) {
+    if (!ent.isDirectory()) continue;
+    const pluginId = ent.name;
+    if (!pluginId || pluginId.startsWith(".")) continue;
+
+    const pluginSrcDir = path.join(srcPluginsDir, pluginId);
+    const pluginDstDir = path.join(dstPluginsDir, pluginId);
+    const manifestPath = path.join(pluginSrcDir, "manifest.json");
+    if (!(await exists(manifestPath))) continue;
+
+    const manifest = await readJson(manifestPath);
+    const files = collectReferencedFiles(manifest);
+
+    await fs.mkdir(pluginDstDir, { recursive: true });
+    for (const rel of files) {
+      await copyFile(pluginSrcDir, pluginDstDir, rel);
+    }
+  }
 }
 
 await main();
