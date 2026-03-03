@@ -1135,15 +1135,7 @@ function App() {
           ]}
         >
           {wallpaperLayer}
-          {showPluginView ? (
-            <TitleBar
-              title={activePluginName}
-              onBack={onBackFromPlugin}
-              translucent={hasWallpaper}
-              translucentOpacity={titlebarOpacity}
-              translucentBlur={titlebarBlur}
-            />
-          ) : (
+          {showPluginView ? null : (
             <TitleBar
               title={APP_TITLE}
               translucent={hasWallpaper}

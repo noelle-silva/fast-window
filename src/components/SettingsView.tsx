@@ -20,6 +20,7 @@ import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import FiberManualRecordRoundedIcon from '@mui/icons-material/FiberManualRecordRounded'
 import StopRoundedIcon from '@mui/icons-material/StopRounded'
 import BackspaceRoundedIcon from '@mui/icons-material/BackspaceRounded'
+import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import {
   addWallpaperImage,
   DEFAULT_WALLPAPER_VIEW,
@@ -189,7 +190,8 @@ function buildShortcutFromEvent(e: KeyboardEvent): string | null {
   return parts.join('+')
 }
 
-export default function SettingsView(_props: { onBack: () => void }) {
+export default function SettingsView(props: { onBack: () => void }) {
+  const { onBack } = props
   const [dataDir, setDataDir] = useState<string>('')
   const [pluginsDir, setPluginsDir] = useState<string>('')
   const [current, setCurrent] = useState<string>('')
@@ -626,33 +628,63 @@ export default function SettingsView(_props: { onBack: () => void }) {
   }
 
   return (
-    <Box sx={{ p: 2, height: '100%', overflowY: 'auto', overflowX: 'hidden', boxSizing: 'border-box' }}>
-      <Box sx={theme => ({ ...panelSx(theme), p: 0.5, px: 0.75, pt: 0.25, pb: 0.25 })}>
-        <Tabs
-          value={tabIndex}
-          onChange={(_, next) => {
-            const nextIndex = typeof next === 'number' ? next : TAB_GENERAL
-            if ((recording || recordingPresetIndex != null) && nextIndex !== tabIndex) {
-              setRecording(false)
-              setRecordingPresetIndex(null)
-              toast('已取消录制')
-            }
-            setTabIndex(nextIndex)
-          }}
-          variant="scrollable"
-          allowScrollButtonsMobile
-          aria-label="设置分类"
-          sx={{ minHeight: 40 }}
+    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <Box
+        data-tauri-drag-region="true"
+        sx={theme => ({
+          height: 44,
+          flexShrink: 0,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+          px: 0.75,
+          bgcolor: wallpaper?.enabled ? alpha(theme.palette.background.paper, 0.62) : theme.palette.background.paper,
+          backdropFilter: wallpaper?.enabled ? 'blur(12px)' : undefined,
+          borderBottom: 1,
+          borderColor: 'divider',
+          WebkitAppRegion: 'drag',
+        })}
+      >
+        <IconButton aria-label="返回" size="small" onClick={onBack} data-tauri-drag-region="false" sx={{ WebkitAppRegion: 'no-drag' }}>
+          <ArrowBackRoundedIcon fontSize="small" />
+        </IconButton>
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          sx={{ flex: 1, textAlign: 'center', fontWeight: 700, userSelect: 'none', pointerEvents: 'none' }}
         >
-          <Tab value={TAB_GENERAL} label="常规" id="settings-tab-0" aria-controls="settings-tabpanel-0" />
-          <Tab value={TAB_APPEARANCE} label="外观" id="settings-tab-1" aria-controls="settings-tabpanel-1" />
-          <Tab value={TAB_DATA} label="数据" id="settings-tab-2" aria-controls="settings-tabpanel-2" />
-          <Tab value={TAB_PLUGINS} label="插件管理" id="settings-tab-3" aria-controls="settings-tabpanel-3" />
-          <Tab value={TAB_SHORTCUT} label="快捷键" id="settings-tab-4" aria-controls="settings-tabpanel-4" />
-          <Tab value={TAB_WEBVIEW} label="WebView" id="settings-tab-5" aria-controls="settings-tabpanel-5" />
-          <Tab value={TAB_ABOUT} label="关于" id="settings-tab-6" aria-controls="settings-tabpanel-6" />
-        </Tabs>
+          设置
+        </Typography>
+        <Box aria-hidden sx={{ width: 32, height: 32 }} />
       </Box>
+
+      <Box sx={{ p: 2, flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', boxSizing: 'border-box' }}>
+        <Box sx={theme => ({ ...panelSx(theme), p: 0.5, px: 0.75, pt: 0.25, pb: 0.25 })}>
+          <Tabs
+            value={tabIndex}
+            onChange={(_, next) => {
+              const nextIndex = typeof next === 'number' ? next : TAB_GENERAL
+              if ((recording || recordingPresetIndex != null) && nextIndex !== tabIndex) {
+                setRecording(false)
+                setRecordingPresetIndex(null)
+                toast('已取消录制')
+              }
+              setTabIndex(nextIndex)
+            }}
+            variant="scrollable"
+            allowScrollButtonsMobile
+            aria-label="设置分类"
+            sx={{ minHeight: 40 }}
+          >
+            <Tab value={TAB_GENERAL} label="常规" id="settings-tab-0" aria-controls="settings-tabpanel-0" />
+            <Tab value={TAB_APPEARANCE} label="外观" id="settings-tab-1" aria-controls="settings-tabpanel-1" />
+            <Tab value={TAB_DATA} label="数据" id="settings-tab-2" aria-controls="settings-tabpanel-2" />
+            <Tab value={TAB_PLUGINS} label="插件管理" id="settings-tab-3" aria-controls="settings-tabpanel-3" />
+            <Tab value={TAB_SHORTCUT} label="快捷键" id="settings-tab-4" aria-controls="settings-tabpanel-4" />
+            <Tab value={TAB_WEBVIEW} label="WebView" id="settings-tab-5" aria-controls="settings-tabpanel-5" />
+            <Tab value={TAB_ABOUT} label="关于" id="settings-tab-6" aria-controls="settings-tabpanel-6" />
+          </Tabs>
+        </Box>
 
       <Box role="tabpanel" hidden={tabIndex !== TAB_GENERAL} id="settings-tabpanel-0" aria-labelledby="settings-tab-0" sx={{ pt: 0.5 }}>
         {tabIndex === TAB_GENERAL ? (
@@ -1384,6 +1416,7 @@ export default function SettingsView(_props: { onBack: () => void }) {
             </Box>
           </Stack>
         ) : null}
+      </Box>
       </Box>
     </Box>
   )
