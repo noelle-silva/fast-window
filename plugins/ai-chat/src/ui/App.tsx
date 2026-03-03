@@ -148,12 +148,15 @@ export function AiChatApp(props: { controller: any }) {
   const data = s.data
   const roles = Array.isArray(data?.roles) ? data.roles : []
   const providers = Array.isArray(data?.settings?.providers) ? data.settings.providers : []
+  const transparentChatBg = !!data?.settings?.transparentChatBg
 
   const activeRole = controller.activeRole()
   const activeChat = controller.activeChat()
 
   const chatRootRef = React.useRef<HTMLDivElement | null>(null)
   const stickToBottomRef = React.useRef(true)
+  const composerRef = React.useRef<HTMLDivElement | null>(null)
+  const [composerHeight, setComposerHeight] = React.useState(0)
 
   const [page, setPage] = React.useState<'chat' | 'settings'>('chat')
   const [settingsTab, setSettingsTab] = React.useState<'roles' | 'providers'>('roles')
@@ -164,6 +167,31 @@ export function AiChatApp(props: { controller: any }) {
   const lastMsg = Array.isArray(activeChat?.messages) && activeChat.messages.length ? activeChat.messages[activeChat.messages.length - 1] : null
   const lastMsgId = String(lastMsg?.id || '')
   const lastMsgText = String(lastMsg?.content || '')
+
+  React.useLayoutEffect(() => {
+    if (page !== 'chat') return
+    const el = composerRef.current
+    if (!el) return
+
+    const measure = () => {
+      try {
+        setComposerHeight(Math.ceil(el.getBoundingClientRect().height || 0))
+      } catch (_) {}
+    }
+
+    const raf = requestAnimationFrame(measure)
+
+    if (typeof ResizeObserver === 'undefined') {
+      return () => cancelAnimationFrame(raf)
+    }
+
+    const ro = new ResizeObserver(() => measure())
+    ro.observe(el)
+    return () => {
+      cancelAnimationFrame(raf)
+      ro.disconnect()
+    }
+  }, [page])
 
   React.useEffect(() => {
     if (page !== 'chat') return
@@ -253,9 +281,9 @@ export function AiChatApp(props: { controller: any }) {
              width: '100%',
              overflow: 'hidden',
              overscrollBehavior: 'none',
-             backgroundColor: 'transparent',
+             backgroundColor: transparentChatBg ? 'transparent' : '#fff',
            },
-          '#fast-window-ai-chat-root': { height: '100%', overflow: 'hidden', backgroundColor: 'transparent' },
+          '#fast-window-ai-chat-root': { height: '100%', overflow: 'hidden', backgroundColor: transparentChatBg ? 'transparent' : '#fff' },
           '.prose': {
             fontSize: 14,
             lineHeight: 1.75,
@@ -412,13 +440,34 @@ export function AiChatApp(props: { controller: any }) {
 
         {page === 'chat' ? (
           <>
-            <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', bgcolor: 'background.default' }}>
-             <Box ref={chatRootRef} sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', p: 2, bgcolor: 'transparent' }}>
+            <Box
+              sx={{
+                flex: 1,
+                minWidth: 0,
+                minHeight: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                position: 'relative',
+                bgcolor: transparentChatBg ? 'transparent' : 'background.default',
+              }}
+            >
+             <Box
+               ref={chatRootRef}
+               sx={{
+                 flex: 1,
+                 minHeight: 0,
+                 overflowY: 'auto',
+                 overflowX: 'hidden',
+                 p: 2,
+                 bgcolor: transparentChatBg ? 'transparent' : 'grey.50',
+                 paddingBottom: `calc(${Math.max(0, composerHeight)}px + 24px)`,
+               }}
+             >
                 {s.loading ? (
                   <Typography variant="body2" color="text.secondary">
                     加载中…
-                 </Typography>
-              ) : !activeRole || !activeChat ? (
+                  </Typography>
+                ) : !activeRole || !activeChat ? (
                 <Typography variant="body2" color="text.secondary">
                   请选择角色
                 </Typography>
@@ -510,10 +559,24 @@ export function AiChatApp(props: { controller: any }) {
                     )
                   })}
                 </Stack>
-              )}
-            </Box>
+               )}
+             </Box>
 
-            <Box sx={{ borderTop: '1px solid', borderColor: 'divider', p: 1.5, bgcolor: 'background.paper' }}>
+            <Box
+              ref={composerRef}
+              sx={{
+                position: 'absolute',
+                left: 16,
+                right: 16,
+                bottom: 16,
+                p: 1.5,
+                borderRadius: 18,
+                bgcolor: 'rgba(255,255,255,.86)',
+                boxShadow: '0 12px 28px rgba(0,0,0,.18)',
+                backdropFilter: 'blur(10px)',
+                WebkitBackdropFilter: 'blur(10px)',
+              }}
+            >
               <Stack spacing={1}>
                 {Array.isArray(s.draft?.images) && s.draft.images.length ? (
                   <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
@@ -546,11 +609,11 @@ export function AiChatApp(props: { controller: any }) {
                         disabled={s.loading || s.sending || !activeRole}
                         size="small"
                         sx={{
-                          border: '1px solid',
-                          borderColor: 'divider',
+                          bgcolor: 'rgba(0,0,0,.05)',
                           borderRadius: '999px',
                           width: 36,
                           height: 36,
+                          '&:hover': { bgcolor: 'rgba(0,0,0,.09)' },
                         }}
                       >
                         <ImageIcon fontSize="small" />
@@ -581,6 +644,7 @@ export function AiChatApp(props: { controller: any }) {
                     variant="contained"
                     onClick={onSend}
                     disabled={s.loading || s.sending || !activeRole || (!String(s.draft?.input || '').trim() && !(s.draft?.images || []).length)}
+                    sx={{ borderRadius: 999 }}
                   >
                     发送
                   </Button>
@@ -776,9 +840,24 @@ function PluginSettingsPage(props: {
     )
   }
 
+  const transparentChatBg = !!data?.settings?.transparentChatBg
+
   if (tab === 'roles') {
     return (
       <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', p: 2, bgcolor: 'grey.50' }}>
+        <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography sx={{ fontWeight: 900 }}>外观</Typography>
+            <Box sx={{ flex: 1 }} />
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <Switch size="small" checked={transparentChatBg} onChange={() => controller.actions.toggleTransparentChatBg?.()} />
+              <Typography variant="body2" color="text.secondary">
+                聊天背景透明
+              </Typography>
+            </Stack>
+          </Stack>
+        </Paper>
+
         <Paper variant="outlined" sx={{ p: 1.5 }}>
           <Stack direction="row" spacing={1} alignItems="center">
             <Typography sx={{ fontWeight: 900 }}>角色管理</Typography>
@@ -856,6 +935,19 @@ function PluginSettingsPage(props: {
 
   return (
     <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', p: 2, bgcolor: 'grey.50' }}>
+      <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Typography sx={{ fontWeight: 900 }}>外观</Typography>
+          <Box sx={{ flex: 1 }} />
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <Switch size="small" checked={transparentChatBg} onChange={() => controller.actions.toggleTransparentChatBg?.()} />
+            <Typography variant="body2" color="text.secondary">
+              聊天背景透明
+            </Typography>
+          </Stack>
+        </Stack>
+      </Paper>
+
       <Paper variant="outlined" sx={{ p: 1.5 }}>
         <Stack direction="row" spacing={1} alignItems="center">
           <Typography sx={{ fontWeight: 900 }}>供应商管理</Typography>

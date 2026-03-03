@@ -405,6 +405,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       version: VERSION,
       settings: {
         streamEnabled: true,
+        transparentChatBg: false,
         providers: [
           {
             id: pid,
@@ -445,6 +446,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
 
     if (!d.settings || typeof d.settings !== 'object') d.settings = {}
     if (typeof d.settings.streamEnabled !== 'boolean') d.settings.streamEnabled = true
+    if (typeof d.settings.transparentChatBg !== 'boolean') d.settings.transparentChatBg = false
     if (!Array.isArray(d.settings.providers) || d.settings.providers.length === 0) d.settings.providers = defaultData().settings.providers
 
     for (const p of d.settings.providers) {
@@ -2919,6 +2921,12 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       toggleStream: () => {
         if (!state.data) return
         state.data.settings.streamEnabled = !state.data.settings.streamEnabled
+        save().catch(() => {})
+        emit()
+      },
+      toggleTransparentChatBg: () => {
+        if (!state.data) return
+        state.data.settings.transparentChatBg = !state.data.settings.transparentChatBg
         save().catch(() => {})
         emit()
       },
