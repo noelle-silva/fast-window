@@ -249,12 +249,13 @@ export function AiChatApp(props: { controller: any }) {
       <GlobalStyles
         styles={{
           'html, body': {
-            height: '100%',
-            width: '100%',
-            overflow: 'hidden',
-            overscrollBehavior: 'none',
-          },
-          '#fast-window-ai-chat-root': { height: '100%', overflow: 'hidden' },
+             height: '100%',
+             width: '100%',
+             overflow: 'hidden',
+             overscrollBehavior: 'none',
+             backgroundColor: 'transparent',
+           },
+          '#fast-window-ai-chat-root': { height: '100%', overflow: 'hidden', backgroundColor: 'transparent' },
           '.prose': {
             fontSize: 14,
             lineHeight: 1.75,
@@ -412,10 +413,10 @@ export function AiChatApp(props: { controller: any }) {
         {page === 'chat' ? (
           <>
             <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', bgcolor: 'background.default' }}>
-             <Box ref={chatRootRef} sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', p: 2, bgcolor: 'grey.50' }}>
-               {s.loading ? (
-                 <Typography variant="body2" color="text.secondary">
-                   加载中…
+             <Box ref={chatRootRef} sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', p: 2, bgcolor: 'transparent' }}>
+                {s.loading ? (
+                  <Typography variant="body2" color="text.secondary">
+                    加载中…
                  </Typography>
               ) : !activeRole || !activeChat ? (
                 <Typography variant="body2" color="text.secondary">
@@ -439,13 +440,13 @@ export function AiChatApp(props: { controller: any }) {
                         <Paper
                           variant="outlined"
                           sx={{
-                            maxWidth: 920,
-                            px: 1.5,
-                            py: 1.25,
-                            bgcolor: isUser ? 'rgba(25,118,210,.06)' : 'background.paper',
-                            borderColor: isUser ? 'rgba(25,118,210,.22)' : 'divider',
-                          }}
-                        >
+                             maxWidth: 920,
+                             px: 1.5,
+                             py: 1.25,
+                             bgcolor: isUser ? 'rgba(25,118,210,.06)' : 'transparent',
+                             borderColor: isUser ? 'rgba(25,118,210,.22)' : 'transparent',
+                           }}
+                         >
                           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.75 }}>
                             {isUser ? (
                               <Typography variant="body2" sx={{ fontWeight: 900 }}>
