@@ -534,22 +534,6 @@ export function AiChatApp(props: { controller: any }) {
                             <Typography variant="caption" color="text.secondary">
                               {time}
                             </Typography>
-                            {!isUser ? (
-                              <Tooltip title="复制">
-                                <IconButton
-                                  size="small"
-                                  onClick={() => {
-                                    const text = String(m?.content || '')
-                                    controller.api?.clipboard?.writeText?.(text).then(
-                                      () => controller.api?.ui?.showToast?.('已复制'),
-                                      () => controller.api?.ui?.showToast?.('复制失败'),
-                                    )
-                                  }}
-                                >
-                                  <ContentCopyIcon fontSize="inherit" />
-                                </IconButton>
-                              </Tooltip>
-                            ) : null}
                           </Stack>
 
                           {imgPaths.length ? (
@@ -567,6 +551,26 @@ export function AiChatApp(props: { controller: any }) {
                           ) : (
                             <AssistantContent controller={controller} className="prose" text={String(m?.content || '')} mid={String(m?.id || '')} chatRootRef={chatRootRef} />
                           )}
+
+                          {!isUser ? (
+                            <Box sx={{ mt: 0.5, display: 'flex', justifyContent: 'flex-end' }}>
+                              <Tooltip title="复制">
+                                <IconButton
+                                  aria-label="复制内容"
+                                  size="small"
+                                  onClick={() => {
+                                    const text = String(m?.content || '')
+                                    controller.api?.clipboard?.writeText?.(text).then(
+                                      () => controller.api?.ui?.showToast?.('已复制'),
+                                      () => controller.api?.ui?.showToast?.('复制失败'),
+                                    )
+                                  }}
+                                >
+                                  <ContentCopyIcon fontSize="inherit" />
+                                </IconButton>
+                              </Tooltip>
+                            </Box>
+                          ) : null}
 
                           {m?.pending ? (
                             <Box sx={{ mt: 1 }}>
