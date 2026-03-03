@@ -828,11 +828,35 @@ export function AiChatApp(props: { controller: any }) {
               const box = data?.chatsByRole?.[String(role.id)]
               const chats = Array.isArray(box?.chats) ? box.chats.slice() : []
               const activeChatId = String(box?.activeChatId || '')
+              const pendingChat = s?.pendingChat && String(s.pendingChat?.roleId || '') === String(role.id) ? s.pendingChat.chat : null
+              const hasPending = !!pendingChat
               chats.sort((a: any, b: any) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0))
               return (
                 <List dense sx={{ py: 0 }}>
+                  {hasPending ? (
+                    <ListItemButton selected sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}>
+                      <ListItemText
+                        sx={{ minWidth: 0 }}
+                        primary={
+                          <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+                            <Typography sx={{ fontWeight: 900, fontSize: 13, flex: 1, minWidth: 0 }} noWrap>
+                              {String(pendingChat?.title || '新聊天')}（未发送）
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {controller.fmtTime(Number(pendingChat?.updatedAt || pendingChat?.createdAt || 0))}
+                            </Typography>
+                          </Stack>
+                        }
+                        secondary={
+                          <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', minWidth: 0 }}>
+                            （草稿）
+                          </Typography>
+                        }
+                      />
+                    </ListItemButton>
+                  ) : null}
                   {chats.map((c: any) => {
-                    const on = String(c?.id || '') === activeChatId
+                    const on = !hasPending && String(c?.id || '') === activeChatId
                     const msgs = Array.isArray(c?.messages) ? c.messages : []
                     const last = msgs.length ? msgs[msgs.length - 1] : null
                     const raw = String(last?.content || '').replace(/\s+/g, ' ').trim()

@@ -21,10 +21,12 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     loading: true,
     sending: false,
     sendingJobId: '',
+    sendingCtx: null,
     modal: '',
     mermaid: { items: [], index: 0, scale: 1 },
     sideTab: 'roles', // roles | chats
     models: { loading: false, error: '', items: [] },
+    pendingChat: null,
     draft: {
       input: '',
       images: [],
@@ -588,7 +590,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     return state.data?.roles?.find((r) => String(r?.id) === rid) || null
   }
 
-  function activeChat() {
+  function activeChatFromData() {
     const r = activeRole()
     if (!r || !state.data) return null
     const box = state.data.chatsByRole?.[String(r.id)]
@@ -596,6 +598,18 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     const activeChatId = String(box.activeChatId || '')
     const chats = Array.isArray(box.chats) ? box.chats : []
     return chats.find((c) => String(c?.id) === activeChatId) || chats[0] || null
+  }
+
+  function activeChat() {
+    const role = activeRole()
+    const rid = String(role?.id || '')
+    const pending = state.pendingChat
+    if (pending && String(pending.roleId || '') === rid && pending.chat) return pending.chat
+    return activeChatFromData()
+  }
+
+  function clearPendingChat() {
+    state.pendingChat = null
   }
 
   function ensureRoleDefaults(role) {
@@ -1289,8 +1303,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     if (state.sending || state.loading || !state.data) return
 
     const role = activeRole()
-    const chat = activeChat()
-    if (!role || !chat) return
+    if (!role) return
     ensureRoleDefaults(role)
 
     const input = String(state.draft.input || '').trim()
@@ -1308,6 +1321,9 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     if (!isHttpBaseUrl(baseUrl)) return api.ui?.showToast?.('请在供应商设置里配置 Base URL（http/https）')
     if (!apiKey) return api.ui?.showToast?.('请在供应商设置里配置 API Key')
     if (!modelId) return api.ui?.showToast?.('请在角色设置里选择模型（供应商 + 模型ID）')
+
+    const rid = String(role.id || '')
+    let chat = null
 
     let assistantMid = ''
     try {
@@ -1329,6 +1345,15 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
 
       const streamEnabled = !!state.data?.settings?.streamEnabled
       assistantMid = uid('m')
+
+      if (state.pendingChat && String(state.pendingChat.roleId || '') === rid) {
+        chat = createChatForRole(rid)
+        clearPendingChat()
+      } else {
+        chat = activeChatFromData()
+        if (!chat) chat = createChatForRole(rid)
+      }
+      if (!chat) throw new Error('创建会话失败')
 
       const wasEmpty = !Array.isArray(chat.messages) || chat.messages.length === 0
       chat.messages.push({ id: uid('m'), role: 'user', content: input, images: savedPaths, createdAt: now() })
@@ -1364,13 +1389,14 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
         stream: streamEnabled,
       }
 
+      state.sendingCtx = { roleId: String(role.id || ''), chatId: String(chat.id || ''), assistantMid }
       await save()
       await api.storage.set(jobKey(jobId), job)
       await enqueueJob(jobId)
       state.sendingJobId = jobId
     } catch (e) {
       const msg = String(e?.message || e || '请求失败')
-      const items = Array.isArray(chat.messages) ? chat.messages : []
+      const items = Array.isArray(chat?.messages) ? chat.messages : []
       const am = assistantMid ? items.find((m) => String(m?.id || '') === assistantMid) : null
       if (am) {
         am.content = `（请求失败：${msg}）`
@@ -1381,6 +1407,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
 
       state.sending = false
       state.sendingJobId = ''
+      state.sendingCtx = null
       api.ui?.showToast?.(msg)
     } finally {
       render()
@@ -1391,7 +1418,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     if (state.sending || state.sendingJobId || state.loading || !state.data) return
 
     const role = activeRole()
-    const chat = activeChat()
+    const chat = activeChatFromData()
     if (!role || !chat) return
     ensureRoleDefaults(role)
 
@@ -1454,6 +1481,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
         stream: streamEnabled,
       }
 
+      state.sendingCtx = { roleId: String(role.id || ''), chatId: String(chat.id || ''), assistantMid: mid }
       await save()
       await api.storage.set(jobKey(jobId), job)
       await enqueueJob(jobId)
@@ -1471,6 +1499,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
 
       state.sending = false
       state.sendingJobId = ''
+      state.sendingCtx = null
       api.ui?.showToast?.(msg)
     } finally {
       render()
@@ -2320,11 +2349,9 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   let uiLastSyncMs = 0
   const uiStreamCache = new Map()
 
-  function reapplyUiStreamCache() {
-    const role = activeRole()
-    const chat = activeChat()
-    if (!role || !chat) return false
-
+  function reapplyUiStreamCache(chatOverride) {
+    const chat = chatOverride || activeChatFromData()
+    if (!chat) return false
     const items = Array.isArray(chat.messages) ? chat.messages : []
     let changed = false
     for (const m of items.slice(-30)) {
@@ -2337,6 +2364,16 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       changed = true
     }
     return changed
+  }
+
+  function findChatByIds(roleId, chatId) {
+    if (!state.data) return null
+    const rid = String(roleId || '')
+    const cid = String(chatId || '')
+    if (!rid || !cid) return null
+    const box = state.data.chatsByRole?.[rid]
+    const chats = Array.isArray(box?.chats) ? box.chats : []
+    return chats.find((c) => String(c?.id || '') === cid) || null
   }
 
   function startUiPollers() {
@@ -2362,9 +2399,12 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   async function uiPollTick() {
     if (state.loading || !state.data) return
 
-    const role = activeRole()
-    const chat = activeChat()
-    if (!role || !chat) return
+    let chat = activeChatFromData()
+    if (state.sendingJobId && state.sendingCtx) {
+      const c = findChatByIds(state.sendingCtx.roleId, state.sendingCtx.chatId)
+      if (c) chat = c
+    }
+    if (!chat) return
 
     const items = Array.isArray(chat.messages) ? chat.messages : []
     const pending = items.filter((m) => m && m.role === 'assistant' && m.pending).slice(-3)
@@ -2388,13 +2428,21 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       if (t - uiLastSyncMs > 900) {
         uiLastSyncMs = t
         await syncDataFromStorage()
-        reapplyUiStreamCache()
+        chat = activeChatFromData()
+        if (state.sendingJobId && state.sendingCtx) {
+          const c = findChatByIds(state.sendingCtx.roleId, state.sendingCtx.chatId)
+          if (c) chat = c
+        }
+        reapplyUiStreamCache(chat)
         emit()
       }
 
       if (state.sendingJobId) {
         const job = await api.storage.get(jobKey(state.sendingJobId))
-        if (!job) state.sendingJobId = ''
+        if (!job) {
+          state.sendingJobId = ''
+          state.sendingCtx = null
+        }
       }
 
       return
@@ -2402,9 +2450,15 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
 
     uiStreamCache.clear()
 
-    if (state.sending || state.sendingJobId) {
-      state.sending = false
+    if (state.sendingJobId) {
+      const job = await api.storage.get(jobKey(state.sendingJobId))
+      if (job) return
       state.sendingJobId = ''
+      state.sendingCtx = null
+    }
+
+    if (state.sending) {
+      state.sending = false
       emit()
     }
   }
@@ -2688,9 +2742,23 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     return box
   }
 
+  function ensureChatsBoxBare(roleId) {
+    if (!state.data) return null
+    const rid = String(roleId || '')
+    if (!rid) return null
+    if (!state.data.chatsByRole || typeof state.data.chatsByRole !== 'object') state.data.chatsByRole = {}
+    if (!state.data.chatsByRole[rid] || typeof state.data.chatsByRole[rid] !== 'object') state.data.chatsByRole[rid] = { activeChatId: '', chats: [] }
+    const box = state.data.chatsByRole[rid]
+    if (!Array.isArray(box.chats)) box.chats = []
+    box.activeChatId = String(box.activeChatId || '')
+    if (box.activeChatId && !box.chats.some((c) => String(c?.id) === box.activeChatId)) box.activeChatId = ''
+    if (!box.activeChatId && box.chats.length) box.activeChatId = String(box.chats[0]?.id || '')
+    return box
+  }
+
   function createChatForRole(roleId) {
     const rid = String(roleId || '')
-    const box = ensureChatsBox(rid)
+    const box = ensureChatsBoxBare(rid)
     if (!box) return null
     const cid = uid('c')
     const chat = { id: cid, title: '新聊天', createdAt: now(), updatedAt: now(), messages: [] }
@@ -2702,9 +2770,11 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   function createChatForActiveRole() {
     const role = activeRole()
     if (!role) return api.ui?.showToast?.('请先选择角色')
-    createChatForRole(String(role.id))
+    const rid = String(role.id || '')
+    state.pendingChat = { roleId: rid, chat: { id: uid('pc'), title: '新聊天', createdAt: now(), updatedAt: now(), messages: [], pendingLocal: true } }
     state.sideTab = 'chats'
-    save().catch(() => {})
+    state.draft.input = ''
+    state.draft.images = []
     render()
     scrollToBottomSoon()
   }
@@ -2712,6 +2782,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   function pickChatForActiveRole(chatId) {
     const role = activeRole()
     if (!role || !state.data) return
+    clearPendingChat()
     const box = ensureChatsBox(String(role.id))
     if (!box) return
     const cid = String(chatId || '')
@@ -3024,6 +3095,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
         emit()
       },
       setActiveRole: (roleId) => {
+        clearPendingChat()
         state.draft.activeRoleId = String(roleId || '')
         ensureChatsBox(state.draft.activeRoleId)
         save().catch(() => {})
