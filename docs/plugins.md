@@ -50,7 +50,7 @@ plugins/<id>/
 - `requires`：能力申请列表（**必填**；未声明的能力调用会被宿主拒绝）
 - `ui.type`：目前仅支持 `iframe`（**必填**；沙箱模式；`sandbox iframe` 执行，通过 `postMessage` 调宿主能力）。
 - `ui.keepAlive`：是否保活 UI（可选；默认 `false`）。开启后返回主界面时不卸载 iframe，再次打开可秒开并保留状态（代价是占用内存/可能继续跑定时器）。
-- `allowOverwriteOnUpdate`：是否同意在 **宿主安装/升级** 后，用随包内置插件覆盖更新当前插件（可选；默认 `false`；仅对“随包内置插件种子”生效）
+- （已废弃）`allowOverwriteOnUpdate`：旧版用于记录“允许随包覆盖更新”的宿主偏好；新版不再读取/写入该字段（偏好由宿主独立配置文件保存，见下文“目录与数据”）。
 - `background`：后台运行策略（可选）
   - `autoStart?: boolean`：是否启动即运行后台上下文（默认 `true`）
   - `main?: string`：可选 legacy 双入口；不填时默认复用 `main`（推荐单入口）
@@ -170,10 +170,11 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
   - 数据根目录：默认使用 **exe 同目录**（更稳定，不依赖启动时 cwd）。
   - 也可以设置环境变量 `FAST_WINDOW_DATA_DIR` 指向你想要的数据根目录。
   - 插件目录：`<数据根>/plugins/`（由 Rust 端 `get_plugins_dir` 决定）。
-  - 正式版（release/MSI）：安装包会携带内置插件“种子”，首次启动时自动补齐到 `<数据根>/plugins/`（默认只补缺失项；若目标插件已存在，仅当该插件 `manifest.allowOverwriteOnUpdate=true` 时，才会在宿主升级后覆盖更新）。
+  - 正式版（release/MSI）：安装包会携带内置插件“种子”，首次启动时自动补齐到 `<数据根>/plugins/`（默认只补缺失项；若目标插件已存在，仅当宿主配置 `data/__app/plugins-overwrite.json` 中该插件为 `true` 时，才会在宿主升级后覆盖更新）。
   - 数据目录：`<数据根>/data/`（由 Rust 端 `get_data_dir` 决定）。
   - 注意：如果用 MSI 安装到 `Program Files` 这类目录，普通用户通常没有写权限；请使用可写目录（例如解压到 `D:\Apps\FastWindow\`），或设置 `FAST_WINDOW_DATA_DIR` 到可写路径。
 - 宿主设置：`data/app.json`（例如 `wakeShortcut`：唤醒窗口的全局快捷键）。
+- 插件覆盖更新偏好（宿主侧）：`data/__app/plugins-overwrite.json`（JSON 对象：`{ "<pluginId>": true|false }`）。
 - 插件存储（`fastWindow.storage.*`）：按 key 拆分为独立文件：`data/<pluginId>/storage/<key>.json`（key 中的 `/` 会形成子目录）。
 - 插件存储迁移（可选）：从旧版升级时，插件历史数据可能还在 `data/<pluginId>.json` 或 `data/<pluginId>/storage.json`。插件可调用 `await fastWindow.storage.migrate()` 将其迁移到新布局（幂等；失败不会删除旧文件）。
 - 开发模式（debug）：会把仓库根目录的 `plugins/` 同步到数据根目录的 `plugins/`（方便开发）；`data/` 只在目标目录为空时迁移一次。

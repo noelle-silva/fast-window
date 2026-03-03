@@ -369,12 +369,14 @@ export default function SettingsView(props: { onBack: () => void }) {
   async function loadPluginManage() {
     setPluginManageLoading(true)
     try {
-      const [ids, disabledRaw] = await Promise.all([
+      const [ids, disabledRaw, allowOverwriteIds] = await Promise.all([
         invoke<string[]>('list_plugins').catch(() => [] as string[]),
         invoke<unknown | null>('storage_get', { pluginId: APP_STORAGE_ID, key: DISABLED_PLUGINS_KEY }).catch(() => null),
+        invoke<string[]>('get_plugins_allow_overwrite_on_update').catch(() => [] as string[]),
       ])
       const disabledIds = normalizeStringList(disabledRaw)
       const uniqueDisabledIds = Array.from(new Set(disabledIds))
+      const allowOverwriteSet = new Set(allowOverwriteIds)
 
       const manifests = await Promise.all(ids.map(async (id): Promise<PluginManageItem | null> => {
         const pluginId = String(id || '').trim()
@@ -386,7 +388,7 @@ export default function SettingsView(props: { onBack: () => void }) {
           const version = typeof m?.version === 'string' ? m.version.trim() : ''
           const description = typeof m?.description === 'string' ? m.description : ''
           const icon = typeof m?.icon === 'string' ? m.icon.trim() : ''
-          const allowOverwriteOnUpdate = !!m?.allowOverwriteOnUpdate
+          const allowOverwriteOnUpdate = allowOverwriteSet.has(pluginId)
           return {
             id: pluginId,
             name: name || pluginId,

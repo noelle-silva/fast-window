@@ -11,7 +11,7 @@ use image::codecs::png::PngEncoder;
 use image::{ColorType, ImageEncoder};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use tauri::ipc::Channel;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -26,6 +26,7 @@ mod migrations;
 const DEFAULT_WAKE_SHORTCUT: &str = "control+alt+Space";
 const APP_STORAGE_ID: &str = "__app";
 const APP_CONFIG_FILE: &str = "app.json";
+const PLUGIN_OVERWRITE_PREFS_FILE: &str = "plugins-overwrite.json";
 const WAKE_SHORTCUT_KEY: &str = "wakeShortcut";
 const AUTO_START_KEY: &str = "autoStart";
 const PLUGIN_OUTPUT_DIRS_KEY: &str = "pluginOutputDirs";
@@ -1666,6 +1667,12 @@ fn app_config_legacy_path(app: &tauri::AppHandle) -> PathBuf {
     app_data_dir(app).join(APP_CONFIG_FILE)
 }
 
+fn app_plugin_overwrite_prefs_path(app: &tauri::AppHandle) -> PathBuf {
+    app_data_dir(app)
+        .join(APP_STORAGE_ID)
+        .join(PLUGIN_OVERWRITE_PREFS_FILE)
+}
+
 fn read_json_map_opt(path: &Path) -> Option<Map<String, Value>> {
     if !path.is_file() {
         return None;
@@ -1690,6 +1697,43 @@ fn read_app_config_map(app: &tauri::AppHandle) -> Map<String, Value> {
 fn write_app_config_map(app: &tauri::AppHandle, map: &Map<String, Value>) -> Result<(), String> {
     let p = app_config_path(app);
     write_json_map(&p, map)
+}
+
+fn read_plugin_overwrite_prefs(app: &tauri::AppHandle) -> BTreeMap<String, bool> {
+    let p = app_plugin_overwrite_prefs_path(app);
+    let Some(map) = read_json_map_opt(&p) else {
+        return BTreeMap::new();
+    };
+
+    let mut out: BTreeMap<String, bool> = BTreeMap::new();
+    for (k, v) in map {
+        if !is_safe_id(&k) {
+            continue;
+        }
+        if let Some(b) = v.as_bool() {
+            out.insert(k, b);
+        }
+    }
+    out
+}
+
+fn write_plugin_overwrite_prefs(
+    app: &tauri::AppHandle,
+    prefs: &BTreeMap<String, bool>,
+) -> Result<(), String> {
+    let p = app_plugin_overwrite_prefs_path(app);
+    if let Some(parent) = p.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
+    }
+
+    let mut obj = Map::<String, Value>::new();
+    for (k, v) in prefs {
+        obj.insert(k.clone(), Value::Bool(*v));
+    }
+    let out = serde_json::to_string_pretty(&Value::Object(obj))
+        .map_err(|e| format!("序列化覆盖更新配置失败: {e}"))?;
+    std::fs::write(&p, format!("{out}\n")).map_err(|e| format!("写入覆盖更新配置失败: {e}"))?;
+    Ok(())
 }
 
 fn open_dir_in_file_manager(dir: &Path) -> Result<(), String> {
@@ -3343,14 +3387,6 @@ fn manifest_string_field(manifest: &Value, key: &str) -> Option<String> {
 }
 
 #[cfg(not(debug_assertions))]
-fn manifest_allow_overwrite_on_update(manifest: &Value) -> bool {
-    manifest
-        .get("allowOverwriteOnUpdate")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-}
-
-#[cfg(not(debug_assertions))]
 fn write_manifest_value(path: &Path, manifest: &Value) -> std::io::Result<()> {
     let content = serde_json::to_string_pretty(manifest).unwrap_or_else(|_| "{}".to_string());
     std::fs::write(path, format!("{content}\n"))
@@ -3384,6 +3420,9 @@ fn seed_plugins_from_resources(app: &tauri::AppHandle) {
     let Ok(entries) = std::fs::read_dir(&bundled_plugins) else {
         return;
     };
+
+    let overwrite_prefs = read_plugin_overwrite_prefs(app);
+
     for e in entries.flatten() {
         let Ok(ty) = e.file_type() else {
             continue;
@@ -3404,9 +3443,12 @@ fn seed_plugins_from_resources(app: &tauri::AppHandle) {
             continue;
         }
 
-        // 默认不覆盖用户已有插件；只有 manifest 显式同意时，才在宿主更新后用随包版本覆盖。
-        // 注意：覆盖更新会保留 allowOverwriteOnUpdate=true 这个用户选择。
+        // 默认不覆盖用户已有插件；只有用户在宿主设置里显式开启“允许覆盖更新”时，才在宿主更新后用随包版本覆盖。
         if !dst.is_dir() {
+            continue;
+        }
+
+        if !overwrite_prefs.get(&plugin_id).copied().unwrap_or(false) {
             continue;
         }
 
@@ -3414,9 +3456,6 @@ fn seed_plugins_from_resources(app: &tauri::AppHandle) {
         let Some(dst_manifest) = read_manifest_value(&dst_manifest_path) else {
             continue;
         };
-        if !manifest_allow_overwrite_on_update(&dst_manifest) {
-            continue;
-        }
 
         let src_manifest_path = src_dir.join("manifest.json");
         let Some(src_manifest) = read_manifest_value(&src_manifest_path) else {
@@ -3442,12 +3481,8 @@ fn seed_plugins_from_resources(app: &tauri::AppHandle) {
             continue;
         }
 
-        // 覆盖更新时，把用户的同意字段写回新 manifest，避免一次更新后又“掉回默认关闭”。
-        let mut patched = src_manifest.clone();
-        if let Some(obj) = patched.as_object_mut() {
-            obj.insert("allowOverwriteOnUpdate".to_string(), Value::Bool(true));
-        }
-        let _ = write_manifest_value(&tmp_dir.join("manifest.json"), &patched);
+        // 覆盖更新时，不再把宿主偏好写入插件 manifest；偏好由宿主独立配置文件保存。
+        let _ = write_manifest_value(&tmp_dir.join("manifest.json"), &src_manifest);
 
         if std::fs::remove_dir_all(&dst).is_err() {
             let _ = std::fs::remove_dir_all(&tmp_dir);
@@ -3685,27 +3720,25 @@ fn set_plugin_allow_overwrite_on_update(
     }
 
     let plugin_dir = app_plugins_dir(&app).join(&plugin_id);
-    let manifest_path = plugin_dir.join("manifest.json");
-
-    let content =
-        std::fs::read_to_string(&manifest_path).map_err(|e| format!("读取 manifest 失败: {e}"))?;
-    let mut v = serde_json::from_str::<Value>(&content)
-        .map_err(|e| format!("manifest.json 不是合法 JSON: {e}"))?;
-    if !v.is_object() {
-        return Err("manifest.json 必须是对象".to_string());
+    if !plugin_dir.is_dir() || !plugin_dir.join("manifest.json").is_file() {
+        return Err("插件不存在或缺少 manifest.json".to_string());
     }
 
-    let obj = v.as_object_mut().unwrap();
-    obj.insert(
-        "allowOverwriteOnUpdate".to_string(),
-        Value::Bool(enabled),
-    );
-
-    let out =
-        serde_json::to_string_pretty(&v).map_err(|e| format!("序列化 manifest 失败: {e}"))?;
-    std::fs::write(&manifest_path, format!("{out}\n"))
-        .map_err(|e| format!("写入 manifest 失败: {e}"))?;
+    let mut prefs = read_plugin_overwrite_prefs(&app);
+    prefs.insert(plugin_id, enabled);
+    write_plugin_overwrite_prefs(&app, &prefs)?;
     Ok(())
+}
+
+#[tauri::command]
+fn get_plugins_allow_overwrite_on_update(app: tauri::AppHandle) -> Vec<String> {
+    let prefs = read_plugin_overwrite_prefs(&app);
+    let mut out: Vec<String> = prefs
+        .into_iter()
+        .filter_map(|(k, v)| if v { Some(k) } else { None })
+        .collect();
+    out.sort();
+    out
 }
 
 #[tauri::command]
@@ -5093,6 +5126,7 @@ fn main() {
             read_plugin_file,
             read_plugin_file_base64,
             set_plugin_allow_overwrite_on_update,
+            get_plugins_allow_overwrite_on_update,
             read_plugins_dir,
             install_plugin_files,
             open_external_url,
