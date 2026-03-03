@@ -7,7 +7,8 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
 
 const srcPluginsDir = path.join(rootDir, "plugins");
-const dstPluginsDir = path.join(rootDir, "src-tauri", "plugins");
+const dstSeedsDir = path.join(rootDir, "src-tauri", "plugin-seeds");
+const dstLegacyPluginsDir = path.join(rootDir, "src-tauri", "plugins");
 
 async function exists(p) {
   try {
@@ -66,8 +67,12 @@ function collectReferencedFiles(manifest) {
 async function main() {
   if (!(await exists(srcPluginsDir))) return;
 
-  await fs.rm(dstPluginsDir, { recursive: true, force: true });
-  await fs.mkdir(dstPluginsDir, { recursive: true });
+  // 种子资源目录：用于随包打进安装包 resources（避免与运行时 plugins/ 目录重名导致便携模式冲突）
+  await fs.rm(dstSeedsDir, { recursive: true, force: true });
+  await fs.mkdir(dstSeedsDir, { recursive: true });
+
+  // 清理旧目录（历史遗留）
+  await fs.rm(dstLegacyPluginsDir, { recursive: true, force: true });
 
   const entries = await fs.readdir(srcPluginsDir, { withFileTypes: true });
   for (const ent of entries) {
@@ -76,7 +81,7 @@ async function main() {
     if (!pluginId || pluginId.startsWith(".")) continue;
 
     const pluginSrcDir = path.join(srcPluginsDir, pluginId);
-    const pluginDstDir = path.join(dstPluginsDir, pluginId);
+    const pluginDstDir = path.join(dstSeedsDir, pluginId);
     const manifestPath = path.join(pluginSrcDir, "manifest.json");
     if (!(await exists(manifestPath))) continue;
 

@@ -6,8 +6,8 @@
   "bundle": {
     "active": true,
     "resources": [
-      "plugins/**/manifest.json",
-      "plugins/**/*.js"
+      "plugin-seeds/**/manifest.json",
+      "plugin-seeds/**/*.js"
     ],
     "icon": [
       "icons/32x32.png",

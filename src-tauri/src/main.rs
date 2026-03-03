@@ -3363,6 +3363,47 @@ fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+fn replace_dir_from_tmp(dst: &Path, tmp: &Path, tag: &str) -> Result<(), String> {
+    let Some(parent) = dst.parent() else {
+        let _ = std::fs::remove_dir_all(tmp);
+        return Err("目标目录没有父目录".to_string());
+    };
+
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_millis(0))
+        .as_millis();
+
+    let safe_tag: String = tag
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    let bak = parent.join(format!(".bak-{safe_tag}-{stamp}"));
+
+    // Windows 上 remove_dir_all 可能“删到一半失败”（文件被占用），会留下空壳目录。
+    // 这里用 rename 交换：要么完整替换成功，要么原目录保持不动。
+    if dst.exists() {
+        if let Err(e) = std::fs::rename(dst, &bak) {
+            let _ = std::fs::remove_dir_all(tmp);
+            return Err(format!("重命名旧目录失败（可能被占用）: {e}"));
+        }
+    }
+
+    if let Err(e) = std::fs::rename(tmp, dst) {
+        // 回滚：尽力把旧目录改回去
+        if bak.exists() {
+            let _ = std::fs::rename(&bak, dst);
+        }
+        let _ = std::fs::remove_dir_all(tmp);
+        return Err(format!("替换目录失败: {e}"));
+    }
+
+    if bak.exists() {
+        let _ = std::fs::remove_dir_all(&bak);
+    }
+    Ok(())
+}
+
 #[cfg(debug_assertions)]
 fn is_dir_empty(dir: &Path) -> bool {
     match std::fs::read_dir(dir) {
@@ -3402,17 +3443,32 @@ fn seed_plugins_from_resources(app: &tauri::AppHandle) {
     };
     // tauri 的 resources 支持 glob，且当资源路径在 src-tauri 目录之外时，
     // bundler 会把它们放到 resource_dir/_up_/... 下。
-    // 这里兼容两种布局：resource_dir/plugins 与 resource_dir/_up_/plugins。
+    // 优先使用种子目录 plugin-seeds，避免与运行时 plugins/ 目录重名导致便携模式冲突。
+    // 兼容布局：
+    // - resource_dir/plugin-seeds
+    // - resource_dir/_up_/plugin-seeds
+    // - legacy: resource_dir/plugins
+    // - legacy: resource_dir/_up_/plugins
     let bundled_plugins = {
-        let direct = resource_dir.join("plugins");
+        let direct = resource_dir.join("plugin-seeds");
         if direct.is_dir() {
             direct
         } else {
-            let up = resource_dir.join("_up_").join("plugins");
+            let up = resource_dir.join("_up_").join("plugin-seeds");
             if up.is_dir() {
                 up
             } else {
-                return;
+                let legacy = resource_dir.join("plugins");
+                if legacy.is_dir() {
+                    legacy
+                } else {
+                    let legacy_up = resource_dir.join("_up_").join("plugins");
+                    if legacy_up.is_dir() {
+                        legacy_up
+                    } else {
+                        return;
+                    }
+                }
             }
         }
     };
@@ -3485,12 +3541,8 @@ fn seed_plugins_from_resources(app: &tauri::AppHandle) {
         // 覆盖更新时，不再把宿主偏好写入插件 manifest；偏好由宿主独立配置文件保存。
         let _ = write_manifest_value(&tmp_dir.join("manifest.json"), &src_manifest);
 
-        if std::fs::remove_dir_all(&dst).is_err() {
-            let _ = std::fs::remove_dir_all(&tmp_dir);
-            continue;
-        }
-        if std::fs::rename(&tmp_dir, &dst).is_err() {
-            let _ = std::fs::remove_dir_all(&tmp_dir);
+        if replace_dir_from_tmp(&dst, &tmp_dir, &format!("seed-{plugin_id}")).is_err() {
+            // 失败就跳过：不能破坏用户空间（尤其是 Windows 上文件占用时）。
             continue;
         }
     }
@@ -3844,15 +3896,7 @@ fn install_plugin_files(
         }
     }
 
-    if plugin_dir.exists() {
-        if let Err(e) = std::fs::remove_dir_all(&plugin_dir) {
-            let _ = std::fs::remove_dir_all(&tmp_dir);
-            return Err(format!("移除旧插件失败: {e}"));
-        }
-    }
-
-    if let Err(e) = std::fs::rename(&tmp_dir, &plugin_dir) {
-        let _ = std::fs::remove_dir_all(&tmp_dir);
+    if let Err(e) = replace_dir_from_tmp(&plugin_dir, &tmp_dir, &format!("install-{plugin_id}")) {
         return Err(format!("安装插件失败: {e}"));
     }
     Ok(())
