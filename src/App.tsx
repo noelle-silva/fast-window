@@ -1116,7 +1116,6 @@ function App() {
   // 如果有激活的插件，渲染插件视图
   const showPluginView = !!activePlugin
   const activePluginId = activePlugin?.id || ''
-  const activePluginName = activePlugin?.name || ''
   const activePluginKeepAlive = activePlugin?.manifest?.ui?.keepAlive === true
   const ActivePluginComponent = activePlugin ? activePlugin.component : null
   const onBackFromPlugin = () => setActivePlugin(null)
