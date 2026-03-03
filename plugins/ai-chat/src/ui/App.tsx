@@ -64,6 +64,11 @@ function useEvent<T extends (...args: any[]) => any>(fn: T): T {
   return React.useCallback(((...args: any[]) => ref.current(...args)) as any, [])
 }
 
+function isNearBottom(el: HTMLElement, thresholdPx = 24) {
+  const gap = el.scrollHeight - el.scrollTop - el.clientHeight
+  return Math.ceil(gap) <= thresholdPx
+}
+
 function AssistantContent(props: { controller: any; className?: string; text: string; mid: string; chatRootRef: React.RefObject<HTMLElement | null> }) {
   const { controller, className, text, mid, chatRootRef } = props
   const ref = React.useRef<HTMLDivElement | null>(null)
@@ -148,28 +153,59 @@ export function AiChatApp(props: { controller: any }) {
   const activeChat = controller.activeChat()
 
   const chatRootRef = React.useRef<HTMLDivElement | null>(null)
-  const lastMsg = Array.isArray(activeChat?.messages) && activeChat.messages.length ? activeChat.messages[activeChat.messages.length - 1] : null
-  const lastMsgId = String(lastMsg?.id || '')
-  const lastMsgText = String(lastMsg?.content || '')
-
-  React.useEffect(() => {
-    const el = chatRootRef.current
-    if (!el) return
-    requestAnimationFrame(() => {
-      try {
-        el.scrollTop = el.scrollHeight
-      } catch (_) {}
-    })
-  }, [activeRole?.id, activeChat?.id, (activeChat?.messages || []).length, lastMsgId, lastMsgText])
-
-  const onSend = useEvent(() => controller.actions.send())
-  const onPickImages = useEvent(() => controller.actions.pickImages())
+  const stickToBottomRef = React.useRef(true)
 
   const [page, setPage] = React.useState<'chat' | 'settings'>('chat')
   const [settingsTab, setSettingsTab] = React.useState<'roles' | 'providers'>('roles')
 
   const [rolePickerEl, setRolePickerEl] = React.useState<HTMLElement | null>(null)
   const [chatPickerEl, setChatPickerEl] = React.useState<HTMLElement | null>(null)
+
+  const lastMsg = Array.isArray(activeChat?.messages) && activeChat.messages.length ? activeChat.messages[activeChat.messages.length - 1] : null
+  const lastMsgId = String(lastMsg?.id || '')
+  const lastMsgText = String(lastMsg?.content || '')
+
+  React.useEffect(() => {
+    if (page !== 'chat') return
+    const el = chatRootRef.current
+    if (!el) return
+    const onScroll = () => {
+      stickToBottomRef.current = isNearBottom(el)
+    }
+    onScroll()
+    el.addEventListener('scroll', onScroll, { passive: true } as any)
+    return () => el.removeEventListener('scroll', onScroll as any)
+  }, [page, activeRole?.id, activeChat?.id])
+
+  React.useEffect(() => {
+    if (page !== 'chat') return
+    const el = chatRootRef.current
+    if (!el) return
+    stickToBottomRef.current = true
+    requestAnimationFrame(() => {
+      try {
+        el.scrollTop = el.scrollHeight
+      } catch (_) {}
+    })
+  }, [page, activeRole?.id, activeChat?.id])
+
+  React.useEffect(() => {
+    if (page !== 'chat') return
+    const el = chatRootRef.current
+    if (!el) return
+    if (!stickToBottomRef.current) return
+    requestAnimationFrame(() => {
+      try {
+        el.scrollTop = el.scrollHeight
+      } catch (_) {}
+    })
+  }, [page, (activeChat?.messages || []).length, lastMsgId, lastMsgText])
+
+  const onSend = useEvent(() => {
+    stickToBottomRef.current = true
+    controller.actions.send()
+  })
+  const onPickImages = useEvent(() => controller.actions.pickImages())
 
   const openRolePicker = useEvent((e: React.MouseEvent<HTMLElement>) => setRolePickerEl(e.currentTarget))
   const closeRolePicker = useEvent(() => setRolePickerEl(null))
