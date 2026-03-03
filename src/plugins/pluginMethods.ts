@@ -1,4 +1,5 @@
 import { Channel, invoke } from '@tauri-apps/api/core'
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import type { PluginContext } from './pluginApi'
 import { isCapabilityAllowed, type PluginMethodCapability } from './pluginContract'
 import { PluginBridgeError } from './pluginBridge'
@@ -29,6 +30,7 @@ export type PluginMethodName =
   | 'ui.openUrl'
   | 'ui.openExternal'
   | 'ui.openBrowserWindow'
+  | 'ui.startDragging'
   | 'net.request'
   | 'net.requestBase64'
   | 'net.requestStream'
@@ -43,7 +45,7 @@ type MethodDef = {
   handler: (
     ctx: PluginContext,
     args: unknown[],
-    extra: { onBack?: () => void; postStream?: (payload: { streamId: string; event: any }) => void },
+    extra: { runtime: 'ui' | 'background'; onBack?: () => void; postStream?: (payload: { streamId: string; event: any }) => void },
   ) => unknown | Promise<unknown>
 }
 
@@ -135,6 +137,15 @@ const methods: Record<PluginMethodName, MethodDef> = {
     },
   },
 
+  'ui.startDragging': {
+    capability: 'ui.startDragging',
+    handler: async (_ctx, _args, extra) => {
+      if (extra.runtime !== 'ui') throw new PluginBridgeError('BAD_REQUEST', 'ui.startDragging is only available in ui runtime')
+      await WebviewWindow.getCurrent().startDragging()
+      return null
+    },
+  },
+
   'net.request': {
     capability: 'net.request',
     handler: (ctx, args) => {
@@ -213,7 +224,7 @@ export async function dispatchPluginMethod(
   ctx: PluginContext,
   method: string,
   args: unknown,
-  extra: { onBack?: () => void; postStream?: (payload: { streamId: string; event: any }) => void },
+  extra: { runtime: 'ui' | 'background'; onBack?: () => void; postStream?: (payload: { streamId: string; event: any }) => void },
 ) {
   const key = method as PluginMethodName
   const def = (methods as any)[key] as MethodDef | undefined

@@ -47,7 +47,7 @@ export default function IframePluginView(props: Props) {
       }
 
       Promise.resolve()
-        .then(() => dispatchPluginMethod(ctx, String(method), args, { onBack, postStream }))
+        .then(() => dispatchPluginMethod(ctx, String(method), args, { runtime: 'ui', onBack, postStream }))
         .then(result => reply({ ok: true, result }))
         .catch(err => {
           const e = toBridgeError(err)

@@ -46,7 +46,7 @@ export default function BackgroundPluginHost(props: Props) {
       }
 
       Promise.resolve()
-        .then(() => dispatchPluginMethod(ctx, String(method), args, { postStream }))
+        .then(() => dispatchPluginMethod(ctx, String(method), args, { runtime: 'background', postStream }))
         .then(result => reply({ ok: true, result }))
         .catch(err => {
           const e = toBridgeError(err)

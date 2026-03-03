@@ -80,7 +80,7 @@ plugins/<id>/
 - `clipboard.readText` / `clipboard.writeText`
 - `clipboard.readImage` / `clipboard.writeImage`
 - `storage.get` / `storage.set` / `storage.remove` / `storage.getAll` / `storage.setAll`
-- `ui.showToast` / `ui.openUrl` / `ui.openExternal` / `ui.openBrowserWindow`（在应用内新窗口打开网页）
+- `ui.showToast` / `ui.openUrl` / `ui.openExternal` / `ui.openBrowserWindow`（在应用内新窗口打开网页）/ `ui.startDragging`（让插件触发拖拽窗口移动）
   - `ui.openUrl`：仅允许 `http(s)://`
   - `ui.openExternal`：用于打开外部 URI（例如 `vscode://...`），禁用 `file://` / `javascript:`
 - `net.request`（直接 HTTP 请求；走宿主后端以绕过浏览器 CORS；支持 `mode: "task"`；默认返回 UTF-8 文本）
@@ -127,6 +127,7 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
 - `fastWindow.storage.*`（默认绑定当前插件 id：`get(key)` / `set(key, value)` …）
 - `fastWindow.ui.showToast(message)`
 - `fastWindow.ui.back()`（请求宿主返回；不需要在 `requires` 里声明）
+- `fastWindow.ui.startDragging()`（让插件触发“拖拽窗口移动”；需要在 `requires` 里声明 `ui.startDragging`；仅 `runtime === 'ui'` 可用）
   - `fastWindow.net.request(req)`（需要 `requires` 声明 `net.request`；可传 `mode: "task"` 返回任务句柄）
 - `fastWindow.files.*`（需要对应 `files.*` 能力）
 

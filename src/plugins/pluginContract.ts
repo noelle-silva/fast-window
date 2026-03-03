@@ -42,6 +42,7 @@ export type PluginCapability =
   | 'ui.openUrl'
   | 'ui.openExternal'
   | 'ui.openBrowserWindow'
+  | 'ui.startDragging'
   | 'task'
   | 'task.*'
   | 'task.create'
@@ -88,6 +89,7 @@ export const ALL_PLUGIN_CAPABILITIES: readonly PluginCapability[] = [
   'ui.openUrl',
   'ui.openExternal',
   'ui.openBrowserWindow',
+  'ui.startDragging',
   'task',
   'task.*',
   'task.create',

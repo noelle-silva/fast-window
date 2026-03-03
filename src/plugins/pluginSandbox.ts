@@ -174,8 +174,8 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
     }
   });
 
-  window.fastWindow = {
-    __meta: { pluginId, apiVersion, runtime },
+   window.fastWindow = {
+     __meta: { pluginId, apiVersion, runtime },
     clipboard: {
       readText: () => call('clipboard.readText', []),
       writeText: (text) => call('clipboard.writeText', [text]),
@@ -207,13 +207,14 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
       },
       pickImages: (maxCount) => call('files.pickImages', [maxCount]),
     },
-    ui: {
-      showToast: (message) => call('ui.showToast', [message]),
-      openUrl: (url) => call('ui.openUrl', [url]),
-      openExternal: (uri) => call('ui.openExternal', [uri]),
-      openBrowserWindow: (url) => call('ui.openBrowserWindow', [url]),
-      back: () => call('host.back', []),
-    },
+     ui: {
+       showToast: (message) => call('ui.showToast', [message]),
+       openUrl: (url) => call('ui.openUrl', [url]),
+       openExternal: (uri) => call('ui.openExternal', [uri]),
+       openBrowserWindow: (url) => call('ui.openBrowserWindow', [url]),
+       startDragging: () => call('ui.startDragging', []),
+       back: () => call('host.back', []),
+     },
     net: {
       request: (req) => call('net.request', [req]),
       requestBase64: (req) => call('net.requestBase64', [req]),
