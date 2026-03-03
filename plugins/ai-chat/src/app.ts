@@ -1381,6 +1381,96 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     }
   }
 
+  async function regenerateAssistantMessage(assistantMid) {
+    if (state.sending || state.sendingJobId || state.loading || !state.data) return
+
+    const role = activeRole()
+    const chat = activeChat()
+    if (!role || !chat) return
+    ensureRoleDefaults(role)
+
+    const mid = String(assistantMid || '').trim()
+    if (!mid) return
+
+    const providerId = String(role.modelRef?.providerId || '')
+    const modelId = String(role.modelRef?.modelId || '').trim()
+    const p = getProvider(providerId)
+    if (!p) return api.ui?.showToast?.('未找到该供应商')
+
+    const baseUrl = trimSlash(p.baseUrl || '')
+    const apiKey = String(p.apiKey || '').trim()
+    if (!isHttpBaseUrl(baseUrl)) return api.ui?.showToast?.('请在供应商设置里配置 Base URL（http/https）')
+    if (!apiKey) return api.ui?.showToast?.('请在供应商设置里配置 API Key')
+    if (!modelId) return api.ui?.showToast?.('请在角色设置里选择模型（供应商 + 模型ID）')
+
+    try {
+      state.sending = true
+      renderComposer()
+
+      const msgs = Array.isArray(chat.messages) ? chat.messages : []
+      const aiIndex = msgs.findIndex((m) => String(m?.id || '') === mid)
+      if (aiIndex < 0) throw new Error('未找到该消息')
+
+      const target = msgs[aiIndex]
+      if (!target || target.role !== 'assistant') throw new Error('只能重新生成 AI 回复')
+      if (target.pending) throw new Error('该消息正在生成中')
+
+      let userIndex = -1
+      for (let i = aiIndex - 1; i >= 0; i--) {
+        const m = msgs[i]
+        if (m && m.role === 'user') {
+          userIndex = i
+          break
+        }
+      }
+      if (userIndex < 0) throw new Error('未找到对应的用户消息')
+
+      const streamEnabled = !!state.data?.settings?.streamEnabled
+      target.content = '（生成中…）'
+      target.pending = true
+      target.streaming = streamEnabled
+      chat.updatedAt = now()
+
+      try {
+        await api.storage.remove(streamKey(mid))
+      } catch (_) {}
+
+      const jobId = uid('job')
+      const job = {
+        id: jobId,
+        kind: 'openai.chat.completions',
+        status: 'queued',
+        createdAt: now(),
+        roleId: String(role.id || ''),
+        chatId: String(chat.id || ''),
+        assistantMid: mid,
+        cutoffMid: mid,
+        stream: streamEnabled,
+      }
+
+      await save()
+      await api.storage.set(jobKey(jobId), job)
+      await enqueueJob(jobId)
+      state.sendingJobId = jobId
+    } catch (e) {
+      const msg = String(e?.message || e || '请求失败')
+      const items = Array.isArray(chat.messages) ? chat.messages : []
+      const am = mid ? items.find((m) => String(m?.id || '') === mid) : null
+      if (am) {
+        am.content = `（请求失败：${msg}）`
+        am.pending = false
+        am.streaming = false
+      }
+      save().catch(() => {})
+
+      state.sending = false
+      state.sendingJobId = ''
+      api.ui?.showToast?.(msg)
+    } finally {
+      render()
+    }
+  }
+
 
   async function patchAssistantMessage(job, content) {
     const roleId = String(job?.roleId || '')
@@ -1516,8 +1606,14 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     if (!apiKey) throw new Error('API Key 为空')
     if (!modelId) throw new Error('模型ID 为空')
 
+    const cutoffMid = String(job?.cutoffMid || '').trim()
     const msgs0 = Array.isArray(chat.messages) ? chat.messages : []
-    const msgs = msgs0.filter((m) => !(m && m.role === 'assistant' && m.pending))
+    let baseMsgs0 = msgs0
+    if (cutoffMid) {
+      const idx = msgs0.findIndex((m) => String(m?.id || '') === cutoffMid)
+      if (idx >= 0) baseMsgs0 = msgs0.slice(0, idx)
+    }
+    const msgs = baseMsgs0.filter((m) => !(m && m.role === 'assistant' && m.pending))
     const history = limitHistory(msgs, 40)
 
     const sys = String(role.systemPrompt || '').trim()
@@ -3086,6 +3182,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
         emit()
       },
       send: () => sendChat(),
+      regenerateAssistant: (assistantMid) => regenerateAssistantMessage(String(assistantMid || '')),
     },
   }
 

@@ -247,6 +247,7 @@ export function AiChatApp(props: { controller: any }) {
     controller.actions.send()
   })
   const onPickImages = useEvent(() => controller.actions.pickImages())
+  const [regen, setRegen] = React.useState<{ mid: string }>({ mid: '' })
 
   const openRolePicker = useEvent((e: React.MouseEvent<HTMLElement>) => setRolePickerEl(e.currentTarget))
   const closeRolePicker = useEvent(() => setRolePickerEl(null))
@@ -553,7 +554,23 @@ export function AiChatApp(props: { controller: any }) {
                           )}
 
                           {!isUser ? (
-                            <Box sx={{ mt: 0.5, display: 'flex', justifyContent: 'flex-end' }}>
+                            <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }} justifyContent="flex-end">
+                              <Tooltip title="重新回复">
+                                <span>
+                                  <IconButton
+                                    aria-label="重新回复"
+                                    size="small"
+                                    disabled={!!m?.pending || s.loading || s.sending}
+                                    onClick={() => {
+                                      const mid = String(m?.id || '')
+                                      setRegen({ mid })
+                                    }}
+                                  >
+                                    <RestartAltIcon fontSize="inherit" />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+
                               <Tooltip title="复制">
                                 <IconButton
                                   aria-label="复制内容"
@@ -569,7 +586,7 @@ export function AiChatApp(props: { controller: any }) {
                                   <ContentCopyIcon fontSize="inherit" />
                                 </IconButton>
                               </Tooltip>
-                            </Box>
+                            </Stack>
                           ) : null}
 
                           {m?.pending ? (
@@ -585,9 +602,38 @@ export function AiChatApp(props: { controller: any }) {
                )}
              </Box>
 
-            <Box
-              ref={composerRef}
-              sx={{
+             <Dialog
+               open={!!regen.mid}
+               onClose={() => setRegen({ mid: '' })}
+               maxWidth="xs"
+               fullWidth
+             >
+               <DialogTitle>确认重新回复？</DialogTitle>
+               <DialogContent>
+                 <Typography variant="body2" color="text.secondary">
+                   这会用新内容覆盖当前 AI 回复。
+                 </Typography>
+               </DialogContent>
+               <DialogActions>
+                 <Button onClick={() => setRegen({ mid: '' })}>取消</Button>
+                 <Button
+                   variant="contained"
+                   color="warning"
+                   onClick={() => {
+                     const mid = regen.mid
+                     setRegen({ mid: '' })
+                     controller.actions.regenerateAssistant?.(mid)
+                   }}
+                   disabled={!regen.mid || s.loading || s.sending}
+                 >
+                   重新回复
+                 </Button>
+               </DialogActions>
+             </Dialog>
+
+             <Box
+               ref={composerRef}
+               sx={{
                 position: 'absolute',
                 left: 16,
                 right: 16,
