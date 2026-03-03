@@ -519,13 +519,14 @@ export function AiChatApp(props: { controller: any }) {
                         <Paper
                           variant="outlined"
                           sx={{
-                             maxWidth: 920,
-                             px: 1.5,
-                             py: 1.25,
-                             bgcolor: isUser ? 'rgba(25,118,210,.06)' : 'transparent',
-                             borderColor: isUser ? 'rgba(25,118,210,.22)' : 'transparent',
-                           }}
-                         >
+                            width: isUser ? 'auto' : '100%',
+                            maxWidth: isUser ? 920 : '100%',
+                            px: 1.5,
+                            py: 1.25,
+                            bgcolor: isUser ? 'rgba(25,118,210,.06)' : 'transparent',
+                            borderColor: isUser ? 'rgba(25,118,210,.22)' : 'transparent',
+                          }}
+                        >
                           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.75 }}>
                             {isUser ? (
                               <Typography variant="body2" sx={{ fontWeight: 900 }}>
