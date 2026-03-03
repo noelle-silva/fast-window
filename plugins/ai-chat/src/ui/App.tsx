@@ -538,21 +538,43 @@ export function AiChatApp(props: { controller: any }) {
                 ) : null}
 
                 <Stack direction="row" spacing={1} alignItems="flex-end">
-                  <Button variant="outlined" startIcon={<ImageIcon />} onClick={onPickImages} disabled={s.loading || s.sending || !activeRole}>
-                    图片
-                  </Button>
+                  <Tooltip title="图片">
+                    <span>
+                      <IconButton
+                        aria-label="选择图片"
+                        onClick={onPickImages}
+                        disabled={s.loading || s.sending || !activeRole}
+                        size="small"
+                        sx={{
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          borderRadius: '999px',
+                          width: 36,
+                          height: 36,
+                        }}
+                      >
+                        <ImageIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
 
                   <TextField
                     fullWidth
                     multiline
                     minRows={2}
                     maxRows={8}
+                    variant="outlined"
                     placeholder="输入消息…（Enter 发送 / Shift+Enter 换行；支持粘贴图片）"
                     value={String(s.draft?.input || '')}
                     onChange={(e) => controller.actions.setDraft('input', e.target.value)}
                     onKeyDown={onKeyDown}
                     onPaste={onPaste}
                     disabled={s.loading || s.sending || !activeRole}
+                    sx={{
+                      '& .MuiOutlinedInput-notchedOutline': { border: 0 },
+                      '&:hover .MuiOutlinedInput-notchedOutline': { border: 0 },
+                      '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { border: 0 },
+                    }}
                   />
 
                   <Button
