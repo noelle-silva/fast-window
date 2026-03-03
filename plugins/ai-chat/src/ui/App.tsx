@@ -77,6 +77,8 @@ function clampNum(n: number, min: number, max: number) {
   return x
 }
 
+const TOPBAR_H = 40
+
 function AssistantContent(props: { controller: any; className?: string; text: string; mid: string; chatRootRef: React.RefObject<HTMLElement | null> }) {
   const { controller, className, text, mid, chatRootRef } = props
   const ref = React.useRef<HTMLDivElement | null>(null)
@@ -159,6 +161,8 @@ export function AiChatApp(props: { controller: any }) {
   const transparentChatBg = !!data?.settings?.transparentChatBg
   const chatBgOpacity = clampNum(Number(data?.settings?.chatBgOpacity ?? 0), 0, 100)
   const chatBgBlur = clampNum(Number(data?.settings?.chatBgBlur ?? 0), 0, 24)
+  const topbarOpacity = clampNum(Number(data?.settings?.topbarOpacity ?? 100), 0, 100)
+  const topbarBlur = clampNum(Number(data?.settings?.topbarBlur ?? 0), 0, 24)
   const composerOpacity = clampNum(Number(data?.settings?.composerOpacity ?? 86), 40, 100)
   const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
   const bgAlpha = transparentChatBg ? Math.max(chatBgOpacity / 100, chatBgBlur > 0 ? 0.01 : 0) : 1
@@ -347,15 +351,19 @@ export function AiChatApp(props: { controller: any }) {
         }}
       />
 
-      <Box sx={{ height: '100%', minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <Box sx={{ height: '100%', minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }}>
         <AppBar
-          position="static"
+          position="absolute"
           elevation={0}
           sx={{
-            bgcolor: '#fff',
+            bgcolor: `rgba(255,255,255,${topbarOpacity / 100})`,
             color: 'text.primary',
-            borderBottom: '1px solid',
-            borderColor: 'divider',
+            borderBottom: 'none',
+            backdropFilter: topbarBlur > 0 ? `blur(${topbarBlur}px)` : 'none',
+            WebkitBackdropFilter: topbarBlur > 0 ? `blur(${topbarBlur}px)` : 'none',
+            top: 0,
+            left: 0,
+            right: 0,
           }}
         >
           <Toolbar
@@ -458,6 +466,7 @@ export function AiChatApp(props: { controller: any }) {
           </Toolbar>
         </AppBar>
 
+        <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         {page === 'chat' ? (
           <>
             <Box
@@ -478,7 +487,8 @@ export function AiChatApp(props: { controller: any }) {
                  minHeight: 0,
                  overflowY: 'auto',
                  overflowX: 'hidden',
-                 p: 2,
+                 px: 2,
+                 pt: `calc(${TOPBAR_H}px + 16px)`,
                  bgcolor: transparentChatBg ? 'transparent' : 'grey.50',
                  paddingBottom: `calc(${Math.max(0, composerHeight)}px + 24px)`,
                }}
@@ -877,6 +887,7 @@ export function AiChatApp(props: { controller: any }) {
             tab={settingsTab}
           />
         )}
+        </Box>
 
         <ProvidersDialog open={s.modal === 'providers'} controller={controller} providers={providers} draft={s.draft} />
         <RoleDialog open={s.modal === 'role'} controller={controller} providers={providers} draft={s.draft} models={s.models} />
@@ -901,7 +912,7 @@ function PluginSettingsPage(props: {
 
   if (!data) {
     return (
-      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', p: 2, bgcolor: 'grey.50' }}>
+      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
         <Typography variant="body2" color="text.secondary">
           {loading ? '加载中…' : '未加载到数据'}
         </Typography>
@@ -912,6 +923,8 @@ function PluginSettingsPage(props: {
   const transparentChatBg = !!data?.settings?.transparentChatBg
   const chatBgOpacity = clampNum(Number(data?.settings?.chatBgOpacity ?? 0), 0, 100)
   const chatBgBlur = clampNum(Number(data?.settings?.chatBgBlur ?? 0), 0, 24)
+  const topbarOpacity = clampNum(Number(data?.settings?.topbarOpacity ?? 100), 0, 100)
+  const topbarBlur = clampNum(Number(data?.settings?.topbarBlur ?? 0), 0, 24)
   const composerOpacity = clampNum(Number(data?.settings?.composerOpacity ?? 86), 40, 100)
   const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
 
@@ -978,6 +991,52 @@ function PluginSettingsPage(props: {
         <Box>
           <Stack direction="row" spacing={1} alignItems="center">
             <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              顶部栏透明度
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {Math.round(topbarOpacity)}%
+            </Typography>
+          </Stack>
+          <Slider
+            size="small"
+            value={topbarOpacity}
+            min={0}
+            max={100}
+            step={1}
+            onChange={(_e, v) => controller.actions.setTopbarOpacity?.(v, false)}
+            onChangeCommitted={(_e, v) => controller.actions.setTopbarOpacity?.(v, true)}
+            disabled={loading}
+          />
+        </Box>
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              顶部栏磨砂度
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {Math.round(topbarBlur)}px
+            </Typography>
+          </Stack>
+          <Slider
+            size="small"
+            value={topbarBlur}
+            min={0}
+            max={24}
+            step={1}
+            onChange={(_e, v) => controller.actions.setTopbarBlur?.(v, false)}
+            onChangeCommitted={(_e, v) => controller.actions.setTopbarBlur?.(v, true)}
+            disabled={loading}
+          />
+        </Box>
+
+        <Divider />
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
               输入栏透明度
             </Typography>
             <Box sx={{ flex: 1 }} />
@@ -1024,7 +1083,7 @@ function PluginSettingsPage(props: {
 
   if (tab === 'roles') {
     return (
-      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', p: 2, bgcolor: 'grey.50' }}>
+      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
         {appearancePanel}
 
         <Paper variant="outlined" sx={{ p: 1.5 }}>
@@ -1103,7 +1162,7 @@ function PluginSettingsPage(props: {
   const editingId = String(draft?.editProviderId || '')
 
   return (
-    <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', p: 2, bgcolor: 'grey.50' }}>
+    <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
       {appearancePanel}
 
       <Paper variant="outlined" sx={{ p: 1.5 }}>

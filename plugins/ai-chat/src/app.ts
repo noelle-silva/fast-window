@@ -408,6 +408,8 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
           transparentChatBg: false,
           chatBgOpacity: 0,
           chatBgBlur: 0,
+          topbarOpacity: 100,
+          topbarBlur: 0,
           composerOpacity: 86,
           composerBlur: 10,
           providers: [
@@ -453,10 +455,14 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     if (typeof d.settings.transparentChatBg !== 'boolean') d.settings.transparentChatBg = false
     if (typeof d.settings.chatBgOpacity !== 'number' || !isFinite(d.settings.chatBgOpacity)) d.settings.chatBgOpacity = 0
     if (typeof d.settings.chatBgBlur !== 'number' || !isFinite(d.settings.chatBgBlur)) d.settings.chatBgBlur = 0
+    if (typeof d.settings.topbarOpacity !== 'number' || !isFinite(d.settings.topbarOpacity)) d.settings.topbarOpacity = 100
+    if (typeof d.settings.topbarBlur !== 'number' || !isFinite(d.settings.topbarBlur)) d.settings.topbarBlur = 0
     if (typeof d.settings.composerOpacity !== 'number' || !isFinite(d.settings.composerOpacity)) d.settings.composerOpacity = 86
     if (typeof d.settings.composerBlur !== 'number' || !isFinite(d.settings.composerBlur)) d.settings.composerBlur = 10
     d.settings.chatBgOpacity = clamp(Math.round(Number(d.settings.chatBgOpacity || 0)), 0, 100)
     d.settings.chatBgBlur = clamp(Math.round(Number(d.settings.chatBgBlur || 0)), 0, 24)
+    d.settings.topbarOpacity = clamp(Math.round(Number(d.settings.topbarOpacity || 0)), 0, 100)
+    d.settings.topbarBlur = clamp(Math.round(Number(d.settings.topbarBlur || 0)), 0, 24)
     d.settings.composerOpacity = clamp(Math.round(Number(d.settings.composerOpacity || 0)), 40, 100)
     d.settings.composerBlur = clamp(Math.round(Number(d.settings.composerBlur || 0)), 0, 24)
     if (!Array.isArray(d.settings.providers) || d.settings.providers.length === 0) d.settings.providers = defaultData().settings.providers
@@ -3047,6 +3053,18 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       setChatBgBlur: (blur, commit) => {
         if (!state.data) return
         state.data.settings.chatBgBlur = clamp(Math.round(Number(blur || 0)), 0, 24)
+        if (commit) save().catch(() => {})
+        emit()
+      },
+      setTopbarOpacity: (opacity, commit) => {
+        if (!state.data) return
+        state.data.settings.topbarOpacity = clamp(Math.round(Number(opacity || 0)), 0, 100)
+        if (commit) save().catch(() => {})
+        emit()
+      },
+      setTopbarBlur: (blur, commit) => {
+        if (!state.data) return
+        state.data.settings.topbarBlur = clamp(Math.round(Number(blur || 0)), 0, 24)
         if (commit) save().catch(() => {})
         emit()
       },
