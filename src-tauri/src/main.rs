@@ -3448,7 +3448,8 @@ fn seed_plugins_from_resources(app: &tauri::AppHandle) {
             continue;
         }
 
-        if !overwrite_prefs.get(&plugin_id).copied().unwrap_or(false) {
+        // 默认：允许覆盖更新；仅当用户显式设置为 false 时才禁止。
+        if overwrite_prefs.get(&plugin_id).copied().unwrap_or(true) == false {
             continue;
         }
 
@@ -3725,7 +3726,12 @@ fn set_plugin_allow_overwrite_on_update(
     }
 
     let mut prefs = read_plugin_overwrite_prefs(&app);
-    prefs.insert(plugin_id, enabled);
+    // 默认：true。只持久化 false（禁用）即可，避免文件变大。
+    if enabled {
+        prefs.remove(&plugin_id);
+    } else {
+        prefs.insert(plugin_id, false);
+    }
     write_plugin_overwrite_prefs(&app, &prefs)?;
     Ok(())
 }
@@ -3733,10 +3739,15 @@ fn set_plugin_allow_overwrite_on_update(
 #[tauri::command]
 fn get_plugins_allow_overwrite_on_update(app: tauri::AppHandle) -> Vec<String> {
     let prefs = read_plugin_overwrite_prefs(&app);
-    let mut out: Vec<String> = prefs
-        .into_iter()
-        .filter_map(|(k, v)| if v { Some(k) } else { None })
-        .collect();
+    let ids = list_plugins(app.clone());
+    let mut out: Vec<String> = Vec::new();
+    for id in ids {
+        // 默认：true。仅当 prefs 显式为 false 时才禁用。
+        if prefs.get(&id).copied().unwrap_or(true) == false {
+            continue;
+        }
+        out.push(id);
+    }
     out.sort();
     out
 }

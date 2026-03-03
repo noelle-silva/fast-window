@@ -170,11 +170,12 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
   - 数据根目录：默认使用 **exe 同目录**（更稳定，不依赖启动时 cwd）。
   - 也可以设置环境变量 `FAST_WINDOW_DATA_DIR` 指向你想要的数据根目录。
   - 插件目录：`<数据根>/plugins/`（由 Rust 端 `get_plugins_dir` 决定）。
-  - 正式版（release/MSI）：安装包会携带内置插件“种子”，首次启动时自动补齐到 `<数据根>/plugins/`（默认只补缺失项；若目标插件已存在，仅当宿主配置 `data/__app/plugins-overwrite.json` 中该插件为 `true` 时，才会在宿主升级后覆盖更新）。
+  - 正式版（release/MSI）：安装包会携带内置插件“种子”，首次启动时自动补齐到 `<数据根>/plugins/`（默认只补缺失项；若目标插件已存在，默认允许在宿主升级后覆盖更新；仅当宿主配置 `data/__app/plugins-overwrite.json` 中该插件显式为 `false` 时才禁止覆盖更新）。
   - 数据目录：`<数据根>/data/`（由 Rust 端 `get_data_dir` 决定）。
   - 注意：如果用 MSI 安装到 `Program Files` 这类目录，普通用户通常没有写权限；请使用可写目录（例如解压到 `D:\Apps\FastWindow\`），或设置 `FAST_WINDOW_DATA_DIR` 到可写路径。
 - 宿主设置：`data/app.json`（例如 `wakeShortcut`：唤醒窗口的全局快捷键）。
 - 插件覆盖更新偏好（宿主侧）：`data/__app/plugins-overwrite.json`（JSON 对象：`{ "<pluginId>": true|false }`）。
+- 默认策略：**默认允许覆盖更新**；仅当 `plugins-overwrite.json` 中该插件显式为 `false` 时，才禁止覆盖更新。
 - 插件存储（`fastWindow.storage.*`）：按 key 拆分为独立文件：`data/<pluginId>/storage/<key>.json`（key 中的 `/` 会形成子目录）。
 - 插件存储迁移（可选）：从旧版升级时，插件历史数据可能还在 `data/<pluginId>.json` 或 `data/<pluginId>/storage.json`。插件可调用 `await fastWindow.storage.migrate()` 将其迁移到新布局（幂等；失败不会删除旧文件）。
 - 开发模式（debug）：会把仓库根目录的 `plugins/` 同步到数据根目录的 `plugins/`（方便开发）；`data/` 只在目标目录为空时迁移一次。
