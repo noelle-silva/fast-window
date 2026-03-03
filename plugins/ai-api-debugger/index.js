@@ -542,6 +542,7 @@
       <style>${css}</style>
       <div class="wrap">
         <div class="top">
+          <button class="btn" data-act="back" aria-label="返回主页" title="返回主页">←</button>
           <div class="title">🧪 AI API 调试</div>
           <button class="btn pri" data-act="copy-body" ${built && !built.error ? '' : 'disabled'}>复制 Body</button>
           <button class="btn ok" data-act="send" ${state.sending ? 'disabled' : ''}>${state.sending ? '发送中…' : '发送'}</button>
@@ -710,6 +711,7 @@
     const draft = activeDraft()
     if (!d) return
 
+    if (act === 'back') return api.ui?.back ? api.ui.back() : api.ui?.showToast?.('无法返回')
     if (act === 'send') return void send()
     if (act === 'copy-resp') return copyText(state.resp.body || '')
     if (act === 'copy-body') {
@@ -785,6 +787,17 @@
     if (!act) return
     e.preventDefault()
     onClick(act, el)
+  })
+
+  document.addEventListener('pointerdown', e => {
+    if (!(e instanceof PointerEvent)) return
+    if (e.button !== 0) return
+    const t = e.target instanceof Element ? e.target : null
+    if (!t) return
+    const top = t.closest('.top')
+    if (!top) return
+    if (t.closest('button, a, input, textarea, select, [role="button"]')) return
+    api.ui?.startDragging?.()
   })
 
   document.addEventListener('input', e => {

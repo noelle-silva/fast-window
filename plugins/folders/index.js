@@ -508,6 +508,18 @@
       </div>
     `
 
+    const topbar = root.querySelector('.topbar')
+    if (topbar) {
+      topbar.addEventListener('pointerdown', (e) => {
+        if (!(e instanceof PointerEvent)) return
+        if (e.button !== 0) return
+        const t = e.target
+        if (!(t instanceof HTMLElement)) return
+        if (t.closest('button, a, input, textarea, select, [role="button"]')) return
+        api.ui?.startDragging?.()
+      })
+    }
+
     root.addEventListener('click', (e) => {
       const t = e.target
       if (!(t instanceof HTMLElement)) return

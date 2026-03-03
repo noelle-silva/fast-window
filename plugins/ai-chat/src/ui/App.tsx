@@ -48,6 +48,7 @@ import ZoomOutIcon from '@mui/icons-material/ZoomOut'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
+import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 
 function useAiChatState(controller: any) {
   React.useSyncExternalStore(
@@ -180,6 +181,20 @@ export function AiChatApp(props: { controller: any }) {
 
   const [rolePickerEl, setRolePickerEl] = React.useState<HTMLElement | null>(null)
   const [chatPickerEl, setChatPickerEl] = React.useState<HTMLElement | null>(null)
+
+  const backToHost = useEvent(() => {
+    const ui = controller?.api?.ui
+    if (ui?.back) ui.back()
+    else ui?.showToast?.('无法返回')
+  })
+
+  const onTopbarPointerDown = useEvent((e: React.PointerEvent) => {
+    if (e.button !== 0) return
+    const t = e.target as any
+    if (!t || typeof t.closest !== 'function') return
+    if (t.closest('button, a, input, textarea, select, [role="button"]')) return
+    controller?.api?.ui?.startDragging?.()
+  })
 
   const lastMsg = Array.isArray(activeChat?.messages) && activeChat.messages.length ? activeChat.messages[activeChat.messages.length - 1] : null
   const lastMsgId = String(lastMsg?.id || '')
@@ -367,19 +382,23 @@ export function AiChatApp(props: { controller: any }) {
           }}
         >
           <Toolbar
-            variant="dense"
-           sx={{
-             gap: 0.5,
-             minHeight: 40,
-             px: 1,
-             '&.MuiToolbar-root': { minHeight: 40 },
-           }}
-          >
-            {page === 'settings' ? (
-              <>
-                <IconButton onClick={closePluginSettings} size="small">
-                  <ChevronLeftIcon fontSize="small" />
-                </IconButton>
+             variant="dense"
+            sx={{
+              gap: 0.5,
+              minHeight: 40,
+              px: 1,
+              '&.MuiToolbar-root': { minHeight: 40 },
+            }}
+            onPointerDown={onTopbarPointerDown}
+           >
+             {page === 'settings' ? (
+               <>
+                 <IconButton onClick={backToHost} size="small" aria-label="返回主页">
+                   <ArrowBackRoundedIcon fontSize="small" />
+                 </IconButton>
+                 <IconButton onClick={closePluginSettings} size="small">
+                   <ChevronLeftIcon fontSize="small" />
+                 </IconButton>
 
                 <Typography variant="subtitle2" sx={{ fontWeight: 900, mr: 0.5 }}>
                   插件设置
@@ -404,11 +423,14 @@ export function AiChatApp(props: { controller: any }) {
                   供应商管理
                 </Button>
               </>
-            ) : (
-              <>
-                <Typography variant="subtitle2" sx={{ fontWeight: 900, mr: 0.5 }}>
-                  AI 聊天
-                </Typography>
+             ) : (
+               <>
+                 <IconButton onClick={backToHost} size="small" aria-label="返回主页">
+                   <ArrowBackRoundedIcon fontSize="small" />
+                 </IconButton>
+                 <Typography variant="subtitle2" sx={{ fontWeight: 900, mr: 0.5 }}>
+                   AI 聊天
+                 </Typography>
 
                 <Button
                   variant="outlined"

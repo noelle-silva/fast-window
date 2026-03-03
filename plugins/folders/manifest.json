@@ -9,5 +9,5 @@
   "keyword": "fd",
   "apiVersion": 2,
   "ui": { "type": "iframe" },
-  "requires": ["storage.get", "storage.set", "files.pickDir", "files.openDir", "ui.showToast"]
+  "requires": ["storage.get", "storage.set", "files.pickDir", "files.openDir", "ui.startDragging", "ui.showToast"]
 }

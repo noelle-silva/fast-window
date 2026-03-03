@@ -2497,6 +2497,19 @@
 
   function bindEvents() {
     const root = document.getElementById('app') || document
+
+    root.addEventListener('pointerdown', (e) => {
+      if (!(e instanceof PointerEvent)) return
+      if (e.button !== 0) return
+      const raw = e.target
+      const node = raw && raw.nodeType === 3 ? raw.parentElement : raw
+      if (!node || !node.closest) return
+      const top = node.closest('.top')
+      if (!top) return
+      if (node.closest('button, a, input, textarea, select, [role="button"]')) return
+      api.ui?.startDragging?.()
+    })
+
     root.addEventListener('click', (e) => {
       const raw = e.target
       const node = raw && raw.nodeType === 3 ? raw.parentElement : raw

@@ -13,6 +13,7 @@
     "storage.get",
     "storage.set",
     "ui.showToast",
+    "ui.startDragging",
     "clipboard.writeText",
     "net.request"
   ]

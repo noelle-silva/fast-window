@@ -9,5 +9,5 @@
   "keyword": "api",
   "apiVersion": 2,
   "ui": { "type": "iframe" },
-  "requires": ["storage.get", "storage.set", "ui.showToast", "clipboard.writeText", "net.request"]
+  "requires": ["storage.get", "storage.set", "ui.showToast", "ui.startDragging", "clipboard.writeText", "net.request"]
 }

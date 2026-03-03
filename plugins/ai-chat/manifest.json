@@ -16,6 +16,7 @@
     "storage.remove",
     "storage.getAll",
     "ui.showToast",
+    "ui.startDragging",
     "clipboard.writeText",
     "files.pickImages",
     "files.images.writeBase64",

@@ -12,6 +12,7 @@
   "requires": [
     "storage.get",
     "storage.set",
+    "ui.startDragging",
     "ui.showToast"
   ]
 }

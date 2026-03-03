@@ -9,5 +9,5 @@
   "keyword": "anime",
   "apiVersion": 2,
   "ui": { "type": "iframe" },
-  "requires": ["net.request", "ui.showToast", "clipboard.readImage", "clipboard.writeText"]
+  "requires": ["net.request", "ui.showToast", "ui.startDragging", "clipboard.readImage", "clipboard.writeText"]
 }

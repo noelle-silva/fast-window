@@ -9,5 +9,5 @@
   "keyword": "code",
   "apiVersion": 2,
   "ui": { "type": "iframe" },
-  "requires": ["storage.get", "storage.set", "ui.showToast", "files.pickDir", "ui.openExternal"]
+  "requires": ["storage.get", "storage.set", "ui.showToast", "ui.startDragging", "files.pickDir", "ui.openExternal"]
 }

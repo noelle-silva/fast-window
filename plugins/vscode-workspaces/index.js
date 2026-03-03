@@ -226,6 +226,7 @@
     el.innerHTML = `
       <div class="wrap">
         <div class="topbar">
+          <button class="btn" data-act="back" aria-label="返回主页" title="返回主页">←</button>
           <div class="title">VSCode 工作区</div>
           <button class="btn" data-act="help" title="帮助" aria-label="帮助">?</button>
           <button class="btn ${state.addOpen ? '' : 'primary'}" data-act="toggleAdd">${state.addOpen ? '收起' : '添加'}</button>
@@ -272,6 +273,21 @@
         <div class="content">${listHtml}</div>
       </div>
     `
+
+    const topbar = el.querySelector('.topbar')
+    if (topbar) {
+      topbar.onpointerdown = (e) => {
+        if (!(e instanceof PointerEvent)) return
+        if (e.button !== 0) return
+        const t = e.target
+        if (!(t instanceof HTMLElement)) return
+        if (t.closest('button, a, input, textarea, select, [role="button"]')) return
+        api.ui?.startDragging?.()
+      }
+    }
+
+    const back = el.querySelector('button[data-act="back"]')
+    if (back) back.addEventListener('click', () => (api.ui?.back ? api.ui.back() : api.ui?.showToast?.('无法返回')))
 
     el.querySelectorAll('button[data-act="open"]').forEach(btn => {
       btn.addEventListener('click', () => {

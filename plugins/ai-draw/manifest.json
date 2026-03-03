@@ -15,6 +15,7 @@
     "storage.set",
     "storage.remove",
     "ui.showToast",
+    "ui.startDragging",
     "net.request",
     "task.get",
     "task.list",

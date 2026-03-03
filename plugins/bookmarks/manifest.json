@@ -14,6 +14,7 @@
     "storage.set",
     "ui.openUrl",
     "ui.showToast",
+    "ui.startDragging",
     "net.request",
     "net.requestBase64",
     "files.images.writeBase64",
