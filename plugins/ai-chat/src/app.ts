@@ -401,16 +401,20 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     const pid = providerName
     const rid = uid('r')
     const cid = uid('c')
-    return {
-      version: VERSION,
-      settings: {
-        streamEnabled: true,
-        transparentChatBg: false,
-        providers: [
-          {
-            id: pid,
-            name: providerName,
-            baseUrl: 'https://api.openai.com/v1',
+      return {
+        version: VERSION,
+        settings: {
+          streamEnabled: true,
+          transparentChatBg: false,
+          chatBgOpacity: 0,
+          chatBgBlur: 0,
+          composerOpacity: 86,
+          composerBlur: 10,
+          providers: [
+            {
+              id: pid,
+              name: providerName,
+              baseUrl: 'https://api.openai.com/v1',
             apiKey: '',
             modelsCache: { items: [], fetchedAt: 0 },
           },
@@ -447,6 +451,14 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     if (!d.settings || typeof d.settings !== 'object') d.settings = {}
     if (typeof d.settings.streamEnabled !== 'boolean') d.settings.streamEnabled = true
     if (typeof d.settings.transparentChatBg !== 'boolean') d.settings.transparentChatBg = false
+    if (typeof d.settings.chatBgOpacity !== 'number' || !isFinite(d.settings.chatBgOpacity)) d.settings.chatBgOpacity = 0
+    if (typeof d.settings.chatBgBlur !== 'number' || !isFinite(d.settings.chatBgBlur)) d.settings.chatBgBlur = 0
+    if (typeof d.settings.composerOpacity !== 'number' || !isFinite(d.settings.composerOpacity)) d.settings.composerOpacity = 86
+    if (typeof d.settings.composerBlur !== 'number' || !isFinite(d.settings.composerBlur)) d.settings.composerBlur = 10
+    d.settings.chatBgOpacity = clamp(Math.round(Number(d.settings.chatBgOpacity || 0)), 0, 100)
+    d.settings.chatBgBlur = clamp(Math.round(Number(d.settings.chatBgBlur || 0)), 0, 24)
+    d.settings.composerOpacity = clamp(Math.round(Number(d.settings.composerOpacity || 0)), 40, 100)
+    d.settings.composerBlur = clamp(Math.round(Number(d.settings.composerBlur || 0)), 0, 24)
     if (!Array.isArray(d.settings.providers) || d.settings.providers.length === 0) d.settings.providers = defaultData().settings.providers
 
     for (const p of d.settings.providers) {
@@ -2928,6 +2940,30 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
         if (!state.data) return
         state.data.settings.transparentChatBg = !state.data.settings.transparentChatBg
         save().catch(() => {})
+        emit()
+      },
+      setChatBgOpacity: (opacity, commit) => {
+        if (!state.data) return
+        state.data.settings.chatBgOpacity = clamp(Math.round(Number(opacity || 0)), 0, 100)
+        if (commit) save().catch(() => {})
+        emit()
+      },
+      setChatBgBlur: (blur, commit) => {
+        if (!state.data) return
+        state.data.settings.chatBgBlur = clamp(Math.round(Number(blur || 0)), 0, 24)
+        if (commit) save().catch(() => {})
+        emit()
+      },
+      setComposerOpacity: (opacity, commit) => {
+        if (!state.data) return
+        state.data.settings.composerOpacity = clamp(Math.round(Number(opacity || 0)), 40, 100)
+        if (commit) save().catch(() => {})
+        emit()
+      },
+      setComposerBlur: (blur, commit) => {
+        if (!state.data) return
+        state.data.settings.composerBlur = clamp(Math.round(Number(blur || 0)), 0, 24)
+        if (commit) save().catch(() => {})
         emit()
       },
       closeModal: () => closeModal(),

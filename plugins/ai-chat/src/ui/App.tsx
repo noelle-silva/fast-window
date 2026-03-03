@@ -69,6 +69,14 @@ function isNearBottom(el: HTMLElement, thresholdPx = 24) {
   return Math.ceil(gap) <= thresholdPx
 }
 
+function clampNum(n: number, min: number, max: number) {
+  const x = Number(n)
+  if (!isFinite(x)) return min
+  if (x < min) return min
+  if (x > max) return max
+  return x
+}
+
 function AssistantContent(props: { controller: any; className?: string; text: string; mid: string; chatRootRef: React.RefObject<HTMLElement | null> }) {
   const { controller, className, text, mid, chatRootRef } = props
   const ref = React.useRef<HTMLDivElement | null>(null)
@@ -149,6 +157,11 @@ export function AiChatApp(props: { controller: any }) {
   const roles = Array.isArray(data?.roles) ? data.roles : []
   const providers = Array.isArray(data?.settings?.providers) ? data.settings.providers : []
   const transparentChatBg = !!data?.settings?.transparentChatBg
+  const chatBgOpacity = clampNum(Number(data?.settings?.chatBgOpacity ?? 0), 0, 100)
+  const chatBgBlur = clampNum(Number(data?.settings?.chatBgBlur ?? 0), 0, 24)
+  const composerOpacity = clampNum(Number(data?.settings?.composerOpacity ?? 86), 40, 100)
+  const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
+  const bgAlpha = transparentChatBg ? Math.max(chatBgOpacity / 100, chatBgBlur > 0 ? 0.01 : 0) : 1
 
   const activeRole = controller.activeRole()
   const activeChat = controller.activeChat()
@@ -281,9 +294,15 @@ export function AiChatApp(props: { controller: any }) {
              width: '100%',
              overflow: 'hidden',
              overscrollBehavior: 'none',
-             backgroundColor: transparentChatBg ? 'transparent' : '#fff',
+             backgroundColor: transparentChatBg ? `rgba(255,255,255,${bgAlpha})` : '#fff',
            },
-          '#fast-window-ai-chat-root': { height: '100%', overflow: 'hidden', backgroundColor: transparentChatBg ? 'transparent' : '#fff' },
+          '#fast-window-ai-chat-root': {
+            height: '100%',
+            overflow: 'hidden',
+            backgroundColor: transparentChatBg ? `rgba(255,255,255,${bgAlpha})` : '#fff',
+            backdropFilter: transparentChatBg && chatBgBlur > 0 ? `blur(${chatBgBlur}px)` : 'none',
+            WebkitBackdropFilter: transparentChatBg && chatBgBlur > 0 ? `blur(${chatBgBlur}px)` : 'none',
+          },
           '.prose': {
             fontSize: 14,
             lineHeight: 1.75,
@@ -571,10 +590,10 @@ export function AiChatApp(props: { controller: any }) {
                 bottom: 16,
                 p: 1.5,
                 borderRadius: 18,
-                bgcolor: 'rgba(255,255,255,.86)',
+                bgcolor: `rgba(255,255,255,${composerOpacity / 100})`,
                 boxShadow: '0 12px 28px rgba(0,0,0,.18)',
-                backdropFilter: 'blur(10px)',
-                WebkitBackdropFilter: 'blur(10px)',
+                backdropFilter: composerBlur > 0 ? `blur(${composerBlur}px)` : 'none',
+                WebkitBackdropFilter: composerBlur > 0 ? `blur(${composerBlur}px)` : 'none',
               }}
             >
               <Stack spacing={1}>
@@ -841,22 +860,122 @@ function PluginSettingsPage(props: {
   }
 
   const transparentChatBg = !!data?.settings?.transparentChatBg
+  const chatBgOpacity = clampNum(Number(data?.settings?.chatBgOpacity ?? 0), 0, 100)
+  const chatBgBlur = clampNum(Number(data?.settings?.chatBgBlur ?? 0), 0, 24)
+  const composerOpacity = clampNum(Number(data?.settings?.composerOpacity ?? 86), 40, 100)
+  const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
+
+  const appearancePanel = (
+    <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
+      <Stack spacing={1.25}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Typography sx={{ fontWeight: 900 }}>外观</Typography>
+          <Box sx={{ flex: 1 }} />
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <Switch size="small" checked={transparentChatBg} onChange={() => controller.actions.toggleTransparentChatBg?.()} />
+            <Typography variant="body2" color="text.secondary">
+              聊天背景透明
+            </Typography>
+          </Stack>
+        </Stack>
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              聊天背景透明度
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {Math.round(chatBgOpacity)}%
+            </Typography>
+          </Stack>
+          <Slider
+            size="small"
+            value={chatBgOpacity}
+            min={0}
+            max={100}
+            step={1}
+            onChange={(_e, v) => controller.actions.setChatBgOpacity?.(v, false)}
+            onChangeCommitted={(_e, v) => controller.actions.setChatBgOpacity?.(v, true)}
+            disabled={loading || !transparentChatBg}
+          />
+        </Box>
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              聊天背景磨砂度
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {Math.round(chatBgBlur)}px
+            </Typography>
+          </Stack>
+          <Slider
+            size="small"
+            value={chatBgBlur}
+            min={0}
+            max={24}
+            step={1}
+            onChange={(_e, v) => controller.actions.setChatBgBlur?.(v, false)}
+            onChangeCommitted={(_e, v) => controller.actions.setChatBgBlur?.(v, true)}
+            disabled={loading || !transparentChatBg}
+          />
+        </Box>
+
+        <Divider />
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              输入栏透明度
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {Math.round(composerOpacity)}%
+            </Typography>
+          </Stack>
+          <Slider
+            size="small"
+            value={composerOpacity}
+            min={40}
+            max={100}
+            step={1}
+            onChange={(_e, v) => controller.actions.setComposerOpacity?.(v, false)}
+            onChangeCommitted={(_e, v) => controller.actions.setComposerOpacity?.(v, true)}
+            disabled={loading}
+          />
+        </Box>
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              输入栏磨砂度
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {Math.round(composerBlur)}px
+            </Typography>
+          </Stack>
+          <Slider
+            size="small"
+            value={composerBlur}
+            min={0}
+            max={24}
+            step={1}
+            onChange={(_e, v) => controller.actions.setComposerBlur?.(v, false)}
+            onChangeCommitted={(_e, v) => controller.actions.setComposerBlur?.(v, true)}
+            disabled={loading}
+          />
+        </Box>
+      </Stack>
+    </Paper>
+  )
 
   if (tab === 'roles') {
     return (
       <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', p: 2, bgcolor: 'grey.50' }}>
-        <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography sx={{ fontWeight: 900 }}>外观</Typography>
-            <Box sx={{ flex: 1 }} />
-            <Stack direction="row" alignItems="center" spacing={1}>
-              <Switch size="small" checked={transparentChatBg} onChange={() => controller.actions.toggleTransparentChatBg?.()} />
-              <Typography variant="body2" color="text.secondary">
-                聊天背景透明
-              </Typography>
-            </Stack>
-          </Stack>
-        </Paper>
+        {appearancePanel}
 
         <Paper variant="outlined" sx={{ p: 1.5 }}>
           <Stack direction="row" spacing={1} alignItems="center">
@@ -935,18 +1054,7 @@ function PluginSettingsPage(props: {
 
   return (
     <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', p: 2, bgcolor: 'grey.50' }}>
-      <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Typography sx={{ fontWeight: 900 }}>外观</Typography>
-          <Box sx={{ flex: 1 }} />
-          <Stack direction="row" alignItems="center" spacing={1}>
-            <Switch size="small" checked={transparentChatBg} onChange={() => controller.actions.toggleTransparentChatBg?.()} />
-            <Typography variant="body2" color="text.secondary">
-              聊天背景透明
-            </Typography>
-          </Stack>
-        </Stack>
-      </Paper>
+      {appearancePanel}
 
       <Paper variant="outlined" sx={{ p: 1.5 }}>
         <Stack direction="row" spacing={1} alignItems="center">
