@@ -408,6 +408,8 @@ export function AiChatApp(props: { controller: any }) {
   const topbarBlur = clampNum(Number(data?.settings?.topbarBlur ?? 0), 0, 24)
   const composerOpacity = clampNum(Number(data?.settings?.composerOpacity ?? 86), 40, 100)
   const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
+  const userMessageCollapseEnabled = !!data?.settings?.userMessageCollapseEnabled
+  const userMessageCollapseLines = clampNum(Number(data?.settings?.userMessageCollapseLines ?? 8), 1, 50)
   const bgAlpha = transparentChatBg ? Math.max(chatBgOpacity / 100, chatBgBlur > 0 ? 0.01 : 0) : 1
 
   const activeRole = controller.activeRole()
@@ -420,6 +422,27 @@ export function AiChatApp(props: { controller: any }) {
 
   const [page, setPage] = React.useState<'chat' | 'settings'>('chat')
   const [settingsTab, setSettingsTab] = React.useState<'appearance' | 'roles' | 'providers'>('roles')
+
+  const [expandedUserMsgIds, setExpandedUserMsgIds] = React.useState(() => new Set<string>())
+
+  React.useEffect(() => {
+    setExpandedUserMsgIds(() => new Set())
+  }, [String(activeChat?.id || '')])
+
+  React.useEffect(() => {
+    if (!userMessageCollapseEnabled) setExpandedUserMsgIds(() => new Set())
+  }, [userMessageCollapseEnabled])
+
+  const toggleExpandedUserMsg = useEvent((mid: string) => {
+    const id = String(mid || '')
+    if (!id) return
+    setExpandedUserMsgIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  })
 
   const [rolePickerEl, setRolePickerEl] = React.useState<HTMLElement | null>(null)
   const [chatPickerEl, setChatPickerEl] = React.useState<HTMLElement | null>(null)
@@ -850,6 +873,12 @@ export function AiChatApp(props: { controller: any }) {
                     const isEditing = editingMsg.mid === mid
                     const canEdit = !isEditing && !m?.pending && !s.loading && !s.sending && !!mid
 
+                    const content = String(m?.content || '')
+                    const contentLines = userMessageCollapseEnabled && isUser ? content.split(/\r?\n/) : []
+                    const canCollapse = userMessageCollapseEnabled && isUser && !isEditing && contentLines.length > userMessageCollapseLines
+                    const isExpanded = !canCollapse || expandedUserMsgIds.has(mid)
+                    const shownContent = canCollapse && !isExpanded ? contentLines.slice(0, userMessageCollapseLines).join('\n') : content
+
                     let regenRole: 'assistant' | 'user' = isUser ? 'user' : 'assistant'
                     let regenMid = mid
                     let regenPending = isUser ? false : !!m?.pending
@@ -930,11 +959,25 @@ export function AiChatApp(props: { controller: any }) {
                               }}
                             />
                           ) : isUser ? (
-                            <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
-                              {String(m?.content || '')}
-                            </Typography>
+                            <Box>
+                              <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{shownContent}</Typography>
+                              {canCollapse ? (
+                                <Box sx={{ textAlign: 'right' }}>
+                                  <Button
+                                    size="small"
+                                    variant="text"
+                                    onClick={() => toggleExpandedUserMsg(mid)}
+                                    aria-label={isExpanded ? '收起用户消息' : '展开用户消息'}
+                                    aria-expanded={isExpanded}
+                                    sx={{ mt: 0.25, minWidth: 0, px: 0.5, borderRadius: 2 }}
+                                  >
+                                    {isExpanded ? `收起（共${contentLines.length}行）` : `展开（共${contentLines.length}行）`}
+                                  </Button>
+                                </Box>
+                              ) : null}
+                            </Box>
                           ) : (
-                            <AssistantContent controller={controller} className="prose" text={String(m?.content || '')} mid={mid} chatRootRef={chatRootRef} />
+                            <AssistantContent controller={controller} className="prose" text={content} mid={mid} chatRootRef={chatRootRef} />
                           )}
 
                           {isEditing ? (
@@ -1406,6 +1449,8 @@ function PluginSettingsPage(props: {
   const topbarBlur = clampNum(Number(data?.settings?.topbarBlur ?? 0), 0, 24)
   const composerOpacity = clampNum(Number(data?.settings?.composerOpacity ?? 86), 40, 100)
   const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
+  const userMessageCollapseEnabled = !!data?.settings?.userMessageCollapseEnabled
+  const userMessageCollapseLines = clampNum(Number(data?.settings?.userMessageCollapseLines ?? 8), 1, 50)
 
   const appearancePanel = (
     <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
@@ -1555,6 +1600,44 @@ function PluginSettingsPage(props: {
             onChangeCommitted={(_e, v) => controller.actions.setComposerBlur?.(v, true)}
             disabled={loading}
           />
+        </Box>
+
+        <Divider />
+
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Typography sx={{ fontWeight: 900 }}>用户消息折叠</Typography>
+          <Box sx={{ flex: 1 }} />
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <Switch size="small" checked={userMessageCollapseEnabled} onChange={() => controller.actions.toggleUserMessageCollapse?.()} />
+            <Typography variant="body2" color="text.secondary">
+              启用
+            </Typography>
+          </Stack>
+        </Stack>
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              折叠行数
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {Math.round(userMessageCollapseLines)} 行
+            </Typography>
+          </Stack>
+          <Slider
+            size="small"
+            value={userMessageCollapseLines}
+            min={1}
+            max={50}
+            step={1}
+            onChange={(_e, v) => controller.actions.setUserMessageCollapseLines?.(v, false)}
+            onChangeCommitted={(_e, v) => controller.actions.setUserMessageCollapseLines?.(v, true)}
+            disabled={loading || !userMessageCollapseEnabled}
+          />
+          <Typography variant="caption" color="text.secondary">
+            用户消息超过该行数时默认折叠，可在消息中展开/收起。
+          </Typography>
         </Box>
       </Stack>
     </Paper>

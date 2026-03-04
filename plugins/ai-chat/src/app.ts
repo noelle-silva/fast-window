@@ -407,22 +407,24 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     const pid = providerName
     const rid = uid('r')
     const cid = uid('c')
-      return {
-        version: VERSION,
-        settings: {
-          streamEnabled: true,
-          transparentChatBg: false,
-          chatBgOpacity: 0,
-          chatBgBlur: 0,
-          topbarOpacity: 100,
-          topbarBlur: 0,
-          composerOpacity: 86,
-          composerBlur: 10,
-          providers: [
-            {
-              id: pid,
-              name: providerName,
-              baseUrl: 'https://api.openai.com/v1',
+        return {
+          version: VERSION,
+          settings: {
+            streamEnabled: true,
+            transparentChatBg: false,
+            chatBgOpacity: 0,
+            chatBgBlur: 0,
+            topbarOpacity: 100,
+            topbarBlur: 0,
+            composerOpacity: 86,
+            composerBlur: 10,
+            userMessageCollapseEnabled: false,
+            userMessageCollapseLines: 8,
+            providers: [
+              {
+                id: pid,
+                name: providerName,
+                baseUrl: 'https://api.openai.com/v1',
             apiKey: '',
             modelsCache: { items: [], fetchedAt: 0 },
           },
@@ -465,12 +467,15 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     if (typeof d.settings.topbarBlur !== 'number' || !isFinite(d.settings.topbarBlur)) d.settings.topbarBlur = 0
     if (typeof d.settings.composerOpacity !== 'number' || !isFinite(d.settings.composerOpacity)) d.settings.composerOpacity = 86
     if (typeof d.settings.composerBlur !== 'number' || !isFinite(d.settings.composerBlur)) d.settings.composerBlur = 10
+    if (typeof d.settings.userMessageCollapseEnabled !== 'boolean') d.settings.userMessageCollapseEnabled = false
+    if (typeof d.settings.userMessageCollapseLines !== 'number' || !isFinite(d.settings.userMessageCollapseLines)) d.settings.userMessageCollapseLines = 8
     d.settings.chatBgOpacity = clamp(Math.round(Number(d.settings.chatBgOpacity || 0)), 0, 100)
     d.settings.chatBgBlur = clamp(Math.round(Number(d.settings.chatBgBlur || 0)), 0, 24)
     d.settings.topbarOpacity = clamp(Math.round(Number(d.settings.topbarOpacity || 0)), 0, 100)
     d.settings.topbarBlur = clamp(Math.round(Number(d.settings.topbarBlur || 0)), 0, 24)
     d.settings.composerOpacity = clamp(Math.round(Number(d.settings.composerOpacity || 0)), 40, 100)
     d.settings.composerBlur = clamp(Math.round(Number(d.settings.composerBlur || 0)), 0, 24)
+    d.settings.userMessageCollapseLines = clamp(Math.round(Number(d.settings.userMessageCollapseLines || 8)), 1, 50)
     if (!Array.isArray(d.settings.providers) || d.settings.providers.length === 0) d.settings.providers = defaultData().settings.providers
 
     for (const p of d.settings.providers) {
@@ -3508,6 +3513,18 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       setComposerBlur: (blur, commit) => {
         if (!state.data) return
         state.data.settings.composerBlur = clamp(Math.round(Number(blur || 0)), 0, 24)
+        if (commit) save().catch(() => {})
+        emit()
+      },
+      toggleUserMessageCollapse: () => {
+        if (!state.data) return
+        state.data.settings.userMessageCollapseEnabled = !state.data.settings.userMessageCollapseEnabled
+        save().catch(() => {})
+        emit()
+      },
+      setUserMessageCollapseLines: (lines, commit) => {
+        if (!state.data) return
+        state.data.settings.userMessageCollapseLines = clamp(Math.round(Number(lines || 8)), 1, 50)
         if (commit) save().catch(() => {})
         emit()
       },
