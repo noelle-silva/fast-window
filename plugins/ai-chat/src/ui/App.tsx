@@ -14,6 +14,7 @@ import {
   FormControl,
   GlobalStyles,
   IconButton,
+  InputAdornment,
   InputLabel,
   List,
   ListItemAvatar,
@@ -43,6 +44,8 @@ import ImageIcon from '@mui/icons-material/Image'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import SettingsIcon from '@mui/icons-material/Settings'
 import StorageIcon from '@mui/icons-material/Storage'
+import VisibilityIcon from '@mui/icons-material/Visibility'
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 import ZoomInIcon from '@mui/icons-material/ZoomIn'
 import ZoomOutIcon from '@mui/icons-material/ZoomOut'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
@@ -63,6 +66,39 @@ function useEvent<T extends (...args: any[]) => any>(fn: T): T {
   const ref = React.useRef(fn)
   ref.current = fn
   return React.useCallback(((...args: any[]) => ref.current(...args)) as any, [])
+}
+
+function ApiKeyField(props: { value: string; onValueChange: (next: string) => void }) {
+  const { value, onValueChange } = props
+  const [visible, setVisible] = React.useState(false)
+
+  const label = visible ? '隐藏 API Key' : '显示 API Key'
+
+  return (
+    <TextField
+      label="API Key"
+      type={visible ? 'text' : 'password'}
+      autoComplete="off"
+      value={String(value || '')}
+      onChange={(e) => onValueChange(e.target.value)}
+      InputProps={{
+        endAdornment: (
+          <InputAdornment position="end">
+            <Tooltip title={label}>
+              <IconButton
+                size="small"
+                aria-label={label}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setVisible((v) => !v)}
+              >
+                {visible ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+              </IconButton>
+            </Tooltip>
+          </InputAdornment>
+        ),
+      }}
+    />
+  )
 }
 
 function isNearBottom(el: HTMLElement, thresholdPx = 24) {
@@ -1661,7 +1697,7 @@ function PluginSettingsPage(props: {
                       onChange={(e) => controller.actions.setDraft('providerBaseUrl', e.target.value)}
                       placeholder="https://api.openai.com/v1"
                     />
-                    <TextField label="API Key" type="password" value={String(draft?.providerApiKey || '')} onChange={(e) => controller.actions.setDraft('providerApiKey', e.target.value)} />
+                    <ApiKeyField value={String(draft?.providerApiKey || '')} onValueChange={(next) => controller.actions.setDraft('providerApiKey', next)} />
                     <Stack direction="row" spacing={1} justifyContent="flex-end">
                       <Button variant="contained" onClick={() => controller.actions.saveProvider()}>
                         保存
@@ -1728,7 +1764,7 @@ function ProvidersDialog(props: { open: boolean; controller: any; providers: any
                       onChange={(e) => controller.actions.setDraft('providerBaseUrl', e.target.value)}
                       placeholder="https://api.openai.com/v1"
                     />
-                    <TextField label="API Key" type="password" value={String(draft?.providerApiKey || '')} onChange={(e) => controller.actions.setDraft('providerApiKey', e.target.value)} />
+                    <ApiKeyField value={String(draft?.providerApiKey || '')} onValueChange={(next) => controller.actions.setDraft('providerApiKey', next)} />
                     <Stack direction="row" spacing={1} justifyContent="flex-end">
                       <Button variant="contained" onClick={() => controller.actions.saveProvider()}>
                         保存
