@@ -2098,7 +2098,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       const diffDays = Math.floor((startOfDay(nowD) - startOfDay(d)) / 86400000)
 
       if (diffDays === 0) return hm
-      if (diffDays === 1) return '昨天'
+      if (diffDays === 1) return `昨天 ${hm}`
       if (diffDays === 2) return `前天 ${hm}`
 
       return `${d.getFullYear()}年${pad2(d.getMonth() + 1)}月${pad2(d.getDate())}日 ${hm}`
