@@ -36,6 +36,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       roleName: '',
       roleAvatar: '',
       roleAvatarImage: '',
+      roleAvatarImageCropSrc: '',
       roleSystemPrompt: '',
       roleProviderId: '',
       roleModelId: '',
@@ -1209,12 +1210,13 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     return t.startsWith('data:image/')
   }
 
-  function shrinkAvatarDataUrl(dataUrl) {
+  function shrinkImageDataUrl(dataUrl, maxSide) {
     return new Promise((resolve) => {
       try {
         const u = String(dataUrl || '').trim()
         if (!looksLikeImageDataUrl(u)) return resolve('')
 
+        const max = clamp(Math.round(Number(maxSide || 0)), 64, 4096)
         const img = new Image()
         img.decoding = 'async'
         img.onload = () => {
@@ -1223,7 +1225,6 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
             const h0 = Number(img.naturalHeight || 0)
             if (!w0 || !h0) return resolve('')
 
-            const max = 96
             const s = Math.min(1, max / Math.max(w0, h0))
             const w = Math.max(1, Math.round(w0 * s))
             const h = Math.max(1, Math.round(h0 * s))
@@ -2474,11 +2475,11 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       const u0 = String(it?.dataUrl || '')
       if (!looksLikeImageDataUrl(u0)) return api.ui?.showToast?.('未选择图片')
 
-      const shrunk = await shrinkAvatarDataUrl(u0)
+      const shrunk = await shrinkImageDataUrl(u0, 1024)
       const u = shrunk || u0
       if (!looksLikeImageDataUrl(u)) return api.ui?.showToast?.('头像图片无效')
 
-      state.draft.roleAvatarImage = u
+      state.draft.roleAvatarImageCropSrc = u
       render()
     } catch (e) {
       api.ui?.showToast?.(String(e?.message || e || '选择头像失败'))
@@ -2487,6 +2488,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
 
   function clearRoleAvatarImage() {
     state.draft.roleAvatarImage = ''
+    state.draft.roleAvatarImageCropSrc = ''
     render()
   }
 
@@ -2495,11 +2497,13 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     state.modal = ''
     state.draft.deleteRoleId = ''
     state.draft.deleteProviderId = ''
+    state.draft.roleAvatarImageCropSrc = ''
     if (String(state.draft.editRoleId || '') === NEW_ROLE_ID) {
       state.draft.editRoleId = ''
       state.draft.roleName = ''
       state.draft.roleAvatar = ''
       state.draft.roleAvatarImage = ''
+      state.draft.roleAvatarImageCropSrc = ''
       state.draft.roleSystemPrompt = ''
       state.draft.roleProviderId = ''
       state.draft.roleModelId = ''
@@ -2517,6 +2521,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     state.draft.roleName = '新角色'
     state.draft.roleAvatar = '🙂'
     state.draft.roleAvatarImage = ''
+    state.draft.roleAvatarImageCropSrc = ''
     state.draft.roleSystemPrompt = ''
     state.draft.roleTemperature = '0.7'
     state.draft.roleProviderId = fallbackPid
@@ -2546,6 +2551,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     state.draft.roleName = String(role.name || '')
     state.draft.roleAvatar = String(role.avatar || '')
     state.draft.roleAvatarImage = looksLikeImageDataUrl(role.avatarImage) ? String(role.avatarImage || '') : ''
+    state.draft.roleAvatarImageCropSrc = ''
     state.draft.roleSystemPrompt = String(role.systemPrompt || '')
     state.draft.roleTemperature = String(role.temperature ?? 0.7)
     state.draft.roleProviderId = String(role.modelRef?.providerId || '')
