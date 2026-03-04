@@ -26,6 +26,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     sendingCtx: null,
     modal: '',
     mermaid: { items: [], index: 0, scale: 1 },
+    imageViewer: { items: [], index: 0, scale: 1 },
     sideTab: 'roles', // roles | chats
     models: { loading: false, error: '', items: [] },
     pendingChat: null,
@@ -1070,6 +1071,21 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     }
   }
 
+  function markPreviewImages(root) {
+    if (!(root instanceof HTMLElement)) return
+    const imgs = Array.from(root.querySelectorAll?.('img') || [])
+    for (const img of imgs) {
+      if (!(img instanceof HTMLImageElement)) continue
+      const src = String(img.getAttribute('src') || '').trim()
+      if (!src) continue
+      if (img.getAttribute('data-fw-img') === '1') continue
+      img.setAttribute('data-fw-img', '1')
+      try {
+        img.style.cursor = 'zoom-in'
+      } catch (_) {}
+    }
+  }
+
   function renderAssistantInto(el, text) {
     const raw = String(text || '')
     let html = ''
@@ -1097,6 +1113,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     }
 
     el.innerHTML = safe
+    markPreviewImages(el)
 
     // 块级公式：优先用 katex.render（避免 $$ 换行/BR 导致 auto-render 识别失败）
     const blocks = Array.from(el.querySelectorAll?.('.math-block[data-tex]') || [])
@@ -3366,6 +3383,35 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
         state.modal = 'mermaid'
         emit()
       },
+      openImageViewer: (rootEl, srcEl) => {
+        const root = rootEl instanceof Element ? rootEl : document.body
+        const imgs = Array.from(root.querySelectorAll?.('img[data-fw-img=\"1\"]') || [])
+        const items = []
+        const elToIdx = new Map()
+        for (const img of imgs) {
+          if (!(img instanceof HTMLImageElement)) continue
+          const src = String(img.getAttribute('src') || '').trim()
+          if (!src) continue
+          const idx = items.length
+          items.push({ src, alt: String(img.getAttribute('alt') || '图片') })
+          elToIdx.set(img, idx)
+        }
+        if (!items.length) return
+
+        let idx = 0
+        const src = srcEl instanceof Element ? srcEl : null
+        if (src) {
+          const img = src instanceof HTMLImageElement ? src : (src.closest?.('img[data-fw-img=\"1\"]') as any)
+          const i = img instanceof HTMLImageElement ? elToIdx.get(img) : -1
+          if (typeof i === 'number' && i >= 0) idx = i
+        }
+
+        state.imageViewer.items = items
+        state.imageViewer.index = clamp(idx, 0, Math.max(0, items.length - 1))
+        state.imageViewer.scale = 1
+        state.modal = 'image'
+        emit()
+      },
       mermaidPrev: () => {
         const len = Array.isArray(state.mermaid.items) ? state.mermaid.items.length : 0
         if (!len) return
@@ -3385,6 +3431,33 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       },
       mermaidReset: () => {
         state.mermaid.scale = 1
+        emit()
+      },
+      imagePrev: () => {
+        const len = Array.isArray(state.imageViewer.items) ? state.imageViewer.items.length : 0
+        if (!len) return
+        state.imageViewer.index = (Number(state.imageViewer.index || 0) - 1 + len) % len
+        state.imageViewer.scale = 1
+        emit()
+      },
+      imageNext: () => {
+        const len = Array.isArray(state.imageViewer.items) ? state.imageViewer.items.length : 0
+        if (!len) return
+        state.imageViewer.index = (Number(state.imageViewer.index || 0) + 1) % len
+        state.imageViewer.scale = 1
+        emit()
+      },
+      imageZoom: (dir) => {
+        const factor = Number(dir || 0) >= 0 ? 1.12 : 1 / 1.12
+        state.imageViewer.scale = clamp(Number(state.imageViewer.scale || 1) * factor, 0.2, 6)
+        emit()
+      },
+      imageSetScale: (scale) => {
+        state.imageViewer.scale = clamp(Number(scale || 1), 0.2, 6)
+        emit()
+      },
+      imageReset: () => {
+        state.imageViewer.scale = 1
         emit()
       },
       createChat: () => createChatForActiveRole(),
