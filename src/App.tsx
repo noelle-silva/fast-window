@@ -1323,7 +1323,10 @@ function App() {
                       px: 1.25,
                       border: 'none',
                       '&.Mui-selected': {
-                        bgcolor: 'action.selected',
+                        bgcolor: 'transparent',
+                      },
+                      '&.Mui-selected:hover': {
+                        bgcolor: 'action.hover',
                       },
                       cursor: reorderMode ? (draggingId ? 'grabbing' : 'grab') : undefined,
                       opacity: draggingId === plugin.id ? 0.6 : 1,
@@ -1413,7 +1416,8 @@ function App() {
                       py: 1.25,
                       px: 1,
                       gap: 0.75,
-                      '&.Mui-selected': { bgcolor: 'action.selected' },
+                      '&.Mui-selected': { bgcolor: 'transparent' },
+                      '&.Mui-selected:hover': { bgcolor: 'action.hover' },
                       cursor: reorderMode ? (draggingId ? 'grabbing' : 'grab') : undefined,
                       opacity: draggingId === plugin.id ? 0.6 : 1,
                       userSelect: reorderMode ? 'none' : undefined,
@@ -1485,7 +1489,8 @@ function App() {
                     sx={{
                       py: 1,
                       px: 1.25,
-                      '&.Mui-selected': { bgcolor: 'action.selected' },
+                      '&.Mui-selected': { bgcolor: 'transparent' },
+                      '&.Mui-selected:hover': { bgcolor: 'action.hover' },
                       cursor: reorderMode ? (draggingId ? 'grabbing' : 'grab') : undefined,
                       opacity: draggingId === plugin.id ? 0.6 : 1,
                       userSelect: reorderMode ? 'none' : undefined,
