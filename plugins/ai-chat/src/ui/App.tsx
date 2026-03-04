@@ -414,6 +414,11 @@ export function AiChatApp(props: { controller: any }) {
 
   const activeRole = controller.activeRole()
   const activeChat = controller.activeChat()
+  const sendingCtx = s?.sendingCtx && typeof s.sendingCtx === 'object' ? (s.sendingCtx as any) : null
+  const isSendingThisChat = (roleId: string, chatId: string) => {
+    if (!sendingCtx) return false
+    return String(sendingCtx?.roleId || '') === String(roleId || '') && String(sendingCtx?.chatId || '') === String(chatId || '')
+  }
 
   const chatRootRef = React.useRef<HTMLDivElement | null>(null)
   const stickToBottomRef = React.useRef(true)
@@ -556,10 +561,25 @@ export function AiChatApp(props: { controller: any }) {
   })
   const [confirmDelMsg, setConfirmDelMsg] = React.useState<{ mid: string; role: 'user' | 'assistant' }>({ mid: '', role: 'assistant' })
   const [editingMsg, setEditingMsg] = React.useState<{ mid: string; text: string }>({ mid: '', text: '' })
+  const [chatMenu, setChatMenu] = React.useState<{ roleId: string; chatId: string; title: string; x: number; y: number }>({
+    roleId: '',
+    chatId: '',
+    title: '',
+    x: 0,
+    y: 0,
+  })
+  const [confirmDelChat, setConfirmDelChat] = React.useState<{ roleId: string; chatId: string }>({ roleId: '', chatId: '' })
+  const [editingChatTitle, setEditingChatTitle] = React.useState<{ roleId: string; chatId: string; text: string }>({ roleId: '', chatId: '', text: '' })
 
   React.useEffect(() => {
     setEditingMsg({ mid: '', text: '' })
   }, [page, activeRole?.id, activeChat?.id])
+
+  React.useEffect(() => {
+    setChatMenu({ roleId: '', chatId: '', title: '', x: 0, y: 0 })
+    setConfirmDelChat({ roleId: '', chatId: '' })
+    setEditingChatTitle({ roleId: '', chatId: '', text: '' })
+  }, [page, activeRole?.id])
 
   const closeMsgMenu = useEvent(() => setMsgMenu({ mid: '', role: 'assistant', x: 0, y: 0, pending: false }))
   const onMessageContextMenu = useEvent((e: React.MouseEvent, mid: string, role: 'user' | 'assistant', pending: boolean) => {
@@ -567,6 +587,16 @@ export function AiChatApp(props: { controller: any }) {
     e.preventDefault()
     e.stopPropagation()
     setMsgMenu({ mid, role, x: e.clientX, y: e.clientY, pending })
+  })
+
+  const closeChatMenu = useEvent(() => setChatMenu({ roleId: '', chatId: '', title: '', x: 0, y: 0 }))
+  const onChatContextMenu = useEvent((e: React.MouseEvent, roleId: string, chatId: string, title: string) => {
+    const rid = String(roleId || '')
+    const cid = String(chatId || '')
+    if (!rid || !cid) return
+    e.preventDefault()
+    e.stopPropagation()
+    setChatMenu({ roleId: rid, chatId: cid, title: String(title ?? ''), x: e.clientX, y: e.clientY })
   })
 
   React.useEffect(() => {
@@ -594,7 +624,10 @@ export function AiChatApp(props: { controller: any }) {
   const openRolePicker = useEvent((e: React.MouseEvent<HTMLElement>) => setRolePickerEl(e.currentTarget))
   const closeRolePicker = useEvent(() => setRolePickerEl(null))
   const openChatPicker = useEvent((e: React.MouseEvent<HTMLElement>) => setChatPickerEl(e.currentTarget))
-  const closeChatPicker = useEvent(() => setChatPickerEl(null))
+  const closeChatPicker = useEvent(() => {
+    setChatPickerEl(null)
+    closeChatMenu()
+  })
 
   const openPluginSettings = useEvent((tab: 'appearance' | 'roles' | 'providers' = 'roles') => {
     setRolePickerEl(null)
@@ -1367,6 +1400,7 @@ export function AiChatApp(props: { controller: any }) {
                           controller.actions.setActiveChat(String(c?.id || ''))
                           closeChatPicker()
                         }}
+                        onContextMenu={(e) => onChatContextMenu(e, String(role?.id || ''), String(c?.id || ''), String(c?.title || '新聊天'))}
                         sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}
                       >
                         <ListItemText
@@ -1395,6 +1429,117 @@ export function AiChatApp(props: { controller: any }) {
             })()}
           </Box>
         </Popover>
+
+        <Popover
+          open={!!chatMenu.chatId}
+          onClose={closeChatMenu}
+          anchorReference="anchorPosition"
+          anchorPosition={chatMenu.chatId ? { top: chatMenu.y, left: chatMenu.x } : undefined}
+          transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        >
+          <Box sx={{ minWidth: 180, p: 0.5 }}>
+            <MenuItem
+              disabled={!chatMenu.chatId || !chatMenu.roleId || s.loading}
+              onClick={() => {
+                const { roleId, chatId, title } = chatMenu
+                closeChatMenu()
+                setEditingChatTitle({ roleId, chatId, text: String(title ?? '') })
+              }}
+              sx={{ gap: 1 }}
+            >
+              <EditOutlinedIcon fontSize="small" />
+              编辑标题
+            </MenuItem>
+            <MenuItem
+              disabled={!chatMenu.chatId || !chatMenu.roleId || s.loading || isSendingThisChat(chatMenu.roleId, chatMenu.chatId)}
+              onClick={() => {
+                const { roleId, chatId } = chatMenu
+                closeChatMenu()
+                setConfirmDelChat({ roleId, chatId })
+              }}
+              sx={{ gap: 1 }}
+            >
+              <DeleteOutlineIcon fontSize="small" />
+              删除
+            </MenuItem>
+          </Box>
+        </Popover>
+
+        <Dialog
+          open={!!editingChatTitle.chatId}
+          onClose={() => setEditingChatTitle({ roleId: '', chatId: '', text: '' })}
+          maxWidth="xs"
+          fullWidth
+        >
+          <DialogTitle>编辑会话标题</DialogTitle>
+          <DialogContent>
+            <TextField
+              autoFocus
+              fullWidth
+              size="small"
+              label="标题"
+              placeholder="例如：需求讨论 / bug 复盘 / …"
+              value={String(editingChatTitle.text ?? '')}
+              onChange={(e) => setEditingChatTitle((p) => ({ ...p, text: e.target.value }))}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setEditingChatTitle({ roleId: '', chatId: '', text: '' })
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  const { roleId, chatId, text } = editingChatTitle
+                  if (!roleId || !chatId || s.loading) return
+                  setEditingChatTitle({ roleId: '', chatId: '', text: '' })
+                  controller.actions.renameChat?.(roleId, chatId, String(text ?? ''))
+                }
+              }}
+              sx={{ mt: 1 }}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setEditingChatTitle({ roleId: '', chatId: '', text: '' })}>取消</Button>
+            <Button
+              variant="contained"
+              onClick={() => {
+                const { roleId, chatId, text } = editingChatTitle
+                if (!roleId || !chatId || s.loading) return
+                setEditingChatTitle({ roleId: '', chatId: '', text: '' })
+                controller.actions.renameChat?.(roleId, chatId, String(text ?? ''))
+              }}
+              disabled={!editingChatTitle.roleId || !editingChatTitle.chatId || s.loading}
+            >
+              保存
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog
+          open={!!confirmDelChat.chatId}
+          onClose={() => setConfirmDelChat({ roleId: '', chatId: '' })}
+          maxWidth="xs"
+          fullWidth
+        >
+          <DialogTitle>确认删除这个会话？</DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" color="text.secondary">
+              这会删除该会话下的全部消息记录，且不可恢复。
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setConfirmDelChat({ roleId: '', chatId: '' })}>取消</Button>
+            <Button
+              variant="contained"
+              color="error"
+              onClick={() => {
+                const { roleId, chatId } = confirmDelChat
+                setConfirmDelChat({ roleId: '', chatId: '' })
+                if (!roleId || !chatId) return
+                controller.actions.deleteChat?.(roleId, chatId)
+              }}
+              disabled={!confirmDelChat.roleId || !confirmDelChat.chatId || s.loading || isSendingThisChat(confirmDelChat.roleId, confirmDelChat.chatId)}
+            >
+              删除
+            </Button>
+          </DialogActions>
+        </Dialog>
           </>
         ) : (
           <PluginSettingsPage

@@ -3157,6 +3157,58 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     scrollToBottomSoon()
   }
 
+  function renameChatTitle(roleId, chatId, title) {
+    if (!state.data) return
+    const rid = String(roleId || '')
+    const cid = String(chatId || '')
+    if (!rid || !cid) return
+
+    const box = ensureChatsBoxBare(rid)
+    if (!box) return
+    const chats = Array.isArray(box.chats) ? box.chats : []
+    const chat = chats.find((c) => String(c?.id) === cid) || null
+    if (!chat) return
+
+    let t = String(title ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (t.length > 80) t = t.slice(0, 80).trim()
+    chat.title = t || '新聊天'
+
+    save().catch(() => {})
+    render()
+  }
+
+  function deleteChatForRole(roleId, chatId) {
+    if (!state.data) return
+    const rid = String(roleId || '')
+    const cid = String(chatId || '')
+    if (!rid || !cid) return
+
+    const sending = state.sendingCtx && typeof state.sendingCtx === 'object' ? state.sendingCtx : null
+    if (sending && String(sending.roleId || '') === rid && String(sending.chatId || '') === cid) {
+      api.ui?.showToast?.('正在生成中，不能删除该会话')
+      return
+    }
+
+    const box = ensureChatsBoxBare(rid)
+    if (!box) return
+    const before = Array.isArray(box.chats) ? box.chats : []
+    if (!before.some((c) => String(c?.id) === cid)) return
+
+    box.chats = before.filter((c) => String(c?.id) !== cid)
+    if (String(box.activeChatId || '') === cid) box.activeChatId = String(box.chats[0]?.id || '')
+
+    if (!box.chats.length) {
+      const nid = uid('c')
+      box.chats = [{ id: nid, title: '新聊天', createdAt: now(), updatedAt: now(), messages: [] }]
+      box.activeChatId = nid
+    }
+
+    save().catch(() => {})
+    render()
+  }
+
   function onClick(e) {
     const t0 = e?.target
     if (!(t0 instanceof Element)) return
@@ -3669,6 +3721,8 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
         emit()
       },
       createChat: () => createChatForActiveRole(),
+      renameChat: (roleId, chatId, title) => renameChatTitle(String(roleId || ''), String(chatId || ''), String(title ?? '')),
+      deleteChat: (roleId, chatId) => deleteChatForRole(String(roleId || ''), String(chatId || '')),
       setDraft: (key, value) => {
         const k = String(key || '')
         if (!k) return
