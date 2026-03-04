@@ -5,6 +5,8 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
   const api = window.fastWindow
   const BG_JOB_KEY_PREFIX = 'bg.job.'
   const BG_STREAM_KEY_PREFIX = 'bg.stream.'
+  const BG_CANCEL_KEY_PREFIX = 'bg.cancel.'
+  const BG_CANCEL_MID_KEY_PREFIX = 'bg.cancel.mid.'
   const BG_QUEUE_KEY = 'bg.queue'
   const VERSION = 2
   const SPLIT_SCHEMA_VERSION = 1
@@ -1205,6 +1207,14 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     return `${BG_STREAM_KEY_PREFIX}${String(mid || '')}`
   }
 
+  function cancelKey(jobId) {
+    return `${BG_CANCEL_KEY_PREFIX}${String(jobId || '')}`
+  }
+
+  function cancelMidKey(mid) {
+    return `${BG_CANCEL_MID_KEY_PREFIX}${String(mid || '')}`
+  }
+
   function looksLikeImageDataUrl(s) {
     const t = String(s || '')
     return t.startsWith('data:image/')
@@ -1413,6 +1423,78 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     } finally {
       render()
     }
+  }
+
+  async function stopSending() {
+    if (state.loading) return
+
+    const jobId = String(state.sendingJobId || '').trim()
+    const ctx = state.sendingCtx && typeof state.sendingCtx === 'object' ? state.sendingCtx : null
+
+    let roleId = ctx ? String(ctx.roleId || '') : ''
+    let chatId = ctx ? String(ctx.chatId || '') : ''
+    let mid = ctx ? String(ctx.assistantMid || '') : ''
+
+    if (!roleId) roleId = String(activeRole()?.id || '')
+    if (!chatId) chatId = String(activeChatFromData()?.id || '')
+
+    if (!mid && state.data && roleId && chatId) {
+      const chat = findChatByIds(roleId, chatId)
+      const msgs = Array.isArray(chat?.messages) ? chat.messages : []
+      const pending = msgs.filter((m) => m && m.role === 'assistant' && m.pending)
+      const last = pending.length ? pending[pending.length - 1] : null
+      mid = String(last?.id || '')
+    }
+
+    if (jobId) {
+      try {
+        await api.storage.set(cancelKey(jobId), { requestedAt: now() })
+      } catch (_) {}
+      try {
+        await dequeueJob(jobId)
+      } catch (_) {}
+      try {
+        await api.storage.remove(jobKey(jobId))
+      } catch (_) {}
+    }
+
+    if (mid) {
+      try {
+        await api.storage.set(cancelMidKey(mid), { requestedAt: now() })
+      } catch (_) {}
+    }
+
+    if (state.data && roleId && chatId && mid) {
+      let text = ''
+      try {
+        const s = await api.storage.get(streamKey(mid))
+        text = String(s?.text || '')
+      } catch (_) {}
+      const finalOut = text || '（已停止）'
+
+      const chat = findChatByIds(roleId, chatId)
+      const msgs = Array.isArray(chat?.messages) ? chat.messages : []
+      const m = msgs.find((x) => String(x?.id || '') === mid) || null
+      if (m) {
+        m.content = finalOut
+        m.pending = false
+        m.streaming = false
+      }
+      if (chat) chat.updatedAt = now()
+      emit()
+
+      try {
+        await patchAssistantMessage({ roleId, chatId, assistantMid: mid }, finalOut)
+      } catch (_) {}
+      try {
+        await api.storage.remove(streamKey(mid))
+      } catch (_) {}
+    }
+
+    state.sending = false
+    state.sendingJobId = ''
+    state.sendingCtx = null
+    emit()
   }
 
   async function regenerateAssistantMessage(assistantMid) {
@@ -1707,6 +1789,21 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     let bad = false
     let badBody = ''
     let lastFlush = 0
+    let canceled = false
+    let lastCancelCheck = 0
+
+    const checkCanceled = async (force) => {
+      if (canceled) return true
+      const t = now()
+      if (!force && t - lastCancelCheck < 250) return false
+      lastCancelCheck = t
+      try {
+        const v1 = await api.storage.get(cancelKey(job.id))
+        const v2 = mid ? await api.storage.get(cancelMidKey(mid)) : null
+        if (v1 || v2) canceled = true
+      } catch (_) {}
+      return canceled
+    }
 
     const flush = async (force) => {
       if (!mid) return
@@ -1717,12 +1814,23 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     }
 
     try {
+      await checkCanceled(true)
+      if (canceled) {
+        const finalOut = out || '（已停止）'
+        await flush(true)
+        await patchAssistantMessage(job, finalOut)
+        return
+      }
+
       const canStream = streamWanted && typeof api?.net?.requestStream === 'function'
       if (canStream) {
         const stream = await api.net.requestStream(req)
         const sse = { buf: '', done: false }
 
         for await (const ev of stream) {
+          await checkCanceled(false)
+          if (canceled) break
+
           const t = String(ev?.type || '')
           if (t === 'start') {
             status = Number(ev?.status || 0)
@@ -1751,6 +1859,13 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
           if (t === 'end') break
         }
 
+        if (canceled) {
+          const finalOut = out || '（已停止）'
+          await flush(true)
+          await patchAssistantMessage(job, finalOut)
+          return
+        }
+
         if (bad) {
           let msg = String(badBody || '').trim()
           try {
@@ -1760,7 +1875,23 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
           throw new Error(msg || `HTTP ${status}`)
         }
       } else {
+        await checkCanceled(true)
+        if (canceled) {
+          const finalOut = out || '（已停止）'
+          await flush(true)
+          await patchAssistantMessage(job, finalOut)
+          return
+        }
+
         const r = await api.net.request(req)
+        await checkCanceled(true)
+        if (canceled) {
+          const finalOut = out || '（已停止）'
+          await flush(true)
+          await patchAssistantMessage(job, finalOut)
+          return
+        }
+
         status = Number(r?.status || 0)
         const bodyText = String(r?.body || '')
         bad = status < 200 || status >= 300
@@ -1792,12 +1923,24 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       await flush(true)
       await patchAssistantMessage(job, out)
     } catch (e) {
-      const msg = String(e?.message || e || '请求失败')
-      out = out || `（请求失败：${msg}）`
       try {
-        await flush(true)
+        await checkCanceled(true)
       } catch (_) {}
-      await patchAssistantMessage(job, out)
+
+      if (canceled) {
+        const finalOut = out || '（已停止）'
+        try {
+          await flush(true)
+        } catch (_) {}
+        await patchAssistantMessage(job, finalOut)
+      } else {
+        const msg = String(e?.message || e || '请求失败')
+        out = out || `（请求失败：${msg}）`
+        try {
+          await flush(true)
+        } catch (_) {}
+        await patchAssistantMessage(job, out)
+      }
     } finally {
       if (mid) {
         try {
@@ -1807,6 +1950,14 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       try {
         await api.storage.remove(jobKey(job.id))
       } catch (_) {}
+      try {
+        await api.storage.remove(cancelKey(job.id))
+      } catch (_) {}
+      if (mid) {
+        try {
+          await api.storage.remove(cancelMidKey(mid))
+        } catch (_) {}
+      }
     }
   }
 
@@ -3278,6 +3429,9 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
         emit()
       },
       send: () => sendChat(),
+      stop: () => {
+        stopSending().catch(() => {})
+      },
       regenerateAssistant: (assistantMid) => regenerateAssistantMessage(String(assistantMid || '')),
     },
   }

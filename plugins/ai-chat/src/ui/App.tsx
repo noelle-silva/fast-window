@@ -402,6 +402,7 @@ export function AiChatApp(props: { controller: any }) {
   const lastMsg = Array.isArray(activeChat?.messages) && activeChat.messages.length ? activeChat.messages[activeChat.messages.length - 1] : null
   const lastMsgId = String(lastMsg?.id || '')
   const lastMsgText = String(lastMsg?.content || '')
+  const isReplying = Array.isArray(activeChat?.messages) && activeChat.messages.some((m: any) => m && m.role === 'assistant' && m.pending)
 
   React.useLayoutEffect(() => {
     if (page !== 'chat') return
@@ -468,6 +469,7 @@ export function AiChatApp(props: { controller: any }) {
     stickToBottomRef.current = true
     controller.actions.send()
   })
+  const onStop = useEvent(() => controller.actions.stop?.())
   const onPickImages = useEvent(() => controller.actions.pickImages())
   const [regen, setRegen] = React.useState<{ mid: string }>({ mid: '' })
 
@@ -501,6 +503,7 @@ export function AiChatApp(props: { controller: any }) {
   })
 
   const onKeyDown = useEvent((e: React.KeyboardEvent) => {
+    if (isReplying) return
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       onSend()
@@ -945,7 +948,7 @@ export function AiChatApp(props: { controller: any }) {
                     onChange={(e) => controller.actions.setDraft('input', e.target.value)}
                     onKeyDown={onKeyDown}
                     onPaste={onPaste}
-                    disabled={s.loading || s.sending || !activeRole}
+                    disabled={s.loading || !activeRole}
                     sx={{
                       '& .MuiOutlinedInput-notchedOutline': { border: 0 },
                       '&:hover .MuiOutlinedInput-notchedOutline': { border: 0 },
@@ -953,14 +956,20 @@ export function AiChatApp(props: { controller: any }) {
                     }}
                   />
 
-                  <Button
-                    variant="contained"
-                    onClick={onSend}
-                    disabled={s.loading || s.sending || !activeRole || (!String(s.draft?.input || '').trim() && !(s.draft?.images || []).length)}
-                    sx={{ borderRadius: 999 }}
-                  >
-                    发送
-                  </Button>
+                  {isReplying ? (
+                    <Button variant="contained" color="error" onClick={onStop} disabled={s.loading || !activeRole} sx={{ borderRadius: 999 }}>
+                      停止
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="contained"
+                      onClick={onSend}
+                      disabled={s.loading || !activeRole || (!String(s.draft?.input || '').trim() && !(s.draft?.images || []).length)}
+                      sx={{ borderRadius: 999 }}
+                    >
+                      发送
+                    </Button>
+                  )}
                 </Stack>
               </Stack>
             </Box>
