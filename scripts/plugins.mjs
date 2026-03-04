@@ -11,6 +11,24 @@ const rootDir = path.resolve(__dirname, '..')
 const pluginsDir = path.join(rootDir, 'plugins')
 const rootLockPath = path.join(rootDir, 'pnpm-lock.yaml')
 
+function pad2(n) {
+  return String(n).padStart(2, '0')
+}
+
+function pluginPrefix() {
+  const d = new Date()
+  const t = `${pad2(d.getHours())}时-${pad2(d.getMinutes())}分-${pad2(d.getSeconds())}秒`
+  return `[plugin] [${t}]`
+}
+
+function pluginInfo(msg) {
+  console.log(`${pluginPrefix()}${msg}`)
+}
+
+function pluginError(msg) {
+  console.error(`${pluginPrefix()}${msg}`)
+}
+
 async function exists(p) {
   try {
     await fs.access(p)
@@ -274,7 +292,7 @@ function createDebounced(fn, waitMs) {
 
 async function buildOne(plan, mode) {
   if (plan.kind !== 'bundled') {
-    console.log(`[plugin] ${plan.pluginId}: skip (prebuilt)`)
+    pluginInfo(`${plan.pluginId}: skip (prebuilt)`)
     return { contexts: [], watchers: [], triggerRebuild: null }
   }
 
@@ -283,7 +301,7 @@ async function buildOne(plan, mode) {
 
   if (mode === 'build') {
     if (await isUpToDate(plan)) {
-      console.log(`[plugin] ${plan.pluginId}: up-to-date`)
+      pluginInfo(`${plan.pluginId}: up-to-date`)
       return { contexts: [], watchers: [], triggerRebuild: null }
     }
 
@@ -309,7 +327,7 @@ async function buildOne(plan, mode) {
       await esbuild.build(bgOpts)
     }
 
-    console.log(`[plugin] ${plan.pluginId}: built`)
+    pluginInfo(`${plan.pluginId}: built`)
     return { contexts: [], watchers: [], triggerRebuild: null }
   }
 
@@ -344,23 +362,23 @@ async function buildOne(plan, mode) {
   const trigger = createDebounced(async () => {
     try {
       await Promise.all(contexts.map(c => c.rebuild()))
-      console.log(`[plugin] ${plan.pluginId}: rebuilt`)
+      pluginInfo(`${plan.pluginId}: rebuilt`)
     } catch (e) {
       const msg = e && e.errors ? e.errors.map(x => x.text).join('\n') : String(e?.message || e)
-      console.error(`[plugin] ${plan.pluginId}: rebuild failed\n${msg}`)
+      pluginError(`${plan.pluginId}: rebuild failed\n${msg}`)
     }
   }, 120)
 
   if (!(await isUpToDate(plan))) {
     try {
       await Promise.all(contexts.map(c => c.rebuild()))
-      console.log(`[plugin] ${plan.pluginId}: built (startup)`)
+      pluginInfo(`${plan.pluginId}: built (startup)`)
     } catch (e) {
       const msg = e && e.errors ? e.errors.map(x => x.text).join('\n') : String(e?.message || e)
-      console.error(`[plugin] ${plan.pluginId}: build failed (startup)\n${msg}`)
+      pluginError(`${plan.pluginId}: build failed (startup)\n${msg}`)
     }
   } else {
-    console.log(`[plugin] ${plan.pluginId}: up-to-date (startup)`)
+    pluginInfo(`${plan.pluginId}: up-to-date (startup)`)
   }
 
   const ignoreRel = createIgnoreRelSet(plan)
@@ -420,7 +438,7 @@ async function main() {
   const ids = await listPluginIds()
   const targets = pluginId ? ids.filter(id => id === pluginId) : ids
   if (pluginId && targets.length === 0) {
-    console.error(`[plugin] not found: ${pluginId}`)
+    pluginError(`not found: ${pluginId}`)
     process.exitCode = 2
     return
   }
@@ -448,14 +466,14 @@ async function main() {
     } catch (e) {
       hadError = true
       const msg = e && e.errors ? e.errors.map(x => x.text).join('\n') : String(e?.message || e)
-      console.error(`[plugin] ${p.pluginId}: build failed\n${msg}`)
+      pluginError(`${p.pluginId}: build failed\n${msg}`)
       if (mode !== 'watch') process.exitCode = 1
     }
   }
 
   if (mode === 'watch') {
     if (activeWatchers.length === 0) {
-      console.log('[plugin] no watchable plugins (all prebuilt or missing source entry)')
+      pluginInfo('no watchable plugins (all prebuilt or missing source entry)')
       return
     }
     if (hadError) process.exitCode = 1
