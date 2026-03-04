@@ -37,6 +37,7 @@ import AddIcon from '@mui/icons-material/Add'
 import CloseIcon from '@mui/icons-material/Close'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import HistoryIcon from '@mui/icons-material/History'
 import ImageIcon from '@mui/icons-material/Image'
 import RefreshIcon from '@mui/icons-material/Refresh'
@@ -495,6 +496,11 @@ export function AiChatApp(props: { controller: any }) {
     pending: false,
   })
   const [confirmDelMsg, setConfirmDelMsg] = React.useState<{ mid: string; role: 'user' | 'assistant' }>({ mid: '', role: 'assistant' })
+  const [editingMsg, setEditingMsg] = React.useState<{ mid: string; text: string }>({ mid: '', text: '' })
+
+  React.useEffect(() => {
+    setEditingMsg({ mid: '', text: '' })
+  }, [page, activeRole?.id, activeChat?.id])
 
   const closeMsgMenu = useEvent(() => setMsgMenu({ mid: '', role: 'assistant', x: 0, y: 0, pending: false }))
   const onMessageContextMenu = useEvent((e: React.MouseEvent, mid: string, role: 'user' | 'assistant', pending: boolean) => {
@@ -502,6 +508,28 @@ export function AiChatApp(props: { controller: any }) {
     e.preventDefault()
     e.stopPropagation()
     setMsgMenu({ mid, role, x: e.clientX, y: e.clientY, pending })
+  })
+
+  React.useEffect(() => {
+    if (page !== 'chat') return
+    const mid = String(editingMsg.mid || '')
+    if (!mid) return
+    const msgs = Array.isArray(activeChat?.messages) ? activeChat.messages : []
+    if (!msgs.some((m: any) => String(m?.id || '') === mid)) setEditingMsg({ mid: '', text: '' })
+  }, [page, activeChat?.id, (activeChat?.messages || []).length, editingMsg.mid])
+
+  const startEditMessage = useEvent((mid: string, text: string, pending: boolean) => {
+    if (!mid) return
+    if (pending || s.loading || s.sending) return
+    setEditingMsg({ mid, text: String(text ?? '') })
+  })
+  const cancelEditMessage = useEvent(() => setEditingMsg({ mid: '', text: '' }))
+  const saveEditMessage = useEvent(() => {
+    const mid = String(editingMsg.mid || '')
+    if (!mid) return
+    if (s.loading || s.sending) return
+    controller.actions.editMessage?.(mid, String(editingMsg.text ?? ''))
+    setEditingMsg({ mid: '', text: '' })
   })
 
   const openRolePicker = useEvent((e: React.MouseEvent<HTMLElement>) => setRolePickerEl(e.currentTarget))
@@ -783,6 +811,8 @@ export function AiChatApp(props: { controller: any }) {
                     const time = controller.fmtTime(Number(m?.createdAt || 0))
                     const imgPaths = isUser ? (Array.isArray(m?.images) ? m.images : []) : []
                     const mid = String(m?.id || '')
+                    const isEditing = editingMsg.mid === mid
+                    const canEdit = !isEditing && !m?.pending && !s.loading && !s.sending && !!mid
 
                     let regenRole: 'assistant' | 'user' = isUser ? 'user' : 'assistant'
                     let regenMid = mid
@@ -809,7 +839,7 @@ export function AiChatApp(props: { controller: any }) {
                       <Stack key={mid} direction="row" justifyContent={isUser ? 'flex-end' : 'flex-start'}>
                         <Paper
                           variant="outlined"
-                          onContextMenu={(e) => onMessageContextMenu(e, mid, isUser ? 'user' : 'assistant', !!m?.pending)}
+                          onContextMenu={isEditing ? undefined : (e) => onMessageContextMenu(e, mid, isUser ? 'user' : 'assistant', !!m?.pending)}
                           sx={{
                             width: isUser ? 'auto' : '100%',
                             maxWidth: isUser ? 920 : '100%',
@@ -848,7 +878,22 @@ export function AiChatApp(props: { controller: any }) {
                             </Stack>
                           ) : null}
 
-                          {isUser ? (
+                          {isEditing ? (
+                            <TextField
+                              autoFocus
+                              fullWidth
+                              multiline
+                              minRows={3}
+                              size="small"
+                              placeholder={isUser ? '编辑用户消息…' : '编辑 AI 回复…'}
+                              value={editingMsg.text}
+                              onChange={(e) => setEditingMsg((p) => ({ ...p, text: e.target.value }))}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Escape') cancelEditMessage()
+                                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveEditMessage()
+                              }}
+                            />
+                          ) : isUser ? (
                             <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                               {String(m?.content || '')}
                             </Typography>
@@ -856,39 +901,58 @@ export function AiChatApp(props: { controller: any }) {
                             <AssistantContent controller={controller} className="prose" text={String(m?.content || '')} mid={mid} chatRootRef={chatRootRef} />
                           )}
 
-                          <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }} justifyContent="flex-end">
-                            <Tooltip title="重新回复">
-                              <span>
+                          {isEditing ? (
+                            <Stack direction="row" spacing={1} sx={{ mt: 1 }} justifyContent="flex-end">
+                              <Button size="small" variant="contained" onClick={saveEditMessage} disabled={s.loading || s.sending}>
+                                保存
+                              </Button>
+                              <Button size="small" onClick={cancelEditMessage} disabled={s.loading || s.sending}>
+                                取消
+                              </Button>
+                            </Stack>
+                          ) : (
+                            <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }} justifyContent="flex-end">
+                              <Tooltip title="重新回复">
+                                <span>
+                                  <IconButton
+                                    aria-label="重新回复"
+                                    size="small"
+                                    disabled={!regenMid || s.loading || s.sending || (regenRole === 'assistant' && regenPending)}
+                                    onClick={() => {
+                                      if (!regenMid) return
+                                      setRegen({ mid: regenMid, role: regenRole })
+                                    }}
+                                  >
+                                    <RestartAltIcon fontSize="inherit" />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+
+                              <Tooltip title="编辑">
+                                <span>
+                                  <IconButton aria-label="编辑消息" size="small" disabled={!canEdit} onClick={() => startEditMessage(mid, String(m?.content || ''), !!m?.pending)}>
+                                    <EditOutlinedIcon fontSize="inherit" />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+
+                              <Tooltip title="复制">
                                 <IconButton
-                                  aria-label="重新回复"
+                                  aria-label="复制内容"
                                   size="small"
-                                  disabled={!regenMid || s.loading || s.sending || (regenRole === 'assistant' && regenPending)}
                                   onClick={() => {
-                                    if (!regenMid) return
-                                    setRegen({ mid: regenMid, role: regenRole })
+                                    const text = String(m?.content || '')
+                                    controller.api?.clipboard?.writeText?.(text).then(
+                                      () => controller.api?.ui?.showToast?.('已复制'),
+                                      () => controller.api?.ui?.showToast?.('复制失败'),
+                                    )
                                   }}
                                 >
-                                  <RestartAltIcon fontSize="inherit" />
+                                  <ContentCopyIcon fontSize="inherit" />
                                 </IconButton>
-                              </span>
-                            </Tooltip>
-
-                            <Tooltip title="复制">
-                              <IconButton
-                                aria-label="复制内容"
-                                size="small"
-                                onClick={() => {
-                                  const text = String(m?.content || '')
-                                  controller.api?.clipboard?.writeText?.(text).then(
-                                    () => controller.api?.ui?.showToast?.('已复制'),
-                                    () => controller.api?.ui?.showToast?.('复制失败'),
-                                  )
-                                }}
-                              >
-                                <ContentCopyIcon fontSize="inherit" />
-                              </IconButton>
-                            </Tooltip>
-                          </Stack>
+                              </Tooltip>
+                            </Stack>
+                          )}
 
                           {m?.pending ? (
                             <Box sx={{ mt: 1 }}>

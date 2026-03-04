@@ -1734,6 +1734,48 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     api.ui?.showToast?.('已删除')
   }
 
+  async function editMessage(messageId, content) {
+    if (state.loading || !state.data) return
+    if (state.sending || state.sendingJobId) return api.ui?.showToast?.('发送中，无法编辑')
+
+    const mid = String(messageId || '').trim()
+    if (!mid) return
+
+    const role = activeRole()
+    if (!role) return
+
+    const rid = String(role.id || '')
+    const pendingChat = state.pendingChat && String(state.pendingChat.roleId || '') === rid ? state.pendingChat.chat : null
+    const chat = pendingChat || activeChatFromData()
+    if (!chat) return
+
+    const msgs = Array.isArray(chat.messages) ? chat.messages : []
+    const target = msgs.find((m) => String(m?.id || '') === mid)
+    if (!target) return api.ui?.showToast?.('未找到该消息')
+
+    if (target.role === 'assistant') {
+      if (target.pending) return api.ui?.showToast?.('该消息正在生成中，无法编辑')
+      if (state.sendingCtx && String(state.sendingCtx.assistantMid || '') === mid) return api.ui?.showToast?.('该消息正在生成中，无法编辑')
+      try {
+        uiStreamCache.delete(mid)
+      } catch (_) {}
+    }
+
+    target.content = String(content ?? '')
+    chat.updatedAt = now()
+
+    emit()
+
+    if (pendingChat) return api.ui?.showToast?.('已保存')
+
+    try {
+      await save()
+      api.ui?.showToast?.('已保存')
+    } catch (e) {
+      api.ui?.showToast?.(String(e?.message || e || '保存失败'))
+    }
+  }
+
 
   async function patchAssistantMessage(job, content) {
     const roleId = String(job?.roleId || '')
@@ -3657,6 +3699,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       regenerateAssistant: (assistantMid) => regenerateAssistantMessage(String(assistantMid || '')),
       replyFromUserMessage: (userMid) => replyFromUserMessage(String(userMid || '')),
       deleteMessage: (messageId) => deleteMessage(String(messageId || '')),
+      editMessage: (messageId, content) => editMessage(String(messageId || ''), content),
     },
   }
 
