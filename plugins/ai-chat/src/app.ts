@@ -1606,6 +1606,50 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     }
   }
 
+  async function deleteMessage(messageId) {
+    if (state.loading || !state.data) return
+    if (state.sending || state.sendingJobId) return api.ui?.showToast?.('发送中，无法删除')
+
+    const mid = String(messageId || '').trim()
+    if (!mid) return
+
+    const role = activeRole()
+    if (!role) return
+
+    const rid = String(role.id || '')
+    const pendingChat = state.pendingChat && String(state.pendingChat.roleId || '') === rid ? state.pendingChat.chat : null
+    const chat = pendingChat || activeChatFromData()
+    if (!chat) return
+
+    const msgs = Array.isArray(chat.messages) ? chat.messages : []
+    const idx = msgs.findIndex((m) => String(m?.id || '') === mid)
+    if (idx < 0) return api.ui?.showToast?.('未找到该消息')
+
+    const target = msgs[idx]
+    if (!target) return api.ui?.showToast?.('未找到该消息')
+
+    if (target.role === 'assistant') {
+      if (target.pending) return api.ui?.showToast?.('该消息正在生成中，无法删除')
+      if (state.sendingCtx && String(state.sendingCtx.assistantMid || '') === mid) return api.ui?.showToast?.('该消息正在生成中，无法删除')
+    }
+
+    msgs.splice(idx, 1)
+    chat.updatedAt = now()
+
+    if (target.role === 'assistant') {
+      try {
+        uiStreamCache.delete(mid)
+      } catch (_) {}
+      try {
+        await api.storage.remove(streamKey(mid))
+      } catch (_) {}
+    }
+
+    emit()
+    if (!pendingChat) save().catch(() => {})
+    api.ui?.showToast?.('已删除')
+  }
+
 
   async function patchAssistantMessage(job, content) {
     const roleId = String(job?.roleId || '')
@@ -3512,6 +3556,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
         stopSending().catch(() => {})
       },
       regenerateAssistant: (assistantMid) => regenerateAssistantMessage(String(assistantMid || '')),
+      deleteMessage: (messageId) => deleteMessage(String(messageId || '')),
     },
   }
 

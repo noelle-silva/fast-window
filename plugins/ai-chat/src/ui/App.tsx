@@ -487,6 +487,22 @@ export function AiChatApp(props: { controller: any }) {
   const onStop = useEvent(() => controller.actions.stop?.())
   const onPickImages = useEvent(() => controller.actions.pickImages())
   const [regen, setRegen] = React.useState<{ mid: string }>({ mid: '' })
+  const [msgMenu, setMsgMenu] = React.useState<{ mid: string; role: 'user' | 'assistant'; x: number; y: number; pending: boolean }>({
+    mid: '',
+    role: 'assistant',
+    x: 0,
+    y: 0,
+    pending: false,
+  })
+  const [confirmDelMsg, setConfirmDelMsg] = React.useState<{ mid: string; role: 'user' | 'assistant' }>({ mid: '', role: 'assistant' })
+
+  const closeMsgMenu = useEvent(() => setMsgMenu({ mid: '', role: 'assistant', x: 0, y: 0, pending: false }))
+  const onMessageContextMenu = useEvent((e: React.MouseEvent, mid: string, role: 'user' | 'assistant', pending: boolean) => {
+    if (!mid) return
+    e.preventDefault()
+    e.stopPropagation()
+    setMsgMenu({ mid, role, x: e.clientX, y: e.clientY, pending })
+  })
 
   const openRolePicker = useEvent((e: React.MouseEvent<HTMLElement>) => setRolePickerEl(e.currentTarget))
   const closeRolePicker = useEvent(() => setRolePickerEl(null))
@@ -766,10 +782,12 @@ export function AiChatApp(props: { controller: any }) {
                     const roleAvatarImage = String(activeRole?.avatarImage || '')
                     const time = controller.fmtTime(Number(m?.createdAt || 0))
                     const imgPaths = isUser ? (Array.isArray(m?.images) ? m.images : []) : []
+                    const mid = String(m?.id || '')
                     return (
-                      <Stack key={String(m?.id || '')} direction="row" justifyContent={isUser ? 'flex-end' : 'flex-start'}>
+                      <Stack key={mid} direction="row" justifyContent={isUser ? 'flex-end' : 'flex-start'}>
                         <Paper
                           variant="outlined"
+                          onContextMenu={(e) => onMessageContextMenu(e, mid, isUser ? 'user' : 'assistant', !!m?.pending)}
                           sx={{
                             width: isUser ? 'auto' : '100%',
                             maxWidth: isUser ? 920 : '100%',
@@ -813,7 +831,7 @@ export function AiChatApp(props: { controller: any }) {
                               {String(m?.content || '')}
                             </Typography>
                           ) : (
-                            <AssistantContent controller={controller} className="prose" text={String(m?.content || '')} mid={String(m?.id || '')} chatRootRef={chatRootRef} />
+                            <AssistantContent controller={controller} className="prose" text={String(m?.content || '')} mid={mid} chatRootRef={chatRootRef} />
                           )}
 
                           {!isUser ? (
@@ -825,7 +843,6 @@ export function AiChatApp(props: { controller: any }) {
                                     size="small"
                                     disabled={!!m?.pending || s.loading || s.sending}
                                     onClick={() => {
-                                      const mid = String(m?.id || '')
                                       setRegen({ mid })
                                     }}
                                   >
@@ -864,6 +881,59 @@ export function AiChatApp(props: { controller: any }) {
                 </Stack>
                )}
              </Box>
+
+             <Popover
+               open={!!msgMenu.mid}
+               onClose={closeMsgMenu}
+               anchorReference="anchorPosition"
+               anchorPosition={msgMenu.mid ? { top: msgMenu.y, left: msgMenu.x } : undefined}
+               transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+             >
+               <Box sx={{ minWidth: 160, p: 0.5 }}>
+                 <MenuItem
+                   disabled={!msgMenu.mid || msgMenu.pending || s.loading || s.sending}
+                   onClick={() => {
+                     const mid = msgMenu.mid
+                     const role = msgMenu.role
+                     closeMsgMenu()
+                     setConfirmDelMsg({ mid, role })
+                   }}
+                   sx={{ gap: 1 }}
+                 >
+                   <DeleteOutlineIcon fontSize="small" />
+                   删除
+                 </MenuItem>
+               </Box>
+             </Popover>
+
+             <Dialog
+               open={!!confirmDelMsg.mid}
+               onClose={() => setConfirmDelMsg({ mid: '', role: 'assistant' })}
+               maxWidth="xs"
+               fullWidth
+             >
+               <DialogTitle>确认删除这条消息？</DialogTitle>
+               <DialogContent>
+                 <Typography variant="body2" color="text.secondary">
+                   仅删除当前这条{confirmDelMsg.role === 'assistant' ? ' AI 回复' : '用户消息'}，不影响其他记录。
+                 </Typography>
+               </DialogContent>
+               <DialogActions>
+                 <Button onClick={() => setConfirmDelMsg({ mid: '', role: 'assistant' })}>取消</Button>
+                 <Button
+                   variant="contained"
+                   color="error"
+                   onClick={() => {
+                     const mid = confirmDelMsg.mid
+                     setConfirmDelMsg({ mid: '', role: 'assistant' })
+                     controller.actions.deleteMessage?.(mid)
+                   }}
+                   disabled={!confirmDelMsg.mid || s.loading || s.sending}
+                 >
+                   删除
+                 </Button>
+               </DialogActions>
+             </Dialog>
 
              <Dialog
                open={!!regen.mid}
