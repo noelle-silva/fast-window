@@ -486,7 +486,7 @@ export function AiChatApp(props: { controller: any }) {
   })
   const onStop = useEvent(() => controller.actions.stop?.())
   const onPickImages = useEvent(() => controller.actions.pickImages())
-  const [regen, setRegen] = React.useState<{ mid: string }>({ mid: '' })
+  const [regen, setRegen] = React.useState<{ mid: string; role: 'assistant' | 'user' }>({ mid: '', role: 'assistant' })
   const [msgMenu, setMsgMenu] = React.useState<{ mid: string; role: 'user' | 'assistant'; x: number; y: number; pending: boolean }>({
     mid: '',
     role: 'assistant',
@@ -775,7 +775,7 @@ export function AiChatApp(props: { controller: any }) {
                 </Typography>
               ) : (
                 <Stack spacing={1.25}>
-                  {activeChat.messages.map((m: any) => {
+                  {activeChat.messages.map((m: any, index: number) => {
                     const isUser = m?.role === 'user'
                     const roleName = String(activeRole?.name || 'AI')
                     const roleAvatarEmoji = String(activeRole?.avatar || '🤖')
@@ -783,6 +783,28 @@ export function AiChatApp(props: { controller: any }) {
                     const time = controller.fmtTime(Number(m?.createdAt || 0))
                     const imgPaths = isUser ? (Array.isArray(m?.images) ? m.images : []) : []
                     const mid = String(m?.id || '')
+
+                    let regenRole: 'assistant' | 'user' = isUser ? 'user' : 'assistant'
+                    let regenMid = mid
+                    let regenPending = isUser ? false : !!m?.pending
+                    if (isUser) {
+                      const msgs = Array.isArray(activeChat.messages) ? activeChat.messages : []
+                      for (let j = index + 1; j < msgs.length; j++) {
+                        const next = msgs[j]
+                        if (!next) continue
+                        if (next.role === 'assistant') {
+                          regenRole = 'assistant'
+                          regenMid = String(next?.id || '')
+                          regenPending = !!next?.pending
+                          break
+                        }
+                        if (next.role === 'user') break
+                      }
+                    } else {
+                      regenRole = 'assistant'
+                      regenMid = mid
+                      regenPending = !!m?.pending
+                    }
                     return (
                       <Stack key={mid} direction="row" justifyContent={isUser ? 'flex-end' : 'flex-start'}>
                         <Paper
@@ -834,40 +856,39 @@ export function AiChatApp(props: { controller: any }) {
                             <AssistantContent controller={controller} className="prose" text={String(m?.content || '')} mid={mid} chatRootRef={chatRootRef} />
                           )}
 
-                          {!isUser ? (
-                            <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }} justifyContent="flex-end">
-                              <Tooltip title="重新回复">
-                                <span>
-                                  <IconButton
-                                    aria-label="重新回复"
-                                    size="small"
-                                    disabled={!!m?.pending || s.loading || s.sending}
-                                    onClick={() => {
-                                      setRegen({ mid })
-                                    }}
-                                  >
-                                    <RestartAltIcon fontSize="inherit" />
-                                  </IconButton>
-                                </span>
-                              </Tooltip>
-
-                              <Tooltip title="复制">
+                          <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }} justifyContent="flex-end">
+                            <Tooltip title="重新回复">
+                              <span>
                                 <IconButton
-                                  aria-label="复制内容"
+                                  aria-label="重新回复"
                                   size="small"
+                                  disabled={!regenMid || s.loading || s.sending || (regenRole === 'assistant' && regenPending)}
                                   onClick={() => {
-                                    const text = String(m?.content || '')
-                                    controller.api?.clipboard?.writeText?.(text).then(
-                                      () => controller.api?.ui?.showToast?.('已复制'),
-                                      () => controller.api?.ui?.showToast?.('复制失败'),
-                                    )
+                                    if (!regenMid) return
+                                    setRegen({ mid: regenMid, role: regenRole })
                                   }}
                                 >
-                                  <ContentCopyIcon fontSize="inherit" />
+                                  <RestartAltIcon fontSize="inherit" />
                                 </IconButton>
-                              </Tooltip>
-                            </Stack>
-                          ) : null}
+                              </span>
+                            </Tooltip>
+
+                            <Tooltip title="复制">
+                              <IconButton
+                                aria-label="复制内容"
+                                size="small"
+                                onClick={() => {
+                                  const text = String(m?.content || '')
+                                  controller.api?.clipboard?.writeText?.(text).then(
+                                    () => controller.api?.ui?.showToast?.('已复制'),
+                                    () => controller.api?.ui?.showToast?.('复制失败'),
+                                  )
+                                }}
+                              >
+                                <ContentCopyIcon fontSize="inherit" />
+                              </IconButton>
+                            </Tooltip>
+                          </Stack>
 
                           {m?.pending ? (
                             <Box sx={{ mt: 1 }}>
@@ -937,25 +958,27 @@ export function AiChatApp(props: { controller: any }) {
 
              <Dialog
                open={!!regen.mid}
-               onClose={() => setRegen({ mid: '' })}
+               onClose={() => setRegen({ mid: '', role: 'assistant' })}
                maxWidth="xs"
                fullWidth
              >
                <DialogTitle>确认重新回复？</DialogTitle>
                <DialogContent>
                  <Typography variant="body2" color="text.secondary">
-                   这会用新内容覆盖当前 AI 回复。
+                   {regen.role === 'assistant' ? '这会用新内容覆盖当前 AI 回复。' : '这会基于该用户消息生成一条新的 AI 回复。'}
                  </Typography>
                </DialogContent>
                <DialogActions>
-                 <Button onClick={() => setRegen({ mid: '' })}>取消</Button>
+                 <Button onClick={() => setRegen({ mid: '', role: 'assistant' })}>取消</Button>
                  <Button
                    variant="contained"
                    color="warning"
                    onClick={() => {
                      const mid = regen.mid
-                     setRegen({ mid: '' })
-                     controller.actions.regenerateAssistant?.(mid)
+                     const role = regen.role
+                     setRegen({ mid: '', role: 'assistant' })
+                     if (role === 'assistant') controller.actions.regenerateAssistant?.(mid)
+                     else controller.actions.replyFromUserMessage?.(mid)
                    }}
                    disabled={!regen.mid || s.loading || s.sending}
                  >

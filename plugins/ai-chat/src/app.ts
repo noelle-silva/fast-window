@@ -1606,6 +1606,81 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     }
   }
 
+  async function replyFromUserMessage(userMid) {
+    if (state.sending || state.sendingJobId || state.loading || !state.data) return
+
+    const role = activeRole()
+    const chat = activeChatFromData()
+    if (!role || !chat) return
+    ensureRoleDefaults(role)
+
+    const mid = String(userMid || '').trim()
+    if (!mid) return
+
+    const providerId = String(role.modelRef?.providerId || '')
+    const modelId = String(role.modelRef?.modelId || '').trim()
+    const p = getProvider(providerId)
+    if (!p) return api.ui?.showToast?.('未找到该供应商')
+
+    const baseUrl = trimSlash(p.baseUrl || '')
+    const apiKey = String(p.apiKey || '').trim()
+    if (!isHttpBaseUrl(baseUrl)) return api.ui?.showToast?.('请在供应商设置里配置 Base URL（http/https）')
+    if (!apiKey) return api.ui?.showToast?.('请在供应商设置里配置 API Key')
+    if (!modelId) return api.ui?.showToast?.('请在角色设置里选择模型（供应商 + 模型ID）')
+
+    try {
+      state.sending = true
+      renderComposer()
+
+      const msgs = Array.isArray(chat.messages) ? chat.messages : []
+      const userIndex = msgs.findIndex((m) => String(m?.id || '') === mid)
+      if (userIndex < 0) throw new Error('未找到该消息')
+
+      const target = msgs[userIndex]
+      if (!target || target.role !== 'user') throw new Error('只能从用户消息发起重新回复')
+
+      const streamEnabled = !!state.data?.settings?.streamEnabled
+      const assistantMid = uid('m')
+      msgs.splice(userIndex + 1, 0, {
+        id: assistantMid,
+        role: 'assistant',
+        content: '（生成中…）',
+        pending: true,
+        streaming: streamEnabled,
+        createdAt: now(),
+      })
+      chat.messages = msgs
+      chat.updatedAt = now()
+
+      const jobId = uid('job')
+      const job = {
+        id: jobId,
+        kind: 'openai.chat.completions',
+        status: 'queued',
+        createdAt: now(),
+        roleId: String(role.id || ''),
+        chatId: String(chat.id || ''),
+        assistantMid,
+        cutoffMid: assistantMid,
+        stream: streamEnabled,
+      }
+
+      state.sendingCtx = { roleId: String(role.id || ''), chatId: String(chat.id || ''), assistantMid }
+      await save()
+      await api.storage.set(jobKey(jobId), job)
+      await enqueueJob(jobId)
+      state.sendingJobId = jobId
+    } catch (e) {
+      const msg = String(e?.message || e || '请求失败')
+      state.sending = false
+      state.sendingJobId = ''
+      state.sendingCtx = null
+      api.ui?.showToast?.(msg)
+    } finally {
+      render()
+    }
+  }
+
   async function deleteMessage(messageId) {
     if (state.loading || !state.data) return
     if (state.sending || state.sendingJobId) return api.ui?.showToast?.('发送中，无法删除')
@@ -3571,6 +3646,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
         stopSending().catch(() => {})
       },
       regenerateAssistant: (assistantMid) => regenerateAssistantMessage(String(assistantMid || '')),
+      replyFromUserMessage: (userMid) => replyFromUserMessage(String(userMid || '')),
       deleteMessage: (messageId) => deleteMessage(String(messageId || '')),
     },
   }
