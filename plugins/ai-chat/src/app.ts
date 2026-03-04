@@ -3416,17 +3416,23 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
         const len = Array.isArray(state.mermaid.items) ? state.mermaid.items.length : 0
         if (!len) return
         state.mermaid.index = (Number(state.mermaid.index || 0) - 1 + len) % len
+        state.mermaid.scale = 1
         emit()
       },
       mermaidNext: () => {
         const len = Array.isArray(state.mermaid.items) ? state.mermaid.items.length : 0
         if (!len) return
         state.mermaid.index = (Number(state.mermaid.index || 0) + 1) % len
+        state.mermaid.scale = 1
         emit()
       },
       mermaidZoom: (dir) => {
         const factor = Number(dir || 0) >= 0 ? 1.12 : 1 / 1.12
         state.mermaid.scale = clamp(Number(state.mermaid.scale || 1) * factor, 0.2, 6)
+        emit()
+      },
+      mermaidSetScale: (scale) => {
+        state.mermaid.scale = clamp(Number(scale || 1), 0.2, 6)
         emit()
       },
       mermaidReset: () => {
