@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "description": "上传/拖拽/粘贴图片，调用 trace.moe 进行以图找番",
   "main": "index.js",
-  "icon": "🎬",
+  "icon": "svg:icon.svg",
   "keyword": "anime",
   "apiVersion": 2,
   "ui": { "type": "iframe" },

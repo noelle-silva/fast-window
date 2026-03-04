@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Anime Finder">
+  <rect x="6" y="6" width="52" height="52" rx="14" fill="#D9B7A9" />
+  <g fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="28" cy="30" r="10" />
+    <path d="M36 38l10 10" />
+  </g>
+  <path d="M26 25l10 5-10 5z" fill="#FFFFFF" />
+</svg>

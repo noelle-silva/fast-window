@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "description": "可视化填空构造请求头/请求体，手动调试 OpenAI Chat Completions / OpenAI Responses / Anthropic Messages",
   "main": "index.js",
-  "icon": "🧪",
+  "icon": "svg:icon.svg",
   "keyword": "api",
   "apiVersion": 2,
   "ui": { "type": "iframe" },

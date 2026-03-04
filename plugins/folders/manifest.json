@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "description": "收藏常用本地文件夹，点击即可在文件管理器打开",
   "main": "index.js",
-  "icon": "📁",
+  "icon": "svg:icon.svg",
   "keyword": "fd",
   "apiVersion": 2,
   "ui": { "type": "iframe" },

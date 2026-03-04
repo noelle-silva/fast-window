@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "description": "收藏、分组管理常用网站，点击即可用浏览器打开",
   "main": "index.js",
-  "icon": "🔖",
+  "icon": "svg:icon.svg",
   "keyword": "bm",
   "apiVersion": 2,
   "ui": { "type": "iframe" },

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Calculator">
+  <rect x="6" y="6" width="52" height="52" rx="14" fill="#B2D9A9" />
+  <g fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="20" y="16" width="24" height="32" rx="6" />
+    <path d="M24 24h16" />
+    <path d="M26 32h0M32 32h0M38 32h0" />
+    <path d="M26 40h0M32 40h0M38 40h0" />
+  </g>
+  <g fill="#FFFFFF">
+    <circle cx="26" cy="32" r="2" />
+    <circle cx="32" cy="32" r="2" />
+    <circle cx="38" cy="32" r="2" />
+    <circle cx="26" cy="40" r="2" />
+    <circle cx="32" cy="40" r="2" />
+    <circle cx="38" cy="40" r="2" />
+  </g>
+</svg>

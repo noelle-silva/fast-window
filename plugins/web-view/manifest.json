@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "description": "管理网站地址，点击后在新窗口打开网页",
   "main": "index.js",
-  "icon": "🌐",
+  "icon": "svg:icon.svg",
   "keyword": "wv",
   "apiVersion": 2,
   "ui": { "type": "iframe" },

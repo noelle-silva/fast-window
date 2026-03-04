@@ -6,7 +6,7 @@
   "description": "查看和管理剪贴板历史记录",
   "main": "index.js",
   "background": { "autoStart": true },
-  "icon": "📋",
+  "icon": "svg:icon.svg",
   "keyword": "cb",
   "apiVersion": 2,
   "ui": { "type": "iframe" },

@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "description": "多供应商 + 角色系统的 AI 聊天；支持 Markdown/LaTeX/HTML(div) 渲染",
   "main": "index.js",
-  "icon": "💬",
+  "icon": "svg:icon.svg",
   "keyword": "ai",
   "apiVersion": 2,
   "ui": { "type": "iframe", "keepAlive": true },

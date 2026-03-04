@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="AI Once">
+  <rect x="6" y="6" width="52" height="52" rx="14" fill="#A9D9C9" />
+  <g fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M32 14v6" />
+    <path d="M28 14h8" />
+    <rect x="18" y="22" width="28" height="24" rx="8" />
+    <path d="M24 30h0" />
+    <path d="M40 30h0" />
+    <path d="M26 40h12" />
+  </g>
+  <g fill="#FFFFFF">
+    <circle cx="24" cy="30" r="2.5" />
+    <circle cx="40" cy="30" r="2.5" />
+  </g>
+</svg>

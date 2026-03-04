@@ -5,7 +5,7 @@
   "version": "1.0.0",
   "description": "快速记录和管理备忘信息",
   "main": "index.js",
-  "icon": "📝",
+  "icon": "svg:icon.svg",
   "keyword": "memo",
   "apiVersion": 2,
   "ui": { "type": "iframe" },

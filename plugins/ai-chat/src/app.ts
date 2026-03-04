@@ -2038,7 +2038,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     if (!(el instanceof HTMLElement)) return
     const on = !!state.data?.settings?.streamEnabled
     el.innerHTML = `
-      <div class="title">💬 AI 聊天</div>
+      <div class="title">AI 聊天</div>
       <button class="btn ${on ? 'ok' : ''}" data-act="toggle-stream">${on ? '流式：开' : '流式：关'}</button>
       <button class="btn" data-act="open-providers">供应商</button>
       <button class="btn pri" data-act="new-role">新角色</button>
