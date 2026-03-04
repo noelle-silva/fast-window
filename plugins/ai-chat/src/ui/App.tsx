@@ -176,7 +176,7 @@ export function AiChatApp(props: { controller: any }) {
   const [composerHeight, setComposerHeight] = React.useState(0)
 
   const [page, setPage] = React.useState<'chat' | 'settings'>('chat')
-  const [settingsTab, setSettingsTab] = React.useState<'roles' | 'providers'>('roles')
+  const [settingsTab, setSettingsTab] = React.useState<'appearance' | 'roles' | 'providers'>('roles')
 
   const [rolePickerEl, setRolePickerEl] = React.useState<HTMLElement | null>(null)
   const [chatPickerEl, setChatPickerEl] = React.useState<HTMLElement | null>(null)
@@ -272,7 +272,7 @@ export function AiChatApp(props: { controller: any }) {
   const openChatPicker = useEvent((e: React.MouseEvent<HTMLElement>) => setChatPickerEl(e.currentTarget))
   const closeChatPicker = useEvent(() => setChatPickerEl(null))
 
-  const openPluginSettings = useEvent((tab: 'roles' | 'providers' = 'roles') => {
+  const openPluginSettings = useEvent((tab: 'appearance' | 'roles' | 'providers' = 'roles') => {
     setRolePickerEl(null)
     setChatPickerEl(null)
     setSettingsTab(tab)
@@ -405,6 +405,14 @@ export function AiChatApp(props: { controller: any }) {
 
                 <Box sx={{ flex: 1 }} />
 
+                <Button
+                  size="small"
+                  variant={settingsTab === 'appearance' ? 'contained' : 'outlined'}
+                  onClick={() => setSettingsTab('appearance')}
+                  sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
+                >
+                  外观
+                </Button>
                 <Button
                   size="small"
                   variant={settingsTab === 'roles' ? 'contained' : 'outlined'}
@@ -952,7 +960,7 @@ function PluginSettingsPage(props: {
   providers: any[]
   draft: any
   activeRoleId: string
-  tab: 'roles' | 'providers'
+  tab: 'appearance' | 'roles' | 'providers'
 }) {
   const { controller, loading, data, roles, providers, draft, activeRoleId, tab } = props
 
@@ -1127,11 +1135,17 @@ function PluginSettingsPage(props: {
     </Paper>
   )
 
-  if (tab === 'roles') {
+  if (tab === 'appearance') {
     return (
       <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
         {appearancePanel}
+      </Box>
+    )
+  }
 
+  if (tab === 'roles') {
+    return (
+      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
         <Paper variant="outlined" sx={{ p: 1.5 }}>
           <Stack direction="row" spacing={1} alignItems="center">
             <Typography sx={{ fontWeight: 900 }}>角色管理</Typography>
@@ -1209,8 +1223,6 @@ function PluginSettingsPage(props: {
 
   return (
     <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
-      {appearancePanel}
-
       <Paper variant="outlined" sx={{ p: 1.5 }}>
         <Stack direction="row" spacing={1} alignItems="center">
           <Typography sx={{ fontWeight: 900 }}>供应商管理</Typography>
