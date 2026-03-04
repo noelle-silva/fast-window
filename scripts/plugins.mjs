@@ -17,7 +17,7 @@ function pad2(n) {
 
 function pluginPrefix() {
   const d = new Date()
-  const t = `${pad2(d.getHours())}时-${pad2(d.getMinutes())}分-${pad2(d.getSeconds())}秒`
+  const t = `${pad2(d.getHours())}h-${pad2(d.getMinutes())}m-${pad2(d.getSeconds())}s`
   return `[plugin] [${t}]`
 }
 
