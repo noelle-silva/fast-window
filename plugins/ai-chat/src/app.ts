@@ -1628,6 +1628,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
     if (!apiKey) return api.ui?.showToast?.('请在供应商设置里配置 API Key')
     if (!modelId) return api.ui?.showToast?.('请在角色设置里选择模型（供应商 + 模型ID）')
 
+    let assistantMid = ''
     try {
       state.sending = true
       renderComposer()
@@ -1640,7 +1641,7 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       if (!target || target.role !== 'user') throw new Error('只能从用户消息发起重新回复')
 
       const streamEnabled = !!state.data?.settings?.streamEnabled
-      const assistantMid = uid('m')
+      assistantMid = uid('m')
       msgs.splice(userIndex + 1, 0, {
         id: assistantMid,
         role: 'assistant',
@@ -1672,6 +1673,14 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
       state.sendingJobId = jobId
     } catch (e) {
       const msg = String(e?.message || e || '请求失败')
+      const items = Array.isArray(chat?.messages) ? chat.messages : []
+      const am = assistantMid ? items.find((m) => String(m?.id || '') === assistantMid) : null
+      if (am) {
+        am.content = `（请求失败：${msg}）`
+        am.pending = false
+        am.streaming = false
+      }
+      save().catch(() => {})
       state.sending = false
       state.sendingJobId = ''
       state.sendingCtx = null
