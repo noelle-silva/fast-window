@@ -34,7 +34,6 @@ import {
   createTheme,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
-import ChatIcon from '@mui/icons-material/Chat'
 import CloseIcon from '@mui/icons-material/Close'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
@@ -474,7 +473,7 @@ export function AiChatApp(props: { controller: any }) {
                 <Tooltip title="新建聊天">
                   <span>
                     <IconButton onClick={() => controller.actions.createChat()} size="small" disabled={!activeRole}>
-                      <ChatIcon fontSize="small" />
+                      <AddIcon fontSize="small" />
                     </IconButton>
                   </span>
                 </Tooltip>
