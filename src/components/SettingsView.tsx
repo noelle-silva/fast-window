@@ -64,6 +64,60 @@ function isDataImageUrl(value: string): boolean {
   return value.startsWith('data:image/')
 }
 
+async function resolvePluginIcon(pluginId: string, icon: unknown): Promise<string | undefined> {
+  const raw = typeof icon === 'string' ? icon.trim() : ''
+  if (!raw) return undefined
+  if (isDataImageUrl(raw)) return raw
+
+  if (raw.startsWith('svg:')) {
+    const path = raw.slice('svg:'.length).trim()
+    if (!path) return undefined
+    if (!path.toLowerCase().endsWith('.svg')) {
+      console.warn(`[plugin-manage] "${pluginId}" icon ignored: svg: must point to a .svg file.`)
+      return undefined
+    }
+
+    try {
+      const svg = await invoke<string>('read_plugin_file', { pluginId, path })
+      const encoded = encodeURIComponent(svg)
+      return `data:image/svg+xml;utf8,${encoded}`
+    } catch (e) {
+      console.warn(`[plugin-manage] "${pluginId}" icon ignored: failed to read svg icon "${path}".`, e)
+      return undefined
+    }
+  }
+
+  if (raw.startsWith('file:')) {
+    const path = raw.slice('file:'.length).trim()
+    if (!path) return undefined
+    const lower = path.toLowerCase()
+
+    const mime =
+      lower.endsWith('.png') ? 'image/png'
+      : (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) ? 'image/jpeg'
+      : lower.endsWith('.webp') ? 'image/webp'
+      : lower.endsWith('.gif') ? 'image/gif'
+      : lower.endsWith('.ico') ? 'image/x-icon'
+      : lower.endsWith('.svg') ? 'image/svg+xml'
+      : ''
+
+    if (!mime) {
+      console.warn(`[plugin-manage] "${pluginId}" icon ignored: unsupported file type "${path}".`)
+      return undefined
+    }
+
+    try {
+      const b64 = await invoke<string>('read_plugin_file_base64', { pluginId, path })
+      return `data:${mime};base64,${b64}`
+    } catch (e) {
+      console.warn(`[plugin-manage] "${pluginId}" icon ignored: failed to read icon file "${path}".`, e)
+      return undefined
+    }
+  }
+
+  return raw
+}
+
 async function pickImageFile(): Promise<File | null> {
   return new Promise(resolve => {
     const input = document.createElement('input')
@@ -369,10 +423,11 @@ export default function SettingsView(props: { onBack: () => void }) {
   async function loadPluginManage() {
     setPluginManageLoading(true)
     try {
-      const [ids, disabledRaw, allowOverwriteIds] = await Promise.all([
+      const [ids, disabledRaw, allowOverwriteIds, iconOverrides] = await Promise.all([
         invoke<string[]>('list_plugins').catch(() => [] as string[]),
         invoke<unknown | null>('storage_get', { pluginId: APP_STORAGE_ID, key: DISABLED_PLUGINS_KEY }).catch(() => null),
         invoke<string[]>('get_plugins_allow_overwrite_on_update').catch(() => [] as string[]),
+        invoke<Record<string, string>>('get_plugin_icon_overrides').catch(() => ({} as Record<string, string>)),
       ])
       const disabledIds = normalizeStringList(disabledRaw)
       const uniqueDisabledIds = Array.from(new Set(disabledIds))
@@ -387,19 +442,28 @@ export default function SettingsView(props: { onBack: () => void }) {
           const name = typeof m?.name === 'string' ? m.name.trim() : ''
           const version = typeof m?.version === 'string' ? m.version.trim() : ''
           const description = typeof m?.description === 'string' ? m.description : ''
-          const icon = typeof m?.icon === 'string' ? m.icon.trim() : ''
+          const rawIcon = typeof m?.icon === 'string' ? m.icon.trim() : ''
+          const resolvedIcon = iconOverrides[pluginId] || (await resolvePluginIcon(pluginId, rawIcon))
           const allowOverwriteOnUpdate = allowOverwriteSet.has(pluginId)
           return {
             id: pluginId,
             name: name || pluginId,
             version: version || '-',
             description,
-            icon: icon || undefined,
+            icon: resolvedIcon || undefined,
             allowOverwriteOnUpdate,
           }
         } catch (e) {
           console.warn('[plugin-manage] failed to read manifest:', pluginId, e)
-          return { id: pluginId, name: pluginId, version: '-', description: '', icon: undefined, allowOverwriteOnUpdate: false }
+          const resolvedIcon = iconOverrides[pluginId]
+          return {
+            id: pluginId,
+            name: pluginId,
+            version: '-',
+            description: '',
+            icon: resolvedIcon || undefined,
+            allowOverwriteOnUpdate: false,
+          }
         }
       }))
 
@@ -1058,8 +1122,8 @@ export default function SettingsView(props: { onBack: () => void }) {
               {pluginManageList.map(p => {
                 const disabled = pluginManageDisabledIds.includes(p.id)
                 const busy = pluginManageSavingId === p.id
-                const icon = typeof p.icon === 'string' ? p.icon : ''
-                const canShowIcon = !!icon && !icon.startsWith('file:') && !icon.startsWith('svg:')
+                const icon = typeof p.icon === 'string' ? p.icon.trim() : ''
+                const safeIcon = icon && (icon.startsWith('file:') || icon.startsWith('svg:')) ? '' : icon
 
                 return (
                   <Box
@@ -1075,10 +1139,10 @@ export default function SettingsView(props: { onBack: () => void }) {
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: 1 }}>
                       <Avatar
                         variant="rounded"
-                        src={canShowIcon && isDataImageUrl(icon) ? icon : undefined}
+                        src={safeIcon && isDataImageUrl(safeIcon) ? safeIcon : undefined}
                         sx={{ width: 32, height: 32, fontSize: 18, bgcolor: 'action.hover', color: 'text.primary' }}
                       >
-                        {canShowIcon && !isDataImageUrl(icon) ? icon : '📦'}
+                        {safeIcon && !isDataImageUrl(safeIcon) ? safeIcon : '📦'}
                       </Avatar>
                       <Box sx={{ minWidth: 0, flex: 1 }}>
                         <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
