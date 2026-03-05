@@ -1097,16 +1097,30 @@ import { extractOpenAiDelta, sseFeed } from './core/sse'
 
     const noIndent = preprocessHtmlIndentation(raw)
     const pre = preprocessMathBlocks(noIndent)
+    const src = String(pre.text || '')
 
-    if (window.marked && window.marked.parse) {
+    function looksLikeHtmlFragment(input) {
+      const t = String(input || '').trimStart()
+      if (!t) return false
+      if (t.startsWith('```')) return false
+      return /^<(div|span|p|pre|code|em|strong|ul|ol|li|blockquote|a|button|details|summary|input|label|table|thead|tbody|tr|th|td|h[1-6]|hr|br|img)\b/i.test(
+        t,
+      )
+    }
+
+    if (looksLikeHtmlFragment(src)) {
+      // 直接渲染 HTML（仍会经过 sanitizeHtml 过滤）。
+      // 这样即使 markdown 渲染器缺失/异常，也不会把 <div ...> 当纯文本展示。
+      html = src
+    } else if (window.marked && typeof window.marked.parse === 'function') {
       try {
         window.marked.setOptions?.({ gfm: true, breaks: true })
-        html = window.marked.parse(pre.text)
+        html = window.marked.parse(src)
       } catch (_) {
-        html = `<pre>${esc(pre.text)}</pre>`
+        html = `<pre>${esc(src)}</pre>`
       }
     } else {
-      html = `<pre>${esc(pre.text)}</pre>`
+      html = `<pre>${esc(src)}</pre>`
     }
 
     let safe = sanitizeHtml(html)
