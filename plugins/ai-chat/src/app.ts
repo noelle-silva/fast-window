@@ -2146,6 +2146,16 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
   .prose span.katex{display:inline-block;overflow:visible;vertical-align:middle;}
   .prose .katex-display{overflow:visible;}
   .prose .katex-display>.katex{display:block;overflow-x:visible;}
+  .fw-math-host{position:relative;}
+  .math-inline.fw-math-host{display:inline-block;}
+  .math-block.fw-math-host{display:block;}
+  .fw-math-copy{position:absolute;width:24px;height:24px;padding:0;border-radius:999px;border:1px solid transparent;background:transparent;color:rgba(0,0,0,.55);cursor:pointer;user-select:none;-webkit-user-select:none;display:inline-flex;align-items:center;justify-content:center;font-size:12px;line-height:1;opacity:0;visibility:hidden;pointer-events:none;transition:opacity 120ms ease;}
+  .fw-math-copy:hover{background:rgba(0,0,0,.06);border-color:rgba(0,0,0,.12);color:rgba(0,0,0,.72);}
+  .fw-math-copy:active{background:rgba(0,0,0,.10);border-color:rgba(0,0,0,.12);color:rgba(0,0,0,.76);}
+  .fw-math-copy:focus-visible{outline:2px solid rgba(37,99,235,.35);outline-offset:2px;}
+  .math-inline.fw-math-host>.fw-math-copy{left:100%;top:50%;transform:translate(6px,-50%);}
+  .math-block.fw-math-host>.fw-math-copy{right:6px;top:50%;transform:translateY(-50%);}
+  .fw-math-host:hover>.fw-math-copy,.fw-math-host:focus-within>.fw-math-copy{opacity:1;visibility:visible;pointer-events:auto;}
   .mermaid-block{margin:8px 0;overflow-x:auto;cursor:zoom-in;}
   .mermaid-block svg{max-width:100%;height:auto;display:block;}
   .modal.mm{width:min(1100px,100%);height:640px;max-height:calc(100vh - 24px);display:flex;flex-direction:column;overflow:hidden;}
