@@ -1062,6 +1062,7 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     if (!found) throw new Error('未找到该消息')
 
     const { chat, pendingChat, target } = found
+    if (pendingChat) throw new Error('当前会话尚未写入存档，请先发送一条消息后再修复')
     if (target.role === 'assistant') {
       if (target.pending) throw new Error('该消息正在生成中，无法编辑')
       if (state.sendingCtx && String(state.sendingCtx.assistantMid || '') === String(messageId || '')) throw new Error('该消息正在生成中，无法编辑')
@@ -1073,8 +1074,29 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     target.content = String(content ?? '')
     chat.updatedAt = now()
     emit()
-    if (pendingChat) return
     await save()
+
+    try {
+      const role = activeRole()
+      const rid = String(role?.id || '')
+      const cid = String(chat?.id || '')
+      const mid = String(messageId || '')
+      if (rid && cid && mid) {
+        const meta = await loadSplitMeta()
+        const folder = meta ? String(meta.roleFolders?.[rid] || '') : ''
+        if (folder) {
+          const raw = await api.storage.get(splitChatKey(folder, cid))
+          const saved = raw && typeof raw === 'object' ? raw : null
+          const msgs = Array.isArray(saved?.messages) ? saved.messages : []
+          const m = msgs.find((x) => String(x?.id || '') === mid) || null
+          const savedContent = m ? String(m.content ?? '') : ''
+          const expected = String(target.content ?? '')
+          if (savedContent !== expected) throw new Error('存档未更新（storage 写入可能失败或被拦截）')
+        }
+      }
+    } catch (e) {
+      throw new Error(String(e?.message || e || '存档校验失败'))
+    }
   }
 
   async function aiFixMermaidInMessage(messageId, mermaidSrc) {

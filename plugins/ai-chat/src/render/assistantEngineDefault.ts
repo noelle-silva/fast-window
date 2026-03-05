@@ -197,9 +197,25 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
 
       Promise.resolve()
         .then(() => fn(messageId, src))
-        .then(() => {
+        .then((fixed: any) => {
+          try {
+            const next = String(fixed || '').trim()
+            if (next && srcEl instanceof HTMLElement) srcEl.textContent = next
+            const msgEl = box?.querySelector?.('.mermaid-error-msg')
+            if (next && msgEl instanceof HTMLElement) msgEl.textContent = '已替换，正在重新渲染…'
+          } catch (_) {}
+
           setMermaidFixBtnState(btn, 'ok')
           w.fastWindow?.ui?.showToast?.('Mermaid 已替换')
+
+          try {
+            if (midEl instanceof HTMLElement && messageId) {
+              const chat = controller?.activeChat?.()
+              const msgs = Array.isArray(chat?.messages) ? chat.messages : []
+              const m = msgs.find((x: any) => String(x?.id || '') === messageId) || null
+              if (m) controller?.renderAssistantInto?.(midEl, String(m?.content || ''))
+            }
+          } catch (_) {}
         })
         .catch((err) => {
           setMermaidFixBtnState(btn, 'fail')
