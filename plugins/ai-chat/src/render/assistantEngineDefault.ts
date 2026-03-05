@@ -12,6 +12,122 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
   let domPurifyHooked = false
   let mermaidInited = false
 
+  const ICON_COPY =
+    '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M16 1H6c-1.1 0-2 .9-2 2v12h2V3h10V1zm3 4H10c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h9c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16h-9V7h9v14z"/></svg>'
+  const ICON_OK =
+    '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>'
+  const ICON_FAIL =
+    '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>'
+
+  function setCopyBtnState(btn: HTMLButtonElement, state: 'copy' | 'ok' | 'fail') {
+    if (state === 'ok') {
+      btn.innerHTML = ICON_OK
+      btn.setAttribute('data-state', 'ok')
+      btn.setAttribute('title', '已复制')
+      btn.setAttribute('aria-label', '已复制')
+      return
+    }
+    if (state === 'fail') {
+      btn.innerHTML = ICON_FAIL
+      btn.setAttribute('data-state', 'fail')
+      btn.setAttribute('title', '复制失败')
+      btn.setAttribute('aria-label', '复制失败')
+      return
+    }
+    btn.innerHTML = ICON_COPY
+    btn.removeAttribute('data-state')
+    btn.setAttribute('title', '复制代码')
+    btn.setAttribute('aria-label', '复制代码')
+  }
+
+  async function copyTextToClipboard(text: string) {
+    const t = String(text || '')
+    if (!t) return false
+
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(t)
+        return true
+      }
+    } catch (_) {}
+
+    try {
+      const ta = document.createElement('textarea')
+      ta.value = t
+      ta.setAttribute('readonly', '')
+      ta.style.position = 'fixed'
+      ta.style.left = '-9999px'
+      ta.style.top = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      ta.setSelectionRange(0, ta.value.length)
+      const ok = document.execCommand('copy')
+      ta.remove()
+      return !!ok
+    } catch (_) {}
+
+    return false
+  }
+
+  function ensureCodeCopyHandlerOnce(root: HTMLElement) {
+    if (root.getAttribute('data-fw-copy-hook') === '1') return
+    root.setAttribute('data-fw-copy-hook', '1')
+
+    root.addEventListener('click', (e) => {
+      const target = e.target instanceof Element ? e.target : null
+      const btn = target?.closest?.('button[data-act="copy-code"]')
+      if (!(btn instanceof HTMLButtonElement)) return
+
+      const pre = btn.closest('pre')
+      const code = pre?.querySelector?.('code')
+      const text = code ? String(code.textContent || '') : ''
+      if (!text) return
+
+      btn.disabled = true
+      copyTextToClipboard(text)
+        .then((ok) => {
+          setCopyBtnState(btn, ok ? 'ok' : 'fail')
+        })
+        .catch(() => {
+          setCopyBtnState(btn, 'fail')
+        })
+        .finally(() => {
+          window.setTimeout(() => {
+            if (!btn.isConnected) return
+            setCopyBtnState(btn, 'copy')
+            btn.disabled = false
+          }, 1200)
+        })
+    })
+  }
+
+  function enhanceCodeBlocks(root: unknown) {
+    if (!(root instanceof HTMLElement)) return
+    ensureCodeCopyHandlerOnce(root)
+
+    const pres = Array.from(root.querySelectorAll?.('pre') || [])
+    for (const pre of pres) {
+      if (!(pre instanceof HTMLElement)) continue
+      if (pre.getAttribute('data-fw-code') === '1') continue
+      const code = pre.querySelector?.('code')
+      if (!(code instanceof HTMLElement)) continue
+
+      const cls = String(code.className || '')
+      const isMermaid = cls.includes('language-mermaid') || cls.includes('lang-mermaid') || cls.includes('mermaid')
+      if (isMermaid) continue
+
+      pre.setAttribute('data-fw-code', '1')
+      pre.classList.add('fw-code-block')
+
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'fw-code-copy'
+      btn.setAttribute('data-act', 'copy-code')
+      setCopyBtnState(btn, 'copy')
+      pre.appendChild(btn)
+    }
+  }
+
   function initMermaidOnce() {
     const m = (window as any).mermaid
     if (mermaidInited || !m || !m.initialize) return
@@ -379,6 +495,7 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
     }
 
     el.innerHTML = safe
+    enhanceCodeBlocks(el)
     markPreviewImages(el)
 
     // 块级公式：优先用 katex.render（避免 $$ 换行/BR 导致 auto-render 识别失败）
@@ -415,4 +532,3 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
 
   return { ensureRenderer, sanitizeHtml, sanitizeSvg, renderAssistantInto }
 }
-
