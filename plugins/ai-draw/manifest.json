@@ -21,6 +21,7 @@
     "task.list",
     "task.cancel",
     "clipboard.writeImage",
+    "clipboard.writeText",
     "files.getOutputDir",
     "files.pickOutputDir",
     "files.openOutputDir",

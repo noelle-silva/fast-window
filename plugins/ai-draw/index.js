@@ -214,7 +214,9 @@
   const BG_SAVED_RESULTS_KEY = 'bgSavedResults'
   const BG_SAVE_REQUESTS_KEY = 'bgSaveRequests'
   const BG_SAVE_RESPONSES_KEY = 'bgSaveResponses'
+  const PROMPT_LIBRARY_KEY = 'promptLibrary'
   const VERSION = 1
+  const PROMPT_LIBRARY_VERSION = 1
   const DEFAULT_PROMPT_HISTORY_LIMIT = 50
   const MAX_PROMPT_HISTORY_LIMIT = 200
   const MAX_BATCH_COUNT = 20
@@ -265,6 +267,20 @@
     refLibraryPaths: [],
     refLibraryCursor: 0,
     refLibraryLoadingMore: false,
+    promptLib: {
+      loading: false,
+      busy: false,
+      data: null, // { version, activeFolderId, folders:[{id,name,prompts:[{id,text,at}]}] }
+      folderMenuOpenId: '',
+      deleteFolderArmed: { folderId: '', until: 0 },
+      editingPromptId: '',
+      editorText: '',
+      creating: false,
+      createText: '',
+      transfer: null, // { mode:'move'|'copy', fromFolderId, promptId, targetFolderId }
+      renamingFolderId: '',
+      renameText: '',
+    },
     outputDir: '',
     error: '',
     data: null,
@@ -483,6 +499,100 @@
       overflow:auto;
       padding-right:2px;
     }
+    .promptLibModal{
+      width:min(980px,100%);
+      display:flex;
+      flex-direction:column;
+      overflow:hidden;
+    }
+    .promptLibHead{ flex:0 0 auto; }
+    .promptLibMain{
+      flex:1 1 auto;
+      min-height:0;
+      display:flex;
+      gap:10px;
+    }
+    .promptLibSide{
+      flex:0 0 220px;
+      min-width: 200px;
+      border:1px solid var(--line);
+      border-radius:12px;
+      padding:10px;
+      background:#fff;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+    .plFolders{ display:flex; flex-direction:column; gap:6px; overflow:auto; min-height:0; padding-right:2px; }
+    .plFolderRow{ display:flex; gap:6px; align-items:center; }
+    .plFolderMenuWrap{ position:relative; }
+    .plFolderBtn{
+      flex:1 1 auto;
+      height:32px;
+      padding:0 10px;
+      border-radius:10px;
+      border:1px solid var(--line);
+      background:#fff;
+      color:var(--text);
+      cursor:pointer;
+      font-size:12px;
+      text-align:left;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+    }
+    .plFolderBtn:hover{ border-color: rgba(37,99,235,0.45); }
+    .plFolderBtn.sel{ outline:2px solid rgba(37,99,235,0.55); outline-offset:1px; }
+    .plFolderName{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .plCount{ font-size:11px; color:var(--muted); }
+    .promptLibPane{
+      flex:1 1 auto;
+      min-width:0;
+      border:1px solid var(--line);
+      border-radius:12px;
+      padding:10px;
+      background:#fff;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      min-height:0;
+    }
+    .promptLibList{
+      flex:1 1 auto;
+      min-height:0;
+      overflow:auto;
+      display:flex;
+      flex-direction:column;
+      gap:6px;
+      padding-right:2px;
+    }
+    .plItemRow{ display:flex; gap:6px; align-items:stretch; }
+    .plInlineBox{
+      border:1px solid var(--line);
+      border-radius:12px;
+      background:#fff;
+      padding:10px;
+    }
+    .field.ta.plInlineTa{ min-height: 120px; }
+    .plItemBtn{
+      flex:1 1 auto;
+      border:1px solid var(--line);
+      background:#fff;
+      border-radius:10px;
+      padding:8px 10px;
+      cursor:pointer;
+      font-size:12px;
+      text-align:left;
+      color:var(--text);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .plItemBtn:hover{ border-color: rgba(37,99,235,0.45); }
+    .plItemText{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .plItemMeta{ font-size:11px; color:var(--muted); white-space:nowrap; }
     .overlay{ position:fixed; inset:0; background:rgba(17,24,39,0.18); display:flex; align-items:center; justify-content:center; padding:12px; }
     .modal{ width:min(720px,100%); max-height: calc(100vh - 24px); overflow:auto; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px; box-shadow: 0 10px 30px rgba(17,24,39,0.12); }
     .hr{ height:1px; background:var(--line); margin:10px 0; }
@@ -850,6 +960,41 @@
     return out
   }
 
+  function defaultPromptLibrary() {
+    const f = { id: id('plf'), name: '默认收藏夹', prompts: [] }
+    return { version: PROMPT_LIBRARY_VERSION, activeFolderId: f.id, folders: [f] }
+  }
+
+  function normalizePromptLibrary(raw) {
+    if (!raw || typeof raw !== 'object') return defaultPromptLibrary()
+    const v = raw
+    const out = defaultPromptLibrary()
+    out.version = PROMPT_LIBRARY_VERSION
+
+    const folders = Array.isArray(v.folders) ? v.folders : []
+    out.folders = folders
+      .map((f) => {
+        const fid = String(f?.id || '').trim() || id('plf')
+        const name = String(f?.name || '').trim() || '未命名收藏夹'
+        const prompts = Array.isArray(f?.prompts) ? f.prompts : []
+        const normPrompts = prompts
+          .map((p) => {
+            const pid = String(p?.id || '').trim() || id('plp')
+            const text = String(p?.text || '').trim()
+            const at = Number(p?.at)
+            return { id: pid, text, at: Number.isFinite(at) && at > 0 ? at : now() }
+          })
+          .filter((x) => !!x)
+        return { id: fid, name, prompts: normPrompts }
+      })
+      .filter((x) => !!x && !!String(x.id || '').trim())
+
+    if (!out.folders.length) out.folders = defaultPromptLibrary().folders
+    const activeFolderId = String(v.activeFolderId || '').trim()
+    out.activeFolderId = out.folders.some((f) => f.id === activeFolderId) ? activeFolderId : out.folders[0].id
+    return out
+  }
+
   function activeProvider() {
     const d = state.data
     if (!d) return null
@@ -868,6 +1013,304 @@
   async function save() {
     if (!state.data) return
     await api.storage.set(STORAGE_KEY, state.data)
+  }
+
+  async function savePromptLibrary() {
+    const d = state.promptLib && state.promptLib.data
+    if (!d) return
+    await api.storage.set(PROMPT_LIBRARY_KEY, d).catch(() => {})
+  }
+
+  function ensurePromptLibraryData() {
+    if (!state.promptLib.data) state.promptLib.data = defaultPromptLibrary()
+    const d = state.promptLib.data
+    if (!Array.isArray(d.folders) || !d.folders.length) {
+      state.promptLib.data = defaultPromptLibrary()
+    }
+    const d2 = state.promptLib.data
+    if (!d2.activeFolderId) d2.activeFolderId = d2.folders[0].id
+    return d2
+  }
+
+  function activePromptFolder() {
+    const d = state.promptLib && state.promptLib.data
+    if (!d) return null
+    const fid = String(d.activeFolderId || '').trim()
+    const folders = Array.isArray(d.folders) ? d.folders : []
+    return folders.find((x) => x && x.id === fid) || folders[0] || null
+  }
+
+  async function initPromptLibrary() {
+    state.promptLib.loading = true
+    render()
+    const raw = await api.storage.get(PROMPT_LIBRARY_KEY).catch(() => null)
+    state.promptLib.data = normalizePromptLibrary(raw)
+    state.promptLib.loading = false
+    state.promptLib.busy = false
+    state.promptLib.folderMenuOpenId = ''
+    state.promptLib.deleteFolderArmed = { folderId: '', until: 0 }
+    state.promptLib.editingPromptId = ''
+    state.promptLib.editorText = ''
+    state.promptLib.creating = false
+    state.promptLib.createText = ''
+    state.promptLib.transfer = null
+    state.promptLib.renamingFolderId = ''
+    state.promptLib.renameText = ''
+    await savePromptLibrary()
+    render()
+  }
+
+  function pickNonEmptyPromptLibraryFolderId(excludeId) {
+    const d = state.promptLib && state.promptLib.data
+    const folders = d && Array.isArray(d.folders) ? d.folders : []
+    const ex = String(excludeId || '').trim()
+    const hit = folders.find((f) => f && f.id !== ex)
+    return hit ? hit.id : ''
+  }
+
+  function newPromptLibraryFolderName() {
+    const d = state.promptLib && state.promptLib.data
+    const folders = d && Array.isArray(d.folders) ? d.folders : []
+    const base = '新建收藏夹'
+    const taken = new Set(folders.map((f) => String(f?.name || '').trim()).filter((x) => !!x))
+    if (!taken.has(base)) return base
+    for (let i = 2; i <= 99; i++) {
+      const name = `${base} ${i}`
+      if (!taken.has(name)) return name
+    }
+    return `${base} ${now()}`
+  }
+
+  function findPromptById(promptId) {
+    const d = state.promptLib && state.promptLib.data
+    const pid = String(promptId || '').trim()
+    if (!d || !pid) return null
+    const folders = Array.isArray(d.folders) ? d.folders : []
+    for (const f of folders) {
+      const ps = Array.isArray(f?.prompts) ? f.prompts : []
+      const hit = ps.find((x) => x && String(x.id || '').trim() === pid)
+      if (hit) return { folder: f, prompt: hit }
+    }
+    return null
+  }
+
+  function startRenamePromptFolder(folderId) {
+    const d = state.promptLib && state.promptLib.data
+    if (!d) return
+    const fid = String(folderId || '').trim()
+    const f = (Array.isArray(d.folders) ? d.folders : []).find((x) => x && x.id === fid)
+    if (!f) return
+    state.promptLib.renamingFolderId = fid
+    state.promptLib.renameText = String(f.name || '').trim()
+    state.promptLib.folderMenuOpenId = ''
+    state.promptLib.deleteFolderArmed = { folderId: '', until: 0 }
+    state.promptLib.transfer = null
+    state.promptLib.editingPromptId = ''
+    state.promptLib.editorText = ''
+    state.promptLib.creating = false
+    state.promptLib.createText = ''
+    render()
+  }
+
+  function cancelRenamePromptFolder() {
+    state.promptLib.renamingFolderId = ''
+    state.promptLib.renameText = ''
+    render()
+  }
+
+  function commitRenamePromptFolder() {
+    const d = state.promptLib && state.promptLib.data
+    if (!d) return
+    const fid = String(state.promptLib.renamingFolderId || '').trim()
+    if (!fid) return
+    const name = String(state.promptLib.renameText || '').trim()
+    if (!name) return api.ui.showToast('收藏夹名称不能为空')
+    const folders = Array.isArray(d.folders) ? d.folders : []
+    const f = folders.find((x) => x && x.id === fid)
+    if (!f) return
+    f.name = name
+    state.promptLib.renamingFolderId = ''
+    state.promptLib.renameText = ''
+    state.promptLib.folderMenuOpenId = ''
+    savePromptLibrary().catch(() => {})
+    render()
+  }
+
+  function setEditingPrompt(promptId) {
+    const pid = String(promptId || '').trim()
+    const hit = findPromptById(pid)
+    if (!hit) return
+    if (state.promptLib.editingPromptId === pid) {
+      state.promptLib.editingPromptId = ''
+      state.promptLib.editorText = ''
+      render()
+      return
+    }
+    state.promptLib.editingPromptId = pid
+    state.promptLib.editorText = String(hit.prompt.text || '')
+    state.promptLib.creating = false
+    state.promptLib.createText = ''
+    render()
+  }
+
+  function startCreatingPrompt() {
+    ensurePromptLibraryData()
+    state.promptLib.creating = true
+    state.promptLib.createText = ''
+    state.promptLib.editingPromptId = ''
+    state.promptLib.editorText = ''
+    state.promptLib.transfer = null
+    state.promptLib.folderMenuOpenId = ''
+    state.promptLib.deleteFolderArmed = { folderId: '', until: 0 }
+    render()
+  }
+
+  function cancelCreatingPrompt() {
+    state.promptLib.creating = false
+    state.promptLib.createText = ''
+    render()
+  }
+
+  function commitCreatingPrompt() {
+    const t = String(state.promptLib.createText || '').trim()
+    if (!t) return api.ui.showToast('提示词不能为空')
+    addPromptToActiveFolder(t, false)
+    state.promptLib.creating = false
+    state.promptLib.createText = ''
+    render()
+  }
+
+  function addPromptToActiveFolder(text, openEditor = false) {
+    const t = String(text || '').trim()
+    if (!t) return api.ui.showToast('提示词为空')
+    const d = ensurePromptLibraryData()
+    const f = activePromptFolder()
+    if (!f) return
+    const p = { id: id('plp'), text: t, at: now() }
+    f.prompts = (Array.isArray(f.prompts) ? f.prompts : []).concat([p])
+    d.activeFolderId = f.id
+    state.promptLib.editingPromptId = openEditor ? p.id : ''
+    state.promptLib.editorText = openEditor ? t : ''
+    state.promptLib.creating = false
+    state.promptLib.createText = ''
+    savePromptLibrary().catch(() => {})
+    render()
+  }
+
+  function addEmptyPromptToActiveFolder() {
+    ensurePromptLibraryData()
+    const f = activePromptFolder()
+    if (!f) return
+    const p = { id: id('plp'), text: '', at: now() }
+    f.prompts = (Array.isArray(f.prompts) ? f.prompts : []).concat([p])
+    state.promptLib.editingPromptId = p.id
+    state.promptLib.editorText = ''
+    savePromptLibrary().catch(() => {})
+    render()
+  }
+
+  function deletePromptById(promptId) {
+    const d = state.promptLib && state.promptLib.data
+    const pid = String(promptId || '').trim()
+    if (!d || !pid) return
+    const folders = Array.isArray(d.folders) ? d.folders : []
+    for (const f of folders) {
+      const ps = Array.isArray(f?.prompts) ? f.prompts : []
+      const next = ps.filter((x) => x && String(x.id || '').trim() !== pid)
+      if (next.length !== ps.length) {
+        f.prompts = next
+        if (state.promptLib.editingPromptId === pid) {
+          state.promptLib.editingPromptId = ''
+          state.promptLib.editorText = ''
+        }
+        if (state.promptLib.creating) {
+          state.promptLib.creating = false
+          state.promptLib.createText = ''
+        }
+        if (state.promptLib.transfer && state.promptLib.transfer.promptId === pid) state.promptLib.transfer = null
+        savePromptLibrary().catch(() => {})
+        render()
+        return
+      }
+    }
+  }
+
+  function saveEditingPrompt() {
+    const pid = String(state.promptLib.editingPromptId || '').trim()
+    if (!pid) return
+    const hit = findPromptById(pid)
+    if (!hit) return
+    const t = String(state.promptLib.editorText || '').trim()
+    if (!t) return api.ui.showToast('提示词不能为空')
+    hit.prompt.text = t
+    hit.prompt.at = now()
+    state.promptLib.editingPromptId = ''
+    state.promptLib.editorText = ''
+    savePromptLibrary().catch(() => {})
+    render()
+  }
+
+  async function copyPromptText(promptId) {
+    const hit = findPromptById(promptId)
+    const t = String(hit?.prompt?.text || '').trim()
+    if (!t) return api.ui.showToast('提示词为空')
+    await api.clipboard
+      .writeText(t)
+      .then(() => api.ui.showToast('已复制提示词到剪贴板'), (e) => api.ui.showToast(`复制失败：${String(e?.message || e)}`))
+  }
+
+  function startTransferPrompt(promptId, mode) {
+    const hit = findPromptById(promptId)
+    if (!hit) return
+    const fromFolderId = String(hit.folder.id || '').trim()
+    const targetFolderId = pickNonEmptyPromptLibraryFolderId(fromFolderId)
+    if (!targetFolderId) return api.ui.showToast('没有可用的目标收藏夹')
+    state.promptLib.transfer = {
+      mode: mode === 'copy' ? 'copy' : 'move',
+      fromFolderId,
+      promptId: String(hit.prompt.id || '').trim(),
+      targetFolderId,
+    }
+    state.promptLib.editingPromptId = ''
+    state.promptLib.editorText = ''
+    state.promptLib.creating = false
+    state.promptLib.createText = ''
+    render()
+  }
+
+  function cancelTransferPrompt() {
+    state.promptLib.transfer = null
+    render()
+  }
+
+  function commitTransferPrompt() {
+    const tr = state.promptLib.transfer
+    if (!tr) return
+    const d = state.promptLib && state.promptLib.data
+    if (!d) return
+    const fromId = String(tr.fromFolderId || '').trim()
+    const toId = String(tr.targetFolderId || '').trim()
+    const pid = String(tr.promptId || '').trim()
+    if (!fromId || !toId || !pid) return
+    if (fromId === toId) return api.ui.showToast('目标收藏夹不能是当前收藏夹')
+    const folders = Array.isArray(d.folders) ? d.folders : []
+    const from = folders.find((f) => f && f.id === fromId)
+    const to = folders.find((f) => f && f.id === toId)
+    if (!from || !to) return
+    const fromPs = Array.isArray(from.prompts) ? from.prompts : []
+    const hit = fromPs.find((x) => x && String(x.id || '').trim() === pid)
+    if (!hit) return
+    const toPs = Array.isArray(to.prompts) ? to.prompts : []
+    if (tr.mode === 'copy') {
+      to.prompts = toPs.concat([{ id: id('plp'), text: String(hit.text || ''), at: now() }])
+    } else {
+      from.prompts = fromPs.filter((x) => x && String(x.id || '').trim() !== pid)
+      to.prompts = toPs.concat([hit])
+    }
+    d.activeFolderId = to.id
+    state.promptLib.transfer = null
+    savePromptLibrary().catch(() => {})
+    render()
   }
 
   async function getBackgroundSavedPath(taskId) {
@@ -1613,6 +2056,26 @@
     await initRefLibrary()
   }
 
+  async function openPromptLibrary() {
+    state.modal = 'prompt-library'
+    if (!state.promptLib.data) {
+      await initPromptLibrary()
+      return
+    }
+    state.promptLib.loading = false
+    state.promptLib.busy = false
+    state.promptLib.folderMenuOpenId = ''
+    state.promptLib.deleteFolderArmed = { folderId: '', until: 0 }
+    state.promptLib.transfer = null
+    state.promptLib.renamingFolderId = ''
+    state.promptLib.renameText = ''
+    state.promptLib.editingPromptId = ''
+    state.promptLib.editorText = ''
+    state.promptLib.creating = false
+    state.promptLib.createText = ''
+    render()
+  }
+
   async function initRefLibrary() {
     state.refLibraryLoading = true
     render()
@@ -1736,6 +2199,66 @@
 
     state.refImages = (Array.isArray(state.refImages) ? state.refImages : []).concat(out).slice(0, MAX_REF_IMAGES)
     state.modal = ''
+    render()
+  }
+
+  function togglePromptFolderMenu(folderId) {
+    const fid = String(folderId || '').trim()
+    if (!fid) return
+    const d = state.promptLib && state.promptLib.data
+    const folders = d && Array.isArray(d.folders) ? d.folders : []
+    if (!folders.some((x) => x && x.id === fid)) return
+    state.promptLib.folderMenuOpenId = state.promptLib.folderMenuOpenId === fid ? '' : fid
+    render()
+  }
+
+  function requestDeletePromptFolder(folderId) {
+    const fid = String(folderId || '').trim()
+    if (!fid) return
+    const d = state.promptLib && state.promptLib.data
+    const folders = d && Array.isArray(d.folders) ? d.folders : []
+    if (folders.length <= 1) return api.ui.showToast('至少保留一个收藏夹')
+    const nowAt = now()
+    const armed = state.promptLib.deleteFolderArmed && typeof state.promptLib.deleteFolderArmed === 'object' ? state.promptLib.deleteFolderArmed : null
+    const armedId = String(armed?.folderId || '').trim()
+    const armedUntil = Number(armed?.until) || 0
+    if (!(armedId === fid && armedUntil > nowAt)) {
+      state.promptLib.deleteFolderArmed = { folderId: fid, until: nowAt + 4000 }
+      api.ui.showToast('再次点击“删除”以确认（提示词会移动到其他收藏夹）')
+      render()
+      return
+    }
+    commitDeletePromptFolder(fid)
+  }
+
+  function commitDeletePromptFolder(folderId) {
+    const fid = String(folderId || '').trim()
+    if (!fid) return
+    const d = state.promptLib && state.promptLib.data
+    if (!d) return
+    const folders = Array.isArray(d.folders) ? d.folders : []
+    if (folders.length <= 1) return
+    const from = folders.find((f) => f && f.id === fid)
+    if (!from) return
+    const targetId = pickNonEmptyPromptLibraryFolderId(fid)
+    if (!targetId) return api.ui.showToast('没有可用的目标收藏夹')
+    const to = folders.find((f) => f && f.id === targetId)
+    if (!to) return
+    const moved = Array.isArray(from.prompts) ? from.prompts : []
+    to.prompts = (Array.isArray(to.prompts) ? to.prompts : []).concat(moved)
+    d.folders = folders.filter((f) => f && f.id !== fid)
+    if (String(d.activeFolderId || '').trim() === fid) d.activeFolderId = to.id
+    state.promptLib.folderMenuOpenId = ''
+    state.promptLib.deleteFolderArmed = { folderId: '', until: 0 }
+    state.promptLib.renamingFolderId = ''
+    state.promptLib.renameText = ''
+    state.promptLib.transfer = null
+    state.promptLib.editingPromptId = ''
+    state.promptLib.editorText = ''
+    state.promptLib.creating = false
+    state.promptLib.createText = ''
+    savePromptLibrary().catch(() => {})
+    api.ui.showToast(`已删除收藏夹，提示词已移动到「${String(to.name || '')}」`)
     render()
   }
 
@@ -2116,6 +2639,17 @@
 
     const err = state.error ? `<div class="err" role="alert">${esc(state.error)}</div>` : ''
 
+    const pl = state.promptLib && typeof state.promptLib === 'object' ? state.promptLib : null
+    const plData = pl && pl.data && typeof pl.data === 'object' ? pl.data : null
+    const plFolders = plData && Array.isArray(plData.folders) ? plData.folders : []
+    const plActiveFolderId = plData ? String(plData.activeFolderId || '').trim() : ''
+    const plActiveFolder = plData ? plFolders.find((f) => f && f.id === plActiveFolderId) || plFolders[0] || null : null
+    const plRenamingFolderId = pl ? String(pl.renamingFolderId || '').trim() : ''
+    const plEditingPromptId = pl ? String(pl.editingPromptId || '').trim() : ''
+    const plTransfer = pl && pl.transfer && typeof pl.transfer === 'object' ? pl.transfer : null
+    const plTransferTargetId = plTransfer ? String(plTransfer.targetFolderId || '').trim() : ''
+    const plTransferModeText = plTransfer && plTransfer.mode === 'copy' ? '复制到' : '移动到'
+
     const modal =
       state.modal === 'confirm-delete-provider'
         ? `
@@ -2284,7 +2818,155 @@
           </div>
         </div>
       </div>`
-            : ''
+            : state.modal === 'prompt-library'
+              ? `
+      <div class="overlay" data-act="close-modal">
+        <div class="modal promptLibModal" role="dialog" aria-modal="true" aria-label="提示词库">
+            <div class="promptLibHead">
+              <div class="row nowrap">
+                <div class="title" style="margin:0">提示词库</div>
+                <div class="sp"></div>
+                <button class="btn" data-act="prompt-lib-new-folder" ${pl && pl.loading ? 'disabled' : ''}>新建收藏夹</button>
+                <button class="btn" data-act="prompt-lib-add-current" ${pl && pl.loading ? 'disabled' : ''}>收藏当前提示词</button>
+                <button class="btn pri stable" data-act="prompt-lib-create-start" ${pl && pl.loading ? 'disabled' : ''}>新建</button>
+                <button class="btn" data-act="close-modal">关闭</button>
+              </div>
+              <div class="meta">点击提示词条目即可复制。</div>
+              <div class="hr"></div>
+            </div>
+
+          <div class="promptLibMain">
+            <div class="promptLibSide" aria-label="收藏夹列表">
+              <div class="row nowrap"><div class="meta" style="margin-top:0">收藏夹</div></div>
+              <div class="plFolders">
+                ${
+                  pl && pl.loading
+                    ? `<div class="meta">加载中…</div>`
+                    : plFolders.length
+                      ? plFolders
+                          .map((f) => {
+                            const fid = String(f?.id || '').trim()
+                            const name = String(f?.name || '').trim() || '未命名收藏夹'
+                            const count = Array.isArray(f?.prompts) ? f.prompts.length : 0
+                            const sel = fid && fid === plActiveFolderId
+                            const renaming = fid && fid === plRenamingFolderId
+                            const menuOpen = pl && String(pl.folderMenuOpenId || '').trim() === fid
+                            return renaming
+                              ? `<div class="plFolderRow" aria-label="重命名收藏夹">
+                                  <input class="field sm" data-bind="prompt-lib-rename-text" value="${esc(String(pl?.renameText || ''))}" />
+                                  <button class="btn pri" data-act="prompt-lib-rename-save">保存</button>
+                                  <button class="btn" data-act="prompt-lib-rename-cancel">取消</button>
+                                </div>`
+                              : `<div class="plFolderRow plFolderMenuWrap">
+                                  <button class="plFolderBtn ${sel ? 'sel' : ''}" data-act="prompt-lib-select-folder" data-folder-id="${esc(fid)}" aria-label="选择收藏夹">
+                                    <span class="plFolderName">${esc(name)}</span>
+                                    <span class="plCount">${count}</span>
+                                  </button>
+                                  <button class="btn icon" data-act="prompt-lib-folder-menu-toggle" data-folder-id="${esc(fid)}" aria-label="收藏夹菜单" aria-expanded="${menuOpen ? 'true' : 'false'}">
+                                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                      <circle cx="12" cy="5" r="2"></circle>
+                                      <circle cx="12" cy="12" r="2"></circle>
+                                      <circle cx="12" cy="19" r="2"></circle>
+                                    </svg>
+                                  </button>
+                                  ${
+                                    menuOpen
+                                      ? `<div class="menu" role="menu" aria-label="收藏夹菜单">
+                                          <button class="btn" data-act="prompt-lib-rename-start" data-folder-id="${esc(fid)}">改名</button>
+                                          <button class="btn bad" data-act="prompt-lib-folder-delete" data-folder-id="${esc(fid)}">删除</button>
+                                        </div>`
+                                      : ''
+                                  }
+                                </div>`
+                          })
+                          .join('')
+                      : `<div class="meta">暂无收藏夹。</div>`
+                }
+              </div>
+            </div>
+
+            <div class="promptLibPane" aria-label="提示词列表与编辑区">
+              ${
+                plTransfer
+                  ? `<div class="row nowrap" aria-label="移动或复制提示词">
+                      <span class="meta" style="margin-top:0">${esc(plTransferModeText)}</span>
+                      <select class="field sm" data-bind="prompt-lib-transfer-target">
+                        ${plFolders
+                          .map((f) => {
+                            const fid = String(f?.id || '').trim()
+                            if (!fid || fid === String(plTransfer.fromFolderId || '').trim()) return ''
+                            return `<option value="${esc(fid)}" ${fid === plTransferTargetId ? 'selected' : ''}>${esc(String(f?.name || ''))}</option>`
+                          })
+                          .join('')}
+                      </select>
+                      <button class="btn pri stable" data-act="prompt-lib-transfer-confirm">确定</button>
+                      <button class="btn" data-act="prompt-lib-transfer-cancel">取消</button>
+                    </div>`
+                  : ''
+              }
+
+              <div class="row nowrap">
+                <div class="meta" style="margin-top:0">当前：${esc(String(plActiveFolder?.name || ''))}</div>
+                <div class="sp"></div>
+                <div class="meta" style="margin-top:0">${plActiveFolder ? String(Array.isArray(plActiveFolder.prompts) ? plActiveFolder.prompts.length : 0) : '0'} 条</div>
+              </div>
+
+              ${
+                pl && pl.creating
+                  ? `<div class="plInlineBox" aria-label="新建提示词">
+                      <textarea class="field ta mono plInlineTa" data-bind="prompt-lib-create-text" placeholder="输入提示词…">${esc(String(pl.createText || ''))}</textarea>
+                      <div class="row" style="margin-top:8px">
+                        <button class="btn pri stable" data-act="prompt-lib-create-save">保存</button>
+                        <button class="btn" data-act="prompt-lib-create-cancel">取消</button>
+                      </div>
+                    </div>`
+                  : ''
+              }
+
+              <div id="prompt-lib-scroll" class="promptLibList" aria-label="提示词列表">
+                ${
+                  pl && pl.loading
+                    ? `<div class="meta">加载中…</div>`
+                    : plActiveFolder && Array.isArray(plActiveFolder.prompts) && plActiveFolder.prompts.length
+                      ? plActiveFolder.prompts
+                          .slice()
+                          .sort((a, b) => Number((b && b.at) || 0) - Number((a && a.at) || 0))
+                          .map((it) => {
+                            const pid = String(it?.id || '').trim()
+                            const text = String(it?.text || '').trim()
+                            const preview = text.length > 110 ? `${text.slice(0, 110)}…` : text
+                            const edited = pid && pid === plEditingPromptId
+                            return `<div class="plItemRow">
+                              <button class="plItemBtn" data-act="prompt-lib-item-copy" data-prompt-id="${esc(pid)}" aria-label="点击复制提示词">
+                                <span class="plItemText">${esc(preview || '(空)')}</span>
+                                <span class="plItemMeta">${edited ? '编辑中' : ''}</span>
+                              </button>
+                              <button class="btn" data-act="prompt-lib-item-edit" data-prompt-id="${esc(pid)}">编辑</button>
+                              <button class="btn" data-act="prompt-lib-item-move" data-prompt-id="${esc(pid)}">移动</button>
+                              <button class="btn" data-act="prompt-lib-item-dup" data-prompt-id="${esc(pid)}">复制</button>
+                              <button class="btn bad" data-act="prompt-lib-item-del" data-prompt-id="${esc(pid)}" aria-label="删除提示词">删</button>
+                            </div>
+                            ${
+                              edited
+                                ? `<div class="plInlineBox" aria-label="编辑提示词" style="margin:6px 0 0 0">
+                                    <textarea class="field ta mono plInlineTa" data-bind="prompt-lib-item-editor" data-prompt-id="${esc(pid)}">${esc(String(pl?.editorText || ''))}</textarea>
+                                    <div class="row" style="margin-top:8px">
+                                      <button class="btn pri stable" data-act="prompt-lib-item-edit-save">保存</button>
+                                      <button class="btn" data-act="prompt-lib-item-edit-cancel">取消</button>
+                                    </div>
+                                  </div>`
+                                : ''
+                            }`
+                          })
+                          .join('')
+                      : `<div class="meta">当前收藏夹为空。</div>`
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>`
+              : ''
 
     const model = resolveModel(p)
     const models = p && Array.isArray(p.models) ? p.models : []
@@ -2373,11 +3055,12 @@
                   : `<div class="editArea" aria-label="未选择图片"><div class="empty">未选择图片，点击“选择图片”。</div></div>`
               }
               <div class="row refTop" style="margin-top:10px">
-                <span class="meta" style="margin-top:0">参考图</span>
-                <button class="btn" data-act="pick-ref-images">外部参考图</button>
-                <button class="btn" data-act="open-ref-library">参考图库</button>
-                <span class="kbd mono" aria-label="参考图数量">${state.refImages.length}/${MAX_REF_IMAGES}</span>
-              </div>
+                 <span class="meta" style="margin-top:0">参考图</span>
+                 <button class="btn" data-act="pick-ref-images">外部参考图</button>
+                 <button class="btn" data-act="open-ref-library">参考图库</button>
+                 <button class="btn" data-act="open-prompt-library">提示词库</button>
+                 <span class="kbd mono" aria-label="参考图数量">${state.refImages.length}/${MAX_REF_IMAGES}</span>
+               </div>
               <div id="ref-strip" class="refStrip" aria-label="参考图列表">
                 ${
                   state.refImages.length
@@ -2395,11 +3078,12 @@
               `
                   : `
               <div class="row refTop">
-                <span class="meta" style="margin-top:0">参考图</span>
-                <button class="btn" data-act="pick-ref-images">外部参考图</button>
-                <button class="btn" data-act="open-ref-library">参考图库</button>
-                <span class="kbd mono" aria-label="参考图数量">${state.refImages.length}/${MAX_REF_IMAGES}</span>
-              </div>
+                 <span class="meta" style="margin-top:0">参考图</span>
+                 <button class="btn" data-act="pick-ref-images">外部参考图</button>
+                 <button class="btn" data-act="open-ref-library">参考图库</button>
+                 <button class="btn" data-act="open-prompt-library">提示词库</button>
+                 <span class="kbd mono" aria-label="参考图数量">${state.refImages.length}/${MAX_REF_IMAGES}</span>
+               </div>
               <div id="ref-strip" class="refStrip" aria-label="参考图列表">
                 ${
                   state.refImages.length
@@ -2477,7 +3161,7 @@
       const preservedScrollTops = (() => {
         const out = {}
         // 参考图库：整页重绘会丢失滚动位置，导致“懒加载/点击选择”时跳回顶部
-        const ids = ['ref-lib-scroll']
+        const ids = ['ref-lib-scroll', 'prompt-lib-scroll']
         for (const id of ids) {
           const el = document.getElementById(id)
           if (!el) continue
@@ -2524,6 +3208,15 @@
         state.taskMenuOpen = false
         closedMenu = true
       }
+      if (
+        state.promptLib &&
+        state.promptLib.folderMenuOpenId &&
+        !node.closest('.plFolderMenuWrap') &&
+        String(state.modal || '') === 'prompt-library'
+      ) {
+        state.promptLib.folderMenuOpenId = ''
+        closedMenu = true
+      }
 
       // 关键：在 modal 内部点击时，不要“穿透”到 overlay 的 data-act
       const el = node.closest('.modal') ? node.closest('.modal [data-act]') : node.closest('[data-act]')
@@ -2563,6 +3256,8 @@
         confirmDeleteProvider()
       } else if (act === 'open-ref-library') {
         openRefLibrary()
+      } else if (act === 'open-prompt-library') {
+        openPromptLibrary()
       } else if (act === 'open-plugin-settings') {
         openPluginSettings()
       } else if (act === 'toggle-api-key') {
@@ -2648,6 +3343,87 @@
         toggleRefLibrarySelect(p)
       } else if (act === 'ref-lib-confirm') {
         confirmRefLibrarySelection()
+      } else if (act === 'prompt-lib-new-folder') {
+        const d = ensurePromptLibraryData()
+        d.folders = (Array.isArray(d.folders) ? d.folders : []).concat([{ id: id('plf'), name: newPromptLibraryFolderName(), prompts: [] }])
+        d.activeFolderId = d.folders[d.folders.length - 1].id
+        state.promptLib.transfer = null
+        state.promptLib.folderMenuOpenId = ''
+        state.promptLib.deleteFolderArmed = { folderId: '', until: 0 }
+        state.promptLib.editingPromptId = ''
+        state.promptLib.editorText = ''
+        state.promptLib.creating = false
+        state.promptLib.createText = ''
+        savePromptLibrary().catch(() => {})
+        render()
+      } else if (act === 'prompt-lib-select-folder') {
+        const fid = String(el.getAttribute('data-folder-id') || '').trim()
+        const d = ensurePromptLibraryData()
+        if (!fid || !Array.isArray(d.folders) || !d.folders.some((x) => x && x.id === fid)) return
+        d.activeFolderId = fid
+        state.promptLib.transfer = null
+        state.promptLib.folderMenuOpenId = ''
+        state.promptLib.deleteFolderArmed = { folderId: '', until: 0 }
+        state.promptLib.editingPromptId = ''
+        state.promptLib.editorText = ''
+        state.promptLib.creating = false
+        state.promptLib.createText = ''
+        savePromptLibrary().catch(() => {})
+        render()
+      } else if (act === 'prompt-lib-add-current') {
+        addPromptToActiveFolder(String(state.prompt || '').trim(), false)
+      } else if (act === 'prompt-lib-create-start') {
+        startCreatingPrompt()
+      } else if (act === 'prompt-lib-create-save') {
+        commitCreatingPrompt()
+      } else if (act === 'prompt-lib-create-cancel') {
+        cancelCreatingPrompt()
+      } else if (act === 'prompt-lib-item-copy') {
+        const pid = String(el.getAttribute('data-prompt-id') || '').trim()
+        if (!pid) return
+        copyPromptText(pid)
+      } else if (act === 'prompt-lib-item-edit') {
+        const pid = String(el.getAttribute('data-prompt-id') || '').trim()
+        if (!pid) return
+        setEditingPrompt(pid)
+      } else if (act === 'prompt-lib-item-edit-save') {
+        saveEditingPrompt()
+      } else if (act === 'prompt-lib-item-edit-cancel') {
+        state.promptLib.editingPromptId = ''
+        state.promptLib.editorText = ''
+        render()
+      } else if (act === 'prompt-lib-item-del') {
+        const pid = String(el.getAttribute('data-prompt-id') || '').trim()
+        if (!pid) return
+        deletePromptById(pid)
+      } else if (act === 'prompt-lib-item-move') {
+        const pid = String(el.getAttribute('data-prompt-id') || '').trim()
+        if (!pid) return
+        startTransferPrompt(pid, 'move')
+      } else if (act === 'prompt-lib-item-dup') {
+        const pid = String(el.getAttribute('data-prompt-id') || '').trim()
+        if (!pid) return
+        startTransferPrompt(pid, 'copy')
+      } else if (act === 'prompt-lib-transfer-cancel') {
+        cancelTransferPrompt()
+      } else if (act === 'prompt-lib-transfer-confirm') {
+        commitTransferPrompt()
+      } else if (act === 'prompt-lib-folder-menu-toggle') {
+        const fid = String(el.getAttribute('data-folder-id') || '').trim()
+        if (!fid) return
+        togglePromptFolderMenu(fid)
+      } else if (act === 'prompt-lib-folder-delete') {
+        const fid = String(el.getAttribute('data-folder-id') || '').trim()
+        if (!fid) return
+        requestDeletePromptFolder(fid)
+      } else if (act === 'prompt-lib-rename-start') {
+        const fid = String(el.getAttribute('data-folder-id') || '').trim()
+        if (!fid) return
+        startRenamePromptFolder(fid)
+      } else if (act === 'prompt-lib-rename-cancel') {
+        cancelRenamePromptFolder()
+      } else if (act === 'prompt-lib-rename-save') {
+        commitRenamePromptFolder()
       } else if (act === 'remove-ref-image') {
         const rid = String(el.getAttribute('data-ref-id') || '').trim()
         if (!rid) return
@@ -2748,6 +3524,24 @@
         return
       }
 
+      if (bind === 'prompt-lib-item-editor') {
+        const pid = String(t.getAttribute('data-prompt-id') || '').trim()
+        if (pid && state.promptLib.editingPromptId === pid) {
+          state.promptLib.editorText = String(t.value || '')
+        }
+        return
+      }
+
+      if (bind === 'prompt-lib-create-text') {
+        if (state.promptLib.creating) state.promptLib.createText = String(t.value || '')
+        return
+      }
+
+      if (bind === 'prompt-lib-rename-text') {
+        state.promptLib.renameText = String(t.value || '')
+        return
+      }
+
       if (state.modal === 'settings') {
         if (bind in state.draft) {
           if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) {
@@ -2780,6 +3574,15 @@
       if (!t || !t.getAttribute) return
       const bind = t.getAttribute('data-bind')
       if (!bind) return
+
+      if (bind === 'prompt-lib-transfer-target') {
+        const fid = String(t.value || '').trim()
+        if (state.promptLib.transfer && fid) {
+          state.promptLib.transfer.targetFolderId = fid
+          render()
+        }
+        return
+      }
 
       if (bind === 'activeProviderId') {
         if (!state.data) return
