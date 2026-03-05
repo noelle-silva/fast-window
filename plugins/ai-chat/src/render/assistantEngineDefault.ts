@@ -178,7 +178,9 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
 
       const box = btn.closest('.mermaid-error-box')
       const srcEl = box?.querySelector?.('.mermaid-error-src')
+      const errEl = box?.querySelector?.('.mermaid-error-err')
       const src = srcEl ? String(srcEl.textContent || '') : ''
+      const errMsg = errEl ? String(errEl.textContent || '') : ''
       if (!src.trim()) return
 
       const midEl = btn.closest('[data-mid]')
@@ -196,7 +198,7 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
       setMermaidFixBtnState(btn, 'loading')
 
       Promise.resolve()
-        .then(() => fn(messageId, src))
+        .then(() => fn(messageId, src, errMsg))
         .then((fixed: any) => {
           try {
             const next = String(fixed || '').trim()
@@ -543,7 +545,8 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
           } catch (_) {}
         }
       } catch (e) {
-        const msg = esc(String((e as any)?.message || e || '')).trim()
+        const errRaw = String((e as any)?.message || e || '').trim()
+        const msg = esc(errRaw).trim()
         holder.removeAttribute('data-act')
         holder.removeAttribute('data-mermaid')
         holder.className = 'mermaid-error'
@@ -555,6 +558,7 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
             <div class="mermaid-error-title">Mermaid 渲染失败</div>
             <div class="mermaid-error-msg">${msg || '未知错误'}</div>
             <pre class="mermaid-error-src" aria-hidden="true">${esc(src)}</pre>
+            <pre class="mermaid-error-err" aria-hidden="true">${esc(errRaw)}</pre>
           </div>
         `
       }

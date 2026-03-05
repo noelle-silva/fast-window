@@ -845,6 +845,7 @@ export function AiChatApp(props: { controller: any }) {
              wordBreak: 'break-word',
            },
            '.mermaid-error-src': { display: 'none' },
+           '.mermaid-error-err': { display: 'none' },
          }}
        />
 

@@ -868,6 +868,8 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     const modelId = String(req?.modelId || '').trim()
     const systemPrompt = String(req?.systemPrompt ?? '').trim()
     const userContent = String(req?.userContent ?? '').trim()
+    const userMessagesRaw = Array.isArray(req?.userMessages) ? req.userMessages : null
+    const userMessages = userMessagesRaw ? userMessagesRaw.map((x) => String(x ?? '').trim()).filter((x) => !!x).slice(0, 6) : null
 
     if (!providerId) throw new Error('供应商ID 为空')
     const p = getProvider(providerId)
@@ -878,13 +880,18 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     if (!isHttpBaseUrl(baseUrl)) throw new Error('Base URL 无效（需 http/https）')
     if (!apiKey) throw new Error('API Key 为空')
     if (!modelId) throw new Error('模型ID 为空')
-    if (!userContent) throw new Error('用户消息为空')
+    if (userMessages && !userMessages.length) throw new Error('用户消息为空')
+    if (!userMessages && !userContent) throw new Error('用户消息为空')
 
     if (typeof api?.net?.request !== 'function') throw new Error('未授权：net.request')
 
     const messages = []
     if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
-    messages.push({ role: 'user', content: userContent })
+    if (userMessages) {
+      for (const m of userMessages) messages.push({ role: 'user', content: m })
+    } else {
+      messages.push({ role: 'user', content: userContent })
+    }
 
     const r = await api.net.request({
       method: 'POST',
@@ -1099,7 +1106,7 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     }
   }
 
-  async function aiFixMermaidInMessage(messageId, mermaidSrc) {
+  async function aiFixMermaidInMessage(messageId, mermaidSrc, renderErrorMsg) {
     if (!state.data) throw new Error('数据未加载')
 
     const cfg = state.data?.settings?.aiServices?.mermaidFix || {}
@@ -1113,7 +1120,9 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     const src = String(mermaidSrc || '').trim()
     if (!src) throw new Error('Mermaid 源码为空')
 
-    const reply = await requestOpenAiChatOnce({ providerId, modelId, systemPrompt, userContent: src })
+    const err = String(renderErrorMsg || '').trim()
+    const userMessages = [`Mermaid 源码：\n${src}`, err ? `渲染错误信息：\n${err}` : ''].filter((x) => !!String(x || '').trim())
+    const reply = await requestOpenAiChatOnce({ providerId, modelId, systemPrompt, userMessages })
     const fixed = extractMermaidCodeFromAiReply(reply)
     if (!fixed.trim()) throw new Error('AI 未返回 Mermaid 代码')
 
@@ -3571,7 +3580,8 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
         if (pid) deleteProvider(pid)
         emit()
       },
-      aiFixMermaid: (messageId, mermaidSrc) => aiFixMermaidInMessage(String(messageId || ''), String(mermaidSrc || '')),
+      aiFixMermaid: (messageId, mermaidSrc, renderErrorMsg) =>
+        aiFixMermaidInMessage(String(messageId || ''), String(mermaidSrc || ''), String(renderErrorMsg || '')),
       openMermaidViewer: (rootEl, srcEl) => {
         const root = rootEl instanceof Element ? rootEl : document.body
         const blocks = Array.from(root.querySelectorAll?.('.mermaid-block[data-mermaid=\"1\"]') || [])
