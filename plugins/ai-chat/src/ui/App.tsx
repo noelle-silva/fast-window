@@ -426,7 +426,7 @@ export function AiChatApp(props: { controller: any }) {
   const [composerHeight, setComposerHeight] = React.useState(0)
 
   const [page, setPage] = React.useState<'chat' | 'settings'>('chat')
-  const [settingsTab, setSettingsTab] = React.useState<'appearance' | 'roles' | 'providers'>('roles')
+  const [settingsTab, setSettingsTab] = React.useState<'appearance' | 'roles' | 'providers' | 'services'>('roles')
 
   const [expandedUserMsgIds, setExpandedUserMsgIds] = React.useState(() => new Set<string>())
 
@@ -789,7 +789,29 @@ export function AiChatApp(props: { controller: any }) {
              border: '1px solid rgba(0,0,0,.12)',
              borderRadius: 12,
              padding: '10px 12px',
-             paddingRight: 44,
+             paddingRight: 80,
+           },
+           '.mermaid-error-fix': {
+             position: 'absolute',
+             top: 8,
+             right: 40,
+             width: 28,
+             height: 28,
+             padding: 0,
+             borderRadius: 999,
+             border: '1px solid rgba(0,0,0,.12)',
+             background: 'rgba(255,255,255,.92)',
+             color: 'rgba(0,0,0,.72)',
+             cursor: 'pointer',
+             userSelect: 'none',
+             WebkitUserSelect: 'none',
+             display: 'inline-flex',
+             alignItems: 'center',
+             justifyContent: 'center',
+             '&:hover': { background: 'rgba(255,255,255,1)' },
+             '&:active': { background: 'rgba(255,255,255,.96)' },
+             '&:disabled': { opacity: 0.7, cursor: 'default' },
+             '&:focus-visible': { outline: '2px solid rgba(25,118,210,.35)', outlineOffset: 2 },
            },
            '.mermaid-error-copy': {
              position: 'absolute',
@@ -882,16 +904,24 @@ export function AiChatApp(props: { controller: any }) {
                 >
                   角色管理
                 </Button>
-                <Button
-                  size="small"
-                  variant={settingsTab === 'providers' ? 'contained' : 'outlined'}
-                  onClick={() => setSettingsTab('providers')}
-                  sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
-                >
-                  供应商管理
-                </Button>
-              </>
-             ) : (
+                 <Button
+                   size="small"
+                   variant={settingsTab === 'providers' ? 'contained' : 'outlined'}
+                   onClick={() => setSettingsTab('providers')}
+                   sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
+                 >
+                   供应商管理
+                 </Button>
+                 <Button
+                   size="small"
+                   variant={settingsTab === 'services' ? 'contained' : 'outlined'}
+                   onClick={() => setSettingsTab('services')}
+                   sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
+                 >
+                   AI 微服务
+                 </Button>
+               </>
+              ) : (
                <>
                  <IconButton onClick={backToHost} size="small" aria-label="返回主页">
                    <ArrowBackRoundedIcon fontSize="small" />
@@ -1697,6 +1727,7 @@ export function AiChatApp(props: { controller: any }) {
             data={data}
             roles={roles}
             providers={providers}
+            models={s.models}
             draft={s.draft}
             activeRoleId={String(s.draft?.activeRoleId || '')}
             tab={settingsTab}
@@ -1720,11 +1751,12 @@ function PluginSettingsPage(props: {
   data: any
   roles: any[]
   providers: any[]
+  models: any
   draft: any
   activeRoleId: string
-  tab: 'appearance' | 'roles' | 'providers'
+  tab: 'appearance' | 'roles' | 'providers' | 'services'
 }) {
-  const { controller, loading, data, roles, providers, draft, activeRoleId, tab } = props
+  const { controller, loading, data, roles, providers, models, draft, activeRoleId, tab } = props
 
   if (!data) {
     return (
@@ -2015,6 +2047,122 @@ function PluginSettingsPage(props: {
                 暂无角色
               </Typography>
             )}
+          </Stack>
+        </Paper>
+      </Box>
+    )
+  }
+
+  if (tab === 'services') {
+    const cfg = (data?.settings?.aiServices?.mermaidFix && typeof data.settings.aiServices.mermaidFix === 'object') ? data.settings.aiServices.mermaidFix : {}
+    const enabled = !!cfg.enabled
+    const providerId = String(cfg.providerId || providers?.[0]?.id || '')
+    const modelPick = String(cfg.modelId || '')
+    const customModelId = String(cfg.customModelId || '')
+    const systemPrompt = typeof cfg.systemPrompt === 'string' ? cfg.systemPrompt : ''
+
+    const p = providers.find((x: any) => String(x?.id || '') === providerId) || null
+    const modelItems = Array.isArray(p?.modelsCache?.items) ? (p.modelsCache.items as any[]).map((x) => String(x)) : []
+    const hasPickInList = !!modelPick && modelPick !== '__custom__' && modelItems.some((x) => x === modelPick)
+    const modelLoading = !!models?.loading
+
+    return (
+      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
+        <Paper variant="outlined" sx={{ p: 1.5 }}>
+          <Stack spacing={1.5}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography sx={{ fontWeight: 900 }}>AI 微服务</Typography>
+              <Box sx={{ flex: 1 }} />
+            </Stack>
+            <Divider />
+
+            <Stack spacing={1.25}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography sx={{ fontWeight: 900 }}>Mermaid AI 修复</Typography>
+                <Box sx={{ flex: 1 }} />
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <Switch size="small" checked={enabled} onChange={(e) => controller.actions.setMermaidFixEnabled?.(e.target.checked)} />
+                  <Typography variant="body2" color="text.secondary">
+                    启用
+                  </Typography>
+                </Stack>
+              </Stack>
+
+              <Typography variant="caption" color="text.secondary">
+                Mermaid 渲染失败时，可在错误块中点击“AI 修复”，用选定供应商的模型按系统提示词修复源码并替换到消息里。
+              </Typography>
+
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                <FormControl size="small" fullWidth>
+                  <InputLabel id="mmfix-provider">供应商</InputLabel>
+                  <Select
+                    labelId="mmfix-provider"
+                    value={providerId}
+                    label="供应商"
+                    onChange={(e) => controller.actions.setMermaidFixProviderId?.(e.target.value)}
+                    disabled={loading || !providers.length}
+                  >
+                    {providers.map((pp: any) => {
+                      const id = String(pp?.id || '')
+                      return (
+                        <MenuItem key={id} value={id}>
+                          {id}
+                        </MenuItem>
+                      )
+                    })}
+                  </Select>
+                </FormControl>
+
+                <Stack direction="row" spacing={1} sx={{ pt: { xs: 0, sm: 0.5 } }}>
+                  <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => controller.actions.refreshModels(providerId, true)} disabled={!providerId || modelLoading}>
+                    {modelLoading ? '刷新中…' : '刷新模型'}
+                  </Button>
+                </Stack>
+              </Stack>
+
+              <FormControl size="small" fullWidth>
+                <InputLabel id="mmfix-model">模型</InputLabel>
+                <Select
+                  labelId="mmfix-model"
+                  value={hasPickInList ? modelPick : modelPick === '__custom__' ? '__custom__' : ''}
+                  label="模型"
+                  onChange={(e) => controller.actions.setMermaidFixModelId?.(e.target.value)}
+                  disabled={loading || !providerId}
+                >
+                  <MenuItem value="">
+                    <em>请选择…</em>
+                  </MenuItem>
+                  {modelItems.map((id: string) => (
+                    <MenuItem key={id} value={id}>
+                      {id}
+                    </MenuItem>
+                  ))}
+                  <MenuItem value="__custom__">自定义模型ID…</MenuItem>
+                </Select>
+              </FormControl>
+
+              {modelPick === '__custom__' ? (
+                <TextField
+                  size="small"
+                  label="自定义模型ID"
+                  value={customModelId}
+                  onChange={(e) => controller.actions.setMermaidFixCustomModelId?.(e.target.value)}
+                  placeholder="例如：gpt-4.1-mini / deepseek-chat"
+                  fullWidth
+                />
+              ) : null}
+
+              <TextField
+                size="small"
+                label="系统提示词"
+                value={systemPrompt}
+                onChange={(e) => controller.actions.setMermaidFixSystemPrompt?.(e.target.value)}
+                placeholder="写入系统提示词…"
+                fullWidth
+                multiline
+                minRows={8}
+              />
+            </Stack>
           </Stack>
         </Paper>
       </Box>

@@ -16,6 +16,7 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
   const MAX_DRAFT_IMAGES = 8
   const REF_IMG_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
   const NEW_ROLE_ID = '__new__'
+  const DEFAULT_MERMAID_FIX_SYSTEM_PROMPT = `你是 Mermaid 语法修复器。\n\n你会收到一段 Mermaid 源码（可能无法渲染）。你的任务：在尽量保持原意不变的前提下，修复语法/结构错误，让它可以被 Mermaid 渲染。\n\n输出要求：\n- 只输出修复后的 Mermaid 源码本体\n- 不要输出解释、不要输出 Markdown 代码块标记（不要输出 \`\`\`mermaid）`
 
   const uiRefImgCache = new Map()
   const uiRefImgPending = new Set()
@@ -421,6 +422,15 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
             composerBlur: 10,
             userMessageCollapseEnabled: false,
             userMessageCollapseLines: 8,
+            aiServices: {
+              mermaidFix: {
+                enabled: false,
+                providerId: pid,
+                modelId: '',
+                customModelId: '',
+                systemPrompt: DEFAULT_MERMAID_FIX_SYSTEM_PROMPT,
+              },
+            },
             providers: [
               {
                 id: pid,
@@ -478,6 +488,18 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     d.settings.composerBlur = clamp(Math.round(Number(d.settings.composerBlur || 0)), 0, 24)
     d.settings.userMessageCollapseLines = clamp(Math.round(Number(d.settings.userMessageCollapseLines || 8)), 1, 50)
     if (!Array.isArray(d.settings.providers) || d.settings.providers.length === 0) d.settings.providers = defaultData().settings.providers
+
+    if (!d.settings.aiServices || typeof d.settings.aiServices !== 'object') d.settings.aiServices = {}
+    const as = d.settings.aiServices
+    if (!as.mermaidFix || typeof as.mermaidFix !== 'object') as.mermaidFix = {}
+    const mm = as.mermaidFix
+    if (typeof mm.enabled !== 'boolean') mm.enabled = false
+    const fallbackPid = String(d.settings.providers?.[0]?.id || '')
+    if (typeof mm.providerId !== 'string') mm.providerId = fallbackPid
+    if (!mm.providerId || !d.settings.providers.some((p) => String(p?.id || '') === String(mm.providerId || ''))) mm.providerId = fallbackPid
+    if (typeof mm.modelId !== 'string') mm.modelId = ''
+    if (typeof mm.customModelId !== 'string') mm.customModelId = ''
+    if (typeof mm.systemPrompt !== 'string') mm.systemPrompt = DEFAULT_MERMAID_FIX_SYSTEM_PROMPT
 
     for (const p of d.settings.providers) {
       if (!p || typeof p !== 'object') continue
@@ -832,6 +854,256 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     } finally {
       render()
     }
+  }
+
+  function resolveAiModelId(modelPick, customModelId) {
+    const pick = String(modelPick || '').trim()
+    if (!pick) return ''
+    if (pick === '__custom__') return String(customModelId || '').trim()
+    return pick
+  }
+
+  async function requestOpenAiChatOnce(req) {
+    const providerId = String(req?.providerId || '').trim()
+    const modelId = String(req?.modelId || '').trim()
+    const systemPrompt = String(req?.systemPrompt ?? '').trim()
+    const userContent = String(req?.userContent ?? '').trim()
+
+    if (!providerId) throw new Error('供应商ID 为空')
+    const p = getProvider(providerId)
+    if (!p) throw new Error('供应商不存在')
+
+    const baseUrl = trimSlash(p.baseUrl || '')
+    const apiKey = String(p.apiKey || '').trim()
+    if (!isHttpBaseUrl(baseUrl)) throw new Error('Base URL 无效（需 http/https）')
+    if (!apiKey) throw new Error('API Key 为空')
+    if (!modelId) throw new Error('模型ID 为空')
+    if (!userContent) throw new Error('用户消息为空')
+
+    if (typeof api?.net?.request !== 'function') throw new Error('未授权：net.request')
+
+    const messages = []
+    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
+    messages.push({ role: 'user', content: userContent })
+
+    const r = await api.net.request({
+      method: 'POST',
+      url: `${baseUrl}/chat/completions`,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: modelId, messages, temperature: 0, stream: false }),
+      timeoutMs: 120000,
+    })
+
+    const status = Number(r?.status || 0)
+    const bodyText = String(r?.body || '')
+    let json = null
+    try {
+      json = JSON.parse(bodyText || '{}')
+    } catch (_) {}
+
+    if (status < 200 || status >= 300) {
+      const msg = String(json?.error?.message || bodyText || `HTTP ${status}`)
+      throw new Error(msg || `HTTP ${status}`)
+    }
+
+    let out = json?.choices?.[0]?.message?.content ?? json?.choices?.[0]?.text ?? json?.output_text ?? ''
+    out = String(out || '')
+    return out
+  }
+
+  function extractMermaidCodeFromAiReply(input) {
+    const text = String(input || '')
+    const re = /```([A-Za-z0-9_-]*)[^\n]*\n([\s\S]*?)```/g
+    const blocks = []
+    for (;;) {
+      const m = re.exec(text)
+      if (!m) break
+      blocks.push({ lang: String(m[1] || '').trim().toLowerCase(), code: String(m[2] || '') })
+      if (blocks.length >= 10) break
+    }
+
+    const prefer = blocks.find((b) => b.lang === 'mermaid' || b.lang === 'flowchart' || b.lang === 'graph')
+    const first = prefer || blocks[0] || null
+    if (first) return String(first.code || '').trim()
+
+    return text.trim()
+  }
+
+  function tokenizeFencesForReplace(input) {
+    const src = String(input || '')
+    const lines = src.split('\n')
+
+    const out = []
+    const textBuf = []
+    const flushText = () => {
+      if (!textBuf.length) return
+      out.push({ kind: 'text', text: textBuf.join('') })
+      textBuf.length = 0
+    }
+
+    let inFence = false
+    let fenceMarker = ''
+    let fenceInfo = ''
+    let openLineRaw = ''
+    const fenceLinesRaw = []
+
+    const openRe = /^(\s*)(`{3,})(.*)$/
+    const closeRe = /^(\s*)(`{3,})\s*$/
+    let fenceIndent = ''
+
+    for (let idx = 0; idx < lines.length; idx++) {
+      const line = lines[idx]
+      const withNl = idx < lines.length - 1 ? line + '\n' : line
+      if (!inFence) {
+        const m = openRe.exec(line)
+        if (!m) {
+          textBuf.push(withNl)
+          continue
+        }
+
+        flushText()
+        inFence = true
+        fenceIndent = String(m[1] || '')
+        fenceMarker = String(m[2] || '```')
+        fenceInfo = String(m[3] || '').trim()
+        openLineRaw = withNl
+        fenceLinesRaw.length = 0
+        continue
+      }
+
+      const m2 = closeRe.exec(line)
+      if (m2 && String(m2[1] || '') === fenceIndent && String(m2[2] || '') === fenceMarker) {
+        const content = fenceLinesRaw.join('')
+        const closeLineRaw = withNl
+        const raw = `${openLineRaw}${content}${closeLineRaw}`
+        const lang = fenceInfo.split(/\s+/g)[0] || ''
+        out.push({ kind: 'fence', raw, lang, content, openLineRaw, closeLineRaw, closed: true })
+        inFence = false
+        fenceMarker = ''
+        fenceIndent = ''
+        fenceInfo = ''
+        openLineRaw = ''
+        fenceLinesRaw.length = 0
+        continue
+      }
+
+      fenceLinesRaw.push(withNl)
+    }
+
+    if (inFence) {
+      const content = fenceLinesRaw.join('')
+      const raw = openLineRaw + content
+      const lang = fenceInfo.split(/\s+/g)[0] || ''
+      out.push({ kind: 'fence', raw, lang, content, openLineRaw, closeLineRaw: '', closed: false })
+      inFence = false
+    }
+
+    flushText()
+    return out
+  }
+
+  function replaceMermaidFenceOnce(markdown, oldCode, newCode) {
+    const src = String(markdown || '').replace(/\r\n/g, '\n')
+    const oldTrim = String(oldCode || '').trim()
+    const nextTrim = String(newCode || '').trim()
+    if (!oldTrim || !nextTrim) return { text: String(markdown || ''), replaced: false }
+
+    const tokens = tokenizeFencesForReplace(src)
+    const out = []
+    let replaced = false
+
+    for (const t of tokens) {
+      if (t?.kind !== 'fence') {
+        out.push(String(t?.text || ''))
+        continue
+      }
+
+      const lang = String(t.lang || '').trim().toLowerCase()
+      const isMermaid = !!t.closed && (lang === 'mermaid' || lang === 'flowchart' || lang === 'graph')
+      const same = String(t.content || '').trim() === oldTrim
+
+      if (!replaced && isMermaid && same) {
+        const content = nextTrim + '\n'
+        out.push(String(t.openLineRaw || '') + content + String(t.closeLineRaw || ''))
+        replaced = true
+        continue
+      }
+
+      out.push(String(t.raw || ''))
+    }
+
+    return { text: out.join(''), replaced }
+  }
+
+  function locateMessageInActiveChat(messageId) {
+    const mid = String(messageId || '').trim()
+    if (!mid) return null
+
+    const role = activeRole()
+    if (!role) return null
+
+    const rid = String(role.id || '')
+    const pendingChat = state.pendingChat && String(state.pendingChat.roleId || '') === rid ? state.pendingChat.chat : null
+    const chat = pendingChat || activeChatFromData()
+    if (!chat) return null
+
+    const msgs = Array.isArray(chat.messages) ? chat.messages : []
+    const target = msgs.find((m) => String(m?.id || '') === mid) || null
+    if (!target) return null
+
+    return { chat, pendingChat, target }
+  }
+
+  async function patchMessageContentSilent(messageId, content) {
+    if (state.loading || !state.data) throw new Error('数据未加载')
+    if (state.sending || state.sendingJobId) throw new Error('发送中，无法编辑')
+
+    const found = locateMessageInActiveChat(messageId)
+    if (!found) throw new Error('未找到该消息')
+
+    const { chat, pendingChat, target } = found
+    if (target.role === 'assistant') {
+      if (target.pending) throw new Error('该消息正在生成中，无法编辑')
+      if (state.sendingCtx && String(state.sendingCtx.assistantMid || '') === String(messageId || '')) throw new Error('该消息正在生成中，无法编辑')
+      try {
+        uiStreamCache.delete(String(messageId || ''))
+      } catch (_) {}
+    }
+
+    target.content = String(content ?? '')
+    chat.updatedAt = now()
+    emit()
+    if (pendingChat) return
+    await save()
+  }
+
+  async function aiFixMermaidInMessage(messageId, mermaidSrc) {
+    if (!state.data) throw new Error('数据未加载')
+
+    const cfg = state.data?.settings?.aiServices?.mermaidFix || {}
+    const enabled = !!cfg.enabled
+    if (!enabled) throw new Error('未启用：Mermaid AI 修复（插件设置 → AI 微服务）')
+
+    const providerId = String(cfg.providerId || '').trim()
+    const modelId = resolveAiModelId(cfg.modelId, cfg.customModelId)
+    const systemPrompt = typeof cfg.systemPrompt === 'string' ? cfg.systemPrompt : DEFAULT_MERMAID_FIX_SYSTEM_PROMPT
+
+    const src = String(mermaidSrc || '').trim()
+    if (!src) throw new Error('Mermaid 源码为空')
+
+    const reply = await requestOpenAiChatOnce({ providerId, modelId, systemPrompt, userContent: src })
+    const fixed = extractMermaidCodeFromAiReply(reply)
+    if (!fixed.trim()) throw new Error('AI 未返回 Mermaid 代码')
+
+    const found = locateMessageInActiveChat(messageId)
+    if (!found) throw new Error('未找到该消息')
+    const raw = String(found.target?.content || '')
+
+    const r = replaceMermaidFenceOnce(raw, src, fixed)
+    if (!r.replaced) throw new Error('未能在消息中定位原 Mermaid 代码块（可能内容已变）')
+
+    await patchMessageContentSilent(messageId, r.text)
+    return fixed
   }
 
   function limitHistory(messages, maxTurns) {
@@ -3199,6 +3471,50 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
         if (commit) save().catch(() => {})
         emit()
       },
+      setMermaidFixEnabled: (on) => {
+        if (!state.data) return
+        if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {}
+        if (!state.data.settings.aiServices.mermaidFix || typeof state.data.settings.aiServices.mermaidFix !== 'object') state.data.settings.aiServices.mermaidFix = {}
+        state.data.settings.aiServices.mermaidFix.enabled = !!on
+        save().catch(() => {})
+        emit()
+      },
+      setMermaidFixProviderId: (providerId) => {
+        if (!state.data) return
+        const pid = String(providerId || '')
+        if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {}
+        if (!state.data.settings.aiServices.mermaidFix || typeof state.data.settings.aiServices.mermaidFix !== 'object') state.data.settings.aiServices.mermaidFix = {}
+        state.data.settings.aiServices.mermaidFix.providerId = pid
+        save().catch(() => {})
+        emit()
+      },
+      setMermaidFixModelId: (modelId) => {
+        if (!state.data) return
+        const mid = String(modelId || '')
+        if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {}
+        if (!state.data.settings.aiServices.mermaidFix || typeof state.data.settings.aiServices.mermaidFix !== 'object') state.data.settings.aiServices.mermaidFix = {}
+        state.data.settings.aiServices.mermaidFix.modelId = mid
+        save().catch(() => {})
+        emit()
+      },
+      setMermaidFixCustomModelId: (customModelId) => {
+        if (!state.data) return
+        const mid = String(customModelId || '')
+        if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {}
+        if (!state.data.settings.aiServices.mermaidFix || typeof state.data.settings.aiServices.mermaidFix !== 'object') state.data.settings.aiServices.mermaidFix = {}
+        state.data.settings.aiServices.mermaidFix.customModelId = mid
+        save().catch(() => {})
+        emit()
+      },
+      setMermaidFixSystemPrompt: (systemPrompt) => {
+        if (!state.data) return
+        const p = typeof systemPrompt === 'string' ? systemPrompt : String(systemPrompt ?? '')
+        if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {}
+        if (!state.data.settings.aiServices.mermaidFix || typeof state.data.settings.aiServices.mermaidFix !== 'object') state.data.settings.aiServices.mermaidFix = {}
+        state.data.settings.aiServices.mermaidFix.systemPrompt = p
+        save().catch(() => {})
+        emit()
+      },
       closeModal: () => closeModal(),
       openProviders: () => openProvidersEditor(),
       createProvider: () => createProvider(),
@@ -3233,6 +3549,7 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
         if (pid) deleteProvider(pid)
         emit()
       },
+      aiFixMermaid: (messageId, mermaidSrc) => aiFixMermaidInMessage(String(messageId || ''), String(mermaidSrc || '')),
       openMermaidViewer: (rootEl, srcEl) => {
         const root = rootEl instanceof Element ? rootEl : document.body
         const blocks = Array.from(root.querySelectorAll?.('.mermaid-block[data-mermaid=\"1\"]') || [])

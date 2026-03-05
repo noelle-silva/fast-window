@@ -17,6 +17,8 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
 
   const ICON_COPY =
     '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M16 1H6c-1.1 0-2 .9-2 2v12h2V3h10V1zm3 4H10c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h9c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16h-9V7h9v14z"/></svg>'
+  const ICON_AI =
+    '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M11 2l1.4 4.2L17 8l-4.6 1.8L11 14l-1.4-4.2L5 8l4.6-1.8L11 2zm8 7l.9 2.6L23 13l-3.1 1.4L19 17l-.9-2.6L15 13l3.1-1.4L19 9zM6 14l1.2 3.6L11 19l-3.8 1.4L6 24l-1.2-3.6L1 19l3.8-1.4L6 14z"/></svg>'
   const ICON_OK =
     '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>'
   const ICON_FAIL =
@@ -104,6 +106,35 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
     })
   }
 
+  function setMermaidFixBtnState(btn: HTMLButtonElement, state: 'ai' | 'loading' | 'ok' | 'fail') {
+    if (state === 'loading') {
+      btn.textContent = '…'
+      btn.removeAttribute('data-state')
+      btn.setAttribute('title', 'AI 修复中…')
+      btn.setAttribute('aria-label', 'AI 修复中…')
+      return
+    }
+    if (state === 'ok') {
+      btn.innerHTML = ICON_OK
+      btn.setAttribute('data-state', 'ok')
+      btn.setAttribute('title', '已替换')
+      btn.setAttribute('aria-label', '已替换')
+      return
+    }
+    if (state === 'fail') {
+      btn.innerHTML = ICON_FAIL
+      btn.setAttribute('data-state', 'fail')
+      btn.setAttribute('title', '修复失败')
+      btn.setAttribute('aria-label', '修复失败')
+      return
+    }
+
+    btn.innerHTML = ICON_AI
+    btn.removeAttribute('data-state')
+    btn.setAttribute('title', 'AI 修复 Mermaid')
+    btn.setAttribute('aria-label', 'AI 修复 Mermaid')
+  }
+
   function ensureMermaidErrorCopyHandlerOnce(root: HTMLElement) {
     if (root.getAttribute('data-fw-mmerr-copy-hook') === '1') return
     root.setAttribute('data-fw-mmerr-copy-hook', '1')
@@ -130,6 +161,54 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
           window.setTimeout(() => {
             if (!btn.isConnected) return
             setCopyBtnState(btn, 'copy')
+            btn.disabled = false
+          }, 1200)
+        })
+    })
+  }
+
+  function ensureMermaidErrorAiFixHandlerOnce(root: HTMLElement) {
+    if (root.getAttribute('data-fw-mmerr-aifix-hook') === '1') return
+    root.setAttribute('data-fw-mmerr-aifix-hook', '1')
+
+    root.addEventListener('click', (e) => {
+      const target = e.target instanceof Element ? e.target : null
+      const btn = target?.closest?.('button[data-act="ai-fix-mermaid"]')
+      if (!(btn instanceof HTMLButtonElement)) return
+
+      const box = btn.closest('.mermaid-error-box')
+      const srcEl = box?.querySelector?.('.mermaid-error-src')
+      const src = srcEl ? String(srcEl.textContent || '') : ''
+      if (!src.trim()) return
+
+      const midEl = btn.closest('[data-mid]')
+      const messageId = midEl instanceof HTMLElement ? String(midEl.getAttribute('data-mid') || '') : ''
+
+      const w = window as any
+      const controller = w.__fastWindowAiChat
+      const fn = controller?.actions?.aiFixMermaid
+      if (typeof fn !== 'function') {
+        w.fastWindow?.ui?.showToast?.('未找到 aiFixMermaid 接口（请更新插件）')
+        return
+      }
+
+      btn.disabled = true
+      setMermaidFixBtnState(btn, 'loading')
+
+      Promise.resolve()
+        .then(() => fn(messageId, src))
+        .then(() => {
+          setMermaidFixBtnState(btn, 'ok')
+          w.fastWindow?.ui?.showToast?.('Mermaid 已替换')
+        })
+        .catch((err) => {
+          setMermaidFixBtnState(btn, 'fail')
+          w.fastWindow?.ui?.showToast?.(String(err?.message || err || 'AI 修复失败'))
+        })
+        .finally(() => {
+          window.setTimeout(() => {
+            if (!btn.isConnected) return
+            setMermaidFixBtnState(btn, 'ai')
             btn.disabled = false
           }, 1200)
         })
@@ -455,6 +534,7 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
         holder.setAttribute('data-mermaid-error', '1')
         holder.innerHTML = `
           <div class="mermaid-error-box" role="alert">
+            <button class="mermaid-error-fix" type="button" data-act="ai-fix-mermaid" title="AI 修复 Mermaid" aria-label="AI 修复 Mermaid">${ICON_AI}</button>
             <button class="mermaid-error-copy" type="button" data-act="copy-mermaid-src" title="复制 Mermaid 源码" aria-label="复制 Mermaid 源码">${ICON_COPY}</button>
             <div class="mermaid-error-title">Mermaid 渲染失败</div>
             <div class="mermaid-error-msg">${msg || '未知错误'}</div>
@@ -524,6 +604,7 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
     el.innerHTML = safe
     enhanceCodeBlocks(el)
     ensureMermaidErrorCopyHandlerOnce(el)
+    ensureMermaidErrorAiFixHandlerOnce(el)
     markPreviewImages(el)
 
     const katex = w.katex
