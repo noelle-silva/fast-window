@@ -186,10 +186,14 @@ function createBuildOptions(opts) {
     sourcemap: sourcemap ? 'external' : false,
     metafile: true,
     absWorkingDir: pluginDir,
-    loader: {
-      '.css': 'text',
-      '.txt': 'text',
-    },
+     loader: {
+       '.css': 'text',
+       '.txt': 'text',
+       // 用于 iframe srcDoc 场景：需要把字体/二进制资源内联成 data URL（例如 KaTeX fonts）。
+       '.woff2': 'dataurl',
+       '.woff': 'dataurl',
+       '.ttf': 'dataurl',
+     },
     logLevel: 'silent',
     legalComments: 'none',
     charset: 'utf8',
