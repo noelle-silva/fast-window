@@ -104,6 +104,38 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
     })
   }
 
+  function ensureMermaidErrorCopyHandlerOnce(root: HTMLElement) {
+    if (root.getAttribute('data-fw-mmerr-copy-hook') === '1') return
+    root.setAttribute('data-fw-mmerr-copy-hook', '1')
+
+    root.addEventListener('click', (e) => {
+      const target = e.target instanceof Element ? e.target : null
+      const btn = target?.closest?.('button[data-act="copy-mermaid-src"]')
+      if (!(btn instanceof HTMLButtonElement)) return
+
+      const box = btn.closest('.mermaid-error-box')
+      const srcEl = box?.querySelector?.('.mermaid-error-src')
+      const text = srcEl ? String(srcEl.textContent || '') : ''
+      if (!text.trim()) return
+
+      btn.disabled = true
+      copyTextToClipboard(text)
+        .then((ok) => {
+          setCopyBtnState(btn, ok ? 'ok' : 'fail')
+        })
+        .catch(() => {
+          setCopyBtnState(btn, 'fail')
+        })
+        .finally(() => {
+          window.setTimeout(() => {
+            if (!btn.isConnected) return
+            setCopyBtnState(btn, 'copy')
+            btn.disabled = false
+          }, 1200)
+        })
+    })
+  }
+
   function enhanceCodeBlocks(root: unknown) {
     if (!(root instanceof HTMLElement)) return
     ensureCodeCopyHandlerOnce(root)
@@ -423,8 +455,10 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
         holder.setAttribute('data-mermaid-error', '1')
         holder.innerHTML = `
           <div class="mermaid-error-box" role="alert">
+            <button class="mermaid-error-copy" type="button" data-act="copy-mermaid-src" title="复制 Mermaid 源码" aria-label="复制 Mermaid 源码">${ICON_COPY}</button>
             <div class="mermaid-error-title">Mermaid 渲染失败</div>
             <div class="mermaid-error-msg">${msg || '未知错误'}</div>
+            <pre class="mermaid-error-src" aria-hidden="true">${esc(src)}</pre>
           </div>
         `
       }
@@ -489,6 +523,7 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
 
     el.innerHTML = safe
     enhanceCodeBlocks(el)
+    ensureMermaidErrorCopyHandlerOnce(el)
     markPreviewImages(el)
 
     const katex = w.katex
