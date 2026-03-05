@@ -385,13 +385,14 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
 
       const holder = document.createElement('div')
       holder.className = 'mermaid-block'
-      holder.setAttribute('data-mermaid', '1')
-      holder.setAttribute('data-act', 'open-mermaid')
+      holder.setAttribute('data-mermaid', '0')
       pre.replaceWith(holder)
 
       const cached = mermaidSvgCache.get(src)
       if (typeof cached === 'string' && cached) {
         holder.innerHTML = cached
+        holder.setAttribute('data-mermaid', '1')
+        holder.setAttribute('data-act', 'open-mermaid')
         continue
       }
 
@@ -407,16 +408,24 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
         }
         mermaidSvgCache.set(src, safe)
         holder.innerHTML = safe
+        holder.setAttribute('data-mermaid', '1')
+        holder.setAttribute('data-act', 'open-mermaid')
         if (r && typeof r.bindFunctions === 'function') {
           try {
             r.bindFunctions(holder)
           } catch (_) {}
         }
       } catch (e) {
-        const msg = esc(String((e as any)?.message || e || ''))
+        const msg = esc(String((e as any)?.message || e || '')).trim()
+        holder.removeAttribute('data-act')
+        holder.removeAttribute('data-mermaid')
+        holder.className = 'mermaid-error'
+        holder.setAttribute('data-mermaid-error', '1')
         holder.innerHTML = `
-          <div class="muted">Mermaid 渲染失败${msg ? `：${msg}` : ''}</div>
-          <pre><code class="language-mermaid">${esc(src)}</code></pre>
+          <div class="mermaid-error-box" role="alert">
+            <div class="mermaid-error-title">Mermaid 渲染失败</div>
+            <div class="mermaid-error-msg">${msg || '未知错误'}</div>
+          </div>
         `
       }
     }

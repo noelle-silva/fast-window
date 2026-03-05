@@ -777,12 +777,24 @@ export function AiChatApp(props: { controller: any }) {
           '.math-block': { margin: '10px 0', overflowX: 'auto' },
           '.prose .katex, .prose .katex-display': { maxWidth: '100%' },
           '.prose span.katex': { display: 'inline-block', overflowX: 'auto', overflowY: 'hidden', verticalAlign: 'middle' },
-          '.prose .katex-display': { overflowX: 'auto', overflowY: 'hidden' },
-          '.prose .katex-display > .katex': { display: 'block', overflowX: 'visible' },
-          '.mermaid-block': { margin: '10px 0', overflowX: 'auto', cursor: 'zoom-in' },
-          '.mermaid-block svg': { maxWidth: '100%', height: 'auto', display: 'block' },
-        }}
-      />
+           '.prose .katex-display': { overflowX: 'auto', overflowY: 'hidden' },
+           '.prose .katex-display > .katex': { display: 'block', overflowX: 'visible' },
+           '.mermaid-block': { margin: '10px 0', overflowX: 'auto' },
+           '.mermaid-block[data-mermaid="1"]': { cursor: 'zoom-in' },
+           '.mermaid-block svg': { maxWidth: '100%', height: 'auto', display: 'block' },
+           '.mermaid-error': { margin: '10px 0', overflowX: 'auto' },
+           '.mermaid-error-box': { background: '#fff', border: '1px solid rgba(0,0,0,.12)', borderRadius: 12, padding: '10px 12px' },
+           '.mermaid-error-title': { fontWeight: 900, fontSize: 12, color: 'rgba(0,0,0,.72)' },
+           '.mermaid-error-msg': {
+             marginTop: 6,
+             fontFamily: 'ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace',
+             fontSize: 12,
+             color: 'rgba(0,0,0,.82)',
+             whiteSpace: 'pre-wrap',
+             wordBreak: 'break-word',
+           },
+         }}
+       />
 
       <Box sx={{ height: '100%', minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }}>
         <AppBar
