@@ -3444,6 +3444,9 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
 
   ;(window as any).__fastWindowAiChat = {
     api,
+    defaults: {
+      mermaidFixSystemPrompt: DEFAULT_MERMAID_FIX_SYSTEM_PROMPT,
+    },
     getState: () => state,
     getSnapshot: () => ver,
     subscribe,
@@ -3569,6 +3572,14 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
         if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {}
         if (!state.data.settings.aiServices.mermaidFix || typeof state.data.settings.aiServices.mermaidFix !== 'object') state.data.settings.aiServices.mermaidFix = {}
         state.data.settings.aiServices.mermaidFix.systemPrompt = p
+        save().catch(() => {})
+        emit()
+      },
+      resetMermaidFixSystemPromptDefault: () => {
+        if (!state.data) return
+        if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {}
+        if (!state.data.settings.aiServices.mermaidFix || typeof state.data.settings.aiServices.mermaidFix !== 'object') state.data.settings.aiServices.mermaidFix = {}
+        state.data.settings.aiServices.mermaidFix.systemPrompt = DEFAULT_MERMAID_FIX_SYSTEM_PROMPT
         save().catch(() => {})
         emit()
       },

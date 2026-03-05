@@ -2061,6 +2061,8 @@ function PluginSettingsPage(props: {
     const modelPick = String(cfg.modelId || '')
     const customModelId = String(cfg.customModelId || '')
     const systemPrompt = typeof cfg.systemPrompt === 'string' ? cfg.systemPrompt : ''
+    const defaultPrompt = String(controller?.defaults?.mermaidFixSystemPrompt || '')
+    const promptChanged = !!defaultPrompt && systemPrompt.trim() !== defaultPrompt.trim()
 
     const p = providers.find((x: any) => String(x?.id || '') === providerId) || null
     const modelItems = Array.isArray(p?.modelsCache?.items) ? (p.modelsCache.items as any[]).map((x) => String(x)) : []
@@ -2163,6 +2165,21 @@ function PluginSettingsPage(props: {
                 multiline
                 minRows={8}
               />
+
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="caption" color={promptChanged ? 'warning.main' : 'text.secondary'}>
+                  {promptChanged ? '已自定义系统提示词' : '当前为默认系统提示词'}
+                </Typography>
+                <Box sx={{ flex: 1 }} />
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => controller.actions.resetMermaidFixSystemPromptDefault?.()}
+                  disabled={!defaultPrompt || !promptChanged}
+                >
+                  恢复默认
+                </Button>
+              </Stack>
             </Stack>
           </Stack>
         </Paper>
