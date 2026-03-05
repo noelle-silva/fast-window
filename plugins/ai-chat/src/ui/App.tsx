@@ -661,6 +661,35 @@ export function AiChatApp(props: { controller: any }) {
     }
   })
 
+  const msgMenuMid = String(msgMenu.mid || '')
+  const msgMenuMessages = Array.isArray(activeChat?.messages) ? activeChat.messages : []
+  const msgMenuIndex = msgMenuMid ? msgMenuMessages.findIndex((m: any) => String(m?.id || '') === msgMenuMid) : -1
+  const msgMenuMsg = msgMenuIndex >= 0 ? msgMenuMessages[msgMenuIndex] : null
+  const msgMenuText = String(msgMenuMsg?.content || '')
+  const msgMenuPending = msgMenuMsg ? !!msgMenuMsg?.pending : !!msgMenu.pending
+  const msgMenuCanEdit = !!msgMenuMid && !msgMenuPending && !s.loading && !s.sending
+
+  let msgMenuRegenMid = msgMenuMid
+  let msgMenuRegenRole: 'assistant' | 'user' = msgMenu.role === 'user' ? 'user' : 'assistant'
+  let msgMenuRegenPending = msgMenu.role === 'assistant' ? msgMenuPending : false
+  if (msgMenu.role === 'user' && msgMenuIndex >= 0) {
+    for (let j = msgMenuIndex + 1; j < msgMenuMessages.length; j++) {
+      const next = msgMenuMessages[j]
+      if (!next) continue
+      if (next.role === 'assistant') {
+        msgMenuRegenRole = 'assistant'
+        msgMenuRegenMid = String(next?.id || '')
+        msgMenuRegenPending = !!next?.pending
+        break
+      }
+    }
+  }
+  const msgMenuCanRegen =
+    !!msgMenuRegenMid &&
+    !s.loading &&
+    !s.sending &&
+    !(msgMenuRegenRole === 'assistant' && msgMenuRegenPending)
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -1088,9 +1117,55 @@ export function AiChatApp(props: { controller: any }) {
              >
                <Box sx={{ minWidth: 160, p: 0.5 }}>
                  <MenuItem
-                   disabled={!msgMenu.mid || msgMenu.pending || s.loading || s.sending}
+                   disabled={!msgMenuCanRegen}
                    onClick={() => {
-                     const mid = msgMenu.mid
+                     const mid = msgMenuRegenMid
+                     const role = msgMenuRegenRole
+                     closeMsgMenu()
+                     if (!mid) return
+                     setRegen({ mid, role })
+                   }}
+                   sx={{ gap: 1 }}
+                 >
+                   <RestartAltIcon fontSize="small" />
+                   重新回复
+                 </MenuItem>
+
+                 <MenuItem
+                   disabled={!msgMenuCanEdit}
+                   onClick={() => {
+                     const mid = msgMenuMid
+                     const pending = msgMenuPending
+                     const text = msgMenuText
+                     closeMsgMenu()
+                     startEditMessage(mid, text, pending)
+                   }}
+                   sx={{ gap: 1 }}
+                 >
+                   <EditOutlinedIcon fontSize="small" />
+                   编辑
+                 </MenuItem>
+
+                 <MenuItem
+                   disabled={!msgMenuMid}
+                   onClick={() => {
+                     const text = msgMenuText
+                     closeMsgMenu()
+                     controller.api?.clipboard?.writeText?.(text).then(
+                       () => controller.api?.ui?.showToast?.('已复制'),
+                       () => controller.api?.ui?.showToast?.('复制失败'),
+                     )
+                   }}
+                   sx={{ gap: 1 }}
+                 >
+                   <ContentCopyIcon fontSize="small" />
+                   复制
+                 </MenuItem>
+
+                 <MenuItem
+                   disabled={!msgMenuMid || msgMenuPending || s.loading || s.sending}
+                   onClick={() => {
+                     const mid = msgMenuMid
                      const role = msgMenu.role
                      closeMsgMenu()
                      setConfirmDelMsg({ mid, role })
