@@ -775,13 +775,14 @@ export function AiChatApp(props: { controller: any }) {
           },
           '.prose th, .prose td': { border: '1px solid rgba(0,0,0,.12)', padding: 8, verticalAlign: 'top' },
           '.math-block': { margin: '10px 0', overflowX: 'auto' },
+          // KaTeX 的上标/帽子等会超出行盒；inline 公式不要做滚动容器，否则很容易出现裁切或滚动条。
           '.prose .katex, .prose .katex-display': { maxWidth: '100%' },
-          '.prose span.katex': { display: 'inline-block', overflowX: 'auto', overflowY: 'hidden', verticalAlign: 'middle' },
-           '.prose .katex-display': { overflowX: 'auto', overflowY: 'hidden' },
+          '.prose span.katex': { display: 'inline-block', overflow: 'visible', verticalAlign: 'middle' },
+           '.prose .katex-display': { overflow: 'visible' },
            '.prose .katex-display > .katex': { display: 'block', overflowX: 'visible' },
            '.mermaid-block': { margin: '10px 0', overflowX: 'auto' },
-           '.mermaid-block[data-mermaid="1"]': { cursor: 'zoom-in' },
-           '.mermaid-block svg': { maxWidth: '100%', height: 'auto', display: 'block' },
+            '.mermaid-block[data-mermaid="1"]': { cursor: 'zoom-in' },
+            '.mermaid-block svg': { maxWidth: '100%', height: 'auto', display: 'block' },
            '.mermaid-error': { margin: '10px 0', overflowX: 'auto' },
            '.mermaid-error-box': {
              position: 'relative',
