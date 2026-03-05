@@ -414,11 +414,22 @@ export function AiChatApp(props: { controller: any }) {
 
   const activeRole = controller.activeRole()
   const activeChat = controller.activeChat()
-  const sendingCtx = s?.sendingCtx && typeof s.sendingCtx === 'object' ? (s.sendingCtx as any) : null
-  const isSendingThisChat = (roleId: string, chatId: string) => {
-    if (!sendingCtx) return false
-    return String(sendingCtx?.roleId || '') === String(roleId || '') && String(sendingCtx?.chatId || '') === String(chatId || '')
-  }
+  const isChatGenerating = React.useCallback((chat: any) => {
+    const msgs = Array.isArray(chat?.messages) ? chat.messages : []
+    return msgs.some((m: any) => m && m.role === 'assistant' && m.pending)
+  }, [])
+  const isSendingThisChat = React.useCallback(
+    (roleId: string, chatId: string) => {
+      const rid = String(roleId || '')
+      const cid = String(chatId || '')
+      if (!rid || !cid) return false
+      const box = data?.chatsByRole?.[rid]
+      const chats = Array.isArray(box?.chats) ? box.chats : []
+      const chat = chats.find((c: any) => String(c?.id || '') === cid) || null
+      return isChatGenerating(chat)
+    },
+    [data, isChatGenerating],
+  )
 
   const chatRootRef = React.useRef<HTMLDivElement | null>(null)
   const stickToBottomRef = React.useRef(true)
@@ -483,13 +494,13 @@ export function AiChatApp(props: { controller: any }) {
   const lastMsgId = String(lastMsg?.id || '')
   const lastMsgText = String(lastMsg?.content || '')
   const isReplying = Array.isArray(activeChat?.messages) && activeChat.messages.some((m: any) => m && m.role === 'assistant' && m.pending)
+  const uiBusy = !!s.sending
+  const chatLocked = isReplying
 
   const activeRoleId = String(activeRole?.id || '')
   const chatNav = (() => {
     const loading = !!s.loading
-    const sending = !!s.sending
     if (loading) return { olderId: '', newerId: '', lockedReason: '正在加载中' }
-    if (sending || isReplying) return { olderId: '', newerId: '', lockedReason: '正在生成中，不能切换会话' }
     if (!activeRoleId) return { olderId: '', newerId: '', lockedReason: '请先选择角色' }
     if (!data) return { olderId: '', newerId: '', lockedReason: '数据未就绪' }
 
@@ -632,14 +643,14 @@ export function AiChatApp(props: { controller: any }) {
 
   const startEditMessage = useEvent((mid: string, text: string, pending: boolean) => {
     if (!mid) return
-    if (pending || s.loading || s.sending) return
+    if (pending || s.loading || uiBusy || chatLocked) return
     setEditingMsg({ mid, text: String(text ?? '') })
   })
   const cancelEditMessage = useEvent(() => setEditingMsg({ mid: '', text: '' }))
   const saveEditMessage = useEvent(() => {
     const mid = String(editingMsg.mid || '')
     if (!mid) return
-    if (s.loading || s.sending) return
+    if (s.loading || uiBusy || chatLocked) return
     controller.actions.editMessage?.(mid, String(editingMsg.text ?? ''))
     setEditingMsg({ mid: '', text: '' })
   })
@@ -661,7 +672,7 @@ export function AiChatApp(props: { controller: any }) {
   const closePluginSettings = useEvent(() => setPage('chat'))
 
   const onPaste = useEvent((e: React.ClipboardEvent) => {
-    if (s.loading || s.sending) return
+    if (s.loading || uiBusy || chatLocked) return
     const items = e.clipboardData?.items ? Array.from(e.clipboardData.items) : []
     const files: File[] = []
     for (const it of items) {
@@ -690,7 +701,7 @@ export function AiChatApp(props: { controller: any }) {
   const msgMenuMsg = msgMenuIndex >= 0 ? msgMenuMessages[msgMenuIndex] : null
   const msgMenuText = String(msgMenuMsg?.content || '')
   const msgMenuPending = msgMenuMsg ? !!msgMenuMsg?.pending : !!msgMenu.pending
-  const msgMenuCanEdit = !!msgMenuMid && !msgMenuPending && !s.loading && !s.sending
+  const msgMenuCanEdit = !!msgMenuMid && !msgMenuPending && !s.loading && !uiBusy && !chatLocked
 
   let msgMenuRegenMid = msgMenuMid
   let msgMenuRegenRole: 'assistant' | 'user' = msgMenu.role === 'user' ? 'user' : 'assistant'
@@ -710,7 +721,8 @@ export function AiChatApp(props: { controller: any }) {
   const msgMenuCanRegen =
     !!msgMenuRegenMid &&
     !s.loading &&
-    !s.sending &&
+    !uiBusy &&
+    !chatLocked &&
     !(msgMenuRegenRole === 'assistant' && msgMenuRegenPending)
 
   return (
@@ -1129,7 +1141,7 @@ export function AiChatApp(props: { controller: any }) {
                     const imgPaths = isUser ? (Array.isArray(m?.images) ? m.images : []) : []
                     const mid = String(m?.id || '')
                     const isEditing = editingMsg.mid === mid
-                    const canEdit = !isEditing && !m?.pending && !s.loading && !s.sending && !!mid
+                    const canEdit = !isEditing && !m?.pending && !s.loading && !uiBusy && !chatLocked && !!mid
 
                     const content = String(m?.content || '')
                     const contentLines = userMessageCollapseEnabled && isUser ? content.split(/\r?\n/) : []
@@ -1240,10 +1252,10 @@ export function AiChatApp(props: { controller: any }) {
 
                           {isEditing ? (
                             <Stack direction="row" spacing={1} sx={{ mt: 1 }} justifyContent="flex-end">
-                              <Button size="small" variant="contained" onClick={saveEditMessage} disabled={s.loading || s.sending}>
+                              <Button size="small" variant="contained" onClick={saveEditMessage} disabled={s.loading || uiBusy || chatLocked}>
                                 保存
                               </Button>
-                              <Button size="small" onClick={cancelEditMessage} disabled={s.loading || s.sending}>
+                              <Button size="small" onClick={cancelEditMessage} disabled={s.loading || uiBusy || chatLocked}>
                                 取消
                               </Button>
                             </Stack>
@@ -1254,7 +1266,7 @@ export function AiChatApp(props: { controller: any }) {
                                   <IconButton
                                     aria-label="重新回复"
                                     size="small"
-                                    disabled={!regenMid || s.loading || s.sending || (regenRole === 'assistant' && regenPending)}
+                                    disabled={!regenMid || s.loading || uiBusy || chatLocked || (regenRole === 'assistant' && regenPending)}
                                     onClick={() => {
                                       if (!regenMid) return
                                       setRegen({ mid: regenMid, role: regenRole })
@@ -1359,7 +1371,7 @@ export function AiChatApp(props: { controller: any }) {
                  </MenuItem>
 
                  <MenuItem
-                   disabled={!msgMenuMid || msgMenuPending || s.loading || s.sending}
+                  disabled={!msgMenuMid || msgMenuPending || s.loading || uiBusy || chatLocked}
                    onClick={() => {
                      const mid = msgMenuMid
                      const role = msgMenu.role
@@ -1396,7 +1408,7 @@ export function AiChatApp(props: { controller: any }) {
                      setConfirmDelMsg({ mid: '', role: 'assistant' })
                      controller.actions.deleteMessage?.(mid)
                    }}
-                   disabled={!confirmDelMsg.mid || s.loading || s.sending}
+                  disabled={!confirmDelMsg.mid || s.loading || uiBusy || chatLocked}
                  >
                    删除
                  </Button>
@@ -1427,7 +1439,7 @@ export function AiChatApp(props: { controller: any }) {
                      if (role === 'assistant') controller.actions.regenerateAssistant?.(mid)
                      else controller.actions.replyFromUserMessage?.(mid)
                    }}
-                   disabled={!regen.mid || s.loading || s.sending}
+                  disabled={!regen.mid || s.loading || uiBusy || chatLocked}
                  >
                    重新回复
                  </Button>
@@ -1480,7 +1492,7 @@ export function AiChatApp(props: { controller: any }) {
                       <IconButton
                         aria-label="选择图片"
                         onClick={onPickImages}
-                        disabled={s.loading || s.sending || !activeRole}
+                       disabled={s.loading || uiBusy || chatLocked || !activeRole}
                         size="small"
                         sx={{
                           bgcolor: 'rgba(0,0,0,.05)',

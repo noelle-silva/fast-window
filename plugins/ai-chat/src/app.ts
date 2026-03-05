@@ -1061,6 +1061,25 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     return { chat, pendingChat, target }
   }
 
+  function chatHasPendingAssistant(chat) {
+    const msgs = Array.isArray(chat?.messages) ? chat.messages : []
+    for (const m of msgs) {
+      if (!m || typeof m !== 'object') continue
+      if (m.role === 'assistant' && m.pending) return true
+    }
+    return false
+  }
+
+  function findLastPendingAssistant(chat) {
+    const msgs = Array.isArray(chat?.messages) ? chat.messages : []
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i]
+      if (!m || typeof m !== 'object') continue
+      if (m.role === 'assistant' && m.pending) return m
+    }
+    return null
+  }
+
   const mermaidFixWriteQueue = new Map<string, Promise<void>>()
 
   function enqueueMermaidFixWrite(messageId, fn) {
@@ -1082,16 +1101,16 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
 
   async function patchMessageContentSilent(messageId, content) {
     if (state.loading || !state.data) throw new Error('数据未加载')
-    if (state.sending || state.sendingJobId) throw new Error('发送中，无法编辑')
+    if (state.sending) throw new Error('操作中，请稍后重试')
 
     const found = locateMessageInActiveChat(messageId)
     if (!found) throw new Error('未找到该消息')
 
     const { chat, pendingChat, target } = found
     if (pendingChat) throw new Error('当前会话尚未写入存档，请先发送一条消息后再修复')
+    if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，无法编辑')
     if (target.role === 'assistant') {
       if (target.pending) throw new Error('该消息正在生成中，无法编辑')
-      if (state.sendingCtx && String(state.sendingCtx.assistantMid || '') === String(messageId || '')) throw new Error('该消息正在生成中，无法编辑')
       try {
         uiStreamCache.delete(String(messageId || ''))
       } catch (_) {}
@@ -1335,6 +1354,7 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
         if (!chat) chat = createChatForRole(rid)
       }
       if (!chat) throw new Error('创建会话失败')
+      if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
 
       const wasEmpty = !Array.isArray(chat.messages) || chat.messages.length === 0
       chat.messages.push({ id: uid('m'), role: 'user', content: input, images: savedPaths, createdAt: now() })
@@ -1370,11 +1390,9 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
         stream: streamEnabled,
       }
 
-      state.sendingCtx = { roleId: String(role.id || ''), chatId: String(chat.id || ''), assistantMid }
       await save()
       await api.storage.set(jobKey(jobId), job)
       await enqueueJob(jobId)
-      state.sendingJobId = jobId
     } catch (e) {
       const msg = String(e?.message || e || '请求失败')
       const items = Array.isArray(chat?.messages) ? chat.messages : []
@@ -1385,12 +1403,9 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
         am.streaming = false
       }
       save().catch(() => {})
-
-      state.sending = false
-      state.sendingJobId = ''
-      state.sendingCtx = null
       api.ui?.showToast?.(msg)
     } finally {
+      state.sending = false
       render()
     }
   }
@@ -1398,41 +1413,20 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
   async function stopSending() {
     if (state.loading) return
 
-    const jobId = String(state.sendingJobId || '').trim()
-    const ctx = state.sendingCtx && typeof state.sendingCtx === 'object' ? state.sendingCtx : null
+    const roleId = String(activeRole()?.id || '')
+    const chatId = String(activeChatFromData()?.id || '')
+    if (!state.data || !roleId || !chatId) return
 
-    let roleId = ctx ? String(ctx.roleId || '') : ''
-    let chatId = ctx ? String(ctx.chatId || '') : ''
-    let mid = ctx ? String(ctx.assistantMid || '') : ''
+    const chat = findChatByIds(roleId, chatId)
+    if (!chat) return
 
-    if (!roleId) roleId = String(activeRole()?.id || '')
-    if (!chatId) chatId = String(activeChatFromData()?.id || '')
+    const lastPending = findLastPendingAssistant(chat)
+    const mid = String(lastPending?.id || '')
+    if (!mid) return api.ui?.showToast?.('当前会话没有正在生成的消息')
 
-    if (!mid && state.data && roleId && chatId) {
-      const chat = findChatByIds(roleId, chatId)
-      const msgs = Array.isArray(chat?.messages) ? chat.messages : []
-      const pending = msgs.filter((m) => m && m.role === 'assistant' && m.pending)
-      const last = pending.length ? pending[pending.length - 1] : null
-      mid = String(last?.id || '')
-    }
-
-    if (jobId) {
-      try {
-        await api.storage.set(cancelKey(jobId), { requestedAt: now() })
-      } catch (_) {}
-      try {
-        await dequeueJob(jobId)
-      } catch (_) {}
-      try {
-        await api.storage.remove(jobKey(jobId))
-      } catch (_) {}
-    }
-
-    if (mid) {
-      try {
-        await api.storage.set(cancelMidKey(mid), { requestedAt: now() })
-      } catch (_) {}
-    }
+    try {
+      await api.storage.set(cancelMidKey(mid), { requestedAt: now() })
+    } catch (_) {}
 
     if (state.data && roleId && chatId && mid) {
       let text = ''
@@ -1442,7 +1436,6 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
       } catch (_) {}
       const finalOut = text || '（已停止）'
 
-      const chat = findChatByIds(roleId, chatId)
       const msgs = Array.isArray(chat?.messages) ? chat.messages : []
       const m = msgs.find((x) => String(x?.id || '') === mid) || null
       if (m) {
@@ -1462,13 +1455,11 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     }
 
     state.sending = false
-    state.sendingJobId = ''
-    state.sendingCtx = null
     emit()
   }
 
   async function regenerateAssistantMessage(assistantMid) {
-    if (state.sending || state.sendingJobId || state.loading || !state.data) return
+    if (state.sending || state.loading || !state.data) return
 
     const role = activeRole()
     const chat = activeChatFromData()
@@ -1500,6 +1491,7 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
       const target = msgs[aiIndex]
       if (!target || target.role !== 'assistant') throw new Error('只能重新生成 AI 回复')
       if (target.pending) throw new Error('该消息正在生成中')
+      if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
 
       let userIndex = -1
       for (let i = aiIndex - 1; i >= 0; i--) {
@@ -1534,11 +1526,9 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
         stream: streamEnabled,
       }
 
-      state.sendingCtx = { roleId: String(role.id || ''), chatId: String(chat.id || ''), assistantMid: mid }
       await save()
       await api.storage.set(jobKey(jobId), job)
       await enqueueJob(jobId)
-      state.sendingJobId = jobId
     } catch (e) {
       const msg = String(e?.message || e || '请求失败')
       const items = Array.isArray(chat.messages) ? chat.messages : []
@@ -1549,18 +1539,15 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
         am.streaming = false
       }
       save().catch(() => {})
-
-      state.sending = false
-      state.sendingJobId = ''
-      state.sendingCtx = null
       api.ui?.showToast?.(msg)
     } finally {
+      state.sending = false
       render()
     }
   }
 
   async function replyFromUserMessage(userMid) {
-    if (state.sending || state.sendingJobId || state.loading || !state.data) return
+    if (state.sending || state.loading || !state.data) return
 
     const role = activeRole()
     const chat = activeChatFromData()
@@ -1592,6 +1579,7 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
 
       const target = msgs[userIndex]
       if (!target || target.role !== 'user') throw new Error('只能从用户消息发起重新回复')
+      if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
 
       const streamEnabled = !!state.data?.settings?.streamEnabled
       assistantMid = uid('m')
@@ -1619,11 +1607,9 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
         stream: streamEnabled,
       }
 
-      state.sendingCtx = { roleId: String(role.id || ''), chatId: String(chat.id || ''), assistantMid }
       await save()
       await api.storage.set(jobKey(jobId), job)
       await enqueueJob(jobId)
-      state.sendingJobId = jobId
     } catch (e) {
       const msg = String(e?.message || e || '请求失败')
       const items = Array.isArray(chat?.messages) ? chat.messages : []
@@ -1634,18 +1620,16 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
         am.streaming = false
       }
       save().catch(() => {})
-      state.sending = false
-      state.sendingJobId = ''
-      state.sendingCtx = null
       api.ui?.showToast?.(msg)
     } finally {
+      state.sending = false
       render()
     }
   }
 
   async function deleteMessage(messageId) {
     if (state.loading || !state.data) return
-    if (state.sending || state.sendingJobId) return api.ui?.showToast?.('发送中，无法删除')
+    if (state.sending) return api.ui?.showToast?.('操作中，请稍后重试')
 
     const mid = String(messageId || '').trim()
     if (!mid) return
@@ -1657,6 +1641,7 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     const pendingChat = state.pendingChat && String(state.pendingChat.roleId || '') === rid ? state.pendingChat.chat : null
     const chat = pendingChat || activeChatFromData()
     if (!chat) return
+    if (chatHasPendingAssistant(chat)) return api.ui?.showToast?.('该会话正在生成中，无法删除消息')
 
     const msgs = Array.isArray(chat.messages) ? chat.messages : []
     const idx = msgs.findIndex((m) => String(m?.id || '') === mid)
@@ -1667,7 +1652,6 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
 
     if (target.role === 'assistant') {
       if (target.pending) return api.ui?.showToast?.('该消息正在生成中，无法删除')
-      if (state.sendingCtx && String(state.sendingCtx.assistantMid || '') === mid) return api.ui?.showToast?.('该消息正在生成中，无法删除')
     }
 
     msgs.splice(idx, 1)
@@ -1689,7 +1673,7 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
 
   async function editMessage(messageId, content) {
     if (state.loading || !state.data) return
-    if (state.sending || state.sendingJobId) return api.ui?.showToast?.('发送中，无法编辑')
+    if (state.sending) return api.ui?.showToast?.('操作中，请稍后重试')
 
     const mid = String(messageId || '').trim()
     if (!mid) return
@@ -1701,6 +1685,7 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     const pendingChat = state.pendingChat && String(state.pendingChat.roleId || '') === rid ? state.pendingChat.chat : null
     const chat = pendingChat || activeChatFromData()
     if (!chat) return
+    if (chatHasPendingAssistant(chat)) return api.ui?.showToast?.('该会话正在生成中，无法编辑消息')
 
     const msgs = Array.isArray(chat.messages) ? chat.messages : []
     const target = msgs.find((m) => String(m?.id || '') === mid)
@@ -1708,7 +1693,6 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
 
     if (target.role === 'assistant') {
       if (target.pending) return api.ui?.showToast?.('该消息正在生成中，无法编辑')
-      if (state.sendingCtx && String(state.sendingCtx.assistantMid || '') === mid) return api.ui?.showToast?.('该消息正在生成中，无法编辑')
       try {
         uiStreamCache.delete(mid)
       } catch (_) {}
@@ -1770,46 +1754,65 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
   }
 
   async function backgroundMain() {
-    let running = false
+    const runningJobs = new Map()
+    let ticking = false
 
     const tick = async () => {
-      if (running) return
-      running = true
+      if (ticking) return
+      ticking = true
       try {
         const q = await readJobQueue()
         if (!q.length) return
 
-        let job = null
-        let jobId = ''
-        for (const id of q.slice(0, 20)) {
-          const j = await api.storage.get(jobKey(id))
-          const ok = j && typeof j === 'object' ? j : null
-          if (!ok) {
-            await dequeueJob(id)
+        const runningChatKeys = new Set()
+        for (const v of Array.from(runningJobs.values())) {
+          const k = v && typeof v === 'object' ? String(v.chatKey || '') : ''
+          if (k) runningChatKeys.add(k)
+        }
+
+        for (const id0 of q.slice(0, 200)) {
+          const jobId = String(id0 || '')
+          if (!jobId || runningJobs.has(jobId)) continue
+
+          const j = await api.storage.get(jobKey(jobId))
+          const job = j && typeof j === 'object' ? j : null
+          if (!job) {
+            await dequeueJob(jobId)
             continue
           }
-          if (String(ok.status || '') !== 'queued') {
-            await dequeueJob(id)
+          if (String(job.status || '') !== 'queued') {
+            await dequeueJob(jobId)
             continue
           }
-          job = ok
-          jobId = id
-          break
-        }
-        if (!job || !jobId) return
 
-        job.status = 'running'
-        job.startedAt = now()
-        await api.storage.set(jobKey(job.id), job)
+          const roleId = String(job.roleId || '')
+          const chatId = String(job.chatId || '')
+          if (!roleId || !chatId) {
+            await dequeueJob(jobId)
+            continue
+          }
+          const chatKey = `${roleId}/${chatId}`
+          if (runningChatKeys.has(chatKey)) continue
+          runningChatKeys.add(chatKey)
 
-        try {
-          await runBackgroundJob(job)
-        } finally {
-          await dequeueJob(jobId)
+          job.status = 'running'
+          job.startedAt = now()
+          await api.storage.set(jobKey(job.id), job)
+
+          runningJobs.set(jobId, { chatKey })
+          runBackgroundJob(job)
+            .catch(() => {})
+            .finally(async () => {
+              try {
+                await dequeueJob(jobId)
+              } catch (_) {}
+              runningJobs.delete(jobId)
+            })
         }
+
       } catch (_) {
       } finally {
-        running = false
+        ticking = false
       }
     }
 
@@ -2717,10 +2720,6 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     if (state.loading || !state.data) return
 
     let chat = activeChatFromData()
-    if (state.sendingJobId && state.sendingCtx) {
-      const c = findChatByIds(state.sendingCtx.roleId, state.sendingCtx.chatId)
-      if (c) chat = c
-    }
     if (!chat) return
 
     const items = Array.isArray(chat.messages) ? chat.messages : []
@@ -2746,33 +2745,14 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
         uiLastSyncMs = t
         await syncDataFromStorage()
         chat = activeChatFromData()
-        if (state.sendingJobId && state.sendingCtx) {
-          const c = findChatByIds(state.sendingCtx.roleId, state.sendingCtx.chatId)
-          if (c) chat = c
-        }
         reapplyUiStreamCache(chat)
         emit()
-      }
-
-      if (state.sendingJobId) {
-        const job = await api.storage.get(jobKey(state.sendingJobId))
-        if (!job) {
-          state.sendingJobId = ''
-          state.sendingCtx = null
-        }
       }
 
       return
     }
 
     uiStreamCache.clear()
-
-    if (state.sendingJobId) {
-      const job = await api.storage.get(jobKey(state.sendingJobId))
-      if (job) return
-      state.sendingJobId = ''
-      state.sendingCtx = null
-    }
 
     if (state.sending) {
       state.sending = false
@@ -3143,16 +3123,15 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     const cid = String(chatId || '')
     if (!rid || !cid) return
 
-    const sending = state.sendingCtx && typeof state.sendingCtx === 'object' ? state.sendingCtx : null
-    if (sending && String(sending.roleId || '') === rid && String(sending.chatId || '') === cid) {
-      api.ui?.showToast?.('正在生成中，不能删除该会话')
-      return
-    }
-
     const box = ensureChatsBoxBare(rid)
     if (!box) return
     const before = Array.isArray(box.chats) ? box.chats : []
-    if (!before.some((c) => String(c?.id) === cid)) return
+    const target = before.find((c) => String(c?.id) === cid) || null
+    if (!target) return
+    if (chatHasPendingAssistant(target)) {
+      api.ui?.showToast?.('正在生成中，不能删除该会话')
+      return
+    }
 
     box.chats = before.filter((c) => String(c?.id) !== cid)
     if (String(box.activeChatId || '') === cid) box.activeChatId = String(box.chats[0]?.id || '')
