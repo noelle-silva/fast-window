@@ -7,7 +7,8 @@
     "active": true,
     "resources": [
       "plugin-seeds/**/manifest.json",
-      "plugin-seeds/**/*.js"
+      "plugin-seeds/**/*.js",
+      "plugin-seeds/**/*.svg"
     ],
     "icon": [
       "icons/32x32.png",

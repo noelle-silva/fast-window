@@ -61,6 +61,15 @@ function collectReferencedFiles(manifest) {
     out.add(assertSafeRel(bgMain, "manifest.background.main"));
   }
 
+  // 插件图标：只支持打包 svg（manifest.icon = "svg:<rel>.svg"）
+  const icon = normalizeRel(manifest?.icon);
+  if (icon.startsWith("svg:")) {
+    const rel = icon.slice("svg:".length).trim();
+    if (rel && rel.toLowerCase().endsWith(".svg")) {
+      out.add(assertSafeRel(rel, "manifest.icon"));
+    }
+  }
+
   return Array.from(out);
 }
 
