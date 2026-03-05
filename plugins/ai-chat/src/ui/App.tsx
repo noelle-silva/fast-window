@@ -484,6 +484,29 @@ export function AiChatApp(props: { controller: any }) {
   const lastMsgText = String(lastMsg?.content || '')
   const isReplying = Array.isArray(activeChat?.messages) && activeChat.messages.some((m: any) => m && m.role === 'assistant' && m.pending)
 
+  const activeRoleId = String(activeRole?.id || '')
+  const chatNav = (() => {
+    const loading = !!s.loading
+    const sending = !!s.sending
+    if (loading) return { olderId: '', newerId: '', lockedReason: '正在加载中' }
+    if (sending || isReplying) return { olderId: '', newerId: '', lockedReason: '正在生成中，不能切换会话' }
+    if (!activeRoleId) return { olderId: '', newerId: '', lockedReason: '请先选择角色' }
+    if (!data) return { olderId: '', newerId: '', lockedReason: '数据未就绪' }
+
+    const box = data?.chatsByRole?.[activeRoleId]
+    const chats = Array.isArray(box?.chats) ? box.chats.slice() : []
+    chats.sort((a: any, b: any) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0))
+    const ids = chats.map((c: any) => String(c?.id || '')).filter((id: string) => !!id)
+    if (!ids.length) return { olderId: '', newerId: '', lockedReason: '暂无会话' }
+
+    const cur = String(activeChat?.id || box?.activeChatId || ids[0] || '')
+    const idx = ids.findIndex((id: string) => id === cur)
+    const i = idx >= 0 ? idx : 0
+    const olderId = i + 1 < ids.length ? ids[i + 1] : ''
+    const newerId = i - 1 >= 0 ? ids[i - 1] : ''
+    return { olderId, newerId, lockedReason: '' }
+  })()
+
   React.useLayoutEffect(() => {
     if (page !== 'chat') return
     const el = composerRef.current
@@ -1009,6 +1032,30 @@ export function AiChatApp(props: { controller: any }) {
 
                 <Box sx={{ flex: 1 }} />
 
+                <Tooltip title={chatNav.lockedReason || (chatNav.olderId ? '切换到较旧会话' : '没有更旧的会话')}>
+                  <span>
+                    <IconButton
+                      onClick={() => controller.actions.setActiveChat(chatNav.olderId)}
+                      size="small"
+                      disabled={!!chatNav.lockedReason || !chatNav.olderId}
+                      aria-label="切换到较旧会话"
+                    >
+                      <ChevronLeftIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title={chatNav.lockedReason || (chatNav.newerId ? '切换到较新会话' : '没有更新的会话')}>
+                  <span>
+                    <IconButton
+                      onClick={() => controller.actions.setActiveChat(chatNav.newerId)}
+                      size="small"
+                      disabled={!!chatNav.lockedReason || !chatNav.newerId}
+                      aria-label="切换到较新会话"
+                    >
+                      <ChevronRightIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
                 <Tooltip title="聊天记录">
                   <IconButton onClick={openChatPicker} size="small">
                     <HistoryIcon fontSize="small" />
