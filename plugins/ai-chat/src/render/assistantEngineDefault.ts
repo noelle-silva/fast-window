@@ -456,7 +456,17 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
       const t = String(s || '')
       // Markdown：4 空格缩进会被当作代码块；HTML 内部常见缩进会触发这个坑。
       // 仅在“非代码围栏”区域，把以 4 空格/Tab 开头且后面紧跟 < 或 <!-- 的行去掉缩进。
-      return t.replace(/^(?:\t| {4})+(?=<)/gm, '').replace(/^(?:\t| {4})+(?=<!--)/gm, '')
+      // 注意：有些模型会输出“空格+Tab”的混合缩进；Markdown 的缩进宽度是按列计算的（Tab 会补到 4 的倍数）。
+      // 这里把这类行的前导缩进压到 <4 列（保留 0~3 个空格），避免被 marked 识别成缩进代码块。
+      return t.replace(/^([ \t]+)(?=<|<!--)/gm, (_m, ws) => {
+        const w = String(ws || '')
+        let cols = 0
+        for (let i = 0; i < w.length; i++) {
+          cols += w[i] === '\t' ? 4 - (cols % 4) : 1
+        }
+        if (cols < 4) return w
+        return ' '.repeat(cols % 4)
+      })
     }
 
     const src = String(source || '').replace(/\r\n/g, '\n')
