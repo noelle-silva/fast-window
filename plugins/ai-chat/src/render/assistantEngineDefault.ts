@@ -1,4 +1,5 @@
 import { uid, esc } from '../core/utils'
+import './vendor'
 
 export type AssistantRenderEngine = {
   ensureRenderer: () => Promise<void>
@@ -11,6 +12,8 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
   let rendererPromise: Promise<void> | null = null
   let domPurifyHooked = false
   let mermaidInited = false
+  let markedConfigured = false
+  const mermaidSvgCache = new Map<string, string>()
 
   const ICON_COPY =
     '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M16 1H6c-1.1 0-2 .9-2 2v12h2V3h10V1zm3 4H10c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h9c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16h-9V7h9v14z"/></svg>'
@@ -135,7 +138,9 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
       mermaidInited = true
       m.initialize({
         startOnLoad: false,
-        securityLevel: 'strict',
+        // 参考 Dendron-studio：使用 loose，避免部分图类型在 strict 下触发 DOMPurify 兼容问题导致渲染失败。
+        // 仍会对最终 SVG 做 sanitizeSvg 过滤。
+        securityLevel: 'loose',
         theme: 'default',
         themeVariables: {
           fontFamily:
@@ -317,41 +322,7 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
     return tpl.innerHTML
   }
 
-  function preprocessMathBlocks(source: unknown) {
-    const blocks: string[] = []
-    const src = String(source || '').replace(/\r\n/g, '\n')
-
-    function stash(tex: unknown) {
-      const id = blocks.length
-      blocks.push(String(tex || ''))
-      return `@@BLOCK_MATH_${id}@@`
-    }
-
-    function replaceInText(text: unknown) {
-      let s = String(text || '')
-      s = s.replace(/\$\$\s*([\s\S]*?)\s*\$\$/g, (_m, tex) => stash(tex))
-      s = s.replace(/\\\[\s*([\s\S]*?)\s*\\\]/g, (_m, tex) => stash(tex))
-      return s
-    }
-
-    const fenceRe = /```[\s\S]*?```/g
-    let out = ''
-    let last = 0
-    let m: RegExpExecArray | null
-    while ((m = fenceRe.exec(src))) {
-      out += replaceInText(src.slice(last, m.index))
-      out += m[0]
-      last = m.index + m[0].length
-    }
-    out += replaceInText(src.slice(last))
-
-    return { text: out, blocks }
-  }
-
   function preprocessHtmlIndentation(source: unknown) {
-    const src = String(source || '').replace(/\r\n/g, '\n')
-    const fenceRe = /```[\s\S]*?```/g
-
     function dedentHtmlLines(s: unknown) {
       const t = String(s || '')
       // Markdown：4 空格缩进会被当作代码块；HTML 内部常见缩进会触发这个坑。
@@ -359,16 +330,14 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
       return t.replace(/^(?:\t| {4})+(?=<)/gm, '').replace(/^(?:\t| {4})+(?=<!--)/gm, '')
     }
 
-    let out = ''
-    let last = 0
-    let m: RegExpExecArray | null
-    while ((m = fenceRe.exec(src))) {
-      out += dedentHtmlLines(src.slice(last, m.index))
-      out += m[0]
-      last = m.index + m[0].length
-    }
-    out += dedentHtmlLines(src.slice(last))
-    return out
+    const src = String(source || '').replace(/\r\n/g, '\n')
+    const tokens = tokenizeFences(src)
+    return tokens
+      .map((t) => {
+        if (t.kind === 'text') return dedentHtmlLines(t.text)
+        return t.raw
+      })
+      .join('')
   }
 
   function sanitizeSvg(svg: unknown) {
@@ -420,20 +389,35 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
       holder.setAttribute('data-act', 'open-mermaid')
       pre.replaceWith(holder)
 
+      const cached = mermaidSvgCache.get(src)
+      if (typeof cached === 'string' && cached) {
+        holder.innerHTML = cached
+        continue
+      }
+
       try {
         const id = uid('mm')
         const r = await doRender(id, src, holder)
         const svg = typeof r === 'string' ? r : String(r?.svg || '')
         const safe = sanitizeSvg(svg)
         if (!safe) throw new Error('empty svg')
+        if (mermaidSvgCache.size >= 50) {
+          const first = mermaidSvgCache.keys().next().value
+          if (typeof first === 'string' && first) mermaidSvgCache.delete(first)
+        }
+        mermaidSvgCache.set(src, safe)
         holder.innerHTML = safe
         if (r && typeof r.bindFunctions === 'function') {
           try {
             r.bindFunctions(holder)
           } catch (_) {}
         }
-      } catch (_) {
-        holder.innerHTML = `<pre><code class="language-mermaid">${esc(src)}</code></pre>`
+      } catch (e) {
+        const msg = esc(String((e as any)?.message || e || ''))
+        holder.innerHTML = `
+          <div class="muted">Mermaid 渲染失败${msg ? `：${msg}` : ''}</div>
+          <pre><code class="language-mermaid">${esc(src)}</code></pre>
+        `
       }
     }
   }
@@ -459,38 +443,38 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
     let html = ''
 
     const noIndent = preprocessHtmlIndentation(raw)
-    const pre = preprocessMathBlocks(noIndent)
+    const pre = preprocessAssistantContent(noIndent)
     const src = String(pre.text || '')
 
-    function looksLikeHtmlFragment(input: unknown) {
-      const t = String(input || '').trimStart()
-      if (!t) return false
-      if (t.startsWith('```')) return false
-      return /^<(div|span|p|pre|code|em|strong|ul|ol|li|blockquote|a|button|details|summary|input|label|table|thead|tbody|tr|th|td|h[1-6]|hr|br|img)\b/i.test(
-        t,
-      )
-    }
-
-    if (looksLikeHtmlFragment(src)) {
-      // 直接渲染 HTML（仍会经过 sanitizeHtml 过滤）。
-      // 这样即使 markdown 渲染器缺失/异常，也不会把 <div ...> 当纯文本展示。
-      html = src
-    } else if ((window as any).marked && typeof (window as any).marked.parse === 'function') {
+    const w = window as any
+    if (!w.marked || typeof w.marked.parse !== 'function') {
+      html = `<pre>${esc(src)}</pre>`
+    } else {
       try {
-        ;(window as any).marked.setOptions?.({ gfm: true, breaks: true })
-        html = (window as any).marked.parse(src)
+        if (!markedConfigured) {
+          markedConfigured = true
+          w.marked.setOptions?.({ gfm: true, breaks: true })
+        }
+        // 唯一渲染机制：始终走 Markdown（marked 会保留 HTML block，同时解析后续 Markdown）
+        html = w.marked.parse(src)
       } catch (_) {
         html = `<pre>${esc(src)}</pre>`
       }
-    } else {
-      html = `<pre>${esc(src)}</pre>`
     }
 
     let safe = sanitizeHtml(html)
-    if (Array.isArray(pre.blocks) && pre.blocks.length) {
-      safe = safe.replace(/@@BLOCK_MATH_(\d+)@@/g, (_m, id) => {
-        const tex = pre.blocks[Number(id)] ?? ''
+    if (Array.isArray(pre.math) && pre.math.length) {
+      safe = safe.replace(/@@MATH_(INLINE|BLOCK)_(\d+)@@/g, (_m, kind, id) => {
+        const it = pre.math[Number(id)]
+        const tex = it ? String(it.tex || '') : ''
+        if (kind === 'INLINE') return `<span class="math-inline" data-tex="${esc(tex)}"></span>`
         return `<div class="math-block" data-tex="${esc(tex)}"></div>`
+      })
+    }
+    if (Array.isArray(pre.mermaid) && pre.mermaid.length) {
+      safe = safe.replace(/@@MERMAID_(\d+)@@/g, (_m, id) => {
+        const code = pre.mermaid[Number(id)] ?? ''
+        return `<pre><code class="language-mermaid">${esc(code)}</code></pre>`
       })
     }
 
@@ -498,37 +482,202 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
     enhanceCodeBlocks(el)
     markPreviewImages(el)
 
-    // 块级公式：优先用 katex.render（避免 $$ 换行/BR 导致 auto-render 识别失败）
-    const blocks = Array.from(el.querySelectorAll?.('.math-block[data-tex]') || [])
-    const w = window as any
-    if (blocks.length && w.katex && w.katex.render) {
+    const katex = w.katex
+    if (katex && typeof katex.render === 'function') {
+      const blocks = Array.from(el.querySelectorAll?.('.math-block[data-tex]') || [])
       for (const b of blocks) {
         if (!(b instanceof HTMLElement)) continue
-        if (b.getAttribute('data-rendered') === '1') continue
         const tex = b.getAttribute('data-tex') || ''
         try {
-          w.katex.render(tex, b, { displayMode: true, throwOnError: false })
-          b.setAttribute('data-rendered', '1')
+          katex.render(tex, b, { displayMode: true, throwOnError: false })
         } catch (_) {}
       }
-    }
-
-    if (w.renderMathInElement) {
-      try {
-        w.renderMathInElement(el, {
-          delimiters: [
-            { left: '$$', right: '$$', display: true },
-            { left: '\\[', right: '\\]', display: true },
-            { left: '$', right: '$', display: false },
-            { left: '\\(', right: '\\)', display: false },
-          ],
-          throwOnError: false,
-        })
-      } catch (_) {}
+      const inlines = Array.from(el.querySelectorAll?.('.math-inline[data-tex]') || [])
+      for (const s of inlines) {
+        if (!(s instanceof HTMLElement)) continue
+        const tex = s.getAttribute('data-tex') || ''
+        try {
+          katex.render(tex, s, { displayMode: false, throwOnError: false })
+        } catch (_) {}
+      }
     }
 
     renderMermaidInto(el).catch(() => {})
   }
 
   return { ensureRenderer, sanitizeHtml, sanitizeSvg, renderAssistantInto }
+}
+
+type PreprocessedMath = { tex: string; display: boolean }
+
+type FenceToken =
+  | { kind: 'text'; text: string }
+  | { kind: 'fence'; raw: string; lang: string; content: string; closed: boolean }
+
+function preprocessAssistantContent(source: unknown): { text: string; math: PreprocessedMath[]; mermaid: string[] } {
+  const src = String(source || '').replace(/\r\n/g, '\n')
+  const tokens = tokenizeFences(src)
+
+  const mermaid: string[] = []
+  const math: PreprocessedMath[] = []
+  const out: string[] = []
+
+  for (const t of tokens) {
+    if (t.kind === 'fence') {
+      const lang = String(t.lang || '').trim().toLowerCase()
+      const isMermaid = t.closed && (lang === 'mermaid' || lang === 'flowchart' || lang === 'graph')
+      if (isMermaid) {
+        const id = mermaid.length
+        mermaid.push(String(t.content || '').trim())
+        out.push(`@@MERMAID_${id}@@`)
+      } else {
+        out.push(t.raw)
+      }
+      continue
+    }
+
+    out.push(replaceMathOutsideInlineCode(t.text, math))
+  }
+
+  return { text: out.join(''), math, mermaid }
+}
+
+function tokenizeFences(input: string): FenceToken[] {
+  const src = String(input || '')
+  const lines = src.split('\n')
+
+  const out: FenceToken[] = []
+  const textBuf: string[] = []
+
+  const flushText = () => {
+    if (!textBuf.length) return
+    out.push({ kind: 'text', text: textBuf.join('') })
+    textBuf.length = 0
+  }
+
+  let inFence = false
+  let fenceMarker = ''
+  let fenceInfo = ''
+  let openLineRaw = ''
+  const fenceLinesRaw: string[] = []
+
+  const openRe = /^(\s*)(`{3,})(.*)$/
+  const closeRe = /^(\s*)(`{3,})\s*$/
+  let fenceIndent = ''
+
+  for (let idx = 0; idx < lines.length; idx++) {
+    const line = lines[idx]
+    const withNl = idx < lines.length - 1 ? line + '\n' : line
+    if (!inFence) {
+      const m = openRe.exec(line)
+      if (!m) {
+        textBuf.push(withNl)
+        continue
+      }
+
+      flushText()
+      inFence = true
+      fenceIndent = String(m[1] || '')
+      fenceMarker = String(m[2] || '```')
+      fenceInfo = String(m[3] || '').trim()
+      openLineRaw = withNl
+      fenceLinesRaw.length = 0
+      continue
+    }
+
+    const m2 = closeRe.exec(line)
+    if (m2 && String(m2[1] || '') === fenceIndent && String(m2[2] || '') === fenceMarker) {
+      const content = fenceLinesRaw.join('')
+      const raw = `${openLineRaw}${content}${withNl}`
+      const lang = fenceInfo.split(/\s+/g)[0] || ''
+      out.push({ kind: 'fence', raw, lang, content, closed: true })
+      inFence = false
+      fenceMarker = ''
+      fenceIndent = ''
+      fenceInfo = ''
+      openLineRaw = ''
+      fenceLinesRaw.length = 0
+      continue
+    }
+
+    fenceLinesRaw.push(withNl)
+  }
+
+  if (inFence) {
+    const content = fenceLinesRaw.join('')
+    const raw = openLineRaw + content
+    const lang = fenceInfo.split(/\s+/g)[0] || ''
+    out.push({ kind: 'fence', raw, lang, content, closed: false })
+    inFence = false
+  }
+
+  flushText()
+  return out
+}
+
+function splitInlineCodeSpans(input: string): Array<{ kind: 'text' | 'code'; value: string }> {
+  const s = String(input || '')
+  const out: Array<{ kind: 'text' | 'code'; value: string }> = []
+  let i = 0
+  let last = 0
+
+  while (i < s.length) {
+    if (s[i] !== '`') {
+      i++
+      continue
+    }
+
+    let n = 1
+    while (i + n < s.length && s[i + n] === '`') n++
+    const marker = '`'.repeat(n)
+    const start = i
+    const end = s.indexOf(marker, i + n)
+    if (end < 0) break
+
+    if (start > last) out.push({ kind: 'text', value: s.slice(last, start) })
+    out.push({ kind: 'code', value: s.slice(start, end + n) })
+    i = end + n
+    last = i
+  }
+
+  if (last < s.length) out.push({ kind: 'text', value: s.slice(last) })
+  return out
+}
+
+function replaceMathOutsideInlineCode(input: string, acc: PreprocessedMath[]) {
+  const parts = splitInlineCodeSpans(input)
+  return parts
+    .map((p) => {
+      if (p.kind === 'code') return p.value
+      return replaceMathInPlainText(p.value, acc)
+    })
+    .join('')
+}
+
+function replaceMathInPlainText(input: string, acc: PreprocessedMath[]) {
+  let s = String(input || '')
+
+  const stash = (tex: string, display: boolean) => {
+    const id = acc.length
+    acc.push({ tex: String(tex || ''), display })
+    return `@@MATH_${display ? 'BLOCK' : 'INLINE'}_${id}@@`
+  }
+
+  // display: $$...$$
+  s = s.replace(/\$\$\s*([\s\S]*?)\s*\$\$/g, (_m, tex) => stash(String(tex || '').trim(), true))
+  // display: \[...\]
+  s = s.replace(/\\\[\s*([\s\S]*?)\s*\\\]/g, (_m, tex) => stash(String(tex || '').trim(), true))
+
+  // inline: \( ... \)
+  s = s.replace(/\\\(\s*([\s\S]*?)\s*\\\)/g, (_m, tex) => stash(String(tex || '').trim(), false))
+
+  // inline: $...$（做一点防误判：必须像“公式”）
+  s = s.replace(/\$([^\$\n]+?)\$/g, (m, tex) => {
+    const t = String(tex || '').trim()
+    if (!t) return m
+    if (!/[A-Za-z\\]|[_^]/.test(t)) return m
+    return stash(t, false)
+  })
+
+  return s
 }
