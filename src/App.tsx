@@ -3,7 +3,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
-import { loadAllPluginsReport, type PluginLoadRejection } from './plugins/pluginLoader'
+import { loadAllPluginsReport, loadPluginById, type PluginLoadRejection } from './plugins/pluginLoader'
 import { initPluginApi } from './plugins/pluginApi'
 import BackgroundPluginHost from './plugins/BackgroundPluginHost'
 import { PluginCapability, type PluginManifest } from './plugins/pluginContract'
@@ -389,6 +389,7 @@ function App() {
   const [browseLayout, setBrowseLayout] = useState<PluginBrowseLayout>('list')
   const [pluginMenu, setPluginMenu] = useState<{ plugin: Plugin; mouseX: number; mouseY: number } | null>(null)
   const [pluginDetail, setPluginDetail] = useState<Plugin | null>(null)
+  const [refreshingPluginId, setRefreshingPluginId] = useState<string | null>(null)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
   const [dragOverAfter, setDragOverAfter] = useState(false)
@@ -543,6 +544,59 @@ function App() {
       setToast(prev => ({ open: true, message: '恢复默认图标失败（详情见控制台）', key: prev.key + 1 }))
     }
   }, [pluginMenu, loadPlugins])
+
+  const refreshPlugin = useCallback(
+    async (plugin: Plugin) => {
+      if (loading) return
+      if (refreshingPluginId === plugin.id) return
+
+      setRefreshingPluginId(plugin.id)
+      try {
+        const { plugin: loaded, rejection } = await loadPluginById(plugin.id)
+        if (!loaded) {
+          const msg = rejection?.reason ? `刷新失败：${rejection.reason}` : '刷新失败（详情见控制台）'
+          setToast(prev => ({ open: true, message: msg, key: prev.key + 1 }))
+          return
+        }
+
+        const iconOverrides = await invoke<Record<string, string>>('get_plugin_icon_overrides').catch(() => ({} as Record<string, string>))
+        const icon = iconOverrides[plugin.id] || loaded.manifest.icon || plugin.icon || '📦'
+
+        const updated: Plugin = {
+          ...plugin,
+          name: loaded.manifest.name,
+          description: loaded.manifest.description,
+          icon,
+          keyword: loaded.manifest.keyword,
+          requires: loaded.manifest.requires,
+          backgroundCode: loaded.backgroundCode,
+          backgroundAutoStart: !!(loaded.manifest.background && loaded.manifest.background.autoStart !== false),
+          manifest: loaded.manifest,
+          component: loaded.component,
+        }
+
+        setAllPlugins(prev => {
+          const idx = prev.findIndex(p => p.id === plugin.id)
+          if (idx < 0) return prev
+          const next = prev.slice()
+          next[idx] = { ...updated, disabled: prev[idx].disabled }
+          return next
+        })
+
+        if (activePlugin?.id === plugin.id) {
+          setActivePlugin(prev => (prev?.id === plugin.id ? updated : prev))
+        }
+
+        setToast(prev => ({ open: true, message: `已刷新：${updated.name}`, key: prev.key + 1 }))
+      } catch (e) {
+        console.error('Failed to refresh plugin:', e)
+        setToast(prev => ({ open: true, message: '刷新失败（详情见控制台）', key: prev.key + 1 }))
+      } finally {
+        setRefreshingPluginId(null)
+      }
+    },
+    [activePlugin, loading, refreshingPluginId],
+  )
 
   const openPluginDetail = useCallback((plugin: Plugin) => {
     setPluginMenu(null)
@@ -1045,6 +1099,17 @@ function App() {
       anchorReference="anchorPosition"
       anchorPosition={pluginMenu ? { top: pluginMenu.mouseY, left: pluginMenu.mouseX } : { top: 0, left: 0 }}
     >
+      <MenuItem
+        disabled={loading || refreshingPluginId === pluginMenu?.plugin.id}
+        onClick={() => {
+          const plugin = pluginMenu?.plugin
+          if (!plugin) return
+          setPluginMenu(null)
+          void refreshPlugin(plugin)
+        }}
+      >
+        刷新
+      </MenuItem>
       <MenuItem
         onClick={() => {
           const plugin = pluginMenu?.plugin
