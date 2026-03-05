@@ -1061,6 +1061,25 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     return { chat, pendingChat, target }
   }
 
+  const mermaidFixWriteQueue = new Map<string, Promise<void>>()
+
+  function enqueueMermaidFixWrite(messageId, fn) {
+    const mid = String(messageId || '').trim()
+    if (!mid) return Promise.reject(new Error('未找到消息ID'))
+
+    const prev = mermaidFixWriteQueue.get(mid) || Promise.resolve()
+    const run = prev.catch(() => {}).then(fn)
+    const completion = run.then(
+      () => {},
+      () => {},
+    )
+    mermaidFixWriteQueue.set(mid, completion)
+    completion.finally(() => {
+      if (mermaidFixWriteQueue.get(mid) === completion) mermaidFixWriteQueue.delete(mid)
+    })
+    return run
+  }
+
   async function patchMessageContentSilent(messageId, content) {
     if (state.loading || !state.data) throw new Error('数据未加载')
     if (state.sending || state.sendingJobId) throw new Error('发送中，无法编辑')
@@ -1122,19 +1141,26 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
 
     const err = String(renderErrorMsg || '').trim()
     const userMessages = [`Mermaid 源码：\n${src}`, err ? `渲染错误信息：\n${err}` : ''].filter((x) => !!String(x || '').trim())
-    const reply = await requestOpenAiChatOnce({ providerId, modelId, systemPrompt, userMessages })
-    const fixed = extractMermaidCodeFromAiReply(reply)
-    if (!fixed.trim()) throw new Error('AI 未返回 Mermaid 代码')
 
-    const found = locateMessageInActiveChat(messageId)
-    if (!found) throw new Error('未找到该消息')
-    const raw = String(found.target?.content || '')
+    const fixedPromise = requestOpenAiChatOnce({ providerId, modelId, systemPrompt, userMessages }).then((reply) => {
+      const fixed = extractMermaidCodeFromAiReply(reply)
+      if (!fixed.trim()) throw new Error('AI 未返回 Mermaid 代码')
+      return fixed
+    })
 
-    const r = replaceMermaidFenceOnce(raw, src, fixed)
-    if (!r.replaced) throw new Error('未能在消息中定位原 Mermaid 代码块（可能内容已变）')
+    // 并行请求，按 messageId 串行落盘：避免同一条消息的多次替换互相覆盖/抢写。
+    return enqueueMermaidFixWrite(messageId, async () => {
+      const fixed = await fixedPromise
+      const found = locateMessageInActiveChat(messageId)
+      if (!found) throw new Error('未找到该消息')
 
-    await patchMessageContentSilent(messageId, r.text)
-    return fixed
+      const raw = String(found.target?.content || '')
+      const r = replaceMermaidFenceOnce(raw, src, fixed)
+      if (!r.replaced) throw new Error('未能在消息中定位原 Mermaid 代码块（可能内容已变）')
+
+      await patchMessageContentSilent(messageId, r.text)
+      return fixed
+    })
   }
 
   function limitHistory(messages, maxTurns) {
