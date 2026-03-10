@@ -781,6 +781,27 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     if (typeof role.modelRef.modelId !== 'string') role.modelRef.modelId = ''
   }
 
+
+  function normalizeChatModelOverride(chat) {
+    const c = chat && typeof chat === 'object' ? chat : null
+    const o = c && c.modelOverride && typeof c.modelOverride === 'object' ? c.modelOverride : null
+    const providerId = String(o?.providerId || '').trim()
+    const modelId = String(o?.modelId || '').trim()
+    if (!providerId || !modelId) return null
+    return { providerId, modelId }
+  }
+
+  function pickChatModelRef(role, chat) {
+    const o = normalizeChatModelOverride(chat)
+    if (o) {
+      const p0 = getProvider(o.providerId)
+      if (p0) return { providerId: o.providerId, modelId: o.modelId, overridden: true }
+    }
+    const providerId = String(role?.modelRef?.providerId || '').trim()
+    const modelId = String(role?.modelRef?.modelId || '').trim()
+    return { providerId, modelId, overridden: false }
+  }
+
   function loadScriptOnce(url, globalName) {
     return new Promise((resolve, reject) => {
       if (globalName && window[globalName]) return resolve(true)
@@ -1455,8 +1476,12 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     const draftImages = Array.isArray(state.draft.images) ? state.draft.images : []
     if (!input && !draftImages.length) return api.ui?.showToast?.('输入不能为空')
 
-    const providerId = String(role.modelRef?.providerId || '')
-    const modelId = String(role.modelRef?.modelId || '').trim()
+    const rid = String(role.id || '')
+    const chatForModel = state.pendingChat && String(state.pendingChat.roleId || '') === rid ? null : activeChatFromData()
+    const picked = pickChatModelRef(role, chatForModel)
+
+    const providerId = String(picked.providerId || '')
+    const modelId = String(picked.modelId || '').trim()
     const p = getProvider(providerId)
     if (!p) return api.ui?.showToast?.('未找到该供应商')
 
@@ -1465,9 +1490,10 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
 
     if (!isHttpBaseUrl(baseUrl)) return api.ui?.showToast?.('请在供应商设置里配置 Base URL（http/https）')
     if (!apiKey) return api.ui?.showToast?.('请在供应商设置里配置 API Key')
-    if (!modelId) return api.ui?.showToast?.('请在角色设置里选择模型（供应商 + 模型ID）')
+    if (!modelId) {
+      return api.ui?.showToast?.(picked.overridden ? '请先为“当前会话临时模型”选择模型ID' : '请在角色设置里选择模型（供应商 + 模型ID）')
+    }
 
-    const rid = String(role.id || '')
     let chat = null
 
     let assistantMid = ''
@@ -1614,8 +1640,9 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     const mid = String(assistantMid || '').trim()
     if (!mid) return
 
-    const providerId = String(role.modelRef?.providerId || '')
-    const modelId = String(role.modelRef?.modelId || '').trim()
+    const picked = pickChatModelRef(role, chat)
+    const providerId = String(picked.providerId || '')
+    const modelId = String(picked.modelId || '').trim()
     const p = getProvider(providerId)
     if (!p) return api.ui?.showToast?.('未找到该供应商')
 
@@ -1623,7 +1650,9 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     const apiKey = String(p.apiKey || '').trim()
     if (!isHttpBaseUrl(baseUrl)) return api.ui?.showToast?.('请在供应商设置里配置 Base URL（http/https）')
     if (!apiKey) return api.ui?.showToast?.('请在供应商设置里配置 API Key')
-    if (!modelId) return api.ui?.showToast?.('请在角色设置里选择模型（供应商 + 模型ID）')
+    if (!modelId) {
+      return api.ui?.showToast?.(picked.overridden ? '请先为“当前会话临时模型”选择模型ID' : '请在角色设置里选择模型（供应商 + 模型ID）')
+    }
 
     try {
       state.sending = true
@@ -1702,8 +1731,9 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     const mid = String(userMid || '').trim()
     if (!mid) return
 
-    const providerId = String(role.modelRef?.providerId || '')
-    const modelId = String(role.modelRef?.modelId || '').trim()
+    const picked = pickChatModelRef(role, chat)
+    const providerId = String(picked.providerId || '')
+    const modelId = String(picked.modelId || '').trim()
     const p = getProvider(providerId)
     if (!p) return api.ui?.showToast?.('未找到该供应商')
 
@@ -1711,7 +1741,9 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     const apiKey = String(p.apiKey || '').trim()
     if (!isHttpBaseUrl(baseUrl)) return api.ui?.showToast?.('请在供应商设置里配置 Base URL（http/https）')
     if (!apiKey) return api.ui?.showToast?.('请在供应商设置里配置 API Key')
-    if (!modelId) return api.ui?.showToast?.('请在角色设置里选择模型（供应商 + 模型ID）')
+    if (!modelId) {
+      return api.ui?.showToast?.(picked.overridden ? '请先为“当前会话临时模型”选择模型ID' : '请在角色设置里选择模型（供应商 + 模型ID）')
+    }
 
     let assistantMid = ''
     try {
@@ -2001,9 +2033,20 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     if (!role.modelRef.providerId) role.modelRef.providerId = fallbackPid
     if (typeof role.modelRef.modelId !== 'string') role.modelRef.modelId = ''
 
-    const providerId = String(role.modelRef?.providerId || '')
-    const modelId = String(role.modelRef?.modelId || '').trim()
-    const p = (Array.isArray(d?.settings?.providers) ? d.settings.providers : []).find((x) => String(x?.id || '') === providerId) || null
+    const providers = Array.isArray(d?.settings?.providers) ? d.settings.providers : []
+
+    let providerId = String(role.modelRef?.providerId || '')
+    let modelId = String(role.modelRef?.modelId || '').trim()
+    const o = normalizeChatModelOverride(chat)
+    if (o) {
+      const p0 = providers.find((x) => String(x?.id || '') === o.providerId) || null
+      if (p0) {
+        providerId = o.providerId
+        modelId = o.modelId
+      }
+    }
+
+    const p = providers.find((x) => String(x?.id || '') === providerId) || null
     if (!p) throw new Error('供应商不存在')
 
     const baseUrl = trimSlash(p.baseUrl || '')
@@ -4145,6 +4188,39 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
       },
       regenerateAssistant: (assistantMid) => regenerateAssistantMessage(String(assistantMid || '')),
       replyFromUserMessage: (userMid) => replyFromUserMessage(String(userMid || '')),
+      setChatModelOverride: (providerId, modelId) => {
+        if (!state.data) return
+        const role = activeRole()
+        const chat = activeChatFromData()
+        if (!role || !chat) return
+
+        const pid = String(providerId || '').trim()
+        const mid = String(modelId || '').trim()
+        if (!pid || !mid) return api.ui?.showToast?.('供应商/模型 不能为空')
+
+        const p = getProvider(pid)
+        if (!p) return api.ui?.showToast?.('未找到该供应商')
+
+        chat.modelOverride = { providerId: pid, modelId: mid }
+        chat.updatedAt = now()
+        save().catch(() => {})
+        emit()
+        api.ui?.showToast?.('已设置当前会话临时模型')
+      },
+      clearChatModelOverride: () => {
+        if (!state.data) return
+        const chat = activeChatFromData()
+        if (!chat) return
+        try {
+          delete chat.modelOverride
+        } catch (_e) {
+          chat.modelOverride = null
+        }
+        chat.updatedAt = now()
+        save().catch(() => {})
+        emit()
+        api.ui?.showToast?.('已清除当前会话临时模型')
+      },
       deleteMessage: (messageId) => deleteMessage(String(messageId || '')),
       editMessage: (messageId, content) => editMessage(String(messageId || ''), content),
     },

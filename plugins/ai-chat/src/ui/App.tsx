@@ -581,6 +581,10 @@ export function AiChatApp(props: { controller: any }) {
 
   const [rolePickerEl, setRolePickerEl] = React.useState<HTMLElement | null>(null)
   const [chatPickerEl, setChatPickerEl] = React.useState<HTMLElement | null>(null)
+  const [tempModelPickerEl, setTempModelPickerEl] = React.useState<HTMLElement | null>(null)
+  const [tempModelProviderId, setTempModelProviderId] = React.useState('')
+  const [tempModelPick, setTempModelPick] = React.useState('')
+  const [tempCustomModelId, setTempCustomModelId] = React.useState('')
   const [stickerPickerEl, setStickerPickerEl] = React.useState<HTMLElement | null>(null)
   const [stickerCategory, setStickerCategory] = React.useState('')
   const [stickerFilter, setStickerFilter] = React.useState('')
@@ -624,6 +628,18 @@ export function AiChatApp(props: { controller: any }) {
   const lastMsgId = String(lastMsg?.id || '')
   const lastMsgText = String(lastMsg?.content || '')
   const isReplying = Array.isArray(activeChat?.messages) && activeChat.messages.some((m: any) => m && m.role === 'assistant' && m.pending)
+  const chatOverride = (activeChat && typeof activeChat === 'object' ? (activeChat as any).modelOverride : null) as any
+  const overrideProviderId = String(chatOverride?.providerId || '').trim()
+  const overrideModelId = String(chatOverride?.modelId || '').trim()
+  const hasChatOverride = !!overrideProviderId && !!overrideModelId
+
+  const roleProviderId = String((activeRole as any)?.modelRef?.providerId || '').trim()
+  const roleModelId = String((activeRole as any)?.modelRef?.modelId || '').trim()
+
+  const effectiveProviderId = hasChatOverride ? overrideProviderId : roleProviderId
+  const effectiveModelId = hasChatOverride ? overrideModelId : roleModelId
+
+  const modelLoading = !!(s as any)?.models?.loading
   const uiBusy = !!s.sending
   const chatLocked = isReplying
 
@@ -717,6 +733,52 @@ export function AiChatApp(props: { controller: any }) {
   const onPickImages = useEvent(() => controller.actions.pickImages())
   const openStickerPicker = useEvent((e: React.MouseEvent<HTMLElement>) => setStickerPickerEl(e.currentTarget))
   const closeStickerPicker = useEvent(() => setStickerPickerEl(null))
+  const closeTempModelPicker = useEvent(() => setTempModelPickerEl(null))
+  const openTempModelPicker = useEvent((e: React.MouseEvent<HTMLElement>) => {
+    if (!activeRole) return
+    if (!providers.length) return controller?.api?.ui?.showToast?.('暂无供应商')
+
+    const pid0 = effectiveProviderId || String((providers[0] as any)?.id || '')
+    const mid0 = effectiveModelId || ''
+
+    const pid = String(pid0 || '').trim()
+    const mid = String(mid0 || '').trim()
+
+    setTempModelProviderId(pid)
+
+    const p = providers.find((x: any) => String(x?.id || '') === pid) || null
+    const items = Array.isArray(p?.modelsCache?.items) ? (p.modelsCache.items as any[]).map((x) => String(x)) : []
+    const inList = !!mid && items.some((x: string) => x === mid)
+
+    setTempModelPick(inList ? mid : mid ? '__custom__' : '')
+    setTempCustomModelId(inList ? '' : mid)
+    setTempModelPickerEl(e.currentTarget)
+  })
+
+  const onTempProviderChanged = useEvent((nextProviderId: string) => {
+    const pid = String(nextProviderId || '').trim()
+    setTempModelProviderId(pid)
+    setTempModelPick('')
+    setTempCustomModelId('')
+  })
+
+  const saveTempModelOverride = useEvent(() => {
+    const pid = String(tempModelProviderId || '').trim()
+    let mid = String(tempModelPick || '').trim()
+    if (mid === '__custom__') mid = String(tempCustomModelId || '').trim()
+
+    if (!pid) return controller?.api?.ui?.showToast?.('请选择供应商')
+    if (!mid) return controller?.api?.ui?.showToast?.('请选择模型')
+
+    controller.actions.setChatModelOverride?.(pid, mid)
+    closeTempModelPicker()
+  })
+
+  const clearTempModelOverride = useEvent(() => {
+    controller.actions.clearChatModelOverride?.()
+    closeTempModelPicker()
+  })
+
 
   const insertStickerToken = useEvent((category: string, name: string) => {
     const cat = String(category || '').trim()
@@ -1683,6 +1745,27 @@ export function AiChatApp(props: { controller: any }) {
                     </span>
                   </Tooltip>
 
+
+                  <Tooltip title="临时切换模型">
+                    <span>
+                      <IconButton
+                        aria-label="临时切换模型"
+                        onClick={openTempModelPicker}
+                        disabled={s.loading || uiBusy || chatLocked || !activeRole || !providers.length}
+                        size="small"
+                        sx={{
+                          bgcolor: 'rgba(0,0,0,.05)',
+                          borderRadius: '999px',
+                          width: 36,
+                          height: 36,
+                          '&:hover': { bgcolor: 'rgba(0,0,0,.09)' },
+                        }}
+                      >
+                        <StorageIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+
                   <Tooltip title={!stickersEnabled ? '请先在设置里启用表情包渲染' : !stickerCategories.length ? '暂无表情包分类' : '表情包'}>
                     <span>
                       <IconButton
@@ -1740,9 +1823,128 @@ export function AiChatApp(props: { controller: any }) {
                     </Button>
                   )}
                 </Stack>
+
+                {hasChatOverride ? (
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ px: 0.5 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ flex: 1, minWidth: 0 }} noWrap>
+                      {`临时模型：${overrideProviderId}${overrideModelId ? ` / ${overrideModelId}` : ''}`}
+                    </Typography>
+
+                    <Button size="small" variant="text" onClick={() => controller.actions.clearChatModelOverride?.()} disabled={s.loading || uiBusy || chatLocked}>
+                      清除
+                    </Button>
+                  </Stack>
+                ) : null}
               </Stack>
             </Box>
         </Box>
+
+        <Popover
+          open={!!tempModelPickerEl}
+          anchorEl={tempModelPickerEl}
+          onClose={closeTempModelPicker}
+          anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+          transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        >
+          <Box data-area="temp-model" sx={{ width: 420, p: 1.5 }}>
+            <Stack spacing={1.25}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+                  当前会话临时模型
+                </Typography>
+                <Box sx={{ flex: 1 }} />
+                <Button size="small" onClick={closeTempModelPicker}>
+                  关闭
+                </Button>
+              </Stack>
+
+              <Typography variant="caption" color="text.secondary">
+                仅影响当前会话；不修改角色设置。
+              </Typography>
+
+              <FormControl size="small" fullWidth>
+                <InputLabel id="chat-override-provider">供应商</InputLabel>
+                <Select
+                  labelId="chat-override-provider"
+                  label="供应商"
+                  value={String(tempModelProviderId || '')}
+                  onChange={(e) => onTempProviderChanged(String(e.target.value || ''))}
+                  disabled={s.loading || uiBusy || chatLocked || !providers.length}
+                >
+                  {providers.map((pp: any) => (
+                    <MenuItem key={String(pp?.id || '')} value={String(pp?.id || '')}>
+                      {String(pp?.name || '')}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {(() => {
+                const pid = String(tempModelProviderId || '')
+                const p = providers.find((x: any) => String(x?.id || '') === pid) || null
+                const items = Array.isArray(p?.modelsCache?.items) ? (p.modelsCache.items as any[]).map((x) => String(x)) : []
+
+                return (
+                  <Stack spacing={1}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <FormControl size="small" fullWidth>
+                        <InputLabel id="chat-override-model">模型</InputLabel>
+                        <Select
+                          labelId="chat-override-model"
+                          label="模型"
+                          value={String(tempModelPick || '')}
+                          onChange={(e) => setTempModelPick(String(e.target.value || ''))}
+                          disabled={s.loading || uiBusy || chatLocked || !pid}
+                        >
+                          <MenuItem value="">
+                            <em>请选择…</em>
+                          </MenuItem>
+                          {items.map((id: string) => (
+                            <MenuItem key={id} value={id}>
+                              {id}
+                            </MenuItem>
+                          ))}
+                          <MenuItem value="__custom__">自定义模型ID…</MenuItem>
+                        </Select>
+                      </FormControl>
+
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<RefreshIcon />}
+                        onClick={() => controller.actions.refreshModels(pid, true)}
+                        disabled={!pid || modelLoading || s.loading || uiBusy || chatLocked}
+                        sx={{ whiteSpace: 'nowrap' }}
+                      >
+                        {modelLoading ? '刷新中…' : '刷新'}
+                      </Button>
+                    </Stack>
+
+                    {String(tempModelPick || '') === '__custom__' ? (
+                      <TextField
+                        size="small"
+                        label="自定义模型ID"
+                        value={String(tempCustomModelId || '')}
+                        onChange={(e) => setTempCustomModelId(e.target.value)}
+                        placeholder="例如：gpt-4.1-mini / deepseek-chat"
+                        fullWidth
+                      />
+                    ) : null}
+                  </Stack>
+                )
+              })()}
+
+              <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center">
+                <Button variant="text" onClick={clearTempModelOverride} disabled={!hasChatOverride || s.loading || uiBusy || chatLocked}>
+                  清除临时模型（跟随角色）
+                </Button>
+                <Button variant="contained" onClick={saveTempModelOverride} disabled={s.loading || uiBusy || chatLocked || !tempModelProviderId}>
+                  保存
+                </Button>
+              </Stack>
+            </Stack>
+          </Box>
+        </Popover>
 
         <Popover
           open={!!rolePickerEl}
