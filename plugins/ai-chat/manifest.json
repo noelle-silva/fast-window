@@ -18,6 +18,7 @@
     "ui.showToast",
     "ui.startDragging",
     "clipboard.writeText",
+    "clipboard.readImage",
     "files.pickImages",
     "files.images.writeBase64",
     "files.images.read",

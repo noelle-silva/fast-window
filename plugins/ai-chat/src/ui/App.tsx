@@ -41,6 +41,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import HistoryIcon from '@mui/icons-material/History'
 import ImageIcon from '@mui/icons-material/Image'
+import EmojiEmotionsIcon from '@mui/icons-material/EmojiEmotions'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import SettingsIcon from '@mui/icons-material/Settings'
 import StorageIcon from '@mui/icons-material/Storage'
@@ -52,6 +53,7 @@ import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
 
 function useAiChatState(controller: any) {
   React.useSyncExternalStore(
@@ -381,6 +383,120 @@ function RefImageThumb(props: { controller: any; path: string }) {
   )
 }
 
+const stickerSrcCache = new Map<string, string>()
+
+function StickerInlineImage(props: { controller: any; path: string; label: string; size?: number }) {
+  const { controller, path, label, size } = props
+  const [src, setSrc] = React.useState('')
+
+  React.useEffect(() => {
+    const p = String(path || '').trim()
+    if (!p) return
+
+    const cached = stickerSrcCache.get(p)
+    if (typeof cached === 'string' && cached) {
+      setSrc(cached)
+      return
+    }
+
+    let alive = true
+    const api = controller?.api
+    if (!api?.files?.images?.read) return
+
+    api.files.images
+      .read({ scope: 'data', path: p })
+      .then((url: string) => {
+        if (!alive) return
+        const u = String(url || '')
+        if (u.startsWith('data:')) stickerSrcCache.set(p, u)
+        setSrc(u)
+      })
+      .catch(() => {})
+
+    return () => {
+      alive = false
+    }
+  }, [controller, path])
+
+  const s = clampNum(Number(size || 90), 32, 240)
+
+  return (
+    <Box
+      component="img"
+      data-fw-img="1"
+      src={src || undefined}
+      alt={label || 'sticker'}
+      sx={{
+        width: s,
+        height: s,
+        objectFit: 'contain',
+        display: 'inline-block',
+        verticalAlign: 'middle',
+        borderRadius: 12,
+        border: '1px solid',
+        borderColor: 'divider',
+        bgcolor: 'action.hover',
+        cursor: 'zoom-in',
+      }}
+    />
+  )
+}
+
+type StickerSeg =
+  | { kind: 'text'; text: string }
+  | { kind: 'sticker'; raw: string; category: string; name: string }
+
+function splitStickerSegments(input: string): StickerSeg[] {
+  const s = String(input || '')
+  if (!s) return [{ kind: 'text', text: '' }]
+
+  const out: StickerSeg[] = []
+  const re = /\[\[\s*(?:sticker|表情包)\s*:\s*([^\]\n]{1,220}?)\s*\]\]/g
+  let last = 0
+  let m: RegExpExecArray | null = null
+
+  while ((m = re.exec(s))) {
+    const idx = m.index
+    const full = String(m[0] || '')
+    const inner = String(m[1] || '').trim().replace(/\\/g, '/')
+
+    if (idx > last) out.push({ kind: 'text', text: s.slice(last, idx) })
+
+    const parts = inner
+      .split('/')
+      .map((x) => String(x || '').trim())
+      .filter((x) => !!x)
+    if (parts.length === 2) {
+      out.push({ kind: 'sticker', raw: full, category: parts[0], name: parts[1] })
+    } else {
+      out.push({ kind: 'text', text: full })
+    }
+
+    last = idx + full.length
+  }
+
+  if (last < s.length) out.push({ kind: 'text', text: s.slice(last) })
+  return out.length ? out : [{ kind: 'text', text: s }]
+}
+
+function StickerText(props: { controller: any; text: string; stickerMap: any }) {
+  const { controller, text, stickerMap } = props
+  const segs = React.useMemo(() => splitStickerSegments(String(text || '')), [text])
+
+  return (
+    <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+      {segs.map((seg, i) => {
+        if (seg.kind === 'text') return <React.Fragment key={i}>{seg.text}</React.Fragment>
+        const cat = String(seg.category || '').trim()
+        const name = String(seg.name || '').trim()
+        const relPath = stickerMap && typeof stickerMap === 'object' ? String(stickerMap?.[cat]?.[name]?.relPath || '') : ''
+        if (!relPath) return <React.Fragment key={i}>{seg.raw}</React.Fragment>
+        return <StickerInlineImage key={i} controller={controller} path={relPath} label={`${cat}/${name}`} />
+      })}
+    </Typography>
+  )
+}
+
 export function AiChatApp(props: { controller: any }) {
   const { controller } = props
   const s = useAiChatState(controller)
@@ -410,6 +526,9 @@ export function AiChatApp(props: { controller: any }) {
   const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
   const userMessageCollapseEnabled = !!data?.settings?.userMessageCollapseEnabled
   const userMessageCollapseLines = clampNum(Number(data?.settings?.userMessageCollapseLines ?? 8), 1, 50)
+  const stickersEnabled = !!data?.settings?.stickers?.enabled
+  const stickerMap = data?.settings?.stickers?.map
+  const stickerCategories = Array.isArray(data?.settings?.stickers?.categories) ? data.settings.stickers.categories : []
   const bgAlpha = transparentChatBg ? Math.max(chatBgOpacity / 100, chatBgBlur > 0 ? 0.01 : 0) : 1
 
   const activeRole = controller.activeRole()
@@ -437,7 +556,7 @@ export function AiChatApp(props: { controller: any }) {
   const [composerHeight, setComposerHeight] = React.useState(0)
 
   const [page, setPage] = React.useState<'chat' | 'settings'>('chat')
-  const [settingsTab, setSettingsTab] = React.useState<'appearance' | 'roles' | 'providers' | 'services'>('roles')
+  const [settingsTab, setSettingsTab] = React.useState<'appearance' | 'roles' | 'providers' | 'services' | 'stickers'>('roles')
 
   const [expandedUserMsgIds, setExpandedUserMsgIds] = React.useState(() => new Set<string>())
 
@@ -462,6 +581,17 @@ export function AiChatApp(props: { controller: any }) {
 
   const [rolePickerEl, setRolePickerEl] = React.useState<HTMLElement | null>(null)
   const [chatPickerEl, setChatPickerEl] = React.useState<HTMLElement | null>(null)
+  const [stickerPickerEl, setStickerPickerEl] = React.useState<HTMLElement | null>(null)
+  const [stickerCategory, setStickerCategory] = React.useState('')
+  const [stickerFilter, setStickerFilter] = React.useState('')
+  const composerInputRef = React.useRef<HTMLTextAreaElement | HTMLInputElement | null>(null)
+
+  React.useEffect(() => {
+    const cats = Array.isArray(stickerCategories) ? stickerCategories : []
+    const cur = String(stickerCategory || '')
+    if (cur && cats.includes(cur)) return
+    setStickerCategory(cats.length ? String(cats[0] || '') : '')
+  }, [stickerCategories, stickerCategory])
 
   const backToHost = useEvent(() => {
     const ui = controller?.api?.ui
@@ -585,6 +715,38 @@ export function AiChatApp(props: { controller: any }) {
   })
   const onStop = useEvent(() => controller.actions.stop?.())
   const onPickImages = useEvent(() => controller.actions.pickImages())
+  const openStickerPicker = useEvent((e: React.MouseEvent<HTMLElement>) => setStickerPickerEl(e.currentTarget))
+  const closeStickerPicker = useEvent(() => setStickerPickerEl(null))
+
+  const insertStickerToken = useEvent((category: string, name: string) => {
+    const cat = String(category || '').trim()
+    const nm = String(name || '').trim()
+    if (!cat || !nm) return
+
+    const token = `[[sticker:${cat}/${nm}]]`
+    const cur = String(s.draft?.input || '')
+
+    const el = composerInputRef.current as any
+    const hasSel = el && typeof el.selectionStart === 'number' && typeof el.selectionEnd === 'number'
+    if (!hasSel) {
+      const sep = cur && !/\s$/.test(cur) ? ' ' : ''
+      controller.actions.setDraft('input', cur + sep + token)
+      return
+    }
+
+    const start = clampNum(Number(el.selectionStart || 0), 0, cur.length)
+    const end = clampNum(Number(el.selectionEnd || 0), 0, cur.length)
+    const next = cur.slice(0, start) + token + cur.slice(end)
+    controller.actions.setDraft('input', next)
+
+    requestAnimationFrame(() => {
+      try {
+        el.focus?.()
+        const pos = start + token.length
+        el.setSelectionRange?.(pos, pos)
+      } catch (_) {}
+    })
+  })
   const [regen, setRegen] = React.useState<{ mid: string; role: 'assistant' | 'user' }>({ mid: '', role: 'assistant' })
   const [msgMenu, setMsgMenu] = React.useState<{ mid: string; role: 'user' | 'assistant'; x: number; y: number; pending: boolean }>({
     mid: '',
@@ -663,7 +825,7 @@ export function AiChatApp(props: { controller: any }) {
     closeChatMenu()
   })
 
-  const openPluginSettings = useEvent((tab: 'appearance' | 'roles' | 'providers' = 'roles') => {
+  const openPluginSettings = useEvent((tab: 'appearance' | 'roles' | 'providers' | 'services' | 'stickers' = 'roles') => {
     setRolePickerEl(null)
     setChatPickerEl(null)
     setSettingsTab(tab)
@@ -799,6 +961,8 @@ export function AiChatApp(props: { controller: any }) {
             borderRadius: 12,
           },
           '.prose img': { maxWidth: '100%', height: 'auto' },
+          '.prose img.fw-sticker': { maxWidth: 160, maxHeight: 160, width: 'auto', height: 'auto', display: 'inline-block', verticalAlign: 'middle', borderRadius: 12 },
+          '.prose .fw-sticker-miss': { color: 'rgba(0,0,0,.55)' },
           '.prose table': {
             borderCollapse: 'collapse',
             width: '100%',
@@ -999,6 +1163,14 @@ export function AiChatApp(props: { controller: any }) {
                    sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
                  >
                    AI 微服务
+                 </Button>
+                 <Button
+                   size="small"
+                   variant={settingsTab === 'stickers' ? 'contained' : 'outlined'}
+                   onClick={() => setSettingsTab('stickers')}
+                   sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
+                 >
+                   表情包
                  </Button>
                </>
               ) : (
@@ -1230,7 +1402,11 @@ export function AiChatApp(props: { controller: any }) {
                             />
                           ) : isUser ? (
                             <Box>
-                              <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{shownContent}</Typography>
+                              {stickersEnabled ? (
+                                <StickerText controller={controller} text={shownContent} stickerMap={stickerMap} />
+                              ) : (
+                                <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{shownContent}</Typography>
+                              )}
                               {canCollapse ? (
                                 <Box sx={{ textAlign: 'right' }}>
                                   <Button
@@ -1507,6 +1683,26 @@ export function AiChatApp(props: { controller: any }) {
                     </span>
                   </Tooltip>
 
+                  <Tooltip title={!stickersEnabled ? '请先在设置里启用表情包渲染' : !stickerCategories.length ? '暂无表情包分类' : '表情包'}>
+                    <span>
+                      <IconButton
+                        aria-label="表情包"
+                        onClick={openStickerPicker}
+                        disabled={s.loading || uiBusy || chatLocked || !activeRole || !stickersEnabled || !stickerCategories.length}
+                        size="small"
+                        sx={{
+                          bgcolor: 'rgba(0,0,0,.05)',
+                          borderRadius: '999px',
+                          width: 36,
+                          height: 36,
+                          '&:hover': { bgcolor: 'rgba(0,0,0,.09)' },
+                        }}
+                      >
+                        <EmojiEmotionsIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+
                   <TextField
                     fullWidth
                     multiline
@@ -1515,6 +1711,9 @@ export function AiChatApp(props: { controller: any }) {
                     variant="outlined"
                     placeholder="输入消息…（Enter 发送 / Shift+Enter 换行；支持粘贴图片）"
                     value={String(s.draft?.input || '')}
+                    inputRef={(el) => {
+                      composerInputRef.current = el as any
+                    }}
                     onChange={(e) => controller.actions.setDraft('input', e.target.value)}
                     onKeyDown={onKeyDown}
                     onPaste={onPaste}
@@ -1714,6 +1913,91 @@ export function AiChatApp(props: { controller: any }) {
         </Popover>
 
         <Popover
+          open={!!stickerPickerEl}
+          anchorEl={stickerPickerEl}
+          onClose={closeStickerPicker}
+          anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+          transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        >
+          <Box sx={{ width: 420, maxHeight: '70vh', overflowY: 'auto', p: 1.5 }}>
+            <Stack spacing={1.25}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+                  表情包
+                </Typography>
+                <Box sx={{ flex: 1 }} />
+                <Button size="small" onClick={() => openPluginSettings('stickers')}>
+                  去管理
+                </Button>
+              </Stack>
+
+              {!stickersEnabled ? (
+                <Typography variant="body2" color="text.secondary">
+                  请先在设置里启用表情包渲染。
+                </Typography>
+              ) : !stickerCategories.length ? (
+                <Typography variant="body2" color="text.secondary">
+                  还没有分类。请先在设置里添加。
+                </Typography>
+              ) : (
+                <>
+                  <FormControl size="small" fullWidth>
+                    <InputLabel id="sticker-cat">分类</InputLabel>
+                    <Select
+                      labelId="sticker-cat"
+                      value={String(stickerCategory || '')}
+                      label="分类"
+                      onChange={(e) => setStickerCategory(String(e.target.value || ''))}
+                    >
+                      {stickerCategories.map((c: string) => (
+                        <MenuItem key={String(c || '')} value={String(c || '')}>
+                          {String(c || '')}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+
+                  <TextField size="small" label="搜索" value={stickerFilter} onChange={(e) => setStickerFilter(e.target.value)} placeholder="输入表情名…" fullWidth />
+
+                  {(() => {
+                    const box = stickerMap && typeof stickerMap === 'object' ? stickerMap?.[String(stickerCategory || '')] : null
+                    const names = box && typeof box === 'object' ? Object.keys(box).map((x) => String(x || '')).filter((x) => !!x) : []
+                    const q = String(stickerFilter || '').trim().toLowerCase()
+                    const filtered = q ? names.filter((n) => n.toLowerCase().includes(q)) : names
+                    filtered.sort((a, b) => a.localeCompare(b))
+
+                    if (!filtered.length) {
+                      return (
+                        <Typography variant="body2" color="text.secondary">
+                          这个分类还没有表情包。
+                        </Typography>
+                      )
+                    }
+
+                    return (
+                      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                        {filtered.slice(0, 200).map((name) => (
+                          <Chip
+                            key={name}
+                            label={name}
+                            onClick={() => {
+                              insertStickerToken(String(stickerCategory || ''), name)
+                              closeStickerPicker()
+                            }}
+                            clickable
+                            sx={{ maxWidth: '100%' }}
+                          />
+                        ))}
+                      </Stack>
+                    )
+                  })()}
+                </>
+              )}
+            </Stack>
+          </Box>
+        </Popover>
+
+        <Popover
           open={!!chatMenu.chatId}
           onClose={closeChatMenu}
           anchorReference="anchorPosition"
@@ -1849,6 +2133,361 @@ export function AiChatApp(props: { controller: any }) {
   )
 }
 
+function StickersSettingsPanel(props: { controller: any; loading: boolean; data: any }) {
+  const { controller, loading, data } = props
+  const api = controller?.api
+
+  const cfg = data?.settings?.stickers && typeof data.settings.stickers === 'object' ? data.settings.stickers : {}
+  const enabled = !!cfg.enabled
+  const categories = Array.isArray(cfg.categories) ? (cfg.categories as any[]).map((x) => String(x || '')).filter((x) => !!x) : []
+  const stickerMap = cfg.map && typeof cfg.map === 'object' ? cfg.map : {}
+
+  const [cat, setCat] = React.useState('')
+  const [filter, setFilter] = React.useState('')
+  const [confirmDelCat, setConfirmDelCat] = React.useState('')
+  const [catMenuEl, setCatMenuEl] = React.useState<HTMLElement | null>(null)
+  const [createCat, setCreateCat] = React.useState<{ open: boolean; name: string }>({ open: false, name: '' })
+  const [rename, setRename] = React.useState<{ open: boolean; oldName: string; nextName: string }>({
+    open: false,
+    oldName: '',
+    nextName: '',
+  })
+  const [paste, setPaste] = React.useState<{ open: boolean; dataUrl: string; name: string }>({ open: false, dataUrl: '', name: '' })
+
+  React.useEffect(() => {
+    const cur = String(cat || '')
+    if (cur && categories.includes(cur)) return
+    setCat(categories.length ? categories[0] : '')
+  }, [categories, cat])
+
+  // 注意：stickerMap 内部会“就地修改”，object 引用可能不变；这里不要 useMemo，否则 UI 会卡在旧列表。
+  const names = (() => {
+    const box = stickerMap && typeof stickerMap === 'object' ? (stickerMap as any)[String(cat || '')] : null
+    const list = box && typeof box === 'object' ? Object.keys(box).map((x) => String(x || '')).filter((x) => !!x) : []
+    const q = String(filter || '').trim().toLowerCase()
+    const filtered = q ? list.filter((n) => n.toLowerCase().includes(q)) : list
+    filtered.sort((a, b) => a.localeCompare(b))
+    return filtered
+  })()
+
+  const tokenFor = (category: string, name: string) => `[[sticker:${String(category || '')}/${String(name || '')}]]`
+
+  const openCatMenu = useEvent((e: React.MouseEvent<HTMLElement>) => setCatMenuEl(e.currentTarget))
+  const closeCatMenu = useEvent(() => setCatMenuEl(null))
+
+  const openCreateCat = useEvent(() => {
+    closeCatMenu()
+    setCreateCat({ open: true, name: '' })
+  })
+
+  const closeCreateCat = useEvent(() => setCreateCat({ open: false, name: '' }))
+
+  const onConfirmCreateCat = useEvent(() => {
+    const name = String(createCat.name || '').trim()
+    if (!name) return api?.ui?.showToast?.('请输入分类名')
+    closeCreateCat()
+    controller.actions.createStickerCategory?.(name)
+  })
+
+  const onPickImages = useEvent(async () => {
+    if (!cat) return api?.ui?.showToast?.('请先选择分类')
+    if (!api?.files?.pickImages) return api?.ui?.showToast?.('未授权：files.pickImages')
+    try {
+      const items = await api.files.pickImages(30)
+      await controller.actions.addStickersFromPickedImages?.(cat, items)
+    } catch (e) {
+      api?.ui?.showToast?.(String((e as any)?.message || e || '选择图片失败'))
+    }
+  })
+
+  const onPaste = useEvent(async () => {
+    if (!cat) return api?.ui?.showToast?.('请先选择分类')
+    const readImage = api?.clipboard?.readImage
+    if (typeof readImage !== 'function') return api?.ui?.showToast?.('未授权：clipboard.readImage')
+    const dataUrl = await readImage().catch(() => null)
+    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) return api?.ui?.showToast?.('剪贴板里没有图片')
+    setPaste({ open: true, dataUrl, name: '' })
+  })
+
+  const onConfirmPaste = useEvent(async () => {
+    const name = String(paste.name || '').trim()
+    if (!name) return api?.ui?.showToast?.('请输入表情名')
+    const dataUrl = String(paste.dataUrl || '')
+    setPaste({ open: false, dataUrl: '', name: '' })
+    await controller.actions.addSticker?.(cat, name, dataUrl)
+  })
+
+  const onOpenRename = useEvent((oldName: string) => {
+    const n = String(oldName || '').trim()
+    if (!n) return
+    setRename({ open: true, oldName: n, nextName: n })
+  })
+
+  const onConfirmRename = useEvent(() => {
+    if (!rename.open) return
+    const oldName = String(rename.oldName || '').trim()
+    const nextName = String(rename.nextName || '').trim()
+    setRename({ open: false, oldName: '', nextName: '' })
+    if (!cat || !oldName || !nextName) return
+    controller.actions.renameSticker?.(cat, oldName, nextName)
+  })
+
+  const box = stickerMap && typeof stickerMap === 'object' ? (stickerMap as any)[String(cat || '')] : null
+
+  return (
+    <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
+      <Paper variant="outlined" sx={{ p: 1.5 }}>
+        <Stack spacing={1.5}>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography sx={{ fontWeight: 900 }}>表情包</Typography>
+            <Box sx={{ flex: 1 }} />
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <Switch size="small" checked={enabled} onChange={() => controller.actions.toggleStickersEnabled?.()} />
+              <Typography variant="body2" color="text.secondary">
+                渲染
+              </Typography>
+            </Stack>
+          </Stack>
+          <Divider />
+
+          <Typography variant="caption" color="text.secondary">
+            协议：在消息中写 {tokenFor('分类', '名称')}，客户端会按“分类+名称”查表渲染为本地图片（不需要后缀）。
+          </Typography>
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+            <FormControl size="small" fullWidth>
+              <InputLabel id="sticker-cat-settings">分类</InputLabel>
+              <Select
+                labelId="sticker-cat-settings"
+                value={String(cat || '')}
+                label="分类"
+                onChange={(e) => setCat(String(e.target.value || ''))}
+                disabled={loading}
+              >
+                {categories.length ? (
+                  categories.map((c) => (
+                    <MenuItem key={c} value={c}>
+                      {c}
+                    </MenuItem>
+                  ))
+                ) : (
+                  <MenuItem value="">
+                    <em>暂无分类</em>
+                  </MenuItem>
+                )}
+              </Select>
+            </FormControl>
+
+            <Tooltip title="分类操作">
+              <span>
+                <IconButton aria-label="分类操作" onClick={openCatMenu} disabled={loading} size="small">
+                  <MoreVertIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Stack>
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+            <Button startIcon={<ImageIcon />} variant="outlined" onClick={onPickImages} disabled={loading || !cat}>
+              上传
+            </Button>
+            <Button variant="outlined" onClick={onPaste} disabled={loading || !cat}>
+              粘贴
+            </Button>
+            <Box sx={{ flex: 1 }} />
+            <TextField size="small" label="搜索表情名" value={filter} onChange={(e) => setFilter(e.target.value)} disabled={loading || !cat} />
+          </Stack>
+
+          {!cat ? (
+            <Typography variant="body2" color="text.secondary">
+              先创建/选择一个分类。
+            </Typography>
+          ) : !names.length ? (
+            <Typography variant="body2" color="text.secondary">
+              这个分类还没有表情包。
+            </Typography>
+          ) : (
+            <Stack spacing={1}>
+              {names.slice(0, 300).map((name) => {
+                const relPath = box && typeof box === 'object' ? String((box as any)?.[name]?.relPath || '') : ''
+                const token = tokenFor(cat, name)
+                return (
+                  <Paper key={name} variant="outlined" sx={{ p: 1.25 }}>
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      {relPath ? <StickerInlineImage controller={controller} path={relPath} label={token} size={64} /> : null}
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Typography sx={{ fontWeight: 900 }} noWrap>
+                          {name}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" noWrap>
+                          {token}
+                        </Typography>
+                      </Box>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => controller.api?.clipboard?.writeText?.(token)}
+                        disabled={!controller.api?.clipboard?.writeText}
+                      >
+                        复制 token
+                      </Button>
+                      <Button size="small" variant="outlined" onClick={() => onOpenRename(name)} disabled={loading}>
+                        改名
+                      </Button>
+                      <Button size="small" color="error" variant="outlined" onClick={() => controller.actions.deleteSticker?.(cat, name)}>
+                        删除
+                      </Button>
+                    </Stack>
+                  </Paper>
+                )
+              })}
+            </Stack>
+          )}
+        </Stack>
+      </Paper>
+
+      <Dialog open={!!confirmDelCat} onClose={() => setConfirmDelCat('')} maxWidth="xs" fullWidth>
+        <DialogTitle>确认删除分类？</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            这会删除分类下的全部表情包映射，并尝试删除对应图片文件。
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmDelCat('')}>取消</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => {
+              const name = String(confirmDelCat || '')
+              setConfirmDelCat('')
+              controller.actions.deleteStickerCategory?.(name)
+            }}
+            disabled={!confirmDelCat || loading}
+          >
+            删除
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Popover
+        open={!!catMenuEl}
+        anchorEl={catMenuEl}
+        onClose={closeCatMenu}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <Box sx={{ minWidth: 180, p: 0.5 }}>
+          <MenuItem
+            onClick={openCreateCat}
+            disabled={loading}
+            sx={{ gap: 1 }}
+          >
+            <AddIcon fontSize="small" />
+            新建分类
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              const name = String(cat || '')
+              closeCatMenu()
+              if (!name) return api?.ui?.showToast?.('请先选择分类')
+              setConfirmDelCat(name)
+            }}
+            disabled={loading || !cat}
+            sx={{ gap: 1 }}
+          >
+            <DeleteOutlineIcon fontSize="small" />
+            删除当前分类
+          </MenuItem>
+        </Box>
+      </Popover>
+
+      <Dialog open={createCat.open} onClose={closeCreateCat} maxWidth="xs" fullWidth>
+        <DialogTitle>新建分类</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+            <TextField
+              autoFocus
+              size="small"
+              label="分类名"
+              value={createCat.name}
+              onChange={(e) => setCreateCat((p) => ({ ...p, name: e.target.value }))}
+              placeholder="例如：通用"
+              fullWidth
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeCreateCat}>取消</Button>
+          <Button variant="contained" onClick={onConfirmCreateCat} disabled={!String(createCat.name || '').trim() || loading}>
+            创建
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={paste.open} onClose={() => setPaste({ open: false, dataUrl: '', name: '' })} maxWidth="xs" fullWidth>
+        <DialogTitle>保存剪贴板表情</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+            <TextField
+              autoFocus
+              size="small"
+              label="表情名"
+              value={paste.name}
+              onChange={(e) => setPaste((p) => ({ ...p, name: e.target.value }))}
+              placeholder="例如：开心"
+              fullWidth
+            />
+            {paste.dataUrl ? (
+              <Box
+                component="img"
+                src={paste.dataUrl}
+                alt="preview"
+                sx={{ width: 96, height: 96, objectFit: 'contain', borderRadius: 12, border: '1px solid', borderColor: 'divider', bgcolor: 'action.hover' }}
+              />
+            ) : null}
+            <Typography variant="caption" color="text.secondary">
+              token：{tokenFor(cat || '分类', paste.name || '名称')}
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPaste({ open: false, dataUrl: '', name: '' })}>取消</Button>
+          <Button variant="contained" onClick={onConfirmPaste} disabled={!String(paste.name || '').trim() || loading}>
+            保存
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={rename.open} onClose={() => setRename({ open: false, oldName: '', nextName: '' })} maxWidth="xs" fullWidth>
+        <DialogTitle>表情包改名</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+            <TextField size="small" label="原名称" value={rename.oldName} disabled fullWidth />
+            <TextField
+              autoFocus
+              size="small"
+              label="新名称"
+              value={rename.nextName}
+              onChange={(e) => setRename((p) => ({ ...p, nextName: e.target.value }))}
+              fullWidth
+            />
+            <Typography variant="caption" color="text.secondary">
+              新 token：{tokenFor(cat || '分类', rename.nextName || '名称')}
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRename({ open: false, oldName: '', nextName: '' })}>取消</Button>
+          <Button variant="contained" onClick={onConfirmRename} disabled={!String(rename.nextName || '').trim() || loading}>
+            保存
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  )
+}
+
 function PluginSettingsPage(props: {
   controller: any
   loading: boolean
@@ -1858,7 +2497,7 @@ function PluginSettingsPage(props: {
   models: any
   draft: any
   activeRoleId: string
-  tab: 'appearance' | 'roles' | 'providers' | 'services'
+  tab: 'appearance' | 'roles' | 'providers' | 'services' | 'stickers'
 }) {
   const { controller, loading, data, roles, providers, models, draft, activeRoleId, tab } = props
 
@@ -2155,6 +2794,10 @@ function PluginSettingsPage(props: {
         </Paper>
       </Box>
     )
+  }
+
+  if (tab === 'stickers') {
+    return <StickersSettingsPanel controller={controller} loading={loading} data={data} />
   }
 
   if (tab === 'services') {

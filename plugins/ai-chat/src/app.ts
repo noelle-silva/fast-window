@@ -12,6 +12,7 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
   const VERSION = 2
   const SPLIT_SCHEMA_VERSION = 1
   const SPLIT_META_KEY = 'meta/index'
+  const STICKERS_KEY = 'stickers/index'
   const runtime = String(api?.__meta?.runtime || 'ui')
   const MAX_DRAFT_IMAGES = 8
   const REF_IMG_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
@@ -106,6 +107,65 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     return safeDirName(role?.name, '角色')
   }
 
+  function validateStickerCategoryName(input) {
+    const raw = String(input || '').trim()
+    if (!raw) return { ok: false, name: '', error: '分类名不能为空' }
+    if (raw.length > 60) return { ok: false, name: '', error: '分类名太长（最多 60 字符）' }
+    if (raw.includes('/') || raw.includes('\\')) return { ok: false, name: '', error: '分类名不能包含 / 或 \\' }
+
+    // 分类名会作为文件夹名使用；这里不做自动改名，避免 token 与落盘目录不一致。
+    const safe = safeDirName(raw, '分类')
+    if (safe !== raw) return { ok: false, name: '', error: '分类名包含不支持的字符' }
+
+    return { ok: true, name: raw, error: '' }
+  }
+
+  function validateStickerName(input) {
+    const raw = String(input || '').trim()
+    if (!raw) return { ok: false, name: '', error: '表情名不能为空' }
+    if (raw.length > 80) return { ok: false, name: '', error: '表情名太长（最多 80 字符）' }
+    if (raw.includes('/') || raw.includes('\\')) return { ok: false, name: '', error: '表情名不能包含 / 或 \\' }
+    if (raw.includes(']') || raw.includes('\n') || raw.includes('\r')) return { ok: false, name: '', error: '表情名包含不支持的字符' }
+    return { ok: true, name: raw, error: '' }
+  }
+
+  function imageExtFromDataUrl(dataUrl) {
+    const u = String(dataUrl || '').trim()
+    const m = /^data:image\/([a-zA-Z0-9.+-]+);base64,/.exec(u)
+    if (!m) return ''
+    const mime = String(m[1] || '').toLowerCase()
+    if (mime === 'png') return 'png'
+    if (mime === 'webp') return 'webp'
+    if (mime === 'jpeg' || mime === 'jpg') return 'jpg'
+    return ''
+  }
+
+  async function addStickerInternal(cat, name, dataUrl) {
+    if (!state.data) return { ok: false, kind: 'no-data' as const }
+    if (!state.data.settings.stickers || typeof state.data.settings.stickers !== 'object') state.data.settings.stickers = { enabled: false, categories: [], map: {} }
+    const st = state.data.settings.stickers
+
+    if (!Array.isArray(st.categories)) st.categories = []
+    if (!st.categories.some((x) => String(x || '') === cat)) st.categories = st.categories.concat([cat]).slice(0, 200)
+    if (!st.map || typeof st.map !== 'object') st.map = {}
+    if (!st.map[cat] || typeof st.map[cat] !== 'object') st.map[cat] = {}
+    if (st.map[cat][name]) return { ok: false, kind: 'dup' as const }
+
+    const u = String(dataUrl || '').trim()
+    if (!looksLikeImageDataUrl(u)) return { ok: false, kind: 'bad-image' as const }
+    const ext = imageExtFromDataUrl(u)
+    if (!ext) return { ok: false, kind: 'bad-image' as const }
+
+    if (typeof api?.files?.images?.writeBase64 !== 'function') return { ok: false, kind: 'no-perm' as const }
+
+    const relPath = `stickers/${cat}/sticker-${uid('st')}.${ext}`
+    await api.files.images.writeBase64({ scope: 'data', relPath, overwrite: false, dataUrlOrBase64: u })
+
+    const t = now()
+    st.map[cat][name] = { relPath, createdAt: t, updatedAt: t }
+    return { ok: true, kind: 'ok' as const, relPath }
+  }
+
   async function syncRoleAvatarFile(folder, role) {
     const f = String(folder || '').trim()
     if (!f) return
@@ -167,6 +227,13 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     const meta = (await loadSplitMeta()) || splitMetaCache
     if (!meta) return null
 
+    let stickers = null
+    try {
+      stickers = await api.storage.get(STICKERS_KEY)
+    } catch (_) {
+      stickers = null
+    }
+
     const d = {
       version: VERSION,
       settings: meta.settings && typeof meta.settings === 'object' ? meta.settings : {},
@@ -174,6 +241,9 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
       chatsByRole: {},
       ui: meta.ui && typeof meta.ui === 'object' ? meta.ui : {},
     }
+
+    // 表情包独立存储；不要混在 meta/index.settings 里。
+    ;(d.settings as any).stickers = stickers && typeof stickers === 'object' ? stickers : {}
 
     for (const rid of meta.roleOrder) {
       const folder = String(meta.roleFolders?.[rid] || '')
@@ -287,12 +357,23 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
       }
     }
 
+    // 表情包独立存储；meta/index 只存“索引 + 通用 settings（不含 stickers）”。
+    const settingsMeta = d.settings && typeof d.settings === 'object' ? { ...(d.settings as any) } : {}
+    try {
+      delete (settingsMeta as any).stickers
+    } catch (_) {}
+
+    try {
+      const stickers = d.settings && typeof d.settings === 'object' ? (d.settings as any).stickers : null
+      await api.storage.set(STICKERS_KEY, stickers && typeof stickers === 'object' ? stickers : {})
+    } catch (_) {}
+
     const meta = {
       schemaVersion: SPLIT_SCHEMA_VERSION,
       dataVersion: VERSION,
       updatedAt: now(),
       ui: d.ui && typeof d.ui === 'object' ? d.ui : {},
-      settings: d.settings && typeof d.settings === 'object' ? d.settings : {},
+      settings: settingsMeta,
       roleOrder,
       roleFolders,
       chatIndexByRole,
@@ -422,6 +503,11 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
             composerBlur: 10,
             userMessageCollapseEnabled: false,
             userMessageCollapseLines: 8,
+            stickers: {
+              enabled: false,
+              categories: [],
+              map: {},
+            },
             aiServices: {
               mermaidFix: {
                 enabled: false,
@@ -488,6 +574,48 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     d.settings.composerBlur = clamp(Math.round(Number(d.settings.composerBlur || 0)), 0, 24)
     d.settings.userMessageCollapseLines = clamp(Math.round(Number(d.settings.userMessageCollapseLines || 8)), 1, 50)
     if (!Array.isArray(d.settings.providers) || d.settings.providers.length === 0) d.settings.providers = defaultData().settings.providers
+
+    if (!d.settings.stickers || typeof d.settings.stickers !== 'object') d.settings.stickers = {}
+    const st = d.settings.stickers
+    if (typeof st.enabled !== 'boolean') st.enabled = false
+    if (!Array.isArray(st.categories)) st.categories = []
+    if (!st.map || typeof st.map !== 'object') st.map = {}
+
+    // categories：仅保留非空字符串，去重，数量上限防爆。
+    const catSet = new Set<string>()
+    const cats: string[] = []
+    for (const x of st.categories) {
+      const s = typeof x === 'string' ? x.trim() : ''
+      if (!s) continue
+      if (s.length > 60) continue
+      if (catSet.has(s)) continue
+      catSet.add(s)
+      cats.push(s)
+      if (cats.length >= 200) break
+    }
+    st.categories = cats
+
+    // map：只保留在 categories 里的分类；每个分类下只保留合法条目。
+    const mapOut: Record<string, any> = {}
+    for (const cat of st.categories) {
+      const box = st.map && typeof st.map === 'object' ? (st.map as any)[cat] : null
+      const outBox: Record<string, { relPath: string; createdAt: number; updatedAt: number }> = {}
+      if (box && typeof box === 'object') {
+        for (const [k, v] of Object.entries(box)) {
+          const name = String(k || '').trim()
+          if (!name || name.length > 80) continue
+          const relPath = typeof (v as any)?.relPath === 'string' ? String((v as any).relPath || '').trim() : ''
+          if (!relPath) continue
+          outBox[name] = {
+            relPath,
+            createdAt: Number((v as any)?.createdAt || now()),
+            updatedAt: Number((v as any)?.updatedAt || (v as any)?.createdAt || now()),
+          }
+        }
+      }
+      mapOut[cat] = outBox
+    }
+    st.map = mapOut
 
     if (!d.settings.aiServices || typeof d.settings.aiServices !== 'object') d.settings.aiServices = {}
     const as = d.settings.aiServices
@@ -674,7 +802,23 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
   }
 
   const assistantRenderer = createDefaultAssistantRenderEngine()
-  const { ensureRenderer, renderAssistantInto, sanitizeHtml, sanitizeSvg } = assistantRenderer
+  const { ensureRenderer, renderAssistantInto: renderAssistantIntoRaw, sanitizeHtml, sanitizeSvg } = assistantRenderer
+
+  function getStickerRelPath(category, name) {
+    const cat = typeof category === 'string' ? category.trim() : ''
+    const nm = typeof name === 'string' ? name.trim() : ''
+    if (!cat || !nm) return ''
+    const st = state.data?.settings?.stickers
+    const box = st && typeof st === 'object' ? st.map?.[cat] : null
+    const it = box && typeof box === 'object' ? box[nm] : null
+    const relPath = it && typeof it === 'object' ? String(it.relPath || '').trim() : ''
+    return relPath
+  }
+
+  function renderAssistantInto(el, text) {
+    const enabled = !!state.data?.settings?.stickers?.enabled
+    renderAssistantIntoRaw(el, text, { stickersEnabled: enabled, getStickerPath: getStickerRelPath })
+  }
 
   function mermaidItemsFromDom() {
     const chat = document.querySelector('[data-area="chat"]')
@@ -3518,6 +3662,181 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
         if (!state.data) return
         state.data.settings.userMessageCollapseLines = clamp(Math.round(Number(lines || 8)), 1, 50)
         if (commit) save().catch(() => {})
+        emit()
+      },
+      toggleStickersEnabled: () => {
+        if (!state.data) return
+        if (!state.data.settings.stickers || typeof state.data.settings.stickers !== 'object') state.data.settings.stickers = { enabled: false, categories: [], map: {} }
+        state.data.settings.stickers.enabled = !state.data.settings.stickers.enabled
+        save().catch(() => {})
+        emit()
+      },
+      createStickerCategory: (categoryName) => {
+        if (!state.data) return
+        if (!state.data.settings.stickers || typeof state.data.settings.stickers !== 'object') state.data.settings.stickers = { enabled: false, categories: [], map: {} }
+        const st = state.data.settings.stickers
+        const v = validateStickerCategoryName(categoryName)
+        if (!v.ok) return api.ui?.showToast?.(v.error || '分类名无效')
+
+        const name = v.name
+        if (!Array.isArray(st.categories)) st.categories = []
+        if (st.categories.some((x) => String(x || '') === name)) return api.ui?.showToast?.('分类已存在')
+        st.categories = st.categories.concat([name]).slice(0, 200)
+        if (!st.map || typeof st.map !== 'object') st.map = {}
+        if (!st.map[name] || typeof st.map[name] !== 'object') st.map[name] = {}
+        save().catch(() => {})
+        emit()
+      },
+      deleteStickerCategory: async (categoryName) => {
+        if (!state.data) return
+        const st = state.data.settings?.stickers
+        if (!st || typeof st !== 'object') return
+
+        const name = String(categoryName || '').trim()
+        if (!name) return
+
+        const box = st.map && typeof st.map === 'object' ? st.map[name] : null
+        if (box && typeof box === 'object' && typeof api?.files?.images?.delete === 'function') {
+          for (const v of Object.values(box)) {
+            try {
+              const relPath = v && typeof v === 'object' ? String((v as any).relPath || '').trim() : ''
+              if (relPath) await api.files.images.delete({ scope: 'data', path: relPath }).catch(() => {})
+            } catch (_) {}
+          }
+        }
+
+        st.categories = Array.isArray(st.categories) ? st.categories.filter((x) => String(x || '').trim() !== name) : []
+        if (st.map && typeof st.map === 'object') {
+          try {
+            delete st.map[name]
+          } catch (_) {}
+        }
+        save().catch(() => {})
+        emit()
+      },
+      addSticker: async (categoryName, stickerName, dataUrl) => {
+        if (!state.data) return
+        if (!state.data.settings.stickers || typeof state.data.settings.stickers !== 'object') state.data.settings.stickers = { enabled: false, categories: [], map: {} }
+
+        const vCat = validateStickerCategoryName(categoryName)
+        if (!vCat.ok) return api.ui?.showToast?.(vCat.error || '分类名无效')
+        const cat = vCat.name
+
+        const vName = validateStickerName(stickerName)
+        if (!vName.ok) return api.ui?.showToast?.(vName.error || '表情名无效')
+        const name = vName.name
+
+        const r = await addStickerInternal(cat, name, dataUrl).catch((e) => ({ ok: false, kind: 'err' as const, error: e }))
+        if (!r || !r.ok) {
+          if (r?.kind === 'dup') return api.ui?.showToast?.('重名：该分类下已存在同名表情')
+          if (r?.kind === 'no-perm') return api.ui?.showToast?.('未授权：files.images.writeBase64')
+          if (r?.kind === 'bad-image') return api.ui?.showToast?.('图片格式不支持（仅支持 png/jpg/webp）')
+          return api.ui?.showToast?.(String((r as any)?.error?.message || (r as any)?.error || '保存失败'))
+        }
+
+        save().catch(() => {})
+        emit()
+      },
+      addStickersFromPickedImages: async (categoryName, pickedItems) => {
+        if (!state.data) return
+        const list = Array.isArray(pickedItems) ? pickedItems : []
+        if (!list.length) return
+
+        const vCat = validateStickerCategoryName(categoryName)
+        if (!vCat.ok) return api.ui?.showToast?.(vCat.error || '分类名无效')
+        const cat = vCat.name
+
+        let ok = 0
+        let dup = 0
+        let bad = 0
+
+        for (const it of list) {
+          const fn = String(it?.name || '').trim()
+          const base = fn ? fn.replace(/\.[a-zA-Z0-9]+$/, '').trim() : ''
+          const vName = validateStickerName(base || `表情_${uid('n')}`)
+          const name = vName.ok ? vName.name : `表情_${uid('n')}`
+          const dataUrl = String(it?.dataUrl || '')
+          try {
+            const r = await addStickerInternal(cat, name, dataUrl).catch(() => ({ ok: false, kind: 'bad' as const }))
+            if (r && (r as any).ok) ok++
+            else if ((r as any)?.kind === 'dup') dup++
+            else bad++
+          } catch (_) {
+            bad++
+          }
+        }
+
+        if (ok) {
+          save().catch(() => {})
+          emit()
+        }
+        if (dup) api.ui?.showToast?.(`跳过重名：${dup} 个`)
+        if (!ok && bad) api.ui?.showToast?.('导入失败')
+      },
+      deleteSticker: async (categoryName, stickerName) => {
+        if (!state.data) return
+        const st = state.data.settings?.stickers
+        if (!st || typeof st !== 'object') return
+
+        const cat = String(categoryName || '').trim()
+        const name = String(stickerName || '').trim()
+        if (!cat || !name) return
+
+        const box = st.map && typeof st.map === 'object' ? st.map[cat] : null
+        const it = box && typeof box === 'object' ? box[name] : null
+        const relPath = it && typeof it === 'object' ? String(it.relPath || '').trim() : ''
+
+        if (relPath && typeof api?.files?.images?.delete === 'function') {
+          await api.files.images.delete({ scope: 'data', path: relPath }).catch(() => {})
+        }
+
+        if (box && typeof box === 'object') {
+          try {
+            delete box[name]
+          } catch (_) {}
+        }
+
+        save().catch(() => {})
+        emit()
+      },
+      renameSticker: (categoryName, oldStickerName, newStickerName) => {
+        if (!state.data) return
+        const st = state.data.settings?.stickers
+        if (!st || typeof st !== 'object') return
+
+        const vCat = validateStickerCategoryName(categoryName)
+        if (!vCat.ok) return api.ui?.showToast?.(vCat.error || '分类名无效')
+        const cat = vCat.name
+
+        const oldName = String(oldStickerName || '').trim()
+        if (!oldName) return
+
+        const vName = validateStickerName(newStickerName)
+        if (!vName.ok) return api.ui?.showToast?.(vName.error || '表情名无效')
+        const name = vName.name
+
+        if (name === oldName) return api.ui?.showToast?.('名称未变化')
+
+        const box = st.map && typeof st.map === 'object' ? st.map[cat] : null
+        if (!box || typeof box !== 'object') return api.ui?.showToast?.('分类不存在')
+
+        const it = box[oldName]
+        if (!it || typeof it !== 'object') return api.ui?.showToast?.('表情不存在')
+
+        if (box[name]) return api.ui?.showToast?.('重名：该分类下已存在同名表情')
+
+        const relPath = String((it as any).relPath || '').trim()
+        if (!relPath) return api.ui?.showToast?.('映射损坏：缺少 relPath')
+
+        const t = now()
+        const createdAt = Number((it as any).createdAt || t)
+        const next = { relPath, createdAt, updatedAt: t }
+        box[name] = next
+        try {
+          delete box[oldName]
+        } catch (_) {}
+
+        save().catch(() => {})
         emit()
       },
       setMermaidFixEnabled: (on) => {

@@ -5,7 +5,11 @@ export type AssistantRenderEngine = {
   ensureRenderer: () => Promise<void>
   sanitizeHtml: (html: unknown) => string
   sanitizeSvg: (svg: unknown) => string
-  renderAssistantInto: (el: unknown, text: unknown) => void
+  renderAssistantInto: (
+    el: unknown,
+    text: unknown,
+    options?: { stickersEnabled?: boolean; getStickerPath?: (category: string, name: string) => string },
+  ) => void
 }
 
 export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
@@ -14,6 +18,9 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
   let mermaidInited = false
   let markedConfigured = false
   const mermaidSvgCache = new Map<string, string>()
+  const refImgCache = new Map<string, string>()
+  const refImgPending = new Set<string>()
+  const REF_IMG_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
 
   const ICON_COPY =
     '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M16 1H6c-1.1 0-2 .9-2 2v12h2V3h10V1zm3 4H10c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h9c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16h-9V7h9v14z"/></svg>'
@@ -651,14 +658,66 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
     ensureMathCopyHandlerOnce(root)
   }
 
-  function renderAssistantInto(el: unknown, text: unknown) {
+  function hydrateRefImages(root: unknown) {
+    if (!(root instanceof HTMLElement)) return
+
+    const w = window as any
+    const read = w?.fastWindow?.files?.images?.read
+    if (typeof read !== 'function') return
+
+    const els = Array.from(root.querySelectorAll?.('img[data-ref-img]') || [])
+    const byPath = new Map<string, HTMLImageElement[]>()
+
+    for (const el of els) {
+      if (!(el instanceof HTMLImageElement)) continue
+      const path = String(el.getAttribute('data-ref-img') || '').trim()
+      if (!path) continue
+
+      const cached = refImgCache.get(path)
+      if (typeof cached === 'string' && cached) {
+        el.src = cached
+        continue
+      }
+
+      const list = byPath.get(path) || []
+      list.push(el)
+      byPath.set(path, list)
+    }
+
+    for (const [path, list] of byPath) {
+      if (refImgPending.has(path)) continue
+      refImgPending.add(path)
+      Promise.resolve()
+        .then(() => read({ scope: 'data', path }))
+        .then((dataUrl: unknown) => {
+          const src = typeof dataUrl === 'string' && dataUrl.startsWith('data:') ? dataUrl : ''
+          if (src) refImgCache.set(path, src)
+          for (const img of list) {
+            if (!(img instanceof HTMLImageElement)) continue
+            if (!img.isConnected) continue
+            if (src) img.src = src
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          refImgPending.delete(path)
+        })
+    }
+  }
+
+  function renderAssistantInto(
+    el: unknown,
+    text: unknown,
+    options?: { stickersEnabled?: boolean; getStickerPath?: (category: string, name: string) => string },
+  ) {
     if (!(el instanceof HTMLElement)) return
     const raw = String(text || '')
     let html = ''
 
     const noIndent = preprocessHtmlIndentation(raw)
-    const pre = preprocessAssistantContent(noIndent)
+    const pre = preprocessAssistantContent(noIndent, { stickersEnabled: !!options?.stickersEnabled })
     const src = String(pre.text || '')
+    const getStickerPath = typeof options?.getStickerPath === 'function' ? options.getStickerPath : null
 
     const w = window as any
     if (!w.marked || typeof w.marked.parse !== 'function') {
@@ -691,12 +750,26 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
         return `<pre><code class="language-mermaid">${esc(code)}</code></pre>`
       })
     }
+    if (Array.isArray(pre.stickers) && pre.stickers.length) {
+      safe = safe.replace(/@@STICKER_(\d+)@@/g, (_m, id) => {
+        const it = pre.stickers[Number(id)] || null
+        if (!it) return ''
+        const rawToken = String(it.raw || '')
+        const category = String(it.category || '')
+        const name = String(it.name || '')
+        const label = category && name ? `${category}/${name}` : rawToken
+        const relPath = getStickerPath ? String(getStickerPath(category, name) || '').trim() : ''
+        if (!relPath) return `<span class="fw-sticker-miss">${esc(rawToken)}</span>`
+        return `<img class="fw-sticker" data-fw-img="1" data-ref-img="${esc(relPath)}" src="${REF_IMG_PLACEHOLDER}" alt="${esc(name || 'sticker')}" title="${esc(label)}" />`
+      })
+    }
 
     el.innerHTML = safe
     enhanceCodeBlocks(el)
     ensureMermaidErrorCopyHandlerOnce(el)
     ensureMermaidErrorAiFixHandlerOnce(el)
     markPreviewImages(el)
+    hydrateRefImages(el)
 
     const katex = w.katex
     if (katex && typeof katex.render === 'function') {
@@ -726,18 +799,24 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
 }
 
 type PreprocessedMath = { tex: string; display: boolean }
+type PreprocessedSticker = { raw: string; category: string; name: string }
 
 type FenceToken =
   | { kind: 'text'; text: string }
   | { kind: 'fence'; raw: string; lang: string; content: string; closed: boolean }
 
-function preprocessAssistantContent(source: unknown): { text: string; math: PreprocessedMath[]; mermaid: string[] } {
+function preprocessAssistantContent(
+  source: unknown,
+  options?: { stickersEnabled?: boolean },
+): { text: string; math: PreprocessedMath[]; mermaid: string[]; stickers: PreprocessedSticker[] } {
   const src = String(source || '').replace(/\r\n/g, '\n')
   const tokens = tokenizeFences(src)
 
   const mermaid: string[] = []
   const math: PreprocessedMath[] = []
+  const stickers: PreprocessedSticker[] = []
   const out: string[] = []
+  const stickersEnabled = !!options?.stickersEnabled
 
   for (const t of tokens) {
     if (t.kind === 'fence') {
@@ -753,10 +832,11 @@ function preprocessAssistantContent(source: unknown): { text: string; math: Prep
       continue
     }
 
-    out.push(replaceMathOutsideInlineCode(t.text, math))
+    const withMath = replaceMathOutsideInlineCode(t.text, math)
+    out.push(stickersEnabled ? replaceStickersOutsideInlineCode(withMath, stickers) : withMath)
   }
 
-  return { text: out.join(''), math, mermaid }
+  return { text: out.join(''), math, mermaid, stickers }
 }
 
 function tokenizeFences(input: string): FenceToken[] {
@@ -869,6 +949,45 @@ function replaceMathOutsideInlineCode(input: string, acc: PreprocessedMath[]) {
       return replaceMathInPlainText(p.value, acc)
     })
     .join('')
+}
+
+function replaceStickersOutsideInlineCode(input: string, acc: PreprocessedSticker[]) {
+  const parts = splitInlineCodeSpans(input)
+  return parts
+    .map((p) => {
+      if (p.kind === 'code') return p.value
+      return replaceStickersInPlainText(p.value, acc)
+    })
+    .join('')
+}
+
+function replaceStickersInPlainText(input: string, acc: PreprocessedSticker[]) {
+  const s = String(input || '')
+  if (!s) return s
+
+  const re = /\[\[\s*(?:sticker|表情包)\s*:\s*([^\]\n]{1,220}?)\s*\]\]/g
+  return s.replace(re, (m, innerRaw) => {
+    const inner = String(innerRaw || '').trim()
+    if (!inner) return m
+
+    const p = inner.replace(/\\/g, '/')
+    if (!p || p.includes('..') || p.includes('://') || p.includes('\u0000')) return m
+
+    const parts = p
+      .split('/')
+      .map((x) => String(x || '').trim())
+      .filter((x) => !!x)
+    if (parts.length !== 2) return m
+
+    const category = parts[0]
+    const name = parts[1]
+    if (!category || !name) return m
+    if (category.includes(']') || name.includes(']')) return m
+
+    const id = acc.length
+    acc.push({ raw: m, category, name })
+    return `@@STICKER_${id}@@`
+  })
 }
 
 function replaceMathInPlainText(input: string, acc: PreprocessedMath[]) {
