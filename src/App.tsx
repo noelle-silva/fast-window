@@ -552,10 +552,25 @@ function App() {
 
       setRefreshingPluginId(plugin.id)
       try {
+        // 开发模式下：get_plugins_dir 会把仓库 plugins 同步到 app 本地数据目录。
+        // 不先调用的话，单独刷新可能读到旧副本，表现为“没热更新”。
+        const dir = await invoke<string>('get_plugins_dir').catch(() => '')
+        if (dir) setPluginsDir(dir)
+
+        const disabledSaved = await invoke<unknown | null>('storage_get', {
+          pluginId: APP_STORAGE_ID,
+          key: DISABLED_PLUGINS_KEY,
+        }).catch(() => null)
+        const disabledSet = new Set(normalizeDisabledPlugins(disabledSaved))
+
         const { plugin: loaded, rejection } = await loadPluginById(plugin.id)
         if (!loaded) {
           const msg = rejection?.reason ? `刷新失败：${rejection.reason}` : '刷新失败（详情见控制台）'
           setToast(prev => ({ open: true, message: msg, key: prev.key + 1 }))
+          setPluginRejected(prev => {
+            const rest = prev.filter(r => r.pluginId !== plugin.id)
+            return rejection ? rest.concat(rejection) : rest
+          })
           return
         }
 
@@ -572,6 +587,7 @@ function App() {
           backgroundCode: loaded.backgroundCode,
           backgroundAutoStart: !!(loaded.manifest.background && loaded.manifest.background.autoStart !== false),
           manifest: loaded.manifest,
+          disabled: disabledSet.has(plugin.id),
           component: loaded.component,
         }
 
@@ -579,7 +595,7 @@ function App() {
           const idx = prev.findIndex(p => p.id === plugin.id)
           if (idx < 0) return prev
           const next = prev.slice()
-          next[idx] = { ...updated, disabled: prev[idx].disabled }
+          next[idx] = updated
           return next
         })
 
@@ -587,6 +603,7 @@ function App() {
           setActivePlugin(prev => (prev?.id === plugin.id ? updated : prev))
         }
 
+        setPluginRejected(prev => prev.filter(r => r.pluginId !== plugin.id))
         setToast(prev => ({ open: true, message: `已刷新：${updated.name}`, key: prev.key + 1 }))
       } catch (e) {
         console.error('Failed to refresh plugin:', e)
@@ -597,7 +614,6 @@ function App() {
     },
     [activePlugin, loading, refreshingPluginId],
   )
-
   const openPluginDetail = useCallback((plugin: Plugin) => {
     setPluginMenu(null)
     setPluginDetail(plugin)
