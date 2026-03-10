@@ -2803,7 +2803,7 @@ fn plugin_pick_images(
     }
     let picked = rfd::FileDialog::new()
         .set_title("选择图片")
-        .add_filter("Image", &["png", "jpg", "jpeg", "webp"])
+        .add_filter("Image", &["png", "jpg", "jpeg", "webp", "gif"])
         .pick_files();
 
     let Some(files) = picked else {
