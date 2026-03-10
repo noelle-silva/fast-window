@@ -2318,6 +2318,8 @@ fn decode_base64_image_payload(raw: &str) -> Result<(Vec<u8>, String), String> {
 
         let ext = if meta.contains("image/png") {
             "png"
+        } else if meta.contains("image/gif") {
+            "gif"
         } else if meta.contains("image/jpeg") {
             "jpg"
         } else if meta.contains("image/webp") {
@@ -2468,7 +2470,7 @@ fn path_has_image_ext(path: &Path) -> bool {
         .and_then(|s| s.to_str())
         .unwrap_or("")
         .to_ascii_lowercase();
-    matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp")
+    matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif")
 }
 
 fn normalize_image_ext(ext: &str) -> String {
@@ -2577,7 +2579,7 @@ fn plugin_images_write_base64(
     if let Some(rp) = rel_path {
         let rel = safe_relative_path(&rp)?;
         if !path_has_image_ext(&rel) {
-            return Err("不支持的图片类型（仅支持 png/jpg/jpeg/webp）".to_string());
+            return Err("不支持的图片类型（仅支持 png/jpg/jpeg/webp/gif）".to_string());
         }
         let Some(rel_ext) = image_ext_from_path(&rel) else {
             return Err("图片路径缺少后缀".to_string());
@@ -2617,6 +2619,7 @@ fn image_mime_by_ext(path: &Path) -> &'static str {
     match ext.as_str() {
         "jpg" | "jpeg" => "image/jpeg",
         "webp" => "image/webp",
+        "gif" => "image/gif",
         _ => "image/png",
     }
 }
