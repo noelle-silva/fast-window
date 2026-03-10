@@ -41,7 +41,6 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import HistoryIcon from '@mui/icons-material/History'
 import ImageIcon from '@mui/icons-material/Image'
-import EmojiEmotionsIcon from '@mui/icons-material/EmojiEmotions'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import SettingsIcon from '@mui/icons-material/Settings'
 import StorageIcon from '@mui/icons-material/Storage'
@@ -585,17 +584,7 @@ export function AiChatApp(props: { controller: any }) {
   const [tempModelProviderId, setTempModelProviderId] = React.useState('')
   const [tempModelPick, setTempModelPick] = React.useState('')
   const [tempCustomModelId, setTempCustomModelId] = React.useState('')
-  const [stickerPickerEl, setStickerPickerEl] = React.useState<HTMLElement | null>(null)
-  const [stickerCategory, setStickerCategory] = React.useState('')
-  const [stickerFilter, setStickerFilter] = React.useState('')
   const composerInputRef = React.useRef<HTMLTextAreaElement | HTMLInputElement | null>(null)
-
-  React.useEffect(() => {
-    const cats = Array.isArray(stickerCategories) ? stickerCategories : []
-    const cur = String(stickerCategory || '')
-    if (cur && cats.includes(cur)) return
-    setStickerCategory(cats.length ? String(cats[0] || '') : '')
-  }, [stickerCategories, stickerCategory])
 
   const backToHost = useEvent(() => {
     const ui = controller?.api?.ui
@@ -731,8 +720,6 @@ export function AiChatApp(props: { controller: any }) {
   })
   const onStop = useEvent(() => controller.actions.stop?.())
   const onPickImages = useEvent(() => controller.actions.pickImages())
-  const openStickerPicker = useEvent((e: React.MouseEvent<HTMLElement>) => setStickerPickerEl(e.currentTarget))
-  const closeStickerPicker = useEvent(() => setStickerPickerEl(null))
   const closeTempModelPicker = useEvent(() => setTempModelPickerEl(null))
   const openTempModelPicker = useEvent((e: React.MouseEvent<HTMLElement>) => {
     if (!activeRole) return
@@ -777,37 +764,6 @@ export function AiChatApp(props: { controller: any }) {
   const clearTempModelOverride = useEvent(() => {
     controller.actions.clearChatModelOverride?.()
     closeTempModelPicker()
-  })
-
-
-  const insertStickerToken = useEvent((category: string, name: string) => {
-    const cat = String(category || '').trim()
-    const nm = String(name || '').trim()
-    if (!cat || !nm) return
-
-    const token = `[[sticker:${cat}/${nm}]]`
-    const cur = String(s.draft?.input || '')
-
-    const el = composerInputRef.current as any
-    const hasSel = el && typeof el.selectionStart === 'number' && typeof el.selectionEnd === 'number'
-    if (!hasSel) {
-      const sep = cur && !/\s$/.test(cur) ? ' ' : ''
-      controller.actions.setDraft('input', cur + sep + token)
-      return
-    }
-
-    const start = clampNum(Number(el.selectionStart || 0), 0, cur.length)
-    const end = clampNum(Number(el.selectionEnd || 0), 0, cur.length)
-    const next = cur.slice(0, start) + token + cur.slice(end)
-    controller.actions.setDraft('input', next)
-
-    requestAnimationFrame(() => {
-      try {
-        el.focus?.()
-        const pos = start + token.length
-        el.setSelectionRange?.(pos, pos)
-      } catch (_) {}
-    })
   })
   const [regen, setRegen] = React.useState<{ mid: string; role: 'assistant' | 'user' }>({ mid: '', role: 'assistant' })
   const [msgMenu, setMsgMenu] = React.useState<{ mid: string; role: 'user' | 'assistant'; x: number; y: number; pending: boolean }>({
@@ -1766,26 +1722,6 @@ export function AiChatApp(props: { controller: any }) {
                     </span>
                   </Tooltip>
 
-                  <Tooltip title={!stickersEnabled ? '请先在设置里启用表情包渲染' : !stickerCategories.length ? '暂无表情包分类' : '表情包'}>
-                    <span>
-                      <IconButton
-                        aria-label="表情包"
-                        onClick={openStickerPicker}
-                        disabled={s.loading || uiBusy || chatLocked || !activeRole || !stickersEnabled || !stickerCategories.length}
-                        size="small"
-                        sx={{
-                          bgcolor: 'rgba(0,0,0,.05)',
-                          borderRadius: '999px',
-                          width: 36,
-                          height: 36,
-                          '&:hover': { bgcolor: 'rgba(0,0,0,.09)' },
-                        }}
-                      >
-                        <EmojiEmotionsIcon fontSize="small" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-
                   <TextField
                     fullWidth
                     multiline
@@ -2111,91 +2047,6 @@ export function AiChatApp(props: { controller: any }) {
                 </List>
               )
             })()}
-          </Box>
-        </Popover>
-
-        <Popover
-          open={!!stickerPickerEl}
-          anchorEl={stickerPickerEl}
-          onClose={closeStickerPicker}
-          anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
-          transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-        >
-          <Box sx={{ width: 420, maxHeight: '70vh', overflowY: 'auto', p: 1.5 }}>
-            <Stack spacing={1.25}>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
-                  表情包
-                </Typography>
-                <Box sx={{ flex: 1 }} />
-                <Button size="small" onClick={() => openPluginSettings('stickers')}>
-                  去管理
-                </Button>
-              </Stack>
-
-              {!stickersEnabled ? (
-                <Typography variant="body2" color="text.secondary">
-                  请先在设置里启用表情包渲染。
-                </Typography>
-              ) : !stickerCategories.length ? (
-                <Typography variant="body2" color="text.secondary">
-                  还没有分类。请先在设置里添加。
-                </Typography>
-              ) : (
-                <>
-                  <FormControl size="small" fullWidth>
-                    <InputLabel id="sticker-cat">分类</InputLabel>
-                    <Select
-                      labelId="sticker-cat"
-                      value={String(stickerCategory || '')}
-                      label="分类"
-                      onChange={(e) => setStickerCategory(String(e.target.value || ''))}
-                    >
-                      {stickerCategories.map((c: string) => (
-                        <MenuItem key={String(c || '')} value={String(c || '')}>
-                          {String(c || '')}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-
-                  <TextField size="small" label="搜索" value={stickerFilter} onChange={(e) => setStickerFilter(e.target.value)} placeholder="输入表情名…" fullWidth />
-
-                  {(() => {
-                    const box = stickerMap && typeof stickerMap === 'object' ? stickerMap?.[String(stickerCategory || '')] : null
-                    const names = box && typeof box === 'object' ? Object.keys(box).map((x) => String(x || '')).filter((x) => !!x) : []
-                    const q = String(stickerFilter || '').trim().toLowerCase()
-                    const filtered = q ? names.filter((n) => n.toLowerCase().includes(q)) : names
-                    filtered.sort((a, b) => a.localeCompare(b))
-
-                    if (!filtered.length) {
-                      return (
-                        <Typography variant="body2" color="text.secondary">
-                          这个分类还没有表情包。
-                        </Typography>
-                      )
-                    }
-
-                    return (
-                      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
-                        {filtered.slice(0, 200).map((name) => (
-                          <Chip
-                            key={name}
-                            label={name}
-                            onClick={() => {
-                              insertStickerToken(String(stickerCategory || ''), name)
-                              closeStickerPicker()
-                            }}
-                            clickable
-                            sx={{ maxWidth: '100%' }}
-                          />
-                        ))}
-                      </Stack>
-                    )
-                  })()}
-                </>
-              )}
-            </Stack>
           </Box>
         </Popover>
 
