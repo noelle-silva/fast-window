@@ -2171,6 +2171,35 @@ function StickersSettingsPanel(props: { controller: any; loading: boolean; data:
 
   const tokenFor = (category: string, name: string) => `[[sticker:${String(category || '')}/${String(name || '')}]]`
 
+  const buildCategoryPrompt = useEvent((categoryName: string) => {
+    const catName = String(categoryName || '').trim()
+    if (!catName) return ''
+
+    const box = stickerMap && typeof stickerMap === 'object' ? (stickerMap as any)[catName] : null
+    const all = box && typeof box === 'object' ? Object.keys(box).map((x) => String(x || '')).filter((x) => !!x) : []
+    all.sort((a, b) => a.localeCompare(b))
+
+    const LIMIT = 120
+    const shown = all.slice(0, LIMIT)
+    const more = all.length > shown.length
+    const listText = `|${shown.join('|')}${more ? '|…|' : '|'}`
+
+    return `你可以使用「${catName}」表情包，调用方式为：[[sticker: ${catName} /名称]]\n${catName}表情包列表有：${listText}`
+  })
+
+  const copyCategoryPrompt = useEvent(() => {
+    const name = String(cat || '').trim()
+    if (!name) return api?.ui?.showToast?.('请先选择分类')
+    const prompt = buildCategoryPrompt(name)
+    if (!prompt) return
+    const writeText = api?.clipboard?.writeText
+    if (typeof writeText !== 'function') return api?.ui?.showToast?.('未授权：clipboard.writeText')
+    Promise.resolve()
+      .then(() => writeText(prompt))
+      .then(() => api?.ui?.showToast?.('已复制提示词'))
+      .catch(() => api?.ui?.showToast?.('复制失败'))
+  })
+
   const openCatMenu = useEvent((e: React.MouseEvent<HTMLElement>) => setCatMenuEl(e.currentTarget))
   const closeCatMenu = useEvent(() => setCatMenuEl(null))
 
@@ -2259,6 +2288,16 @@ function StickersSettingsPanel(props: { controller: any; loading: boolean; data:
                 )}
               </Select>
             </FormControl>
+
+            <Button
+              variant="outlined"
+              startIcon={<ContentCopyIcon />}
+              onClick={copyCategoryPrompt}
+              disabled={loading || !cat || typeof api?.clipboard?.writeText !== 'function'}
+              sx={{ whiteSpace: 'nowrap' }}
+            >
+              复制提示词
+            </Button>
 
             <Tooltip title="分类操作">
               <span>
