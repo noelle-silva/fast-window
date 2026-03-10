@@ -2152,7 +2152,6 @@ function StickersSettingsPanel(props: { controller: any; loading: boolean; data:
     oldName: '',
     nextName: '',
   })
-  const [paste, setPaste] = React.useState<{ open: boolean; dataUrl: string; name: string }>({ open: false, dataUrl: '', name: '' })
 
   React.useEffect(() => {
     const cur = String(cat || '')
@@ -2198,23 +2197,6 @@ function StickersSettingsPanel(props: { controller: any; loading: boolean; data:
     } catch (e) {
       api?.ui?.showToast?.(String((e as any)?.message || e || '选择图片失败'))
     }
-  })
-
-  const onPaste = useEvent(async () => {
-    if (!cat) return api?.ui?.showToast?.('请先选择分类')
-    const readImage = api?.clipboard?.readImage
-    if (typeof readImage !== 'function') return api?.ui?.showToast?.('未授权：clipboard.readImage')
-    const dataUrl = await readImage().catch(() => null)
-    if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) return api?.ui?.showToast?.('剪贴板里没有图片')
-    setPaste({ open: true, dataUrl, name: '' })
-  })
-
-  const onConfirmPaste = useEvent(async () => {
-    const name = String(paste.name || '').trim()
-    if (!name) return api?.ui?.showToast?.('请输入表情名')
-    const dataUrl = String(paste.dataUrl || '')
-    setPaste({ open: false, dataUrl: '', name: '' })
-    await controller.actions.addSticker?.(cat, name, dataUrl)
   })
 
   const onOpenRename = useEvent((oldName: string) => {
@@ -2290,9 +2272,6 @@ function StickersSettingsPanel(props: { controller: any; loading: boolean; data:
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
             <Button startIcon={<ImageIcon />} variant="outlined" onClick={onPickImages} disabled={loading || !cat}>
               上传
-            </Button>
-            <Button variant="outlined" onClick={onPaste} disabled={loading || !cat}>
-              粘贴
             </Button>
             <Box sx={{ flex: 1 }} />
             <TextField size="small" label="搜索表情名" value={filter} onChange={(e) => setFilter(e.target.value)} disabled={loading || !cat} />
@@ -2421,40 +2400,6 @@ function StickersSettingsPanel(props: { controller: any; loading: boolean; data:
           <Button onClick={closeCreateCat}>取消</Button>
           <Button variant="contained" onClick={onConfirmCreateCat} disabled={!String(createCat.name || '').trim() || loading}>
             创建
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={paste.open} onClose={() => setPaste({ open: false, dataUrl: '', name: '' })} maxWidth="xs" fullWidth>
-        <DialogTitle>保存剪贴板表情</DialogTitle>
-        <DialogContent>
-          <Stack spacing={1.25} sx={{ pt: 0.5 }}>
-            <TextField
-              autoFocus
-              size="small"
-              label="表情名"
-              value={paste.name}
-              onChange={(e) => setPaste((p) => ({ ...p, name: e.target.value }))}
-              placeholder="例如：开心"
-              fullWidth
-            />
-            {paste.dataUrl ? (
-              <Box
-                component="img"
-                src={paste.dataUrl}
-                alt="preview"
-                sx={{ width: 96, height: 96, objectFit: 'contain', borderRadius: 12, border: '1px solid', borderColor: 'divider', bgcolor: 'action.hover' }}
-              />
-            ) : null}
-            <Typography variant="caption" color="text.secondary">
-              token：{tokenFor(cat || '分类', paste.name || '名称')}
-            </Typography>
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPaste({ open: false, dataUrl: '', name: '' })}>取消</Button>
-          <Button variant="contained" onClick={onConfirmPaste} disabled={!String(paste.name || '').trim() || loading}>
-            保存
           </Button>
         </DialogActions>
       </Dialog>
