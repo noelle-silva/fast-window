@@ -135,6 +135,7 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     if (!m) return ''
     const mime = String(m[1] || '').toLowerCase()
     if (mime === 'png') return 'png'
+    if (mime === 'gif') return 'gif'
     if (mime === 'webp') return 'webp'
     if (mime === 'jpeg' || mime === 'jpg') return 'jpg'
     return ''
