@@ -3262,6 +3262,58 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     render()
   }
 
+  function collectChatImagePathSet(chat: any): Set<string> {
+    const out = new Set<string>()
+    const msgs = Array.isArray(chat?.messages) ? chat.messages : []
+    for (const m of msgs) {
+      const paths = normImagePaths(m?.images)
+      for (const p of paths) {
+        const s = String(p || '').trim()
+        if (s) out.add(s)
+      }
+    }
+    return out
+  }
+
+  function imageBasename(p: string): string {
+    const s = String(p || '')
+    const a = s.lastIndexOf('/')
+    const b = s.lastIndexOf('\\')
+    const i = Math.max(a, b)
+    return i >= 0 ? s.slice(i + 1) : s
+  }
+
+  function collectOtherChatsImagePathSet(excludeRoleId: string, excludeChatId: string): Set<string> {
+    const out = new Set<string>()
+    if (!state.data) return out
+    const byRole: Record<string, any> = state.data.chatsByRole && typeof state.data.chatsByRole === 'object' ? (state.data.chatsByRole as any) : {}
+    for (const [rid, box] of Object.entries(byRole)) {
+      const chats = Array.isArray((box as any)?.chats) ? (box as any).chats : []
+      for (const c of chats) {
+        const cid = String((c as any)?.id || '')
+        if (String(rid) === String(excludeRoleId || '') && cid === String(excludeChatId || '')) continue
+        const paths = collectChatImagePathSet(c)
+        for (const p of paths) {
+          out.add(p)
+          const base = imageBasename(p)
+          if (base && base !== p) out.add(base)
+        }
+      }
+    }
+    return out
+  }
+
+  async function deleteChatImages(paths: string[]): Promise<void> {
+    const list = Array.isArray(paths) ? paths : []
+    if (!list.length) return
+    if (typeof api?.files?.images?.delete !== 'function') return
+    for (const p of list) {
+      const path = String(p || '').trim()
+      if (!path) continue
+      await api.files.images.delete({ scope: 'data', path }).catch(() => {})
+    }
+  }
+
   function deleteChatForRole(roleId, chatId) {
     if (!state.data) return
     const rid = String(roleId || '')
@@ -3278,6 +3330,14 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
       return
     }
 
+    const targetImagePaths = collectChatImagePathSet(target)
+    const otherImagePaths = targetImagePaths.size ? collectOtherChatsImagePathSet(rid, cid) : new Set<string>()
+    const toDeleteImages: string[] = []
+    for (const p of targetImagePaths) {
+      const base = imageBasename(p)
+      if (!otherImagePaths.has(p) && (!base || !otherImagePaths.has(base))) toDeleteImages.push(p)
+    }
+
     box.chats = before.filter((c) => String(c?.id) !== cid)
     if (String(box.activeChatId || '') === cid) box.activeChatId = String(box.chats[0]?.id || '')
 
@@ -3287,7 +3347,9 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
       box.activeChatId = nid
     }
 
-    save().catch(() => {})
+    void save()
+      .then(() => deleteChatImages(toDeleteImages))
+      .catch(() => {})
     render()
   }
 

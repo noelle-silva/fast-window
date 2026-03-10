@@ -2087,7 +2087,7 @@ export function AiChatApp(props: { controller: any }) {
           <DialogTitle>确认删除这个会话？</DialogTitle>
           <DialogContent>
             <Typography variant="body2" color="text.secondary">
-              这会删除该会话下的全部消息记录，且不可恢复。
+              这会删除该会话下的全部消息记录，且不可恢复；同时会尝试删除该会话引用的本地图片文件（若其它会话仍引用则会保留）。
             </Typography>
           </DialogContent>
           <DialogActions>
