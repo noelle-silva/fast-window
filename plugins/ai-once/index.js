@@ -32,6 +32,7 @@
       input: '',
       output: '',
       error: '',
+      images: [],
       model: '',
       customModel: '',
       templateId: '',
@@ -100,6 +101,12 @@
     .menu{ position:absolute; right:0; top:38px; min-width:140px; background:var(--card); border:1px solid var(--line); border-radius:12px; box-shadow: 0 14px 40px rgba(17,24,39,0.16); padding:6px; display:flex; flex-direction:column; gap:6px; z-index:10; }
     .menuItem{ height:34px; width:100%; border-radius:10px; border:1px solid var(--line); background:#ffffff; cursor:pointer; font-size:12px; text-align:left; padding:0 10px; }
     .menuItem.bad{ border-color:rgba(220,38,38,0.25); background:rgba(220,38,38,0.06); color:var(--bad); }
+    .attachBar{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; }
+    .imgGrid{ display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+    .imgItem{ position:relative; width:72px; height:72px; border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#f9fafb; }
+    .imgItem img{ width:100%; height:100%; object-fit:cover; display:block; }
+    .imgX{ position:absolute; top:4px; right:4px; width:20px; height:20px; border-radius:10px; border:1px solid rgba(17,24,39,0.18); background:rgba(255,255,255,0.92); cursor:pointer; font-size:12px; line-height:1; display:flex; align-items:center; justify-content:center; }
+    .imgX:focus{ outline:2px solid rgba(37,99,235,0.35); outline-offset:2px; }
   `
 
   function esc(s) {
@@ -117,6 +124,114 @@
 
   function id(prefix) {
     return `${prefix}-${now()}-${Math.random().toString(16).slice(2)}`
+  }
+
+  const MAX_IMAGE_COUNT = 6
+  const MAX_IMAGE_BYTES = 8 * 1024 * 1024
+
+  function fmtBytes(n) {
+    const x = Number(n || 0)
+    if (!isFinite(x) || x <= 0) return '0 B'
+    const units = ['B', 'KB', 'MB', 'GB']
+    let v = x
+    let i = 0
+    while (v >= 1024 && i < units.length - 1) {
+      v /= 1024
+      i++
+    }
+    return `${v < 10 && i > 0 ? v.toFixed(1) : Math.round(v)} ${units[i]}`
+  }
+
+  function ensureDraftImages() {
+    if (!state.draft || typeof state.draft !== 'object') state.draft = {}
+    if (!Array.isArray(state.draft.images)) state.draft.images = []
+    return state.draft.images
+  }
+
+  function revokePreviewUrl(x) {
+    const u = x && typeof x.previewUrl === 'string' ? x.previewUrl : ''
+    if (!u) return
+    try {
+      URL.revokeObjectURL(u)
+    } catch (_) {}
+  }
+
+  function clearDraftImages() {
+    const xs = ensureDraftImages()
+    for (const x of xs) revokePreviewUrl(x)
+    state.draft.images = []
+  }
+
+  function removeDraftImage(imageId) {
+    const id2 = String(imageId || '')
+    if (!id2) return
+    const xs = ensureDraftImages()
+    const hit = xs.find((x) => x && x.id === id2)
+    if (hit) revokePreviewUrl(hit)
+    state.draft.images = xs.filter((x) => x && x.id !== id2)
+  }
+
+  function readAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader()
+      r.onerror = () => reject(new Error('读取图片失败'))
+      r.onload = () => resolve(String(r.result || ''))
+      r.readAsDataURL(file)
+    })
+  }
+
+  async function addImageFiles(files) {
+    const xs = ensureDraftImages()
+    const list = Array.isArray(files) ? files : []
+    if (!list.length) return
+
+    const remain = Math.max(0, MAX_IMAGE_COUNT - xs.length)
+    if (remain <= 0) {
+      api.ui?.showToast?.(`最多 ${MAX_IMAGE_COUNT} 张图片`)
+      return
+    }
+
+    const picked = []
+    const skipped = []
+    for (const f of list) {
+      if (!(f instanceof File)) continue
+      if (!String(f.type || '').startsWith('image/')) {
+        skipped.push(`${f.name || '文件'}：不是图片`)
+        continue
+      }
+      if (Number(f.size || 0) > MAX_IMAGE_BYTES) {
+        skipped.push(`${f.name || '图片'}：超过 ${fmtBytes(MAX_IMAGE_BYTES)}`)
+        continue
+      }
+      picked.push(f)
+      if (picked.length >= remain) break
+    }
+
+    if (!picked.length) {
+      if (skipped.length) api.ui?.showToast?.(skipped[0])
+      return
+    }
+
+    try {
+      for (const f of picked) {
+        const dataUrl = await readAsDataUrl(f)
+        const previewUrl = URL.createObjectURL(f)
+        xs.push({
+          id: id('img'),
+          name: String(f.name || 'image'),
+          type: String(f.type || ''),
+          size: Number(f.size || 0),
+          dataUrl,
+          previewUrl,
+        })
+      }
+      if (skipped.length) api.ui?.showToast?.(`已添加 ${picked.length} 张；已跳过：${skipped[0]}`)
+      else api.ui?.showToast?.(`已添加 ${picked.length} 张图片`)
+    } catch (e) {
+      api.ui?.showToast?.(String(e?.message || e || '添加图片失败'))
+    } finally {
+      render()
+    }
   }
 
   function trimSlash(s) {
@@ -397,7 +512,9 @@
     if (!apiKey) return api.ui?.showToast?.('请先在设置里配置 API Key')
 
     const userInput = String(state.draft.input || '').trim()
-    if (!userInput) return api.ui?.showToast?.('输入不能为空')
+    const images = Array.isArray(state.draft.images) ? state.draft.images : []
+    const hasImages = images.length > 0
+    if (!userInput && !hasImages) return api.ui?.showToast?.('输入不能为空')
 
     const model = resolveModel(space)
     if (!model) return api.ui?.showToast?.('请选择/填写模型')
@@ -406,7 +523,19 @@
     const sys = String(tpl?.systemPrompt || '').trim()
     const messages = []
     if (sys) messages.push({ role: 'system', content: sys })
-    messages.push({ role: 'user', content: userInput })
+    if (!hasImages) {
+      messages.push({ role: 'user', content: userInput })
+    } else {
+      const parts = []
+      if (userInput) parts.push({ type: 'text', text: userInput })
+      for (const img of images) {
+        const url = img && typeof img.dataUrl === 'string' ? img.dataUrl : ''
+        if (!url) continue
+        parts.push({ type: 'image_url', image_url: { url } })
+      }
+      if (!parts.length) return api.ui?.showToast?.('图片为空或读取失败')
+      messages.push({ role: 'user', content: parts })
+    }
 
     state.sending = true
     state.draft.error = ''
@@ -478,6 +607,7 @@
     state.draft.input = ''
     state.draft.output = ''
     state.draft.error = ''
+    clearDraftImages()
     state.draft.model = ''
     state.draft.customModel = ''
     render()
@@ -502,6 +632,7 @@
     state.data.spaces = state.data.spaces.filter((x) => x.id !== spaceId)
     if (state.data.spaces.length === 0) state.data.spaces = defaultData().spaces
     state.route = { name: 'list', spaceId: '' }
+    clearDraftImages()
     await save()
     render()
   }
@@ -639,6 +770,7 @@
     state.draft.input = ''
     state.draft.output = ''
     state.draft.error = ''
+    clearDraftImages()
     state.draft.model = ''
     state.draft.customModel = ''
     render()
@@ -950,6 +1082,7 @@
         state.draft.input = ''
         state.draft.output = ''
         state.draft.error = ''
+        clearDraftImages()
         render()
         return
       }
@@ -985,6 +1118,21 @@
       }
       if (act === 'send') {
         sendOnce()
+        return
+      }
+      if (act === 'pick-images') {
+        const input = document.querySelector('input[type="file"][data-act="image-input"]')
+        if (input instanceof HTMLInputElement) input.click()
+        return
+      }
+      if (act === 'clear-images') {
+        clearDraftImages()
+        render()
+        return
+      }
+      if (act === 'remove-image') {
+        removeDraftImage(t.getAttribute('data-id') || '')
+        render()
         return
       }
       if (act === 'copy-output') {
@@ -1093,6 +1241,16 @@
     root.addEventListener('change', (e) => {
       const t = e.target
       if (!(t instanceof HTMLElement)) return
+      const act = t.getAttribute('data-act') || ''
+      if (act === 'image-input') {
+        if (!(t instanceof HTMLInputElement)) return
+        if (String(t.type || '') !== 'file') return
+        const fs = t.files ? Array.from(t.files) : []
+        t.value = ''
+        if (!fs.length) return
+        void addImageFiles(fs)
+        return
+      }
       const k = t.getAttribute('data-bind') || ''
       if (!k) return
       // 这里只处理 <select>：避免 input/textarea 的 change 把值误写成空字符串
@@ -1165,6 +1323,24 @@
         e.preventDefault()
         sendOnce()
       }
+    })
+
+    root.addEventListener('paste', (e) => {
+      const t = e.target
+      if (!(t instanceof HTMLElement)) return
+      if (t.getAttribute('data-act') !== 'user-input') return
+      const cd = e.clipboardData
+      if (!cd || !cd.items || !cd.items.length) return
+      const fs = []
+      for (const it of cd.items) {
+        if (!it || it.kind !== 'file') continue
+        if (!String(it.type || '').startsWith('image/')) continue
+        const f = it.getAsFile()
+        if (f) fs.push(f)
+      }
+      if (!fs.length) return
+      e.preventDefault()
+      void addImageFiles(fs)
     })
 
     root.addEventListener('pointerdown', (e) => {
@@ -1370,6 +1546,18 @@
     modelOptions.push(`<option value="__custom__" ${customOn ? 'selected' : ''}>手动输入…</option>`)
     const showCustom = (state.draft.model || '') === '__custom__'
     const canSend = canSendInSpace(s)
+    const images = Array.isArray(state.draft.images) ? state.draft.images : []
+    const imgBytes = images.reduce((a, x) => a + Number(x?.size || 0), 0)
+    const imgGrid = images
+      .map(
+        (x) => `
+          <div class="imgItem">
+            <img src="${esc(x?.previewUrl || x?.dataUrl || '')}" alt="${esc(x?.name || '图片')}" />
+            <button class="imgX" data-act="remove-image" data-id="${esc(x?.id || '')}" aria-label="移除图片" title="移除">×</button>
+          </div>
+        `,
+      )
+      .join('')
 
     el.innerHTML = `
       <div class="split">
@@ -1377,9 +1565,17 @@
           <div class="row" style="margin-bottom:8px">
             <div class="meta" style="margin:0">模型</div>
             <select class="field" data-bind="model" style="flex:1; min-width: 220px">${modelOptions.join('')}</select>
+            <button class="btn" data-act="pick-images" ${state.sending ? 'disabled' : ''}>图片</button>
             <button class="btn ok" data-act="send" ${state.sending || !canSend ? 'disabled' : ''}>${state.sending ? '发送中…' : '发送'}</button>
           </div>
           ${showCustom ? `<input class="field mono" data-bind="customModel" placeholder="例如：gpt-4.1-mini / deepseek-chat" value="${esc(state.draft.customModel || cur)}" />` : ''}
+          <input type="file" accept="image/*" multiple data-act="image-input" style="display:none" />
+          <div class="attachBar">
+            <div class="meta" style="margin:0">${images.length ? `已添加 ${images.length} 张（${esc(fmtBytes(imgBytes))}）` : '支持 Ctrl/⌘ + V 粘贴图片，或点“图片”选择'}</div>
+            <div class="sp"></div>
+            ${images.length ? `<button class="btn" data-act="clear-images" ${state.sending ? 'disabled' : ''}>清空</button>` : ''}
+          </div>
+          ${images.length ? `<div class="imgGrid" aria-label="已添加图片">${imgGrid}</div>` : ''}
           <textarea class="field mono grow ta" data-bind="input" data-act="user-input" placeholder="输入你的问题…（Ctrl/⌘ + Enter 发送）">${esc(state.draft.input || '')}</textarea>
           ${state.draft.error ? `<div class="meta" style="color:var(--bad)">${esc(state.draft.error)}</div>` : ''}
         </div>
