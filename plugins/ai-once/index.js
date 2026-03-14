@@ -26,6 +26,8 @@
       apiKey: '',
       providerName: '',
       activeProviderId: '',
+      imageMaxCount: '',
+      imageMaxMb: '',
       spaceName: '',
       templateName: '',
       templatePrompt: '',
@@ -126,8 +128,26 @@
     return `${prefix}-${now()}-${Math.random().toString(16).slice(2)}`
   }
 
-  const MAX_IMAGE_COUNT = 6
-  const MAX_IMAGE_BYTES = 8 * 1024 * 1024
+  const DEFAULT_IMAGE_MAX_COUNT = 6
+  const DEFAULT_IMAGE_MAX_MB = 8
+
+  function toInt(x, fallback) {
+    const n = typeof x === 'number' ? x : parseInt(String(x ?? ''), 10)
+    return Number.isFinite(n) ? n : fallback
+  }
+
+  function toNum(x, fallback) {
+    const n = typeof x === 'number' ? x : parseFloat(String(x ?? ''))
+    return Number.isFinite(n) ? n : fallback
+  }
+
+  function imageLimits() {
+    const s = state.data?.settings
+    const maxCount = Math.max(1, toInt(s?.imageMaxCount, DEFAULT_IMAGE_MAX_COUNT))
+    const maxMb = Math.max(0.5, toNum(s?.imageMaxMb, DEFAULT_IMAGE_MAX_MB))
+    const maxBytes = Math.round(maxMb * 1024 * 1024)
+    return { maxCount, maxMb, maxBytes }
+  }
 
   function fmtBytes(n) {
     const x = Number(n || 0)
@@ -162,6 +182,14 @@
     state.draft.images = []
   }
 
+  function limitDraftImages(maxCount) {
+    const max = Math.max(0, toInt(maxCount, 0))
+    const xs = ensureDraftImages()
+    if (xs.length <= max) return
+    for (const x of xs.slice(max)) revokePreviewUrl(x)
+    state.draft.images = xs.slice(0, max)
+  }
+
   function removeDraftImage(imageId) {
     const id2 = String(imageId || '')
     if (!id2) return
@@ -185,9 +213,10 @@
     const list = Array.isArray(files) ? files : []
     if (!list.length) return
 
-    const remain = Math.max(0, MAX_IMAGE_COUNT - xs.length)
+    const lim = imageLimits()
+    const remain = Math.max(0, lim.maxCount - xs.length)
     if (remain <= 0) {
-      api.ui?.showToast?.(`最多 ${MAX_IMAGE_COUNT} 张图片`)
+      api.ui?.showToast?.(`最多 ${lim.maxCount} 张图片`)
       return
     }
 
@@ -199,8 +228,8 @@
         skipped.push(`${f.name || '文件'}：不是图片`)
         continue
       }
-      if (Number(f.size || 0) > MAX_IMAGE_BYTES) {
-        skipped.push(`${f.name || '图片'}：超过 ${fmtBytes(MAX_IMAGE_BYTES)}`)
+      if (Number(f.size || 0) > lim.maxBytes) {
+        skipped.push(`${f.name || '图片'}：超过 ${fmtBytes(lim.maxBytes)}`)
         continue
       }
       picked.push(f)
@@ -257,6 +286,8 @@
       settings: {
         activeProviderId: pid,
         providers: [{ id: pid, name: '默认供应商', baseUrl: 'https://api.openai.com/v1', apiKey: '', modelsCache: { items: [], fetchedAt: 0 } }],
+        imageMaxCount: DEFAULT_IMAGE_MAX_COUNT,
+        imageMaxMb: DEFAULT_IMAGE_MAX_MB,
       },
       spaces: [
         {
@@ -285,6 +316,8 @@
     out.settings = {
       activeProviderId: pid,
       providers: [{ id: pid, name: '默认供应商', baseUrl, apiKey, modelsCache: { items, fetchedAt } }],
+      imageMaxCount: DEFAULT_IMAGE_MAX_COUNT,
+      imageMaxMb: DEFAULT_IMAGE_MAX_MB,
     }
 
     if (Array.isArray(v1?.spaces) && v1.spaces.length) {
@@ -324,6 +357,8 @@
 
     d.settings ??= defaultData().settings
     if (!Array.isArray(d.settings.providers) || d.settings.providers.length === 0) d.settings.providers = defaultData().settings.providers
+    d.settings.imageMaxCount = Math.max(1, toInt(d.settings.imageMaxCount, DEFAULT_IMAGE_MAX_COUNT))
+    d.settings.imageMaxMb = Math.max(0.5, toNum(d.settings.imageMaxMb, DEFAULT_IMAGE_MAX_MB))
     for (const p of d.settings.providers) {
       if (!p || typeof p !== 'object') continue
       p.id = String(p.id || id('prov'))
@@ -971,6 +1006,9 @@
         state.draft.providerName = String(p?.name || '')
         state.draft.baseUrl = String(p?.baseUrl || '')
         state.draft.apiKey = String(p?.apiKey || '')
+        const lim = imageLimits()
+        state.draft.imageMaxCount = String(lim.maxCount)
+        state.draft.imageMaxMb = String(lim.maxMb)
         render()
         return
       }
@@ -990,6 +1028,8 @@
         const name = String(state.draft.providerName || '').trim() || '供应商'
         const baseUrl = trimSlash(state.draft.baseUrl)
         const apiKey = String(state.draft.apiKey || '').trim()
+        const maxCount = Math.max(1, toInt(state.draft.imageMaxCount, DEFAULT_IMAGE_MAX_COUNT))
+        const maxMb = Math.max(0.5, toNum(state.draft.imageMaxMb, DEFAULT_IMAGE_MAX_MB))
         if (!isHttpBaseUrl(baseUrl)) return api.ui?.showToast?.(`Base URL 无效：${baseUrl || '(空)'}（示例：http://192.168.123.111:9100/v1）`)
         p.name = name
         p.baseUrl = baseUrl
@@ -997,6 +1037,11 @@
         p.modelsCache = { items: [], fetchedAt: 0 }
         state.models = []
         state.modelsError = ''
+        state.data.settings.imageMaxCount = Math.round(maxCount)
+        state.data.settings.imageMaxMb = Math.round(maxMb * 10) / 10
+        state.draft.imageMaxCount = String(state.data.settings.imageMaxCount)
+        state.draft.imageMaxMb = String(state.data.settings.imageMaxMb)
+        limitDraftImages(state.data.settings.imageMaxCount)
         save()
         api.ui?.showToast?.('已保存（请手动刷新模型）')
         render()
@@ -1633,14 +1678,21 @@
             <div class="meta">Base URL</div>
             <input class="field mono" data-bind="baseUrl" placeholder="https://api.openai.com/v1" value="${esc(state.draft.baseUrl || '')}" />
             <div class="hr"></div>
-            <div class="meta">API Key</div>
-            <input class="field mono" type="password" data-bind="apiKey" placeholder="sk-..." value="${esc(state.draft.apiKey || '')}" />
-            <div class="hr"></div>
-            <div class="row">
-              <button class="btn pri" data-act="save-settings" ${state.modelsLoading ? 'disabled' : ''}>保存</button>
-              <button class="btn" data-act="refresh-models" ${state.modelsLoading ? 'disabled' : ''}>仅刷新模型</button>
-              <div class="sp"></div>
-              <div class="meta" style="margin:0">${esc(status)}</div>
+             <div class="meta">API Key</div>
+             <input class="field mono" type="password" data-bind="apiKey" placeholder="sk-..." value="${esc(state.draft.apiKey || '')}" />
+             <div class="hr"></div>
+             <div class="meta">图片：最多张数（>= 1）</div>
+             <input class="field mono" type="number" min="1" step="1" data-bind="imageMaxCount" placeholder="${esc(String(DEFAULT_IMAGE_MAX_COUNT))}" value="${esc(state.draft.imageMaxCount || '')}" />
+             <div class="hr"></div>
+             <div class="meta">图片：单张大小上限（MB，>= 0.5）</div>
+             <input class="field mono" type="number" min="0.5" step="0.5" data-bind="imageMaxMb" placeholder="${esc(String(DEFAULT_IMAGE_MAX_MB))}" value="${esc(state.draft.imageMaxMb || '')}" />
+             <div class="meta">提示：输入框支持 Ctrl/⌘ + V 粘贴图片；图片会随请求一起发送</div>
+             <div class="hr"></div>
+             <div class="row">
+               <button class="btn pri" data-act="save-settings" ${state.modelsLoading ? 'disabled' : ''}>保存</button>
+               <button class="btn" data-act="refresh-models" ${state.modelsLoading ? 'disabled' : ''}>仅刷新模型</button>
+               <div class="sp"></div>
+               <div class="meta" style="margin:0">${esc(status)}</div>
             </div>
           </div>
         </div>
