@@ -1563,7 +1563,7 @@ struct WakeShortcutState {
 
 trait Boundsable {
     fn outer_position(&self) -> tauri::Result<tauri::PhysicalPosition<i32>>;
-    fn outer_size(&self) -> tauri::Result<tauri::PhysicalSize<u32>>;
+    fn inner_size(&self) -> tauri::Result<tauri::PhysicalSize<u32>>;
     fn set_position(&self, position: tauri::PhysicalPosition<i32>) -> tauri::Result<()>;
     fn set_size(&self, size: tauri::PhysicalSize<u32>) -> tauri::Result<()>;
     fn center(&self) -> tauri::Result<()>;
@@ -1575,8 +1575,8 @@ impl Boundsable for tauri::Window {
         tauri::Window::outer_position(self)
     }
 
-    fn outer_size(&self) -> tauri::Result<tauri::PhysicalSize<u32>> {
-        tauri::Window::outer_size(self)
+    fn inner_size(&self) -> tauri::Result<tauri::PhysicalSize<u32>> {
+        tauri::Window::inner_size(self)
     }
 
     fn set_position(&self, position: tauri::PhysicalPosition<i32>) -> tauri::Result<()> {
@@ -1601,8 +1601,8 @@ impl Boundsable for tauri::WebviewWindow {
         tauri::WebviewWindow::outer_position(self)
     }
 
-    fn outer_size(&self) -> tauri::Result<tauri::PhysicalSize<u32>> {
-        tauri::WebviewWindow::outer_size(self)
+    fn inner_size(&self) -> tauri::Result<tauri::PhysicalSize<u32>> {
+        tauri::WebviewWindow::inner_size(self)
     }
 
     fn set_position(&self, position: tauri::PhysicalPosition<i32>) -> tauri::Result<()> {
@@ -1630,7 +1630,9 @@ fn save_bounds_if_valid(window: &impl Boundsable, state: &WindowState) {
     if pos.x <= -9000 || pos.y <= -9000 {
         return;
     }
-    let Ok(size) = window.outer_size() else {
+    // 这里必须用 inner_size：Tauri 的 set_size 更接近“内容区大小”，
+    // 如果用 outer_size 保存再用 set_size 恢复，会把边框/阴影重复叠加，导致每次唤醒都变大。
+    let Ok(size) = window.inner_size() else {
         return;
     };
     // 极端情况下可能拿到 0；不要写入无效尺寸
@@ -1661,37 +1663,59 @@ fn rect_intersects(
     ax1 < bx2 && ax2 > bx1 && ay1 < by2 && ay2 > by1
 }
 
-fn bounds_intersects_any_monitor(
-    window: &impl Boundsable,
-    pos: tauri::PhysicalPosition<i32>,
-    size: tauri::PhysicalSize<u32>,
-) -> bool {
-    let monitors = window.available_monitors().unwrap_or_default();
-    if monitors.is_empty() {
-        // 拿不到显示器信息时不要“自作聪明”拦截恢复
-        return true;
+fn clamp_i32(v: i32, min: i32, max: i32) -> i32 {
+    if v < min {
+        return min;
     }
-    for m in monitors {
-        let wa = *m.work_area();
-        if rect_intersects(
-            pos,
-            size,
-            wa.position,
-            tauri::PhysicalSize::new(wa.size.width, wa.size.height),
-        ) {
-            return true;
-        }
+    if v > max {
+        return max;
     }
-    false
+    v
 }
 
 fn restore_bounds_or_center(window: &impl Boundsable, state: &WindowState) {
     let last = state.last_bounds.lock().ok().and_then(|g| g.clone());
 
     if let Some((pos, size)) = last {
-        if bounds_intersects_any_monitor(window, pos, size) {
+        let monitors = window.available_monitors().unwrap_or_default();
+        if monitors.is_empty() {
             let _ = window.set_size(size);
             let _ = window.set_position(pos);
+            return;
+        }
+
+        // 防御：之前版本如果把 outer_size 当成 set_size 的参数，会导致配置里记录的尺寸越存越大。
+        // 这里按显示器 work area 把恢复尺寸/位置夹回合理范围，避免升级后第一次唤醒还炸屏。
+        let mut picked: Option<tauri::PhysicalRect<i32, u32>> = None;
+        for m in &monitors {
+            let wa = *m.work_area();
+            if rect_intersects(
+                pos,
+                size,
+                wa.position,
+                tauri::PhysicalSize::new(wa.size.width, wa.size.height),
+            ) {
+                picked = Some(wa);
+                break;
+            }
+        }
+
+        if let Some(wa) = picked {
+            let max_w = wa.size.width.max(1);
+            let max_h = wa.size.height.max(1);
+            let next_size = tauri::PhysicalSize::new(size.width.min(max_w), size.height.min(max_h));
+
+            let min_x = wa.position.x;
+            let min_y = wa.position.y;
+            let max_x = wa.position.x + wa.size.width as i32 - next_size.width as i32;
+            let max_y = wa.position.y + wa.size.height as i32 - next_size.height as i32;
+            let next_pos = tauri::PhysicalPosition::new(
+                clamp_i32(pos.x, min_x, max_x),
+                clamp_i32(pos.y, min_y, max_y),
+            );
+
+            let _ = window.set_size(next_size);
+            let _ = window.set_position(next_pos);
             return;
         }
     }
