@@ -233,14 +233,29 @@ async function getLatestInputMtimeMs(plan) {
   return latest
 }
 
-async function isUpToDate(plan) {
+async function isUpToDate(plan, opts = {}) {
   if (plan.kind !== 'bundled') return true
+
+  const wantSourcemap = Boolean(opts.sourcemap)
 
   const outfiles = [plan.ui.outfile]
   if (plan.background) outfiles.push(plan.background.outfile)
 
+  if (!wantSourcemap) {
+    // 如果上一次是 watch（带 .map），而这次是 build（不带 .map），
+    // 不能因为 mtime “看起来最新” 就跳过构建，否则会留下未压缩的大文件。
+    for (const o of outfiles) {
+      if (await exists(o + '.map')) return false
+    }
+  }
+
+  const filesToCheck = [...outfiles]
+  if (wantSourcemap) {
+    for (const o of outfiles) filesToCheck.push(o + '.map')
+  }
+
   const outMtimes = []
-  for (const o of outfiles) {
+  for (const o of filesToCheck) {
     const t = await statMtimeMs(o)
     if (!t) return false
     outMtimes.push(t)
@@ -304,7 +319,7 @@ async function buildOne(plan, mode) {
   const sourcemap = mode !== 'build'
 
   if (mode === 'build') {
-    if (await isUpToDate(plan)) {
+    if (await isUpToDate(plan, { sourcemap })) {
       pluginInfo(`${plan.pluginId}: up-to-date`)
       return { contexts: [], watchers: [], triggerRebuild: null }
     }
@@ -329,6 +344,15 @@ async function buildOne(plan, mode) {
         sourcemap,
       })
       await esbuild.build(bgOpts)
+    }
+
+    if (!sourcemap) {
+      // 清理 watch 模式遗留的 .map，避免打包/分发时把大文件一并带走。
+      for (const o of [plan.ui.outfile, ...(plan.background ? [plan.background.outfile] : [])]) {
+        try {
+          await fs.rm(o + '.map', { force: true })
+        } catch {}
+      }
     }
 
     pluginInfo(`${plan.pluginId}: built`)
@@ -373,7 +397,7 @@ async function buildOne(plan, mode) {
     }
   }, 120)
 
-  if (!(await isUpToDate(plan))) {
+  if (!(await isUpToDate(plan, { sourcemap }))) {
     try {
       await Promise.all(contexts.map(c => c.rebuild()))
       pluginInfo(`${plan.pluginId}: built (startup)`)
