@@ -2,7 +2,7 @@
 
 use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -29,6 +29,7 @@ const APP_CONFIG_FILE: &str = "app.json";
 const PLUGIN_OVERWRITE_PREFS_FILE: &str = "plugins-overwrite.json";
 const WAKE_SHORTCUT_KEY: &str = "wakeShortcut";
 const AUTO_START_KEY: &str = "autoStart";
+const MAIN_WINDOW_BOUNDS_KEY: &str = "mainWindowBounds";
 const PLUGIN_OUTPUT_DIRS_KEY: &str = "pluginOutputDirs";
 const WEBVIEW_SETTINGS_KEY: &str = "webview";
 const TASKS_RETENTION_LIMIT: usize = 120;
@@ -1508,7 +1509,17 @@ fn task_cancel(
 
 #[derive(Default)]
 struct WindowState {
-    last_position: Mutex<Option<tauri::PhysicalPosition<i32>>>,
+    last_bounds: Mutex<Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>)>>,
+    save_seq: AtomicU64,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PersistedWindowBounds {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
 }
 
 struct BrowserWindowState {
@@ -1550,60 +1561,202 @@ struct WakeShortcutState {
     paused: Mutex<bool>,
 }
 
-trait Positionable {
+trait Boundsable {
     fn outer_position(&self) -> tauri::Result<tauri::PhysicalPosition<i32>>;
+    fn outer_size(&self) -> tauri::Result<tauri::PhysicalSize<u32>>;
     fn set_position(&self, position: tauri::PhysicalPosition<i32>) -> tauri::Result<()>;
+    fn set_size(&self, size: tauri::PhysicalSize<u32>) -> tauri::Result<()>;
     fn center(&self) -> tauri::Result<()>;
+    fn available_monitors(&self) -> tauri::Result<Vec<tauri::Monitor>>;
 }
 
-impl Positionable for tauri::Window {
+impl Boundsable for tauri::Window {
     fn outer_position(&self) -> tauri::Result<tauri::PhysicalPosition<i32>> {
         tauri::Window::outer_position(self)
+    }
+
+    fn outer_size(&self) -> tauri::Result<tauri::PhysicalSize<u32>> {
+        tauri::Window::outer_size(self)
     }
 
     fn set_position(&self, position: tauri::PhysicalPosition<i32>) -> tauri::Result<()> {
         tauri::Window::set_position(self, position)
     }
 
+    fn set_size(&self, size: tauri::PhysicalSize<u32>) -> tauri::Result<()> {
+        tauri::Window::set_size(self, size)
+    }
+
     fn center(&self) -> tauri::Result<()> {
         tauri::Window::center(self)
     }
+
+    fn available_monitors(&self) -> tauri::Result<Vec<tauri::Monitor>> {
+        tauri::Window::available_monitors(self)
+    }
 }
 
-impl Positionable for tauri::WebviewWindow {
+impl Boundsable for tauri::WebviewWindow {
     fn outer_position(&self) -> tauri::Result<tauri::PhysicalPosition<i32>> {
         tauri::WebviewWindow::outer_position(self)
+    }
+
+    fn outer_size(&self) -> tauri::Result<tauri::PhysicalSize<u32>> {
+        tauri::WebviewWindow::outer_size(self)
     }
 
     fn set_position(&self, position: tauri::PhysicalPosition<i32>) -> tauri::Result<()> {
         tauri::WebviewWindow::set_position(self, position)
     }
 
+    fn set_size(&self, size: tauri::PhysicalSize<u32>) -> tauri::Result<()> {
+        tauri::WebviewWindow::set_size(self, size)
+    }
+
     fn center(&self) -> tauri::Result<()> {
         tauri::WebviewWindow::center(self)
     }
+
+    fn available_monitors(&self) -> tauri::Result<Vec<tauri::Monitor>> {
+        tauri::WebviewWindow::available_monitors(self)
+    }
 }
 
-fn save_position_if_valid(window: &impl Positionable, state: &WindowState) {
-    if let Ok(pos) = window.outer_position() {
-        // 隐藏时会把窗口移到屏幕外（-10000, -10000），不要把这种位置记成“上次位置”
-        if pos.x <= -9000 || pos.y <= -9000 {
+fn save_bounds_if_valid(window: &impl Boundsable, state: &WindowState) {
+    let Ok(pos) = window.outer_position() else {
+        return;
+    };
+    // 隐藏时会把窗口移到屏幕外（-10000, -10000），不要把这种位置记成“上次位置”
+    if pos.x <= -9000 || pos.y <= -9000 {
+        return;
+    }
+    let Ok(size) = window.outer_size() else {
+        return;
+    };
+    // 极端情况下可能拿到 0；不要写入无效尺寸
+    if size.width < 200 || size.height < 150 {
+        return;
+    }
+    if let Ok(mut guard) = state.last_bounds.lock() {
+        *guard = Some((pos, size));
+    }
+}
+
+fn rect_intersects(
+    a_pos: tauri::PhysicalPosition<i32>,
+    a_size: tauri::PhysicalSize<u32>,
+    b_pos: tauri::PhysicalPosition<i32>,
+    b_size: tauri::PhysicalSize<u32>,
+) -> bool {
+    let ax1 = a_pos.x as i64;
+    let ay1 = a_pos.y as i64;
+    let ax2 = ax1 + a_size.width as i64;
+    let ay2 = ay1 + a_size.height as i64;
+
+    let bx1 = b_pos.x as i64;
+    let by1 = b_pos.y as i64;
+    let bx2 = bx1 + b_size.width as i64;
+    let by2 = by1 + b_size.height as i64;
+
+    ax1 < bx2 && ax2 > bx1 && ay1 < by2 && ay2 > by1
+}
+
+fn bounds_intersects_any_monitor(
+    window: &impl Boundsable,
+    pos: tauri::PhysicalPosition<i32>,
+    size: tauri::PhysicalSize<u32>,
+) -> bool {
+    let monitors = window.available_monitors().unwrap_or_default();
+    if monitors.is_empty() {
+        // 拿不到显示器信息时不要“自作聪明”拦截恢复
+        return true;
+    }
+    for m in monitors {
+        let wa = *m.work_area();
+        if rect_intersects(
+            pos,
+            size,
+            wa.position,
+            tauri::PhysicalSize::new(wa.size.width, wa.size.height),
+        ) {
+            return true;
+        }
+    }
+    false
+}
+
+fn restore_bounds_or_center(window: &impl Boundsable, state: &WindowState) {
+    let last = state.last_bounds.lock().ok().and_then(|g| g.clone());
+
+    if let Some((pos, size)) = last {
+        if bounds_intersects_any_monitor(window, pos, size) {
+            let _ = window.set_size(size);
+            let _ = window.set_position(pos);
             return;
         }
-        if let Ok(mut guard) = state.last_position.lock() {
-            *guard = Some(pos);
-        }
+    }
+
+    let _ = window.center();
+}
+
+fn load_main_window_bounds_from_config(
+    app: &tauri::AppHandle,
+) -> Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>)> {
+    let map = read_app_config_map(app);
+    let raw = map.get(MAIN_WINDOW_BOUNDS_KEY)?.clone();
+    let parsed = serde_json::from_value::<PersistedWindowBounds>(raw).ok()?;
+
+    if parsed.x <= -9000 || parsed.y <= -9000 {
+        return None;
+    }
+    if parsed.width < 200 || parsed.height < 150 {
+        return None;
+    }
+    if parsed.width > 20000 || parsed.height > 20000 {
+        return None;
+    }
+
+    Some((
+        tauri::PhysicalPosition::new(parsed.x, parsed.y),
+        tauri::PhysicalSize::new(parsed.width, parsed.height),
+    ))
+}
+
+fn persist_main_window_bounds(app: &tauri::AppHandle, state: &WindowState) {
+    let saved = state.last_bounds.lock().ok().and_then(|g| g.clone());
+    let Some((pos, size)) = saved else {
+        return;
+    };
+
+    let bounds = PersistedWindowBounds {
+        x: pos.x,
+        y: pos.y,
+        width: size.width,
+        height: size.height,
+    };
+
+    let mut map = read_app_config_map(app);
+    let Ok(v) = serde_json::to_value(bounds) else {
+        return;
+    };
+    map.insert(MAIN_WINDOW_BOUNDS_KEY.to_string(), v);
+    if let Err(e) = write_app_config_map(app, &map) {
+        eprintln!("[config] failed to persist main window bounds: {e}");
     }
 }
 
-fn restore_or_center(window: &impl Positionable, state: &WindowState) {
-    let last = state.last_position.lock().ok().and_then(|g| *g);
-
-    if let Some(pos) = last {
-        let _ = window.set_position(pos);
-    } else {
-        let _ = window.center();
-    }
+fn schedule_persist_main_window_bounds(app: &tauri::AppHandle) {
+    let state = app.state::<WindowState>();
+    let next = state.save_seq.fetch_add(1, Ordering::Relaxed).saturating_add(1);
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(350)).await;
+        let state = app.state::<WindowState>();
+        if state.save_seq.load(Ordering::Relaxed) != next {
+            return;
+        }
+        persist_main_window_bounds(&app, &state);
+    });
 }
 
 fn portable_base_dir_from_env() -> Option<PathBuf> {
@@ -3008,7 +3161,7 @@ fn load_wake_shortcut(app: &tauri::AppHandle) -> (Shortcut, String) {
 fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let state = app.state::<WindowState>();
-        restore_or_center(&window, &state);
+        restore_bounds_or_center(&window, &state);
         let _ = window.show();
         let _ = window.set_focus();
     }
@@ -3017,7 +3170,8 @@ fn show_main_window(app: &tauri::AppHandle) {
 fn hide_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let state = app.state::<WindowState>();
-        save_position_if_valid(&window, &state);
+        save_bounds_if_valid(&window, &state);
+        persist_main_window_bounds(app, &state);
         let _ = window.set_position(tauri::PhysicalPosition::new(-10000, -10000));
         let _ = window.hide();
     }
@@ -5242,6 +5396,17 @@ fn main() {
             app.manage(Arc::new(HttpStreamManagerState::default()));
             app.manage(BrowserWindowState::default());
 
+            // 主窗口尺寸/位置：从配置恢复（跨重启记住）
+            if let Some(saved) = load_main_window_bounds_from_config(app.handle()) {
+                let state = app.state::<WindowState>();
+                if let Ok(mut g) = state.last_bounds.lock() {
+                    *g = Some(saved);
+                }
+                if let Some(w) = app.get_webview_window("main") {
+                    restore_bounds_or_center(&w, &state);
+                }
+            }
+
             // 宿主数据迁移：仅迁移宿主私有存储（__app）。插件数据由插件自行调用 storage.migrate 处理。
             let _ = migrations::migrate_plugin_storage(app.handle(), APP_STORAGE_ID);
             let _ = migrations::migrate_host_files_into_app_dir(app.handle());
@@ -5283,6 +5448,11 @@ fn main() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "quit" => {
+                        if let Some(w) = app.get_webview_window("main") {
+                            let state = app.state::<WindowState>();
+                            save_bounds_if_valid(&w, &state);
+                            persist_main_window_bounds(app, &state);
+                        }
                         app.exit(0);
                     }
                     "show" => {
@@ -5419,7 +5589,8 @@ fn main() {
                 api.prevent_close();
                 let app = window.app_handle();
                 let state = app.state::<WindowState>();
-                save_position_if_valid(window, &state);
+                save_bounds_if_valid(window, &state);
+                persist_main_window_bounds(&app, &state);
                 let _ = window.set_position(tauri::PhysicalPosition::new(-10000, -10000));
                 let _ = window.hide();
                 return;
@@ -5427,7 +5598,14 @@ fn main() {
             if let WindowEvent::Moved(_) = event {
                 let app = window.app_handle();
                 let state = app.state::<WindowState>();
-                save_position_if_valid(window, &state);
+                save_bounds_if_valid(window, &state);
+                schedule_persist_main_window_bounds(app);
+            }
+            if let WindowEvent::Resized(_) = event {
+                let app = window.app_handle();
+                let state = app.state::<WindowState>();
+                save_bounds_if_valid(window, &state);
+                schedule_persist_main_window_bounds(app);
             }
             if let WindowEvent::Focused(focused) = event {
                 if !focused {
@@ -5435,7 +5613,8 @@ fn main() {
                     let window = window.clone();
                     let app = window.app_handle();
                     let state = app.state::<WindowState>();
-                    save_position_if_valid(&window, &state);
+                    save_bounds_if_valid(&window, &state);
+                    persist_main_window_bounds(&app, &state);
                     tauri::async_runtime::spawn(async move {
                         tokio::time::sleep(Duration::from_millis(120)).await;
                         if window.is_focused().unwrap_or(false) {
