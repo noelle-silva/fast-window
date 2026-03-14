@@ -2931,6 +2931,9 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
       const t = now()
       if (t - uiLastSyncMs > 900) {
         uiLastSyncMs = t
+        // 避免把“本地尚未落盘”的 UI 状态（尤其是新建会话 + 首条消息发送中）用磁盘快照覆盖掉。
+        // 否则会出现：新会话刚创建/刚写入前，被轮询同步回旧会话，表现为“回退到上一个会话但消息已发送”。
+        if (state.sending || state.pendingChat) return
         await syncDataFromStorage()
         chat = activeChatFromData()
         reapplyUiStreamCache(chat)
