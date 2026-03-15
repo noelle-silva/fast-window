@@ -1917,6 +1917,7 @@ export function AiChatApp(props: { controller: any }) {
                   ) : (
                     <Button
                       variant="contained"
+                      color={draftFilesWarn ? 'warning' : 'primary'}
                       onClick={onSend}
                       disabled={
                         s.loading ||

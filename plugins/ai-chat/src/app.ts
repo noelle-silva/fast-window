@@ -1479,11 +1479,6 @@ import mammoth from 'mammoth/mammoth.browser'
     return String(s || '').replaceAll('```', '``\u200b`')
   }
 
-  function attachmentSendLimitChars() {
-    const a = state.data?.settings?.attachments
-    return clamp(Math.round(Number(a?.sendLimitChars ?? DEFAULT_ATTACH_SEND_LIMIT_CHARS)), 1000, 2_000_000)
-  }
-
   function addDraftFilePlaceholder(file: File, kind: DraftFileKind): DraftFileItem | null {
     if (!Array.isArray(state.draft.files)) state.draft.files = []
     if (state.draft.files.length >= MAX_DRAFT_FILES) return null
@@ -1710,7 +1705,6 @@ import mammoth from 'mammoth/mammoth.browser'
       const parts: string[] = []
       if (input) parts.push(input)
       if (hasFiles) {
-        const limit = attachmentSendLimitChars()
         for (const f of draftFiles) {
           if (!f || f.pending) continue
           if (String(f?.error || '')) continue
