@@ -2,6 +2,8 @@
 import { now, uid, esc, trimSlash, isHttpBaseUrl, clampTemp, normImagePaths, clamp } from './core/utils'
 import { extractOpenAiDelta, sseFeed } from './core/sse'
 import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefault'
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
+import mammoth from 'mammoth/mammoth.browser'
 ;(function () {
   const api = window.fastWindow
   const BG_JOB_KEY_PREFIX = 'bg.job.'
@@ -15,6 +17,10 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
   const STICKERS_KEY = 'stickers/index'
   const runtime = String(api?.__meta?.runtime || 'ui')
   const MAX_DRAFT_IMAGES = 8
+  const MAX_DRAFT_FILES = 6
+  const MAX_DRAFT_FILE_BYTES = 10 * 1024 * 1024 // 10MB
+  const MAX_DRAFT_FILE_TEXT_CHARS = 80_000
+  const MAX_DRAFT_FILES_TOTAL_TEXT_CHARS = 200_000
   const REF_IMG_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
   const NEW_ROLE_ID = '__new__'
   const DEFAULT_MERMAID_FIX_SYSTEM_PROMPT = `你是 Mermaid 语法修复器。\n\n你会收到一段 Mermaid 源码（可能无法渲染）。你的任务：在尽量保持原意不变的前提下，修复语法/结构错误，让它可以被 Mermaid 渲染。\n\n输出要求：\n- 只输出修复后的 Mermaid 源码本体\n- 不要输出解释、不要输出 Markdown 代码块标记（不要输出 \`\`\`mermaid）`
@@ -36,6 +42,7 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     draft: {
       input: '',
       images: [],
+      files: [],
       activeRoleId: '',
 
       editRoleId: '',
@@ -1424,6 +1431,168 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
     return true
   }
 
+  type DraftFileKind = 'txt' | 'md' | 'pdf' | 'docx'
+  type DraftFileItem = {
+    id: string
+    name: string
+    size: number
+    kind: DraftFileKind
+    pending: boolean
+    truncated: boolean
+    text: string
+    error: string
+  }
+
+  function fileExtLower(name: string) {
+    const n = String(name || '')
+    const i = n.lastIndexOf('.')
+    if (i < 0) return ''
+    return n.slice(i + 1).toLowerCase()
+  }
+
+  function detectDraftFileKind(file: File): DraftFileKind | '' {
+    const ext = fileExtLower(file?.name || '')
+    if (ext === 'txt') return 'txt'
+    if (ext === 'md' || ext === 'markdown') return 'md'
+    if (ext === 'pdf') return 'pdf'
+    if (ext === 'docx') return 'docx'
+    const mime = String(file?.type || '').toLowerCase()
+    if (mime === 'text/plain') return 'txt'
+    if (mime === 'text/markdown') return 'md'
+    if (mime === 'application/pdf') return 'pdf'
+    if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'docx'
+    return ''
+  }
+
+  function clampText(s: string, maxChars: number) {
+    const raw = String(s || '')
+    if (raw.length <= maxChars) return { text: raw, truncated: false }
+    return { text: raw.slice(0, Math.max(0, maxChars)).trimEnd(), truncated: true }
+  }
+
+  function escapeFence(s: string) {
+    // 避免把附件内容里的 ``` 意外当成代码块结束
+    return String(s || '').replaceAll('```', '``\u200b`')
+  }
+
+  function addDraftFilePlaceholder(file: File, kind: DraftFileKind): DraftFileItem | null {
+    if (!Array.isArray(state.draft.files)) state.draft.files = []
+    if (state.draft.files.length >= MAX_DRAFT_FILES) return null
+    const it: DraftFileItem = {
+      id: uid('f'),
+      name: String(file?.name || '文件'),
+      size: clamp(Number(file?.size || 0), 0, Number.MAX_SAFE_INTEGER),
+      kind,
+      pending: true,
+      truncated: false,
+      text: '',
+      error: '',
+    }
+    state.draft.files.push(it)
+    return it
+  }
+
+  function removeDraftFile(id: string) {
+    const rid = String(id || '')
+    if (!rid) return
+    if (!Array.isArray(state.draft.files)) state.draft.files = []
+    state.draft.files = state.draft.files.filter((x: any) => String(x?.id || '') !== rid)
+  }
+
+  async function extractPdfText(file: File): Promise<string> {
+    const buf = await file.arrayBuffer()
+    const doc = await (pdfjsLib as any)
+      .getDocument({ data: new Uint8Array(buf), disableWorker: true })
+      .promise
+    const pages = clamp(Number(doc?.numPages || 0), 1, 200)
+    const maxPages = Math.min(pages, 50)
+    let out = ''
+    for (let i = 1; i <= maxPages; i++) {
+      const page = await doc.getPage(i)
+      const tc = await page.getTextContent()
+      const items = Array.isArray(tc?.items) ? tc.items : []
+      const parts = items
+        .map((x: any) => (x && typeof x.str === 'string' ? String(x.str) : ''))
+        .filter((x: string) => !!x)
+      if (parts.length) out += parts.join(' ') + '\n'
+      if (out.length >= MAX_DRAFT_FILE_TEXT_CHARS) break
+    }
+    try {
+      doc?.cleanup?.()
+    } catch (_) {}
+    return String(out || '').trim()
+  }
+
+  async function extractDocxText(file: File): Promise<string> {
+    const buf = await file.arrayBuffer()
+    const r = await (mammoth as any).extractRawText({ arrayBuffer: buf })
+    return String(r?.value || '').trim()
+  }
+
+  async function extractTextFromFile(file: File, kind: DraftFileKind) {
+    if (!(file instanceof File)) throw new Error('file 无效')
+    const size = Number(file?.size || 0)
+    if (!isFinite(size) || size <= 0) throw new Error('文件为空')
+    if (size > MAX_DRAFT_FILE_BYTES) throw new Error(`文件过大（> ${Math.round(MAX_DRAFT_FILE_BYTES / 1024 / 1024)}MB）`)
+
+    if (kind === 'txt' || kind === 'md') {
+      const t = await file.text()
+      return clampText(String(t || '').trim(), MAX_DRAFT_FILE_TEXT_CHARS)
+    }
+    if (kind === 'pdf') {
+      const t = await extractPdfText(file)
+      return clampText(t, MAX_DRAFT_FILE_TEXT_CHARS)
+    }
+    if (kind === 'docx') {
+      const t = await extractDocxText(file)
+      return clampText(t, MAX_DRAFT_FILE_TEXT_CHARS)
+    }
+    throw new Error('不支持的文件类型')
+  }
+
+  async function addDraftFilesFromFiles(files: File[]) {
+    if (state.loading || state.sending) return
+    const list = Array.isArray(files) ? files.filter((f) => f instanceof File) : []
+    if (!list.length) return
+    if (!Array.isArray(state.draft.files)) state.draft.files = []
+
+    const left = Math.max(0, MAX_DRAFT_FILES - state.draft.files.length)
+    if (!left) return api.ui?.showToast?.(`最多选择 ${MAX_DRAFT_FILES} 个文件`)
+
+    let added = 0
+    for (const f of list.slice(0, left)) {
+      const kind = detectDraftFileKind(f)
+      if (!kind) {
+        api.ui?.showToast?.(`不支持的文件：${String(f?.name || '文件')}`)
+        continue
+      }
+      const it = addDraftFilePlaceholder(f, kind)
+      if (!it) break
+      added++
+      emit()
+      ;(async () => {
+        try {
+          const r = await extractTextFromFile(f, kind)
+          const cur = Array.isArray(state.draft.files) ? state.draft.files.find((x: any) => String(x?.id || '') === it.id) : null
+          if (!cur) return
+          cur.text = String(r?.text || '')
+          cur.truncated = !!r?.truncated
+          if (!cur.text) cur.error = '未提取到文本'
+        } catch (e) {
+          const cur = Array.isArray(state.draft.files) ? state.draft.files.find((x: any) => String(x?.id || '') === it.id) : null
+          if (!cur) return
+          cur.error = String(e?.message || e || '解析失败')
+        } finally {
+          const cur = Array.isArray(state.draft.files) ? state.draft.files.find((x: any) => String(x?.id || '') === it.id) : null
+          if (cur) cur.pending = false
+          emit()
+        }
+      })().catch(() => {})
+    }
+    if (!added) api.ui?.showToast?.('未选择文件')
+    emit()
+  }
+
   function removeDraftImage(id) {
     const rid = String(id || '')
     if (!rid) return
@@ -1474,7 +1643,10 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
 
     const input = String(state.draft.input || '').trim()
     const draftImages = Array.isArray(state.draft.images) ? state.draft.images : []
-    if (!input && !draftImages.length) return api.ui?.showToast?.('输入不能为空')
+    const draftFiles: DraftFileItem[] = Array.isArray((state.draft as any).files) ? ((state.draft as any).files as any[]) : []
+    const hasFiles = draftFiles.length > 0
+    if (!input && !draftImages.length && !hasFiles) return api.ui?.showToast?.('输入不能为空')
+    if (hasFiles && draftFiles.some((x: any) => !!x?.pending)) return api.ui?.showToast?.('文件解析中，请稍候…')
 
     const rid = String(role.id || '')
     const chatForModel = state.pendingChat && String(state.pendingChat.roleId || '') === rid ? null : activeChatFromData()
@@ -1528,16 +1700,47 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
       if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
 
       const wasEmpty = !Array.isArray(chat.messages) || chat.messages.length === 0
-      chat.messages.push({ id: uid('m'), role: 'user', content: input, images: savedPaths, createdAt: now() })
+      const parts: string[] = []
+      if (input) parts.push(input)
+      if (hasFiles) {
+        let total = 0
+        for (const f of draftFiles) {
+          if (!f || f.pending) continue
+          if (String(f?.error || '')) continue
+          const name = String(f?.name || '文件')
+          const kind = String(f?.kind || 'txt')
+          const lang = kind === 'md' ? 'markdown' : 'text'
+          const header = `附件：${name}${f.truncated ? '（已截断）' : ''}`
+          const body = escapeFence(String(f?.text || '').trim())
+          if (!body) continue
+          const block = `${header}\n\`\`\`${lang}\n${body}\n\`\`\``
+          if (total + block.length > MAX_DRAFT_FILES_TOTAL_TEXT_CHARS) {
+            const remain = Math.max(0, MAX_DRAFT_FILES_TOTAL_TEXT_CHARS - total)
+            const overhead = (`${header}\n\`\`\`${lang}\n\n\`\`\``).length
+            const avail = Math.max(0, remain - overhead)
+            const snippet = avail > 200 ? body.slice(0, avail).trimEnd() : ''
+            if (snippet) parts.push(`${header}\n\`\`\`${lang}\n${snippet}\n\`\`\``)
+            parts.push('（附件内容过长，已截断）')
+            break
+          }
+          parts.push(block)
+          total += block.length
+        }
+      }
+      const finalInput = parts.join('\n\n').trim()
+      if (!finalInput && !savedPaths.length) throw new Error('没有可发送的内容（文件解析失败或为空）')
+
+      chat.messages.push({ id: uid('m'), role: 'user', content: finalInput, images: savedPaths, createdAt: now() })
       chat.updatedAt = now()
       if (wasEmpty && String(chat.title || '') === '新聊天') {
-        const t = input.replace(/\s+/g, ' ').trim()
-        const base = t || (savedPaths.length ? '图片' : '新聊天')
+        const t = finalInput.replace(/\s+/g, ' ').trim()
+        const base = t || (savedPaths.length ? '图片' : hasFiles ? '文件' : '新聊天')
         chat.title = base.length > 16 ? base.slice(0, 16) + '…' : base || '新聊天'
       }
 
       state.draft.input = ''
       state.draft.images = []
+      ;(state.draft as any).files = []
 
       chat.messages.push({
         id: assistantMid,
@@ -4171,6 +4374,10 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
         removeDraftImage(String(id || ''))
         emit()
       },
+      removeDraftFile: (id) => {
+        removeDraftFile(String(id || ''))
+        emit()
+      },
       pickImages: () => pickImages(),
       addDraftImagesFromFiles: async (files) => {
         const list = Array.isArray(files) ? files : []
@@ -4184,6 +4391,9 @@ import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefa
         }
         if (!added) api.ui?.showToast?.('未识别到图片')
         emit()
+      },
+      addDraftFilesFromFiles: async (files) => {
+        await addDraftFilesFromFiles(Array.isArray(files) ? files : [])
       },
       send: () => sendChat(),
       stop: () => {

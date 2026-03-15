@@ -41,6 +41,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import HistoryIcon from '@mui/icons-material/History'
 import ImageIcon from '@mui/icons-material/Image'
+import AttachFileIcon from '@mui/icons-material/AttachFile'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import SettingsIcon from '@mui/icons-material/Settings'
 import StorageIcon from '@mui/icons-material/Storage'
@@ -720,6 +721,12 @@ export function AiChatApp(props: { controller: any }) {
   })
   const onStop = useEvent(() => controller.actions.stop?.())
   const onPickImages = useEvent(() => controller.actions.pickImages())
+  const onPickFilesChanged = useEvent((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : []
+    e.target.value = ''
+    if (!files.length) return
+    controller.actions.addDraftFilesFromFiles?.(files)
+  })
   const closeTempModelPicker = useEvent(() => setTempModelPickerEl(null))
   const openTempModelPicker = useEvent((e: React.MouseEvent<HTMLElement>) => {
     if (!activeRole) return
@@ -1680,6 +1687,29 @@ export function AiChatApp(props: { controller: any }) {
                   </Stack>
                 ) : null}
 
+                {Array.isArray((s.draft as any)?.files) && (s.draft as any).files.length ? (
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                    {(s.draft as any).files.map((f: any) => {
+                      const id = String(f?.id || '')
+                      const name = String(f?.name || '文件')
+                      const pending = !!f?.pending
+                      const err = String(f?.error || '').trim()
+                      const label = pending ? `${name}（解析中…）` : err ? `${name}（失败）` : name
+                      return (
+                        <Chip
+                          key={id || name}
+                          size="small"
+                          label={label}
+                          variant="outlined"
+                          color={err ? 'error' : 'default'}
+                          onDelete={id ? () => controller.actions.removeDraftFile?.(id) : undefined}
+                          sx={{ maxWidth: 320 }}
+                        />
+                      )
+                    })}
+                  </Stack>
+                ) : null}
+
                 <Stack direction="row" spacing={1} alignItems="flex-end">
                   <Tooltip title="图片">
                     <span>
@@ -1697,6 +1727,33 @@ export function AiChatApp(props: { controller: any }) {
                         }}
                       >
                         <ImageIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+
+                  <Tooltip title="文件（txt/md/pdf/docx）">
+                    <span>
+                      <IconButton
+                        aria-label="选择文件"
+                        component="label"
+                        disabled={s.loading || uiBusy || chatLocked || !activeRole}
+                        size="small"
+                        sx={{
+                          bgcolor: 'rgba(0,0,0,.05)',
+                          borderRadius: '999px',
+                          width: 36,
+                          height: 36,
+                          '&:hover': { bgcolor: 'rgba(0,0,0,.09)' },
+                        }}
+                      >
+                        <AttachFileIcon fontSize="small" />
+                        <input
+                          hidden
+                          type="file"
+                          multiple
+                          accept=".txt,.md,.pdf,.docx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                          onChange={onPickFilesChanged}
+                        />
                       </IconButton>
                     </span>
                   </Tooltip>
@@ -1728,7 +1785,7 @@ export function AiChatApp(props: { controller: any }) {
                     minRows={2}
                     maxRows={8}
                     variant="outlined"
-                    placeholder="输入消息…（Enter 发送 / Shift+Enter 换行；支持粘贴图片）"
+                    placeholder="输入消息…（Enter 发送 / Shift+Enter 换行；支持粘贴图片/选择文件）"
                     value={String(s.draft?.input || '')}
                     inputRef={(el) => {
                       composerInputRef.current = el as any
@@ -1752,7 +1809,12 @@ export function AiChatApp(props: { controller: any }) {
                     <Button
                       variant="contained"
                       onClick={onSend}
-                      disabled={s.loading || !activeRole || (!String(s.draft?.input || '').trim() && !(s.draft?.images || []).length)}
+                      disabled={
+                        s.loading ||
+                        !activeRole ||
+                        (((s.draft as any)?.files || []).some((f: any) => !!f?.pending) ||
+                          (!String(s.draft?.input || '').trim() && !(s.draft?.images || []).length && !((s.draft as any)?.files || []).length))
+                      }
                       sx={{ borderRadius: 999 }}
                     >
                       发送
