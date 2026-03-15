@@ -526,6 +526,7 @@ export function AiChatApp(props: { controller: any }) {
   const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
   const userMessageCollapseEnabled = !!data?.settings?.userMessageCollapseEnabled
   const userMessageCollapseLines = clampNum(Number(data?.settings?.userMessageCollapseLines ?? 8), 1, 50)
+  const attachSendLimitChars = clampNum(Number(data?.settings?.attachments?.sendLimitChars ?? 80000), 1000, 2000000)
   const stickersEnabled = !!data?.settings?.stickers?.enabled
   const stickerMap = data?.settings?.stickers?.map
   const stickerCategories = Array.isArray(data?.settings?.stickers?.categories) ? data.settings.stickers.categories : []
@@ -582,6 +583,7 @@ export function AiChatApp(props: { controller: any }) {
   const [rolePickerEl, setRolePickerEl] = React.useState<HTMLElement | null>(null)
   const [chatPickerEl, setChatPickerEl] = React.useState<HTMLElement | null>(null)
   const [tempModelPickerEl, setTempModelPickerEl] = React.useState<HTMLElement | null>(null)
+  const [fileAdjust, setFileAdjust] = React.useState<{ el: HTMLElement | null; id: string }>({ el: null, id: '' })
   const [tempModelProviderId, setTempModelProviderId] = React.useState('')
   const [tempModelPick, setTempModelPick] = React.useState('')
   const [tempCustomModelId, setTempCustomModelId] = React.useState('')
@@ -614,6 +616,15 @@ export function AiChatApp(props: { controller: any }) {
     controller.actions.openImageViewer(e.currentTarget as any, img)
   })
 
+  const closeFileAdjust = useEvent(() => setFileAdjust({ el: null, id: '' }))
+  const openFileAdjust = useEvent((e: React.MouseEvent<HTMLElement>, fileId: string) => {
+    const id = String(fileId || '')
+    if (!id) return
+    e.preventDefault()
+    e.stopPropagation()
+    setFileAdjust({ el: e.currentTarget, id })
+  })
+
   const lastMsg = Array.isArray(activeChat?.messages) && activeChat.messages.length ? activeChat.messages[activeChat.messages.length - 1] : null
   const lastMsgId = String(lastMsg?.id || '')
   const lastMsgText = String(lastMsg?.content || '')
@@ -632,6 +643,20 @@ export function AiChatApp(props: { controller: any }) {
   const modelLoading = !!(s as any)?.models?.loading
   const uiBusy = !!s.sending
   const chatLocked = isReplying
+  const draftFiles: any[] = Array.isArray((s.draft as any)?.files) ? ((s.draft as any).files as any[]) : []
+  const hasDraftFiles = draftFiles.length > 0
+  const draftFilesPending = hasDraftFiles && draftFiles.some((f: any) => !!f?.pending)
+  const draftFilesWarn =
+    hasDraftFiles &&
+    draftFiles.some((f: any) => {
+      if (!f || f.pending) return false
+      if (String(f?.error || '').trim()) return false
+      const rawLen = String(f?.text || '').trim().length
+      if (!rawLen) return false
+      const pct = clampNum(Math.round(Number(f?.sendPct ?? 100)), 0, 100)
+      const sendLen = Math.max(0, Math.ceil((rawLen * pct) / 100))
+      return sendLen > attachSendLimitChars
+    })
 
   const activeRoleId = String(activeRole?.id || '')
   const chatNav = (() => {
@@ -715,8 +740,31 @@ export function AiChatApp(props: { controller: any }) {
     })
   }, [page, (activeChat?.messages || []).length, lastMsgId, lastMsgText])
 
+  const [sendWarn, setSendWarn] = React.useState<{ open: boolean; items: any[] }>({ open: false, items: [] })
+  const closeSendWarn = useEvent(() => setSendWarn({ open: false, items: [] }))
+  const confirmSendWarn = useEvent(() => {
+    setSendWarn({ open: false, items: [] })
+    stickToBottomRef.current = true
+    controller.actions.send()
+  })
+
   const onSend = useEvent(() => {
     stickToBottomRef.current = true
+    if (draftFilesPending) return controller?.api?.ui?.showToast?.('文件解析中，请稍候…')
+    const warns = draftFiles
+      .map((f: any) => {
+        if (!f || f.pending) return null
+        const err = String(f?.error || '').trim()
+        if (err) return null
+        const rawLen = String(f?.text || '').trim().length
+        if (!rawLen) return null
+        const pct = clampNum(Math.round(Number(f?.sendPct ?? 100)), 0, 100)
+        const sendLen = Math.max(0, Math.ceil((rawLen * pct) / 100))
+        if (sendLen <= attachSendLimitChars) return null
+        return { id: String(f?.id || ''), name: String(f?.name || '文件'), pct, rawLen, sendLen }
+      })
+      .filter(Boolean)
+    if (warns.length) return setSendWarn({ open: true, items: warns })
     controller.actions.send()
   })
   const onStop = useEvent(() => controller.actions.stop?.())
@@ -911,6 +959,16 @@ export function AiChatApp(props: { controller: any }) {
     !uiBusy &&
     !chatLocked &&
     !(msgMenuRegenRole === 'assistant' && msgMenuRegenPending)
+
+  const fileAdjustItem = fileAdjust.id ? draftFiles.find((x: any) => String(x?.id || '') === String(fileAdjust.id || '')) : null
+  const fileAdjustName = String(fileAdjustItem?.name || '文件')
+  const fileAdjustPending = !!fileAdjustItem?.pending
+  const fileAdjustError = String(fileAdjustItem?.error || '').trim()
+  const fileAdjustRaw = String(fileAdjustItem?.text || '').trim()
+  const fileAdjustFullLen = fileAdjustRaw.length
+  const fileAdjustPct = clampNum(Math.round(Number(fileAdjustItem?.sendPct ?? 100)), 0, 100)
+  const fileAdjustSendLen = Math.max(0, Math.ceil((fileAdjustFullLen * fileAdjustPct) / 100))
+  const fileAdjustTooLong = !fileAdjustPending && !fileAdjustError && fileAdjustFullLen > 0 && fileAdjustSendLen > attachSendLimitChars
 
   return (
     <ThemeProvider theme={theme}>
@@ -1624,41 +1682,70 @@ export function AiChatApp(props: { controller: any }) {
                </DialogActions>
              </Dialog>
 
-             <Dialog
-               open={!!regen.mid}
-               onClose={() => setRegen({ mid: '', role: 'assistant' })}
-               maxWidth="xs"
-               fullWidth
-             >
-               <DialogTitle>确认重新回复？</DialogTitle>
-               <DialogContent>
-                 <Typography variant="body2" color="text.secondary">
-                   {regen.role === 'assistant' ? '这会用新内容覆盖当前 AI 回复。' : '这会基于该用户消息生成一条新的 AI 回复。'}
-                 </Typography>
-               </DialogContent>
-               <DialogActions>
-                 <Button onClick={() => setRegen({ mid: '', role: 'assistant' })}>取消</Button>
-                 <Button
-                   variant="contained"
-                   color="warning"
-                   onClick={() => {
-                     const mid = regen.mid
-                     const role = regen.role
-                     setRegen({ mid: '', role: 'assistant' })
-                     if (role === 'assistant') controller.actions.regenerateAssistant?.(mid)
-                     else controller.actions.replyFromUserMessage?.(mid)
-                   }}
-                  disabled={!regen.mid || s.loading || uiBusy || chatLocked}
-                 >
-                   重新回复
-                 </Button>
-               </DialogActions>
-             </Dialog>
+              <Dialog
+                open={!!regen.mid}
+                onClose={() => setRegen({ mid: '', role: 'assistant' })}
+                maxWidth="xs"
+                fullWidth
+              >
+                <DialogTitle>确认重新回复？</DialogTitle>
+                <DialogContent>
+                  <Typography variant="body2" color="text.secondary">
+                    {regen.role === 'assistant' ? '这会用新内容覆盖当前 AI 回复。' : '这会基于该用户消息生成一条新的 AI 回复。'}
+                  </Typography>
+                </DialogContent>
+                <DialogActions>
+                  <Button onClick={() => setRegen({ mid: '', role: 'assistant' })}>取消</Button>
+                  <Button
+                    variant="contained"
+                    color="warning"
+                    onClick={() => {
+                      const mid = regen.mid
+                      const role = regen.role
+                      setRegen({ mid: '', role: 'assistant' })
+                      if (role === 'assistant') controller.actions.regenerateAssistant?.(mid)
+                      else controller.actions.replyFromUserMessage?.(mid)
+                    }}
+                   disabled={!regen.mid || s.loading || uiBusy || chatLocked}
+                  >
+                    重新回复
+                  </Button>
+                </DialogActions>
+              </Dialog>
 
-              <Box
-                ref={composerRef}
-                onClick={onClickOpenImageViewer}
-                sx={{
+              <Dialog open={sendWarn.open} onClose={closeSendWarn} maxWidth="xs" fullWidth>
+                <DialogTitle>附件超长提醒</DialogTitle>
+                <DialogContent>
+                  <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      以下附件当前“实际发送长度”超过阈值（{Math.round(attachSendLimitChars)} 字符）。仍然发送可能导致响应慢或消耗更多 token。
+                    </Typography>
+                    <Stack spacing={0.75}>
+                      {sendWarn.items.map((it: any, i: number) => (
+                        <Paper key={String(it?.id || i)} variant="outlined" sx={{ p: 1 }}>
+                          <Typography sx={{ fontWeight: 900 }} noWrap>
+                            {String(it?.name || '文件')}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            当前发送 {Math.round(Number(it?.pct ?? 100))}%：{Number(it?.sendLen || 0)}/{Number(it?.rawLen || 0)} 字符
+                          </Typography>
+                        </Paper>
+                      ))}
+                    </Stack>
+                  </Stack>
+                </DialogContent>
+                <DialogActions>
+                  <Button onClick={closeSendWarn}>取消</Button>
+                  <Button variant="contained" color="warning" onClick={confirmSendWarn}>
+                    仍然发送
+                  </Button>
+                </DialogActions>
+              </Dialog>
+
+               <Box
+                 ref={composerRef}
+                 onClick={onClickOpenImageViewer}
+                 sx={{
                  position: 'absolute',
                  left: 16,
                  right: 16,
@@ -1702,14 +1789,28 @@ export function AiChatApp(props: { controller: any }) {
                       const name = String(f?.name || '文件')
                       const pending = !!f?.pending
                       const err = String(f?.error || '').trim()
-                      const label = pending ? `${name}（解析中…）` : err ? `${name}（失败）` : name
+                      const pct0 = Math.round(Number(f?.sendPct ?? 100))
+                      const pct = clampNum(pct0, 0, 100)
+                      const rawLen = String(f?.text || '').trim().length
+                      const sendLen = Math.max(0, Math.ceil((rawLen * pct) / 100))
+                      const warn = !pending && !err && rawLen > 0 && sendLen > attachSendLimitChars
+                      const label = pending
+                        ? `${name}（解析中…）`
+                        : err
+                          ? `${name}（失败）`
+                          : warn
+                            ? `${name}（超长提醒）`
+                            : pct < 100
+                              ? `${name}（${pct}%）`
+                              : name
                       return (
                         <Chip
                           key={id || name}
                           size="small"
                           label={label}
                           variant="outlined"
-                          color={err ? 'error' : 'default'}
+                          color={err ? 'error' : warn ? 'warning' : 'default'}
+                          onClick={id ? (e) => openFileAdjust(e as any, id) : undefined}
                           onDelete={id ? () => controller.actions.removeDraftFile?.(id) : undefined}
                           sx={{ maxWidth: 320 }}
                         />
@@ -1820,8 +1921,8 @@ export function AiChatApp(props: { controller: any }) {
                       disabled={
                         s.loading ||
                         !activeRole ||
-                        (((s.draft as any)?.files || []).some((f: any) => !!f?.pending) ||
-                          (!String(s.draft?.input || '').trim() && !(s.draft?.images || []).length && !((s.draft as any)?.files || []).length))
+                        draftFilesPending ||
+                        (!String(s.draft?.input || '').trim() && !(s.draft?.images || []).length && !hasDraftFiles)
                       }
                       sx={{ borderRadius: 999 }}
                     >
@@ -1948,6 +2049,86 @@ export function AiChatApp(props: { controller: any }) {
                   保存
                 </Button>
               </Stack>
+            </Stack>
+          </Box>
+        </Popover>
+
+        <Popover
+          open={!!fileAdjust.el}
+          anchorEl={fileAdjust.el}
+          onClose={closeFileAdjust}
+          anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+          transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        >
+          <Box data-area="file-adjust" sx={{ width: 420, p: 1.5 }}>
+            <Stack spacing={1.25}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="subtitle2" sx={{ fontWeight: 900 }} noWrap>
+                  附件：{fileAdjustName}
+                </Typography>
+                <Box sx={{ flex: 1 }} />
+                <Button size="small" onClick={closeFileAdjust}>
+                  关闭
+                </Button>
+              </Stack>
+
+              {!fileAdjustItem ? (
+                <Typography variant="body2" color="text.secondary">
+                  未找到该附件。
+                </Typography>
+              ) : fileAdjustPending ? (
+                <Typography variant="body2" color="text.secondary">
+                  解析中…
+                </Typography>
+              ) : fileAdjustError ? (
+                <Typography variant="body2" color="error">
+                  {fileAdjustError}
+                </Typography>
+              ) : (
+                <>
+                  <Typography variant="caption" color="text.secondary">
+                    文件文本长度：{fileAdjustFullLen}；阈值：{attachSendLimitChars}；当前将发送：{fileAdjustSendLen}
+                  </Typography>
+
+                  <Box>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                        发送百分比
+                      </Typography>
+                      <Box sx={{ flex: 1 }} />
+                      <Typography variant="caption" color={fileAdjustTooLong ? 'error' : 'text.secondary'}>
+                        {fileAdjustPct}%
+                      </Typography>
+                    </Stack>
+                    <Slider
+                      size="small"
+                      value={fileAdjustPct}
+                      min={0}
+                      max={100}
+                      step={1}
+                      onChange={(_e, v) => controller.actions.setDraftFileSendPct?.(String(fileAdjust.id || ''), v)}
+                    />
+                    {fileAdjustTooLong ? (
+                      <Typography variant="caption" sx={{ color: 'warning.main' }}>
+                        超过阈值：点击发送时会弹出确认提醒。
+                      </Typography>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        发送时仅取文件开头部分；不会自动截断。超过阈值会在点击发送时提示确认。
+                      </Typography>
+                    )}
+                  </Box>
+
+                  <Paper variant="outlined" sx={{ p: 1, bgcolor: 'grey.50', maxHeight: 200, overflow: 'auto' }}>
+                    <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
+                      {fileAdjustRaw.slice(0, Math.min(fileAdjustSendLen, 2000))}
+                    </Typography>
+                  </Paper>
+                  <Typography variant="caption" color="text.secondary">
+                    预览仅显示将发送内容的前 {Math.min(fileAdjustSendLen, 2000)} 字符。
+                  </Typography>
+                </>
+              )}
             </Stack>
           </Box>
         </Popover>
@@ -2627,8 +2808,7 @@ function PluginSettingsPage(props: {
   const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
   const userMessageCollapseEnabled = !!data?.settings?.userMessageCollapseEnabled
   const userMessageCollapseLines = clampNum(Number(data?.settings?.userMessageCollapseLines ?? 8), 1, 50)
-  const attachMaxCharsPerFile = clampNum(Number(data?.settings?.attachments?.maxCharsPerFile ?? 80000), 1000, 500000)
-  const attachMaxTotalChars = clampNum(Number(data?.settings?.attachments?.maxTotalChars ?? 200000), 5000, 2000000)
+  const attachSendLimitChars = clampNum(Number(data?.settings?.attachments?.sendLimitChars ?? 80000), 1000, 2000000)
 
   const appearancePanel = (
     <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
@@ -2839,52 +3019,25 @@ function PluginSettingsPage(props: {
             <Box>
               <Stack direction="row" spacing={1} alignItems="center">
                 <Typography variant="body2" sx={{ fontWeight: 900 }}>
-                  单文件截断长度
+                  单文件长度阈值
                 </Typography>
                 <Box sx={{ flex: 1 }} />
                 <Typography variant="caption" color="text.secondary">
-                  {Math.round(attachMaxCharsPerFile)} 字符
+                  {Math.round(attachSendLimitChars)} 字符
                 </Typography>
               </Stack>
               <Slider
                 size="small"
-                value={attachMaxCharsPerFile}
+                value={attachSendLimitChars}
                 min={1000}
-                max={500000}
-                step={500}
-                onChange={(_e, v) => controller.actions.setAttachmentsMaxCharsPerFile?.(v, false)}
-                onChangeCommitted={(_e, v) => controller.actions.setAttachmentsMaxCharsPerFile?.(v, true)}
-                disabled={loading}
-              />
-              <Typography variant="caption" color="text.secondary">
-                解析 txt/md/pdf/docx 时超过该长度会被截断后再发送。
-              </Typography>
-            </Box>
-
-            <Divider />
-
-            <Box>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Typography variant="body2" sx={{ fontWeight: 900 }}>
-                  总截断长度
-                </Typography>
-                <Box sx={{ flex: 1 }} />
-                <Typography variant="caption" color="text.secondary">
-                  {Math.round(attachMaxTotalChars)} 字符
-                </Typography>
-              </Stack>
-              <Slider
-                size="small"
-                value={attachMaxTotalChars}
-                min={5000}
                 max={2000000}
                 step={5000}
-                onChange={(_e, v) => controller.actions.setAttachmentsMaxTotalChars?.(v, false)}
-                onChangeCommitted={(_e, v) => controller.actions.setAttachmentsMaxTotalChars?.(v, true)}
+                onChange={(_e, v) => controller.actions.setAttachmentsSendLimitChars?.(v, false)}
+                onChangeCommitted={(_e, v) => controller.actions.setAttachmentsSendLimitChars?.(v, true)}
                 disabled={loading}
               />
               <Typography variant="caption" color="text.secondary">
-                多个附件合并进同一条用户消息时的总字符上限，避免消息过长。
+                当任一附件“实际发送长度”超过该阈值，点击发送会弹出确认提醒；可在输入栏的附件条目里单独调节“发送百分比”。
               </Typography>
             </Box>
           </Stack>

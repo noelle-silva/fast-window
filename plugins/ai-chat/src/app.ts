@@ -19,8 +19,7 @@ import mammoth from 'mammoth/mammoth.browser'
   const MAX_DRAFT_IMAGES = 8
   const MAX_DRAFT_FILES = 6
   const MAX_DRAFT_FILE_BYTES = 10 * 1024 * 1024 // 10MB
-  const DEFAULT_ATTACH_MAX_CHARS_PER_FILE = 80_000
-  const DEFAULT_ATTACH_MAX_TOTAL_CHARS = 200_000
+  const DEFAULT_ATTACH_SEND_LIMIT_CHARS = 80_000
   const REF_IMG_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
   const NEW_ROLE_ID = '__new__'
   const DEFAULT_MERMAID_FIX_SYSTEM_PROMPT = `你是 Mermaid 语法修复器。\n\n你会收到一段 Mermaid 源码（可能无法渲染）。你的任务：在尽量保持原意不变的前提下，修复语法/结构错误，让它可以被 Mermaid 渲染。\n\n输出要求：\n- 只输出修复后的 Mermaid 源码本体\n- 不要输出解释、不要输出 Markdown 代码块标记（不要输出 \`\`\`mermaid）`
@@ -512,8 +511,7 @@ import mammoth from 'mammoth/mammoth.browser'
             userMessageCollapseEnabled: false,
             userMessageCollapseLines: 8,
             attachments: {
-              maxCharsPerFile: DEFAULT_ATTACH_MAX_CHARS_PER_FILE,
-              maxTotalChars: DEFAULT_ATTACH_MAX_TOTAL_CHARS,
+              sendLimitChars: DEFAULT_ATTACH_SEND_LIMIT_CHARS,
             },
             stickers: {
               enabled: false,
@@ -580,8 +578,11 @@ import mammoth from 'mammoth/mammoth.browser'
     if (typeof d.settings.userMessageCollapseLines !== 'number' || !isFinite(d.settings.userMessageCollapseLines)) d.settings.userMessageCollapseLines = 8
     if (!d.settings.attachments || typeof d.settings.attachments !== 'object') d.settings.attachments = {}
     const at = d.settings.attachments
-    if (typeof at.maxCharsPerFile !== 'number' || !isFinite(at.maxCharsPerFile)) at.maxCharsPerFile = DEFAULT_ATTACH_MAX_CHARS_PER_FILE
-    if (typeof at.maxTotalChars !== 'number' || !isFinite(at.maxTotalChars)) at.maxTotalChars = DEFAULT_ATTACH_MAX_TOTAL_CHARS
+    // 兼容旧字段：maxCharsPerFile/maxTotalChars（旧实现：自动截断）
+    if (typeof at.sendLimitChars !== 'number' || !isFinite(at.sendLimitChars)) {
+      if (typeof at.maxCharsPerFile === 'number' && isFinite(at.maxCharsPerFile)) at.sendLimitChars = at.maxCharsPerFile
+      else at.sendLimitChars = DEFAULT_ATTACH_SEND_LIMIT_CHARS
+    }
     d.settings.chatBgOpacity = clamp(Math.round(Number(d.settings.chatBgOpacity || 0)), 0, 100)
     d.settings.chatBgBlur = clamp(Math.round(Number(d.settings.chatBgBlur || 0)), 0, 24)
     d.settings.topbarOpacity = clamp(Math.round(Number(d.settings.topbarOpacity || 0)), 0, 100)
@@ -589,9 +590,7 @@ import mammoth from 'mammoth/mammoth.browser'
     d.settings.composerOpacity = clamp(Math.round(Number(d.settings.composerOpacity || 0)), 40, 100)
     d.settings.composerBlur = clamp(Math.round(Number(d.settings.composerBlur || 0)), 0, 24)
     d.settings.userMessageCollapseLines = clamp(Math.round(Number(d.settings.userMessageCollapseLines || 8)), 1, 50)
-    at.maxCharsPerFile = clamp(Math.round(Number(at.maxCharsPerFile || DEFAULT_ATTACH_MAX_CHARS_PER_FILE)), 1000, 500_000)
-    at.maxTotalChars = clamp(Math.round(Number(at.maxTotalChars || DEFAULT_ATTACH_MAX_TOTAL_CHARS)), 5000, 2_000_000)
-    if (at.maxTotalChars < at.maxCharsPerFile) at.maxTotalChars = at.maxCharsPerFile
+    at.sendLimitChars = clamp(Math.round(Number(at.sendLimitChars || DEFAULT_ATTACH_SEND_LIMIT_CHARS)), 1000, 2_000_000)
     if (!Array.isArray(d.settings.providers) || d.settings.providers.length === 0) d.settings.providers = defaultData().settings.providers
 
     if (!d.settings.stickers || typeof d.settings.stickers !== 'object') d.settings.stickers = {}
@@ -1449,8 +1448,8 @@ import mammoth from 'mammoth/mammoth.browser'
     size: number
     kind: DraftFileKind
     pending: boolean
-    truncated: boolean
     text: string
+    sendPct: number
     error: string
   }
 
@@ -1475,23 +1474,14 @@ import mammoth from 'mammoth/mammoth.browser'
     return ''
   }
 
-  function clampText(s: string, maxChars: number) {
-    const raw = String(s || '')
-    if (raw.length <= maxChars) return { text: raw, truncated: false }
-    return { text: raw.slice(0, Math.max(0, maxChars)).trimEnd(), truncated: true }
-  }
-
   function escapeFence(s: string) {
     // 避免把附件内容里的 ``` 意外当成代码块结束
     return String(s || '').replaceAll('```', '``\u200b`')
   }
 
-  function attachmentLimits() {
+  function attachmentSendLimitChars() {
     const a = state.data?.settings?.attachments
-    let perFile = clamp(Math.round(Number(a?.maxCharsPerFile ?? DEFAULT_ATTACH_MAX_CHARS_PER_FILE)), 1000, 500_000)
-    let total = clamp(Math.round(Number(a?.maxTotalChars ?? DEFAULT_ATTACH_MAX_TOTAL_CHARS)), 5000, 2_000_000)
-    if (total < perFile) total = perFile
-    return { perFile, total }
+    return clamp(Math.round(Number(a?.sendLimitChars ?? DEFAULT_ATTACH_SEND_LIMIT_CHARS)), 1000, 2_000_000)
   }
 
   function addDraftFilePlaceholder(file: File, kind: DraftFileKind): DraftFileItem | null {
@@ -1503,8 +1493,8 @@ import mammoth from 'mammoth/mammoth.browser'
       size: clamp(Number(file?.size || 0), 0, Number.MAX_SAFE_INTEGER),
       kind,
       pending: true,
-      truncated: false,
       text: '',
+      sendPct: 100,
       error: '',
     }
     state.draft.files.push(it)
@@ -1518,7 +1508,7 @@ import mammoth from 'mammoth/mammoth.browser'
     state.draft.files = state.draft.files.filter((x: any) => String(x?.id || '') !== rid)
   }
 
-  async function extractPdfText(file: File, maxChars: number): Promise<string> {
+  async function extractPdfText(file: File): Promise<string> {
     const buf = await file.arrayBuffer()
     const doc = await (pdfjsLib as any)
       .getDocument({ data: new Uint8Array(buf), disableWorker: true })
@@ -1534,7 +1524,6 @@ import mammoth from 'mammoth/mammoth.browser'
         .map((x: any) => (x && typeof x.str === 'string' ? String(x.str) : ''))
         .filter((x: string) => !!x)
       if (parts.length) out += parts.join(' ') + '\n'
-      if (out.length >= maxChars) break
     }
     try {
       doc?.cleanup?.()
@@ -1553,19 +1542,17 @@ import mammoth from 'mammoth/mammoth.browser'
     const size = Number(file?.size || 0)
     if (!isFinite(size) || size <= 0) throw new Error('文件为空')
     if (size > MAX_DRAFT_FILE_BYTES) throw new Error(`文件过大（> ${Math.round(MAX_DRAFT_FILE_BYTES / 1024 / 1024)}MB）`)
-    const limits = attachmentLimits()
 
     if (kind === 'txt' || kind === 'md') {
       const t = await file.text()
-      return clampText(String(t || '').trim(), limits.perFile)
+      return String(t || '').trim()
     }
     if (kind === 'pdf') {
-      const t = await extractPdfText(file, limits.perFile)
-      return clampText(t, limits.perFile)
+      return await extractPdfText(file)
     }
     if (kind === 'docx') {
       const t = await extractDocxText(file)
-      return clampText(t, limits.perFile)
+      return String(t || '').trim()
     }
     throw new Error('不支持的文件类型')
   }
@@ -1595,8 +1582,7 @@ import mammoth from 'mammoth/mammoth.browser'
           const r = await extractTextFromFile(f, kind)
           const cur = Array.isArray(state.draft.files) ? state.draft.files.find((x: any) => String(x?.id || '') === it.id) : null
           if (!cur) return
-          cur.text = String(r?.text || '')
-          cur.truncated = !!r?.truncated
+          cur.text = String(r || '')
           if (!cur.text) cur.error = '未提取到文本'
         } catch (e) {
           const cur = Array.isArray(state.draft.files) ? state.draft.files.find((x: any) => String(x?.id || '') === it.id) : null
@@ -1667,6 +1653,7 @@ import mammoth from 'mammoth/mammoth.browser'
     const hasFiles = draftFiles.length > 0
     if (!input && !draftImages.length && !hasFiles) return api.ui?.showToast?.('输入不能为空')
     if (hasFiles && draftFiles.some((x: any) => !!x?.pending)) return api.ui?.showToast?.('文件解析中，请稍候…')
+    // 超阈值仅提醒：由 UI 在发送时二次确认；这里不强行阻止。
 
     const rid = String(role.id || '')
     const chatForModel = state.pendingChat && String(state.pendingChat.roleId || '') === rid ? null : activeChatFromData()
@@ -1723,29 +1710,25 @@ import mammoth from 'mammoth/mammoth.browser'
       const parts: string[] = []
       if (input) parts.push(input)
       if (hasFiles) {
-        const limits = attachmentLimits()
-        let total = 0
+        const limit = attachmentSendLimitChars()
         for (const f of draftFiles) {
           if (!f || f.pending) continue
           if (String(f?.error || '')) continue
           const name = String(f?.name || '文件')
           const kind = String(f?.kind || 'txt')
           const lang = kind === 'md' ? 'markdown' : 'text'
-          const header = `附件：${name}${f.truncated ? '（已截断）' : ''}`
-          const body = escapeFence(String(f?.text || '').trim())
-          if (!body) continue
-          const block = `${header}\n\`\`\`${lang}\n${body}\n\`\`\``
-          if (total + block.length > limits.total) {
-            const remain = Math.max(0, limits.total - total)
-            const overhead = (`${header}\n\`\`\`${lang}\n\n\`\`\``).length
-            const avail = Math.max(0, remain - overhead)
-            const snippet = avail > 200 ? body.slice(0, avail).trimEnd() : ''
-            if (snippet) parts.push(`${header}\n\`\`\`${lang}\n${snippet}\n\`\`\``)
-            parts.push('（附件内容过长，已截断）')
-            break
-          }
-          parts.push(block)
-          total += block.length
+          const raw = String(f?.text || '').trim()
+          const fullLen = raw.length
+          if (!raw) continue
+
+          const pct0 = Math.round(Number(f?.sendPct ?? 100))
+          const pct = clamp(pct0, 0, 100)
+          const sendLen = Math.max(0, Math.ceil((fullLen * pct) / 100))
+
+          const snippetRaw = sendLen >= fullLen ? raw : raw.slice(0, sendLen).trimEnd()
+          const snippet = escapeFence(snippetRaw)
+          const header = `附件：${name}（发送 ${pct}%：${sendLen}/${fullLen} 字符）`
+          parts.push(`${header}\n\`\`\`${lang}\n${snippet}\n\`\`\``)
         }
       }
       const finalInput = parts.join('\n\n').trim()
@@ -3997,27 +3980,13 @@ import mammoth from 'mammoth/mammoth.browser'
         if (commit) save().catch(() => {})
         emit()
       },
-      setAttachmentsMaxCharsPerFile: (chars, commit) => {
+      setAttachmentsSendLimitChars: (chars, commit) => {
         if (!state.data) return
         if (!state.data.settings.attachments || typeof state.data.settings.attachments !== 'object') {
-          state.data.settings.attachments = { maxCharsPerFile: DEFAULT_ATTACH_MAX_CHARS_PER_FILE, maxTotalChars: DEFAULT_ATTACH_MAX_TOTAL_CHARS }
+          state.data.settings.attachments = { sendLimitChars: DEFAULT_ATTACH_SEND_LIMIT_CHARS }
         }
         const at = state.data.settings.attachments
-        at.maxCharsPerFile = clamp(Math.round(Number(chars || DEFAULT_ATTACH_MAX_CHARS_PER_FILE)), 1000, 500_000)
-        if (typeof at.maxTotalChars !== 'number' || !isFinite(at.maxTotalChars)) at.maxTotalChars = DEFAULT_ATTACH_MAX_TOTAL_CHARS
-        if (at.maxTotalChars < at.maxCharsPerFile) at.maxTotalChars = at.maxCharsPerFile
-        if (commit) save().catch(() => {})
-        emit()
-      },
-      setAttachmentsMaxTotalChars: (chars, commit) => {
-        if (!state.data) return
-        if (!state.data.settings.attachments || typeof state.data.settings.attachments !== 'object') {
-          state.data.settings.attachments = { maxCharsPerFile: DEFAULT_ATTACH_MAX_CHARS_PER_FILE, maxTotalChars: DEFAULT_ATTACH_MAX_TOTAL_CHARS }
-        }
-        const at = state.data.settings.attachments
-        if (typeof at.maxCharsPerFile !== 'number' || !isFinite(at.maxCharsPerFile)) at.maxCharsPerFile = DEFAULT_ATTACH_MAX_CHARS_PER_FILE
-        at.maxTotalChars = clamp(Math.round(Number(chars || DEFAULT_ATTACH_MAX_TOTAL_CHARS)), 5000, 2_000_000)
-        if (at.maxTotalChars < at.maxCharsPerFile) at.maxTotalChars = at.maxCharsPerFile
+        at.sendLimitChars = clamp(Math.round(Number(chars || DEFAULT_ATTACH_SEND_LIMIT_CHARS)), 1000, 2_000_000)
         if (commit) save().catch(() => {})
         emit()
       },
@@ -4421,6 +4390,15 @@ import mammoth from 'mammoth/mammoth.browser'
       },
       removeDraftFile: (id) => {
         removeDraftFile(String(id || ''))
+        emit()
+      },
+      setDraftFileSendPct: (id, pct) => {
+        const rid = String(id || '')
+        if (!rid) return
+        if (!Array.isArray(state.draft.files)) state.draft.files = []
+        const it = state.draft.files.find((x: any) => String(x?.id || '') === rid)
+        if (!it) return
+        it.sendPct = clamp(Math.round(Number(pct ?? 100)), 0, 100)
         emit()
       },
       pickImages: () => pickImages(),
