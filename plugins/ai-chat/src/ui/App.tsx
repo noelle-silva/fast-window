@@ -635,7 +635,44 @@ export function AiChatApp(props: { controller: any }) {
     setAttachView({ el: e.currentTarget, mid: id, idx: Math.max(-1, Math.floor(Number(idx || 0))) })
   })
 
-  const lastMsg = Array.isArray(activeChat?.messages) && activeChat.messages.length ? activeChat.messages[activeChat.messages.length - 1] : null
+  const allMessages: any[] = Array.isArray(activeChat?.messages) ? (activeChat.messages as any[]) : []
+  const msgIndexById = (() => {
+    const m = new Map<string, number>()
+    for (let i = 0; i < allMessages.length; i++) {
+      const id = String(allMessages[i]?.id || '')
+      if (!id) continue
+      if (!m.has(id)) m.set(id, i)
+    }
+    return m
+  })()
+  const groupedAttMsgsByRootMid = (() => {
+    const map = new Map<string, any[]>()
+    for (const m of allMessages) {
+      if (!m || m.role !== 'user') continue
+      if (String(m?.groupRole || '') !== 'attachment') continue
+      const parent = String(m?.groupParentMid || '').trim()
+      if (!parent) continue
+      const list = map.get(parent) || []
+      list.push(m)
+      map.set(parent, list)
+    }
+    return map
+  })()
+  const renderMessages = (() => {
+    const out: any[] = []
+    for (const m of allMessages) {
+      if (!m) continue
+      if (m.role !== 'user') {
+        out.push(m)
+        continue
+      }
+      if (String(m?.groupRole || '') === 'attachment' && String(m?.groupParentMid || '').trim()) continue
+      out.push(m)
+    }
+    return out
+  })()
+
+  const lastMsg = renderMessages.length ? renderMessages[renderMessages.length - 1] : null
   const lastMsgId = String(lastMsg?.id || '')
   const lastMsgText = String(lastMsg?.content || '')
   const isReplying = Array.isArray(activeChat?.messages) && activeChat.messages.some((m: any) => m && m.role === 'assistant' && m.pending)
@@ -1415,14 +1452,14 @@ export function AiChatApp(props: { controller: any }) {
                 </Typography>
               ) : (
                 <Stack spacing={1.25}>
-                  {activeChat.messages.map((m: any, index: number) => {
+                  {renderMessages.map((m: any) => {
                     const isUser = m?.role === 'user'
                     const roleName = String(activeRole?.name || 'AI')
                     const roleAvatarEmoji = String(activeRole?.avatar || '🤖')
                     const roleAvatarImage = String(activeRole?.avatarImage || '')
                     const time = controller.fmtTime(Number(m?.createdAt || 0))
                     const imgPaths = isUser ? (Array.isArray(m?.images) ? m.images : []) : []
-                    const attachments = isUser && Array.isArray(m?.attachments) ? m.attachments : []
+                    const attMsgs = isUser ? (groupedAttMsgsByRootMid.get(String(m?.id || '').trim()) || []) : []
                     const mid = String(m?.id || '')
                     const isEditing = editingMsg.mid === mid
                     const canEdit = !isEditing && !m?.pending && !s.loading && !uiBusy && !chatLocked && !!mid
@@ -1437,8 +1474,9 @@ export function AiChatApp(props: { controller: any }) {
                     let regenMid = mid
                     let regenPending = isUser ? false : !!m?.pending
                     if (isUser) {
-                      const msgs = Array.isArray(activeChat.messages) ? activeChat.messages : []
-                      for (let j = index + 1; j < msgs.length; j++) {
+                      const msgs = Array.isArray(activeChat.messages) ? (activeChat.messages as any[]) : []
+                      const fullIdx = msgIndexById.get(mid) ?? -1
+                      for (let j = fullIdx + 1; j < msgs.length; j++) {
                         const next = msgs[j]
                         if (!next) continue
                         if (next.role === 'assistant') {
@@ -1514,11 +1552,17 @@ export function AiChatApp(props: { controller: any }) {
                             />
                           ) : isUser ? (
                             <Box>
-                              {stickersEnabled ? (
-                                <StickerText controller={controller} text={shownContent} stickerMap={stickerMap} />
-                              ) : (
-                                <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{shownContent}</Typography>
-                              )}
+                              {shownContent ? (
+                                stickersEnabled ? (
+                                  <StickerText controller={controller} text={shownContent} stickerMap={stickerMap} />
+                                ) : (
+                                  <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{shownContent}</Typography>
+                                )
+                              ) : attMsgs.length ? (
+                                <Typography variant="body2" color="text.secondary">
+                                  （附件）
+                                </Typography>
+                              ) : null}
                               {canCollapse ? (
                                 <Box sx={{ textAlign: 'right' }}>
                                   <Button
@@ -1533,9 +1577,13 @@ export function AiChatApp(props: { controller: any }) {
                                   </Button>
                                 </Box>
                               ) : null}
-                              {attachments.length ? (
+                              {attMsgs.length ? (
                                 <Stack direction="row" spacing={0.75} sx={{ mt: 0.75, flexWrap: 'wrap' }}>
-                                  {attachments.slice(0, 20).map((a: any, idx: number) => {
+                                  {attMsgs.slice(0, 20).map((am: any) => {
+                                    const a = am && Array.isArray(am.attachments) ? am.attachments[0] : null
+                                    if (!a) return null
+                                    const childMid = String(am?.id || '').trim()
+                                    if (!childMid) return null
                                     const name = String(a?.name || '文件')
                                     const pct = clampNum(Math.round(Number(a?.sendPct ?? 100)), 0, 100)
                                     const fullLen = clampNum(Math.round(Number(a?.fullLen ?? 0)), 0, 10_000_000)
@@ -1543,12 +1591,12 @@ export function AiChatApp(props: { controller: any }) {
                                     const label = `${name}（${pct}%：${sendLen}/${fullLen}）`
                                     return (
                                       <Chip
-                                        key={String(a?.id || idx)}
+                                        key={String(a?.id || childMid)}
                                         size="small"
                                         icon={<AttachFileIcon fontSize="small" />}
                                         label={label}
                                         variant="outlined"
-                                        onClick={(e) => openAttachView(e as any, mid, idx)}
+                                        onClick={(e) => openAttachView(e as any, childMid, 0)}
                                         sx={{ maxWidth: 520 }}
                                       />
                                     )

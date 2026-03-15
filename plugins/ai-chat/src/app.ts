@@ -76,6 +76,7 @@ import mammoth from 'mammoth/mammoth.browser'
   }
 
   const CHAT_ATTACHMENT_KINDS = new Set(['txt', 'md', 'pdf', 'docx'])
+  const CHAT_MSG_GROUP_ROLES = new Set(['root', 'attachment'])
   function normalizeMessageAttachments(input: any) {
     const list = Array.isArray(input) ? input : []
     const out = []
@@ -95,6 +96,17 @@ import mammoth from 'mammoth/mammoth.browser'
       if (out.length >= 20) break
     }
     return out
+  }
+
+  function normalizeMessageGroup(m: any) {
+    const g = m && typeof m === 'object' ? m : null
+    const groupId = String(g?.groupId || '').trim()
+    const groupRole0 = String(g?.groupRole || '').trim()
+    const groupRole = CHAT_MSG_GROUP_ROLES.has(groupRole0) ? groupRole0 : ''
+    const groupParentMid = String(g?.groupParentMid || '').trim()
+    if (!groupId || !groupRole) return { groupId: '', groupRole: '', groupParentMid: '' }
+    if (groupRole === 'attachment' && !groupParentMid) return { groupId: '', groupRole: '', groupParentMid: '' }
+    return { groupId, groupRole, groupParentMid }
   }
 
   let ver = 0
@@ -739,6 +751,7 @@ import mammoth from 'mammoth/mammoth.browser'
                   content: String(m.content || ''),
                   images: normImagePaths(m.images),
                   attachments: normalizeMessageAttachments((m as any).attachments),
+                  ...normalizeMessageGroup(m),
                   pending: !!m.pending,
                   streaming: !!m.streaming,
                   createdAt: Number(m.createdAt || now()),
@@ -1496,6 +1509,8 @@ import mammoth from 'mammoth/mammoth.browser'
     sendPct: number
   }
 
+  type ChatMsgGroupRole = '' | 'root' | 'attachment'
+
   function fileExtLower(name: string) {
     const n = String(name || '')
     const i = n.lastIndexOf('.')
@@ -1776,12 +1791,11 @@ import mammoth from 'mammoth/mammoth.browser'
       if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
 
       const wasEmpty = !Array.isArray(chat.messages) || chat.messages.length === 0
-      const userMsgs: any[] = []
-
       const userText = String(input || '').trim()
-      if (userText || savedPaths.length) {
-        userMsgs.push({ id: uid('m'), role: 'user', content: userText, images: savedPaths, createdAt: now() })
-      }
+      const hasUserMain = !!userText || savedPaths.length > 0
+
+      const groupId = hasFiles ? uid('g') : ''
+      const rootMid = uid('m')
 
       const attachMsgs: any[] = []
       if (hasFiles) {
@@ -1811,13 +1825,35 @@ import mammoth from 'mammoth/mammoth.browser'
             sendLen,
             sendPct: pct,
           }
-          attachMsgs.push({ id: uid('m'), role: 'user', content: `附件：${name}`, attachments: [att], createdAt: now() })
+          attachMsgs.push({
+            id: uid('m'),
+            role: 'user',
+            content: `附件：${name}`,
+            attachments: [att],
+            groupId,
+            groupRole: 'attachment' as ChatMsgGroupRole,
+            groupParentMid: rootMid,
+            createdAt: now(),
+          })
         }
       }
 
-      if (!userMsgs.length && !attachMsgs.length) throw new Error('没有可发送的内容（文件解析失败或为空）')
+      if (!hasUserMain && !attachMsgs.length) throw new Error('没有可发送的内容（文件解析失败或为空）')
 
-      chat.messages.push(...attachMsgs, ...userMsgs)
+      const rootMsg: any = {
+        id: rootMid,
+        role: 'user',
+        content: hasUserMain ? userText : attachMsgs.length ? '（附件）' : userText,
+        images: savedPaths,
+        createdAt: now(),
+      }
+      if (attachMsgs.length) {
+        rootMsg.groupId = groupId
+        rootMsg.groupRole = 'root' as ChatMsgGroupRole
+        rootMsg.groupParentMid = ''
+      }
+
+      chat.messages.push(...attachMsgs, rootMsg)
       chat.updatedAt = now()
       if (wasEmpty && String(chat.title || '') === '新聊天') {
         const t = userText.replace(/\s+/g, ' ').trim()
@@ -2122,7 +2158,23 @@ import mammoth from 'mammoth/mammoth.browser'
       if (target.pending) return api.ui?.showToast?.('该消息正在生成中，无法删除')
     }
 
-    msgs.splice(idx, 1)
+    const groupId = String((target as any)?.groupId || '').trim()
+    const groupRole = String((target as any)?.groupRole || '').trim()
+    if (target.role === 'user' && groupId && groupRole === 'root') {
+      const rootMid = String((target as any)?.id || '').trim()
+      const next = msgs.filter((m: any) => {
+        if (!m || typeof m !== 'object') return true
+        if (String(m?.id || '') === mid) return false
+        if (String(m?.role || '') !== 'user') return true
+        if (String((m as any)?.groupId || '').trim() !== groupId) return true
+        if (String((m as any)?.groupRole || '').trim() !== 'attachment') return true
+        if (String((m as any)?.groupParentMid || '').trim() !== rootMid) return true
+        return false
+      })
+      chat.messages = next
+    } else {
+      msgs.splice(idx, 1)
+    }
     chat.updatedAt = now()
 
     if (target.role === 'assistant') {
