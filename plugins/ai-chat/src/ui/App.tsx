@@ -3480,13 +3480,24 @@ function MermaidDialog(props: { open: boolean; controller: any; mermaid: any }) 
     setZoom(1)
     zoomRef.current = 1
     controller.actions.mermaidSetScale(1)
-    setOffset({ x: 0, y: 0 })
+    const iw = Number(contentSize.w || 0)
+    const ih = Number(contentSize.h || 0)
+    const sw = Number(stageSize.w || 0)
+    const sh = Number(stageSize.h || 0)
+    if (!iw || !ih || !sw || !sh) return setOffset({ x: 0, y: 0 })
+    const contentW = iw * safeFit
+    const contentH = ih * safeFit
+    const cx = Math.floor((sw - contentW) / 2)
+    const cy = Math.floor((sh - contentH) / 2)
+    setOffset(clampOffset({ x: cx, y: cy }, stageSize, contentSize, safeFit, 1))
   })
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     if (!open) return
     userInteractedRef.current = false
-    setOffset({ x: 0, y: 0 })
+    dragRef.current = null
+    dragDownRef.current = null
+    dragMovedRef.current = false
   }, [open, svg])
 
   React.useLayoutEffect(() => {
@@ -3888,10 +3899,12 @@ function ImageDialog(props: { open: boolean; controller: any; viewer: any }) {
     controller.actions.imageSetScale(nz)
   })
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     if (!open) return
     userInteractedRef.current = false
-    setOffset({ x: 0, y: 0 })
+    dragRef.current = null
+    dragDownRef.current = null
+    dragMovedRef.current = false
   }, [open, src])
 
   React.useLayoutEffect(() => {
