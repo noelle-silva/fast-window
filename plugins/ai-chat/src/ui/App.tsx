@@ -625,6 +625,16 @@ export function AiChatApp(props: { controller: any }) {
     setFileAdjust({ el: e.currentTarget, id })
   })
 
+  const [attachView, setAttachView] = React.useState<{ el: HTMLElement | null; mid: string; idx: number }>({ el: null, mid: '', idx: -1 })
+  const closeAttachView = useEvent(() => setAttachView({ el: null, mid: '', idx: -1 }))
+  const openAttachView = useEvent((e: React.MouseEvent<HTMLElement>, mid: string, idx: number) => {
+    const id = String(mid || '').trim()
+    if (!id) return
+    e.preventDefault()
+    e.stopPropagation()
+    setAttachView({ el: e.currentTarget, mid: id, idx: Math.max(-1, Math.floor(Number(idx || 0))) })
+  })
+
   const lastMsg = Array.isArray(activeChat?.messages) && activeChat.messages.length ? activeChat.messages[activeChat.messages.length - 1] : null
   const lastMsgId = String(lastMsg?.id || '')
   const lastMsgText = String(lastMsg?.content || '')
@@ -659,6 +669,16 @@ export function AiChatApp(props: { controller: any }) {
     })
 
   const activeRoleId = String(activeRole?.id || '')
+  const attachViewItem = (() => {
+    const mid = String(attachView.mid || '').trim()
+    const idx = Math.floor(Number(attachView.idx ?? -1))
+    if (!mid || !activeChat || !Array.isArray((activeChat as any).messages) || idx < 0) return null
+    const m = (activeChat as any).messages.find((x: any) => String(x?.id || '') === mid) || null
+    const atts = m && Array.isArray(m.attachments) ? m.attachments : []
+    const a = idx >= 0 && idx < atts.length ? atts[idx] : null
+    if (!a) return null
+    return { message: m, attachment: a }
+  })()
   const chatNav = (() => {
     const loading = !!s.loading
     if (loading) return { olderId: '', newerId: '', lockedReason: '正在加载中' }
@@ -1402,6 +1422,7 @@ export function AiChatApp(props: { controller: any }) {
                     const roleAvatarImage = String(activeRole?.avatarImage || '')
                     const time = controller.fmtTime(Number(m?.createdAt || 0))
                     const imgPaths = isUser ? (Array.isArray(m?.images) ? m.images : []) : []
+                    const attachments = isUser && Array.isArray(m?.attachments) ? m.attachments : []
                     const mid = String(m?.id || '')
                     const isEditing = editingMsg.mid === mid
                     const canEdit = !isEditing && !m?.pending && !s.loading && !uiBusy && !chatLocked && !!mid
@@ -1512,6 +1533,28 @@ export function AiChatApp(props: { controller: any }) {
                                   </Button>
                                 </Box>
                               ) : null}
+                              {attachments.length ? (
+                                <Stack direction="row" spacing={0.75} sx={{ mt: 0.75, flexWrap: 'wrap' }}>
+                                  {attachments.slice(0, 20).map((a: any, idx: number) => {
+                                    const name = String(a?.name || '文件')
+                                    const pct = clampNum(Math.round(Number(a?.sendPct ?? 100)), 0, 100)
+                                    const fullLen = clampNum(Math.round(Number(a?.fullLen ?? 0)), 0, 10_000_000)
+                                    const sendLen = clampNum(Math.round(Number(a?.sendLen ?? String(a?.text || '').length ?? 0)), 0, fullLen || 0)
+                                    const label = `${name}（${pct}%：${sendLen}/${fullLen}）`
+                                    return (
+                                      <Chip
+                                        key={String(a?.id || idx)}
+                                        size="small"
+                                        icon={<AttachFileIcon fontSize="small" />}
+                                        label={label}
+                                        variant="outlined"
+                                        onClick={(e) => openAttachView(e as any, mid, idx)}
+                                        sx={{ maxWidth: 520 }}
+                                      />
+                                    )
+                                  })}
+                                </Stack>
+                              ) : null}
                             </Box>
                           ) : (
                             <AssistantContent controller={controller} className="prose" text={content} mid={mid} chatRootRef={chatRootRef} />
@@ -1582,6 +1625,61 @@ export function AiChatApp(props: { controller: any }) {
                 </Stack>
                )}
              </Box>
+
+             <Popover
+               open={!!attachView.el && !!attachViewItem}
+               anchorEl={attachView.el}
+               onClose={closeAttachView}
+               anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+               transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+             >
+               <Box sx={{ width: 520, maxWidth: '84vw', p: 1.25 }}>
+                 <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ mb: 0.75 }}>
+                   <Typography sx={{ fontWeight: 900 }}>
+                     {String(attachViewItem?.attachment?.name || '附件')}
+                   </Typography>
+                   <Stack direction="row" spacing={0.5}>
+                     <Tooltip title="复制文本">
+                       <IconButton
+                         size="small"
+                         aria-label="复制附件文本"
+                         onClick={() => {
+                           const text = String(attachViewItem?.attachment?.text || '')
+                           const writeText = controller.api?.clipboard?.writeText
+                           if (typeof writeText !== 'function') return controller.api?.ui?.showToast?.('未授权：clipboard.writeText')
+                           Promise.resolve()
+                             .then(() => writeText(text))
+                             .then(() => controller.api?.ui?.showToast?.('已复制'))
+                             .catch(() => controller.api?.ui?.showToast?.('复制失败'))
+                         }}
+                       >
+                         <ContentCopyIcon fontSize="inherit" />
+                       </IconButton>
+                     </Tooltip>
+                     <Tooltip title="关闭">
+                       <IconButton size="small" aria-label="关闭附件预览" onClick={closeAttachView}>
+                         <CloseIcon fontSize="inherit" />
+                       </IconButton>
+                     </Tooltip>
+                   </Stack>
+                 </Stack>
+
+                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+                   将发送：{Math.round(Number(attachViewItem?.attachment?.sendLen ?? 0))}/{Math.round(Number(attachViewItem?.attachment?.fullLen ?? 0))}（
+                   {clampNum(Math.round(Number(attachViewItem?.attachment?.sendPct ?? 100)), 0, 100)}%）
+                 </Typography>
+
+                 <TextField
+                   fullWidth
+                   multiline
+                   minRows={8}
+                   maxRows={20}
+                   size="small"
+                   value={String(attachViewItem?.attachment?.text || '')}
+                   inputProps={{ readOnly: true, style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' } }}
+                 />
+               </Box>
+             </Popover>
 
              <Popover
                open={!!msgMenu.mid}

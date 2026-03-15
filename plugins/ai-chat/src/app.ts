@@ -75,6 +75,28 @@ import mammoth from 'mammoth/mammoth.browser'
     data: null,
   }
 
+  const CHAT_ATTACHMENT_KINDS = new Set(['txt', 'md', 'pdf', 'docx'])
+  function normalizeMessageAttachments(input: any) {
+    const list = Array.isArray(input) ? input : []
+    const out = []
+    for (const raw of list) {
+      if (!raw || typeof raw !== 'object') continue
+      const id = String((raw as any).id || uid('att'))
+      const name = String((raw as any).name || '文件')
+      const kind0 = String((raw as any).kind || 'txt')
+      const kind = CHAT_ATTACHMENT_KINDS.has(kind0) ? kind0 : 'txt'
+      const lang0 = String((raw as any).lang || '')
+      const lang = lang0 || (kind === 'md' ? 'markdown' : 'text')
+      const text = String((raw as any).text || '')
+      const fullLen = clamp(Number((raw as any).fullLen || text.length || 0), 0, 10_000_000)
+      const sendLen = clamp(Number((raw as any).sendLen || text.length || 0), 0, fullLen || 0)
+      const sendPct = clamp(Number((raw as any).sendPct ?? 100), 0, 100)
+      out.push({ id, name, kind, lang, text, fullLen, sendLen, sendPct })
+      if (out.length >= 20) break
+    }
+    return out
+  }
+
   let ver = 0
   const subs = new Set()
   function emit() {
@@ -716,6 +738,7 @@ import mammoth from 'mammoth/mammoth.browser'
                   role: m.role === 'assistant' ? 'assistant' : 'user',
                   content: String(m.content || ''),
                   images: normImagePaths(m.images),
+                  attachments: normalizeMessageAttachments((m as any).attachments),
                   pending: !!m.pending,
                   streaming: !!m.streaming,
                   createdAt: Number(m.createdAt || now()),
@@ -1462,6 +1485,17 @@ import mammoth from 'mammoth/mammoth.browser'
     error: string
   }
 
+  type ChatAttachmentItem = {
+    id: string
+    name: string
+    kind: DraftFileKind
+    lang: string
+    text: string
+    fullLen: number
+    sendLen: number
+    sendPct: number
+  }
+
   function fileExtLower(name: string) {
     const n = String(name || '')
     const i = n.lastIndexOf('.')
@@ -1486,6 +1520,37 @@ import mammoth from 'mammoth/mammoth.browser'
   function escapeFence(s: string) {
     // 避免把附件内容里的 ``` 意外当成代码块结束
     return String(s || '').replaceAll('```', '``\u200b`')
+  }
+
+  function buildUserTextForOpenAi(m: any) {
+    let base = String(m?.content || '').trim()
+    const atts = normalizeMessageAttachments(m?.attachments)
+    if (!atts.length) return base
+
+    if (atts.length === 1) {
+      const n = String(atts[0]?.name || '')
+      const defaultLabel = n ? `附件：${n}` : ''
+      if (defaultLabel && base === defaultLabel) base = ''
+    }
+
+    const blocks = []
+    for (const a of atts) {
+      const name = String(a?.name || '文件')
+      const fullLen = clamp(Number(a?.fullLen || 0), 0, 10_000_000)
+      const sendLen = clamp(Number(a?.sendLen || 0), 0, fullLen || 0)
+      const pct = clamp(Number(a?.sendPct ?? 100), 0, 100)
+      const lang = String(a?.lang || (String(a?.kind || '') === 'md' ? 'markdown' : 'text')) || 'text'
+      const raw = String(a?.text || '').trim()
+      if (!raw) continue
+      const snippet = escapeFence(raw)
+      const header = `附件：${name}（发送 ${pct}%：${sendLen}/${fullLen} 字符）`
+      blocks.push(`${header}\n\`\`\`${lang}\n${snippet}\n\`\`\``)
+      if (blocks.length >= 20) break
+    }
+
+    const extra = blocks.join('\n\n').trim()
+    if (!extra) return base
+    return base ? `${base}\n\n${extra}`.trim() : extra
   }
 
   function addDraftFilePlaceholder(file: File, kind: DraftFileKind): DraftFileItem | null {
@@ -1711,14 +1776,20 @@ import mammoth from 'mammoth/mammoth.browser'
       if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
 
       const wasEmpty = !Array.isArray(chat.messages) || chat.messages.length === 0
-      const parts: string[] = []
-      if (input) parts.push(input)
+      const userMsgs: any[] = []
+
+      const userText = String(input || '').trim()
+      if (userText || savedPaths.length) {
+        userMsgs.push({ id: uid('m'), role: 'user', content: userText, images: savedPaths, createdAt: now() })
+      }
+
+      const attachMsgs: any[] = []
       if (hasFiles) {
         for (const f of draftFiles) {
           if (!f || f.pending) continue
           if (String(f?.error || '')) continue
           const name = String(f?.name || '文件')
-          const kind = String(f?.kind || 'txt')
+          const kind = String(f?.kind || 'txt') as DraftFileKind
           const lang = kind === 'md' ? 'markdown' : 'text'
           const raw = String(f?.text || '').trim()
           const fullLen = raw.length
@@ -1727,21 +1798,31 @@ import mammoth from 'mammoth/mammoth.browser'
           const pct0 = Math.round(Number(f?.sendPct ?? 100))
           const pct = clamp(pct0, 0, 100)
           const sendLen = Math.max(0, Math.ceil((fullLen * pct) / 100))
-
           const snippetRaw = sendLen >= fullLen ? raw : raw.slice(0, sendLen).trimEnd()
-          const snippet = escapeFence(snippetRaw)
-          const header = `附件：${name}（发送 ${pct}%：${sendLen}/${fullLen} 字符）`
-          parts.push(`${header}\n\`\`\`${lang}\n${snippet}\n\`\`\``)
+          if (!snippetRaw.trim()) continue
+
+          const att: ChatAttachmentItem = {
+            id: uid('att'),
+            name,
+            kind,
+            lang,
+            text: snippetRaw,
+            fullLen,
+            sendLen,
+            sendPct: pct,
+          }
+          attachMsgs.push({ id: uid('m'), role: 'user', content: `附件：${name}`, attachments: [att], createdAt: now() })
         }
       }
-      const finalInput = parts.join('\n\n').trim()
-      if (!finalInput && !savedPaths.length) throw new Error('没有可发送的内容（文件解析失败或为空）')
 
-      chat.messages.push({ id: uid('m'), role: 'user', content: finalInput, images: savedPaths, createdAt: now() })
+      if (!userMsgs.length && !attachMsgs.length) throw new Error('没有可发送的内容（文件解析失败或为空）')
+
+      chat.messages.push(...attachMsgs, ...userMsgs)
       chat.updatedAt = now()
       if (wasEmpty && String(chat.title || '') === '新聊天') {
-        const t = finalInput.replace(/\s+/g, ' ').trim()
-        const base = t || (savedPaths.length ? '图片' : hasFiles ? '文件' : '新聊天')
+        const t = userText.replace(/\s+/g, ' ').trim()
+        const firstAttName = attachMsgs.length ? String((attachMsgs[0] as any)?.attachments?.[0]?.name || '').trim() : ''
+        const base = t || (savedPaths.length ? '图片' : firstAttName || (hasFiles ? '文件' : '新聊天'))
         chat.title = base.length > 16 ? base.slice(0, 16) + '…' : base || '新聊天'
       }
 
@@ -2281,7 +2362,7 @@ import mammoth from 'mammoth/mammoth.browser'
 
     for (const m of history) {
       const r = m?.role === 'assistant' ? 'assistant' : 'user'
-      const text = String(m?.content || '')
+      const text = r === 'user' ? buildUserTextForOpenAi(m) : String(m?.content || '')
       if (r === 'user') {
         const paths = normImagePaths(m?.images)
         if (paths.length) {
