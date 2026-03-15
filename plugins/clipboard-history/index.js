@@ -29,6 +29,10 @@
       ticking: false,
     }
 
+    function bgIsPlainObject(v) {
+      return !!v && typeof v === 'object' && !Array.isArray(v)
+    }
+
     function now() {
       return Date.now()
     }
@@ -159,12 +163,21 @@
         api.storage.get(SETTINGS_KEY).catch(() => null),
         api.storage.get(DELETED_KEY).catch(() => null),
       ])
-      bgState.settings = bgNormalizeSettings(savedSettings)
-      bgState.deleted = bgNormalizeDeletedMap(savedDeleted)
-      bgState.history = bgNormalizeHistoryItems(savedHistory, bgState.settings.maxHistory).filter((it) => !bgIsDeleted(it))
-      await api.storage.set(STORAGE_KEY, bgState.history).catch(() => {})
-      await api.storage.set(SETTINGS_KEY, bgState.settings).catch(() => {})
-      await api.storage.set(DELETED_KEY, bgState.deleted).catch(() => {})
+
+      // 注意：storage.get 在失败时会返回 null；把 null 当成“设置变回默认”会导致误清理历史。
+      // 这里仅在读到对象时才采用并回写（KISS：宁可不纠正，也别误删用户数据）。
+      const settingsOk = bgIsPlainObject(savedSettings)
+      if (settingsOk) bgState.settings = bgNormalizeSettings(savedSettings)
+
+      const deletedOk = bgIsPlainObject(savedDeleted)
+      if (deletedOk) bgState.deleted = bgNormalizeDeletedMap(savedDeleted)
+
+      const limit = settingsOk ? bgState.settings.maxHistory : 1000
+      bgState.history = bgNormalizeHistoryItems(savedHistory, limit).filter((it) => !bgIsDeleted(it))
+
+      if (Array.isArray(savedHistory)) await api.storage.set(STORAGE_KEY, bgState.history).catch(() => {})
+      if (settingsOk) await api.storage.set(SETTINGS_KEY, bgState.settings).catch(() => {})
+      if (deletedOk) await api.storage.set(DELETED_KEY, bgState.deleted).catch(() => {})
     }
 
     function bgPickRunningMonitorTask(tasks) {
@@ -238,17 +251,19 @@
       bgState.ticking = true
       try {
         const savedSettings = await api.storage.get(SETTINGS_KEY).catch(() => null)
-        const nextSettings = bgNormalizeSettings(savedSettings)
-        const settingsChanged = JSON.stringify(nextSettings) !== JSON.stringify(bgState.settings)
-        if (settingsChanged) {
-          bgState.settings = nextSettings
-          const normalized = bgNormalizeHistoryItems(bgState.history, bgState.settings.maxHistory)
-          await bgSaveHistoryIfChanged(normalized)
-          bgState.monitorTaskId = ''
+        if (bgIsPlainObject(savedSettings)) {
+          const nextSettings = bgNormalizeSettings(savedSettings)
+          const settingsChanged = JSON.stringify(nextSettings) !== JSON.stringify(bgState.settings)
+          if (settingsChanged) {
+            bgState.settings = nextSettings
+            const normalized = bgNormalizeHistoryItems(bgState.history, bgState.settings.maxHistory)
+            await bgSaveHistoryIfChanged(normalized)
+            bgState.monitorTaskId = ''
+          }
         }
 
         const savedDeleted = await api.storage.get(DELETED_KEY).catch(() => null)
-        bgState.deleted = bgNormalizeDeletedMap(savedDeleted)
+        if (bgIsPlainObject(savedDeleted)) bgState.deleted = bgNormalizeDeletedMap(savedDeleted)
         const filtered = (Array.isArray(bgState.history) ? bgState.history : []).filter((it) => !bgIsDeleted(it))
         await bgSaveHistoryIfChanged(filtered)
 
