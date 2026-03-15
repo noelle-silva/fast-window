@@ -2122,11 +2122,18 @@ export function AiChatApp(props: { controller: any }) {
 
                   <Paper variant="outlined" sx={{ p: 1, bgcolor: 'grey.50', maxHeight: 200, overflow: 'auto' }}>
                     <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
-                      {fileAdjustRaw.slice(0, Math.min(fileAdjustSendLen, 2000))}
+                      {(() => {
+                        const sendLen = clampNum(fileAdjustSendLen, 0, fileAdjustFullLen)
+                        const snippet = fileAdjustRaw.slice(0, sendLen)
+                        if (snippet.length <= 4000) return snippet
+                        const head = snippet.slice(0, 1500).trimEnd()
+                        const tail = snippet.slice(Math.max(0, snippet.length - 1500)).trimStart()
+                        return `${head}\n\n…（中间省略 ${Math.max(0, snippet.length - head.length - tail.length)} 字符）…\n\n${tail}`
+                      })()}
                     </Typography>
                   </Paper>
                   <Typography variant="caption" color="text.secondary">
-                    预览仅显示将发送内容的前 {Math.min(fileAdjustSendLen, 2000)} 字符。
+                    预览显示“将发送内容”的开头与截断点附近片段（超过 4000 字符会省略中间）。
                   </Typography>
                 </>
               )}
