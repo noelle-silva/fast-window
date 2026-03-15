@@ -15,6 +15,7 @@
       items: [],
     },
     modal: null, // 'add' | 'groups' | null
+    editId: '',
     addTitle: '',
     addUrl: '',
     addGroupId: DEFAULT_GROUP_ID,
@@ -595,6 +596,7 @@
   function openModal(kind) {
     state.modal = kind
     if (kind === 'add') {
+      state.editId = ''
       state.addTitle = ''
       state.addUrl = ''
       state.addGroupId = state.groupId === ALL_GROUP_ID ? DEFAULT_GROUP_ID : state.groupId
@@ -609,8 +611,47 @@
     render()
   }
 
+  function openEditModal(id) {
+    const item = state.data.items.find((x) => x.id === id)
+    if (!item) {
+      api.ui?.showToast?.('条目不存在')
+      return
+    }
+
+    state.modal = 'add'
+    state.editId = id
+    state.addTitle = String(item.title || '')
+    state.addUrl = String(item.url || '')
+    state.addGroupId = state.data.groups.some((g) => g.id === item.groupId) ? String(item.groupId) : DEFAULT_GROUP_ID
+    state.addIconUrl = String(item.iconUrl || '')
+    state.addIconDataUrl = ''
+    state.sniffingAddIcon = false
+    closeCtxMenu()
+    render()
+
+    const titleEl = document.querySelector('input[data-act="addTitle"]')
+    if (titleEl instanceof HTMLInputElement) {
+      titleEl.focus()
+      titleEl.select()
+    }
+
+    const p = String(item.iconPath || '').trim()
+    if (!state.addIconUrl && p && api.files?.images?.read) {
+      api.files.images
+        .read({ scope: 'data', path: p })
+        .catch(() => api.files.images.read({ scope: 'output', path: p }))
+        .then((dataUrl) => {
+          if (state.modal !== 'add' || state.editId !== id) return
+          state.addIconDataUrl = String(dataUrl || '')
+          render()
+        })
+        .catch(() => {})
+    }
+  }
+
   function closeModal() {
     state.modal = null
+    state.editId = ''
     render()
   }
 
@@ -675,6 +716,65 @@
         .then(() => refreshIconForItem(itemId))
         .catch(() => {})
     }
+  }
+
+  async function updateBookmark(id) {
+    const item = state.data.items.find((x) => x.id === id)
+    if (!item) {
+      api.ui?.showToast?.('条目不存在')
+      closeModal()
+      return
+    }
+
+    const title = String(state.addTitle || '').trim()
+    const url = normalizeUrl(state.addUrl)
+    const groupId = String(state.addGroupId || DEFAULT_GROUP_ID)
+    const iconUrl = String(state.addIconUrl || '').trim()
+    const iconDataUrl = String(state.addIconDataUrl || '').trim()
+
+    if (!url) {
+      api.ui?.showToast?.('URL 只支持 http(s)://，可省略协议')
+      return
+    }
+    if (!state.data.groups.some((x) => x.id === groupId)) {
+      api.ui?.showToast?.('分组不存在')
+      return
+    }
+
+    item.title = title || url
+    item.url = url
+    item.groupId = groupId
+    item.iconUrl = iconUrl
+
+    if (!iconUrl && !iconDataUrl) {
+      const p = String(item.iconPath || '').trim()
+      item.iconDataUrl = ''
+      item.iconPath = ''
+      delete state.iconCacheById[id]
+      if (p && api.files?.images?.delete) {
+        api.files.images.delete({ scope: 'data', path: p }).catch(() => {})
+        api.files.images.delete({ scope: 'output', path: p }).catch(() => {})
+      }
+    } else if (iconDataUrl) {
+      const png = (await rasterizeToPngDataUrl(iconDataUrl, 64)) || iconDataUrl
+      const savedPath = await saveIconPngToFile(png, item.iconPath || '')
+      if (savedPath) {
+        item.iconPath = savedPath
+        item.iconDataUrl = ''
+        delete state.iconCacheById[id]
+      }
+    }
+
+    item.updatedAt = Date.now()
+    await save()
+    api.ui?.showToast?.('已保存')
+    closeModal()
+  }
+
+  async function saveBookmarkFromModal() {
+    const id = String(state.editId || '').trim()
+    if (id) return updateBookmark(id)
+    return addBookmark()
   }
 
   async function deleteBookmark(id) {
@@ -852,9 +952,9 @@
         </div>
 
         <div class="overlay" data-role="overlayAdd" hidden>
-          <div class="modal" role="dialog" aria-modal="true" aria-label="新增收藏">
+          <div class="modal" data-role="addModal" role="dialog" aria-modal="true" aria-label="新增收藏">
             <div class="modalHead">
-              <div class="modalTitle">新增收藏</div>
+              <div class="modalTitle" data-role="addModalTitle">新增收藏</div>
               <button class="btn" data-act="closeAdd">关闭</button>
             </div>
             <div class="modalBody">
@@ -886,7 +986,7 @@
                 <div class="help">仅支持 http(s)://</div>
                 <div class="spacer"></div>
                 <button class="btn" data-act="closeAdd">取消</button>
-                <button class="btn primary" data-act="confirmAdd">添加</button>
+                <button class="btn primary" data-role="addConfirmBtn" data-act="confirmAdd">添加</button>
               </div>
             </div>
           </div>
@@ -912,6 +1012,7 @@
         <div class="ctxBackdrop" data-role="ctxBackdrop" hidden></div>
         <div class="ctxMenu" data-role="ctxMenu" hidden role="menu" aria-label="收藏操作">
           <button class="ctxItem" data-act="ctxOpen" role="menuitem">↗ 打开</button>
+          <button class="ctxItem" data-act="ctxEdit" role="menuitem">✎ 编辑</button>
           <button class="ctxItem" data-act="ctxSniff" role="menuitem">⟳ 刷新图标</button>
           <div class="ctxSep" role="separator"></div>
           <button class="ctxItem danger" data-act="ctxDelete" role="menuitem">🗑 删除</button>
@@ -943,6 +1044,13 @@
         if (!id) return
         return openBookmark(id)
       }
+      if (act === 'ctxEdit') {
+        const id = String(state.ctxMenu.id || '').trim()
+        closeCtxMenu()
+        renderCtxMenu()
+        if (!id) return
+        return openEditModal(id)
+      }
       if (act === 'ctxSniff') {
         const id = String(state.ctxMenu.id || '').trim()
         closeCtxMenu()
@@ -972,7 +1080,7 @@
       if (act === 'add') return openModal('add')
       if (act === 'groups') return openModal('groups')
       if (act === 'closeAdd' || act === 'closeGroups') return closeModal()
-      if (act === 'confirmAdd') return addBookmark()
+      if (act === 'confirmAdd') return saveBookmarkFromModal()
       if (act === 'sniffAddIcon') return sniffAddIcon()
       if (act === 'clearAddIcon') {
         state.addIconUrl = ''
@@ -1227,6 +1335,14 @@
     if (addTitle instanceof HTMLInputElement) addTitle.value = state.addTitle
     if (addUrl instanceof HTMLInputElement) addUrl.value = state.addUrl
     if (newGroupName instanceof HTMLInputElement) newGroupName.value = state.newGroupName
+
+    const isEdit = !!String(state.editId || '').trim()
+    const addModal = document.querySelector('[data-role="addModal"]')
+    const addModalTitle = document.querySelector('[data-role="addModalTitle"]')
+    const addConfirmBtn = document.querySelector('[data-role="addConfirmBtn"]')
+    if (addModal instanceof HTMLElement) addModal.setAttribute('aria-label', isEdit ? '编辑收藏' : '新增收藏')
+    if (addModalTitle instanceof HTMLElement) addModalTitle.textContent = isEdit ? '编辑收藏' : '新增收藏'
+    if (addConfirmBtn instanceof HTMLButtonElement) addConfirmBtn.textContent = isEdit ? '保存' : '添加'
 
     const addIconImg = document.querySelector('img[data-role="addIconImg"]')
     if (addIconImg instanceof HTMLImageElement) {

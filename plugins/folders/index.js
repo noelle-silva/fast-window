@@ -16,6 +16,7 @@
       items: [],
     },
     modal: null, // 'add' | null
+    editId: '',
     addName: '',
     addPath: '',
     addGroupId: DEFAULT_GROUP_ID,
@@ -306,6 +307,7 @@
 
   function openAddModal() {
     state.modal = 'add'
+    state.editId = ''
     state.addName = ''
     state.addPath = ''
     state.addGroupId = state.groupId !== ALL_GROUP_ID ? state.groupId : DEFAULT_GROUP_ID
@@ -314,8 +316,31 @@
     render()
   }
 
+  function openEditModal(id) {
+    const it = state.data.items.find((x) => x.id === id)
+    if (!it) {
+      api.ui.showToast('条目不存在')
+      return
+    }
+    state.modal = 'add'
+    state.editId = id
+    state.addName = String(it.name || '')
+    state.addPath = String(it.path || '')
+    state.addGroupId = state.data.groups.some((g) => g.id === it.groupId) ? String(it.groupId) : DEFAULT_GROUP_ID
+    state.newGroupName = ''
+    closeCtxMenu()
+    render()
+
+    const nameEl = document.querySelector('input[data-act="addName"]')
+    if (nameEl instanceof HTMLInputElement) {
+      nameEl.focus()
+      nameEl.select()
+    }
+  }
+
   function closeModal() {
     state.modal = null
+    state.editId = ''
     render()
   }
 
@@ -365,6 +390,12 @@
     render()
   }
 
+  async function saveItemFromModal() {
+    const id = String(state.editId || '').trim()
+    if (id) return updateItem(id)
+    return addItem()
+  }
+
   async function addItem() {
     const path = String(state.addPath || '').trim()
     if (!path) {
@@ -398,6 +429,50 @@
     state.data.items = [item, ...state.data.items]
     await persist()
     api.ui.showToast('已添加')
+    closeModal()
+  }
+
+  async function updateItem(id) {
+    const it = state.data.items.find((x) => x.id === id)
+    if (!it) {
+      api.ui.showToast('条目不存在')
+      closeModal()
+      return
+    }
+
+    const path = String(state.addPath || '').trim()
+    if (!path) {
+      api.ui.showToast('请先选择文件夹')
+      return
+    }
+
+    let groupId = String(state.addGroupId || DEFAULT_GROUP_ID).trim() || DEFAULT_GROUP_ID
+    const newGroupName = String(state.newGroupName || '').trim()
+    if (newGroupName) {
+      const gid = newGroupName
+        .toLowerCase()
+        .replaceAll(/[^a-z0-9_-]+/g, '-')
+        .replaceAll(/-+/g, '-')
+        .replaceAll(/^[-_]+|[-_]+$/g, '')
+        .slice(0, 32)
+      if (!gid) {
+        api.ui.showToast('新分组名不合法')
+        return
+      }
+      if (!state.data.groups.some((g) => g.id === gid)) {
+        state.data.groups.push({ id: gid, name: newGroupName.slice(0, 40) })
+      }
+      groupId = gid
+    }
+
+    const nameRaw = String(state.addName || '').trim()
+    const name = (nameRaw || deriveNameFromPath(path)).slice(0, 80)
+    it.name = name
+    it.path = path
+    it.groupId = state.data.groups.some((g) => g.id === groupId) ? groupId : DEFAULT_GROUP_ID
+
+    await persist()
+    api.ui.showToast('已保存')
     closeModal()
   }
 
@@ -461,9 +536,9 @@
         </div>
 
         <div class="overlay" data-role="overlayAdd" hidden>
-          <div class="modal" role="dialog" aria-modal="true" aria-label="添加文件夹">
+          <div class="modal" data-role="addModal" role="dialog" aria-modal="true" aria-label="添加文件夹">
             <div class="modalHead">
-              <div class="modalTitle">添加文件夹</div>
+              <div class="modalTitle" data-role="addModalTitle">添加文件夹</div>
               <div class="spacer"></div>
               <button class="btn" data-act="closeAdd">关闭</button>
             </div>
@@ -489,11 +564,11 @@
                   <input data-act="newGroupName" placeholder="输入新分组名" />
                 </label>
               </div>
-              <div class="help">右键条目可打开菜单（打开/删除）。删除需要二次确认。</div>
+              <div class="help">右键条目可打开菜单（打开/编辑/删除）。删除需要二次确认。</div>
               <div class="row2">
                 <div class="spacer"></div>
                 <button class="btn" data-act="closeAdd">取消</button>
-                <button class="btn primary" data-act="confirmAdd">添加</button>
+                <button class="btn primary" data-role="addConfirmBtn" data-act="confirmAdd">添加</button>
               </div>
             </div>
           </div>
@@ -502,6 +577,7 @@
         <div class="ctxBackdrop" data-role="ctxBackdrop" hidden></div>
         <div class="ctxMenu" data-role="ctxMenu" hidden role="menu" aria-label="文件夹操作">
           <button class="ctxItem" data-act="ctxOpen" role="menuitem">📂 打开</button>
+          <button class="ctxItem" data-act="ctxEdit" role="menuitem">✎ 编辑</button>
           <div class="ctxSep" role="separator"></div>
           <button class="ctxItem danger" data-act="ctxDelete" role="menuitem">🗑 删除</button>
         </div>
@@ -532,6 +608,13 @@
         if (!id) return
         return openDirById(id)
       }
+      if (act === 'ctxEdit') {
+        const id = String(state.ctxMenu.id || '').trim()
+        closeCtxMenu()
+        renderCtxMenu()
+        if (!id) return
+        return openEditModal(id)
+      }
       if (act === 'ctxDelete') {
         const id = String(state.ctxMenu.id || '').trim()
         closeCtxMenu()
@@ -552,7 +635,7 @@
       if (act === 'back') return api.ui?.back ? api.ui.back() : api.ui?.showToast?.('无法返回')
       if (act === 'add') return openAddModal()
       if (act === 'pickDir') return pickDir()
-      if (act === 'confirmAdd') return addItem()
+      if (act === 'confirmAdd') return saveItemFromModal()
       if (act === 'closeAdd') return closeModal()
 
       const openEl = t.closest('[data-act="open"]')
@@ -633,7 +716,7 @@
           const act = t.getAttribute('data-act')
           if (act === 'addName' || act === 'addPath' || act === 'newGroupName') {
             e.preventDefault()
-            return addItem()
+            return saveItemFromModal()
           }
         }
         return
@@ -682,6 +765,14 @@
     if (addName instanceof HTMLInputElement) addName.value = state.addName
     if (addPath instanceof HTMLInputElement) addPath.value = state.addPath
     if (newGroupName instanceof HTMLInputElement) newGroupName.value = state.newGroupName
+
+    const isEdit = !!String(state.editId || '').trim()
+    const addModal = document.querySelector('[data-role="addModal"]')
+    const addModalTitle = document.querySelector('[data-role="addModalTitle"]')
+    const addConfirmBtn = document.querySelector('[data-role="addConfirmBtn"]')
+    if (addModal instanceof HTMLElement) addModal.setAttribute('aria-label', isEdit ? '编辑文件夹' : '添加文件夹')
+    if (addModalTitle instanceof HTMLElement) addModalTitle.textContent = isEdit ? '编辑文件夹' : '添加文件夹'
+    if (addConfirmBtn instanceof HTMLButtonElement) addConfirmBtn.textContent = isEdit ? '保存' : '添加'
 
     const listEl = document.querySelector('[data-area="list"]')
     const emptyEl = document.querySelector('[data-area="empty"]')
