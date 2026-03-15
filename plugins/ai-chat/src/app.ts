@@ -3,9 +3,18 @@ import { now, uid, esc, trimSlash, isHttpBaseUrl, clampTemp, normImagePaths, cla
 import { extractOpenAiDelta, sseFeed } from './core/sse'
 import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefault'
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
+import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
 import mammoth from 'mammoth/mammoth.browser'
 ;(function () {
   const api = window.fastWindow
+
+  try {
+    const g = (pdfjsLib as any)?.GlobalWorkerOptions
+    if (g && !g.workerSrc && typeof pdfWorkerCode === 'string') {
+      g.workerSrc = URL.createObjectURL(new Blob([pdfWorkerCode], { type: 'text/javascript' }))
+    }
+  } catch (_) {}
+
   const BG_JOB_KEY_PREFIX = 'bg.job.'
   const BG_STREAM_KEY_PREFIX = 'bg.stream.'
   const BG_CANCEL_KEY_PREFIX = 'bg.cancel.'

@@ -3,6 +3,7 @@ import fssync from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
 import * as esbuild from 'esbuild'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -10,6 +11,30 @@ const __dirname = path.dirname(__filename)
 const rootDir = path.resolve(__dirname, '..')
 const pluginsDir = path.join(rootDir, 'plugins')
 const rootLockPath = path.join(rootDir, 'pnpm-lock.yaml')
+const require = createRequire(import.meta.url)
+
+function rawTextQueryPlugin() {
+  return {
+    name: 'raw-text-query',
+    setup(build) {
+      build.onResolve({ filter: /\?raw$/ }, (args) => {
+        const spec = String(args.path || '').replace(/\?raw$/, '')
+        let resolved = ''
+        try {
+          resolved = require.resolve(spec, { paths: [args.resolveDir || process.cwd()] })
+        } catch {
+          resolved = path.resolve(args.resolveDir || process.cwd(), spec)
+        }
+        return { path: resolved, namespace: 'raw-text' }
+      })
+
+      build.onLoad({ filter: /.*/, namespace: 'raw-text' }, async (args) => {
+        const contents = await fs.readFile(args.path, 'utf8')
+        return { contents: `export default ${JSON.stringify(contents)};`, loader: 'js' }
+      })
+    },
+  }
+}
 
 function pad2(n) {
   return String(n).padStart(2, '0')
@@ -186,14 +211,15 @@ function createBuildOptions(opts) {
     sourcemap: sourcemap ? 'external' : false,
     metafile: true,
     absWorkingDir: pluginDir,
-     loader: {
-       '.css': 'text',
-       '.txt': 'text',
-       // 用于 iframe srcDoc 场景：需要把字体/二进制资源内联成 data URL（例如 KaTeX fonts）。
-       '.woff2': 'dataurl',
-       '.woff': 'dataurl',
-       '.ttf': 'dataurl',
-     },
+    plugins: [rawTextQueryPlugin()],
+    loader: {
+      '.css': 'text',
+      '.txt': 'text',
+      // 用于 iframe srcDoc 场景：需要把字体/二进制资源内联成 data URL（例如 KaTeX fonts）。
+      '.woff2': 'dataurl',
+      '.woff': 'dataurl',
+      '.ttf': 'dataurl',
+    },
     logLevel: 'silent',
     legalComments: 'none',
     charset: 'utf8',
