@@ -326,6 +326,7 @@
 
     ctxMenu: { open: false, x: 0, y: 0, nodeId: '' },
     movePicker: { open: false, movingId: '', query: '', action: 'move' }, // action: 'move' | 'copy'
+    editDialog: { open: false, nodeId: '', folderName: '', itemTitle: '', itemContent: '' },
 
     monitorTaskId: '',
     monitorQueryTimer: null,
@@ -1161,6 +1162,31 @@
     return itemId
   }
 
+  function updateFolderName(folderId, name) {
+    if (!state.collections) return false
+    const f = getNode(folderId)
+    if (!f || f.type !== 'folder') return false
+    const safeName = (name || '').trim() || '未命名收藏夹'
+    f.name = safeName
+    f.updatedAt = now()
+    persistCollections()
+    return true
+  }
+
+  function updateItem(itemId, title, content) {
+    if (!state.collections) return false
+    const it = getNode(itemId)
+    if (!it || it.type !== 'item') return false
+    const safeContent = (content || '').trim()
+    if (!safeContent) return false
+    const safeTitle = (title || '').trim() || safeContent.split(/\r?\n/)[0].slice(0, 24) || '未命名条目'
+    it.title = safeTitle
+    it.content = safeContent
+    it.updatedAt = now()
+    persistCollections()
+    return true
+  }
+
   function listChildren(folderId) {
     const f = getNode(folderId)
     if (!f || f.type !== 'folder') return []
@@ -1232,6 +1258,11 @@
     state.movePicker.movingId = ''
     state.movePicker.query = ''
     state.movePicker.action = 'move'
+    state.editDialog.open = false
+    state.editDialog.nodeId = ''
+    state.editDialog.folderName = ''
+    state.editDialog.itemTitle = ''
+    state.editDialog.itemContent = ''
   }
 
   function renderMovePickerList() {
@@ -1284,6 +1315,54 @@
 
     if (state.view !== 'folders') closeOverlays()
 
+    if (state.editDialog.open && state.editDialog.nodeId) {
+      const n = getNode(state.editDialog.nodeId)
+      if (!n || (n.type !== 'folder' && n.type !== 'item')) {
+        closeOverlays()
+        overlay.className = 'overlay'
+        overlay.innerHTML = ''
+        return
+      }
+
+      const dialogTitle = n.type === 'folder' ? '编辑收藏夹' : '编辑条目'
+      const body =
+        n.type === 'folder'
+          ? `
+            <input class="input" placeholder="收藏夹名称" data-act="editFolderName" value="${escapeHtml(state.editDialog.folderName)}" />
+          `
+          : `
+            <input class="input" placeholder="备注（标题）" data-act="editItemTitle" value="${escapeHtml(state.editDialog.itemTitle)}" />
+            <textarea class="textarea" placeholder="正文内容（不能为空）" data-act="editItemContent">${escapeHtml(state.editDialog.itemContent)}</textarea>
+          `
+
+      overlay.className = 'overlay open'
+      overlay.innerHTML = `
+        <div class="backdrop" data-act="closeOverlay"></div>
+        <div class="dialog" role="dialog" aria-modal="true" aria-label="${escapeHtml(dialogTitle)}">
+          <div class="dialogHeader">
+            <div class="dialogTitle">${escapeHtml(dialogTitle)}</div>
+            <span class="spacer"></span>
+            <button class="btn" data-act="editCancel">取消</button>
+            <button class="btn primary" data-act="editSave">保存</button>
+          </div>
+          <div class="dialogBody">${body}</div>
+        </div>
+      `
+
+      const focusEl = overlay.querySelector('input[data-act="editFolderName"], input[data-act="editItemTitle"], textarea[data-act="editItemContent"]')
+      if (focusEl instanceof HTMLElement) {
+        setTimeout(() => {
+          try {
+            focusEl.focus()
+            if (focusEl instanceof HTMLInputElement || focusEl instanceof HTMLTextAreaElement) {
+              focusEl.setSelectionRange(focusEl.value.length, focusEl.value.length)
+            }
+          } catch {}
+        }, 0)
+      }
+      return
+    }
+
     if (state.movePicker.open) {
       const moving = getNode(state.movePicker.movingId)
       const action = state.movePicker.action === 'copy' ? 'copy' : 'move'
@@ -1335,10 +1414,14 @@
       const items =
         n.type === 'item'
           ? `
+            <button class="menuItem" data-act="ctxEdit">✏️ 编辑</button>
             <button class="menuItem" data-act="ctxCopyTo">📋 复制到...</button>
             <button class="menuItem" data-act="ctxMoveTo">📁 移动到...</button>
           `
-          : `<button class="menuItem" data-act="ctxMoveTo">📁 移动到...</button>`
+          : `
+            <button class="menuItem" data-act="ctxEdit">✏️ 编辑</button>
+            <button class="menuItem" data-act="ctxMoveTo">📁 移动到...</button>
+          `
       overlay.className = 'overlay open'
       overlay.innerHTML = `
         <div class="backdrop" data-act="closeOverlay"></div>
@@ -1404,11 +1487,12 @@
 
     root.addEventListener('click', async (e) => {
       const t = e.target
-      if (!(t instanceof HTMLElement)) return
+      if (!(t instanceof Element)) return
 
-      const act = t.getAttribute('data-act')
+      const actEl = t.closest?.('[data-act]')
+      const act = actEl ? actEl.getAttribute('data-act') : ''
       if (act === 'toggleExpandHistory') {
-        const hid = t.getAttribute('data-hid') || ''
+        const hid = (actEl && actEl.getAttribute('data-hid')) || ''
         if (!hid) return
         if (state.clipboardExpanded[hid]) delete state.clipboardExpanded[hid]
         else state.clipboardExpanded[hid] = true
@@ -1420,8 +1504,58 @@
         renderOverlay()
         return
       }
+      if (act === 'editCancel') {
+        closeOverlays()
+        renderOverlay()
+        return
+      }
+      if (act === 'editSave') {
+        const nodeId = state.editDialog.nodeId
+        const n = getNode(nodeId)
+        if (!n || (n.type !== 'folder' && n.type !== 'item')) {
+          closeOverlays()
+          renderOverlay()
+          return
+        }
+
+        let ok = false
+        if (n.type === 'folder') ok = updateFolderName(nodeId, state.editDialog.folderName)
+        else ok = updateItem(nodeId, state.editDialog.itemTitle, state.editDialog.itemContent)
+
+        if (!ok) {
+          api.ui?.showToast?.(n.type === 'folder' ? '名称不能为空' : '正文内容不能为空')
+          return
+        }
+
+        api.ui?.showToast?.('已保存')
+        closeOverlays()
+        render()
+        return
+      }
       if (act === 'movePickCancel') {
         closeOverlays()
+        renderOverlay()
+        return
+      }
+      if (act === 'ctxEdit') {
+        const nodeId = state.ctxMenu.nodeId
+        const n = getNode(nodeId)
+        closeOverlays()
+        if (!n || (n.type !== 'folder' && n.type !== 'item')) {
+          renderOverlay()
+          return
+        }
+        state.editDialog.open = true
+        state.editDialog.nodeId = nodeId
+        if (n.type === 'folder') {
+          state.editDialog.folderName = String(n.name || '')
+          state.editDialog.itemTitle = ''
+          state.editDialog.itemContent = ''
+        } else {
+          state.editDialog.folderName = ''
+          state.editDialog.itemTitle = String(n.title || '')
+          state.editDialog.itemContent = String(n.content || '')
+        }
         renderOverlay()
         return
       }
@@ -1452,7 +1586,7 @@
         return
       }
       if (act === 'movePickTarget') {
-        const toParentId = t.getAttribute('data-id') || ''
+        const toParentId = (actEl && actEl.getAttribute('data-id')) || ''
         const movingId = state.movePicker.movingId
         const action = state.movePicker.action === 'copy' ? 'copy' : 'move'
         const moving = getNode(movingId)
@@ -1502,7 +1636,7 @@
         return
       }
       if (act === 'openRecentFolder') {
-        const folderId = t.getAttribute('data-id') || ''
+        const folderId = (actEl && actEl.getAttribute('data-id')) || ''
         state.view = 'folders'
         state.showRecentMenu = false
         openFolder(folderId)
@@ -1611,17 +1745,17 @@
         return
       }
       if (act === 'crumb') {
-        const folderId = t.getAttribute('data-id') || ''
+        const folderId = (actEl && actEl.getAttribute('data-id')) || ''
         navigateFolder(folderId)
         return
       }
       if (act === 'openFolder') {
-        const folderId = t.getAttribute('data-id') || ''
+        const folderId = (actEl && actEl.getAttribute('data-id')) || ''
         navigateFolder(folderId)
         return
       }
       if (act === 'deleteNode') {
-        const nodeId = t.getAttribute('data-id') || ''
+        const nodeId = (actEl && actEl.getAttribute('data-id')) || ''
         const n = getNode(nodeId)
         if (!n) return
         if (!isDeleteArmed(nodeId)) {
@@ -1638,7 +1772,7 @@
         return
       }
       if (act === 'copyFolderItem') {
-        const itemId = t.getAttribute('data-id') || ''
+        const itemId = (actEl && actEl.getAttribute('data-id')) || ''
         const it = getNode(itemId)
         if (!it || it.type !== 'item') return
         try {
@@ -1648,7 +1782,7 @@
         return
       }
       if (act === 'openItemFolder') {
-        const folderId = t.getAttribute('data-folder-id') || ''
+        const folderId = (actEl && actEl.getAttribute('data-folder-id')) || ''
         if (!folderId) return
         state.folderSearchQuery = ''
         navigateFolder(folderId)
@@ -1672,7 +1806,7 @@
         const item = state.history.find((it) => historyKey(it) === hid)
         if (!item) return
 
-        if (t.getAttribute('data-act') === 'delHistory') {
+        if (act === 'delHistory') {
           const key = historyKey(item)
           if (!isDeleteArmed(key)) {
             armDelete(key)
@@ -1754,7 +1888,7 @@
       const t = e.target
       if (!(t instanceof HTMLElement)) return
       if (state.view !== 'folders') return
-      if (state.ctxMenu.open || state.movePicker.open) {
+      if (state.ctxMenu.open || state.movePicker.open || state.editDialog.open) {
         e.preventDefault()
         return
       }
@@ -1796,6 +1930,18 @@
         renderMovePickerList()
         return
       }
+      if (act === 'editFolderName') {
+        state.editDialog.folderName = (t instanceof HTMLInputElement ? t.value : '') || ''
+        return
+      }
+      if (act === 'editItemTitle') {
+        state.editDialog.itemTitle = (t instanceof HTMLInputElement ? t.value : '') || ''
+        return
+      }
+      if (act === 'editItemContent') {
+        state.editDialog.itemContent = (t instanceof HTMLTextAreaElement ? t.value : '') || ''
+        return
+      }
       if (act === 'draftTitle') {
         state.draftTitle = (t instanceof HTMLInputElement ? t.value : '') || ''
         return
@@ -1811,7 +1957,7 @@
 
     window.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return
-      if (!state.ctxMenu.open && !state.movePicker.open) return
+      if (!state.ctxMenu.open && !state.movePicker.open && !state.editDialog.open) return
       closeOverlays()
       renderOverlay()
     })
