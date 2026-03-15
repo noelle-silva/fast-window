@@ -19,8 +19,8 @@ import mammoth from 'mammoth/mammoth.browser'
   const MAX_DRAFT_IMAGES = 8
   const MAX_DRAFT_FILES = 6
   const MAX_DRAFT_FILE_BYTES = 10 * 1024 * 1024 // 10MB
-  const MAX_DRAFT_FILE_TEXT_CHARS = 80_000
-  const MAX_DRAFT_FILES_TOTAL_TEXT_CHARS = 200_000
+  const DEFAULT_ATTACH_MAX_CHARS_PER_FILE = 80_000
+  const DEFAULT_ATTACH_MAX_TOTAL_CHARS = 200_000
   const REF_IMG_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
   const NEW_ROLE_ID = '__new__'
   const DEFAULT_MERMAID_FIX_SYSTEM_PROMPT = `你是 Mermaid 语法修复器。\n\n你会收到一段 Mermaid 源码（可能无法渲染）。你的任务：在尽量保持原意不变的前提下，修复语法/结构错误，让它可以被 Mermaid 渲染。\n\n输出要求：\n- 只输出修复后的 Mermaid 源码本体\n- 不要输出解释、不要输出 Markdown 代码块标记（不要输出 \`\`\`mermaid）`
@@ -511,6 +511,10 @@ import mammoth from 'mammoth/mammoth.browser'
             composerBlur: 10,
             userMessageCollapseEnabled: false,
             userMessageCollapseLines: 8,
+            attachments: {
+              maxCharsPerFile: DEFAULT_ATTACH_MAX_CHARS_PER_FILE,
+              maxTotalChars: DEFAULT_ATTACH_MAX_TOTAL_CHARS,
+            },
             stickers: {
               enabled: false,
               categories: [],
@@ -574,6 +578,10 @@ import mammoth from 'mammoth/mammoth.browser'
     if (typeof d.settings.composerBlur !== 'number' || !isFinite(d.settings.composerBlur)) d.settings.composerBlur = 10
     if (typeof d.settings.userMessageCollapseEnabled !== 'boolean') d.settings.userMessageCollapseEnabled = false
     if (typeof d.settings.userMessageCollapseLines !== 'number' || !isFinite(d.settings.userMessageCollapseLines)) d.settings.userMessageCollapseLines = 8
+    if (!d.settings.attachments || typeof d.settings.attachments !== 'object') d.settings.attachments = {}
+    const at = d.settings.attachments
+    if (typeof at.maxCharsPerFile !== 'number' || !isFinite(at.maxCharsPerFile)) at.maxCharsPerFile = DEFAULT_ATTACH_MAX_CHARS_PER_FILE
+    if (typeof at.maxTotalChars !== 'number' || !isFinite(at.maxTotalChars)) at.maxTotalChars = DEFAULT_ATTACH_MAX_TOTAL_CHARS
     d.settings.chatBgOpacity = clamp(Math.round(Number(d.settings.chatBgOpacity || 0)), 0, 100)
     d.settings.chatBgBlur = clamp(Math.round(Number(d.settings.chatBgBlur || 0)), 0, 24)
     d.settings.topbarOpacity = clamp(Math.round(Number(d.settings.topbarOpacity || 0)), 0, 100)
@@ -581,6 +589,9 @@ import mammoth from 'mammoth/mammoth.browser'
     d.settings.composerOpacity = clamp(Math.round(Number(d.settings.composerOpacity || 0)), 40, 100)
     d.settings.composerBlur = clamp(Math.round(Number(d.settings.composerBlur || 0)), 0, 24)
     d.settings.userMessageCollapseLines = clamp(Math.round(Number(d.settings.userMessageCollapseLines || 8)), 1, 50)
+    at.maxCharsPerFile = clamp(Math.round(Number(at.maxCharsPerFile || DEFAULT_ATTACH_MAX_CHARS_PER_FILE)), 1000, 500_000)
+    at.maxTotalChars = clamp(Math.round(Number(at.maxTotalChars || DEFAULT_ATTACH_MAX_TOTAL_CHARS)), 5000, 2_000_000)
+    if (at.maxTotalChars < at.maxCharsPerFile) at.maxTotalChars = at.maxCharsPerFile
     if (!Array.isArray(d.settings.providers) || d.settings.providers.length === 0) d.settings.providers = defaultData().settings.providers
 
     if (!d.settings.stickers || typeof d.settings.stickers !== 'object') d.settings.stickers = {}
@@ -1475,6 +1486,14 @@ import mammoth from 'mammoth/mammoth.browser'
     return String(s || '').replaceAll('```', '``\u200b`')
   }
 
+  function attachmentLimits() {
+    const a = state.data?.settings?.attachments
+    let perFile = clamp(Math.round(Number(a?.maxCharsPerFile ?? DEFAULT_ATTACH_MAX_CHARS_PER_FILE)), 1000, 500_000)
+    let total = clamp(Math.round(Number(a?.maxTotalChars ?? DEFAULT_ATTACH_MAX_TOTAL_CHARS)), 5000, 2_000_000)
+    if (total < perFile) total = perFile
+    return { perFile, total }
+  }
+
   function addDraftFilePlaceholder(file: File, kind: DraftFileKind): DraftFileItem | null {
     if (!Array.isArray(state.draft.files)) state.draft.files = []
     if (state.draft.files.length >= MAX_DRAFT_FILES) return null
@@ -1499,7 +1518,7 @@ import mammoth from 'mammoth/mammoth.browser'
     state.draft.files = state.draft.files.filter((x: any) => String(x?.id || '') !== rid)
   }
 
-  async function extractPdfText(file: File): Promise<string> {
+  async function extractPdfText(file: File, maxChars: number): Promise<string> {
     const buf = await file.arrayBuffer()
     const doc = await (pdfjsLib as any)
       .getDocument({ data: new Uint8Array(buf), disableWorker: true })
@@ -1515,7 +1534,7 @@ import mammoth from 'mammoth/mammoth.browser'
         .map((x: any) => (x && typeof x.str === 'string' ? String(x.str) : ''))
         .filter((x: string) => !!x)
       if (parts.length) out += parts.join(' ') + '\n'
-      if (out.length >= MAX_DRAFT_FILE_TEXT_CHARS) break
+      if (out.length >= maxChars) break
     }
     try {
       doc?.cleanup?.()
@@ -1534,18 +1553,19 @@ import mammoth from 'mammoth/mammoth.browser'
     const size = Number(file?.size || 0)
     if (!isFinite(size) || size <= 0) throw new Error('文件为空')
     if (size > MAX_DRAFT_FILE_BYTES) throw new Error(`文件过大（> ${Math.round(MAX_DRAFT_FILE_BYTES / 1024 / 1024)}MB）`)
+    const limits = attachmentLimits()
 
     if (kind === 'txt' || kind === 'md') {
       const t = await file.text()
-      return clampText(String(t || '').trim(), MAX_DRAFT_FILE_TEXT_CHARS)
+      return clampText(String(t || '').trim(), limits.perFile)
     }
     if (kind === 'pdf') {
-      const t = await extractPdfText(file)
-      return clampText(t, MAX_DRAFT_FILE_TEXT_CHARS)
+      const t = await extractPdfText(file, limits.perFile)
+      return clampText(t, limits.perFile)
     }
     if (kind === 'docx') {
       const t = await extractDocxText(file)
-      return clampText(t, MAX_DRAFT_FILE_TEXT_CHARS)
+      return clampText(t, limits.perFile)
     }
     throw new Error('不支持的文件类型')
   }
@@ -1703,6 +1723,7 @@ import mammoth from 'mammoth/mammoth.browser'
       const parts: string[] = []
       if (input) parts.push(input)
       if (hasFiles) {
+        const limits = attachmentLimits()
         let total = 0
         for (const f of draftFiles) {
           if (!f || f.pending) continue
@@ -1714,8 +1735,8 @@ import mammoth from 'mammoth/mammoth.browser'
           const body = escapeFence(String(f?.text || '').trim())
           if (!body) continue
           const block = `${header}\n\`\`\`${lang}\n${body}\n\`\`\``
-          if (total + block.length > MAX_DRAFT_FILES_TOTAL_TEXT_CHARS) {
-            const remain = Math.max(0, MAX_DRAFT_FILES_TOTAL_TEXT_CHARS - total)
+          if (total + block.length > limits.total) {
+            const remain = Math.max(0, limits.total - total)
             const overhead = (`${header}\n\`\`\`${lang}\n\n\`\`\``).length
             const avail = Math.max(0, remain - overhead)
             const snippet = avail > 200 ? body.slice(0, avail).trimEnd() : ''
@@ -3973,6 +3994,30 @@ import mammoth from 'mammoth/mammoth.browser'
       setUserMessageCollapseLines: (lines, commit) => {
         if (!state.data) return
         state.data.settings.userMessageCollapseLines = clamp(Math.round(Number(lines || 8)), 1, 50)
+        if (commit) save().catch(() => {})
+        emit()
+      },
+      setAttachmentsMaxCharsPerFile: (chars, commit) => {
+        if (!state.data) return
+        if (!state.data.settings.attachments || typeof state.data.settings.attachments !== 'object') {
+          state.data.settings.attachments = { maxCharsPerFile: DEFAULT_ATTACH_MAX_CHARS_PER_FILE, maxTotalChars: DEFAULT_ATTACH_MAX_TOTAL_CHARS }
+        }
+        const at = state.data.settings.attachments
+        at.maxCharsPerFile = clamp(Math.round(Number(chars || DEFAULT_ATTACH_MAX_CHARS_PER_FILE)), 1000, 500_000)
+        if (typeof at.maxTotalChars !== 'number' || !isFinite(at.maxTotalChars)) at.maxTotalChars = DEFAULT_ATTACH_MAX_TOTAL_CHARS
+        if (at.maxTotalChars < at.maxCharsPerFile) at.maxTotalChars = at.maxCharsPerFile
+        if (commit) save().catch(() => {})
+        emit()
+      },
+      setAttachmentsMaxTotalChars: (chars, commit) => {
+        if (!state.data) return
+        if (!state.data.settings.attachments || typeof state.data.settings.attachments !== 'object') {
+          state.data.settings.attachments = { maxCharsPerFile: DEFAULT_ATTACH_MAX_CHARS_PER_FILE, maxTotalChars: DEFAULT_ATTACH_MAX_TOTAL_CHARS }
+        }
+        const at = state.data.settings.attachments
+        if (typeof at.maxCharsPerFile !== 'number' || !isFinite(at.maxCharsPerFile)) at.maxCharsPerFile = DEFAULT_ATTACH_MAX_CHARS_PER_FILE
+        at.maxTotalChars = clamp(Math.round(Number(chars || DEFAULT_ATTACH_MAX_TOTAL_CHARS)), 5000, 2_000_000)
+        if (at.maxTotalChars < at.maxCharsPerFile) at.maxTotalChars = at.maxCharsPerFile
         if (commit) save().catch(() => {})
         emit()
       },

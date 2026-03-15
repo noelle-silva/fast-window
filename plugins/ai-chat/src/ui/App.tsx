@@ -556,7 +556,7 @@ export function AiChatApp(props: { controller: any }) {
   const [composerHeight, setComposerHeight] = React.useState(0)
 
   const [page, setPage] = React.useState<'chat' | 'settings'>('chat')
-  const [settingsTab, setSettingsTab] = React.useState<'appearance' | 'roles' | 'providers' | 'services' | 'stickers'>('roles')
+  const [settingsTab, setSettingsTab] = React.useState<'appearance' | 'attachments' | 'roles' | 'providers' | 'services' | 'stickers'>('roles')
 
   const [expandedUserMsgIds, setExpandedUserMsgIds] = React.useState(() => new Set<string>())
 
@@ -850,7 +850,7 @@ export function AiChatApp(props: { controller: any }) {
     closeChatMenu()
   })
 
-  const openPluginSettings = useEvent((tab: 'appearance' | 'roles' | 'providers' | 'services' | 'stickers' = 'roles') => {
+  const openPluginSettings = useEvent((tab: 'appearance' | 'attachments' | 'roles' | 'providers' | 'services' | 'stickers' = 'roles') => {
     setRolePickerEl(null)
     setChatPickerEl(null)
     setSettingsTab(tab)
@@ -1164,6 +1164,14 @@ export function AiChatApp(props: { controller: any }) {
                   sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
                 >
                   外观
+                </Button>
+                <Button
+                  size="small"
+                  variant={settingsTab === 'attachments' ? 'contained' : 'outlined'}
+                  onClick={() => setSettingsTab('attachments')}
+                  sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
+                >
+                  附件
                 </Button>
                 <Button
                   size="small"
@@ -2596,7 +2604,7 @@ function PluginSettingsPage(props: {
   models: any
   draft: any
   activeRoleId: string
-  tab: 'appearance' | 'roles' | 'providers' | 'services' | 'stickers'
+  tab: 'appearance' | 'attachments' | 'roles' | 'providers' | 'services' | 'stickers'
 }) {
   const { controller, loading, data, roles, providers, models, draft, activeRoleId, tab } = props
 
@@ -2619,6 +2627,8 @@ function PluginSettingsPage(props: {
   const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
   const userMessageCollapseEnabled = !!data?.settings?.userMessageCollapseEnabled
   const userMessageCollapseLines = clampNum(Number(data?.settings?.userMessageCollapseLines ?? 8), 1, 50)
+  const attachMaxCharsPerFile = clampNum(Number(data?.settings?.attachments?.maxCharsPerFile ?? 80000), 1000, 500000)
+  const attachMaxTotalChars = clampNum(Number(data?.settings?.attachments?.maxTotalChars ?? 200000), 5000, 2000000)
 
   const appearancePanel = (
     <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
@@ -2815,6 +2825,70 @@ function PluginSettingsPage(props: {
     return (
       <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
         {appearancePanel}
+      </Box>
+    )
+  }
+
+  if (tab === 'attachments') {
+    return (
+      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
+        <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
+          <Stack spacing={1.25}>
+            <Typography sx={{ fontWeight: 900 }}>附件</Typography>
+
+            <Box>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                  单文件截断长度
+                </Typography>
+                <Box sx={{ flex: 1 }} />
+                <Typography variant="caption" color="text.secondary">
+                  {Math.round(attachMaxCharsPerFile)} 字符
+                </Typography>
+              </Stack>
+              <Slider
+                size="small"
+                value={attachMaxCharsPerFile}
+                min={1000}
+                max={500000}
+                step={500}
+                onChange={(_e, v) => controller.actions.setAttachmentsMaxCharsPerFile?.(v, false)}
+                onChangeCommitted={(_e, v) => controller.actions.setAttachmentsMaxCharsPerFile?.(v, true)}
+                disabled={loading}
+              />
+              <Typography variant="caption" color="text.secondary">
+                解析 txt/md/pdf/docx 时超过该长度会被截断后再发送。
+              </Typography>
+            </Box>
+
+            <Divider />
+
+            <Box>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                  总截断长度
+                </Typography>
+                <Box sx={{ flex: 1 }} />
+                <Typography variant="caption" color="text.secondary">
+                  {Math.round(attachMaxTotalChars)} 字符
+                </Typography>
+              </Stack>
+              <Slider
+                size="small"
+                value={attachMaxTotalChars}
+                min={5000}
+                max={2000000}
+                step={5000}
+                onChange={(_e, v) => controller.actions.setAttachmentsMaxTotalChars?.(v, false)}
+                onChangeCommitted={(_e, v) => controller.actions.setAttachmentsMaxTotalChars?.(v, true)}
+                disabled={loading}
+              />
+              <Typography variant="caption" color="text.secondary">
+                多个附件合并进同一条用户消息时的总字符上限，避免消息过长。
+              </Typography>
+            </Box>
+          </Stack>
+        </Paper>
       </Box>
     )
   }
