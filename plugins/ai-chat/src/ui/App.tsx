@@ -2237,7 +2237,7 @@ function StickersSettingsPanel(props: { controller: any; loading: boolean; data:
     const more = all.length > shown.length
     const listText = `|${shown.join('|')}${more ? '|…|' : '|'}`
 
-    return `你可以使用「${catName}」表情包，调用方式为：[[sticker:${catName}/名称]]\n${catName}表情包列表有：${listText}`
+    return `你可以使用「${catName}」表情包，调用方式为：[[sticker:${catName}/名称]]（可选尺寸：[[sticker:${catName}/名称/128]]，单位 px，范围 16~4096）\n${catName}表情包列表有：${listText}`
   })
 
   const copyCategoryPrompt = useEvent(() => {

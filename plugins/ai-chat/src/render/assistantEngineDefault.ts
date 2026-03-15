@@ -757,10 +757,12 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
         const rawToken = String(it.raw || '')
         const category = String(it.category || '')
         const name = String(it.name || '')
+        const size = typeof it.size === 'number' && Number.isFinite(it.size) ? Math.round(it.size) : 0
         const label = category && name ? `${category}/${name}` : rawToken
         const relPath = getStickerPath ? String(getStickerPath(category, name) || '').trim() : ''
         if (!relPath) return `<span class="fw-sticker-miss">${esc(rawToken)}</span>`
-        return `<img class="fw-sticker" data-fw-img="1" data-ref-img="${esc(relPath)}" src="${REF_IMG_PLACEHOLDER}" alt="${esc(name || 'sticker')}" title="${esc(label)}" />`
+        const sizeAttr = size > 0 ? ` data-fw-sticker-size="${String(size)}"` : ''
+        return `<img class="fw-sticker" data-fw-img="1" data-ref-img="${esc(relPath)}"${sizeAttr} src="${REF_IMG_PLACEHOLDER}" alt="${esc(name || 'sticker')}" title="${esc(label)}" />`
       })
     }
 
@@ -769,6 +771,7 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
     ensureMermaidErrorCopyHandlerOnce(el)
     ensureMermaidErrorAiFixHandlerOnce(el)
     markPreviewImages(el)
+    hydrateStickerSizes(el)
     hydrateRefImages(el)
 
     const katex = w.katex
@@ -799,7 +802,7 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
 }
 
 type PreprocessedMath = { tex: string; display: boolean }
-type PreprocessedSticker = { raw: string; category: string; name: string }
+type PreprocessedSticker = { raw: string; category: string; name: string; size?: number }
 
 type FenceToken =
   | { kind: 'text'; text: string }
@@ -977,17 +980,51 @@ function replaceStickersInPlainText(input: string, acc: PreprocessedSticker[]) {
       .split('/')
       .map((x) => String(x || '').trim())
       .filter((x) => !!x)
-    if (parts.length !== 2) return m
+    if (parts.length !== 2 && parts.length !== 3) return m
 
     const category = parts[0]
     const name = parts[1]
     if (!category || !name) return m
     if (category.includes(']') || name.includes(']')) return m
 
+    let size: number | undefined = undefined
+    if (parts.length === 3) {
+      const n = parseStickerSize(parts[2])
+      if (!n) return m
+      size = n
+    }
+
     const id = acc.length
-    acc.push({ raw: m, category, name })
+    acc.push({ raw: m, category, name, size })
     return `@@STICKER_${id}@@`
   })
+}
+
+function parseStickerSize(raw: unknown) {
+  const s = String(raw || '')
+    .trim()
+    .toLowerCase()
+  if (!s) return 0
+  const m = /^(\d{1,5})(?:px)?$/.exec(s)
+  if (!m) return 0
+  const n = Math.round(Number(m[1] || 0))
+  if (!Number.isFinite(n)) return 0
+  if (n < 16) return 16
+  if (n > 4096) return 4096
+  return n
+}
+
+function hydrateStickerSizes(root: unknown) {
+  if (!(root instanceof HTMLElement)) return
+  const imgs = Array.from(root.querySelectorAll?.('img.fw-sticker[data-fw-sticker-size]') || [])
+  for (const img of imgs) {
+    if (!(img instanceof HTMLImageElement)) continue
+    const raw = img.getAttribute('data-fw-sticker-size') || ''
+    const size = parseStickerSize(raw)
+    if (!size) continue
+    img.style.maxWidth = `min(${size}px, 100%)`
+    img.style.maxHeight = `min(${size}px, 70vh)`
+  }
 }
 
 function replaceMathInPlainText(input: string, acc: PreprocessedMath[]) {
