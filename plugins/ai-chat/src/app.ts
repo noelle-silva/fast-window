@@ -29,6 +29,7 @@ import mammoth from 'mammoth/mammoth.browser'
   const MAX_DRAFT_FILES = 6
   const MAX_DRAFT_FILE_BYTES = 10 * 1024 * 1024 // 10MB
   const DEFAULT_ATTACH_SEND_LIMIT_CHARS = 80_000
+  const DEFAULT_TOOL_CALL_SERVER_BASE_URL = 'http://localhost:9083'
   const REF_IMG_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
   const NEW_ROLE_ID = '__new__'
   const DEFAULT_MERMAID_FIX_SYSTEM_PROMPT = `你是 Mermaid 语法修复器。\n\n你会收到一段 Mermaid 源码（可能无法渲染）。你的任务：在尽量保持原意不变的前提下，修复语法/结构错误，让它可以被 Mermaid 渲染。\n\n输出要求：\n- 只输出修复后的 Mermaid 源码本体\n- 不要输出解释、不要输出 Markdown 代码块标记（不要输出 \`\`\`mermaid）`
@@ -570,6 +571,10 @@ import mammoth from 'mammoth/mammoth.browser'
                 systemPrompt: DEFAULT_MERMAID_FIX_SYSTEM_PROMPT,
               },
             },
+            toolCallServer: {
+              baseUrl: DEFAULT_TOOL_CALL_SERVER_BASE_URL,
+              token: '',
+            },
             providers: [
               {
                 id: pid,
@@ -689,6 +694,12 @@ import mammoth from 'mammoth/mammoth.browser'
     if (typeof mm.modelId !== 'string') mm.modelId = ''
     if (typeof mm.customModelId !== 'string') mm.customModelId = ''
     if (typeof mm.systemPrompt !== 'string') mm.systemPrompt = DEFAULT_MERMAID_FIX_SYSTEM_PROMPT
+
+    if (!d.settings.toolCallServer || typeof d.settings.toolCallServer !== 'object') d.settings.toolCallServer = {}
+    const tcs = d.settings.toolCallServer
+    if (typeof tcs.baseUrl !== 'string') tcs.baseUrl = DEFAULT_TOOL_CALL_SERVER_BASE_URL
+    tcs.baseUrl = String(tcs.baseUrl || '').trim() || DEFAULT_TOOL_CALL_SERVER_BASE_URL
+    if (typeof tcs.token !== 'string') tcs.token = ''
 
     for (const p of d.settings.providers) {
       if (!p || typeof p !== 'object') continue
@@ -4350,6 +4361,22 @@ import mammoth from 'mammoth/mammoth.browser'
         if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {}
         if (!state.data.settings.aiServices.mermaidFix || typeof state.data.settings.aiServices.mermaidFix !== 'object') state.data.settings.aiServices.mermaidFix = {}
         state.data.settings.aiServices.mermaidFix.systemPrompt = DEFAULT_MERMAID_FIX_SYSTEM_PROMPT
+        save().catch(() => {})
+        emit()
+      },
+      setToolCallServerBaseUrl: (baseUrl) => {
+        if (!state.data) return
+        const v = String(baseUrl ?? '').trim()
+        if (!state.data.settings.toolCallServer || typeof state.data.settings.toolCallServer !== 'object') state.data.settings.toolCallServer = {}
+        state.data.settings.toolCallServer.baseUrl = v || DEFAULT_TOOL_CALL_SERVER_BASE_URL
+        save().catch(() => {})
+        emit()
+      },
+      setToolCallServerToken: (token) => {
+        if (!state.data) return
+        const v = typeof token === 'string' ? token : String(token ?? '')
+        if (!state.data.settings.toolCallServer || typeof state.data.settings.toolCallServer !== 'object') state.data.settings.toolCallServer = {}
+        state.data.settings.toolCallServer.token = v
         save().catch(() => {})
         emit()
       },

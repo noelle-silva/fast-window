@@ -103,6 +103,34 @@ function ApiKeyField(props: { value: string; onValueChange: (next: string) => vo
   )
 }
 
+function SecretField(props: { label: string; value: string; onValueChange: (next: string) => void }) {
+  const { label, value, onValueChange } = props
+  const [visible, setVisible] = React.useState(false)
+
+  const tip = visible ? `隐藏 ${label}` : `显示 ${label}`
+
+  return (
+    <TextField
+      label={label}
+      type={visible ? 'text' : 'password'}
+      autoComplete="off"
+      value={String(value || '')}
+      onChange={(e) => onValueChange(e.target.value)}
+      InputProps={{
+        endAdornment: (
+          <InputAdornment position="end">
+            <Tooltip title={tip}>
+              <IconButton size="small" aria-label={tip} onMouseDown={(e) => e.preventDefault()} onClick={() => setVisible((v) => !v)}>
+                {visible ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+              </IconButton>
+            </Tooltip>
+          </InputAdornment>
+        ),
+      }}
+    />
+  )
+}
+
 function isNearBottom(el: HTMLElement, thresholdPx = 24) {
   const gap = el.scrollHeight - el.scrollTop - el.clientHeight
   return Math.ceil(gap) <= thresholdPx
@@ -557,7 +585,7 @@ export function AiChatApp(props: { controller: any }) {
   const [composerHeight, setComposerHeight] = React.useState(0)
 
   const [page, setPage] = React.useState<'chat' | 'settings'>('chat')
-  const [settingsTab, setSettingsTab] = React.useState<'appearance' | 'attachments' | 'roles' | 'providers' | 'services' | 'stickers'>('roles')
+  const [settingsTab, setSettingsTab] = React.useState<'appearance' | 'attachments' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers'>('roles')
 
   const [expandedUserMsgIds, setExpandedUserMsgIds] = React.useState(() => new Set<string>())
 
@@ -955,7 +983,7 @@ export function AiChatApp(props: { controller: any }) {
     closeChatMenu()
   })
 
-  const openPluginSettings = useEvent((tab: 'appearance' | 'attachments' | 'roles' | 'providers' | 'services' | 'stickers' = 'roles') => {
+  const openPluginSettings = useEvent((tab: 'appearance' | 'attachments' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers' = 'roles') => {
     setRolePickerEl(null)
     setChatPickerEl(null)
     setSettingsTab(tab)
@@ -1304,19 +1332,27 @@ export function AiChatApp(props: { controller: any }) {
                  >
                    供应商管理
                  </Button>
-                 <Button
-                   size="small"
-                   variant={settingsTab === 'services' ? 'contained' : 'outlined'}
-                   onClick={() => setSettingsTab('services')}
-                   sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
-                 >
-                   AI 微服务
-                 </Button>
-                 <Button
-                   size="small"
-                   variant={settingsTab === 'stickers' ? 'contained' : 'outlined'}
-                   onClick={() => setSettingsTab('stickers')}
-                   sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
+                  <Button
+                    size="small"
+                    variant={settingsTab === 'services' ? 'contained' : 'outlined'}
+                    onClick={() => setSettingsTab('services')}
+                    sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
+                  >
+                    AI 微服务
+                  </Button>
+                  <Button
+                    size="small"
+                    variant={settingsTab === 'toolServer' ? 'contained' : 'outlined'}
+                    onClick={() => setSettingsTab('toolServer')}
+                    sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
+                  >
+                    工具服务器
+                  </Button>
+                  <Button
+                    size="small"
+                    variant={settingsTab === 'stickers' ? 'contained' : 'outlined'}
+                    onClick={() => setSettingsTab('stickers')}
+                    sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
                  >
                    表情包
                  </Button>
@@ -2939,7 +2975,7 @@ function PluginSettingsPage(props: {
   models: any
   draft: any
   activeRoleId: string
-  tab: 'appearance' | 'attachments' | 'roles' | 'providers' | 'services' | 'stickers'
+  tab: 'appearance' | 'attachments' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers'
 }) {
   const { controller, loading, data, roles, providers, models, draft, activeRoleId, tab } = props
 
@@ -3278,6 +3314,41 @@ function PluginSettingsPage(props: {
 
   if (tab === 'stickers') {
     return <StickersSettingsPanel controller={controller} loading={loading} data={data} />
+  }
+
+  if (tab === 'toolServer') {
+    const cfg = (data?.settings?.toolCallServer && typeof data.settings.toolCallServer === 'object') ? data.settings.toolCallServer : {}
+    const baseUrl = String((cfg as any).baseUrl || '')
+    const token = String((cfg as any).token || '')
+
+    return (
+      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
+        <Paper variant="outlined" sx={{ p: 1.5 }}>
+          <Stack spacing={1.5}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography sx={{ fontWeight: 900 }}>工具服务器</Typography>
+              <Box sx={{ flex: 1 }} />
+            </Stack>
+            <Divider />
+            <Stack spacing={1.25}>
+              <TextField
+                size="small"
+                label="Base URL"
+                value={baseUrl}
+                onChange={(e) => controller.actions.setToolCallServerBaseUrl?.(e.target.value)}
+                placeholder="http://localhost:9083"
+                fullWidth
+                disabled={loading}
+              />
+              <SecretField label="鉴权 Key" value={token} onValueChange={(next) => controller.actions.setToolCallServerToken?.(next)} />
+              <Typography variant="caption" color="text.secondary">
+                用于执行 AI 工具调用（ai-tool-call-server）。鉴权 Key 会保存在插件数据中。
+              </Typography>
+            </Stack>
+          </Stack>
+        </Paper>
+      </Box>
+    )
   }
 
   if (tab === 'services') {
