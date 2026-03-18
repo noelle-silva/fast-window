@@ -3594,27 +3594,6 @@ fn is_dir_empty(dir: &Path) -> bool {
 }
 
 #[cfg(not(debug_assertions))]
-fn read_manifest_value(path: &Path) -> Option<Value> {
-    let content = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str::<Value>(&content).ok()
-}
-
-#[cfg(not(debug_assertions))]
-fn manifest_string_field(manifest: &Value, key: &str) -> Option<String> {
-    manifest
-        .get(key)
-        .and_then(|v| v.as_str())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
-
-#[cfg(not(debug_assertions))]
-fn write_manifest_value(path: &Path, manifest: &Value) -> std::io::Result<()> {
-    let content = serde_json::to_string_pretty(manifest).unwrap_or_else(|_| "{}".to_string());
-    std::fs::write(path, format!("{content}\n"))
-}
-
-#[cfg(not(debug_assertions))]
 fn seed_plugins_from_resources(app: &tauri::AppHandle) {
     let plugins_dir = app_plugins_dir(app);
     let _ = std::fs::create_dir_all(&plugins_dir);
@@ -3680,29 +3659,13 @@ fn seed_plugins_from_resources(app: &tauri::AppHandle) {
             continue;
         }
 
-        // 默认不覆盖用户已有插件；只有用户在宿主设置里显式开启“允许覆盖更新”时，才在宿主更新后用随包版本覆盖。
+        // 用户空间优先：目标不是目录则不动。
         if !dst.is_dir() {
             continue;
         }
 
         // 默认：允许覆盖更新；仅当用户显式设置为 false 时才禁止。
         if overwrite_prefs.get(&plugin_id).copied().unwrap_or(true) == false {
-            continue;
-        }
-
-        let dst_manifest_path = dst.join("manifest.json");
-        let Some(dst_manifest) = read_manifest_value(&dst_manifest_path) else {
-            continue;
-        };
-
-        let src_manifest_path = src_dir.join("manifest.json");
-        let Some(src_manifest) = read_manifest_value(&src_manifest_path) else {
-            continue;
-        };
-
-        let dst_version = manifest_string_field(&dst_manifest, "version");
-        let src_version = manifest_string_field(&src_manifest, "version");
-        if dst_version.is_some() && src_version.is_some() && dst_version == src_version {
             continue;
         }
 
@@ -3719,9 +3682,7 @@ fn seed_plugins_from_resources(app: &tauri::AppHandle) {
             continue;
         }
 
-        // 覆盖更新时，不再把宿主偏好写入插件 manifest；偏好由宿主独立配置文件保存。
-        let _ = write_manifest_value(&tmp_dir.join("manifest.json"), &src_manifest);
-
+        // 覆盖更新：只要用户允许，就直接用随包版本替换（不做任何版本/manifest 跳过判断）。
         if replace_dir_from_tmp(&dst, &tmp_dir, &format!("seed-{plugin_id}")).is_err() {
             // 失败就跳过：不能破坏用户空间（尤其是 Windows 上文件占用时）。
             continue;
