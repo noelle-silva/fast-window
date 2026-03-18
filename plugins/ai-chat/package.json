@@ -4,12 +4,13 @@
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
+    "@noelle-silva/eucli-aitoolcall-sdk": "^0.1.1",
     "dompurify": "^3.0.11",
     "katex": "^0.16.11",
-    "marked": "^12.0.2",
     "mammoth": "^1.10.0",
-    "pdfjs-dist": "^4.10.38",
-    "mermaid": "^10.9.1"
+    "marked": "^12.0.2",
+    "mermaid": "^10.9.1",
+    "pdfjs-dist": "^4.10.38"
   },
   "fastWindowPlugin": {
     "entry": "src/index.ts"
