@@ -1,5 +1,6 @@
 import { uid, esc } from '../core/utils'
 import './vendor'
+import { parseToolRequestCalls } from '../../sdk/src'
 
 export type AssistantRenderEngine = {
   ensureRenderer: () => Promise<void>
@@ -750,6 +751,23 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
         return `<pre><code class="language-mermaid">${esc(code)}</code></pre>`
       })
     }
+    if (Array.isArray(pre.toolRequests) && pre.toolRequests.length) {
+      safe = safe.replace(/@@TOOL_REQUEST_(\d+)@@/g, (_m, id) => {
+        const it = pre.toolRequests[Number(id)] || null
+        if (!it) return ''
+
+        const toolNames = Array.isArray(it.toolNames) ? it.toolNames : []
+        const summary = toolNames.length ? toolNames.map((n) => esc(String(n || '').trim() || '(无 tool_name)')).join('<br/>') : esc('(工具调用解析失败)')
+        const detailText = String(it.detailText || '')
+
+        return (
+          `<details class="fw-toolreq" style="margin:10px 0; border:1px solid rgba(245,158,11,.25); background:rgba(245,158,11,.05); border-radius:12px; padding:8px 10px;">` +
+          `<summary style="cursor:pointer; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; white-space:pre-line;">${summary}</summary>` +
+          `<pre style="margin:10px 0 0 0; padding:8px 10px; background:rgba(255,255,255,.7); border:1px solid rgba(245,158,11,.18); border-radius:10px; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px;">${esc(detailText)}</pre>` +
+          `</details>`
+        )
+      })
+    }
     if (Array.isArray(pre.stickers) && pre.stickers.length) {
       safe = safe.replace(/@@STICKER_(\d+)@@/g, (_m, id) => {
         const it = pre.stickers[Number(id)] || null
@@ -803,6 +821,11 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
 
 type PreprocessedMath = { tex: string; display: boolean }
 type PreprocessedSticker = { raw: string; category: string; name: string; size?: number }
+type PreprocessedToolRequest = {
+  ok: boolean
+  toolNames: string[]
+  detailText: string
+}
 
 type FenceToken =
   | { kind: 'text'; text: string }
@@ -811,13 +834,14 @@ type FenceToken =
 function preprocessAssistantContent(
   source: unknown,
   options?: { stickersEnabled?: boolean },
-): { text: string; math: PreprocessedMath[]; mermaid: string[]; stickers: PreprocessedSticker[] } {
+): { text: string; math: PreprocessedMath[]; mermaid: string[]; stickers: PreprocessedSticker[]; toolRequests: PreprocessedToolRequest[] } {
   const src = String(source || '').replace(/\r\n/g, '\n')
   const tokens = tokenizeFences(src)
 
   const mermaid: string[] = []
   const math: PreprocessedMath[] = []
   const stickers: PreprocessedSticker[] = []
+  const toolRequests: PreprocessedToolRequest[] = []
   const out: string[] = []
   const stickersEnabled = !!options?.stickersEnabled
 
@@ -835,11 +859,13 @@ function preprocessAssistantContent(
       continue
     }
 
-    const withMath = replaceMathOutsideInlineCode(t.text, math)
+    // 先把 TOOL_REQUEST 整块摘出来做占位符保护，避免后续的数学/贴纸预处理改写块内内容导致解析失败。
+    const withTools = replaceToolRequestsOutsideInlineCode(t.text, toolRequests)
+    const withMath = replaceMathOutsideInlineCode(withTools, math)
     out.push(stickersEnabled ? replaceStickersOutsideInlineCode(withMath, stickers) : withMath)
   }
 
-  return { text: out.join(''), math, mermaid, stickers }
+  return { text: out.join(''), math, mermaid, stickers, toolRequests }
 }
 
 function tokenizeFences(input: string): FenceToken[] {
@@ -962,6 +988,88 @@ function replaceStickersOutsideInlineCode(input: string, acc: PreprocessedSticke
       return replaceStickersInPlainText(p.value, acc)
     })
     .join('')
+}
+
+function replaceToolRequestsOutsideInlineCode(input: string, acc: PreprocessedToolRequest[]) {
+  const parts = splitInlineCodeSpans(input)
+  return parts
+    .map((p) => {
+      if (p.kind === 'code') return p.value
+      return replaceToolRequestsInPlainText(p.value, acc)
+    })
+    .join('')
+}
+
+function replaceToolRequestsInPlainText(input: string, acc: PreprocessedToolRequest[]) {
+  const s = String(input || '')
+  if (!s) return s
+
+  const OPEN = '<<<[TOOL_REQUEST]>>>'
+  const CLOSE = '<<<[END_TOOL_REQUEST]>>>'
+
+  let out = ''
+  let i = 0
+  while (i < s.length) {
+    const openIdx = s.indexOf(OPEN, i)
+    if (openIdx < 0) {
+      out += s.slice(i)
+      break
+    }
+
+    const closeIdx = s.indexOf(CLOSE, openIdx + OPEN.length)
+    if (closeIdx < 0) {
+      // 未闭合的块不要动，避免“半截工具块”破坏正常渲染。
+      out += s.slice(i)
+      break
+    }
+
+    const endIdx = closeIdx + CLOSE.length
+    out += s.slice(i, openIdx)
+
+    const rawBlock = s.slice(openIdx, endIdx)
+    const parsed = parseToolRequestCalls(rawBlock as any)
+
+    if ((parsed as any)?.ok) {
+      const calls = Array.isArray((parsed as any)?.calls) ? (parsed as any).calls : []
+      const toolNames = calls.map((c: any) => String(c?.tool_name || '').trim()).filter(Boolean)
+      const lines: string[] = []
+      for (const c of calls) {
+        const idx = Number(c?.index || 0) || 0
+        lines.push(`CALL-${idx || ''}`.trim())
+        lines.push(`tool_name: ${String(c?.tool_name || '').trim()}`)
+        if (c?.agent) lines.push(`agent: ${String(c.agent).trim()}`)
+        if (c?.schedule) lines.push(`schedule: ${String(c.schedule).trim()}`)
+        if (c?.note) lines.push(`note: ${String(c.note).trim()}`)
+        const params = c?.parameters && typeof c.parameters === 'object' ? c.parameters : {}
+        const keys = Object.keys(params).sort()
+        if (keys.length) {
+          lines.push('parameters:')
+          for (const k of keys) lines.push(`  ${k}: ${String((params as any)[k] ?? '')}`)
+        }
+        lines.push('')
+      }
+
+      const id = acc.length
+      acc.push({
+        ok: true,
+        toolNames,
+        detailText: lines.join('\n').trim(),
+      })
+      out += `@@TOOL_REQUEST_${id}@@`
+    } else {
+      const id = acc.length
+      acc.push({
+        ok: false,
+        toolNames: [],
+        detailText: rawBlock,
+      })
+      out += `@@TOOL_REQUEST_${id}@@`
+    }
+
+    i = endIdx
+  }
+
+  return out
 }
 
 function replaceStickersInPlainText(input: string, acc: PreprocessedSticker[]) {
