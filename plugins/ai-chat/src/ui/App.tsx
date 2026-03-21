@@ -1036,6 +1036,7 @@ export function AiChatApp(props: { controller: any }) {
   const msgMenuIndex = msgMenuMid ? msgMenuMessages.findIndex((m: any) => String(m?.id || '') === msgMenuMid) : -1
   const msgMenuMsg = msgMenuIndex >= 0 ? msgMenuMessages[msgMenuIndex] : null
   const msgMenuText = String(msgMenuMsg?.content || '')
+  const msgMenuIsToolResponse = msgMenuText.startsWith('<<<[TOOL_RESPONSE]>>>')
   const msgMenuPending = msgMenuMsg ? !!msgMenuMsg?.pending : !!msgMenu.pending
   const msgMenuCanEdit = !!msgMenuMid && !msgMenuPending && !s.loading && !uiBusy && !chatLocked
 
@@ -1505,114 +1506,132 @@ export function AiChatApp(props: { controller: any }) {
               ) : (
                 <Stack spacing={1.25}>
                   {renderMessages.map((m: any) => {
-                    const content = String(m?.content || '')
-                    const isToolResponse = content.startsWith('<<<[TOOL_RESPONSE]>>>')
-                    const mid = String(m?.id || '')
-                    const isToolExpanded = !!mid && expandedToolMsgIds.has(mid)
+                     const content = String(m?.content || '')
+                     const isToolResponse = content.startsWith('<<<[TOOL_RESPONSE]>>>')
+                     const mid = String(m?.id || '')
+                     const isToolExpanded = !!mid && expandedToolMsgIds.has(mid)
+                     const isEditing = editingMsg.mid === mid
 
-                    if (isToolResponse) {
-                      const resultTags = content.match(/<<\[RESULT-\d+\]>>/g) || []
-                      const count = resultTags.length
-                      const names = Array.from(content.matchAll(/tool_name:「start」([\s\S]*?)「end」/g))
-                        .map((x) => String(x?.[1] || '').trim())
-                        .filter(Boolean)
-                      const statuses = Array.from(content.matchAll(/status:「start」([\s\S]*?)「end」/g))
-                        .map((x) => String(x?.[1] || '').trim())
-                        .filter(Boolean)
-                      const pairs = names.slice(0, 3).map((n, i) => {
-                        const st = statuses[i] || ''
-                        return st ? `${n}（${st}）` : n
-                      })
-                      const summary = count ? `${count}项：${pairs.join('，')}${count > 3 ? '…' : ''}` : pairs.length ? pairs.join('，') : '工具结果'
-                      const time = controller.fmtTime(Number(m?.createdAt || 0))
+                     if (isToolResponse) {
+                       const resultTags = content.match(/<<\[RESULT-\d+\]>>/g) || []
+                       const count = resultTags.length
+                       const names = Array.from(content.matchAll(/tool_name:「start」([\s\S]*?)「end」/g))
+                         .map((x) => String(x?.[1] || '').trim())
+                         .filter(Boolean)
+                       const statuses = Array.from(content.matchAll(/status:「start」([\s\S]*?)「end」/g))
+                         .map((x) => String(x?.[1] || '').trim())
+                         .filter(Boolean)
+                       const pairs = names.slice(0, 3).map((n, i) => {
+                         const st = statuses[i] || ''
+                         return st ? `${n}（${st}）` : n
+                       })
+                       const summary = count ? `${count}项：${pairs.join('，')}${count > 3 ? '…' : ''}` : pairs.length ? pairs.join('，') : '工具结果'
+                       const time = controller.fmtTime(Number(m?.createdAt || 0))
 
-                      return (
-                        <Stack key={mid} direction="row" justifyContent="flex-start">
-                          <Paper
-                            variant="outlined"
-                            sx={{
-                              width: '100%',
-                              maxWidth: '100%',
-                              px: 1.25,
-                              py: 1.1,
-                              bgcolor: 'rgba(2, 132, 199, .05)',
-                              borderColor: 'rgba(2, 132, 199, .20)',
-                            }}
-                          >
-                            <Stack
-                              direction="row"
-                              alignItems="center"
-                              spacing={1}
-                              role="button"
-                              tabIndex={0}
-                              aria-label={isToolExpanded ? '收起工具返回' : '展开工具返回'}
-                              aria-expanded={isToolExpanded}
-                              onClick={() => toggleExpandedToolMsg(mid)}
-                              onKeyDown={(e) => {
-                                const k = String((e as any)?.key || '')
-                                if (k === 'Enter' || k === ' ') {
-                                  e.preventDefault()
-                                  toggleExpandedToolMsg(mid)
-                                }
+                       return (
+                         <Stack key={mid} direction="row" justifyContent="flex-start">
+                           <Paper
+                             variant="outlined"
+                             onContextMenu={isEditing ? undefined : (e) => onMessageContextMenu(e, mid, 'user', !!m?.pending)}
+                              sx={{
+                                width: '100%',
+                                maxWidth: '100%',
+                                px: 1.25,
+                                py: 1.1,
+                                bgcolor: 'rgba(2, 132, 199, .05)',
+                                borderColor: 'rgba(2, 132, 199, .20)',
                               }}
-                              sx={{ mb: 0.5, cursor: 'pointer', userSelect: 'none' }}
                             >
-                              <StorageIcon sx={{ fontSize: 18, color: 'rgba(2, 132, 199, .85)' }} />
-                              <Typography variant="body2" sx={{ fontWeight: 900 }}>
-                                工具返回
-                              </Typography>
-                              {summary ? (
-                                <Typography variant="caption" color="text.secondary" sx={{ minWidth: 0 }} noWrap>
-                                  {summary}
-                                </Typography>
-                              ) : null}
-                              <Box sx={{ flex: 1 }} />
-                              <Tooltip title="复制">
-                                <IconButton
-                                  aria-label="复制工具返回"
-                                  size="small"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    controller.api?.clipboard?.writeText?.(content).then(
-                                      () => controller.api?.ui?.showToast?.('已复制'),
-                                      () => controller.api?.ui?.showToast?.('复制失败'),
-                                    )
-                                  }}
-                                >
-                                  <ContentCopyIcon fontSize="inherit" />
-                                </IconButton>
-                              </Tooltip>
-                              <Box sx={{ display: 'flex', alignItems: 'center', color: 'text.secondary' }}>
-                                {isToolExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
-                              </Box>
-                              <Typography variant="caption" color="text.secondary">
-                                {time}
-                              </Typography>
-                            </Stack>
-
-                            <Collapse in={isToolExpanded} timeout={160} unmountOnExit>
-                              <Box
-                                sx={{
-                                  mt: 0.75,
-                                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                                  fontSize: 12,
-                                  whiteSpace: 'pre-wrap',
-                                  overflowWrap: 'anywhere',
-                                  wordBreak: 'break-word',
-                                  bgcolor: 'rgba(255,255,255,.7)',
-                                  border: '1px solid rgba(2, 132, 199, .18)',
-                                  borderRadius: 2,
-                                  px: 1,
-                                  py: 0.75,
-                                }}
+                              <Stack
+                                direction="row"
+                                alignItems="center"
+                                spacing={1}
+                                role={isEditing ? undefined : 'button'}
+                                tabIndex={isEditing ? -1 : 0}
+                                aria-label={isEditing ? '工具返回（编辑中）' : isToolExpanded ? '收起工具返回' : '展开工具返回'}
+                                aria-expanded={isEditing ? undefined : isToolExpanded}
+                                onClick={isEditing ? undefined : () => toggleExpandedToolMsg(mid)}
+                                onKeyDown={
+                                  isEditing
+                                    ? undefined
+                                    : (e) => {
+                                        const k = String((e as any)?.key || '')
+                                        if (k === 'Enter' || k === ' ') {
+                                          e.preventDefault()
+                                          toggleExpandedToolMsg(mid)
+                                        }
+                                      }
+                                }
+                                sx={{ mb: 0.5, cursor: isEditing ? 'default' : 'pointer', userSelect: 'none' }}
                               >
-                                {content}
-                              </Box>
-                            </Collapse>
-                          </Paper>
-                        </Stack>
-                      )
-                    }
+                                <StorageIcon sx={{ fontSize: 18, color: 'rgba(2, 132, 199, .85)' }} />
+                                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                                  工具返回
+                                </Typography>
+                                {summary ? (
+                                  <Typography variant="caption" color="text.secondary" sx={{ minWidth: 0 }} noWrap>
+                                    {summary}
+                                  </Typography>
+                                ) : null}
+                                <Box sx={{ flex: 1 }} />
+                                <Box sx={{ display: 'flex', alignItems: 'center', color: 'text.secondary' }}>
+                                  {isToolExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                                </Box>
+                                <Typography variant="caption" color="text.secondary">
+                                  {time}
+                                </Typography>
+                              </Stack>
+
+                              {isEditing ? (
+                                <Box sx={{ mt: 0.75 }}>
+                                  <TextField
+                                    autoFocus
+                                    fullWidth
+                                    multiline
+                                    minRows={3}
+                                    size="small"
+                                    placeholder="编辑工具返回…"
+                                    value={editingMsg.text}
+                                    onChange={(e) => setEditingMsg((p) => ({ ...p, text: e.target.value }))}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Escape') cancelEditMessage()
+                                      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveEditMessage()
+                                    }}
+                                  />
+                                  <Stack direction="row" spacing={1} sx={{ mt: 1 }} justifyContent="flex-end">
+                                    <Button size="small" variant="contained" onClick={saveEditMessage} disabled={s.loading || uiBusy || chatLocked}>
+                                      保存
+                                    </Button>
+                                    <Button size="small" onClick={cancelEditMessage} disabled={s.loading || uiBusy || chatLocked}>
+                                      取消
+                                    </Button>
+                                  </Stack>
+                                </Box>
+                              ) : (
+                                <Collapse in={isToolExpanded} timeout={160} unmountOnExit>
+                                  <Box
+                                    sx={{
+                                      mt: 0.75,
+                                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                                      fontSize: 12,
+                                      whiteSpace: 'pre-wrap',
+                                      overflowWrap: 'anywhere',
+                                      wordBreak: 'break-word',
+                                      bgcolor: 'rgba(255,255,255,.7)',
+                                      border: '1px solid rgba(2, 132, 199, .18)',
+                                      borderRadius: 2,
+                                      px: 1,
+                                      py: 0.75,
+                                    }}
+                                  >
+                                    {content}
+                                  </Box>
+                                </Collapse>
+                              )}
+                            </Paper>
+                          </Stack>
+                        )
+                     }
 
                     const displayRole: 'user' | 'assistant' = m?.role === 'user' ? 'user' : 'assistant'
                     const isUser = displayRole === 'user'
@@ -1622,7 +1641,6 @@ export function AiChatApp(props: { controller: any }) {
                     const time = controller.fmtTime(Number(m?.createdAt || 0))
                     const imgPaths = isUser ? (Array.isArray(m?.images) ? m.images : []) : []
                     const attMsgs = isUser ? (groupedAttMsgsByRootMid.get(String(m?.id || '').trim()) || []) : []
-                    const isEditing = editingMsg.mid === mid
                     const canEdit = !isEditing && !m?.pending && !s.loading && !uiBusy && !chatLocked && !!mid
                     const contentLines = userMessageCollapseEnabled && isUser ? content.split(/\r?\n/) : []
                     const canCollapse = userMessageCollapseEnabled && isUser && !isEditing && contentLines.length > userMessageCollapseLines
@@ -1888,75 +1906,126 @@ export function AiChatApp(props: { controller: any }) {
                </Box>
              </Popover>
 
-             <Popover
-               open={!!msgMenu.mid}
-               onClose={closeMsgMenu}
-               anchorReference="anchorPosition"
-               anchorPosition={msgMenu.mid ? { top: msgMenu.y, left: msgMenu.x } : undefined}
-               transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-             >
-               <Box sx={{ minWidth: 160, p: 0.5 }}>
-                 <MenuItem
-                   disabled={!msgMenuCanRegen}
-                   onClick={() => {
-                     const mid = msgMenuRegenMid
-                     const role = msgMenuRegenRole
-                     closeMsgMenu()
-                     if (!mid) return
-                     setRegen({ mid, role })
-                   }}
-                   sx={{ gap: 1 }}
-                 >
-                   <RestartAltIcon fontSize="small" />
-                   重新回复
-                 </MenuItem>
+              <Popover
+                open={!!msgMenu.mid}
+                onClose={closeMsgMenu}
+                anchorReference="anchorPosition"
+                anchorPosition={msgMenu.mid ? { top: msgMenu.y, left: msgMenu.x } : undefined}
+                transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+              >
+                <Box sx={{ minWidth: 160, p: 0.5 }}>
+                  {msgMenuIsToolResponse ? (
+                    <>
+                      <MenuItem
+                        disabled={!msgMenuMid}
+                        onClick={() => {
+                          const text = msgMenuText
+                          closeMsgMenu()
+                          controller.api?.clipboard?.writeText?.(text).then(
+                            () => controller.api?.ui?.showToast?.('已复制'),
+                            () => controller.api?.ui?.showToast?.('复制失败'),
+                          )
+                        }}
+                        sx={{ gap: 1 }}
+                      >
+                        <ContentCopyIcon fontSize="small" />
+                        复制
+                      </MenuItem>
 
-                 <MenuItem
-                   disabled={!msgMenuCanEdit}
-                   onClick={() => {
-                     const mid = msgMenuMid
-                     const pending = msgMenuPending
-                     const text = msgMenuText
-                     closeMsgMenu()
-                     startEditMessage(mid, text, pending)
-                   }}
-                   sx={{ gap: 1 }}
-                 >
-                   <EditOutlinedIcon fontSize="small" />
-                   编辑
-                 </MenuItem>
+                      <MenuItem
+                        disabled={!msgMenuMid}
+                        onClick={() => {
+                          const mid = msgMenuMid
+                          closeMsgMenu()
+                          if (!mid) return
+                          toggleExpandedToolMsg(mid)
+                        }}
+                        sx={{ gap: 1 }}
+                      >
+                        {msgMenuMid && expandedToolMsgIds.has(msgMenuMid) ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                        {msgMenuMid && expandedToolMsgIds.has(msgMenuMid) ? '收起' : '展开'}
+                      </MenuItem>
 
-                 <MenuItem
-                   disabled={!msgMenuMid}
-                   onClick={() => {
-                     const text = msgMenuText
-                     closeMsgMenu()
-                     controller.api?.clipboard?.writeText?.(text).then(
-                       () => controller.api?.ui?.showToast?.('已复制'),
-                       () => controller.api?.ui?.showToast?.('复制失败'),
-                     )
-                   }}
-                   sx={{ gap: 1 }}
-                 >
-                   <ContentCopyIcon fontSize="small" />
-                   复制
-                 </MenuItem>
+                      <MenuItem
+                        disabled={!msgMenuCanEdit}
+                        onClick={() => {
+                          const mid = msgMenuMid
+                          const pending = msgMenuPending
+                          const text = msgMenuText
+                          closeMsgMenu()
+                          startEditMessage(mid, text, pending)
+                        }}
+                        sx={{ gap: 1 }}
+                      >
+                        <EditOutlinedIcon fontSize="small" />
+                        编辑
+                      </MenuItem>
+                    </>
+                  ) : (
+                    <>
+                      <MenuItem
+                        disabled={!msgMenuCanRegen}
+                        onClick={() => {
+                          const mid = msgMenuRegenMid
+                          const role = msgMenuRegenRole
+                          closeMsgMenu()
+                          if (!mid) return
+                          setRegen({ mid, role })
+                        }}
+                        sx={{ gap: 1 }}
+                      >
+                        <RestartAltIcon fontSize="small" />
+                        重新回复
+                      </MenuItem>
 
-                 <MenuItem
-                  disabled={!msgMenuMid || msgMenuPending || s.loading || uiBusy || chatLocked}
-                   onClick={() => {
-                     const mid = msgMenuMid
-                     const role = msgMenu.role
-                     closeMsgMenu()
-                     setConfirmDelMsg({ mid, role })
-                   }}
-                   sx={{ gap: 1 }}
-                 >
-                   <DeleteOutlineIcon fontSize="small" />
-                   删除
-                 </MenuItem>
-               </Box>
-             </Popover>
+                      <MenuItem
+                        disabled={!msgMenuCanEdit}
+                        onClick={() => {
+                          const mid = msgMenuMid
+                          const pending = msgMenuPending
+                          const text = msgMenuText
+                          closeMsgMenu()
+                          startEditMessage(mid, text, pending)
+                        }}
+                        sx={{ gap: 1 }}
+                      >
+                        <EditOutlinedIcon fontSize="small" />
+                        编辑
+                      </MenuItem>
+
+                      <MenuItem
+                        disabled={!msgMenuMid}
+                        onClick={() => {
+                          const text = msgMenuText
+                          closeMsgMenu()
+                          controller.api?.clipboard?.writeText?.(text).then(
+                            () => controller.api?.ui?.showToast?.('已复制'),
+                            () => controller.api?.ui?.showToast?.('复制失败'),
+                          )
+                        }}
+                        sx={{ gap: 1 }}
+                      >
+                        <ContentCopyIcon fontSize="small" />
+                        复制
+                      </MenuItem>
+
+                      <MenuItem
+                        disabled={!msgMenuMid || msgMenuPending || s.loading || uiBusy || chatLocked}
+                        onClick={() => {
+                          const mid = msgMenuMid
+                          const role = msgMenu.role
+                          closeMsgMenu()
+                          setConfirmDelMsg({ mid, role })
+                        }}
+                        sx={{ gap: 1 }}
+                      >
+                        <DeleteOutlineIcon fontSize="small" />
+                        删除
+                      </MenuItem>
+                    </>
+                  )}
+                </Box>
+              </Popover>
 
              <Dialog
                open={!!confirmDelMsg.mid}
