@@ -3171,6 +3171,15 @@ function PluginSettingsPage(props: {
 }) {
   const { controller, loading, data, roles, providers, models, draft, activeRoleId, tab } = props
   const [toolServerTest, setToolServerTest] = React.useState(() => ({ loading: false, ok: null as null | boolean, msg: '', detail: '' }))
+  const [toolServerTools, setToolServerTools] = React.useState(() => ({
+    open: false,
+    loading: false,
+    ok: null as null | boolean,
+    msg: '',
+    detail: '',
+    tools: [] as any[],
+    count: 0,
+  }))
 
   const runToolServerTest = useEvent(async (baseUrlRaw: string, tokenRaw: string) => {
     const api = controller?.api
@@ -3242,6 +3251,68 @@ function PluginSettingsPage(props: {
       const msg = String(e?.message || e || '测试失败')
       setToolServerTest({ loading: false, ok: false, msg: '测试失败', detail: msg })
       toast(msg || '测试失败')
+    }
+  })
+
+  const runToolServerFetchTools = useEvent(async (baseUrlRaw: string, tokenRaw: string) => {
+    const api = controller?.api
+    const toast = (s: string) => api?.ui?.showToast?.(s)
+
+    const base = String(baseUrlRaw || '').trim().replace(/\/+$/g, '')
+    const token = String(tokenRaw || '').trim()
+
+    if (!base) {
+      setToolServerTools((p) => ({ ...p, loading: false, ok: false, msg: 'Base URL 为空', detail: '', tools: [], count: 0 }))
+      toast('请先填写 Base URL')
+      return
+    }
+    if (!/^https?:\/\//i.test(base)) {
+      setToolServerTools((p) => ({ ...p, loading: false, ok: false, msg: 'Base URL 无效（需 http/https）', detail: base, tools: [], count: 0 }))
+      toast('Base URL 无效（需 http/https）')
+      return
+    }
+    if (typeof api?.net?.request !== 'function') {
+      setToolServerTools((p) => ({ ...p, loading: false, ok: false, msg: '未授权：net.request', detail: '', tools: [], count: 0 }))
+      toast('未授权：net.request')
+      return
+    }
+
+    setToolServerTools((p) => ({ ...p, loading: true, ok: null, msg: '加载中…', detail: '' }))
+
+    try {
+      const r = await api.net.request({
+        method: 'GET',
+        url: `${base}/api/tools`,
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        timeoutMs: 8000,
+      })
+      const s = Number(r?.status || 0)
+      const b = String(r?.body || '')
+      let j: any = null
+      try {
+        j = JSON.parse(b || '{}')
+      } catch (_) {}
+
+      if (s < 200 || s >= 300) {
+        const code = String(j?.error || '').trim()
+        const detail =
+          code === 'ui_key_not_set'
+            ? '服务端未设置 TOOL_CALL_SERVER_UI_KEY（/api/* 管理接口需要这个 Key）。'
+            : b || ''
+        const msg = `获取工具列表失败（HTTP ${s}）`
+        setToolServerTools((p) => ({ ...p, loading: false, ok: false, msg, detail, tools: [], count: 0 }))
+        toast(msg)
+        return
+      }
+
+      const tools = Array.isArray(j?.tools) ? j.tools : []
+      const count = Number.isFinite(Number(j?.count)) ? Number(j.count) : tools.length
+      setToolServerTools((p) => ({ ...p, loading: false, ok: true, msg: '获取成功', detail: '', tools, count }))
+      toast('已获取工具列表')
+    } catch (e: any) {
+      const msg = String(e?.message || e || '请求失败')
+      setToolServerTools((p) => ({ ...p, loading: false, ok: false, msg: '请求失败', detail: msg, tools: [], count: 0 }))
+      toast(msg || '请求失败')
     }
   })
 
@@ -3615,6 +3686,17 @@ function PluginSettingsPage(props: {
                 <Button size="small" variant="outlined" onClick={() => runToolServerTest(baseUrl, token)} disabled={loading || toolServerTest.loading}>
                   {toolServerTest.loading ? '测试中…' : '测试连接'}
                 </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => {
+                    setToolServerTools((p) => ({ ...p, open: true }))
+                    runToolServerFetchTools(baseUrl, token)
+                  }}
+                  disabled={loading || toolServerTools.loading}
+                >
+                  {toolServerTools.loading ? '加载工具…' : '查看工具列表'}
+                </Button>
                 {toolServerTest.ok === true ? <Chip size="small" color="success" label="连接正常" /> : null}
                 {toolServerTest.ok === false ? <Chip size="small" color="error" label="连接失败" /> : null}
                 {toolServerTest.ok === null ? <Chip size="small" variant="outlined" label="未测试" /> : null}
@@ -3644,6 +3726,17 @@ function PluginSettingsPage(props: {
             </Stack>
           </Stack>
         </Paper>
+        <ToolServerToolsDialog
+          open={toolServerTools.open}
+          loading={toolServerTools.loading}
+          ok={toolServerTools.ok}
+          msg={toolServerTools.msg}
+          detail={toolServerTools.detail}
+          tools={toolServerTools.tools}
+          count={toolServerTools.count}
+          onClose={() => setToolServerTools((p) => ({ ...p, open: false }))}
+          onRefresh={() => runToolServerFetchTools(baseUrl, token)}
+        />
       </Box>
     )
   }
@@ -4057,6 +4150,167 @@ function RoleDialog(props: { open: boolean; controller: any; providers: any[]; d
           </Button>
         </Stack>
       </DialogActions>
+    </Dialog>
+  )
+}
+
+function ToolServerToolsDialog(props: {
+  open: boolean
+  loading: boolean
+  ok: null | boolean
+  msg: string
+  detail: string
+  tools: any[]
+  count: number
+  onClose: () => void
+  onRefresh: () => void
+}) {
+  const { open, loading, ok, msg, detail, tools, count, onClose, onRefresh } = props
+  const [expanded, setExpanded] = React.useState<Record<string, boolean>>({})
+
+  React.useEffect(() => {
+    if (!open) setExpanded({})
+  }, [open])
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <StorageIcon fontSize="small" />
+        工具列表
+        <Typography variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+          {Number.isFinite(count) ? `(${count})` : ''}
+        </Typography>
+        <Box sx={{ flex: 1 }} />
+        <Button size="small" variant="outlined" startIcon={<RefreshIcon />} onClick={onRefresh} disabled={loading}>
+          刷新
+        </Button>
+        <IconButton onClick={onClose} size="small">
+          <CloseIcon fontSize="small" />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={1.25}>
+          <Typography variant="caption" color="text.secondary">
+            说明：该列表来自工具服务器 `GET /api/tools`，需要服务端配置 `TOOL_CALL_SERVER_UI_KEY` 并用 Bearer 鉴权。
+          </Typography>
+
+          {loading ? (
+            <Typography variant="body2" color="text.secondary">
+              加载中…
+            </Typography>
+          ) : ok === false ? (
+            <Paper variant="outlined" sx={{ p: 1.25 }}>
+              <Stack spacing={0.75}>
+                <Typography sx={{ fontWeight: 900 }}>获取失败</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {msg || '请求失败'}
+                </Typography>
+                {detail ? (
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                      whiteSpace: 'pre-wrap',
+                      overflowWrap: 'anywhere',
+                      wordBreak: 'break-word',
+                      color: 'text.secondary',
+                    }}
+                  >
+                    {detail}
+                  </Typography>
+                ) : null}
+              </Stack>
+            </Paper>
+          ) : null}
+
+          {!loading && ok === true ? (
+            tools?.length ? (
+              <Stack spacing={1}>
+                {tools.map((t: any) => {
+                  const name = String(t?.name || '')
+                  const desc = String(t?.description || '')
+                  const params = Array.isArray(t?.parameters) ? t.parameters : []
+                  const isOpen = !!expanded[name]
+
+                  return (
+                    <Paper key={name || Math.random()} variant="outlined" sx={{ overflow: 'hidden' }}>
+                      <ListItemButton
+                        onClick={() => setExpanded((p) => ({ ...p, [name]: !p[name] }))}
+                        sx={{ py: 0.75, alignItems: 'flex-start' }}
+                      >
+                        <ListItemText
+                          primary={
+                            <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+                              <Typography sx={{ fontWeight: 900 }}>{name || '(未命名工具)'}</Typography>
+                              {params.length ? <Chip size="small" variant="outlined" label={`${params.length} 参数`} /> : <Chip size="small" variant="outlined" label="无参数" />}
+                            </Stack>
+                          }
+                          secondary={
+                            desc ? (
+                              <Typography variant="caption" color="text.secondary">
+                                {desc}
+                              </Typography>
+                            ) : null
+                          }
+                        />
+                        {isOpen ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                      </ListItemButton>
+                      <Collapse in={isOpen} timeout={180} unmountOnExit>
+                        <Divider />
+                        <Box sx={{ p: 1.25 }}>
+                          {desc ? (
+                            <Typography variant="body2" sx={{ mb: params.length ? 1 : 0 }}>
+                              {desc}
+                            </Typography>
+                          ) : null}
+                          {params.length ? (
+                            <Stack spacing={0.75}>
+                              {params.map((p: any, idx: number) => {
+                                const pn = String(p?.name || '')
+                                const pt = String(p?.type || '')
+                                const pr = !!p?.required
+                                const pd = String(p?.description || '')
+                                const def = String(p?.default || '')
+                                return (
+                                  <Paper key={`${pn}-${idx}`} variant="outlined" sx={{ p: 1 }}>
+                                    <Stack spacing={0.25}>
+                                      <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap' }}>
+                                        <Typography sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace', fontWeight: 900 }}>
+                                          {pn || '(未命名参数)'}
+                                        </Typography>
+                                        {pt ? <Chip size="small" variant="outlined" label={pt} /> : null}
+                                        {pr ? <Chip size="small" color="warning" label="必填" /> : <Chip size="small" variant="outlined" label="可选" />}
+                                        {def ? <Chip size="small" variant="outlined" label={`默认: ${def}`} /> : null}
+                                      </Stack>
+                                      {pd ? (
+                                        <Typography variant="caption" color="text.secondary">
+                                          {pd}
+                                        </Typography>
+                                      ) : null}
+                                    </Stack>
+                                  </Paper>
+                                )
+                              })}
+                            </Stack>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              无参数
+                            </Typography>
+                          )}
+                        </Box>
+                      </Collapse>
+                    </Paper>
+                  )
+                })}
+              </Stack>
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                暂无工具，或当前鉴权 Key 无权访问工具列表。
+              </Typography>
+            )
+          ) : null}
+        </Stack>
+      </DialogContent>
     </Dialog>
   )
 }
