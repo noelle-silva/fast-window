@@ -2,7 +2,7 @@
 import { now, uid, esc, trimSlash, isHttpBaseUrl, clampTemp, normImagePaths, clamp } from './core/utils'
 import { extractOpenAiDelta, sseFeed } from './core/sse'
 import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefault'
-import { createToolRequestStreamTruncator } from '../sdk/src'
+import { createToolRequestStreamTruncator, executeToolCallsOnServer, mapParsedCallsToServerCalls, parseToolRequestCalls } from '../sdk/src'
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
 import mammoth from 'mammoth/mammoth.browser'
@@ -2459,6 +2459,25 @@ import mammoth from 'mammoth/mammoth.browser'
     }
   }
 
+  async function loadToolCallServerConfigFromStorage() {
+    const meta = await loadSplitMeta()
+    if (!meta) throw new Error('存储未初始化')
+
+    // background runtime does not call load(), so we must read toolCallServer config from storage.
+    const d = normalizeData({
+      version: VERSION,
+      settings: meta.settings && typeof meta.settings === 'object' ? meta.settings : {},
+      roles: [],
+      chatsByRole: {},
+      ui: meta.ui && typeof meta.ui === 'object' ? meta.ui : {},
+    })
+
+    const tcs = d.settings.toolCallServer && typeof d.settings.toolCallServer === 'object' ? d.settings.toolCallServer : {}
+    const baseUrl = trimSlash(String((tcs as any).baseUrl || '').trim())
+    const token = String((tcs as any).token || '').trim()
+    return { baseUrl, token }
+  }
+
   async function runBackgroundJob(job) {
     const streamWanted = !!job?.stream
     let req = job?.req || null
@@ -2613,6 +2632,27 @@ import mammoth from 'mammoth/mammoth.browser'
             msg = String(j?.error?.message || msg || `HTTP ${status}`)
           } catch (_) {}
           throw new Error(msg || `HTTP ${status}`)
+        }
+      }
+
+      if (toolRequestCompleted) {
+        const parsed = parseToolRequestCalls(out)
+        if (!parsed.ok) throw new Error(parsed.error || 'TOOL_REQUEST 解析失败')
+
+        const { baseUrl, token } = await loadToolCallServerConfigFromStorage()
+        if (!baseUrl || !isHttpBaseUrl(baseUrl)) throw new Error('工具服务器 Base URL 无效（需 http/https）')
+
+        const calls = mapParsedCallsToServerCalls(parsed.calls)
+        try {
+          await executeToolCallsOnServer({
+            request: (x) => api.net.request(x as any) as any,
+            server: { baseUrl, token },
+            body: { timeout_ms: 30000, calls },
+          })
+        } catch (e) {
+          const msg = String(e?.message || e || 'unknown')
+          out = `${out}\n\n（工具服务器调用失败：${msg}）`
+          throw e
         }
       }
 
