@@ -237,7 +237,85 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
             setMermaidFixBtnState(btn, 'ai')
             btn.disabled = false
           }, 1200)
-        })
+      })
+    })
+  }
+
+  function ensureToolRequestToggleHandlerOnce(root: HTMLElement) {
+    if (root.getAttribute('data-fw-toolreq-hook') === '1') return
+    root.setAttribute('data-fw-toolreq-hook', '1')
+
+    function toggle(details: HTMLElement, body: HTMLElement) {
+      const isOpen = details.hasAttribute('open')
+
+      // Reset "none" to compute scrollHeight correctly.
+      if (body.style.maxHeight === 'none') body.style.maxHeight = ''
+
+      if (!isOpen) {
+        details.setAttribute('open', '')
+        body.style.overflow = 'hidden'
+        body.style.maxHeight = '0px'
+        body.style.opacity = '0'
+        body.style.transform = 'translateY(-2px)'
+        body.getBoundingClientRect()
+        const h = body.scrollHeight
+        body.style.maxHeight = `${h}px`
+        body.style.opacity = '1'
+        body.style.transform = 'translateY(0)'
+        return
+      }
+
+      const h = body.scrollHeight
+      body.style.overflow = 'hidden'
+      body.style.maxHeight = `${h}px`
+      body.style.opacity = '1'
+      body.style.transform = 'translateY(0)'
+      body.getBoundingClientRect()
+      body.style.maxHeight = '0px'
+      body.style.opacity = '0'
+      body.style.transform = 'translateY(-2px)'
+
+      window.setTimeout(() => {
+        if (!details.isConnected) return
+        // If user re-opened quickly, do not close.
+        if (!details.hasAttribute('open')) return
+        details.removeAttribute('open')
+      }, 260)
+    }
+
+    root.addEventListener('mousedown', (e) => {
+      const target = e.target instanceof Element ? e.target : null
+      const summary = target?.closest?.('summary[data-fw-toolreq-summary="1"]')
+      if (!(summary instanceof HTMLElement)) return
+      // Avoid text-selection flash on click.
+      e.preventDefault()
+    })
+
+    root.addEventListener('click', (e) => {
+      const target = e.target instanceof Element ? e.target : null
+      const summary = target?.closest?.('summary[data-fw-toolreq-summary="1"]')
+      if (!(summary instanceof HTMLElement)) return
+      const details = summary.closest('details.fw-toolreq')
+      if (!(details instanceof HTMLElement)) return
+      const body = details.querySelector?.('[data-fw-toolreq-body="1"]')
+      if (!(body instanceof HTMLElement)) return
+      e.preventDefault()
+      toggle(details, body)
+    })
+
+    root.addEventListener('keydown', (e) => {
+      const ev = e as KeyboardEvent
+      const k = String(ev.key || '')
+      if (k !== 'Enter' && k !== ' ') return
+      const target = ev.target instanceof Element ? ev.target : null
+      const summary = target?.closest?.('summary[data-fw-toolreq-summary="1"]')
+      if (!(summary instanceof HTMLElement)) return
+      const details = summary.closest('details.fw-toolreq')
+      if (!(details instanceof HTMLElement)) return
+      const body = details.querySelector?.('[data-fw-toolreq-body="1"]')
+      if (!(body instanceof HTMLElement)) return
+      ev.preventDefault()
+      toggle(details, body)
     })
   }
 
@@ -761,9 +839,11 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
         const detailText = String(it.detailText || '')
 
         return (
-          `<details class="fw-toolreq" style="margin:10px 0; border:1px solid rgba(245,158,11,.25); background:rgba(245,158,11,.05); border-radius:12px; padding:8px 10px;">` +
-          `<summary style="cursor:pointer; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; white-space:pre-line;">${summary}</summary>` +
+          `<details class="fw-toolreq" data-fw-toolreq="1" style="margin:10px 0; border:1px solid rgba(245,158,11,.25); background:rgba(245,158,11,.05); border-radius:12px; padding:8px 10px;">` +
+          `<summary data-fw-toolreq-summary="1" style="cursor:pointer; user-select:none; -webkit-user-select:none; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; white-space:pre-line; outline:none;">${summary}</summary>` +
+          `<div data-fw-toolreq-body="1" style="overflow:hidden; max-height:0px; opacity:0; transform:translateY(-2px); transition:max-height 240ms ease, opacity 180ms ease, transform 240ms ease; will-change:max-height,opacity,transform;">` +
           `<pre style="margin:10px 0 0 0; padding:8px 10px; background:rgba(255,255,255,.7); border:1px solid rgba(245,158,11,.18); border-radius:10px; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px;">${esc(detailText)}</pre>` +
+          `</div>` +
           `</details>`
         )
       })
@@ -788,6 +868,7 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
     enhanceCodeBlocks(el)
     ensureMermaidErrorCopyHandlerOnce(el)
     ensureMermaidErrorAiFixHandlerOnce(el)
+    ensureToolRequestToggleHandlerOnce(el)
     markPreviewImages(el)
     hydrateStickerSizes(el)
     hydrateRefImages(el)

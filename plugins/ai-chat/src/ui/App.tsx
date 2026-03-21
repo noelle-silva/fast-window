@@ -1532,14 +1532,31 @@ export function AiChatApp(props: { controller: any }) {
                             variant="outlined"
                             sx={{
                               width: '100%',
-                              maxWidth: 980,
+                              maxWidth: '100%',
                               px: 1.25,
                               py: 1.1,
                               bgcolor: 'rgba(2, 132, 199, .05)',
                               borderColor: 'rgba(2, 132, 199, .20)',
                             }}
                           >
-                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
+                            <Stack
+                              direction="row"
+                              alignItems="center"
+                              spacing={1}
+                              role="button"
+                              tabIndex={0}
+                              aria-label={isToolExpanded ? '收起工具返回' : '展开工具返回'}
+                              aria-expanded={isToolExpanded}
+                              onClick={() => toggleExpandedToolMsg(mid)}
+                              onKeyDown={(e) => {
+                                const k = String((e as any)?.key || '')
+                                if (k === 'Enter' || k === ' ') {
+                                  e.preventDefault()
+                                  toggleExpandedToolMsg(mid)
+                                }
+                              }}
+                              sx={{ mb: 0.5, cursor: 'pointer', userSelect: 'none' }}
+                            >
                               <StorageIcon sx={{ fontSize: 18, color: 'rgba(2, 132, 199, .85)' }} />
                               <Typography variant="body2" sx={{ fontWeight: 900 }}>
                                 工具返回
@@ -1550,22 +1567,12 @@ export function AiChatApp(props: { controller: any }) {
                                 </Typography>
                               ) : null}
                               <Box sx={{ flex: 1 }} />
-                              <Button
-                                size="small"
-                                variant="text"
-                                onClick={() => toggleExpandedToolMsg(mid)}
-                                startIcon={isToolExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                                aria-label={isToolExpanded ? '收起工具返回' : '展开工具返回'}
-                                aria-expanded={isToolExpanded}
-                                sx={{ minWidth: 0, px: 0.75, borderRadius: 2 }}
-                              >
-                                {isToolExpanded ? '收起' : '展开'}
-                              </Button>
                               <Tooltip title="复制">
                                 <IconButton
                                   aria-label="复制工具返回"
                                   size="small"
-                                  onClick={() => {
+                                  onClick={(e) => {
+                                    e.stopPropagation()
                                     controller.api?.clipboard?.writeText?.(content).then(
                                       () => controller.api?.ui?.showToast?.('已复制'),
                                       () => controller.api?.ui?.showToast?.('复制失败'),
@@ -1575,6 +1582,9 @@ export function AiChatApp(props: { controller: any }) {
                                   <ContentCopyIcon fontSize="inherit" />
                                 </IconButton>
                               </Tooltip>
+                              <Box sx={{ display: 'flex', alignItems: 'center', color: 'text.secondary' }}>
+                                {isToolExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                              </Box>
                               <Typography variant="caption" color="text.secondary">
                                 {time}
                               </Typography>
