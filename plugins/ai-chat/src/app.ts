@@ -2,7 +2,13 @@
 import { now, uid, esc, trimSlash, isHttpBaseUrl, clampTemp, normImagePaths, clamp } from './core/utils'
 import { extractOpenAiDelta, sseFeed } from './core/sse'
 import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefault'
-import { createToolRequestStreamTruncator, executeToolCallsOnServer, mapParsedCallsToServerCalls, parseToolRequestCalls } from '../sdk/src'
+import {
+  createToolRequestStreamTruncator,
+  executeToolCallsOnServer,
+  formatToolResponseBlock,
+  mapParsedCallsToServerCalls,
+  parseToolRequestCalls,
+} from '../sdk/src'
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
 import mammoth from 'mammoth/mammoth.browser'
@@ -2285,6 +2291,55 @@ import mammoth from 'mammoth/mammoth.browser'
     } catch (_) {}
   }
 
+  async function insertMessagesAfterMessageId(job, afterMid, items) {
+    const roleId = String(job?.roleId || '')
+    const chatId = String(job?.chatId || '')
+    const mid = String(afterMid || '').trim()
+    if (!roleId || !chatId || !mid) return { ok: false as const, insertedAssistant: false as const }
+
+    const list = Array.isArray(items) ? items.filter((x) => x && typeof x === 'object') : []
+    if (!list.length) return { ok: false as const, insertedAssistant: false as const }
+
+    const meta = await loadSplitMeta()
+    if (!meta) return { ok: false as const, insertedAssistant: false as const }
+
+    const folder = String(meta.roleFolders?.[roleId] || '')
+    if (!folder) return { ok: false as const, insertedAssistant: false as const }
+    const key = splitChatKey(folder, chatId)
+    const raw = await api.storage.get(key)
+    const chat = raw && typeof raw === 'object' ? raw : null
+    if (!chat) return { ok: false as const, insertedAssistant: false as const }
+
+    const msgs = Array.isArray(chat.messages) ? chat.messages : []
+    const idx = msgs.findIndex((x) => String(x?.id || '') === mid)
+    if (idx < 0) return { ok: false as const, insertedAssistant: false as const }
+
+    // Avoid starting a second pending assistant in the same chat.
+    const hasPendingAssistant = msgs.some((m) => m && m.role === 'assistant' && !!m.pending)
+    const toInsert = hasPendingAssistant ? list.filter((m) => String(m?.role || '') !== 'assistant') : list
+    if (!toInsert.length) return { ok: false as const, insertedAssistant: false as const }
+
+    const next = msgs.slice()
+    next.splice(idx + 1, 0, ...toInsert)
+    chat.messages = next
+    chat.updatedAt = now()
+
+    await api.storage.set(key, chat)
+
+    try {
+      const idx2 = meta.chatIndexByRole?.[roleId]
+      if (idx2 && typeof idx2 === 'object') {
+        if (!idx2.chatUpdatedAt || typeof idx2.chatUpdatedAt !== 'object') idx2.chatUpdatedAt = {}
+        idx2.chatUpdatedAt[String(chatId)] = Number(chat.updatedAt || 0)
+        meta.updatedAt = now()
+        await api.storage.set(SPLIT_META_KEY, meta)
+        splitMetaCache = meta
+      }
+    } catch (_) {}
+
+    return { ok: true as const, insertedAssistant: !hasPendingAssistant && toInsert.some((m) => String(m?.role || '') === 'assistant') }
+  }
+
   async function backgroundMain() {
     const runningJobs = new Map()
     let ticking = false
@@ -2475,7 +2530,8 @@ import mammoth from 'mammoth/mammoth.browser'
     const tcs = d.settings.toolCallServer && typeof d.settings.toolCallServer === 'object' ? d.settings.toolCallServer : {}
     const baseUrl = trimSlash(String((tcs as any).baseUrl || '').trim())
     const token = String((tcs as any).token || '').trim()
-    return { baseUrl, token }
+    const streamEnabled = !!d.settings.streamEnabled
+    return { baseUrl, token, streamEnabled }
   }
 
   async function runBackgroundJob(job) {
@@ -2643,20 +2699,62 @@ import mammoth from 'mammoth/mammoth.browser'
         await flush(true)
         await patchAssistantMessage(job, out)
 
-        // Fire-and-forget: send tool calls to tool server, but never block this round's completion.
+        // Fire-and-forget: execute tools, inject TOOL_RESPONSE (role:user), then enqueue next AI round.
         ;(async () => {
           const parsed = parseToolRequestCalls(out)
           if (!parsed.ok) return
 
-          const { baseUrl, token } = await loadToolCallServerConfigFromStorage()
+          const { baseUrl, token, streamEnabled } = await loadToolCallServerConfigFromStorage()
           if (!baseUrl || !isHttpBaseUrl(baseUrl)) return
 
           const calls = mapParsedCallsToServerCalls(parsed.calls)
-          await executeToolCallsOnServer({
-            request: (x) => api.net.request(x as any) as any,
-            server: { baseUrl, token },
-            body: { timeout_ms: 30000, calls },
-          })
+          let results = []
+          try {
+            const resp = await executeToolCallsOnServer({
+              request: (x) => api.net.request(x as any) as any,
+              server: { baseUrl, token },
+              body: { timeout_ms: 30000, calls },
+            })
+            const box = (resp as any)?.json
+            results = Array.isArray(box?.results) ? box.results : []
+          } catch (e) {
+            const msg = String(e?.message || e || 'tool server request failed')
+            results = calls.map((c) => ({ tool_name: c.tool_name, status: 'failed', error: msg }))
+          }
+
+          const toolResponseText = formatToolResponseBlock(results as any)
+          const toolMid = uid('m')
+          const assistantMid2 = uid('m')
+
+          const inserted = await insertMessagesAfterMessageId(job, String(job?.assistantMid || ''), [
+            { id: toolMid, role: 'user', content: toolResponseText, createdAt: now() },
+            {
+              id: assistantMid2,
+              role: 'assistant',
+              content: '（生成中…）',
+              pending: true,
+              streaming: !!streamEnabled,
+              createdAt: now(),
+            },
+          ])
+
+          if (!inserted.ok || !inserted.insertedAssistant) return
+
+          const jobId2 = uid('job')
+          const job2 = {
+            id: jobId2,
+            kind: 'openai.chat.completions',
+            status: 'queued',
+            createdAt: now(),
+            roleId: String(job.roleId || ''),
+            chatId: String(job.chatId || ''),
+            assistantMid: assistantMid2,
+            cutoffMid: assistantMid2,
+            stream: !!streamEnabled,
+          }
+
+          await api.storage.set(jobKey(jobId2), job2)
+          await enqueueJob(jobId2)
         })().catch(() => {})
 
         return
@@ -3266,6 +3364,8 @@ import mammoth from 'mammoth/mammoth.browser'
 
   let uiPollTimer = 0
   let uiLastSyncMs = 0
+  let uiLastMetaCheckMs = 0
+  let uiLastMetaUpdatedAt = 0
   const uiStreamCache = new Map()
 
   function reapplyUiStreamCache(chatOverride) {
@@ -3309,6 +3409,7 @@ import mammoth from 'mammoth/mammoth.browser'
     const split = await loadSplitData()
     if (!split) return
     state.data = split
+    uiLastMetaUpdatedAt = Math.max(uiLastMetaUpdatedAt, Number(splitMetaCache?.updatedAt || 0))
     if (keepActive) state.draft.activeRoleId = keepActive
     else state.draft.activeRoleId = String(state.data?.ui?.activeRoleId || '')
     state.draft.input = keepInput
@@ -3355,6 +3456,26 @@ import mammoth from 'mammoth/mammoth.browser'
     }
 
     uiStreamCache.clear()
+
+    // No pending assistant: still poll meta/index.updatedAt and sync when background wrote new messages
+    // (e.g. TOOL_RESPONSE injection + next assistant job), otherwise UI would only update after manual refresh.
+    const t2 = now()
+    if (t2 - uiLastMetaCheckMs > 900) {
+      uiLastMetaCheckMs = t2
+      if (!state.sending && !state.pendingChat) {
+        try {
+          const meta = await loadSplitMeta()
+          const updatedAt = Number(meta?.updatedAt || 0)
+          if (updatedAt && updatedAt !== uiLastMetaUpdatedAt) {
+            uiLastMetaUpdatedAt = updatedAt
+            await syncDataFromStorage()
+            chat = activeChatFromData()
+            reapplyUiStreamCache(chat)
+            emit()
+          }
+        } catch (_) {}
+      }
+    }
 
     if (state.sending) {
       state.sending = false

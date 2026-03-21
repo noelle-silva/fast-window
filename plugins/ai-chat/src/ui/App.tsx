@@ -5,6 +5,7 @@ import {
   Box,
   Button,
   Chip,
+  Collapse,
   CssBaseline,
   Dialog,
   DialogActions,
@@ -54,6 +55,8 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 
 function useAiChatState(controller: any) {
   React.useSyncExternalStore(
@@ -588,9 +591,11 @@ export function AiChatApp(props: { controller: any }) {
   const [settingsTab, setSettingsTab] = React.useState<'appearance' | 'attachments' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers'>('roles')
 
   const [expandedUserMsgIds, setExpandedUserMsgIds] = React.useState(() => new Set<string>())
+  const [expandedToolMsgIds, setExpandedToolMsgIds] = React.useState(() => new Set<string>())
 
   React.useEffect(() => {
     setExpandedUserMsgIds(() => new Set())
+    setExpandedToolMsgIds(() => new Set())
   }, [String(activeChat?.id || '')])
 
   React.useEffect(() => {
@@ -601,6 +606,17 @@ export function AiChatApp(props: { controller: any }) {
     const id = String(mid || '')
     if (!id) return
     setExpandedUserMsgIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  })
+
+  const toggleExpandedToolMsg = useEvent((mid: string) => {
+    const id = String(mid || '')
+    if (!id) return
+    setExpandedToolMsgIds((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
@@ -1489,18 +1505,115 @@ export function AiChatApp(props: { controller: any }) {
               ) : (
                 <Stack spacing={1.25}>
                   {renderMessages.map((m: any) => {
-                    const isUser = m?.role === 'user'
+                    const content = String(m?.content || '')
+                    const isToolResponse = content.startsWith('<<<[TOOL_RESPONSE]>>>')
+                    const mid = String(m?.id || '')
+                    const isToolExpanded = !!mid && expandedToolMsgIds.has(mid)
+
+                    if (isToolResponse) {
+                      const resultTags = content.match(/<<\[RESULT-\d+\]>>/g) || []
+                      const count = resultTags.length
+                      const names = Array.from(content.matchAll(/tool_name:「start」([\s\S]*?)「end」/g))
+                        .map((x) => String(x?.[1] || '').trim())
+                        .filter(Boolean)
+                      const statuses = Array.from(content.matchAll(/status:「start」([\s\S]*?)「end」/g))
+                        .map((x) => String(x?.[1] || '').trim())
+                        .filter(Boolean)
+                      const pairs = names.slice(0, 3).map((n, i) => {
+                        const st = statuses[i] || ''
+                        return st ? `${n}（${st}）` : n
+                      })
+                      const summary = count ? `${count}项：${pairs.join('，')}${count > 3 ? '…' : ''}` : pairs.length ? pairs.join('，') : '工具结果'
+                      const time = controller.fmtTime(Number(m?.createdAt || 0))
+
+                      return (
+                        <Stack key={mid} direction="row" justifyContent="flex-start">
+                          <Paper
+                            variant="outlined"
+                            sx={{
+                              width: '100%',
+                              maxWidth: 980,
+                              px: 1.25,
+                              py: 1.1,
+                              bgcolor: 'rgba(2, 132, 199, .05)',
+                              borderColor: 'rgba(2, 132, 199, .20)',
+                            }}
+                          >
+                            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.5 }}>
+                              <StorageIcon sx={{ fontSize: 18, color: 'rgba(2, 132, 199, .85)' }} />
+                              <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                                工具返回
+                              </Typography>
+                              {summary ? (
+                                <Typography variant="caption" color="text.secondary" sx={{ minWidth: 0 }} noWrap>
+                                  {summary}
+                                </Typography>
+                              ) : null}
+                              <Box sx={{ flex: 1 }} />
+                              <Button
+                                size="small"
+                                variant="text"
+                                onClick={() => toggleExpandedToolMsg(mid)}
+                                startIcon={isToolExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                                aria-label={isToolExpanded ? '收起工具返回' : '展开工具返回'}
+                                aria-expanded={isToolExpanded}
+                                sx={{ minWidth: 0, px: 0.75, borderRadius: 2 }}
+                              >
+                                {isToolExpanded ? '收起' : '展开'}
+                              </Button>
+                              <Tooltip title="复制">
+                                <IconButton
+                                  aria-label="复制工具返回"
+                                  size="small"
+                                  onClick={() => {
+                                    controller.api?.clipboard?.writeText?.(content).then(
+                                      () => controller.api?.ui?.showToast?.('已复制'),
+                                      () => controller.api?.ui?.showToast?.('复制失败'),
+                                    )
+                                  }}
+                                >
+                                  <ContentCopyIcon fontSize="inherit" />
+                                </IconButton>
+                              </Tooltip>
+                              <Typography variant="caption" color="text.secondary">
+                                {time}
+                              </Typography>
+                            </Stack>
+
+                            <Collapse in={isToolExpanded} timeout={160} unmountOnExit>
+                              <Box
+                                sx={{
+                                  mt: 0.75,
+                                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                                  fontSize: 12,
+                                  whiteSpace: 'pre-wrap',
+                                  overflowWrap: 'anywhere',
+                                  wordBreak: 'break-word',
+                                  bgcolor: 'rgba(255,255,255,.7)',
+                                  border: '1px solid rgba(2, 132, 199, .18)',
+                                  borderRadius: 2,
+                                  px: 1,
+                                  py: 0.75,
+                                }}
+                              >
+                                {content}
+                              </Box>
+                            </Collapse>
+                          </Paper>
+                        </Stack>
+                      )
+                    }
+
+                    const displayRole: 'user' | 'assistant' = m?.role === 'user' ? 'user' : 'assistant'
+                    const isUser = displayRole === 'user'
                     const roleName = String(activeRole?.name || 'AI')
                     const roleAvatarEmoji = String(activeRole?.avatar || '🤖')
                     const roleAvatarImage = String(activeRole?.avatarImage || '')
                     const time = controller.fmtTime(Number(m?.createdAt || 0))
                     const imgPaths = isUser ? (Array.isArray(m?.images) ? m.images : []) : []
                     const attMsgs = isUser ? (groupedAttMsgsByRootMid.get(String(m?.id || '').trim()) || []) : []
-                    const mid = String(m?.id || '')
                     const isEditing = editingMsg.mid === mid
                     const canEdit = !isEditing && !m?.pending && !s.loading && !uiBusy && !chatLocked && !!mid
-
-                    const content = String(m?.content || '')
                     const contentLines = userMessageCollapseEnabled && isUser ? content.split(/\r?\n/) : []
                     const canCollapse = userMessageCollapseEnabled && isUser && !isEditing && contentLines.length > userMessageCollapseLines
                     const isExpanded = !canCollapse || expandedUserMsgIds.has(mid)
