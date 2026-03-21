@@ -3091,6 +3091,84 @@ function PluginSettingsPage(props: {
   tab: 'appearance' | 'attachments' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers'
 }) {
   const { controller, loading, data, roles, providers, models, draft, activeRoleId, tab } = props
+  const [toolServerTest, setToolServerTest] = React.useState(() => ({ loading: false, ok: null as null | boolean, msg: '', detail: '' }))
+
+  const runToolServerTest = useEvent(async (baseUrlRaw: string, tokenRaw: string) => {
+    const api = controller?.api
+    const toast = (s: string) => api?.ui?.showToast?.(s)
+
+    const base = String(baseUrlRaw || '').trim().replace(/\/+$/g, '')
+    const token = String(tokenRaw || '').trim()
+
+    if (!base) {
+      setToolServerTest({ loading: false, ok: false, msg: 'Base URL 为空', detail: '' })
+      toast('请先填写 Base URL')
+      return
+    }
+    if (!/^https?:\/\//i.test(base)) {
+      setToolServerTest({ loading: false, ok: false, msg: 'Base URL 无效（需 http/https）', detail: base })
+      toast('Base URL 无效（需 http/https）')
+      return
+    }
+    if (typeof api?.net?.request !== 'function') {
+      setToolServerTest({ loading: false, ok: false, msg: '未授权：net.request', detail: '' })
+      toast('未授权：net.request')
+      return
+    }
+
+    setToolServerTest({ loading: true, ok: null, msg: '测试中…', detail: '' })
+
+    try {
+      const r1 = await api.net.request({ method: 'GET', url: `${base}/health`, timeoutMs: 8000 })
+      const s1 = Number(r1?.status || 0)
+      const b1 = String(r1?.body || '')
+      let j1: any = null
+      try {
+        j1 = JSON.parse(b1 || '{}')
+      } catch (_) {}
+      const healthOk = s1 >= 200 && s1 < 300 && String(j1?.status || '').trim().toLowerCase() === 'ok'
+      if (!healthOk) {
+        const msg = s1 ? `健康检查失败（HTTP ${s1}）` : '健康检查失败'
+        setToolServerTest({ loading: false, ok: false, msg, detail: b1 || '' })
+        toast(msg)
+        return
+      }
+
+      // 可选：如果用户填了 token，则顺便测一下鉴权接口是否通过（空 calls 不会执行任何工具）。
+      if (token) {
+        const r2 = await api.net.request({
+          method: 'POST',
+          url: `${base}/internal/tool-call/execute`,
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ timeout_ms: 1, calls: [] }),
+          timeoutMs: 8000,
+        })
+        const s2 = Number(r2?.status || 0)
+        const b2 = String(r2?.body || '')
+        if (s2 < 200 || s2 >= 300) {
+          const msg = `连通 OK，但鉴权失败（HTTP ${s2}）`
+          setToolServerTest({ loading: false, ok: false, msg, detail: b2 || '' })
+          toast(msg)
+          return
+        }
+
+        setToolServerTest({ loading: false, ok: true, msg: '连通 OK，鉴权 OK', detail: '' })
+        toast('工具服务器连接正常')
+        return
+      }
+
+      setToolServerTest({ loading: false, ok: true, msg: '连通 OK', detail: '' })
+      toast('工具服务器连接正常')
+    } catch (e: any) {
+      const msg = String(e?.message || e || '测试失败')
+      setToolServerTest({ loading: false, ok: false, msg: '测试失败', detail: msg })
+      toast(msg || '测试失败')
+    }
+  })
+
+  React.useEffect(() => {
+    setToolServerTest({ loading: false, ok: null, msg: '', detail: '' })
+  }, [String((data?.settings?.toolCallServer as any)?.baseUrl || ''), String((data?.settings?.toolCallServer as any)?.token || '')])
 
   if (!data) {
     return (
@@ -3454,6 +3532,33 @@ function PluginSettingsPage(props: {
                 disabled={loading}
               />
               <SecretField label="鉴权 Key" value={token} onValueChange={(next) => controller.actions.setToolCallServerToken?.(next)} />
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                <Button size="small" variant="outlined" onClick={() => runToolServerTest(baseUrl, token)} disabled={loading || toolServerTest.loading}>
+                  {toolServerTest.loading ? '测试中…' : '测试连接'}
+                </Button>
+                {toolServerTest.ok === true ? <Chip size="small" color="success" label="连接正常" /> : null}
+                {toolServerTest.ok === false ? <Chip size="small" color="error" label="连接失败" /> : null}
+                {toolServerTest.ok === null ? <Chip size="small" variant="outlined" label="未测试" /> : null}
+                {toolServerTest.msg ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ minWidth: 0 }} noWrap>
+                    {toolServerTest.msg}
+                  </Typography>
+                ) : null}
+              </Stack>
+              {toolServerTest.detail ? (
+                <Typography
+                  variant="caption"
+                  sx={{
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                    whiteSpace: 'pre-wrap',
+                    overflowWrap: 'anywhere',
+                    wordBreak: 'break-word',
+                    color: 'text.secondary',
+                  }}
+                >
+                  {toolServerTest.detail}
+                </Typography>
+              ) : null}
               <Typography variant="caption" color="text.secondary">
                 用于执行 AI 工具调用（ai-tool-call-server）。鉴权 Key 会保存在插件数据中。
               </Typography>
