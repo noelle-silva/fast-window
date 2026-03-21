@@ -8,7 +8,7 @@ import {
   formatToolResponseBlock,
   mapParsedCallsToServerCalls,
   parseToolRequestCalls,
-} from '../sdk/src'
+} from '@noelle-silva/eucli-aitoolcall-sdk'
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
 import mammoth from 'mammoth/mammoth.browser'

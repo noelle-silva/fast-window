@@ -1,6 +1,6 @@
 import { uid, esc } from '../core/utils'
 import './vendor'
-import { parseToolRequestCalls } from '../../sdk/src'
+import { parseToolRequestCalls } from '@noelle-silva/eucli-aitoolcall-sdk'
 
 export type AssistantRenderEngine = {
   ensureRenderer: () => Promise<void>
