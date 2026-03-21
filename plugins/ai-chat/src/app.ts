@@ -2,6 +2,7 @@
 import { now, uid, esc, trimSlash, isHttpBaseUrl, clampTemp, normImagePaths, clamp } from './core/utils'
 import { extractOpenAiDelta, sseFeed } from './core/sse'
 import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefault'
+import { createToolRequestStreamTruncator } from '../sdk/src'
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
 import mammoth from 'mammoth/mammoth.browser'
@@ -2476,6 +2477,8 @@ import mammoth from 'mammoth/mammoth.browser'
     let lastFlush = 0
     let canceled = false
     let lastCancelCheck = 0
+    let toolRequestCompleted = false
+    const toolTruncator = createToolRequestStreamTruncator('')
 
     const checkCanceled = async (force) => {
       if (canceled) return true
@@ -2533,11 +2536,15 @@ import mammoth from 'mammoth/mammoth.browser'
             sseFeed(sse, text, (json) => {
               if (json?.error?.message) throw new Error(String(json.error.message))
               const delta = extractOpenAiDelta(json)
-              if (typeof delta === 'string' && delta) out += delta
+              if (typeof delta === 'string' && delta) {
+                const r = toolTruncator.appendDelta(delta)
+                out = r.text
+                toolRequestCompleted = r.toolRequestCompleted
+              }
             })
 
             await flush(false)
-            if (sse.done) break
+            if (toolRequestCompleted || sse.done) break
             continue
           }
           if (t === 'error') throw new Error(String(ev?.message || '请求失败'))
@@ -2586,7 +2593,11 @@ import mammoth from 'mammoth/mammoth.browser'
           sseFeed(sse, bodyText, (json) => {
             if (json?.error?.message) throw new Error(String(json.error.message))
             const delta = extractOpenAiDelta(json)
-            if (typeof delta === 'string' && delta) out += delta
+            if (typeof delta === 'string' && delta) {
+              const r2 = toolTruncator.appendDelta(delta)
+              out = r2.text
+              toolRequestCompleted = r2.toolRequestCompleted
+            }
           })
         } else {
           const json = JSON.parse(bodyText || '{}')
