@@ -2562,7 +2562,10 @@ import mammoth from 'mammoth/mammoth.browser'
               }
             })
 
-            await flush(false)
+            // If we just completed a TOOL_REQUEST block, force-flush immediately.
+            // Otherwise the final marker can get stuck behind the flush throttle while we execute tools.
+            if (toolRequestCompleted) await flush(true)
+            else await flush(false)
             if (toolRequestCompleted || sse.done) break
             continue
           }
@@ -2636,24 +2639,27 @@ import mammoth from 'mammoth/mammoth.browser'
       }
 
       if (toolRequestCompleted) {
-        const parsed = parseToolRequestCalls(out)
-        if (!parsed.ok) throw new Error(parsed.error || 'TOOL_REQUEST 解析失败')
+        // 本轮 AI 回复在 TOOL_REQUEST 块闭合时就应结束；不要等待工具执行。
+        await flush(true)
+        await patchAssistantMessage(job, out)
 
-        const { baseUrl, token } = await loadToolCallServerConfigFromStorage()
-        if (!baseUrl || !isHttpBaseUrl(baseUrl)) throw new Error('工具服务器 Base URL 无效（需 http/https）')
+        // Fire-and-forget: send tool calls to tool server, but never block this round's completion.
+        ;(async () => {
+          const parsed = parseToolRequestCalls(out)
+          if (!parsed.ok) return
 
-        const calls = mapParsedCallsToServerCalls(parsed.calls)
-        try {
+          const { baseUrl, token } = await loadToolCallServerConfigFromStorage()
+          if (!baseUrl || !isHttpBaseUrl(baseUrl)) return
+
+          const calls = mapParsedCallsToServerCalls(parsed.calls)
           await executeToolCallsOnServer({
             request: (x) => api.net.request(x as any) as any,
             server: { baseUrl, token },
             body: { timeout_ms: 30000, calls },
           })
-        } catch (e) {
-          const msg = String(e?.message || e || 'unknown')
-          out = `${out}\n\n（工具服务器调用失败：${msg}）`
-          throw e
-        }
+        })().catch(() => {})
+
+        return
       }
 
       await flush(true)
