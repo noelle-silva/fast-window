@@ -2148,6 +2148,7 @@ export function AiChatApp(props: { controller: any }) {
                  left: 16,
                  right: 16,
                  bottom: 16,
+                zIndex: 1299,
                 p: 1.5,
                 borderRadius: 18,
                 bgcolor: `rgba(255,255,255,${composerOpacity / 100})`,
