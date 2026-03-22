@@ -2694,37 +2694,73 @@ import mammoth from 'mammoth/mammoth.browser'
         }
       }
 
-      if (toolRequestCompleted) {
-        // 本轮 AI 回复在 TOOL_REQUEST 块闭合时就应结束；不要等待工具执行。
-        await flush(true)
-        await patchAssistantMessage(job, out)
+        if (toolRequestCompleted) {
+          // 本轮 AI 回复在 TOOL_REQUEST 块闭合时就应结束；不要等待工具执行。
+          await flush(true)
+          await patchAssistantMessage(job, out)
 
-        // Fire-and-forget: execute tools, inject TOOL_RESPONSE (role:user), then enqueue next AI round.
-        ;(async () => {
-          const parsed = parseToolRequestCalls(out)
-          if (!parsed.ok) return
+          // Fire-and-forget: execute tools, inject TOOL_RESPONSE (role:user), then enqueue next AI round.
+          ;(async () => {
+            const buildFailureResults = (calls, msg, status) => {
+              const items = Array.isArray(calls) ? calls : []
+              const error = String(msg || 'tool call failed')
+              const s = String(status || 'failed') || 'failed'
+              if (!items.length) return [{ tool_name: '', status: s, error }]
+              return items.map((c) => ({ tool_name: String(c?.tool_name || ''), status: s, error }))
+            }
 
-          const { baseUrl, token, streamEnabled } = await loadToolCallServerConfigFromStorage()
-          if (!baseUrl || !isHttpBaseUrl(baseUrl)) return
+            let streamEnabled = !!job?.stream
+            let calls = []
+            let results = []
 
-          const calls = mapParsedCallsToServerCalls(parsed.calls)
-          let results = []
-          try {
-            const resp = await executeToolCallsOnServer({
-              request: (x) => api.net.request(x as any) as any,
-              server: { baseUrl, token },
-              body: { timeout_ms: 30000, calls },
-            })
-            const box = (resp as any)?.json
-            results = Array.isArray(box?.results) ? box.results : []
-          } catch (e) {
-            const msg = String(e?.message || e || 'tool server request failed')
-            results = calls.map((c) => ({ tool_name: c.tool_name, status: 'failed', error: msg }))
-          }
+            try {
+              const parsed = parseToolRequestCalls(out)
+              calls = mapParsedCallsToServerCalls(parsed.calls)
 
-          const toolResponseText = formatToolResponseBlock(results as any)
-          const toolMid = uid('m')
-          const assistantMid2 = uid('m')
+              if (!parsed.ok) {
+                results = buildFailureResults(calls, `解析 TOOL_REQUEST 失败：${String(parsed.error || 'unknown')}`, 'failed')
+              } else {
+                let baseUrl = ''
+                let token = ''
+                try {
+                  const cfg = await loadToolCallServerConfigFromStorage()
+                  baseUrl = cfg.baseUrl
+                  token = cfg.token
+                  streamEnabled = !!cfg.streamEnabled
+                } catch (e) {
+                  results = buildFailureResults(calls, `读取工具服务配置失败：${String(e?.message || e || 'unknown')}`, 'failed')
+                }
+
+                if (!results.length) {
+                  if (!baseUrl || !isHttpBaseUrl(baseUrl)) {
+                    results = buildFailureResults(calls, '工具服务未配置或 Base URL 无效（需 http/https）', 'failed')
+                  } else {
+                    try {
+                      const resp = await executeToolCallsOnServer({
+                        request: (x) => api.net.request(x as any) as any,
+                        server: { baseUrl, token },
+                        body: { timeout_ms: 30000, calls },
+                      })
+                      const box = (resp as any)?.json
+                      results = Array.isArray(box?.results) ? box.results : []
+                    } catch (e) {
+                      const msg = String(e?.message || e || 'tool server request failed')
+                      results = buildFailureResults(calls, msg, 'failed')
+                    }
+                  }
+                }
+              }
+            } catch (e) {
+              results = buildFailureResults(calls, `工具链异常：${String(e?.message || e || 'unknown')}`, 'failed')
+            }
+
+            if (!Array.isArray(results) || !results.length) {
+              results = buildFailureResults(calls, '工具调用失败（未知原因）', 'failed')
+            }
+
+            const toolResponseText = formatToolResponseBlock(results as any)
+            const toolMid = uid('m')
+            const assistantMid2 = uid('m')
 
           const inserted = await insertMessagesAfterMessageId(job, String(job?.assistantMid || ''), [
             { id: toolMid, role: 'user', content: toolResponseText, createdAt: now() },
