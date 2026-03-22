@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
-    "@noelle-silva/eucli-aitoolcall-sdk": "^0.1.5",
+    "@noelle-silva/eucli-aitoolcall-sdk": "file:../../../eucli-aitoolcall-protocal/eucli-aitoolcall-sdk-ts",
     "dompurify": "^3.0.11",
     "katex": "^0.16.11",
     "mammoth": "^1.10.0",

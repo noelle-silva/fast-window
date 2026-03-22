@@ -61,8 +61,8 @@ importers:
   plugins/ai-chat:
     dependencies:
       '@noelle-silva/eucli-aitoolcall-sdk':
-        specifier: ^0.1.5
-        version: 0.1.5
+        specifier: file:../../../eucli-aitoolcall-protocal/eucli-aitoolcall-sdk-ts
+        version: file:../eucli-aitoolcall-protocal/eucli-aitoolcall-sdk-ts
       dompurify:
         specifier: ^3.0.11
         version: 3.3.1
@@ -699,8 +699,8 @@ packages:
     resolution: {integrity: sha512-6NNmNxvoJKeucVjxaaRUt3La2i5jShgiAbaY3G/72s1Vp3U06XPrAIxkAjBxpDcamEn/t+WJ4OOlGmvILo4/Ew==}
     engines: {node: '>= 10'}
 
-  '@noelle-silva/eucli-aitoolcall-sdk@0.1.5':
-    resolution: {integrity: sha512-Dr5vxT+e+mxUy5KWcQ12YjfrE5BzdVAVow2As8ka/5UvXasMOr+OYOx4MtcUJt+LRgos7PKX0tfCN6/h4GbRfg==, tarball: https://npm.pkg.github.com/download/@noelle-silva/eucli-aitoolcall-sdk/0.1.5/d0791d1cab4387dc56bc6eaa0b338b7241d632d0}
+  '@noelle-silva/eucli-aitoolcall-sdk@file:../eucli-aitoolcall-protocal/eucli-aitoolcall-sdk-ts':
+    resolution: {directory: ../eucli-aitoolcall-protocal/eucli-aitoolcall-sdk-ts, type: directory}
 
   '@popperjs/core@2.11.8':
     resolution: {integrity: sha512-P1st0aksCrn9sGZhp8GMYwBnQsbvAWsZAX44oXNNvLHGqAOcoVxmjZiohstwQ7SqKnbR47akdNi+uleWD8+g6A==}
@@ -2180,7 +2180,7 @@ snapshots:
       '@napi-rs/canvas-win32-x64-msvc': 0.1.96
     optional: true
 
-  '@noelle-silva/eucli-aitoolcall-sdk@0.1.5': {}
+  '@noelle-silva/eucli-aitoolcall-sdk@file:../eucli-aitoolcall-protocal/eucli-aitoolcall-sdk-ts': {}
 
   '@popperjs/core@2.11.8': {}
 
