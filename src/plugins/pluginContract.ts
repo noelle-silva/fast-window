@@ -18,6 +18,13 @@ export type PluginCapability =
   | 'files.pickDir'
   | 'files.openOutputDir'
   | 'files.openDir'
+  | 'files.listDir'
+  | 'files.readText'
+  | 'files.writeText'
+  | 'files.readBase64'
+  | 'files.writeBase64'
+  | 'files.rename'
+  | 'files.delete'
   | 'files.images.writeBase64'
   | 'files.images.read'
   | 'files.images.list'
@@ -65,6 +72,13 @@ export const ALL_PLUGIN_CAPABILITIES: readonly PluginCapability[] = [
   'files.pickDir',
   'files.openOutputDir',
   'files.openDir',
+  'files.listDir',
+  'files.readText',
+  'files.writeText',
+  'files.readBase64',
+  'files.writeBase64',
+  'files.rename',
+  'files.delete',
   'files.images.writeBase64',
   'files.images.read',
   'files.images.list',

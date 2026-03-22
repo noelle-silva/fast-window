@@ -2640,6 +2640,413 @@ fn plugin_open_dir(_app: tauri::AppHandle, plugin_id: String, dir: String) -> Re
     open_dir_in_file_manager(&p)
 }
 
+fn resolve_plugin_files_root(
+    app: &tauri::AppHandle,
+    plugin_id: &str,
+    scope: &str,
+) -> Result<PathBuf, String> {
+    match scope {
+        // 插件私有数据：data/<pluginId>/files
+        "data" => Ok(app_data_dir(app).join(plugin_id).join("files")),
+        // 用户输出目录：可配置（默认 data/<pluginId>/output-images，历史命名，避免破坏用户空间）
+        "output" => Ok(resolve_plugin_output_dir(app, plugin_id)),
+        _ => Err("scope 不支持（仅支持 data/output）".to_string()),
+    }
+}
+
+fn resolve_existing_file_in_scope(
+    app: &tauri::AppHandle,
+    plugin_id: &str,
+    scope: &str,
+    path: &str,
+) -> Result<(PathBuf, PathBuf), String> {
+    let root = resolve_plugin_files_root(app, plugin_id, scope)?;
+    ensure_writable_dir(&root)?;
+    let root_c = std::fs::canonicalize(&root).map_err(|e| format!("文件根目录不可用: {e}"))?;
+
+    let raw = path.trim();
+    if raw.is_empty() {
+        return Err("path 不能为空".to_string());
+    }
+
+    let input = PathBuf::from(raw);
+    let full = if input.is_absolute() {
+        input
+    } else {
+        let rel = safe_relative_path(raw)?;
+        root.join(rel)
+    };
+    if !full.exists() {
+        return Err("文件不存在".to_string());
+    }
+    let full_c = std::fs::canonicalize(&full).map_err(|e| format!("文件路径无效: {e}"))?;
+    if !full_c.starts_with(&root_c) {
+        return Err("文件路径越界".to_string());
+    }
+    Ok((root_c, full_c))
+}
+
+fn resolve_write_path_in_scope(
+    app: &tauri::AppHandle,
+    plugin_id: &str,
+    scope: &str,
+    rel_path: &str,
+) -> Result<(PathBuf, PathBuf), String> {
+    let root = resolve_plugin_files_root(app, plugin_id, scope)?;
+    ensure_writable_dir(&root)?;
+    let root_c = std::fs::canonicalize(&root).map_err(|e| format!("文件根目录不可用: {e}"))?;
+
+    let rp = rel_path.trim();
+    if rp.is_empty() {
+        return Err("path 不能为空".to_string());
+    }
+    let rel = safe_relative_path(rp)?;
+    let full = root.join(rel);
+
+    let parent = full
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| root.clone());
+    std::fs::create_dir_all(&parent).map_err(|e| format!("创建目录失败: {e}"))?;
+    let parent_c = std::fs::canonicalize(&parent).map_err(|e| format!("目录路径无效: {e}"))?;
+    if !parent_c.starts_with(&root_c) {
+        return Err("文件路径越界".to_string());
+    }
+    Ok((root_c, full))
+}
+
+fn file_mime_by_ext(path: &Path) -> &'static str {
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match ext.as_str() {
+        "html" | "htm" => "text/html",
+        "txt" => "text/plain",
+        "json" => "application/json",
+        "css" => "text/css",
+        "js" => "text/javascript",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "ogg" => "audio/ogg",
+        _ => "application/octet-stream",
+    }
+}
+
+fn decode_base64_payload(data: &str, max_bytes: usize) -> Result<Vec<u8>, String> {
+    let s = data.trim();
+    if s.is_empty() {
+        return Err("数据为空".to_string());
+    }
+
+    let b64 = if s.starts_with("data:") {
+        // data:<mime>;base64,<payload>
+        let Some((_meta, payload)) = s.split_once(',') else {
+            return Err("data URL 格式不合法".to_string());
+        };
+        if !s.contains(";base64,") {
+            return Err("仅支持 base64 data URL".to_string());
+        }
+        payload.trim()
+    } else {
+        s
+    };
+
+    if b64.len() > 120 * 1024 * 1024 {
+        return Err("base64 数据过大".to_string());
+    }
+    let bytes = general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|e| format!("base64 解码失败: {e}"))?;
+    if bytes.len() > max_bytes {
+        return Err("文件过大".to_string());
+    }
+    Ok(bytes)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginFsEntry {
+    name: String,
+    #[serde(rename = "isDirectory")]
+    is_directory: bool,
+    #[serde(rename = "isFile")]
+    is_file: bool,
+    size: u64,
+    modified_ms: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginFilesListDirReq {
+    scope: String,
+    dir: Option<String>,
+}
+
+#[tauri::command]
+fn plugin_files_list_dir(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    req: PluginFilesListDirReq,
+) -> Result<Vec<PluginFsEntry>, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let scope = req.scope.trim().to_string();
+
+    let root = resolve_plugin_files_root(&app, &plugin_id, &scope)?;
+    ensure_writable_dir(&root)?;
+    let root_c = std::fs::canonicalize(&root).map_err(|e| format!("文件根目录不可用: {e}"))?;
+
+    let dir_rel = req.dir.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let dir = if let Some(dr) = dir_rel {
+        let rel = safe_relative_path(&dr)?;
+        let full = root.join(rel);
+        std::fs::create_dir_all(&full).map_err(|e| format!("创建目录失败: {e}"))?;
+        let full_c = std::fs::canonicalize(&full).map_err(|e| format!("目录路径无效: {e}"))?;
+        if !full_c.starts_with(&root_c) {
+            return Err("目录路径越界".to_string());
+        }
+        full_c
+    } else {
+        root_c.clone()
+    };
+
+    let mut out: Vec<PluginFsEntry> = Vec::new();
+    let rd = std::fs::read_dir(&dir).map_err(|e| format!("读取目录失败: {e}"))?;
+    for entry in rd {
+        let entry = entry.map_err(|e| format!("读取目录项失败: {e}"))?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        let meta = entry.metadata().map_err(|e| format!("读取目录项元信息失败: {e}"))?;
+        let modified = meta.modified().unwrap_or(UNIX_EPOCH);
+        let modified_ms = modified
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_else(|_| Duration::from_millis(0))
+            .as_millis() as u64;
+        out.push(PluginFsEntry {
+            name,
+            is_directory: meta.is_dir(),
+            is_file: meta.is_file(),
+            size: meta.len(),
+            modified_ms,
+        });
+    }
+
+    out.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+    Ok(out)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginFilesReadTextReq {
+    scope: String,
+    path: String,
+}
+
+#[tauri::command]
+fn plugin_files_read_text(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    req: PluginFilesReadTextReq,
+) -> Result<String, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let scope = req.scope.trim().to_string();
+    let (_root_c, full_c) = resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
+    if !full_c.is_file() {
+        return Err("文件不存在".to_string());
+    }
+
+    const MAX_TEXT_BYTES: usize = 10 * 1024 * 1024;
+    let bytes = std::fs::read(&full_c).map_err(|e| format!("读取文件失败: {e}"))?;
+    if bytes.len() > MAX_TEXT_BYTES {
+        return Err("文本文件过大".to_string());
+    }
+    String::from_utf8(bytes).map_err(|_| "文本不是 UTF-8 编码".to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginFilesWriteTextReq {
+    scope: String,
+    path: String,
+    text: String,
+    overwrite: Option<bool>,
+}
+
+#[tauri::command]
+fn plugin_files_write_text(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    req: PluginFilesWriteTextReq,
+) -> Result<String, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let scope = req.scope.trim().to_string();
+    let overwrite = req.overwrite.unwrap_or(false);
+    let (_root_c, full) = resolve_write_path_in_scope(&app, &plugin_id, &scope, &req.path)?;
+
+    const MAX_TEXT_BYTES: usize = 10 * 1024 * 1024;
+    if req.text.as_bytes().len() > MAX_TEXT_BYTES {
+        return Err("文本过大".to_string());
+    }
+
+    if full.exists() && !overwrite {
+        return Err("文件已存在（overwrite=false）".to_string());
+    }
+    std::fs::write(&full, req.text.as_bytes()).map_err(|e| format!("写入文件失败: {e}"))?;
+    Ok(full.to_string_lossy().to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginFilesReadBase64Req {
+    scope: String,
+    path: String,
+}
+
+#[tauri::command]
+fn plugin_files_read_base64(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    req: PluginFilesReadBase64Req,
+) -> Result<String, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let scope = req.scope.trim().to_string();
+    let (_root_c, full_c) = resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
+    if !full_c.is_file() {
+        return Err("文件不存在".to_string());
+    }
+
+    const MAX_BYTES: usize = 50 * 1024 * 1024;
+    let bytes = std::fs::read(&full_c).map_err(|e| format!("读取文件失败: {e}"))?;
+    if bytes.len() > MAX_BYTES {
+        return Err("文件过大".to_string());
+    }
+    let mime = file_mime_by_ext(&full_c);
+    let b64 = general_purpose::STANDARD.encode(bytes);
+    Ok(format!("data:{mime};base64,{b64}"))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginFilesWriteBase64Req {
+    scope: String,
+    path: String,
+    data_url_or_base64: String,
+    overwrite: Option<bool>,
+}
+
+#[tauri::command]
+fn plugin_files_write_base64(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    req: PluginFilesWriteBase64Req,
+) -> Result<String, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let scope = req.scope.trim().to_string();
+    let overwrite = req.overwrite.unwrap_or(false);
+    let (_root_c, full) = resolve_write_path_in_scope(&app, &plugin_id, &scope, &req.path)?;
+
+    const MAX_BYTES: usize = 50 * 1024 * 1024;
+    let bytes = decode_base64_payload(&req.data_url_or_base64, MAX_BYTES)?;
+    if full.exists() && !overwrite {
+        return Err("文件已存在（overwrite=false）".to_string());
+    }
+    std::fs::write(&full, bytes).map_err(|e| format!("写入文件失败: {e}"))?;
+    Ok(full.to_string_lossy().to_string())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginFilesRenameReq {
+    scope: String,
+    from: String,
+    to: String,
+    overwrite: Option<bool>,
+}
+
+#[tauri::command]
+fn plugin_files_rename(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    req: PluginFilesRenameReq,
+) -> Result<(), String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let scope = req.scope.trim().to_string();
+    let overwrite = req.overwrite.unwrap_or(false);
+
+    let (_root_c, from_c) = resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.from)?;
+    if !from_c.is_file() {
+        return Err("源文件不存在".to_string());
+    }
+
+    let (_root_c2, to) = resolve_write_path_in_scope(&app, &plugin_id, &scope, &req.to)?;
+    if to.exists() && !overwrite {
+        return Err("目标已存在（overwrite=false）".to_string());
+    }
+    std::fs::rename(&from_c, &to).map_err(|e| format!("重命名失败: {e}"))?;
+    Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginFilesDeleteReq {
+    scope: String,
+    path: String,
+}
+
+#[tauri::command]
+fn plugin_files_delete(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    req: PluginFilesDeleteReq,
+) -> Result<(), String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let scope = req.scope.trim().to_string();
+    let (root_c, full_c) = resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
+    if !full_c.is_file() {
+        return Err("文件不存在".to_string());
+    }
+    std::fs::remove_file(&full_c).map_err(|e| format!("删除文件失败: {e}"))?;
+
+    // 仅清理 plugin 私有 data scope 产生的空目录；output scope 不做清理（避免误删用户目录结构）。
+    if scope == "data" {
+        let mut cur = full_c.parent().map(|p| p.to_path_buf());
+        while let Some(dir) = cur {
+            if dir == root_c {
+                break;
+            }
+            let Ok(mut rd) = std::fs::read_dir(&dir) else {
+                break;
+            };
+            if rd.next().is_some() {
+                break;
+            }
+            let _ = std::fs::remove_dir(&dir);
+            cur = dir.parent().map(|p| p.to_path_buf());
+        }
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
 fn path_has_image_ext(path: &Path) -> bool {
     let ext = path
@@ -3699,14 +4106,118 @@ fn get_plugins_dir(app: tauri::AppHandle) -> String {
     // 开发模式：把仓库里的 plugins 同步到本地数据目录（方便开发，且配合 fs scope 收紧）
     #[cfg(debug_assertions)]
     {
+        fn collect_referenced_seed_files(manifest: &Value) -> Result<Vec<String>, String> {
+            let mut out: Vec<String> = Vec::new();
+            out.push("manifest.json".to_string());
+
+            let main = manifest
+                .get("main")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if main.is_empty() {
+                return Err("manifest.main is required".to_string());
+            }
+            let _ = safe_relative_path(&main)?;
+            out.push(main.clone());
+
+            let bg_main = manifest
+                .get("background")
+                .and_then(|v| v.as_object())
+                .and_then(|obj| obj.get("main"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if !bg_main.is_empty() && bg_main != main {
+                let _ = safe_relative_path(&bg_main)?;
+                out.push(bg_main);
+            }
+
+            let icon = manifest
+                .get("icon")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if icon.starts_with("svg:") {
+                let rel = icon["svg:".len()..].trim().to_string();
+                if !rel.is_empty() && rel.to_ascii_lowercase().ends_with(".svg") {
+                    let _ = safe_relative_path(&rel)?;
+                    out.push(rel);
+                }
+            }
+
+            // 去重（保持稳定顺序）
+            let mut seen = std::collections::HashSet::<String>::new();
+            out.retain(|p| seen.insert(p.clone()));
+            Ok(out)
+        }
+
+        fn sync_repo_plugins_into(
+            repo_plugins: &Path,
+            plugins_dir: &Path,
+        ) -> Result<(), String> {
+            let Ok(entries) = std::fs::read_dir(repo_plugins) else {
+                return Ok(());
+            };
+
+            for e in entries.flatten() {
+                let Ok(ty) = e.file_type() else { continue };
+                if !ty.is_dir() {
+                    continue;
+                }
+                let plugin_id = e.file_name().to_string_lossy().to_string();
+                if plugin_id.starts_with('.') || !is_safe_id(&plugin_id) {
+                    continue;
+                }
+
+                let src = e.path();
+                let manifest_path = src.join("manifest.json");
+                if !manifest_path.is_file() {
+                    continue;
+                }
+
+                let manifest_raw = match std::fs::read_to_string(&manifest_path) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                let manifest: Value = match serde_json::from_str(&manifest_raw) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+
+                let files = match collect_referenced_seed_files(&manifest) {
+                    Ok(v) => v,
+                    Err(_) => vec!["manifest.json".to_string()],
+                };
+
+                let dst = plugins_dir.join(&plugin_id);
+                let _ = std::fs::create_dir_all(&dst);
+                for rel in files {
+                    let from = src.join(&rel);
+                    let to = dst.join(&rel);
+                    if let Some(parent) = to.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    // dev 同步：尽力覆盖写入；失败不阻断其它插件（不破坏用户空间）
+                    let _ = std::fs::copy(&from, &to);
+                }
+            }
+
+            Ok(())
+        }
+
         let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         let repo_plugins = workspace_root.join("plugins");
         if repo_plugins.is_dir() && !same_path(&repo_plugins, &plugins_dir) {
-            // 每次都覆盖同步：以仓库为真源
-            let _ = copy_dir_all(&repo_plugins, &plugins_dir);
+            // 每次都覆盖同步：以仓库为真源。
+            // 只同步运行时需要的最小集合（manifest/main/bg/icon），避免 node_modules 等大目录拖慢/失败。
+            let _ = sync_repo_plugins_into(&repo_plugins, &plugins_dir);
         }
     }
 
@@ -5359,6 +5870,13 @@ fn main() {
             plugin_pick_dir,
             plugin_open_output_dir,
             plugin_open_dir,
+            plugin_files_list_dir,
+            plugin_files_read_text,
+            plugin_files_write_text,
+            plugin_files_read_base64,
+            plugin_files_write_base64,
+            plugin_files_rename,
+            plugin_files_delete,
             plugin_images_write_base64,
             plugin_images_list,
             plugin_images_read,

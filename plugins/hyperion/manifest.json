@@ -1,0 +1,26 @@
+{
+  "id": "hyperion",
+  "name": "Hyperion",
+  "author": "fast-window",
+  "version": "0.1.0",
+  "description": "HTML 原子笔记：Notes/Assets + 索引库",
+  "main": "index.js",
+  "icon": "svg:icon.svg",
+  "keyword": "note",
+  "apiVersion": 2,
+  "ui": { "type": "iframe", "keepAlive": true },
+  "requires": [
+    "ui.showToast",
+    "files.getOutputDir",
+    "files.pickOutputDir",
+    "files.openDir",
+    "files.listDir",
+    "files.readText",
+    "files.writeText",
+    "files.readBase64",
+    "files.writeBase64",
+    "files.rename",
+    "files.delete",
+    "files.pickImages"
+  ]
+}

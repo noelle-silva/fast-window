@@ -21,6 +21,13 @@ export type PluginMethodName =
   | 'files.pickDir'
   | 'files.openOutputDir'
   | 'files.openDir'
+  | 'files.listDir'
+  | 'files.readText'
+  | 'files.writeText'
+  | 'files.readBase64'
+  | 'files.writeBase64'
+  | 'files.rename'
+  | 'files.delete'
   | 'files.images.writeBase64'
   | 'files.images.read'
   | 'files.images.list'
@@ -96,6 +103,34 @@ const methods: Record<PluginMethodName, MethodDef> = {
   'files.openDir': {
     capability: 'files.openDir',
     handler: (ctx, args) => ctx.api.files.openDir(String(args?.[0] ?? '')),
+  },
+  'files.listDir': {
+    capability: 'files.listDir',
+    handler: (ctx, args) => ctx.api.files.listDir((args?.[0] as any) ?? null),
+  },
+  'files.readText': {
+    capability: 'files.readText',
+    handler: (ctx, args) => ctx.api.files.readText((args?.[0] as any) ?? null),
+  },
+  'files.writeText': {
+    capability: 'files.writeText',
+    handler: (ctx, args) => ctx.api.files.writeText((args?.[0] as any) ?? null),
+  },
+  'files.readBase64': {
+    capability: 'files.readBase64',
+    handler: (ctx, args) => ctx.api.files.readBase64((args?.[0] as any) ?? null),
+  },
+  'files.writeBase64': {
+    capability: 'files.writeBase64',
+    handler: (ctx, args) => ctx.api.files.writeBase64((args?.[0] as any) ?? null),
+  },
+  'files.rename': {
+    capability: 'files.rename',
+    handler: (ctx, args) => ctx.api.files.rename((args?.[0] as any) ?? null),
+  },
+  'files.delete': {
+    capability: 'files.delete',
+    handler: (ctx, args) => ctx.api.files.delete((args?.[0] as any) ?? null),
   },
   'files.images.writeBase64': {
     capability: 'files.images.writeBase64',

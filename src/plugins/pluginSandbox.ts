@@ -199,6 +199,13 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
       pickDir: () => call('files.pickDir', []),
       openOutputDir: () => call('files.openOutputDir', []),
       openDir: (dir) => call('files.openDir', [dir]),
+      listDir: (req) => call('files.listDir', [req]),
+      readText: (req) => call('files.readText', [req]),
+      writeText: (req) => call('files.writeText', [req]),
+      readBase64: (req) => call('files.readBase64', [req]),
+      writeBase64: (req) => call('files.writeBase64', [req]),
+      rename: (req) => call('files.rename', [req]),
+      delete: (req) => call('files.delete', [req]),
       images: {
         writeBase64: (req) => call('files.images.writeBase64', [req]),
         read: (req) => call('files.images.read', [req]),

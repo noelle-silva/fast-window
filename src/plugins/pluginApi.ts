@@ -58,6 +58,61 @@ export type PluginImagesDeleteRequest = {
   path: string
 }
 
+export type PluginFileScope = 'data' | 'output'
+
+export type PluginFsEntry = {
+  name: string
+  isDirectory: boolean
+  isFile: boolean
+  size: number
+  modifiedMs: number
+}
+
+export type PluginFilesListDirRequest = {
+  scope: PluginFileScope
+  // 相对 scope 根目录的子目录；为空表示根目录（仅列出该目录下的文件/目录，不递归）
+  dir?: string | null
+}
+
+export type PluginFilesReadTextRequest = {
+  scope: PluginFileScope
+  // 允许绝对路径（会做越界检查）或相对路径（相对 scope 根目录）
+  path: string
+}
+
+export type PluginFilesWriteTextRequest = {
+  scope: PluginFileScope
+  // 相对 scope 根目录的路径；允许子目录（会自动创建）。
+  path: string
+  text: string
+  overwrite?: boolean | null
+}
+
+export type PluginFilesReadBase64Request = {
+  scope: PluginFileScope
+  path: string
+}
+
+export type PluginFilesWriteBase64Request = {
+  scope: PluginFileScope
+  // 相对 scope 根目录的路径；允许子目录（会自动创建）。
+  path: string
+  dataUrlOrBase64: string
+  overwrite?: boolean | null
+}
+
+export type PluginFilesRenameRequest = {
+  scope: PluginFileScope
+  from: string
+  to: string
+  overwrite?: boolean | null
+}
+
+export type PluginFilesDeleteRequest = {
+  scope: PluginFileScope
+  path: string
+}
+
 // 插件 API，暴露给插件使用
 export const fastWindowApi = {
   // 剪贴板操作
@@ -325,6 +380,13 @@ export type FastWindowApi = {
     pickDir: () => Promise<string | null>
     openOutputDir: () => Promise<void>
     openDir: (dir: string) => Promise<void>
+    listDir: (req: PluginFilesListDirRequest) => Promise<PluginFsEntry[]>
+    readText: (req: PluginFilesReadTextRequest) => Promise<string>
+    writeText: (req: PluginFilesWriteTextRequest) => Promise<string>
+    readBase64: (req: PluginFilesReadBase64Request) => Promise<string>
+    writeBase64: (req: PluginFilesWriteBase64Request) => Promise<string>
+    rename: (req: PluginFilesRenameRequest) => Promise<void>
+    delete: (req: PluginFilesDeleteRequest) => Promise<void>
     images: {
       writeBase64: (req: PluginImagesWriteBase64Request) => Promise<string>
       read: (req: PluginImagesReadRequest) => Promise<string>
@@ -444,6 +506,27 @@ export function createPluginContext(pluginId: string, requires: PluginCapability
       },
       openDir: async (dir: string) => {
         await invoke('plugin_open_dir', { pluginId, dir: String(dir ?? '') })
+      },
+      listDir: async (req: PluginFilesListDirRequest) => {
+        return invoke<PluginFsEntry[]>('plugin_files_list_dir', { pluginId, req })
+      },
+      readText: async (req: PluginFilesReadTextRequest) => {
+        return invoke<string>('plugin_files_read_text', { pluginId, req })
+      },
+      writeText: async (req: PluginFilesWriteTextRequest) => {
+        return invoke<string>('plugin_files_write_text', { pluginId, req })
+      },
+      readBase64: async (req: PluginFilesReadBase64Request) => {
+        return invoke<string>('plugin_files_read_base64', { pluginId, req })
+      },
+      writeBase64: async (req: PluginFilesWriteBase64Request) => {
+        return invoke<string>('plugin_files_write_base64', { pluginId, req })
+      },
+      rename: async (req: PluginFilesRenameRequest) => {
+        await invoke('plugin_files_rename', { pluginId, req })
+      },
+      delete: async (req: PluginFilesDeleteRequest) => {
+        await invoke('plugin_files_delete', { pluginId, req })
       },
       images: {
         writeBase64: async (req: PluginImagesWriteBase64Request) => {
