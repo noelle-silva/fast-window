@@ -353,14 +353,21 @@ function RoleAvatarCropper(props: { controller: any; src: string }) {
 
 const TOPBAR_H = 40
 
-function AssistantContent(props: { controller: any; className?: string; text: string; mid: string; chatRootRef: React.RefObject<HTMLElement | null> }) {
-  const { controller, className, text, mid, chatRootRef } = props
+function AssistantContent(props: {
+  controller: any
+  className?: string
+  text: string
+  mid: string
+  toolRequestPreset: string
+  chatRootRef: React.RefObject<HTMLElement | null>
+}) {
+  const { controller, className, text, mid, toolRequestPreset, chatRootRef } = props
   const ref = React.useRef<HTMLDivElement | null>(null)
 
   React.useLayoutEffect(() => {
     if (!ref.current) return
     controller.renderAssistantInto(ref.current, text)
-  }, [controller, text])
+  }, [controller, text, toolRequestPreset])
 
   const onClick = useEvent((e: React.MouseEvent) => {
     const t = e.target as any
@@ -555,6 +562,7 @@ export function AiChatApp(props: { controller: any }) {
   const topbarBlur = clampNum(Number(data?.settings?.topbarBlur ?? 0), 0, 24)
   const composerOpacity = clampNum(Number(data?.settings?.composerOpacity ?? 86), 40, 100)
   const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
+  const toolRequestRenderPreset = String((data?.settings as any)?.toolRequestRenderPreset || 'classic')
   const userMessageCollapseEnabled = !!data?.settings?.userMessageCollapseEnabled
   const userMessageCollapseLines = clampNum(Number(data?.settings?.userMessageCollapseLines ?? 8), 1, 50)
   const attachSendLimitChars = clampNum(Number(data?.settings?.attachments?.sendLimitChars ?? 80000), 1000, 2000000)
@@ -1782,7 +1790,14 @@ export function AiChatApp(props: { controller: any }) {
                               ) : null}
                             </Box>
                           ) : (
-                            <AssistantContent controller={controller} className="prose" text={content} mid={mid} chatRootRef={chatRootRef} />
+                            <AssistantContent
+                              controller={controller}
+                              className="prose"
+                              text={content}
+                              mid={mid}
+                              toolRequestPreset={toolRequestRenderPreset}
+                              chatRootRef={chatRootRef}
+                            />
                           )}
 
                           {isEditing ? (
@@ -3337,6 +3352,7 @@ function PluginSettingsPage(props: {
   const topbarBlur = clampNum(Number(data?.settings?.topbarBlur ?? 0), 0, 24)
   const composerOpacity = clampNum(Number(data?.settings?.composerOpacity ?? 86), 40, 100)
   const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
+  const toolRequestRenderPreset = String((data?.settings as any)?.toolRequestRenderPreset || 'classic')
   const userMessageCollapseEnabled = !!data?.settings?.userMessageCollapseEnabled
   const userMessageCollapseLines = clampNum(Number(data?.settings?.userMessageCollapseLines ?? 8), 1, 50)
   const attachSendLimitChars = clampNum(Number(data?.settings?.attachments?.sendLimitChars ?? 80000), 1000, 2000000)
@@ -3489,6 +3505,31 @@ function PluginSettingsPage(props: {
             onChangeCommitted={(_e, v) => controller.actions.setComposerBlur?.(v, true)}
             disabled={loading}
           />
+        </Box>
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              工具调用渲染预设
+            </Typography>
+          </Stack>
+          <FormControl size="small" fullWidth>
+            <InputLabel id="toolreq-preset">预设</InputLabel>
+            <Select
+              labelId="toolreq-preset"
+              label="预设"
+              value={toolRequestRenderPreset}
+              onChange={(e) => controller.actions.setToolRequestRenderPreset?.(String(e.target.value || ''))}
+              disabled={loading}
+            >
+              <MenuItem value="classic">经典（默认）</MenuItem>
+              <MenuItem value="neon">霓虹（赛博）</MenuItem>
+              <MenuItem value="glass">玻璃（磨砂）</MenuItem>
+            </Select>
+          </FormControl>
+          <Typography variant="caption" color="text.secondary">
+            仅影响 AI 回复中 TOOL_REQUEST 工具调用块的展示样式。
+          </Typography>
         </Box>
 
         <Divider />

@@ -559,6 +559,7 @@ import mammoth from 'mammoth/mammoth.browser'
             topbarBlur: 0,
             composerOpacity: 86,
             composerBlur: 10,
+            toolRequestRenderPreset: 'classic',
             userMessageCollapseEnabled: false,
             userMessageCollapseLines: 8,
             attachments: {
@@ -629,6 +630,7 @@ import mammoth from 'mammoth/mammoth.browser'
     if (typeof d.settings.topbarBlur !== 'number' || !isFinite(d.settings.topbarBlur)) d.settings.topbarBlur = 0
     if (typeof d.settings.composerOpacity !== 'number' || !isFinite(d.settings.composerOpacity)) d.settings.composerOpacity = 86
     if (typeof d.settings.composerBlur !== 'number' || !isFinite(d.settings.composerBlur)) d.settings.composerBlur = 10
+    if (typeof d.settings.toolRequestRenderPreset !== 'string') d.settings.toolRequestRenderPreset = 'classic'
     if (typeof d.settings.userMessageCollapseEnabled !== 'boolean') d.settings.userMessageCollapseEnabled = false
     if (typeof d.settings.userMessageCollapseLines !== 'number' || !isFinite(d.settings.userMessageCollapseLines)) d.settings.userMessageCollapseLines = 8
     if (!d.settings.attachments || typeof d.settings.attachments !== 'object') d.settings.attachments = {}
@@ -644,6 +646,11 @@ import mammoth from 'mammoth/mammoth.browser'
     d.settings.topbarBlur = clamp(Math.round(Number(d.settings.topbarBlur || 0)), 0, 24)
     d.settings.composerOpacity = clamp(Math.round(Number(d.settings.composerOpacity || 0)), 40, 100)
     d.settings.composerBlur = clamp(Math.round(Number(d.settings.composerBlur || 0)), 0, 24)
+    d.settings.toolRequestRenderPreset = (() => {
+      const v = String(d.settings.toolRequestRenderPreset || '').trim()
+      if (v === 'classic' || v === 'neon' || v === 'glass') return v
+      return 'classic'
+    })()
     d.settings.userMessageCollapseLines = clamp(Math.round(Number(d.settings.userMessageCollapseLines || 8)), 1, 50)
     at.sendLimitChars = clamp(Math.round(Number(at.sendLimitChars || DEFAULT_ATTACH_SEND_LIMIT_CHARS)), 1000, 2_000_000)
     if (!Array.isArray(d.settings.providers) || d.settings.providers.length === 0) d.settings.providers = defaultData().settings.providers
@@ -919,7 +926,8 @@ import mammoth from 'mammoth/mammoth.browser'
 
   function renderAssistantInto(el, text) {
     const enabled = !!state.data?.settings?.stickers?.enabled
-    renderAssistantIntoRaw(el, text, { stickersEnabled: enabled, getStickerPath: getStickerRelPath })
+    const toolRequestPreset = String(state.data?.settings?.toolRequestRenderPreset || 'classic')
+    renderAssistantIntoRaw(el, text, { stickersEnabled: enabled, getStickerPath: getStickerRelPath, toolRequestPreset })
   }
 
   function mermaidItemsFromDom() {
@@ -4368,6 +4376,13 @@ import mammoth from 'mammoth/mammoth.browser'
         if (!state.data) return
         state.data.settings.composerBlur = clamp(Math.round(Number(blur || 0)), 0, 24)
         if (commit) save().catch(() => {})
+        emit()
+      },
+      setToolRequestRenderPreset: (preset) => {
+        if (!state.data) return
+        const v = String(preset || '').trim()
+        state.data.settings.toolRequestRenderPreset = v === 'neon' || v === 'glass' || v === 'classic' ? v : 'classic'
+        save().catch(() => {})
         emit()
       },
       toggleUserMessageCollapse: () => {

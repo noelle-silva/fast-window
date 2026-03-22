@@ -9,7 +9,11 @@ export type AssistantRenderEngine = {
   renderAssistantInto: (
     el: unknown,
     text: unknown,
-    options?: { stickersEnabled?: boolean; getStickerPath?: (category: string, name: string) => string },
+    options?: {
+      stickersEnabled?: boolean
+      getStickerPath?: (category: string, name: string) => string
+      toolRequestPreset?: 'classic' | 'neon' | 'glass' | string
+    },
   ) => void
 }
 
@@ -31,6 +35,64 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
     '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z"/></svg>'
   const ICON_FAIL =
     '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>'
+
+  function normalizeToolRequestPreset(v: unknown): 'classic' | 'neon' | 'glass' {
+    const s = typeof v === 'string' ? v.trim() : ''
+    if (s === 'neon' || s === 'glass' || s === 'classic') return s
+    return 'classic'
+  }
+
+  function renderToolRequestHtml(preset: 'classic' | 'neon' | 'glass', summaryHtml: string, detailText: string) {
+    const summary = String(summaryHtml || '')
+    const detail = esc(String(detailText || ''))
+
+    if (preset === 'neon') {
+      return (
+        `<details class="fw-toolreq" data-fw-toolreq="1" ` +
+        `style="margin:10px 0; border:1px solid rgba(99,102,241,.45); background:linear-gradient(135deg, rgba(2,6,23,.92), rgba(15,23,42,.92)); box-shadow:0 0 0 1px rgba(34,211,238,.10), 0 10px 28px rgba(0,0,0,.22); border-radius:14px; padding:10px 12px;">` +
+        `<summary data-fw-toolreq-summary="1" ` +
+        `style="cursor:pointer; user-select:none; -webkit-user-select:none; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; white-space:pre-line; outline:none; color:rgba(224,242,254,.96);">` +
+        `<span style="display:inline-flex; align-items:center; gap:8px;">` +
+        `<span aria-hidden="true" style="display:inline-flex; align-items:center; justify-content:center; height:18px; padding:0 8px; border-radius:999px; background:rgba(34,211,238,.12); border:1px solid rgba(34,211,238,.25); color:rgba(34,211,238,.95); letter-spacing:.08em; font-size:11px; font-weight:900;">TOOL</span>` +
+        `<span style="min-width:0;">${summary}</span>` +
+        `</span>` +
+        `</summary>` +
+        `<div data-fw-toolreq-body="1" ` +
+        `style="overflow:hidden; max-height:0px; opacity:0; transform:translateY(-2px); transition:max-height 240ms ease, opacity 180ms ease, transform 240ms ease; will-change:max-height,opacity,transform;">` +
+        `<pre style="margin:10px 0 0 0; padding:10px 12px; background:rgba(2,6,23,.78); border:1px solid rgba(99,102,241,.25); border-radius:12px; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; color:rgba(226,232,240,.95);">${detail}</pre>` +
+        `</div>` +
+        `</details>`
+      )
+    }
+
+    if (preset === 'glass') {
+      return (
+        `<details class="fw-toolreq" data-fw-toolreq="1" ` +
+        `style="margin:10px 0; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.10); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); border-radius:14px; padding:10px 12px; box-shadow:0 10px 24px rgba(15,23,42,.10);">` +
+        `<summary data-fw-toolreq-summary="1" ` +
+        `style="cursor:pointer; user-select:none; -webkit-user-select:none; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; white-space:pre-line; outline:none; color:rgba(15,23,42,.82);">` +
+        `<span style="display:inline-flex; align-items:center; gap:8px;">` +
+        `<span aria-hidden="true" style="display:inline-flex; align-items:center; justify-content:center; height:18px; padding:0 8px; border-radius:999px; background:rgba(37,99,235,.10); border:1px solid rgba(37,99,235,.18); color:rgba(37,99,235,.92); font-size:11px; font-weight:900;">CALL</span>` +
+        `<span style="min-width:0;">${summary}</span>` +
+        `</span>` +
+        `</summary>` +
+        `<div data-fw-toolreq-body="1" ` +
+        `style="overflow:hidden; max-height:0px; opacity:0; transform:translateY(-2px); transition:max-height 240ms ease, opacity 180ms ease, transform 240ms ease; will-change:max-height,opacity,transform;">` +
+        `<pre style="margin:10px 0 0 0; padding:10px 12px; background:rgba(255,255,255,.72); border:1px solid rgba(148,163,184,.30); border-radius:12px; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; color:rgba(15,23,42,.78);">${detail}</pre>` +
+        `</div>` +
+        `</details>`
+      )
+    }
+
+    return (
+      `<details class="fw-toolreq" data-fw-toolreq="1" style="margin:10px 0; border:1px solid rgba(245,158,11,.25); background:rgba(245,158,11,.05); border-radius:12px; padding:8px 10px;">` +
+      `<summary data-fw-toolreq-summary="1" style="cursor:pointer; user-select:none; -webkit-user-select:none; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; white-space:pre-line; outline:none;">${summary}</summary>` +
+      `<div data-fw-toolreq-body="1" style="overflow:hidden; max-height:0px; opacity:0; transform:translateY(-2px); transition:max-height 240ms ease, opacity 180ms ease, transform 240ms ease; will-change:max-height,opacity,transform;">` +
+      `<pre style="margin:10px 0 0 0; padding:8px 10px; background:rgba(255,255,255,.7); border:1px solid rgba(245,158,11,.18); border-radius:10px; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px;">${detail}</pre>` +
+      `</div>` +
+      `</details>`
+    )
+  }
 
   function setCopyBtnState(btn: HTMLButtonElement, state: 'copy' | 'ok' | 'fail') {
     if (state === 'ok') {
@@ -787,13 +849,18 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
   function renderAssistantInto(
     el: unknown,
     text: unknown,
-    options?: { stickersEnabled?: boolean; getStickerPath?: (category: string, name: string) => string },
+    options?: {
+      stickersEnabled?: boolean
+      getStickerPath?: (category: string, name: string) => string
+      toolRequestPreset?: 'classic' | 'neon' | 'glass' | string
+    },
   ) {
     if (!(el instanceof HTMLElement)) return
     const raw = String(text || '')
     let html = ''
 
     const noIndent = preprocessHtmlIndentation(raw)
+    const toolReqPreset = normalizeToolRequestPreset((options as any)?.toolRequestPreset)
     const pre = preprocessAssistantContent(noIndent, { stickersEnabled: !!options?.stickersEnabled })
     const src = String(pre.text || '')
     const getStickerPath = typeof options?.getStickerPath === 'function' ? options.getStickerPath : null
@@ -837,15 +904,7 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
         const toolNames = Array.isArray(it.toolNames) ? it.toolNames : []
         const summary = toolNames.length ? toolNames.map((n) => esc(String(n || '').trim() || '(无 tool_name)')).join('<br/>') : esc('(工具调用解析失败)')
         const detailText = String(it.detailText || '')
-
-        return (
-          `<details class="fw-toolreq" data-fw-toolreq="1" style="margin:10px 0; border:1px solid rgba(245,158,11,.25); background:rgba(245,158,11,.05); border-radius:12px; padding:8px 10px;">` +
-          `<summary data-fw-toolreq-summary="1" style="cursor:pointer; user-select:none; -webkit-user-select:none; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; white-space:pre-line; outline:none;">${summary}</summary>` +
-          `<div data-fw-toolreq-body="1" style="overflow:hidden; max-height:0px; opacity:0; transform:translateY(-2px); transition:max-height 240ms ease, opacity 180ms ease, transform 240ms ease; will-change:max-height,opacity,transform;">` +
-          `<pre style="margin:10px 0 0 0; padding:8px 10px; background:rgba(255,255,255,.7); border:1px solid rgba(245,158,11,.18); border-radius:10px; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px;">${esc(detailText)}</pre>` +
-          `</div>` +
-          `</details>`
-        )
+        return renderToolRequestHtml(toolReqPreset, summary, detailText)
       })
     }
     if (Array.isArray(pre.stickers) && pre.stickers.length) {
