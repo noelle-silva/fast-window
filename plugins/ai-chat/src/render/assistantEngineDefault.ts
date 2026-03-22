@@ -1,6 +1,7 @@
 import { uid, esc } from '../core/utils'
 import './vendor'
 import { parseToolRequestCalls } from '@noelle-silva/eucli-aitoolcall-sdk'
+import { presetVarsToInlineStyle, type ToolRequestRenderPreset } from '../core/toolRequestPresets'
 
 export type AssistantRenderEngine = {
   ensureRenderer: () => Promise<void>
@@ -12,7 +13,7 @@ export type AssistantRenderEngine = {
     options?: {
       stickersEnabled?: boolean
       getStickerPath?: (category: string, name: string) => string
-      toolRequestPreset?: 'classic' | 'neon' | 'glass' | string
+      toolRequestPreset?: ToolRequestRenderPreset | null
     },
   ) => void
 }
@@ -22,6 +23,7 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
   let domPurifyHooked = false
   let mermaidInited = false
   let markedConfigured = false
+  let toolReqCssInited = false
   const mermaidSvgCache = new Map<string, string>()
   const refImgCache = new Map<string, string>()
   const refImgPending = new Set<string>()
@@ -36,59 +38,46 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
   const ICON_FAIL =
     '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>'
 
-  function normalizeToolRequestPreset(v: unknown): 'classic' | 'neon' | 'glass' {
-    const s = typeof v === 'string' ? v.trim() : ''
-    if (s === 'neon' || s === 'glass' || s === 'classic') return s
-    return 'classic'
+  function ensureToolReqCssOnce() {
+    if (toolReqCssInited) return
+    toolReqCssInited = true
+    try {
+      const id = 'fw-toolreq-css'
+      if (document.getElementById(id)) return
+      const s = document.createElement('style')
+      s.id = id
+      s.textContent = `
+@keyframes fw-toolreq-flow-x{0%{background-position:0% 50%;}100%{background-position:200% 50%;}}
+@media (prefers-reduced-motion: reduce){details.fw-toolreq{animation:none !important;}}
+`
+      document.head.appendChild(s)
+    } catch (_) {}
   }
 
-  function renderToolRequestHtml(preset: 'classic' | 'neon' | 'glass', summaryHtml: string, detailText: string) {
+  function renderToolRequestHtml(preset: ToolRequestRenderPreset | null, summaryHtml: string, detailText: string) {
     const summary = String(summaryHtml || '')
     const detail = esc(String(detailText || ''))
 
-    if (preset === 'neon') {
-      return (
-        `<details class="fw-toolreq" data-fw-toolreq="1" ` +
-        `style="margin:10px 0; border:1px solid rgba(99,102,241,.45); background:linear-gradient(135deg, rgba(2,6,23,.92), rgba(15,23,42,.92)); box-shadow:0 0 0 1px rgba(34,211,238,.10), 0 10px 28px rgba(0,0,0,.22); border-radius:14px; padding:10px 12px;">` +
-        `<summary data-fw-toolreq-summary="1" ` +
-        `style="cursor:pointer; user-select:none; -webkit-user-select:none; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; white-space:pre-line; outline:none; color:rgba(224,242,254,.96);">` +
-        `<span style="display:inline-flex; align-items:center; gap:8px;">` +
-        `<span aria-hidden="true" style="display:inline-flex; align-items:center; justify-content:center; height:18px; padding:0 8px; border-radius:999px; background:rgba(34,211,238,.12); border:1px solid rgba(34,211,238,.25); color:rgba(34,211,238,.95); letter-spacing:.08em; font-size:11px; font-weight:900;">TOOL</span>` +
-        `<span style="min-width:0;">${summary}</span>` +
-        `</span>` +
-        `</summary>` +
-        `<div data-fw-toolreq-body="1" ` +
-        `style="overflow:hidden; max-height:0px; opacity:0; transform:translateY(-2px); transition:max-height 240ms ease, opacity 180ms ease, transform 240ms ease; will-change:max-height,opacity,transform;">` +
-        `<pre style="margin:10px 0 0 0; padding:10px 12px; background:rgba(2,6,23,.78); border:1px solid rgba(99,102,241,.25); border-radius:12px; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; color:rgba(226,232,240,.95);">${detail}</pre>` +
-        `</div>` +
-        `</details>`
-      )
-    }
+    const badgeText = preset && typeof (preset as any).badgeText === 'string' ? String((preset as any).badgeText || '').trim().slice(0, 16) : ''
+    const varsInline = presetVarsToInlineStyle(preset && typeof (preset as any).vars === 'object' ? (preset as any).vars : null)
+    const varsEsc = varsInline ? esc(varsInline) : ''
+    const varsPart = varsEsc ? `;${varsEsc}` : ''
 
-    if (preset === 'glass') {
-      return (
-        `<details class="fw-toolreq" data-fw-toolreq="1" ` +
-        `style="margin:10px 0; border:1px solid rgba(148,163,184,.35); background:rgba(255,255,255,.10); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); border-radius:14px; padding:10px 12px; box-shadow:0 10px 24px rgba(15,23,42,.10);">` +
-        `<summary data-fw-toolreq-summary="1" ` +
-        `style="cursor:pointer; user-select:none; -webkit-user-select:none; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; white-space:pre-line; outline:none; color:rgba(15,23,42,.82);">` +
-        `<span style="display:inline-flex; align-items:center; gap:8px;">` +
-        `<span aria-hidden="true" style="display:inline-flex; align-items:center; justify-content:center; height:18px; padding:0 8px; border-radius:999px; background:rgba(37,99,235,.10); border:1px solid rgba(37,99,235,.18); color:rgba(37,99,235,.92); font-size:11px; font-weight:900;">CALL</span>` +
-        `<span style="min-width:0;">${summary}</span>` +
-        `</span>` +
-        `</summary>` +
-        `<div data-fw-toolreq-body="1" ` +
-        `style="overflow:hidden; max-height:0px; opacity:0; transform:translateY(-2px); transition:max-height 240ms ease, opacity 180ms ease, transform 240ms ease; will-change:max-height,opacity,transform;">` +
-        `<pre style="margin:10px 0 0 0; padding:10px 12px; background:rgba(255,255,255,.72); border:1px solid rgba(148,163,184,.30); border-radius:12px; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; color:rgba(15,23,42,.78);">${detail}</pre>` +
-        `</div>` +
-        `</details>`
-      )
-    }
+    const badge =
+      badgeText && badgeText.trim()
+        ? `<span aria-hidden="true" style="display:inline-flex; align-items:center; justify-content:center; height:18px; padding:0 8px; border-radius:999px; background:var(--fw-toolreq-badge-bg, rgba(245,158,11,.10)); border:1px solid var(--fw-toolreq-badge-border, rgba(245,158,11,.18)); color:var(--fw-toolreq-badge-color, rgba(245,158,11,.92)); letter-spacing:.08em; font-size:11px; font-weight:900;">${esc(badgeText)}</span>`
+        : ''
 
     return (
-      `<details class="fw-toolreq" data-fw-toolreq="1" style="margin:10px 0; border:1px solid rgba(245,158,11,.25); background:rgba(245,158,11,.05); border-radius:12px; padding:8px 10px;">` +
-      `<summary data-fw-toolreq-summary="1" style="cursor:pointer; user-select:none; -webkit-user-select:none; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; white-space:pre-line; outline:none;">${summary}</summary>` +
+      `<details class="fw-toolreq" data-fw-toolreq="1" style="margin:10px 0; border:1px solid var(--fw-toolreq-border, rgba(245,158,11,.25)); background:var(--fw-toolreq-bg, rgba(245,158,11,.05)); background-size:var(--fw-toolreq-bg-size, auto); background-position:var(--fw-toolreq-bg-pos, 0% 50%); animation:var(--fw-toolreq-bg-anim, none); box-shadow:var(--fw-toolreq-shadow, none); border-radius:var(--fw-toolreq-radius, 12px); padding:var(--fw-toolreq-pad, 8px 10px); backdrop-filter:var(--fw-toolreq-backdrop, none); -webkit-backdrop-filter:var(--fw-toolreq-backdrop, none)${varsPart}">` +
+      `<summary data-fw-toolreq-summary="1" style="cursor:pointer; user-select:none; -webkit-user-select:none; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; white-space:pre-line; outline:none; color:var(--fw-toolreq-summary-color, inherit);">` +
+      `<span style="display:inline-flex; align-items:center; gap:8px;">` +
+      `${badge}` +
+      `<span style="min-width:0;">${summary}</span>` +
+      `</span>` +
+      `</summary>` +
       `<div data-fw-toolreq-body="1" style="overflow:hidden; max-height:0px; opacity:0; transform:translateY(-2px); transition:max-height 240ms ease, opacity 180ms ease, transform 240ms ease; will-change:max-height,opacity,transform;">` +
-      `<pre style="margin:10px 0 0 0; padding:8px 10px; background:rgba(255,255,255,.7); border:1px solid rgba(245,158,11,.18); border-radius:10px; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px;">${detail}</pre>` +
+      `<pre style="margin:10px 0 0 0; padding:var(--fw-toolreq-pre-pad, 8px 10px); background:var(--fw-toolreq-pre-bg, rgba(255,255,255,.7)); border:1px solid var(--fw-toolreq-pre-border, rgba(245,158,11,.18)); border-radius:var(--fw-toolreq-pre-radius, 10px); white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:12px; color:var(--fw-toolreq-pre-color, inherit);">${detail}</pre>` +
       `</div>` +
       `</details>`
     )
@@ -852,15 +841,16 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
     options?: {
       stickersEnabled?: boolean
       getStickerPath?: (category: string, name: string) => string
-      toolRequestPreset?: 'classic' | 'neon' | 'glass' | string
+      toolRequestPreset?: ToolRequestRenderPreset | null
     },
   ) {
     if (!(el instanceof HTMLElement)) return
+    ensureToolReqCssOnce()
     const raw = String(text || '')
     let html = ''
 
     const noIndent = preprocessHtmlIndentation(raw)
-    const toolReqPreset = normalizeToolRequestPreset((options as any)?.toolRequestPreset)
+    const toolReqPreset = (options as any)?.toolRequestPreset
     const pre = preprocessAssistantContent(noIndent, { stickersEnabled: !!options?.stickersEnabled })
     const src = String(pre.text || '')
     const getStickerPath = typeof options?.getStickerPath === 'function' ? options.getStickerPath : null

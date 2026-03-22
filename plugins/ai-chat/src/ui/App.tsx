@@ -57,6 +57,7 @@ import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import { BUILTIN_TOOL_REQUEST_PRESETS, stringifyToolRequestRenderPreset } from '../core/toolRequestPresets'
 
 function useAiChatState(controller: any) {
   React.useSyncExternalStore(
@@ -358,16 +359,16 @@ function AssistantContent(props: {
   className?: string
   text: string
   mid: string
-  toolRequestPreset: string
+  toolRequestPresetKey: string
   chatRootRef: React.RefObject<HTMLElement | null>
 }) {
-  const { controller, className, text, mid, toolRequestPreset, chatRootRef } = props
+  const { controller, className, text, mid, toolRequestPresetKey, chatRootRef } = props
   const ref = React.useRef<HTMLDivElement | null>(null)
 
   React.useLayoutEffect(() => {
     if (!ref.current) return
     controller.renderAssistantInto(ref.current, text)
-  }, [controller, text, toolRequestPreset])
+  }, [controller, text, toolRequestPresetKey])
 
   const onClick = useEvent((e: React.MouseEvent) => {
     const t = e.target as any
@@ -563,6 +564,14 @@ export function AiChatApp(props: { controller: any }) {
   const composerOpacity = clampNum(Number(data?.settings?.composerOpacity ?? 86), 40, 100)
   const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
   const toolRequestRenderPreset = String((data?.settings as any)?.toolRequestRenderPreset || 'classic')
+  const toolRequestRenderPresetsKey = (() => {
+    const list = (data?.settings as any)?.toolRequestRenderPresets
+    try {
+      return JSON.stringify(list && typeof list === 'object' ? list : [])
+    } catch (_) {
+      return ''
+    }
+  })()
   const userMessageCollapseEnabled = !!data?.settings?.userMessageCollapseEnabled
   const userMessageCollapseLines = clampNum(Number(data?.settings?.userMessageCollapseLines ?? 8), 1, 50)
   const attachSendLimitChars = clampNum(Number(data?.settings?.attachments?.sendLimitChars ?? 80000), 1000, 2000000)
@@ -1795,7 +1804,7 @@ export function AiChatApp(props: { controller: any }) {
                               className="prose"
                               text={content}
                               mid={mid}
-                              toolRequestPreset={toolRequestRenderPreset}
+                              toolRequestPresetKey={`${toolRequestRenderPreset}|${toolRequestRenderPresetsKey}`}
                               chatRootRef={chatRootRef}
                             />
                           )}
@@ -3173,6 +3182,194 @@ function StickersSettingsPanel(props: { controller: any; loading: boolean; data:
   )
 }
 
+function ToolRequestPresetsDialog(props: { open: boolean; onClose: () => void; controller: any; loading: boolean; userPresets: any[] }) {
+  const { open, onClose, controller, loading, userPresets } = props
+  const api = controller?.api
+  const toast = (s: string) => api?.ui?.showToast?.(s)
+
+  const [editor, setEditor] = React.useState(() => ({ open: false, title: '', text: '' }))
+
+  const presetsUser = Array.isArray(userPresets)
+    ? userPresets
+        .map((x: any) => ({ id: String(x?.id || '').trim(), name: String(x?.name || '').trim(), raw: x }))
+        .filter((x: any) => x.id && x.name)
+        .slice(0, 60)
+    : []
+
+  const openEditor = (title: string, text: string) => setEditor({ open: true, title, text })
+  const closeEditor = () => setEditor({ open: false, title: '', text: '' })
+
+  const copyPresetJson = useEvent((preset: any) => {
+    const text = stringifyToolRequestRenderPreset(preset)
+    if (!text) return toast('复制失败（预设为空）')
+    controller.api?.clipboard?.writeText?.(text).then(
+      () => toast('已复制 JSON'),
+      () => toast('复制失败'),
+    )
+  })
+
+  const sample = `{\n  \"id\": \"my_preset\",\n  \"name\": \"我的预设\",\n  \"badgeText\": \"TOOL\",\n  \"vars\": {\n    \"bg\": \"linear-gradient(90deg, rgba(2,6,23,.92), rgba(34,211,238,.18), rgba(99,102,241,.28), rgba(34,211,238,.18), rgba(2,6,23,.92))\",\n    \"bgSize\": \"300% 300%\",\n    \"bgPos\": \"0% 50%\",\n    \"bgAnim\": \"fw-toolreq-flow-x 2.8s linear infinite\",\n    \"border\": \"rgba(99,102,241,.45)\",\n    \"shadow\": \"0 10px 28px rgba(0,0,0,.22)\",\n    \"radius\": \"14px\",\n    \"pad\": \"10px 12px\",\n    \"summaryColor\": \"rgba(224,242,254,.96)\",\n    \"badgeBg\": \"rgba(34,211,238,.12)\",\n    \"badgeBorder\": \"rgba(34,211,238,.25)\",\n    \"badgeColor\": \"rgba(34,211,238,.95)\",\n    \"preBg\": \"rgba(2,6,23,.78)\",\n    \"prePad\": \"10px 12px\",\n    \"preRadius\": \"12px\",\n    \"preBorder\": \"rgba(99,102,241,.25)\",\n    \"preColor\": \"rgba(226,232,240,.95)\",\n    \"backdrop\": \"none\"\n  }\n}\n`
+
+  return (
+    <>
+      <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          工具调用渲染预设管理
+          <Box sx={{ flex: 1 }} />
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => openEditor('导入/新建预设（JSON）', sample)}
+            disabled={loading}
+            sx={{ whiteSpace: 'nowrap' }}
+          >
+            导入/新建
+          </Button>
+          <IconButton size="small" onClick={onClose} aria-label="关闭">
+            <CloseIcon fontSize="inherit" />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1.25}>
+            <Typography variant="caption" color="text.secondary">
+              说明：预设只影响 AI 回复中的 TOOL_REQUEST 工具调用块；内置预设不可编辑，但可以复制 JSON 或“复制为自定义”。
+            </Typography>
+
+            <Paper variant="outlined" sx={{ p: 1.25 }}>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                <Typography sx={{ fontWeight: 900 }}>内置预设</Typography>
+              </Stack>
+              <Stack spacing={1}>
+                {BUILTIN_TOOL_REQUEST_PRESETS.map((p: any) => {
+                  const id = String(p?.id || '').trim()
+                  if (!id) return null
+                  return (
+                    <Paper key={id} variant="outlined" sx={{ p: 1.25 }}>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', sm: 'center' }}>
+                        <Box sx={{ minWidth: 0, flex: 1 }}>
+                          <Typography sx={{ fontWeight: 900 }} noWrap>
+                            {String(p?.name || id)}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" noWrap>
+                            {id}
+                          </Typography>
+                        </Box>
+                        <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                          <Button size="small" variant="text" startIcon={<ContentCopyIcon fontSize="inherit" />} onClick={() => copyPresetJson(p)}>
+                            复制 JSON
+                          </Button>
+                          <Button size="small" variant="outlined" onClick={() => controller.actions.cloneToolRequestRenderPreset?.(id)} disabled={loading}>
+                            复制为自定义
+                          </Button>
+                        </Stack>
+                      </Stack>
+                    </Paper>
+                  )
+                })}
+              </Stack>
+            </Paper>
+
+            <Paper variant="outlined" sx={{ p: 1.25 }}>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                <Typography sx={{ fontWeight: 900 }}>自定义预设</Typography>
+              </Stack>
+              {presetsUser.length ? (
+                <Stack spacing={1}>
+                  {presetsUser.map((p: any) => {
+                    const id = String(p?.id || '').trim()
+                    return (
+                      <Paper key={id} variant="outlined" sx={{ p: 1.25 }}>
+                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', sm: 'center' }}>
+                          <Box sx={{ minWidth: 0, flex: 1 }}>
+                            <Typography sx={{ fontWeight: 900 }} noWrap>
+                              {String(p?.name || id)}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" noWrap>
+                              {id}
+                            </Typography>
+                          </Box>
+                          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                            <Button size="small" variant="text" startIcon={<ContentCopyIcon fontSize="inherit" />} onClick={() => copyPresetJson(p.raw)}>
+                              复制 JSON
+                            </Button>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              startIcon={<EditOutlinedIcon fontSize="inherit" />}
+                              onClick={() => openEditor(`编辑预设（${id}）`, stringifyToolRequestRenderPreset(p.raw) || '')}
+                              disabled={loading}
+                            >
+                              编辑
+                            </Button>
+                            <Button size="small" variant="outlined" onClick={() => controller.actions.cloneToolRequestRenderPreset?.(id)} disabled={loading}>
+                              复制
+                            </Button>
+                            <Button
+                              size="small"
+                              color="error"
+                              variant="text"
+                              startIcon={<DeleteOutlineIcon fontSize="inherit" />}
+                              onClick={() => controller.actions.deleteToolRequestRenderPreset?.(id)}
+                              disabled={loading}
+                            >
+                              删除
+                            </Button>
+                          </Stack>
+                        </Stack>
+                      </Paper>
+                    )
+                  })}
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  暂无自定义预设
+                </Typography>
+              )}
+            </Paper>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={onClose}>关闭</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={editor.open} onClose={closeEditor} fullWidth maxWidth="md">
+        <DialogTitle>{editor.title || '编辑 JSON'}</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1.25}>
+            <TextField
+              value={editor.text}
+              onChange={(e) => setEditor((p) => ({ ...p, text: e.target.value }))}
+              placeholder={sample}
+              multiline
+              minRows={14}
+              fullWidth
+              disabled={loading}
+              sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
+            />
+            <Typography variant="caption" color="text.secondary">
+              支持导入单个对象、数组，或形如 {`{ presets: [...] }`} 的对象。导入时会按 id 覆盖同名自定义预设。
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeEditor}>取消</Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              controller.actions.importToolRequestRenderPresetJson?.(editor.text)
+              closeEditor()
+            }}
+            disabled={loading}
+          >
+            导入/保存
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </>
+  )
+}
+
 function PluginSettingsPage(props: {
   controller: any
   loading: boolean
@@ -3195,6 +3392,7 @@ function PluginSettingsPage(props: {
     tools: [] as any[],
     count: 0,
   }))
+  const [toolReqPresetsOpen, setToolReqPresetsOpen] = React.useState(false)
 
   const runToolServerTest = useEvent(async (baseUrlRaw: string, tokenRaw: string) => {
     const api = controller?.api
@@ -3353,6 +3551,7 @@ function PluginSettingsPage(props: {
   const composerOpacity = clampNum(Number(data?.settings?.composerOpacity ?? 86), 40, 100)
   const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
   const toolRequestRenderPreset = String((data?.settings as any)?.toolRequestRenderPreset || 'classic')
+  const toolRequestRenderPresets = Array.isArray((data?.settings as any)?.toolRequestRenderPresets) ? ((data?.settings as any).toolRequestRenderPresets as any[]) : []
   const userMessageCollapseEnabled = !!data?.settings?.userMessageCollapseEnabled
   const userMessageCollapseLines = clampNum(Number(data?.settings?.userMessageCollapseLines ?? 8), 1, 50)
   const attachSendLimitChars = clampNum(Number(data?.settings?.attachments?.sendLimitChars ?? 80000), 1000, 2000000)
@@ -3513,23 +3712,65 @@ function PluginSettingsPage(props: {
               工具调用渲染预设
             </Typography>
           </Stack>
-          <FormControl size="small" fullWidth>
-            <InputLabel id="toolreq-preset">预设</InputLabel>
-            <Select
-              labelId="toolreq-preset"
-              label="预设"
-              value={toolRequestRenderPreset}
-              onChange={(e) => controller.actions.setToolRequestRenderPreset?.(String(e.target.value || ''))}
-              disabled={loading}
-            >
-              <MenuItem value="classic">经典（默认）</MenuItem>
-              <MenuItem value="neon">霓虹（赛博）</MenuItem>
-              <MenuItem value="glass">玻璃（磨砂）</MenuItem>
-            </Select>
-          </FormControl>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <FormControl size="small" sx={{ flex: 1, minWidth: 0 }}>
+              <InputLabel id="toolreq-preset">预设</InputLabel>
+              <Select
+                labelId="toolreq-preset"
+                label="预设"
+                value={toolRequestRenderPreset}
+                onChange={(e) => controller.actions.setToolRequestRenderPreset?.(String(e.target.value || ''))}
+                disabled={loading}
+              >
+                {(() => {
+                  const out: any[] = []
+                  const builtinIds = new Set<string>(BUILTIN_TOOL_REQUEST_PRESETS.map((x) => String(x?.id || '').trim()).filter((x) => !!x))
+                  const userItems = toolRequestRenderPresets
+                    .map((x: any) => ({ id: String(x?.id || '').trim(), name: String(x?.name || '').trim() }))
+                    .filter((x: any) => x.id && x.name && !builtinIds.has(x.id))
+                    .slice(0, 60)
+
+                  const active = String(toolRequestRenderPreset || '').trim()
+                  const hasActive =
+                    !active ||
+                    BUILTIN_TOOL_REQUEST_PRESETS.some((x) => String(x?.id || '').trim() === active) ||
+                    userItems.some((x: any) => x.id === active)
+                  if (active && !hasActive) out.push(<MenuItem key="missing" value={active}>{`（未找到）${active}`}</MenuItem>)
+
+                  for (const p of BUILTIN_TOOL_REQUEST_PRESETS) {
+                    const id = String((p as any)?.id || '').trim()
+                    if (!id) continue
+                    out.push(
+                      <MenuItem key={`builtin:${id}`} value={id}>
+                        {`（内置）${String((p as any)?.name || id)}`}
+                      </MenuItem>,
+                    )
+                  }
+                  for (const p of userItems) {
+                    out.push(
+                      <MenuItem key={`user:${p.id}`} value={p.id}>
+                        {`（自定义）${p.name}`}
+                      </MenuItem>,
+                    )
+                  }
+                  return out
+                })()}
+              </Select>
+            </FormControl>
+            <Button size="small" variant="outlined" onClick={() => setToolReqPresetsOpen(true)} disabled={loading}>
+              管理…
+            </Button>
+          </Stack>
           <Typography variant="caption" color="text.secondary">
             仅影响 AI 回复中 TOOL_REQUEST 工具调用块的展示样式。
           </Typography>
+          <ToolRequestPresetsDialog
+            open={toolReqPresetsOpen}
+            onClose={() => setToolReqPresetsOpen(false)}
+            controller={controller}
+            loading={loading}
+            userPresets={toolRequestRenderPresets}
+          />
         </Box>
 
         <Divider />

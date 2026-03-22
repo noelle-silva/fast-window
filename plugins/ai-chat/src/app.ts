@@ -3,6 +3,14 @@ import { now, uid, esc, trimSlash, isHttpBaseUrl, clampTemp, normImagePaths, cla
 import { extractOpenAiDelta, sseFeed } from './core/sse'
 import { createDefaultAssistantRenderEngine } from './render/assistantEngineDefault'
 import {
+  BUILTIN_TOOL_REQUEST_PRESETS,
+  findBuiltinToolRequestPreset,
+  normalizeToolRequestRenderPresets,
+  resolveToolRequestRenderPreset,
+  stringifyToolRequestRenderPreset,
+  validateToolRequestRenderPreset,
+} from './core/toolRequestPresets'
+import {
   createToolRequestStreamTruncator,
   executeToolCallsOnServer,
   formatToolResponseBlock,
@@ -560,6 +568,7 @@ import mammoth from 'mammoth/mammoth.browser'
             composerOpacity: 86,
             composerBlur: 10,
             toolRequestRenderPreset: 'classic',
+            toolRequestRenderPresets: [],
             userMessageCollapseEnabled: false,
             userMessageCollapseLines: 8,
             attachments: {
@@ -631,6 +640,7 @@ import mammoth from 'mammoth/mammoth.browser'
     if (typeof d.settings.composerOpacity !== 'number' || !isFinite(d.settings.composerOpacity)) d.settings.composerOpacity = 86
     if (typeof d.settings.composerBlur !== 'number' || !isFinite(d.settings.composerBlur)) d.settings.composerBlur = 10
     if (typeof d.settings.toolRequestRenderPreset !== 'string') d.settings.toolRequestRenderPreset = 'classic'
+    ;(d.settings as any).toolRequestRenderPresets = normalizeToolRequestRenderPresets((d.settings as any).toolRequestRenderPresets)
     if (typeof d.settings.userMessageCollapseEnabled !== 'boolean') d.settings.userMessageCollapseEnabled = false
     if (typeof d.settings.userMessageCollapseLines !== 'number' || !isFinite(d.settings.userMessageCollapseLines)) d.settings.userMessageCollapseLines = 8
     if (!d.settings.attachments || typeof d.settings.attachments !== 'object') d.settings.attachments = {}
@@ -646,11 +656,7 @@ import mammoth from 'mammoth/mammoth.browser'
     d.settings.topbarBlur = clamp(Math.round(Number(d.settings.topbarBlur || 0)), 0, 24)
     d.settings.composerOpacity = clamp(Math.round(Number(d.settings.composerOpacity || 0)), 40, 100)
     d.settings.composerBlur = clamp(Math.round(Number(d.settings.composerBlur || 0)), 0, 24)
-    d.settings.toolRequestRenderPreset = (() => {
-      const v = String(d.settings.toolRequestRenderPreset || '').trim()
-      if (v === 'classic' || v === 'neon' || v === 'glass') return v
-      return 'classic'
-    })()
+    d.settings.toolRequestRenderPreset = String(d.settings.toolRequestRenderPreset || '').trim().slice(0, 60) || 'classic'
     d.settings.userMessageCollapseLines = clamp(Math.round(Number(d.settings.userMessageCollapseLines || 8)), 1, 50)
     at.sendLimitChars = clamp(Math.round(Number(at.sendLimitChars || DEFAULT_ATTACH_SEND_LIMIT_CHARS)), 1000, 2_000_000)
     if (!Array.isArray(d.settings.providers) || d.settings.providers.length === 0) d.settings.providers = defaultData().settings.providers
@@ -926,8 +932,14 @@ import mammoth from 'mammoth/mammoth.browser'
 
   function renderAssistantInto(el, text) {
     const enabled = !!state.data?.settings?.stickers?.enabled
-    const toolRequestPreset = String(state.data?.settings?.toolRequestRenderPreset || 'classic')
-    renderAssistantIntoRaw(el, text, { stickersEnabled: enabled, getStickerPath: getStickerRelPath, toolRequestPreset })
+    const activeId = String(state.data?.settings?.toolRequestRenderPreset || 'classic')
+    const userPresets = (state.data?.settings as any)?.toolRequestRenderPresets
+    const resolved = resolveToolRequestRenderPreset(activeId, userPresets)
+    renderAssistantIntoRaw(el, text, {
+      stickersEnabled: enabled,
+      getStickerPath: getStickerRelPath,
+      toolRequestPreset: resolved,
+    })
   }
 
   function mermaidItemsFromDom() {
@@ -4380,10 +4392,105 @@ import mammoth from 'mammoth/mammoth.browser'
       },
       setToolRequestRenderPreset: (preset) => {
         if (!state.data) return
-        const v = String(preset || '').trim()
-        state.data.settings.toolRequestRenderPreset = v === 'neon' || v === 'glass' || v === 'classic' ? v : 'classic'
+        const v = String(preset || '').trim().slice(0, 60)
+        state.data.settings.toolRequestRenderPreset = v || 'classic'
         save().catch(() => {})
         emit()
+      },
+      cloneToolRequestRenderPreset: (sourceId) => {
+        if (!state.data) return
+        const sid = String(sourceId || '').trim()
+        if (!sid) return
+
+        const userPresets = (state.data.settings as any).toolRequestRenderPresets
+        const list = Array.isArray(userPresets) ? userPresets : []
+
+        const builtin = findBuiltinToolRequestPreset(sid)
+        const fromUser = list.find((x: any) => x && typeof x === 'object' && String(x?.id || '').trim() === sid) || null
+        const src = builtin || fromUser
+        if (!src) return api.ui?.showToast?.('未找到预设')
+
+        const base = stringifyToolRequestRenderPreset(src)
+        let obj: any = null
+        try {
+          obj = JSON.parse(base || '{}')
+        } catch (_) {}
+        if (!obj || typeof obj !== 'object') return api.ui?.showToast?.('复制失败（预设异常）')
+
+        const genId = () => {
+          const id = uid('tp').slice(0, 60)
+          return id.replace(/[^a-zA-Z0-9._-]/g, '_')
+        }
+        const existingIds = new Set<string>([...BUILTIN_TOOL_REQUEST_PRESETS.map((x) => x.id), ...list.map((x: any) => String(x?.id || '').trim())])
+        let nextId = ''
+        for (let i = 0; i < 8; i++) {
+          const tryId = genId()
+          if (!existingIds.has(tryId)) {
+            nextId = tryId
+            break
+          }
+        }
+        if (!nextId) return api.ui?.showToast?.('复制失败（id 冲突）')
+
+        obj.id = nextId
+        obj.name = `${String(obj.name || '预设').trim() || '预设'}（副本）`.slice(0, 60)
+
+        const v = validateToolRequestRenderPreset(obj)
+        if (!v.ok || !v.preset) return api.ui?.showToast?.(v.error || '复制失败（预设无效）')
+
+        ;(state.data.settings as any).toolRequestRenderPresets = normalizeToolRequestRenderPresets(list.concat([v.preset]))
+        state.data.settings.toolRequestRenderPreset = v.preset.id
+        save().catch(() => {})
+        emit()
+        api.ui?.showToast?.('已复制预设')
+      },
+      deleteToolRequestRenderPreset: (presetId) => {
+        if (!state.data) return
+        const id = String(presetId || '').trim()
+        if (!id) return
+        const list = Array.isArray((state.data.settings as any).toolRequestRenderPresets) ? ((state.data.settings as any).toolRequestRenderPresets as any[]) : []
+        const next = list.filter((x: any) => String(x?.id || '').trim() !== id)
+        ;(state.data.settings as any).toolRequestRenderPresets = normalizeToolRequestRenderPresets(next)
+        if (String(state.data.settings.toolRequestRenderPreset || '').trim() === id) state.data.settings.toolRequestRenderPreset = 'classic'
+        save().catch(() => {})
+        emit()
+        api.ui?.showToast?.('已删除预设')
+      },
+      importToolRequestRenderPresetJson: (jsonText) => {
+        if (!state.data) return
+        const raw = String(jsonText || '').trim()
+        if (!raw) return api.ui?.showToast?.('请输入 JSON')
+
+        let parsed: any = null
+        try {
+          parsed = JSON.parse(raw)
+        } catch (e: any) {
+          return api.ui?.showToast?.(`JSON 解析失败：${String(e?.message || e || 'unknown')}`)
+        }
+
+        const items = Array.isArray(parsed) ? parsed : parsed && Array.isArray(parsed.presets) ? parsed.presets : [parsed]
+        if (!items.length) return api.ui?.showToast?.('JSON 里没有预设')
+
+        const list = Array.isArray((state.data.settings as any).toolRequestRenderPresets) ? ((state.data.settings as any).toolRequestRenderPresets as any[]) : []
+        const map = new Map<string, any>(list.map((x: any) => [String(x?.id || '').trim(), x]))
+
+        let ok = 0
+        let bad = 0
+        for (const it of items) {
+          const v = validateToolRequestRenderPreset(it)
+          if (!v.ok || !v.preset) {
+            bad++
+            continue
+          }
+          map.set(v.preset.id, v.preset)
+          ok++
+          if (ok >= 60) break
+        }
+
+        ;(state.data.settings as any).toolRequestRenderPresets = normalizeToolRequestRenderPresets(Array.from(map.values()))
+        save().catch(() => {})
+        emit()
+        api.ui?.showToast?.(bad ? `导入完成：成功 ${ok}，失败 ${bad}` : `导入完成：成功 ${ok}`)
       },
       toggleUserMessageCollapse: () => {
         if (!state.data) return
