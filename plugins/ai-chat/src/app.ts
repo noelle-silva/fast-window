@@ -2709,44 +2709,82 @@ import mammoth from 'mammoth/mammoth.browser'
               return items.map((c) => ({ tool_name: String(c?.tool_name || ''), status: s, error }))
             }
 
+            const roleId = String(job?.roleId || '')
+            const chatId = String(job?.chatId || '')
+            const anchorMid = String(job?.assistantMid || '')
+
+            const assistantMid2 = uid('m')
+            const jobId2 = uid('job')
+
+            const isCanceledByMid = async (mid) => {
+              const m = String(mid || '').trim()
+              if (!m) return false
+              try {
+                const v = await api.storage.get(cancelMidKey(m))
+                return !!v
+              } catch (_) {
+                return false
+              }
+            }
+
+            const markAssistantFailed = async (msg) => {
+              const text = String(msg || '').trim() || '（工具调用失败）'
+              try {
+                await patchAssistantMessage({ roleId, chatId, assistantMid: assistantMid2 }, text)
+              } catch (_) {}
+            }
+
             let streamEnabled = !!job?.stream
             let calls = []
             let results = []
+
+            const insertedAssistant = await insertMessagesAfterMessageId(job, anchorMid, [
+              {
+                id: assistantMid2,
+                role: 'assistant',
+                content: '（生成中…）',
+                pending: true,
+                streaming: !!streamEnabled,
+                createdAt: now(),
+              },
+            ])
+
+            if (!insertedAssistant.ok || !insertedAssistant.insertedAssistant) return
+            if (await isCanceledByMid(assistantMid2)) return
 
             try {
               const parsed = parseToolRequestCalls(out)
               calls = mapParsedCallsToServerCalls(parsed.calls)
 
-              if (!parsed.ok) {
-                results = buildFailureResults(calls, `解析 TOOL_REQUEST 失败：${String(parsed.error || 'unknown')}`, 'failed')
-              } else {
-                let baseUrl = ''
-                let token = ''
-                try {
-                  const cfg = await loadToolCallServerConfigFromStorage()
-                  baseUrl = cfg.baseUrl
-                  token = cfg.token
-                  streamEnabled = !!cfg.streamEnabled
-                } catch (e) {
-                  results = buildFailureResults(calls, `读取工具服务配置失败：${String(e?.message || e || 'unknown')}`, 'failed')
-                }
+              let baseUrl = ''
+              let token = ''
+              try {
+                const cfg = await loadToolCallServerConfigFromStorage()
+                baseUrl = cfg.baseUrl
+                token = cfg.token
+                streamEnabled = !!cfg.streamEnabled
+              } catch (e) {
+                results = buildFailureResults(calls, `读取工具服务配置失败：${String(e?.message || e || 'unknown')}`, 'failed')
+              }
 
-                if (!results.length) {
-                  if (!baseUrl || !isHttpBaseUrl(baseUrl)) {
-                    results = buildFailureResults(calls, '工具服务未配置或 Base URL 无效（需 http/https）', 'failed')
-                  } else {
-                    try {
-                      const resp = await executeToolCallsOnServer({
-                        request: (x) => api.net.request(x as any) as any,
-                        server: { baseUrl, token },
-                        body: { timeout_ms: 30000, calls },
-                      })
-                      const box = (resp as any)?.json
-                      results = Array.isArray(box?.results) ? box.results : []
-                    } catch (e) {
-                      const msg = String(e?.message || e || 'tool server request failed')
-                      results = buildFailureResults(calls, msg, 'failed')
-                    }
+              if (!results.length) {
+                if (!parsed.ok) {
+                  results = buildFailureResults(calls, `解析 TOOL_REQUEST 失败：${String(parsed.error || 'unknown')}`, 'failed')
+                } else if (!baseUrl || !isHttpBaseUrl(baseUrl)) {
+                  results = buildFailureResults(calls, '工具服务未配置或 Base URL 无效（需 http/https）', 'failed')
+                } else {
+                  if (await isCanceledByMid(assistantMid2)) return
+                  try {
+                    const resp = await executeToolCallsOnServer({
+                      request: (x) => api.net.request(x as any) as any,
+                      server: { baseUrl, token },
+                      body: { timeout_ms: 30000, calls },
+                    })
+                    const box = (resp as any)?.json
+                    results = Array.isArray(box?.results) ? box.results : []
+                  } catch (e) {
+                    const msg = String(e?.message || e || 'tool server request failed')
+                    results = buildFailureResults(calls, msg, 'failed')
                   }
                 }
               }
@@ -2758,43 +2796,46 @@ import mammoth from 'mammoth/mammoth.browser'
               results = buildFailureResults(calls, '工具调用失败（未知原因）', 'failed')
             }
 
+            if (await isCanceledByMid(assistantMid2)) return
+
             const toolResponseText = formatToolResponseBlock(results as any)
             const toolMid = uid('m')
-            const assistantMid2 = uid('m')
 
-          const inserted = await insertMessagesAfterMessageId(job, String(job?.assistantMid || ''), [
-            { id: toolMid, role: 'user', content: toolResponseText, createdAt: now() },
-            {
-              id: assistantMid2,
-              role: 'assistant',
-              content: '（生成中…）',
-              pending: true,
-              streaming: !!streamEnabled,
+            const insertedTool = await insertMessagesAfterMessageId(job, anchorMid, [
+              { id: toolMid, role: 'user', content: toolResponseText, createdAt: now() },
+            ])
+
+            if (!insertedTool.ok) {
+              await markAssistantFailed('（工具调用失败：写入 TOOL_RESPONSE 失败）')
+              return
+            }
+
+            if (await isCanceledByMid(assistantMid2)) return
+
+            const job2 = {
+              id: jobId2,
+              kind: 'openai.chat.completions',
+              status: 'queued',
               createdAt: now(),
-            },
-          ])
+              roleId,
+              chatId,
+              assistantMid: assistantMid2,
+              cutoffMid: assistantMid2,
+              stream: !!streamEnabled,
+            }
 
-          if (!inserted.ok || !inserted.insertedAssistant) return
+            try {
+              await api.storage.set(jobKey(jobId2), job2)
+              if (await isCanceledByMid(assistantMid2)) return
+              await enqueueJob(jobId2)
+            } catch (_) {
+              await markAssistantFailed('（工具调用失败：排队下一轮失败）')
+              return
+            }
+          })().catch(() => {})
 
-          const jobId2 = uid('job')
-          const job2 = {
-            id: jobId2,
-            kind: 'openai.chat.completions',
-            status: 'queued',
-            createdAt: now(),
-            roleId: String(job.roleId || ''),
-            chatId: String(job.chatId || ''),
-            assistantMid: assistantMid2,
-            cutoffMid: assistantMid2,
-            stream: !!streamEnabled,
-          }
-
-          await api.storage.set(jobKey(jobId2), job2)
-          await enqueueJob(jobId2)
-        })().catch(() => {})
-
-        return
-      }
+          return
+        }
 
       await flush(true)
       await patchAssistantMessage(job, out)
