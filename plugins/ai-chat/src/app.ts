@@ -40,6 +40,7 @@ import { extractPptMarkdown } from './core/ppt'
   const SPLIT_SCHEMA_VERSION = 1
   const SPLIT_META_KEY = 'meta/index'
   const STICKERS_KEY = 'stickers/index'
+  const UI_CHAT_UPDATED_NOTICE_KEY = 'ui/notice/chat-updated'
   const runtime = String(api?.__meta?.runtime || 'ui')
   const MAX_DRAFT_IMAGES = 8
   const MAX_DRAFT_FILES = 6
@@ -260,6 +261,16 @@ import { extractPptMarkdown } from './core/ppt'
 
   function splitChatKey(folder, chatId) {
     return `chats/${String(folder || '')}/${String(chatId || '')}`
+  }
+
+  async function writeChatUpdatedNotice(roleId, chatId, updatedAt) {
+    const rid = String(roleId || '').trim()
+    const cid = String(chatId || '').trim()
+    if (!rid || !cid) return
+    const t = now()
+    try {
+      await api.storage.set(UI_CHAT_UPDATED_NOTICE_KEY, { id: uid('n'), roleId: rid, chatId: cid, updatedAt: Number(updatedAt || 0), at: t })
+    } catch (_) {}
   }
 
   function normalizeSplitMeta(raw) {
@@ -2382,6 +2393,8 @@ import { extractPptMarkdown } from './core/ppt'
         splitMetaCache = meta
       }
     } catch (_) {}
+
+    await writeChatUpdatedNotice(roleId, chatId, chat.updatedAt)
   }
 
   async function insertMessagesAfterMessageId(job, afterMid, items) {
@@ -2429,6 +2442,8 @@ import { extractPptMarkdown } from './core/ppt'
         splitMetaCache = meta
       }
     } catch (_) {}
+
+    await writeChatUpdatedNotice(roleId, chatId, chat.updatedAt)
 
     return { ok: true as const, insertedAssistant: !hasPendingAssistant && toInsert.some((m) => String(m?.role || '') === 'assistant') }
   }
@@ -3533,11 +3548,11 @@ import { extractPptMarkdown } from './core/ppt'
   }
 
   let uiPollTimer = 0
-  let uiLastSyncMs = 0
   let uiLastMetaCheckMs = 0
   let uiLastMetaUpdatedAt = 0
   const uiStreamCache = new Map()
   let uiChatSyncing = false
+  let uiLastChatUpdatedNoticeId = ''
 
   async function syncActiveRoleChatsFromStorage(metaOverride?: any) {
     if (!state.data) return
@@ -3567,6 +3582,8 @@ import { extractPptMarkdown } from './core/ppt'
       if (!Array.isArray(box.chats)) box.chats = []
 
       const keepChatNow = String(box.activeChatId || '')
+      const activeChatId = keepChatNow || desiredActiveChatId || String(desiredChatIds[0] || '')
+
       const curChats = box.chats
       const curById = new Map<string, any>()
       for (const c of curChats) {
@@ -3577,15 +3594,34 @@ import { extractPptMarkdown } from './core/ppt'
       const nextChats: any[] = []
       for (const cid of desiredChatIds) {
         const cur = curById.get(cid) || null
-        const curUpdatedAt = Number(cur?.updatedAt || 0)
-        const metaUpdatedAt = Number((wantUpdatedAt as any)?.[cid] || 0)
-        if (cur && (!metaUpdatedAt || curUpdatedAt === metaUpdatedAt)) {
-          nextChats.push(cur)
+        if (!cur) {
+          // 新会话出现在索引里：只在必要时读取一次文件，不做全量刷新。
+          const c0 = await api.storage.get(splitChatKey(folder, cid))
+          const c1 = c0 && typeof c0 === 'object' ? c0 : null
+          if (c1) nextChats.push(c1)
           continue
         }
-        const c0 = await api.storage.get(splitChatKey(folder, cid))
-        const c1 = c0 && typeof c0 === 'object' ? c0 : null
-        if (c1) nextChats.push(c1)
+
+        // 非当前会话：只同步 updatedAt（用于列表排序/时间显示），避免把轮询扩散成“全量 chat 刷新”。
+        const metaUpdatedAt = Number((wantUpdatedAt as any)?.[cid] || 0)
+        if (metaUpdatedAt && cid !== activeChatId) cur.updatedAt = metaUpdatedAt
+        nextChats.push(cur)
+      }
+
+      // 当前会话：如果索引里 updatedAt 变了，就只读取这一份 chat 文件刷新消息内容。
+      if (activeChatId) {
+        const metaUpdatedAt = Number((wantUpdatedAt as any)?.[activeChatId] || 0)
+        const cur = curById.get(activeChatId) || null
+        const curUpdatedAt = Number(cur?.updatedAt || 0)
+        if (metaUpdatedAt && metaUpdatedAt !== curUpdatedAt) {
+          const c0 = await api.storage.get(splitChatKey(folder, activeChatId))
+          const c1 = c0 && typeof c0 === 'object' ? c0 : null
+          if (c1) {
+            const idx0 = nextChats.findIndex((c) => String(c?.id || '') === activeChatId)
+            if (idx0 >= 0) nextChats[idx0] = c1
+            else nextChats.unshift(c1)
+          }
+        }
       }
 
       box.chats = nextChats
@@ -3596,6 +3632,73 @@ import { extractPptMarkdown } from './core/ppt'
     } finally {
       uiChatSyncing = false
     }
+  }
+
+  async function syncChatByIdFromStorage(roleId, chatId) {
+    if (!state.data) return false
+    const rid = String(roleId || '').trim()
+    const cid = String(chatId || '').trim()
+    if (!rid || !cid) return false
+
+    const meta = (await loadSplitMeta()) || splitMetaCache
+    if (!meta) return false
+    const folder = String(meta.roleFolders?.[rid] || '')
+    if (!folder) return false
+
+    const raw = await api.storage.get(splitChatKey(folder, cid))
+    const chat = raw && typeof raw === 'object' ? raw : null
+    if (!chat) return false
+
+    if (!state.data.chatsByRole || typeof state.data.chatsByRole !== 'object') state.data.chatsByRole = {}
+    if (!state.data.chatsByRole[rid] || typeof state.data.chatsByRole[rid] !== 'object') state.data.chatsByRole[rid] = { activeChatId: '', chats: [] }
+    const box = state.data.chatsByRole[rid]
+    if (!Array.isArray(box.chats)) box.chats = []
+
+    const idx = box.chats.findIndex((c) => String(c?.id || '') === cid)
+    if (idx >= 0) box.chats[idx] = chat
+    else box.chats.unshift(chat)
+
+    return true
+  }
+
+  async function applyChatUpdatedNoticeOnce() {
+    if (state.loading || !state.data) return false
+    let raw = null
+    try {
+      raw = await api.storage.get(UI_CHAT_UPDATED_NOTICE_KEY)
+    } catch (_) {
+      raw = null
+    }
+    if (!raw || typeof raw !== 'object') return false
+
+    const nid = String((raw as any).id || '')
+    if (!nid || nid === uiLastChatUpdatedNoticeId) return false
+    uiLastChatUpdatedNoticeId = nid
+
+    const rid = String((raw as any).roleId || '').trim()
+    const cid = String((raw as any).chatId || '').trim()
+    const updatedAt = Number((raw as any).updatedAt || 0)
+    if (!rid || !cid) return false
+
+    const activeRid = String(state.draft.activeRoleId || state.data?.ui?.activeRoleId || '').trim()
+    if (!activeRid || rid !== activeRid) return false
+
+    const activeChatId = String(activeChatFromData()?.id || '').trim()
+    if (activeChatId && cid === activeChatId) {
+      const ok = await syncChatByIdFromStorage(rid, cid)
+      return !!ok
+    }
+
+    // 非当前会话：只更新列表时间（如果该会话在内存里）。
+    const box = state.data?.chatsByRole?.[rid]
+    const chats = Array.isArray(box?.chats) ? box.chats : []
+    const it = chats.find((c) => String(c?.id || '') === cid) || null
+    if (it && updatedAt && Number(it.updatedAt || 0) !== updatedAt) {
+      it.updatedAt = updatedAt
+      return true
+    }
+
+    return false
   }
 
   function reapplyUiStreamCache(chatOverride) {
@@ -3638,13 +3741,22 @@ import { extractPptMarkdown } from './core/ppt'
     let chat = activeChatFromData()
     if (!chat) return
 
+    try {
+      const changedByNotice = await applyChatUpdatedNoticeOnce()
+      if (changedByNotice) {
+        chat = activeChatFromData()
+        reapplyUiStreamCache(chat)
+        emit()
+      }
+    } catch (_) {}
+
     const items = Array.isArray(chat.messages) ? chat.messages : []
     const pending = items.filter((m) => m && m.role === 'assistant' && m.pending).slice(-3)
 
-      if (pending.length) {
-        let changed = false
-        for (const m of pending) {
-          if (!m.streaming) continue
+    if (pending.length) {
+      let changed = false
+      for (const m of pending) {
+        if (!m.streaming) continue
         const s = await api.storage.get(streamKey(String(m.id || '')))
         const text = String(s?.text || '')
         if (!text) continue
@@ -3656,9 +3768,10 @@ import { extractPptMarkdown } from './core/ppt'
       }
       if (changed) emit()
 
+      // 有 pending assistant 时，工具调用/后台写入的落盘也更频繁；此时把 meta 检查频率提到 tick 级别。
       const t = now()
-      if (t - uiLastSyncMs > 900) {
-        uiLastSyncMs = t
+      if (t - uiLastMetaCheckMs > 350) {
+        uiLastMetaCheckMs = t
         if (state.sending || state.pendingChat) return
         try {
           const meta = await loadSplitMeta()
