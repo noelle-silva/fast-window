@@ -174,6 +174,67 @@
 
 第一阶段可先只实现 `tauri.invoke`，流式作为第二阶段。
 
+## 7.1 TODO（记录在案，暂不实现）
+
+- `tauri.blob`：支持 `ArrayBuffer`/分片上传（transferable），避免 base64 膨胀与大 JSON 载荷。
+  - 目标：让“写入图片/大文件”走二进制通道，再由宿主落盘或转发给底层命令。
+  - 暂缓原因：当前 16MB JSON 上限已覆盖大多数 Canvas 场景，优先解决 Stream/事件桥接瓶颈。
+
+## 7.2 Stream 网关简要设计（将按此实现）
+
+目标：复用现有 `__fastWindowStream` 推送机制，把两类“长连接/事件源”统一成 *streamId* 句柄：
+
+1) **Channel/进度流**：宿主侧创建 Tauri `Channel`，把回调事件逐条推回 iframe。
+2) **全局事件监听**：宿主侧调用 `@tauri-apps/api/event.listen`，把事件推回 iframe。
+
+### 7.2.1 插件侧 API（iframe 注入）
+
+- `fastWindow.tauri.streamOpen(spec) -> { streamId }`
+- `fastWindow.tauri.streamCancel(streamId) -> null`
+- `fastWindow.tauri.stream(spec) -> AsyncIterator`（便捷封装：`open + createStream(streamId)`）
+
+插件通过 `for await` 消费事件；取消用 `stream.cancel()` 或显式 `streamCancel(streamId)`。
+
+### 7.2.2 复用 `__fastWindowStream`
+
+沿用现有格式：宿主通过 `postStream({ streamId, event })` 向 iframe 推送：
+
+- `event.type === 'start'`：开始（包含 kind 等元信息）
+- `event.type === 'data'`：Channel 回调的原始数据（统一包在 `data` 字段里）
+- `event.type === 'event'`：全局事件（包含 `name/payload`）
+- `event.type === 'result'`：底层 command 最终返回值（在 `end` 之前推送）
+- `event.type === 'end'`：结束（可带 `canceled`）
+- `event.type === 'error'`：错误（带 message）
+
+iframe 侧的 `createStream(streamId)` 机制保持不变（或轻微泛化，让 cancel 方法可配置为 `tauri.streamCancel`）。
+
+### 7.2.3 open/取消句柄管理（宿主侧）
+
+宿主维护一个全局表：`Map<streamId, StreamHandle>`，其中包含：
+
+- `pluginId`：归属插件（用于 cancel 鉴权与清理）
+- `cancel()`：释放底层资源（unlisten / 标记关闭 / 最佳努力取消）
+- `closed`：防止重复 end/error
+
+`streamCancel(streamId)`：仅允许同一 `pluginId` 取消；取消后推送 `end` 并从表删除。
+
+### 7.2.4 鉴权模型（requires）
+
+- Channel/进度流：需要 `tauri:<command>`（支持 `tauri:<prefix>*`；高危 command 仍拒绝通配）
+- 全局事件：使用“伪命令”表达式承载鉴权，例如：
+  - `tauri:event.listen|tauri://file-drop`
+  - 或通配 `tauri:event.listen|*`
+
+网关不关心事件含义，只做 allowlist。
+
+### 7.2.5 对 Rust/命令的约束（为了真正“通用”）
+
+要走 Channel 流式的自定义命令，建议统一 payload 形态：
+
+- `invoke(command, { ...payload, channel })`（即 channel 放在 payload 对象里）
+
+这样网关无需为“Channel 参数在第几位”做任何适配。
+
 ## 8. 版本与迁移策略
 
 - 现有 v2 插件不受影响（仍可用 `net.request/files.*` 等 legacy 方法）。
@@ -229,6 +290,86 @@ api.tauri.invoke({ command: 'get_plugins_dir', payload: {} })
 3) 启动应用后打开该插件：
 - 若 toast 显示 `pluginsDir=...`，说明网关转发链路 OK。
 - 若提示 `Capability denied`，检查 `requires` 是否包含 `tauri:get_plugins_dir`。
+
+## 12. 快速测试（在现有插件里验证 Stream / event.listen）
+
+目标：验证 `fastWindow.tauri.stream({ command: 'event.listen|<eventName>' })` 可收到事件。
+
+这里用项目内现成事件 `fast-window:webview-settings-updated`（Rust 侧在 `set_webview_settings` 里 emit）。
+
+1) 以 `plugins/memo/manifest.json` 为例，在 `requires` 里追加：
+
+```json
+"tauri:event.listen|fast-window:webview-settings-updated",
+"tauri:get_webview_settings",
+"tauri:set_webview_settings"
+```
+
+2) 在 `plugins/memo/index.js` 临时加入：
+
+```js
+const api = window.fastWindow
+
+;(async () => {
+  const stream = await api.tauri.stream({ command: 'event.listen|fast-window:webview-settings-updated' })
+  ;(async () => {
+    for await (const ev of stream) {
+      if (ev && ev.type === 'event') {
+        api.ui.showToast('got event: ' + ev.name)
+        break
+      }
+    }
+  })()
+
+  const cur = await api.tauri.invoke({ command: 'get_webview_settings', payload: {} })
+  await api.tauri.invoke({ command: 'set_webview_settings', payload: { settings: cur } })
+})().catch(err => api.ui.showToast('stream test failed: ' + String(err && err.message ? err.message : err)))
+```
+
+3) 打开插件后，若出现 toast：`got event: fast-window:webview-settings-updated`，则 event.listen 网关 OK。
+
+> Channel 流（下载进度条）测试依赖一个“接受 payload.channel 的命令”。网关已就绪；后续在 Rust 侧新增任何符合约束的命令即可直接使用，无需改网关代码。
+
+## 13. 端到端测试（验证 Channel 约束：payload.channel）
+
+项目已内置一个最小测试命令：`gateway_test_channel`（Rust 侧签名包含 `channel: Channel<_>`，并按 `req.total` 推送进度事件）。
+
+1) 以 `plugins/memo/manifest.json` 为例，在 `requires` 里追加：
+
+```json
+"tauri:gateway_test_channel"
+```
+
+2) 在 `plugins/memo/index.js` 临时加入：
+
+```js
+const api = window.fastWindow
+
+;(async () => {
+  const stream = await api.tauri.stream({
+    command: 'gateway_test_channel',
+    payload: { req: { total: 20, delayMs: 50 } },
+    channelKey: 'channel',
+    timeoutMs: 10_000,
+  })
+
+  let last = 0
+  for await (const ev of stream) {
+    if (ev && ev.type === 'data' && ev.data && typeof ev.data.seq === 'number') {
+      last = ev.data.seq
+      if (last % 5 === 0) api.ui.showToast(`progress ${last}/${ev.data.total}`)
+    }
+    if (ev && ev.type === 'result') {
+      api.ui.showToast('done, total=' + String(ev.result && ev.result.total))
+    }
+  }
+})().catch(err => api.ui.showToast('channel test failed: ' + String(err && err.message ? err.message : err)))
+```
+
+预期：
+- 会逐步收到 `{ type: 'data', data: { seq, total } }`
+- 最后收到 `{ type: 'result', result: { total } }`，并正常结束
+
 
 ---
 

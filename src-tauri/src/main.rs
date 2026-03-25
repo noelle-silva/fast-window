@@ -1073,6 +1073,42 @@ fn http_request_stream_cancel(app: tauri::AppHandle, stream_id: String) -> Resul
     Ok(())
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GatewayTestChannelRequest {
+    total: u32,
+    delay_ms: Option<u64>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GatewayTestChannelEvent {
+    seq: u32,
+    total: u32,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GatewayTestChannelResult {
+    total: u32,
+}
+
+#[tauri::command]
+async fn gateway_test_channel(
+    req: GatewayTestChannelRequest,
+    channel: Channel<GatewayTestChannelEvent>,
+) -> Result<GatewayTestChannelResult, String> {
+    let total = req.total.max(1).min(200);
+    let delay_ms = req.delay_ms.unwrap_or(50).min(2_000);
+
+    for seq in 1..=total {
+        let _ = channel.send(GatewayTestChannelEvent { seq, total });
+        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+    }
+
+    Ok(GatewayTestChannelResult { total })
+}
+
 async fn http_request_send(
     req: HttpRequest,
     timeout_cap_ms: u64,
@@ -5856,6 +5892,7 @@ fn main() {
             http_request_base64,
             http_request_stream,
             http_request_stream_cancel,
+            gateway_test_channel,
             storage_get,
             storage_set,
             storage_remove,

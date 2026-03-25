@@ -1,4 +1,5 @@
 import { Channel, invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import type { PluginContext } from './pluginApi'
 import { isCapabilityAllowed, type PluginMethodCapability } from './pluginContract'
@@ -7,6 +8,8 @@ import { PluginBridgeError } from './pluginBridge'
 export type PluginMethodName =
   | 'host.back'
   | 'tauri.invoke'
+  | 'tauri.streamOpen'
+  | 'tauri.streamCancel'
   | 'clipboard.readText'
   | 'clipboard.writeText'
   | 'clipboard.readImage'
@@ -62,6 +65,17 @@ const DEFAULT_TAURI_INVOKE_TIMEOUT_MS = 8000
 const MAX_TAURI_INVOKE_TIMEOUT_MS = 5 * 60 * 1000
 const LONG_TAURI_INVOKE_TIMEOUT_MS = 15 * 60 * 1000
 
+const MAX_TAURI_STREAMS_TOTAL = 128
+const MAX_TAURI_STREAMS_PER_PLUGIN = 32
+
+type StreamHandle = {
+  pluginId: string
+  closed: boolean
+  cancel: () => void
+}
+
+const tauriStreams = new Map<string, StreamHandle>()
+
 function approxJsonBytes(value: unknown): number {
   try {
     const raw = JSON.stringify(value)
@@ -115,6 +129,25 @@ function resolveTauriInvokeTimeoutMs(command: string, timeoutMs: unknown): numbe
   return DEFAULT_TAURI_INVOKE_TIMEOUT_MS
 }
 
+function makeStreamId(pluginId: string): string {
+  return `tauri-${pluginId}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function countStreamsForPlugin(pluginId: string): number {
+  let n = 0
+  for (const h of tauriStreams.values()) {
+    if (h.pluginId === pluginId) n += 1
+  }
+  return n
+}
+
+function isSafePlainKey(key: string): boolean {
+  const k = String(key || '').trim()
+  if (!k) return false
+  if (k === '__proto__' || k === 'constructor' || k === 'prototype') return false
+  return true
+}
+
 async function invokeWithTimeout<T>(command: string, payload: any, timeoutMs: number): Promise<T> {
   let timer: any = null
   try {
@@ -166,6 +199,155 @@ const methods: Record<PluginMethodName, MethodDef> = {
 
       const timeoutMs = resolveTauriInvokeTimeoutMs(command, spec?.timeoutMs)
       return invokeWithTimeout<any>(command, spec?.payload ?? {}, timeoutMs)
+    },
+  },
+
+  'tauri.streamOpen': {
+    handler: async (ctx, args, extra) => {
+      if (!extra.postStream) throw new PluginBridgeError('BAD_REQUEST', 'postStream is required for tauri.streamOpen')
+
+      const spec = (args?.[0] as any) ?? null
+      const command = String(spec?.command ?? '').trim()
+      if (!command) throw new PluginBridgeError('BAD_REQUEST', 'command is required')
+      if (command.length > 256) throw new PluginBridgeError('BAD_REQUEST', 'command is too long')
+      if (command.includes('\n') || command.includes('\r')) throw new PluginBridgeError('BAD_REQUEST', 'command is invalid')
+
+      if (!isTauriCommandAllowed(ctx.requires, command)) {
+        throw new PluginBridgeError('CAPABILITY_DENIED', `Capability denied: tauri:${command}`, { needed: `tauri:${command}` })
+      }
+
+      if (tauriStreams.size >= MAX_TAURI_STREAMS_TOTAL) {
+        throw new PluginBridgeError('BAD_REQUEST', 'too many open streams')
+      }
+      if (countStreamsForPlugin(ctx.id) >= MAX_TAURI_STREAMS_PER_PLUGIN) {
+        throw new PluginBridgeError('BAD_REQUEST', 'too many open streams for this plugin')
+      }
+
+      const streamId = makeStreamId(ctx.id)
+
+      const post = (event: any) => extra.postStream?.({ streamId, event })
+
+      // 事件监听：command = "event.listen|<eventName>"
+      if (command.startsWith('event.listen|')) {
+        const eventName = command.slice('event.listen|'.length).trim()
+        if (!eventName) throw new PluginBridgeError('BAD_REQUEST', 'event name is required')
+
+        let unlisten: null | (() => void) = null
+        const handle: StreamHandle = {
+          pluginId: ctx.id,
+          closed: false,
+          cancel: () => {
+            if (handle.closed) return
+            handle.closed = true
+            try { unlisten?.() } catch {}
+          },
+        }
+        tauriStreams.set(streamId, handle)
+
+        post({ type: 'start', kind: 'event.listen', name: eventName })
+        void Promise.resolve()
+          .then(async () => {
+            const u = await listen(eventName, e => {
+              const h = tauriStreams.get(streamId)
+              if (!h || h.closed) return
+              post({ type: 'event', name: e.event, payload: e.payload, id: (e as any).id })
+            })
+            unlisten = u
+            const h = tauriStreams.get(streamId)
+            if (!h || h.closed) {
+              try { u() } catch {}
+              tauriStreams.delete(streamId)
+            }
+          })
+          .catch(err => {
+            const h = tauriStreams.get(streamId)
+            if (!h || h.closed) return
+            h.closed = true
+            post({ type: 'error', message: String((err as any)?.message || err || 'listen failed') })
+            post({ type: 'end', canceled: false })
+            tauriStreams.delete(streamId)
+          })
+
+        return { streamId }
+      }
+
+      // Channel 流：创建 Channel，把事件回推到 iframe
+      const size = approxJsonBytes(spec?.payload ?? null)
+      const maxBytes = isHighRiskTauriCommand(command) ? MAX_TAURI_INVOKE_JSON_BYTES_HIGH_RISK : MAX_TAURI_INVOKE_JSON_BYTES
+      if (size > maxBytes) {
+        throw new PluginBridgeError('BAD_REQUEST', 'payload too large', { maxBytes })
+      }
+
+      const channelKey = String(spec?.channelKey ?? 'channel').trim() || 'channel'
+      if (!isSafePlainKey(channelKey)) throw new PluginBridgeError('BAD_REQUEST', 'invalid channelKey')
+
+      const rawPayload = spec?.payload ?? {}
+      const isPlainObject = rawPayload && typeof rawPayload === 'object' && !Array.isArray(rawPayload)
+      if (!isPlainObject) throw new PluginBridgeError('BAD_REQUEST', 'payload must be an object for channel commands')
+
+      const timeoutMs = resolveTauriInvokeTimeoutMs(command, spec?.timeoutMs)
+
+      const handle: StreamHandle = {
+        pluginId: ctx.id,
+        closed: false,
+        cancel: () => {
+          handle.closed = true
+        },
+      }
+      tauriStreams.set(streamId, handle)
+
+      const channel = new Channel<any>(ev => {
+        const h = tauriStreams.get(streamId)
+        if (!h || h.closed) return
+        post({ type: 'data', data: ev })
+      })
+
+      const payload = { ...(rawPayload as any), [channelKey]: channel }
+      post({ type: 'start', kind: 'channel', command })
+
+      void Promise.resolve()
+        .then(async () => {
+          const result = await invokeWithTimeout<any>(command, payload, timeoutMs)
+          const h = tauriStreams.get(streamId)
+          if (!h || h.closed) return
+          post({ type: 'result', result })
+          post({ type: 'end', canceled: false })
+        })
+        .catch(err => {
+          const h = tauriStreams.get(streamId)
+          if (!h || h.closed) return
+          post({ type: 'error', message: String((err as any)?.message || err || 'invoke failed') })
+          post({ type: 'end', canceled: false })
+        })
+        .finally(() => {
+          tauriStreams.delete(streamId)
+        })
+
+      return { streamId }
+    },
+  },
+
+  'tauri.streamCancel': {
+    handler: async (ctx, args, extra) => {
+      if (!extra.postStream) throw new PluginBridgeError('BAD_REQUEST', 'postStream is required for tauri.streamCancel')
+
+      const streamId = String(args?.[0] ?? '').trim()
+      if (!streamId) throw new PluginBridgeError('BAD_REQUEST', 'streamId is required')
+
+      const h = tauriStreams.get(streamId)
+      if (!h) return null
+      if (h.pluginId !== ctx.id) {
+        throw new PluginBridgeError('CAPABILITY_DENIED', 'streamId does not belong to this plugin')
+      }
+
+      if (!h.closed) {
+        h.closed = true
+        try { h.cancel() } catch {}
+      }
+
+      extra.postStream?.({ streamId, event: { type: 'end', canceled: true } })
+      tauriStreams.delete(streamId)
+      return null
     },
   },
 

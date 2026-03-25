@@ -33,10 +33,12 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
     pendingStreamEvents.set(streamId, list);
   }
 
-  function createStream(streamId) {
+  function createStream(streamId, cancelMethod) {
     if (!streamId) throw new Error('streamId is required');
     canceledStreamIds.delete(streamId);
     if (streams.has(streamId)) return streams.get(streamId);
+
+    const cm = cancelMethod ? String(cancelMethod) : 'net.requestStreamCancel';
 
     const st = {
       streamId,
@@ -50,11 +52,15 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
         if (type === 'error') {
           this.error = new Error(event && event.message ? String(event.message) : 'Stream error');
           this.closed = true;
+          streams.delete(streamId);
+          pendingStreamEvents.delete(streamId);
           while (this.waiters.length) this.waiters.shift().reject(this.error);
           return;
         }
         if (type === 'end') {
           this.closed = true;
+          streams.delete(streamId);
+          pendingStreamEvents.delete(streamId);
           while (this.waiters.length) this.waiters.shift().resolve({ value: undefined, done: true });
           return;
         }
@@ -67,7 +73,7 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
         streams.delete(streamId);
         pendingStreamEvents.delete(streamId);
         canceledStreamIds.add(streamId);
-        return call('net.requestStreamCancel', [streamId]).catch(() => {});
+        return call(cm, [streamId]).catch(() => {});
       },
       [Symbol.asyncIterator]() {
         return this;
@@ -231,16 +237,23 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
        startDragging: () => call('ui.startDragging', []),
        back: () => call('host.back', []),
      },
-     tauri: {
-       invoke: (spec) => call('tauri.invoke', [spec]),
-     },
     net: {
       request: (req) => call('net.request', [req]),
       requestBase64: (req) => call('net.requestBase64', [req]),
       requestStream: async (req) => {
         const r = await call('net.requestStream', [req]);
         const streamId = r && r.streamId ? String(r.streamId) : '';
-        return createStream(streamId);
+        return createStream(streamId, 'net.requestStreamCancel');
+      },
+    },
+    tauri: {
+      invoke: (spec) => call('tauri.invoke', [spec]),
+      streamOpen: (spec) => call('tauri.streamOpen', [spec]),
+      streamCancel: (streamId) => call('tauri.streamCancel', [streamId]),
+      stream: async (spec) => {
+        const r = await call('tauri.streamOpen', [spec]);
+        const streamId = r && r.streamId ? String(r.streamId) : '';
+        return createStream(streamId, 'tauri.streamCancel');
       },
     },
     task: {
