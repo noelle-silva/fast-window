@@ -454,19 +454,19 @@ function App() {
 
   const styles = `
   :root {
-    --bg: #0b1020;
-    --panel: rgba(255,255,255,0.06);
-    --panel2: rgba(255,255,255,0.10);
-    --text: rgba(255,255,255,0.92);
-    --muted: rgba(255,255,255,0.62);
-    --line: rgba(255,255,255,0.10);
-    --primary: #f59e0b;
-    --danger: #ef4444;
-    --shadow: 0 10px 30px rgba(0,0,0,0.30);
+    --bg: #ffffff;
+    --panel: #ffffff;
+    --panel2: #ffffff;
+    --text: #111827;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --primary: #111827;
+    --danger: #111827;
+    --shadow: 0 6px 18px rgba(17,24,39,0.08);
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; }
-  body { background: radial-gradient(1200px 700px at 30% 10%, rgba(245,158,11,0.18), transparent 55%), var(--bg); color: var(--text); }
+  body { background: var(--bg); color: var(--text); }
   .wrap { height: 100vh; display: flex; flex-direction: column; }
   .topbar {
     height: 46px;
@@ -475,8 +475,8 @@ function App() {
     gap: 8px;
     padding: 0 10px;
     border-bottom: 1px solid var(--line);
-    background: rgba(0,0,0,0.28);
-    backdrop-filter: blur(10px);
+    background: #ffffff;
+    backdrop-filter: none;
   }
   .brand { font-weight: 900; letter-spacing: 0.6px; }
   .path { flex: 1; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -485,18 +485,18 @@ function App() {
     padding: 0 10px;
     border-radius: 10px;
     border: 1px solid var(--line);
-    background: rgba(255,255,255,0.06);
+    background: #ffffff;
     color: var(--text);
     cursor: pointer;
     user-select: none;
     font-size: 12px;
   }
-  .btn:hover { background: rgba(255,255,255,0.10); }
-  .btn:focus-visible { outline: 2px solid rgba(245,158,11,0.75); outline-offset: 2px; }
-  .btn.primary { border-color: transparent; background: rgba(245,158,11,0.16); }
-  .btn.primary:hover { background: rgba(245,158,11,0.24); }
-  .btn.danger { border-color: transparent; background: rgba(239,68,68,0.16); }
-  .btn.danger:hover { background: rgba(239,68,68,0.24); }
+  .btn:hover { background: #f3f4f6; }
+  .btn:focus-visible { outline: 2px solid #111827; outline-offset: 2px; }
+  .btn.primary { border-color: var(--line); background: #ffffff; font-weight: 700; }
+  .btn.primary:hover { background: #f3f4f6; }
+  .btn.danger { border-color: var(--line); background: #ffffff; font-weight: 700; }
+  .btn.danger:hover { background: #f3f4f6; }
 
   .main { flex: 1; display: grid; grid-template-columns: 320px 1fr; gap: 12px; padding: 12px; min-height: 0; }
   @media (max-width: 920px) { .main { grid-template-columns: 1fr; } }
@@ -507,7 +507,7 @@ function App() {
     height: 34px;
     border-radius: 10px;
     border: 1px solid var(--line);
-    background: rgba(0,0,0,0.20);
+    background: #ffffff;
     color: var(--text);
     padding: 0 10px;
     outline: none;
@@ -519,8 +519,8 @@ function App() {
     cursor: pointer;
     border: 1px solid transparent;
   }
-  .item:hover { background: rgba(255,255,255,0.06); }
-  .item.active { background: rgba(245,158,11,0.10); border-color: rgba(245,158,11,0.25); }
+  .item:hover { background: #f9fafb; }
+  .item.active { background: #f3f4f6; border-color: #e5e7eb; }
   .itemTitle { font-weight: 800; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .itemMeta { font-size: 12px; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
