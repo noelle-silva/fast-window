@@ -96,6 +96,15 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
       // 文件选择类是“人类交互时长”，不该按普通 RPC 8s 超时算。
       // 统一放宽：避免用户打开选择框后思考几秒就被判定超时。
       if (String(method || '').startsWith('files.pick')) return LONG_TIMEOUT_MS;
+      if (method === 'tauri.invoke') {
+        const spec = args && args[0];
+        const command = spec && spec.command ? String(spec.command) : '';
+        const t = spec && typeof spec.timeoutMs === 'number' ? spec.timeoutMs : 0;
+        // 允许插件明确指定超时；由宿主侧进一步钳制。
+        if (t > 0) return Math.max(DEFAULT_TIMEOUT_MS, Math.min(t, 5 * 60 * 1000));
+        // 常见交互类命令：对话框类给一个更宽松的前端等待时间。
+        if (command.startsWith('plugin:dialog|')) return LONG_TIMEOUT_MS;
+      }
       if (method === 'net.request') {
         const req = args && args[0];
         const t = req && typeof req.timeoutMs === 'number' ? req.timeoutMs : 0;
@@ -221,6 +230,9 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
        openBrowserWindow: (url) => call('ui.openBrowserWindow', [url]),
        startDragging: () => call('ui.startDragging', []),
        back: () => call('host.back', []),
+     },
+     tauri: {
+       invoke: (spec) => call('tauri.invoke', [spec]),
      },
     net: {
       request: (req) => call('net.request', [req]),

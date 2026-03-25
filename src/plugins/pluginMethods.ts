@@ -6,6 +6,7 @@ import { PluginBridgeError } from './pluginBridge'
 
 export type PluginMethodName =
   | 'host.back'
+  | 'tauri.invoke'
   | 'clipboard.readText'
   | 'clipboard.writeText'
   | 'clipboard.readImage'
@@ -47,6 +48,83 @@ export type PluginMethodName =
   | 'task.list'
   | 'task.cancel'
 
+type TauriInvokeSpec = {
+  command: string
+  payload?: any
+  timeoutMs?: number | null
+}
+
+const MAX_TAURI_INVOKE_JSON_BYTES = 2 * 1024 * 1024
+const DEFAULT_TAURI_INVOKE_TIMEOUT_MS = 8000
+const MAX_TAURI_INVOKE_TIMEOUT_MS = 5 * 60 * 1000
+const LONG_TAURI_INVOKE_TIMEOUT_MS = 15 * 60 * 1000
+
+function approxJsonBytes(value: unknown): number {
+  try {
+    const raw = JSON.stringify(value)
+    if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(raw).length
+    return raw.length * 2
+  } catch {
+    return Number.POSITIVE_INFINITY
+  }
+}
+
+function isHighRiskTauriCommand(command: string): boolean {
+  // 高危：shell 直接执行外部命令/程序。
+  // 规则：对高危 command，网关拒绝通配，必须精确命中 tauri:<command>。
+  return command.startsWith('plugin:shell|')
+}
+
+function isTauriCommandAllowed(requires: readonly string[] | undefined, command: string): boolean {
+  if (!requires || requires.length === 0) return false
+
+  const needed = `tauri:${command}`
+  const highRisk = isHighRiskTauriCommand(command)
+
+  for (const raw of requires) {
+    const cap = String(raw ?? '').trim()
+    if (!cap.startsWith('tauri:')) continue
+
+    // 高危 command：只允许精确匹配，不允许任何通配（包括 tauri:*）。
+    if (highRisk) {
+      if (cap === needed) return true
+      continue
+    }
+
+    if (cap === 'tauri:*') return true
+    if (cap === needed) return true
+
+    if (cap.endsWith('*')) {
+      const prefix = cap.slice(0, -1)
+      if (needed.startsWith(prefix)) return true
+    }
+  }
+
+  return false
+}
+
+function resolveTauriInvokeTimeoutMs(command: string, timeoutMs: unknown): number {
+  const requested = typeof timeoutMs === 'number' && Number.isFinite(timeoutMs) ? Math.max(0, Math.floor(timeoutMs)) : 0
+  if (requested > 0) {
+    return Math.min(requested, MAX_TAURI_INVOKE_TIMEOUT_MS)
+  }
+  if (command.startsWith('plugin:dialog|')) return LONG_TAURI_INVOKE_TIMEOUT_MS
+  return DEFAULT_TAURI_INVOKE_TIMEOUT_MS
+}
+
+async function invokeWithTimeout<T>(command: string, payload: any, timeoutMs: number): Promise<T> {
+  let timer: any = null
+  try {
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new PluginBridgeError('INTERNAL_ERROR', 'Request timeout')), timeoutMs)
+    })
+    // tauri invoke 的 payload 是一个对象（或 undefined）
+    return await Promise.race([invoke<T>(command, payload ?? {}), timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 type MethodDef = {
   capability?: PluginMethodCapability
   handler: (
@@ -62,6 +140,28 @@ const methods: Record<PluginMethodName, MethodDef> = {
       if (!extra.onBack) throw new PluginBridgeError('BAD_REQUEST', 'host.back is not available in background runtime')
       extra.onBack()
       return null
+    },
+  },
+
+  'tauri.invoke': {
+    handler: async (ctx, args) => {
+      const spec = (args?.[0] as any) as TauriInvokeSpec
+      const command = String(spec?.command ?? '').trim()
+      if (!command) throw new PluginBridgeError('BAD_REQUEST', 'command is required')
+      if (command.length > 256) throw new PluginBridgeError('BAD_REQUEST', 'command is too long')
+      if (command.includes('\n') || command.includes('\r')) throw new PluginBridgeError('BAD_REQUEST', 'command is invalid')
+
+      if (!isTauriCommandAllowed(ctx.requires, command)) {
+        throw new PluginBridgeError('CAPABILITY_DENIED', `Capability denied: tauri:${command}`, { needed: `tauri:${command}` })
+      }
+
+      const size = approxJsonBytes(spec?.payload ?? null)
+      if (size > MAX_TAURI_INVOKE_JSON_BYTES) {
+        throw new PluginBridgeError('BAD_REQUEST', 'payload too large', { maxBytes: MAX_TAURI_INVOKE_JSON_BYTES })
+      }
+
+      const timeoutMs = resolveTauriInvokeTimeoutMs(command, spec?.timeoutMs)
+      return invokeWithTimeout<any>(command, spec?.payload ?? {}, timeoutMs)
     },
   },
 

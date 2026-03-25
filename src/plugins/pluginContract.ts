@@ -5,6 +5,10 @@ export type PluginApiVersion = typeof PLUGIN_API_VERSION
 // 先从最小集合开始：按“方法名”授权，后续要扩展再加
 export type PluginCapability =
   | '*'
+  // 透传调用 tauri invoke 的能力声明：由插件自行声明允许调用的 command。
+  // 语义：`tauri:<command>`，其中 <command> 例：`plugin:fs|read_text_file` 或 `my_custom_command`。
+  // 支持后缀通配：`tauri:plugin:fs|*`、`tauri:*`。
+  | `tauri:${string}`
   | 'net'
   | 'net.*'
   | 'net.request'
@@ -111,6 +115,21 @@ export const ALL_PLUGIN_CAPABILITIES: readonly PluginCapability[] = [
   'task.list',
   'task.cancel',
 ] as const
+
+const ALL_PLUGIN_CAPABILITIES_SET = new Set<string>(ALL_PLUGIN_CAPABILITIES as readonly string[])
+
+export function isValidPluginCapability(item: unknown): item is PluginCapability {
+  const s = String(item ?? '').trim()
+  if (!s) return false
+  if (ALL_PLUGIN_CAPABILITIES_SET.has(s)) return true
+  // 动态能力：tauri:<command>
+  if (s.startsWith('tauri:')) {
+    if (s.length > 256) return false
+    if (s.includes('\n') || s.includes('\r')) return false
+    return true
+  }
+  return false
+}
 
 // 仅支持 iframe 沙箱；legacy react/eval 已禁用（见 pluginLoader）
 export type PluginUiType = 'iframe'

@@ -13,7 +13,7 @@ import {
   LinearProgress,
   Typography,
 } from '@mui/material'
-import { ALL_PLUGIN_CAPABILITIES, PLUGIN_API_VERSION, PluginManifest } from '../plugins/pluginContract'
+import { isValidPluginCapability, PLUGIN_API_VERSION, PluginManifest } from '../plugins/pluginContract'
 
 type Props = {
   open: boolean
@@ -144,9 +144,8 @@ export default function ImportPluginDialog(props: Props) {
       }
 
       if (!Array.isArray(manifest.requires)) throw new Error('manifest.requires 必须是数组（即使为空）')
-      const known = new Set<string>(ALL_PLUGIN_CAPABILITIES as readonly string[])
       for (const item of manifest.requires) {
-        if (!known.has(String(item))) throw new Error(`manifest.requires 存在未知能力：${String(item)}`)
+        if (!isValidPluginCapability(item)) throw new Error(`manifest.requires 存在未知能力：${String(item)}`)
       }
 
       if (!isSafeRelPath(manifest.main)) throw new Error('manifest.main 路径不合法（不允许绝对路径或 ..）')

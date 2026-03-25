@@ -1,6 +1,6 @@
 import React, { ComponentType } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { ALL_PLUGIN_CAPABILITIES, PLUGIN_API_VERSION, PluginManifest, PluginCapability } from './pluginContract'
+import { PLUGIN_API_VERSION, PluginManifest, PluginCapability, isValidPluginCapability } from './pluginContract'
 import IframePluginView from './IframePluginView'
 
 export interface LoadedPlugin {
@@ -112,13 +112,14 @@ export async function loadPluginById(pluginId: string): Promise<{ plugin: Loaded
       console.error(`[plugin] "${manifestId}" rejected: ${reason}.`)
       return { plugin: null, rejection: { pluginId, reason } }
     }
-    const known = new Set<string>(ALL_PLUGIN_CAPABILITIES as readonly string[])
+    const normalizedRequires: PluginCapability[] = []
     for (const item of requires) {
-      if (!known.has(String(item))) {
+      if (!isValidPluginCapability(item)) {
         const reason = `unknown capability "${String(item)}"`
         console.error(`[plugin] "${manifestId}" rejected: ${reason}.`)
         return { plugin: null, rejection: { pluginId, reason } }
       }
+      normalizedRequires.push(String(item).trim() as PluginCapability)
     }
 
     const main = String(rawManifest.main || '').trim()
@@ -132,7 +133,7 @@ export async function loadPluginById(pluginId: string): Promise<{ plugin: Loaded
       ...rawManifest,
       id: manifestId,
       main,
-      requires: requires as PluginCapability[],
+      requires: normalizedRequires,
       icon: await resolvePluginIcon(manifestId, rawManifest.icon),
     }
 

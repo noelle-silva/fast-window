@@ -374,6 +374,9 @@ export type FastWindowApi = {
     list: (limit?: number) => Promise<PluginTaskInfo[]>
     cancel: (taskId: string) => Promise<PluginTaskInfo>
   }
+  tauri?: {
+    invoke: (spec: { command: string; payload?: any; timeoutMs?: number | null }) => Promise<any>
+  }
   files: {
     getOutputDir: () => Promise<string>
     pickOutputDir: () => Promise<string | null>
