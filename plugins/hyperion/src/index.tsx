@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 
 type Api = {
   __meta?: { runtime?: 'ui' | 'background' }
-  ui: { showToast: (message: string) => Promise<void> | void }
+  ui: { showToast: (message: string) => Promise<void> | void; back?: () => Promise<void> | void }
   files: {
     getOutputDir: () => Promise<string>
     pickOutputDir: () => Promise<string | null>
@@ -328,6 +328,14 @@ function App() {
     await refreshAll()
   }, [api, refreshAll])
 
+  const backToHome = React.useCallback(async () => {
+    try {
+      await api.ui.back?.()
+    } catch {
+      // ignore
+    }
+  }, [api])
+
   const openVault = React.useCallback(async () => {
     const dir = vaultDir || (await api.files.getOutputDir().catch(() => ''))
     if (!dir) return api.ui.showToast('库目录不可用')
@@ -484,6 +492,7 @@ function App() {
     font-size: 12px;
   }
   .btn:hover { background: rgba(255,255,255,0.10); }
+  .btn:focus-visible { outline: 2px solid rgba(245,158,11,0.75); outline-offset: 2px; }
   .btn.primary { border-color: transparent; background: rgba(245,158,11,0.16); }
   .btn.primary:hover { background: rgba(245,158,11,0.24); }
   .btn.danger { border-color: transparent; background: rgba(239,68,68,0.16); }
@@ -532,6 +541,7 @@ function App() {
     <div className="wrap">
       <style>{styles}</style>
       <div className="topbar">
+        <button className="btn" onClick={backToHome} title="返回主界面" aria-label="返回主界面">← 主界面</button>
         <div className="brand">Hyperion</div>
         <div className="path" title={vaultDir}>{vaultDir || (loading ? '加载中…' : '未设置库目录')}</div>
         <button className="btn" onClick={openVault}>打开库</button>

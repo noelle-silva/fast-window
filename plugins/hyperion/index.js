@@ -24736,6 +24736,13 @@
       await api.ui.showToast("已设置 Hyperion 库位置");
       await refreshAll();
     }, [api, refreshAll]);
+    const backToHome = React.useCallback(async () => {
+      var _a, _b;
+      try {
+        await ((_b = (_a = api.ui).back) == null ? void 0 : _b.call(_a));
+      } catch {
+      }
+    }, [api]);
     const openVault = React.useCallback(async () => {
       const dir = vaultDir || await api.files.getOutputDir().catch(() => "");
       if (!dir) return api.ui.showToast("库目录不可用");
@@ -24881,6 +24888,7 @@
     font-size: 12px;
   }
   .btn:hover { background: rgba(255,255,255,0.10); }
+  .btn:focus-visible { outline: 2px solid rgba(245,158,11,0.75); outline-offset: 2px; }
   .btn.primary { border-color: transparent; background: rgba(245,158,11,0.16); }
   .btn.primary:hover { background: rgba(245,158,11,0.24); }
   .btn.danger { border-color: transparent; background: rgba(239,68,68,0.16); }
@@ -24927,6 +24935,7 @@
     return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "wrap", children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("style", { children: styles }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: "topbar", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn", onClick: backToHome, title: "返回主界面", "aria-label": "返回主界面", children: "← 主界面" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "brand", children: "Hyperion" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "path", title: vaultDir, children: vaultDir || (loading ? "加载中…" : "未设置库目录") }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", { className: "btn", onClick: openVault, children: "打开库" }),
