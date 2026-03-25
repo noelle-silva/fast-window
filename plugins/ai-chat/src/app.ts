@@ -1713,8 +1713,14 @@ import mammoth from 'mammoth/mammoth.browser'
 
     const maxLen = 2_000_000
     let out = ''
-    let capName: null | 'a:t' | 'p:text' = null
+
+    let capLocal: null | 't' | 'text' = null
     let capPreserve = false
+
+    let inTable = 0
+    let tableRows: string[][] = []
+    let tableRow: string[] | null = null
+    let tableCell = ''
 
     function append(t: string) {
       if (!t) return
@@ -1726,39 +1732,107 @@ import mammoth from 'mammoth/mammoth.browser'
       if (out.endsWith('\n')) return
       append('\n')
     }
-    function appendTab() {
-      if (!out) return append('\t')
-      const last = out[out.length - 1]
-      if (last === '\n' || last === '\t') return
-      append('\t')
+    function appendBlankLine() {
+      if (!out) return
+      if (out.endsWith('\n\n')) return
+      if (out.endsWith('\n')) return append('\n')
+      append('\n\n')
+    }
+
+    function tableCellAppend(t: string) {
+      if (!t) return
+      if (tableCell.length >= maxLen) return
+      tableCell += t.slice(0, Math.max(0, maxLen - tableCell.length))
+    }
+    function tableCellNl() {
+      if (!tableCell) return
+      if (tableCell.endsWith('\n')) return
+      tableCellAppend('\n')
     }
 
     function parseTagName(rawTag: string) {
       const raw = String(rawTag || '').trim()
-      if (!raw) return { name: '', isEnd: false, isSelf: false }
+      if (!raw) return { name: '', local: '', isEnd: false, isSelf: false }
       const isEnd = raw[0] === '/'
       const noEnd = isEnd ? raw.slice(1).trim() : raw
       const isSelf = /\/\s*$/.test(noEnd)
       const noSelf = isSelf ? noEnd.replace(/\/\s*$/, '').trim() : noEnd
       const name = noSelf.split(/\s+/)[0] || ''
-      return { name, isEnd, isSelf }
+      const local = name.includes(':') ? name.split(':').pop() || '' : name
+      return { name, local, isEnd, isSelf }
+    }
+
+    function normalizeText(t: string) {
+      return String(t || '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .replace(/[ \f\v]+/g, ' ')
+        .trim()
+    }
+
+    function escapeMdCell(t: string) {
+      const v = String(t || '').replaceAll('|', '\\|')
+      // markdown 单元格里用 <br> 表示换行
+      return v
+        .split('\n')
+        .map((x) => String(x || '').trim())
+        .filter(Boolean)
+        .join('<br>')
+    }
+
+    function renderMarkdownTable(rows: string[][]) {
+      const rs = Array.isArray(rows) ? rows.filter((r) => Array.isArray(r) && r.length) : []
+      if (!rs.length) return ''
+      const cols = Math.max(1, ...rs.map((r) => r.length))
+      const norm = rs.map((r) => {
+        const row = r.slice(0, cols)
+        while (row.length < cols) row.push('')
+        return row
+      })
+
+      const header = norm[0].map((c) => escapeMdCell(normalizeText(c)))
+      const sep = Array.from({ length: cols }).map(() => '---')
+      const body = norm.slice(1).map((r) => r.map((c) => escapeMdCell(normalizeText(c))))
+
+      const lines = [] as string[]
+      lines.push(`| ${header.join(' | ')} |`)
+      lines.push(`| ${sep.join(' | ')} |`)
+      for (const r of body) lines.push(`| ${r.join(' | ')} |`)
+      return lines.join('\n').trim()
+    }
+
+    function flushTable() {
+      // 结束表格时尽量别丢文字：即使标签缺失，也把当前行/单元格补进来
+      if (Array.isArray(tableRow) && tableRow.length) tableRows.push(tableRow)
+      if (!tableRows.length && tableCell) tableRows.push([tableCell])
+
+      const md = renderMarkdownTable(tableRows)
+      tableRows = []
+      tableRow = null
+      tableCell = ''
+      if (!md) return
+      appendBlankLine()
+      append(md)
+      appendBlankLine()
+    }
+
+    function onText(text: string) {
+      const raw = xmlUnescape(String(text || ''))
+      const t = capPreserve ? raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n') : raw
+      const v = t.replace(/\s+/g, ' ')
+      if (!v) return
+      if (inTable) return tableCellAppend(v)
+      append(v)
     }
 
     let i = 0
     while (i < s.length && out.length < maxLen) {
       const lt = s.indexOf('<', i)
       if (lt < 0) {
-        const tail = s.slice(i)
-        if (capName) append(xmlUnescape(tail).replace(/\s+/g, ' '))
+        if (capLocal) onText(s.slice(i))
         break
       }
-
-      if (lt > i && capName) {
-        const text = s.slice(i, lt)
-        const t0 = xmlUnescape(text)
-        const t = capPreserve ? t0.replace(/\r\n/g, '\n').replace(/\r/g, '\n') : t0
-        append(t.replace(/\s+/g, ' '))
-      }
+      if (lt > i && capLocal) onText(s.slice(i, lt))
 
       // comment
       if (s.startsWith('<!--', lt)) {
@@ -1770,7 +1844,7 @@ import mammoth from 'mammoth/mammoth.browser'
       if (s.startsWith('<![CDATA[', lt)) {
         const end = s.indexOf(']]>', lt + 9)
         const text = end >= 0 ? s.slice(lt + 9, end) : s.slice(lt + 9)
-        if (capName) append(String(text || '').replace(/\s+/g, ' '))
+        if (capLocal) onText(text)
         i = end >= 0 ? end + 3 : s.length
         continue
       }
@@ -1784,55 +1858,77 @@ import mammoth from 'mammoth/mammoth.browser'
       const gt = s.indexOf('>', lt + 1)
       if (gt < 0) break
       const rawTag = s.slice(lt + 1, gt)
-      const { name, isEnd, isSelf } = parseTagName(rawTag)
+      const { name, local, isEnd, isSelf } = parseTagName(rawTag)
 
       if (!isEnd) {
-        if (name === 'a:t') {
-          capName = 'a:t'
+        if (local === 'tbl') {
+          inTable++
+          tableRows = []
+          tableRow = null
+          tableCell = ''
+        } else if (local === 'tr' && inTable) {
+          tableRow = []
+        } else if (local === 'tc' && inTable) {
+          tableCell = ''
+        } else if (local === 't') {
+          capLocal = 't'
           capPreserve = /\bxml:space\s*=\s*["']preserve["']/.test(rawTag)
-        } else if (name === 'p:text') {
-          capName = 'p:text'
+        } else if (local === 'text') {
+          capLocal = 'text'
           capPreserve = true
-        } else if (name === 'a:br') {
-          appendNl()
-        } else if (name === 'a:tab') {
-          appendTab()
+        } else if (local === 'br') {
+          if (inTable) tableCellNl()
+          else appendNl()
+        } else if (local === 'tab') {
+          if (inTable) tableCellAppend(' ')
+          else append(' ')
         }
       }
 
       if (isEnd || isSelf) {
-        if (name === capName) {
-          capName = null
+        if (local && local === capLocal) {
+          capLocal = null
           capPreserve = false
         }
-        if (name === 'a:p') {
-          appendNl()
-        } else if (name === 'a:tc') {
-          appendTab()
-        } else if (name === 'a:tr') {
-          appendNl()
-        } else if (name === 'p:sp') {
-          appendNl()
-          appendNl()
+
+        if (local === 'p') {
+          if (inTable) tableCellNl()
+          else appendNl()
+        } else if (local === 'sp' && !inTable) {
+          appendBlankLine()
+        }
+
+        if (local === 'tc' && inTable) {
+          if (!Array.isArray(tableRow)) tableRow = []
+          tableRow.push(tableCell)
+          tableCell = ''
+        } else if (local === 'tr' && inTable) {
+          if (Array.isArray(tableRow) && tableRow.length) tableRows.push(tableRow)
+          tableRow = null
+        } else if (local === 'tbl' && inTable) {
+          inTable = Math.max(0, inTable - 1)
+          if (!inTable) flushTable()
         }
       }
 
       i = gt + 1
     }
 
-    let t = String(out || '')
+    // 如果 XML 异常导致表格未闭合，也尽量输出
+    if (inTable) {
+      inTable = 0
+      flushTable()
+    }
+
+    // 清理：去除多余空白行
+    const lines = String(out || '')
       .replace(/\r\n/g, '\n')
       .replace(/\r/g, '\n')
-      .replace(/[ \f\v]+/g, ' ')
-      .replace(/ *\t */g, '\t')
+      .split('\n')
+      .map((l) => String(l || '').replace(/[ \t]+$/g, ''))
 
-    // 清理每行尾部空白；保持空行
-    const lines = t.split('\n').map((l) => String(l || '').replace(/[ \t]+$/g, '').trim())
-    t = lines.join('\n')
-    t = t.replace(/\n{3,}/g, '\n\n').trim()
-    return t
+    return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()
   }
-
   function zipU16le(dv: DataView, off: number) {
     return dv.getUint16(off, true)
   }
@@ -2253,7 +2349,7 @@ import mammoth from 'mammoth/mammoth.browser'
           if (String(f?.error || '')) continue
           const name = String(f?.name || '文件')
           const kind = String(f?.kind || 'txt') as DraftFileKind
-          const lang = kind === 'md' ? 'markdown' : 'text'
+          const lang = kind === 'md' || kind === 'ppt' ? 'markdown' : 'text'
           const raw = String(f?.text || '').trim()
           const fullLen = raw.length
           if (!raw) continue
