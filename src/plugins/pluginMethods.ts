@@ -54,7 +54,10 @@ type TauriInvokeSpec = {
   timeoutMs?: number | null
 }
 
-const MAX_TAURI_INVOKE_JSON_BYTES = 2 * 1024 * 1024
+// 注意：payload 可能包含 base64（例如 canvas 图片）；过小会误伤常见用例。
+// 这里给一个更现实的默认上限，同时对高危 command（如 shell）再单独收紧。
+const MAX_TAURI_INVOKE_JSON_BYTES = 16 * 1024 * 1024
+const MAX_TAURI_INVOKE_JSON_BYTES_HIGH_RISK = 256 * 1024
 const DEFAULT_TAURI_INVOKE_TIMEOUT_MS = 8000
 const MAX_TAURI_INVOKE_TIMEOUT_MS = 5 * 60 * 1000
 const LONG_TAURI_INVOKE_TIMEOUT_MS = 15 * 60 * 1000
@@ -156,8 +159,9 @@ const methods: Record<PluginMethodName, MethodDef> = {
       }
 
       const size = approxJsonBytes(spec?.payload ?? null)
-      if (size > MAX_TAURI_INVOKE_JSON_BYTES) {
-        throw new PluginBridgeError('BAD_REQUEST', 'payload too large', { maxBytes: MAX_TAURI_INVOKE_JSON_BYTES })
+      const maxBytes = isHighRiskTauriCommand(command) ? MAX_TAURI_INVOKE_JSON_BYTES_HIGH_RISK : MAX_TAURI_INVOKE_JSON_BYTES
+      if (size > maxBytes) {
+        throw new PluginBridgeError('BAD_REQUEST', 'payload too large', { maxBytes })
       }
 
       const timeoutMs = resolveTauriInvokeTimeoutMs(command, spec?.timeoutMs)
