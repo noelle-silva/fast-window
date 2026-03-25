@@ -3510,7 +3510,12 @@ import { extractPptMarkdown } from './core/ppt'
   let uiLastSyncMs = 0
   let uiLastMetaCheckMs = 0
   let uiLastMetaUpdatedAt = 0
+  let uiSyncing = false
   const uiStreamCache = new Map()
+  let draftRev = 0
+  function bumpDraftRev() {
+    draftRev++
+  }
 
   function reapplyUiStreamCache(chatOverride) {
     const chat = chatOverride || activeChatFromData()
@@ -3547,17 +3552,32 @@ import { extractPptMarkdown } from './core/ppt'
   }
 
   async function syncDataFromStorage() {
+    if (uiSyncing) return
+    uiSyncing = true
+    const draftRev0 = draftRev
     const keepActive = String(state.draft.activeRoleId || '')
     const keepInput = String(state.draft.input || '')
     const keepImages = Array.isArray(state.draft.images) ? state.draft.images : []
-    const split = await loadSplitData()
-    if (!split) return
-    state.data = split
-    uiLastMetaUpdatedAt = Math.max(uiLastMetaUpdatedAt, Number(splitMetaCache?.updatedAt || 0))
-    if (keepActive) state.draft.activeRoleId = keepActive
-    else state.draft.activeRoleId = String(state.data?.ui?.activeRoleId || '')
-    state.draft.input = keepInput
-    state.draft.images = keepImages
+    try {
+      const split = await loadSplitData()
+      if (!split) return
+      state.data = split
+      uiLastMetaUpdatedAt = Math.max(uiLastMetaUpdatedAt, Number(splitMetaCache?.updatedAt || 0))
+
+      // loadSplitData 是 async；期间用户可能继续输入。
+      // 如果这里无条件把 keepInput 写回，就会把输入框“回滚”到更早的值（你描述的现象）。
+      if (draftRev !== draftRev0) {
+        if (!String(state.draft.activeRoleId || '').trim()) state.draft.activeRoleId = String(state.data?.ui?.activeRoleId || '')
+        return
+      }
+
+      if (keepActive) state.draft.activeRoleId = keepActive
+      else state.draft.activeRoleId = String(state.data?.ui?.activeRoleId || '')
+      state.draft.input = keepInput
+      state.draft.images = keepImages
+    } finally {
+      uiSyncing = false
+    }
   }
 
   async function uiPollTick() {
@@ -4382,6 +4402,7 @@ import { extractPptMarkdown } from './core/ppt'
       setActiveRole: (roleId) => {
         clearPendingChat()
         state.draft.activeRoleId = String(roleId || '')
+        bumpDraftRev()
         ensureChatsBox(state.draft.activeRoleId)
         save().catch(() => {})
         emit()
@@ -4968,6 +4989,7 @@ import { extractPptMarkdown } from './core/ppt'
         const k = String(key || '')
         if (!k) return
         ;(state.draft as any)[k] = value
+        bumpDraftRev()
         emit()
       },
       roleProviderChanged: (providerId) => {
@@ -4988,10 +5010,12 @@ import { extractPptMarkdown } from './core/ppt'
       clearRoleAvatarImage: () => clearRoleAvatarImage(),
       removeDraftImage: (id) => {
         removeDraftImage(String(id || ''))
+        bumpDraftRev()
         emit()
       },
       removeDraftFile: (id) => {
         removeDraftFile(String(id || ''))
+        bumpDraftRev()
         emit()
       },
       setDraftFileSendPct: (id, pct) => {
@@ -5001,6 +5025,7 @@ import { extractPptMarkdown } from './core/ppt'
         const it = state.draft.files.find((x: any) => String(x?.id || '') === rid)
         if (!it) return
         it.sendPct = clamp(Math.round(Number(pct ?? 100)), 0, 100)
+        bumpDraftRev()
         emit()
       },
       pickImages: () => pickImages(),
@@ -5015,6 +5040,7 @@ import { extractPptMarkdown } from './core/ppt'
           } catch (_) {}
         }
         if (!added) api.ui?.showToast?.('未识别到图片')
+        if (added) bumpDraftRev()
         emit()
       },
       addDraftFilesFromFiles: async (files) => {
