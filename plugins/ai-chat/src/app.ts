@@ -43,6 +43,8 @@ import mammoth from 'mammoth/mammoth.browser'
   const MAX_DRAFT_IMAGES = 8
   const MAX_DRAFT_FILES = 6
   const MAX_DRAFT_FILE_BYTES = 10 * 1024 * 1024 // 10MB
+  const DEFAULT_ATTACH_MAX_FILE_MB = Math.round(MAX_DRAFT_FILE_BYTES / 1024 / 1024)
+  const MAX_ATTACH_MAX_FILE_MB = 2048
   const DEFAULT_ATTACH_SEND_LIMIT_CHARS = 80_000
   const DEFAULT_TOOL_CALL_SERVER_BASE_URL = 'http://localhost:9083'
   const REF_IMG_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
@@ -91,7 +93,7 @@ import mammoth from 'mammoth/mammoth.browser'
     data: null,
   }
 
-  const CHAT_ATTACHMENT_KINDS = new Set(['txt', 'md', 'pdf', 'docx'])
+  const CHAT_ATTACHMENT_KINDS = new Set(['txt', 'md', 'pdf', 'docx', 'ppt'])
   const CHAT_MSG_GROUP_ROLES = new Set(['root', 'attachment'])
   function normalizeMessageAttachments(input: any) {
     const list = Array.isArray(input) ? input : []
@@ -573,6 +575,13 @@ import mammoth from 'mammoth/mammoth.browser'
             userMessageCollapseLines: 8,
             attachments: {
               sendLimitChars: DEFAULT_ATTACH_SEND_LIMIT_CHARS,
+              maxFileSizeMbByKind: {
+                txt: DEFAULT_ATTACH_MAX_FILE_MB,
+                md: DEFAULT_ATTACH_MAX_FILE_MB,
+                pdf: DEFAULT_ATTACH_MAX_FILE_MB,
+                docx: DEFAULT_ATTACH_MAX_FILE_MB,
+                ppt: DEFAULT_ATTACH_MAX_FILE_MB,
+              },
             },
             stickers: {
               enabled: false,
@@ -659,6 +668,19 @@ import mammoth from 'mammoth/mammoth.browser'
     d.settings.toolRequestRenderPreset = String(d.settings.toolRequestRenderPreset || '').trim().slice(0, 60) || 'classic'
     d.settings.userMessageCollapseLines = clamp(Math.round(Number(d.settings.userMessageCollapseLines || 8)), 1, 50)
     at.sendLimitChars = clamp(Math.round(Number(at.sendLimitChars || DEFAULT_ATTACH_SEND_LIMIT_CHARS)), 1000, 2_000_000)
+
+    if (!at.maxFileSizeMbByKind || typeof at.maxFileSizeMbByKind !== 'object') (at as any).maxFileSizeMbByKind = {}
+    const mb = (at as any).maxFileSizeMbByKind
+    const normMb = (v) => {
+      const n = Number(v)
+      if (!isFinite(n)) return DEFAULT_ATTACH_MAX_FILE_MB
+      return clamp(Math.round(n), 0, MAX_ATTACH_MAX_FILE_MB)
+    }
+    mb.txt = normMb(mb.txt)
+    mb.md = normMb(mb.md)
+    mb.pdf = normMb(mb.pdf)
+    mb.docx = normMb(mb.docx)
+    mb.ppt = normMb(mb.ppt)
     if (!Array.isArray(d.settings.providers) || d.settings.providers.length === 0) d.settings.providers = defaultData().settings.providers
 
     if (!d.settings.stickers || typeof d.settings.stickers !== 'object') d.settings.stickers = {}
@@ -1524,7 +1546,7 @@ import mammoth from 'mammoth/mammoth.browser'
     return true
   }
 
-  type DraftFileKind = 'txt' | 'md' | 'pdf' | 'docx'
+  type DraftFileKind = 'txt' | 'md' | 'pdf' | 'docx' | 'ppt'
   type DraftFileItem = {
     id: string
     name: string
@@ -1562,11 +1584,14 @@ import mammoth from 'mammoth/mammoth.browser'
     if (ext === 'md' || ext === 'markdown') return 'md'
     if (ext === 'pdf') return 'pdf'
     if (ext === 'docx') return 'docx'
+    if (ext === 'ppt' || ext === 'pptx') return 'ppt'
     const mime = String(file?.type || '').toLowerCase()
     if (mime === 'text/plain') return 'txt'
     if (mime === 'text/markdown') return 'md'
     if (mime === 'application/pdf') return 'pdf'
     if (mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'docx'
+    if (mime === 'application/vnd.ms-powerpoint') return 'ppt'
+    if (mime === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') return 'ppt'
     return ''
   }
 
@@ -1659,12 +1684,394 @@ import mammoth from 'mammoth/mammoth.browser'
     return String(r?.value || '').trim()
   }
 
+  function xmlUnescape(s: string) {
+    const raw = String(s || '')
+    if (!raw) return ''
+    const base = raw.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&quot;', '"').replaceAll('&apos;', "'").replaceAll('&amp;', '&')
+    return base
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => {
+        try {
+          const cp = parseInt(String(hex || ''), 16)
+          return Number.isFinite(cp) ? String.fromCodePoint(cp) : ''
+        } catch (_) {
+          return ''
+        }
+      })
+      .replace(/&#([0-9]+);/g, (_, dec) => {
+        try {
+          const cp = parseInt(String(dec || ''), 10)
+          return Number.isFinite(cp) ? String.fromCodePoint(cp) : ''
+        } catch (_) {
+          return ''
+        }
+      })
+  }
+
+  function extractPptxTextFromXml(xml: string) {
+    const s = String(xml || '')
+    if (!s) return ''
+
+    const maxLen = 2_000_000
+    let out = ''
+    let capName: null | 'a:t' | 'p:text' = null
+    let capPreserve = false
+
+    function append(t: string) {
+      if (!t) return
+      if (out.length >= maxLen) return
+      out += t.slice(0, Math.max(0, maxLen - out.length))
+    }
+    function appendNl() {
+      if (!out) return append('\n')
+      if (out.endsWith('\n')) return
+      append('\n')
+    }
+    function appendTab() {
+      if (!out) return append('\t')
+      const last = out[out.length - 1]
+      if (last === '\n' || last === '\t') return
+      append('\t')
+    }
+
+    function parseTagName(rawTag: string) {
+      const raw = String(rawTag || '').trim()
+      if (!raw) return { name: '', isEnd: false, isSelf: false }
+      const isEnd = raw[0] === '/'
+      const noEnd = isEnd ? raw.slice(1).trim() : raw
+      const isSelf = /\/\s*$/.test(noEnd)
+      const noSelf = isSelf ? noEnd.replace(/\/\s*$/, '').trim() : noEnd
+      const name = noSelf.split(/\s+/)[0] || ''
+      return { name, isEnd, isSelf }
+    }
+
+    let i = 0
+    while (i < s.length && out.length < maxLen) {
+      const lt = s.indexOf('<', i)
+      if (lt < 0) {
+        const tail = s.slice(i)
+        if (capName) append(xmlUnescape(tail).replace(/\s+/g, ' '))
+        break
+      }
+
+      if (lt > i && capName) {
+        const text = s.slice(i, lt)
+        const t0 = xmlUnescape(text)
+        const t = capPreserve ? t0.replace(/\r\n/g, '\n').replace(/\r/g, '\n') : t0
+        append(t.replace(/\s+/g, ' '))
+      }
+
+      // comment
+      if (s.startsWith('<!--', lt)) {
+        const end = s.indexOf('-->', lt + 4)
+        i = end >= 0 ? end + 3 : s.length
+        continue
+      }
+      // cdata
+      if (s.startsWith('<![CDATA[', lt)) {
+        const end = s.indexOf(']]>', lt + 9)
+        const text = end >= 0 ? s.slice(lt + 9, end) : s.slice(lt + 9)
+        if (capName) append(String(text || '').replace(/\s+/g, ' '))
+        i = end >= 0 ? end + 3 : s.length
+        continue
+      }
+      // processing instruction / doctype
+      if (s.startsWith('<?', lt) || s.startsWith('<!', lt)) {
+        const gt = s.indexOf('>', lt + 2)
+        i = gt >= 0 ? gt + 1 : s.length
+        continue
+      }
+
+      const gt = s.indexOf('>', lt + 1)
+      if (gt < 0) break
+      const rawTag = s.slice(lt + 1, gt)
+      const { name, isEnd, isSelf } = parseTagName(rawTag)
+
+      if (!isEnd) {
+        if (name === 'a:t') {
+          capName = 'a:t'
+          capPreserve = /\bxml:space\s*=\s*["']preserve["']/.test(rawTag)
+        } else if (name === 'p:text') {
+          capName = 'p:text'
+          capPreserve = true
+        } else if (name === 'a:br') {
+          appendNl()
+        } else if (name === 'a:tab') {
+          appendTab()
+        }
+      }
+
+      if (isEnd || isSelf) {
+        if (name === capName) {
+          capName = null
+          capPreserve = false
+        }
+        if (name === 'a:p') {
+          appendNl()
+        } else if (name === 'a:tc') {
+          appendTab()
+        } else if (name === 'a:tr') {
+          appendNl()
+        } else if (name === 'p:sp') {
+          appendNl()
+          appendNl()
+        }
+      }
+
+      i = gt + 1
+    }
+
+    let t = String(out || '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/[ \f\v]+/g, ' ')
+      .replace(/ *\t */g, '\t')
+
+    // 清理每行尾部空白；保持空行
+    const lines = t.split('\n').map((l) => String(l || '').replace(/[ \t]+$/g, '').trim())
+    t = lines.join('\n')
+    t = t.replace(/\n{3,}/g, '\n\n').trim()
+    return t
+  }
+
+  function zipU16le(dv: DataView, off: number) {
+    return dv.getUint16(off, true)
+  }
+  function zipU32le(dv: DataView, off: number) {
+    return dv.getUint32(off, true)
+  }
+
+  function findZipEocdOffset(u8: Uint8Array) {
+    // EOCD: 0x06054b50；comment 最长 65535，故回溯最多 22+65535 字节
+    const maxBack = Math.min(u8.length, 22 + 65535)
+    for (let i = u8.length - 22; i >= u8.length - maxBack; i--) {
+      if (i < 0) break
+      if (u8[i] === 0x50 && u8[i + 1] === 0x4b && u8[i + 2] === 0x05 && u8[i + 3] === 0x06) return i
+    }
+    return -1
+  }
+
+  type ZipCdEntry = {
+    name: string
+    method: number
+    compSize: number
+    uncompSize: number
+    localHeaderOffset: number
+  }
+
+  function parseZipCentralDirectory(u8: Uint8Array): ZipCdEntry[] {
+    const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength)
+    const eocdOff = findZipEocdOffset(u8)
+    if (eocdOff < 0) throw new Error('pptx 解析失败：未找到 ZIP 目录')
+
+    const cdSize = zipU32le(dv, eocdOff + 12)
+    const cdOffset = zipU32le(dv, eocdOff + 16)
+    if (cdOffset <= 0 || cdOffset >= u8.length) throw new Error('pptx 解析失败：ZIP 目录偏移异常')
+    if (cdSize <= 0 || cdOffset + cdSize > u8.length) throw new Error('pptx 解析失败：ZIP 目录大小异常')
+
+    const out: ZipCdEntry[] = []
+    let p = cdOffset
+    const end = cdOffset + cdSize
+    while (p + 46 <= end) {
+      if (u8[p] !== 0x50 || u8[p + 1] !== 0x4b || u8[p + 2] !== 0x01 || u8[p + 3] !== 0x02) break
+      const method = zipU16le(dv, p + 10)
+      const compSize = zipU32le(dv, p + 20)
+      const uncompSize = zipU32le(dv, p + 24)
+      const nameLen = zipU16le(dv, p + 28)
+      const extraLen = zipU16le(dv, p + 30)
+      const commentLen = zipU16le(dv, p + 32)
+      const localHeaderOffset = zipU32le(dv, p + 42)
+      const nameOff = p + 46
+      const nameEnd = nameOff + nameLen
+      if (nameEnd > end) break
+      const name = new TextDecoder().decode(u8.slice(nameOff, nameEnd))
+      out.push({ name, method, compSize, uncompSize, localHeaderOffset })
+      p = nameEnd + extraLen + commentLen
+      if (out.length >= 5000) break
+    }
+    return out
+  }
+
+  async function unzipDeflate(data: Uint8Array) {
+    const DecompressionStreamCtor = (window as any)?.DecompressionStream
+    if (typeof DecompressionStreamCtor !== 'function') throw new Error('当前运行环境不支持解压 pptx（缺少 DecompressionStream）')
+
+    let lastErr: any = null
+    for (const algo of ['deflate-raw', 'deflate']) {
+      try {
+        const ds = new DecompressionStreamCtor(algo)
+        const stream = new Blob([data]).stream().pipeThrough(ds)
+        const ab = await new Response(stream).arrayBuffer()
+        return new Uint8Array(ab)
+      } catch (e) {
+        lastErr = e
+      }
+    }
+    throw new Error(String(lastErr?.message || lastErr || '解压 pptx 失败'))
+  }
+
+  async function readZipEntryBytes(u8: Uint8Array, e: ZipCdEntry) {
+    const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength)
+    const off = Math.floor(Number(e?.localHeaderOffset || 0))
+    if (!isFinite(off) || off < 0 || off + 30 > u8.length) throw new Error('pptx 解析失败：ZIP 条目偏移异常')
+    if (u8[off] !== 0x50 || u8[off + 1] !== 0x4b || u8[off + 2] !== 0x03 || u8[off + 3] !== 0x04) {
+      throw new Error('pptx 解析失败：ZIP 本地头异常')
+    }
+    const nameLen = zipU16le(dv, off + 26)
+    const extraLen = zipU16le(dv, off + 28)
+    const dataOff = off + 30 + nameLen + extraLen
+    const end = dataOff + Math.max(0, Math.floor(Number(e?.compSize || 0)))
+    if (dataOff < 0 || end > u8.length) throw new Error('pptx 解析失败：ZIP 条目数据越界')
+    const comp = u8.slice(dataOff, end)
+
+    const method = Math.floor(Number(e?.method || 0))
+    if (method === 0) return comp
+    if (method === 8) return await unzipDeflate(comp)
+    throw new Error(`pptx 解析失败：不支持的压缩方法（${method}）`)
+  }
+
+  async function extractPptxText(u8: Uint8Array) {
+    const entries = parseZipCentralDirectory(u8)
+
+    const slideRe = /^ppt\/slides\/slide(\d+)\.xml$/
+    const notesRe = /^ppt\/notesSlides\/notesSlide(\d+)\.xml$/
+    const chartRe = /^ppt\/charts\/chart(\d+)\.xml$/
+    const diagramDataRe = /^ppt\/diagrams\/data(\d+)\.xml$/
+    const commentRe = /^ppt\/comments\/comment(\d+)\.xml$/
+    const presRe = /^ppt\/presentation\.xml$/
+    const docPropsRe = /^docProps\/(core|app)\.xml$/
+
+    const targets = entries.filter((e) => {
+      const name = String(e?.name || '')
+      return (
+        slideRe.test(name) ||
+        notesRe.test(name) ||
+        chartRe.test(name) ||
+        diagramDataRe.test(name) ||
+        commentRe.test(name) ||
+        presRe.test(name) ||
+        docPropsRe.test(name)
+      )
+    })
+    if (!targets.some((e) => slideRe.test(String(e?.name || '')))) throw new Error('pptx 解析失败：未找到 slide XML')
+
+    function rankZipName(name: string) {
+      const n = String(name || '')
+      const m0 = slideRe.exec(n)
+      if (m0) return 10_000 + Number(m0[1] || 0)
+      const m1 = notesRe.exec(n)
+      if (m1) return 20_000 + Number(m1[1] || 0)
+      const m2 = chartRe.exec(n)
+      if (m2) return 30_000 + Number(m2[1] || 0)
+      const m3 = diagramDataRe.exec(n)
+      if (m3) return 40_000 + Number(m3[1] || 0)
+      const m4 = commentRe.exec(n)
+      if (m4) return 50_000 + Number(m4[1] || 0)
+      if (presRe.test(n)) return 5_000
+      if (/^docProps\/core\.xml$/.test(n)) return 1_000
+      if (/^docProps\/app\.xml$/.test(n)) return 2_000
+      return 99_999_999
+    }
+
+    targets.sort((a, b) => {
+      const an = String(a?.name || '')
+      const bn = String(b?.name || '')
+      const d = rankZipName(an) - rankZipName(bn)
+      if (d) return d
+      return an.localeCompare(bn, 'en')
+    })
+
+    const parts: string[] = []
+    let totalLen = 0
+    for (const e of targets.slice(0, 400)) {
+      const raw = await readZipEntryBytes(u8, e)
+      const xml = new TextDecoder().decode(raw)
+      const t = extractPptxTextFromXml(xml)
+      if (t) {
+        parts.push(t)
+        totalLen += t.length
+      }
+      if (totalLen > 2_000_000) break
+    }
+    return parts.join('\n\n').trim()
+  }
+
+  function extractLegacyPptText(u8: Uint8Array) {
+    const out: string[] = []
+    const seen = new Set<string>()
+
+    const minChars = 4
+    const maxItems = 3000
+    const maxLen = 2_000_000
+
+    let i = 0
+    while (i + 1 < u8.length) {
+      const cu0 = u8[i] | (u8[i + 1] << 8)
+      const isStart = cu0 !== 0 && cu0 !== 0xffff && cu0 !== 0xfffe
+      if (!isStart) {
+        i += 2
+        continue
+      }
+
+      let j = i
+      let s = ''
+      while (j + 1 < u8.length) {
+        const cu = u8[j] | (u8[j + 1] << 8)
+        if (cu === 0) break
+        // 跳过 surrogate 和明显控制字符；减少噪声
+        if ((cu >= 0xd800 && cu <= 0xdfff) || (cu < 0x09 && cu !== 0x0a) || cu === 0x0b || cu === 0x0c) {
+          s = ''
+          break
+        }
+        s += String.fromCharCode(cu)
+        if (s.length > 4000) break
+        j += 2
+      }
+
+      if (s.length >= minChars) {
+        const t = s.replace(/\s+/g, ' ').trim()
+        const hasWord = /[0-9A-Za-z\u4e00-\u9fff]/.test(t)
+        if (hasWord && t.length >= minChars && !seen.has(t)) {
+          seen.add(t)
+          out.push(t)
+          if (out.length >= maxItems) break
+          if (out.join('\n').length >= maxLen) break
+        }
+      }
+
+      i = j + 2
+    }
+
+    return out.join('\n').trim()
+  }
+
+  async function extractPptText(file: File) {
+    const buf = await file.arrayBuffer()
+    const u8 = new Uint8Array(buf)
+    const isZip = u8.length >= 4 && u8[0] === 0x50 && u8[1] === 0x4b && u8[2] === 0x03 && u8[3] === 0x04
+    if (isZip) return await extractPptxText(u8)
+    return extractLegacyPptText(u8)
+  }
+
   async function extractTextFromFile(file: File, kind: DraftFileKind) {
     if (!(file instanceof File)) throw new Error('file 无效')
     const size = Number(file?.size || 0)
     if (!isFinite(size) || size <= 0) throw new Error('文件为空')
-    if (size > MAX_DRAFT_FILE_BYTES) throw new Error(`文件过大（> ${Math.round(MAX_DRAFT_FILE_BYTES / 1024 / 1024)}MB）`)
-
+    const mb0 = (() => {
+      try {
+        const at = state.data?.settings?.attachments
+        const map = at && typeof at === 'object' ? (at as any).maxFileSizeMbByKind : null
+        return map && typeof map === 'object' ? map[kind] : undefined
+      } catch (_) {
+        return undefined
+      }
+    })()
+    const maxMb = (() => {
+      const n = Number(mb0)
+      if (!isFinite(n)) return DEFAULT_ATTACH_MAX_FILE_MB
+      return clamp(Math.round(n), 0, MAX_ATTACH_MAX_FILE_MB)
+    })()
+    const maxBytes = maxMb <= 0 ? 0 : maxMb * 1024 * 1024
+    if (maxBytes > 0 && size > maxBytes) throw new Error(`文件过大（> ${maxMb}MB）`)
     if (kind === 'txt' || kind === 'md') {
       const t = await file.text()
       return String(t || '').trim()
@@ -1674,6 +2081,10 @@ import mammoth from 'mammoth/mammoth.browser'
     }
     if (kind === 'docx') {
       const t = await extractDocxText(file)
+      return String(t || '').trim()
+    }
+    if (kind === 'ppt') {
+      const t = await extractPptText(file)
       return String(t || '').trim()
     }
     throw new Error('不支持的文件类型')
@@ -4511,6 +4922,21 @@ import mammoth from 'mammoth/mammoth.browser'
         }
         const at = state.data.settings.attachments
         at.sendLimitChars = clamp(Math.round(Number(chars || DEFAULT_ATTACH_SEND_LIMIT_CHARS)), 1000, 2_000_000)
+        if (commit) save().catch(() => {})
+        emit()
+      },
+      setAttachmentsMaxFileSizeMb: (kind, mb, commit) => {
+        if (!state.data) return
+        const k = String(kind || '').trim()
+        if (!CHAT_ATTACHMENT_KINDS.has(k)) return
+        if (!state.data.settings.attachments || typeof state.data.settings.attachments !== 'object') {
+          state.data.settings.attachments = { sendLimitChars: DEFAULT_ATTACH_SEND_LIMIT_CHARS, maxFileSizeMbByKind: {} }
+        }
+        const at = state.data.settings.attachments as any
+        if (!at.maxFileSizeMbByKind || typeof at.maxFileSizeMbByKind !== 'object') at.maxFileSizeMbByKind = {}
+        const n = Number(mb)
+        const next = !isFinite(n) ? DEFAULT_ATTACH_MAX_FILE_MB : clamp(Math.round(n), 0, MAX_ATTACH_MAX_FILE_MB)
+        at.maxFileSizeMbByKind[k] = next
         if (commit) save().catch(() => {})
         emit()
       },
