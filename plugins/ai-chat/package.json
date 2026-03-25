@@ -6,6 +6,7 @@
   "dependencies": {
     "@noelle-silva/eucli-aitoolcall-sdk": "^0.1.6",
     "dompurify": "^3.0.11",
+    "jszip": "^3.10.1",
     "katex": "^0.16.11",
     "mammoth": "^1.10.0",
     "marked": "^12.0.2",
