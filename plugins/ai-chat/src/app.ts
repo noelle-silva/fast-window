@@ -834,6 +834,32 @@ import { extractPptMarkdown } from './core/ppt'
     return
   }
 
+  async function saveMetaOnly() {
+    if (!state.data) return
+    // meta 里保存 UI（activeRoleId）和 settings；不要每次都重写所有 role/chat 文件。
+    state.data.ui.activeRoleId = String(state.draft.activeRoleId || '')
+
+    const old = splitMetaCache || (await loadSplitMeta())
+    if (!old) return saveSplitData(state.data)
+
+    const settingsMeta = state.data.settings && typeof state.data.settings === 'object' ? { ...(state.data.settings as any) } : {}
+    try {
+      delete (settingsMeta as any).stickers
+    } catch (_) {}
+
+    const meta = {
+      ...(old && typeof old === 'object' ? old : {}),
+      schemaVersion: SPLIT_SCHEMA_VERSION,
+      dataVersion: VERSION,
+      updatedAt: now(),
+      ui: state.data.ui && typeof state.data.ui === 'object' ? state.data.ui : {},
+      settings: settingsMeta,
+    }
+
+    await api.storage.set(SPLIT_META_KEY, meta)
+    splitMetaCache = meta
+  }
+
   async function load() {
     try {
       await ensureSplitStoreReady()
@@ -3510,11 +3536,66 @@ import { extractPptMarkdown } from './core/ppt'
   let uiLastSyncMs = 0
   let uiLastMetaCheckMs = 0
   let uiLastMetaUpdatedAt = 0
-  let uiSyncing = false
   const uiStreamCache = new Map()
-  let draftRev = 0
-  function bumpDraftRev() {
-    draftRev++
+  let uiChatSyncing = false
+
+  async function syncActiveRoleChatsFromStorage(metaOverride?: any) {
+    if (!state.data) return
+    if (uiChatSyncing) return
+    uiChatSyncing = true
+    try {
+      const rid = String(state.draft.activeRoleId || state.data?.ui?.activeRoleId || '')
+      if (!rid) return
+
+      const meta = metaOverride || (await loadSplitMeta())
+      if (!meta || typeof meta !== 'object') return
+
+      const updatedAt = Number((meta as any).updatedAt || 0)
+      if (updatedAt) uiLastMetaUpdatedAt = Math.max(uiLastMetaUpdatedAt, updatedAt)
+
+      const folder = String((meta as any).roleFolders?.[rid] || '')
+      const idx = (meta as any).chatIndexByRole?.[rid]
+      if (!folder || !idx || typeof idx !== 'object') return
+
+      const desiredChatIds = Array.isArray((idx as any).chatIds) ? (idx as any).chatIds.map((x) => String(x || '')).filter((x) => !!x) : []
+      const desiredActiveChatId = String((idx as any).activeChatId || '')
+      const wantUpdatedAt = (idx as any).chatUpdatedAt && typeof (idx as any).chatUpdatedAt === 'object' ? (idx as any).chatUpdatedAt : {}
+
+      if (!state.data.chatsByRole || typeof state.data.chatsByRole !== 'object') state.data.chatsByRole = {}
+      if (!state.data.chatsByRole[rid] || typeof state.data.chatsByRole[rid] !== 'object') state.data.chatsByRole[rid] = { activeChatId: '', chats: [] }
+      const box = state.data.chatsByRole[rid]
+      if (!Array.isArray(box.chats)) box.chats = []
+
+      const keepChatNow = String(box.activeChatId || '')
+      const curChats = box.chats
+      const curById = new Map<string, any>()
+      for (const c of curChats) {
+        const cid = String(c?.id || '')
+        if (cid) curById.set(cid, c)
+      }
+
+      const nextChats: any[] = []
+      for (const cid of desiredChatIds) {
+        const cur = curById.get(cid) || null
+        const curUpdatedAt = Number(cur?.updatedAt || 0)
+        const metaUpdatedAt = Number((wantUpdatedAt as any)?.[cid] || 0)
+        if (cur && (!metaUpdatedAt || curUpdatedAt === metaUpdatedAt)) {
+          nextChats.push(cur)
+          continue
+        }
+        const c0 = await api.storage.get(splitChatKey(folder, cid))
+        const c1 = c0 && typeof c0 === 'object' ? c0 : null
+        if (c1) nextChats.push(c1)
+      }
+
+      box.chats = nextChats
+
+      if (keepChatNow && nextChats.some((c) => String(c?.id || '') === keepChatNow)) box.activeChatId = keepChatNow
+      else if (desiredActiveChatId && nextChats.some((c) => String(c?.id || '') === desiredActiveChatId)) box.activeChatId = desiredActiveChatId
+      else box.activeChatId = String(nextChats[0]?.id || '')
+    } finally {
+      uiChatSyncing = false
+    }
   }
 
   function reapplyUiStreamCache(chatOverride) {
@@ -3551,48 +3632,6 @@ import { extractPptMarkdown } from './core/ppt'
     }, 350)
   }
 
-  async function syncDataFromStorage() {
-    if (uiSyncing) return
-    uiSyncing = true
-    const draftRev0 = draftRev
-    const keepActive = String(state.draft.activeRoleId || '')
-    const keepInput = String(state.draft.input || '')
-    const keepImages = Array.isArray(state.draft.images) ? state.draft.images : []
-    try {
-      const split = await loadSplitData()
-      if (!split) return
-
-      // 轮询同步只应该刷新“内容数据”，不应该把用户刚选中的会话又切回去。
-      // 否则会出现：点到 B -> 轮询读到磁盘还是 A -> UI 跳回 A -> 下一轮再跳回 B（抖动）。
-      const keepRoleNow = String(state.draft.activeRoleId || state.data?.ui?.activeRoleId || '')
-      const keepChatNow = keepRoleNow ? String(state.data?.chatsByRole?.[keepRoleNow]?.activeChatId || '') : ''
-      const keepRoleExists =
-        !!keepRoleNow && Array.isArray(split.roles) && split.roles.some((r) => String(r?.id || '') === keepRoleNow)
-
-      state.data = split
-      uiLastMetaUpdatedAt = Math.max(uiLastMetaUpdatedAt, Number(splitMetaCache?.updatedAt || 0))
-
-      if (keepRoleExists && keepChatNow) {
-        const box = ensureChatsBoxBare(keepRoleNow)
-        if (box && Array.isArray(box.chats) && box.chats.some((c) => String(c?.id || '') === keepChatNow)) box.activeChatId = keepChatNow
-      }
-
-      // loadSplitData 是 async；期间用户可能继续输入。
-      // 如果这里无条件把 keepInput 写回，就会把输入框“回滚”到更早的值（你描述的现象）。
-      if (draftRev !== draftRev0) {
-        if (!String(state.draft.activeRoleId || '').trim()) state.draft.activeRoleId = String(state.data?.ui?.activeRoleId || '')
-        return
-      }
-
-      if (keepActive) state.draft.activeRoleId = keepActive
-      else state.draft.activeRoleId = String(state.data?.ui?.activeRoleId || '')
-      state.draft.input = keepInput
-      state.draft.images = keepImages
-    } finally {
-      uiSyncing = false
-    }
-  }
-
   async function uiPollTick() {
     if (state.loading || !state.data) return
 
@@ -3602,10 +3641,10 @@ import { extractPptMarkdown } from './core/ppt'
     const items = Array.isArray(chat.messages) ? chat.messages : []
     const pending = items.filter((m) => m && m.role === 'assistant' && m.pending).slice(-3)
 
-    if (pending.length) {
-      let changed = false
-      for (const m of pending) {
-        if (!m.streaming) continue
+      if (pending.length) {
+        let changed = false
+        for (const m of pending) {
+          if (!m.streaming) continue
         const s = await api.storage.get(streamKey(String(m.id || '')))
         const text = String(s?.text || '')
         if (!text) continue
@@ -3620,13 +3659,17 @@ import { extractPptMarkdown } from './core/ppt'
       const t = now()
       if (t - uiLastSyncMs > 900) {
         uiLastSyncMs = t
-        // 避免把“本地尚未落盘”的 UI 状态（尤其是新建会话 + 首条消息发送中）用磁盘快照覆盖掉。
-        // 否则会出现：新会话刚创建/刚写入前，被轮询同步回旧会话，表现为“回退到上一个会话但消息已发送”。
         if (state.sending || state.pendingChat) return
-        await syncDataFromStorage()
-        chat = activeChatFromData()
-        reapplyUiStreamCache(chat)
-        emit()
+        try {
+          const meta = await loadSplitMeta()
+          const updatedAt = Number(meta?.updatedAt || 0)
+          if (updatedAt && updatedAt !== uiLastMetaUpdatedAt) {
+            await syncActiveRoleChatsFromStorage(meta)
+            chat = activeChatFromData()
+            reapplyUiStreamCache(chat)
+            emit()
+          }
+        } catch (_) {}
       }
 
       return
@@ -3644,8 +3687,7 @@ import { extractPptMarkdown } from './core/ppt'
           const meta = await loadSplitMeta()
           const updatedAt = Number(meta?.updatedAt || 0)
           if (updatedAt && updatedAt !== uiLastMetaUpdatedAt) {
-            uiLastMetaUpdatedAt = updatedAt
-            await syncDataFromStorage()
+            await syncActiveRoleChatsFromStorage(meta)
             chat = activeChatFromData()
             reapplyUiStreamCache(chat)
             emit()
@@ -4182,7 +4224,6 @@ import { extractPptMarkdown } from './core/ppt'
 
     if (act === 'pick-role') {
       state.draft.activeRoleId = String(t.getAttribute('data-id') || '')
-      bumpDraftRev()
       ensureChatsBox(state.draft.activeRoleId)
       save().catch(() => {})
       render()
@@ -4416,7 +4457,6 @@ import { extractPptMarkdown } from './core/ppt'
       setActiveRole: (roleId) => {
         clearPendingChat()
         state.draft.activeRoleId = String(roleId || '')
-        bumpDraftRev()
         ensureChatsBox(state.draft.activeRoleId)
         save().catch(() => {})
         emit()
@@ -4843,7 +4883,7 @@ import { extractPptMarkdown } from './core/ppt'
         const v = String(baseUrl ?? '').trim()
         if (!state.data.settings.toolCallServer || typeof state.data.settings.toolCallServer !== 'object') state.data.settings.toolCallServer = {}
         state.data.settings.toolCallServer.baseUrl = v || DEFAULT_TOOL_CALL_SERVER_BASE_URL
-        save().catch(() => {})
+        saveMetaOnly().catch(() => {})
         emit()
       },
       setToolCallServerToken: (token) => {
@@ -4851,7 +4891,7 @@ import { extractPptMarkdown } from './core/ppt'
         const v = typeof token === 'string' ? token : String(token ?? '')
         if (!state.data.settings.toolCallServer || typeof state.data.settings.toolCallServer !== 'object') state.data.settings.toolCallServer = {}
         state.data.settings.toolCallServer.token = v
-        save().catch(() => {})
+        saveMetaOnly().catch(() => {})
         emit()
       },
       closeModal: () => closeModal(),
@@ -5003,7 +5043,6 @@ import { extractPptMarkdown } from './core/ppt'
         const k = String(key || '')
         if (!k) return
         ;(state.draft as any)[k] = value
-        bumpDraftRev()
         emit()
       },
       roleProviderChanged: (providerId) => {
@@ -5024,12 +5063,10 @@ import { extractPptMarkdown } from './core/ppt'
       clearRoleAvatarImage: () => clearRoleAvatarImage(),
       removeDraftImage: (id) => {
         removeDraftImage(String(id || ''))
-        bumpDraftRev()
         emit()
       },
       removeDraftFile: (id) => {
         removeDraftFile(String(id || ''))
-        bumpDraftRev()
         emit()
       },
       setDraftFileSendPct: (id, pct) => {
@@ -5039,7 +5076,6 @@ import { extractPptMarkdown } from './core/ppt'
         const it = state.draft.files.find((x: any) => String(x?.id || '') === rid)
         if (!it) return
         it.sendPct = clamp(Math.round(Number(pct ?? 100)), 0, 100)
-        bumpDraftRev()
         emit()
       },
       pickImages: () => pickImages(),
@@ -5054,7 +5090,6 @@ import { extractPptMarkdown } from './core/ppt'
           } catch (_) {}
         }
         if (!added) api.ui?.showToast?.('未识别到图片')
-        if (added) bumpDraftRev()
         emit()
       },
       addDraftFilesFromFiles: async (files) => {
