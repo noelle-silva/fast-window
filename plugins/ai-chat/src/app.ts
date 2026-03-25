@@ -3561,8 +3561,21 @@ import { extractPptMarkdown } from './core/ppt'
     try {
       const split = await loadSplitData()
       if (!split) return
+
+      // 轮询同步只应该刷新“内容数据”，不应该把用户刚选中的会话又切回去。
+      // 否则会出现：点到 B -> 轮询读到磁盘还是 A -> UI 跳回 A -> 下一轮再跳回 B（抖动）。
+      const keepRoleNow = String(state.draft.activeRoleId || state.data?.ui?.activeRoleId || '')
+      const keepChatNow = keepRoleNow ? String(state.data?.chatsByRole?.[keepRoleNow]?.activeChatId || '') : ''
+      const keepRoleExists =
+        !!keepRoleNow && Array.isArray(split.roles) && split.roles.some((r) => String(r?.id || '') === keepRoleNow)
+
       state.data = split
       uiLastMetaUpdatedAt = Math.max(uiLastMetaUpdatedAt, Number(splitMetaCache?.updatedAt || 0))
+
+      if (keepRoleExists && keepChatNow) {
+        const box = ensureChatsBoxBare(keepRoleNow)
+        if (box && Array.isArray(box.chats) && box.chats.some((c) => String(c?.id || '') === keepChatNow)) box.activeChatId = keepChatNow
+      }
 
       // loadSplitData 是 async；期间用户可能继续输入。
       // 如果这里无条件把 keepInput 写回，就会把输入框“回滚”到更早的值（你描述的现象）。
@@ -4169,6 +4182,7 @@ import { extractPptMarkdown } from './core/ppt'
 
     if (act === 'pick-role') {
       state.draft.activeRoleId = String(t.getAttribute('data-id') || '')
+      bumpDraftRev()
       ensureChatsBox(state.draft.activeRoleId)
       save().catch(() => {})
       render()
