@@ -11,8 +11,12 @@
   "ui": { "type": "iframe" },
   "requires": [
     "storage.get",
-    "storage.set",
     "ui.startDragging",
-    "ui.showToast"
+    "ui.showToast",
+    "tauri:plugin:store|load",
+    "tauri:plugin:store|get",
+    "tauri:plugin:store|set",
+    "tauri:plugin:store|save",
+    "tauri:plugin:resources|close"
   ]
 }

@@ -2,11 +2,55 @@
 ;(function () {
   const api = window.fastWindow
   const STORAGE_KEY = 'items'
+  // 使用 Tauri 官方 store 插件；路径是 app 数据目录下的相对路径（由 store 插件决定落盘位置）。
+  const STORE_PATH = 'plugins/memo.json'
 
   const state = {
     memos: [],
     input: '',
     loading: true,
+  }
+
+  let storeRid = null
+  let storeInitPromise = null
+
+  async function ensureStore() {
+    if (!api?.tauri?.invoke) throw new Error('tauri.invoke 不可用（请更新宿主）')
+    if (storeRid) return storeRid
+    if (storeInitPromise) return storeInitPromise
+    storeInitPromise = Promise.resolve()
+      .then(async () => {
+        const rid = await api.tauri.invoke({ command: 'plugin:store|load', payload: { path: STORE_PATH } })
+        if (!rid) throw new Error('store rid 无效')
+        storeRid = rid
+        return rid
+      })
+      .finally(() => {
+        storeInitPromise = null
+      })
+    return storeInitPromise
+  }
+
+  async function storeGet(key) {
+    const rid = await ensureStore()
+    const r = await api.tauri.invoke({ command: 'plugin:store|get', payload: { rid, key: String(key || '') } })
+    // store 返回：[value, exists]
+    if (Array.isArray(r) && r[1]) return r[0]
+    return undefined
+  }
+
+  async function storeSet(key, value) {
+    const rid = await ensureStore()
+    await api.tauri.invoke({ command: 'plugin:store|set', payload: { rid, key: String(key || ''), value } })
+    await api.tauri.invoke({ command: 'plugin:store|save', payload: { rid } })
+  }
+
+  async function closeStore() {
+    if (!storeRid) return
+    try {
+      await api.tauri.invoke({ command: 'plugin:resources|close', payload: { rid: storeRid } })
+    } catch (e) {}
+    storeRid = null
   }
 
   const styles = `
@@ -117,9 +161,15 @@
 
   async function load() {
     try {
-      const saved = await api.storage.get(STORAGE_KEY)
-      if (Array.isArray(saved)) {
-        state.memos = saved
+      const saved = await storeGet(STORAGE_KEY)
+      if (Array.isArray(saved)) state.memos = saved
+      else {
+        // 兼容迁移：第一次升级时尝试读取 legacy storage（只读）。
+        const legacy = await api?.storage?.get?.(STORAGE_KEY).catch(() => null)
+        if (Array.isArray(legacy) && legacy.length) {
+          state.memos = legacy
+          await storeSet(STORAGE_KEY, legacy)
+        }
       }
     } catch (e) {}
     state.loading = false
@@ -127,7 +177,7 @@
 
   async function save() {
     try {
-      await api.storage.set(STORAGE_KEY, state.memos)
+      await storeSet(STORAGE_KEY, state.memos)
     } catch (e) {}
   }
 
@@ -277,4 +327,9 @@
   }
 
   init()
+
+  // 尽最大努力释放 store resource（避免 rid 长期堆积）
+  window.addEventListener('beforeunload', () => {
+    void closeStore()
+  })
 })()
