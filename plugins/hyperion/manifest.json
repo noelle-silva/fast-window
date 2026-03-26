@@ -10,17 +10,16 @@
   "apiVersion": 2,
   "ui": { "type": "iframe", "keepAlive": true },
   "requires": [
-    "ui.showToast",
-    "files.getOutputDir",
-    "files.pickOutputDir",
-    "files.openDir",
-    "files.listDir",
-    "files.readText",
-    "files.writeText",
-    "files.readBase64",
-    "files.writeBase64",
-    "files.rename",
-    "files.delete",
-    "files.pickImages"
+    "tauri:plugin_get_output_dir",
+    "tauri:plugin_pick_output_dir",
+    "tauri:plugin_open_dir",
+    "tauri:plugin_files_list_dir",
+    "tauri:plugin_files_read_text",
+    "tauri:plugin_files_write_text",
+    "tauri:plugin_files_read_base64",
+    "tauri:plugin_files_write_base64",
+    "tauri:plugin_files_rename",
+    "tauri:plugin_files_delete",
+    "tauri:plugin_pick_images"
   ]
 }

@@ -38,8 +38,122 @@ const NOTES_DIR = 'Notes'
 const ASSETS_DIR = 'Assets'
 const INDEX_FILE = 'hyperion-index.json'
 
+const PLUGIN_ID = 'hyperion'
+
+function createToast() {
+  let el: HTMLDivElement | null = null
+  let timer: any = 0
+
+  function ensure() {
+    if (typeof document === 'undefined') return null
+    if (el && el.isConnected) return el
+    el = document.createElement('div')
+    el.id = '__fastWindowHyperionToast'
+    el.style.position = 'fixed'
+    el.style.left = '50%'
+    el.style.bottom = '24px'
+    el.style.transform = 'translateX(-50%)'
+    el.style.maxWidth = 'min(520px, calc(100vw - 24px))'
+    el.style.padding = '10px 12px'
+    el.style.borderRadius = '10px'
+    el.style.background = 'rgba(0,0,0,0.82)'
+    el.style.color = '#fff'
+    el.style.fontSize = '12px'
+    el.style.lineHeight = '1.4'
+    el.style.boxShadow = '0 6px 18px rgba(0,0,0,0.28)'
+    el.style.zIndex = '999999'
+    el.style.opacity = '0'
+    el.style.transition = 'opacity 160ms ease'
+    el.style.pointerEvents = 'none'
+    document.body.appendChild(el)
+    return el
+  }
+
+  return (message: any) => {
+    const d = ensure()
+    if (!d) return
+    const text = String(message ?? '').trim()
+    if (!text) return
+
+    d.textContent = text
+    d.style.opacity = '1'
+    clearTimeout(timer)
+    timer = setTimeout(() => {
+      if (!d.isConnected) return
+      d.style.opacity = '0'
+    }, 1800)
+  }
+}
+
+type TauriLike = { invoke: (req: { command: string; payload?: any }) => Promise<any> }
+
+function createCompatApi(baseApi: any): Api {
+  const base = baseApi || {}
+  const tauri: TauriLike | null = base?.tauri || null
+  if (!tauri || typeof tauri.invoke !== 'function') {
+    throw new Error('tauri.invoke 不可用（请更新宿主网关）')
+  }
+
+  const toast = createToast()
+
+  const api: Api = {
+    ...base,
+    ui: {
+      ...(base.ui || {}),
+      showToast: (message: string) => toast(message),
+    },
+    files: {
+      ...(base.files || {}),
+      getOutputDir: async () => {
+        return tauri.invoke({ command: 'plugin_get_output_dir', payload: { pluginId: PLUGIN_ID } })
+      },
+      pickOutputDir: async () => {
+        return tauri.invoke({ command: 'plugin_pick_output_dir', payload: { pluginId: PLUGIN_ID } })
+      },
+      openDir: async (dir: string) => {
+        const s = String(dir || '').trim()
+        if (!s) throw new Error('dir 不能为空')
+        return tauri.invoke({ command: 'plugin_open_dir', payload: { pluginId: PLUGIN_ID, dir: s } })
+      },
+      listDir: async (req: any) => {
+        return tauri.invoke({ command: 'plugin_files_list_dir', payload: { pluginId: PLUGIN_ID, req } })
+      },
+      readText: async (req: any) => {
+        return tauri.invoke({ command: 'plugin_files_read_text', payload: { pluginId: PLUGIN_ID, req } })
+      },
+      writeText: async (req: any) => {
+        return tauri.invoke({ command: 'plugin_files_write_text', payload: { pluginId: PLUGIN_ID, req } })
+      },
+      readBase64: async (req: any) => {
+        return tauri.invoke({ command: 'plugin_files_read_base64', payload: { pluginId: PLUGIN_ID, req } })
+      },
+      writeBase64: async (req: any) => {
+        return tauri.invoke({ command: 'plugin_files_write_base64', payload: { pluginId: PLUGIN_ID, req } })
+      },
+      rename: async (req: any) => {
+        return tauri.invoke({ command: 'plugin_files_rename', payload: { pluginId: PLUGIN_ID, req } })
+      },
+      delete: async (req: any) => {
+        return tauri.invoke({ command: 'plugin_files_delete', payload: { pluginId: PLUGIN_ID, req } })
+      },
+      pickImages: async (maxCount?: number | null) => {
+        return tauri.invoke({
+          command: 'plugin_pick_images',
+          payload: { pluginId: PLUGIN_ID, maxCount: maxCount == null ? null : Number(maxCount) },
+        })
+      },
+    },
+  }
+
+  return api
+}
+
+let __hyperionApiCache: Api | null = null
+
 function getApi(): Api {
-  return (window as any).fastWindow as Api
+  if (__hyperionApiCache) return __hyperionApiCache
+  __hyperionApiCache = createCompatApi((window as any).fastWindow)
+  return __hyperionApiCache
 }
 
 function nowId(): string {
@@ -611,4 +725,3 @@ function App() {
   if (!el) return
   createRoot(el).render(<App />)
 })()
-
