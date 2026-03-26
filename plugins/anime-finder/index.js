@@ -1,6 +1,116 @@
 // anime-finder (iframe sandbox) (entry: index.js)
 ;(function () {
-  const api = window.fastWindow
+  const PLUGIN_ID = 'anime-finder'
+
+  function createToast() {
+    let el = null
+    let timer = 0
+
+    function ensure() {
+      if (typeof document === 'undefined') return null
+      if (el && el.isConnected) return el
+      el = document.createElement('div')
+      el.style.position = 'fixed'
+      el.style.left = '50%'
+      el.style.bottom = '24px'
+      el.style.transform = 'translateX(-50%)'
+      el.style.maxWidth = 'min(520px, calc(100vw - 24px))'
+      el.style.padding = '10px 12px'
+      el.style.borderRadius = '10px'
+      el.style.background = 'rgba(0,0,0,0.82)'
+      el.style.color = '#fff'
+      el.style.fontSize = '12px'
+      el.style.lineHeight = '1.4'
+      el.style.boxShadow = '0 6px 18px rgba(0,0,0,0.28)'
+      el.style.zIndex = '999999'
+      el.style.opacity = '0'
+      el.style.transition = 'opacity 160ms ease'
+      el.style.pointerEvents = 'none'
+      document.body.appendChild(el)
+      return el
+    }
+
+    return (message) => {
+      const d = ensure()
+      if (!d) return
+      const text = String(message || '').trim()
+      if (!text) return
+      d.textContent = text
+      d.style.opacity = '1'
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        if (d && d.isConnected) d.style.opacity = '0'
+      }, 1800)
+    }
+  }
+
+  function createCompatApi(baseApi) {
+    const base = baseApi || {}
+    const tauri = base && base.tauri ? base.tauri : null
+    if (!tauri || typeof tauri.invoke !== 'function') {
+      throw new Error('tauri.invoke 不可用（请更新宿主网关）')
+    }
+
+    const toast = createToast()
+
+    function normalizeHttpReq(req) {
+      const r = req && typeof req === 'object' ? req : {}
+      const method = String(r.method || 'GET').trim() || 'GET'
+      const url = String(r.url || '').trim()
+      const headers = r.headers && typeof r.headers === 'object' && !Array.isArray(r.headers) ? r.headers : null
+      const body = typeof r.body === 'string' ? r.body : null
+      const bodyBase64 = typeof r.bodyBase64 === 'string' ? r.bodyBase64 : null
+      const timeoutMs = typeof r.timeoutMs === 'number' && Number.isFinite(r.timeoutMs) ? Math.max(0, Math.floor(r.timeoutMs)) : null
+      return { method, url, headers, body, bodyBase64, timeoutMs }
+    }
+
+    return {
+      ...base,
+      tauri,
+      ui: {
+        ...(base.ui || {}),
+        showToast: (message) => toast(message),
+        startDragging: async () => {
+          try {
+            await tauri.invoke({ command: 'plugin:window|start_dragging', payload: {} })
+          } catch (e) {
+            toast(String((e && e.message) || e || '无法拖拽'))
+          }
+        },
+      },
+      clipboard: {
+        ...(base.clipboard || {}),
+        readImage: async () => {
+          return tauri.invoke({ command: 'clipboard_read_image_data_url', payload: {} })
+        },
+        writeText: async (text) => {
+          await tauri.invoke({ command: 'plugin:clipboard-manager|write_text', payload: { text: String(text || '') } })
+        },
+      },
+      net: {
+        ...(base.net || {}),
+        request: async (req) => {
+          const r = normalizeHttpReq(req)
+          return tauri.invoke({
+            command: 'http_request',
+            payload: {
+              req: {
+                method: r.method,
+                url: r.url,
+                headers: r.headers || undefined,
+                body: r.body || undefined,
+                bodyBase64: r.bodyBase64 || undefined,
+                timeoutMs: r.timeoutMs || undefined,
+              },
+            },
+          })
+        },
+      },
+    }
+  }
+
+  const api = createCompatApi(window.fastWindow)
+  window.fastWindow = api
 
   const TRACE_MOE_API = 'https://api.trace.moe/search?cutBorders&anilistInfo'
   const MAX_UPLOAD_BYTES = 6 * 1024 * 1024

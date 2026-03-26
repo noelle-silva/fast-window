@@ -9,5 +9,10 @@
   "keyword": "anime",
   "apiVersion": 2,
   "ui": { "type": "iframe" },
-  "requires": ["net.request", "ui.showToast", "ui.startDragging", "clipboard.readImage", "clipboard.writeText"]
+  "requires": [
+    "tauri:http_request",
+    "tauri:clipboard_read_image_data_url",
+    "tauri:plugin:clipboard-manager|write_text",
+    "tauri:plugin:window|start_dragging"
+  ]
 }

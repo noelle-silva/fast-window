@@ -437,6 +437,16 @@ async fn clipboard_write_image_data_url(app: tauri::AppHandle, data_url: String)
     .map_err(|e| format!("写入图片剪贴板失败: {e}"))?
 }
 
+#[tauri::command]
+async fn clipboard_read_image_data_url(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let (_text, image) = read_clipboard_snapshot(&app).await?;
+    let Some(img) = image else {
+        return Ok(None);
+    };
+    let b64 = general_purpose::STANDARD.encode(img.png);
+    Ok(Some(format!("data:image/png;base64,{b64}")))
+}
+
 async fn run_clipboard_watch_task(
     app: &AppHandle,
     payload: ClipboardWatchTaskPayload,
@@ -5914,6 +5924,7 @@ fn main() {
             http_request_stream_cancel,
             gateway_test_channel,
             clipboard_write_image_data_url,
+            clipboard_read_image_data_url,
             storage_get,
             storage_set,
             storage_remove,

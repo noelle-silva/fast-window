@@ -9,5 +9,14 @@
   "keyword": "code",
   "apiVersion": 2,
   "ui": { "type": "iframe" },
-  "requires": ["storage.get", "storage.set", "ui.showToast", "ui.startDragging", "files.pickDir", "ui.openExternal"]
+  "requires": [
+    "tauri:plugin:store|load",
+    "tauri:plugin:store|get",
+    "tauri:plugin:store|set",
+    "tauri:plugin:store|save",
+    "tauri:storage_get_all",
+    "tauri:plugin_pick_dir",
+    "tauri:open_external_uri",
+    "tauri:plugin:window|start_dragging"
+  ]
 }
