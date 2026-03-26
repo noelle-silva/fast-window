@@ -208,6 +208,20 @@ async function invokeWithTimeout<T>(command: string, payload: any, timeoutMs: nu
   }
 }
 
+function validatePluginIdNotForged(pluginId: string, payload: unknown) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return
+
+  const p = payload as any
+  const claimed = p.pluginId ?? p.plugin_id
+  if (claimed == null) return
+
+  const claimedId = String(claimed || '').trim()
+  if (!claimedId) return
+  if (claimedId !== pluginId) {
+    throw new PluginBridgeError('CAPABILITY_DENIED', 'pluginId mismatch', { expected: pluginId, got: claimedId })
+  }
+}
+
 type MethodDef = {
   capability?: PluginMethodCapability
   handler: (
@@ -235,6 +249,8 @@ const methods: Record<PluginMethodName, MethodDef> = {
       if (!isTauriCommandAllowed(ctx.requires, command)) {
         throw new PluginBridgeError('CAPABILITY_DENIED', `Capability denied: tauri:${command}`, { needed: `tauri:${command}` })
       }
+
+      validatePluginIdNotForged(ctx.id, spec?.payload)
 
       const size = approxJsonBytes(spec?.payload ?? null)
       const maxBytes = isHighRiskTauriCommand(command) ? MAX_TAURI_INVOKE_JSON_BYTES_HIGH_RISK : MAX_TAURI_INVOKE_JSON_BYTES
@@ -328,6 +344,8 @@ const methods: Record<PluginMethodName, MethodDef> = {
       const rawPayload = spec?.payload ?? {}
       const isPlainObject = rawPayload && typeof rawPayload === 'object' && !Array.isArray(rawPayload)
       if (!isPlainObject) throw new PluginBridgeError('BAD_REQUEST', 'payload must be an object for channel commands')
+
+      validatePluginIdNotForged(ctx.id, rawPayload)
 
       const timeoutMs = resolveTauriInvokeTimeoutMs(command, spec?.timeoutMs)
       const detached = !!spec?.detached
