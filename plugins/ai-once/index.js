@@ -1,6 +1,172 @@
 // ai-once (iframe sandbox) (entry: index.js)
 ;(function () {
-  const api = window.fastWindow
+  const PLUGIN_ID = 'ai-once'
+  const STORE_PATH = 'plugins/ai-once.json'
+
+  function isPlainObject(v) {
+    return !!v && typeof v === 'object' && !Array.isArray(v)
+  }
+
+  function createToast() {
+    let el = null
+    let timer = 0
+
+    function ensure() {
+      if (typeof document === 'undefined') return null
+      if (el && el.isConnected) return el
+      el = document.createElement('div')
+      el.id = '__fastWindowAiOnceToast'
+      el.style.position = 'fixed'
+      el.style.left = '50%'
+      el.style.bottom = '24px'
+      el.style.transform = 'translateX(-50%)'
+      el.style.maxWidth = 'min(520px, calc(100vw - 24px))'
+      el.style.padding = '10px 12px'
+      el.style.borderRadius = '10px'
+      el.style.background = 'rgba(0,0,0,0.82)'
+      el.style.color = '#fff'
+      el.style.fontSize = '12px'
+      el.style.lineHeight = '1.4'
+      el.style.boxShadow = '0 6px 18px rgba(0,0,0,0.28)'
+      el.style.zIndex = '999999'
+      el.style.opacity = '0'
+      el.style.transition = 'opacity 160ms ease'
+      el.style.pointerEvents = 'none'
+      document.body.appendChild(el)
+      return el
+    }
+
+    return (message) => {
+      const d = ensure()
+      if (!d) return
+      const text = String(message ?? '').trim()
+      if (!text) return
+      d.textContent = text
+      d.style.opacity = '1'
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        if (!d.isConnected) return
+        d.style.opacity = '0'
+      }, 1800)
+    }
+  }
+
+  function createCompatApi(baseApi) {
+    const base = baseApi || {}
+    const tauri = base && base.tauri ? base.tauri : null
+    if (!tauri || typeof tauri.invoke !== 'function') {
+      throw new Error('tauri.invoke 不可用（请更新宿主网关）')
+    }
+
+    const toast = createToast()
+
+    let storeRid = null
+    let storeInitPromise = null
+
+    async function storeGetEntry(rid, key) {
+      const r = await tauri.invoke({ command: 'plugin:store|get', payload: { rid, key: String(key || '') } })
+      if (Array.isArray(r) && typeof r[1] === 'boolean') return { value: r[0], exists: !!r[1] }
+      return { value: null, exists: false }
+    }
+
+    async function storeSetRaw(rid, key, value) {
+      await tauri.invoke({ command: 'plugin:store|set', payload: { rid, key: String(key || ''), value } })
+    }
+
+    async function storeSave(rid) {
+      await tauri.invoke({ command: 'plugin:store|save', payload: { rid } })
+    }
+
+    async function migrateLegacyStorageOnce(rid) {
+      const flagKey = '__migrated_from_legacy_v1'
+      const done = await storeGetEntry(rid, flagKey)
+      if (done.exists && done.value) return
+
+      let legacy = null
+      try {
+        legacy = await tauri.invoke({ command: 'storage_get_all', payload: { pluginId: PLUGIN_ID } })
+      } catch (_) {
+        legacy = null
+      }
+
+      if (legacy && isPlainObject(legacy)) {
+        for (const k of Object.keys(legacy)) {
+          const hit = await storeGetEntry(rid, k)
+          if (hit.exists) continue
+          await storeSetRaw(rid, k, legacy[k])
+        }
+      }
+
+      await storeSetRaw(rid, flagKey, true)
+      await storeSave(rid)
+    }
+
+    async function ensureStore() {
+      if (storeRid) return storeRid
+      if (storeInitPromise) return storeInitPromise
+      storeInitPromise = Promise.resolve()
+        .then(async () => {
+          const rid = await tauri.invoke({ command: 'plugin:store|load', payload: { path: STORE_PATH } })
+          if (!rid) throw new Error('store rid 无效')
+          storeRid = rid
+          await migrateLegacyStorageOnce(rid)
+          return rid
+        })
+        .finally(() => {
+          storeInitPromise = null
+        })
+      return storeInitPromise
+    }
+
+    const api = {
+      ...base,
+      tauri,
+
+      ui: {
+        ...(base.ui || {}),
+        showToast: (message) => toast(message),
+        startDragging: async () => {
+          try {
+            await tauri.invoke({ command: 'plugin:window|start_dragging', payload: {} })
+          } catch (e) {
+            toast(String(e?.message || e || '无法拖拽'))
+          }
+        },
+      },
+
+      clipboard: {
+        ...(base.clipboard || {}),
+        writeText: async (text) => {
+          const s = String(text ?? '')
+          await tauri.invoke({ command: 'plugin:clipboard-manager|write_text', payload: { text: s } })
+        },
+      },
+
+      storage: {
+        get: async (key) => {
+          const rid = await ensureStore()
+          const r = await storeGetEntry(rid, String(key ?? ''))
+          if (!r.exists) return null
+          return r.value
+        },
+        set: async (key, value) => {
+          const rid = await ensureStore()
+          await storeSetRaw(rid, String(key ?? ''), value)
+          await storeSave(rid)
+        },
+      },
+
+      net: {
+        request: async (req) => {
+          return tauri.invoke({ command: 'http_request', payload: { req } })
+        },
+      },
+    }
+
+    return api
+  }
+
+  const api = createCompatApi(window.fastWindow)
   const STORAGE_KEY = 'data'
   const VERSION = 2
 

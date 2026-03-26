@@ -10,11 +10,13 @@
   "apiVersion": 2,
   "ui": { "type": "iframe" },
   "requires": [
-    "storage.get",
-    "storage.set",
-    "ui.showToast",
-    "ui.startDragging",
-    "clipboard.writeText",
-    "net.request"
+    "tauri:plugin:store|load",
+    "tauri:plugin:store|get",
+    "tauri:plugin:store|set",
+    "tauri:plugin:store|save",
+    "tauri:storage_get_all",
+    "tauri:http_request",
+    "tauri:plugin:clipboard-manager|write_text",
+    "tauri:plugin:window|start_dragging"
   ]
 }
