@@ -418,6 +418,25 @@ async fn read_clipboard_snapshot(
     Ok((text, image))
 }
 
+#[tauri::command]
+async fn clipboard_write_image_data_url(app: tauri::AppHandle, data_url: String) -> Result<(), String> {
+    let raw = data_url;
+    let app2 = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (bytes, _) = decode_base64_image_payload(&raw)?;
+        let img = image::load_from_memory(&bytes).map_err(|e| format!("解码图片失败: {e}"))?;
+        let rgba = img.to_rgba8();
+        let (width, height) = rgba.dimensions();
+        let image = tauri::image::Image::new_owned(rgba.into_raw(), width, height);
+        app2.clipboard()
+            .write_image(&image)
+            .map_err(|e| format!("写入图片剪贴板失败: {e}"))?;
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| format!("写入图片剪贴板失败: {e}"))?
+}
+
 async fn run_clipboard_watch_task(
     app: &AppHandle,
     payload: ClipboardWatchTaskPayload,
@@ -5894,6 +5913,7 @@ fn main() {
             http_request_stream,
             http_request_stream_cancel,
             gateway_test_channel,
+            clipboard_write_image_data_url,
             storage_get,
             storage_set,
             storage_remove,
