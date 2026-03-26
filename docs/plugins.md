@@ -69,71 +69,53 @@ plugins/<id>/
   "background": { "autoStart": true },
   "ui": { "type": "iframe" },
   "apiVersion": 2,
-  "requires": ["ui.showToast", "clipboard.readText"]
+  "requires": [
+    "tauri:plugin:clipboard-manager|read_text",
+    "tauri:plugin:store|load",
+    "tauri:plugin:store|get",
+    "tauri:plugin:store|set",
+    "tauri:plugin:store|save"
+  ]
 }
 ```
 
 ## 能力（`requires`）
 
-目前按“方法名”授权（见 `src/plugins/pluginContract.ts`），未声明的能力会被拒绝，常用：
+宿主只接受一种能力声明：**`tauri:<command>`**。
 
-- `clipboard.readText` / `clipboard.writeText`
-- `clipboard.readImage` / `clipboard.writeImage`
-- `storage.get` / `storage.set` / `storage.remove` / `storage.getAll` / `storage.setAll`
-- `ui.showToast` / `ui.openUrl` / `ui.openExternal` / `ui.openBrowserWindow`（在应用内新窗口打开网页）/ `ui.startDragging`（让插件触发拖拽窗口移动）
-  - `ui.openUrl`：仅允许 `http(s)://`
-  - `ui.openExternal`：用于打开外部 URI（例如 `vscode://...`），禁用 `file://` / `javascript:`
-- `net.request`（直接 HTTP 请求；走宿主后端以绕过浏览器 CORS；支持 `mode: "task"`；默认返回 UTF-8 文本）
-  - `net.request({ ..., responseType: "base64" })`：返回 `bodyBase64`（用于图片/二进制等非 UTF-8 响应；不支持 `mode: "task"`；需要额外声明 `net.requestBase64` 能力）
-- `net.requestStream`（流式 HTTP 请求；适合 SSE / `text/event-stream`；返回一个可 `for await` 的异步迭代器，事件类型为 `start/chunk/end/error`）
-  - 取消：调用返回对象的 `cancel()`（宿主侧能力为 `net.requestStreamCancel`）
-- `net.requestBase64`（兼容保留；等价于 `net.request({ responseType: "base64" })`）
-- `task.create` / `task.get` / `task.list` / `task.cancel`
-- `files.getOutputDir` / `files.pickOutputDir` / `files.openOutputDir`
-- `files.pickDir` / `files.openDir`（选择/打开本地目录）
-- `files.images.writeBase64` / `files.images.list` / `files.images.read` / `files.images.delete`
-  - `scope: "data"`：插件私有图片目录（不走可配置输出目录）
-  - `scope: "output"`：插件输出目录（可配置）
+- 插件侧只通过 `fastWindow.tauri.invoke({ command, payload })` / `fastWindow.tauri.streamOpen(...)` 发起调用。
+- 宿主侧只做：鉴权 + 载荷/超时限制 + 透传到 Tauri/Rust。
 
-## 后台任务（Task API）
+常见写法：
 
-目标：把长耗时工作从插件 iframe 中剥离到宿主后端，插件只负责发起、查询和展示。
+- 精确命令：`tauri:plugin:fs|read_text_file`
+- 前缀通配：`tauri:plugin:fs|*`
+- 全通配：`tauri:*`（不建议，等同“放弃权限隔离”）
 
-- `fastWindow.task.create({ kind, payload })`：创建后台任务，立即返回任务信息（含 `id`）
-- `fastWindow.task.get(taskId)`：查询单个任务状态与结果
-- `fastWindow.task.list(limit?)`：查询当前插件最近任务
-- `fastWindow.task.cancel(taskId)`：请求取消任务
+事件监听（复用同一鉴权引擎）：
 
-任务状态：`queued` -> `running` -> `succeeded | failed | canceled`
+- 伪命令：`event.listen|<eventName>`
+- 需要在 `requires` 里声明：`tauri:event.listen|<eventName>`
 
-约束：
+高危特例：
 
-- 任务数据按插件隔离，插件只能访问自己的任务
-- 宿主会限制每个插件保留的任务条数，避免无上限增长
-- 任务能力必须在 `manifest.requires` 显式声明
-
-通用任务原语示例（注意：网络请求请走 `net.request`，不要直接 `task.create("http.request")`）：
-
-- `http.request`：宿主执行 HTTP 请求，返回 `status/headers/body`
-- `clipboard.watch`：宿主持续监听剪贴板，返回 `items` 快照
-
-插件可以基于这些原语自行编排业务，不需要宿主内置插件业务逻辑。
+- `plugin:shell|*` 这种通配会被宿主拒绝，必须精确到 `tauri:plugin:shell|execute`。
 
 ## Iframe 插件运行方式
 
 iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入 `srcdoc`，并在 iframe 内提供 `window.fastWindow`：
 
-- `fastWindow.clipboard.*`
-- `fastWindow.storage.*`（默认绑定当前插件 id：`get(key)` / `set(key, value)` …）
-- `fastWindow.ui.showToast(message)`
-- `fastWindow.ui.back()`（请求宿主返回；不需要在 `requires` 里声明）
-- `fastWindow.ui.startDragging()`（让插件触发“拖拽窗口移动”；需要在 `requires` 里声明 `ui.startDragging`；仅 `runtime === 'ui'` 可用）
-  - `fastWindow.net.request(req)`（需要 `requires` 声明 `net.request`；可传 `mode: "task"` 返回任务句柄）
-- `fastWindow.files.*`（需要对应 `files.*` 能力）
+- `fastWindow.__meta.runtime`：`'ui' | 'background'`
+- `fastWindow.host.back()`：请求宿主返回（不需要在 `requires` 里声明）
+- `fastWindow.tauri.invoke({ command, payload, timeoutMs? })`
+- `fastWindow.tauri.streamOpen({ command, payload, channelKey?, timeoutMs?, detached?, cancel? })`
+- `fastWindow.tauri.streamCancel(streamId)`
+- `fastWindow.tauri.stream(spec)`：返回 `AsyncIterator`（封装 `streamOpen` + `streamCancel`）
+
+注意：旧的 `fastWindow.storage/net/files/ui/clipboard/task/migrations` 已移除；建议插件自己封装 compat（或未来抽到 `@fast-window/plugin-sdk`），把语义化 API 映射到 `tauri.invoke`。
 
 运行时元信息：
 
-- `fastWindow.__meta.runtime`：`'ui' | 'background'`
 - 单入口插件可在同一文件内按 runtime 分支：
   - `runtime === 'ui'`：渲染界面、处理交互
   - `runtime === 'background'`：常驻后台轮询任务、落盘、同步状态
@@ -160,7 +142,7 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
 - 不要使用 `window.confirm()` / `window.alert()` / `window.prompt()`：会被浏览器直接拦截，表现为“点击无响应/没弹窗/逻辑提前 return”。
 - 需要确认操作（删除、清空、覆盖等）时，推荐两种方式：
   - **插件自绘 Modal**：用 overlay + dialog 的 DOM/状态机实现确认/取消（推荐，体验更一致）。
-  - **二次点击确认**：第一次点击仅提示 `fastWindow.ui.showToast('再点一次…')`，短时间内第二次点击才执行。
+  - **二次点击确认**：第一次点击仅提示“再点一次…”，短时间内第二次点击才执行（toast 由插件自行实现）。
 
 设计原则：不要依赖浏览器原生弹窗，确认交互应完全由插件自身 UI 控制。
 
@@ -176,42 +158,9 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
 - 宿主设置：`data/app.json`（例如 `wakeShortcut`：唤醒窗口的全局快捷键）。
 - 插件覆盖更新偏好（宿主侧）：`data/__app/plugins-overwrite.json`（JSON 对象：`{ "<pluginId>": true|false }`）。
 - 默认策略：**默认允许覆盖更新**；仅当 `plugins-overwrite.json` 中该插件显式为 `false` 时，才禁止覆盖更新。
-- 插件存储（`fastWindow.storage.*`）：按 key 拆分为独立文件：`data/<pluginId>/storage/<key>.json`（key 中的 `/` 会形成子目录）。
-- 插件存储迁移（可选）：从旧版升级时，插件历史数据可能还在 `data/<pluginId>.json` 或 `data/<pluginId>/storage.json`。插件可调用 `await fastWindow.storage.migrate()` 将其迁移到新布局（幂等；失败不会删除旧文件）。
+- 插件存储：推荐使用 Tauri 官方 store 插件（`plugin:store|*`）落盘 JSON（常用路径：`plugins/<pluginId>.json`）。
+- 历史迁移：若需要迁移旧版数据，可通过 `tauri:storage_get_all`（legacy 只读）读取，再写回 store，并在 store 里记录一次性迁移标记（幂等）。
 - 开发模式（debug）：会把仓库根目录的 `plugins/` 同步到数据根目录的 `plugins/`（方便开发）；`data/` 只在目标目录为空时迁移一次。
-
-## 插件数据迁移标准（建议）
-
-这里的“迁移”分两层：
-
-1) **存储布局迁移（宿主提供能力）**：把旧文件布局迁到新的 `storage/<key>.json` 布局。插件在启动时可先调用：
-
-```js
-await fastWindow.storage.migrate()
-```
-
-2) **业务 schema 迁移（插件自己负责）**：插件自己决定数据结构的版本号与迁移链，并把“当前迁移到哪一步”记录在插件自己的 storage 里。
-
-推荐约定：
-
-- 状态 key：`__meta/schema`
-- 状态结构：`{ schemaVersion: number, updatedAtMs: number }`
-- 迁移规则：每个迁移函数只负责 **v -> v+1**，且应尽量幂等（可重复执行）。
-
-宿主已内置一个可选 helper：
-
-```js
-await fastWindow.migrations.run({
-  latestVersion: 3,
-  // 可选：默认 '__meta/schema'
-  // stateKey: '__meta/schema',
-  migrations: {
-    0: async (api) => { /* v0 -> v1 */ },
-    1: async (api) => { /* v1 -> v2 */ },
-    2: async (api) => { /* v2 -> v3 */ },
-  },
-})
-```
 
 ## Legacy（已禁用）
 

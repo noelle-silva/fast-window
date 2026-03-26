@@ -262,10 +262,11 @@ Detached 模式下，网关不会在 invoke 返回后自动推 `end`，而是依
 
 ## 8. 版本与迁移策略
 
-- 现有 v2 插件不受影响（仍可用 `net.request/files.*` 等 legacy 方法）。
-- 新增 `tauri.invoke` 后：
-  - 插件可逐步把调用从 `fastWindow.net.request` 迁到 `fastWindow.tauri.invoke('plugin:http|fetch', ...)`
-  - 宿主可逐步把 legacy 自研能力废弃（但不强制立刻移除）。
+- 宿主侧对插件仅保留两类能力：
+  - `fastWindow.host.back()`
+  - `fastWindow.tauri.*`（`invoke/streamOpen/streamCancel/stream`）
+- 旧的宿主业务方法能力（如 `net.request/files.*/storage.*/ui.*`）已从网关移除。
+- 迁移期如需“更好用”的语义化 API（例如 `readTextFile()`），应由插件侧 SDK/兼容层封装，不进入宿主网关。
 
 ## 9. SDK 策略（不污染宿主）
 
@@ -308,8 +309,8 @@ Detached 模式下，网关不会在 invoke 返回后自动推 `end`，而是依
 ```js
 const api = window.fastWindow
 api.tauri.invoke({ command: 'get_plugins_dir', payload: {} })
-  .then(dir => api.ui.showToast('pluginsDir=' + String(dir)))
-  .catch(err => api.ui.showToast('tauri.invoke failed: ' + String(err && err.message ? err.message : err)))
+  .then(dir => console.log('pluginsDir=', dir))
+  .catch(err => console.error('tauri.invoke failed:', err))
 ```
 
 3) 启动应用后打开该插件：
@@ -340,7 +341,7 @@ const api = window.fastWindow
   ;(async () => {
     for await (const ev of stream) {
       if (ev && ev.type === 'event') {
-        api.ui.showToast('got event: ' + ev.name)
+        console.log('got event:', ev.name)
         break
       }
     }
@@ -348,7 +349,7 @@ const api = window.fastWindow
 
   const cur = await api.tauri.invoke({ command: 'get_webview_settings', payload: {} })
   await api.tauri.invoke({ command: 'set_webview_settings', payload: { settings: cur } })
-})().catch(err => api.ui.showToast('stream test failed: ' + String(err && err.message ? err.message : err)))
+})().catch(err => console.error('stream test failed:', err))
 ```
 
 3) 打开插件后，若出现 toast：`got event: fast-window:webview-settings-updated`，则 event.listen 网关 OK。
@@ -382,13 +383,13 @@ const api = window.fastWindow
   for await (const ev of stream) {
     if (ev && ev.type === 'data' && ev.data && typeof ev.data.seq === 'number') {
       last = ev.data.seq
-      if (last % 5 === 0) api.ui.showToast(`progress ${last}/${ev.data.total}`)
+      if (last % 5 === 0) console.log(`progress ${last}/${ev.data.total}`)
     }
     if (ev && ev.type === 'result') {
-      api.ui.showToast('done, total=' + String(ev.result && ev.result.total))
+      console.log('done, total=' + String(ev.result && ev.result.total))
     }
   }
-})().catch(err => api.ui.showToast('channel test failed: ' + String(err && err.message ? err.message : err)))
+})().catch(err => console.error('channel test failed:', err))
 ```
 
 预期：
@@ -405,7 +406,6 @@ const api = window.fastWindow
 ```json
 {
   "requires": [
-    "ui.showToast",
     "tauri:plugin:fs|read_text_file",
     "tauri:plugin:fs|write_text_file"
   ]

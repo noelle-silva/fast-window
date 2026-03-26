@@ -790,7 +790,7 @@
         renderCtxMenu()
       }
 
-      if (act === 'back') return api.ui?.back ? api.ui.back() : api.ui?.showToast?.('无法返回')
+    if (act === 'back') return api.host?.back ? api.host.back() : api.ui?.showToast?.('无法返回')
       if (act === 'add') return openAddModal()
       if (act === 'pickDir') return pickDir()
       if (act === 'confirmAdd') return saveItemFromModal()

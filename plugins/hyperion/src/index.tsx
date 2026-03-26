@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 
 type Api = {
   __meta?: { runtime?: 'ui' | 'background' }
+  host?: { back?: () => Promise<void> | void }
   ui: { showToast: (message: string) => Promise<void> | void; back?: () => Promise<void> | void }
   files: {
     getOutputDir: () => Promise<string>
@@ -444,7 +445,7 @@ function App() {
 
   const backToHome = React.useCallback(async () => {
     try {
-      await api.ui.back?.()
+      await api.host?.back?.()
     } catch {
       // ignore
     }

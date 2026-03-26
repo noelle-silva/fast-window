@@ -4,7 +4,6 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { loadAllPluginsReport, loadPluginById, type PluginLoadRejection } from './plugins/pluginLoader'
-import { initPluginApi } from './plugins/pluginApi'
 import BackgroundPluginHost from './plugins/BackgroundPluginHost'
 import { PluginCapability, type PluginManifest } from './plugins/pluginContract'
 import {
@@ -48,9 +47,6 @@ import SettingsView from './components/SettingsView'
 import ImportPluginDialog from './components/ImportPluginDialog'
 import BrowserBarWindow from './components/BrowserBarWindow'
 import { cycleWallpaper as cycleWallpaperCmd, DEFAULT_WALLPAPER_VIEW, getWallpaperSettings, type WallpaperSettings } from './wallpaper'
-
-// 初始化插件 API
-initPluginApi()
 
 interface Plugin {
   id: string

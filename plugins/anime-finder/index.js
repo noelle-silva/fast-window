@@ -561,7 +561,7 @@
       const act = t.getAttribute('data-act')
       if (!act) return
 
-      if (act === 'back') return api.ui?.back ? api.ui.back() : api.ui?.showToast?.('无法返回')
+      if (act === 'back') return api.host?.back ? api.host.back() : api.ui?.showToast?.('无法返回')
       if (act === 'pick') return file && file.click()
       if (act === 'clip') return setImageFromClipboardApi()
       if (act === 'search') return doSearch()

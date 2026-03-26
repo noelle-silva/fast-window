@@ -1107,7 +1107,7 @@
       const act = t.getAttribute('data-act') || ''
 
       if (act === 'back') {
-        api.ui?.back ? api.ui.back() : api.ui?.showToast?.('无法返回')
+        api.host?.back ? api.host.back() : api.ui?.showToast?.('无法返回')
         return
       }
 

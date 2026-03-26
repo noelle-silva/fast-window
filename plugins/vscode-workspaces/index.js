@@ -442,7 +442,7 @@
     }
 
     const back = el.querySelector('button[data-act="back"]')
-    if (back) back.addEventListener('click', () => (api.ui?.back ? api.ui.back() : api.ui?.showToast?.('无法返回')))
+    if (back) back.addEventListener('click', () => (api.host?.back ? api.host.back() : api.ui?.showToast?.('无法返回')))
 
     el.querySelectorAll('button[data-act="open"]').forEach(btn => {
       btn.addEventListener('click', () => {

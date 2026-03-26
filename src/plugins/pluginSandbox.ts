@@ -38,7 +38,7 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
     canceledStreamIds.delete(streamId);
     if (streams.has(streamId)) return streams.get(streamId);
 
-    const cm = cancelMethod ? String(cancelMethod) : 'net.requestStreamCancel';
+    const cm = cancelMethod ? String(cancelMethod) : 'tauri.streamCancel';
 
     const st = {
       streamId,
@@ -99,9 +99,6 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
 
   function resolveTimeoutMs(method, args) {
     try {
-      // 文件选择类是“人类交互时长”，不该按普通 RPC 8s 超时算。
-      // 统一放宽：避免用户打开选择框后思考几秒就被判定超时。
-      if (String(method || '').startsWith('files.pick')) return LONG_TIMEOUT_MS;
       if (method === 'tauri.invoke') {
         const spec = args && args[0];
         const command = spec && spec.command ? String(spec.command) : '';
@@ -112,11 +109,6 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
         if (command.startsWith('plugin_pick_')) return LONG_TIMEOUT_MS;
         // 常见交互类命令：对话框类给一个更宽松的前端等待时间。
         if (command.startsWith('plugin:dialog|')) return LONG_TIMEOUT_MS;
-      }
-      if (method === 'net.request') {
-        const req = args && args[0];
-        const t = req && typeof req.timeoutMs === 'number' ? req.timeoutMs : 0;
-        if (t > 0) return Math.max(DEFAULT_TIMEOUT_MS, Math.min(t + 5000, 5 * 60 * 1000));
       }
     } catch {}
     return DEFAULT_TIMEOUT_MS;
@@ -139,32 +131,6 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
       pending.set(id, { resolve, reject, timer });
       parent.postMessage({ __fastWindowRequest: true, pluginId, apiVersion, token, id, method, args }, '*');
     });
-  }
-
-  async function migrationsRun(spec) {
-    const latest = Math.max(0, Math.floor(Number(spec && spec.latestVersion)));
-    const stateKey = String((spec && spec.stateKey) || '__meta/schema');
-    const steps = (spec && spec.migrations) || {};
-
-    // 先把“旧文件布局”迁到新布局（幂等）。失败也不阻塞：后续 get/getAll 仍有 legacy 兼容兜底。
-    try { await call('storage.migrate', []); } catch {}
-
-    let state = null;
-    try { state = await call('storage.get', [stateKey]); } catch {}
-    let cur = 0;
-    if (state && typeof state === 'object') {
-      const v = Number(state.schemaVersion);
-      if (Number.isFinite(v)) cur = Math.max(0, Math.floor(v));
-    }
-
-    for (let v = cur; v < latest; v++) {
-      const fn = steps[v];
-      if (typeof fn !== 'function') throw new Error('Missing migration for version ' + v);
-      await fn(window.fastWindow);
-      await call('storage.set', [stateKey, { schemaVersion: v + 1, updatedAtMs: Date.now() }]);
-    }
-
-    return { fromVersion: cur, toVersion: latest };
   }
 
   window.addEventListener('message', (e) => {
@@ -193,60 +159,8 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
 
    window.fastWindow = {
      __meta: { pluginId, apiVersion, runtime },
-    clipboard: {
-      readText: () => call('clipboard.readText', []),
-      writeText: (text) => call('clipboard.writeText', [text]),
-      readImage: () => call('clipboard.readImage', []),
-      writeImage: (dataUrl) => call('clipboard.writeImage', [dataUrl]),
-    },
-    storage: {
-      get: (key) => call('storage.get', [key]),
-      set: (key, value) => call('storage.set', [key, value]),
-      remove: (key) => call('storage.remove', [key]),
-      getAll: () => call('storage.getAll', []),
-      setAll: (data) => call('storage.setAll', [data]),
-      migrate: () => call('storage.migrate', []),
-    },
-    migrations: {
-      run: (spec) => migrationsRun(spec),
-    },
-    files: {
-      getOutputDir: () => call('files.getOutputDir', []),
-      pickOutputDir: () => call('files.pickOutputDir', []),
-      pickDir: () => call('files.pickDir', []),
-      openOutputDir: () => call('files.openOutputDir', []),
-      openDir: (dir) => call('files.openDir', [dir]),
-      listDir: (req) => call('files.listDir', [req]),
-      readText: (req) => call('files.readText', [req]),
-      writeText: (req) => call('files.writeText', [req]),
-      readBase64: (req) => call('files.readBase64', [req]),
-      writeBase64: (req) => call('files.writeBase64', [req]),
-      rename: (req) => call('files.rename', [req]),
-      delete: (req) => call('files.delete', [req]),
-      images: {
-        writeBase64: (req) => call('files.images.writeBase64', [req]),
-        read: (req) => call('files.images.read', [req]),
-        list: (req) => call('files.images.list', [req]),
-        delete: (req) => call('files.images.delete', [req]),
-      },
-      pickImages: (maxCount) => call('files.pickImages', [maxCount]),
-    },
-     ui: {
-       showToast: (message) => call('ui.showToast', [message]),
-       openUrl: (url) => call('ui.openUrl', [url]),
-       openExternal: (uri) => call('ui.openExternal', [uri]),
-       openBrowserWindow: (url) => call('ui.openBrowserWindow', [url]),
-       startDragging: () => call('ui.startDragging', []),
-       back: () => call('host.back', []),
-     },
-    net: {
-      request: (req) => call('net.request', [req]),
-      requestBase64: (req) => call('net.requestBase64', [req]),
-      requestStream: async (req) => {
-        const r = await call('net.requestStream', [req]);
-        const streamId = r && r.streamId ? String(r.streamId) : '';
-        return createStream(streamId, 'net.requestStreamCancel');
-      },
+    host: {
+      back: () => call('host.back', []),
     },
     tauri: {
       invoke: (spec) => call('tauri.invoke', [spec]),
@@ -257,12 +171,6 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
         const streamId = r && r.streamId ? String(r.streamId) : '';
         return createStream(streamId, 'tauri.streamCancel');
       },
-    },
-    task: {
-      create: (req) => call('task.create', [req]),
-      get: (taskId) => call('task.get', [taskId]),
-      list: (limit) => call('task.list', [limit]),
-      cancel: (taskId) => call('task.cancel', [taskId]),
     },
   };
 })();`

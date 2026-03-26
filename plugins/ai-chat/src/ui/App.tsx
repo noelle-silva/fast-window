@@ -658,9 +658,9 @@ export function AiChatApp(props: { controller: any }) {
   const composerInputRef = React.useRef<HTMLTextAreaElement | HTMLInputElement | null>(null)
 
   const backToHost = useEvent(() => {
-    const ui = controller?.api?.ui
-    if (ui?.back) ui.back()
-    else ui?.showToast?.('无法返回')
+    const host = (controller as any)?.api?.host
+    if (host?.back) host.back()
+    else controller?.api?.ui?.showToast?.('无法返回')
   })
 
   const onTopbarPointerDown = useEvent((e: React.PointerEvent) => {

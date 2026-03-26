@@ -1308,7 +1308,7 @@
         renderCtxMenu()
       }
 
-      if (act === 'back') return api.ui?.back ? api.ui.back() : api.ui?.showToast?.('无法返回')
+      if (act === 'back') return api.host?.back ? api.host.back() : api.ui?.showToast?.('无法返回')
       if (act === 'add') return openModal('add')
       if (act === 'groups') return openModal('groups')
       if (act === 'closeAdd' || act === 'closeGroups') return closeModal()

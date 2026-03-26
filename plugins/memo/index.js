@@ -301,7 +301,7 @@
       if (!(t instanceof HTMLElement)) return
       const act = t.getAttribute('data-act')
       if (act === 'back') {
-        api.ui?.back ? api.ui.back() : toast('无法返回')
+        api.host?.back ? api.host.back() : toast('无法返回')
         return
       }
       if (act === 'save') {
