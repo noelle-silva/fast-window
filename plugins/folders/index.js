@@ -1,6 +1,164 @@
 // folders (iframe sandbox) (entry: index.js)
 ;(function () {
-  const api = window.fastWindow
+  const PLUGIN_ID = 'folders'
+  const STORE_PATH = 'plugins/folders.json'
+
+  function isPlainObject(v) {
+    return !!v && typeof v === 'object' && !Array.isArray(v)
+  }
+
+  function createToast() {
+    let el = null
+    let timer = 0
+
+    function ensure() {
+      if (typeof document === 'undefined') return null
+      if (el && el.isConnected) return el
+      el = document.createElement('div')
+      el.style.position = 'fixed'
+      el.style.left = '50%'
+      el.style.bottom = '24px'
+      el.style.transform = 'translateX(-50%)'
+      el.style.maxWidth = 'min(520px, calc(100vw - 24px))'
+      el.style.padding = '10px 12px'
+      el.style.borderRadius = '10px'
+      el.style.background = 'rgba(0,0,0,0.82)'
+      el.style.color = '#fff'
+      el.style.fontSize = '12px'
+      el.style.lineHeight = '1.4'
+      el.style.boxShadow = '0 6px 18px rgba(0,0,0,0.28)'
+      el.style.zIndex = '999999'
+      el.style.opacity = '0'
+      el.style.transition = 'opacity 160ms ease'
+      el.style.pointerEvents = 'none'
+      document.body.appendChild(el)
+      return el
+    }
+
+    return (message) => {
+      const d = ensure()
+      if (!d) return
+      const text = String(message || '').trim()
+      if (!text) return
+      d.textContent = text
+      d.style.opacity = '1'
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        if (d && d.isConnected) d.style.opacity = '0'
+      }, 1800)
+    }
+  }
+
+  function createCompatApi(baseApi) {
+    const base = baseApi || {}
+    const tauri = base && base.tauri ? base.tauri : null
+    if (!tauri || typeof tauri.invoke !== 'function') {
+      throw new Error('tauri.invoke 不可用（请更新宿主网关）')
+    }
+
+    const toast = createToast()
+
+    let storeRid = null
+    let storeInitPromise = null
+
+    async function ensureStore() {
+      if (storeRid) return storeRid
+      if (storeInitPromise) return storeInitPromise
+      storeInitPromise = Promise.resolve()
+        .then(async () => {
+          const rid = await tauri.invoke({ command: 'plugin:store|load', payload: { path: STORE_PATH } })
+          if (!rid) throw new Error('store rid 无效')
+          storeRid = rid
+          await migrateLegacyStorageOnce(rid)
+          return rid
+        })
+        .finally(() => {
+          storeInitPromise = null
+        })
+      return storeInitPromise
+    }
+
+    async function storeGetRaw(rid, key) {
+      const r = await tauri.invoke({ command: 'plugin:store|get', payload: { rid, key: String(key || '') } })
+      if (Array.isArray(r) && r[1]) return r[0]
+      return null
+    }
+
+    async function storeSetRaw(rid, key, value) {
+      await tauri.invoke({ command: 'plugin:store|set', payload: { rid, key: String(key || ''), value } })
+    }
+
+    async function storeSave(rid) {
+      await tauri.invoke({ command: 'plugin:store|save', payload: { rid } })
+    }
+
+    async function migrateLegacyStorageOnce(rid) {
+      const flagKey = '__migrated_from_legacy_v1'
+      const done = await storeGetRaw(rid, flagKey)
+      if (done) return
+
+      let legacy = null
+      try {
+        legacy = await tauri.invoke({ command: 'storage_get_all', payload: { pluginId: PLUGIN_ID } })
+      } catch {
+        legacy = null
+      }
+
+      if (legacy && isPlainObject(legacy)) {
+        for (const k of Object.keys(legacy)) {
+          await storeSetRaw(rid, k, legacy[k])
+        }
+      }
+
+      await storeSetRaw(rid, flagKey, true)
+      await storeSave(rid)
+    }
+
+    return {
+      ...base,
+      tauri,
+      ui: {
+        ...(base.ui || {}),
+        showToast: (message) => toast(message),
+        startDragging: async () => {
+          try {
+            await tauri.invoke({ command: 'plugin:window|start_dragging', payload: {} })
+          } catch (e) {
+            toast(String((e && e.message) || e || '无法拖拽'))
+          }
+        },
+      },
+      storage: {
+        ...(base.storage || {}),
+        get: async (key) => {
+          const rid = await ensureStore()
+          return storeGetRaw(rid, String(key || ''))
+        },
+        set: async (key, value) => {
+          const rid = await ensureStore()
+          await storeSetRaw(rid, String(key || ''), value)
+          await storeSave(rid)
+        },
+        remove: async (key) => {
+          const rid = await ensureStore()
+          await tauri.invoke({ command: 'plugin:store|delete', payload: { rid, key: String(key || '') } })
+          await storeSave(rid)
+        },
+      },
+      files: {
+        ...(base.files || {}),
+        pickDir: async () => {
+          return tauri.invoke({ command: 'plugin_pick_dir', payload: { pluginId: PLUGIN_ID } })
+        },
+        openDir: async (dir) => {
+          return tauri.invoke({ command: 'plugin_open_dir', payload: { pluginId: PLUGIN_ID, dir: String(dir || '') } })
+        },
+      },
+    }
+  }
+
+  const api = createCompatApi(window.fastWindow)
+  window.fastWindow = api
   const STORAGE_KEY = 'data'
   const DEFAULT_GROUP_ID = 'default'
   const ALL_GROUP_ID = '__all__'

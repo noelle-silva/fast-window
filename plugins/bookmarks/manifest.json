@@ -10,15 +10,18 @@
   "apiVersion": 2,
   "ui": { "type": "iframe" },
   "requires": [
-    "storage.get",
-    "storage.set",
-    "ui.openUrl",
-    "ui.showToast",
-    "ui.startDragging",
-    "net.request",
-    "net.requestBase64",
-    "files.images.writeBase64",
-    "files.images.read",
-    "files.images.delete"
+    "tauri:plugin:store|load",
+    "tauri:plugin:store|get",
+    "tauri:plugin:store|set",
+    "tauri:plugin:store|save",
+    "tauri:plugin:store|delete",
+    "tauri:storage_get_all",
+    "tauri:http_request",
+    "tauri:http_request_base64",
+    "tauri:plugin_images_write_base64",
+    "tauri:plugin_images_read",
+    "tauri:plugin_images_delete",
+    "tauri:open_external_url",
+    "tauri:plugin:window|start_dragging"
   ]
 }
