@@ -38,12 +38,14 @@ import FileUploadRoundedIcon from '@mui/icons-material/FileUploadRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
+import StorefrontRoundedIcon from '@mui/icons-material/StorefrontRounded'
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
 import NavigateBeforeRoundedIcon from '@mui/icons-material/NavigateBeforeRounded'
 import NavigateNextRoundedIcon from '@mui/icons-material/NavigateNextRounded'
 import SettingsView from './components/SettingsView'
+import PluginStoreView from './components/PluginStoreView'
 import ImportPluginDialog from './components/ImportPluginDialog'
 import BrowserBarWindow from './components/BrowserBarWindow'
 import { cycleWallpaper as cycleWallpaperCmd, DEFAULT_WALLPAPER_VIEW, getWallpaperSettings, type WallpaperSettings } from './wallpaper'
@@ -196,6 +198,7 @@ function TitleBar(props: {
   onPrevWallpaper?: () => void
   onNextWallpaper?: () => void
   wallpaperSwitchDisabled?: boolean
+  onStore?: () => void
   onImportPlugin?: () => void
   onSettings?: () => void
   onReloadPlugins?: () => void
@@ -217,6 +220,7 @@ function TitleBar(props: {
     onPrevWallpaper,
     onNextWallpaper,
     wallpaperSwitchDisabled,
+    onStore,
     onImportPlugin,
     onSettings,
     onReloadPlugins,
@@ -301,6 +305,11 @@ function TitleBar(props: {
                   <RefreshRoundedIcon fontSize="small" />
                 </IconButton>
               ) : null}
+              {onStore ? (
+                <IconButton aria-label="应用商店" size="small" onClick={onStore}>
+                  <StorefrontRoundedIcon fontSize="small" />
+                </IconButton>
+              ) : null}
               {onToggleBrowseLayout ? (
                 <IconButton
                   aria-label={
@@ -364,6 +373,16 @@ const settingsPlugin: Plugin = {
   keyword: 'settings',
   disabled: false,
   component: SettingsView,
+}
+
+const storePlugin: Plugin = {
+  id: '__store',
+  name: '应用商店',
+  description: '从 GitHub 安装与更新插件',
+  icon: '🛒',
+  keyword: 'store',
+  disabled: false,
+  component: PluginStoreView,
 }
 
 function App() {
@@ -1230,6 +1249,7 @@ function App() {
               onCancelReorder={reorderMode ? cancelReorder : undefined}
               onSaveReorder={reorderMode ? saveReorder : undefined}
               onSettings={reorderMode ? undefined : () => setActivePlugin(settingsPlugin)}
+              onStore={reorderMode ? undefined : () => setActivePlugin(storePlugin)}
               showDivider={false}
             />
           )}

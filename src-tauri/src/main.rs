@@ -11,6 +11,7 @@ use image::codecs::png::PngEncoder;
 use image::{ColorType, ImageEncoder};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use tauri::ipc::Channel;
 use tauri::{
@@ -20,6 +21,7 @@ use tauri::{
 };
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+use tokio::io::AsyncWriteExt;
 
 mod migrations;
 
@@ -34,6 +36,8 @@ const PLUGIN_OUTPUT_DIRS_KEY: &str = "pluginOutputDirs";
 const WEBVIEW_SETTINGS_KEY: &str = "webview";
 const TASKS_RETENTION_LIMIT: usize = 120;
 const TASKS_PER_PLUGIN_LIMIT: usize = 40;
+const PLUGIN_STORE_MAX_ZIP_BYTES: usize = 50 * 1024 * 1024; // 50MB
+const PLUGIN_STORE_MAX_EXTRACT_BYTES: usize = 120 * 1024 * 1024; // 120MB
 static TASK_ID_SEQ: AtomicU32 = AtomicU32::new(0);
 static HTTP_STREAM_ID_SEQ: AtomicU32 = AtomicU32::new(0);
 
@@ -274,6 +278,50 @@ fn is_http_url(url: &str) -> bool {
     u.starts_with("http://") || u.starts_with("https://")
 }
 
+fn is_https_url(url: &str) -> bool {
+    let u = url.trim();
+    let u = u.to_ascii_lowercase();
+    u.starts_with("https://")
+}
+
+fn parse_sha256_hex_32(raw: &str) -> Result<[u8; 32], String> {
+    let s = raw.trim();
+    if s.len() != 64 {
+        return Err("sha256 必须为 64 位十六进制字符串".to_string());
+    }
+    let bytes = s.as_bytes();
+    let mut out = [0u8; 32];
+    let mut i = 0usize;
+    while i < 64 {
+        let hi = hex_val(bytes[i]).ok_or_else(|| "sha256 存在非十六进制字符".to_string())?;
+        let lo = hex_val(bytes[i + 1]).ok_or_else(|| "sha256 存在非十六进制字符".to_string())?;
+        out[i / 2] = (hi << 4) | lo;
+        i += 2;
+    }
+    Ok(out)
+}
+
+fn to_hex_lower(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = Vec::<u8>::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        out.push(HEX[(b >> 4) as usize]);
+        out.push(HEX[(b & 0x0f) as usize]);
+    }
+    String::from_utf8(out).unwrap_or_default()
+}
+
+fn normalize_zip_name(name: &str) -> String {
+    let mut s = name.replace('\\', "/");
+    while s.starts_with('/') {
+        s.remove(0);
+    }
+    if s.starts_with("./") {
+        s = s.trim_start_matches("./").to_string();
+    }
+    s
+}
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -419,7 +467,10 @@ async fn read_clipboard_snapshot(
 }
 
 #[tauri::command]
-async fn clipboard_write_image_data_url(app: tauri::AppHandle, data_url: String) -> Result<(), String> {
+async fn clipboard_write_image_data_url(
+    app: tauri::AppHandle,
+    data_url: String,
+) -> Result<(), String> {
     let raw = data_url;
     let app2 = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -957,10 +1008,7 @@ async fn http_request_stream(
     channel: Channel<HttpStreamEvent>,
 ) -> Result<String, String> {
     let stream_id = make_http_stream_id();
-    let manager = app
-        .state::<Arc<HttpStreamManagerState>>()
-        .inner()
-        .clone();
+    let manager = app.state::<Arc<HttpStreamManagerState>>().inner().clone();
 
     let (tx, mut rx) = tokio::sync::oneshot::channel::<()>();
     {
@@ -1070,7 +1118,9 @@ async fn http_request_stream(
         // flush pending utf8
         if !pending.is_empty() {
             if let Ok(s) = std::str::from_utf8(&pending) {
-                let _ = channel.send(HttpStreamEvent::Chunk { text: s.to_string() });
+                let _ = channel.send(HttpStreamEvent::Chunk {
+                    text: s.to_string(),
+                });
             }
         }
 
@@ -1085,10 +1135,7 @@ fn http_request_stream_cancel(app: tauri::AppHandle, stream_id: String) -> Resul
     if stream_id.trim().is_empty() {
         return Err("streamId 不能为空".to_string());
     }
-    let manager = app
-        .state::<Arc<HttpStreamManagerState>>()
-        .inner()
-        .clone();
+    let manager = app.state::<Arc<HttpStreamManagerState>>().inner().clone();
     let tx = {
         let mut cancels = manager
             .cancels
@@ -1836,7 +1883,10 @@ fn persist_main_window_bounds(app: &tauri::AppHandle, state: &WindowState) {
 
 fn schedule_persist_main_window_bounds(app: &tauri::AppHandle) {
     let state = app.state::<WindowState>();
-    let next = state.save_seq.fetch_add(1, Ordering::Relaxed).saturating_add(1);
+    let next = state
+        .save_seq
+        .fetch_add(1, Ordering::Relaxed)
+        .saturating_add(1);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_millis(350)).await;
@@ -2130,7 +2180,8 @@ fn write_json_value(path: &Path, value: &Value) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("创建配置目录失败: {e}"))?;
     }
-    let content = serde_json::to_string_pretty(value).map_err(|e| format!("序列化配置失败: {e}"))?;
+    let content =
+        serde_json::to_string_pretty(value).map_err(|e| format!("序列化配置失败: {e}"))?;
 
     let parent = path
         .parent()
@@ -2869,7 +2920,10 @@ fn plugin_files_list_dir(
     ensure_writable_dir(&root)?;
     let root_c = std::fs::canonicalize(&root).map_err(|e| format!("文件根目录不可用: {e}"))?;
 
-    let dir_rel = req.dir.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let dir_rel = req
+        .dir
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     let dir = if let Some(dr) = dir_rel {
         let rel = safe_relative_path(&dr)?;
         let full = root.join(rel);
@@ -2888,7 +2942,9 @@ fn plugin_files_list_dir(
     for entry in rd {
         let entry = entry.map_err(|e| format!("读取目录项失败: {e}"))?;
         let name = entry.file_name().to_string_lossy().to_string();
-        let meta = entry.metadata().map_err(|e| format!("读取目录项元信息失败: {e}"))?;
+        let meta = entry
+            .metadata()
+            .map_err(|e| format!("读取目录项元信息失败: {e}"))?;
         let modified = meta.modified().unwrap_or(UNIX_EPOCH);
         let modified_ms = modified
             .duration_since(UNIX_EPOCH)
@@ -2903,7 +2959,11 @@ fn plugin_files_list_dir(
         });
     }
 
-    out.sort_by(|a, b| a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()));
+    out.sort_by(|a, b| {
+        a.name
+            .to_ascii_lowercase()
+            .cmp(&b.name.to_ascii_lowercase())
+    });
     Ok(out)
 }
 
@@ -3186,7 +3246,10 @@ fn resolve_image_path_in_scope(
     }
 
     // must_exist=false：用于写入，full 可能尚不存在；改为校验 parent 目录是否仍在 root 内。
-    let parent = full.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| root.clone());
+    let parent = full
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| root.clone());
     std::fs::create_dir_all(&parent).map_err(|e| format!("创建目录失败: {e}"))?;
     let parent_c = std::fs::canonicalize(&parent).map_err(|e| format!("目录路径无效: {e}"))?;
     if !parent_c.starts_with(&root_c) {
@@ -3295,7 +3358,10 @@ fn plugin_images_list(
     ensure_writable_dir(&root)?;
     let root_c = std::fs::canonicalize(&root).map_err(|e| format!("图片目录不可用: {e}"))?;
 
-    let dir_rel = req.dir.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let dir_rel = req
+        .dir
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     let dir = if let Some(dr) = dir_rel {
         let rel = safe_relative_path(&dr)?;
         let full = root.join(rel);
@@ -4029,7 +4095,13 @@ fn replace_dir_from_tmp(dst: &Path, tmp: &Path, tag: &str) -> Result<(), String>
 
     let safe_tag: String = tag
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let bak = parent.join(format!(".bak-{safe_tag}-{stamp}"));
 
@@ -4220,10 +4292,7 @@ fn get_plugins_dir(app: tauri::AppHandle) -> String {
             Ok(out)
         }
 
-        fn sync_repo_plugins_into(
-            repo_plugins: &Path,
-            plugins_dir: &Path,
-        ) -> Result<(), String> {
+        fn sync_repo_plugins_into(repo_plugins: &Path, plugins_dir: &Path) -> Result<(), String> {
             let Ok(entries) = std::fs::read_dir(repo_plugins) else {
                 return Ok(());
             };
@@ -4290,7 +4359,7 @@ fn get_plugins_dir(app: tauri::AppHandle) -> String {
 }
 
 #[tauri::command]
- fn get_data_dir(app: tauri::AppHandle) -> String {
+fn get_data_dir(app: tauri::AppHandle) -> String {
     // 统一使用 App 本地数据目录（避免 cwd 漂移）
     let data_dir = app_data_dir(&app);
     let _ = std::fs::create_dir_all(&data_dir);
@@ -4351,6 +4420,16 @@ fn safe_relative_path(rel: &str) -> Result<PathBuf, String> {
         }
     }
     Ok(p.to_path_buf())
+}
+
+fn safe_relative_path_no_curdir(rel: &str) -> Result<PathBuf, String> {
+    let p = safe_relative_path(rel)?;
+    for c in Path::new(rel).components() {
+        if matches!(c, Component::CurDir) {
+            return Err("路径不合法（不允许包含 .）".to_string());
+        }
+    }
+    Ok(p)
 }
 
 fn hex_val(c: u8) -> Option<u8> {
@@ -4620,6 +4699,355 @@ fn install_plugin_files(
     Ok(())
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginStoreInstallResult {
+    #[serde(rename = "pluginId")]
+    plugin_id: String,
+    version: String,
+}
+
+#[tauri::command]
+async fn plugin_store_install(
+    app: tauri::AppHandle,
+    url: String,
+    expected_sha256: String,
+) -> Result<PluginStoreInstallResult, String> {
+    let u = url.trim().to_string();
+    if u.is_empty() {
+        return Err("url 不能为空".to_string());
+    }
+    if !is_https_url(&u) {
+        return Err("url 必须以 https:// 开头".to_string());
+    }
+    let expected = parse_sha256_hex_32(&expected_sha256)?;
+
+    let plugins_dir = app_plugins_dir(&app);
+    std::fs::create_dir_all(&plugins_dir).map_err(|e| format!("创建插件目录失败: {e}"))?;
+
+    let stamp = now_ms();
+    let rnd = rand_u32(stamp);
+    let tmp_zip = plugins_dir.join(format!(".tmp-download-{stamp}-{rnd:08x}.zip"));
+    if tmp_zip.exists() {
+        let _ = tokio::fs::remove_file(&tmp_zip).await;
+    }
+
+    let client = reqwest::Client::builder()
+        .user_agent(format!("fast-window/{}", env!("CARGO_PKG_VERSION")))
+        .timeout(Duration::from_secs(15 * 60))
+        .build()
+        .map_err(|e| format!("创建 http client 失败: {e}"))?;
+
+    let resp = client
+        .get(&u)
+        .send()
+        .await
+        .map_err(|e| format!("下载失败: {e}"))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("下载失败: HTTP {}", resp.status().as_u16()));
+    }
+
+    let mut total = 0usize;
+    let mut hasher = Sha256::new();
+    let mut f = tokio::fs::File::create(&tmp_zip)
+        .await
+        .map_err(|e| format!("创建临时文件失败: {e}"))?;
+
+    let mut r = resp;
+    let download_result: Result<(), String> = (async {
+        while let Some(chunk) = r
+            .chunk()
+            .await
+            .map_err(|e| format!("读取下载流失败: {e}"))?
+        {
+            total = total.saturating_add(chunk.len());
+            if total > PLUGIN_STORE_MAX_ZIP_BYTES {
+                return Err("压缩包过大（>50MB）".to_string());
+            }
+            hasher.update(&chunk);
+            f.write_all(&chunk)
+                .await
+                .map_err(|e| format!("写入临时文件失败: {e}"))?;
+        }
+        f.flush()
+            .await
+            .map_err(|e| format!("写入临时文件失败: {e}"))?;
+        Ok(())
+    })
+    .await;
+
+    if let Err(e) = download_result {
+        let _ = tokio::fs::remove_file(&tmp_zip).await;
+        return Err(e);
+    }
+
+    let actual = hasher.finalize();
+    if actual.as_slice() != expected.as_slice() {
+        let _ = tokio::fs::remove_file(&tmp_zip).await;
+        return Err(format!(
+            "sha256 校验失败：expected={}, got={}",
+            to_hex_lower(&expected),
+            to_hex_lower(actual.as_slice())
+        ));
+    }
+
+    let plugins_dir2 = plugins_dir.clone();
+    let zip_path2 = tmp_zip.clone();
+    let install_result: Result<PluginStoreInstallResult, String> =
+        match tokio::task::spawn_blocking(move || -> Result<PluginStoreInstallResult, String> {
+            use std::io::Read;
+            use zip::ZipArchive;
+
+            let file =
+                std::fs::File::open(&zip_path2).map_err(|e| format!("打开压缩包失败: {e}"))?;
+            let mut zip = ZipArchive::new(file).map_err(|e| format!("解析压缩包失败: {e}"))?;
+
+            let mut manifest_idx: Option<usize> = None;
+            let mut manifest_name = String::new();
+            for i in 0..zip.len() {
+                let zf = zip
+                    .by_index(i)
+                    .map_err(|e| format!("读取压缩包条目失败: {e}"))?;
+                if zf.is_dir() {
+                    continue;
+                }
+                let name = normalize_zip_name(zf.name());
+                if name.ends_with("manifest.json") {
+                    if manifest_idx.is_some() {
+                        return Err("压缩包内存在多个 manifest.json，拒绝安装".to_string());
+                    }
+                    manifest_idx = Some(i);
+                    manifest_name = name;
+                }
+            }
+
+            let idx = manifest_idx.ok_or_else(|| "压缩包缺少 manifest.json".to_string())?;
+            let prefix = manifest_name
+                .strip_suffix("manifest.json")
+                .unwrap_or("")
+                .to_string();
+
+            let mut mf = zip
+                .by_index(idx)
+                .map_err(|e| format!("读取 manifest.json 失败: {e}"))?;
+            let mut manifest_text = String::new();
+            mf.read_to_string(&mut manifest_text)
+                .map_err(|e| format!("读取 manifest.json 失败: {e}"))?;
+            drop(mf);
+            let manifest: Value = serde_json::from_str(&manifest_text)
+                .map_err(|e| format!("manifest.json 解析失败: {e}"))?;
+
+            let plugin_id = manifest
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if !is_safe_id(&plugin_id) {
+                return Err("manifest.id 不合法（仅允许字母/数字/_/-）".to_string());
+            }
+
+            let name = manifest
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if name.is_empty() {
+                return Err("manifest.name 不能为空".to_string());
+            }
+
+            let version = manifest
+                .get("version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if version.is_empty() {
+                return Err("manifest.version 不能为空".to_string());
+            }
+
+            let _description = manifest
+                .get("description")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| "manifest.description 必须是字符串".to_string())?;
+
+            let api_version = manifest
+                .get("apiVersion")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            if api_version != 2 {
+                return Err("manifest.apiVersion 必须为 2".to_string());
+            }
+
+            let ui_type = manifest
+                .get("ui")
+                .and_then(|v| v.as_object())
+                .and_then(|obj| obj.get("type"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if ui_type != "iframe" {
+                return Err("manifest.ui.type 必须为 \"iframe\"".to_string());
+            }
+
+            let requires = manifest
+                .get("requires")
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| "manifest.requires 必须是数组（即使为空）".to_string())?;
+            for item in requires {
+                let cap = item.as_str().unwrap_or("").trim();
+                if cap.is_empty()
+                    || !cap.starts_with("tauri:")
+                    || cap.len() > 256
+                    || cap.contains('\n')
+                    || cap.contains('\r')
+                {
+                    return Err("manifest.requires 存在不合法能力声明".to_string());
+                }
+            }
+
+            let main = manifest
+                .get("main")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if main.is_empty() {
+                return Err("manifest.main 不能为空".to_string());
+            }
+            let main_rel = safe_relative_path_no_curdir(&main)?;
+
+            let bg_main = manifest
+                .get("background")
+                .and_then(|v| v.as_object())
+                .and_then(|obj| obj.get("main"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let bg_rel = if !bg_main.is_empty() && bg_main != main {
+                Some(safe_relative_path_no_curdir(&bg_main)?)
+            } else {
+                None
+            };
+
+            let icon = manifest
+                .get("icon")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let icon_rel = if icon.starts_with("svg:") {
+                let rel = icon["svg:".len()..].trim().to_string();
+                if rel.is_empty() {
+                    None
+                } else {
+                    Some(safe_relative_path_no_curdir(&rel)?)
+                }
+            } else {
+                None
+            };
+
+            let tmp_dir = plugins_dir2.join(format!(".tmp-install-{plugin_id}-{stamp}"));
+            if tmp_dir.exists() {
+                let _ = std::fs::remove_dir_all(&tmp_dir);
+            }
+            std::fs::create_dir_all(&tmp_dir).map_err(|e| format!("创建临时目录失败: {e}"))?;
+
+            let mut extracted_bytes = 0usize;
+            let mut extracted_files = 0usize;
+
+            let extract_result = (|| -> Result<(), String> {
+                for i in 0..zip.len() {
+                    let mut zf = zip
+                        .by_index(i)
+                        .map_err(|e| format!("读取压缩包条目失败: {e}"))?;
+                    let raw_name = normalize_zip_name(zf.name());
+                    if !raw_name.starts_with(&prefix) {
+                        continue;
+                    }
+                    let rel_raw = raw_name[prefix.len()..].to_string();
+                    if rel_raw.is_empty() {
+                        continue;
+                    }
+
+                    if zf.is_dir() {
+                        let rel = safe_relative_path_no_curdir(&rel_raw)?;
+                        let full = tmp_dir.join(rel);
+                        std::fs::create_dir_all(&full).map_err(|e| format!("创建目录失败: {e}"))?;
+                        continue;
+                    }
+
+                    extracted_files += 1;
+                    if extracted_files > 512 {
+                        return Err("文件数量过多（>512）".to_string());
+                    }
+
+                    let rel = safe_relative_path_no_curdir(&rel_raw)?;
+                    let full = tmp_dir.join(rel);
+                    if let Some(parent) = full.parent() {
+                        std::fs::create_dir_all(parent)
+                            .map_err(|e| format!("创建目录失败: {e}"))?;
+                    }
+
+                    let mut out =
+                        std::fs::File::create(&full).map_err(|e| format!("写入文件失败: {e}"))?;
+                    let copied = std::io::copy(&mut zf, &mut out)
+                        .map_err(|e| format!("解压失败: {e}"))?
+                        as usize;
+                    extracted_bytes = extracted_bytes.saturating_add(copied);
+                    if extracted_bytes > PLUGIN_STORE_MAX_EXTRACT_BYTES {
+                        return Err("解压后体积过大（>120MB）".to_string());
+                    }
+                }
+                Ok(())
+            })();
+
+            if let Err(e) = extract_result {
+                let _ = std::fs::remove_dir_all(&tmp_dir);
+                return Err(e);
+            }
+
+            if !tmp_dir.join("manifest.json").is_file() {
+                let _ = std::fs::remove_dir_all(&tmp_dir);
+                return Err("解压结果缺少 manifest.json".to_string());
+            }
+            if !tmp_dir.join(&main_rel).is_file() {
+                let _ = std::fs::remove_dir_all(&tmp_dir);
+                return Err("插件入口文件不存在（manifest.main）".to_string());
+            }
+            if let Some(bg) = bg_rel.as_ref() {
+                if !tmp_dir.join(bg).is_file() {
+                    let _ = std::fs::remove_dir_all(&tmp_dir);
+                    return Err("后台入口文件不存在（manifest.background.main）".to_string());
+                }
+            }
+            if let Some(svg) = icon_rel.as_ref() {
+                if !tmp_dir.join(svg).is_file() {
+                    let _ = std::fs::remove_dir_all(&tmp_dir);
+                    return Err("插件图标文件不存在（manifest.icon=svg:...）".to_string());
+                }
+            }
+
+            let dst = plugins_dir2.join(&plugin_id);
+            if let Err(e) = replace_dir_from_tmp(&dst, &tmp_dir, &format!("store-{plugin_id}")) {
+                let _ = std::fs::remove_dir_all(&tmp_dir);
+                return Err(format!("安装插件失败: {e}"));
+            }
+
+            Ok(PluginStoreInstallResult { plugin_id, version })
+        })
+        .await
+        {
+            Ok(r) => r,
+            Err(_) => Err("安装插件失败: 后台任务异常退出".to_string()),
+        };
+
+    let _ = tokio::fs::remove_file(&tmp_zip).await;
+    install_result
+}
+
 fn storage_file_path(app: &tauri::AppHandle, plugin_id: &str) -> Result<PathBuf, String> {
     if !is_safe_id(plugin_id) {
         return Err("pluginId 不合法".to_string());
@@ -4630,7 +5058,10 @@ fn storage_file_path(app: &tauri::AppHandle, plugin_id: &str) -> Result<PathBuf,
     Ok(app_data_dir(app).join(plugin_id).join("storage.json"))
 }
 
-fn storage_flat_legacy_file_path(app: &tauri::AppHandle, plugin_id: &str) -> Result<PathBuf, String> {
+fn storage_flat_legacy_file_path(
+    app: &tauri::AppHandle,
+    plugin_id: &str,
+) -> Result<PathBuf, String> {
     if !is_safe_id(plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
@@ -4644,7 +5075,11 @@ fn storage_kv_dir_path(app: &tauri::AppHandle, plugin_id: &str) -> Result<PathBu
     Ok(app_data_dir(app).join(plugin_id).join("storage"))
 }
 
-fn storage_value_path(app: &tauri::AppHandle, plugin_id: &str, key: &str) -> Result<PathBuf, String> {
+fn storage_value_path(
+    app: &tauri::AppHandle,
+    plugin_id: &str,
+    key: &str,
+) -> Result<PathBuf, String> {
     if !is_safe_id(plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
@@ -4939,7 +5374,10 @@ fn parse_wallpaper_view(v: &Value) -> Option<WallpaperView> {
     };
     let x = obj.get("x").and_then(|v| v.as_f64()).map(|v| v as f32)?;
     let y = obj.get("y").and_then(|v| v.as_f64()).map(|v| v as f32)?;
-    let scale = obj.get("scale").and_then(|v| v.as_f64()).map(|v| v as f32)?;
+    let scale = obj
+        .get("scale")
+        .and_then(|v| v.as_f64())
+        .map(|v| v as f32)?;
     Some(WallpaperView {
         x: clamp_f32(x, 0.0, 100.0),
         y: clamp_f32(y, 0.0, 100.0),
@@ -5066,7 +5504,10 @@ fn read_wallpaper_config(app: &tauri::AppHandle) -> Result<WallpaperConfig, Stri
         });
     };
 
-    let enabled = obj.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+    let enabled = obj
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let opacity = obj
         .get("opacity")
         .and_then(|v| v.as_f64())
@@ -5098,13 +5539,23 @@ fn read_wallpaper_config(app: &tauri::AppHandle) -> Result<WallpaperConfig, Stri
     if let Some(Value::Array(arr)) = obj.get("items") {
         for v in arr {
             let Value::Object(it) = v else { continue };
-            let Some(id) = it.get("id").and_then(|v| v.as_str()).map(|s| s.trim()).filter(|s| !s.is_empty()) else {
+            let Some(id) = it
+                .get("id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+            else {
                 continue;
             };
             if !is_safe_id(id) {
                 continue;
             }
-            let Some(rel_raw) = it.get("path").and_then(|v| v.as_str()).map(|s| s.trim()).filter(|s| !s.is_empty()) else {
+            let Some(rel_raw) = it
+                .get("path")
+                .and_then(|v| v.as_str())
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+            else {
                 continue;
             };
             let rel = rel_raw.to_string();
@@ -5173,7 +5624,11 @@ fn wallpaper_item_rev(app: &tauri::AppHandle, rel_path: &str) -> u64 {
         .unwrap_or(0)
 }
 
-fn resolve_wallpaper_item<'a>(app: &tauri::AppHandle, cfg: &'a WallpaperConfig, want_id: Option<&str>) -> Option<&'a WallpaperItem> {
+fn resolve_wallpaper_item<'a>(
+    app: &tauri::AppHandle,
+    cfg: &'a WallpaperConfig,
+    want_id: Option<&str>,
+) -> Option<&'a WallpaperItem> {
     let data_root = app_data_dir(app);
     let is_ok = |it: &'a WallpaperItem| {
         safe_relative_path(&it.rel_path)
@@ -5266,17 +5721,25 @@ fn write_wallpaper_config(app: &tauri::AppHandle, cfg: &WallpaperConfig) -> Resu
 fn wallpaper_settings_out(app: &tauri::AppHandle, cfg: &WallpaperConfig) -> WallpaperSettingsOut {
     let resolved = resolve_wallpaper_item(app, cfg, None);
     let file_path = resolved
-        .and_then(|it| safe_relative_path(&it.rel_path).ok().map(|rel_ok| app_data_dir(app).join(rel_ok)))
+        .and_then(|it| {
+            safe_relative_path(&it.rel_path)
+                .ok()
+                .map(|rel_ok| app_data_dir(app).join(rel_ok))
+        })
         .filter(|full| full.is_file())
         .map(|full| full.to_string_lossy().to_string());
-    let rev = resolved.map(|it| wallpaper_item_rev(app, &it.rel_path)).unwrap_or(0);
+    let rev = resolved
+        .map(|it| wallpaper_item_rev(app, &it.rel_path))
+        .unwrap_or(0);
     let view = file_path
         .as_ref()
         .and_then(|_| resolved.map(|it| wallpaper_view_out(it.view.as_ref())));
 
     let mut items: Vec<WallpaperItemOut> = Vec::new();
     for it in &cfg.items {
-        let full = safe_relative_path(&it.rel_path).ok().map(|rel_ok| app_data_dir(app).join(rel_ok));
+        let full = safe_relative_path(&it.rel_path)
+            .ok()
+            .map(|rel_ok| app_data_dir(app).join(rel_ok));
         let Some(full) = full else { continue };
         if !full.is_file() {
             continue;
@@ -5352,7 +5815,8 @@ fn set_wallpaper_view(
     }
 
     let mut cfg = read_wallpaper_config(&app)?;
-    let resolved_id = resolve_wallpaper_item(&app, &cfg, want_id.as_deref()).map(|it| it.id.clone());
+    let resolved_id =
+        resolve_wallpaper_item(&app, &cfg, want_id.as_deref()).map(|it| it.id.clone());
     let Some(resolved_id) = resolved_id else {
         return Err("壁纸不存在".to_string());
     };
@@ -5370,7 +5834,10 @@ fn set_wallpaper_view(
 }
 
 #[tauri::command]
-fn set_wallpaper_image(app: tauri::AppHandle, data_url: String) -> Result<WallpaperSettingsOut, String> {
+fn set_wallpaper_image(
+    app: tauri::AppHandle,
+    data_url: String,
+) -> Result<WallpaperSettingsOut, String> {
     let (bytes, ext) = decode_base64_image_payload(&data_url)?;
     if bytes.is_empty() {
         return Err("图片数据为空".to_string());
@@ -5464,7 +5931,10 @@ fn set_active_wallpaper(app: tauri::AppHandle, id: String) -> Result<WallpaperSe
 }
 
 #[tauri::command]
-fn remove_wallpaper_item(app: tauri::AppHandle, id: String) -> Result<WallpaperSettingsOut, String> {
+fn remove_wallpaper_item(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<WallpaperSettingsOut, String> {
     let id = id.trim().to_string();
     if !is_safe_id(&id) {
         return Err("壁纸 id 不合法".to_string());
@@ -5501,7 +5971,9 @@ fn cycle_wallpaper(app: tauri::AppHandle, delta: i32) -> Result<WallpaperSetting
     }
     let mut existing: Vec<&WallpaperItem> = Vec::new();
     for it in &cfg.items {
-        let full = safe_relative_path(&it.rel_path).ok().map(|rel_ok| app_data_dir(&app).join(rel_ok));
+        let full = safe_relative_path(&it.rel_path)
+            .ok()
+            .map(|rel_ok| app_data_dir(&app).join(rel_ok));
         match full {
             Some(f) if f.is_file() => existing.push(it),
             _ => {}
@@ -5831,9 +6303,16 @@ fn main() {
                 Err(e) => {
                     return tauri::http::Response::builder()
                         .status(tauri::http::StatusCode::INTERNAL_SERVER_ERROR)
-                        .header(tauri::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")
-                        .body(format!("failed to load wallpaper config: {e}").as_bytes().to_vec())
-                    .unwrap();
+                        .header(
+                            tauri::http::header::CONTENT_TYPE,
+                            "text/plain; charset=utf-8",
+                        )
+                        .body(
+                            format!("failed to load wallpaper config: {e}")
+                                .as_bytes()
+                                .to_vec(),
+                        )
+                        .unwrap();
                 }
             };
 
@@ -5844,14 +6323,20 @@ fn main() {
             let Some(it) = resolve_wallpaper_item(app, &cfg, want_id.as_deref()) else {
                 return tauri::http::Response::builder()
                     .status(tauri::http::StatusCode::NOT_FOUND)
-                    .header(tauri::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")
+                    .header(
+                        tauri::http::header::CONTENT_TYPE,
+                        "text/plain; charset=utf-8",
+                    )
                     .body(b"wallpaper not set".to_vec())
                     .unwrap();
             };
             let Some(rel) = safe_relative_path(&it.rel_path).ok() else {
                 return tauri::http::Response::builder()
                     .status(tauri::http::StatusCode::NOT_FOUND)
-                    .header(tauri::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")
+                    .header(
+                        tauri::http::header::CONTENT_TYPE,
+                        "text/plain; charset=utf-8",
+                    )
                     .body(b"wallpaper not set".to_vec())
                     .unwrap();
             };
@@ -5859,14 +6344,20 @@ fn main() {
             if !full.is_file() {
                 return tauri::http::Response::builder()
                     .status(tauri::http::StatusCode::NOT_FOUND)
-                    .header(tauri::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")
+                    .header(
+                        tauri::http::header::CONTENT_TYPE,
+                        "text/plain; charset=utf-8",
+                    )
                     .body(b"wallpaper file not found".to_vec())
                     .unwrap();
             }
             let Ok(bytes) = std::fs::read(&full) else {
                 return tauri::http::Response::builder()
                     .status(tauri::http::StatusCode::INTERNAL_SERVER_ERROR)
-                    .header(tauri::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")
+                    .header(
+                        tauri::http::header::CONTENT_TYPE,
+                        "text/plain; charset=utf-8",
+                    )
                     .body(b"failed to read wallpaper".to_vec())
                     .unwrap();
             };
@@ -5903,6 +6394,7 @@ fn main() {
             get_plugins_allow_overwrite_on_update,
             read_plugins_dir,
             install_plugin_files,
+            plugin_store_install,
             open_external_url,
             open_external_uri,
             open_browser_window,

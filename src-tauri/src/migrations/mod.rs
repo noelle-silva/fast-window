@@ -8,7 +8,9 @@ fn legacy_flat_json_path(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf {
 }
 
 fn legacy_storage_json_path(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf {
-    crate::app_data_dir(app).join(plugin_id).join("storage.json")
+    crate::app_data_dir(app)
+        .join(plugin_id)
+        .join("storage.json")
 }
 
 fn read_json_object(path: &Path) -> Option<serde_json::Map<String, Value>> {

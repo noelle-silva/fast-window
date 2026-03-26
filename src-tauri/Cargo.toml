@@ -13,7 +13,7 @@ tauri-plugin-clipboard-manager = "2.0"
 tauri-plugin-store = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1", features = ["time", "sync", "macros"] }
+tokio = { version = "1", features = ["time", "sync", "macros", "fs", "io-util"] }
 winreg = "0.55"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 base64 = "0.22"
@@ -21,6 +21,8 @@ rfd = "0.14"
 image = { version = "0.25", default-features = false, features = ["png"] }
 open = "5"
 windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }
+sha2 = "0.10"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
 
 [features]
 default = ["custom-protocol"]
