@@ -170,6 +170,8 @@ function resolveTauriInvokeTimeoutMs(command: string, timeoutMs: unknown): numbe
   if (requested > 0) {
     return Math.min(requested, MAX_TAURI_INVOKE_TIMEOUT_MS)
   }
+  // rfd 文件/目录选择属于“人类交互时长”，默认给长超时。
+  if (command.startsWith('plugin_pick_')) return LONG_TAURI_INVOKE_TIMEOUT_MS
   if (command.startsWith('plugin:dialog|')) return LONG_TAURI_INVOKE_TIMEOUT_MS
   return DEFAULT_TAURI_INVOKE_TIMEOUT_MS
 }

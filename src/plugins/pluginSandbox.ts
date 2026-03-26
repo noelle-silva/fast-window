@@ -108,6 +108,8 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
         const t = spec && typeof spec.timeoutMs === 'number' ? spec.timeoutMs : 0;
         // 允许插件明确指定超时；由宿主侧进一步钳制。
         if (t > 0) return Math.max(DEFAULT_TIMEOUT_MS, Math.min(t, 5 * 60 * 1000));
+        // 自研“文件/目录选择”命令（rfd 对话框）属于人类交互时长，默认给长超时。
+        if (command.startsWith('plugin_pick_')) return LONG_TIMEOUT_MS;
         // 常见交互类命令：对话框类给一个更宽松的前端等待时间。
         if (command.startsWith('plugin:dialog|')) return LONG_TIMEOUT_MS;
       }
