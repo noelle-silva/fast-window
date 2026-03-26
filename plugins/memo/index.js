@@ -1,9 +1,66 @@
 // memo (iframe sandbox) (entry: index.js)
 ;(function () {
   const api = window.fastWindow
+  const PLUGIN_ID = 'memo'
   const STORAGE_KEY = 'items'
   // 使用 Tauri 官方 store 插件；路径是 app 数据目录下的相对路径（由 store 插件决定落盘位置）。
   const STORE_PATH = 'plugins/memo.json'
+
+  function isPlainObject(v) {
+    return !!v && typeof v === 'object' && !Array.isArray(v)
+  }
+
+  function createToast() {
+    let el = null
+    let timer = 0
+
+    function ensure() {
+      if (typeof document === 'undefined') return null
+      if (el && el.isConnected) return el
+      el = document.createElement('div')
+      el.id = '__fastWindowMemoToast'
+      el.style.position = 'fixed'
+      el.style.left = '50%'
+      el.style.bottom = '24px'
+      el.style.transform = 'translateX(-50%)'
+      el.style.maxWidth = 'min(520px, calc(100vw - 24px))'
+      el.style.padding = '10px 12px'
+      el.style.borderRadius = '10px'
+      el.style.background = 'rgba(0,0,0,0.82)'
+      el.style.color = '#fff'
+      el.style.fontSize = '12px'
+      el.style.lineHeight = '1.4'
+      el.style.boxShadow = '0 6px 18px rgba(0,0,0,0.28)'
+      el.style.zIndex = '999999'
+      el.style.opacity = '0'
+      el.style.transition = 'opacity 160ms ease'
+      el.style.pointerEvents = 'none'
+      document.body.appendChild(el)
+      return el
+    }
+
+    return (message) => {
+      const d = ensure()
+      if (!d) return
+      const text = String(message ?? '').trim()
+      if (!text) return
+
+      d.textContent = text
+      d.style.opacity = '1'
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        if (!d.isConnected) return
+        d.style.opacity = '0'
+      }, 1800)
+    }
+  }
+
+  const toast = createToast()
+
+  async function startDragging() {
+    if (!api?.tauri?.invoke) throw new Error('tauri.invoke 不可用（请更新宿主）')
+    await api.tauri.invoke({ command: 'plugin:window|start_dragging', payload: {} })
+  }
 
   const state = {
     memos: [],
@@ -165,10 +222,15 @@
       if (Array.isArray(saved)) state.memos = saved
       else {
         // 兼容迁移：第一次升级时尝试读取 legacy storage（只读）。
-        const legacy = await api?.storage?.get?.(STORAGE_KEY).catch(() => null)
-        if (Array.isArray(legacy) && legacy.length) {
-          state.memos = legacy
-          await storeSet(STORAGE_KEY, legacy)
+        let legacyAll = null
+        try {
+          legacyAll = await api.tauri.invoke({ command: 'storage_get_all', payload: { pluginId: PLUGIN_ID } })
+        } catch (_) {
+          legacyAll = null
+        }
+        if (legacyAll && isPlainObject(legacyAll) && Array.isArray(legacyAll[STORAGE_KEY]) && legacyAll[STORAGE_KEY].length) {
+          state.memos = legacyAll[STORAGE_KEY]
+          await storeSet(STORAGE_KEY, legacyAll[STORAGE_KEY])
         }
       }
     } catch (e) {}
@@ -188,7 +250,7 @@
     state.memos = [memo, ...state.memos]
     state.input = ''
     await save()
-    api.ui?.showToast?.('已保存')
+    toast('已保存')
     render()
   }
 
@@ -230,7 +292,7 @@
         const t = e.target
         if (!(t instanceof HTMLElement)) return
         if (t.closest('button, a, input, textarea, select, [role="button"]')) return
-        api.ui?.startDragging?.()
+        startDragging().catch(() => {})
       })
     }
 
@@ -239,7 +301,7 @@
       if (!(t instanceof HTMLElement)) return
       const act = t.getAttribute('data-act')
       if (act === 'back') {
-        api.ui?.back ? api.ui.back() : api.ui?.showToast?.('无法返回')
+        api.ui?.back ? api.ui.back() : toast('无法返回')
         return
       }
       if (act === 'save') {
