@@ -560,6 +560,7 @@
       chatSystemPrompt: '',
       promptHistoryLimit: String(DEFAULT_PROMPT_HISTORY_LIMIT),
       autoSave: true,
+      shrinkRefImages: true,
       deleteProviderId: '',
       deleteProviderReturnModal: '',
     },
@@ -986,6 +987,11 @@
     return out
   }
 
+  function isShrinkRefImagesEnabled() {
+    // 默认开启；用户可在“插件设置”里关闭。
+    return !(state.data && state.data.shrinkRefImages === false)
+  }
+
   function clamp01(n) {
     const v = Number(n)
     if (!Number.isFinite(v)) return 0
@@ -1112,6 +1118,7 @@
     return {
       version: VERSION,
       autoSave: true,
+      shrinkRefImages: true,
       uiMode: UI_MODE_NORMAL,
       promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
       promptHistory: [],
@@ -1190,6 +1197,7 @@
     out.providers = [p]
     out.activeProviderId = p.id
     out.autoSave = typeof s.autoSave === 'boolean' ? s.autoSave : true
+    out.shrinkRefImages = true
     out.uiMode = UI_MODE_NORMAL
     out.promptHistoryLimit = normalizePromptHistoryLimit(s.promptHistoryLimit)
     out.promptHistory = normalizePromptHistory(s.promptHistory, out.promptHistoryLimit)
@@ -1213,6 +1221,7 @@
     const out = defaultData()
     out.version = VERSION
     out.autoSave = typeof d.autoSave === 'boolean' ? d.autoSave : true
+    out.shrinkRefImages = typeof d.shrinkRefImages === 'boolean' ? d.shrinkRefImages : true
     out.uiMode = normalizeUiMode(d.uiMode)
     out.promptHistoryLimit = normalizePromptHistoryLimit(d.promptHistoryLimit)
     out.promptHistory = normalizePromptHistory(d.promptHistory, out.promptHistoryLimit)
@@ -1994,6 +2003,7 @@
     state.revealApiKey = false
     state.draft.promptHistoryLimit = String(normalizePromptHistoryLimit(state.data.promptHistoryLimit))
     state.draft.autoSave = !!state.data.autoSave
+    state.draft.shrinkRefImages = state.data.shrinkRefImages !== false
     render()
   }
 
@@ -2047,6 +2057,7 @@
   function applyDraftPluginSettings() {
     if (!state.data) return { ok: false, error: '内部状态缺失' }
     state.data.autoSave = !!state.draft.autoSave
+    state.data.shrinkRefImages = !!state.draft.shrinkRefImages
     state.data.promptHistoryLimit = normalizePromptHistoryLimit(state.draft.promptHistoryLimit)
     trimPromptHistoryToLimit()
     syncPromptHistoryToData(false)
@@ -2421,7 +2432,7 @@
       for (const it of list) {
         const u = String(it?.dataUrl || it?.data_url || '').trim()
         if (!u.startsWith('data:image/')) continue
-        const safeUrl = await shrinkRefImageDataUrl(u).catch(() => u)
+        const safeUrl = isShrinkRefImagesEnabled() ? await shrinkRefImageDataUrl(u).catch(() => u) : u
         const saved = await api.files.images.writeBase64({ scope: 'data', dataUrlOrBase64: safeUrl }).catch(() => '')
         if (saved) ok++
       }
@@ -2627,7 +2638,7 @@
     try {
       const cropPng = await cropDataUrlByPixels(baseUrl, selPx)
       if (!cropPng) throw new Error('裁剪失败：无法生成选区图片')
-      const cropForSend = await shrinkRefImageDataUrl(cropPng).catch(() => cropPng)
+      const cropForSend = isShrinkRefImagesEnabled() ? await shrinkRefImageDataUrl(cropPng).catch(() => cropPng) : cropPng
 
       const refUrls = (Array.isArray(state.refImages) ? state.refImages : [])
         .map((x) => String(x && x.dataUrl ? x.dataUrl : '').trim())
@@ -2642,7 +2653,7 @@
 
       const refForSend = []
       for (const u of refUrls) {
-        const safeUrl = await shrinkRefImageDataUrl(u).catch(() => u)
+        const safeUrl = isShrinkRefImagesEnabled() ? await shrinkRefImageDataUrl(u).catch(() => u) : u
         if (String(safeUrl || '').startsWith('data:image/')) refForSend.push(safeUrl)
       }
 
@@ -3024,6 +3035,15 @@
             <div class="sp"></div>
             <label class="switch" aria-label="自动保存开关">
               <input id="ai-draw-autoSaveSwitch" type="checkbox" data-bind="autoSave" ${state.draft.autoSave ? 'checked' : ''} />
+              <span class="slider" aria-hidden="true"></span>
+            </label>
+          </div>
+
+          <div class="row" style="margin-top:10px">
+            <label for="ai-draw-shrinkRefImagesSwitch" style="margin:0; color:var(--muted); font-size:12px">参考图自动压缩（降低失败率；关闭则保留原图）</label>
+            <div class="sp"></div>
+            <label class="switch" aria-label="参考图自动压缩开关">
+              <input id="ai-draw-shrinkRefImagesSwitch" type="checkbox" data-bind="shrinkRefImages" ${state.draft.shrinkRefImages ? 'checked' : ''} />
               <span class="slider" aria-hidden="true"></span>
             </label>
           </div>
@@ -3585,15 +3605,16 @@
             const items = normalizePickedImages(picked)
             if (!items.length) return
 
-            api.ui.showToast('正在处理参考图…')
+            const shrink = isShrinkRefImagesEnabled()
+            if (shrink) api.ui.showToast('正在处理参考图…')
             let shrunk = 0
             const processed = []
             for (const it of items) {
-              const nextUrl = await shrinkRefImageDataUrl(it.dataUrl).catch(() => it.dataUrl)
-              if (nextUrl && String(nextUrl).length < String(it.dataUrl).length) shrunk++
+              const nextUrl = shrink ? await shrinkRefImageDataUrl(it.dataUrl).catch(() => it.dataUrl) : it.dataUrl
+              if (shrink && nextUrl && String(nextUrl).length < String(it.dataUrl).length) shrunk++
               processed.push({ ...it, dataUrl: nextUrl })
             }
-            if (shrunk) api.ui.showToast(`已压缩 ${shrunk} 张参考图`)
+            if (shrink && shrunk) api.ui.showToast(`已压缩 ${shrunk} 张参考图`)
 
             const merged = state.refImages.concat(processed).slice(0, MAX_REF_IMAGES)
             if (merged.length < state.refImages.length + processed.length) api.ui.showToast(`参考图最多 ${MAX_REF_IMAGES} 张`)
