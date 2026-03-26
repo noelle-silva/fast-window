@@ -376,9 +376,33 @@ export type FastWindowApi = {
   }
   tauri?: {
     invoke: (spec: { command: string; payload?: any; timeoutMs?: number | null }) => Promise<any>
-    streamOpen?: (spec: { command: string; payload?: any; channelKey?: string | null; timeoutMs?: number | null }) => Promise<{ streamId: string }>
+    streamOpen?: (spec: {
+      command: string
+      payload?: any
+      channelKey?: string | null
+      timeoutMs?: number | null
+      detached?: boolean | null
+      cancel?: {
+        command: string
+        payload?: any
+        resultKey?: string | null
+        idKey?: string | null
+      } | null
+    }) => Promise<{ streamId: string }>
     streamCancel?: (streamId: string) => Promise<any>
-    stream?: (spec: { command: string; payload?: any; channelKey?: string | null; timeoutMs?: number | null }) => Promise<AsyncIterable<any>>
+    stream?: (spec: {
+      command: string
+      payload?: any
+      channelKey?: string | null
+      timeoutMs?: number | null
+      detached?: boolean | null
+      cancel?: {
+        command: string
+        payload?: any
+        resultKey?: string | null
+        idKey?: string | null
+      } | null
+    }) => Promise<AsyncIterable<any>>
   }
   files: {
     getOutputDir: () => Promise<string>

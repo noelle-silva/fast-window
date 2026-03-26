@@ -21,8 +21,10 @@ import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
 import mammoth from 'mammoth/mammoth.browser'
 import { extractPptMarkdown } from './core/ppt'
+import { createAiChatFastWindowApi } from './bridge/tauriCompat'
 ;(function () {
-  const api = window.fastWindow
+  const api = createAiChatFastWindowApi(window.fastWindow, 'ai-chat')
+  ;(window as any).fastWindow = api
 
   try {
     const g = (pdfjsLib as any)?.GlobalWorkerOptions

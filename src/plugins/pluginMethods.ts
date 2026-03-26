@@ -57,6 +57,22 @@ type TauriInvokeSpec = {
   timeoutMs?: number | null
 }
 
+type TauriStreamCancelSpec = {
+  command: string
+  payload?: any
+  resultKey?: string | null
+  idKey?: string | null
+}
+
+type TauriStreamOpenSpec = {
+  command: string
+  payload?: any
+  channelKey?: string | null
+  timeoutMs?: number | null
+  detached?: boolean | null
+  cancel?: TauriStreamCancelSpec | null
+}
+
 // 注意：payload 可能包含 base64（例如 canvas 图片）；过小会误伤常见用例。
 // 这里给一个更现实的默认上限，同时对高危 command（如 shell）再单独收紧。
 const MAX_TAURI_INVOKE_JSON_BYTES = 16 * 1024 * 1024
@@ -72,6 +88,13 @@ type StreamHandle = {
   pluginId: string
   closed: boolean
   cancel: () => void
+  detachedCancel?: null | {
+    command: string
+    payload: any
+    idKey: string
+    resultKey: string | null
+    idValue: any
+  }
 }
 
 const tauriStreams = new Map<string, StreamHandle>()
@@ -90,6 +113,28 @@ function isHighRiskTauriCommand(command: string): boolean {
   // 高危：shell 直接执行外部命令/程序。
   // 规则：对高危 command，网关拒绝通配，必须精确命中 tauri:<command>。
   return command.startsWith('plugin:shell|')
+}
+
+function safeStringCommand(command: string) {
+  if (!command) throw new PluginBridgeError('BAD_REQUEST', 'command is required')
+  if (command.length > 256) throw new PluginBridgeError('BAD_REQUEST', 'command is too long')
+  if (command.includes('\n') || command.includes('\r')) throw new PluginBridgeError('BAD_REQUEST', 'command is invalid')
+}
+
+function tryParseTauriCancelSpec(raw: any): TauriStreamCancelSpec | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const command = String((raw as any).command ?? '').trim()
+  if (!command) return null
+  const payload = (raw as any).payload ?? {}
+  const resultKey = (raw as any).resultKey == null ? null : String((raw as any).resultKey ?? '').trim() || null
+  const idKey = (raw as any).idKey == null ? null : String((raw as any).idKey ?? '').trim() || null
+  return { command, payload, resultKey, idKey }
+}
+
+function resolveCancelId(result: any, resultKey: string | null): any {
+  if (!resultKey) return result
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return undefined
+  return (result as any)[resultKey]
 }
 
 function isTauriCommandAllowed(requires: readonly string[] | undefined, command: string): boolean {
@@ -183,9 +228,7 @@ const methods: Record<PluginMethodName, MethodDef> = {
     handler: async (ctx, args) => {
       const spec = (args?.[0] as any) as TauriInvokeSpec
       const command = String(spec?.command ?? '').trim()
-      if (!command) throw new PluginBridgeError('BAD_REQUEST', 'command is required')
-      if (command.length > 256) throw new PluginBridgeError('BAD_REQUEST', 'command is too long')
-      if (command.includes('\n') || command.includes('\r')) throw new PluginBridgeError('BAD_REQUEST', 'command is invalid')
+      safeStringCommand(command)
 
       if (!isTauriCommandAllowed(ctx.requires, command)) {
         throw new PluginBridgeError('CAPABILITY_DENIED', `Capability denied: tauri:${command}`, { needed: `tauri:${command}` })
@@ -206,11 +249,9 @@ const methods: Record<PluginMethodName, MethodDef> = {
     handler: async (ctx, args, extra) => {
       if (!extra.postStream) throw new PluginBridgeError('BAD_REQUEST', 'postStream is required for tauri.streamOpen')
 
-      const spec = (args?.[0] as any) ?? null
+      const spec = (args?.[0] as any) as TauriStreamOpenSpec
       const command = String(spec?.command ?? '').trim()
-      if (!command) throw new PluginBridgeError('BAD_REQUEST', 'command is required')
-      if (command.length > 256) throw new PluginBridgeError('BAD_REQUEST', 'command is too long')
-      if (command.includes('\n') || command.includes('\r')) throw new PluginBridgeError('BAD_REQUEST', 'command is invalid')
+      safeStringCommand(command)
 
       if (!isTauriCommandAllowed(ctx.requires, command)) {
         throw new PluginBridgeError('CAPABILITY_DENIED', `Capability denied: tauri:${command}`, { needed: `tauri:${command}` })
@@ -241,10 +282,11 @@ const methods: Record<PluginMethodName, MethodDef> = {
             handle.closed = true
             try { unlisten?.() } catch {}
           },
+          detachedCancel: null,
         }
         tauriStreams.set(streamId, handle)
 
-        post({ type: 'start', kind: 'event.listen', name: eventName })
+        post({ type: '__gateway_start', kind: 'event.listen', name: eventName })
         void Promise.resolve()
           .then(async () => {
             const u = await listen(eventName, e => {
@@ -286,31 +328,86 @@ const methods: Record<PluginMethodName, MethodDef> = {
       if (!isPlainObject) throw new PluginBridgeError('BAD_REQUEST', 'payload must be an object for channel commands')
 
       const timeoutMs = resolveTauriInvokeTimeoutMs(command, spec?.timeoutMs)
+      const detached = !!spec?.detached
+      const cancelSpec = tryParseTauriCancelSpec((spec as any)?.cancel)
 
       const handle: StreamHandle = {
         pluginId: ctx.id,
         closed: false,
         cancel: () => {
           handle.closed = true
+          const c = handle.detachedCancel
+          if (!c) return
+          const idKey = c.idKey || 'streamId'
+          const payload0 = c.payload && typeof c.payload === 'object' && !Array.isArray(c.payload) ? c.payload : {}
+          const payload = { ...payload0, [idKey]: c.idValue }
+          void invoke(c.command, payload).catch(() => {})
         },
+        detachedCancel: null,
       }
       tauriStreams.set(streamId, handle)
 
       const channel = new Channel<any>(ev => {
         const h = tauriStreams.get(streamId)
         if (!h || h.closed) return
-        post({ type: 'data', data: ev })
+        post(ev)
+        const t = ev && typeof ev === 'object' ? String((ev as any).type || '') : ''
+        if (t === 'end' || t === 'error') {
+          const hh = tauriStreams.get(streamId)
+          if (!hh) return
+          hh.closed = true
+          tauriStreams.delete(streamId)
+        }
       })
 
       const payload = { ...(rawPayload as any), [channelKey]: channel }
-      post({ type: 'start', kind: 'channel', command })
+      post({ type: '__gateway_start', kind: 'channel', command })
 
       void Promise.resolve()
         .then(async () => {
           const result = await invokeWithTimeout<any>(command, payload, timeoutMs)
           const h = tauriStreams.get(streamId)
-          if (!h || h.closed) return
-          post({ type: 'result', result })
+          if (!h) return
+
+          if (cancelSpec) {
+            const cancelCommand = String(cancelSpec.command || '').trim()
+            safeStringCommand(cancelCommand)
+            if (!isTauriCommandAllowed(ctx.requires, cancelCommand)) {
+              throw new PluginBridgeError('CAPABILITY_DENIED', `Capability denied: tauri:${cancelCommand}`, {
+                needed: `tauri:${cancelCommand}`,
+              })
+            }
+
+            const idKey = String(cancelSpec.idKey || 'streamId').trim() || 'streamId'
+            if (!isSafePlainKey(idKey)) throw new PluginBridgeError('BAD_REQUEST', 'invalid cancel.idKey')
+
+            const idValue = resolveCancelId(result, cancelSpec.resultKey ?? null)
+            h.detachedCancel = {
+              command: cancelCommand,
+              payload: cancelSpec.payload ?? {},
+              idKey,
+              resultKey: cancelSpec.resultKey ?? null,
+              idValue,
+            }
+
+            // 如果用户在拿到 id 之前就 cancel 了，这里补一枪取消。
+            if (h.closed) {
+              const payload0 =
+                cancelSpec.payload && typeof cancelSpec.payload === 'object' && !Array.isArray(cancelSpec.payload)
+                  ? cancelSpec.payload
+                  : {}
+              const payload2 = { ...payload0, [idKey]: idValue }
+              void invoke(cancelCommand, payload2).catch(() => {})
+            }
+          }
+
+          if (h.closed) return
+          if (detached) {
+            post({ type: '__gateway_ready', result })
+            return
+          }
+
+          post({ type: '__gateway_result', result })
           post({ type: 'end', canceled: false })
         })
         .catch(err => {
@@ -320,7 +417,7 @@ const methods: Record<PluginMethodName, MethodDef> = {
           post({ type: 'end', canceled: false })
         })
         .finally(() => {
-          tauriStreams.delete(streamId)
+          if (!detached) tauriStreams.delete(streamId)
         })
 
       return { streamId }
