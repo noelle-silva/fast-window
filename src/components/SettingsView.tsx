@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
+import { getVersion as getAppVersion } from '@tauri-apps/api/app'
 import { alpha } from '@mui/material/styles'
 import {
   Avatar,
@@ -248,6 +249,7 @@ export default function SettingsView(props: { onBack: () => void }) {
   const { onBack } = props
   const [dataDir, setDataDir] = useState<string>('')
   const [pluginsDir, setPluginsDir] = useState<string>('')
+  const [appVersion, setAppVersion] = useState<string>('')
   const [current, setCurrent] = useState<string>('')
   const [input, setInput] = useState<string>('')
   const [saving, setSaving] = useState(false)
@@ -303,7 +305,8 @@ export default function SettingsView(props: { onBack: () => void }) {
 
   useEffect(() => {
     async function load() {
-      const [dir, pdir, cur, st, wv, wp] = await Promise.all([
+      const [ver, dir, pdir, cur, st, wv, wp] = await Promise.all([
+        getAppVersion().catch(() => ''),
         invoke<string>('get_data_dir').catch(() => ''),
         invoke<string>('get_plugins_dir').catch(() => ''),
         invoke<string>('get_wake_shortcut').catch(() => ''),
@@ -311,6 +314,7 @@ export default function SettingsView(props: { onBack: () => void }) {
         invoke<WebviewSettings>('get_webview_settings').catch(() => null),
         getWallpaperSettings().catch(() => null),
       ])
+      setAppVersion(ver)
       setDataDir(dir)
       setPluginsDir(pdir)
       setCurrent(cur)
@@ -1473,6 +1477,9 @@ export default function SettingsView(props: { onBack: () => void }) {
               </Typography>
               <Typography variant="caption" color="text.secondary">
                 Fast Window · 开源项目
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                版本：{appVersion || '未知'}
               </Typography>
               <Box sx={{ mt: 1, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                 <Button size="small" variant="outlined" onClick={openProjectGithub}>
