@@ -7,6 +7,10 @@ dist/
 dist-ssr/
 *.local
 
+# Local temp / artifacts
+.tmp/
+plugin-store/
+
 # Runtime app data
 data/
 plugins/**/backup/

@@ -12,7 +12,7 @@ use image::{ColorType, ImageEncoder};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use tauri::ipc::Channel;
 use tauri::{
     menu::{Menu, MenuItem},
@@ -4712,6 +4712,9 @@ async fn plugin_store_install(
     app: tauri::AppHandle,
     url: String,
     expected_sha256: String,
+    expected_id: String,
+    expected_version: String,
+    expected_requires: Vec<String>,
 ) -> Result<PluginStoreInstallResult, String> {
     let u = url.trim().to_string();
     if u.is_empty() {
@@ -4721,6 +4724,29 @@ async fn plugin_store_install(
         return Err("url 必须以 https:// 开头".to_string());
     }
     let expected = parse_sha256_hex_32(&expected_sha256)?;
+
+    let expected_id = expected_id.trim().to_string();
+    if !is_safe_id(&expected_id) {
+        return Err("expectedId 不合法（仅允许字母/数字/_/-）".to_string());
+    }
+    let expected_version = expected_version.trim().to_string();
+    if expected_version.is_empty() {
+        return Err("expectedVersion 不能为空".to_string());
+    }
+    if expected_requires.len() > 256 {
+        return Err("expectedRequires 数量过多".to_string());
+    }
+    let mut expected_requires_set = BTreeSet::<String>::new();
+    for it in expected_requires {
+        let s = it.trim().to_string();
+        if s.is_empty() {
+            continue;
+        }
+        if !s.starts_with("tauri:") || s.len() > 256 || s.contains('\n') || s.contains('\r') {
+            return Err("expectedRequires 存在不合法能力声明".to_string());
+        }
+        expected_requires_set.insert(s);
+    }
 
     let plugins_dir = app_plugins_dir(&app);
     std::fs::create_dir_all(&plugins_dir).map_err(|e| format!("创建插件目录失败: {e}"))?;
@@ -4794,6 +4820,9 @@ async fn plugin_store_install(
 
     let plugins_dir2 = plugins_dir.clone();
     let zip_path2 = tmp_zip.clone();
+    let expected_id2 = expected_id.clone();
+    let expected_version2 = expected_version.clone();
+    let expected_requires2: BTreeSet<String> = expected_requires_set.clone();
     let install_result: Result<PluginStoreInstallResult, String> =
         match tokio::task::spawn_blocking(move || -> Result<PluginStoreInstallResult, String> {
             use std::io::Read;
@@ -4847,6 +4876,12 @@ async fn plugin_store_install(
             if !is_safe_id(&plugin_id) {
                 return Err("manifest.id 不合法（仅允许字母/数字/_/-）".to_string());
             }
+            if plugin_id != expected_id2 {
+                return Err(format!(
+                    "manifest.id 不匹配：expected={}, got={}",
+                    expected_id2, plugin_id
+                ));
+            }
 
             let name = manifest
                 .get("name")
@@ -4866,6 +4901,12 @@ async fn plugin_store_install(
                 .to_string();
             if version.is_empty() {
                 return Err("manifest.version 不能为空".to_string());
+            }
+            if version != expected_version2 {
+                return Err(format!(
+                    "manifest.version 不匹配：expected={}, got={}",
+                    expected_version2, version
+                ));
             }
 
             let _description = manifest
@@ -4895,6 +4936,7 @@ async fn plugin_store_install(
                 .get("requires")
                 .and_then(|v| v.as_array())
                 .ok_or_else(|| "manifest.requires 必须是数组（即使为空）".to_string())?;
+            let mut actual_requires_set = BTreeSet::<String>::new();
             for item in requires {
                 let cap = item.as_str().unwrap_or("").trim();
                 if cap.is_empty()
@@ -4905,6 +4947,15 @@ async fn plugin_store_install(
                 {
                     return Err("manifest.requires 存在不合法能力声明".to_string());
                 }
+                actual_requires_set.insert(cap.to_string());
+            }
+            if actual_requires_set != expected_requires2 {
+                let expected_list = expected_requires2.iter().cloned().collect::<Vec<_>>();
+                let actual_list = actual_requires_set.iter().cloned().collect::<Vec<_>>();
+                return Err(format!(
+                    "manifest.requires 不匹配：expected={:?}, got={:?}",
+                    expected_list, actual_list
+                ));
             }
 
             let main = manifest
@@ -5028,6 +5079,67 @@ async fn plugin_store_install(
                     let _ = std::fs::remove_dir_all(&tmp_dir);
                     return Err("插件图标文件不存在（manifest.icon=svg:...）".to_string());
                 }
+            }
+
+            // 二次校验：以“解压后的 manifest.json”为准，防止前端展示与实际安装不一致。
+            let extracted_manifest_text = std::fs::read_to_string(tmp_dir.join("manifest.json"))
+                .map_err(|e| format!("读取解压后的 manifest.json 失败: {e}"))?;
+            let extracted_manifest: Value = serde_json::from_str(&extracted_manifest_text)
+                .map_err(|e| format!("解压后的 manifest.json 解析失败: {e}"))?;
+
+            let extracted_id = extracted_manifest
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let extracted_version = extracted_manifest
+                .get("version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let extracted_requires = extracted_manifest
+                .get("requires")
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| "解压后的 manifest.requires 必须是数组（即使为空）".to_string())?;
+            let mut extracted_requires_set = BTreeSet::<String>::new();
+            for item in extracted_requires {
+                let cap = item.as_str().unwrap_or("").trim();
+                if cap.is_empty()
+                    || !cap.starts_with("tauri:")
+                    || cap.len() > 256
+                    || cap.contains('\n')
+                    || cap.contains('\r')
+                {
+                    let _ = std::fs::remove_dir_all(&tmp_dir);
+                    return Err("解压后的 manifest.requires 存在不合法能力声明".to_string());
+                }
+                extracted_requires_set.insert(cap.to_string());
+            }
+
+            if extracted_id != expected_id2 {
+                let _ = std::fs::remove_dir_all(&tmp_dir);
+                return Err(format!(
+                    "解压后的 manifest.id 不匹配：expected={}, got={}",
+                    expected_id2, extracted_id
+                ));
+            }
+            if extracted_version != expected_version2 {
+                let _ = std::fs::remove_dir_all(&tmp_dir);
+                return Err(format!(
+                    "解压后的 manifest.version 不匹配：expected={}, got={}",
+                    expected_version2, extracted_version
+                ));
+            }
+            if extracted_requires_set != expected_requires2 {
+                let _ = std::fs::remove_dir_all(&tmp_dir);
+                let expected_list = expected_requires2.iter().cloned().collect::<Vec<_>>();
+                let actual_list = extracted_requires_set.iter().cloned().collect::<Vec<_>>();
+                return Err(format!(
+                    "解压后的 manifest.requires 不匹配：expected={:?}, got={:?}",
+                    expected_list, actual_list
+                ));
             }
 
             let dst = plugins_dir2.join(&plugin_id);

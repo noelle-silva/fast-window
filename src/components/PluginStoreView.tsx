@@ -45,6 +45,7 @@ type RegistryIndex = {
 
 const APP_STORAGE_ID = '__app'
 const STORE_INDEX_URL_KEY = 'pluginStoreIndexUrl'
+const DEFAULT_STORE_INDEX_URL = 'https://raw.githubusercontent.com/noelle-silva/fast-window-plugins-download/main/index.json'
 
 function toast(message: string) {
   window.dispatchEvent(new CustomEvent('fast-window:toast', { detail: { message } }))
@@ -133,10 +134,17 @@ export default function PluginStoreView(props: Props) {
     void invoke<unknown | null>('storage_get', { pluginId: APP_STORAGE_ID, key: STORE_INDEX_URL_KEY })
       .then(v => {
         const s = typeof v === 'string' ? v.trim() : ''
-        setIndexUrl(s)
-        setSavedIndexUrl(s)
+        const next = s || DEFAULT_STORE_INDEX_URL
+        setIndexUrl(next)
+        setSavedIndexUrl(next)
+        if (!s) {
+          void invoke('storage_set', { pluginId: APP_STORAGE_ID, key: STORE_INDEX_URL_KEY, value: next }).catch(() => {})
+        }
       })
-      .catch(() => {})
+      .catch(() => {
+        setIndexUrl(DEFAULT_STORE_INDEX_URL)
+        setSavedIndexUrl(DEFAULT_STORE_INDEX_URL)
+      })
   }, [])
 
   useEffect(() => {
@@ -176,6 +184,14 @@ export default function PluginStoreView(props: Props) {
     }
   }, [indexUrl])
 
+  const didAutoLoadRef = useRef(false)
+  useEffect(() => {
+    if (didAutoLoadRef.current) return
+    if (!indexUrl.trim()) return
+    didAutoLoadRef.current = true
+    void refresh()
+  }, [indexUrl, refresh])
+
   const canSaveUrl = useMemo(() => indexUrl.trim() !== savedIndexUrl.trim(), [indexUrl, savedIndexUrl])
 
   const saveUrl = useCallback(async () => {
@@ -195,7 +211,13 @@ export default function PluginStoreView(props: Props) {
     setInstalling(true)
     setError('')
     try {
-      const r = await pluginStoreInstall({ url: confirm.item.download_url, expectedSha256: confirm.item.sha256 })
+      const r = await pluginStoreInstall({
+        url: confirm.item.download_url,
+        expectedSha256: confirm.item.sha256,
+        expectedId: confirm.item.id,
+        expectedVersion: confirm.item.version,
+        expectedRequires: confirm.item.requires || [],
+      })
       window.dispatchEvent(new CustomEvent('fast-window:plugins-changed'))
       toast(confirm.action === 'install' ? `已安装：${confirm.item.name}` : `已更新：${confirm.item.name}`)
       if (r?.pluginId && r.pluginId !== confirm.item.id) {

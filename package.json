@@ -6,6 +6,8 @@
   "scripts": {
     "plugins:build": "node scripts/plugins.mjs build",
     "plugins:watch": "node scripts/plugins.mjs watch",
+    "plugins:publish": "node scripts/publish-plugin.mjs",
+    "plugins:publish:download": "node scripts/publish-plugin-to-download.mjs",
     "dev:all": "node scripts/dev-all.mjs",
     "dev": "vite",
     "build": "pnpm run plugins:build && tsc && vite build",

@@ -36,6 +36,70 @@ plugins/<id>/
 - `pnpm dev:all`：同时跑 `plugins:watch` + `vite dev`
 - `pnpm tauri`：已接入 `plugins:build`，确保打包/运行前插件产物是最新
 
+## 插件商店与发布（GitHub 分发）
+
+分发仓库（静态 `index.json` + GitHub Releases 资产 ZIP）：
+
+- 仓库：https://github.com/noelle-silva/fast-window-plugins-download
+- Releases（插件 ZIP 发布页）：https://github.com/noelle-silva/fast-window-plugins-download/releases
+- 商店索引（宿主默认内置）：https://raw.githubusercontent.com/noelle-silva/fast-window-plugins-download/main/index.json
+
+### index.json 结构（商店目录）
+
+```json
+{
+  "registry_version": 1,
+  "plugins": [
+    {
+      "id": "memo",
+      "name": "快捷备忘录",
+      "description": "描述",
+      "version": "1.0.0",
+      "download_url": "https://github.com/.../releases/download/vmemo-1.0.0/memo-1.0.0.zip",
+      "sha256": "zip 的 sha256（hex）",
+      "requires": ["tauri:plugin:store|load"]
+    }
+  ]
+}
+```
+
+约定：
+
+- 仅保留最新版（每个插件只存 1 条记录）
+- Release tag：`v<pluginId>-<version>`
+- ZIP 文件名：`<pluginId>-<version>.zip`
+
+### 发布命令（自动更新 index + 上传 Release）
+
+准备 Fine-grained Token，并配置环境变量：
+
+- `FAST_WINDOW_GITHUB_TOKEN=...`（也兼容 `GITHUB_TOKEN` / `GH_TOKEN`）
+
+发布单个插件：
+
+```bash
+pnpm run plugins:publish:download -- --plugin <pluginId>
+```
+
+发布全部插件（遍历 `plugins/`）：
+
+```bash
+pnpm run plugins:publish:download -- --all
+```
+
+常用参数：
+
+- `--dry-run`：只生成 zip/index 预览，不 push、不创建 Release
+- `--no-build`：跳过插件构建（仅用于已经是单文件入口/预构建插件）
+- `--force`：强制覆盖同版本（不推荐）
+
+版本不可变（强制）：同一个 `pluginId@version` 已发布就 **禁止覆盖**。要升级请改 `plugins/<pluginId>/manifest.json` 的 `version`。
+
+实现细节（你只需要知道会发生什么）：
+
+- `plugin-store/` 是分发仓库的 clone 工作区（独立 git 仓库），主仓库会忽略它；脚本会在缺失时自动 `git clone`
+- ZIP 默认输出到 `.tmp/dist-plugin-zips/`（临时产物，可随时删除）
+
 ## Manifest（`plugins/<id>/manifest.json`）
 
 最小字段：

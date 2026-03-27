@@ -2,6 +2,20 @@
 
 一个基于 **Tauri v2 + React + Vite** 的桌面小工具宿主，支持通过 `plugins/` 目录加载/打包内置插件。
 
+## 插件商店（GitHub 分发）
+
+插件分发仓库（只放 `index.json` + Release assets）：
+
+- https://github.com/noelle-silva/fast-window-plugins-download
+
+插件发布页（下载 ZIP 的地方）：
+
+- https://github.com/noelle-silva/fast-window-plugins-download/releases
+
+商店索引（宿主默认内置的 index 地址）：
+
+- https://raw.githubusercontent.com/noelle-silva/fast-window-plugins-download/main/index.json
+
 ## 环境要求
 
 - Node.js（建议 18+）
@@ -93,3 +107,30 @@ pnpm tauri build
 - 插件源码：`plugins/<pluginId>/`
 - 插件打包资源：`src-tauri/plugin-seeds/`（由脚本从 `plugins/` 同步生成）
 - 插件构建：`pnpm plugins:build` / 开发监听：`pnpm plugins:watch`（可用 `pnpm dev:all` 同时跑监听与前端 dev）
+- `pnpm tauri`：已接入 `plugins:build`，确保打包/运行前插件产物是最新
+
+## 发布插件到商店（分发仓库）
+
+要求：准备一个 Fine-grained Token（最小权限：对 `fast-window-plugins-download` 的 Contents/Release 读写），并配置环境变量：
+
+- `FAST_WINDOW_GITHUB_TOKEN=...`（也兼容 `GITHUB_TOKEN` / `GH_TOKEN`）
+
+发布单个插件：
+
+```bash
+pnpm run plugins:publish:download -- --plugin <pluginId>
+```
+
+发布全部插件（遍历 `plugins/`）：
+
+```bash
+pnpm run plugins:publish:download -- --all
+```
+
+常用参数：
+
+- `--dry-run`：只生成 zip/index 预览，不 push、不创建 Release
+- `--no-build`：跳过插件构建（仅用于已经是单文件入口/预构建插件）
+- `--force`：强制覆盖同版本（不推荐）
+
+重要：版本不可变（KISS）。同一个 `pluginId@version` 已发布就禁止覆盖；需要升级请改 `plugins/<pluginId>/manifest.json` 的 `version`。
