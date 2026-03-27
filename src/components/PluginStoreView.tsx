@@ -133,7 +133,7 @@ export default function PluginStoreView(props: Props) {
   const { onBack } = props
 
   const [wallpaper, setWallpaper] = useState<WallpaperSettings | null>(null)
-  const [indexUrl] = useState(DEFAULT_STORE_INDEX_URL)
+  const indexUrl = DEFAULT_STORE_INDEX_URL
   const [registry, setRegistry] = useState<RegistryIndex | null>(null)
   const [localVersions, setLocalVersions] = useState<Map<string, string>>(new Map())
   const [loading, setLoading] = useState(false)
@@ -197,7 +197,6 @@ export default function PluginStoreView(props: Props) {
       if (requestId !== requestSeqRef.current) return
 
       if (isAbort) {
-        setRegistry(null)
         setError('加载超时或已取消，请重试')
         return
       }
@@ -364,20 +363,23 @@ export default function PluginStoreView(props: Props) {
                           )
                         }
                         sx={{
+                          position: 'relative',
                           py: 1.1,
                           px: 1,
                           borderRadius: 2.5,
                           alignItems: 'flex-start',
+                          bgcolor: theme =>
+                            wallpaper?.enabled
+                              ? alpha(theme.palette.background.paper, 0.55)
+                              : theme.palette.action.hover,
                           '& + &': {
                             mt: 0.75,
                           },
-                          '&::before': {
-                            content: '""',
-                            position: 'absolute',
-                            inset: 0,
-                            borderRadius: 2.5,
-                            bgcolor: theme => alpha(theme.palette.common.black, wallpaper?.enabled ? 0.06 : 0.035),
-                            pointerEvents: 'none',
+                          '&:hover': {
+                            bgcolor: theme =>
+                              wallpaper?.enabled
+                                ? alpha(theme.palette.background.paper, 0.75)
+                                : theme.palette.action.selected,
                           },
                         }}
                       >
