@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { alpha } from '@mui/material/styles'
 import {
@@ -16,7 +16,6 @@ import {
   ListItem,
   ListItemText,
   Stack,
-  TextField,
   Typography,
 } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
@@ -43,8 +42,6 @@ type RegistryIndex = {
   plugins: RegistryPluginItem[]
 }
 
-const APP_STORAGE_ID = '__app'
-const STORE_INDEX_URL_KEY = 'pluginStoreIndexUrl'
 const DEFAULT_STORE_INDEX_URL = 'https://raw.githubusercontent.com/noelle-silva/fast-window-plugins-download/main/index.json'
 
 type Semver = { major: number; minor: number; patch: number }
@@ -136,8 +133,7 @@ export default function PluginStoreView(props: Props) {
   const { onBack } = props
 
   const [wallpaper, setWallpaper] = useState<WallpaperSettings | null>(null)
-  const [indexUrl, setIndexUrl] = useState('')
-  const [savedIndexUrl, setSavedIndexUrl] = useState('')
+  const [indexUrl] = useState(DEFAULT_STORE_INDEX_URL)
   const [registry, setRegistry] = useState<RegistryIndex | null>(null)
   const [localVersions, setLocalVersions] = useState<Map<string, string>>(new Map())
   const [loading, setLoading] = useState(false)
@@ -145,28 +141,12 @@ export default function PluginStoreView(props: Props) {
   const [confirm, setConfirm] = useState<{ item: RegistryPluginItem; action: 'install' | 'update' } | null>(null)
   const [installing, setInstalling] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const requestSeqRef = useRef(0)
 
   useEffect(() => {
     void getWallpaperSettings()
       .then(v => setWallpaper(v))
       .catch(() => setWallpaper({ enabled: false, opacity: 0.65, blur: 0, titlebarOpacity: 0.62, titlebarBlur: 12, filePath: null }))
-  }, [])
-
-  useEffect(() => {
-    void invoke<unknown | null>('storage_get', { pluginId: APP_STORAGE_ID, key: STORE_INDEX_URL_KEY })
-      .then(v => {
-        const s = typeof v === 'string' ? v.trim() : ''
-        const next = s || DEFAULT_STORE_INDEX_URL
-        setIndexUrl(next)
-        setSavedIndexUrl(next)
-        if (!s) {
-          void invoke('storage_set', { pluginId: APP_STORAGE_ID, key: STORE_INDEX_URL_KEY, value: next }).catch(() => {})
-        }
-      })
-      .catch(() => {
-        setIndexUrl(DEFAULT_STORE_INDEX_URL)
-        setSavedIndexUrl(DEFAULT_STORE_INDEX_URL)
-      })
   }, [])
 
   useEffect(() => {
@@ -176,10 +156,13 @@ export default function PluginStoreView(props: Props) {
   }, [])
 
   const refresh = useCallback(async () => {
+    const requestId = ++requestSeqRef.current
     const url = indexUrl.trim()
     if (!url) {
-      setRegistry(null)
-      setError('请先填写 index.json 的 URL')
+      if (requestId === requestSeqRef.current) {
+        setRegistry(null)
+        setError('商店地址为空')
+      }
       return
     }
 
@@ -187,45 +170,48 @@ export default function PluginStoreView(props: Props) {
     const ac = new AbortController()
     abortRef.current = ac
 
-    setLoading(true)
-    setError('')
+    if (requestId === requestSeqRef.current) {
+      setLoading(true)
+      setError('')
+    }
     try {
-      const timer = setTimeout(() => ac.abort(), 12_000)
+      const timeoutMs = 25_000
+      const timer = setTimeout(() => ac.abort(), timeoutMs)
       const resp = await fetch(url, { cache: 'no-store', signal: ac.signal })
       clearTimeout(timer)
       if (!resp.ok) throw new Error(`拉取失败：HTTP ${resp.status}`)
       const raw = (await resp.json()) as unknown
       const next = normalizeRegistry(raw)
-      setRegistry(next)
-      setLocalVersions(await loadLocalPluginVersions())
+      if (requestId === requestSeqRef.current) {
+        setRegistry(next)
+        setLocalVersions(await loadLocalPluginVersions())
+      }
     } catch (e: any) {
+      const msg = String(e?.message || e || '').trim()
+      const isAbort =
+        String(e?.name || '') === 'AbortError' ||
+        msg.toLowerCase().includes('aborted') ||
+        msg.toLowerCase().includes('abort')
+
+      // 旧请求被取消/超时，不应污染 UI（例如用户点击刷新触发的新请求已在路上）。
+      if (requestId !== requestSeqRef.current) return
+
+      if (isAbort) {
+        setRegistry(null)
+        setError('加载超时或已取消，请重试')
+        return
+      }
+
       setRegistry(null)
-      setError(String(e?.message || e || '加载失败'))
+      setError(msg || '加载失败')
     } finally {
-      setLoading(false)
+      if (requestId === requestSeqRef.current) setLoading(false)
     }
   }, [indexUrl])
 
-  const didAutoLoadRef = useRef(false)
   useEffect(() => {
-    if (didAutoLoadRef.current) return
-    if (!indexUrl.trim()) return
-    didAutoLoadRef.current = true
     void refresh()
-  }, [indexUrl, refresh])
-
-  const canSaveUrl = useMemo(() => indexUrl.trim() !== savedIndexUrl.trim(), [indexUrl, savedIndexUrl])
-
-  const saveUrl = useCallback(async () => {
-    const url = indexUrl.trim()
-    try {
-      await invoke('storage_set', { pluginId: APP_STORAGE_ID, key: STORE_INDEX_URL_KEY, value: url })
-      setSavedIndexUrl(url)
-      toast('已保存商店地址')
-    } catch (e: any) {
-      toast(String(e?.message || e || '保存失败'))
-    }
-  }, [indexUrl])
+  }, [refresh])
 
   async function doInstall() {
     if (!confirm) return
@@ -255,6 +241,14 @@ export default function PluginStoreView(props: Props) {
   }
 
   const items = registry?.plugins || []
+  const panelSx = (theme: any) => ({
+    borderRadius: 3,
+    px: 1.5,
+    py: 1.35,
+    bgcolor: wallpaper?.enabled ? alpha(theme.palette.background.paper, 0.6) : alpha(theme.palette.background.paper, 0.92),
+    backdropFilter: wallpaper?.enabled ? 'blur(12px)' : undefined,
+    boxShadow: `0 10px 30px ${alpha(theme.palette.common.black, 0.06)}`,
+  })
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -269,8 +263,7 @@ export default function PluginStoreView(props: Props) {
           px: 0.75,
           bgcolor: wallpaper?.enabled ? alpha(theme.palette.background.paper, 0.62) : theme.palette.background.paper,
           backdropFilter: wallpaper?.enabled ? 'blur(12px)' : undefined,
-          borderBottom: 1,
-          borderColor: 'divider',
+          boxShadow: `inset 0 -1px 0 ${alpha(theme.palette.common.black, wallpaper?.enabled ? 0.04 : 0.06)}`,
           WebkitAppRegion: 'drag',
         })}
       >
@@ -287,29 +280,15 @@ export default function PluginStoreView(props: Props) {
 
       <Box sx={{ p: 2, flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', boxSizing: 'border-box' }}>
         <Stack spacing={1.25}>
-          <Box sx={{ p: 1.25, border: 1, borderColor: 'divider', borderRadius: 1 }}>
-            <Typography variant="body2" sx={{ fontWeight: 700, mb: 1 }}>
-              商店地址（index.json）
-            </Typography>
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-              <TextField
-                fullWidth
-                size="small"
-                value={indexUrl}
-                placeholder="https://raw.githubusercontent.com/<owner>/<repo>/main/index.json"
-                onChange={e => setIndexUrl(e.target.value)}
-              />
-              <Button variant="outlined" size="small" onClick={() => void saveUrl()} disabled={!canSaveUrl}>
-                保存
-              </Button>
-            </Stack>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-              说明：MVP 阶段支持一个商店源；安装/更新会在确认弹窗中展示权限（requires）。
-            </Typography>
-          </Box>
-
           {error ? (
-            <Alert severity="error" variant="outlined">
+            <Alert
+              severity="error"
+              sx={{
+                border: 'none',
+                borderRadius: 3,
+                boxShadow: theme => `0 10px 24px ${alpha(theme.palette.error.main, 0.12)}`,
+              }}
+            >
               {error}
             </Alert>
           ) : null}
@@ -324,9 +303,12 @@ export default function PluginStoreView(props: Props) {
           ) : null}
 
           {!loading && registry ? (
-            <Box sx={{ p: 1.25, border: 1, borderColor: 'divider', borderRadius: 1 }}>
+            <Box sx={panelSx}>
               <Typography variant="body2" sx={{ fontWeight: 700, mb: 1 }}>
                 插件列表（{items.length}）
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.25 }}>
+                仅显示内置官方商店源中的最新版插件；安装和更新前会展示权限清单。
               </Typography>
               {items.length === 0 ? (
                 <Typography variant="body2" color="text.secondary">
@@ -361,19 +343,43 @@ export default function PluginStoreView(props: Props) {
                         disableGutters
                         secondaryAction={
                           action === 'none' ? (
-                            <Chip size="small" label={alreadyLatest ? '已是最新' : '已安装'} variant="outlined" />
+                            <Chip
+                              size="small"
+                              label={alreadyLatest ? '已是最新' : '已安装'}
+                              sx={{
+                                bgcolor: theme => alpha(theme.palette.text.primary, 0.06),
+                                border: 'none',
+                              }}
+                            />
                           ) : (
                             <Button
                               variant="contained"
                               size="small"
                               onClick={() => setConfirm({ item, action })}
                               disabled={installing}
+                              sx={{ borderRadius: 999, boxShadow: 'none' }}
                             >
                               {action === 'install' ? '安装' : '更新'}
                             </Button>
                           )
                         }
-                        sx={{ py: 0.75 }}
+                        sx={{
+                          py: 1.1,
+                          px: 1,
+                          borderRadius: 2.5,
+                          alignItems: 'flex-start',
+                          '& + &': {
+                            mt: 0.75,
+                          },
+                          '&::before': {
+                            content: '""',
+                            position: 'absolute',
+                            inset: 0,
+                            borderRadius: 2.5,
+                            bgcolor: theme => alpha(theme.palette.common.black, wallpaper?.enabled ? 0.06 : 0.035),
+                            pointerEvents: 'none',
+                          },
+                        }}
                       >
                         <ListItemText
                           primary={
@@ -404,11 +410,24 @@ export default function PluginStoreView(props: Props) {
                                       size="small"
                                       label={cap}
                                       color={isHighRiskCapability(cap) ? 'warning' : 'default'}
-                                      variant="outlined"
+                                      sx={{
+                                        border: 'none',
+                                        bgcolor: theme =>
+                                          isHighRiskCapability(cap)
+                                            ? alpha(theme.palette.warning.main, 0.14)
+                                            : alpha(theme.palette.text.primary, 0.06),
+                                      }}
                                     />
                                   ))}
                                   {item.requires.length > 6 ? (
-                                    <Chip size="small" label={`+${item.requires.length - 6}`} variant="outlined" />
+                                    <Chip
+                                      size="small"
+                                      label={`+${item.requires.length - 6}`}
+                                      sx={{
+                                        border: 'none',
+                                        bgcolor: theme => alpha(theme.palette.text.primary, 0.06),
+                                      }}
+                                    />
                                   ) : null}
                                 </Box>
                               ) : null}
@@ -444,7 +463,18 @@ export default function PluginStoreView(props: Props) {
                 {Array.isArray(confirm.item.requires) && confirm.item.requires.length ? (
                   <Stack spacing={0.75}>
                     {confirm.item.requires.map(cap => (
-                      <Chip key={cap} label={cap} color={isHighRiskCapability(cap) ? 'warning' : 'default'} variant="outlined" />
+                      <Chip
+                        key={cap}
+                        label={cap}
+                        color={isHighRiskCapability(cap) ? 'warning' : 'default'}
+                        sx={{
+                          border: 'none',
+                          bgcolor: theme =>
+                            isHighRiskCapability(cap)
+                              ? alpha(theme.palette.warning.main, 0.14)
+                              : alpha(theme.palette.text.primary, 0.06),
+                        }}
+                      />
                     ))}
                   </Stack>
                 ) : (
@@ -453,7 +483,15 @@ export default function PluginStoreView(props: Props) {
                   </Typography>
                 )}
                 {Array.isArray(confirm.item.requires) && confirm.item.requires.some(isHighRiskCapability) ? (
-                  <Alert severity="warning" variant="outlined" sx={{ mt: 1.5 }}>
+                  <Alert
+                    severity="warning"
+                    sx={{
+                      mt: 1.5,
+                      border: 'none',
+                      borderRadius: 3,
+                      boxShadow: theme => `0 10px 24px ${alpha(theme.palette.warning.main, 0.12)}`,
+                    }}
+                  >
                     检测到高危权限（例如 tauri:* / shell）。请确认你信任该来源。
                   </Alert>
                 ) : null}
