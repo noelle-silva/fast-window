@@ -19,7 +19,7 @@ plugins/**/*.map
 # Tauri / Rust
 src-tauri/target/
 
-# 打包前由脚本同步生成（不要提交）
+# Legacy generated dirs (已废弃的随包插件种子机制遗留；保持忽略，避免误提交)
 src-tauri/plugin-seeds/
 src-tauri/plugins/
 

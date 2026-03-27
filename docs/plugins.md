@@ -216,12 +216,11 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
   - 数据根目录：默认使用 **exe 同目录**（更稳定，不依赖启动时 cwd）。
   - 也可以设置环境变量 `FAST_WINDOW_DATA_DIR` 指向你想要的数据根目录。
   - 插件目录：`<数据根>/plugins/`（由 Rust 端 `get_plugins_dir` 决定）。
-- 正式版（release/MSI）：安装包会携带内置插件“种子”，启动时自动补齐到 `<数据根>/plugins/`（默认只补缺失项；若目标插件已存在，只要该插件在宿主侧被允许覆盖更新，就会直接用随包版本覆盖；仅当宿主配置 `data/__app/plugins-overwrite.json` 中该插件显式为 `false` 时才禁止覆盖更新）。
+- 正式版（release/MSI）：宿主不再随包预置任何插件；插件通过商店下载到 `<数据根>/plugins/`。
   - 数据目录：`<数据根>/data/`（由 Rust 端 `get_data_dir` 决定）。
   - 注意：如果用 MSI 安装到 `Program Files` 这类目录，普通用户通常没有写权限；请使用可写目录（例如解压到 `D:\Apps\FastWindow\`），或设置 `FAST_WINDOW_DATA_DIR` 到可写路径。
 - 宿主设置：`data/app.json`（例如 `wakeShortcut`：唤醒窗口的全局快捷键）。
-- 插件覆盖更新偏好（宿主侧）：`data/__app/plugins-overwrite.json`（JSON 对象：`{ "<pluginId>": true|false }`）。
-- 默认策略：**默认允许覆盖更新**；仅当 `plugins-overwrite.json` 中该插件显式为 `false` 时，才禁止覆盖更新。
+- 插件覆盖更新偏好（宿主侧）：`data/__app/plugins-overwrite.json`（JSON 对象：`{ "<pluginId>": true|false }`；默认允许覆盖更新）。
 - 插件存储：推荐使用 Tauri 官方 store 插件（`plugin:store|*`）落盘 JSON（常用路径：`plugins/<pluginId>.json`）。
 - 历史迁移：若需要迁移旧版数据，可通过 `tauri:storage_get_all`（legacy 只读）读取，再写回 store，并在 store 里记录一次性迁移标记（幂等）。
 - 开发模式（debug）：会把仓库根目录的 `plugins/` 同步到数据根目录的 `plugins/`（方便开发）；`data/` 只在目标目录为空时迁移一次。

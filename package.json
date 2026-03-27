@@ -10,7 +10,7 @@
     "plugins:publish:download": "node scripts/publish-plugin-to-download.mjs",
     "dev:all": "node scripts/dev-all.mjs",
     "dev": "vite",
-    "build": "pnpm run plugins:build && tsc && vite build",
+    "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "node scripts/tauri.mjs"
   },

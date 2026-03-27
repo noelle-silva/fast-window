@@ -4137,102 +4137,7 @@ fn is_dir_empty(dir: &Path) -> bool {
     }
 }
 
-#[cfg(not(debug_assertions))]
-fn seed_plugins_from_resources(app: &tauri::AppHandle) {
-    let plugins_dir = app_plugins_dir(app);
-    let _ = std::fs::create_dir_all(&plugins_dir);
-
-    let Ok(resource_dir) = app.path().resource_dir() else {
-        return;
-    };
-    // tauri 的 resources 支持 glob，且当资源路径在 src-tauri 目录之外时，
-    // bundler 会把它们放到 resource_dir/_up_/... 下。
-    // 优先使用种子目录 plugin-seeds，避免与运行时 plugins/ 目录重名导致便携模式冲突。
-    // 兼容布局：
-    // - resource_dir/plugin-seeds
-    // - resource_dir/_up_/plugin-seeds
-    // - legacy: resource_dir/plugins
-    // - legacy: resource_dir/_up_/plugins
-    let bundled_plugins = {
-        let direct = resource_dir.join("plugin-seeds");
-        if direct.is_dir() {
-            direct
-        } else {
-            let up = resource_dir.join("_up_").join("plugin-seeds");
-            if up.is_dir() {
-                up
-            } else {
-                let legacy = resource_dir.join("plugins");
-                if legacy.is_dir() {
-                    legacy
-                } else {
-                    let legacy_up = resource_dir.join("_up_").join("plugins");
-                    if legacy_up.is_dir() {
-                        legacy_up
-                    } else {
-                        return;
-                    }
-                }
-            }
-        }
-    };
-
-    let Ok(entries) = std::fs::read_dir(&bundled_plugins) else {
-        return;
-    };
-
-    let overwrite_prefs = read_plugin_overwrite_prefs(app);
-
-    for e in entries.flatten() {
-        let Ok(ty) = e.file_type() else {
-            continue;
-        };
-        if !ty.is_dir() {
-            continue;
-        }
-        let plugin_id = e.file_name().to_string_lossy().to_string();
-        if !is_safe_id(&plugin_id) {
-            continue;
-        }
-
-        let dst = plugins_dir.join(&plugin_id);
-        let src_dir = e.path();
-
-        if !dst.exists() {
-            let _ = copy_dir_all(&src_dir, &dst);
-            continue;
-        }
-
-        // 用户空间优先：目标不是目录则不动。
-        if !dst.is_dir() {
-            continue;
-        }
-
-        // 默认：允许覆盖更新；仅当用户显式设置为 false 时才禁止。
-        if overwrite_prefs.get(&plugin_id).copied().unwrap_or(true) == false {
-            continue;
-        }
-
-        let stamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_else(|_| Duration::from_millis(0))
-            .as_millis();
-        let tmp_dir = plugins_dir.join(format!(".tmp-seed-{plugin_id}-{stamp}"));
-        if tmp_dir.exists() {
-            let _ = std::fs::remove_dir_all(&tmp_dir);
-        }
-        if copy_dir_all(&src_dir, &tmp_dir).is_err() {
-            let _ = std::fs::remove_dir_all(&tmp_dir);
-            continue;
-        }
-
-        // 覆盖更新：只要用户允许，就直接用随包版本替换（不做任何版本/manifest 跳过判断）。
-        if replace_dir_from_tmp(&dst, &tmp_dir, &format!("seed-{plugin_id}")).is_err() {
-            // 失败就跳过：不能破坏用户空间（尤其是 Windows 上文件占用时）。
-            continue;
-        }
-    }
-}
+// Release/MSI 不再随包预置任何插件（纯净宿主）。插件只通过商店安装到 plugins/ 目录。
 
 #[tauri::command]
 fn get_plugins_dir(app: tauri::AppHandle) -> String {
@@ -4750,6 +4655,22 @@ async fn plugin_store_install(
 
     let plugins_dir = app_plugins_dir(&app);
     std::fs::create_dir_all(&plugins_dir).map_err(|e| format!("创建插件目录失败: {e}"))?;
+
+    // 用户空间优先：如果目标路径已存在但不是“已安装插件目录”，拒绝覆盖。
+    // 同时尊重“禁止覆盖更新”偏好（默认允许；显式 false 则禁止更新已安装插件）。
+    let dst_dir = plugins_dir.join(&expected_id);
+    if dst_dir.exists() {
+        if !dst_dir.is_dir() {
+            return Err("目标插件路径已存在但不是目录，拒绝覆盖".to_string());
+        }
+        if !dst_dir.join("manifest.json").is_file() {
+            return Err("目标插件目录已存在但缺少 manifest.json，拒绝覆盖".to_string());
+        }
+        let prefs = read_plugin_overwrite_prefs(&app);
+        if prefs.get(&expected_id).copied().unwrap_or(true) == false {
+            return Err("该插件已安装且已关闭覆盖更新，请在设置中开启后再更新".to_string());
+        }
+    }
 
     let stamp = now_ms();
     let rnd = rand_u32(stamp);
@@ -6588,11 +6509,7 @@ fn main() {
             let _ = migrations::migrate_host_files_into_app_dir(app.handle());
 
             // Release：把 MSI 随包的内置插件“种子”拷到可写的插件目录（仅拷缺失项，不覆盖用户已有插件）。
-            #[cfg(not(debug_assertions))]
-            {
-                let handle = app.handle();
-                seed_plugins_from_resources(&handle);
-            }
+            // Release/MSI：不再做任何随包插件初始化（纯净宿主）。
 
             let (wake_shortcut, wake_shortcut_text) = load_wake_shortcut(app.handle());
             app.manage(WakeShortcutState {

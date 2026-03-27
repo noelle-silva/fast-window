@@ -48,12 +48,8 @@ async function main() {
   }
 
   if (isBuild) {
-    const code1 = await waitExit(run('pnpm', pluginFilter ? ['run', 'plugins:build', '--', '--plugin', pluginFilter] : ['run', 'plugins:build']))
-    if (code1 !== 0) process.exit(code1)
-    const code2 = await waitExit(run('node', ['scripts/prepare-tauri-resources.mjs']))
-    if (code2 !== 0) process.exit(code2)
-    const code3 = await waitExit(runTauri(args))
-    process.exit(code3)
+    const code = await waitExit(runTauri(args))
+    process.exit(code)
     return
   }
 
