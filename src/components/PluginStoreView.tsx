@@ -47,6 +47,27 @@ const APP_STORAGE_ID = '__app'
 const STORE_INDEX_URL_KEY = 'pluginStoreIndexUrl'
 const DEFAULT_STORE_INDEX_URL = 'https://raw.githubusercontent.com/noelle-silva/fast-window-plugins-download/main/index.json'
 
+type Semver = { major: number; minor: number; patch: number }
+
+function parseSemverStrict(raw: string): Semver | null {
+  const s = String(raw || '').trim()
+  const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(s)
+  if (!m) return null
+  const major = Number(m[1])
+  const minor = Number(m[2])
+  const patch = Number(m[3])
+  if (!Number.isSafeInteger(major) || !Number.isSafeInteger(minor) || !Number.isSafeInteger(patch)) return null
+  if (major < 0 || minor < 0 || patch < 0) return null
+  return { major, minor, patch }
+}
+
+function cmpSemver(a: Semver, b: Semver): number {
+  if (a.major !== b.major) return a.major < b.major ? -1 : 1
+  if (a.minor !== b.minor) return a.minor < b.minor ? -1 : 1
+  if (a.patch !== b.patch) return a.patch < b.patch ? -1 : 1
+  return 0
+}
+
 function toast(message: string) {
   window.dispatchEvent(new CustomEvent('fast-window:toast', { detail: { message } }))
 }
@@ -84,6 +105,7 @@ function normalizeRegistry(raw: unknown): RegistryIndex {
     if (!id || !isSafeId(id)) continue
     if (!name) continue
     if (!version) continue
+    if (!parseSemverStrict(version)) continue
     if (!download_url) continue
     if (!sha256) continue
 
@@ -315,15 +337,31 @@ export default function PluginStoreView(props: Props) {
                   {items.map(item => {
                     const local = localVersions.get(item.id) || ''
                     const installed = !!local
-                    const needsUpdate = installed && local !== item.version
+                    const localSemver = installed ? parseSemverStrict(local) : null
+                    const remoteSemver = parseSemverStrict(item.version)
+                    const needsUpdate =
+                      installed &&
+                      !!remoteSemver &&
+                      (!localSemver || cmpSemver(remoteSemver, localSemver) > 0)
+                    const alreadyLatest =
+                      installed &&
+                      !!remoteSemver &&
+                      !!localSemver &&
+                      cmpSemver(remoteSemver, localSemver) <= 0
                     const action: 'install' | 'update' | 'none' = !installed ? 'install' : needsUpdate ? 'update' : 'none'
+
+                    const versionText = !installed
+                      ? item.version
+                      : needsUpdate
+                        ? `${local || '未知'} → ${item.version}`
+                        : (local || item.version)
                     return (
                       <ListItem
                         key={item.id}
                         disableGutters
                         secondaryAction={
                           action === 'none' ? (
-                            <Chip size="small" label="已安装" variant="outlined" />
+                            <Chip size="small" label={alreadyLatest ? '已是最新' : '已安装'} variant="outlined" />
                           ) : (
                             <Button
                               variant="contained"
@@ -351,7 +389,7 @@ export default function PluginStoreView(props: Props) {
                           secondary={
                             <Box sx={{ mt: 0.5 }}>
                               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                                版本：{installed ? `${local} → ${item.version}` : item.version}
+                                版本：{versionText}
                               </Typography>
                               {item.description ? (
                                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>

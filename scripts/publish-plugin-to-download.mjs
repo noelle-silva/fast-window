@@ -20,6 +20,29 @@ const DEFAULT_STORE_DIR = path.join(rootDir, 'plugin-store')
 const DEFAULT_OUT_DIR = path.join(rootDir, '.tmp', 'dist-plugin-zips')
 const DEFAULT_PLUGINS_DIR = path.join(rootDir, 'plugins')
 
+function parseSemverStrict(raw) {
+  const s = String(raw || '').trim()
+  const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(s)
+  if (!m) return null
+  const major = Number(m[1])
+  const minor = Number(m[2])
+  const patch = Number(m[3])
+  if (!Number.isSafeInteger(major) || !Number.isSafeInteger(minor) || !Number.isSafeInteger(patch)) return null
+  if (major < 0 || minor < 0 || patch < 0) return null
+  return { major, minor, patch, raw: s }
+}
+
+function cmpSemverStrict(aRaw, bRaw) {
+  const a = parseSemverStrict(aRaw)
+  const b = parseSemverStrict(bRaw)
+  if (!a) throw new Error(`版本号必须是 x.y.z 格式（SemVer）：${String(aRaw || '').trim()}`)
+  if (!b) throw new Error(`index.json 中存在不合法版本号（必须是 x.y.z）：${String(bRaw || '').trim()}`)
+  if (a.major !== b.major) return a.major < b.major ? -1 : 1
+  if (a.minor !== b.minor) return a.minor < b.minor ? -1 : 1
+  if (a.patch !== b.patch) return a.patch < b.patch ? -1 : 1
+  return 0
+}
+
 async function loadDotEnvIfPresent() {
   const candidates = [
     path.join(rootDir, '.env.local'),
@@ -395,7 +418,12 @@ async function listPluginIds() {
 async function getLocalManifestVersion(pluginId) {
   const manifestPath = path.join(DEFAULT_PLUGINS_DIR, pluginId, 'manifest.json')
   const manifest = await readJson(manifestPath)
-  return String(manifest?.version || '').trim()
+  const version = String(manifest?.version || '').trim()
+  if (!version) return ''
+  if (!parseSemverStrict(version)) {
+    throw new Error(`plugins/${pluginId}/manifest.json 的 version 必须是 x.y.z 格式（SemVer）：${version}`)
+  }
+  return version
 }
 
 async function getPublishedEntry(storeDir, pluginId) {
@@ -406,24 +434,20 @@ async function getPublishedEntry(storeDir, pluginId) {
   return plugins.find(p => String(p?.id || '').trim() === pluginId) || null
 }
 
-async function checkSameVersionPublished(opts, pluginId) {
-  let version = ''
-  try {
-    version = await getLocalManifestVersion(pluginId)
-  } catch {
-    return { published: false, version: '' }
-  }
-  if (!version) return { published: false, version: '' }
-  let existed = null
-  try {
-    existed = await getPublishedEntry(opts.storeDir, pluginId)
-  } catch {
-    return { published: false, version }
-  }
-  if (!existed) return { published: false, version }
+async function checkPublishedVersionPolicy(opts, pluginId) {
+  const version = await getLocalManifestVersion(pluginId)
+  if (!version) return { status: 'missing', version: '' }
+
+  const existed = await getPublishedEntry(opts.storeDir, pluginId)
+  if (!existed) return { status: 'new', version, publishedVersion: '' }
+
   const publishedVersion = String(existed?.version || '').trim()
-  if (publishedVersion !== version) return { published: false, version }
-  return { published: true, version }
+  if (!publishedVersion) return { status: 'new', version, publishedVersion: '' }
+
+  const cmp = cmpSemverStrict(version, publishedVersion)
+  if (cmp === 0) return { status: 'same', version, publishedVersion }
+  if (cmp < 0) return { status: 'downgrade', version, publishedVersion }
+  return { status: 'upgrade', version, publishedVersion }
 }
 
 async function tryDownloadReleaseAssetAndExtractManifest(url, zipPath, pluginId) {
@@ -491,6 +515,9 @@ async function maybeRecoverIndexFromExistingReleaseAsset(opts, pluginId) {
   }
   const version = String(local?.version || '').trim()
   if (!version) return false
+  if (!parseSemverStrict(version)) {
+    throw new Error(`plugins/${pluginId}/manifest.json 的 version 必须是 x.y.z 格式（SemVer）：${version}`)
+  }
 
   const tag = `v${pluginId}-${version}`
   const zipName = `${pluginId}-${version}.zip`
@@ -606,22 +633,39 @@ async function main() {
   for (const pluginId of pluginIds) {
     console.log(`\n==== publish ${pluginId} ====`)
     try {
-      const same = await checkSameVersionPublished(opts, pluginId)
-      if (same?.published && !opts.force) {
+      const policy = await checkPublishedVersionPolicy(opts, pluginId)
+      if (policy?.status === 'missing') {
+        throw new Error(`plugins/${pluginId}/manifest.json 缺少 version`)
+      }
+
+      if (policy?.status === 'same' && !opts.force) {
         if (opts.all) {
-          console.log(`[plugin-store] skip: 已发布同版本（严禁覆盖）：${pluginId}@${same.version}`)
+          console.log(`[plugin-store] skip: 已发布同版本（严禁覆盖）：${pluginId}@${policy.version}`)
           continue
         }
         throw new Error(
-          `该版本已发布，严禁覆盖：${pluginId}@${same.version}\n` +
+          `该版本已发布，严禁覆盖：${pluginId}@${policy.version}\n` +
             `请修改 plugins/${pluginId}/manifest.json 的 version 字段进行版本升级；如必须覆盖，显式传入 --force。`,
         )
       }
-      if (same?.published && opts.force) {
-        console.warn(`[plugin-store] WARNING: --force 已启用，将覆盖已发布版本：${pluginId}@${same.version}`)
+      if (policy?.status === 'same' && opts.force) {
+        console.warn(`[plugin-store] WARNING: --force 已启用，将覆盖已发布版本：${pluginId}@${policy.version}`)
       }
 
-      if (!same?.published && (await maybeRecoverIndexFromExistingReleaseAsset(opts, pluginId))) {
+      if (policy?.status === 'downgrade' && !opts.force) {
+        throw new Error(
+          `版本号必须严格递增（SemVer）：${pluginId}\n` +
+            `云端=${policy.publishedVersion}，本地=${policy.version}\n` +
+            `请提升 plugins/${pluginId}/manifest.json 的 version；如必须覆盖，显式传入 --force。`,
+        )
+      }
+      if (policy?.status === 'downgrade' && opts.force) {
+        console.warn(
+          `[plugin-store] WARNING: --force 已启用，将发布非递增/降级版本：${pluginId} ${policy.publishedVersion} -> ${policy.version}`,
+        )
+      }
+
+      if (policy?.status !== 'same' && (await maybeRecoverIndexFromExistingReleaseAsset(opts, pluginId))) {
         if (opts.dryRun) {
           console.log('[plugin-store] dry-run: recovered index (no push)')
           continue

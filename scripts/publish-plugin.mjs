@@ -64,6 +64,24 @@ function waitExit(p) {
   return new Promise(resolve => p.on('exit', code => resolve(code ?? 0)))
 }
 
+function parseSemverStrict(raw) {
+  const s = String(raw || '').trim()
+  const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(s)
+  if (!m) return null
+  const major = Number(m[1])
+  const minor = Number(m[2])
+  const patch = Number(m[3])
+  if (!Number.isSafeInteger(major) || !Number.isSafeInteger(minor) || !Number.isSafeInteger(patch)) return null
+  if (major < 0 || minor < 0 || patch < 0) return null
+  return { major, minor, patch, raw: s }
+}
+
+function assertSemverStrict(raw, what) {
+  const v = parseSemverStrict(raw)
+  if (!v) throw new Error(`${what} 必须是 x.y.z 格式（SemVer）：${String(raw || '').trim()}`)
+  return v
+}
+
 function collectReferencedFiles(manifest) {
   const out = new Set()
   out.add('manifest.json')
@@ -227,6 +245,7 @@ async function main() {
   const requires = Array.isArray(manifest?.requires) ? manifest.requires.map(x => String(x || '').trim()).filter(Boolean) : []
 
   if (!version) throw new Error('manifest.version is required')
+  assertSemverStrict(version, 'manifest.version')
 
   const outDir = opts.outDir
   await fs.mkdir(outDir, { recursive: true })
