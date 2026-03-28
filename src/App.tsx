@@ -6,6 +6,7 @@ import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { loadAllPluginsReport, loadPluginById, type PluginLoadRejection } from './plugins/pluginLoader'
 import BackgroundPluginHost from './plugins/BackgroundPluginHost'
 import { PluginCapability, type PluginManifest } from './plugins/pluginContract'
+import { pluginStoreInstall } from './plugins/pluginStore'
 import {
   Alert,
   Avatar,
@@ -70,8 +71,113 @@ const APP_STORAGE_ID = '__app'
 const PLUGIN_ORDER_KEY = 'pluginOrder'
 const PLUGIN_BROWSE_LAYOUT_KEY = 'pluginBrowseLayout'
 const DISABLED_PLUGINS_KEY = 'disabledPlugins'
+const PLUGIN_AUTO_UPDATE_LAST_CHECK_KEY = 'pluginAutoUpdateLastCheckMs'
+const PLUGIN_AUTO_UPDATE_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000
+const DEFAULT_STORE_INDEX_URL = 'https://raw.githubusercontent.com/noelle-silva/fast-window-plugins-download/main/index.json'
+const MAX_AUTO_UPDATE_PER_RUN = 8
 
 type PluginBrowseLayout = 'list' | 'grid' | 'icon'
+
+type RegistryPluginItem = {
+  id: string
+  name: string
+  description: string
+  version: string
+  download_url: string
+  sha256: string
+  requires?: string[]
+}
+
+type RegistryIndex = {
+  registry_version: number
+  plugins: RegistryPluginItem[]
+}
+
+type Semver = { major: number; minor: number; patch: number }
+
+function parseSemverStrict(raw: string): Semver | null {
+  const s = String(raw || '').trim()
+  const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(s)
+  if (!m) return null
+  const major = Number(m[1])
+  const minor = Number(m[2])
+  const patch = Number(m[3])
+  if (!Number.isSafeInteger(major) || !Number.isSafeInteger(minor) || !Number.isSafeInteger(patch)) return null
+  if (major < 0 || minor < 0 || patch < 0) return null
+  return { major, minor, patch }
+}
+
+function cmpSemver(a: Semver, b: Semver): number {
+  if (a.major !== b.major) return a.major < b.major ? -1 : 1
+  if (a.minor !== b.minor) return a.minor < b.minor ? -1 : 1
+  if (a.patch !== b.patch) return a.patch < b.patch ? -1 : 1
+  return 0
+}
+
+function isSafeId(id: string): boolean {
+  return /^[A-Za-z0-9_-]+$/.test(id)
+}
+
+function normalizeCapabilityList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  for (const it of value) {
+    const s = String(it || '').trim()
+    if (s) out.push(s)
+  }
+  out.sort()
+  // 去重（保持稳定顺序）
+  const uniq: string[] = []
+  for (const s of out) {
+    if (uniq.length === 0 || uniq[uniq.length - 1] !== s) uniq.push(s)
+  }
+  return uniq
+}
+
+function normalizeRegistry(raw: unknown): RegistryIndex {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('index.json 格式不合法')
+  const obj = raw as any
+  if (obj.registry_version !== 1) throw new Error('不支持的 registry_version（仅支持 1）')
+  if (!Array.isArray(obj.plugins)) throw new Error('index.json.plugins 必须是数组')
+
+  const out: RegistryPluginItem[] = []
+  for (const item of obj.plugins) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue
+    const id = String((item as any).id || '').trim()
+    const name = String((item as any).name || '').trim()
+    const description = String((item as any).description || '')
+    const version = String((item as any).version || '').trim()
+    const download_url = String((item as any).download_url || '').trim()
+    const sha256 = String((item as any).sha256 || '').trim()
+    const requires = normalizeCapabilityList((item as any).requires)
+
+    if (!id || !isSafeId(id)) continue
+    if (!name) continue
+    if (!version || !parseSemverStrict(version)) continue
+    if (!download_url) continue
+    if (!sha256) continue
+
+    out.push({ id, name, description, version, download_url, sha256, requires })
+  }
+
+  out.sort((a, b) => a.name.localeCompare(b.name))
+  return { registry_version: 1, plugins: out }
+}
+
+async function fetchRegistryIndex(url: string, timeoutMs: number): Promise<RegistryIndex> {
+  const u = String(url || '').trim()
+  if (!u) throw new Error('indexUrl 不能为空')
+  const ctrl = new AbortController()
+  const timer = window.setTimeout(() => ctrl.abort(), Math.max(1_000, timeoutMs))
+  try {
+    const resp = await fetch(u, { cache: 'no-store', signal: ctrl.signal })
+    if (!resp.ok) throw new Error(`拉取 index.json 失败：HTTP ${resp.status}`)
+    const raw = await resp.json()
+    return normalizeRegistry(raw)
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
 
 function normalizeBrowseLayout(value: unknown): PluginBrowseLayout {
   if (value === 'grid') return 'grid'
@@ -416,6 +522,7 @@ function App() {
   const dragMovedRef = useRef(false)
   const reorderBackupRef = useRef<Plugin[] | null>(null)
   const reorderQueryBackupRef = useRef<string>('')
+  const autoUpdateStartedRef = useRef(false)
   const [toast, setToast] = useState<{ open: boolean; message: string; key: number }>({
     open: false,
     message: '',
@@ -478,6 +585,86 @@ function App() {
   }, [])
 
   const reloadPlugins = useCallback(() => loadPlugins({ showToast: true }), [loadPlugins])
+
+  async function autoUpdatePluginsOnceAfterStartup() {
+    const enabledRaw = await invoke<string[]>('get_plugins_auto_update_enabled').catch(() => [] as string[])
+    const enabledIds = Array.from(new Set(enabledRaw.map(x => String(x || '').trim()).filter(Boolean)))
+    if (enabledIds.length === 0) return
+
+    const now = Date.now()
+    const lastRaw = await invoke<unknown | null>('storage_get', { pluginId: APP_STORAGE_ID, key: PLUGIN_AUTO_UPDATE_LAST_CHECK_KEY }).catch(
+      () => null,
+    )
+    const lastMs = typeof lastRaw === 'number' && Number.isFinite(lastRaw) ? lastRaw : 0
+    if (now - lastMs < PLUGIN_AUTO_UPDATE_MIN_INTERVAL_MS) return
+
+    let registry: RegistryIndex | null = null
+    try {
+      registry = await fetchRegistryIndex(DEFAULT_STORE_INDEX_URL, 15_000)
+    } catch (e) {
+      console.warn('[auto-update] failed to load store index:', e)
+      return
+    } finally {
+      // 即使失败也打点，避免启动时反复重试刷屏（用户仍可手动到商店更新）。
+      void invoke('storage_set', { pluginId: APP_STORAGE_ID, key: PLUGIN_AUTO_UPDATE_LAST_CHECK_KEY, value: now }).catch(() => {})
+    }
+
+    if (!registry) return
+    const remoteById = new Map<string, RegistryPluginItem>(registry.plugins.map(p => [p.id, p]))
+
+    let updated = 0
+    let skippedPermChanged = 0
+    let failed = 0
+
+    for (const pluginId of enabledIds) {
+      if (updated >= MAX_AUTO_UPDATE_PER_RUN) break
+      const remote = remoteById.get(pluginId)
+      if (!remote) continue
+
+      const localPlugin = allPlugins.find(p => p.id === pluginId) || null
+      const localManifest = localPlugin?.manifest
+      const localVersion = typeof localManifest?.version === 'string' ? localManifest.version.trim() : ''
+      const remoteVersion = remote.version
+
+      const localSemver = parseSemverStrict(localVersion)
+      const remoteSemver = parseSemverStrict(remoteVersion)
+      if (!localSemver || !remoteSemver) continue
+      if (cmpSemver(remoteSemver, localSemver) <= 0) continue
+
+      const localRequires = normalizeCapabilityList(localManifest?.requires)
+      const remoteRequires = normalizeCapabilityList(remote.requires)
+      if (JSON.stringify(localRequires) !== JSON.stringify(remoteRequires)) {
+        skippedPermChanged += 1
+        continue
+      }
+
+      try {
+        await pluginStoreInstall({
+          url: remote.download_url,
+          expectedSha256: remote.sha256,
+          expectedId: remote.id,
+          expectedVersion: remote.version,
+          expectedRequires: remoteRequires,
+        })
+        updated += 1
+      } catch (e) {
+        failed += 1
+        console.warn('[auto-update] failed:', pluginId, e)
+      }
+    }
+
+    if (updated > 0) {
+      window.dispatchEvent(new CustomEvent('fast-window:plugins-changed'))
+    }
+
+    const parts: string[] = []
+    if (updated > 0) parts.push(`已自动更新 ${updated} 个插件`)
+    if (skippedPermChanged > 0) parts.push(`${skippedPermChanged} 个插件因权限变化已跳过（请到商店手动更新确认）`)
+    if (failed > 0) parts.push(`${failed} 个插件更新失败`)
+    if (parts.length) {
+      setToast(prev => ({ open: true, message: `自动更新：${parts.join('；')}`, key: prev.key + 1 }))
+    }
+  }
 
   const loadWallpaper = useCallback(async () => {
     try {
@@ -650,6 +837,14 @@ function App() {
     loadPlugins()
     void loadWallpaper()
   }, [loadPlugins, loadWallpaper])
+
+  // 自动更新（按插件偏好）：初次加载完成后做一次后台检查
+  useEffect(() => {
+    if (autoUpdateStartedRef.current) return
+    if (loading) return
+    autoUpdateStartedRef.current = true
+    void autoUpdatePluginsOnceAfterStartup()
+  }, [loading])
 
   useEffect(() => {
     const onChanged = () => void loadWallpaper()

@@ -28,7 +28,7 @@ mod migrations;
 const DEFAULT_WAKE_SHORTCUT: &str = "control+alt+Space";
 const APP_STORAGE_ID: &str = "__app";
 const APP_CONFIG_FILE: &str = "app.json";
-const PLUGIN_OVERWRITE_PREFS_FILE: &str = "plugins-overwrite.json";
+const PLUGIN_AUTO_UPDATE_PREFS_FILE: &str = "plugins-auto-update.json";
 const WAKE_SHORTCUT_KEY: &str = "wakeShortcut";
 const AUTO_START_KEY: &str = "autoStart";
 const MAIN_WINDOW_BOUNDS_KEY: &str = "mainWindowBounds";
@@ -1959,10 +1959,10 @@ fn app_config_legacy_path(app: &tauri::AppHandle) -> PathBuf {
     app_data_dir(app).join(APP_CONFIG_FILE)
 }
 
-fn app_plugin_overwrite_prefs_path(app: &tauri::AppHandle) -> PathBuf {
+fn app_plugin_auto_update_prefs_path(app: &tauri::AppHandle) -> PathBuf {
     app_data_dir(app)
         .join(APP_STORAGE_ID)
-        .join(PLUGIN_OVERWRITE_PREFS_FILE)
+        .join(PLUGIN_AUTO_UPDATE_PREFS_FILE)
 }
 
 fn read_json_map_opt(path: &Path) -> Option<Map<String, Value>> {
@@ -1991,8 +1991,8 @@ fn write_app_config_map(app: &tauri::AppHandle, map: &Map<String, Value>) -> Res
     write_json_map(&p, map)
 }
 
-fn read_plugin_overwrite_prefs(app: &tauri::AppHandle) -> BTreeMap<String, bool> {
-    let p = app_plugin_overwrite_prefs_path(app);
+fn read_plugin_auto_update_prefs(app: &tauri::AppHandle) -> BTreeMap<String, bool> {
+    let p = app_plugin_auto_update_prefs_path(app);
     let Some(map) = read_json_map_opt(&p) else {
         return BTreeMap::new();
     };
@@ -2002,29 +2002,32 @@ fn read_plugin_overwrite_prefs(app: &tauri::AppHandle) -> BTreeMap<String, bool>
         if !is_safe_id(&k) {
             continue;
         }
-        if let Some(b) = v.as_bool() {
-            out.insert(k, b);
+        if v.as_bool() == Some(true) {
+            out.insert(k, true);
         }
     }
     out
 }
 
-fn write_plugin_overwrite_prefs(
+fn write_plugin_auto_update_prefs(
     app: &tauri::AppHandle,
     prefs: &BTreeMap<String, bool>,
 ) -> Result<(), String> {
-    let p = app_plugin_overwrite_prefs_path(app);
+    let p = app_plugin_auto_update_prefs_path(app);
     if let Some(parent) = p.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
     }
 
     let mut obj = Map::<String, Value>::new();
     for (k, v) in prefs {
-        obj.insert(k.clone(), Value::Bool(*v));
+        // 仅持久化 true（开启自动更新）。缺失/false 视为关闭。
+        if *v {
+            obj.insert(k.clone(), Value::Bool(true));
+        }
     }
     let out = serde_json::to_string_pretty(&Value::Object(obj))
-        .map_err(|e| format!("序列化覆盖更新配置失败: {e}"))?;
-    std::fs::write(&p, format!("{out}\n")).map_err(|e| format!("写入覆盖更新配置失败: {e}"))?;
+        .map_err(|e| format!("序列化自动更新配置失败: {e}"))?;
+    std::fs::write(&p, format!("{out}\n")).map_err(|e| format!("写入自动更新配置失败: {e}"))?;
     Ok(())
 }
 
@@ -4465,7 +4468,7 @@ fn read_plugin_file_base64(
 }
 
 #[tauri::command]
-fn set_plugin_allow_overwrite_on_update(
+fn set_plugin_auto_update_enabled(
     app: tauri::AppHandle,
     plugin_id: String,
     enabled: bool,
@@ -4479,31 +4482,44 @@ fn set_plugin_allow_overwrite_on_update(
         return Err("插件不存在或缺少 manifest.json".to_string());
     }
 
-    let mut prefs = read_plugin_overwrite_prefs(&app);
-    // 默认：true。只持久化 false（禁用）即可，避免文件变大。
+    let mut prefs = read_plugin_auto_update_prefs(&app);
+    // 默认：false。只持久化 true（开启）即可，避免文件变大。
     if enabled {
-        prefs.remove(&plugin_id);
+        prefs.insert(plugin_id, true);
     } else {
-        prefs.insert(plugin_id, false);
+        prefs.remove(&plugin_id);
     }
-    write_plugin_overwrite_prefs(&app, &prefs)?;
+    write_plugin_auto_update_prefs(&app, &prefs)?;
     Ok(())
 }
 
 #[tauri::command]
-fn get_plugins_allow_overwrite_on_update(app: tauri::AppHandle) -> Vec<String> {
-    let prefs = read_plugin_overwrite_prefs(&app);
+fn get_plugins_auto_update_enabled(app: tauri::AppHandle) -> Vec<String> {
+    let prefs = read_plugin_auto_update_prefs(&app);
     let ids = list_plugins(app.clone());
     let mut out: Vec<String> = Vec::new();
     for id in ids {
-        // 默认：true。仅当 prefs 显式为 false 时才禁用。
-        if prefs.get(&id).copied().unwrap_or(true) == false {
-            continue;
+        if prefs.get(&id).copied().unwrap_or(false) == true {
+            out.push(id);
         }
-        out.push(id);
     }
     out.sort();
     out
+}
+
+// 兼容旧前端/旧命令名：过去用于“允许覆盖更新”，现在语义改为“自动更新”。
+#[tauri::command]
+fn set_plugin_allow_overwrite_on_update(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    enabled: bool,
+) -> Result<(), String> {
+    set_plugin_auto_update_enabled(app, plugin_id, enabled)
+}
+
+#[tauri::command]
+fn get_plugins_allow_overwrite_on_update(app: tauri::AppHandle) -> Vec<String> {
+    get_plugins_auto_update_enabled(app)
 }
 
 #[tauri::command]
@@ -4657,7 +4673,6 @@ async fn plugin_store_install(
     std::fs::create_dir_all(&plugins_dir).map_err(|e| format!("创建插件目录失败: {e}"))?;
 
     // 用户空间优先：如果目标路径已存在但不是“已安装插件目录”，拒绝覆盖。
-    // 同时尊重“禁止覆盖更新”偏好（默认允许；显式 false 则禁止更新已安装插件）。
     let dst_dir = plugins_dir.join(&expected_id);
     if dst_dir.exists() {
         if !dst_dir.is_dir() {
@@ -4665,10 +4680,6 @@ async fn plugin_store_install(
         }
         if !dst_dir.join("manifest.json").is_file() {
             return Err("目标插件目录已存在但缺少 manifest.json，拒绝覆盖".to_string());
-        }
-        let prefs = read_plugin_overwrite_prefs(&app);
-        if prefs.get(&expected_id).copied().unwrap_or(true) == false {
-            return Err("该插件已安装且已关闭覆盖更新，请在设置中开启后再更新".to_string());
         }
     }
 
@@ -6423,6 +6434,8 @@ fn main() {
             list_plugins,
             read_plugin_file,
             read_plugin_file_base64,
+            set_plugin_auto_update_enabled,
+            get_plugins_auto_update_enabled,
             set_plugin_allow_overwrite_on_update,
             get_plugins_allow_overwrite_on_update,
             read_plugins_dir,
