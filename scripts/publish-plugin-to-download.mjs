@@ -215,6 +215,51 @@ async function readJson(filePath) {
   return JSON.parse(raw)
 }
 
+function isDataImageUrl(value) {
+  return String(value || '').startsWith('data:image/')
+}
+
+function isHttpUrl(value) {
+  return /^https?:\/\//i.test(String(value || ''))
+}
+
+function normalizeIcon(raw) {
+  const s = String(raw || '').trim()
+  if (!s) return ''
+  if (isDataImageUrl(s) || isHttpUrl(s)) return s
+  if (s.length <= 8) return s
+  return ''
+}
+
+function isSafeRelPath(rel) {
+  const r = String(rel || '').trim().replaceAll('\\', '/')
+  if (!r) return false
+  if (r.startsWith('/')) return false
+  const parts = r.split('/')
+  return parts.every(p => p && p !== '.' && p !== '..')
+}
+
+async function resolveIndexIconFromExtractDir(extractDir, pluginId, manifest) {
+  const raw = String(manifest?.icon || '').trim()
+  if (!raw) return ''
+  if (isDataImageUrl(raw) || isHttpUrl(raw)) return raw
+
+  if (raw.startsWith('svg:')) {
+    const rel = raw.slice('svg:'.length).trim()
+    if (!isSafeRelPath(rel) || !rel.toLowerCase().endsWith('.svg')) return ''
+    const svgPath = path.join(extractDir, pluginId, rel)
+    try {
+      const svg = await fs.readFile(svgPath, 'utf8')
+      const encoded = encodeURIComponent(svg)
+      return `data:image/svg+xml;utf8,${encoded}`
+    } catch {
+      return ''
+    }
+  }
+
+  return normalizeIcon(raw)
+}
+
 async function updateIndexJson(indexPath, nextPlugin) {
   let index = { registry_version: 1, plugins: [] }
   if (indexPath && (await exists(indexPath))) {
@@ -496,7 +541,8 @@ async function tryDownloadReleaseAssetAndExtractManifest(url, zipPath, pluginId)
     await runInherit('tar', ['-xf', zipPath, '-C', extractDir])
     const manifestPath = path.join(extractDir, pluginId, 'manifest.json')
     const manifest = await readJson(manifestPath)
-    return { sha256, manifest }
+    const icon = await resolveIndexIconFromExtractDir(extractDir, pluginId, manifest)
+    return { sha256, manifest, icon }
   } finally {
     await fs.rm(extractDir, { recursive: true, force: true })
     await fs.rm(zipPath, { force: true })
@@ -542,11 +588,13 @@ async function maybeRecoverIndexFromExistingReleaseAsset(opts, pluginId) {
   const requires = Array.isArray(remoteManifest?.requires)
     ? remoteManifest.requires.map(x => String(x || '').trim()).filter(Boolean)
     : []
+  const icon = normalizeIcon(got.icon || remoteManifest?.icon)
 
   const entry = {
     id: pluginId,
     name,
     description,
+    ...(icon ? { icon } : {}),
     version,
     download_url: downloadUrl,
     sha256: got.sha256,

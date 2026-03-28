@@ -53,6 +53,7 @@ plugins/<id>/
     {
       "id": "memo",
       "name": "快捷备忘录",
+      "icon": "https://.../icons/memo.svg",
       "description": "描述",
       "version": "1.0.0",
       "download_url": "https://github.com/.../releases/download/vmemo-1.0.0/memo-1.0.0.zip",
@@ -68,6 +69,7 @@ plugins/<id>/
 - 仅保留最新版（每个插件只存 1 条记录）
 - Release tag：`v<pluginId>-<version>`
 - ZIP 文件名：`<pluginId>-<version>.zip`
+- `icon`（可选）：推荐填 `https://` 图片 URL 或 `data:image/...`；也支持短文本/emoji 作为 fallback（宿主会限制长度）
 
 ### 发布命令（自动更新 index + 上传 Release）
 

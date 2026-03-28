@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { alpha } from '@mui/material/styles'
 import {
   Alert,
+  Avatar,
   Box,
   Button,
   Chip,
@@ -14,6 +15,7 @@ import {
   IconButton,
   List,
   ListItem,
+  ListItemAvatar,
   ListItemText,
   Stack,
   Typography,
@@ -31,6 +33,7 @@ type RegistryPluginItem = {
   id: string
   name: string
   description: string
+  icon?: string
   version: string
   download_url: string
   sha256: string
@@ -69,8 +72,23 @@ function toast(message: string) {
   window.dispatchEvent(new CustomEvent('fast-window:toast', { detail: { message } }))
 }
 
+function isDataImageUrl(value: string): boolean {
+  return value.startsWith('data:image/')
+}
+
+function isHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value)
+}
+
 function isSafeId(id: string): boolean {
   return /^[A-Za-z0-9_-]+$/.test(id)
+}
+
+function isSafeRelPath(path: string): boolean {
+  if (!path) return false
+  if (path.startsWith('/') || path.startsWith('\\')) return false
+  const parts = path.split(/[\\/]+/g)
+  return parts.every(p => p !== '' && p !== '.' && p !== '..')
 }
 
 function isHighRiskCapability(cap: string): boolean {
@@ -79,6 +97,58 @@ function isHighRiskCapability(cap: string): boolean {
   if (s === 'tauri:*') return true
   if (s.includes('plugin:shell|')) return true
   return false
+}
+
+function normalizeIcon(raw: unknown): string {
+  const s = typeof raw === 'string' ? raw.trim() : ''
+  if (!s) return ''
+  if (isDataImageUrl(s) || isHttpUrl(s)) return s
+  // 允许用 emoji / 短文本作为 fallback（避免长字符串把 UI 顶爆）
+  if (s.length <= 8) return s
+  return ''
+}
+
+async function resolveLocalPluginIcon(pluginId: string, icon: unknown): Promise<string> {
+  const raw = typeof icon === 'string' ? icon.trim() : ''
+  if (!raw) return ''
+  if (isDataImageUrl(raw) || isHttpUrl(raw)) return raw
+
+  if (raw.startsWith('svg:')) {
+    const path = raw.slice('svg:'.length).trim()
+    if (!isSafeRelPath(path) || !path.toLowerCase().endsWith('.svg')) return ''
+    try {
+      const svg = await invoke<string>('read_plugin_file', { pluginId, path })
+      const encoded = encodeURIComponent(svg)
+      return `data:image/svg+xml;utf8,${encoded}`
+    } catch {
+      return ''
+    }
+  }
+
+  if (raw.startsWith('file:')) {
+    const path = raw.slice('file:'.length).trim()
+    if (!isSafeRelPath(path)) return ''
+    const lower = path.toLowerCase()
+
+    const mime =
+      lower.endsWith('.png') ? 'image/png'
+      : (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) ? 'image/jpeg'
+      : lower.endsWith('.webp') ? 'image/webp'
+      : lower.endsWith('.gif') ? 'image/gif'
+      : lower.endsWith('.ico') ? 'image/x-icon'
+      : lower.endsWith('.svg') ? 'image/svg+xml'
+      : ''
+
+    if (!mime) return ''
+    try {
+      const b64 = await invoke<string>('read_plugin_file_base64', { pluginId, path })
+      return `data:${mime};base64,${b64}`
+    } catch {
+      return ''
+    }
+  }
+
+  return normalizeIcon(raw)
 }
 
 function normalizeRegistry(raw: unknown): RegistryIndex {
@@ -93,6 +163,7 @@ function normalizeRegistry(raw: unknown): RegistryIndex {
     const id = String((item as any).id || '').trim()
     const name = String((item as any).name || '').trim()
     const description = String((item as any).description || '')
+    const icon = normalizeIcon((item as any).icon)
     const version = String((item as any).version || '').trim()
     const download_url = String((item as any).download_url || '').trim()
     const sha256 = String((item as any).sha256 || '').trim()
@@ -106,15 +177,16 @@ function normalizeRegistry(raw: unknown): RegistryIndex {
     if (!download_url) continue
     if (!sha256) continue
 
-    out.push({ id, name, description, version, download_url, sha256, requires })
+    out.push({ id, name, description, icon: icon || undefined, version, download_url, sha256, requires })
   }
 
   out.sort((a, b) => a.name.localeCompare(b.name))
   return { registry_version: 1, plugins: out }
 }
 
-async function loadLocalPluginVersions(): Promise<Map<string, string>> {
-  const out = new Map<string, string>()
+async function loadLocalPluginMeta(): Promise<{ versions: Map<string, string>; icons: Map<string, string> }> {
+  const versions = new Map<string, string>()
+  const icons = new Map<string, string>()
   const ids = await invoke<string[]>('list_plugins').catch(() => [] as string[])
   for (const id of ids) {
     const pluginId = String(id || '').trim()
@@ -123,10 +195,12 @@ async function loadLocalPluginVersions(): Promise<Map<string, string>> {
       const manifestText = await invoke<string>('read_plugin_file', { pluginId, path: 'manifest.json' })
       const m = JSON.parse(manifestText || '{}') as any
       const version = typeof m?.version === 'string' ? m.version.trim() : ''
-      if (version) out.set(pluginId, version)
+      if (version) versions.set(pluginId, version)
+      const icon = await resolveLocalPluginIcon(pluginId, m?.icon)
+      if (icon) icons.set(pluginId, icon)
     } catch {}
   }
-  return out
+  return { versions, icons }
 }
 
 export default function PluginStoreView(props: Props) {
@@ -136,6 +210,7 @@ export default function PluginStoreView(props: Props) {
   const indexUrl = DEFAULT_STORE_INDEX_URL
   const [registry, setRegistry] = useState<RegistryIndex | null>(null)
   const [localVersions, setLocalVersions] = useState<Map<string, string>>(new Map())
+  const [localIcons, setLocalIcons] = useState<Map<string, string>>(new Map())
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [confirm, setConfirm] = useState<{ item: RegistryPluginItem; action: 'install' | 'update' } | null>(null)
@@ -184,7 +259,9 @@ export default function PluginStoreView(props: Props) {
       const next = normalizeRegistry(raw)
       if (requestId === requestSeqRef.current) {
         setRegistry(next)
-        setLocalVersions(await loadLocalPluginVersions())
+        const meta = await loadLocalPluginMeta()
+        setLocalVersions(meta.versions)
+        setLocalIcons(meta.icons)
       }
     } catch (e: any) {
       const msg = String(e?.message || e || '').trim()
@@ -230,7 +307,9 @@ export default function PluginStoreView(props: Props) {
       if (r?.pluginId && r.pluginId !== confirm.item.id) {
         toast(`警告：安装的插件 ID 为 ${r.pluginId}，与商店条目 ${confirm.item.id} 不一致`)
       }
-      setLocalVersions(await loadLocalPluginVersions())
+      const meta = await loadLocalPluginMeta()
+      setLocalVersions(meta.versions)
+      setLocalIcons(meta.icons)
       setConfirm(null)
     } catch (e: any) {
       setError(String(e?.message || e || '安装失败'))
@@ -336,6 +415,10 @@ export default function PluginStoreView(props: Props) {
                       : needsUpdate
                         ? `${local || '未知'} → ${item.version}`
                         : (local || item.version)
+
+                    const icon = item.icon || localIcons.get(item.id) || ''
+                    const iconSrc = icon && (isDataImageUrl(icon) || isHttpUrl(icon)) ? icon : ''
+                    const iconFallback = iconSrc ? '' : (icon || (item.name || '').trim().slice(0, 1) || '?')
                     return (
                       <ListItem
                         key={item.id}
@@ -383,6 +466,16 @@ export default function PluginStoreView(props: Props) {
                           },
                         }}
                       >
+                        <ListItemAvatar sx={{ minWidth: 44, mt: 0.1 }}>
+                          <Avatar
+                            variant="rounded"
+                            src={iconSrc || undefined}
+                            imgProps={{ alt: `${item.name || item.id} 图标` }}
+                            sx={{ width: 34, height: 34, fontSize: 18, bgcolor: 'action.hover', color: 'text.primary' }}
+                          >
+                            {iconSrc ? null : iconFallback}
+                          </Avatar>
+                        </ListItemAvatar>
                         <ListItemText
                           primary={
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>

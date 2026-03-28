@@ -82,6 +82,40 @@ function assertSemverStrict(raw, what) {
   return v
 }
 
+function isDataImageUrl(value) {
+  return String(value || '').startsWith('data:image/')
+}
+
+function isHttpUrl(value) {
+  return /^https?:\/\//i.test(String(value || ''))
+}
+
+function normalizeIcon(raw) {
+  const s = String(raw || '').trim()
+  if (!s) return ''
+  if (isDataImageUrl(s) || isHttpUrl(s)) return s
+  if (s.length <= 8) return s
+  return ''
+}
+
+async function resolveIndexIcon(manifest, pluginDir) {
+  const raw = String(manifest?.icon || '').trim()
+  if (!raw) return ''
+  if (isDataImageUrl(raw) || isHttpUrl(raw)) return raw
+
+  if (raw.startsWith('svg:')) {
+    const rel = raw.slice('svg:'.length).trim()
+    if (!rel) return ''
+    if (!rel.toLowerCase().endsWith('.svg')) return ''
+    const safe = assertSafeRel(rel, 'manifest.icon')
+    const svg = await fs.readFile(path.join(pluginDir, safe), 'utf8')
+    const encoded = encodeURIComponent(svg)
+    return `data:image/svg+xml;utf8,${encoded}`
+  }
+
+  return normalizeIcon(raw)
+}
+
 function collectReferencedFiles(manifest) {
   const out = new Set()
   out.add('manifest.json')
@@ -243,6 +277,7 @@ async function main() {
   const version = String(manifest?.version || '').trim()
   const description = typeof manifest?.description === 'string' ? manifest.description : ''
   const requires = Array.isArray(manifest?.requires) ? manifest.requires.map(x => String(x || '').trim()).filter(Boolean) : []
+  const icon = await resolveIndexIcon(manifest, pluginDir)
 
   if (!version) throw new Error('manifest.version is required')
   assertSemverStrict(version, 'manifest.version')
@@ -284,6 +319,7 @@ async function main() {
     id: pluginId,
     name,
     description,
+    ...(icon ? { icon } : {}),
     version,
     download_url,
     sha256,
