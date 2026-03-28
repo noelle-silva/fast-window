@@ -2,13 +2,15 @@
   "id": "vscode-workspaces",
   "name": "VSCode 工作区",
   "author": "fast-window",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "收藏常用目录，一键用 VSCode 打开",
   "main": "index.js",
   "icon": "svg:icon.svg",
   "keyword": "code",
   "apiVersion": 2,
-  "ui": { "type": "iframe" },
+  "ui": {
+    "type": "iframe"
+  },
   "requires": [
     "tauri:plugin:store|load",
     "tauri:plugin:store|get",

@@ -2,13 +2,16 @@
   "id": "hyperion",
   "name": "Hyperion",
   "author": "fast-window",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "HTML 原子笔记：Notes/Assets + 索引库",
   "main": "index.js",
   "icon": "svg:icon.svg",
   "keyword": "note",
   "apiVersion": 2,
-  "ui": { "type": "iframe", "keepAlive": true },
+  "ui": {
+    "type": "iframe",
+    "keepAlive": true
+  },
   "requires": [
     "tauri:plugin_get_output_dir",
     "tauri:plugin_pick_output_dir",

@@ -2,14 +2,18 @@
   "id": "clipboard-history",
   "name": "剪贴板历史",
   "author": "fast-window",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "查看和管理剪贴板历史记录",
   "main": "index.js",
-  "background": { "autoStart": true },
+  "background": {
+    "autoStart": true
+  },
   "icon": "svg:icon.svg",
   "keyword": "cb",
   "apiVersion": 2,
-  "ui": { "type": "iframe" },
+  "ui": {
+    "type": "iframe"
+  },
   "requires": [
     "tauri:plugin:store|load",
     "tauri:plugin:store|get",

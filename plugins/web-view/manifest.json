@@ -2,13 +2,15 @@
   "id": "web-view",
   "name": "Web View",
   "author": "fast-window",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "管理网站地址，点击后在新窗口打开网页",
   "main": "index.js",
   "icon": "svg:icon.svg",
   "keyword": "wv",
   "apiVersion": 2,
-  "ui": { "type": "iframe" },
+  "ui": {
+    "type": "iframe"
+  },
   "requires": [
     "tauri:plugin:store|load",
     "tauri:plugin:store|get",

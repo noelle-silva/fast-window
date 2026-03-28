@@ -2,13 +2,15 @@
   "id": "memo",
   "name": "快捷备忘录",
   "author": "fast-window",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "快速记录和管理备忘信息",
   "main": "index.js",
   "icon": "svg:icon.svg",
   "keyword": "memo",
   "apiVersion": 2,
-  "ui": { "type": "iframe" },
+  "ui": {
+    "type": "iframe"
+  },
   "requires": [
     "tauri:plugin:store|load",
     "tauri:plugin:store|get",
