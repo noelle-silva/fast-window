@@ -88,6 +88,22 @@ async function runInherit(cmd, args, opts = {}) {
   if (code !== 0) throw new Error(`${cmd} failed: exit ${code}`)
 }
 
+function normalizeGitPath(p) {
+  return String(p || '').replaceAll('\\', '/')
+}
+
+function gitArgs(storeDir, args) {
+  return ['-c', `safe.directory=${normalizeGitPath(storeDir)}`, '-C', storeDir, ...args]
+}
+
+function gitRun(storeDir, args, opts = {}) {
+  return run('git', gitArgs(storeDir, args), opts)
+}
+
+async function gitRunInherit(storeDir, args, opts = {}) {
+  await runInherit('git', gitArgs(storeDir, args), opts)
+}
+
 function pickToken() {
   const t =
     (process.env.GITHUB_TOKEN || '').trim() ||
@@ -210,6 +226,41 @@ async function ghUpload(url, token, bytes, contentType) {
   return await withRetry(() => httpUpload(url, token, bytes, contentType), { attempts: 4, baseDelayMs: 800 })
 }
 
+async function pushIndexJsonViaApi(opts, message) {
+  const token = pickToken()
+  if (!token) {
+    throw new Error('缺少 GitHub Token：请设置环境变量 GITHUB_TOKEN（或 FAST_WINDOW_GITHUB_TOKEN）以便更新 index.json')
+  }
+
+  const owner = String(opts?.owner || '').trim() || DEFAULT_OWNER
+  const repo = String(opts?.repo || '').trim() || DEFAULT_REPO
+  const branch = String(opts?.branch || '').trim() || DEFAULT_BRANCH
+  const indexPath = path.join(String(opts?.storeDir || DEFAULT_STORE_DIR), 'index.json')
+
+  const content = await fs.readFile(indexPath, 'utf8')
+  const contentB64 = Buffer.from(content, 'utf8').toString('base64')
+
+  const apiBase = `https://api.github.com/repos/${owner}/${repo}`
+
+  let sha = ''
+  try {
+    const cur = await ghJson('GET', `${apiBase}/contents/index.json?ref=${encodeURIComponent(branch)}`, token, null)
+    sha = String(cur?.sha || '').trim()
+  } catch (e) {
+    if (Number(e?.status || 0) !== 404) throw e
+  }
+
+  const body = {
+    message: String(message || 'Update index.json').trim() || 'Update index.json',
+    content: contentB64,
+    branch,
+    ...(sha ? { sha } : {}),
+  }
+
+  const result = await ghJson('PUT', `${apiBase}/contents/index.json`, token, body)
+  return String(result?.commit?.html_url || '').trim()
+}
+
 async function readJson(filePath) {
   const raw = await fs.readFile(filePath, 'utf8')
   return JSON.parse(raw)
@@ -293,6 +344,8 @@ function parseArgs(argv) {
     dryRun: false,
     all: false,
     force: false,
+    pushIndexApi: false,
+    noPushIndex: false,
     message: 'Update index.json',
   }
 
@@ -350,6 +403,14 @@ function parseArgs(argv) {
       out.force = true
       continue
     }
+    if (a === '--push-index-api') {
+      out.pushIndexApi = true
+      continue
+    }
+    if (a === '--no-push-index') {
+      out.noPushIndex = true
+      continue
+    }
     if (a === '--message' && i + 1 < args.length) {
       out.message = String(args[i + 1] || '').trim() || out.message
       i++
@@ -405,28 +466,28 @@ async function ensurePluginStoreCloned(opts) {
 
 async function syncPluginStoreRepo(storeDir, branch) {
   // plugin-store 作为分发仓库工作区：脚本运行时保持干净，避免脏状态影响发布判断。
-  await runInherit('git', ['-C', storeDir, 'reset', '--hard'])
-  await runInherit('git', ['-C', storeDir, 'clean', '-fd'])
+  await gitRunInherit(storeDir, ['reset', '--hard'])
+  await gitRunInherit(storeDir, ['clean', '-fd'])
 
-  await runInherit('git', ['-C', storeDir, 'fetch', 'origin'])
+  await gitRunInherit(storeDir, ['fetch', 'origin'])
   try {
-    await runInherit('git', ['-C', storeDir, 'checkout', '-B', branch, `origin/${branch}`])
+    await gitRunInherit(storeDir, ['checkout', '-B', branch, `origin/${branch}`])
   } catch {
-    await runInherit('git', ['-C', storeDir, 'checkout', '-B', branch])
+    await gitRunInherit(storeDir, ['checkout', '-B', branch])
   }
   try {
-    await runInherit('git', ['-C', storeDir, 'reset', '--hard', `origin/${branch}`])
+    await gitRunInherit(storeDir, ['reset', '--hard', `origin/${branch}`])
   } catch {
     // ok for brand new / empty repos
   }
 }
 
 async function gitCommitAndPush(storeDir, branch, message) {
-  await runInherit('git', ['-C', storeDir, 'checkout', '-B', branch])
-  await runInherit('git', ['-C', storeDir, 'add', '-A'])
+  await gitRunInherit(storeDir, ['checkout', '-B', branch])
+  await gitRunInherit(storeDir, ['add', '-A'])
 
   const st = await (async () => {
-    const p = run('git', ['-C', storeDir, 'status', '--porcelain=v1'])
+    const p = gitRun(storeDir, ['status', '--porcelain=v1'])
     let out = ''
     let err = ''
     p.stdout.on('data', d => { out += String(d) })
@@ -438,9 +499,28 @@ async function gitCommitAndPush(storeDir, branch, message) {
 
   if (!st) return false
 
-  await runInherit('git', ['-C', storeDir, 'commit', '-m', message])
-  await runInherit('git', ['-C', storeDir, 'push', '-u', 'origin', branch])
+  await gitRunInherit(storeDir, ['commit', '-m', message])
+  await gitRunInherit(storeDir, ['push', '-u', 'origin', branch])
   return true
+}
+
+async function pushIndexJson(opts, pluginId) {
+  if (opts.noPushIndex) {
+    console.log('[plugin-store] skip pushing index.json (--no-push-index)')
+    return
+  }
+
+  const msg = `${opts.message} (${pluginId})`
+
+  if (opts.pushIndexApi) {
+    const url = await pushIndexJsonViaApi(opts, msg)
+    console.log('[plugin-store] pushed index.json via GitHub API:', url || '(ok)')
+    return
+  }
+
+  const pushed = await gitCommitAndPush(opts.storeDir, opts.branch, msg)
+  if (pushed) console.log('[plugin-store] pushed index.json:', opts.remote)
+  else console.log('[plugin-store] index.json unchanged')
 }
 
 async function listPluginIds() {
@@ -718,9 +798,7 @@ async function main() {
           console.log('[plugin-store] dry-run: recovered index (no push)')
           continue
         }
-        const pushed = await gitCommitAndPush(opts.storeDir, opts.branch, `${opts.message} (${pluginId})`)
-        if (pushed) console.log('[plugin-store] pushed index.json:', opts.remote)
-        else console.log('[plugin-store] index.json unchanged')
+        await pushIndexJson(opts, pluginId)
         continue
       }
 
@@ -762,9 +840,7 @@ async function main() {
       const url = await ensureReleaseAndUpload(opts, result)
       console.log('[plugin-store] release:', url || '(created)')
 
-      const pushed = await gitCommitAndPush(opts.storeDir, opts.branch, `${opts.message} (${pluginId})`)
-      if (pushed) console.log('[plugin-store] pushed index.json:', opts.remote)
-      else console.log('[plugin-store] index.json unchanged')
+      await pushIndexJson(opts, pluginId)
     } catch (e) {
       console.error(formatError(e))
       failed.push(pluginId)
