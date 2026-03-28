@@ -91,14 +91,6 @@ function isSafeRelPath(path: string): boolean {
   return parts.every(p => p !== '' && p !== '.' && p !== '..')
 }
 
-function isHighRiskCapability(cap: string): boolean {
-  const s = String(cap || '').trim()
-  if (!s.startsWith('tauri:')) return false
-  if (s === 'tauri:*') return true
-  if (s.includes('plugin:shell|')) return true
-  return false
-}
-
 function normalizeIcon(raw: unknown): string {
   const s = typeof raw === 'string' ? raw.trim() : ''
   if (!s) return ''
@@ -393,7 +385,16 @@ export default function PluginStoreView(props: Props) {
                   index.json 中未发现有效条目
                 </Typography>
               ) : (
-                <List dense disablePadding>
+                <List
+                  dense
+                  disablePadding
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' },
+                    gap: 0.75,
+                    alignItems: 'stretch',
+                  }}
+                >
                   {items.map(item => {
                     const local = localVersions.get(item.id) || ''
                     const installed = !!local
@@ -451,13 +452,16 @@ export default function PluginStoreView(props: Props) {
                           px: 1,
                           borderRadius: 2.5,
                           alignItems: 'flex-start',
+                          height: '100%',
+                          '& .MuiListItemSecondaryAction-root': {
+                            top: 10,
+                            right: 10,
+                            transform: 'none',
+                          },
                           bgcolor: theme =>
                             wallpaper?.enabled
                               ? alpha(theme.palette.background.paper, 0.55)
                               : theme.palette.action.hover,
-                          '& + &': {
-                            mt: 0.75,
-                          },
                           '&:hover': {
                             bgcolor: theme =>
                               wallpaper?.enabled
@@ -497,35 +501,6 @@ export default function PluginStoreView(props: Props) {
                                   {item.description}
                                 </Typography>
                               ) : null}
-                              {Array.isArray(item.requires) && item.requires.length ? (
-                                <Box sx={{ mt: 0.5, display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                                  {item.requires.slice(0, 6).map(cap => (
-                                    <Chip
-                                      key={cap}
-                                      size="small"
-                                      label={cap}
-                                      color={isHighRiskCapability(cap) ? 'warning' : 'default'}
-                                      sx={{
-                                        border: 'none',
-                                        bgcolor: theme =>
-                                          isHighRiskCapability(cap)
-                                            ? alpha(theme.palette.warning.main, 0.14)
-                                            : alpha(theme.palette.text.primary, 0.06),
-                                      }}
-                                    />
-                                  ))}
-                                  {item.requires.length > 6 ? (
-                                    <Chip
-                                      size="small"
-                                      label={`+${item.requires.length - 6}`}
-                                      sx={{
-                                        border: 'none',
-                                        bgcolor: theme => alpha(theme.palette.text.primary, 0.06),
-                                      }}
-                                    />
-                                  ) : null}
-                                </Box>
-                              ) : null}
                             </Box>
                           }
                         />
@@ -550,47 +525,6 @@ export default function PluginStoreView(props: Props) {
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
                 版本：{confirm.item.version}
               </Typography>
-
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.75 }}>
-                  将授予的权限（requires）
-                </Typography>
-                {Array.isArray(confirm.item.requires) && confirm.item.requires.length ? (
-                  <Stack spacing={0.75}>
-                    {confirm.item.requires.map(cap => (
-                      <Chip
-                        key={cap}
-                        label={cap}
-                        color={isHighRiskCapability(cap) ? 'warning' : 'default'}
-                        sx={{
-                          border: 'none',
-                          bgcolor: theme =>
-                            isHighRiskCapability(cap)
-                              ? alpha(theme.palette.warning.main, 0.14)
-                              : alpha(theme.palette.text.primary, 0.06),
-                        }}
-                      />
-                    ))}
-                  </Stack>
-                ) : (
-                  <Typography variant="body2" color="text.secondary">
-                    （无）
-                  </Typography>
-                )}
-                {Array.isArray(confirm.item.requires) && confirm.item.requires.some(isHighRiskCapability) ? (
-                  <Alert
-                    severity="warning"
-                    sx={{
-                      mt: 1.5,
-                      border: 'none',
-                      borderRadius: 3,
-                      boxShadow: theme => `0 10px 24px ${alpha(theme.palette.warning.main, 0.12)}`,
-                    }}
-                  >
-                    检测到高危权限（例如 tauri:* / shell）。请确认你信任该来源。
-                  </Alert>
-                ) : null}
-              </Box>
             </>
           ) : null}
         </DialogContent>
