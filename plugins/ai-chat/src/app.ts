@@ -2378,6 +2378,10 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
     const m = msgs.find((x) => String(x?.id) === mid)
     if (!m) return
 
+    // 永不破坏用户空间：如果该消息已不在 pending 状态（例如用户点了“停止”并已落盘），
+    // 后台 job 不应再覆写它（避免“已停止”后又被旧请求写回）。
+    if (m.pending !== true) return
+
     m.content = String(content || '')
     m.pending = false
     m.streaming = false
@@ -2673,7 +2677,15 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
       try {
         const v1 = await api.storage.get(cancelKey(job.id))
         const v2 = mid ? await api.storage.get(cancelMidKey(mid)) : null
-        if (v1 || v2) canceled = true
+        if (v1) canceled = true
+        if (!canceled && v2) {
+          const requestedAt = Number((v2 as any)?.requestedAt || 0)
+          const createdAt = Number(job?.createdAt || 0)
+          // cancelMidKey(mid) 语义：取消“在 requestedAt 之前创建”的那一轮生成。
+          // regenerate 会复用同一个 mid，但 job.createdAt 会更新；因此需做时间判定，避免新 job 被旧 cancel 误杀。
+          if (requestedAt > 0 && createdAt > 0) canceled = requestedAt >= createdAt
+          else canceled = true
+        }
       } catch (_) {}
       return canceled
     }
@@ -2740,6 +2752,9 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
         }
 
         if (canceled) {
+          try {
+            await (stream as any)?.cancel?.()
+          } catch (_) {}
           const finalOut = out || '（已停止）'
           await flush(true)
           await patchAssistantMessage(job, finalOut)
@@ -2825,13 +2840,18 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
 
             const assistantMid2 = uid('m')
             const jobId2 = uid('job')
+            const assistantMid2CreatedAt = now()
 
-            const isCanceledByMid = async (mid) => {
+            const isCanceledByMid = async (mid, createdAt) => {
               const m = String(mid || '').trim()
               if (!m) return false
               try {
                 const v = await api.storage.get(cancelMidKey(m))
-                return !!v
+                if (!v) return false
+                const requestedAt = Number((v as any)?.requestedAt || 0)
+                const ca = Number(createdAt || 0)
+                if (requestedAt > 0 && ca > 0) return requestedAt >= ca
+                return true
               } catch (_) {
                 return false
               }
@@ -2855,12 +2875,12 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
                 content: '（生成中…）',
                 pending: true,
                 streaming: !!streamEnabled,
-                createdAt: now(),
+                createdAt: assistantMid2CreatedAt,
               },
             ])
 
             if (!insertedAssistant.ok || !insertedAssistant.insertedAssistant) return
-            if (await isCanceledByMid(assistantMid2)) return
+            if (await isCanceledByMid(assistantMid2, assistantMid2CreatedAt)) return
 
             try {
               const parsed = parseToolRequestCalls(out)
@@ -2883,7 +2903,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
                 } else if (!baseUrl || !isHttpBaseUrl(baseUrl)) {
                   results = buildFailureResults(calls, '工具服务未配置或 Base URL 无效（需 http/https）', 'failed')
                 } else {
-                  if (await isCanceledByMid(assistantMid2)) return
+                  if (await isCanceledByMid(assistantMid2, assistantMid2CreatedAt)) return
                   try {
                     const resp = await executeToolCallsOnServer({
                       request: (x) => api.net.request(x as any) as any,
@@ -2906,7 +2926,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
               results = buildFailureResults(calls, '工具调用失败（未知原因）', 'failed')
             }
 
-            if (await isCanceledByMid(assistantMid2)) return
+            if (await isCanceledByMid(assistantMid2, assistantMid2CreatedAt)) return
 
             const toolResponseText = formatToolResponseBlock(results as any)
             const toolMid = uid('m')
@@ -2920,13 +2940,13 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
               return
             }
 
-            if (await isCanceledByMid(assistantMid2)) return
+            if (await isCanceledByMid(assistantMid2, assistantMid2CreatedAt)) return
 
             const job2 = {
               id: jobId2,
               kind: 'openai.chat.completions',
               status: 'queued',
-              createdAt: now(),
+              createdAt: assistantMid2CreatedAt,
               roleId,
               chatId,
               assistantMid: assistantMid2,
@@ -2936,7 +2956,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
 
             try {
               await api.storage.set(jobKey(jobId2), job2)
-              if (await isCanceledByMid(assistantMid2)) return
+              if (await isCanceledByMid(assistantMid2, assistantMid2CreatedAt)) return
               await enqueueJob(jobId2)
             } catch (_) {
               await markAssistantFailed('（工具调用失败：排队下一轮失败）')
@@ -2980,11 +3000,6 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
       try {
         await api.storage.remove(cancelKey(job.id))
       } catch (_) {}
-      if (mid) {
-        try {
-          await api.storage.remove(cancelMidKey(mid))
-        } catch (_) {}
-      }
     }
   }
 
