@@ -42,6 +42,8 @@ const LONG_TAURI_INVOKE_TIMEOUT_MS = 15 * 60 * 1000
 const MAX_TAURI_STREAMS_TOTAL = 128
 const MAX_TAURI_STREAMS_PER_PLUGIN = 32
 
+const STORE_LOAD_COMMAND = 'plugin:store|load'
+
 type StreamHandle = {
   pluginId: string
   closed: boolean
@@ -153,6 +155,81 @@ function isSafePlainKey(key: string): boolean {
   return true
 }
 
+let cachedHostDataDir: string | null = null
+let cachedHostDataDirPromise: Promise<string> | null = null
+
+async function getHostDataDir(): Promise<string> {
+  if (cachedHostDataDir) return cachedHostDataDir
+  if (cachedHostDataDirPromise) return cachedHostDataDirPromise
+
+  cachedHostDataDirPromise = Promise.resolve()
+    .then(async () => {
+      const dir = await invoke<string>('get_data_dir')
+      const s = String(dir ?? '').trim()
+      if (!s) throw new PluginBridgeError('INTERNAL_ERROR', 'get_data_dir returned empty')
+      cachedHostDataDir = s
+      return s
+    })
+    .finally(() => {
+      cachedHostDataDirPromise = null
+    })
+
+  return cachedHostDataDirPromise
+}
+
+function joinPath(base: string, rel: string): string {
+  const b = String(base ?? '').replace(/[\\/]+$/, '')
+  const r = String(rel ?? '').replace(/^[\\/]+/, '')
+  if (!b) return r
+  if (!r) return b
+  return `${b}/${r}`
+}
+
+function normalizeAndValidateStoreRelativePath(raw: unknown): string {
+  const src = String(raw ?? '').trim()
+  if (!src) throw new PluginBridgeError('BAD_REQUEST', 'store path is required')
+  if (src.includes('\0') || src.includes('\n') || src.includes('\r')) {
+    throw new PluginBridgeError('BAD_REQUEST', 'store path is invalid')
+  }
+
+  const p = src.replace(/\\/g, '/')
+
+  // Fail fast: forbid absolute paths (Windows drive, UNC, POSIX absolute) and any colon usage.
+  if (/^[a-zA-Z]:[\\/]/.test(src) || p.startsWith('/') || src.startsWith('\\\\')) {
+    throw new PluginBridgeError('BAD_REQUEST', 'store path must be a safe relative path (absolute path is forbidden)')
+  }
+  if (p.includes(':')) {
+    throw new PluginBridgeError('BAD_REQUEST', 'store path must be a safe relative path (colon is forbidden)')
+  }
+
+  const parts = p.split('/')
+  if (parts.length < 2) {
+    throw new PluginBridgeError('BAD_REQUEST', "store path must be under 'plugins/'")
+  }
+  if (parts[0] !== 'plugins') {
+    throw new PluginBridgeError('BAD_REQUEST', "store path must be under 'plugins/'")
+  }
+
+  for (const seg of parts) {
+    if (!seg) throw new PluginBridgeError('BAD_REQUEST', 'store path is invalid (empty segment)')
+    if (seg === '.' || seg === '..') {
+      throw new PluginBridgeError('BAD_REQUEST', 'store path is invalid (directory traversal is forbidden)')
+    }
+  }
+
+  return parts.join('/')
+}
+
+async function rewriteStoreLoadPayload(payload: any): Promise<any> {
+  const p = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : null
+  if (!p) throw new PluginBridgeError('BAD_REQUEST', 'payload must be an object')
+
+  const rel = normalizeAndValidateStoreRelativePath((p as any).path)
+  const dataDir = await getHostDataDir()
+  const abs = joinPath(dataDir, rel)
+  return { ...(p as any), path: abs }
+}
+
 async function invokeWithTimeout<T>(command: string, payload: any, timeoutMs: number): Promise<T> {
   let timer: any = null
   try {
@@ -209,14 +286,16 @@ const methods: Record<PluginMethodName, MethodDef> = {
 
       validatePluginIdNotForged(ctx.id, spec?.payload)
 
-      const size = approxJsonBytes(spec?.payload ?? null)
+      const payload0 = command === STORE_LOAD_COMMAND ? await rewriteStoreLoadPayload(spec?.payload) : (spec?.payload ?? {})
+
+      const size = approxJsonBytes(payload0 ?? null)
       const maxBytes = isHighRiskTauriCommand(command) ? MAX_TAURI_INVOKE_JSON_BYTES_HIGH_RISK : MAX_TAURI_INVOKE_JSON_BYTES
       if (size > maxBytes) {
         throw new PluginBridgeError('BAD_REQUEST', 'payload too large', { maxBytes })
       }
 
       const timeoutMs = resolveTauriInvokeTimeoutMs(command, spec?.timeoutMs)
-      return invokeWithTimeout<any>(command, spec?.payload ?? {}, timeoutMs)
+      return invokeWithTimeout<any>(command, payload0 ?? {}, timeoutMs)
     },
   },
 

@@ -220,19 +220,6 @@
     try {
       const saved = await storeGet(STORAGE_KEY)
       if (Array.isArray(saved)) state.memos = saved
-      else {
-        // 兼容迁移：第一次升级时尝试读取 legacy storage（只读）。
-        let legacyAll = null
-        try {
-          legacyAll = await api.tauri.invoke({ command: 'storage_get_all', payload: { pluginId: PLUGIN_ID } })
-        } catch (_) {
-          legacyAll = null
-        }
-        if (legacyAll && isPlainObject(legacyAll) && Array.isArray(legacyAll[STORAGE_KEY]) && legacyAll[STORAGE_KEY].length) {
-          state.memos = legacyAll[STORAGE_KEY]
-          await storeSet(STORAGE_KEY, legacyAll[STORAGE_KEY])
-        }
-      }
     } catch (e) {}
     state.loading = false
   }

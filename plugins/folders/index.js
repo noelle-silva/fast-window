@@ -69,7 +69,6 @@
           const rid = await tauri.invoke({ command: 'plugin:store|load', payload: { path: STORE_PATH } })
           if (!rid) throw new Error('store rid 无效')
           storeRid = rid
-          await migrateLegacyStorageOnce(rid)
           return rid
         })
         .finally(() => {
@@ -90,28 +89,6 @@
 
     async function storeSave(rid) {
       await tauri.invoke({ command: 'plugin:store|save', payload: { rid } })
-    }
-
-    async function migrateLegacyStorageOnce(rid) {
-      const flagKey = '__migrated_from_legacy_v1'
-      const done = await storeGetRaw(rid, flagKey)
-      if (done) return
-
-      let legacy = null
-      try {
-        legacy = await tauri.invoke({ command: 'storage_get_all', payload: { pluginId: PLUGIN_ID } })
-      } catch {
-        legacy = null
-      }
-
-      if (legacy && isPlainObject(legacy)) {
-        for (const k of Object.keys(legacy)) {
-          await storeSetRaw(rid, k, legacy[k])
-        }
-      }
-
-      await storeSetRaw(rid, flagKey, true)
-      await storeSave(rid)
     }
 
     return {

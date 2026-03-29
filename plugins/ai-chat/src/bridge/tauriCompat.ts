@@ -71,7 +71,6 @@ export function createAiChatFastWindowApi(baseApi: any, pluginId: string) {
         const rid = await tauri.invoke({ command: 'plugin:store|load', payload: { path: STORE_PATH } })
         if (!rid) throw new Error('store rid 无效')
         storeRid = rid
-        await migrateLegacyStorageOnce(rid)
         return rid
       })
       .finally(() => {
@@ -93,28 +92,6 @@ export function createAiChatFastWindowApi(baseApi: any, pluginId: string) {
 
   async function storeSave(rid: any) {
     await tauri.invoke({ command: 'plugin:store|save', payload: { rid } })
-  }
-
-  async function migrateLegacyStorageOnce(rid: any) {
-    const flagKey = '__migrated_from_legacy_v1'
-    const done = await storeGetRaw(rid, flagKey)
-    if (done) return
-
-    let legacy: AnyRecord | null = null
-    try {
-      legacy = await tauri.invoke({ command: 'storage_get_all', payload: { pluginId: String(pluginId || '') } })
-    } catch (_) {
-      legacy = null
-    }
-
-    if (legacy && isPlainObject(legacy)) {
-      for (const [k, v] of Object.entries(legacy)) {
-        await storeSetRaw(rid, k, v)
-      }
-    }
-
-    await storeSetRaw(rid, flagKey, true)
-    await storeSave(rid)
   }
 
   const api = {
@@ -214,4 +191,3 @@ export function createAiChatFastWindowApi(baseApi: any, pluginId: string) {
 
   return api
 }
-
