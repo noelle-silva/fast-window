@@ -206,7 +206,7 @@ export default function PluginStoreView(props: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [confirm, setConfirm] = useState<{ item: RegistryPluginItem; action: 'install' | 'update' } | null>(null)
-  const [installing, setInstalling] = useState(false)
+  const [installing, setInstalling] = useState<{ pluginId: string; action: 'install' | 'update' } | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const requestSeqRef = useRef(0)
 
@@ -284,29 +284,30 @@ export default function PluginStoreView(props: Props) {
   async function doInstall() {
     if (!confirm) return
     if (installing) return
-    setInstalling(true)
+    const { item, action } = confirm
+    setConfirm(null)
+    setInstalling({ pluginId: item.id, action })
     setError('')
     try {
       const r = await pluginStoreInstall({
-        url: confirm.item.download_url,
-        expectedSha256: confirm.item.sha256,
-        expectedId: confirm.item.id,
-        expectedVersion: confirm.item.version,
-        expectedRequires: confirm.item.requires || [],
+        url: item.download_url,
+        expectedSha256: item.sha256,
+        expectedId: item.id,
+        expectedVersion: item.version,
+        expectedRequires: item.requires || [],
       })
       window.dispatchEvent(new CustomEvent('fast-window:plugins-changed'))
-      toast(confirm.action === 'install' ? `已安装：${confirm.item.name}` : `已更新：${confirm.item.name}`)
-      if (r?.pluginId && r.pluginId !== confirm.item.id) {
-        toast(`警告：安装的插件 ID 为 ${r.pluginId}，与商店条目 ${confirm.item.id} 不一致`)
+      toast(action === 'install' ? `已安装：${item.name}` : `已更新：${item.name}`)
+      if (r?.pluginId && r.pluginId !== item.id) {
+        toast(`警告：安装的插件 ID 为 ${r.pluginId}，与商店条目 ${item.id} 不一致`)
       }
       const meta = await loadLocalPluginMeta()
       setLocalVersions(meta.versions)
       setLocalIcons(meta.icons)
-      setConfirm(null)
     } catch (e: any) {
       setError(String(e?.message || e || '安装失败'))
     } finally {
-      setInstalling(false)
+      setInstalling(null)
     }
   }
 
@@ -378,7 +379,7 @@ export default function PluginStoreView(props: Props) {
                 插件列表（{items.length}）
               </Typography>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.25 }}>
-                仅显示内置官方商店源中的最新版插件；安装和更新前会展示权限清单。
+                仅显示内置官方商店源中的最新版插件；安装和更新前会二次确认。
               </Typography>
               {items.length === 0 ? (
                 <Typography variant="body2" color="text.secondary">
@@ -410,6 +411,7 @@ export default function PluginStoreView(props: Props) {
                       !!localSemver &&
                       cmpSemver(remoteSemver, localSemver) <= 0
                     const action: 'install' | 'update' | 'none' = !installed ? 'install' : needsUpdate ? 'update' : 'none'
+                    const isInstallingThis = installing?.pluginId === item.id
 
                     const versionText = !installed
                       ? item.version
@@ -439,10 +441,11 @@ export default function PluginStoreView(props: Props) {
                               variant="contained"
                               size="small"
                               onClick={() => setConfirm({ item, action })}
-                              disabled={installing}
+                              disabled={!!installing}
+                              startIcon={isInstallingThis ? <CircularProgress size={14} color="inherit" /> : undefined}
                               sx={{ borderRadius: 999, boxShadow: 'none' }}
                             >
-                              {action === 'install' ? '安装' : '更新'}
+                              {isInstallingThis ? (action === 'install' ? '安装中' : '更新中') : (action === 'install' ? '安装' : '更新')}
                             </Button>
                           )
                         }
@@ -514,7 +517,7 @@ export default function PluginStoreView(props: Props) {
         </Stack>
       </Box>
 
-      <Dialog open={!!confirm} onClose={installing ? undefined : () => setConfirm(null)} fullWidth maxWidth="sm">
+      <Dialog open={!!confirm} onClose={() => setConfirm(null)} fullWidth maxWidth="sm">
         <DialogTitle>{confirm?.action === 'install' ? '确认安装' : '确认更新'}</DialogTitle>
         <DialogContent sx={{ pt: 1 }}>
           {confirm ? (
@@ -529,11 +532,11 @@ export default function PluginStoreView(props: Props) {
           ) : null}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setConfirm(null)} disabled={installing}>
+          <Button onClick={() => setConfirm(null)} disabled={!!installing}>
             取消
           </Button>
-          <Button variant="contained" onClick={() => void doInstall()} disabled={!confirm || installing}>
-            {installing ? '处理中…' : '确认'}
+          <Button variant="contained" onClick={() => void doInstall()} disabled={!confirm || !!installing}>
+            确认
           </Button>
         </DialogActions>
       </Dialog>

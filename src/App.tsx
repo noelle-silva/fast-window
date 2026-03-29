@@ -1541,6 +1541,16 @@ function App() {
                 >
                   打开插件目录
                 </Button>
+                <Button
+                  size="small"
+                  variant="contained"
+                  onClick={() => setActivePlugin(storePlugin)}
+                  disabled={reorderMode}
+                  startIcon={<StorefrontRoundedIcon fontSize="small" />}
+                  sx={{ boxShadow: 'none' }}
+                >
+                  去插件商店
+                </Button>
                 <Button size="small" variant="outlined" onClick={reloadPlugins} disabled={loading}>
                   重新扫描
                 </Button>
