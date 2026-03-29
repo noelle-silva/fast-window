@@ -44,6 +44,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
   const STICKERS_KEY = 'stickers/index'
   const UI_CHAT_UPDATED_NOTICE_KEY = 'ui/notice/chat-updated'
   const runtime = String(api?.__meta?.runtime || 'ui')
+  const runtimeStorage = api && (api as any).runtimeStorage && typeof (api as any).runtimeStorage.get === 'function' ? (api as any).runtimeStorage : api.storage
   const MAX_DRAFT_IMAGES = 8
   const MAX_DRAFT_FILES = 6
   const MAX_DRAFT_FILE_BYTES = 10 * 1024 * 1024 // 10MB
@@ -271,7 +272,13 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
     if (!rid || !cid) return
     const t = now()
     try {
-      await api.storage.set(UI_CHAT_UPDATED_NOTICE_KEY, { id: uid('n'), roleId: rid, chatId: cid, updatedAt: Number(updatedAt || 0), at: t })
+      await runtimeStorage.set(UI_CHAT_UPDATED_NOTICE_KEY, {
+        id: uid('n'),
+        roleId: rid,
+        chatId: cid,
+        updatedAt: Number(updatedAt || 0),
+        at: t,
+      })
     } catch (_) {}
   }
 
@@ -534,7 +541,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
 
   async function readJobQueue() {
     try {
-      const raw = await api.storage.get(BG_QUEUE_KEY)
+      const raw = await runtimeStorage.get(BG_QUEUE_KEY)
       const list = Array.isArray(raw) ? raw : []
       return list.map((x) => String(x || '')).filter((x) => !!x).slice(0, 2000)
     } catch (_) {
@@ -545,7 +552,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
   async function writeJobQueue(ids) {
     try {
       const list = Array.isArray(ids) ? ids.map((x) => String(x || '')).filter((x) => !!x) : []
-      await api.storage.set(BG_QUEUE_KEY, list.slice(0, 2000))
+      await runtimeStorage.set(BG_QUEUE_KEY, list.slice(0, 2000))
     } catch (_) {}
   }
 
@@ -2013,7 +2020,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
       }
 
       await save()
-      await api.storage.set(jobKey(jobId), job)
+      await runtimeStorage.set(jobKey(jobId), job)
       await enqueueJob(jobId)
     } catch (e) {
       const msg = String(e?.message || e || '请求失败')
@@ -2047,19 +2054,29 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
     if (!mid) return api.ui?.showToast?.('当前会话没有正在生成的消息')
 
     try {
-      await api.storage.set(cancelMidKey(mid), { requestedAt: now() })
+      await runtimeStorage.set(cancelMidKey(mid), { requestedAt: now() })
     } catch (_) {}
 
     if (state.data && roleId && chatId && mid) {
       let text = ''
       try {
-        const s = await api.storage.get(streamKey(mid))
+        const s = await runtimeStorage.get(streamKey(mid))
         text = String(s?.text || '')
       } catch (_) {}
-      const finalOut = text || '（已停止）'
 
       const msgs = Array.isArray(chat?.messages) ? chat.messages : []
       const m = msgs.find((x) => String(x?.id || '') === mid) || null
+      if (!text) {
+        try {
+          const cached = (uiStreamCache as any)?.get?.(mid)
+          if (typeof cached === 'string' && cached) text = cached
+        } catch (_) {}
+      }
+      if (!text && m) {
+        const cur = String((m as any)?.content || '').trim()
+        if (cur && cur !== '（生成中…）') text = cur
+      }
+      const finalOut = text || '（已停止）'
       if (m) {
         m.content = finalOut
         m.pending = false
@@ -2067,13 +2084,6 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
       }
       if (chat) chat.updatedAt = now()
       emit()
-
-      try {
-        await patchAssistantMessage({ roleId, chatId, assistantMid: mid }, finalOut)
-      } catch (_) {}
-      try {
-        await api.storage.remove(streamKey(mid))
-      } catch (_) {}
     }
 
     state.sending = false
@@ -2135,7 +2145,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
       chat.updatedAt = now()
 
       try {
-        await api.storage.remove(streamKey(mid))
+        await runtimeStorage.remove(streamKey(mid))
       } catch (_) {}
 
       const jobId = uid('job')
@@ -2152,7 +2162,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
       }
 
       await save()
-      await api.storage.set(jobKey(jobId), job)
+      await runtimeStorage.set(jobKey(jobId), job)
       await enqueueJob(jobId)
     } catch (e) {
       const msg = String(e?.message || e || '请求失败')
@@ -2236,7 +2246,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
       }
 
       await save()
-      await api.storage.set(jobKey(jobId), job)
+      await runtimeStorage.set(jobKey(jobId), job)
       await enqueueJob(jobId)
     } catch (e) {
       const msg = String(e?.message || e || '请求失败')
@@ -2306,7 +2316,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
         uiStreamCache.delete(mid)
       } catch (_) {}
       try {
-        await api.storage.remove(streamKey(mid))
+        await runtimeStorage.remove(streamKey(mid))
       } catch (_) {}
     }
 
@@ -2475,7 +2485,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
           const jobId = String(id0 || '')
           if (!jobId || runningJobs.has(jobId)) continue
 
-          const j = await api.storage.get(jobKey(jobId))
+          const j = await runtimeStorage.get(jobKey(jobId))
           const job = j && typeof j === 'object' ? j : null
           if (!job) {
             await dequeueJob(jobId)
@@ -2498,7 +2508,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
 
           job.status = 'running'
           job.startedAt = now()
-          await api.storage.set(jobKey(job.id), job)
+          await runtimeStorage.set(jobKey(job.id), job)
 
           runningJobs.set(jobId, { chatKey })
           runBackgroundJob(job)
@@ -2675,8 +2685,8 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
       if (!force && t - lastCancelCheck < 250) return false
       lastCancelCheck = t
       try {
-        const v1 = await api.storage.get(cancelKey(job.id))
-        const v2 = mid ? await api.storage.get(cancelMidKey(mid)) : null
+        const v1 = await runtimeStorage.get(cancelKey(job.id))
+        const v2 = mid ? await runtimeStorage.get(cancelMidKey(mid)) : null
         if (v1) canceled = true
         if (!canceled && v2) {
           const requestedAt = Number((v2 as any)?.requestedAt || 0)
@@ -2695,7 +2705,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
       const t = now()
       if (!force && t - lastFlush < 220) return
       lastFlush = t
-      await api.storage.set(streamKey(mid), { text: out, updatedAt: t })
+      await runtimeStorage.set(streamKey(mid), { text: out, updatedAt: t })
     }
 
     try {
@@ -2846,7 +2856,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
               const m = String(mid || '').trim()
               if (!m) return false
               try {
-                const v = await api.storage.get(cancelMidKey(m))
+                const v = await runtimeStorage.get(cancelMidKey(m))
                 if (!v) return false
                 const requestedAt = Number((v as any)?.requestedAt || 0)
                 const ca = Number(createdAt || 0)
@@ -2955,7 +2965,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
             }
 
             try {
-              await api.storage.set(jobKey(jobId2), job2)
+              await runtimeStorage.set(jobKey(jobId2), job2)
               if (await isCanceledByMid(assistantMid2, assistantMid2CreatedAt)) return
               await enqueueJob(jobId2)
             } catch (_) {
@@ -2991,14 +3001,14 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
     } finally {
       if (mid) {
         try {
-          await api.storage.remove(streamKey(mid))
+          await runtimeStorage.remove(streamKey(mid))
         } catch (_) {}
       }
       try {
-        await api.storage.remove(jobKey(job.id))
+        await runtimeStorage.remove(jobKey(job.id))
       } catch (_) {}
       try {
-        await api.storage.remove(cancelKey(job.id))
+        await runtimeStorage.remove(cancelKey(job.id))
       } catch (_) {}
     }
   }
@@ -3682,7 +3692,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
     if (state.loading || !state.data) return false
     let raw = null
     try {
-      raw = await api.storage.get(UI_CHAT_UPDATED_NOTICE_KEY)
+      raw = await runtimeStorage.get(UI_CHAT_UPDATED_NOTICE_KEY)
     } catch (_) {
       raw = null
     }
@@ -3774,7 +3784,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
       let changed = false
       for (const m of pending) {
         if (!m.streaming) continue
-        const s = await api.storage.get(streamKey(String(m.id || '')))
+        const s = await runtimeStorage.get(streamKey(String(m.id || '')))
         const text = String(s?.text || '')
         if (!text) continue
         const mid = String(m.id || '')
