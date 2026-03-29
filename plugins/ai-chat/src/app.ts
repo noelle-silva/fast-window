@@ -312,6 +312,38 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
     return meta
   }
 
+  // meta/index 是全局共享索引：并发 read-modify-write 会丢更新（最后一次写覆盖前一次）。
+  // 背景任务允许多会话并发，因此必须把 meta/index 的写入串行化。
+  let splitMetaWriteChain: Promise<void> = Promise.resolve()
+  function withSplitMetaWrite<T>(fn: () => Promise<T>): Promise<T> {
+    const run = () => Promise.resolve().then(fn)
+    const p = splitMetaWriteChain.then(run, run) as Promise<T>
+    splitMetaWriteChain = p.then(
+      () => undefined,
+      () => undefined,
+    )
+    return p
+  }
+
+  async function touchChatUpdatedAt(roleId, chatId, updatedAt) {
+    const rid = String(roleId || '').trim()
+    const cid = String(chatId || '').trim()
+    const ua0 = Number(updatedAt || 0)
+    if (!rid || !cid) return
+
+    await withSplitMetaWrite(async () => {
+      const meta = (await loadSplitMeta()) || splitMetaCache
+      if (!meta) return
+      const idx = meta.chatIndexByRole?.[rid]
+      if (!idx || typeof idx !== 'object') return
+      if (!(idx as any).chatUpdatedAt || typeof (idx as any).chatUpdatedAt !== 'object') (idx as any).chatUpdatedAt = {}
+      ;(idx as any).chatUpdatedAt[String(cid)] = ua0 > 0 ? ua0 : now()
+      meta.updatedAt = now()
+      await api.storage.set(SPLIT_META_KEY, meta)
+      splitMetaCache = meta
+    })
+  }
+
   async function loadSplitData() {
     const meta = (await loadSplitMeta()) || splitMetaCache
     if (!meta) return null
@@ -2400,14 +2432,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
     await api.storage.set(key, chat)
 
     try {
-      const idx = meta.chatIndexByRole?.[roleId]
-      if (idx && typeof idx === 'object') {
-        if (!idx.chatUpdatedAt || typeof idx.chatUpdatedAt !== 'object') idx.chatUpdatedAt = {}
-        idx.chatUpdatedAt[String(chatId)] = Number(chat.updatedAt || 0)
-        meta.updatedAt = now()
-        await api.storage.set(SPLIT_META_KEY, meta)
-        splitMetaCache = meta
-      }
+      await touchChatUpdatedAt(roleId, chatId, chat.updatedAt)
     } catch (_) {}
 
     await writeChatUpdatedNotice(roleId, chatId, chat.updatedAt)
@@ -2449,14 +2474,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
     await api.storage.set(key, chat)
 
     try {
-      const idx2 = meta.chatIndexByRole?.[roleId]
-      if (idx2 && typeof idx2 === 'object') {
-        if (!idx2.chatUpdatedAt || typeof idx2.chatUpdatedAt !== 'object') idx2.chatUpdatedAt = {}
-        idx2.chatUpdatedAt[String(chatId)] = Number(chat.updatedAt || 0)
-        meta.updatedAt = now()
-        await api.storage.set(SPLIT_META_KEY, meta)
-        splitMetaCache = meta
-      }
+      await touchChatUpdatedAt(roleId, chatId, chat.updatedAt)
     } catch (_) {}
 
     await writeChatUpdatedNotice(roleId, chatId, chat.updatedAt)
@@ -3716,7 +3734,13 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
       return !!ok
     }
 
-    // 非当前会话：只更新列表时间（如果该会话在内存里）。
+    // 非当前会话：并发生成时也要尽快把“生成中…”替换为落盘内容，否则列表会一直显示 pending。
+    try {
+      const ok = await syncChatByIdFromStorage(rid, cid)
+      if (ok) return true
+    } catch (_) {}
+
+    // 兜底：如果读取失败，至少更新时间戳（如果该会话在内存里）。
     const box = state.data?.chatsByRole?.[rid]
     const chats = Array.isArray(box?.chats) ? box.chats : []
     const it = chats.find((c) => String(c?.id || '') === cid) || null
