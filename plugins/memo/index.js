@@ -1,10 +1,7 @@
 // memo (iframe sandbox) (entry: index.js)
 ;(function () {
-  const api = window.fastWindow
   const PLUGIN_ID = 'memo'
   const STORAGE_KEY = 'items'
-  // 使用 Tauri 官方 store 插件；路径是 app 数据目录下的相对路径（由 store 插件决定落盘位置）。
-  const STORE_PATH = 'plugins/memo.json'
 
   function isPlainObject(v) {
     return !!v && typeof v === 'object' && !Array.isArray(v)
@@ -57,57 +54,187 @@
 
   const toast = createToast()
 
+  function createCompatApi(baseApi) {
+    const base = baseApi || {}
+    const tauri = base && base.tauri ? base.tauri : null
+    if (!tauri || typeof tauri.invoke !== 'function') {
+      throw new Error('tauri.invoke 不可用（请更新宿主网关）')
+    }
+
+    const STORAGE_SCHEMA_VERSION = 1
+    const STORAGE_META_PATH = '_meta.json'
+
+    function nowId() {
+      const d = new Date()
+      const pad = (n, w) => String(n).padStart(w, '0')
+      return (
+        pad(d.getFullYear(), 4) +
+        pad(d.getMonth() + 1, 2) +
+        pad(d.getDate(), 2) +
+        '-' +
+        pad(d.getHours(), 2) +
+        pad(d.getMinutes(), 2) +
+        pad(d.getSeconds(), 2)
+      )
+    }
+
+    function safeStorageKey(raw) {
+      const k = String(raw || '').trim()
+      if (!k) throw new Error('storage key 不能为空')
+      if (k.length > 80) throw new Error('storage key 过长')
+      if (!/^[a-zA-Z0-9._-]+$/.test(k)) throw new Error(`storage key 不合法：${k}`)
+      if (k === '__proto__' || k === 'constructor' || k === 'prototype') throw new Error(`storage key 不安全：${k}`)
+      return k
+    }
+
+    function keyToPath(key) {
+      const k = safeStorageKey(key)
+      return `${k}.json`
+    }
+
+    async function filesListDir(dir) {
+      return tauri.invoke({ command: 'plugin_files_list_dir', payload: { pluginId: PLUGIN_ID, req: { scope: 'data', dir } } })
+    }
+
+    async function filesReadText(path) {
+      return tauri.invoke({ command: 'plugin_files_read_text', payload: { pluginId: PLUGIN_ID, req: { scope: 'data', path } } })
+    }
+
+    async function filesWriteText(path, text) {
+      return tauri.invoke({
+        command: 'plugin_files_write_text',
+        payload: { pluginId: PLUGIN_ID, req: { scope: 'data', path, text: String(text ?? ''), overwrite: true } },
+      })
+    }
+
+    async function filesDelete(path) {
+      return tauri.invoke({ command: 'plugin_files_delete', payload: { pluginId: PLUGIN_ID, req: { scope: 'data', path } } })
+    }
+
+    async function readJson(path) {
+      let text = ''
+      try {
+        text = await filesReadText(path)
+      } catch (e) {
+        const msg = String(e?.message || e || '')
+        if (msg.includes('文件不存在')) return null
+        throw e
+      }
+      const s = String(text || '').trim()
+      if (!s) return null
+      try {
+        return JSON.parse(s)
+      } catch {
+        throw new Error(`JSON 解析失败：${path}`)
+      }
+    }
+
+    async function writeJson(path, value) {
+      const text = JSON.stringify(value ?? null, null, 2) + '\n'
+      await filesWriteText(path, text)
+    }
+
+    let storageReady = false
+    let storageReadyPromise = null
+
+    async function ensureStorageReady() {
+      if (storageReady) return
+      if (storageReadyPromise) return storageReadyPromise
+
+      storageReadyPromise = Promise.resolve()
+        .then(async () => {
+          await filesListDir(null)
+          const meta = await readJson(STORAGE_META_PATH).catch(() => null)
+          if (meta && typeof meta === 'object' && Number(meta.schemaVersion || 0) >= STORAGE_SCHEMA_VERSION) {
+            storageReady = true
+            return
+          }
+
+          const shardPath = keyToPath(STORAGE_KEY)
+          const entries = await filesListDir(null).catch(() => [])
+          const names = new Set(Array.isArray(entries) ? entries.filter((e) => e && e.isFile).map((e) => String(e.name || '')) : [])
+          if (names.has(shardPath)) {
+            await writeJson(STORAGE_META_PATH, { schemaVersion: STORAGE_SCHEMA_VERSION, migratedAt: Date.now(), reason: 'shards-existed' })
+            storageReady = true
+            return
+          }
+
+          const source = { from: `${PLUGIN_ID}.json` }
+          const obj0 = await readJson(`${PLUGIN_ID}.json`).catch(() => null)
+          const obj = obj0 && typeof obj0 === 'object' ? obj0 : null
+          const snapshot = {}
+          if (obj && obj[STORAGE_KEY] != null) snapshot[STORAGE_KEY] = obj[STORAGE_KEY]
+          if (Object.keys(snapshot).length) {
+            await writeJson(`_backup-migrate-${nowId()}.json`, snapshot).catch(() => {})
+            await writeJson(shardPath, snapshot[STORAGE_KEY])
+            await writeJson(STORAGE_META_PATH, { schemaVersion: STORAGE_SCHEMA_VERSION, migratedAt: Date.now(), source })
+            storageReady = true
+            return
+          }
+          if (!obj) source.fileReadable = false
+
+          await writeJson(STORAGE_META_PATH, { schemaVersion: STORAGE_SCHEMA_VERSION, createdAt: Date.now(), freshInstall: true, source }).catch(
+            () => {},
+          )
+          storageReady = true
+        })
+        .finally(() => {
+          storageReadyPromise = null
+        })
+
+      return storageReadyPromise
+    }
+
+    return {
+      ...base,
+      tauri,
+      ui: {
+        ...(base.ui || {}),
+        showToast: (message) => toast(message),
+        startDragging: async () => {
+          try {
+            await tauri.invoke({ command: 'plugin:window|start_dragging', payload: {} })
+          } catch (e) {
+            toast(String((e && e.message) || e || '无法拖拽'))
+          }
+        },
+      },
+      storage: {
+        ...(base.storage || {}),
+        get: async (key) => {
+          await ensureStorageReady()
+          const p = keyToPath(key)
+          return readJson(p)
+        },
+        set: async (key, value) => {
+          await ensureStorageReady()
+          const p = keyToPath(key)
+          await writeJson(p, value)
+        },
+        remove: async (key) => {
+          await ensureStorageReady()
+          const p = keyToPath(key)
+          await filesDelete(p).catch((e) => {
+            const msg = String(e?.message || e || '')
+            if (msg.includes('文件不存在')) return
+            throw e
+          })
+        },
+      },
+    }
+  }
+
+  const api = createCompatApi(window.fastWindow)
+  window.fastWindow = api
+
   async function startDragging() {
-    if (!api?.tauri?.invoke) throw new Error('tauri.invoke 不可用（请更新宿主）')
-    await api.tauri.invoke({ command: 'plugin:window|start_dragging', payload: {} })
+    await api.ui.startDragging()
   }
 
   const state = {
     memos: [],
     input: '',
     loading: true,
-  }
-
-  let storeRid = null
-  let storeInitPromise = null
-
-  async function ensureStore() {
-    if (!api?.tauri?.invoke) throw new Error('tauri.invoke 不可用（请更新宿主）')
-    if (storeRid) return storeRid
-    if (storeInitPromise) return storeInitPromise
-    storeInitPromise = Promise.resolve()
-      .then(async () => {
-        const rid = await api.tauri.invoke({ command: 'plugin:store|load', payload: { path: STORE_PATH } })
-        if (!rid) throw new Error('store rid 无效')
-        storeRid = rid
-        return rid
-      })
-      .finally(() => {
-        storeInitPromise = null
-      })
-    return storeInitPromise
-  }
-
-  async function storeGet(key) {
-    const rid = await ensureStore()
-    const r = await api.tauri.invoke({ command: 'plugin:store|get', payload: { rid, key: String(key || '') } })
-    // store 返回：[value, exists]
-    if (Array.isArray(r) && r[1]) return r[0]
-    return undefined
-  }
-
-  async function storeSet(key, value) {
-    const rid = await ensureStore()
-    await api.tauri.invoke({ command: 'plugin:store|set', payload: { rid, key: String(key || ''), value } })
-    await api.tauri.invoke({ command: 'plugin:store|save', payload: { rid } })
-  }
-
-  async function closeStore() {
-    if (!storeRid) return
-    try {
-      await api.tauri.invoke({ command: 'plugin:resources|close', payload: { rid: storeRid } })
-    } catch (e) {}
-    storeRid = null
   }
 
   const styles = `
@@ -218,7 +345,7 @@
 
   async function load() {
     try {
-      const saved = await storeGet(STORAGE_KEY)
+      const saved = await api.storage.get(STORAGE_KEY)
       if (Array.isArray(saved)) state.memos = saved
     } catch (e) {}
     state.loading = false
@@ -226,7 +353,7 @@
 
   async function save() {
     try {
-      await storeSet(STORAGE_KEY, state.memos)
+      await api.storage.set(STORAGE_KEY, state.memos)
     } catch (e) {}
   }
 
@@ -376,9 +503,4 @@
   }
 
   init()
-
-  // 尽最大努力释放 store resource（避免 rid 长期堆积）
-  window.addEventListener('beforeunload', () => {
-    void closeStore()
-  })
 })()

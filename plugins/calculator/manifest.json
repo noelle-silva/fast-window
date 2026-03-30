@@ -2,7 +2,7 @@
   "id": "calculator",
   "name": "计算器",
   "author": "fast-window",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "安全表达式计算：+ - * / ^，支持括号、历史记录、复制/粘贴",
   "main": "index.js",
   "icon": "svg:icon.svg",
@@ -12,11 +12,10 @@
     "type": "iframe"
   },
   "requires": [
-    "tauri:plugin:store|load",
-    "tauri:plugin:store|get",
-    "tauri:plugin:store|set",
-    "tauri:plugin:store|save",
-    "tauri:storage_get_all",
+    "tauri:plugin_files_list_dir",
+    "tauri:plugin_files_read_text",
+    "tauri:plugin_files_write_text",
+    "tauri:plugin_files_delete",
     "tauri:plugin:clipboard-manager|read_text",
     "tauri:plugin:clipboard-manager|write_text",
     "tauri:plugin:window|start_dragging"
