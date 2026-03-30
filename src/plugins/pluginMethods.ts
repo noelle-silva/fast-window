@@ -220,13 +220,21 @@ function normalizeAndValidateStoreRelativePath(raw: unknown): string {
   return parts.join('/')
 }
 
-async function rewriteStoreLoadPayload(payload: any): Promise<any> {
+async function rewriteStoreLoadPayload(pluginId: string, payload: any): Promise<any> {
   const p = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : null
   if (!p) throw new PluginBridgeError('BAD_REQUEST', 'payload must be an object')
 
   const rel = normalizeAndValidateStoreRelativePath((p as any).path)
+  const parts = rel.split('/')
+  // rel 已保证至少两段，且 parts[0] === 'plugins'
+  const tail = parts.slice(1).join('/')
+  if (!tail) {
+    throw new PluginBridgeError('BAD_REQUEST', "store path must be under 'plugins/'")
+  }
   const dataDir = await getHostDataDir()
-  const abs = joinPath(dataDir, rel)
+  // 约定：插件侧仍然传 `plugins/...`，但宿主实际落盘到 `data/<pluginId>/...`，
+  // 确保所有插件数据都收敛在自己的目录内，避免出现 data/plugins/ 这种混杂目录。
+  const abs = joinPath(dataDir, `${pluginId}/${tail}`)
   return { ...(p as any), path: abs }
 }
 
@@ -286,7 +294,8 @@ const methods: Record<PluginMethodName, MethodDef> = {
 
       validatePluginIdNotForged(ctx.id, spec?.payload)
 
-      const payload0 = command === STORE_LOAD_COMMAND ? await rewriteStoreLoadPayload(spec?.payload) : (spec?.payload ?? {})
+      const payload0 =
+        command === STORE_LOAD_COMMAND ? await rewriteStoreLoadPayload(ctx.id, spec?.payload) : (spec?.payload ?? {})
 
       const size = approxJsonBytes(payload0 ?? null)
       const maxBytes = isHighRiskTauriCommand(command) ? MAX_TAURI_INVOKE_JSON_BYTES_HIGH_RISK : MAX_TAURI_INVOKE_JSON_BYTES

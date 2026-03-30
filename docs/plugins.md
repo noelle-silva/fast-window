@@ -223,7 +223,7 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
   - 注意：如果用 MSI 安装到 `Program Files` 这类目录，普通用户通常没有写权限；请使用可写目录（例如解压到 `D:\Apps\FastWindow\`），或设置 `FAST_WINDOW_DATA_DIR` 到可写路径。
 - 宿主设置：`data/app.json`（例如 `wakeShortcut`：唤醒窗口的全局快捷键）。
 - 插件自动更新偏好（宿主侧）：`data/__app/plugins-auto-update.json`（JSON 对象：`{ "<pluginId>": true }`；默认关闭；开启后宿主启动时会检查商店是否有新版本，有则自动下载并安装；若插件 `requires` 变化则跳过，需要手动更新确认）。
-- 插件存储：推荐使用 Tauri 官方 store 插件（`plugin:store|*`）落盘 JSON（常用路径：`plugins/<pluginId>.json`）。
+- 插件存储：推荐使用 Tauri 官方 store 插件（`plugin:store|*`）落盘 JSON（插件侧常用路径：`plugins/<pluginId>.json`；宿主实际落盘：`data/<pluginId>/<pluginId>.json`）。
 - 历史迁移：若需要迁移旧版数据，可通过 `tauri:storage_get_all`（legacy 只读）读取，再写回 store，并在 store 里记录一次性迁移标记（幂等）。
 - 开发模式（debug）：会把仓库根目录的 `plugins/` 同步到数据根目录的 `plugins/`（方便开发）；`data/` 只在目标目录为空时迁移一次。
 
