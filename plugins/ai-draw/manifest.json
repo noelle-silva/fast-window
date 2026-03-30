@@ -15,12 +15,10 @@
     "type": "iframe"
   },
   "requires": [
-    "tauri:plugin:store|load",
-    "tauri:plugin:store|get",
-    "tauri:plugin:store|set",
-    "tauri:plugin:store|save",
-    "tauri:plugin:store|delete",
-    "tauri:storage_get_all",
+    "tauri:plugin_files_list_dir",
+    "tauri:plugin_files_read_text",
+    "tauri:plugin_files_write_text",
+    "tauri:plugin_files_delete",
     "tauri:http_request",
     "tauri:task_create",
     "tauri:task_get",

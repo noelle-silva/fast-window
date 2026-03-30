@@ -1,7 +1,6 @@
 // ai-draw (iframe sandbox)
 ;(function () {
   const PLUGIN_ID = 'ai-draw'
-  const STORE_PATH = 'plugins/ai-draw.json'
 
   function isPlainObject(v) {
     return !!v && typeof v === 'object' && !Array.isArray(v)
@@ -58,37 +57,178 @@
 
     const toast = createToast()
 
-    let storeRid = null
-    let storeInitPromise = null
+    function nowId() {
+      const d = new Date()
+      const pad = (n, w) => String(n).padStart(w, '0')
+      return (
+        pad(d.getFullYear(), 4) +
+        pad(d.getMonth() + 1, 2) +
+        pad(d.getDate(), 2) +
+        '-' +
+        pad(d.getHours(), 2) +
+        pad(d.getMinutes(), 2) +
+        pad(d.getSeconds(), 2)
+      )
+    }
 
-    async function ensureStore() {
-      if (storeRid) return storeRid
-      if (storeInitPromise) return storeInitPromise
-      storeInitPromise = Promise.resolve()
+    const SHARD_META_PATH = `_meta.json`
+    const SHARD_KEY_TO_FILE = {
+      settings: `settings.json`,
+      bgSavedResults: `bgSavedResults.json`,
+      bgSaveRequests: `bgSaveRequests.json`,
+      bgSaveResponses: `bgSaveResponses.json`,
+      promptLibrary: `promptLibrary.json`,
+      refImages: `refImages.json`,
+      refImageHistory: `refImageHistory.json`,
+    }
+
+    const OLD_SHARDS_DIR = 'files/storage'
+
+    async function filesListDir(scope, dir) {
+      return tauri.invoke({ command: 'plugin_files_list_dir', payload: { pluginId: PLUGIN_ID, req: { scope, dir } } })
+    }
+
+    async function filesReadText(scope, path) {
+      return tauri.invoke({ command: 'plugin_files_read_text', payload: { pluginId: PLUGIN_ID, req: { scope, path } } })
+    }
+
+    async function filesWriteText(scope, path, text, overwrite) {
+      return tauri.invoke({
+        command: 'plugin_files_write_text',
+        payload: { pluginId: PLUGIN_ID, req: { scope, path, text: String(text ?? ''), overwrite: overwrite !== false } },
+      })
+    }
+
+    async function filesDelete(scope, path) {
+      return tauri.invoke({ command: 'plugin_files_delete', payload: { pluginId: PLUGIN_ID, req: { scope, path } } })
+    }
+
+    async function readJsonFromFiles(scope, path) {
+      let text = ''
+      try {
+        text = await filesReadText(scope, path)
+      } catch {
+        return null
+      }
+      const s = String(text || '').trim()
+      if (!s) return null
+      try {
+        return JSON.parse(s)
+      } catch {
+        throw new Error(`JSON 解析失败：${path}`)
+      }
+    }
+
+    async function writeJsonToFiles(scope, path, value) {
+      const text = JSON.stringify(value ?? null, null, 2) + '\n'
+      await filesWriteText(scope, path, text, true)
+    }
+
+    let shardReady = false
+    let shardReadyPromise = null
+
+    function shardPathForKey(key) {
+      const k = String(key || '').trim()
+      if (!k) return ''
+      return SHARD_KEY_TO_FILE[k] || ''
+    }
+
+    async function ensureShardReady() {
+      if (shardReady) return
+      if (shardReadyPromise) return shardReadyPromise
+
+      shardReadyPromise = Promise.resolve()
         .then(async () => {
-          const rid = await tauri.invoke({ command: 'plugin:store|load', payload: { path: STORE_PATH } })
-          if (!rid) throw new Error('store rid 无效')
-          storeRid = rid
-          return rid
+          // 先探测 plugin_files_* 是否可用；不可用就直接失败（开发期快速失败）。
+          await filesListDir('data', null)
+          const meta = await readJsonFromFiles('data', SHARD_META_PATH).catch(() => null)
+          if (meta && typeof meta === 'object' && Number(meta.schemaVersion || 0) >= 1) {
+            shardReady = true
+            return
+          }
+
+          // 已存在分片文件：认为用户已手动迁移/恢复，只补写 meta，避免覆盖用户数据。
+          let existed = false
+          try {
+            const entries = await filesListDir('data', null).catch(() => [])
+            const names = new Set(
+              Array.isArray(entries) ? entries.filter((e) => e && e.isFile).map((e) => String(e.name || '')) : [],
+            )
+            existed = Object.values(SHARD_KEY_TO_FILE).some((p) => names.has(p))
+          } catch {
+            existed = false
+          }
+          if (existed) {
+            shardReady = true
+            await writeJsonToFiles('data', SHARD_META_PATH, { schemaVersion: 1, migratedAt: Date.now(), reason: 'shards-existed' })
+            return
+          }
+
+          // 迁移 1：从旧路径 files/storage/* 迁移到根目录（我们之前的实现产生的文件）。
+          const snapshot2 = {}
+          for (const k of Object.keys(SHARD_KEY_TO_FILE)) {
+            const file = SHARD_KEY_TO_FILE[k]
+            const v = await readJsonFromFiles('data', `${OLD_SHARDS_DIR}/${file}`).catch(() => null)
+            if (v != null) snapshot2[k] = v
+          }
+
+          if (Object.keys(snapshot2).length) {
+
+            await writeJsonToFiles('data', `_backup-migrate-${nowId()}.json`, snapshot2).catch(() => {})
+
+            for (const k of Object.keys(SHARD_KEY_TO_FILE)) {
+              if (snapshot2[k] == null) continue
+              await writeJsonToFiles('data', SHARD_KEY_TO_FILE[k], snapshot2[k])
+            }
+
+            // 尝试清理旧文件（非关键；失败不影响新逻辑生效）
+            for (const k of Object.keys(SHARD_KEY_TO_FILE)) {
+              const file = SHARD_KEY_TO_FILE[k]
+              await filesDelete('data', `${OLD_SHARDS_DIR}/${file}`).catch(() => {})
+            }
+
+            await writeJsonToFiles('data', SHARD_META_PATH, {
+              schemaVersion: 1,
+              migratedAt: Date.now(),
+              source: { from: 'files/storage' },
+            })
+            shardReady = true
+            return
+          }
+
+          // 迁移 2：从旧的单文件 ai-draw.json 拆分到根目录。
+          const source = { from: `${PLUGIN_ID}.json` }
+          const snapshot = {}
+
+          try {
+            const full = await readJsonFromFiles('data', `${PLUGIN_ID}.json`).catch(() => null)
+            const obj = full && typeof full === 'object' ? full : null
+            if (!obj) throw new Error('ai-draw.json is empty')
+            for (const k of Object.keys(SHARD_KEY_TO_FILE)) {
+              const v = obj[k]
+              if (v != null) snapshot[k] = v
+            }
+          } catch {
+            source.fileReadable = false
+          }
+
+          if (Object.keys(snapshot).length) {
+            await writeJsonToFiles('data', `_backup-migrate-${nowId()}.json`, snapshot).catch(() => {})
+          }
+
+          for (const k of Object.keys(SHARD_KEY_TO_FILE)) {
+            if (snapshot[k] == null) continue
+            await writeJsonToFiles('data', SHARD_KEY_TO_FILE[k], snapshot[k])
+          }
+
+          await writeJsonToFiles('data', SHARD_META_PATH, { schemaVersion: 1, migratedAt: Date.now(), source })
+          shardReady = true
         })
         .finally(() => {
-          storeInitPromise = null
+          shardReadyPromise = null
         })
-      return storeInitPromise
-    }
 
-    async function storeGetRaw(rid, key) {
-      const r = await tauri.invoke({ command: 'plugin:store|get', payload: { rid, key: String(key || '') } })
-      if (Array.isArray(r) && r[1]) return r[0]
-      return null
-    }
-
-    async function storeSetRaw(rid, key, value) {
-      await tauri.invoke({ command: 'plugin:store|set', payload: { rid, key: String(key || ''), value } })
-    }
-
-    async function storeSave(rid) {
-      await tauri.invoke({ command: 'plugin:store|save', payload: { rid } })
+      return shardReadyPromise
     }
 
     function normalizeHttpReq(req) {
@@ -130,18 +270,32 @@
       },
       storage: {
         get: async (key) => {
-          const rid = await ensureStore()
-          return storeGetRaw(rid, String(key || ''))
+          const sk = String(key || '').trim()
+          if (!sk) return null
+          await ensureShardReady()
+          const p = shardPathForKey(sk)
+          if (!p) throw new Error(`未知 storage key：${sk}`)
+          return readJsonFromFiles('data', p)
         },
         set: async (key, value) => {
-          const rid = await ensureStore()
-          await storeSetRaw(rid, String(key || ''), value)
-          await storeSave(rid)
+          const sk = String(key || '').trim()
+          if (!sk) return
+          await ensureShardReady()
+          const p = shardPathForKey(sk)
+          if (!p) throw new Error(`未知 storage key：${sk}`)
+          await writeJsonToFiles('data', p, value)
         },
         remove: async (key) => {
-          const rid = await ensureStore()
-          await tauri.invoke({ command: 'plugin:store|delete', payload: { rid, key: String(key || '') } })
-          await storeSave(rid)
+          const sk = String(key || '').trim()
+          if (!sk) return
+          await ensureShardReady()
+          const p = shardPathForKey(sk)
+          if (!p) throw new Error(`未知 storage key：${sk}`)
+          await filesDelete('data', p).catch((e) => {
+            const msg = String((e && e.message) || e || '')
+            if (msg.includes('文件不存在')) return
+            throw e
+          })
         },
       },
       files: {
@@ -154,6 +308,18 @@
         },
         openOutputDir: async () => {
           return tauri.invoke({ command: 'plugin_open_output_dir', payload: { pluginId: PLUGIN_ID } })
+        },
+        listDir: async (req) => {
+          return tauri.invoke({ command: 'plugin_files_list_dir', payload: { pluginId: PLUGIN_ID, req } })
+        },
+        readText: async (req) => {
+          return tauri.invoke({ command: 'plugin_files_read_text', payload: { pluginId: PLUGIN_ID, req } })
+        },
+        writeText: async (req) => {
+          return tauri.invoke({ command: 'plugin_files_write_text', payload: { pluginId: PLUGIN_ID, req } })
+        },
+        delete: async (req) => {
+          return tauri.invoke({ command: 'plugin_files_delete', payload: { pluginId: PLUGIN_ID, req } })
         },
         pickImages: async (maxCount) => {
           const mc = maxCount == null ? null : Number(maxCount)
