@@ -1,7 +1,6 @@
 // vscode-workspaces (iframe sandbox) (entry: index.js)
 ;(function () {
   const PLUGIN_ID = 'vscode-workspaces'
-  const STORE_PATH = 'plugins/vscode-workspaces.json'
 
   function isPlainObject(v) {
     return !!v && typeof v === 'object' && !Array.isArray(v)
@@ -58,37 +57,128 @@
 
     const toast = createToast()
 
-    let storeRid = null
-    let storeInitPromise = null
+    const STORAGE_SCHEMA_VERSION = 1
+    const STORAGE_META_PATH = '_meta.json'
 
-    async function ensureStore() {
-      if (storeRid) return storeRid
-      if (storeInitPromise) return storeInitPromise
-      storeInitPromise = Promise.resolve()
+    function nowId() {
+      const d = new Date()
+      const pad = (n, w) => String(n).padStart(w, '0')
+      return (
+        pad(d.getFullYear(), 4) +
+        pad(d.getMonth() + 1, 2) +
+        pad(d.getDate(), 2) +
+        '-' +
+        pad(d.getHours(), 2) +
+        pad(d.getMinutes(), 2) +
+        pad(d.getSeconds(), 2)
+      )
+    }
+
+    function safeStorageKey(raw) {
+      const k = String(raw || '').trim()
+      if (!k) throw new Error('storage key 不能为空')
+      if (k.length > 80) throw new Error('storage key 过长')
+      if (!/^[a-zA-Z0-9._-]+$/.test(k)) throw new Error(`storage key 不合法：${k}`)
+      if (k === '__proto__' || k === 'constructor' || k === 'prototype') throw new Error(`storage key 不安全：${k}`)
+      return k
+    }
+
+    function keyToPath(key) {
+      const k = safeStorageKey(key)
+      return `${k}.json`
+    }
+
+    async function filesListDir(dir) {
+      return tauri.invoke({ command: 'plugin_files_list_dir', payload: { pluginId: PLUGIN_ID, req: { scope: 'data', dir } } })
+    }
+
+    async function filesReadText(path) {
+      return tauri.invoke({ command: 'plugin_files_read_text', payload: { pluginId: PLUGIN_ID, req: { scope: 'data', path } } })
+    }
+
+    async function filesWriteText(path, text) {
+      return tauri.invoke({
+        command: 'plugin_files_write_text',
+        payload: { pluginId: PLUGIN_ID, req: { scope: 'data', path, text: String(text ?? ''), overwrite: true } },
+      })
+    }
+
+    async function filesDelete(path) {
+      return tauri.invoke({ command: 'plugin_files_delete', payload: { pluginId: PLUGIN_ID, req: { scope: 'data', path } } })
+    }
+
+    async function readJson(path) {
+      let text = ''
+      try {
+        text = await filesReadText(path)
+      } catch (e) {
+        const msg = String(e?.message || e || '')
+        if (msg.includes('文件不存在')) return null
+        throw e
+      }
+      const s = String(text || '').trim()
+      if (!s) return null
+      try {
+        return JSON.parse(s)
+      } catch {
+        throw new Error(`JSON 解析失败：${path}`)
+      }
+    }
+
+    async function writeJson(path, value) {
+      const text = JSON.stringify(value ?? null, null, 2) + '\n'
+      await filesWriteText(path, text)
+    }
+
+    let storageReady = false
+    let storageReadyPromise = null
+
+    async function ensureStorageReady() {
+      if (storageReady) return
+      if (storageReadyPromise) return storageReadyPromise
+
+      storageReadyPromise = Promise.resolve()
         .then(async () => {
-          const rid = await tauri.invoke({ command: 'plugin:store|load', payload: { path: STORE_PATH } })
-          if (!rid) throw new Error('store rid 无效')
-          storeRid = rid
-          return rid
+          await filesListDir(null)
+          const meta = await readJson(STORAGE_META_PATH).catch(() => null)
+          if (meta && typeof meta === 'object' && Number(meta.schemaVersion || 0) >= STORAGE_SCHEMA_VERSION) {
+            storageReady = true
+            return
+          }
+
+          const shardPath = keyToPath('data')
+          const entries = await filesListDir(null).catch(() => [])
+          const names = new Set(Array.isArray(entries) ? entries.filter((e) => e && e.isFile).map((e) => String(e.name || '')) : [])
+          if (names.has(shardPath)) {
+            await writeJson(STORAGE_META_PATH, { schemaVersion: STORAGE_SCHEMA_VERSION, migratedAt: Date.now(), reason: 'shards-existed' })
+            storageReady = true
+            return
+          }
+
+          const source = { from: `${PLUGIN_ID}.json` }
+          const obj0 = await readJson(`${PLUGIN_ID}.json`).catch(() => null)
+          const obj = obj0 && typeof obj0 === 'object' ? obj0 : null
+          const snapshot = {}
+          if (obj && obj.data != null) snapshot.data = obj.data
+          if (Object.keys(snapshot).length) {
+            await writeJson(`_backup-migrate-${nowId()}.json`, snapshot).catch(() => {})
+            await writeJson(shardPath, snapshot.data)
+            await writeJson(STORAGE_META_PATH, { schemaVersion: STORAGE_SCHEMA_VERSION, migratedAt: Date.now(), source })
+            storageReady = true
+            return
+          }
+          if (!obj) source.fileReadable = false
+
+          await writeJson(STORAGE_META_PATH, { schemaVersion: STORAGE_SCHEMA_VERSION, createdAt: Date.now(), freshInstall: true, source }).catch(
+            () => {},
+          )
+          storageReady = true
         })
         .finally(() => {
-          storeInitPromise = null
+          storageReadyPromise = null
         })
-      return storeInitPromise
-    }
 
-    async function storeGetRaw(rid, key) {
-      const r = await tauri.invoke({ command: 'plugin:store|get', payload: { rid, key: String(key || '') } })
-      if (Array.isArray(r) && r[1]) return r[0]
-      return null
-    }
-
-    async function storeSetRaw(rid, key, value) {
-      await tauri.invoke({ command: 'plugin:store|set', payload: { rid, key: String(key || ''), value } })
-    }
-
-    async function storeSave(rid) {
-      await tauri.invoke({ command: 'plugin:store|save', payload: { rid } })
+      return storageReadyPromise
     }
 
     return {
@@ -113,13 +203,23 @@
       storage: {
         ...(base.storage || {}),
         get: async (key) => {
-          const rid = await ensureStore()
-          return storeGetRaw(rid, String(key || ''))
+          await ensureStorageReady()
+          const p = keyToPath(key)
+          return readJson(p)
         },
         set: async (key, value) => {
-          const rid = await ensureStore()
-          await storeSetRaw(rid, String(key || ''), value)
-          await storeSave(rid)
+          await ensureStorageReady()
+          const p = keyToPath(key)
+          await writeJson(p, value)
+        },
+        remove: async (key) => {
+          await ensureStorageReady()
+          const p = keyToPath(key)
+          await filesDelete(p).catch((e) => {
+            const msg = String(e?.message || e || '')
+            if (msg.includes('文件不存在')) return
+            throw e
+          })
         },
       },
       files: {
