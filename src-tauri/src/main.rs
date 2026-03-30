@@ -1951,6 +1951,78 @@ fn app_plugins_dir(app: &tauri::AppHandle) -> PathBuf {
     app_local_base_dir(app).join("plugins")
 }
 
+fn migrate_legacy_plugin_store_files(app: &tauri::AppHandle) -> Result<(), String> {
+    let data_root = app_data_dir(app);
+    let legacy_dir = data_root.join("plugins");
+    if !legacy_dir.is_dir() {
+        return Ok(());
+    }
+
+    let entries = std::fs::read_dir(&legacy_dir).map_err(|e| format!("读取 legacy plugins 目录失败: {e}"))?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    for ent in entries.flatten() {
+        let Ok(ty) = ent.file_type() else { continue };
+        if !ty.is_file() {
+            continue;
+        }
+
+        let path = ent.path();
+        let Some(name_os) = path.file_name() else { continue };
+        let name = name_os.to_string_lossy().to_string();
+        if !name.to_ascii_lowercase().ends_with(".json") {
+            continue;
+        }
+
+        // 约定：store 文件名为 `<pluginId>.json` 或 `<pluginId>.<suffix>.json`（pluginId 不含 '.'）
+        let plugin_id = name.split('.').next().unwrap_or("").trim().to_string();
+        if !is_safe_id(&plugin_id) {
+            continue;
+        }
+
+        let target_dir = data_root.join(&plugin_id);
+        let target = target_dir.join(&name);
+        if let Some(parent) = target.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+
+        let legacy_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        let target_size = std::fs::metadata(&target).map(|m| m.len()).unwrap_or(0);
+
+        if !target.is_file() {
+            let _ = std::fs::copy(&path, &target);
+            continue;
+        }
+
+        // 若新路径明显是“新生成的空白/默认数据”，而 legacy 有更大体量的数据，则备份后还原。
+        // 备份不破坏用户空间：保留新文件到 `.bak-*`，并且不删除 legacy 文件。
+        let mut target_looks_blank = target_size > 0 && target_size < 32 * 1024;
+        if target_looks_blank {
+            // 进一步用 key 数量判断（小文件解析成本低）：少量 key 通常意味着“新初始化默认数据”。
+            if let Ok(bytes) = std::fs::read(&target) {
+                if let Ok(map) = serde_json::from_slice::<std::collections::HashMap<String, Value>>(&bytes) {
+                    // 经验阈值：<= 10 个 key 基本就是空白/默认（例如仅 meta/index + 1 个 chat）。
+                    if map.len() > 10 {
+                        target_looks_blank = false;
+                    }
+                }
+            }
+        }
+
+        let legacy_has_more = legacy_size > target_size;
+        if target_looks_blank && legacy_has_more && legacy_size > 0 {
+            let bak = target_dir.join(format!(".bak-{stamp}-{name}"));
+            let _ = std::fs::rename(&target, &bak);
+            let _ = std::fs::copy(&path, &target);
+        }
+    }
+
+    Ok(())
+}
+
 fn app_config_path(app: &tauri::AppHandle) -> PathBuf {
     app_data_dir(app).join(APP_STORAGE_ID).join(APP_CONFIG_FILE)
 }
@@ -6505,6 +6577,11 @@ fn main() {
             app.manage(Arc::new(TaskManagerState::default()));
             app.manage(Arc::new(HttpStreamManagerState::default()));
             app.manage(BrowserWindowState::default());
+
+            // store legacy 还原：历史上插件用 `plugins/<id>.json` 落盘到 data/plugins/；
+            // 现在收敛到 data/<pluginId>/ 下。由于 tauri-plugin-store 会静默忽略 load 错误，
+            // 若不提前还原，插件可能初始化默认数据并覆盖用户的旧数据文件。
+            let _ = migrate_legacy_plugin_store_files(app.handle());
 
             // 主窗口尺寸/位置：从配置恢复（跨重启记住）
             if let Some(saved) = load_main_window_bounds_from_config(app.handle()) {

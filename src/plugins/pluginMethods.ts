@@ -133,6 +133,8 @@ function resolveTauriInvokeTimeoutMs(command: string, timeoutMs: unknown): numbe
   // rfd 文件/目录选择属于“人类交互时长”，默认给长超时。
   if (command.startsWith('plugin_pick_')) return LONG_TAURI_INVOKE_TIMEOUT_MS
   if (command.startsWith('plugin:dialog|')) return LONG_TAURI_INVOKE_TIMEOUT_MS
+  // store 可能读写较大的 JSON（例如聊天历史）；默认 8s 容易误伤。
+  if (command.startsWith('plugin:store|')) return 30_000
   return DEFAULT_TAURI_INVOKE_TIMEOUT_MS
 }
 

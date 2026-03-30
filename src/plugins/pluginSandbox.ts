@@ -109,6 +109,8 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
         if (command.startsWith('plugin_pick_')) return LONG_TIMEOUT_MS;
         // 常见交互类命令：对话框类给一个更宽松的前端等待时间。
         if (command.startsWith('plugin:dialog|')) return LONG_TIMEOUT_MS;
+        // store 可能读写较大的 JSON（例如聊天历史）；默认 8s 容易误伤。
+        if (command.startsWith('plugin:store|')) return 30 * 1000;
       }
     } catch {}
     return DEFAULT_TIMEOUT_MS;
