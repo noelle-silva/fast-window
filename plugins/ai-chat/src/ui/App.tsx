@@ -1991,6 +1991,20 @@ export function AiChatApp(props: { controller: any }) {
                         <EditOutlinedIcon fontSize="small" />
                         编辑
                       </MenuItem>
+
+                      <MenuItem
+                        disabled={!msgMenuMid || msgMenuPending || s.loading || uiBusy || chatLocked}
+                        onClick={() => {
+                          const mid = msgMenuMid
+                          const role = msgMenu.role
+                          closeMsgMenu()
+                          setConfirmDelMsg({ mid, role })
+                        }}
+                        sx={{ gap: 1 }}
+                      >
+                        <DeleteOutlineIcon fontSize="small" />
+                        删除
+                      </MenuItem>
                     </>
                   ) : (
                     <>
