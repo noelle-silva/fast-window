@@ -2837,8 +2837,8 @@ fn resolve_plugin_files_root(
     scope: &str,
 ) -> Result<PathBuf, String> {
     match scope {
-        // 插件私有数据：data/<pluginId>/files
-        "data" => Ok(app_data_dir(app).join(plugin_id).join("files")),
+        // 插件私有数据：data/<pluginId>（插件可在其目录内自由组织文件结构）
+        "data" => Ok(app_data_dir(app).join(plugin_id)),
         // 用户输出目录：可配置（默认 data/<pluginId>/output-images，历史命名，避免破坏用户空间）
         "output" => Ok(resolve_plugin_output_dir(app, plugin_id)),
         _ => Err("scope 不支持（仅支持 data/output）".to_string()),
