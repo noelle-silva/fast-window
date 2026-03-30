@@ -1,11 +1,4 @@
-type AnyRecord = Record<string, any>
-
-const STORE_PATH = 'plugins/ai-chat.json'
-const RUNTIME_STORE_PATH = 'plugins/ai-chat.runtime.json'
-
-function isPlainObject(v: any): v is Record<string, any> {
-  return !!v && typeof v === 'object' && !Array.isArray(v)
-}
+import { createAiChatStorage } from './storageFiles'
 
 function createToast() {
   let el: HTMLDivElement | null = null
@@ -60,113 +53,7 @@ export function createAiChatFastWindowApi(baseApi: any, pluginId: string) {
   }
 
   const toast = createToast()
-
-  let storeRid: any = null
-  let storeInitPromise: Promise<any> | null = null
-  let rtStoreRid: any = null
-  let rtStoreInitPromise: Promise<any> | null = null
-
-  let rtSaveTimer: any = 0
-  let rtSaveInFlight: Promise<void> | null = null
-  let rtSaveDirty = false
-
-  async function ensureStore() {
-    if (storeRid) return storeRid
-    if (storeInitPromise) return storeInitPromise
-    storeInitPromise = Promise.resolve()
-      .then(async () => {
-        const rid = await tauri.invoke({ command: 'plugin:store|load', payload: { path: STORE_PATH } })
-        if (!rid) throw new Error('store rid 无效')
-        storeRid = rid
-        return rid
-      })
-      .finally(() => {
-        storeInitPromise = null
-      })
-    return storeInitPromise
-  }
-
-  async function ensureRuntimeStore() {
-    if (rtStoreRid) return rtStoreRid
-    if (rtStoreInitPromise) return rtStoreInitPromise
-    rtStoreInitPromise = Promise.resolve()
-      .then(async () => {
-        const rid = await tauri.invoke({ command: 'plugin:store|load', payload: { path: RUNTIME_STORE_PATH } })
-        if (!rid) throw new Error('runtime store rid 无效')
-        rtStoreRid = rid
-        return rid
-      })
-      .finally(() => {
-        rtStoreInitPromise = null
-      })
-    return rtStoreInitPromise
-  }
-
-  async function storeGetRaw(rid: any, key: string) {
-    const r = await tauri.invoke({ command: 'plugin:store|get', payload: { rid, key: String(key || '') } })
-    // store 返回：[value, exists]
-    if (Array.isArray(r) && r[1]) return r[0]
-    return null
-  }
-
-  async function storeSetRaw(rid: any, key: string, value: any) {
-    await tauri.invoke({ command: 'plugin:store|set', payload: { rid, key: String(key || ''), value } })
-  }
-
-  async function storeSave(rid: any) {
-    await tauri.invoke({ command: 'plugin:store|save', payload: { rid } })
-  }
-
-  function requestRuntimeSaveSoon() {
-    if (rtSaveTimer) return
-    rtSaveTimer = setTimeout(() => {
-      rtSaveTimer = 0
-      if (!rtSaveDirty) return
-      rtSaveDirty = false
-      rtSaveInFlight = Promise.resolve()
-        .then(async () => {
-          const rid = await ensureRuntimeStore()
-          await storeSave(rid)
-        })
-        .catch(() => {})
-        .finally(() => {
-          rtSaveInFlight = null
-          if (rtSaveDirty) requestRuntimeSaveSoon()
-        })
-    }, 150)
-  }
-
-  async function runtimeSetRaw(key: string, value: any) {
-    const rid = await ensureRuntimeStore()
-    await storeSetRaw(rid, key, value)
-    rtSaveDirty = true
-    requestRuntimeSaveSoon()
-  }
-
-  async function runtimeRemoveRaw(key: string) {
-    const rid = await ensureRuntimeStore()
-    await tauri.invoke({ command: 'plugin:store|delete', payload: { rid, key: String(key || '') } })
-    rtSaveDirty = true
-    requestRuntimeSaveSoon()
-  }
-
-  async function runtimeFlush() {
-    if (rtSaveTimer) {
-      clearTimeout(rtSaveTimer)
-      rtSaveTimer = 0
-    }
-    if (rtSaveInFlight) {
-      try {
-        await rtSaveInFlight
-      } catch (_) {}
-    }
-    if (!rtSaveDirty) return
-    rtSaveDirty = false
-    try {
-      const rid = await ensureRuntimeStore()
-      await storeSave(rid)
-    } catch (_) {}
-  }
+  const st = createAiChatStorage(tauri, pluginId)
 
   const api = {
     ...base,
@@ -197,49 +84,12 @@ export function createAiChatFastWindowApi(baseApi: any, pluginId: string) {
     },
 
     storage: {
-      get: async (key: any) => {
-        const rid = await ensureStore()
-        return storeGetRaw(rid, String(key ?? ''))
-      },
-      set: async (key: any, value: any) => {
-        const rid = await ensureStore()
-        await storeSetRaw(rid, String(key ?? ''), value)
-        await storeSave(rid)
-      },
-      remove: async (key: any) => {
-        const rid = await ensureStore()
-        await tauri.invoke({ command: 'plugin:store|delete', payload: { rid, key: String(key ?? '') } })
-        await storeSave(rid)
-      },
-      getAll: async () => {
-        const rid = await ensureStore()
-        const entries = await tauri.invoke({ command: 'plugin:store|entries', payload: { rid } })
-        const out: AnyRecord = {}
-        if (Array.isArray(entries)) {
-          for (const pair of entries) {
-            if (!Array.isArray(pair) || pair.length < 2) continue
-            out[String(pair[0] ?? '')] = pair[1]
-          }
-        }
-        return out
-      },
+      ...(st.storage as any),
     },
 
     // 高频/并发用：把 bg.*、流式中间态、取消标记等放到独立 store 文件，避免与主数据互相覆盖。
     runtimeStorage: {
-      get: async (key: any) => {
-        const rid = await ensureRuntimeStore()
-        return storeGetRaw(rid, String(key ?? ''))
-      },
-      set: async (key: any, value: any) => {
-        await runtimeSetRaw(String(key ?? ''), value)
-      },
-      remove: async (key: any) => {
-        await runtimeRemoveRaw(String(key ?? ''))
-      },
-      flush: async () => {
-        await runtimeFlush()
-      },
+      ...(st.runtimeStorage as any),
     },
 
     net: {
