@@ -99,12 +99,34 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
 
   function resolveTimeoutMs(method, args) {
     try {
-      if (method === 'tauri.invoke') {
+      if (method === 'tauri.invoke' || method === 'tauri.streamOpen') {
         const spec = args && args[0];
         const command = spec && spec.command ? String(spec.command) : '';
-        const t = spec && typeof spec.timeoutMs === 'number' ? spec.timeoutMs : 0;
-        // 允许插件明确指定超时；由宿主侧进一步钳制。
-        if (t > 0) return Math.max(DEFAULT_TIMEOUT_MS, Math.min(t, 5 * 60 * 1000));
+
+        const t0 = spec && typeof spec.timeoutMs === 'number' ? spec.timeoutMs : 0;
+        if (t0 > 0) return Math.max(DEFAULT_TIMEOUT_MS, Math.min(t0, 5 * 60 * 1000));
+
+        // 兼容：一些插件把超时放在 payload（例如 payload.req.timeoutMs），但没填到 spec.timeoutMs，
+        // 这会导致宿主侧仍按默认 8s 超时，从而误伤“局部编辑/大图/慢模型”等请求。
+        const payload = spec && spec.payload && typeof spec.payload === 'object' ? spec.payload : null;
+        if (payload) {
+          let inferred = 0;
+          try {
+            // 常见：http_request / http_request_base64 / http_request_stream：timeout 在 payload.req.timeoutMs
+            if (command === 'http_request' || command === 'http_request_base64' || command === 'http_request_stream') {
+              const req = payload.req && typeof payload.req === 'object' ? payload.req : null;
+              const t1 = req && typeof req.timeoutMs === 'number' ? req.timeoutMs : 0;
+              if (t1 > 0) inferred = t1;
+            }
+            // 兜底：payload.timeoutMs
+            if (!inferred) {
+              const t2 = typeof payload.timeoutMs === 'number' ? payload.timeoutMs : 0;
+              if (t2 > 0) inferred = t2;
+            }
+          } catch {}
+          if (inferred > 0) return Math.max(DEFAULT_TIMEOUT_MS, Math.min(inferred, 5 * 60 * 1000));
+        }
+
         // 自研“文件/目录选择”命令（rfd 对话框）属于人类交互时长，默认给长超时。
         if (command.startsWith('plugin_pick_')) return LONG_TIMEOUT_MS;
         // 常见交互类命令：对话框类给一个更宽松的前端等待时间。
@@ -114,6 +136,39 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
       }
     } catch {}
     return DEFAULT_TIMEOUT_MS;
+  }
+
+  function ensureSpecTimeoutMs(spec) {
+    try {
+      const s = spec && typeof spec === 'object' ? spec : null;
+      if (!s) return spec;
+      const command = s.command ? String(s.command) : '';
+      if (!command) return spec;
+
+      const t0 = typeof s.timeoutMs === 'number' ? s.timeoutMs : 0;
+      if (t0 > 0) return spec;
+
+      const payload = s.payload && typeof s.payload === 'object' ? s.payload : null;
+      if (!payload) return spec;
+
+      let inferred = 0;
+      // 常见：http 请求把超时放在 req.timeoutMs。
+      if (command === 'http_request' || command === 'http_request_base64' || command === 'http_request_stream') {
+        const req = payload.req && typeof payload.req === 'object' ? payload.req : null;
+        const t1 = req && typeof req.timeoutMs === 'number' ? req.timeoutMs : 0;
+        if (t1 > 0) inferred = t1;
+      }
+      // 兜底：payload.timeoutMs。
+      if (!inferred) {
+        const t2 = typeof payload.timeoutMs === 'number' ? payload.timeoutMs : 0;
+        if (t2 > 0) inferred = t2;
+      }
+
+      if (inferred <= 0) return spec;
+      return { ...s, timeoutMs: inferred };
+    } catch {
+      return spec;
+    }
   }
 
   function call(method, args) {
@@ -165,11 +220,11 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
       back: () => call('host.back', []),
     },
     tauri: {
-      invoke: (spec) => call('tauri.invoke', [spec]),
-      streamOpen: (spec) => call('tauri.streamOpen', [spec]),
+      invoke: (spec) => call('tauri.invoke', [ensureSpecTimeoutMs(spec)]),
+      streamOpen: (spec) => call('tauri.streamOpen', [ensureSpecTimeoutMs(spec)]),
       streamCancel: (streamId) => call('tauri.streamCancel', [streamId]),
       stream: async (spec) => {
-        const r = await call('tauri.streamOpen', [spec]);
+        const r = await call('tauri.streamOpen', [ensureSpecTimeoutMs(spec)]);
         const streamId = r && r.streamId ? String(r.streamId) : '';
         return createStream(streamId, 'tauri.streamCancel');
       },
