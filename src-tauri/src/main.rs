@@ -185,12 +185,56 @@ enum TaskStatus {
     Canceled,
 }
 
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct TaskMeta {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tags: Vec<String>,
+}
+
+fn normalize_task_meta(meta: Option<TaskMeta>) -> Result<Option<TaskMeta>, String> {
+    const MAX_TAGS: usize = 16;
+    const MAX_TAG_LEN: usize = 64;
+
+    let Some(meta) = meta else {
+        return Ok(None);
+    };
+
+    let mut out: Vec<String> = Vec::new();
+    for raw in meta.tags.into_iter() {
+        let t = raw.trim();
+        if t.is_empty() {
+            continue;
+        }
+        if t.len() > MAX_TAG_LEN {
+            return Err("task.meta.tags 单个 tag 过长".to_string());
+        }
+        if t.contains('\n') || t.contains('\r') {
+            return Err("task.meta.tags tag 不允许换行".to_string());
+        }
+        if !out.iter().any(|x| x == t) {
+            out.push(t.to_string());
+        }
+        if out.len() > MAX_TAGS {
+            return Err("task.meta.tags tag 过多".to_string());
+        }
+    }
+
+    if out.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(TaskMeta { tags: out }))
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TaskSummary {
     id: String,
     plugin_id: String,
     kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    meta: Option<TaskMeta>,
     status: TaskStatus,
     created_at_ms: u64,
     updated_at_ms: u64,
@@ -206,6 +250,7 @@ struct TaskRecord {
     id: String,
     plugin_id: String,
     kind: String,
+    meta: Option<TaskMeta>,
     status: TaskStatus,
     created_at_ms: u64,
     updated_at_ms: u64,
@@ -223,6 +268,7 @@ impl TaskRecord {
             id: self.id.clone(),
             plugin_id: self.plugin_id.clone(),
             kind: self.kind.clone(),
+            meta: self.meta.clone(),
             status: self.status,
             created_at_ms: self.created_at_ms,
             updated_at_ms: self.updated_at_ms,
@@ -247,6 +293,8 @@ struct TaskCreateReq {
     kind: String,
     #[serde(default)]
     payload: Option<Value>,
+    #[serde(default)]
+    meta: Option<TaskMeta>,
 }
 
 #[derive(Deserialize)]
@@ -1474,10 +1522,12 @@ fn task_create(
     let manager = app.state::<Arc<TaskManagerState>>().inner().clone();
     let now = now_ms();
     let task_id = make_task_id();
+    let meta = normalize_task_meta(req.meta)?;
     let record = TaskRecord {
         id: task_id.clone(),
         plugin_id: plugin_id.clone(),
         kind,
+        meta,
         status: TaskStatus::Queued,
         created_at_ms: now,
         updated_at_ms: now,
