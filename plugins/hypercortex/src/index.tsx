@@ -30,16 +30,16 @@ type NoteMeta = {
   updatedAtMs: number
 }
 
-type HyperionIndexV1 = {
+type HyperCortexIndexV1 = {
   version: 1
   notes: Record<string, NoteMeta>
 }
 
 const NOTES_DIR = 'Notes'
 const ASSETS_DIR = 'Assets'
-const INDEX_FILE = 'hyperion-index.json'
+const INDEX_FILE = 'hypercortex-index.json'
 
-const PLUGIN_ID = 'hyperion'
+const PLUGIN_ID = 'hypercortex'
 
 function createToast() {
   let el: HTMLDivElement | null = null
@@ -49,7 +49,7 @@ function createToast() {
     if (typeof document === 'undefined') return null
     if (el && el.isConnected) return el
     el = document.createElement('div')
-    el.id = '__fastWindowHyperionToast'
+    el.id = '__fastWindowHyperCortexToast'
     el.style.position = 'fixed'
     el.style.left = '50%'
     el.style.bottom = '24px'
@@ -149,12 +149,12 @@ function createCompatApi(baseApi: any): Api {
   return api
 }
 
-let __hyperionApiCache: Api | null = null
+let __hypercortexApiCache: Api | null = null
 
 function getApi(): Api {
-  if (__hyperionApiCache) return __hyperionApiCache
-  __hyperionApiCache = createCompatApi((window as any).fastWindow)
-  return __hyperionApiCache
+  if (__hypercortexApiCache) return __hypercortexApiCache
+  __hypercortexApiCache = createCompatApi((window as any).fastWindow)
+  return __hypercortexApiCache
 }
 
 function nowId(): string {
@@ -213,7 +213,7 @@ function buildNoteHtmlDoc(meta: { id: string; title: string; contentHtml: string
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="hyperion-note-id" content="${escapeHtml(meta.id)}" />
+    <meta name="hypercortex-note-id" content="${escapeHtml(meta.id)}" />
     <title>${escapeHtml(title)}</title>
     <style>
       body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; line-height: 1.6; margin: 22px; }
@@ -224,7 +224,7 @@ function buildNoteHtmlDoc(meta: { id: string; title: string; contentHtml: string
     </style>
   </head>
   <body>
-    <div id="hyperion-content">${meta.contentHtml || ''}</div>
+    <div id="hypercortex-content">${meta.contentHtml || ''}</div>
   </body>
 </html>`
 }
@@ -236,7 +236,7 @@ function normalizeEditorHtmlForSave(html: string): string {
 
   const imgs = Array.from(root.querySelectorAll('img'))
   for (const img of imgs) {
-    const assetRel = (img.getAttribute('data-hyperion-asset') || '').trim()
+    const assetRel = (img.getAttribute('data-hypercortex-asset') || '').trim()
     if (assetRel) {
       img.setAttribute('src', `../${assetRel.replace(/^[./]+/, '')}`)
     }
@@ -281,26 +281,26 @@ async function ensureVaultDirs(api: Api): Promise<void> {
   await api.files.listDir({ scope: 'output', dir: ASSETS_DIR }).catch(() => {})
 }
 
-async function loadIndex(api: Api): Promise<HyperionIndexV1> {
+async function loadIndex(api: Api): Promise<HyperCortexIndexV1> {
   try {
     const raw = await api.files.readText({ scope: 'output', path: INDEX_FILE })
     const parsed = JSON.parse(raw || 'null')
     if (!parsed || typeof parsed !== 'object') throw new Error('bad index')
     if (parsed.version !== 1) throw new Error('bad index version')
     if (!parsed.notes || typeof parsed.notes !== 'object') throw new Error('bad notes')
-    return parsed as HyperionIndexV1
+    return parsed as HyperCortexIndexV1
   } catch {
-    const idx: HyperionIndexV1 = { version: 1, notes: {} }
+    const idx: HyperCortexIndexV1 = { version: 1, notes: {} }
     await api.files.writeText({ scope: 'output', path: INDEX_FILE, text: JSON.stringify(idx, null, 2), overwrite: true }).catch(() => {})
     return idx
   }
 }
 
-async function saveIndex(api: Api, idx: HyperionIndexV1): Promise<void> {
+async function saveIndex(api: Api, idx: HyperCortexIndexV1): Promise<void> {
   await api.files.writeText({ scope: 'output', path: INDEX_FILE, text: JSON.stringify(idx, null, 2), overwrite: true })
 }
 
-async function rebuildIndexFromFs(api: Api, idx: HyperionIndexV1): Promise<HyperionIndexV1> {
+async function rebuildIndexFromFs(api: Api, idx: HyperCortexIndexV1): Promise<HyperCortexIndexV1> {
   await ensureVaultDirs(api)
   const items = await api.files.listDir({ scope: 'output', dir: NOTES_DIR })
   const nextNotes: Record<string, NoteMeta> = {}
@@ -323,7 +323,7 @@ async function rebuildIndexFromFs(api: Api, idx: HyperionIndexV1): Promise<Hyper
     }
   }
 
-  const next: HyperionIndexV1 = { ...idx, notes: nextNotes }
+  const next: HyperCortexIndexV1 = { ...idx, notes: nextNotes }
   await saveIndex(api, next).catch(() => {})
   return next
 }
@@ -332,7 +332,7 @@ async function readNoteDoc(api: Api, file: string): Promise<{ title: string; con
   const raw = await api.files.readText({ scope: 'output', path: file })
   const doc = new DOMParser().parseFromString(raw, 'text/html')
   const title = String(doc.querySelector('title')?.textContent || '').trim() || '未命名'
-  const root = doc.getElementById('hyperion-content')
+  const root = doc.getElementById('hypercortex-content')
   const content = root ? root.innerHTML : (doc.body?.innerHTML || '')
 
   const wrap = new DOMParser().parseFromString(`<div id="__root__">${content}</div>`, 'text/html')
@@ -346,11 +346,11 @@ async function readNoteDoc(api: Api, file: string): Promise<{ title: string; con
     const rel =
       src.startsWith('../') ? src.slice(3)
       : src.startsWith('./') ? src.slice(2)
-      : src
+    : src
     if (!rel.startsWith(`${ASSETS_DIR}/`)) continue
 
-    img.setAttribute('data-hyperion-asset', rel)
-    img.setAttribute('data-hyperion-src', src)
+    img.setAttribute('data-hypercortex-asset', rel)
+    img.setAttribute('data-hypercortex-src', src)
     try {
       const dataUrl = await api.files.readBase64({ scope: 'output', path: rel })
       if (String(dataUrl || '').startsWith('data:')) {
@@ -368,7 +368,7 @@ function App() {
   const [vaultDir, setVaultDir] = React.useState<string>('')
   const [loading, setLoading] = React.useState(true)
 
-  const [idx, setIdx] = React.useState<HyperionIndexV1>({ version: 1, notes: {} })
+  const [idx, setIdx] = React.useState<HyperCortexIndexV1>({ version: 1, notes: {} })
   const [activeId, setActiveId] = React.useState<string>('')
   const [title, setTitle] = React.useState<string>('未命名')
   const editorRef = React.useRef<HTMLDivElement | null>(null)
@@ -439,7 +439,7 @@ function App() {
     const picked = await api.files.pickOutputDir().catch(() => null)
     if (!picked) return
     setVaultDir(picked)
-    await api.ui.showToast('已设置 Hyperion 库位置')
+    await api.ui.showToast('已设置 HyperCortex 库位置')
     await refreshAll()
   }, [api, refreshAll])
 
@@ -470,7 +470,7 @@ function App() {
       await api.files.writeText({ scope: 'output', path: file, text: htmlDoc, overwrite: false })
 
       const meta: NoteMeta = { id, title: t, file, createdAtMs: Date.now(), updatedAtMs: Date.now() }
-      const next: HyperionIndexV1 = { ...idx, notes: { ...idx.notes, [id]: meta } }
+      const next: HyperCortexIndexV1 = { ...idx, notes: { ...idx.notes, [id]: meta } }
       setIdx(next)
       await saveIndex(api, next).catch(() => {})
       setActiveId(id)
@@ -502,7 +502,7 @@ function App() {
 
       const updatedAtMs = Date.now()
       const meta: NoteMeta = { ...active, title: nextTitle, file: nextFile, updatedAtMs }
-      const nextIdx: HyperionIndexV1 = { ...idx, notes: { ...idx.notes, [id]: meta } }
+      const nextIdx: HyperCortexIndexV1 = { ...idx, notes: { ...idx.notes, [id]: meta } }
       setIdx(nextIdx)
       await saveIndex(api, nextIdx).catch(() => {})
       api.ui.showToast('已保存')
@@ -526,7 +526,7 @@ function App() {
       await api.files.delete({ scope: 'output', path: active.file })
       const nextNotes = { ...idx.notes }
       delete nextNotes[active.id]
-      const nextIdx: HyperionIndexV1 = { ...idx, notes: nextNotes }
+      const nextIdx: HyperCortexIndexV1 = { ...idx, notes: nextNotes }
       setIdx(nextIdx)
       await saveIndex(api, nextIdx).catch(() => {})
 
@@ -559,7 +559,7 @@ function App() {
       await api.files.writeBase64({ scope: 'output', path: assetRel, dataUrlOrBase64: item.dataUrl, overwrite: false }).catch(() => {})
 
       const html = getEditorHtml()
-      const imgHtml = `<p><img src="${item.dataUrl}" data-hyperion-asset="${escapeHtml(assetRel)}" alt="" /></p>`
+      const imgHtml = `<p><img src="${item.dataUrl}" data-hypercortex-asset="${escapeHtml(assetRel)}" alt="" /></p>`
       setEditorHtml((html || '') + imgHtml)
       api.ui.showToast('已插入图片')
     } catch (e: any) {
@@ -657,7 +657,7 @@ function App() {
       <style>{styles}</style>
       <div className="topbar">
         <button className="btn" onClick={backToHome} title="返回主界面" aria-label="返回主界面">← 主界面</button>
-        <div className="brand">Hyperion</div>
+        <div className="brand">HyperCortex</div>
         <div className="path" title={vaultDir}>{vaultDir || (loading ? '加载中…' : '未设置库目录')}</div>
         <button className="btn" onClick={openVault}>打开库</button>
         <button className="btn" onClick={pickVault}>选择库</button>

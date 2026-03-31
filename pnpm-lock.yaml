@@ -85,7 +85,7 @@ importers:
         specifier: ^4.10.38
         version: 4.10.38
 
-  plugins/hyperion:
+  plugins/hypercortex:
     dependencies:
       react:
         specifier: ^18.2.0
