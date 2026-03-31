@@ -1176,6 +1176,34 @@
       </div>
     `
 
+    // 重要：当在输入框拖拽选中文字时，鼠标可能会“拖出悬浮窗”，
+    // 如果没有 pointer capture，mouse up 会落到窗外导致窗口失焦并被宿主自动隐藏。
+    root.addEventListener('pointerdown', (e) => {
+      if (!(e instanceof PointerEvent)) return
+      if (e.button !== 0) return
+      const t0 = e.target
+      const t = t0 && t0.nodeType === 3 ? t0.parentElement : t0
+      if (!(t instanceof HTMLElement)) return
+
+      const el = t.closest('textarea, input, [contenteditable="true"]')
+      if (!(el instanceof HTMLElement)) return
+      if (el instanceof HTMLInputElement) {
+        const ty = String(el.getAttribute('type') || 'text').toLowerCase()
+        const ok = ['text', 'search', 'password', 'email', 'url', 'tel', 'number'].includes(ty)
+        if (!ok) return
+      }
+      if (!(typeof el.setPointerCapture === 'function')) return
+
+      try {
+        el.setPointerCapture(e.pointerId)
+        const release = () => {
+          try { el.releasePointerCapture(e.pointerId) } catch {}
+        }
+        el.addEventListener('pointerup', release, { once: true })
+        el.addEventListener('pointercancel', release, { once: true })
+      } catch {}
+    })
+
     root.addEventListener('pointerdown', (e) => {
       if (!(e instanceof PointerEvent)) return
       if (e.button !== 0) return
