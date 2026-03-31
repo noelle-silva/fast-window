@@ -5036,9 +5036,10 @@ function MermaidDialog(props: { open: boolean; controller: any; mermaid: any }) 
       open={open}
       onClose={() => controller.actions.closeModal()}
       fullScreen
+      BackdropProps={{ sx: { bgcolor: 'transparent' } }}
       PaperProps={{ sx: { bgcolor: 'transparent', boxShadow: 'none' } }}
     >
-      <Box sx={{ position: 'relative', width: '100vw', height: '100vh', bgcolor: 'rgba(0,0,0,.86)' }}>
+      <Box sx={{ position: 'relative', width: '100vw', height: '100vh', bgcolor: 'rgba(255,255,255,.86)' }}>
         <Box
           ref={setStageRef}
           onMouseDown={onStageMouseDown}
@@ -5059,7 +5060,7 @@ function MermaidDialog(props: { open: boolean; controller: any; mermaid: any }) 
             </Box>
           ) : (
             <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Typography color="rgba(255,255,255,.7)">无可预览的 Mermaid</Typography>
+              <Typography color="rgba(0,0,0,.7)">无可预览的 Mermaid</Typography>
             </Box>
           )}
         </Box>
