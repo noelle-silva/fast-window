@@ -12,7 +12,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "node scripts/tauri.mjs"
+    "tauri": "node scripts/tauri.mjs",
+    "host:bump": "node scripts/bump-host-version.mjs",
+    "host:bump:dry": "node scripts/bump-host-version.mjs --dry-run"
   },
   "dependencies": {
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
