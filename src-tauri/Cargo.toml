@@ -18,7 +18,7 @@ winreg = "0.55"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 base64 = "0.22"
 rfd = "0.14"
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 open = "5"
 windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_Graphics_Gdi"] }
 sha2 = "0.10"
