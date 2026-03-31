@@ -2260,6 +2260,36 @@
     return { ok: true, error: '' }
   }
 
+  // 修复：点击“保存”时可能还在输入法组合态（composition），导致 state.draft 尚未拿到最新值，
+  // 从而出现“需要点两次才真正保存”的错觉。保存前从 DOM 兜底同步一次草稿。
+  function syncDraftFromDom() {
+    const modal = document.querySelector('.modal')
+    if (!modal) return
+    const nodes = modal.querySelectorAll('[data-bind]')
+    if (!nodes || !nodes.length) return
+
+    for (const node of nodes) {
+      if (!(node instanceof HTMLElement)) continue
+      const bind = node.getAttribute('data-bind')
+      if (!bind) continue
+      if (!(bind in state.draft)) continue
+
+      if (node instanceof HTMLInputElement) {
+        if (String(node.type || '').toLowerCase() === 'checkbox') state.draft[bind] = !!node.checked
+        else state.draft[bind] = String(node.value || '')
+        continue
+      }
+      if (node instanceof HTMLTextAreaElement) {
+        state.draft[bind] = String(node.value || '')
+        continue
+      }
+      if (node instanceof HTMLSelectElement) {
+        state.draft[bind] = String(node.value || '')
+        continue
+      }
+    }
+  }
+
   function applyDraftPluginSettings() {
     if (!state.data) return { ok: false, error: '内部状态缺失' }
     state.data.autoSave = !!state.draft.autoSave
@@ -3640,10 +3670,22 @@
       const html = view()
       if (html === render._lastHtml) return
       render._lastHtml = html
+      const preservedModalScrollTop = (() => {
+        const el = document.querySelector('.modal')
+        if (!(el instanceof HTMLElement)) return null
+        const top = Number(el.scrollTop)
+        return Number.isFinite(top) ? top : null
+      })()
+      const preservedDocScrollTop = (() => {
+        const el = document.scrollingElement
+        if (!(el instanceof HTMLElement)) return null
+        const top = Number(el.scrollTop)
+        return Number.isFinite(top) ? top : null
+      })()
       const preservedScrollTops = (() => {
         const out = {}
-        // 参考图库：整页重绘会丢失滚动位置，导致“懒加载/点击选择”时跳回顶部
-        const ids = ['ref-lib-scroll', 'prompt-lib-scroll']
+        // 整页重绘会丢失滚动位置：包括主滚动容器（悬浮窗）以及若干内部滚动区
+        const ids = ['app', 'ref-lib-scroll', 'prompt-lib-scroll']
         for (const id of ids) {
           const el = document.getElementById(id)
           if (!el) continue
@@ -3657,6 +3699,14 @@
         const el = document.getElementById(id)
         if (!el) continue
         el.scrollTop = Number(top) || 0
+      }
+      if (preservedDocScrollTop !== null) {
+        const el = document.scrollingElement
+        if (el) el.scrollTop = Number(preservedDocScrollTop) || 0
+      }
+      if (preservedModalScrollTop !== null) {
+        const el = document.querySelector('.modal')
+        if (el) el.scrollTop = Number(preservedModalScrollTop) || 0
       }
     })
   }
@@ -3959,6 +4009,7 @@
       } else if (act === 'copy-image') {
         copyImage()
       } else if (act === 'save-settings') {
+        syncDraftFromDom()
         const r = applyDraftProviderToActiveProvider()
         if (!r.ok) return api.ui.showToast(r.error || '保存失败')
         save()
@@ -3966,6 +4017,7 @@
           .then(() => render())
           .catch((e) => api.ui.showToast(`保存失败：${String(e?.message || e)}`))
       } else if (act === 'save-provider-settings') {
+        syncDraftFromDom()
         const r = applyDraftProviderToActiveProvider()
         if (!r.ok) return api.ui.showToast(r.error || '保存失败')
         save()
@@ -3973,6 +4025,7 @@
           .then(() => render())
           .catch((e) => api.ui.showToast(`保存失败：${String(e?.message || e)}`))
       } else if (act === 'save-plugin-settings') {
+        syncDraftFromDom()
         const r = applyDraftPluginSettings()
         if (!r.ok) return api.ui.showToast(r.error || '保存失败')
         save()
