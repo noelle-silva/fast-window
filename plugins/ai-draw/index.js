@@ -385,9 +385,13 @@
         create: async (req) => {
           const kind = String(req && req.kind ? req.kind : '').trim()
           if (!kind) throw new Error('task kind is required')
+          const meta =
+            req && typeof req === 'object' && !Array.isArray(req) && req.meta && typeof req.meta === 'object' && !Array.isArray(req.meta)
+              ? req.meta
+              : null
           return tauri.invoke({
             command: 'task_create',
-            payload: { pluginId: PLUGIN_ID, req: { kind, payload: req && 'payload' in req ? req.payload : null } },
+            payload: { pluginId: PLUGIN_ID, req: { kind, payload: req && 'payload' in req ? req.payload : null, meta: meta || undefined } },
           })
         },
         get: async (taskId) => {
@@ -590,10 +594,16 @@
           const kind = String(task && task.kind ? task.kind : '')
           if (kind !== 'http.request') continue
 
+          const tagsRaw = task && task.meta && Array.isArray(task.meta.tags) ? task.meta.tags : []
+          const tags = Array.isArray(tagsRaw) ? tagsRaw.map((x) => String(x || '').trim()).filter(Boolean) : []
+          if (tags.includes('no-autosave')) continue
+
           const dataUrl = parseTaskImageData(task)
           if (!dataUrl) continue
 
-          const savedPath = await api.files.images.writeBase64({ scope: 'output', dataUrlOrBase64: dataUrl }).catch(() => '')
+          const savedPath = await api.files.images
+            .writeBase64({ scope: 'output', dataUrlOrBase64: dataUrl })
+            .catch(() => '')
           if (!savedPath) continue
 
           saved[taskId] = {
@@ -637,6 +647,9 @@
   const REF_SHRINK_IF_OVER_BYTES = 900 * 1024
   const UI_MODE_NORMAL = 'normal'
   const UI_MODE_LOCAL_EDIT = 'local-edit'
+
+  // 局部绘图任务需要在 UI 侧做“贴回原图”的合成，所以需要保存上下文。
+  const localEditContextByTaskId = new Map()
 
   const state = {
     loading: true,
@@ -2003,9 +2016,62 @@
 
   async function applyTaskCompletion(task) {
     const status = String(task?.status || '')
+    const taskId = String(task && task.id ? task.id : '').trim()
+
     if (status === 'succeeded') {
       try {
-        const taskId = String(task && task.id ? task.id : '').trim()
+        const localCtx = taskId ? localEditContextByTaskId.get(taskId) : null
+        const tagsRaw = task && task.meta && Array.isArray(task.meta.tags) ? task.meta.tags : []
+        const tags = Array.isArray(tagsRaw) ? tagsRaw.map((x) => String(x || '').trim()).filter(Boolean) : []
+
+        if (localCtx) {
+          localEditContextByTaskId.delete(taskId)
+
+          const r = task && task.result && typeof task.result === 'object' ? task.result : {}
+          const httpStatus = Number(r.status)
+          const bodyText = typeof r.body === 'string' ? r.body : ''
+          if (!Number.isFinite(httpStatus)) throw new Error('请求失败：无响应')
+          if (httpStatus < 200 || httpStatus >= 300) throw new Error(`HTTP ${httpStatus}：${parseErrorBody(bodyText)}`)
+
+          const patch = parseImageDataUrlFromHttpBodyText(bodyText)
+          if (!patch) throw new Error('未拿到图片数据（请确保服务端返回 base64 图片）')
+
+          const finalDataUrl = await compositePatchToBase(
+            String(localCtx.baseDataUrl || '').trim(),
+            String(patch || '').trim(),
+            localCtx.selPx,
+          )
+          if (!finalDataUrl) throw new Error('合成失败：无法把结果贴回原图')
+
+          state.imageDataUrl = finalDataUrl
+          state.savedPath = ''
+          // 便于多轮局部修改：把输出回填为新的编辑图，并清空选区。
+          state.edit.baseDataUrl = finalDataUrl
+          state.edit.baseW = Number(state.edit.baseW) || 0
+          state.edit.baseH = Number(state.edit.baseH) || 0
+          state.edit.sel = null
+          state.edit.drag = null
+          render()
+
+          if (state.data && state.data.autoSave) {
+            const rid = await enqueueBackgroundSave(finalDataUrl).catch(() => '')
+            if (!rid) throw new Error('保存失败：无法发起后台保存')
+            api.ui.showToast('已生成（保存中…）')
+            const savedPath = await waitBackgroundSaveResponse(rid).catch(() => '')
+            if (savedPath) {
+              state.savedPath = savedPath
+              await refreshImageHistoryFromOutputDir(state.savedPath)
+              api.ui.showToast('已生成并保存')
+            }
+          } else {
+            api.ui.showToast('已生成（已贴回选区）')
+          }
+          return
+        }
+
+        if (tags.includes('local-edit') || tags.includes('no-autosave')) {
+          throw new Error('局部绘图任务已完成，但上下文已丢失（请重新生成）')
+        }
 
         const bgSavedPath = state.data && state.data.autoSave ? await getBackgroundSavedPath(taskId) : ''
         if (bgSavedPath) {
@@ -2018,12 +2084,8 @@
         const r = task && task.result && typeof task.result === 'object' ? task.result : {}
         const httpStatus = Number(r.status)
         const bodyText = typeof r.body === 'string' ? r.body : ''
-        if (!Number.isFinite(httpStatus)) {
-          throw new Error('请求失败：无响应')
-        }
-        if (httpStatus < 200 || httpStatus >= 300) {
-          throw new Error(`HTTP ${httpStatus}：${parseErrorBody(bodyText)}`)
-        }
+        if (!Number.isFinite(httpStatus)) throw new Error('请求失败：无响应')
+        if (httpStatus < 200 || httpStatus >= 300) throw new Error(`HTTP ${httpStatus}：${parseErrorBody(bodyText)}`)
 
         const j = JSON.parse(String(bodyText || '{}'))
         const item = (Array.isArray(j?.data) && j.data[0]) || (Array.isArray(j?.images) && j.images[0]) || null
@@ -2069,18 +2131,19 @@
           render()
           api.ui.showToast('已生成')
         }
-        return
       } catch (e) {
         setError(String(e?.message || e))
-        return
       }
+      return
     }
 
     if (status === 'canceled') {
+      if (taskId) localEditContextByTaskId.delete(taskId)
       api.ui.showToast('任务已取消')
       return
     }
 
+    if (taskId) localEditContextByTaskId.delete(taskId)
     const err = String(task?.error || '').trim()
     setError(err || '生成失败')
   }
@@ -2822,55 +2885,45 @@
         throw new Error(`请求体过大（约 ${formatBytes(body.length)}）。请缩小选区/减少参考图/换更小图片。`)
       }
 
-      const res = await api.net.request({
-        method: 'POST',
-        url: `${base}/chat/completions`,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`,
+      const created = await api.task.create({
+        kind: TASK_KIND_HTTP_REQUEST,
+        meta: { tags: ['no-autosave', 'local-edit'] },
+        payload: {
+          method: 'POST',
+          url: `${base}/chat/completions`,
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body,
+          timeoutMs: 120000,
         },
-        body,
-        timeoutMs: 120000,
       })
 
-      const httpStatus = Number(res?.status)
-      const bodyText = typeof res?.body === 'string' ? res.body : ''
-      if (!Number.isFinite(httpStatus)) throw new Error('请求失败：无响应')
-      if (httpStatus < 200 || httpStatus >= 300) throw new Error(`HTTP ${httpStatus}：${parseErrorBody(bodyText)}`)
+      const taskId = String(created && created.id ? created.id : '').trim()
+      if (!taskId) throw new Error('创建后台任务失败')
 
-      const patch = parseImageDataUrlFromHttpBodyText(bodyText)
-      if (!patch) throw new Error('未拿到图片数据（请确保服务端返回 base64 图片）')
+      localEditContextByTaskId.set(taskId, {
+        baseDataUrl: baseUrl,
+        selPx,
+        prompt,
+        at: Date.now(),
+      })
 
-      const finalDataUrl = await compositePatchToBase(baseUrl, String(patch || '').trim(), selPx)
-      if (!finalDataUrl) throw new Error('合成失败：无法把结果贴回原图')
-
-      state.imageDataUrl = finalDataUrl
-      state.savedPath = ''
-      // 便于多轮局部修改：把输出回填为新的编辑图，并清空选区。
-      state.edit.baseDataUrl = finalDataUrl
-      state.edit.baseW = Number(state.edit.baseW) || 0
-      state.edit.baseH = Number(state.edit.baseH) || 0
-      state.edit.sel = null
-      state.edit.drag = null
-      render()
-
-      if (state.data && state.data.autoSave) {
-        const rid = await enqueueBackgroundSave(finalDataUrl).catch(() => '')
-        if (!rid) throw new Error('保存失败：无法发起后台保存')
-        api.ui.showToast('已生成（保存中…）')
-        const savedPath = await waitBackgroundSaveResponse(rid).catch(() => '')
-        if (savedPath) {
-          state.savedPath = savedPath
-          await refreshImageHistoryFromOutputDir(state.savedPath)
-          api.ui.showToast('已生成并保存')
-        }
-      } else {
-        api.ui.showToast('已生成（已贴回选区）')
+      upsertTask({ id: taskId, status: 'pending', prompt, at: Date.now() })
+      if (state.data) {
+        state.data.pendingTaskId = taskId
+        await save().catch(() => {})
       }
+
+      api.ui.showToast('已提交任务（局部）')
+      state.submitting = false
+      render()
+      pollTasks()
     } catch (e) {
       setError(String(e?.message || e))
     } finally {
-      state.submitting = false
+      if (state.submitting) state.submitting = false
       render()
     }
   }
