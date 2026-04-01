@@ -48,12 +48,12 @@
     }
   }
 
-  function createCompatApi(baseApi) {
-    const base = baseApi || {}
-    const tauri = base && base.tauri ? base.tauri : null
-    if (!tauri || typeof tauri.invoke !== 'function') {
-      throw new Error('tauri.invoke 不可用（请更新宿主网关）')
-    }
+	  function createCompatApi(baseApi) {
+	    const base = baseApi || {}
+	    const tauri = base && base.tauri ? base.tauri : null
+	    if (!tauri || typeof tauri.invoke !== 'function') {
+	      throw new Error('tauri.invoke 不可用（请更新宿主网关）')
+	    }
 
     const toast = createToast()
 
@@ -409,14 +409,89 @@
           return tauri.invoke({ command: 'task_cancel', payload: { pluginId: PLUGIN_ID, taskId: tid } })
         },
       },
-    }
-  }
+	    }
+	  }
 
-  const api = createCompatApi(window.fastWindow)
-  window.fastWindow = api
-  const runtime = String((api && api.__meta && api.__meta.runtime) || 'ui')
+	  function normalizeImageBase64(s) {
+	    const raw = String(s || '').trim()
+	    if (!raw) return ''
+	    let v = raw
+	    const dataUrlPrefix = v.match(/^data:image\/[a-z0-9+.-]+;base64,/i)
+	    if (dataUrlPrefix && dataUrlPrefix[0]) v = v.slice(dataUrlPrefix[0].length)
+	    v = v.replace(/\s+/g, '')
+	    // 兼容 base64url（某些网关/供应商会返回 -_）
+	    v = v.replace(/-/g, '+').replace(/_/g, '/')
+	    const mod = v.length % 4
+	    if (mod === 1) return ''
+	    if (mod === 2) v += '=='
+	    else if (mod === 3) v += '='
+	    return v
+	  }
 
-  if (runtime === 'background') {
+	  function inferImageMimeFromBase64(b64) {
+	    const s = normalizeImageBase64(b64)
+	    if (!s) return ''
+	    const head = s.slice(0, 16)
+	    if (head.startsWith('iVBORw0KGgo')) return 'image/png'
+	    if (head.startsWith('/9j/')) return 'image/jpeg'
+	    if (head.startsWith('UklGR')) return 'image/webp'
+	    if (head.startsWith('R0lGOD')) return 'image/gif'
+	    return 'image/png'
+	  }
+
+	  function toImageDataUrlFromBase64(b64) {
+	    const s = normalizeImageBase64(b64)
+	    if (!s) return ''
+	    const mime = inferImageMimeFromBase64(s) || 'image/png'
+	    return `data:${mime};base64,${s}`
+	  }
+
+		  function normalizeImageDataUrlOrBase64(input) {
+		    const s = String(input || '').trim()
+		    if (!s) return ''
+		    if (s.startsWith('http://') || s.startsWith('https://')) return s
+		    if (s.startsWith('data:image/')) {
+		      const i = s.indexOf('base64,')
+		      if (i < 0) return s
+		      const prefix = s.slice(0, i + 'base64,'.length)
+		      const rest = s.slice(i + 'base64,'.length)
+		      const norm = normalizeImageBase64(rest)
+		      return norm ? prefix + norm : s
+		    }
+		    return toImageDataUrlFromBase64(s)
+		  }
+
+		  function clampTextForPreview(text, limit) {
+		    const s = String(text ?? '')
+		    const lim = typeof limit === 'number' && Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 0
+		    if (!lim || s.length <= lim) return { text: s, truncated: false, total: s.length }
+		    return { text: s.slice(0, lim), truncated: true, total: s.length }
+		  }
+
+		  function redactAuthHeaders(headers) {
+		    const h = headers && typeof headers === 'object' && !Array.isArray(headers) ? { ...headers } : {}
+		    if ('Authorization' in h) h.Authorization = 'Bearer ***'
+		    if ('authorization' in h) h.authorization = 'Bearer ***'
+		    return h
+		  }
+
+		  function formatDebugHttpRequest(req) {
+		    const r = req && typeof req === 'object' ? req : {}
+		    const method = String(r.method || '').trim() || 'POST'
+		    const url = String(r.url || '').trim()
+		    const headers = redactAuthHeaders(r.headers)
+		    const headerLines = Object.entries(headers)
+		      .map(([k, v]) => `${String(k)}: ${String(v)}`)
+		      .join('\n')
+		    const body = typeof r.body === 'string' ? r.body : ''
+		    return `${method} ${url}${headerLines ? `\n${headerLines}` : ''}${body ? `\n\n${body}` : ''}`
+		  }
+
+		  const api = createCompatApi(window.fastWindow)
+		  window.fastWindow = api
+		  const runtime = String((api && api.__meta && api.__meta.runtime) || 'ui')
+
+	  if (runtime === 'background') {
     const SETTINGS_KEY = 'settings'
     const SAVED_RESULTS_KEY = 'bgSavedResults'
     const SAVE_REQUESTS_KEY = 'bgSaveRequests'
@@ -438,28 +513,28 @@
       return raw
     }
 
-    function extractImageFromText(text) {
-      const s = String(text || '').trim()
-      if (!s) return ''
+	    function extractImageFromText(text) {
+	      const s = String(text || '').trim()
+	      if (!s) return ''
 
-      const dataUrlMatch = s.match(/data:image\/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=\r\n]+/i)
-      if (dataUrlMatch && dataUrlMatch[0]) return dataUrlMatch[0]
+	      const dataUrlMatch = s.match(/data:image\/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=\r\n]+/i)
+	      if (dataUrlMatch && dataUrlMatch[0]) return normalizeImageDataUrlOrBase64(dataUrlMatch[0])
 
       const maybeJson = stripCodeFences(s)
       try {
-        const j = JSON.parse(maybeJson)
-        const dataUrl = j?.data_url || j?.dataUrl || j?.image || j?.image_data_url
-        if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) return dataUrl.trim()
-        const b64 = j?.b64_png || j?.b64_json || j?.b64 || j?.base64 || j?.image_base64 || j?.png_base64
-        if (typeof b64 === 'string' && b64.trim()) return `data:image/png;base64,${b64.trim()}`
-      } catch {}
+	        const j = JSON.parse(maybeJson)
+	        const dataUrl = j?.data_url || j?.dataUrl || j?.image || j?.image_data_url
+	        if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) return normalizeImageDataUrlOrBase64(dataUrl)
+	        const b64 = j?.b64_png || j?.b64_json || j?.b64 || j?.base64 || j?.image_base64 || j?.png_base64
+	        if (typeof b64 === 'string' && b64.trim()) return toImageDataUrlFromBase64(b64)
+	      } catch {}
 
-      if (/^[A-Za-z0-9+/=\r\n]+$/.test(s) && s.length > 200) {
-        return `data:image/png;base64,${s.replace(/\s+/g, '')}`
-      }
+	      if (/^[A-Za-z0-9+/=\r\n]+$/.test(s) && s.length > 200) {
+	        return toImageDataUrlFromBase64(s)
+	      }
 
-      return ''
-    }
+	      return ''
+	    }
 
     function parseTaskImageData(task) {
       const result = task && task.result && typeof task.result === 'object' ? task.result : {}
@@ -478,18 +553,18 @@
         return extractImageFromText(bodyText)
       }
 
-      const item = (Array.isArray(parsed?.data) && parsed.data[0]) || (Array.isArray(parsed?.images) && parsed.images[0]) || null
-      const b64 = item?.b64_json || item?.b64 || item?.base64 || ''
-      const direct = typeof item?.data_url === 'string' ? item.data_url : typeof item?.dataUrl === 'string' ? item.dataUrl : ''
-      const content =
-        (Array.isArray(parsed?.choices) && parsed.choices[0] && parsed.choices[0].message && parsed.choices[0].message.content) || ''
+	      const item = (Array.isArray(parsed?.data) && parsed.data[0]) || (Array.isArray(parsed?.images) && parsed.images[0]) || null
+	      const b64 = item?.b64_json || item?.b64 || item?.base64 || ''
+	      const direct = typeof item?.data_url === 'string' ? item.data_url : typeof item?.dataUrl === 'string' ? item.dataUrl : ''
+	      const content =
+	        (Array.isArray(parsed?.choices) && parsed.choices[0] && parsed.choices[0].message && parsed.choices[0].message.content) || ''
 
-      return (
-        (direct && String(direct).trim()) ||
-        (b64 && `data:image/png;base64,${String(b64).trim()}`) ||
-        extractImageFromText(content)
-      )
-    }
+	      return (
+	        (direct && normalizeImageDataUrlOrBase64(direct)) ||
+	        (b64 && toImageDataUrlFromBase64(b64)) ||
+	        extractImageFromText(content)
+	      )
+	    }
 
     function trimSavedResults(map) {
       const entries = Object.entries(map || {})
@@ -643,15 +718,16 @@
   const TASK_KIND_HTTP_REQUEST = 'http.request'
   const TASK_POLL_INTERVAL = 1200
   const MAX_TASK_JSON_BODY_CHARS = 10 * 1024 * 1024 // 约 10MB，给后端留余量
-  const REF_SHRINK_MAX_DIMENSION = 960
-  const REF_SHRINK_IF_OVER_BYTES = 900 * 1024
-  const UI_MODE_NORMAL = 'normal'
-  const UI_MODE_LOCAL_EDIT = 'local-edit'
+	  const REF_SHRINK_MAX_DIMENSION = 960
+	  const REF_SHRINK_IF_OVER_BYTES = 900 * 1024
+	  const UI_MODE_NORMAL = 'normal'
+	  const UI_MODE_LOCAL_EDIT = 'local-edit'
+	  const RAW_PREVIEW_LIMIT = 60000
 
-  // 局部绘图任务需要在 UI 侧做“贴回原图”的合成，所以需要保存上下文。
-  const localEditContextByTaskId = new Map()
+	  // 局部绘图任务需要在 UI 侧做“贴回原图”的合成，所以需要保存上下文。
+	  const localEditContextByTaskId = new Map()
 
-  const state = {
+	  const state = {
     loading: true,
     busy: false,
     submitting: false,
@@ -680,11 +756,18 @@
     savedPath: '',
     currentTaskId: '',
     tasks: [],
-    taskPollTimer: null,
-    taskPolling: false,
-    refLibraryLoading: false,
-    refLibraryBusy: false,
-    refLibraryItems: [],
+	    taskPollTimer: null,
+		    taskPolling: false,
+		    bgSaveWatchTaskId: '',
+		    bgSaveWatchStartedAt: 0,
+		    bgSaveWatchTimer: null,
+		    debugRawOpen: false,
+		    debugRawShowAll: false,
+		    lastHttpRequest: null, // { at, method, url, headers, body }
+		    lastHttpResponse: null, // { at, taskId, status, httpStatus, bodyText }
+		    refLibraryLoading: false,
+		    refLibraryBusy: false,
+		    refLibraryItems: [],
     refLibrarySelected: {},
     refLibraryPaths: [],
     refLibraryCursor: 0,
@@ -747,13 +830,16 @@
     .split{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; }
     @media (max-width:860px){ .split{ grid-template-columns:1fr; } }
     .card{ background:var(--card); border:1px solid var(--line); border-radius:var(--r); padding:12px; box-shadow: 0 8px 24px rgba(17,24,39,0.06); }
-    .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-    .row.nowrap{ flex-wrap:nowrap; }
-    .sp{ margin-left:auto; }
-    .meta{ font-size:12px; color:var(--muted); margin-top:6px; }
-    .field{ width:100%; border:1px solid var(--line); background:#ffffff; color:var(--text); border-radius:10px; padding:9px 10px; font-size:12px; outline:none; }
-    .field.sm{ width:auto; min-width: 180px; }
-    .row.nowrap .field.sm{ min-width: 140px; }
+	    .row{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+	    .row.nowrap{ flex-wrap:nowrap; }
+	    .sp{ margin-left:auto; }
+	    .meta{ font-size:12px; color:var(--muted); margin-top:6px; }
+	    .rawPanel{ border:1px dashed var(--line); border-radius:12px; background:#fafafa; padding:10px; margin-top:10px; }
+	    .rawText{ white-space:pre; overflow:auto; max-height:220px; border:1px solid var(--line); border-radius:10px; background:#fff; padding:8px; font-size:11px; line-height:1.35; }
+	    .rawHint{ font-size:11px; color:var(--muted); margin-top:6px; }
+	    .field{ width:100%; border:1px solid var(--line); background:#ffffff; color:var(--text); border-radius:10px; padding:9px 10px; font-size:12px; outline:none; }
+	    .field.sm{ width:auto; min-width: 180px; }
+	    .row.nowrap .field.sm{ min-width: 140px; }
     .row.nowrap .meta{ white-space:nowrap; }
     .field.xs{ width: 48px; min-width: 48px; }
     .ta{ resize:none; min-height: 180px; }
@@ -1792,16 +1878,63 @@
     return ''
   }
 
-  async function enqueueBackgroundSave(dataUrl) {
-    const data = String(dataUrl || '').trim()
-    if (!data) return ''
-    const rid = `save-${Date.now()}-${Math.random().toString(16).slice(2)}`
-    const raw = await api.storage.get(BG_SAVE_REQUESTS_KEY).catch(() => null)
-    const map = raw && typeof raw === 'object' ? { ...raw } : {}
-    map[rid] = { dataUrl: data, at: Date.now(), by: 'ui' }
-    await api.storage.set(BG_SAVE_REQUESTS_KEY, map).catch(() => {})
-    return rid
-  }
+	  async function enqueueBackgroundSave(dataUrl) {
+	    const data = String(dataUrl || '').trim()
+	    if (!data) return ''
+	    const rid = `save-${Date.now()}-${Math.random().toString(16).slice(2)}`
+	    const raw = await api.storage.get(BG_SAVE_REQUESTS_KEY).catch(() => null)
+	    const map = raw && typeof raw === 'object' ? { ...raw } : {}
+	    map[rid] = { dataUrl: data, at: Date.now(), by: 'ui' }
+	    await api.storage.set(BG_SAVE_REQUESTS_KEY, map).catch(() => {})
+	    return rid
+	  }
+
+	  function stopBackgroundSavedPathWatcher() {
+	    if (state.bgSaveWatchTimer) {
+	      clearTimeout(state.bgSaveWatchTimer)
+	      state.bgSaveWatchTimer = null
+	    }
+	    state.bgSaveWatchTaskId = ''
+	    state.bgSaveWatchStartedAt = 0
+	  }
+
+	  async function tickBackgroundSavedPathWatcher() {
+	    const tid = String(state.bgSaveWatchTaskId || '').trim()
+	    if (!tid) return stopBackgroundSavedPathWatcher()
+	    if (state.savedPath) return stopBackgroundSavedPathWatcher()
+	    const startedAt = Number(state.bgSaveWatchStartedAt) || 0
+	    if (startedAt && Date.now() - startedAt > 2 * 60 * 1000) return stopBackgroundSavedPathWatcher()
+
+	    const hit = await getBackgroundSavedPath(tid).catch(() => '')
+	    if (hit) {
+	      // 仅在当前仍处于“未保存”状态时回填，避免用户已切换图片时被覆盖。
+	      if (!state.savedPath) {
+	        state.error = ''
+	        state.savedPath = String(hit || '')
+	        await refreshImageHistoryFromOutputDir(state.savedPath)
+	        render()
+	        api.ui.showToast('已生成并保存')
+	      }
+	      stopBackgroundSavedPathWatcher()
+	      return
+	    }
+
+	    state.bgSaveWatchTimer = setTimeout(() => {
+	      void tickBackgroundSavedPathWatcher()
+	    }, 900)
+	  }
+
+	  function startBackgroundSavedPathWatcher(taskId) {
+	    const tid = String(taskId || '').trim()
+	    if (!tid) return
+	    if (state.bgSaveWatchTaskId === tid && state.bgSaveWatchTimer) return
+	    stopBackgroundSavedPathWatcher()
+	    state.bgSaveWatchTaskId = tid
+	    state.bgSaveWatchStartedAt = Date.now()
+	    state.bgSaveWatchTimer = setTimeout(() => {
+	      void tickBackgroundSavedPathWatcher()
+	    }, 900)
+	  }
 
   function syncPromptHistoryToData(persist = false) {
     if (!state.data) return
@@ -1867,47 +2000,47 @@
     return raw
   }
 
-  function extractImageFromText(text) {
-    const s = String(text || '').trim()
-    if (!s) return ''
+	  function extractImageFromText(text) {
+	    const s = String(text || '').trim()
+	    if (!s) return ''
 
-    const dataUrlMatch = s.match(/data:image\/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=\r\n]+/i)
-    if (dataUrlMatch && dataUrlMatch[0]) return dataUrlMatch[0]
+	    const dataUrlMatch = s.match(/data:image\/(png|jpeg|jpg|webp);base64,[A-Za-z0-9+/=\r\n]+/i)
+	    if (dataUrlMatch && dataUrlMatch[0]) return normalizeImageDataUrlOrBase64(dataUrlMatch[0])
 
     const maybeJson = stripCodeFences(s)
-    try {
-      const j = JSON.parse(maybeJson)
-      const dataUrl = j?.data_url || j?.dataUrl || j?.image || j?.image_data_url
-      if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) return dataUrl.trim()
-      const b64 = j?.b64_png || j?.b64_json || j?.b64 || j?.base64 || j?.image_base64 || j?.png_base64
-      if (typeof b64 === 'string' && b64.trim()) return `data:image/png;base64,${b64.trim()}`
-    } catch {}
+	    try {
+	      const j = JSON.parse(maybeJson)
+	      const dataUrl = j?.data_url || j?.dataUrl || j?.image || j?.image_data_url
+	      if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) return normalizeImageDataUrlOrBase64(dataUrl)
+	      const b64 = j?.b64_png || j?.b64_json || j?.b64 || j?.base64 || j?.image_base64 || j?.png_base64
+	      if (typeof b64 === 'string' && b64.trim()) return toImageDataUrlFromBase64(b64)
+	    } catch {}
 
-    if (/^[A-Za-z0-9+/=\r\n]+$/.test(s) && s.length > 200) {
-      return `data:image/png;base64,${s.replace(/\s+/g, '')}`
-    }
+	    if (/^[A-Za-z0-9+/=\r\n]+$/.test(s) && s.length > 200) {
+	      return toImageDataUrlFromBase64(s)
+	    }
 
-    return ''
-  }
+	    return ''
+	  }
 
-  function parseImageDataUrlFromHttpBodyText(bodyText) {
-    const raw = String(bodyText || '')
-    try {
-      const j = JSON.parse(raw)
-      const item = (Array.isArray(j?.data) && j.data[0]) || (Array.isArray(j?.images) && j.images[0]) || null
-      const b64 = item?.b64_json || item?.b64 || item?.base64 || ''
-      const direct = typeof item?.data_url === 'string' ? item.data_url : typeof item?.dataUrl === 'string' ? item.dataUrl : ''
-      const content = (Array.isArray(j?.choices) && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || ''
-      return (
-        (direct && String(direct).trim()) ||
-        (b64 && `data:image/png;base64,${String(b64).trim()}`) ||
-        extractImageFromText(content) ||
-        extractImageFromText(raw)
-      )
-    } catch {
-      return extractImageFromText(raw)
-    }
-  }
+	  function parseImageDataUrlFromHttpBodyText(bodyText) {
+	    const raw = String(bodyText || '')
+	    try {
+	      const j = JSON.parse(raw)
+	      const item = (Array.isArray(j?.data) && j.data[0]) || (Array.isArray(j?.images) && j.images[0]) || null
+	      const b64 = item?.b64_json || item?.b64 || item?.base64 || ''
+	      const direct = typeof item?.data_url === 'string' ? item.data_url : typeof item?.dataUrl === 'string' ? item.dataUrl : ''
+	      const content = (Array.isArray(j?.choices) && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || ''
+	      return (
+	        (direct && normalizeImageDataUrlOrBase64(direct)) ||
+	        (b64 && toImageDataUrlFromBase64(b64)) ||
+	        extractImageFromText(content) ||
+	        extractImageFromText(raw)
+	      )
+	    } catch {
+	      return extractImageFromText(raw)
+	    }
+	  }
 
   function isTaskDone(status) {
     return status === 'succeeded' || status === 'failed' || status === 'canceled'
@@ -2014,13 +2147,26 @@
     }
   }
 
-  async function applyTaskCompletion(task) {
-    const status = String(task?.status || '')
-    const taskId = String(task && task.id ? task.id : '').trim()
+	  async function applyTaskCompletion(task) {
+	    const status = String(task?.status || '')
+	    const taskId = String(task && task.id ? task.id : '').trim()
 
-    if (status === 'succeeded') {
-      try {
-        const localCtx = taskId ? localEditContextByTaskId.get(taskId) : null
+	    const rr = task && task.result && typeof task.result === 'object' ? task.result : null
+	    const rawHttpStatus = rr ? Number(rr.status) : NaN
+	    const rawBodyText = rr && typeof rr.body === 'string' ? rr.body : ''
+	    if ((Number.isFinite(rawHttpStatus) && rawHttpStatus > 0) || (rawBodyText && String(rawBodyText).trim())) {
+	      state.lastHttpResponse = {
+	        at: Date.now(),
+	        taskId,
+	        status,
+	        httpStatus: Number.isFinite(rawHttpStatus) ? rawHttpStatus : null,
+	        bodyText: typeof rawBodyText === 'string' ? rawBodyText : '',
+	      }
+	    }
+
+	    if (status === 'succeeded') {
+	      try {
+	        const localCtx = taskId ? localEditContextByTaskId.get(taskId) : null
         const tagsRaw = task && task.meta && Array.isArray(task.meta.tags) ? task.meta.tags : []
         const tags = Array.isArray(tagsRaw) ? tagsRaw.map((x) => String(x || '').trim()).filter(Boolean) : []
 
@@ -2073,13 +2219,14 @@
           throw new Error('局部绘图任务已完成，但上下文已丢失（请重新生成）')
         }
 
-        const bgSavedPath = state.data && state.data.autoSave ? await getBackgroundSavedPath(taskId) : ''
-        if (bgSavedPath) {
-          state.savedPath = bgSavedPath
-          await refreshImageHistoryFromOutputDir(state.savedPath)
-          api.ui.showToast('已生成并保存')
-          return
-        }
+	        const bgSavedPath = state.data && state.data.autoSave ? await getBackgroundSavedPath(taskId) : ''
+	        if (bgSavedPath) {
+	          state.savedPath = bgSavedPath
+	          await refreshImageHistoryFromOutputDir(state.savedPath)
+	          stopBackgroundSavedPathWatcher()
+	          api.ui.showToast('已生成并保存')
+	          return
+	        }
 
         const r = task && task.result && typeof task.result === 'object' ? task.result : {}
         const httpStatus = Number(r.status)
@@ -2087,21 +2234,21 @@
         if (!Number.isFinite(httpStatus)) throw new Error('请求失败：无响应')
         if (httpStatus < 200 || httpStatus >= 300) throw new Error(`HTTP ${httpStatus}：${parseErrorBody(bodyText)}`)
 
-        const j = JSON.parse(String(bodyText || '{}'))
-        const item = (Array.isArray(j?.data) && j.data[0]) || (Array.isArray(j?.images) && j.images[0]) || null
-        const b64 = item?.b64_json || item?.b64 || item?.base64 || ''
-        const direct =
-          typeof item?.data_url === 'string'
-            ? item.data_url
-            : typeof item?.dataUrl === 'string'
-              ? item.dataUrl
-              : ''
+	        const j = JSON.parse(String(bodyText || '{}'))
+	        const item = (Array.isArray(j?.data) && j.data[0]) || (Array.isArray(j?.images) && j.images[0]) || null
+	        const b64 = item?.b64_json || item?.b64 || item?.base64 || ''
+	        const direct =
+	          typeof item?.data_url === 'string'
+	            ? item.data_url
+	            : typeof item?.dataUrl === 'string'
+	              ? item.dataUrl
+	              : ''
         const content =
           (Array.isArray(j?.choices) && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || ''
-        const dataUrl =
-          (direct && String(direct).trim()) ||
-          (b64 && `data:image/png;base64,${String(b64).trim()}`) ||
-          extractImageFromText(content)
+	        const dataUrl =
+	          (direct && normalizeImageDataUrlOrBase64(direct)) ||
+	          (b64 && toImageDataUrlFromBase64(b64)) ||
+	          extractImageFromText(content)
 
         if (!dataUrl) {
           if (item?.url) {
@@ -2110,32 +2257,35 @@
           throw new Error('未拿到图片数据（b64_json）')
         }
 
-        const generatedDataUrl = String(dataUrl).trim()
-        if (state.data && state.data.autoSave) {
+	        const generatedDataUrl = String(dataUrl).trim()
+	        if (state.data && state.data.autoSave) {
           // 让 background 成为单一写入者：UI 只展示图片，并等待 background 写入完成后刷新 savedPath。
           state.imageDataUrl = generatedDataUrl
           state.savedPath = ''
           render()
 
-          const waited = await waitBackgroundSavedPath(taskId, 6000, 250)
-          if (waited) {
-            state.savedPath = String(waited || '')
-            await refreshImageHistoryFromOutputDir(state.savedPath)
-            api.ui.showToast('已生成并保存')
-            return
-          }
+	          const waited = await waitBackgroundSavedPath(taskId, 20000, 250)
+	          if (waited) {
+	            state.savedPath = String(waited || '')
+	            await refreshImageHistoryFromOutputDir(state.savedPath)
+	            stopBackgroundSavedPathWatcher()
+	            api.ui.showToast('已生成并保存')
+	            return
+	          }
 
-          api.ui.showToast('已生成（后台保存中…）')
-        } else {
-          state.imageDataUrl = generatedDataUrl
-          render()
-          api.ui.showToast('已生成')
-        }
-      } catch (e) {
-        setError(String(e?.message || e))
-      }
-      return
-    }
+	          api.ui.showToast('已生成（后台保存中…）')
+	          startBackgroundSavedPathWatcher(taskId)
+	        } else {
+	          state.imageDataUrl = generatedDataUrl
+	          render()
+	          api.ui.showToast('已生成')
+	        }
+	      } catch (e) {
+	        setError(String(e?.message || e))
+	        if (state.data && state.data.autoSave && taskId) startBackgroundSavedPathWatcher(taskId)
+	      }
+	      return
+	    }
 
     if (status === 'canceled') {
       if (taskId) localEditContextByTaskId.delete(taskId)
@@ -2821,12 +2971,13 @@
     )
   }
 
-  async function generateLocalEdit() {
-    const prompt = String(state.prompt || '').trim()
-    if (!prompt) {
-      setError('请输入提示词')
-      return
-    }
+		  async function generateLocalEdit() {
+		    stopBackgroundSavedPathWatcher()
+		    const prompt = String(state.prompt || '').trim()
+		    if (!prompt) {
+		      setError('请输入提示词')
+		      return
+		    }
 
     const baseUrl = String(state.edit?.baseDataUrl || '').trim()
     if (!baseUrl.startsWith('data:image/')) {
@@ -2866,10 +3017,11 @@
       return
     }
 
-    state.submitting = true
-    state.error = ''
-    addPromptHistory(prompt)
-    render()
+	    state.submitting = true
+	    state.error = ''
+	    state.lastHttpResponse = null
+	    addPromptHistory(prompt)
+	    render()
 
     try {
       const cropPng = await cropDataUrlByPixels(baseUrl, selPx)
@@ -2893,9 +3045,9 @@
         if (String(safeUrl || '').startsWith('data:image/')) refForSend.push(safeUrl)
       }
 
-      const body = JSON.stringify({
-        model,
-        messages: [
+	      const body = JSON.stringify({
+	        model,
+	        messages: [
           ...(String(p?.chatSystemPrompt || '').trim()
             ? [{ role: 'system', content: String(p?.chatSystemPrompt || '').trim() }]
             : []),
@@ -2908,12 +3060,23 @@
             ],
           },
         ],
-        temperature: 0.2,
-      })
+	        temperature: 0.2,
+	      })
 
-      if (body.length > MAX_TASK_JSON_BODY_CHARS) {
-        throw new Error(`请求体过大（约 ${formatBytes(body.length)}）。请缩小选区/减少参考图/换更小图片。`)
-      }
+	      state.lastHttpRequest = {
+	        at: Date.now(),
+	        method: 'POST',
+	        url: `${base}/chat/completions`,
+	        headers: redactAuthHeaders({
+	          'Content-Type': 'application/json',
+	          Authorization: `Bearer ${apiKey}`,
+	        }),
+	        body,
+	      }
+
+	      if (body.length > MAX_TASK_JSON_BODY_CHARS) {
+	        throw new Error(`请求体过大（约 ${formatBytes(body.length)}）。请缩小选区/减少参考图/换更小图片。`)
+	      }
 
       const created = await api.task.create({
         kind: TASK_KIND_HTTP_REQUEST,
@@ -2958,11 +3121,12 @@
     }
   }
 
-  async function generate() {
-    if (state.data && normalizeUiMode(state.data.uiMode) === UI_MODE_LOCAL_EDIT) {
-      await generateLocalEdit()
-      return
-    }
+	  async function generate() {
+	    stopBackgroundSavedPathWatcher()
+	    if (state.data && normalizeUiMode(state.data.uiMode) === UI_MODE_LOCAL_EDIT) {
+	      await generateLocalEdit()
+	      return
+	    }
 
     const prompt = String(state.prompt || '').trim()
     if (!prompt) {
@@ -2994,10 +3158,11 @@
     const batch = normalizeBatchCount(rawBatch)
     if (String(batch) !== rawBatch.trim()) state.batchCount = String(batch)
 
-    state.submitting = true
-    state.error = ''
-    addPromptHistory(prompt)
-    render()
+	    state.submitting = true
+	    state.error = ''
+	    state.lastHttpResponse = null
+	    addPromptHistory(prompt)
+	    render()
 
     const protocol = String(p?.protocol || 'images') === 'chat' ? 'chat' : 'images'
     const refUrls = (Array.isArray(state.refImages) ? state.refImages : [])
@@ -3043,19 +3208,27 @@
       return
     }
 
-    const req = {
-      mode: 'task',
-      method: 'POST',
-      url: protocol === 'chat' ? `${baseUrl}/chat/completions` : `${baseUrl}/images/generations`,
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body,
-      timeoutMs: 120000,
-    }
+	    const req = {
+	      mode: 'task',
+	      method: 'POST',
+	      url: protocol === 'chat' ? `${baseUrl}/chat/completions` : `${baseUrl}/images/generations`,
+	      headers: {
+	        'Content-Type': 'application/json',
+	        Authorization: `Bearer ${apiKey}`,
+	      },
+	      body,
+	      timeoutMs: 120000,
+	    }
 
-    try {
+	    state.lastHttpRequest = {
+	      at: Date.now(),
+	      method: req.method,
+	      url: req.url,
+	      headers: redactAuthHeaders(req.headers),
+	      body: req.body,
+	    }
+
+	    try {
       const results = await Promise.allSettled(
         Array.from({ length: batch }, () => api.net.request({ ...req })),
       )
@@ -3136,11 +3309,57 @@
         ? `<div class="imgBox" aria-label="生成结果"><img alt="AI 绘图结果" src="${esc(state.imageDataUrl)}" /></div>`
         : `<div class="imgBox" aria-label="空结果"><div class="empty">等待出图…<div style="margin-top:10px">提示：结果默认会保存到 <span class="mono">data/ai-draw/output</span>（兼容旧目录 output-images）</div></div></div>`
 
-    const saved = state.savedPath
-      ? `<div class="meta mono" title="${esc(state.savedPath)}">已保存：${esc(state.savedPath)}</div>`
-      : `<div class="meta">未保存（或尚未生成）</div>`
+	    const saved = state.savedPath
+	      ? `<div class="meta mono" title="${esc(state.savedPath)}">已保存：${esc(state.savedPath)}</div>`
+	      : `<div class="meta">未保存（或尚未生成）</div>`
 
-    const err = state.error ? `<div class="err" role="alert">${esc(state.error)}</div>` : ''
+	    const lastReq = state.lastHttpRequest && typeof state.lastHttpRequest === 'object' ? state.lastHttpRequest : null
+	    const lastRes = state.lastHttpResponse && typeof state.lastHttpResponse === 'object' ? state.lastHttpResponse : null
+	    const reqText = lastReq ? formatDebugHttpRequest(lastReq) : ''
+	    const resText = lastRes && typeof lastRes.bodyText === 'string' ? lastRes.bodyText : ''
+	    const reqPreview = clampTextForPreview(reqText, state.debugRawShowAll ? 0 : RAW_PREVIEW_LIMIT)
+	    const resPreview = clampTextForPreview(resText, state.debugRawShowAll ? 0 : RAW_PREVIEW_LIMIT)
+	    const needShowAllBtn = reqPreview.truncated || resPreview.truncated
+	    const resHttpText = lastRes && lastRes.httpStatus ? `HTTP ${String(lastRes.httpStatus)}` : ''
+	    const rawDebug =
+	      lastReq || lastRes
+	        ? `<div class="rawPanel" aria-label="调试：请求/响应原文">
+	            <div class="row">
+	              <div class="meta" style="margin-top:0">调试：原文</div>
+	              <div class="sp"></div>
+	              ${
+	                needShowAllBtn
+	                  ? `<button class="btn" data-act="toggle-debug-raw-showall">${state.debugRawShowAll ? '仅预览' : '显示全部'}</button>`
+	                  : ''
+	              }
+	              <button class="btn" data-act="toggle-debug-raw">${state.debugRawOpen ? '收起' : '展开'}</button>
+	              <button class="btn" data-act="copy-last-request" ${lastReq ? '' : 'disabled'}>复制请求</button>
+	              <button class="btn" data-act="copy-last-response" ${lastRes ? '' : 'disabled'}>复制响应</button>
+	              <button class="btn bad" data-act="clear-last-raw">清空</button>
+	            </div>
+	            ${
+	              state.debugRawOpen
+	                ? `<div class="rawHint">提示：预览默认截断（避免大 base64 卡死）；复制按钮会复制完整原文。</div>
+	                   ${
+	                     lastReq
+	                       ? `<div class="rawHint">请求（${new Date(Number(lastReq.at) || Date.now()).toLocaleString()}）</div>
+	                          <pre class="rawText mono">${esc(reqPreview.text)}</pre>
+	                          ${reqPreview.truncated ? `<div class="rawHint">请求预览已截断：${reqPreview.total} 字符</div>` : ''}`
+	                       : `<div class="rawHint">请求：未记录</div>`
+	                   }
+	                   ${
+	                     lastRes
+	                       ? `<div class="rawHint">响应 ${resHttpText ? `（${esc(resHttpText)}）` : ''}（${new Date(Number(lastRes.at) || Date.now()).toLocaleString()}）</div>
+	                          <pre class="rawText mono">${esc(resPreview.text)}</pre>
+	                          ${resPreview.truncated ? `<div class="rawHint">响应预览已截断：${resPreview.total} 字符</div>` : ''}`
+	                       : `<div class="rawHint">响应：未记录</div>`
+	                   }`
+	                : ''
+	            }
+	          </div>`
+	        : ''
+
+	    const err = state.error ? `<div class="err" role="alert">${esc(state.error)}</div>` : ''
 
     const pl = state.promptLib && typeof state.promptLib === 'object' ? state.promptLib : null
     const plData = pl && pl.data && typeof pl.data === 'object' ? pl.data : null
@@ -3650,11 +3869,11 @@
                 </div>
               </div>
               <div style="flex:1; min-height:0;">${img}</div>
-              ${saved}
-            </div>
-          </div>
-          `}
-        </div>
+	              ${saved}${rawDebug}
+	            </div>
+	          </div>
+	          `}
+	        </div>
         ${modal}
       </div>
     `
@@ -4004,14 +4223,41 @@
         switchImageHistory(-1)
       } else if (act === 'image-next') {
         switchImageHistory(1)
-      } else if (act === 'save-image') {
-        saveImageNow()
-      } else if (act === 'copy-image') {
-        copyImage()
-      } else if (act === 'save-settings') {
-        syncDraftFromDom()
-        const r = applyDraftProviderToActiveProvider()
-        if (!r.ok) return api.ui.showToast(r.error || '保存失败')
+	      } else if (act === 'save-image') {
+	        saveImageNow()
+	      } else if (act === 'copy-image') {
+	        copyImage()
+	      } else if (act === 'toggle-debug-raw') {
+	        state.debugRawOpen = !state.debugRawOpen
+	        render()
+	      } else if (act === 'toggle-debug-raw-showall') {
+	        state.debugRawShowAll = !state.debugRawShowAll
+	        if (!state.debugRawOpen) state.debugRawOpen = true
+	        render()
+	      } else if (act === 'copy-last-request') {
+	        const t = state.lastHttpRequest ? formatDebugHttpRequest(state.lastHttpRequest) : ''
+	        if (!t) return api.ui.showToast('未记录请求原文')
+	        api.clipboard
+	          .writeText(t)
+	          .then(() => api.ui.showToast('已复制请求原文'))
+	          .catch((e) => api.ui.showToast(`复制失败：${String(e?.message || e)}`))
+	      } else if (act === 'copy-last-response') {
+	        const t = state.lastHttpResponse && typeof state.lastHttpResponse.bodyText === 'string' ? state.lastHttpResponse.bodyText : ''
+	        if (!t) return api.ui.showToast('未记录响应原文')
+	        api.clipboard
+	          .writeText(t)
+	          .then(() => api.ui.showToast('已复制响应原文'))
+	          .catch((e) => api.ui.showToast(`复制失败：${String(e?.message || e)}`))
+	      } else if (act === 'clear-last-raw') {
+	        state.lastHttpRequest = null
+	        state.lastHttpResponse = null
+	        state.debugRawOpen = false
+	        state.debugRawShowAll = false
+	        render()
+	      } else if (act === 'save-settings') {
+	        syncDraftFromDom()
+	        const r = applyDraftProviderToActiveProvider()
+	        if (!r.ok) return api.ui.showToast(r.error || '保存失败')
         save()
           .then(() => api.ui.showToast('设置已保存'))
           .then(() => render())
