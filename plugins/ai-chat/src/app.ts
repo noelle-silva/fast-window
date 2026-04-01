@@ -22,6 +22,7 @@ import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
 import mammoth from 'mammoth/mammoth.browser'
 import { extractPptMarkdown } from './core/ppt'
 import { createAiChatFastWindowApi } from './bridge/tauriCompat'
+import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from './core/viewerZoom'
 ;(function () {
   const api = createAiChatFastWindowApi(window.fastWindow, 'ai-chat')
   ;(window as any).fastWindow = api
@@ -1080,7 +1081,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
     if (state.modal !== 'mermaid') return
     const els = mermaidModalEls()
     if (!els?.canvas) return
-    const scale = clamp(state.mermaid.scale, 0.2, 6)
+    const scale = clamp(state.mermaid.scale, VIEWER_ZOOM_MIN, MERMAID_VIEWER_ZOOM_MAX)
     state.mermaid.scale = scale
     els.canvas.style.transform = `scale(${scale})`
     if (els.zoom) els.zoom.textContent = `${Math.round(scale * 100)}%`
@@ -3389,7 +3390,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
     if (state.modal === 'mermaid') {
       const len = Array.isArray(state.mermaid.items) ? state.mermaid.items.length : 0
       const idx = len ? clamp(state.mermaid.index, 0, len - 1) : 0
-      const scale = clamp(state.mermaid.scale, 0.2, 6)
+      const scale = clamp(state.mermaid.scale, VIEWER_ZOOM_MIN, MERMAID_VIEWER_ZOOM_MAX)
       const svg = len ? String(state.mermaid.items[idx]?.svg || '') : ''
 
       el.innerHTML = `
@@ -4348,7 +4349,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
       if (act === 'mm-reset') state.mermaid.scale = 1
       else {
         const factor = act === 'mm-zoom-in' ? 1.12 : 1 / 1.12
-        state.mermaid.scale = clamp(Number(state.mermaid.scale || 1) * factor, 0.2, 6)
+        state.mermaid.scale = clamp(Number(state.mermaid.scale || 1) * factor, VIEWER_ZOOM_MIN, MERMAID_VIEWER_ZOOM_MAX)
       }
       applyMermaidScaleDom()
       return
@@ -4477,7 +4478,7 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
     e.stopPropagation()
     const dir = Number(e?.deltaY || 0) < 0 ? 1 : -1
     const factor = dir > 0 ? 1.08 : 1 / 1.08
-    state.mermaid.scale = clamp(Number(state.mermaid.scale || 1) * factor, 0.2, 6)
+    state.mermaid.scale = clamp(Number(state.mermaid.scale || 1) * factor, VIEWER_ZOOM_MIN, MERMAID_VIEWER_ZOOM_MAX)
     applyMermaidScaleDom()
   }
 
@@ -5162,11 +5163,11 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
       },
       mermaidZoom: (dir) => {
         const factor = Number(dir || 0) >= 0 ? 1.12 : 1 / 1.12
-        state.mermaid.scale = clamp(Number(state.mermaid.scale || 1) * factor, 0.2, 6)
+        state.mermaid.scale = clamp(Number(state.mermaid.scale || 1) * factor, VIEWER_ZOOM_MIN, MERMAID_VIEWER_ZOOM_MAX)
         emit()
       },
       mermaidSetScale: (scale) => {
-        state.mermaid.scale = clamp(Number(scale || 1), 0.2, 6)
+        state.mermaid.scale = clamp(Number(scale || 1), VIEWER_ZOOM_MIN, MERMAID_VIEWER_ZOOM_MAX)
         emit()
       },
       mermaidReset: () => {
@@ -5189,11 +5190,11 @@ import { createAiChatFastWindowApi } from './bridge/tauriCompat'
       },
       imageZoom: (dir) => {
         const factor = Number(dir || 0) >= 0 ? 1.12 : 1 / 1.12
-        state.imageViewer.scale = clamp(Number(state.imageViewer.scale || 1) * factor, 0.2, 6)
+        state.imageViewer.scale = clamp(Number(state.imageViewer.scale || 1) * factor, VIEWER_ZOOM_MIN, IMAGE_VIEWER_ZOOM_MAX)
         emit()
       },
       imageSetScale: (scale) => {
-        state.imageViewer.scale = clamp(Number(scale || 1), 0.2, 6)
+        state.imageViewer.scale = clamp(Number(scale || 1), VIEWER_ZOOM_MIN, IMAGE_VIEWER_ZOOM_MAX)
         emit()
       },
       imageReset: () => {

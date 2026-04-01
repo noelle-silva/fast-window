@@ -58,6 +58,7 @@ import MoreVertIcon from '@mui/icons-material/MoreVert'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { BUILTIN_TOOL_REQUEST_PRESETS, stringifyToolRequestRenderPreset } from '../core/toolRequestPresets'
+import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from '../core/viewerZoom'
 
 function useAiChatState(controller: any) {
   React.useSyncExternalStore(
@@ -4757,13 +4758,13 @@ function MermaidDialog(props: { open: boolean; controller: any; mermaid: any }) 
   const offsetRef = React.useRef(offset)
   offsetRef.current = offset
 
-  const [zoom, setZoom] = React.useState(() => clampNum(viewerZoom, 0.2, 6))
+  const [zoom, setZoom] = React.useState(() => clampNum(viewerZoom, VIEWER_ZOOM_MIN, MERMAID_VIEWER_ZOOM_MAX))
   const zoomRef = React.useRef(zoom)
   zoomRef.current = zoom
 
   React.useEffect(() => {
     if (!open) return
-    const z = clampNum(viewerZoom, 0.2, 6)
+    const z = clampNum(viewerZoom, VIEWER_ZOOM_MIN, MERMAID_VIEWER_ZOOM_MAX)
     setZoom(z)
     zoomRef.current = z
   }, [open, svg, viewerZoom])
@@ -4902,7 +4903,7 @@ function MermaidDialog(props: { open: boolean; controller: any; mermaid: any }) 
   const effectiveScale = safeFit * safeZoom
 
   const zoomAt = useEvent((localX: number, localY: number, nextZoom: number) => {
-    const nz = clampNum(nextZoom, 0.2, 6)
+    const nz = clampNum(nextZoom, VIEWER_ZOOM_MIN, MERMAID_VIEWER_ZOOM_MAX)
     const z0 = Number.isFinite(zoomRef.current) && zoomRef.current > 0 ? zoomRef.current : 1
     if (nz === z0) return
     userInteractedRef.current = true
@@ -5198,13 +5199,13 @@ function ImageDialog(props: { open: boolean; controller: any; viewer: any }) {
   const offsetRef = React.useRef(offset)
   offsetRef.current = offset
 
-  const [zoom, setZoom] = React.useState(() => clampNum(viewerZoom, 0.2, 6))
+  const [zoom, setZoom] = React.useState(() => clampNum(viewerZoom, VIEWER_ZOOM_MIN, IMAGE_VIEWER_ZOOM_MAX))
   const zoomRef = React.useRef(zoom)
   zoomRef.current = zoom
 
   React.useEffect(() => {
     if (!open) return
-    const z = clampNum(viewerZoom, 0.2, 6)
+    const z = clampNum(viewerZoom, VIEWER_ZOOM_MIN, IMAGE_VIEWER_ZOOM_MAX)
     setZoom(z)
     zoomRef.current = z
   }, [open, src, viewerZoom])
@@ -5333,7 +5334,7 @@ function ImageDialog(props: { open: boolean; controller: any; viewer: any }) {
   const effectiveScale = safeFit * safeZoom
 
   const zoomAt = useEvent((localX: number, localY: number, nextZoom: number) => {
-    const nz = clampNum(nextZoom, 0.2, 6)
+    const nz = clampNum(nextZoom, VIEWER_ZOOM_MIN, IMAGE_VIEWER_ZOOM_MAX)
     const z0 = Number.isFinite(zoomRef.current) && zoomRef.current > 0 ? zoomRef.current : 1
     if (nz === z0) return
     userInteractedRef.current = true
