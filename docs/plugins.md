@@ -231,6 +231,7 @@ iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入
     - 相关命令：`tauri:plugin_get_output_dir` / `tauri:plugin_pick_output_dir`。
   - `scope: "library"`：用户长期资产库目录（可配置）。默认：`data/<pluginId>/library`。
     - 相关命令：`tauri:plugin_get_library_dir` / `tauri:plugin_pick_library_dir`。
+- 插件图片（宿主网关，`plugin_images_*`）：图片专用读写接口，同样支持 `scope: "data" | "output" | "library"`。
 - 历史迁移：若需要迁移旧版数据，可通过 `tauri:storage_get_all`（legacy 只读）读取，再写回 store，并在 store 里记录一次性迁移标记（幂等）。
 - 开发模式（debug）：会把仓库根目录的 `plugins/` 同步到数据根目录的 `plugins/`（方便开发）；`data/` 只在目标目录为空时迁移一次。
 

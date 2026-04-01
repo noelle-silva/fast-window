@@ -3441,7 +3441,9 @@ fn resolve_plugin_images_root(
         "data" => Ok(plugin_default_ref_images_dir(app, plugin_id)),
         // 用户输出目录：可配置（新默认 data/<pluginId>/output；兼容旧目录 output-images）
         "output" => Ok(resolve_plugin_output_dir(app, plugin_id)),
-        _ => Err("scope 不支持（仅支持 data/output）".to_string()),
+        // 用户库目录：可配置（默认 data/<pluginId>/library）
+        "library" => Ok(resolve_plugin_library_dir(app, plugin_id)),
+        _ => Err("scope 不支持（仅支持 data/output/library）".to_string()),
     }
 }
 
