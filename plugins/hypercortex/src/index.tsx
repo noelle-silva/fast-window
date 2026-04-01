@@ -1,23 +1,27 @@
 import * as React from 'react'
 import { createRoot } from 'react-dom/client'
 
+type VaultScope = 'library' | 'output'
+
 type Api = {
   __meta?: { runtime?: 'ui' | 'background' }
   host?: { back?: () => Promise<void> | void }
   ui: { showToast: (message: string) => Promise<void> | void; back?: () => Promise<void> | void }
   files: {
+    getLibraryDir: () => Promise<string>
+    // legacy: 用于兼容旧库（曾存放在 output scope 下）
     getOutputDir: () => Promise<string>
-    pickOutputDir: () => Promise<string | null>
+    pickLibraryDir: () => Promise<string | null>
     openDir: (dir: string) => Promise<void>
-    listDir: (req: { scope: 'output'; dir?: string | null }) => Promise<
+    listDir: (req: { scope: VaultScope; dir?: string | null }) => Promise<
       { name: string; isDirectory: boolean; isFile: boolean; size: number; modifiedMs: number }[]
     >
-    readText: (req: { scope: 'output'; path: string }) => Promise<string>
-    writeText: (req: { scope: 'output'; path: string; text: string; overwrite?: boolean | null }) => Promise<string>
-    readBase64: (req: { scope: 'output'; path: string }) => Promise<string>
-    writeBase64: (req: { scope: 'output'; path: string; dataUrlOrBase64: string; overwrite?: boolean | null }) => Promise<string>
-    rename: (req: { scope: 'output'; from: string; to: string; overwrite?: boolean | null }) => Promise<void>
-    delete: (req: { scope: 'output'; path: string }) => Promise<void>
+    readText: (req: { scope: VaultScope; path: string }) => Promise<string>
+    writeText: (req: { scope: VaultScope; path: string; text: string; overwrite?: boolean | null }) => Promise<string>
+    readBase64: (req: { scope: VaultScope; path: string }) => Promise<string>
+    writeBase64: (req: { scope: VaultScope; path: string; dataUrlOrBase64: string; overwrite?: boolean | null }) => Promise<string>
+    rename: (req: { scope: VaultScope; from: string; to: string; overwrite?: boolean | null }) => Promise<void>
+    delete: (req: { scope: VaultScope; path: string }) => Promise<void>
     pickImages: (maxCount?: number | null) => Promise<{ name: string; dataUrl: string }[]>
   }
 }
@@ -105,11 +109,14 @@ function createCompatApi(baseApi: any): Api {
     },
     files: {
       ...(base.files || {}),
+      getLibraryDir: async () => {
+        return tauri.invoke({ command: 'plugin_get_library_dir', payload: { pluginId: PLUGIN_ID } })
+      },
       getOutputDir: async () => {
         return tauri.invoke({ command: 'plugin_get_output_dir', payload: { pluginId: PLUGIN_ID } })
       },
-      pickOutputDir: async () => {
-        return tauri.invoke({ command: 'plugin_pick_output_dir', payload: { pluginId: PLUGIN_ID } })
+      pickLibraryDir: async () => {
+        return tauri.invoke({ command: 'plugin_pick_library_dir', payload: { pluginId: PLUGIN_ID } })
       },
       openDir: async (dir: string) => {
         const s = String(dir || '').trim()
@@ -276,33 +283,55 @@ function monthFolder(now = new Date()): string {
   return `${y}-${m}`
 }
 
-async function ensureVaultDirs(api: Api): Promise<void> {
-  await api.files.listDir({ scope: 'output', dir: NOTES_DIR }).catch(() => {})
-  await api.files.listDir({ scope: 'output', dir: ASSETS_DIR }).catch(() => {})
+async function ensureVaultDirs(api: Api, scope: VaultScope): Promise<void> {
+  await api.files.listDir({ scope, dir: NOTES_DIR }).catch(() => {})
+  await api.files.listDir({ scope, dir: ASSETS_DIR }).catch(() => {})
 }
 
-async function loadIndex(api: Api): Promise<HyperCortexIndexV1> {
+async function probeHasVault(api: Api, scope: VaultScope): Promise<boolean> {
+  const root = await api.files.listDir({ scope, dir: null }).catch(() => [])
+  if (root.some(ent => ent.isFile && ent.name === INDEX_FILE)) return true
+  const hasNotesDir = root.some(ent => ent.isDirectory && ent.name === NOTES_DIR)
+  if (!hasNotesDir) return false
+
+  const notes = await api.files.listDir({ scope, dir: NOTES_DIR }).catch(() => [])
+  for (const ent of notes) {
+    if (!ent.isFile) continue
+    if (parseNoteFilename(ent.name)) return true
+  }
+  return false
+}
+
+async function tryLoadIndex(api: Api, scope: VaultScope): Promise<HyperCortexIndexV1 | null> {
   try {
-    const raw = await api.files.readText({ scope: 'output', path: INDEX_FILE })
+    const raw = await api.files.readText({ scope, path: INDEX_FILE })
     const parsed = JSON.parse(raw || 'null')
-    if (!parsed || typeof parsed !== 'object') throw new Error('bad index')
-    if (parsed.version !== 1) throw new Error('bad index version')
-    if (!parsed.notes || typeof parsed.notes !== 'object') throw new Error('bad notes')
+    if (!parsed || typeof parsed !== 'object') return null
+    if (parsed.version !== 1) return null
+    if (!parsed.notes || typeof parsed.notes !== 'object') return null
     return parsed as HyperCortexIndexV1
   } catch {
-    const idx: HyperCortexIndexV1 = { version: 1, notes: {} }
-    await api.files.writeText({ scope: 'output', path: INDEX_FILE, text: JSON.stringify(idx, null, 2), overwrite: true }).catch(() => {})
-    return idx
+    return null
   }
 }
 
-async function saveIndex(api: Api, idx: HyperCortexIndexV1): Promise<void> {
-  await api.files.writeText({ scope: 'output', path: INDEX_FILE, text: JSON.stringify(idx, null, 2), overwrite: true })
+async function ensureIndex(api: Api, scope: VaultScope): Promise<HyperCortexIndexV1> {
+  const existing = await tryLoadIndex(api, scope)
+  if (existing) return existing
+  const fresh: HyperCortexIndexV1 = { version: 1, notes: {} }
+  await api.files
+    .writeText({ scope, path: INDEX_FILE, text: JSON.stringify(fresh, null, 2), overwrite: true })
+    .catch(() => {})
+  return fresh
 }
 
-async function rebuildIndexFromFs(api: Api, idx: HyperCortexIndexV1): Promise<HyperCortexIndexV1> {
-  await ensureVaultDirs(api)
-  const items = await api.files.listDir({ scope: 'output', dir: NOTES_DIR })
+async function saveIndex(api: Api, scope: VaultScope, idx: HyperCortexIndexV1): Promise<void> {
+  await api.files.writeText({ scope, path: INDEX_FILE, text: JSON.stringify(idx, null, 2), overwrite: true })
+}
+
+async function rebuildIndexFromFs(api: Api, scope: VaultScope, idx: HyperCortexIndexV1): Promise<HyperCortexIndexV1> {
+  await ensureVaultDirs(api, scope)
+  const items = await api.files.listDir({ scope, dir: NOTES_DIR })
   const nextNotes: Record<string, NoteMeta> = {}
 
   for (const ent of items) {
@@ -324,12 +353,16 @@ async function rebuildIndexFromFs(api: Api, idx: HyperCortexIndexV1): Promise<Hy
   }
 
   const next: HyperCortexIndexV1 = { ...idx, notes: nextNotes }
-  await saveIndex(api, next).catch(() => {})
+  await saveIndex(api, scope, next).catch(() => {})
   return next
 }
 
-async function readNoteDoc(api: Api, file: string): Promise<{ title: string; contentHtml: string }> {
-  const raw = await api.files.readText({ scope: 'output', path: file })
+async function readNoteDoc(
+  api: Api,
+  scope: VaultScope,
+  file: string,
+): Promise<{ title: string; contentHtml: string }> {
+  const raw = await api.files.readText({ scope, path: file })
   const doc = new DOMParser().parseFromString(raw, 'text/html')
   const title = String(doc.querySelector('title')?.textContent || '').trim() || '未命名'
   const root = doc.getElementById('hypercortex-content')
@@ -346,13 +379,13 @@ async function readNoteDoc(api: Api, file: string): Promise<{ title: string; con
     const rel =
       src.startsWith('../') ? src.slice(3)
       : src.startsWith('./') ? src.slice(2)
-    : src
+      : src
     if (!rel.startsWith(`${ASSETS_DIR}/`)) continue
 
     img.setAttribute('data-hypercortex-asset', rel)
     img.setAttribute('data-hypercortex-src', src)
     try {
-      const dataUrl = await api.files.readBase64({ scope: 'output', path: rel })
+      const dataUrl = await api.files.readBase64({ scope, path: rel })
       if (String(dataUrl || '').startsWith('data:')) {
         img.setAttribute('src', dataUrl)
       }
@@ -366,7 +399,9 @@ function App() {
   const api = React.useMemo(() => getApi(), [])
 
   const [vaultDir, setVaultDir] = React.useState<string>('')
+  const [vaultScope, setVaultScope] = React.useState<VaultScope>('library')
   const [loading, setLoading] = React.useState(true)
+  const legacyNoticeRef = React.useRef(false)
 
   const [idx, setIdx] = React.useState<HyperCortexIndexV1>({ version: 1, notes: {} })
   const [activeId, setActiveId] = React.useState<string>('')
@@ -395,23 +430,41 @@ function App() {
     return el ? el.innerHTML : ''
   }
 
-  const refreshAll = React.useCallback(async () => {
-    setLoading(true)
-    try {
-      const dir = await api.files.getOutputDir().catch(() => '')
-      setVaultDir(dir)
-      await ensureVaultDirs(api)
-      const base = await loadIndex(api)
-      const next = await rebuildIndexFromFs(api, base)
-      setIdx(next)
-      if (!activeId && Object.keys(next.notes).length) {
-        const first = Object.values(next.notes).sort((a, b) => (b.updatedAtMs || 0) - (a.updatedAtMs || 0))[0]
-        if (first) setActiveId(first.id)
+  const refreshAll = React.useCallback(
+    async (forceScope?: VaultScope) => {
+      setLoading(true)
+      try {
+        const libraryDir = await api.files.getLibraryDir().catch(() => '')
+        const outputDir = await api.files.getOutputDir().catch(() => '')
+
+        let scope: VaultScope = forceScope || 'library'
+        if (!forceScope) {
+          const libHas = await probeHasVault(api, 'library')
+          const outHas = await probeHasVault(api, 'output')
+          scope = libHas ? 'library' : outHas ? 'output' : 'library'
+        }
+
+        setVaultScope(scope)
+        setVaultDir(scope === 'library' ? libraryDir : outputDir)
+
+        if (scope === 'output' && !legacyNoticeRef.current) {
+          legacyNoticeRef.current = true
+          api.ui.showToast('检测到旧库目录，已沿用旧位置')
+        }
+
+        const base = await ensureIndex(api, scope)
+        const next = await rebuildIndexFromFs(api, scope, base)
+        setIdx(next)
+        if (!activeId && Object.keys(next.notes).length) {
+          const first = Object.values(next.notes).sort((a, b) => (b.updatedAtMs || 0) - (a.updatedAtMs || 0))[0]
+          if (first) setActiveId(first.id)
+        }
+      } finally {
+        setLoading(false)
       }
-    } finally {
-      setLoading(false)
-    }
-  }, [activeId, api])
+    },
+    [activeId, api],
+  )
 
   React.useEffect(() => {
     void refreshAll()
@@ -423,7 +476,7 @@ function App() {
       if (!active) return
       setLoading(true)
       try {
-        const { title: t, contentHtml } = await readNoteDoc(api, active.file)
+        const { title: t, contentHtml } = await readNoteDoc(api, vaultScope, active.file)
         setTitle(t)
         setEditorHtml(contentHtml)
       } catch (e: any) {
@@ -433,14 +486,14 @@ function App() {
       }
     }
     void run()
-  }, [active?.file]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [active?.file, vaultScope]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const pickVault = React.useCallback(async () => {
-    const picked = await api.files.pickOutputDir().catch(() => null)
+    const picked = await api.files.pickLibraryDir().catch(() => null)
     if (!picked) return
     setVaultDir(picked)
     await api.ui.showToast('已设置 HyperCortex 库位置')
-    await refreshAll()
+    await refreshAll('library')
   }, [api, refreshAll])
 
   const backToHome = React.useCallback(async () => {
@@ -452,10 +505,14 @@ function App() {
   }, [api])
 
   const openVault = React.useCallback(async () => {
-    const dir = vaultDir || (await api.files.getOutputDir().catch(() => ''))
+    const dir =
+      vaultDir ||
+      (vaultScope === 'library'
+        ? await api.files.getLibraryDir().catch(() => '')
+        : await api.files.getOutputDir().catch(() => ''))
     if (!dir) return api.ui.showToast('库目录不可用')
     await api.files.openDir(dir).catch(e => api.ui.showToast(String((e as any)?.message || e || '打开失败')))
-  }, [api, vaultDir])
+  }, [api, vaultDir, vaultScope])
 
   const createNote = React.useCallback(async () => {
     setLoading(true)
@@ -467,12 +524,12 @@ function App() {
 
       const contentHtml = `<h1>${escapeHtml(t)}</h1><p></p>`
       const htmlDoc = buildNoteHtmlDoc({ id, title: t, contentHtml })
-      await api.files.writeText({ scope: 'output', path: file, text: htmlDoc, overwrite: false })
+      await api.files.writeText({ scope: vaultScope, path: file, text: htmlDoc, overwrite: false })
 
       const meta: NoteMeta = { id, title: t, file, createdAtMs: Date.now(), updatedAtMs: Date.now() }
       const next: HyperCortexIndexV1 = { ...idx, notes: { ...idx.notes, [id]: meta } }
       setIdx(next)
-      await saveIndex(api, next).catch(() => {})
+      await saveIndex(api, vaultScope, next).catch(() => {})
       setActiveId(id)
       setTitle(t)
       setEditorHtml(contentHtml)
@@ -481,7 +538,7 @@ function App() {
     } finally {
       setLoading(false)
     }
-  }, [api, idx])
+  }, [api, idx, vaultScope])
 
   const saveNote = React.useCallback(async () => {
     if (!active) return
@@ -493,25 +550,25 @@ function App() {
       const nextFile = `${NOTES_DIR}/${nextFilename}`
 
       if (active.file !== nextFile) {
-        await api.files.rename({ scope: 'output', from: active.file, to: nextFile, overwrite: false })
+        await api.files.rename({ scope: vaultScope, from: active.file, to: nextFile, overwrite: false })
       }
 
       const contentHtml = normalizeEditorHtmlForSave(getEditorHtml())
       const htmlDoc = buildNoteHtmlDoc({ id, title: nextTitle, contentHtml })
-      await api.files.writeText({ scope: 'output', path: nextFile, text: htmlDoc, overwrite: true })
+      await api.files.writeText({ scope: vaultScope, path: nextFile, text: htmlDoc, overwrite: true })
 
       const updatedAtMs = Date.now()
       const meta: NoteMeta = { ...active, title: nextTitle, file: nextFile, updatedAtMs }
       const nextIdx: HyperCortexIndexV1 = { ...idx, notes: { ...idx.notes, [id]: meta } }
       setIdx(nextIdx)
-      await saveIndex(api, nextIdx).catch(() => {})
+      await saveIndex(api, vaultScope, nextIdx).catch(() => {})
       api.ui.showToast('已保存')
     } catch (e: any) {
       api.ui.showToast(String(e?.message || e || '保存失败'))
     } finally {
       setLoading(false)
     }
-  }, [active, api, idx, title])
+  }, [active, api, idx, title, vaultScope])
 
   const deleteNote = React.useCallback(async () => {
     if (!active) return
@@ -523,12 +580,12 @@ function App() {
 
     setLoading(true)
     try {
-      await api.files.delete({ scope: 'output', path: active.file })
+      await api.files.delete({ scope: vaultScope, path: active.file })
       const nextNotes = { ...idx.notes }
       delete nextNotes[active.id]
       const nextIdx: HyperCortexIndexV1 = { ...idx, notes: nextNotes }
       setIdx(nextIdx)
-      await saveIndex(api, nextIdx).catch(() => {})
+      await saveIndex(api, vaultScope, nextIdx).catch(() => {})
 
       const rest = Object.values(nextIdx.notes).sort((a, b) => (b.updatedAtMs || 0) - (a.updatedAtMs || 0))
       const nextActive = rest[0]
@@ -541,7 +598,7 @@ function App() {
     } finally {
       setLoading(false)
     }
-  }, [active, api, idx])
+  }, [active, api, idx, vaultScope])
 
   const insertImage = React.useCallback(async () => {
     if (!active) return
@@ -556,7 +613,7 @@ function App() {
       const month = monthFolder()
       const assetRel = `${ASSETS_DIR}/${month}/${hash}.${ext}`
 
-      await api.files.writeBase64({ scope: 'output', path: assetRel, dataUrlOrBase64: item.dataUrl, overwrite: false }).catch(() => {})
+      await api.files.writeBase64({ scope: vaultScope, path: assetRel, dataUrlOrBase64: item.dataUrl, overwrite: false }).catch(() => {})
 
       const html = getEditorHtml()
       const imgHtml = `<p><img src="${item.dataUrl}" data-hypercortex-asset="${escapeHtml(assetRel)}" alt="" /></p>`
@@ -565,7 +622,7 @@ function App() {
     } catch (e: any) {
       api.ui.showToast(String(e?.message || e || '插入失败'))
     }
-  }, [active, api])
+  }, [active, api, vaultScope])
 
   const styles = `
   :root {

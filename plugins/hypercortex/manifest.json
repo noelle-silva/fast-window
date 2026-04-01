@@ -13,8 +13,9 @@
     "keepAlive": true
   },
   "requires": [
+    "tauri:plugin_get_library_dir",
     "tauri:plugin_get_output_dir",
-    "tauri:plugin_pick_output_dir",
+    "tauri:plugin_pick_library_dir",
     "tauri:plugin_open_dir",
     "tauri:plugin_files_list_dir",
     "tauri:plugin_files_read_text",

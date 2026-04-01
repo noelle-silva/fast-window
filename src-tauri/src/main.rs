@@ -33,6 +33,7 @@ const WAKE_SHORTCUT_KEY: &str = "wakeShortcut";
 const AUTO_START_KEY: &str = "autoStart";
 const MAIN_WINDOW_BOUNDS_KEY: &str = "mainWindowBounds";
 const PLUGIN_OUTPUT_DIRS_KEY: &str = "pluginOutputDirs";
+const PLUGIN_LIBRARY_DIRS_KEY: &str = "pluginLibraryDirs";
 const WEBVIEW_SETTINGS_KEY: &str = "webview";
 const TASKS_RETENTION_LIMIT: usize = 120;
 const TASKS_PER_PLUGIN_LIMIT: usize = 40;
@@ -2188,8 +2189,15 @@ fn open_dir_in_file_manager(dir: &Path) -> Result<(), String> {
 }
 
 fn plugin_default_output_dir(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf {
-    // 默认输出到 data/<pluginId>/output-images
-    app_data_dir(app).join(plugin_id).join("output-images")
+    // 默认输出目录：
+    // - 新用户：data/<pluginId>/output
+    // - 老用户：若旧目录 data/<pluginId>/output-images 已存在，则沿用（不破坏用户空间）
+    let base = app_data_dir(app).join(plugin_id);
+    let legacy = base.join("output-images");
+    if legacy.is_dir() {
+        return legacy;
+    }
+    base.join("output")
 }
 
 fn plugin_default_ref_images_dir(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf {
@@ -2197,9 +2205,29 @@ fn plugin_default_ref_images_dir(app: &tauri::AppHandle, plugin_id: &str) -> Pat
     app_data_dir(app).join(plugin_id).join("ref-images")
 }
 
+fn plugin_default_library_dir(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf {
+    // 默认库目录：data/<pluginId>/library
+    app_data_dir(app).join(plugin_id).join("library")
+}
+
 fn read_plugin_output_dir_from_config(app: &tauri::AppHandle, plugin_id: &str) -> Option<PathBuf> {
     let map = read_app_config_map(app);
     let Some(Value::Object(obj)) = map.get(PLUGIN_OUTPUT_DIRS_KEY) else {
+        return None;
+    };
+    let Some(Value::String(s)) = obj.get(plugin_id) else {
+        return None;
+    };
+    let raw = s.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    Some(PathBuf::from(raw))
+}
+
+fn read_plugin_library_dir_from_config(app: &tauri::AppHandle, plugin_id: &str) -> Option<PathBuf> {
+    let map = read_app_config_map(app);
+    let Some(Value::Object(obj)) = map.get(PLUGIN_LIBRARY_DIRS_KEY) else {
         return None;
     };
     let Some(Value::String(s)) = obj.get(plugin_id) else {
@@ -2234,6 +2262,28 @@ fn write_plugin_output_dir_to_config(
     write_app_config_map(app, &map)
 }
 
+fn write_plugin_library_dir_to_config(
+    app: &tauri::AppHandle,
+    plugin_id: &str,
+    dir: &Path,
+) -> Result<(), String> {
+    let mut map = read_app_config_map(app);
+
+    let v = map
+        .entry(PLUGIN_LIBRARY_DIRS_KEY.to_string())
+        .or_insert_with(|| Value::Object(Map::new()));
+    if !v.is_object() {
+        *v = Value::Object(Map::new());
+    }
+    let obj = v.as_object_mut().unwrap();
+    obj.insert(
+        plugin_id.to_string(),
+        Value::String(dir.to_string_lossy().to_string()),
+    );
+
+    write_app_config_map(app, &map)
+}
+
 fn ensure_writable_dir(dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("创建目录失败: {e}"))?;
     if !dir.is_dir() {
@@ -2253,6 +2303,16 @@ fn resolve_plugin_output_dir(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf
         }
     }
     plugin_default_output_dir(app, plugin_id)
+}
+
+fn resolve_plugin_library_dir(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf {
+    // 配置优先；若不可用则回退到默认目录（避免破坏用户空间）
+    if let Some(p) = read_plugin_library_dir_from_config(app, plugin_id) {
+        if ensure_writable_dir(&p).is_ok() {
+            return p;
+        }
+    }
+    plugin_default_library_dir(app, plugin_id)
 }
 
 fn write_json_map(path: &Path, map: &Map<String, Value>) -> Result<(), String> {
@@ -2781,6 +2841,16 @@ fn plugin_get_output_dir(app: tauri::AppHandle, plugin_id: String) -> Result<Str
 }
 
 #[tauri::command]
+fn plugin_get_library_dir(app: tauri::AppHandle, plugin_id: String) -> Result<String, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let dir = resolve_plugin_library_dir(&app, &plugin_id);
+    let _ = std::fs::create_dir_all(&dir);
+    Ok(dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 fn plugin_pick_output_dir(
     app: tauri::AppHandle,
     plugin_id: String,
@@ -2815,6 +2885,44 @@ fn plugin_pick_output_dir(
 
     ensure_writable_dir(&dir)?;
     write_plugin_output_dir_to_config(&app, &plugin_id, &dir)?;
+    Ok(Some(dir.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+fn plugin_pick_library_dir(
+    app: tauri::AppHandle,
+    plugin_id: String,
+) -> Result<Option<String>, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+
+    struct AlwaysOnTopGuard {
+        window: Option<tauri::WebviewWindow>,
+    }
+    impl Drop for AlwaysOnTopGuard {
+        fn drop(&mut self) {
+            if let Some(w) = self.window.take() {
+                let _ = w.set_always_on_top(true);
+            }
+        }
+    }
+    let mut guard = AlwaysOnTopGuard { window: None };
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_always_on_top(false);
+        guard.window = Some(w);
+    }
+
+    let picked = rfd::FileDialog::new()
+        .set_title("选择库目录")
+        .pick_folder();
+
+    let Some(dir) = picked else {
+        return Ok(None);
+    };
+
+    ensure_writable_dir(&dir)?;
+    write_plugin_library_dir_to_config(&app, &plugin_id, &dir)?;
     Ok(Some(dir.to_string_lossy().to_string()))
 }
 
@@ -2889,9 +2997,11 @@ fn resolve_plugin_files_root(
     match scope {
         // 插件私有数据：data/<pluginId>（插件可在其目录内自由组织文件结构）
         "data" => Ok(app_data_dir(app).join(plugin_id)),
-        // 用户输出目录：可配置（默认 data/<pluginId>/output-images，历史命名，避免破坏用户空间）
+        // 用户输出目录：可配置（新默认 data/<pluginId>/output；兼容旧目录 output-images，避免破坏用户空间）
         "output" => Ok(resolve_plugin_output_dir(app, plugin_id)),
-        _ => Err("scope 不支持（仅支持 data/output）".to_string()),
+        // 用户库目录：可配置（默认 data/<pluginId>/library）
+        "library" => Ok(resolve_plugin_library_dir(app, plugin_id)),
+        _ => Err("scope 不支持（仅支持 data/output/library）".to_string()),
     }
 }
 
@@ -3329,7 +3439,7 @@ fn resolve_plugin_images_root(
     match scope {
         // 插件私有数据：固定在 data/<pluginId>/ref-images（历史目录，保留以避免破坏旧数据）
         "data" => Ok(plugin_default_ref_images_dir(app, plugin_id)),
-        // 用户输出目录：可配置（默认 data/<pluginId>/output-images）
+        // 用户输出目录：可配置（新默认 data/<pluginId>/output；兼容旧目录 output-images）
         "output" => Ok(resolve_plugin_output_dir(app, plugin_id)),
         _ => Err("scope 不支持（仅支持 data/output）".to_string()),
     }
@@ -6595,7 +6705,9 @@ fn main() {
             set_plugin_icon_override,
             remove_plugin_icon_override,
             plugin_get_output_dir,
+            plugin_get_library_dir,
             plugin_pick_output_dir,
+            plugin_pick_library_dir,
             plugin_pick_dir,
             plugin_open_output_dir,
             plugin_open_dir,
