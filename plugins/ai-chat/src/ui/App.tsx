@@ -618,6 +618,7 @@ export function AiChatApp(props: { controller: any }) {
 
   const chatRootRef = React.useRef<HTMLDivElement | null>(null)
   const stickToBottomRef = React.useRef(true)
+  const autoScrollBlockUntilRef = React.useRef(0)
   const composerRef = React.useRef<HTMLDivElement | null>(null)
   const [composerHeight, setComposerHeight] = React.useState(0)
 
@@ -626,6 +627,7 @@ export function AiChatApp(props: { controller: any }) {
 
   const [expandedUserMsgIds, setExpandedUserMsgIds] = React.useState(() => new Set<string>())
   const [expandedToolMsgIds, setExpandedToolMsgIds] = React.useState(() => new Set<string>())
+  const [branchNav, setBranchNav] = React.useState<{ mid: string; at: number }>({ mid: '', at: 0 })
 
   React.useEffect(() => {
     setExpandedUserMsgIds(() => new Set())
@@ -980,18 +982,21 @@ export function AiChatApp(props: { controller: any }) {
     if (page !== 'chat') return
     const el = chatRootRef.current
     if (!el) return
+    if (Date.now() < autoScrollBlockUntilRef.current) return
+    if (branchNav.mid) return
     stickToBottomRef.current = true
     requestAnimationFrame(() => {
       try {
         el.scrollTop = el.scrollHeight
       } catch (_) {}
     })
-  }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey])
+  }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey, branchNav.mid])
 
   React.useEffect(() => {
     if (page !== 'chat') return
     const el = chatRootRef.current
     if (!el) return
+    if (Date.now() < autoScrollBlockUntilRef.current) return
     if (!stickToBottomRef.current) return
     requestAnimationFrame(() => {
       try {
@@ -999,6 +1004,48 @@ export function AiChatApp(props: { controller: any }) {
       } catch (_) {}
     })
   }, [page, allMessages.length, lastMsgId, lastMsgText, activeBranchIdUi, branchDraftKey])
+
+  React.useEffect(() => {
+    if (page !== 'chat') return
+    const mid = String(branchNav.mid || '').trim()
+    if (!mid) return
+
+    const root = chatRootRef.current
+    if (!root) return
+
+    stickToBottomRef.current = false
+
+    let tries = 0
+    let canceled = false
+
+    const tick = () => {
+      if (canceled) return
+      tries++
+      const esc = typeof CSS !== 'undefined' && typeof (CSS as any).escape === 'function' ? (CSS as any).escape(mid) : mid.replace(/"/g, '\\"')
+      const node = root.querySelector(`[data-mid="${esc}"]`) as HTMLElement | null
+      if (node) {
+        try {
+          const rr = root.getBoundingClientRect()
+          const nr = node.getBoundingClientRect()
+          const top = nr.top - rr.top + root.scrollTop
+          const target = Math.max(0, Math.floor(top - 12))
+          root.scrollTop = target
+        } catch (_) {}
+        setBranchNav({ mid: '', at: 0 })
+        return
+      }
+      if (tries >= 10) {
+        setBranchNav({ mid: '', at: 0 })
+        return
+      }
+      requestAnimationFrame(tick)
+    }
+
+    requestAnimationFrame(tick)
+    return () => {
+      canceled = true
+    }
+  }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi, branchNav.mid, branchNav.at])
 
   const [sendWarn, setSendWarn] = React.useState<{ open: boolean; items: any[] }>({ open: false, items: [] })
   const closeSendWarn = useEvent(() => setSendWarn({ open: false, items: [] }))
@@ -1969,11 +2016,21 @@ export function AiChatApp(props: { controller: any }) {
                             <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }} justifyContent="flex-end">
                               <Tooltip title="上一个分支">
                                 <span>
-                                  <IconButton
+                              <IconButton
                                     aria-label="上一个分支"
                                     size="small"
                                     disabled={!canSwitchBranch || s.loading || uiBusy || chatLocked}
-                                    onClick={() => controller.actions.switchBranchSibling?.(mid, -1)}
+                                    onClick={() => {
+                                      if (!canSwitchBranch) return
+                                      const len = branchSiblings.length
+                                      if (!len) return
+                                      const next = branchSiblings[(branchIndex - 1 + len) % len]
+                                      const nextMid = String(next?.id || '').trim()
+                                      stickToBottomRef.current = false
+                                      autoScrollBlockUntilRef.current = Date.now() + 1200
+                                      if (nextMid) setBranchNav({ mid: nextMid, at: Date.now() })
+                                      controller.actions.switchBranchSibling?.(mid, -1)
+                                    }}
                                   >
                                     <ChevronLeftIcon fontSize="inherit" />
                                   </IconButton>
@@ -1986,7 +2043,17 @@ export function AiChatApp(props: { controller: any }) {
                                     aria-label="下一个分支"
                                     size="small"
                                     disabled={!canSwitchBranch || s.loading || uiBusy || chatLocked}
-                                    onClick={() => controller.actions.switchBranchSibling?.(mid, 1)}
+                                    onClick={() => {
+                                      if (!canSwitchBranch) return
+                                      const len = branchSiblings.length
+                                      if (!len) return
+                                      const next = branchSiblings[(branchIndex + 1 + len) % len]
+                                      const nextMid = String(next?.id || '').trim()
+                                      stickToBottomRef.current = false
+                                      autoScrollBlockUntilRef.current = Date.now() + 1200
+                                      if (nextMid) setBranchNav({ mid: nextMid, at: Date.now() })
+                                      controller.actions.switchBranchSibling?.(mid, 1)
+                                    }}
                                   >
                                     <ChevronRightIcon fontSize="inherit" />
                                   </IconButton>
