@@ -783,7 +783,13 @@ export function AiChatApp(props: { controller: any }) {
   const autoScrollBlockUntilRef = React.useRef(0)
   const composerRef = React.useRef<HTMLDivElement | null>(null)
   const [composerHeight, setComposerHeight] = React.useState(0)
-  const TREE_PANEL_W = 360
+  const chatPaneRef = React.useRef<HTMLDivElement | null>(null)
+  const [treePanelW, setTreePanelW] = React.useState(360)
+  const treePanelWRef = React.useRef(360)
+  const [treeResizing, setTreeResizing] = React.useState(false)
+  const treeResizeRef = React.useRef<{ pid: number; right: number } | null>(null)
+  const treeResizeLastXRef = React.useRef(0)
+  const treeResizeRafRef = React.useRef<number>(0)
 
   const [page, setPage] = React.useState<'chat' | 'settings'>('chat')
   const [settingsTab, setSettingsTab] = React.useState<'appearance' | 'attachments' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers'>('roles')
@@ -803,11 +809,77 @@ export function AiChatApp(props: { controller: any }) {
   }, [String(activeChat?.id || '')])
 
   React.useEffect(() => {
+    treePanelWRef.current = treePanelW
+  }, [treePanelW])
+
+  React.useEffect(() => {
     if (treeOpen) return
     treeDragRef.current = null
     treeSuppressClickRef.current = false
     setTreeDragging(false)
   }, [treeOpen])
+
+  const endTreeResize = useEvent((e: React.PointerEvent) => {
+    const st = treeResizeRef.current
+    if (!st) return
+    if (Number(e.pointerId) !== Number(st.pid)) return
+    treeResizeRef.current = null
+    if (treeResizeRafRef.current) {
+      cancelAnimationFrame(treeResizeRafRef.current)
+      treeResizeRafRef.current = 0
+    }
+    setTreeResizing(false)
+  })
+
+  const onTreeSplitterPointerDown = useEvent((e: React.PointerEvent) => {
+    if (!treeOpen) return
+    if (e.button !== 0) return
+    const host = chatPaneRef.current
+    let right = 0
+    try {
+      right = host ? Number(host.getBoundingClientRect().right || 0) : 0
+    } catch (_) {
+      right = 0
+    }
+    treeResizeLastXRef.current = Number(e.clientX || 0)
+    treeResizeRef.current = { pid: Number(e.pointerId), right }
+    setTreeResizing(true)
+    e.preventDefault()
+    e.stopPropagation()
+    try {
+      ;(e.currentTarget as any)?.setPointerCapture?.(e.pointerId)
+    } catch (_) {}
+  })
+
+  const onTreeSplitterPointerMove = useEvent((e: React.PointerEvent) => {
+    const st = treeResizeRef.current
+    if (!st) return
+    if (Number(e.pointerId) !== Number(st.pid)) return
+    treeResizeLastXRef.current = Number(e.clientX || 0)
+    if (treeResizeRafRef.current) return
+    treeResizeRafRef.current = requestAnimationFrame(() => {
+      treeResizeRafRef.current = 0
+      const cur = treeResizeRef.current
+      if (!cur) return
+      const raw = Math.max(0, Number(cur.right || 0) - Number(treeResizeLastXRef.current || 0))
+      const next = clampNum(Math.round(raw), 240, 860)
+      setTreePanelW(next)
+    })
+  })
+
+  React.useEffect(() => {
+    if (!treeResizing) return
+    const onUp = () => {
+      treeResizeRef.current = null
+      setTreeResizing(false)
+    }
+    window.addEventListener('mouseup', onUp)
+    window.addEventListener('blur', onUp)
+    return () => {
+      window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('blur', onUp)
+    }
+  }, [treeResizing])
 
   React.useEffect(() => {
     if (!treeDragging) return
@@ -1997,6 +2069,7 @@ export function AiChatApp(props: { controller: any }) {
         {page === 'chat' ? (
           <>
             <Box
+              ref={chatPaneRef}
               sx={{
                 flex: 1,
                 minWidth: 0,
@@ -2016,7 +2089,7 @@ export function AiChatApp(props: { controller: any }) {
                   overflowY: 'auto',
                  overflowX: 'hidden',
                  pl: 2,
-                 pr: treeOpen ? `calc(16px + ${TREE_PANEL_W}px)` : 2,
+                 pr: treeOpen ? `calc(16px + ${Math.round(treePanelW)}px)` : 2,
                  pt: `calc(${TOPBAR_H}px + 16px)`,
                  bgcolor: transparentChatBg ? 'transparent' : 'grey.50',
                  paddingBottom: `calc(${Math.max(0, composerHeight)}px + 24px)`,
@@ -2741,8 +2814,8 @@ export function AiChatApp(props: { controller: any }) {
                   top: TOPBAR_H,
                   right: 0,
                   bottom: 0,
-                  width: treeOpen ? TREE_PANEL_W : 0,
-                  transition: 'width 180ms ease',
+                  width: treeOpen ? Math.round(treePanelW) : 0,
+                  transition: treeResizing ? 'none' : 'width 180ms ease',
                   overflow: 'hidden',
                   pointerEvents: treeOpen ? 'auto' : 'none',
                   borderLeft: treeOpen ? '1px solid rgba(0,0,0,.10)' : '1px solid transparent',
@@ -2750,6 +2823,37 @@ export function AiChatApp(props: { controller: any }) {
                   zIndex: 1000,
                 }}
               >
+                {treeOpen ? (
+                  <Box
+                    onPointerDown={onTreeSplitterPointerDown}
+                    onPointerMove={onTreeSplitterPointerMove}
+                    onPointerUp={endTreeResize}
+                    onPointerCancel={endTreeResize}
+                    sx={{
+                      position: 'absolute',
+                      left: -4,
+                      top: 0,
+                      bottom: 0,
+                      width: 8,
+                      zIndex: 4,
+                      cursor: 'col-resize',
+                      touchAction: 'none',
+                      userSelect: 'none',
+                      WebkitUserSelect: 'none',
+                      display: 'flex',
+                      alignItems: 'stretch',
+                      justifyContent: 'center',
+                      '& .fw-split-line': {
+                        opacity: treeResizing ? 1 : 0,
+                        bgcolor: treeResizing ? 'rgba(25,118,210,.55)' : 'rgba(0,0,0,.18)',
+                        transition: 'opacity 120ms ease, background-color 120ms ease',
+                      },
+                      '&:hover .fw-split-line': { opacity: 1, bgcolor: 'rgba(25,118,210,.55)' },
+                    }}
+                  >
+                    <Box className="fw-split-line" sx={{ width: 1, bgcolor: 'rgba(0,0,0,.18)' }} />
+                  </Box>
+                ) : null}
                 <Box sx={{ position: 'relative', width: '100%', height: '100%', userSelect: 'none', WebkitUserSelect: 'none' }}>
                   <Tooltip title="重置视图">
                     <span>
@@ -2894,7 +2998,7 @@ export function AiChatApp(props: { controller: any }) {
                  sx={{
                  position: 'absolute',
                  left: 16,
-                 right: treeOpen ? 16 + TREE_PANEL_W : 16,
+                 right: treeOpen ? 16 + Math.round(treePanelW) : 16,
                  bottom: 16,
                 zIndex: 1299,
                 p: 1.5,
