@@ -713,6 +713,9 @@
   const PROMPT_LIBRARY_VERSION = 1
   const DEFAULT_PROMPT_HISTORY_LIMIT = 50
   const MAX_PROMPT_HISTORY_LIMIT = 200
+  const DEFAULT_REQUEST_TIMEOUT_SEC = 120
+  const MIN_REQUEST_TIMEOUT_SEC = 5
+  const MAX_REQUEST_TIMEOUT_SEC = 3600
   const MAX_BATCH_COUNT = 20
   const MAX_REF_IMAGES = 8
   const TASK_KIND_HTTP_REQUEST = 'http.request'
@@ -798,6 +801,7 @@
       size: '1024x1024',
       chatSystemPrompt: '',
       promptHistoryLimit: String(DEFAULT_PROMPT_HISTORY_LIMIT),
+      requestTimeoutSec: String(DEFAULT_REQUEST_TIMEOUT_SEC),
       autoSave: true,
       shrinkRefImages: true,
       deleteProviderId: '',
@@ -1363,6 +1367,7 @@
       shrinkRefImages: true,
       uiMode: UI_MODE_NORMAL,
       promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
+      requestTimeoutSec: DEFAULT_REQUEST_TIMEOUT_SEC,
       promptHistory: [],
       pendingTaskId: '',
       activeProviderId: p.id,
@@ -1376,6 +1381,15 @@
     const v = Math.floor(n)
     if (v < 1) return 1
     if (v > MAX_PROMPT_HISTORY_LIMIT) return MAX_PROMPT_HISTORY_LIMIT
+    return v
+  }
+
+  function normalizeRequestTimeoutSec(raw) {
+    const n = Number(raw)
+    if (!Number.isFinite(n)) return DEFAULT_REQUEST_TIMEOUT_SEC
+    const v = Math.floor(n)
+    if (v < MIN_REQUEST_TIMEOUT_SEC) return MIN_REQUEST_TIMEOUT_SEC
+    if (v > MAX_REQUEST_TIMEOUT_SEC) return MAX_REQUEST_TIMEOUT_SEC
     return v
   }
 
@@ -1442,6 +1456,7 @@
     out.shrinkRefImages = true
     out.uiMode = UI_MODE_NORMAL
     out.promptHistoryLimit = normalizePromptHistoryLimit(s.promptHistoryLimit)
+    out.requestTimeoutSec = normalizeRequestTimeoutSec(s.requestTimeoutSec)
     out.promptHistory = normalizePromptHistory(s.promptHistory, out.promptHistoryLimit)
     return out
   }
@@ -1466,6 +1481,7 @@
     out.shrinkRefImages = typeof d.shrinkRefImages === 'boolean' ? d.shrinkRefImages : true
     out.uiMode = normalizeUiMode(d.uiMode)
     out.promptHistoryLimit = normalizePromptHistoryLimit(d.promptHistoryLimit)
+    out.requestTimeoutSec = normalizeRequestTimeoutSec(d.requestTimeoutSec)
     out.promptHistory = normalizePromptHistory(d.promptHistory, out.promptHistoryLimit)
     out.pendingTaskId = String(d.pendingTaskId || '').trim()
 
@@ -1525,6 +1541,11 @@
     const pick = String(p.model || '').trim()
     if (pick === '__custom__') return String(p.customModel || '').trim()
     return pick
+  }
+
+  function requestTimeoutMs() {
+    const sec = normalizeRequestTimeoutSec(state.data && state.data.requestTimeoutSec)
+    return sec * 1000
   }
 
   async function save() {
@@ -2358,6 +2379,7 @@
     state.modal = 'plugin-settings'
     state.revealApiKey = false
     state.draft.promptHistoryLimit = String(normalizePromptHistoryLimit(state.data.promptHistoryLimit))
+    state.draft.requestTimeoutSec = String(normalizeRequestTimeoutSec(state.data.requestTimeoutSec))
     state.draft.autoSave = !!state.data.autoSave
     state.draft.shrinkRefImages = state.data.shrinkRefImages !== false
     render()
@@ -2445,6 +2467,7 @@
     state.data.autoSave = !!state.draft.autoSave
     state.data.shrinkRefImages = !!state.draft.shrinkRefImages
     state.data.promptHistoryLimit = normalizePromptHistoryLimit(state.draft.promptHistoryLimit)
+    state.data.requestTimeoutSec = normalizeRequestTimeoutSec(state.draft.requestTimeoutSec)
     trimPromptHistoryToLimit()
     syncPromptHistoryToData(false)
     return { ok: true, error: '' }
@@ -3089,7 +3112,7 @@
             Authorization: `Bearer ${apiKey}`,
           },
           body,
-          timeoutMs: 120000,
+          timeoutMs: requestTimeoutMs(),
         },
       })
 
@@ -3217,7 +3240,7 @@
 	        Authorization: `Bearer ${apiKey}`,
 	      },
 	      body,
-	      timeoutMs: 120000,
+	      timeoutMs: requestTimeoutMs(),
 	    }
 
 	    state.lastHttpRequest = {
@@ -3495,6 +3518,10 @@
 
           <label>提示词历史条数（1-${MAX_PROMPT_HISTORY_LIMIT}）</label>
           <input class="field sm" data-bind="promptHistoryLimit" type="number" min="1" max="${MAX_PROMPT_HISTORY_LIMIT}" step="1" value="${esc(state.draft.promptHistoryLimit)}" />
+
+          <label>出图请求超时秒数（${MIN_REQUEST_TIMEOUT_SEC}-${MAX_REQUEST_TIMEOUT_SEC}）</label>
+          <input class="field sm" data-bind="requestTimeoutSec" type="number" min="${MIN_REQUEST_TIMEOUT_SEC}" max="${MAX_REQUEST_TIMEOUT_SEC}" step="1" value="${esc(state.draft.requestTimeoutSec)}" />
+          <div class="meta">影响普通生成与局部生成；默认 ${DEFAULT_REQUEST_TIMEOUT_SEC} 秒。</div>
 
           <div class="hr"></div>
           <div class="row">
