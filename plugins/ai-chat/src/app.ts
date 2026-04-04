@@ -71,6 +71,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     sideTab: 'roles', // roles | chats
     models: { loading: false, error: '', items: [] },
     pendingChat: null,
+    branchDraft: null,
     draft: {
       input: '',
       images: [],
@@ -286,7 +287,10 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     let headMid = ''
     if (idSet.size >= 2) {
       fillMissingBranchIdsOnly(msgs, activeBranchId)
-      headMid = lastMid0
+      const b0 = branches.find((x: any) => String(x?.id || '') === activeBranchId) || null
+      const curHead = String((b0 as any)?.headMid || '').trim()
+      const exists = !!curHead && msgs.some((m: any) => String(m?.id || '') === curHead)
+      headMid = exists ? curHead : lastMid0
     } else {
       headMid = rebuildLinearBranchingMessages(msgs, activeBranchId)
     }
@@ -364,6 +368,45 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     if (!mid) return null
     const msgs = Array.isArray(chat?.messages) ? chat.messages : []
     return msgs.find((m: any) => m && typeof m === 'object' && String(m?.id || '') === mid) || null
+  }
+
+  function findPrevAssistantMidForAssistant(chat: any, assistantMid: any) {
+    const mid = String(assistantMid || '').trim()
+    if (!mid) return ''
+
+    const msgs = Array.isArray(chat?.messages) ? chat.messages : []
+    const aiIndex = msgs.findIndex((m: any) => String(m?.id || '') === mid)
+    if (aiIndex < 0) return ''
+
+    const target = msgs[aiIndex]
+    if (!target || String(target?.role || '') !== 'assistant') return ''
+
+    let userMid = String((target as any)?.parentMid || '').trim()
+    let userMsg = userMid ? (msgs.find((m: any) => String(m?.id || '') === userMid) || null) : null
+    if (!userMsg || String(userMsg?.role || '') !== 'user') {
+      for (let i = aiIndex - 1; i >= 0; i--) {
+        const m = msgs[i]
+        if (m && m.role === 'user') {
+          userMsg = m
+          userMid = String(m?.id || '').trim()
+          break
+        }
+        if (m && m.role === 'assistant') break
+      }
+    }
+    if (!userMsg || String(userMsg?.role || '') !== 'user') return ''
+
+    const p0 = String((userMsg as any)?.parentMid || '').trim()
+    const pMsg = p0 ? (msgs.find((m: any) => String(m?.id || '') === p0) || null) : null
+    if (pMsg && pMsg.role === 'assistant') return String(pMsg.id || '').trim()
+
+    const uidx = userMid ? msgs.findIndex((m: any) => String(m?.id || '') === userMid) : -1
+    const start = uidx >= 0 ? uidx - 1 : aiIndex - 1
+    for (let i = start; i >= 0; i--) {
+      const m = msgs[i]
+      if (m && m.role === 'assistant') return String(m?.id || '').trim()
+    }
+    return ''
   }
 
   function findAssistantSiblingsByUserMid(chat: any, userMid: string) {
@@ -2241,10 +2284,28 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
 
       const branching = ensureChatBranching(chat)
-      const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
+      let activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
       const activeBranch = ensureChatBranch(chat, activeBranchId)
       let parentMid = String(activeBranch?.headMid || '').trim()
-      if (!parentMid) {
+
+      const rid2 = String(role.id || '')
+      const draft0 = state.branchDraft && typeof state.branchDraft === 'object' ? (state.branchDraft as any) : null
+      const draft =
+        draft0 && String(draft0?.roleId || '') === rid2 && String(draft0?.chatId || '') === String(chat.id || '') ? draft0 : null
+
+      let draftForkMid = ''
+      let draftNewBranchId = ''
+      if (draft) {
+        draftForkMid = String(draft?.forkFromMid || '').trim()
+        if (!draftForkMid) throw new Error('分支草稿无效（缺少基点）')
+        const items0 = Array.isArray(chat.messages) ? chat.messages : []
+        const ok = items0.some((m: any) => String(m?.id || '') === draftForkMid)
+        if (!ok) throw new Error('分支草稿无效（基点消息不存在）')
+
+        draftNewBranchId = genUniqueBranchId(branching)
+        activeBranchId = draftNewBranchId
+        parentMid = draftForkMid
+      } else if (!parentMid) {
         const items0 = Array.isArray(chat.messages) ? chat.messages : []
         parentMid = items0.length ? String(items0[items0.length - 1]?.id || '') : ''
       }
@@ -2319,6 +2380,22 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       }
       parentMid = rootMid
 
+      if (draftNewBranchId && draftForkMid) {
+        const t = now()
+        const branches = Array.isArray((branching as any).branches) ? (branching as any).branches : []
+        branches.push({
+          id: draftNewBranchId,
+          name: '分支',
+          headMid: draftForkMid,
+          createdAt: t,
+          updatedAt: t,
+          forkFromMid: draftForkMid,
+        })
+        ;(branching as any).branches = branches.slice(0, 200)
+        ;(branching as any).activeBranchId = draftNewBranchId
+        ;(chat as any).branching = branching
+      }
+
       chat.messages.push(...attachMsgs, rootMsg)
       chat.updatedAt = now()
       if (wasEmpty && String(chat.title || '') === '新聊天') {
@@ -2331,6 +2408,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       state.draft.input = ''
       state.draft.images = []
       ;(state.draft as any).files = []
+      if (draftNewBranchId && draftForkMid) state.branchDraft = null
 
       chat.messages.push({
         id: assistantMid,
@@ -2664,70 +2742,17 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       }
     }
 
-    const branching = ensureChatBranching(chat)
-    if (!branching) return
+    if (!prevAiMid) return api.ui?.showToast?.('未找到上一条 AI 消息，无法新建分支')
 
-    const newBranchId = genUniqueBranchId(branching)
-    const t = now()
-    const branches = Array.isArray((branching as any).branches) ? (branching as any).branches : []
-    branches.push({ id: newBranchId, name: '分支', headMid: '', createdAt: t, updatedAt: t, forkFromMid: prevAiMid })
-    ;(branching as any).branches = branches.slice(0, 200)
-    ;(branching as any).activeBranchId = newBranchId
-    ;(chat as any).branching = branching
-
-    const streamEnabled = !!state.data?.settings?.streamEnabled
-    const assistantMid2 = uid('m')
-    msgs.push({
-      id: assistantMid2,
-      role: 'assistant',
-      content: '（生成中…）',
-      branchId: newBranchId,
-      parentMid: userMid0,
-      pending: true,
-      streaming: streamEnabled,
-      createdAt: t,
-    })
-    chat.messages = msgs
-    chat.updatedAt = now()
-    setChatBranchHeadMid(chat, newBranchId, assistantMid2)
-    repairChatLinearBranching(chat)
-
-    const jobId = uid('job')
-    const job = {
-      id: jobId,
-      kind: 'openai.chat.completions',
-      status: 'queued',
-      createdAt: now(),
+    state.branchDraft = {
       roleId: String(role.id || ''),
       chatId: String(chat.id || ''),
-      assistantMid: assistantMid2,
-      cutoffMid: assistantMid2,
-      branchId: newBranchId,
-      stream: streamEnabled,
+      forkFromMid: prevAiMid,
+      sourceAssistantMid: mid,
+      createdAt: now(),
     }
-
-    try {
-      state.sending = true
-      renderComposer()
-      await save()
-      await runtimeStorage.set(jobKey(jobId), job)
-      await enqueueJob(jobId)
-    } catch (e) {
-      const msg = String((e as any)?.message || e || '请求失败')
-      const items = Array.isArray(chat?.messages) ? chat.messages : []
-      const am = assistantMid2 ? items.find((m) => String(m?.id || '') === assistantMid2) : null
-      if (am) {
-        am.content = `（请求失败：${msg}）`
-        am.pending = false
-        am.streaming = false
-      }
-      save().catch(() => {})
-      api.ui?.showToast?.(msg)
-    } finally {
-      state.sending = false
-      render()
-      scrollToBottomSoon()
-    }
+    render()
+    scrollToBottomSoon()
   }
 
   function switchBranchByAssistantSibling(assistantMid: any, delta: any) {
@@ -2744,10 +2769,50 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
 
     const target = findChatMessageById(chat, mid)
     if (!target || String((target as any).role || '') !== 'assistant') return
-    const userMid = String((target as any)?.parentMid || '').trim()
-    if (!userMid) return
+    const prevAiMid = findPrevAssistantMidForAssistant(chat, mid)
+    if (!prevAiMid) return
 
-    const sibs = findAssistantSiblingsByUserMid(chat, userMid)
+    const msgs = Array.isArray((chat as any)?.messages) ? (chat as any).messages : []
+    const byId = new Map<string, any>()
+    for (const m of msgs) {
+      const id = String(m?.id || '').trim()
+      if (!id || byId.has(id)) continue
+      byId.set(id, m)
+    }
+
+    let sibs = msgs.filter((m: any) => {
+      if (!m || m.role !== 'assistant') return false
+      const userMid = String((m as any)?.parentMid || '').trim()
+      if (!userMid) return false
+      const u = byId.get(userMid) || null
+      if (!u || u.role !== 'user') return false
+      const p = String((u as any)?.parentMid || '').trim()
+      if (!p) return false
+      const pa = byId.get(p) || null
+      if (!pa || pa.role !== 'assistant') return false
+      return String(pa?.id || '').trim() === prevAiMid
+    })
+
+    if (sibs.length < 2) {
+      const alt: any[] = []
+      for (const m of msgs) {
+        if (!m || m.role !== 'assistant') continue
+        const id = String(m?.id || '').trim()
+        if (!id) continue
+        const p = findPrevAssistantMidForAssistant(chat, id)
+        if (p && p === prevAiMid) alt.push(m)
+        if (alt.length >= 80) break
+      }
+      sibs = alt
+    }
+
+    sibs.sort((a: any, b: any) => {
+      const da = Number(a?.createdAt || 0)
+      const db = Number(b?.createdAt || 0)
+      if (da !== db) return da - db
+      return String(a?.id || '').localeCompare(String(b?.id || ''))
+    })
+
     if (sibs.length < 2) return
 
     const i0 = sibs.findIndex((m: any) => String(m?.id || '') === mid)
@@ -2770,6 +2835,10 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     if (b && !String((b as any)?.headMid || '').trim()) (b as any).headMid = pickedMid
 
     save().catch(() => {})
+    const draft0 = state.branchDraft && typeof state.branchDraft === 'object' ? (state.branchDraft as any) : null
+    if (draft0 && String(draft0?.roleId || '') === String(activeRole()?.id || '') && String(draft0?.chatId || '') === String(chat.id || '')) {
+      state.branchDraft = null
+    }
     render()
     scrollToBottomSoon()
   }
@@ -5163,12 +5232,14 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       },
       setActiveRole: (roleId) => {
         clearPendingChat()
+        state.branchDraft = null
         state.draft.activeRoleId = String(roleId || '')
         ensureChatsBox(state.draft.activeRoleId)
         save().catch(() => {})
         emit()
       },
       setActiveChat: (chatId) => {
+        state.branchDraft = null
         pickChatForActiveRole(String(chatId || ''))
       },
       toggleStream: () => {

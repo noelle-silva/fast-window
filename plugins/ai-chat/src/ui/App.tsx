@@ -590,6 +590,15 @@ export function AiChatApp(props: { controller: any }) {
 
   const activeRole = controller.activeRole()
   const activeChat = controller.activeChat()
+  const branchDraftRaw: any = (s as any)?.branchDraft
+  const branchDraft =
+    branchDraftRaw &&
+    typeof branchDraftRaw === 'object' &&
+    String(branchDraftRaw?.roleId || '') === String(activeRole?.id || '') &&
+    String(branchDraftRaw?.chatId || '') === String(activeChat?.id || '')
+      ? branchDraftRaw
+      : null
+  const branchDraftKey = branchDraft ? `${String(branchDraft?.chatId || '')}:${String(branchDraft?.forkFromMid || '')}:${String(branchDraft?.createdAt || '')}` : ''
   const isChatGenerating = React.useCallback((chat: any) => {
     const msgs = Array.isArray(chat?.messages) ? chat.messages : []
     return msgs.some((m: any) => m && m.role === 'assistant' && m.pending)
@@ -705,6 +714,70 @@ export function AiChatApp(props: { controller: any }) {
   })
 
   const chatAllMessagesRaw: any[] = Array.isArray(activeChat?.messages) ? (activeChat.messages as any[]) : []
+  const chatAllById = (() => {
+    const m = new Map<string, any>()
+    for (const it of chatAllMessagesRaw) {
+      const id = String(it?.id || '').trim()
+      if (!id || m.has(id)) continue
+      m.set(id, it)
+    }
+    return m
+  })()
+  const chatAllIndexById = (() => {
+    const m = new Map<string, number>()
+    for (let i = 0; i < chatAllMessagesRaw.length; i++) {
+      const id = String(chatAllMessagesRaw[i]?.id || '').trim()
+      if (!id || m.has(id)) continue
+      m.set(id, i)
+    }
+    return m
+  })()
+  const prevAiMidByAssistantId = (() => {
+    const out = new Map<string, string>()
+    const msgs = chatAllMessagesRaw
+
+    const findPrevAi = (assistantMid: string) => {
+      const aiIndex = chatAllIndexById.get(assistantMid)
+      if (aiIndex == null || aiIndex < 0) return ''
+      const target = msgs[aiIndex]
+      if (!target || target.role !== 'assistant') return ''
+
+      let userMid = String((target as any)?.parentMid || '').trim()
+      let userMsg = userMid ? (chatAllById.get(userMid) || null) : null
+      if (!userMsg || userMsg.role !== 'user') {
+        for (let i = aiIndex - 1; i >= 0; i--) {
+          const m = msgs[i]
+          if (m && m.role === 'user') {
+            userMsg = m
+            userMid = String(m?.id || '').trim()
+            break
+          }
+          if (m && m.role === 'assistant') break
+        }
+      }
+      if (!userMsg || userMsg.role !== 'user') return ''
+
+      const p0 = String((userMsg as any)?.parentMid || '').trim()
+      const pMsg = p0 ? (chatAllById.get(p0) || null) : null
+      if (pMsg && pMsg.role === 'assistant') return String(pMsg?.id || '').trim()
+
+      const uidx = userMid ? (chatAllIndexById.get(userMid) ?? -1) : -1
+      const start = uidx >= 0 ? uidx - 1 : aiIndex - 1
+      for (let i = start; i >= 0; i--) {
+        const m = msgs[i]
+        if (m && m.role === 'assistant') return String(m?.id || '').trim()
+      }
+      return ''
+    }
+
+    for (const m of msgs) {
+      if (!m || m.role !== 'assistant') continue
+      const mid = String(m?.id || '').trim()
+      if (!mid || out.has(mid)) continue
+      out.set(mid, findPrevAi(mid))
+    }
+    return out
+  })()
   const activeBranchIdUi = String((activeChat as any)?.branching?.activeBranchId || '')
   const allMessages: any[] = (() => {
     const chat: any = activeChat
@@ -717,6 +790,7 @@ export function AiChatApp(props: { controller: any }) {
     const b = branches.find((x: any) => String(x?.id || '') === activeBranchId) || null
 
     let headMid = String(b?.headMid || '').trim()
+    if (branchDraft) headMid = String(branchDraft?.forkFromMid || '').trim() || headMid
     if (!headMid) headMid = String(msgs[msgs.length - 1]?.id || '').trim()
     if (!headMid) return msgs
 
@@ -742,15 +816,17 @@ export function AiChatApp(props: { controller: any }) {
     return out.length ? out : msgs
   })()
 
-  const assistantSiblingsByUserMid = (() => {
+  const assistantSiblingsByPrevAiMid = (() => {
     const map = new Map<string, any[]>()
     for (const m of chatAllMessagesRaw) {
       if (!m || m.role !== 'assistant') continue
-      const userMid = String((m as any)?.parentMid || '').trim()
-      if (!userMid) continue
-      const list = map.get(userMid) || []
+      const mid = String(m?.id || '').trim()
+      if (!mid) continue
+      const prevAiMid = String(prevAiMidByAssistantId.get(mid) || '').trim()
+      if (!prevAiMid) continue
+      const list = map.get(prevAiMid) || []
       list.push(m)
-      map.set(userMid, list)
+      map.set(prevAiMid, list)
     }
     for (const [k, list] of map.entries()) {
       list.sort((a: any, b: any) => {
@@ -898,7 +974,7 @@ export function AiChatApp(props: { controller: any }) {
     onScroll()
     el.addEventListener('scroll', onScroll, { passive: true } as any)
     return () => el.removeEventListener('scroll', onScroll as any)
-  }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi])
+  }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey])
 
   React.useEffect(() => {
     if (page !== 'chat') return
@@ -910,7 +986,7 @@ export function AiChatApp(props: { controller: any }) {
         el.scrollTop = el.scrollHeight
       } catch (_) {}
     })
-  }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi])
+  }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey])
 
   React.useEffect(() => {
     if (page !== 'chat') return
@@ -922,7 +998,7 @@ export function AiChatApp(props: { controller: any }) {
         el.scrollTop = el.scrollHeight
       } catch (_) {}
     })
-  }, [page, allMessages.length, lastMsgId, lastMsgText, activeBranchIdUi])
+  }, [page, allMessages.length, lastMsgId, lastMsgText, activeBranchIdUi, branchDraftKey])
 
   const [sendWarn, setSendWarn] = React.useState<{ open: boolean; items: any[] }>({ open: false, items: [] })
   const closeSendWarn = useEvent(() => setSendWarn({ open: false, items: [] }))
@@ -1026,7 +1102,7 @@ export function AiChatApp(props: { controller: any }) {
 
   React.useEffect(() => {
     setEditingMsg({ mid: '', text: '' })
-  }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi])
+  }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey])
 
   React.useEffect(() => {
     setChatMenu({ roleId: '', chatId: '', title: '', x: 0, y: 0 })
@@ -1753,8 +1829,8 @@ export function AiChatApp(props: { controller: any }) {
                       regenPending = !!m?.pending
                     }
 
-                    const branchUserMid = !isUser ? String((m as any)?.parentMid || '').trim() : ''
-                    const branchSiblings = !isUser && branchUserMid ? assistantSiblingsByUserMid.get(branchUserMid) || [] : []
+                    const branchPrevAiMid = !isUser ? String(prevAiMidByAssistantId.get(mid) || '').trim() : ''
+                    const branchSiblings = !isUser && branchPrevAiMid ? assistantSiblingsByPrevAiMid.get(branchPrevAiMid) || [] : []
                     const branchIndex = !isUser ? branchSiblings.findIndex((x: any) => String(x?.id || '') === mid) : -1
                     const canSwitchBranch = !isUser && branchSiblings.length >= 2 && branchIndex >= 0
                     return (
