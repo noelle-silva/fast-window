@@ -2843,6 +2843,29 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     scrollToBottomSoon()
   }
 
+  function setActiveBranch(branchId: any) {
+    if (state.loading || !state.data) return
+
+    const chat = activeChatFromData()
+    if (!chat) return
+
+    const bid = normalizeBranchId(branchId || CHAT_DEFAULT_BRANCH_ID)
+    const branching = ensureChatBranching(chat)
+    if (!branching) return
+    ensureChatBranch(chat, bid)
+    ;(branching as any).activeBranchId = bid
+    ;(chat as any).branching = branching
+
+    const draft0 = state.branchDraft && typeof state.branchDraft === 'object' ? (state.branchDraft as any) : null
+    if (draft0 && String(draft0?.roleId || '') === String(activeRole()?.id || '') && String(draft0?.chatId || '') === String(chat.id || '')) {
+      state.branchDraft = null
+    }
+
+    save().catch(() => {})
+    render()
+    scrollToBottomSoon()
+  }
+
   async function deleteMessage(messageId) {
     if (state.loading || !state.data) return
     if (state.sending) return api.ui?.showToast?.('操作中，请稍后重试')
@@ -5881,6 +5904,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       replyFromUserMessage: (userMid) => replyFromUserMessage(String(userMid || '')),
       createBranchFromAssistant: (assistantMid) => createParallelBranchFromAssistantMessage(String(assistantMid || '')),
       switchBranchSibling: (assistantMid, delta) => switchBranchByAssistantSibling(String(assistantMid || ''), Number(delta || 0)),
+      setActiveBranch: (branchId) => setActiveBranch(String(branchId || '')),
       setChatModelOverride: (providerId, modelId) => {
         if (!state.data) return
         const role = activeRole()

@@ -53,6 +53,7 @@ import ZoomOutIcon from '@mui/icons-material/ZoomOut'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
+import AccountTreeIcon from '@mui/icons-material/AccountTree'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
@@ -147,6 +148,161 @@ function clampNum(n: number, min: number, max: number) {
   if (x < min) return min
   if (x > max) return max
   return x
+}
+
+function snippetText(raw: any, maxLen = 26) {
+  const s0 = typeof raw === 'string' ? raw : String(raw ?? '')
+  const s1 = s0.replace(/\r/g, '').trim()
+  if (!s1) return '（空）'
+  const firstLine = (s1.split('\n').find((x) => String(x || '').trim()) || '').trim()
+  const s = firstLine || s1.split('\n')[0] || s1
+  const one = s.replace(/\s+/g, ' ').trim()
+  if (one.length <= maxLen) return one
+  return one.slice(0, Math.max(0, maxLen - 1)).trimEnd() + '…'
+}
+
+function svgSafeId(raw: any) {
+  const s0 = typeof raw === 'string' ? raw : String(raw ?? '')
+  const s = s0.trim()
+  if (!s) return 'x'
+  return s.replace(/[^a-zA-Z0-9\-_:.]/g, '_').slice(0, 80) || 'x'
+}
+
+function buildChatTreeLayout(messagesRaw: any[], opts?: { maxNodes?: number }) {
+  const maxNodes = Math.max(50, Math.min(2000, Math.floor(Number(opts?.maxNodes ?? 600))))
+  const msgs = Array.isArray(messagesRaw) ? messagesRaw : []
+  const items0 = msgs
+    .map((m: any) => {
+      const id = String(m?.id || '').trim()
+      if (!id) return null
+      const role = m?.role === 'assistant' ? 'assistant' : 'user'
+      const content = String(m?.content ?? '')
+      const parentMid = String((m as any)?.parentMid || '').trim()
+      const createdAt = Number(m?.createdAt || 0)
+      const branchId = String((m as any)?.branchId || '').trim()
+      const groupRole = String((m as any)?.groupRole || '').trim()
+      if (groupRole === 'attachment') return null
+      return { id, role, content, parentMid, createdAt, branchId, groupRole }
+    })
+    .filter(Boolean) as any[]
+
+  if (items0.length > maxNodes) {
+    items0.sort((a: any, b: any) => {
+      const da = Number(a?.createdAt || 0)
+      const db = Number(b?.createdAt || 0)
+      if (da !== db) return da - db
+      return String(a?.id || '').localeCompare(String(b?.id || ''))
+    })
+    items0.splice(0, Math.max(0, items0.length - maxNodes))
+  }
+
+  const byId = new Map<string, any>()
+  for (const it of items0) byId.set(String(it.id), it)
+
+  const nodes = items0.map((it: any) => {
+    const pid = String(it.parentMid || '').trim()
+    const parentId = pid && byId.has(pid) ? pid : ''
+    return {
+      id: String(it.id),
+      parentId,
+      role: it.role,
+      branchId: String(it.branchId || ''),
+      createdAt: Number(it.createdAt || 0),
+      text: snippetText(it.content, 16),
+      kind: 'message',
+    }
+  })
+
+  const children = new Map<string, string[]>()
+  for (const n of nodes) {
+    if (!n.parentId) continue
+    const list = children.get(n.parentId) || []
+    list.push(n.id)
+    children.set(n.parentId, list)
+  }
+
+  const sortIds = (ids: string[]) =>
+    ids.sort((a: string, b: string) => {
+      const na = byId.get(a)
+      const nb = byId.get(b)
+      const da = Number(na?.createdAt || 0)
+      const db = Number(nb?.createdAt || 0)
+      if (da !== db) return da - db
+      return String(a).localeCompare(String(b))
+    })
+
+  for (const [k, list] of children.entries()) children.set(k, sortIds(list))
+
+  const roots = nodes
+    .filter((n) => !n.parentId)
+    .map((n) => n.id)
+    .sort((a: string, b: string) => {
+      const na = byId.get(a)
+      const nb = byId.get(b)
+      const da = Number(na?.createdAt || 0)
+      const db = Number(nb?.createdAt || 0)
+      if (da !== db) return da - db
+      return String(a).localeCompare(String(b))
+    })
+
+  const pos = new Map<string, { depth: number; y: number }>()
+  const seen = new Set<string>()
+  let nextY = 0
+
+  const layout = (id: string, depth: number) => {
+    if (!id) return
+    if (seen.has(id)) return
+    seen.add(id)
+    const kids = children.get(id) || []
+    for (const c of kids) layout(c, depth + 1)
+    if (!kids.length) {
+      pos.set(id, { depth, y: nextY })
+      nextY += 1
+      return
+    }
+    const ys = kids.map((c) => pos.get(c)?.y).filter((x: any) => typeof x === 'number') as number[]
+    if (!ys.length) {
+      pos.set(id, { depth, y: nextY })
+      nextY += 1
+      return
+    }
+    const y = (ys[0] + ys[ys.length - 1]) / 2
+    pos.set(id, { depth, y })
+  }
+
+  for (const r of roots) {
+    layout(r, 0)
+    nextY += 0.8
+  }
+
+  const nodeW = 168
+  const nodeH = 44
+  const gapX = 120
+  const gapY = 70
+  const pad = 22
+
+  const laidNodes = nodes
+    .map((n) => {
+      const p = pos.get(n.id)
+      if (!p) return null
+      const x = pad + p.depth * (nodeW + gapX)
+      const y = pad + p.y * gapY
+      return { ...n, x, y, depth: p.depth }
+    })
+    .filter(Boolean) as any[]
+
+  const edges = laidNodes
+    .filter((n) => !!n.parentId && pos.has(n.parentId))
+    .map((n) => ({ from: n.parentId, to: n.id }))
+
+  let maxX = 0
+  let maxY = 0
+  for (const n of laidNodes) {
+    maxX = Math.max(maxX, Number(n.x || 0) + nodeW)
+    maxY = Math.max(maxY, Number(n.y || 0) + nodeH)
+  }
+
+  return { nodes: laidNodes, edges, byId, roots, size: { w: maxX + pad, h: maxY + pad }, nodeW, nodeH }
 }
 
 function RoleAvatarCropper(props: { controller: any; src: string }) {
@@ -599,6 +755,12 @@ export function AiChatApp(props: { controller: any }) {
       ? branchDraftRaw
       : null
   const branchDraftKey = branchDraft ? `${String(branchDraft?.chatId || '')}:${String(branchDraft?.forkFromMid || '')}:${String(branchDraft?.createdAt || '')}` : ''
+  const [treeOpen, setTreeOpen] = React.useState(false)
+  const [treePan, setTreePan] = React.useState<{ x: number; y: number }>({ x: 18, y: 18 })
+  const [treeScale, setTreeScale] = React.useState(1)
+  const [treeDragging, setTreeDragging] = React.useState(false)
+  const treeDragRef = React.useRef<{ pid: number; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null)
+  const treeSuppressClickRef = React.useRef(false)
   const isChatGenerating = React.useCallback((chat: any) => {
     const msgs = Array.isArray(chat?.messages) ? chat.messages : []
     return msgs.some((m: any) => m && m.role === 'assistant' && m.pending)
@@ -621,6 +783,7 @@ export function AiChatApp(props: { controller: any }) {
   const autoScrollBlockUntilRef = React.useRef(0)
   const composerRef = React.useRef<HTMLDivElement | null>(null)
   const [composerHeight, setComposerHeight] = React.useState(0)
+  const TREE_PANEL_W = 360
 
   const [page, setPage] = React.useState<'chat' | 'settings'>('chat')
   const [settingsTab, setSettingsTab] = React.useState<'appearance' | 'attachments' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers'>('roles')
@@ -633,6 +796,33 @@ export function AiChatApp(props: { controller: any }) {
     setExpandedUserMsgIds(() => new Set())
     setExpandedToolMsgIds(() => new Set())
   }, [String(activeChat?.id || '')])
+
+  React.useEffect(() => {
+    setTreePan({ x: 18, y: 18 })
+    setTreeScale(1)
+  }, [String(activeChat?.id || '')])
+
+  React.useEffect(() => {
+    if (treeOpen) return
+    treeDragRef.current = null
+    treeSuppressClickRef.current = false
+    setTreeDragging(false)
+  }, [treeOpen])
+
+  React.useEffect(() => {
+    if (!treeDragging) return
+    const onUp = () => {
+      treeDragRef.current = null
+      setTreeDragging(false)
+      treeSuppressClickRef.current = false
+    }
+    window.addEventListener('mouseup', onUp)
+    window.addEventListener('blur', onUp)
+    return () => {
+      window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('blur', onUp)
+    }
+  }, [treeDragging])
 
   React.useEffect(() => {
     if (!userMessageCollapseEnabled) setExpandedUserMsgIds(() => new Set())
@@ -715,6 +905,72 @@ export function AiChatApp(props: { controller: any }) {
     setAttachView({ el: e.currentTarget, mid: id, idx: Math.max(-1, Math.floor(Number(idx || 0))) })
   })
 
+  const endTreeDrag = useEvent((e: React.PointerEvent) => {
+    const st = treeDragRef.current
+    if (!st) return
+    if (Number(e.pointerId) !== Number(st.pid)) return
+    treeDragRef.current = null
+    setTreeDragging(false)
+    if (st.moved) {
+      treeSuppressClickRef.current = true
+      setTimeout(() => {
+        treeSuppressClickRef.current = false
+      }, 0)
+    }
+  })
+
+  const onTreePointerDown = useEvent((e: React.PointerEvent) => {
+    if (!treeOpen) return
+    if (e.button !== 0) return
+    try {
+      const t = e.target as any
+      if (t && typeof t.closest === 'function' && t.closest('[data-tree-node="1"]')) return
+    } catch (_) {}
+    treeSuppressClickRef.current = false
+    treeDragRef.current = { pid: Number(e.pointerId), sx: Number(e.clientX), sy: Number(e.clientY), ox: treePan.x, oy: treePan.y, moved: false }
+    setTreeDragging(true)
+    e.preventDefault()
+    try {
+      ;(e.currentTarget as any)?.setPointerCapture?.(e.pointerId)
+    } catch (_) {}
+  })
+
+  const onTreePointerMove = useEvent((e: React.PointerEvent) => {
+    const st = treeDragRef.current
+    if (!st) return
+    if (Number(e.pointerId) !== Number(st.pid)) return
+    const dx = Number(e.clientX) - Number(st.sx)
+    const dy = Number(e.clientY) - Number(st.sy)
+    if (!st.moved && Math.hypot(dx, dy) > 3) st.moved = true
+    setTreePan({ x: st.ox + dx, y: st.oy + dy })
+  })
+
+  const onTreeWheel = useEvent((e: React.WheelEvent) => {
+    if (!treeOpen) return
+    const el = e.currentTarget as HTMLElement | null
+    if (!el) return
+    const dy = Number((e as any)?.deltaY || 0)
+    if (!isFinite(dy) || dy === 0) return
+    e.preventDefault()
+
+    const rect = el.getBoundingClientRect()
+    const cx = Number(e.clientX) - Number(rect.left)
+    const cy = Number(e.clientY) - Number(rect.top)
+
+    const scale0 = Number(treeScale || 1)
+    const factor = dy > 0 ? 1 / 1.12 : 1.12
+    const nextScale = clampNum(scale0 * factor, 0.35, 2.6)
+    if (Math.abs(nextScale - scale0) < 1e-6) return
+
+    const wx = (cx - treePan.x) / scale0
+    const wy = (cy - treePan.y) / scale0
+    const nx = cx - wx * nextScale
+    const ny = cy - wy * nextScale
+
+    setTreeScale(nextScale)
+    setTreePan({ x: nx, y: ny })
+  })
+
   const chatAllMessagesRaw: any[] = Array.isArray(activeChat?.messages) ? (activeChat.messages as any[]) : []
   const chatAllById = (() => {
     const m = new Map<string, any>()
@@ -780,6 +1036,19 @@ export function AiChatApp(props: { controller: any }) {
     }
     return out
   })()
+  const treeLayout = React.useMemo(() => {
+    if (!activeChat) return null
+    return buildChatTreeLayout(chatAllMessagesRaw, { maxNodes: 900 })
+  }, [String(activeChat?.id || ''), Number((activeChat as any)?.updatedAt || 0), chatAllMessagesRaw.length])
+  const treeNodeById = React.useMemo(() => {
+    const map = new Map<string, any>()
+    const list = treeLayout && Array.isArray((treeLayout as any).nodes) ? ((treeLayout as any).nodes as any[]) : []
+    for (const n of list) {
+      const id = String(n?.id || '').trim()
+      if (id && !map.has(id)) map.set(id, n)
+    }
+    return map
+  }, [treeLayout])
   const activeBranchIdUi = String((activeChat as any)?.branching?.activeBranchId || '')
   const allMessages: any[] = (() => {
     const chat: any = activeChat
@@ -895,6 +1164,19 @@ export function AiChatApp(props: { controller: any }) {
   const modelLoading = !!(s as any)?.models?.loading
   const uiBusy = !!s.sending
   const chatLocked = isReplying
+  const jumpToMessage = useEvent((mid0: string) => {
+    const mid = String(mid0 || '').trim()
+    if (!mid) return
+    if (!activeChat) return
+    const msg = chatAllById.get(mid) || null
+    if (!msg) return
+    const bid = String((msg as any)?.branchId || 'main').trim() || 'main'
+    const curBid = String((activeChat as any)?.branching?.activeBranchId || 'main').trim() || 'main'
+    stickToBottomRef.current = false
+    autoScrollBlockUntilRef.current = Date.now() + 1200
+    setBranchNav({ mid, at: Date.now() })
+    if (bid && bid !== curBid) controller.actions.setActiveBranch?.(bid)
+  })
   const draftFiles: any[] = Array.isArray((s.draft as any)?.files) ? ((s.draft as any).files as any[]) : []
   const hasDraftFiles = draftFiles.length > 0
   const draftFilesPending = hasDraftFiles && draftFiles.some((f: any) => !!f?.pending)
@@ -1659,6 +1941,11 @@ export function AiChatApp(props: { controller: any }) {
                     </IconButton>
                   </span>
                 </Tooltip>
+                <Tooltip title={treeOpen ? '收起分支树' : '展开分支树'}>
+                  <IconButton onClick={() => setTreeOpen((v) => !v)} size="small" aria-label={treeOpen ? '收起分支树' : '展开分支树'}>
+                    <AccountTreeIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
                 <Tooltip title="插件设置">
                   <IconButton onClick={() => openPluginSettings('roles')} size="small">
                     <SettingsIcon fontSize="small" />
@@ -1691,7 +1978,8 @@ export function AiChatApp(props: { controller: any }) {
                   minHeight: 0,
                   overflowY: 'auto',
                  overflowX: 'hidden',
-                 px: 2,
+                 pl: 2,
+                 pr: treeOpen ? `calc(16px + ${TREE_PANEL_W}px)` : 2,
                  pt: `calc(${TOPBAR_H}px + 16px)`,
                  bgcolor: transparentChatBg ? 'transparent' : 'grey.50',
                  paddingBottom: `calc(${Math.max(0, composerHeight)}px + 24px)`,
@@ -2408,13 +2696,169 @@ export function AiChatApp(props: { controller: any }) {
                 </DialogActions>
               </Dialog>
 
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: TOPBAR_H,
+                  right: 0,
+                  bottom: 0,
+                  width: treeOpen ? TREE_PANEL_W : 0,
+                  transition: 'width 180ms ease',
+                  overflow: 'hidden',
+                  pointerEvents: treeOpen ? 'auto' : 'none',
+                  borderLeft: treeOpen ? '1px solid rgba(0,0,0,.10)' : '1px solid transparent',
+                  bgcolor: transparentChatBg ? `rgba(255,255,255,${Math.max(0.72, bgAlpha)})` : 'background.paper',
+                  zIndex: 1000,
+                }}
+              >
+                <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', pt: 1.5, px: 1.5, pb: 1.5, userSelect: 'none', WebkitUserSelect: 'none' }}>
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 900 }} noWrap>
+                      分支树
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" noWrap>
+                      {treeLayout ? `${Math.max(0, Number(treeLayout?.nodes?.length || 0))} 节点` : '—'}
+                    </Typography>
+                    <Box sx={{ flex: 1 }} />
+                    <Tooltip title="重置视图">
+                      <span>
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            setTreePan({ x: 18, y: 18 })
+                            setTreeScale(1)
+                          }}
+                          disabled={!treeOpen}
+                        >
+                          <RestartAltIcon fontSize="inherit" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </Stack>
+
+                  <Box
+                    onPointerDown={onTreePointerDown}
+                    onPointerMove={onTreePointerMove}
+                    onPointerUp={endTreeDrag}
+                    onPointerCancel={endTreeDrag}
+                    onWheel={onTreeWheel}
+                    sx={{
+                      flex: 1,
+                      minHeight: 0,
+                      borderRadius: 2,
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      bgcolor: 'rgba(0,0,0,.03)',
+                      overflow: 'hidden',
+                      cursor: treeDragging ? 'grabbing' : 'grab',
+                      touchAction: 'none',
+                      userSelect: 'none',
+                      WebkitUserSelect: 'none',
+                    }}
+                  >
+                    {treeLayout && Array.isArray((treeLayout as any).nodes) && (treeLayout as any).nodes.length ? (
+                      <svg width="100%" height="100%" style={{ display: 'block' }}>
+                        <g transform={`translate(${Math.round(treePan.x)},${Math.round(treePan.y)}) scale(${Number(treeScale || 1)})`}>
+                          {Array.isArray((treeLayout as any).edges)
+                            ? ((treeLayout as any).edges as any[]).map((e: any) => {
+                                const from = String(e?.from || '').trim()
+                                const to = String(e?.to || '').trim()
+                                if (!from || !to) return null
+                                const a = treeNodeById.get(from) || null
+                                const b = treeNodeById.get(to) || null
+                                if (!a || !b) return null
+                                const w = Number((treeLayout as any).nodeW || 168)
+                                const h = Number((treeLayout as any).nodeH || 44)
+                                const sx = Number(a.x || 0) + w
+                                const sy = Number(a.y || 0) + h / 2
+                                const tx = Number(b.x || 0)
+                                const ty = Number(b.y || 0) + h / 2
+                                const dd = Math.max(42, Math.abs(tx - sx) * 0.5)
+                                const d = `M ${sx} ${sy} C ${sx + dd} ${sy} ${tx - dd} ${ty} ${tx} ${ty}`
+                                return <path key={`${from}->${to}`} d={d} fill="none" stroke="rgba(0,0,0,.16)" strokeWidth={1.5} />
+                              })
+                            : null}
+
+                          {((treeLayout as any).nodes as any[]).map((n: any) => {
+                            const id = String(n?.id || '').trim()
+                            if (!id) return null
+                            const x = Number(n?.x || 0)
+                            const y = Number(n?.y || 0)
+                            const w = Number((treeLayout as any).nodeW || 168)
+                            const h = Number((treeLayout as any).nodeH || 44)
+                            const role = String(n?.role || '')
+                            const text = String(n?.text || '')
+                            const isActive = id === String(lastMsgId || '')
+                            const clipId = `fw-tree-clip-${svgSafeId(id)}`
+
+                            const palette =
+                              role === 'assistant'
+                                ? { fill: 'rgba(46, 125, 50, .07)', stroke: 'rgba(46, 125, 50, .30)' }
+                                : { fill: 'rgba(25, 118, 210, .07)', stroke: 'rgba(25, 118, 210, .30)' }
+                            const stroke = isActive ? 'rgba(245, 124, 0, .85)' : palette.stroke
+                            const strokeWidth = isActive ? 2.25 : 1.25
+
+                            return (
+                              <g
+                                key={id}
+                                transform={`translate(${Math.round(x)},${Math.round(y)})`}
+                                style={{ cursor: 'pointer' }}
+                                data-tree-node="1"
+                                onClick={(ev) => {
+                                  if (treeSuppressClickRef.current) {
+                                    treeSuppressClickRef.current = false
+                                    ev.preventDefault()
+                                    ev.stopPropagation()
+                                    return
+                                  }
+                                  jumpToMessage(id)
+                                }}
+                                onPointerDown={(ev) => {
+                                  ev.stopPropagation()
+                                }}
+                              >
+                                <defs>
+                                  <clipPath id={clipId}>
+                                    <rect x={10} y={6} width={Math.max(0, w - 20)} height={Math.max(0, h - 12)} rx={8} />
+                                  </clipPath>
+                                </defs>
+                                <rect x={0} y={0} width={w} height={h} rx={12} fill={palette.fill} stroke={stroke} strokeWidth={strokeWidth} />
+                                <text
+                                  x={12}
+                                  y={h / 2}
+                                  fill="rgba(0,0,0,.82)"
+                                  fontSize={12}
+                                  dominantBaseline="middle"
+                                  clipPath={`url(#${clipId})`}
+                                  textLength={Math.max(0, w - 28)}
+                                  lengthAdjust="spacingAndGlyphs"
+                                  style={{ pointerEvents: 'none' }}
+                                >
+                                  {text}
+                                </text>
+                              </g>
+                            )
+                          })}
+                        </g>
+                      </svg>
+                    ) : (
+                      <Box sx={{ p: 1.5 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          暂无可展示的树（至少需要 1 条消息）。
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                </Box>
+              </Box>
+
                <Box
                  ref={composerRef}
                  onClick={onClickOpenImageViewer}
                  sx={{
                  position: 'absolute',
                  left: 16,
-                 right: 16,
+                 right: treeOpen ? 16 + TREE_PANEL_W : 16,
                  bottom: 16,
                 zIndex: 1299,
                 p: 1.5,
