@@ -101,6 +101,9 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
 
   const CHAT_ATTACHMENT_KINDS = new Set(['txt', 'md', 'pdf', 'docx', 'ppt'])
   const CHAT_MSG_GROUP_ROLES = new Set(['root', 'attachment'])
+  const CHAT_BRANCHING_SCHEMA_VERSION = 1
+  const CHAT_DEFAULT_BRANCH_ID = 'main'
+  const CHAT_DEFAULT_BRANCH_NAME = '主线'
   function normalizeMessageAttachments(input: any) {
     const list = Array.isArray(input) ? input : []
     const out = []
@@ -131,6 +134,250 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     if (!groupId || !groupRole) return { groupId: '', groupRole: '', groupParentMid: '' }
     if (groupRole === 'attachment' && !groupParentMid) return { groupId: '', groupRole: '', groupParentMid: '' }
     return { groupId, groupRole, groupParentMid }
+  }
+
+  function normalizeBranchId(input: any) {
+    let s = String(input || '').trim()
+    if (!s) return CHAT_DEFAULT_BRANCH_ID
+    if (s.length > 60) s = s.slice(0, 60).trim()
+    s = s.replace(/[^a-zA-Z0-9._-]/g, '_')
+    return s || CHAT_DEFAULT_BRANCH_ID
+  }
+
+  function normalizeBranchName(input: any) {
+    let s = String(input || '').replace(/\s+/g, ' ').trim()
+    if (!s) return CHAT_DEFAULT_BRANCH_NAME
+    if (s.length > 60) s = s.slice(0, 60).trim()
+    return s || CHAT_DEFAULT_BRANCH_NAME
+  }
+
+  function createDefaultChatBranching(headMid: string, createdAt: number, updatedAt: number) {
+    const hid = String(headMid || '').trim()
+    const ca = Number(createdAt || now())
+    const ua = Number(updatedAt || ca || now())
+    return {
+      schemaVersion: CHAT_BRANCHING_SCHEMA_VERSION,
+      activeBranchId: CHAT_DEFAULT_BRANCH_ID,
+      branches: [
+        {
+          id: CHAT_DEFAULT_BRANCH_ID,
+          name: CHAT_DEFAULT_BRANCH_NAME,
+          headMid: hid,
+          createdAt: ca,
+          updatedAt: ua,
+          forkFromMid: '',
+        },
+      ],
+    }
+  }
+
+  function normalizeChatBranching(raw: any, fallbackHeadMid: string, createdAt: number, updatedAt: number) {
+    const r = raw && typeof raw === 'object' ? raw : null
+    if (!r || Number((r as any).schemaVersion || 0) !== CHAT_BRANCHING_SCHEMA_VERSION) {
+      return createDefaultChatBranching(fallbackHeadMid, createdAt, updatedAt)
+    }
+
+    const activeBranchId = normalizeBranchId((r as any).activeBranchId)
+    const branches0 = Array.isArray((r as any).branches) ? (r as any).branches : []
+    const branches = branches0
+      .filter((b: any) => b && typeof b === 'object')
+      .map((b: any) => {
+        const id = normalizeBranchId(b.id)
+        const name = normalizeBranchName(b.name)
+        const headMid = String(b.headMid || '').trim()
+        const ca = Number(b.createdAt || createdAt || now())
+        const ua = Number(b.updatedAt || updatedAt || ca || now())
+        const forkFromMid = String(b.forkFromMid || '').trim()
+        return { id, name, headMid, createdAt: ca, updatedAt: ua, forkFromMid }
+      })
+
+    const byId = new Map<string, any>()
+    for (const b of branches) {
+      if (!b?.id || byId.has(b.id)) continue
+      byId.set(b.id, b)
+    }
+
+    if (!byId.has(activeBranchId)) {
+      byId.set(activeBranchId, {
+        id: activeBranchId,
+        name: activeBranchId === CHAT_DEFAULT_BRANCH_ID ? CHAT_DEFAULT_BRANCH_NAME : '分支',
+        headMid: String(fallbackHeadMid || '').trim(),
+        createdAt: Number(createdAt || now()),
+        updatedAt: Number(updatedAt || createdAt || now()),
+        forkFromMid: '',
+      })
+    }
+
+    const out = {
+      schemaVersion: CHAT_BRANCHING_SCHEMA_VERSION,
+      activeBranchId,
+      branches: Array.from(byId.values()).slice(0, 200),
+    }
+
+    return out
+  }
+
+  function rebuildLinearBranchingMessages(messages: any[], branchId: string) {
+    const bid = normalizeBranchId(branchId)
+    const list = Array.isArray(messages) ? messages : []
+    let prev = ''
+    for (const m of list) {
+      if (!m || typeof m !== 'object') continue
+      ;(m as any).branchId = bid
+      ;(m as any).parentMid = prev
+      prev = String((m as any).id || '')
+    }
+    return prev
+  }
+
+  function fillMissingBranchIdsOnly(messages: any[], branchId: string) {
+    const bid = normalizeBranchId(branchId)
+    const list = Array.isArray(messages) ? messages : []
+    let last = ''
+    for (const m of list) {
+      if (!m || typeof m !== 'object') continue
+      if (!String((m as any).branchId || '').trim()) (m as any).branchId = bid
+      last = String((m as any).id || '')
+    }
+    return last
+  }
+
+  function touchActiveBranchHead(chat: any) {
+    const c = chat && typeof chat === 'object' ? chat : null
+    if (!c) return
+    const msgs = Array.isArray((c as any).messages) ? (c as any).messages : []
+    const lastMid = msgs.length ? String((msgs[msgs.length - 1] as any)?.id || '') : ''
+    const createdAt = Number((c as any).createdAt || now())
+    const updatedAt = Number((c as any).updatedAt || createdAt || now())
+
+    const branching = normalizeChatBranching((c as any).branching, lastMid, createdAt, updatedAt)
+    ;(c as any).branching = branching
+
+    const bid = normalizeBranchId((branching as any).activeBranchId)
+    const branches = Array.isArray((branching as any).branches) ? (branching as any).branches : []
+    const b = branches.find((x: any) => String(x?.id || '') === bid) || null
+    if (b) {
+      b.headMid = lastMid
+      b.updatedAt = updatedAt
+    }
+  }
+
+  function repairChatLinearBranching(chat: any) {
+    const c = chat && typeof chat === 'object' ? chat : null
+    if (!c) return
+    const msgs = Array.isArray((c as any).messages) ? (c as any).messages : []
+    const createdAt = Number((c as any).createdAt || now())
+    const updatedAt = Number((c as any).updatedAt || createdAt || now())
+    const lastMid0 = msgs.length ? String((msgs[msgs.length - 1] as any)?.id || '') : ''
+
+    const branching = normalizeChatBranching((c as any).branching, lastMid0, createdAt, updatedAt)
+    ;(c as any).branching = branching
+
+    const activeBranchId = normalizeBranchId((branching as any).activeBranchId)
+
+    const branches = Array.isArray((branching as any).branches) ? (branching as any).branches : []
+    const idSet = new Set<string>()
+    for (const b of branches) {
+      const id = normalizeBranchId((b as any)?.id)
+      if (id) idSet.add(id)
+      if (idSet.size >= 2) break
+    }
+
+    let headMid = ''
+    if (idSet.size >= 2) {
+      fillMissingBranchIdsOnly(msgs, activeBranchId)
+      headMid = lastMid0
+    } else {
+      headMid = rebuildLinearBranchingMessages(msgs, activeBranchId)
+    }
+
+    const b = branches.find((x: any) => String(x?.id || '') === activeBranchId) || null
+    if (b) {
+      b.headMid = headMid
+      b.updatedAt = updatedAt
+    }
+  }
+
+  function ensureChatBranching(chat: any) {
+    const c = chat && typeof chat === 'object' ? chat : null
+    if (!c) return null
+    const msgs = Array.isArray((c as any).messages) ? (c as any).messages : []
+    const createdAt = Number((c as any).createdAt || now())
+    const updatedAt = Number((c as any).updatedAt || createdAt || now())
+    const lastMid = msgs.length ? String((msgs[msgs.length - 1] as any)?.id || '') : ''
+    const branching = normalizeChatBranching((c as any).branching, lastMid, createdAt, updatedAt)
+    ;(c as any).branching = branching
+    return branching
+  }
+
+  function findChatBranch(chat: any, branchId: string) {
+    const branching = ensureChatBranching(chat)
+    if (!branching) return null
+    const bid = normalizeBranchId(branchId)
+    const branches = Array.isArray((branching as any).branches) ? (branching as any).branches : []
+    return branches.find((b: any) => String(b?.id || '') === bid) || null
+  }
+
+  function ensureChatBranch(chat: any, branchId: string) {
+    const branching = ensureChatBranching(chat)
+    if (!branching) return null
+    const bid = normalizeBranchId(branchId)
+    const branches = Array.isArray((branching as any).branches) ? (branching as any).branches : []
+    let b = branches.find((x: any) => String(x?.id || '') === bid) || null
+    if (!b) {
+      const t = now()
+      b = { id: bid, name: bid === CHAT_DEFAULT_BRANCH_ID ? CHAT_DEFAULT_BRANCH_NAME : '分支', headMid: '', createdAt: t, updatedAt: t, forkFromMid: '' }
+      branches.push(b)
+      ;(branching as any).branches = branches.slice(0, 200)
+    }
+    return b
+  }
+
+  function setChatActiveBranchId(chat: any, branchId: string) {
+    const branching = ensureChatBranching(chat)
+    if (!branching) return
+    const bid = normalizeBranchId(branchId)
+    ensureChatBranch(chat, bid)
+    ;(branching as any).activeBranchId = bid
+    ;(chat as any).branching = branching
+  }
+
+  function setChatBranchHeadMid(chat: any, branchId: string, headMid: string) {
+    const b = ensureChatBranch(chat, branchId)
+    if (!b) return
+    b.headMid = String(headMid || '').trim()
+    b.updatedAt = Number((chat as any)?.updatedAt || now())
+  }
+
+  function genUniqueBranchId(branching: any) {
+    const branches = Array.isArray(branching?.branches) ? branching.branches : []
+    const used = new Set<string>(branches.map((b: any) => normalizeBranchId(b?.id)))
+    for (let i = 0; i < 12; i++) {
+      const id = normalizeBranchId(uid('b'))
+      if (!used.has(id)) return id
+    }
+    return normalizeBranchId(uid('b'))
+  }
+
+  function findChatMessageById(chat: any, messageId: any) {
+    const mid = String(messageId || '').trim()
+    if (!mid) return null
+    const msgs = Array.isArray(chat?.messages) ? chat.messages : []
+    return msgs.find((m: any) => m && typeof m === 'object' && String(m?.id || '') === mid) || null
+  }
+
+  function findAssistantSiblingsByUserMid(chat: any, userMid: string) {
+    const uid0 = String(userMid || '').trim()
+    if (!uid0) return []
+    const msgs = Array.isArray(chat?.messages) ? chat.messages : []
+    const list = msgs.filter((m: any) => m && m.role === 'assistant' && String(m?.parentMid || '').trim() === uid0)
+    list.sort((a: any, b: any) => {
+      const da = Number(a?.createdAt || 0)
+      const db = Number(b?.createdAt || 0)
+      if (da !== db) return da - db
+      return String(a?.id || '').localeCompare(String(b?.id || ''))
+    })
+    return list
   }
 
   let ver = 0
@@ -612,6 +859,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const pid = providerName
     const rid = uid('r')
     const cid = uid('c')
+    const t = now()
         return {
           version: VERSION,
           settings: {
@@ -680,7 +928,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       chatsByRole: {
         [rid]: {
           activeChatId: cid,
-          chats: [{ id: cid, title: '新聊天', createdAt: now(), updatedAt: now(), messages: [] }],
+          chats: [{ id: cid, title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }],
         },
       },
       ui: { activeRoleId: rid },
@@ -845,11 +1093,17 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
           const createdAt = Number(cc.createdAt || now())
           const updatedAt = Number(cc.updatedAt || createdAt || now())
           const messages = Array.isArray(cc.messages) ? cc.messages : []
-          return {
+          const fallbackHeadMid = messages.length ? String((messages[messages.length - 1] as any)?.id || '') : ''
+          const branching = normalizeChatBranching((cc as any).branching, fallbackHeadMid, createdAt, updatedAt)
+          const activeBranchId = normalizeBranchId((branching as any).activeBranchId)
+          const modelOverride = normalizeChatModelOverride(cc)
+
+          const out: any = {
             id: cid,
             title,
             createdAt,
             updatedAt,
+            branching,
             messages: messages
               .filter((m) => m && typeof m === 'object')
                 .map((m) => ({
@@ -859,16 +1113,48 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
                   images: normImagePaths(m.images),
                   attachments: normalizeMessageAttachments((m as any).attachments),
                   ...normalizeMessageGroup(m),
+                  // 会话内分支（数据层先落好结构；UI 以后再做）
+                  branchId: normalizeBranchId((m as any).branchId || activeBranchId),
+                  parentMid: String((m as any).parentMid || '').trim(),
                   pending: !!m.pending,
                   streaming: !!m.streaming,
                   createdAt: Number(m.createdAt || now()),
                 })),
+          }
+
+          if (modelOverride) out.modelOverride = modelOverride
+
+          // 现阶段：UI 仍是线性展示；先保证“主线”有稳定的 parent 链和 headMid。
+          const branches0 = Array.isArray(out.branching?.branches) ? out.branching.branches : []
+          const idSet = new Set<string>()
+          for (const b of branches0) {
+            const id = normalizeBranchId((b as any)?.id)
+            if (id) idSet.add(id)
+            if (idSet.size >= 2) break
+          }
+          let headMid = ''
+          if (idSet.size >= 2) {
+            fillMissingBranchIdsOnly(out.messages, activeBranchId)
+            headMid = out.messages.length ? String((out.messages[out.messages.length - 1] as any)?.id || '') : ''
+          } else {
+            headMid = rebuildLinearBranchingMessages(out.messages, activeBranchId)
+          }
+          try {
+            const branches = Array.isArray(out.branching?.branches) ? out.branching.branches : []
+            const b = branches.find((x: any) => String(x?.id || '') === String(out.branching?.activeBranchId || '')) || null
+            if (b) {
+              b.headMid = headMid
+              b.updatedAt = updatedAt
             }
-          })
+          } catch (_) {}
+
+          return out
+        })
 
       if (!box.chats.length) {
         const cid = uid('c')
-        box.chats = [{ id: cid, title: '新聊天', createdAt: now(), updatedAt: now(), messages: [] }]
+        const t = now()
+        box.chats = [{ id: cid, title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }]
         box.activeChatId = cid
       }
 
@@ -1954,6 +2240,15 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       if (!chat) throw new Error('创建会话失败')
       if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
 
+      const branching = ensureChatBranching(chat)
+      const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
+      const activeBranch = ensureChatBranch(chat, activeBranchId)
+      let parentMid = String(activeBranch?.headMid || '').trim()
+      if (!parentMid) {
+        const items0 = Array.isArray(chat.messages) ? chat.messages : []
+        parentMid = items0.length ? String(items0[items0.length - 1]?.id || '') : ''
+      }
+
       const wasEmpty = !Array.isArray(chat.messages) || chat.messages.length === 0
       const userText = String(input || '').trim()
       const hasUserMain = !!userText || savedPaths.length > 0
@@ -1989,16 +2284,20 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
             sendLen,
             sendPct: pct,
           }
+          const mid = uid('m')
           attachMsgs.push({
-            id: uid('m'),
+            id: mid,
             role: 'user',
             content: `附件：${name}`,
             attachments: [att],
             groupId,
             groupRole: 'attachment' as ChatMsgGroupRole,
             groupParentMid: rootMid,
+            branchId: activeBranchId,
+            parentMid,
             createdAt: now(),
           })
+          parentMid = mid
         }
       }
 
@@ -2009,6 +2308,8 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         role: 'user',
         content: hasUserMain ? userText : attachMsgs.length ? '（附件）' : userText,
         images: savedPaths,
+        branchId: activeBranchId,
+        parentMid,
         createdAt: now(),
       }
       if (attachMsgs.length) {
@@ -2016,6 +2317,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         rootMsg.groupRole = 'root' as ChatMsgGroupRole
         rootMsg.groupParentMid = ''
       }
+      parentMid = rootMid
 
       chat.messages.push(...attachMsgs, rootMsg)
       chat.updatedAt = now()
@@ -2034,11 +2336,15 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         id: assistantMid,
         role: 'assistant',
         content: '（生成中…）',
+        branchId: activeBranchId,
+        parentMid,
         pending: true,
         streaming: streamEnabled,
         createdAt: now(),
       })
       chat.updatedAt = now()
+      setChatBranchHeadMid(chat, activeBranchId, assistantMid)
+      repairChatLinearBranching(chat)
 
       const jobId = uid('job')
       const job = {
@@ -2049,6 +2355,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         roleId: String(role.id || ''),
         chatId: String(chat.id || ''),
         assistantMid,
+        branchId: activeBranchId,
         stream: streamEnabled,
       }
 
@@ -2115,7 +2422,10 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         m.pending = false
         m.streaming = false
       }
-      if (chat) chat.updatedAt = now()
+      if (chat) {
+        chat.updatedAt = now()
+        repairChatLinearBranching(chat)
+      }
       emit()
     }
 
@@ -2161,27 +2471,38 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       if (target.pending) throw new Error('该消息正在生成中')
       if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
 
-      let userIndex = -1
-      for (let i = aiIndex - 1; i >= 0; i--) {
-        const m = msgs[i]
-        if (m && m.role === 'user') {
-          userIndex = i
-          break
+      let userMid = String((target as any)?.parentMid || '').trim()
+      let userMsg = userMid ? msgs.find((m) => String(m?.id || '') === userMid) || null : null
+      if (!userMsg || userMsg.role !== 'user') {
+        // 兼容旧数据：没有 parentMid 时退回到“向前找最近 user”
+        let userIndex = -1
+        for (let i = aiIndex - 1; i >= 0; i--) {
+          const m = msgs[i]
+          if (m && m.role === 'user') {
+            userIndex = i
+            break
+          }
         }
+        if (userIndex < 0) throw new Error('未找到对应的用户消息')
+        userMsg = msgs[userIndex]
+        userMid = String(userMsg?.id || '').trim()
       }
-      if (userIndex < 0) throw new Error('未找到对应的用户消息')
 
       const streamEnabled = !!state.data?.settings?.streamEnabled
       target.content = '（生成中…）'
       target.pending = true
       target.streaming = streamEnabled
       chat.updatedAt = now()
+      repairChatLinearBranching(chat)
 
       try {
         await runtimeStorage.remove(streamKey(mid))
       } catch (_) {}
 
       const jobId = uid('job')
+      const branching = ensureChatBranching(chat)
+      const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
+      const branchId = normalizeBranchId((target as any)?.branchId || activeBranchId)
       const job = {
         id: jobId,
         kind: 'openai.chat.completions',
@@ -2191,6 +2512,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         chatId: String(chat.id || ''),
         assistantMid: mid,
         cutoffMid: mid,
+        branchId,
         stream: streamEnabled,
       }
 
@@ -2253,17 +2575,23 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
 
       const streamEnabled = !!state.data?.settings?.streamEnabled
+      const branching = ensureChatBranching(chat)
+      const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
       assistantMid = uid('m')
       msgs.splice(userIndex + 1, 0, {
         id: assistantMid,
         role: 'assistant',
         content: '（生成中…）',
+        branchId: activeBranchId,
+        parentMid: mid,
         pending: true,
         streaming: streamEnabled,
         createdAt: now(),
       })
       chat.messages = msgs
       chat.updatedAt = now()
+      setChatBranchHeadMid(chat, activeBranchId, assistantMid)
+      repairChatLinearBranching(chat)
 
       const jobId = uid('job')
       const job = {
@@ -2275,6 +2603,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         chatId: String(chat.id || ''),
         assistantMid,
         cutoffMid: assistantMid,
+        branchId: activeBranchId,
         stream: streamEnabled,
       }
 
@@ -2296,6 +2625,153 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       state.sending = false
       render()
     }
+  }
+
+  async function createParallelBranchFromAssistantMessage(assistantMid) {
+    if (state.sending || state.loading || !state.data) return
+
+    const role = activeRole()
+    const chat = activeChatFromData()
+    if (!role || !chat) return
+    ensureRoleDefaults(role)
+
+    const mid = String(assistantMid || '').trim()
+    if (!mid) return
+
+    if (chatHasPendingAssistant(chat)) return api.ui?.showToast?.('该会话正在生成中，请先停止或等待完成')
+
+    const msgs = Array.isArray(chat.messages) ? chat.messages : []
+    const target = msgs.find((m) => String(m?.id || '') === mid) || null
+    if (!target || target.role !== 'assistant') return api.ui?.showToast?.('只能从 AI 消息新建分支')
+    if (target.pending) return api.ui?.showToast?.('该消息正在生成中')
+
+    const userMid0 = String((target as any)?.parentMid || '').trim()
+    const userMsg = userMid0 ? msgs.find((m) => String(m?.id || '') === userMid0) || null : null
+    if (!userMsg || userMsg.role !== 'user') return api.ui?.showToast?.('未找到对应的用户消息')
+
+    let prevAiMid = ''
+    const p0 = String((userMsg as any)?.parentMid || '').trim()
+    const pMsg = p0 ? msgs.find((m) => String(m?.id || '') === p0) || null : null
+    if (pMsg && pMsg.role === 'assistant') prevAiMid = String(pMsg.id || '')
+    else {
+      const idx = msgs.findIndex((m) => String(m?.id || '') === userMid0)
+      for (let i = idx - 1; i >= 0; i--) {
+        const m = msgs[i]
+        if (m && m.role === 'assistant') {
+          prevAiMid = String(m.id || '')
+          break
+        }
+      }
+    }
+
+    const branching = ensureChatBranching(chat)
+    if (!branching) return
+
+    const newBranchId = genUniqueBranchId(branching)
+    const t = now()
+    const branches = Array.isArray((branching as any).branches) ? (branching as any).branches : []
+    branches.push({ id: newBranchId, name: '分支', headMid: '', createdAt: t, updatedAt: t, forkFromMid: prevAiMid })
+    ;(branching as any).branches = branches.slice(0, 200)
+    ;(branching as any).activeBranchId = newBranchId
+    ;(chat as any).branching = branching
+
+    const streamEnabled = !!state.data?.settings?.streamEnabled
+    const assistantMid2 = uid('m')
+    msgs.push({
+      id: assistantMid2,
+      role: 'assistant',
+      content: '（生成中…）',
+      branchId: newBranchId,
+      parentMid: userMid0,
+      pending: true,
+      streaming: streamEnabled,
+      createdAt: t,
+    })
+    chat.messages = msgs
+    chat.updatedAt = now()
+    setChatBranchHeadMid(chat, newBranchId, assistantMid2)
+    repairChatLinearBranching(chat)
+
+    const jobId = uid('job')
+    const job = {
+      id: jobId,
+      kind: 'openai.chat.completions',
+      status: 'queued',
+      createdAt: now(),
+      roleId: String(role.id || ''),
+      chatId: String(chat.id || ''),
+      assistantMid: assistantMid2,
+      cutoffMid: assistantMid2,
+      branchId: newBranchId,
+      stream: streamEnabled,
+    }
+
+    try {
+      state.sending = true
+      renderComposer()
+      await save()
+      await runtimeStorage.set(jobKey(jobId), job)
+      await enqueueJob(jobId)
+    } catch (e) {
+      const msg = String((e as any)?.message || e || '请求失败')
+      const items = Array.isArray(chat?.messages) ? chat.messages : []
+      const am = assistantMid2 ? items.find((m) => String(m?.id || '') === assistantMid2) : null
+      if (am) {
+        am.content = `（请求失败：${msg}）`
+        am.pending = false
+        am.streaming = false
+      }
+      save().catch(() => {})
+      api.ui?.showToast?.(msg)
+    } finally {
+      state.sending = false
+      render()
+      scrollToBottomSoon()
+    }
+  }
+
+  function switchBranchByAssistantSibling(assistantMid: any, delta: any) {
+    if (state.loading || !state.data) return
+
+    const chat = activeChatFromData()
+    if (!chat) return
+
+    const mid = String(assistantMid || '').trim()
+    if (!mid) return
+
+    const d = Math.sign(Number(delta || 0))
+    if (!d) return
+
+    const target = findChatMessageById(chat, mid)
+    if (!target || String((target as any).role || '') !== 'assistant') return
+    const userMid = String((target as any)?.parentMid || '').trim()
+    if (!userMid) return
+
+    const sibs = findAssistantSiblingsByUserMid(chat, userMid)
+    if (sibs.length < 2) return
+
+    const i0 = sibs.findIndex((m: any) => String(m?.id || '') === mid)
+    if (i0 < 0) return
+
+    const len = sibs.length
+    const i = (i0 + d + len) % len
+    const picked = sibs[i]
+    const pickedMid = String(picked?.id || '').trim()
+    const pickedBranchId = normalizeBranchId((picked as any)?.branchId || CHAT_DEFAULT_BRANCH_ID)
+    if (!pickedMid || !pickedBranchId) return
+
+    const branching = ensureChatBranching(chat)
+    if (!branching) return
+    ensureChatBranch(chat, pickedBranchId)
+    ;(branching as any).activeBranchId = pickedBranchId
+    ;(chat as any).branching = branching
+
+    const b = findChatBranch(chat, pickedBranchId)
+    if (b && !String((b as any)?.headMid || '').trim()) (b as any).headMid = pickedMid
+
+    save().catch(() => {})
+    render()
+    scrollToBottomSoon()
   }
 
   async function deleteMessage(messageId) {
@@ -2343,6 +2819,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       msgs.splice(idx, 1)
     }
     chat.updatedAt = now()
+    repairChatLinearBranching(chat)
 
     if (target.role === 'assistant') {
       try {
@@ -2387,6 +2864,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
 
     target.content = String(content ?? '')
     chat.updatedAt = now()
+    repairChatLinearBranching(chat)
 
     emit()
 
@@ -2429,6 +2907,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     m.pending = false
     m.streaming = false
     chat.updatedAt = now()
+    repairChatLinearBranching(chat)
 
     await api.storage.set(key, chat)
 
@@ -2467,10 +2946,22 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const toInsert = hasPendingAssistant ? list.filter((m) => String(m?.role || '') !== 'assistant') : list
     if (!toInsert.length) return { ok: false as const, insertedAssistant: false as const }
 
+    const afterMsg = msgs[idx] && typeof msgs[idx] === 'object' ? msgs[idx] : null
+    const desiredBranchId = normalizeBranchId((afterMsg as any)?.branchId || (job as any)?.branchId || CHAT_DEFAULT_BRANCH_ID)
+    let parentMid = mid
+    for (const m of toInsert) {
+      if (!m || typeof m !== 'object') continue
+      if (!String((m as any).id || '').trim()) (m as any).id = uid('m')
+      if (!String((m as any).branchId || '').trim()) (m as any).branchId = desiredBranchId
+      if (!String((m as any).parentMid || '').trim()) (m as any).parentMid = parentMid
+      parentMid = String((m as any).id || '').trim()
+    }
+
     const next = msgs.slice()
     next.splice(idx + 1, 0, ...toInsert)
     chat.messages = next
     chat.updatedAt = now()
+    repairChatLinearBranching(chat)
 
     await api.storage.set(key, chat)
 
@@ -2610,13 +3101,56 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
 
     const cutoffMid = String(job?.cutoffMid || '').trim()
     const msgs0 = Array.isArray(chat.messages) ? chat.messages : []
-    let baseMsgs0 = msgs0
-    if (cutoffMid) {
-      const idx = msgs0.findIndex((m) => String(m?.id || '') === cutoffMid)
-      if (idx >= 0) baseMsgs0 = msgs0.slice(0, idx)
+
+    const branchIdRaw = String((job as any)?.branchId || '').trim()
+    const wantBranchId = branchIdRaw ? normalizeBranchId(branchIdRaw) : ''
+
+    let historySource: any[] = []
+    if (wantBranchId) {
+      const byId = new Map<string, any>()
+      for (const m of msgs0) {
+        const id = String(m?.id || '').trim()
+        if (!id || byId.has(id)) continue
+        byId.set(id, m)
+      }
+
+      const assistantMid = String(job?.assistantMid || '').trim()
+      const assistantMsg = assistantMid ? byId.get(assistantMid) || null : null
+      let tailMid = assistantMsg && typeof assistantMsg === 'object' ? String((assistantMsg as any)?.parentMid || '').trim() : ''
+
+      if (!tailMid) {
+        // fallback：找最后一个 user（避免 parentMid 缺失导致上下文为空）
+        for (let i = msgs0.length - 1; i >= 0; i--) {
+          const m = msgs0[i]
+          if (m && m.role === 'user') {
+            tailMid = String(m?.id || '').trim()
+            break
+          }
+        }
+      }
+
+      const chain: any[] = []
+      const seen = new Set<string>()
+      let cur = tailMid
+      while (cur && !seen.has(cur)) {
+        seen.add(cur)
+        const m = byId.get(cur) || null
+        if (!m) break
+        if (!(m && m.role === 'assistant' && m.pending)) chain.push(m)
+        cur = String((m as any)?.parentMid || '').trim()
+      }
+      chain.reverse()
+      historySource = chain
+    } else {
+      let baseMsgs0 = msgs0
+      if (cutoffMid) {
+        const idx = msgs0.findIndex((m) => String(m?.id || '') === cutoffMid)
+        if (idx >= 0) baseMsgs0 = msgs0.slice(0, idx)
+      }
+      historySource = baseMsgs0.filter((m) => !(m && m.role === 'assistant' && m.pending))
     }
-    const msgs = baseMsgs0.filter((m) => !(m && m.role === 'assistant' && m.pending))
-    const history = limitHistory(msgs, 40)
+
+    const history = limitHistory(historySource, 40)
 
     const sys = String(role.systemPrompt || '').trim()
     const messages = []
@@ -3988,6 +4522,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     if (rid === NEW_ROLE_ID) {
       const newRid = uid('r')
       const cid = uid('c')
+      const t = now()
       const role = {
         id: newRid,
         name,
@@ -4004,7 +4539,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       if (!state.data.chatsByRole || typeof state.data.chatsByRole !== 'object') state.data.chatsByRole = {}
       state.data.chatsByRole[newRid] = {
         activeChatId: cid,
-        chats: [{ id: cid, title: '新聊天', createdAt: now(), updatedAt: now(), messages: [] }],
+        chats: [{ id: cid, title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }],
       }
       state.draft.activeRoleId = newRid
       save().catch(() => {})
@@ -4144,7 +4679,8 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     box.activeChatId = String(box.activeChatId || '')
     if (!box.chats.length) {
       const cid = uid('c')
-      box.chats = [{ id: cid, title: '新聊天', createdAt: now(), updatedAt: now(), messages: [] }]
+      const t = now()
+      box.chats = [{ id: cid, title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }]
       box.activeChatId = cid
     }
     if (!box.activeChatId || !box.chats.some((c) => String(c?.id) === box.activeChatId)) box.activeChatId = String(box.chats[0]?.id || '')
@@ -4170,7 +4706,8 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const box = ensureChatsBoxBare(rid)
     if (!box) return null
     const cid = uid('c')
-    const chat = { id: cid, title: '新聊天', createdAt: now(), updatedAt: now(), messages: [] }
+    const t = now()
+    const chat = { id: cid, title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }
     box.chats.unshift(chat)
     box.activeChatId = cid
     return chat
@@ -4180,7 +4717,11 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const role = activeRole()
     if (!role) return api.ui?.showToast?.('请先选择角色')
     const rid = String(role.id || '')
-    state.pendingChat = { roleId: rid, chat: { id: uid('pc'), title: '新聊天', createdAt: now(), updatedAt: now(), messages: [], pendingLocal: true } }
+    const t = now()
+    state.pendingChat = {
+      roleId: rid,
+      chat: { id: uid('pc'), title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [], pendingLocal: true },
+    }
     state.sideTab = 'chats'
     state.draft.input = ''
     state.draft.images = []
@@ -4305,7 +4846,8 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
 
     if (!box.chats.length) {
       const nid = uid('c')
-      box.chats = [{ id: nid, title: '新聊天', createdAt: now(), updatedAt: now(), messages: [] }]
+      const t = now()
+      box.chats = [{ id: nid, title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }]
       box.activeChatId = nid
     }
 
@@ -5266,6 +5808,8 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       },
       regenerateAssistant: (assistantMid) => regenerateAssistantMessage(String(assistantMid || '')),
       replyFromUserMessage: (userMid) => replyFromUserMessage(String(userMid || '')),
+      createBranchFromAssistant: (assistantMid) => createParallelBranchFromAssistantMessage(String(assistantMid || '')),
+      switchBranchSibling: (assistantMid, delta) => switchBranchByAssistantSibling(String(assistantMid || ''), Number(delta || 0)),
       setChatModelOverride: (providerId, modelId) => {
         if (!state.data) return
         const role = activeRole()

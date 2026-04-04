@@ -704,7 +704,65 @@ export function AiChatApp(props: { controller: any }) {
     setAttachView({ el: e.currentTarget, mid: id, idx: Math.max(-1, Math.floor(Number(idx || 0))) })
   })
 
-  const allMessages: any[] = Array.isArray(activeChat?.messages) ? (activeChat.messages as any[]) : []
+  const chatAllMessagesRaw: any[] = Array.isArray(activeChat?.messages) ? (activeChat.messages as any[]) : []
+  const activeBranchIdUi = String((activeChat as any)?.branching?.activeBranchId || '')
+  const allMessages: any[] = (() => {
+    const chat: any = activeChat
+    const msgs = chatAllMessagesRaw
+    if (!chat || !Array.isArray(msgs) || msgs.length === 0) return []
+
+    const branching = chat?.branching
+    const activeBranchId = String(branching?.activeBranchId || 'main').trim() || 'main'
+    const branches = Array.isArray(branching?.branches) ? branching.branches : []
+    const b = branches.find((x: any) => String(x?.id || '') === activeBranchId) || null
+
+    let headMid = String(b?.headMid || '').trim()
+    if (!headMid) headMid = String(msgs[msgs.length - 1]?.id || '').trim()
+    if (!headMid) return msgs
+
+    const byId = new Map<string, any>()
+    for (const m of msgs) {
+      const id = String(m?.id || '').trim()
+      if (!id || byId.has(id)) continue
+      byId.set(id, m)
+    }
+
+    const out: any[] = []
+    const seen = new Set<string>()
+    let cur = headMid
+    while (cur && !seen.has(cur)) {
+      seen.add(cur)
+      const m = byId.get(cur) || null
+      if (!m) break
+      out.push(m)
+      cur = String((m as any)?.parentMid || '').trim()
+    }
+
+    out.reverse()
+    return out.length ? out : msgs
+  })()
+
+  const assistantSiblingsByUserMid = (() => {
+    const map = new Map<string, any[]>()
+    for (const m of chatAllMessagesRaw) {
+      if (!m || m.role !== 'assistant') continue
+      const userMid = String((m as any)?.parentMid || '').trim()
+      if (!userMid) continue
+      const list = map.get(userMid) || []
+      list.push(m)
+      map.set(userMid, list)
+    }
+    for (const [k, list] of map.entries()) {
+      list.sort((a: any, b: any) => {
+        const da = Number(a?.createdAt || 0)
+        const db = Number(b?.createdAt || 0)
+        if (da !== db) return da - db
+        return String(a?.id || '').localeCompare(String(b?.id || ''))
+      })
+      map.set(k, list)
+    }
+    return map
+  })()
   const msgIndexById = (() => {
     const m = new Map<string, number>()
     for (let i = 0; i < allMessages.length; i++) {
@@ -744,7 +802,7 @@ export function AiChatApp(props: { controller: any }) {
   const lastMsg = renderMessages.length ? renderMessages[renderMessages.length - 1] : null
   const lastMsgId = String(lastMsg?.id || '')
   const lastMsgText = String(lastMsg?.content || '')
-  const isReplying = Array.isArray(activeChat?.messages) && activeChat.messages.some((m: any) => m && m.role === 'assistant' && m.pending)
+  const isReplying = allMessages.some((m: any) => m && m.role === 'assistant' && m.pending)
   const chatOverride = (activeChat && typeof activeChat === 'object' ? (activeChat as any).modelOverride : null) as any
   const overrideProviderId = String(chatOverride?.providerId || '').trim()
   const overrideModelId = String(chatOverride?.modelId || '').trim()
@@ -840,7 +898,7 @@ export function AiChatApp(props: { controller: any }) {
     onScroll()
     el.addEventListener('scroll', onScroll, { passive: true } as any)
     return () => el.removeEventListener('scroll', onScroll as any)
-  }, [page, activeRole?.id, activeChat?.id])
+  }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi])
 
   React.useEffect(() => {
     if (page !== 'chat') return
@@ -852,7 +910,7 @@ export function AiChatApp(props: { controller: any }) {
         el.scrollTop = el.scrollHeight
       } catch (_) {}
     })
-  }, [page, activeRole?.id, activeChat?.id])
+  }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi])
 
   React.useEffect(() => {
     if (page !== 'chat') return
@@ -864,7 +922,7 @@ export function AiChatApp(props: { controller: any }) {
         el.scrollTop = el.scrollHeight
       } catch (_) {}
     })
-  }, [page, (activeChat?.messages || []).length, lastMsgId, lastMsgText])
+  }, [page, allMessages.length, lastMsgId, lastMsgText, activeBranchIdUi])
 
   const [sendWarn, setSendWarn] = React.useState<{ open: boolean; items: any[] }>({ open: false, items: [] })
   const closeSendWarn = useEvent(() => setSendWarn({ open: false, items: [] }))
@@ -968,7 +1026,7 @@ export function AiChatApp(props: { controller: any }) {
 
   React.useEffect(() => {
     setEditingMsg({ mid: '', text: '' })
-  }, [page, activeRole?.id, activeChat?.id])
+  }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi])
 
   React.useEffect(() => {
     setChatMenu({ roleId: '', chatId: '', title: '', x: 0, y: 0 })
@@ -1676,8 +1734,8 @@ export function AiChatApp(props: { controller: any }) {
                     let regenMid = mid
                     let regenPending = isUser ? false : !!m?.pending
                     if (isUser) {
-                      const msgs = Array.isArray(activeChat.messages) ? (activeChat.messages as any[]) : []
-                      const fullIdx = msgIndexById.get(mid) ?? -1
+                      const msgs = chatAllMessagesRaw
+                      const fullIdx = msgs.findIndex((x: any) => String(x?.id || '') === mid)
                       for (let j = fullIdx + 1; j < msgs.length; j++) {
                         const next = msgs[j]
                         if (!next) continue
@@ -1694,6 +1752,11 @@ export function AiChatApp(props: { controller: any }) {
                       regenMid = mid
                       regenPending = !!m?.pending
                     }
+
+                    const branchUserMid = !isUser ? String((m as any)?.parentMid || '').trim() : ''
+                    const branchSiblings = !isUser && branchUserMid ? assistantSiblingsByUserMid.get(branchUserMid) || [] : []
+                    const branchIndex = !isUser ? branchSiblings.findIndex((x: any) => String(x?.id || '') === mid) : -1
+                    const canSwitchBranch = !isUser && branchSiblings.length >= 2 && branchIndex >= 0
                     return (
                       <Stack key={mid} direction="row" justifyContent={isUser ? 'flex-end' : 'flex-start'}>
                         <Paper
@@ -1828,6 +1891,32 @@ export function AiChatApp(props: { controller: any }) {
                             </Stack>
                           ) : (
                             <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }} justifyContent="flex-end">
+                              <Tooltip title="上一个分支">
+                                <span>
+                                  <IconButton
+                                    aria-label="上一个分支"
+                                    size="small"
+                                    disabled={!canSwitchBranch || s.loading || uiBusy || chatLocked}
+                                    onClick={() => controller.actions.switchBranchSibling?.(mid, -1)}
+                                  >
+                                    <ChevronLeftIcon fontSize="inherit" />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+
+                              <Tooltip title="下一个分支">
+                                <span>
+                                  <IconButton
+                                    aria-label="下一个分支"
+                                    size="small"
+                                    disabled={!canSwitchBranch || s.loading || uiBusy || chatLocked}
+                                    onClick={() => controller.actions.switchBranchSibling?.(mid, 1)}
+                                  >
+                                    <ChevronRightIcon fontSize="inherit" />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+
                               <Tooltip title="重新回复">
                                 <span>
                                   <IconButton
@@ -2009,6 +2098,20 @@ export function AiChatApp(props: { controller: any }) {
                     </>
                   ) : (
                     <>
+                      <MenuItem
+                        disabled={!msgMenuMid || msgMenu.role !== 'assistant' || msgMenuPending || s.loading || uiBusy || chatLocked}
+                        onClick={() => {
+                          const mid = msgMenuMid
+                          closeMsgMenu()
+                          if (!mid) return
+                          controller.actions.createBranchFromAssistant?.(mid)
+                        }}
+                        sx={{ gap: 1 }}
+                      >
+                        <AddIcon fontSize="small" />
+                        新建分支
+                      </MenuItem>
+
                       <MenuItem
                         disabled={!msgMenuCanRegen}
                         onClick={() => {
