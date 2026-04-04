@@ -2750,30 +2750,32 @@ export function AiChatApp(props: { controller: any }) {
                   zIndex: 1000,
                 }}
               >
-                <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', pt: 1.5, px: 1.5, pb: 1.5, userSelect: 'none', WebkitUserSelect: 'none' }}>
-                  <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 900 }} noWrap>
-                      分支树
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" noWrap>
-                      {treeLayout ? `${Math.max(0, Number(treeLayout?.nodes?.length || 0))} 节点` : '—'}
-                    </Typography>
-                    <Box sx={{ flex: 1 }} />
-                    <Tooltip title="重置视图">
-                      <span>
-                        <IconButton
-                          size="small"
-                          onClick={() => {
-                            setTreePan({ x: 18, y: 18 })
-                            setTreeScale(1)
-                          }}
-                          disabled={!treeOpen}
-                        >
-                          <RestartAltIcon fontSize="inherit" />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                  </Stack>
+                <Box sx={{ position: 'relative', width: '100%', height: '100%', userSelect: 'none', WebkitUserSelect: 'none' }}>
+                  <Tooltip title="重置视图">
+                    <span>
+                      <IconButton
+                        size="small"
+                        onClick={() => {
+                          setTreePan({ x: 18, y: 18 })
+                          setTreeScale(1)
+                        }}
+                        disabled={!treeOpen}
+                        sx={{
+                          position: 'absolute',
+                          top: 10,
+                          right: 10,
+                          zIndex: 2,
+                          bgcolor: 'rgba(255,255,255,.72)',
+                          border: '1px solid rgba(0,0,0,.12)',
+                          backdropFilter: 'blur(8px)',
+                          WebkitBackdropFilter: 'blur(8px)',
+                          '&:hover': { bgcolor: 'rgba(255,255,255,.82)' },
+                        }}
+                      >
+                        <RestartAltIcon fontSize="inherit" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
 
                   <Box
                     onPointerDown={onTreePointerDown}
@@ -2782,11 +2784,8 @@ export function AiChatApp(props: { controller: any }) {
                     onPointerCancel={endTreeDrag}
                     onWheel={onTreeWheel}
                     sx={{
-                      flex: 1,
-                      minHeight: 0,
-                      borderRadius: 2,
-                      border: '1px solid',
-                      borderColor: 'divider',
+                      position: 'absolute',
+                      inset: 0,
                       bgcolor: 'rgba(0,0,0,.03)',
                       overflow: 'hidden',
                       cursor: treeDragging ? 'grabbing' : 'grab',
