@@ -1170,8 +1170,45 @@ export function AiChatApp(props: { controller: any }) {
     if (!activeChat) return
     const msg = chatAllById.get(mid) || null
     if (!msg) return
-    const bid = String((msg as any)?.branchId || 'main').trim() || 'main'
-    const curBid = String((activeChat as any)?.branching?.activeBranchId || 'main').trim() || 'main'
+
+    const branching = (activeChat as any)?.branching
+    const curBid = String(branching?.activeBranchId || 'main').trim() || 'main'
+    const branches = Array.isArray(branching?.branches) ? branching.branches : []
+
+    const containsMid = (headMid0: any) => {
+      let cur = String(headMid0 || '').trim()
+      const seen = new Set<string>()
+      let guard = 0
+      while (cur && !seen.has(cur) && guard < 6000) {
+        guard++
+        seen.add(cur)
+        if (cur === mid) return true
+        const m = chatAllById.get(cur) || null
+        if (!m) break
+        cur = String((m as any)?.parentMid || '').trim()
+      }
+      return false
+    }
+
+    const rawBid = String((msg as any)?.branchId || '').trim()
+    let bid = rawBid || curBid || 'main'
+
+    const curBranch = branches.find((b: any) => String(b?.id || '').trim() === curBid) || null
+    const curHead = String((curBranch as any)?.headMid || '').trim()
+    if (curHead && containsMid(curHead)) bid = curBid || bid
+    else {
+      let picked = ''
+      for (const b of branches) {
+        const id = String(b?.id || '').trim()
+        const head = String((b as any)?.headMid || '').trim()
+        if (!id || !head) continue
+        if (!containsMid(head)) continue
+        picked = id
+        break
+      }
+      if (picked) bid = picked
+    }
+
     stickToBottomRef.current = false
     autoScrollBlockUntilRef.current = Date.now() + 1200
     setBranchNav({ mid, at: Date.now() })
@@ -2026,6 +2063,7 @@ export function AiChatApp(props: { controller: any }) {
                          <Stack key={mid} direction="row" justifyContent="flex-start">
                            <Paper
                              variant="outlined"
+                             data-mid={mid}
                              onContextMenu={isEditing ? undefined : (e) => onMessageContextMenu(e, mid, 'user', !!m?.pending)}
                               sx={{
                                 width: '100%',
@@ -2172,6 +2210,7 @@ export function AiChatApp(props: { controller: any }) {
                       <Stack key={mid} direction="row" justifyContent={isUser ? 'flex-end' : 'flex-start'}>
                         <Paper
                           variant="outlined"
+                          data-mid={mid}
                           onContextMenu={isEditing ? undefined : (e) => onMessageContextMenu(e, mid, isUser ? 'user' : 'assistant', !!m?.pending)}
                           sx={{
                             width: isUser ? 'auto' : '100%',
@@ -2830,8 +2869,6 @@ export function AiChatApp(props: { controller: any }) {
                                   fontSize={12}
                                   dominantBaseline="middle"
                                   clipPath={`url(#${clipId})`}
-                                  textLength={Math.max(0, w - 28)}
-                                  lengthAdjust="spacingAndGlyphs"
                                   style={{ pointerEvents: 'none' }}
                                 >
                                   {text}
