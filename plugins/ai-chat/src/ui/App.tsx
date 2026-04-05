@@ -4518,6 +4518,9 @@ export function AiChatApp(props: { controller: any }) {
                             const id = String(r?.id || '')
                             const name = String(r?.name || '')
                             const avatar = String(r?.avatar || '🙂')
+                            const avatarImage = String(r?.avatarImage || '')
+                            const providerId = String(r?.modelRef?.providerId || '')
+                            const modelId = String(r?.modelRef?.modelId || '')
                             return (
                               <ListItemButton
                                 key={id || name}
@@ -4529,9 +4532,18 @@ export function AiChatApp(props: { controller: any }) {
                                 sx={{ borderRadius: 1 }}
                               >
                                 <ListItemAvatar sx={{ minWidth: 40 }}>
-                                  <Avatar sx={{ width: 28, height: 28, fontSize: 16 }}>{avatar}</Avatar>
+                                  <Avatar src={avatarImage || undefined} sx={{ width: 28, height: 28, fontSize: 16 }}>
+                                    {avatar}
+                                  </Avatar>
                                 </ListItemAvatar>
-                                <ListItemText primary={name || '未命名角色'} secondary={id ? `ID: ${id}` : ''} />
+                                <ListItemText
+                                  primary={name || '未命名角色'}
+                                  secondary={
+                                    providerId || modelId
+                                      ? `${providerId || '未选供应商'}${modelId ? ` / ${modelId}` : ''}`
+                                      : '未配置模型'
+                                  }
+                                />
                               </ListItemButton>
                             )
                           })}
