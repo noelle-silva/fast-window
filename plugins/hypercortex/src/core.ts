@@ -3,7 +3,11 @@ export type VaultScope = 'library' | 'output'
 export type Api = {
   __meta?: { runtime?: 'ui' | 'background' }
   host?: { back?: () => Promise<void> | void }
-  ui: { showToast: (message: string) => Promise<void> | void; back?: () => Promise<void> | void }
+  ui: {
+    showToast: (message: string) => Promise<void> | void
+    back?: () => Promise<void> | void
+    startDragging?: () => Promise<void> | void
+  }
   files: {
     getLibraryDir: () => Promise<string>
     // legacy: 用于兼容旧库（曾存放在 output scope 下）
@@ -62,6 +66,15 @@ export function createCompatApi(baseApi: any): Api {
         if (!m) return
         if (baseToast) return baseToast(m)
         console.log(`[HyperCortex] ${m}`)
+      },
+      startDragging: async () => {
+        try {
+          await tauri.invoke({ command: 'plugin:window|start_dragging', payload: {} })
+        } catch (e: any) {
+          const msg = String(e?.message || e || '无法拖拽')
+          if (baseToast) return baseToast(msg)
+          console.log(`[HyperCortex] ${msg}`)
+        }
       },
     },
     files: {
@@ -384,4 +397,3 @@ export async function readNoteDoc(
 
   return { title, contentHtml: r.innerHTML }
 }
-

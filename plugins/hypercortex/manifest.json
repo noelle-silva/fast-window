@@ -13,6 +13,7 @@
     "keepAlive": true
   },
   "requires": [
+    "tauri:plugin:window|start_dragging",
     "tauri:plugin_get_library_dir",
     "tauri:plugin_get_output_dir",
     "tauri:plugin_pick_library_dir",
