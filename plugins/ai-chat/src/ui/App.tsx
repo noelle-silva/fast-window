@@ -1240,6 +1240,57 @@ export function AiChatApp(props: { controller: any }) {
     scheduleTreeViewTransform()
   })
 
+  // 分支树：Ctrl + 上/下 缩放（以视窗中心为锚点）
+  React.useEffect(() => {
+    if (!treeOpen) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!treeOpen) return
+      if (e.defaultPrevented) return
+      if ((e as any).isComposing) return
+      if (!e.ctrlKey) return
+
+      const key = String(e.key || '')
+      if (key !== 'ArrowUp' && key !== 'ArrowDown') return
+
+      const target = e.target as any
+      const tag = String(target?.tagName || '').toUpperCase()
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || !!target?.isContentEditable) return
+
+      const host = (effectiveTreeView === 'float' ? treeHostFloatRef.current : treeHostRightRef.current) as HTMLDivElement | null
+      if (!host) return
+      const w = Number(host.clientWidth || 0)
+      const h = Number(host.clientHeight || 0)
+      if (w < 20 || h < 20) return
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      stopTreeFollow()
+
+      const cx = w / 2
+      const cy = h / 2
+
+      const scale0 = Number(treeViewRef.current?.scale || 1)
+      const factor = key === 'ArrowUp' ? 1.12 : 1 / 1.12
+      const nextScale = clampNum(scale0 * factor, 0.35, 2.6)
+      if (Math.abs(nextScale - scale0) < 1e-6) return
+
+      const pan0 = treeViewRef.current
+      const wx = (cx - Number(pan0?.x || 0)) / scale0
+      const wy = (cy - Number(pan0?.y || 0)) / scale0
+      const nx = cx - wx * nextScale
+      const ny = cy - wy * nextScale
+
+      treeViewRef.current = { x: nx, y: ny, scale: nextScale }
+      scheduleTreeViewTransform()
+      setTreePan({ x: nx, y: ny })
+      setTreeScale(nextScale)
+    }
+
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [treeOpen, effectiveTreeView, scheduleTreeViewTransform, stopTreeFollow])
+
   const cycleTreeDir = useEvent(() => {
     const order: Array<'lr' | 'tb' | 'bt' | 'rl'> = ['lr', 'tb', 'bt', 'rl']
     const i = Math.max(0, order.indexOf(treeDir))
