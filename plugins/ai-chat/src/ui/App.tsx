@@ -758,6 +758,7 @@ export function AiChatApp(props: { controller: any }) {
   const [treePan, setTreePan] = React.useState<{ x: number; y: number }>({ x: 18, y: 18 })
   const [treeScale, setTreeScale] = React.useState(1)
   const [treeDir, setTreeDir] = React.useState<'lr' | 'tb' | 'bt' | 'rl'>('lr')
+  const [treeSelectedMid, setTreeSelectedMid] = React.useState('')
   const [treePop, setTreePop] = React.useState<{ id: string; at: number }>({ id: '', at: 0 })
   const [treeDragging, setTreeDragging] = React.useState(false)
   const treeDragRef = React.useRef<{ pid: number; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null)
@@ -807,6 +808,7 @@ export function AiChatApp(props: { controller: any }) {
   React.useEffect(() => {
     setTreePan({ x: 18, y: 18 })
     setTreeScale(1)
+    setTreeSelectedMid('')
   }, [String(activeChat?.id || '')])
 
   React.useEffect(() => {
@@ -1304,6 +1306,7 @@ export function AiChatApp(props: { controller: any }) {
     if (!activeChat) return
     const msg = chatAllById.get(mid) || null
     if (!msg) return
+    setTreeSelectedMid(mid)
 
     const branching = (activeChat as any)?.branching
     const curBid = String(branching?.activeBranchId || 'main').trim() || 'main'
@@ -3063,15 +3066,15 @@ export function AiChatApp(props: { controller: any }) {
                             const h = Number((treeRender as any).nodeH || 44)
                             const role = String(n?.role || '')
                             const text = String(n?.text || '')
-                            const isActive = id === String(lastMsgId || '')
+                            const isSelected = id === String(treeSelectedMid || '')
                             const clipId = `fw-tree-clip-${svgSafeId(id)}`
 
                             const palette =
                               role === 'assistant'
                                 ? { fill: 'rgba(46, 125, 50, .07)', stroke: 'rgba(46, 125, 50, .30)' }
                                 : { fill: 'rgba(25, 118, 210, .07)', stroke: 'rgba(25, 118, 210, .30)' }
-                            const stroke = isActive ? 'rgba(245, 124, 0, .85)' : palette.stroke
-                            const strokeWidth = isActive ? 2.25 : 1.25
+                            const stroke = isSelected ? 'rgba(245, 124, 0, .85)' : palette.stroke
+                            const strokeWidth = isSelected ? 2.25 : 1.25
 
                             return (
                               <g key={id} transform={`translate(${Math.round(x)},${Math.round(y)})`}>
@@ -3081,15 +3084,16 @@ export function AiChatApp(props: { controller: any }) {
                                   style={{ cursor: 'pointer' }}
                                   data-tree-node="1"
                                   onClick={(ev) => {
-                                    if (treeSuppressClickRef.current) {
-                                      treeSuppressClickRef.current = false
-                                      ev.preventDefault()
-                                      ev.stopPropagation()
-                                      return
-                                    }
-                                    setTreePop({ id, at: Date.now() })
-                                    jumpToMessage(id)
-                                  }}
+                                  if (treeSuppressClickRef.current) {
+                                    treeSuppressClickRef.current = false
+                                    ev.preventDefault()
+                                    ev.stopPropagation()
+                                    return
+                                  }
+                                  setTreeSelectedMid(id)
+                                  setTreePop({ id, at: Date.now() })
+                                  jumpToMessage(id)
+                                }}
                                   onPointerDown={(ev) => {
                                     ev.stopPropagation()
                                   }}
