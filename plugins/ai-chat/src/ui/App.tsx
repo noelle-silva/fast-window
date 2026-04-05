@@ -1287,6 +1287,29 @@ export function AiChatApp(props: { controller: any }) {
   const lastMsgId = String(lastMsg?.id || '')
   const lastMsgText = String(lastMsg?.content || '')
   const isReplying = allMessages.some((m: any) => m && m.role === 'assistant' && m.pending)
+  const treeHighlightEdgeKeys = React.useMemo(() => {
+    const tr: any = treeRender
+    const target = String(lastMsgId || '').trim()
+    if (!tr || !target) return new Set<string>()
+    const byId = tr?.byId
+    if (!byId || typeof byId.get !== 'function') return new Set<string>()
+
+    const out = new Set<string>()
+    const seen = new Set<string>()
+    let cur = target
+    let guard = 0
+    while (cur && !seen.has(cur) && guard < 6000) {
+      guard++
+      seen.add(cur)
+      const n = byId.get(cur) || null
+      if (!n) break
+      const p = String(n?.parentId || '').trim()
+      if (!p) break
+      out.add(`${p}->${cur}`)
+      cur = p
+    }
+    return out
+  }, [treeRender, lastMsgId])
   const chatOverride = (activeChat && typeof activeChat === 'object' ? (activeChat as any).modelOverride : null) as any
   const overrideProviderId = String(chatOverride?.providerId || '').trim()
   const overrideModelId = String(chatOverride?.modelId || '').trim()
@@ -3073,7 +3096,19 @@ export function AiChatApp(props: { controller: any }) {
                                   const dd = Math.max(42, Math.abs(ty - sy) * 0.5)
                                   d = `M ${sx} ${sy} C ${sx} ${sy + (forward ? dd : -dd)} ${tx} ${ty - (forward ? dd : -dd)} ${tx} ${ty}`
                                 }
-                                return <path key={`${from}->${to}`} d={d} fill="none" stroke="rgba(0,0,0,.16)" strokeWidth={1.5} />
+                                const key = `${from}->${to}`
+                                const hi = treeHighlightEdgeKeys.has(key)
+                                return (
+                                  <path
+                                    key={key}
+                                    d={d}
+                                    fill="none"
+                                    stroke={hi ? 'rgba(34,197,94,.85)' : 'rgba(0,0,0,.16)'}
+                                    strokeWidth={6}
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                )
                               })
                             : null}
 
