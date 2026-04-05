@@ -863,6 +863,9 @@ export function AiChatApp(props: { controller: any }) {
   const treeHostFloatRef = React.useRef<HTMLDivElement | null>(null)
   const treeFollowRafRef = React.useRef<number>(0)
   const treeFollowAnimRef = React.useRef<{ targetX: number; targetY: number; lastT: number } | null>(null)
+  const treeOpenTokenRef = React.useRef(0)
+  const treeInitialCenterRafRef = React.useRef<number>(0)
+  const treeNeedInitialCenterRef = React.useRef(false)
 
   const effectiveTreeView = (treeViewOverride || savedTreeView) as 'right' | 'float'
   const isChatGenerating = React.useCallback((chat: any) => {
@@ -1889,6 +1892,102 @@ export function AiChatApp(props: { controller: any }) {
     const b = branches.find((x: any) => String(x?.id || '') === bid) || null
     return String(b?.headMid || '').trim()
   }, [String(activeChat?.id || ''), Number((activeChat as any)?.updatedAt || 0), activeBranchIdUi])
+
+  // 打开分支树时：让视角先落在“当前选中节点”上（默认取当前分支 head）
+  React.useEffect(() => {
+    if (!treeOpen) return
+    treeOpenTokenRef.current++
+    treeNeedInitialCenterRef.current = true
+  }, [treeOpen, effectiveTreeView, String(activeChat?.id || '')])
+
+  React.useEffect(() => {
+    if (!treeOpen) return
+    if (!treeNeedInitialCenterRef.current) return
+
+    const token = treeOpenTokenRef.current
+    let tries = 0
+
+    const pickMid = () => {
+      if (branchDraft) return String((branchDraft as any)?.forkFromMid || '').trim()
+      const chosen = String(treeSelectedMid || '').trim()
+      if (chosen) return chosen
+      const head = String(activeBranchHeadMid || '').trim()
+      if (head) return head
+      const msgs: any[] = Array.isArray((activeChat as any)?.messages) ? ((activeChat as any).messages as any[]) : []
+      return msgs.length ? String(msgs[msgs.length - 1]?.id || '').trim() : ''
+    }
+
+    const tryCenterOnce = () => {
+      if (!treeOpen) return true
+      if (token !== treeOpenTokenRef.current) return true
+      const tr: any = treeRender
+      if (!tr || !tr.byId || typeof tr.byId.get !== 'function') return false
+
+      const mid = pickMid()
+      if (!mid) return false
+      const node = tr.byId.get(mid) || null
+      if (!node) return false
+
+      const host = (effectiveTreeView === 'float' ? treeHostFloatRef.current : treeHostRightRef.current) as HTMLDivElement | null
+      if (!host) return false
+      const w = Number(host.clientWidth || 0)
+      const h = Number(host.clientHeight || 0)
+      if (w < 20 || h < 20) return false
+
+      stopTreeFollow()
+
+      const nodeW = Number(tr.nodeW || 168)
+      const nodeH = Number(tr.nodeH || 44)
+      const wx = Number(node?.x || 0) + nodeW / 2
+      const wy = Number(node?.y || 0) + nodeH / 2
+
+      const v0 = treeViewRef.current
+      const s = clampNum(Number(v0?.scale || 1), 0.35, 2.6)
+      const cx = w / 2
+      const cy = h / 2
+      const targetX = cx - wx * s
+      const targetY = cy - wy * s
+
+      treeViewRef.current = { ...treeViewRef.current, x: targetX, y: targetY }
+      setTreePan({ x: targetX, y: targetY })
+      scheduleTreeViewTransform()
+
+      if (!String(treeSelectedMid || '').trim()) setTreeSelectedMid(mid)
+      treeNeedInitialCenterRef.current = false
+      return true
+    }
+
+    const tick = () => {
+      treeInitialCenterRafRef.current = 0
+      if (!treeNeedInitialCenterRef.current) return
+      tries++
+      if (tries > 14) {
+        treeNeedInitialCenterRef.current = false
+        return
+      }
+      const ok = tryCenterOnce()
+      if (ok) return
+      treeInitialCenterRafRef.current = requestAnimationFrame(tick)
+    }
+
+    if (treeInitialCenterRafRef.current) cancelAnimationFrame(treeInitialCenterRafRef.current)
+    treeInitialCenterRafRef.current = requestAnimationFrame(tick)
+
+    return () => {
+      if (treeInitialCenterRafRef.current) cancelAnimationFrame(treeInitialCenterRafRef.current)
+      treeInitialCenterRafRef.current = 0
+    }
+  }, [
+    treeOpen,
+    effectiveTreeView,
+    treeRender,
+    branchDraftKey,
+    treeSelectedMid,
+    activeBranchHeadMid,
+    String(activeChat?.id || ''),
+    stopTreeFollow,
+    scheduleTreeViewTransform,
+  ])
   const draftFiles: any[] = Array.isArray((s.draft as any)?.files) ? ((s.draft as any).files as any[]) : []
   const hasDraftFiles = draftFiles.length > 0
   const draftFilesPending = hasDraftFiles && draftFiles.some((f: any) => !!f?.pending)
