@@ -1008,6 +1008,26 @@ export function AiChatApp(props: { controller: any }) {
     else controller?.api?.ui?.showToast?.('无法返回')
   })
 
+  const focusComposerSoon = useEvent(() => {
+    if (page !== 'chat') return
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const el = composerInputRef.current
+        if (!el) return
+        try {
+          el.focus?.()
+          const v = typeof (el as any).value === 'string' ? String((el as any).value || '') : ''
+          if (typeof (el as any).setSelectionRange === 'function') (el as any).setSelectionRange(v.length, v.length)
+        } catch (_) {}
+      }, 0)
+    })
+  })
+
+  const closeTreeModal = useEvent((focusComposer: boolean) => {
+    setTreeOpen(false)
+    if (focusComposer) focusComposerSoon()
+  })
+
   const onTopbarPointerDown = useEvent((e: React.PointerEvent) => {
     if (e.button !== 0) return
     const t = e.target as any
@@ -1704,11 +1724,11 @@ export function AiChatApp(props: { controller: any }) {
 
       e.preventDefault()
       e.stopPropagation()
-      setTreeOpen(false)
+      closeTreeModal(true)
     }
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [treeOpen, savedTreeView])
+  }, [treeOpen, savedTreeView, closeTreeModal])
   const activeBranchHeadMid = React.useMemo(() => {
     const chat: any = activeChat
     if (!chat) return ''
@@ -3603,8 +3623,9 @@ export function AiChatApp(props: { controller: any }) {
 
               <Dialog
                 open={treeOpen && savedTreeView === 'float'}
-                onClose={() => setTreeOpen(false)}
+                onClose={() => closeTreeModal(true)}
                 maxWidth={false}
+                disableRestoreFocus
                 PaperProps={{
                   sx: {
                     width: 'min(92vw, 980px)',
