@@ -2422,7 +2422,7 @@ export function AiChatApp(props: { controller: any }) {
   const closePluginSettings = useEvent(() => setPage('chat'))
 
   const onPaste = useEvent((e: React.ClipboardEvent) => {
-    if (s.loading || uiBusy || chatLocked) return
+    if (s.loading) return
     const items = e.clipboardData?.items ? Array.from(e.clipboardData.items) : []
     const files: File[] = []
     for (const it of items) {
@@ -2438,7 +2438,7 @@ export function AiChatApp(props: { controller: any }) {
   })
 
   const syncAtPicker = useEvent((text?: string, cursorIndex?: number) => {
-    if (s.loading || uiBusy || chatLocked) return closeAtPicker()
+    if (s.loading) return closeAtPicker()
     if (activeTargetKind !== 'group' || !activeGroup) return closeAtPicker()
 
     const members0 = Array.isArray((activeGroup as any)?.memberRoleIds) ? ((activeGroup as any).memberRoleIds as any[]) : []
@@ -2503,7 +2503,6 @@ export function AiChatApp(props: { controller: any }) {
   })
 
   const onKeyDown = useEvent((e: React.KeyboardEvent) => {
-    if (isReplying) return
     if (atPicker) {
       if (e.key === 'Escape') {
         e.preventDefault()
@@ -2517,6 +2516,7 @@ export function AiChatApp(props: { controller: any }) {
       }
     }
     if (e.key === 'Enter' && !e.shiftKey) {
+      if (isReplying) return
       e.preventDefault()
       onSend()
     }
@@ -4558,7 +4558,7 @@ export function AiChatApp(props: { controller: any }) {
                       <IconButton
                         aria-label="选择图片"
                         onClick={onPickImages}
-                       disabled={s.loading || uiBusy || chatLocked || !activeRole}
+                        disabled={s.loading || !activeRole}
                         size="small"
                         sx={{
                           bgcolor: 'rgba(0,0,0,.05)',
@@ -4578,7 +4578,7 @@ export function AiChatApp(props: { controller: any }) {
                       <IconButton
                         aria-label="选择文件"
                         component="label"
-                        disabled={s.loading || uiBusy || chatLocked || !activeRole}
+                        disabled={s.loading || !activeRole}
                         size="small"
                         sx={{
                           bgcolor: 'rgba(0,0,0,.05)',
@@ -4606,7 +4606,7 @@ export function AiChatApp(props: { controller: any }) {
                       <IconButton
                         aria-label="临时切换模型"
                         onClick={openTempModelPicker}
-                        disabled={s.loading || uiBusy || chatLocked || !activeRole || !providers.length}
+                        disabled={s.loading || !activeRole || !providers.length}
                         size="small"
                         sx={{
                           bgcolor: 'rgba(0,0,0,.05)',
@@ -4734,7 +4734,7 @@ export function AiChatApp(props: { controller: any }) {
                       {`临时模型：${overrideProviderId}${overrideModelId ? ` / ${overrideModelId}` : ''}`}
                     </Typography>
 
-                    <Button size="small" variant="text" onClick={() => controller.actions.clearChatModelOverride?.()} disabled={s.loading || uiBusy || chatLocked}>
+                    <Button size="small" variant="text" onClick={() => controller.actions.clearChatModelOverride?.()} disabled={s.loading}>
                       清除
                     </Button>
                   </Stack>
@@ -4773,7 +4773,7 @@ export function AiChatApp(props: { controller: any }) {
                   label="供应商"
                   value={String(tempModelProviderId || '')}
                   onChange={(e) => onTempProviderChanged(String(e.target.value || ''))}
-                  disabled={s.loading || uiBusy || chatLocked || !providers.length}
+                  disabled={s.loading || !providers.length}
                 >
                   {providers.map((pp: any) => (
                     <MenuItem key={String(pp?.id || '')} value={String(pp?.id || '')}>
@@ -4798,7 +4798,7 @@ export function AiChatApp(props: { controller: any }) {
                           label="模型"
                           value={String(tempModelPick || '')}
                           onChange={(e) => setTempModelPick(String(e.target.value || ''))}
-                          disabled={s.loading || uiBusy || chatLocked || !pid}
+                          disabled={s.loading || !pid}
                         >
                           <MenuItem value="">
                             <em>请选择…</em>
@@ -4817,7 +4817,7 @@ export function AiChatApp(props: { controller: any }) {
                         variant="outlined"
                         startIcon={<RefreshIcon />}
                         onClick={() => controller.actions.refreshModels(pid, true)}
-                        disabled={!pid || modelLoading || s.loading || uiBusy || chatLocked}
+                        disabled={!pid || modelLoading || s.loading}
                         sx={{ whiteSpace: 'nowrap' }}
                       >
                         {modelLoading ? '刷新中…' : '刷新'}
@@ -4839,10 +4839,10 @@ export function AiChatApp(props: { controller: any }) {
               })()}
 
               <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center">
-                <Button variant="text" onClick={clearTempModelOverride} disabled={!hasChatOverride || s.loading || uiBusy || chatLocked}>
+                <Button variant="text" onClick={clearTempModelOverride} disabled={!hasChatOverride || s.loading}>
                   清除临时模型（跟随角色）
                 </Button>
-                <Button variant="contained" onClick={saveTempModelOverride} disabled={s.loading || uiBusy || chatLocked || !tempModelProviderId}>
+                <Button variant="contained" onClick={saveTempModelOverride} disabled={s.loading || !tempModelProviderId}>
                   保存
                 </Button>
               </Stack>

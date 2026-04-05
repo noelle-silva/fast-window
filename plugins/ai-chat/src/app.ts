@@ -3069,7 +3069,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
   }
 
   async function addDraftFilesFromFiles(files: File[]) {
-    if (state.loading || state.sending) return
+    if (state.loading) return
     const list = Array.isArray(files) ? files.filter((f) => f instanceof File) : []
     if (!list.length) return
     if (!Array.isArray(state.draft.files)) state.draft.files = []
@@ -3128,7 +3128,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
   }
 
   async function pickImages() {
-    if (state.loading || state.sending) return
+    if (state.loading) return
     if (typeof api?.files?.pickImages !== 'function') return api.ui?.showToast?.('未授权：files.pickImages')
 
     const left = Math.max(0, MAX_DRAFT_IMAGES - (Array.isArray(state.draft.images) ? state.draft.images.length : 0))
