@@ -46,6 +46,57 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
   const UI_CHAT_UPDATED_NOTICE_KEY = 'ui/notice/chat-updated'
   const runtime = String(api?.__meta?.runtime || 'ui')
   const runtimeStorage = api && (api as any).runtimeStorage && typeof (api as any).runtimeStorage.get === 'function' ? (api as any).runtimeStorage : api.storage
+
+  const sleepMs = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, Math.floor(ms || 0))))
+
+  function chatWriteLockKey(kind: any, targetId: any, chatId: any) {
+    const k = String(kind || '').trim() === 'group' ? 'g' : 'r'
+    const tid = String(targetId || '').trim()
+    const cid = String(chatId || '').trim()
+    return `lock.chat.${k}.${tid}.${cid}`
+  }
+
+  async function withChatWriteLock(kind: any, targetId: any, chatId: any, fn: any) {
+    const k = String(kind || '').trim() === 'group' ? 'group' : 'role'
+    const tid = String(targetId || '').trim()
+    const cid = String(chatId || '').trim()
+    if (!tid || !cid) return fn()
+
+    const key = chatWriteLockKey(k, tid, cid)
+    const owner = uid('lock')
+    const deadline = now() + 8000
+
+    while (now() < deadline) {
+      let cur: any = null
+      try {
+        cur = await runtimeStorage.get(key)
+      } catch (_) {}
+
+      const exp = Number(cur?.expiresAt || 0)
+      const curOwner = String(cur?.owner || '').trim()
+      if (!cur || exp <= now() || curOwner === owner) {
+        const nextExp = now() + 1800
+        try {
+          await runtimeStorage.set(key, { owner, expiresAt: nextExp })
+        } catch (_) {}
+        try {
+          const v = await runtimeStorage.get(key)
+          if (String(v?.owner || '').trim() === owner) break
+        } catch (_) {}
+      }
+
+      await sleepMs(40 + Math.floor(Math.random() * 60))
+    }
+
+    try {
+      return await fn()
+    } finally {
+      try {
+        const v = await runtimeStorage.get(key)
+        if (String(v?.owner || '').trim() === owner) await runtimeStorage.remove(key)
+      } catch (_) {}
+    }
+  }
   const MAX_DRAFT_IMAGES = 8
   const MAX_DRAFT_FILES = 6
   const MAX_DRAFT_FILE_BYTES = 10 * 1024 * 1024 // 10MB
@@ -791,6 +842,93 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const groups = Array.isArray((d as any).groups) ? (d as any).groups : []
     const chatsByGroup = (d as any).chatsByGroup && typeof (d as any).chatsByGroup === 'object' ? (d as any).chatsByGroup : {}
 
+    const mergeChatForConcurrentWrite = (localChat: any, storedChat: any) => {
+      const local = localChat && typeof localChat === 'object' ? localChat : null
+      const stored = storedChat && typeof storedChat === 'object' ? storedChat : null
+      if (!local || !stored) return localChat
+
+      const out: any = { ...(local as any) }
+      const localMsgs: any[] = Array.isArray(local.messages) ? local.messages.slice() : []
+      const storedMsgs: any[] = Array.isArray((stored as any).messages) ? (stored as any).messages : []
+
+      const indexById = new Map<string, number>()
+      const rebuildIndex = () => {
+        indexById.clear()
+        for (let i = 0; i < localMsgs.length; i++) {
+          const id = String((localMsgs[i] as any)?.id || '').trim()
+          if (!id || indexById.has(id)) continue
+          indexById.set(id, i)
+        }
+      }
+      rebuildIndex()
+
+      // 保底：把“存储里有、内存里没有”的消息补回来，避免并发时把后台插入（TOOL_RESPONSE/续跑）覆盖掉。
+      for (const sm of storedMsgs) {
+        const sid = String((sm as any)?.id || '').trim()
+        if (!sid || indexById.has(sid)) continue
+        const pm = String((sm as any)?.parentMid || '').trim()
+        if (pm && indexById.has(pm)) {
+          localMsgs.splice((indexById.get(pm) as number) + 1, 0, sm)
+        } else {
+          localMsgs.push(sm)
+        }
+        rebuildIndex()
+      }
+
+      // 永不破坏用户空间：如果存储里某条 assistant 已经结束（pending=false），不要让内存里的旧 pending 覆盖它。
+      for (const sm of storedMsgs) {
+        const sid = String((sm as any)?.id || '').trim()
+        if (!sid) continue
+        const i = indexById.get(sid)
+        if (typeof i !== 'number') continue
+        const lm = localMsgs[i]
+        if (!lm || typeof lm !== 'object') continue
+        const sp = (sm as any)?.pending === true
+        const lp = (lm as any)?.pending === true
+        if (lp && !sp) localMsgs[i] = sm
+      }
+
+      // 合并 branching 的 branch head，避免“其他分支”刚推进 headMid 又被本次保存回滚。
+      try {
+        const lb = out.branching && typeof out.branching === 'object' ? out.branching : null
+        const sb = (stored as any).branching && typeof (stored as any).branching === 'object' ? (stored as any).branching : null
+        if (lb && sb) {
+          const lList: any[] = Array.isArray((lb as any).branches) ? (lb as any).branches.slice() : []
+          const sList: any[] = Array.isArray((sb as any).branches) ? (sb as any).branches : []
+          const byId = new Map<string, any>()
+          for (const b of lList) {
+            const id = String(b?.id || '').trim()
+            if (id && !byId.has(id)) byId.set(id, b)
+          }
+          for (const b of sList) {
+            const id = String(b?.id || '').trim()
+            if (!id) continue
+            const cur = byId.get(id) || null
+            if (!cur) {
+              lList.push(b)
+              byId.set(id, b)
+              continue
+            }
+            const lu = Number(cur?.updatedAt || 0)
+            const su = Number(b?.updatedAt || 0)
+            if (su > lu) {
+              cur.headMid = String(b?.headMid || cur.headMid || '')
+              cur.updatedAt = su
+            } else if (!String(cur?.headMid || '').trim() && String(b?.headMid || '').trim()) {
+              cur.headMid = String(b?.headMid || '')
+            }
+            if (!String(cur?.forkFromMid || '').trim() && String(b?.forkFromMid || '').trim()) cur.forkFromMid = String(b?.forkFromMid || '')
+          }
+          out.branching = { ...(lb as any), ...(sb as any), branches: lList, activeBranchId: String((lb as any).activeBranchId || (sb as any).activeBranchId || '') }
+        } else if (!out.branching && sb) {
+          out.branching = sb
+        }
+      } catch (_) {}
+
+      out.messages = localMsgs
+      return out
+    }
+
     const old = splitMetaCache || (await loadSplitMeta())
     const oldRoleFolders = old?.roleFolders && typeof old.roleFolders === 'object' ? old.roleFolders : {}
     const oldChatIndexByRole = old?.chatIndexByRole && typeof old.chatIndexByRole === 'object' ? old.chatIndexByRole : {}
@@ -871,7 +1009,12 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         const needWrite = folder !== oldFolder || updatedAt !== prev || !prev
         if (!needWrite) continue
         try {
-          await api.storage.set(newKey, c)
+          await withChatWriteLock('role', rid, cid, async () => {
+            const raw0 = await api.storage.get(newKey)
+            const stored = raw0 && typeof raw0 === 'object' ? raw0 : null
+            const merged = mergeChatForConcurrentWrite(c, stored)
+            await api.storage.set(newKey, merged)
+          })
         } catch (_) {}
         if (oldKey && oldKey !== newKey) {
           try {
@@ -921,7 +1064,12 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         const needWrite = folder !== oldFolder || updatedAt !== prev || !prev
         if (!needWrite) continue
         try {
-          await api.storage.set(newKey, c)
+          await withChatWriteLock('group', gid, cid, async () => {
+            const raw0 = await api.storage.get(newKey)
+            const stored = raw0 && typeof raw0 === 'object' ? raw0 : null
+            const merged = mergeChatForConcurrentWrite(c, stored)
+            await api.storage.set(newKey, merged)
+          })
         } catch (_) {}
         if (oldKey && oldKey !== newKey) {
           try {
@@ -2251,12 +2399,40 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     return false
   }
 
+  function chatHasPendingAssistantInBranch(chat, branchId, excludeMid?: any) {
+    const bid = normalizeBranchId(branchId || CHAT_DEFAULT_BRANCH_ID)
+    const ex = String(excludeMid || '').trim()
+    const msgs = Array.isArray(chat?.messages) ? chat.messages : []
+    for (const m of msgs) {
+      if (!m || typeof m !== 'object') continue
+      if (m.role !== 'assistant' || !m.pending) continue
+      const mid = String((m as any)?.id || '').trim()
+      if (ex && mid === ex) continue
+      const mb = normalizeBranchId((m as any)?.branchId || CHAT_DEFAULT_BRANCH_ID)
+      if (mb === bid) return true
+    }
+    return false
+  }
+
   function findLastPendingAssistant(chat) {
     const msgs = Array.isArray(chat?.messages) ? chat.messages : []
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i]
       if (!m || typeof m !== 'object') continue
       if (m.role === 'assistant' && m.pending) return m
+    }
+    return null
+  }
+
+  function findLastPendingAssistantInBranch(chat, branchId) {
+    const bid = normalizeBranchId(branchId || CHAT_DEFAULT_BRANCH_ID)
+    const msgs = Array.isArray(chat?.messages) ? chat.messages : []
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i]
+      if (!m || typeof m !== 'object') continue
+      if (m.role !== 'assistant' || !m.pending) continue
+      const mb = normalizeBranchId((m as any)?.branchId || CHAT_DEFAULT_BRANCH_ID)
+      if (mb === bid) return m
     }
     return null
   }
@@ -3044,7 +3220,6 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         if (!chat) chat = createChatForRole(rid)
       }
       if (!chat) throw new Error('创建会话失败')
-      if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
 
       const branching = ensureChatBranching(chat)
       let activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
@@ -3074,6 +3249,8 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         const items0 = Array.isArray(chat.messages) ? chat.messages : []
         parentMid = items0.length ? String(items0[items0.length - 1]?.id || '') : ''
       }
+
+      if (chatHasPendingAssistantInBranch(chat, activeBranchId)) throw new Error('该分支正在生成中，请先停止或等待完成')
 
       const wasEmpty = !Array.isArray(chat.messages) || chat.messages.length === 0
       const userText = String(input || '').trim()
@@ -3399,7 +3576,6 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         chat = box.chats.find((c: any) => String(c?.id || '') === String(box.activeChatId || '')) || box.chats[0] || null
       }
       if (!chat) throw new Error('创建会话失败')
-      if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
 
       const branching = ensureChatBranching(chat)
       let activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
@@ -3422,6 +3598,8 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         const items0 = Array.isArray(chat.messages) ? chat.messages : []
         parentMid = items0.length ? String(items0[items0.length - 1]?.id || '') : ''
       }
+
+      if (chatHasPendingAssistantInBranch(chat, activeBranchId)) throw new Error('该分支正在生成中，请先停止或等待完成')
 
       const wasEmpty = !Array.isArray(chat.messages) || chat.messages.length === 0
       const userText = String(input || '').trim()
@@ -3592,7 +3770,9 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const chat = kind === 'group' ? findGroupChatByIds(groupId, chatId) : findChatByIds(roleId, chatId)
     if (!chat) return
 
-    const lastPending = findLastPendingAssistant(chat)
+    const branching = ensureChatBranching(chat)
+    const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
+    const lastPending = findLastPendingAssistantInBranch(chat, activeBranchId) || findLastPendingAssistant(chat)
     const mid = String(lastPending?.id || '')
     if (!mid) return api.ui?.showToast?.('当前会话没有正在生成的消息')
 
@@ -3677,7 +3857,10 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       const target = msgs[aiIndex]
       if (!target || target.role !== 'assistant') throw new Error('只能重新生成 AI 回复')
       if (target.pending) throw new Error('该消息正在生成中')
-      if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
+      const branching = ensureChatBranching(chat)
+      const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
+      const branchId = normalizeBranchId((target as any)?.branchId || activeBranchId)
+      if (chatHasPendingAssistantInBranch(chat, branchId, mid)) throw new Error('该分支正在生成中，请先停止或等待完成')
 
       let userMid = String((target as any)?.parentMid || '').trim()
       let userMsg = userMid ? msgs.find((m) => String(m?.id || '') === userMid) || null : null
@@ -3708,9 +3891,6 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       } catch (_) {}
 
       const jobId = uid('job')
-      const branching = ensureChatBranching(chat)
-      const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
-      const branchId = normalizeBranchId((target as any)?.branchId || activeBranchId)
       const job = {
         id: jobId,
         kind: 'openai.chat.completions',
@@ -3775,7 +3955,10 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       const target = msgs[aiIndex]
       if (!target || target.role !== 'assistant') throw new Error('只能重新生成 AI 回复')
       if (target.pending) throw new Error('该消息正在生成中')
-      if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
+      const branching = ensureChatBranching(chat)
+      const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
+      const branchId = normalizeBranchId((target as any)?.branchId || activeBranchId)
+      if (chatHasPendingAssistantInBranch(chat, branchId, mid)) throw new Error('该分支正在生成中，请先停止或等待完成')
 
       let speakerRoleId = String((target as any)?.speakerRoleId || '').trim()
       if (!speakerRoleId) {
@@ -3811,10 +3994,6 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       try {
         await runtimeStorage.remove(streamKey(mid))
       } catch (_) {}
-
-      const branching = ensureChatBranching(chat)
-      const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
-      const branchId = normalizeBranchId((target as any)?.branchId || activeBranchId)
 
       const jobId = uid('job')
       const job = {
@@ -3895,11 +4074,11 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
 
       const target = msgs[userIndex]
       if (!target || target.role !== 'user') throw new Error('只能从用户消息发起重新回复')
-      if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
 
       const streamEnabled = !!state.data?.settings?.streamEnabled
       const branching = ensureChatBranching(chat)
       const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
+      if (chatHasPendingAssistantInBranch(chat, activeBranchId)) throw new Error('该分支正在生成中，请先停止或等待完成')
       assistantMid = uid('m')
       msgs.splice(userIndex + 1, 0, {
         id: assistantMid,
@@ -4066,7 +4245,6 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
 
       const target = msgs[userIndex]
       if (!target || target.role !== 'user') throw new Error('只能从用户消息发起重新回复')
-      if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
 
       const userText = String((target as any)?.content || '').trim()
       const atMentionSpeakerRoleIds = buildAtMentionSpeakerRoleIds(userText)
@@ -4100,6 +4278,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       const branching = ensureChatBranching(chat)
       const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
       const desiredBranchId = normalizeBranchId((target as any)?.branchId || activeBranchId)
+      if (chatHasPendingAssistantInBranch(chat, desiredBranchId)) throw new Error('该分支正在生成中，请先停止或等待完成')
 
       const toInsert: any[] = []
       let parentMid = mid
@@ -4173,8 +4352,6 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
 
     const mid = String(assistantMid || '').trim()
     if (!mid) return
-
-    if (chatHasPendingAssistant(chat)) return api.ui?.showToast?.('该会话正在生成中，请先停止或等待完成')
 
     const msgs = Array.isArray(chat.messages) ? chat.messages : []
     const target = msgs.find((m) => String(m?.id || '') === mid) || null
@@ -4665,32 +4842,36 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const folder = kind === 'group' ? String((meta as any).groupFolders?.[groupId] || '') : String(meta.roleFolders?.[roleId] || '')
     if (!folder) return
     const key = kind === 'group' ? splitGroupChatKey(folder, chatId) : splitChatKey(folder, chatId)
-    const raw = await api.storage.get(key)
-    const chat = raw && typeof raw === 'object' ? raw : null
-    if (!chat) return
 
-    const msgs = Array.isArray(chat.messages) ? chat.messages : []
-    const m = msgs.find((x) => String(x?.id) === mid)
-    if (!m) return
+    const targetId = kind === 'group' ? groupId : roleId
+    await withChatWriteLock(kind, targetId, chatId, async () => {
+      const raw = await api.storage.get(key)
+      const chat = raw && typeof raw === 'object' ? raw : null
+      if (!chat) return
 
-    // 永不破坏用户空间：如果该消息已不在 pending 状态（例如用户点了“停止”并已落盘），
-    // 后台 job 不应再覆写它（避免“已停止”后又被旧请求写回）。
-    if (m.pending !== true) return
+      const msgs = Array.isArray(chat.messages) ? chat.messages : []
+      const m = msgs.find((x) => String(x?.id) === mid)
+      if (!m) return
 
-    m.content = String(content || '')
-    m.pending = false
-    m.streaming = false
-    chat.updatedAt = now()
-    repairChatLinearBranching(chat)
+      // 永不破坏用户空间：如果该消息已不在 pending 状态（例如用户点了“停止”并已落盘），
+      // 后台 job 不应再覆写它（避免“已停止”后又被旧请求写回）。
+      if (m.pending !== true) return
 
-    await api.storage.set(key, chat)
+      m.content = String(content || '')
+      m.pending = false
+      m.streaming = false
+      chat.updatedAt = now()
+      repairChatLinearBranching(chat)
 
-    try {
-      if (kind === 'group') await touchGroupChatUpdatedAt(groupId, chatId, chat.updatedAt)
-      else await touchChatUpdatedAt(roleId, chatId, chat.updatedAt)
-    } catch (_) {}
+      await api.storage.set(key, chat)
 
-    await writeChatUpdatedNotice(kind, kind === 'group' ? groupId : roleId, chatId, chat.updatedAt)
+      try {
+        if (kind === 'group') await touchGroupChatUpdatedAt(groupId, chatId, chat.updatedAt)
+        else await touchChatUpdatedAt(roleId, chatId, chat.updatedAt)
+      } catch (_) {}
+
+      await writeChatUpdatedNotice(kind, kind === 'group' ? groupId : roleId, chatId, chat.updatedAt)
+    })
   }
 
   async function insertMessagesAfterMessageId(job, afterMid, items) {
@@ -4710,46 +4891,51 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const folder = kind === 'group' ? String((meta as any).groupFolders?.[groupId] || '') : String(meta.roleFolders?.[roleId] || '')
     if (!folder) return { ok: false as const, insertedAssistant: false as const }
     const key = kind === 'group' ? splitGroupChatKey(folder, chatId) : splitChatKey(folder, chatId)
-    const raw = await api.storage.get(key)
-    const chat = raw && typeof raw === 'object' ? raw : null
-    if (!chat) return { ok: false as const, insertedAssistant: false as const }
 
-    const msgs = Array.isArray(chat.messages) ? chat.messages : []
-    const idx = msgs.findIndex((x) => String(x?.id || '') === mid)
-    if (idx < 0) return { ok: false as const, insertedAssistant: false as const }
+    const targetId = kind === 'group' ? groupId : roleId
+    return withChatWriteLock(kind, targetId, chatId, async () => {
+      const raw = await api.storage.get(key)
+      const chat = raw && typeof raw === 'object' ? raw : null
+      if (!chat) return { ok: false as const, insertedAssistant: false as const }
 
-    // Avoid starting a second pending assistant in the same chat.
-    const hasPendingAssistant = msgs.some((m) => m && m.role === 'assistant' && !!m.pending)
-    const toInsert = hasPendingAssistant ? list.filter((m) => String(m?.role || '') !== 'assistant') : list
-    if (!toInsert.length) return { ok: false as const, insertedAssistant: false as const }
+      const msgs = Array.isArray(chat.messages) ? chat.messages : []
+      const idx = msgs.findIndex((x) => String(x?.id || '') === mid)
+      if (idx < 0) return { ok: false as const, insertedAssistant: false as const }
 
-    const afterMsg = msgs[idx] && typeof msgs[idx] === 'object' ? msgs[idx] : null
-    const desiredBranchId = normalizeBranchId((afterMsg as any)?.branchId || (job as any)?.branchId || CHAT_DEFAULT_BRANCH_ID)
-    let parentMid = mid
-    for (const m of toInsert) {
-      if (!m || typeof m !== 'object') continue
-      if (!String((m as any).id || '').trim()) (m as any).id = uid('m')
-      if (!String((m as any).branchId || '').trim()) (m as any).branchId = desiredBranchId
-      if (!String((m as any).parentMid || '').trim()) (m as any).parentMid = parentMid
-      parentMid = String((m as any).id || '').trim()
-    }
+      const afterMsg = msgs[idx] && typeof msgs[idx] === 'object' ? msgs[idx] : null
+      const desiredBranchId = normalizeBranchId((afterMsg as any)?.branchId || (job as any)?.branchId || CHAT_DEFAULT_BRANCH_ID)
 
-    const next = msgs.slice()
-    next.splice(idx + 1, 0, ...toInsert)
-    chat.messages = next
-    chat.updatedAt = now()
-    repairChatLinearBranching(chat)
+      // Avoid starting a second pending assistant in the same branch.
+      const hasPendingAssistant = chatHasPendingAssistantInBranch(chat, desiredBranchId)
+      const toInsert = hasPendingAssistant ? list.filter((m) => String(m?.role || '') !== 'assistant') : list
+      if (!toInsert.length) return { ok: false as const, insertedAssistant: false as const }
 
-    await api.storage.set(key, chat)
+      let parentMid = mid
+      for (const m of toInsert) {
+        if (!m || typeof m !== 'object') continue
+        if (!String((m as any).id || '').trim()) (m as any).id = uid('m')
+        if (!String((m as any).branchId || '').trim()) (m as any).branchId = desiredBranchId
+        if (!String((m as any).parentMid || '').trim()) (m as any).parentMid = parentMid
+        parentMid = String((m as any).id || '').trim()
+      }
 
-    try {
-      if (kind === 'group') await touchGroupChatUpdatedAt(groupId, chatId, chat.updatedAt)
-      else await touchChatUpdatedAt(roleId, chatId, chat.updatedAt)
-    } catch (_) {}
+      const next = msgs.slice()
+      next.splice(idx + 1, 0, ...toInsert)
+      chat.messages = next
+      chat.updatedAt = now()
+      repairChatLinearBranching(chat)
 
-    await writeChatUpdatedNotice(kind, kind === 'group' ? groupId : roleId, chatId, chat.updatedAt)
+      await api.storage.set(key, chat)
 
-    return { ok: true as const, insertedAssistant: !hasPendingAssistant && toInsert.some((m) => String(m?.role || '') === 'assistant') }
+      try {
+        if (kind === 'group') await touchGroupChatUpdatedAt(groupId, chatId, chat.updatedAt)
+        else await touchChatUpdatedAt(roleId, chatId, chat.updatedAt)
+      } catch (_) {}
+
+      await writeChatUpdatedNotice(kind, kind === 'group' ? groupId : roleId, chatId, chat.updatedAt)
+
+      return { ok: true as const, insertedAssistant: !hasPendingAssistant && toInsert.some((m) => String(m?.role || '') === 'assistant') }
+    })
   }
 
   async function backgroundMain() {
@@ -4764,9 +4950,12 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         if (!q.length) return
 
         const runningChatKeys = new Set()
+        const runningRunKeys = new Set()
         for (const v of Array.from(runningJobs.values())) {
-          const k = v && typeof v === 'object' ? String(v.chatKey || '') : ''
+          const k = v && typeof v === 'object' ? String((v as any).chatKey || '') : ''
+          const rk = v && typeof v === 'object' ? String((v as any).runKey || '') : ''
           if (k) runningChatKeys.add(k)
+          if (rk) runningRunKeys.add(rk)
         }
 
         for (const id0 of q.slice(0, 200)) {
@@ -4793,14 +4982,20 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
             continue
           }
           const chatKey = kind === 'group' ? `g:${groupId}/${chatId}` : `r:${roleId}/${chatId}`
-          if (runningChatKeys.has(chatKey)) continue
+          const branchIdRaw = String((job as any)?.branchId || '').trim()
+          const branchId = branchIdRaw ? normalizeBranchId(branchIdRaw) : ''
+          const runKey = branchId ? `${chatKey}@${branchId}` : chatKey
+          if (runningRunKeys.has(runKey)) continue
+          if (branchId && runningRunKeys.has(chatKey)) continue
+          if (!branchId && runningChatKeys.has(chatKey)) continue
           runningChatKeys.add(chatKey)
+          runningRunKeys.add(runKey)
 
           job.status = 'running'
           job.startedAt = now()
           await runtimeStorage.set(jobKey(job.id), job)
 
-          runningJobs.set(jobId, { chatKey })
+          runningJobs.set(jobId, { chatKey, runKey })
           runBackgroundJob(job)
             .catch(() => {})
             .finally(async () => {
@@ -5373,6 +5568,9 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
             const roleId = String(job?.roleId || '')
             const chatId = String(job?.chatId || '')
             const anchorMid = String(job?.assistantMid || '')
+            const targetKind = String((job as any)?.targetKind || '').trim() === 'group' || !!(job as any)?.groupId ? 'group' : 'role'
+            const groupId = String((job as any)?.groupId || '').trim()
+            const branchId = normalizeBranchId((job as any)?.branchId || CHAT_DEFAULT_BRANCH_ID)
 
             const assistantMid2 = uid('m')
             const jobId2 = uid('job')
@@ -5483,10 +5681,13 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
               kind: 'openai.chat.completions',
               status: 'queued',
               createdAt: assistantMid2CreatedAt,
+              targetKind: targetKind === 'group' ? 'group' : undefined,
+              groupId: targetKind === 'group' ? groupId : undefined,
               roleId,
               chatId,
               assistantMid: assistantMid2,
               cutoffMid: assistantMid2,
+              branchId,
               stream: !!streamEnabled,
             }
 
@@ -6438,7 +6639,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     } catch (_) {}
 
     const items = Array.isArray(chat.messages) ? chat.messages : []
-    const pending = items.filter((m) => m && m.role === 'assistant' && m.pending).slice(-3)
+    const pending = items.filter((m) => m && m.role === 'assistant' && m.pending).slice(-8)
 
     if (pending.length) {
       let changed = false
