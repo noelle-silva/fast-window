@@ -3066,11 +3066,14 @@ export function AiChatApp(props: { controller: any }) {
                                 if (!a || !b) return null
                                 const w = Number((treeRender as any).nodeW || 168)
                                 const h = Number((treeRender as any).nodeH || 44)
+                                const r = 8
 
                                 const ax = Number(a.x || 0)
                                 const ay = Number(a.y || 0)
                                 const bx = Number(b.x || 0)
                                 const by = Number(b.y || 0)
+                                const aIsAi = String(a?.role || '') === 'assistant'
+                                const bIsAi = String(b?.role || '') === 'assistant'
 
                                 const horizontal = treeDir === 'lr' || treeDir === 'rl'
                                 let sx = 0
@@ -3081,18 +3084,28 @@ export function AiChatApp(props: { controller: any }) {
 
                                 if (horizontal) {
                                   const forward = bx >= ax
-                                  sx = ax + (forward ? w : 0)
-                                  sy = ay + h / 2
-                                  tx = bx + (forward ? 0 : w)
-                                  ty = by + h / 2
+                                  const acx = ax + w / 2
+                                  const acy = ay + h / 2
+                                  const bcx = bx + w / 2
+                                  const bcy = by + h / 2
+
+                                  sx = aIsAi ? acx + (forward ? r : -r) : ax + (forward ? w : 0)
+                                  sy = aIsAi ? acy : ay + h / 2
+                                  tx = bIsAi ? bcx + (forward ? -r : r) : bx + (forward ? 0 : w)
+                                  ty = bIsAi ? bcy : by + h / 2
                                   const dd = Math.max(42, Math.abs(tx - sx) * 0.5)
                                   d = `M ${sx} ${sy} C ${sx + (forward ? dd : -dd)} ${sy} ${tx - (forward ? dd : -dd)} ${ty} ${tx} ${ty}`
                                 } else {
                                   const forward = by >= ay
-                                  sx = ax + w / 2
-                                  sy = ay + (forward ? h : 0)
-                                  tx = bx + w / 2
-                                  ty = by + (forward ? 0 : h)
+                                  const acx = ax + w / 2
+                                  const acy = ay + h / 2
+                                  const bcx = bx + w / 2
+                                  const bcy = by + h / 2
+
+                                  sx = aIsAi ? acx : ax + w / 2
+                                  sy = aIsAi ? acy + (forward ? r : -r) : ay + (forward ? h : 0)
+                                  tx = bIsAi ? bcx : bx + w / 2
+                                  ty = bIsAi ? bcy + (forward ? -r : r) : by + (forward ? 0 : h)
                                   const dd = Math.max(42, Math.abs(ty - sy) * 0.5)
                                   d = `M ${sx} ${sy} C ${sx} ${sy + (forward ? dd : -dd)} ${tx} ${ty - (forward ? dd : -dd)} ${tx} ${ty}`
                                 }
@@ -3122,6 +3135,7 @@ export function AiChatApp(props: { controller: any }) {
                             const role = String(n?.role || '')
                             const text = String(n?.text || '')
                             const isSelected = id === String(treeSelectedMid || '')
+                            const isAi = role === 'assistant'
                             const clipId = `fw-tree-clip-${svgSafeId(id)}`
 
                             const palette =
@@ -3139,37 +3153,60 @@ export function AiChatApp(props: { controller: any }) {
                                   style={{ cursor: 'pointer' }}
                                   data-tree-node="1"
                                   onClick={(ev) => {
-                                  if (treeSuppressClickRef.current) {
-                                    treeSuppressClickRef.current = false
-                                    ev.preventDefault()
-                                    ev.stopPropagation()
-                                    return
-                                  }
-                                  setTreeSelectedMid(id)
-                                  setTreePop({ id, at: Date.now() })
-                                  jumpToMessage(id)
-                                }}
+                                    if (treeSuppressClickRef.current) {
+                                      treeSuppressClickRef.current = false
+                                      ev.preventDefault()
+                                      ev.stopPropagation()
+                                      return
+                                    }
+                                    setTreeSelectedMid(id)
+                                    setTreePop({ id, at: Date.now() })
+                                    jumpToMessage(id)
+                                  }}
                                   onPointerDown={(ev) => {
                                     ev.stopPropagation()
                                   }}
                                 >
-                                  <defs>
-                                    <clipPath id={clipId}>
-                                      <rect x={10} y={6} width={Math.max(0, w - 20)} height={Math.max(0, h - 12)} rx={8} />
-                                    </clipPath>
-                                  </defs>
-                                  <rect x={0} y={0} width={w} height={h} rx={12} fill={palette.fill} stroke={stroke} strokeWidth={strokeWidth} />
-                                  <text
-                                    x={12}
-                                    y={h / 2}
-                                    fill="rgba(0,0,0,.82)"
-                                    fontSize={12}
-                                    dominantBaseline="middle"
-                                    clipPath={`url(#${clipId})`}
-                                    style={{ pointerEvents: 'none' }}
-                                  >
-                                    {text}
-                                  </text>
+                                  {isAi ? (
+                                    <>
+                                      <circle
+                                        cx={w / 2}
+                                        cy={h / 2}
+                                        r={(isSelected ? 10 : 8) + 6}
+                                        fill="transparent"
+                                        pointerEvents="all"
+                                      />
+                                      <circle
+                                        cx={w / 2}
+                                        cy={h / 2}
+                                        r={isSelected ? 10 : 8}
+                                        fill="rgba(34,197,94,.92)"
+                                        stroke={isSelected ? 'rgba(245, 124, 0, .85)' : 'rgba(22,163,74,.55)'}
+                                        strokeWidth={isSelected ? 3 : 2}
+                                      />
+                                      <title>{text || 'AI'}</title>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <defs>
+                                        <clipPath id={clipId}>
+                                          <rect x={10} y={6} width={Math.max(0, w - 20)} height={Math.max(0, h - 12)} rx={8} />
+                                        </clipPath>
+                                      </defs>
+                                      <rect x={0} y={0} width={w} height={h} rx={12} fill={palette.fill} stroke={stroke} strokeWidth={strokeWidth} />
+                                      <text
+                                        x={12}
+                                        y={h / 2}
+                                        fill="rgba(0,0,0,.82)"
+                                        fontSize={12}
+                                        dominantBaseline="middle"
+                                        clipPath={`url(#${clipId})`}
+                                        style={{ pointerEvents: 'none' }}
+                                      >
+                                        {text}
+                                      </text>
+                                    </>
+                                  )}
                                 </g>
                               </g>
                             )
