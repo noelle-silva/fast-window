@@ -60,6 +60,34 @@ export function HyperCortexApp() {
           html: { height: '100%' },
           body: { height: '100%', margin: 0, backgroundColor: '#fff' },
           '#app': { height: '100%' },
+          '*': {
+            scrollbarWidth: 'thin',
+            scrollbarColor: 'rgba(0,0,0,.24) transparent',
+          },
+          '*::-webkit-scrollbar': {
+            width: 8,
+            height: 8,
+          },
+          '*::-webkit-scrollbar-track': {
+            background: 'transparent',
+          },
+          '*::-webkit-scrollbar-button': {
+            width: 0,
+            height: 0,
+            display: 'none',
+          },
+          '*::-webkit-scrollbar-thumb': {
+            backgroundColor: 'rgba(0,0,0,.24)',
+            borderRadius: 999,
+            border: '2px solid transparent',
+            backgroundClip: 'content-box',
+          },
+          '*::-webkit-scrollbar-thumb:hover': {
+            backgroundColor: 'rgba(0,0,0,.34)',
+          },
+          '*::-webkit-scrollbar-corner': {
+            background: 'transparent',
+          },
         }}
       />
 
@@ -199,65 +227,67 @@ export function HyperCortexApp() {
             <Box sx={{ flex: 1 }} />
           </Box>
 
-          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, p: 2 }}>
-            {page === 'home' ? <Typography color="text.secondary">这是主页页面。</Typography> : null}
-            {page === 'new-note' ? (
-              <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                <Box
-                  sx={{
-                    width: '100%',
-                    maxWidth: 240,
-                    pb: 0.5,
-                    borderBottom: '1px solid',
-                    borderColor: 'rgba(0,0,0,.16)',
-                  }}
-                >
-                  <InputBase
-                    value={newNoteTitle}
-                    onChange={e => setNewNoteTitle(e.target.value)}
-                    placeholder="输入标题"
-                    fullWidth
-                    inputProps={{ 'aria-label': '笔记标题' }}
+          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto' }}>
+            <Box sx={{ minHeight: '100%', p: 2 }}>
+              {page === 'home' ? <Typography color="text.secondary">这是主页页面。</Typography> : null}
+              {page === 'new-note' ? (
+                <Box sx={{ minHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                  <Box
                     sx={{
-                      fontSize: 28,
-                      lineHeight: 1.2,
-                      fontWeight: 900,
-                      color: '#111',
-                      '& input': {
-                        p: 0,
+                      width: '100%',
+                      maxWidth: 240,
+                      pb: 0.5,
+                      borderBottom: '1px solid',
+                      borderColor: 'rgba(0,0,0,.16)',
+                    }}
+                  >
+                    <InputBase
+                      value={newNoteTitle}
+                      onChange={e => setNewNoteTitle(e.target.value)}
+                      placeholder="输入标题"
+                      fullWidth
+                      inputProps={{ 'aria-label': '笔记标题' }}
+                      sx={{
+                        fontSize: 28,
+                        lineHeight: 1.2,
+                        fontWeight: 900,
+                        color: '#111',
+                        '& input': {
+                          p: 0,
+                        },
+                      }}
+                    />
+                  </Box>
+
+                  <InputBase
+                    value={newNoteContent}
+                    onChange={e => setNewNoteContent(e.target.value)}
+                    placeholder="开始输入正文..."
+                    fullWidth
+                    multiline
+                    minRows={12}
+                    inputProps={{ 'aria-label': '笔记正文' }}
+                    sx={{
+                      mt: 2,
+                      width: '100%',
+                      flex: 1,
+                      alignItems: 'flex-start',
+                      fontSize: 16,
+                      lineHeight: 1.8,
+                      color: '#222',
+                      '& textarea': {
+                        padding: 0,
+                        resize: 'none',
                       },
                     }}
                   />
                 </Box>
-
-                <InputBase
-                  value={newNoteContent}
-                  onChange={e => setNewNoteContent(e.target.value)}
-                  placeholder="开始输入正文..."
-                  fullWidth
-                  multiline
-                  minRows={12}
-                  inputProps={{ 'aria-label': '笔记正文' }}
-                  sx={{
-                    mt: 2,
-                    width: '100%',
-                    flex: 1,
-                    alignItems: 'flex-start',
-                    fontSize: 16,
-                    lineHeight: 1.8,
-                    color: '#222',
-                    '& textarea': {
-                      padding: 0,
-                      resize: 'none',
-                    },
-                  }}
-                />
-              </Box>
-            ) : null}
-            {page === 'attachments' ? <Typography color="text.secondary">这是附件页面。</Typography> : null}
-            {page === 'all-notes' ? <Typography color="text.secondary">这是全部笔记页面。</Typography> : null}
-            {page === 'index' ? <Typography color="text.secondary">这是索引页面。</Typography> : null}
-            {page === 'settings' ? <Typography color="text.secondary">这是设置页面。</Typography> : null}
+              ) : null}
+              {page === 'attachments' ? <Typography color="text.secondary">这是附件页面。</Typography> : null}
+              {page === 'all-notes' ? <Typography color="text.secondary">这是全部笔记页面。</Typography> : null}
+              {page === 'index' ? <Typography color="text.secondary">这是索引页面。</Typography> : null}
+              {page === 'settings' ? <Typography color="text.secondary">这是设置页面。</Typography> : null}
+            </Box>
           </Box>
         </Box>
       </Box>
