@@ -38,7 +38,7 @@ export function createAiChatStorage(tauri: any, pluginId: string) {
     getAll: async () => {
       const out: AnyRecord = {}
       await ensureReady()
-      const roots = ['meta', 'roles', 'chats', 'stickers']
+      const roots = ['meta', 'roles', 'chats', 'groups', 'stickers']
       const walk = async (dir: string) => {
         const entries = await client.listDir(dir).catch(() => [])
         if (!Array.isArray(entries)) return

@@ -4,6 +4,7 @@ import {
   Avatar,
   Box,
   Button,
+  Checkbox,
   Chip,
   Collapse,
   CssBaseline,
@@ -13,6 +14,7 @@ import {
   DialogTitle,
   Divider,
   FormControl,
+  FormControlLabel,
   GlobalStyles,
   IconButton,
   InputAdornment,
@@ -28,6 +30,8 @@ import {
   Slider,
   Stack,
   Switch,
+  Tab,
+  Tabs,
   TextField,
   ThemeProvider,
   Toolbar,
@@ -756,6 +760,7 @@ export function AiChatApp(props: { controller: any }) {
 
   const data = s.data
   const roles = Array.isArray(data?.roles) ? data.roles : []
+  const groups = Array.isArray((data as any)?.groups) ? ((data as any).groups as any[]) : []
   const providers = Array.isArray(data?.settings?.providers) ? data.settings.providers : []
   const transparentChatBg = !!data?.settings?.transparentChatBg
   const chatBgOpacity = clampNum(Number(data?.settings?.chatBgOpacity ?? 0), 0, 100)
@@ -788,7 +793,10 @@ export function AiChatApp(props: { controller: any }) {
   const stickerCategories = Array.isArray(data?.settings?.stickers?.categories) ? data.settings.stickers.categories : []
   const bgAlpha = transparentChatBg ? Math.max(chatBgOpacity / 100, chatBgBlur > 0 ? 0.01 : 0) : 1
 
+  const activeTargetKind = String((s.draft as any)?.activeTargetKind || (data?.ui as any)?.activeTargetKind || 'role') === 'group' ? 'group' : 'role'
+  const activeGroupId = String((s.draft as any)?.activeGroupId || (data?.ui as any)?.activeGroupId || '')
   const activeRole = controller.activeRole()
+  const activeGroup = activeTargetKind === 'group' ? (groups.find((g: any) => String(g?.id || '') === activeGroupId) || null) : null
   const activeChat = controller.activeChat()
   const savedTreeDir = (() => {
     const raw = String(((data?.settings as any)?.branchTree?.dir ?? '') as any).trim()
@@ -808,6 +816,7 @@ export function AiChatApp(props: { controller: any }) {
   })() as boolean
   const branchDraftRaw: any = (s as any)?.branchDraft
   const branchDraft =
+    activeTargetKind === 'role' &&
     branchDraftRaw &&
     typeof branchDraftRaw === 'object' &&
     String(branchDraftRaw?.roleId || '') === String(activeRole?.id || '') &&
@@ -865,7 +874,9 @@ export function AiChatApp(props: { controller: any }) {
   const treeResizeRafRef = React.useRef<number>(0)
 
   const [page, setPage] = React.useState<'chat' | 'settings'>('chat')
-  const [settingsTab, setSettingsTab] = React.useState<'appearance' | 'attachments' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers'>('roles')
+  const [settingsTab, setSettingsTab] = React.useState<'appearance' | 'attachments' | 'groups' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers'>(
+    'roles',
+  )
 
   const [expandedUserMsgIds, setExpandedUserMsgIds] = React.useState(() => new Set<string>())
   const [expandedToolMsgIds, setExpandedToolMsgIds] = React.useState(() => new Set<string>())
@@ -1047,6 +1058,7 @@ export function AiChatApp(props: { controller: any }) {
   })
 
   const [rolePickerEl, setRolePickerEl] = React.useState<HTMLElement | null>(null)
+  const [rolePickerTab, setRolePickerTab] = React.useState<'roles' | 'groups'>('roles')
   const [chatPickerEl, setChatPickerEl] = React.useState<HTMLElement | null>(null)
   const [tempModelPickerEl, setTempModelPickerEl] = React.useState<HTMLElement | null>(null)
   const [fileAdjust, setFileAdjust] = React.useState<{ el: HTMLElement | null; id: string }>({ el: null, id: '' })
@@ -1876,10 +1888,16 @@ export function AiChatApp(props: { controller: any }) {
   const chatNav = (() => {
     const loading = !!s.loading
     if (loading) return { olderId: '', newerId: '', lockedReason: '正在加载中' }
-    if (!activeRoleId) return { olderId: '', newerId: '', lockedReason: '请先选择角色' }
+    if (activeTargetKind === 'group') {
+      const gid = String((activeGroup as any)?.id || activeGroupId || '').trim()
+      if (!gid) return { olderId: '', newerId: '', lockedReason: '请先选择群组' }
+    } else {
+      if (!activeRoleId) return { olderId: '', newerId: '', lockedReason: '请先选择角色' }
+    }
     if (!data) return { olderId: '', newerId: '', lockedReason: '数据未就绪' }
 
-    const box = data?.chatsByRole?.[activeRoleId]
+    const box =
+      activeTargetKind === 'group' ? (data as any)?.chatsByGroup?.[String((activeGroup as any)?.id || activeGroupId || '')] : data?.chatsByRole?.[activeRoleId]
     const chats = Array.isArray(box?.chats) ? box.chats.slice() : []
     chats.sort((a: any, b: any) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0))
     const ids = chats.map((c: any) => String(c?.id || '')).filter((id: string) => !!id)
@@ -2184,7 +2202,10 @@ export function AiChatApp(props: { controller: any }) {
     setEditingMsg({ mid: '', text: '' })
   })
 
-  const openRolePicker = useEvent((e: React.MouseEvent<HTMLElement>) => setRolePickerEl(e.currentTarget))
+  const openRolePicker = useEvent((e: React.MouseEvent<HTMLElement>) => {
+    setRolePickerTab(activeTargetKind === 'group' ? 'groups' : 'roles')
+    setRolePickerEl(e.currentTarget)
+  })
   const closeRolePicker = useEvent(() => setRolePickerEl(null))
   const openChatPicker = useEvent((e: React.MouseEvent<HTMLElement>) => setChatPickerEl(e.currentTarget))
   const closeChatPicker = useEvent(() => {
@@ -2192,7 +2213,8 @@ export function AiChatApp(props: { controller: any }) {
     closeChatMenu()
   })
 
-  const openPluginSettings = useEvent((tab: 'appearance' | 'attachments' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers' = 'roles') => {
+  const openPluginSettings = useEvent(
+    (tab: 'appearance' | 'attachments' | 'groups' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers' = 'roles') => {
     setRolePickerEl(null)
     setChatPickerEl(null)
     setSettingsTab(tab)
@@ -2542,6 +2564,14 @@ export function AiChatApp(props: { controller: any }) {
                 </Button>
                 <Button
                   size="small"
+                  variant={settingsTab === 'groups' ? 'contained' : 'outlined'}
+                  onClick={() => setSettingsTab('groups')}
+                  sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
+                >
+                  群组管理
+                </Button>
+                <Button
+                  size="small"
                   variant={settingsTab === 'roles' ? 'contained' : 'outlined'}
                   onClick={() => setSettingsTab('roles')}
                   sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
@@ -2594,17 +2624,27 @@ export function AiChatApp(props: { controller: any }) {
                   variant="outlined"
                   size="small"
                   onClick={openRolePicker}
-                  disabled={s.loading || !roles.length}
+                  disabled={s.loading || (!roles.length && !groups.length)}
                   sx={{ borderRadius: 999, px: 1, py: 0.25, minWidth: 0, gap: 0.75, borderColor: 'divider' }}
                 >
                   <Avatar
-                    src={String(activeRole?.avatarImage || '') || undefined}
+                    src={
+                      activeTargetKind === 'group'
+                        ? String((activeGroup as any)?.avatarImage || '') || undefined
+                        : String(activeRole?.avatarImage || '') || undefined
+                    }
                     sx={{ width: 22, height: 22, fontSize: 12 }}
                   >
-                    {String(activeRole?.avatar || '🙂')}
+                    {activeTargetKind === 'group' ? String((activeGroup as any)?.avatar || '👥') : String(activeRole?.avatar || '🙂')}
                   </Avatar>
                   <Typography variant="body2" sx={{ fontWeight: 900, maxWidth: 180 }} noWrap>
-                    {activeRole ? String(activeRole?.name || '') : '请选择角色'}
+                    {activeTargetKind === 'group'
+                      ? activeGroup
+                        ? String((activeGroup as any)?.name || '')
+                        : '请选择群组'
+                      : activeRole
+                        ? String(activeRole?.name || '')
+                        : '请选择角色'}
                   </Typography>
                 </Button>
 
@@ -2655,7 +2695,7 @@ export function AiChatApp(props: { controller: any }) {
                 </Tooltip>
                 <Tooltip title="新建聊天">
                   <span>
-                    <IconButton onClick={() => controller.actions.createChat()} size="small" disabled={!activeRole}>
+                    <IconButton onClick={() => controller.actions.createChat()} size="small" disabled={activeTargetKind === 'group' || !activeRole}>
                       <AddIcon fontSize="small" />
                     </IconButton>
                   </span>
@@ -2850,9 +2890,16 @@ export function AiChatApp(props: { controller: any }) {
 
                     const displayRole: 'user' | 'assistant' = m?.role === 'user' ? 'user' : 'assistant'
                     const isUser = displayRole === 'user'
-                    const roleName = String(activeRole?.name || 'AI')
-                    const roleAvatarEmoji = String(activeRole?.avatar || '🤖')
-                    const roleAvatarImage = String(activeRole?.avatarImage || '')
+                    const speakerRoleId = !isUser ? String((m as any)?.speakerRoleId || '') : ''
+                    const speakerRole =
+                      !isUser && activeTargetKind === 'group'
+                        ? roles.find((r0: any) => String(r0?.id || '') === speakerRoleId) || null
+                        : !isUser
+                          ? activeRole
+                          : null
+                    const roleName = String((speakerRole as any)?.name || (activeTargetKind === 'group' ? 'AI' : activeRole?.name || 'AI'))
+                    const roleAvatarEmoji = String((speakerRole as any)?.avatar || '🤖')
+                    const roleAvatarImage = String((speakerRole as any)?.avatarImage || '')
                     const time = controller.fmtTime(Number(m?.createdAt || 0))
                     const imgPaths = isUser ? (Array.isArray(m?.images) ? m.images : []) : []
                     const attMsgs = isUser ? (groupedAttMsgsByRootMid.get(String(m?.id || '').trim()) || []) : []
@@ -4554,63 +4601,136 @@ export function AiChatApp(props: { controller: any }) {
           transformOrigin={{ vertical: 'top', horizontal: 'left' }}
         >
           <Box sx={{ width: 380, maxHeight: '70vh', overflowY: 'auto' }}>
-            <Box sx={{ p: 1.5, pb: 1 }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
-                选择角色
-              </Typography>
+            <Box sx={{ px: 1.5, pt: 1.25, pb: 0.5 }}>
+              <Tabs
+                value={rolePickerTab}
+                onChange={(_e, v) => setRolePickerTab(v === 'groups' ? 'groups' : 'roles')}
+                variant="fullWidth"
+              >
+                <Tab value="roles" label="选择角色" />
+                <Tab value="groups" label="群组" />
+              </Tabs>
             </Box>
             <Divider />
-            <List dense sx={{ py: 0 }}>
-                  {roles.map((r: any) => {
-                    const on = String(r?.id || '') === String(s.draft?.activeRoleId || '')
-                    const providerId = String(r?.modelRef?.providerId || '')
-                    const modelId = String(r?.modelRef?.modelId || '')
-                    return (
-                  <ListItemButton
-                    key={String(r?.id || '')}
-                    selected={on}
-                    onClick={() => {
-                      controller.actions.setActiveRole(String(r?.id || ''))
-                      closeRolePicker()
-                    }}
-                    sx={{ borderBottom: '1px solid', borderColor: 'divider' }}
-                      >
-                        <ListItemAvatar>
-                          <Avatar src={String(r?.avatarImage || '') || undefined} sx={{ width: 28, height: 28, fontSize: 14 }}>
-                            {String(r?.avatar || '🙂')}
-                          </Avatar>
-                        </ListItemAvatar>
-                        <ListItemText
-                          sx={{ minWidth: 0 }}
-                      primary={
-                        <Typography sx={{ fontWeight: 900, fontSize: 13 }} noWrap>
-                          {String(r?.name || '')}
-                        </Typography>
-                      }
-                      secondary={
-                        <Typography variant="caption" color="text.secondary" noWrap>
-                          {providerId}
-                          {modelId ? ` / ${modelId}` : ''}
-                        </Typography>
-                      }
-                    />
-                    <Tooltip title="设置">
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          closeRolePicker()
-                          controller.actions.openRoleEditor(String(r?.id || ''))
-                        }}
-                      >
-                        <SettingsIcon fontSize="inherit" />
-                      </IconButton>
-                    </Tooltip>
-                  </ListItemButton>
-                )
-              })}
-            </List>
+            {rolePickerTab === 'roles' ? (
+              <List dense sx={{ py: 0 }}>
+                {roles.map((r: any) => {
+                  const on = String(r?.id || '') === String(s.draft?.activeRoleId || '')
+                  const providerId = String(r?.modelRef?.providerId || '')
+                  const modelId = String(r?.modelRef?.modelId || '')
+                  return (
+                    <ListItemButton
+                      key={String(r?.id || '')}
+                      selected={on && activeTargetKind === 'role'}
+                      onClick={() => {
+                        controller.actions.setActiveRole(String(r?.id || ''))
+                        closeRolePicker()
+                      }}
+                      sx={{ borderBottom: '1px solid', borderColor: 'divider' }}
+                    >
+                      <ListItemAvatar>
+                        <Avatar src={String(r?.avatarImage || '') || undefined} sx={{ width: 28, height: 28, fontSize: 14 }}>
+                          {String(r?.avatar || '🙂')}
+                        </Avatar>
+                      </ListItemAvatar>
+                      <ListItemText
+                        sx={{ minWidth: 0 }}
+                        primary={
+                          <Typography sx={{ fontWeight: 900, fontSize: 13 }} noWrap>
+                            {String(r?.name || '')}
+                          </Typography>
+                        }
+                        secondary={
+                          <Typography variant="caption" color="text.secondary" noWrap>
+                            {providerId}
+                            {modelId ? ` / ${modelId}` : ''}
+                          </Typography>
+                        }
+                      />
+                      <Tooltip title="设置">
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            closeRolePicker()
+                            controller.actions.openRoleEditor(String(r?.id || ''))
+                          }}
+                        >
+                          <SettingsIcon fontSize="inherit" />
+                        </IconButton>
+                      </Tooltip>
+                    </ListItemButton>
+                  )
+                })}
+              </List>
+            ) : groups.length ? (
+              <List dense sx={{ py: 0 }}>
+                {groups.map((g: any) => {
+                  const on = String(g?.id || '') === String(activeGroupId || '')
+                  return (
+                    <ListItemButton
+                      key={String(g?.id || '')}
+                      selected={on && activeTargetKind === 'group'}
+                      onClick={() => {
+                        controller.actions.setActiveGroup?.(String(g?.id || ''))
+                        closeRolePicker()
+                      }}
+                      sx={{ borderBottom: '1px solid', borderColor: 'divider' }}
+                    >
+                      <ListItemAvatar>
+                        <Avatar src={String(g?.avatarImage || '') || undefined} sx={{ width: 28, height: 28, fontSize: 14 }}>
+                          {String(g?.avatar || '👥')}
+                        </Avatar>
+                      </ListItemAvatar>
+                      <ListItemText
+                        sx={{ minWidth: 0 }}
+                        primary={
+                          <Typography sx={{ fontWeight: 900, fontSize: 13 }} noWrap>
+                            {String(g?.name || '')}
+                          </Typography>
+                        }
+                        secondary={
+                          <Typography variant="caption" color="text.secondary" noWrap>
+                            {Array.isArray(g?.memberRoleIds) ? `${g.memberRoleIds.length} 个成员` : '群聊'}
+                          </Typography>
+                        }
+                      />
+                      <Tooltip title="设置">
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            closeRolePicker()
+                            controller.actions.openGroupEditor?.(String(g?.id || ''))
+                          }}
+                        >
+                          <SettingsIcon fontSize="inherit" />
+                        </IconButton>
+                      </Tooltip>
+                    </ListItemButton>
+                  )
+                })}
+              </List>
+            ) : (
+              <Box sx={{ p: 2 }}>
+                <Typography variant="body2" color="text.secondary">
+                  还没有群组。
+                </Typography>
+                <Button
+                  size="small"
+                  variant="contained"
+                  sx={{ mt: 1 }}
+                  onClick={() => {
+                    closeRolePicker()
+                    openPluginSettings('groups')
+                  }}
+                >
+                  去创建群组
+                </Button>
+              </Box>
+            )}
           </Box>
         </Popover>
 
@@ -4629,6 +4749,64 @@ export function AiChatApp(props: { controller: any }) {
             </Box>
             <Divider />
             {(() => {
+              if (activeTargetKind === 'group') {
+                if (!activeGroup) {
+                  return (
+                    <Box sx={{ p: 2 }}>
+                      <Typography variant="body2" color="text.secondary">
+                        先选择群组
+                      </Typography>
+                    </Box>
+                  )
+                }
+                const box = (data as any)?.chatsByGroup?.[String((activeGroup as any).id || '')]
+                const chats = Array.isArray(box?.chats) ? box.chats.slice() : []
+                const activeChatId = String(box?.activeChatId || '')
+                chats.sort((a: any, b: any) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0))
+                return (
+                  <List dense sx={{ py: 0 }}>
+                    {chats.map((c: any) => {
+                      const on = String(c?.id || '') === activeChatId
+                      const msgs = Array.isArray(c?.messages) ? c.messages : []
+                      const last = msgs.length ? msgs[msgs.length - 1] : null
+                      const raw = String(last?.content || '').replace(/\s+/g, ' ').trim()
+                      const snippet = raw.length > 40 ? raw.slice(0, 40) + '…' : raw
+                      const time = controller.fmtTime(Number(c?.updatedAt || c?.createdAt || 0))
+                      return (
+                        <ListItemButton
+                          key={String(c?.id || '')}
+                          selected={on}
+                          onClick={() => {
+                            controller.actions.setActiveChat(String(c?.id || ''))
+                            closeChatPicker()
+                          }}
+                          sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}
+                        >
+                          <ListItemText
+                            sx={{ minWidth: 0 }}
+                            primary={
+                              <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+                                <Typography sx={{ fontWeight: 900, fontSize: 13, flex: 1, minWidth: 0 }} noWrap>
+                                  {String(c?.title || '群聊')}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {time}
+                                </Typography>
+                              </Stack>
+                            }
+                            secondary={
+                              <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', minWidth: 0 }}>
+                                {snippet || '（空）'}
+                              </Typography>
+                            }
+                          />
+                        </ListItemButton>
+                      )
+                    })}
+                  </List>
+                )
+              }
+
               const role = activeRole
               if (!role) {
                 return (
@@ -4845,6 +5023,7 @@ export function AiChatApp(props: { controller: any }) {
             loading={!!s.loading}
             data={data}
             roles={roles}
+            groups={groups}
             providers={providers}
             models={s.models}
             draft={s.draft}
@@ -4856,11 +5035,200 @@ export function AiChatApp(props: { controller: any }) {
 
         <ProvidersDialog open={s.modal === 'providers'} controller={controller} providers={providers} draft={s.draft} />
         <RoleDialog open={s.modal === 'role'} controller={controller} providers={providers} draft={s.draft} models={s.models} />
-        <ConfirmDialog open={s.modal === 'confirm'} controller={controller} draft={s.draft} roles={roles} providers={providers} />
+        <GroupDialog open={s.modal === 'group'} controller={controller} roles={roles} draft={s.draft} />
+        <ConfirmDialog open={s.modal === 'confirm'} controller={controller} draft={s.draft} roles={roles} groups={groups} providers={providers} />
         <MermaidDialog open={s.modal === 'mermaid'} controller={controller} mermaid={s.mermaid} />
         <ImageDialog open={s.modal === 'image'} controller={controller} viewer={s.imageViewer} />
       </Box>
     </ThemeProvider>
+  )
+}
+
+function GroupAvatarCropper(props: { controller: any; src: string }) {
+  const { controller, src } = props
+  const api = controller?.api
+
+  const VIEW = 240
+  const OUT = 96
+
+  const imgRef = React.useRef<HTMLImageElement | null>(null)
+  const dragRef = React.useRef({ active: false, sx: 0, sy: 0, ox: 0, oy: 0 })
+  const [natural, setNatural] = React.useState({ w: 0, h: 0 })
+  const [zoom, setZoom] = React.useState(1)
+  const [offset, setOffset] = React.useState({ x: 0, y: 0 })
+
+  const ready = natural.w > 0 && natural.h > 0
+  const base = ready ? Math.max(VIEW / natural.w, VIEW / natural.h) : 1
+  const scale = base * zoom
+  const drawW = ready ? natural.w * scale : VIEW
+  const drawH = ready ? natural.h * scale : VIEW
+
+  const clampOffset = React.useCallback(
+    (x: number, y: number) => {
+      const maxX = Math.max(0, (drawW - VIEW) / 2)
+      const maxY = Math.max(0, (drawH - VIEW) / 2)
+      return { x: clampNum(x, -maxX, maxX), y: clampNum(y, -maxY, maxY) }
+    },
+    [drawW, drawH],
+  )
+
+  React.useEffect(() => {
+    setOffset((p) => clampOffset(p.x, p.y))
+  }, [clampOffset])
+
+  const reset = useEvent(() => {
+    setZoom(1)
+    setOffset({ x: 0, y: 0 })
+  })
+
+  const onImgLoad = useEvent((e: React.SyntheticEvent<HTMLImageElement>) => {
+    const el = e.currentTarget
+    const w = Number(el.naturalWidth || 0)
+    const h = Number(el.naturalHeight || 0)
+    setNatural({ w, h })
+    setZoom(1)
+    setOffset({ x: 0, y: 0 })
+  })
+
+  const onPointerDown = useEvent((e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return
+    const cur = e.currentTarget
+    try {
+      cur.setPointerCapture(e.pointerId)
+    } catch {}
+    dragRef.current.active = true
+    dragRef.current.sx = e.clientX
+    dragRef.current.sy = e.clientY
+    dragRef.current.ox = offset.x
+    dragRef.current.oy = offset.y
+  })
+
+  const onPointerMove = useEvent((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current.active) return
+    const dx = e.clientX - dragRef.current.sx
+    const dy = e.clientY - dragRef.current.sy
+    const next = clampOffset(dragRef.current.ox + dx, dragRef.current.oy + dy)
+    setOffset(next)
+  })
+
+  const onPointerUp = useEvent(() => {
+    dragRef.current.active = false
+  })
+
+  const onWheel = useEvent((e: React.WheelEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const dir = Number(e.deltaY || 0) > 0 ? -1 : 1
+    const factor = dir > 0 ? 1.08 : 1 / 1.08
+    setZoom((z) => clampNum(z * factor, 1, 6))
+  })
+
+  const cropNow = useEvent(() => {
+    try {
+      const img = imgRef.current
+      if (!img || !ready) return ''
+
+      const imgLeft = (VIEW - drawW) / 2 + offset.x
+      const imgTop = (VIEW - drawH) / 2 + offset.y
+      const s = VIEW / scale
+      const sx = (0 - imgLeft) / scale
+      const sy = (0 - imgTop) / scale
+
+      const canvas = document.createElement('canvas')
+      canvas.width = OUT
+      canvas.height = OUT
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return ''
+      ctx.clearRect(0, 0, OUT, OUT)
+      ctx.imageSmoothingEnabled = true
+      ;(ctx as any).imageSmoothingQuality = 'high'
+      ctx.drawImage(img, sx, sy, s, s, 0, 0, OUT, OUT)
+
+      const out = canvas.toDataURL('image/png')
+      return String(out || '').startsWith('data:image/') ? out : ''
+    } catch {
+      return ''
+    }
+  })
+
+  const cancelCrop = useEvent(() => {
+    controller.actions.setDraft('groupAvatarImageCropSrc', '')
+  })
+
+  const applyCrop = useEvent(() => {
+    const out = cropNow()
+    if (!out) return api?.ui?.showToast?.('裁剪失败')
+    controller.actions.setDraft('groupAvatarImage', out)
+    controller.actions.setDraft('groupAvatarImageCropSrc', '')
+  })
+
+  const imgX = (VIEW - drawW) / 2 + offset.x
+  const imgY = (VIEW - drawH) / 2 + offset.y
+
+  return (
+    <Paper variant="outlined" sx={{ p: 1.5 }}>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+        拖拽移动视角，滚轮缩放；完成后点击“应用”。
+      </Typography>
+      <Box
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onWheel={onWheel}
+        sx={{
+          width: VIEW,
+          height: VIEW,
+          position: 'relative',
+          overflow: 'hidden',
+          borderRadius: 2,
+          border: '1px solid',
+          borderColor: 'divider',
+          bgcolor: 'grey.100',
+          touchAction: 'none',
+          cursor: dragRef.current.active ? 'grabbing' : 'grab',
+          mx: 'auto',
+        }}
+      >
+        <Box sx={{ position: 'absolute', inset: 0 }} />
+        <img
+          ref={imgRef}
+          src={src}
+          alt="avatar-crop"
+          onLoad={onImgLoad}
+          draggable={false}
+          style={{
+            position: 'absolute',
+            left: `${imgX}px`,
+            top: `${imgY}px`,
+            width: `${drawW}px`,
+            height: `${drawH}px`,
+            userSelect: 'none',
+            pointerEvents: 'none',
+          }}
+        />
+        <Box
+          sx={{
+            position: 'absolute',
+            inset: 0,
+            boxShadow: 'inset 0 0 0 9999px rgba(0,0,0,.25)',
+            borderRadius: 2,
+          }}
+        />
+      </Box>
+
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1.5 }}>
+        <Button size="small" onClick={reset}>
+          重置
+        </Button>
+        <Box sx={{ flex: 1 }} />
+        <Button size="small" onClick={cancelCrop}>
+          取消裁剪
+        </Button>
+        <Button size="small" variant="contained" onClick={applyCrop} disabled={!ready}>
+          应用
+        </Button>
+      </Stack>
+    </Paper>
   )
 }
 
@@ -5408,13 +5776,14 @@ function PluginSettingsPage(props: {
   loading: boolean
   data: any
   roles: any[]
+  groups: any[]
   providers: any[]
   models: any
   draft: any
   activeRoleId: string
-  tab: 'appearance' | 'attachments' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers'
+  tab: 'appearance' | 'attachments' | 'groups' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers'
 }) {
-  const { controller, loading, data, roles, providers, models, draft, activeRoleId, tab } = props
+  const { controller, loading, data, roles, groups, providers, models, draft, activeRoleId, tab } = props
   const [toolServerTest, setToolServerTest] = React.useState(() => ({ loading: false, ok: null as null | boolean, msg: '', detail: '' }))
   const [toolServerTools, setToolServerTools] = React.useState(() => ({
     open: false,
@@ -6091,6 +6460,81 @@ function PluginSettingsPage(props: {
                 超过上限会在解析前直接拒绝；0 表示不限制。
               </Typography>
             </Box>
+          </Stack>
+        </Paper>
+      </Box>
+    )
+  }
+
+  if (tab === 'groups') {
+    const activeGroupId = String((draft as any)?.activeGroupId || '')
+    return (
+      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
+        <Paper variant="outlined" sx={{ p: 1.5 }}>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography sx={{ fontWeight: 900 }}>群组管理</Typography>
+            <Box sx={{ flex: 1 }} />
+            <Button startIcon={<AddIcon />} onClick={() => controller.actions.createGroup?.()} disabled={loading}>
+              新建群组
+            </Button>
+          </Stack>
+          <Divider sx={{ my: 1.5 }} />
+          <Stack spacing={1.25}>
+            {groups.length ? (
+              groups.map((g: any) => {
+                const gid = String(g?.id || '')
+                const isActive = gid && gid === activeGroupId
+                const memberCount = Array.isArray(g?.memberRoleIds) ? g.memberRoleIds.length : 0
+                return (
+                  <Paper
+                    key={gid}
+                    variant="outlined"
+                    sx={{
+                      p: 1.25,
+                      borderColor: isActive ? 'primary.main' : 'divider',
+                      bgcolor: isActive ? 'rgba(25,118,210,.06)' : 'background.paper',
+                    }}
+                  >
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', sm: 'center' }}>
+                      <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
+                        <Avatar src={String(g?.avatarImage || '') || undefined} sx={{ width: 28, height: 28, fontSize: 14 }}>
+                          {String(g?.avatar || '👥')}
+                        </Avatar>
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography sx={{ fontWeight: 900 }} noWrap>
+                            {String(g?.name || '')}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" noWrap>
+                            {memberCount ? `${memberCount} 个成员` : '未选择成员'}
+                          </Typography>
+                        </Box>
+                      </Stack>
+
+                      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <Button
+                          size="small"
+                          variant={isActive ? 'contained' : 'outlined'}
+                          onClick={() => controller.actions.setActiveGroup?.(gid)}
+                          disabled={!gid}
+                        >
+                          {isActive ? '当前' : '进入群聊'}
+                        </Button>
+                        <Button size="small" onClick={() => controller.actions.openGroupEditor?.(gid)} disabled={!gid}>
+                          编辑
+                        </Button>
+                        <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => controller.actions.askDeleteGroup?.(gid)} disabled={!gid}>
+                          删除
+                        </Button>
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                )
+              })
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                暂无群组
+              </Typography>
+            )}
           </Stack>
         </Paper>
       </Box>
@@ -7072,15 +7516,301 @@ function ToolServerToolsDialog(props: {
   )
 }
 
-function ConfirmDialog(props: { open: boolean; controller: any; draft: any; roles: any[]; providers: any[] }) {
-  const { open, controller, draft, roles, providers } = props
+function GroupDialog(props: { open: boolean; controller: any; roles: any[]; draft: any }) {
+  const { open, controller, roles, draft } = props
+
+  const editGroupId = String((draft as any)?.editGroupId || '')
+  const isNew = editGroupId === '__new_group__'
+
+  const avatarEmoji = String((draft as any)?.groupAvatar || '').trim() || '👥'
+  const avatarImage = String((draft as any)?.groupAvatarImage || '').trim()
+  const avatarCropSrc = String((draft as any)?.groupAvatarImageCropSrc || '').trim()
+
+  const mode = String((draft as any)?.groupMode || 'roundRobin') === 'random' ? 'random' : 'roundRobin'
+  const members0 = Array.isArray((draft as any)?.groupMemberRoleIds) ? ((draft as any).groupMemberRoleIds as any[]) : []
+  const memberRoleIds = members0.map((x) => String(x || '')).filter((x) => !!x)
+  const order0 = Array.isArray((draft as any)?.groupRoundRobinOrder) ? ((draft as any).groupRoundRobinOrder as any[]) : []
+  const order = order0.map((x) => String(x || '')).filter((x) => !!x)
+  const weights = ((draft as any)?.groupRandomWeights && typeof (draft as any).groupRandomWeights === 'object' ? (draft as any).groupRandomWeights : {}) as any
+  const minCount = clampNum(Number((draft as any)?.groupRandomMinCount ?? 1), 1, 20)
+  const maxCount = clampNum(Number((draft as any)?.groupRandomMaxCount ?? 2), 1, 20)
+
+  const roleById = React.useMemo(() => {
+    const m = new Map<string, any>()
+    for (const r of roles) {
+      const id = String(r?.id || '')
+      if (!id || m.has(id)) continue
+      m.set(id, r)
+    }
+    return m
+  }, [roles])
+
+  const normalizeOrder = useEvent((nextMembers: string[], rawOrder: string[]) => {
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const id of rawOrder) {
+      if (!id || seen.has(id)) continue
+      if (!nextMembers.includes(id)) continue
+      seen.add(id)
+      out.push(id)
+    }
+    for (const id of nextMembers) {
+      if (!id || seen.has(id)) continue
+      seen.add(id)
+      out.push(id)
+    }
+    return out
+  })
+
+  const toggleMember = useEvent((roleId: string) => {
+    const rid = String(roleId || '')
+    if (!rid) return
+    const prev = memberRoleIds.slice()
+    const has = prev.includes(rid)
+    const nextMembers = has ? prev.filter((x) => x !== rid) : prev.concat([rid])
+    controller.actions.setDraft('groupMemberRoleIds', nextMembers)
+
+    const nextOrder = normalizeOrder(nextMembers, order)
+    controller.actions.setDraft('groupRoundRobinOrder', nextOrder)
+
+    if (mode === 'random') {
+      const nextWeights: any = { ...(weights || {}) }
+      if (!has && nextWeights[rid] == null) nextWeights[rid] = 1
+      if (has) delete nextWeights[rid]
+      controller.actions.setDraft('groupRandomWeights', nextWeights)
+    }
+  })
+
+  const moveOrder = useEvent((rid: string, delta: number) => {
+    const id = String(rid || '')
+    if (!id) return
+    const list = normalizeOrder(memberRoleIds, order)
+    const i = list.findIndex((x) => x === id)
+    if (i < 0) return
+    const j = i + (delta < 0 ? -1 : 1)
+    if (j < 0 || j >= list.length) return
+    const next = list.slice()
+    const t = next[i]
+    next[i] = next[j]
+    next[j] = t
+    controller.actions.setDraft('groupRoundRobinOrder', next)
+  })
+
+  const setWeight = useEvent((rid: string, v: number) => {
+    const id = String(rid || '')
+    if (!id) return
+    const next: any = { ...(weights || {}) }
+    next[id] = clampNum(Math.round(Number(v || 0)), 0, 20)
+    controller.actions.setDraft('groupRandomWeights', next)
+  })
+
+  return (
+    <Dialog open={open} onClose={() => controller.actions.closeModal()} fullWidth maxWidth="md">
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <SettingsIcon fontSize="small" />
+        {isNew ? '新建群组' : '群组设置'}
+        <Box sx={{ flex: 1 }} />
+        <IconButton onClick={() => controller.actions.closeModal()} size="small">
+          <CloseIcon fontSize="small" />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+            <TextField
+              label="群组名"
+              value={String((draft as any)?.groupName || '')}
+              onChange={(e) => controller.actions.setDraft('groupName', e.target.value)}
+              fullWidth
+            />
+            <TextField
+              label="头像（表情，可选）"
+              value={String((draft as any)?.groupAvatar || '')}
+              onChange={(e) => controller.actions.setDraft('groupAvatar', e.target.value)}
+              sx={{ width: { xs: '100%', sm: 200 } }}
+            />
+          </Stack>
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Avatar src={avatarImage || undefined} sx={{ width: 44, height: 44, fontSize: 18 }}>
+                {avatarEmoji}
+              </Avatar>
+              <Typography variant="body2" color="text.secondary">
+                头像图片（可选）
+              </Typography>
+            </Stack>
+            <Box sx={{ flex: 1 }} />
+            <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ flexWrap: 'wrap' }}>
+              <Button variant="outlined" onClick={() => controller.actions.pickGroupAvatarImage?.()} disabled={!!avatarCropSrc}>
+                选择图片
+              </Button>
+              <Button variant="text" onClick={() => controller.actions.clearGroupAvatarImage?.()} disabled={!avatarImage && !avatarCropSrc}>
+                清除图片
+              </Button>
+            </Stack>
+          </Stack>
+
+          {avatarCropSrc ? <GroupAvatarCropper controller={controller} src={avatarCropSrc} /> : null}
+
+          <TextField
+            label="群聊设定提示词"
+            value={String((draft as any)?.groupPrompt || '')}
+            onChange={(e) => controller.actions.setDraft('groupPrompt', e.target.value)}
+            fullWidth
+            multiline
+            minRows={4}
+            placeholder="这里写入群聊设定：会以系统消息“群聊设定：…”追加到每个角色的系统提示词后面。"
+          />
+
+          <FormControl fullWidth>
+            <InputLabel>AI 回复运作机制</InputLabel>
+            <Select label="AI 回复运作机制" value={mode} onChange={(e) => controller.actions.setDraft('groupMode', e.target.value)}>
+              <MenuItem value="roundRobin">轮流模式</MenuItem>
+              <MenuItem value="random">随机模式</MenuItem>
+            </Select>
+          </FormControl>
+
+          <Paper variant="outlined" sx={{ p: 1.5 }}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography sx={{ fontWeight: 900 }}>成员角色</Typography>
+              <Box sx={{ flex: 1 }} />
+              <Typography variant="caption" color="text.secondary">
+                已选 {memberRoleIds.length}/{roles.length}
+              </Typography>
+            </Stack>
+            <Divider sx={{ my: 1.25 }} />
+            <Stack spacing={0.75}>
+              {roles.map((r: any) => {
+                const rid = String(r?.id || '')
+                const on = memberRoleIds.includes(rid)
+                return (
+                  <Paper key={rid} variant="outlined" sx={{ px: 1, py: 0.5 }}>
+                    <FormControlLabel
+                      control={<Checkbox checked={on} onChange={() => toggleMember(rid)} />}
+                      label={
+                        <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+                          <Avatar src={String(r?.avatarImage || '') || undefined} sx={{ width: 22, height: 22, fontSize: 12 }}>
+                            {String(r?.avatar || '🙂')}
+                          </Avatar>
+                          <Typography sx={{ fontWeight: 900 }} noWrap>
+                            {String(r?.name || '')}
+                          </Typography>
+                        </Stack>
+                      }
+                      sx={{ m: 0 }}
+                    />
+                  </Paper>
+                )
+              })}
+            </Stack>
+          </Paper>
+
+          {mode === 'roundRobin' ? (
+            <Paper variant="outlined" sx={{ p: 1.5 }}>
+              <Typography sx={{ fontWeight: 900, mb: 1 }}>轮流顺序</Typography>
+              <Stack spacing={0.75}>
+                {normalizeOrder(memberRoleIds, order).map((rid: string) => {
+                  const r = roleById.get(rid) || null
+                  return (
+                    <Paper key={rid} variant="outlined" sx={{ px: 1, py: 0.75 }}>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Avatar src={String(r?.avatarImage || '') || undefined} sx={{ width: 22, height: 22, fontSize: 12 }}>
+                          {String(r?.avatar || '🤖')}
+                        </Avatar>
+                        <Typography sx={{ fontWeight: 900, flex: 1, minWidth: 0 }} noWrap>
+                          {String(r?.name || 'AI')}
+                        </Typography>
+                        <IconButton size="small" onClick={() => moveOrder(rid, -1)}>
+                          <ExpandLessIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton size="small" onClick={() => moveOrder(rid, +1)}>
+                          <ExpandMoreIcon fontSize="small" />
+                        </IconButton>
+                      </Stack>
+                    </Paper>
+                  )
+                })}
+              </Stack>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                用户发送消息后，按这个顺序依次发言。
+              </Typography>
+            </Paper>
+          ) : (
+            <Paper variant="outlined" sx={{ p: 1.5 }}>
+              <Typography sx={{ fontWeight: 900, mb: 1 }}>随机模式参数</Typography>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
+                <TextField
+                  size="small"
+                  label="最少参与角色数"
+                  type="number"
+                  value={String(Math.round(minCount))}
+                  onChange={(e) => controller.actions.setDraft('groupRandomMinCount', e.target.value)}
+                  inputProps={{ min: 1, max: 20, step: 1 }}
+                  fullWidth
+                />
+                <TextField
+                  size="small"
+                  label="最多参与角色数"
+                  type="number"
+                  value={String(Math.round(maxCount))}
+                  onChange={(e) => controller.actions.setDraft('groupRandomMaxCount', e.target.value)}
+                  inputProps={{ min: 1, max: 20, step: 1 }}
+                  fullWidth
+                />
+              </Stack>
+
+              <Divider sx={{ my: 1.25 }} />
+              <Stack spacing={1}>
+                {memberRoleIds.map((rid: string) => {
+                  const r = roleById.get(rid) || null
+                  const w = clampNum(Number(weights?.[rid] ?? 1), 0, 20)
+                  return (
+                    <Box key={rid}>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Avatar src={String(r?.avatarImage || '') || undefined} sx={{ width: 22, height: 22, fontSize: 12 }}>
+                          {String(r?.avatar || '🤖')}
+                        </Avatar>
+                        <Typography sx={{ fontWeight: 900, flex: 1, minWidth: 0 }} noWrap>
+                          {String(r?.name || 'AI')}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          权重 {Math.round(w)}
+                        </Typography>
+                      </Stack>
+                      <Slider size="small" value={w} min={0} max={20} step={1} onChange={(_e, v) => setWeight(rid, Number(v || 0))} />
+                    </Box>
+                  )
+                })}
+              </Stack>
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                权重为 0 的角色本轮不会被选中；用户发送消息后，会随机选出若干成员参与回答。
+              </Typography>
+            </Paper>
+          )}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => controller.actions.closeModal()}>取消</Button>
+        <Button variant="contained" onClick={() => controller.actions.saveGroup?.()} disabled={!!avatarCropSrc}>
+          保存
+        </Button>
+      </DialogActions>
+    </Dialog>
+  )
+}
+
+function ConfirmDialog(props: { open: boolean; controller: any; draft: any; roles: any[]; groups: any[]; providers: any[] }) {
+  const { open, controller, draft, roles, groups, providers } = props
   const rid = String(draft?.deleteRoleId || '')
+  const gid = String((draft as any)?.deleteGroupId || '')
   const pid = String(draft?.deleteProviderId || '')
   const role = rid ? roles.find((r) => String(r?.id || '') === rid) : null
+  const group = gid ? groups.find((g) => String(g?.id || '') === gid) : null
   const provider = pid ? providers.find((p) => String(p?.id || '') === pid) : null
 
-  const title = rid ? '删除角色' : pid ? '删除供应商' : '确认'
-  const name = rid ? String(role?.name || '') : pid ? String(provider?.name || '') : ''
+  const title = rid ? '删除角色' : gid ? '删除群组' : pid ? '删除供应商' : '确认'
+  const name = rid ? String(role?.name || '') : gid ? String(group?.name || '') : pid ? String(provider?.name || '') : ''
 
   return (
     <Dialog open={open} onClose={() => controller.actions.closeModal()} fullWidth maxWidth="xs">
@@ -7090,6 +7820,10 @@ function ConfirmDialog(props: { open: boolean; controller: any; draft: any; role
         {pid ? (
           <Typography variant="caption" color="text.secondary">
             注意：至少保留一个供应商。
+          </Typography>
+        ) : gid ? (
+          <Typography variant="caption" color="text.secondary">
+            注意：群组的群聊记录也会一并删除。
           </Typography>
         ) : null}
       </DialogContent>

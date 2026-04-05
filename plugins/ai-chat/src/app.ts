@@ -55,6 +55,8 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
   const DEFAULT_TOOL_CALL_SERVER_BASE_URL = 'http://localhost:9083'
   const REF_IMG_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
   const NEW_ROLE_ID = '__new__'
+  const NEW_GROUP_ID = '__new_group__'
+  const GROUP_SPEAKER_USER_PREFIX = '用户'
   const DEFAULT_MERMAID_FIX_SYSTEM_PROMPT = `你是 Mermaid 语法修复器。\n\n你会收到一段 Mermaid 源码（可能无法渲染）。你的任务：在尽量保持原意不变的前提下，修复语法/结构错误，让它可以被 Mermaid 渲染。\n\n输出要求：\n- 只输出修复后的 Mermaid 源码本体\n- 不要输出解释、不要输出 Markdown 代码块标记（不要输出 \`\`\`mermaid）`
   const DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT = `你是“聊天标题生成器”。\n\n你会收到一段聊天记录。你的任务：为这段聊天生成一个简短、贴切的中文标题。\n\n输出要求：\n- 只输出标题本身（纯文本）\n- 不要输出引号、不要输出解释\n- 尽量不超过 20 个汉字`
   const DEFAULT_STICKER_NAMING_SYSTEM_PROMPT = `你是“表情包取名助手”。\n\n你会收到一张表情包图片。你的任务：根据图片内容给它取一个简短、好记的中文名字。\n\n输出要求：\n- 只输出名字本身（纯文本）\n- 不要输出引号、不要输出解释\n- 不要包含 / 或 \\\\ 或 ] 或换行\n- 尽量不超过 12 个汉字`
@@ -73,12 +75,15 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     sideTab: 'roles', // roles | chats
     models: { loading: false, error: '', items: [] },
     pendingChat: null,
+    pendingGroupChat: null,
     branchDraft: null,
     draft: {
       input: '',
       images: [],
       files: [],
+      activeTargetKind: 'role',
       activeRoleId: '',
+      activeGroupId: '',
 
       editRoleId: '',
       roleName: '',
@@ -91,12 +96,26 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       roleCustomModelId: '',
       roleTemperature: '0.7',
 
+      editGroupId: '',
+      groupName: '',
+      groupAvatar: '',
+      groupAvatarImage: '',
+      groupAvatarImageCropSrc: '',
+      groupPrompt: '',
+      groupMode: 'roundRobin',
+      groupMemberRoleIds: [],
+      groupRoundRobinOrder: [],
+      groupRandomWeights: {},
+      groupRandomMinCount: 1,
+      groupRandomMaxCount: 2,
+
       editProviderId: '',
       providerName: '',
       providerBaseUrl: '',
       providerApiKey: '',
 
       deleteRoleId: '',
+      deleteGroupId: '',
       deleteProviderId: '',
     },
     data: null,
@@ -472,6 +491,10 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     return safeDirName(role?.name, '角色')
   }
 
+  function groupFolderName(group) {
+    return safeDirName(group?.name, '群组')
+  }
+
   function validateStickerCategoryName(input) {
     const raw = String(input || '').trim()
     if (!raw) return { ok: false, name: '', error: '分类名不能为空' }
@@ -551,6 +574,25 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     await api.files.images.delete({ scope: 'data', path: relPath }).catch(() => {})
   }
 
+  async function syncGroupAvatarFile(folder, group) {
+    const f = String(folder || '').trim()
+    if (!f) return
+
+    const relPath = `groups/${f}/avatar.png`
+    const avatarImage = String(group?.avatarImage || '').trim()
+
+    if (looksLikeImageDataUrl(avatarImage)) {
+      if (typeof api?.files?.images?.writeBase64 !== 'function') return
+      await api.files.images
+        .writeBase64({ scope: 'data', relPath, overwrite: true, dataUrlOrBase64: avatarImage })
+        .catch(() => {})
+      return
+    }
+
+    if (typeof api?.files?.images?.delete !== 'function') return
+    await api.files.images.delete({ scope: 'data', path: relPath }).catch(() => {})
+  }
+
   function splitRoleKey(folder) {
     return `roles/${String(folder || '')}/role`
   }
@@ -559,15 +601,25 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     return `chats/${String(folder || '')}/${String(chatId || '')}`
   }
 
-  async function writeChatUpdatedNotice(roleId, chatId, updatedAt) {
-    const rid = String(roleId || '').trim()
+  function splitGroupKey(folder) {
+    return `groups/${String(folder || '')}/group`
+  }
+
+  function splitGroupChatKey(folder, chatId) {
+    return `groups/${String(folder || '')}/chats/${String(chatId || '')}`
+  }
+
+  async function writeChatUpdatedNotice(targetKind: any, targetId: any, chatId: any, updatedAt: any) {
+    const kind = String(targetKind || '').trim() === 'group' ? 'group' : 'role'
+    const tid = String(targetId || '').trim()
     const cid = String(chatId || '').trim()
-    if (!rid || !cid) return
+    if (!tid || !cid) return
     const t = now()
     try {
       await runtimeStorage.set(UI_CHAT_UPDATED_NOTICE_KEY, {
         id: uid('n'),
-        roleId: rid,
+        targetKind: kind,
+        targetId: tid,
         chatId: cid,
         updatedAt: Number(updatedAt || 0),
         at: t,
@@ -583,6 +635,10 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const roleOrder = Array.isArray(raw.roleOrder) ? raw.roleOrder.map((x) => String(x || '')).filter((x) => !!x) : []
     const roleFolders = raw.roleFolders && typeof raw.roleFolders === 'object' ? raw.roleFolders : {}
     const chatIndexByRole = raw.chatIndexByRole && typeof raw.chatIndexByRole === 'object' ? raw.chatIndexByRole : {}
+    const groupOrder = Array.isArray((raw as any).groupOrder) ? (raw as any).groupOrder.map((x: any) => String(x || '')).filter((x: any) => !!x) : []
+    const groupFolders = (raw as any).groupFolders && typeof (raw as any).groupFolders === 'object' ? (raw as any).groupFolders : {}
+    const chatIndexByGroup =
+      (raw as any).chatIndexByGroup && typeof (raw as any).chatIndexByGroup === 'object' ? (raw as any).chatIndexByGroup : {}
 
     return {
       schemaVersion: SPLIT_SCHEMA_VERSION,
@@ -593,6 +649,9 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       roleOrder,
       roleFolders,
       chatIndexByRole,
+      groupOrder,
+      groupFolders,
+      chatIndexByGroup,
     }
   }
 
@@ -653,6 +712,8 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       settings: meta.settings && typeof meta.settings === 'object' ? meta.settings : {},
       roles: [],
       chatsByRole: {},
+      groups: [],
+      chatsByGroup: {},
       ui: meta.ui && typeof meta.ui === 'object' ? meta.ui : {},
     }
 
@@ -688,6 +749,32 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       }
     }
 
+    for (const gid of (meta as any).groupOrder || []) {
+      const folder = String((meta as any).groupFolders?.[gid] || '')
+      if (!folder) throw new Error('存储索引损坏：groupFolders 缺失')
+
+      const g0 = await api.storage.get(splitGroupKey(folder))
+      const group = g0 && typeof g0 === 'object' ? g0 : null
+      if (!group) throw new Error('存储损坏：群组文件缺失或无效')
+
+      ;(d as any).groups.push(group)
+
+      const idx = (meta as any).chatIndexByGroup?.[gid]
+      const box = idx && typeof idx === 'object' ? idx : {}
+      const activeChatId = String((box as any).activeChatId || '')
+      const chatIds = Array.isArray((box as any).chatIds) ? (box as any).chatIds.map((x: any) => String(x || '')).filter((x: any) => !!x) : []
+
+      const chats = []
+      for (const cid of chatIds) {
+        const c0 = await api.storage.get(splitGroupChatKey(folder, cid))
+        const c = c0 && typeof c0 === 'object' ? c0 : null
+        if (!c) throw new Error('存储损坏：群聊会话文件缺失或无效')
+        chats.push(c)
+      }
+
+      ;(d as any).chatsByGroup[String(group.id || gid)] = { activeChatId, chats }
+    }
+
     return normalizeData(d)
   }
 
@@ -701,14 +788,23 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     if (!d || typeof d !== 'object') return
     const roles = Array.isArray(d.roles) ? d.roles : []
     const chatsByRole = d.chatsByRole && typeof d.chatsByRole === 'object' ? d.chatsByRole : {}
+    const groups = Array.isArray((d as any).groups) ? (d as any).groups : []
+    const chatsByGroup = (d as any).chatsByGroup && typeof (d as any).chatsByGroup === 'object' ? (d as any).chatsByGroup : {}
 
     const old = splitMetaCache || (await loadSplitMeta())
     const oldRoleFolders = old?.roleFolders && typeof old.roleFolders === 'object' ? old.roleFolders : {}
     const oldChatIndexByRole = old?.chatIndexByRole && typeof old.chatIndexByRole === 'object' ? old.chatIndexByRole : {}
+    const oldGroupFolders = (old as any)?.groupFolders && typeof (old as any).groupFolders === 'object' ? (old as any).groupFolders : {}
+    const oldChatIndexByGroup =
+      (old as any)?.chatIndexByGroup && typeof (old as any).chatIndexByGroup === 'object' ? (old as any).chatIndexByGroup : {}
 
     const roleOrder = roles.map((r) => String(r?.id || '')).filter((x) => !!x)
     const roleFolders = {}
     const chatIndexByRole = {}
+
+    const groupOrder = groups.map((g: any) => String(g?.id || '')).filter((x: any) => !!x)
+    const groupFolders = {}
+    const chatIndexByGroup = {}
 
     const usedFolders = new Set()
     for (const r of roles) {
@@ -722,6 +818,20 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       }
       usedFolders.add(folder)
       roleFolders[rid] = folder
+    }
+
+    const usedGroupFolders = new Set()
+    for (const g of groups) {
+      const gid = String((g as any)?.id || '')
+      if (!gid) continue
+      const base = groupFolderName(g)
+      let folder = base
+      if (usedGroupFolders.has(folder)) {
+        const tail = gid.slice(Math.max(0, gid.length - 8)) || uid('g')
+        folder = `${base}__${tail}`
+      }
+      usedGroupFolders.add(folder)
+      ;(groupFolders as any)[gid] = folder
     }
 
     for (const r of roles) {
@@ -771,6 +881,56 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       }
     }
 
+    for (const g of groups) {
+      const gid = String((g as any)?.id || '')
+      if (!gid) continue
+      const folder = String((groupFolders as any)[gid] || '')
+      const box0 = (chatsByGroup as any)[gid] && typeof (chatsByGroup as any)[gid] === 'object' ? (chatsByGroup as any)[gid] : { activeChatId: '', chats: [] }
+      const activeChatId = String((box0 as any).activeChatId || '')
+      const chats = Array.isArray((box0 as any).chats) ? (box0 as any).chats : []
+      const chatIds = chats.map((c: any) => String(c?.id || '')).filter((x: any) => !!x)
+      const chatUpdatedAt: any = {}
+      for (const c of chats) {
+        const cid = String(c?.id || '')
+        if (!cid) continue
+        chatUpdatedAt[cid] = Number(c?.updatedAt || 0)
+      }
+      ;(chatIndexByGroup as any)[gid] = { activeChatId, chatIds, chatUpdatedAt }
+
+      // 群组文件：小，不做增量优化
+      try {
+        await api.storage.set(splitGroupKey(folder), g)
+      } catch (_) {}
+
+      await syncGroupAvatarFile(folder, g)
+
+      const oldFolder = String((oldGroupFolders as any)?.[gid] || '')
+      const oldIdx = (oldChatIndexByGroup as any)?.[gid]
+      const oldUpdated =
+        oldIdx && typeof oldIdx === 'object' && (oldIdx as any).chatUpdatedAt && typeof (oldIdx as any).chatUpdatedAt === 'object'
+          ? (oldIdx as any).chatUpdatedAt
+          : {}
+
+      for (const c of chats) {
+        const cid = String(c?.id || '')
+        if (!cid) continue
+        const newKey = splitGroupChatKey(folder, cid)
+        const oldKey = oldFolder ? splitGroupChatKey(oldFolder, cid) : ''
+        const updatedAt = Number(c?.updatedAt || 0)
+        const prev = Number((oldUpdated as any)?.[cid] || 0)
+        const needWrite = folder !== oldFolder || updatedAt !== prev || !prev
+        if (!needWrite) continue
+        try {
+          await api.storage.set(newKey, c)
+        } catch (_) {}
+        if (oldKey && oldKey !== newKey) {
+          try {
+            await api.storage.remove(oldKey)
+          } catch (_) {}
+        }
+      }
+    }
+
     // 表情包独立存储；meta/index 只存“索引 + 通用 settings（不含 stickers）”。
     const settingsMeta = d.settings && typeof d.settings === 'object' ? { ...(d.settings as any) } : {}
     try {
@@ -791,6 +951,9 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       roleOrder,
       roleFolders,
       chatIndexByRole,
+      groupOrder,
+      groupFolders,
+      chatIndexByGroup,
     }
 
     // 先写索引，再清理旧文件：避免 crash 时出现“索引指向不存在文件”
@@ -858,6 +1021,67 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
           if (keep && keep.has(cid)) continue
           try {
             await api.storage.remove(splitChatKey(oldFolder, cid))
+          } catch (_) {}
+        }
+      }
+
+      const newGroupSet = new Set(groupOrder)
+      const newChatSetByGroup: any = {}
+      for (const gid of groupOrder) {
+        const idx = (chatIndexByGroup as any)?.[gid]
+        const ids = Array.isArray((idx as any)?.chatIds) ? (idx as any).chatIds.map((x: any) => String(x || '')).filter((x: any) => !!x) : []
+        newChatSetByGroup[gid] = new Set(ids)
+      }
+
+      const oldGroups = Array.isArray((old as any).groupOrder) ? (old as any).groupOrder : []
+      for (const gid0 of oldGroups) {
+        const gid = String(gid0 || '')
+        if (!gid) continue
+        const oldFolder = String((oldGroupFolders as any)?.[gid] || '')
+        if (!oldFolder) continue
+
+        if (!newGroupSet.has(gid)) {
+          try {
+            await api.storage.remove(splitGroupKey(oldFolder))
+          } catch (_) {}
+          const oldIdx = (oldChatIndexByGroup as any)?.[gid]
+          const oldChatIds = Array.isArray((oldIdx as any)?.chatIds) ? (oldIdx as any).chatIds : []
+          for (const cid0 of oldChatIds) {
+            const cid = String(cid0 || '')
+            if (!cid) continue
+            try {
+              await api.storage.remove(splitGroupChatKey(oldFolder, cid))
+            } catch (_) {}
+          }
+          continue
+        }
+
+        const newFolder = String((groupFolders as any)?.[gid] || '')
+        if (newFolder && newFolder !== oldFolder) {
+          try {
+            await api.storage.remove(splitGroupKey(oldFolder))
+          } catch (_) {}
+          const oldIdx = (oldChatIndexByGroup as any)?.[gid]
+          const oldChatIds = Array.isArray((oldIdx as any)?.chatIds) ? (oldIdx as any).chatIds : []
+          for (const cid0 of oldChatIds) {
+            const cid = String(cid0 || '')
+            if (!cid) continue
+            try {
+              await api.storage.remove(splitGroupChatKey(oldFolder, cid))
+            } catch (_) {}
+          }
+          continue
+        }
+
+        const keep = newChatSetByGroup[gid]
+        const oldIdx = (oldChatIndexByGroup as any)?.[gid]
+        const oldChatIds = Array.isArray((oldIdx as any)?.chatIds) ? (oldIdx as any).chatIds : []
+        for (const cid0 of oldChatIds) {
+          const cid = String(cid0 || '')
+          if (!cid) continue
+          if (keep && keep.has(cid)) continue
+          try {
+            await api.storage.remove(splitGroupChatKey(oldFolder, cid))
           } catch (_) {}
         }
       }
@@ -991,7 +1215,9 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
           chats: [{ id: cid, title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }],
         },
       },
-      ui: { activeRoleId: rid },
+      groups: [],
+      chatsByGroup: {},
+      ui: { activeTargetKind: 'role', activeRoleId: rid, activeGroupId: '' },
     }
   }
 
@@ -1198,6 +1424,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
                 .map((m) => ({
                   id: String(m.id || uid('m')),
                   role: m.role === 'assistant' ? 'assistant' : 'user',
+                  speakerRoleId: String((m as any).speakerRoleId || '').trim(),
                   content: String(m.content || ''),
                   images: normImagePaths(m.images),
                   attachments: normalizeMessageAttachments((m as any).attachments),
@@ -1251,8 +1478,155 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     }
 
     if (!d.ui || typeof d.ui !== 'object') d.ui = {}
+    if (!Array.isArray((d as any).groups)) (d as any).groups = []
+    const groupList0 = Array.isArray((d as any).groups) ? (d as any).groups : []
+    const roleIdSet = new Set((Array.isArray(d.roles) ? d.roles : []).map((r: any) => String(r?.id || '')).filter(Boolean))
+    ;(d as any).groups = groupList0
+      .filter((g: any) => g && typeof g === 'object')
+      .map((g: any) => {
+        const id = String(g.id || uid('g'))
+        const name = typeof g.name === 'string' && g.name.trim() ? String(g.name || '').trim() : '未命名群组'
+        const avatar = typeof g.avatar === 'string' && g.avatar.trim() ? String(g.avatar || '').trim() : '👥'
+        let avatarImage = typeof g.avatarImage === 'string' ? String(g.avatarImage || '') : ''
+        if (avatarImage && !looksLikeImageDataUrl(avatarImage)) avatarImage = ''
+        const prompt = typeof g.prompt === 'string' ? String(g.prompt || '') : ''
+        const mode0 = String(g.mode || '').trim()
+        const mode = mode0 === 'random' ? 'random' : 'roundRobin'
+
+        const members0 = Array.isArray(g.memberRoleIds) ? g.memberRoleIds : Array.isArray(g.members) ? g.members : []
+        const memberRoleIds = members0.map((x: any) => String(x || '')).filter((x: any) => !!x && roleIdSet.has(x)).slice(0, 50)
+
+        const order0 = Array.isArray(g.roundRobinOrder) ? g.roundRobinOrder : Array.isArray(g.orderRoleIds) ? g.orderRoleIds : []
+        const roundRobinOrder = order0.map((x: any) => String(x || '')).filter((x: any) => !!x && memberRoleIds.includes(x)).slice(0, 80)
+        const orderFinal = roundRobinOrder.length ? roundRobinOrder : memberRoleIds.slice()
+
+        const random0 = g.random && typeof g.random === 'object' ? g.random : {}
+        const weights0 = (random0 as any).weightsByRoleId && typeof (random0 as any).weightsByRoleId === 'object' ? (random0 as any).weightsByRoleId : g.randomWeights
+        const weightsBox = weights0 && typeof weights0 === 'object' ? weights0 : {}
+        const weightsByRoleId: any = {}
+        for (const rid of memberRoleIds) {
+          const w = Number((weightsBox as any)[rid] ?? 1)
+          weightsByRoleId[rid] = isFinite(w) && w >= 0 ? w : 1
+        }
+        let minCount = Number((random0 as any).minCount ?? g.randomMinCount ?? 1)
+        let maxCount = Number((random0 as any).maxCount ?? g.randomMaxCount ?? 2)
+        if (!isFinite(minCount)) minCount = 1
+        if (!isFinite(maxCount)) maxCount = 2
+        minCount = clamp(Math.round(minCount), 1, 20)
+        maxCount = clamp(Math.round(maxCount), 1, 20)
+        if (maxCount < minCount) maxCount = minCount
+
+        return {
+          id,
+          name,
+          avatar,
+          avatarImage,
+          prompt,
+          mode,
+          memberRoleIds,
+          roundRobinOrder: orderFinal,
+          random: { weightsByRoleId, minCount, maxCount },
+          createdAt: Number(g.createdAt || now()),
+          updatedAt: Number(g.updatedAt || now()),
+        }
+      })
+
+    if (!(d as any).chatsByGroup || typeof (d as any).chatsByGroup !== 'object') (d as any).chatsByGroup = {}
+    for (const g of (d as any).groups) {
+      const gid = String(g.id || '')
+      if (!gid) continue
+      if (!(d as any).chatsByGroup[gid] || typeof (d as any).chatsByGroup[gid] !== 'object') (d as any).chatsByGroup[gid] = { activeChatId: '', chats: [] }
+      const box = (d as any).chatsByGroup[gid]
+      if (!Array.isArray(box.chats)) box.chats = []
+      box.activeChatId = String(box.activeChatId || '')
+
+      box.chats = box.chats
+        .filter((c: any) => c && typeof c === 'object')
+        .map((c: any) => {
+          const cc = c
+          const cid = String(cc.id || uid('gc'))
+          const title = typeof cc.title === 'string' && cc.title.trim() ? cc.title : '群聊'
+          const createdAt = Number(cc.createdAt || now())
+          const updatedAt = Number(cc.updatedAt || createdAt || now())
+          const messages = Array.isArray(cc.messages) ? cc.messages : []
+          const fallbackHeadMid = messages.length ? String((messages[messages.length - 1] as any)?.id || '') : ''
+          const branching = normalizeChatBranching((cc as any).branching, fallbackHeadMid, createdAt, updatedAt)
+          const activeBranchId = normalizeBranchId((branching as any).activeBranchId)
+          const modelOverride = normalizeChatModelOverride(cc)
+
+          const out: any = {
+            id: cid,
+            title,
+            createdAt,
+            updatedAt,
+            branching,
+            messages: messages
+              .filter((m: any) => m && typeof m === 'object')
+              .map((m: any) => ({
+                id: String(m.id || uid('m')),
+                role: m.role === 'assistant' ? 'assistant' : 'user',
+                speakerRoleId: String((m as any).speakerRoleId || '').trim(),
+                content: String(m.content || ''),
+                images: normImagePaths(m.images),
+                attachments: normalizeMessageAttachments((m as any).attachments),
+                ...normalizeMessageGroup(m),
+                branchId: normalizeBranchId((m as any).branchId || activeBranchId),
+                parentMid: String((m as any).parentMid || '').trim(),
+                pending: !!m.pending,
+                streaming: !!m.streaming,
+                createdAt: Number(m.createdAt || now()),
+              })),
+          }
+
+          if (modelOverride) out.modelOverride = modelOverride
+
+          const branches0 = Array.isArray(out.branching?.branches) ? out.branching.branches : []
+          const idSet = new Set<string>()
+          for (const b of branches0) {
+            const id = normalizeBranchId((b as any)?.id)
+            if (id) idSet.add(id)
+            if (idSet.size >= 2) break
+          }
+          let headMid = ''
+          if (idSet.size >= 2) {
+            fillMissingBranchIdsOnly(out.messages, activeBranchId)
+            headMid = out.messages.length ? String((out.messages[out.messages.length - 1] as any)?.id || '') : ''
+          } else {
+            headMid = rebuildLinearBranchingMessages(out.messages, activeBranchId)
+          }
+          try {
+            const branches = Array.isArray(out.branching?.branches) ? out.branching.branches : []
+            const b = branches.find((x: any) => String(x?.id || '') === String(out.branching?.activeBranchId || '')) || null
+            if (b) {
+              b.headMid = headMid
+              b.updatedAt = updatedAt
+            }
+          } catch (_) {}
+
+          return out
+        })
+
+      if (!box.chats.length) {
+        const cid = uid('gc')
+        const t = now()
+        box.chats = [{ id: cid, title: '群聊', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }]
+        box.activeChatId = cid
+      }
+      if (!box.activeChatId || !box.chats.some((c: any) => String(c.id) === box.activeChatId)) box.activeChatId = String(box.chats[0]?.id || '')
+    }
+
+    const targetKind0 = String((d.ui as any).activeTargetKind || '').trim()
+    const targetKind = targetKind0 === 'group' ? 'group' : 'role'
+    ;(d.ui as any).activeTargetKind = targetKind
+
     const activeRoleId = String(d.ui.activeRoleId || '')
     if (!activeRoleId || !d.roles.some((r) => String(r?.id) === activeRoleId)) d.ui.activeRoleId = String(d.roles[0]?.id || '')
+
+    const activeGroupId = String((d.ui as any).activeGroupId || '').trim()
+    if (activeGroupId && !(d as any).groups.some((g: any) => String(g?.id || '') === activeGroupId)) (d.ui as any).activeGroupId = ''
+
+    const hasGroups = !!((d as any).groups && (d as any).groups.length)
+    if (targetKind === 'group' && !hasGroups) (d.ui as any).activeTargetKind = 'role'
 
     return d
   }
@@ -1266,6 +1640,8 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     if (!state.data) return
     // meta 里保存 UI（activeRoleId）和 settings；不要每次都重写所有 role/chat 文件。
     state.data.ui.activeRoleId = String(state.draft.activeRoleId || '')
+    ;(state.data.ui as any).activeGroupId = String(state.draft.activeGroupId || '')
+    ;(state.data.ui as any).activeTargetKind = String(state.draft.activeTargetKind || '') === 'group' ? 'group' : 'role'
 
     const old = splitMetaCache || (await loadSplitMeta())
     if (!old) return saveSplitData(state.data)
@@ -1295,9 +1671,13 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       if (!split) throw new Error('存储未初始化')
       state.data = split
       state.draft.activeRoleId = String(state.data?.ui?.activeRoleId || '')
+      state.draft.activeGroupId = String((state.data?.ui as any)?.activeGroupId || '')
+      state.draft.activeTargetKind = String((state.data?.ui as any)?.activeTargetKind || 'role') === 'group' ? 'group' : 'role'
     } catch (e) {
       state.data = null
       state.draft.activeRoleId = ''
+      state.draft.activeGroupId = ''
+      state.draft.activeTargetKind = 'role'
       api.ui?.showToast?.(String(e?.message || e || '加载失败'))
     } finally {
       state.loading = false
@@ -1307,6 +1687,8 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
   async function save() {
     if (!state.data) return
     state.data.ui.activeRoleId = String(state.draft.activeRoleId || '')
+    ;(state.data.ui as any).activeGroupId = String(state.draft.activeGroupId || '')
+    ;(state.data.ui as any).activeTargetKind = String(state.draft.activeTargetKind || '') === 'group' ? 'group' : 'role'
     await saveSplitData(state.data)
   }
 
@@ -1316,14 +1698,52 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     return ps.find((p) => String(p?.id) === String(pid)) || null
   }
 
+  function getRoleById(roleId: any) {
+    const rid = String(roleId || '').trim()
+    if (!rid) return null
+    const roles = state.data?.roles
+    if (!Array.isArray(roles)) return null
+    return roles.find((r: any) => String(r?.id || '') === rid) || null
+  }
+
+  function getGroupById(groupId: any) {
+    const gid = String(groupId || '').trim()
+    if (!gid) return null
+    const groups = (state.data as any)?.groups
+    if (!Array.isArray(groups)) return null
+    return groups.find((g: any) => String(g?.id || '') === gid) || null
+  }
+
+  function activeTargetKind() {
+    const k = String((state.draft as any)?.activeTargetKind || (state.data?.ui as any)?.activeTargetKind || 'role').trim()
+    return k === 'group' ? 'group' : 'role'
+  }
+
   function activeRole() {
     const rid = String(state.draft.activeRoleId || state.data?.ui?.activeRoleId || '')
-    return state.data?.roles?.find((r) => String(r?.id) === rid) || null
+    return getRoleById(rid)
+  }
+
+  function activeGroup() {
+    const gid = String((state.draft as any).activeGroupId || (state.data?.ui as any)?.activeGroupId || '')
+    return getGroupById(gid)
   }
 
   function activeChatFromData() {
+    if (!state.data) return null
+    const kind = activeTargetKind()
+    if (kind === 'group') {
+      const g = activeGroup()
+      if (!g) return null
+      const box = (state.data as any).chatsByGroup?.[String(g.id)]
+      if (!box) return null
+      const activeChatId = String(box.activeChatId || '')
+      const chats = Array.isArray(box.chats) ? box.chats : []
+      return chats.find((c: any) => String(c?.id) === activeChatId) || chats[0] || null
+    }
+
     const r = activeRole()
-    if (!r || !state.data) return null
+    if (!r) return null
     const box = state.data.chatsByRole?.[String(r.id)]
     if (!box) return null
     const activeChatId = String(box.activeChatId || '')
@@ -1332,6 +1752,15 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
   }
 
   function activeChat() {
+    const kind = activeTargetKind()
+    if (kind === 'group') {
+      const g = activeGroup()
+      const gid = String(g?.id || '')
+      const pending = (state as any).pendingGroupChat
+      if (pending && String(pending.groupId || '') === gid && pending.chat) return pending.chat
+      return activeChatFromData()
+    }
+
     const role = activeRole()
     const rid = String(role?.id || '')
     const pending = state.pendingChat
@@ -1341,6 +1770,10 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
 
   function clearPendingChat() {
     state.pendingChat = null
+  }
+
+  function clearPendingGroupChat() {
+    ;(state as any).pendingGroupChat = null
   }
 
   function ensureRoleDefaults(role) {
@@ -1930,6 +2363,25 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     })
   }
 
+  async function touchGroupChatUpdatedAt(groupId: any, chatId: any, updatedAt: any) {
+    const gid = String(groupId || '').trim()
+    const cid = String(chatId || '').trim()
+    const ua0 = Number(updatedAt || 0)
+    if (!gid || !cid) return
+
+    await withSplitMetaWrite(async () => {
+      const meta = (await loadSplitMeta()) || splitMetaCache
+      if (!meta) return
+      const idx = (meta as any).chatIndexByGroup?.[gid]
+      if (!idx || typeof idx !== 'object') return
+      if (!(idx as any).chatUpdatedAt || typeof (idx as any).chatUpdatedAt !== 'object') (idx as any).chatUpdatedAt = {}
+      ;(idx as any).chatUpdatedAt[String(cid)] = ua0 > 0 ? ua0 : now()
+      meta.updatedAt = now()
+      await api.storage.set(SPLIT_META_KEY, meta)
+      splitMetaCache = meta
+    })
+  }
+
   const chatTitleNamingWriteQueue = new Map<string, Promise<void>>()
 
   function enqueueChatTitleNamingWrite(roleId, chatId, fn) {
@@ -2483,6 +2935,11 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
   async function sendChat(opts?: { forkFromMid?: string }) {
     if (state.sending || state.loading || !state.data) return
 
+    if (activeTargetKind() === 'group') {
+      await sendGroupChat(opts)
+      return
+    }
+
     const role = activeRole()
     if (!role) return
     ensureRoleDefaults(role)
@@ -2722,14 +3179,303 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     }
   }
 
+  async function sendGroupChat(_opts?: { forkFromMid?: string }) {
+    if (state.sending || state.loading || !state.data) return
+
+    const group = activeGroup()
+    if (!group) return api.ui?.showToast?.('请先选择群组')
+    const gid = String((group as any).id || '').trim()
+    if (!gid) return api.ui?.showToast?.('群组无效')
+
+    const roles = Array.isArray(state.data.roles) ? state.data.roles : []
+    const roleById = new Map<string, any>()
+    for (const r of roles) {
+      const rid = String(r?.id || '').trim()
+      if (!rid || roleById.has(rid)) continue
+      roleById.set(rid, r)
+    }
+
+    const member0 = Array.isArray((group as any).memberRoleIds) ? (group as any).memberRoleIds : []
+    const memberRoleIds = member0.map((x: any) => String(x || '').trim()).filter((x: any) => !!x && roleById.has(x)).slice(0, 50)
+    if (!memberRoleIds.length) return api.ui?.showToast?.('该群组还没有成员角色')
+
+    const input = String(state.draft.input || '').trim()
+    const draftImages = Array.isArray(state.draft.images) ? state.draft.images : []
+    const draftFiles: DraftFileItem[] = Array.isArray((state.draft as any).files) ? ((state.draft as any).files as any[]) : []
+    const hasFiles = draftFiles.length > 0
+    if (!input && !draftImages.length && !hasFiles) return api.ui?.showToast?.('输入不能为空')
+    if (hasFiles && draftFiles.some((x: any) => !!x?.pending)) return api.ui?.showToast?.('文件解析中，请稍候…')
+
+    const mode = String((group as any).mode || '').trim() === 'random' ? 'random' : 'roundRobin'
+
+    const pickRandomRolesOnce = () => {
+      const randomCfg = (group as any).random && typeof (group as any).random === 'object' ? (group as any).random : {}
+      const weights0 = (randomCfg as any).weightsByRoleId && typeof (randomCfg as any).weightsByRoleId === 'object' ? (randomCfg as any).weightsByRoleId : {}
+      let minCount = Number((randomCfg as any).minCount ?? 1)
+      let maxCount = Number((randomCfg as any).maxCount ?? 2)
+      if (!isFinite(minCount)) minCount = 1
+      if (!isFinite(maxCount)) maxCount = 2
+      minCount = clamp(Math.round(minCount), 1, 20)
+      maxCount = clamp(Math.round(maxCount), 1, 20)
+      if (maxCount < minCount) maxCount = minCount
+
+      const pool = memberRoleIds
+        .map((rid) => {
+          const w = Number((weights0 as any)[rid] ?? 1)
+          const weight = isFinite(w) && w >= 0 ? w : 1
+          return { rid, weight }
+        })
+        .filter((x) => x.weight > 0)
+
+      const candidates = pool.length ? pool.slice() : memberRoleIds.map((rid) => ({ rid, weight: 1 }))
+      const maxK = Math.max(1, Math.min(candidates.length, maxCount))
+      const minK = Math.max(1, Math.min(maxK, minCount))
+      const k = minK + Math.floor(Math.random() * (maxK - minK + 1))
+
+      const chosen: string[] = []
+      const bag = candidates.slice()
+      for (let i = 0; i < k && bag.length; i++) {
+        let sum = 0
+        for (const it of bag) sum += it.weight
+        if (!(sum > 0)) break
+        let r = Math.random() * sum
+        let idx = -1
+        for (let j = 0; j < bag.length; j++) {
+          r -= bag[j].weight
+          if (r <= 0) {
+            idx = j
+            break
+          }
+        }
+        if (idx < 0) idx = bag.length - 1
+        const picked = bag.splice(idx, 1)[0]
+        if (picked?.rid) chosen.push(String(picked.rid))
+      }
+      return chosen.length ? chosen : memberRoleIds.slice(0, 1)
+    }
+
+    const speakerRoleIds = (() => {
+      if (mode === 'random') return pickRandomRolesOnce()
+      const order0 = Array.isArray((group as any).roundRobinOrder) ? (group as any).roundRobinOrder : []
+      const order = order0.map((x: any) => String(x || '').trim()).filter((x: any) => !!x && memberRoleIds.includes(x))
+      return order.length ? order : memberRoleIds.slice()
+    })()
+
+    let chat: any = null
+    let assistantMids: Array<{ roleId: string; mid: string }> = []
+
+    try {
+      if (draftImages.length && typeof api?.files?.images?.writeBase64 !== 'function') {
+        return api.ui?.showToast?.('未授权：files.images.writeBase64')
+      }
+
+      state.sending = true
+      renderComposer()
+
+      // 校验每个参与发言的角色是否可用（避免落盘后才报错）
+      for (const rid of speakerRoleIds) {
+        const r = roleById.get(String(rid || ''))
+        if (!r) throw new Error('群组成员角色不存在')
+        ensureRoleDefaults(r)
+        const picked = pickChatModelRef(r, null)
+        const providerId = String(picked.providerId || '')
+        const modelId = String(picked.modelId || '').trim()
+        const p = getProvider(providerId)
+        if (!p) throw new Error(`未找到供应商：${String((r as any).name || '角色')}`)
+        const baseUrl = trimSlash(p.baseUrl || '')
+        const apiKey = String(p.apiKey || '').trim()
+        if (!isHttpBaseUrl(baseUrl)) throw new Error(`请先为「${String((r as any).name || '角色')}」配置 Base URL（http/https）`)
+        if (!apiKey) throw new Error(`请先为「${String((r as any).name || '角色')}」配置 API Key`)
+        if (!modelId) throw new Error(`请先为「${String((r as any).name || '角色')}」选择模型ID`)
+      }
+
+      const savedPaths: string[] = []
+      for (const img of draftImages.slice(0, MAX_DRAFT_IMAGES)) {
+        const dataUrl = String(img?.dataUrl || '')
+        if (!looksLikeImageDataUrl(dataUrl)) continue
+        const saved = await api.files.images.writeBase64({ scope: 'data', dataUrlOrBase64: dataUrl })
+        const path = String(saved || '').trim()
+        if (path) savedPaths.push(path)
+      }
+
+      const streamEnabled = !!state.data?.settings?.streamEnabled
+
+      if (!(state.data as any).chatsByGroup || typeof (state.data as any).chatsByGroup !== 'object') (state.data as any).chatsByGroup = {}
+      if (!(state.data as any).chatsByGroup[gid] || typeof (state.data as any).chatsByGroup[gid] !== 'object') (state.data as any).chatsByGroup[gid] = { activeChatId: '', chats: [] }
+      const box = (state.data as any).chatsByGroup[gid]
+      if (!Array.isArray(box.chats)) box.chats = []
+      box.activeChatId = String(box.activeChatId || '')
+      if (!box.chats.length) {
+        const cid = uid('gc')
+        const t = now()
+        box.chats = [{ id: cid, title: '群聊', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }]
+        box.activeChatId = cid
+      }
+      if (!box.activeChatId || !box.chats.some((c: any) => String(c?.id || '') === box.activeChatId)) box.activeChatId = String(box.chats[0]?.id || '')
+      chat = box.chats.find((c: any) => String(c?.id || '') === String(box.activeChatId || '')) || box.chats[0] || null
+      if (!chat) throw new Error('创建会话失败')
+      if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
+
+      const branching = ensureChatBranching(chat)
+      const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
+      const activeBranch = ensureChatBranch(chat, activeBranchId)
+      let parentMid = String(activeBranch?.headMid || '').trim()
+      if (!parentMid) {
+        const items0 = Array.isArray(chat.messages) ? chat.messages : []
+        parentMid = items0.length ? String(items0[items0.length - 1]?.id || '') : ''
+      }
+
+      const wasEmpty = !Array.isArray(chat.messages) || chat.messages.length === 0
+      const userText = String(input || '').trim()
+      const hasUserMain = !!userText || savedPaths.length > 0
+
+      const attachGroupId = hasFiles ? uid('g') : ''
+      const rootMid = uid('m')
+
+      const attachMsgs: any[] = []
+      if (hasFiles) {
+        for (const f of draftFiles) {
+          if (!f || f.pending) continue
+          if (String(f?.error || '')) continue
+          const name = String(f?.name || '文件')
+          const kind = String(f?.kind || 'txt') as DraftFileKind
+          const lang = kind === 'md' || kind === 'ppt' ? 'markdown' : 'text'
+          const raw = String(f?.text || '').trim()
+          const fullLen = raw.length
+          if (!raw) continue
+
+          const pct0 = Math.round(Number(f?.sendPct ?? 100))
+          const pct = clamp(pct0, 0, 100)
+          const sendLen = Math.max(0, Math.ceil((fullLen * pct) / 100))
+          const snippetRaw = sendLen >= fullLen ? raw : raw.slice(0, sendLen).trimEnd()
+          if (!snippetRaw.trim()) continue
+
+          const att: ChatAttachmentItem = {
+            id: uid('att'),
+            name,
+            kind,
+            lang,
+            text: snippetRaw,
+            fullLen,
+            sendLen,
+            sendPct: pct,
+          }
+          const mid = uid('m')
+          attachMsgs.push({
+            id: mid,
+            role: 'user',
+            content: `附件：${name}`,
+            attachments: [att],
+            groupId: attachGroupId,
+            groupRole: 'attachment' as ChatMsgGroupRole,
+            groupParentMid: rootMid,
+            branchId: activeBranchId,
+            parentMid,
+            createdAt: now(),
+          })
+          parentMid = mid
+        }
+      }
+
+      if (!hasUserMain && !attachMsgs.length) throw new Error('没有可发送的内容（文件解析失败或为空）')
+
+      const rootMsg: any = {
+        id: rootMid,
+        role: 'user',
+        content: hasUserMain ? userText : attachMsgs.length ? '（附件）' : userText,
+        images: savedPaths,
+        branchId: activeBranchId,
+        parentMid,
+        createdAt: now(),
+      }
+      if (attachMsgs.length) {
+        rootMsg.groupId = attachGroupId
+        rootMsg.groupRole = 'root' as ChatMsgGroupRole
+        rootMsg.groupParentMid = ''
+      }
+      parentMid = rootMid
+
+      chat.messages.push(...attachMsgs, rootMsg)
+      chat.updatedAt = now()
+      if (wasEmpty && String(chat.title || '') === '群聊') {
+        const t = userText.replace(/\s+/g, ' ').trim()
+        chat.title = t ? (t.length > 16 ? t.slice(0, 16) + '…' : t) : '群聊'
+      }
+
+      state.draft.input = ''
+      state.draft.images = []
+      ;(state.draft as any).files = []
+
+      assistantMids = []
+      for (const rid of speakerRoleIds) {
+        const mid = uid('m')
+        assistantMids.push({ roleId: String(rid || ''), mid })
+        chat.messages.push({
+          id: mid,
+          role: 'assistant',
+          speakerRoleId: String(rid || ''),
+          content: '（生成中…）',
+          branchId: activeBranchId,
+          parentMid,
+          pending: true,
+          streaming: streamEnabled,
+          createdAt: now(),
+        })
+        parentMid = mid
+      }
+
+      chat.updatedAt = now()
+      if (assistantMids.length) setChatBranchHeadMid(chat, activeBranchId, assistantMids[assistantMids.length - 1].mid)
+      repairChatLinearBranching(chat)
+
+      await save()
+
+      for (const it of assistantMids) {
+        const jobId = uid('job')
+        const job = {
+          id: jobId,
+          kind: 'openai.chat.completions',
+          status: 'queued',
+          createdAt: now(),
+          targetKind: 'group',
+          groupId: gid,
+          roleId: String(it.roleId || ''),
+          chatId: String(chat.id || ''),
+          assistantMid: String(it.mid || ''),
+          branchId: activeBranchId,
+          stream: streamEnabled,
+        }
+        await runtimeStorage.set(jobKey(jobId), job)
+        await enqueueJob(jobId)
+      }
+    } catch (e) {
+      const msg = String((e as any)?.message || e || '请求失败')
+      const items = Array.isArray(chat?.messages) ? chat.messages : []
+      for (const it of assistantMids) {
+        const am = it?.mid ? items.find((m: any) => String(m?.id || '') === String(it.mid || '')) : null
+        if (!am) continue
+        am.content = `（请求失败：${msg}）`
+        am.pending = false
+        am.streaming = false
+      }
+      save().catch(() => {})
+      api.ui?.showToast?.(msg)
+    } finally {
+      state.sending = false
+      render()
+    }
+  }
+
   async function stopSending() {
     if (state.loading) return
 
+    const kind = activeTargetKind()
     const roleId = String(activeRole()?.id || '')
+    const groupId = String((activeGroup() as any)?.id || '')
     const chatId = String(activeChatFromData()?.id || '')
-    if (!state.data || !roleId || !chatId) return
+    if (!state.data || !chatId || (kind === 'role' && !roleId) || (kind === 'group' && !groupId)) return
 
-    const chat = findChatByIds(roleId, chatId)
+    const chat = kind === 'group' ? findGroupChatByIds(groupId, chatId) : findChatByIds(roleId, chatId)
     if (!chat) return
 
     const lastPending = findLastPendingAssistant(chat)
@@ -2740,7 +3486,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       await runtimeStorage.set(cancelMidKey(mid), { requestedAt: now() })
     } catch (_) {}
 
-    if (state.data && roleId && chatId && mid) {
+    if (state.data && chatId && mid && (kind === 'role' ? roleId : groupId)) {
       let text = ''
       try {
         const s = await runtimeStorage.get(streamKey(mid))
@@ -3459,17 +4205,19 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
 
 
   async function patchAssistantMessage(job, content) {
+    const kind = String((job as any).targetKind || '').trim() === 'group' || !!(job as any).groupId ? 'group' : 'role'
     const roleId = String(job?.roleId || '')
+    const groupId = String((job as any)?.groupId || '')
     const chatId = String(job?.chatId || '')
     const mid = String(job?.assistantMid || '')
-    if (!roleId || !chatId || !mid) return
+    if (!roleId || !chatId || !mid || (kind === 'group' && !groupId)) return
 
     const meta = await loadSplitMeta()
     if (!meta) return
 
-    const folder = String(meta.roleFolders?.[roleId] || '')
+    const folder = kind === 'group' ? String((meta as any).groupFolders?.[groupId] || '') : String(meta.roleFolders?.[roleId] || '')
     if (!folder) return
-    const key = splitChatKey(folder, chatId)
+    const key = kind === 'group' ? splitGroupChatKey(folder, chatId) : splitChatKey(folder, chatId)
     const raw = await api.storage.get(key)
     const chat = raw && typeof raw === 'object' ? raw : null
     if (!chat) return
@@ -3491,17 +4239,20 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     await api.storage.set(key, chat)
 
     try {
-      await touchChatUpdatedAt(roleId, chatId, chat.updatedAt)
+      if (kind === 'group') await touchGroupChatUpdatedAt(groupId, chatId, chat.updatedAt)
+      else await touchChatUpdatedAt(roleId, chatId, chat.updatedAt)
     } catch (_) {}
 
-    await writeChatUpdatedNotice(roleId, chatId, chat.updatedAt)
+    await writeChatUpdatedNotice(kind, kind === 'group' ? groupId : roleId, chatId, chat.updatedAt)
   }
 
   async function insertMessagesAfterMessageId(job, afterMid, items) {
+    const kind = String((job as any).targetKind || '').trim() === 'group' || !!(job as any).groupId ? 'group' : 'role'
     const roleId = String(job?.roleId || '')
+    const groupId = String((job as any)?.groupId || '')
     const chatId = String(job?.chatId || '')
     const mid = String(afterMid || '').trim()
-    if (!roleId || !chatId || !mid) return { ok: false as const, insertedAssistant: false as const }
+    if (!roleId || !chatId || !mid || (kind === 'group' && !groupId)) return { ok: false as const, insertedAssistant: false as const }
 
     const list = Array.isArray(items) ? items.filter((x) => x && typeof x === 'object') : []
     if (!list.length) return { ok: false as const, insertedAssistant: false as const }
@@ -3509,9 +4260,9 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const meta = await loadSplitMeta()
     if (!meta) return { ok: false as const, insertedAssistant: false as const }
 
-    const folder = String(meta.roleFolders?.[roleId] || '')
+    const folder = kind === 'group' ? String((meta as any).groupFolders?.[groupId] || '') : String(meta.roleFolders?.[roleId] || '')
     if (!folder) return { ok: false as const, insertedAssistant: false as const }
-    const key = splitChatKey(folder, chatId)
+    const key = kind === 'group' ? splitGroupChatKey(folder, chatId) : splitChatKey(folder, chatId)
     const raw = await api.storage.get(key)
     const chat = raw && typeof raw === 'object' ? raw : null
     if (!chat) return { ok: false as const, insertedAssistant: false as const }
@@ -3545,10 +4296,11 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     await api.storage.set(key, chat)
 
     try {
-      await touchChatUpdatedAt(roleId, chatId, chat.updatedAt)
+      if (kind === 'group') await touchGroupChatUpdatedAt(groupId, chatId, chat.updatedAt)
+      else await touchChatUpdatedAt(roleId, chatId, chat.updatedAt)
     } catch (_) {}
 
-    await writeChatUpdatedNotice(roleId, chatId, chat.updatedAt)
+    await writeChatUpdatedNotice(kind, kind === 'group' ? groupId : roleId, chatId, chat.updatedAt)
 
     return { ok: true as const, insertedAssistant: !hasPendingAssistant && toInsert.some((m) => String(m?.role || '') === 'assistant') }
   }
@@ -3585,13 +4337,15 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
             continue
           }
 
+          const kind = String((job as any).targetKind || '').trim() === 'group' || !!(job as any).groupId ? 'group' : 'role'
           const roleId = String(job.roleId || '')
           const chatId = String(job.chatId || '')
-          if (!roleId || !chatId) {
+          const groupId = String((job as any).groupId || '')
+          if (!roleId || !chatId || (kind === 'group' && !groupId)) {
             await dequeueJob(jobId)
             continue
           }
-          const chatKey = `${roleId}/${chatId}`
+          const chatKey = kind === 'group' ? `g:${groupId}/${chatId}` : `r:${roleId}/${chatId}`
           if (runningChatKeys.has(chatKey)) continue
           runningChatKeys.add(chatKey)
 
@@ -3770,6 +4524,194 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     }
   }
 
+  async function buildOpenAiGroupChatReqFromStorage(job: any) {
+    const roleId = String(job?.roleId || '').trim()
+    const groupId = String((job as any)?.groupId || '').trim()
+    const chatId = String(job?.chatId || '').trim()
+    if (!roleId || !groupId || !chatId) throw new Error('job 缺少 groupId/roleId/chatId')
+
+    const meta = await loadSplitMeta()
+    if (!meta) throw new Error('存储未初始化')
+
+    const roleFolder = String(meta.roleFolders?.[roleId] || '')
+    if (!roleFolder) throw new Error('角色不存在')
+    const groupFolder = String((meta as any).groupFolders?.[groupId] || '')
+    if (!groupFolder) throw new Error('群组不存在')
+
+    const r0 = await api.storage.get(splitRoleKey(roleFolder))
+    const role = r0 && typeof r0 === 'object' ? r0 : null
+    if (!role) throw new Error('角色不存在')
+
+    const g0 = await api.storage.get(splitGroupKey(groupFolder))
+    const group = g0 && typeof g0 === 'object' ? g0 : null
+    if (!group) throw new Error('群组不存在')
+
+    const d = normalizeData({
+      version: VERSION,
+      settings: meta.settings && typeof meta.settings === 'object' ? meta.settings : {},
+      roles: [role],
+      chatsByRole: {},
+      groups: [group],
+      chatsByGroup: {},
+      ui: meta.ui && typeof meta.ui === 'object' ? meta.ui : {},
+    } as any)
+
+    const c0 = await api.storage.get(splitGroupChatKey(groupFolder, chatId))
+    const chat = c0 && typeof c0 === 'object' ? c0 : null
+    if (!chat) throw new Error('会话不存在')
+    ;(d as any).chatsByGroup[String(groupId)] = { activeChatId: String(chatId), chats: [chat] }
+
+    const fallbackPid = String(d?.settings?.providers?.[0]?.id || '')
+    if (!role.modelRef || typeof role.modelRef !== 'object') role.modelRef = { providerId: fallbackPid, modelId: '' }
+    if (!role.modelRef.providerId) role.modelRef.providerId = fallbackPid
+    if (typeof role.modelRef.modelId !== 'string') role.modelRef.modelId = ''
+
+    const providers = Array.isArray(d?.settings?.providers) ? d.settings.providers : []
+
+    let providerId = String(role.modelRef?.providerId || '')
+    let modelId = String(role.modelRef?.modelId || '').trim()
+    const o = normalizeChatModelOverride(chat)
+    if (o) {
+      const p0 = providers.find((x: any) => String(x?.id || '') === o.providerId) || null
+      if (p0) {
+        providerId = o.providerId
+        modelId = o.modelId
+      }
+    }
+
+    const p = providers.find((x: any) => String(x?.id || '') === providerId) || null
+    if (!p) throw new Error('供应商不存在')
+
+    const baseUrl = trimSlash(p.baseUrl || '')
+    const apiKey = String(p.apiKey || '').trim()
+    if (!isHttpBaseUrl(baseUrl)) throw new Error('Base URL 无效（需 http/https）')
+    if (!apiKey) throw new Error('API Key 为空')
+    if (!modelId) throw new Error('模型ID 为空')
+
+    const cutoffMid = String(job?.cutoffMid || '').trim()
+    const msgs0 = Array.isArray(chat.messages) ? chat.messages : []
+
+    const branchIdRaw = String((job as any)?.branchId || '').trim()
+    const wantBranchId = branchIdRaw ? normalizeBranchId(branchIdRaw) : ''
+
+    let historySource: any[] = []
+    if (wantBranchId) {
+      const byId = new Map<string, any>()
+      for (const m of msgs0) {
+        const id = String(m?.id || '').trim()
+        if (!id || byId.has(id)) continue
+        byId.set(id, m)
+      }
+
+      const assistantMid = String(job?.assistantMid || '').trim()
+      const assistantMsg = assistantMid ? byId.get(assistantMid) || null : null
+      let tailMid = assistantMsg && typeof assistantMsg === 'object' ? String((assistantMsg as any)?.parentMid || '').trim() : ''
+
+      if (!tailMid) {
+        for (let i = msgs0.length - 1; i >= 0; i--) {
+          const m = msgs0[i]
+          if (m && m.role === 'user') {
+            tailMid = String(m?.id || '').trim()
+            break
+          }
+        }
+      }
+
+      const chain: any[] = []
+      const seen = new Set<string>()
+      let cur = tailMid
+      while (cur && !seen.has(cur)) {
+        seen.add(cur)
+        const m = byId.get(cur) || null
+        if (!m) break
+        if (!(m && m.role === 'assistant' && m.pending)) chain.push(m)
+        cur = String((m as any)?.parentMid || '').trim()
+      }
+      chain.reverse()
+      historySource = chain
+    } else {
+      let baseMsgs0 = msgs0
+      if (cutoffMid) {
+        const idx = msgs0.findIndex((m: any) => String(m?.id || '') === cutoffMid)
+        if (idx >= 0) baseMsgs0 = msgs0.slice(0, idx)
+      }
+      historySource = baseMsgs0.filter((m: any) => !(m && m.role === 'assistant' && m.pending))
+    }
+
+    const history = limitHistory(historySource, 40)
+
+    const sys = String(role.systemPrompt || '').trim()
+    const groupPrompt = String((group as any).prompt || '').trim()
+
+    const roleNameById = new Map<string, string>()
+    const memberRoleIds = Array.isArray((group as any).memberRoleIds) ? (group as any).memberRoleIds : []
+    const idsToLoad = Array.from(new Set([...memberRoleIds.map((x: any) => String(x || '')).filter(Boolean), roleId])).slice(0, 80)
+    for (const rid of idsToLoad) {
+      const folder = String(meta.roleFolders?.[rid] || '')
+      if (!folder) continue
+      try {
+        const rr0 = await api.storage.get(splitRoleKey(folder))
+        const rr = rr0 && typeof rr0 === 'object' ? rr0 : null
+        if (!rr) continue
+        roleNameById.set(rid, String((rr as any).name || '').trim() || 'AI')
+      } catch (_) {}
+    }
+    if (!roleNameById.has(roleId)) roleNameById.set(roleId, String((role as any).name || '').trim() || 'AI')
+
+    const speakerName = roleNameById.get(roleId) || 'AI'
+
+    const messages: any[] = []
+    if (sys) messages.push({ role: 'system', content: sys })
+    if (groupPrompt) messages.push({ role: 'system', content: `群聊设定：\n${groupPrompt}` })
+
+    for (const m of history) {
+      const r = m?.role === 'assistant' ? 'assistant' : 'user'
+      if (r === 'user') {
+        const baseText = buildUserTextForOpenAi(m)
+        const wrappedText = `[${GROUP_SPEAKER_USER_PREFIX}的发言]: ${baseText}`.trimEnd()
+        const paths = normImagePaths(m?.images)
+        if (paths.length) {
+          if (typeof api?.files?.images?.read !== 'function') throw new Error('未授权：files.images.read')
+          const parts: any[] = [{ type: 'text', text: wrappedText }]
+          for (const path of paths) {
+            let dataUrl = ''
+            try {
+              dataUrl = await api.files.images.read({ scope: 'data', path })
+            } catch (e) {
+              throw new Error(`读取图片失败：${String((e as any)?.message || e || 'unknown')}`)
+            }
+            if (!looksLikeImageDataUrl(dataUrl)) throw new Error('读取图片失败：格式不支持')
+            parts.push({ type: 'image_url', image_url: { url: dataUrl } })
+          }
+          messages.push({ role: 'user', content: parts })
+          continue
+        }
+        messages.push({ role: 'user', content: wrappedText })
+        continue
+      }
+
+      const rid0 = String((m as any)?.speakerRoleId || '').trim()
+      const name = roleNameById.get(rid0) || speakerName || 'AI'
+      const text = String(m?.content || '')
+      messages.push({ role: 'assistant', content: `[${name}的发言]: ${text}`.trimEnd() })
+    }
+
+    // 最后一条：模拟用户提示（仅用于本次上下文拼装，不写入 history）
+    messages.push({
+      role: 'user',
+      content: `现在轮到你 ${speakerName} 发言了。系统已经为大家添加 [xxx的发言]: 这样的标记头，以用于区分不同发言来自谁。大家不用自己再输出自己的发言标记头，也不需要讨论发言标记系统，正常聊天即可。`,
+    })
+
+    const stream = !!job?.stream
+    return {
+      method: 'POST',
+      url: `${baseUrl}/chat/completions`,
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: modelId, messages, temperature: clampTemp(role.temperature), stream }),
+      timeoutMs: stream ? 15 * 60 * 1000 : 120000,
+    }
+  }
+
   async function loadToolCallServerConfigFromStorage() {
     const meta = await loadSplitMeta()
     if (!meta) throw new Error('存储未初始化')
@@ -3796,7 +4738,8 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const mid = String(job?.assistantMid || '')
     if (!req || typeof req !== 'object') {
       if (String(job?.kind || '') === 'openai.chat.completions') {
-        req = await buildOpenAiChatReqFromStorage(job)
+        const kind = String((job as any).targetKind || '').trim() === 'group' || !!(job as any).groupId ? 'group' : 'role'
+        req = kind === 'group' ? await buildOpenAiGroupChatReqFromStorage(job) : await buildOpenAiChatReqFromStorage(job)
       }
     }
     if (!req || typeof req !== 'object') throw new Error('job.req 无效')
@@ -4793,6 +5736,92 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     }
   }
 
+  async function syncActiveGroupChatsFromStorage(metaOverride?: any) {
+    if (!state.data) return
+    if (uiChatSyncing) return
+    uiChatSyncing = true
+    try {
+      const gid = String((state.draft as any).activeGroupId || (state.data?.ui as any)?.activeGroupId || '').trim()
+      if (!gid) return
+
+      const meta = metaOverride || (await loadSplitMeta())
+      if (!meta || typeof meta !== 'object') return
+
+      const updatedAt = Number((meta as any).updatedAt || 0)
+      if (updatedAt) uiLastMetaUpdatedAt = Math.max(uiLastMetaUpdatedAt, updatedAt)
+
+      const folder = String((meta as any).groupFolders?.[gid] || '')
+      const idx = (meta as any).chatIndexByGroup?.[gid]
+      if (!folder || !idx || typeof idx !== 'object') return
+
+      const desiredChatIds = Array.isArray((idx as any).chatIds) ? (idx as any).chatIds.map((x: any) => String(x || '')).filter((x: any) => !!x) : []
+      const desiredActiveChatId = String((idx as any).activeChatId || '')
+      const wantUpdatedAt = (idx as any).chatUpdatedAt && typeof (idx as any).chatUpdatedAt === 'object' ? (idx as any).chatUpdatedAt : {}
+
+      if (!(state.data as any).chatsByGroup || typeof (state.data as any).chatsByGroup !== 'object') (state.data as any).chatsByGroup = {}
+      if (!(state.data as any).chatsByGroup[gid] || typeof (state.data as any).chatsByGroup[gid] !== 'object') (state.data as any).chatsByGroup[gid] = { activeChatId: '', chats: [] }
+      const box = (state.data as any).chatsByGroup[gid]
+      if (!Array.isArray(box.chats)) box.chats = []
+
+      const keepChatNow = String(box.activeChatId || '')
+      const activeChatId = keepChatNow || desiredActiveChatId || String(desiredChatIds[0] || '')
+
+      const curChats = box.chats
+      const curById = new Map<string, any>()
+      for (const c of curChats) {
+        const cid = String(c?.id || '')
+        if (cid) curById.set(cid, c)
+      }
+
+      const nextChats: any[] = []
+      for (const cid of desiredChatIds) {
+        const cur = curById.get(cid) || null
+        if (!cur) {
+          const c0 = await api.storage.get(splitGroupChatKey(folder, cid))
+          const c1 = c0 && typeof c0 === 'object' ? c0 : null
+          if (c1) nextChats.push(c1)
+          continue
+        }
+
+        const metaUpdatedAt = Number((wantUpdatedAt as any)?.[cid] || 0)
+        if (metaUpdatedAt && cid !== activeChatId) cur.updatedAt = metaUpdatedAt
+        nextChats.push(cur)
+      }
+
+      for (const c of curChats) {
+        const cid = String(c?.id || '')
+        if (!cid) continue
+        if (!desiredChatIds.includes(cid)) continue
+        if (cid !== activeChatId) continue
+
+        const cur = curById.get(cid) || null
+        if (!cur) continue
+        const want = Number((wantUpdatedAt as any)?.[cid] || 0)
+        if (!want || Number(cur.updatedAt || 0) === want) continue
+        const c0 = await api.storage.get(splitGroupChatKey(folder, cid))
+        const c1 = c0 && typeof c0 === 'object' ? c0 : null
+        if (c1) {
+          const idx0 = nextChats.findIndex((x) => String(x?.id || '') === activeChatId)
+          if (idx0 >= 0) nextChats[idx0] = c1
+          else nextChats.unshift(c1)
+        }
+      }
+
+      box.chats = nextChats
+
+      if (keepChatNow && nextChats.some((c: any) => String(c?.id || '') === keepChatNow)) box.activeChatId = keepChatNow
+      else if (desiredActiveChatId && nextChats.some((c: any) => String(c?.id || '') === desiredActiveChatId)) box.activeChatId = desiredActiveChatId
+      else box.activeChatId = String(nextChats[0]?.id || '')
+    } finally {
+      uiChatSyncing = false
+    }
+  }
+
+  async function syncActiveTargetChatsFromStorage(metaOverride?: any) {
+    if (activeTargetKind() === 'group') return syncActiveGroupChatsFromStorage(metaOverride)
+    return syncActiveRoleChatsFromStorage(metaOverride)
+  }
+
   async function syncChatByIdFromStorage(roleId, chatId) {
     if (!state.data) return false
     const rid = String(roleId || '').trim()
@@ -4820,6 +5849,33 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     return true
   }
 
+  async function syncGroupChatByIdFromStorage(groupId: any, chatId: any) {
+    if (!state.data) return false
+    const gid = String(groupId || '').trim()
+    const cid = String(chatId || '').trim()
+    if (!gid || !cid) return false
+
+    const meta = (await loadSplitMeta()) || splitMetaCache
+    if (!meta) return false
+    const folder = String((meta as any).groupFolders?.[gid] || '')
+    if (!folder) return false
+
+    const raw = await api.storage.get(splitGroupChatKey(folder, cid))
+    const chat = raw && typeof raw === 'object' ? raw : null
+    if (!chat) return false
+
+    if (!(state.data as any).chatsByGroup || typeof (state.data as any).chatsByGroup !== 'object') (state.data as any).chatsByGroup = {}
+    if (!(state.data as any).chatsByGroup[gid] || typeof (state.data as any).chatsByGroup[gid] !== 'object') (state.data as any).chatsByGroup[gid] = { activeChatId: '', chats: [] }
+    const box = (state.data as any).chatsByGroup[gid]
+    if (!Array.isArray(box.chats)) box.chats = []
+
+    const idx = box.chats.findIndex((c: any) => String(c?.id || '') === cid)
+    if (idx >= 0) box.chats[idx] = chat
+    else box.chats.unshift(chat)
+
+    return true
+  }
+
   async function applyChatUpdatedNoticeOnce() {
     if (state.loading || !state.data) return false
     let raw = null
@@ -4834,28 +5890,33 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     if (!nid || nid === uiLastChatUpdatedNoticeId) return false
     uiLastChatUpdatedNoticeId = nid
 
-    const rid = String((raw as any).roleId || '').trim()
+    const kind = String((raw as any).targetKind || '').trim() === 'group' ? 'group' : 'role'
+    const tid = String((raw as any).targetId || (raw as any).roleId || '').trim()
     const cid = String((raw as any).chatId || '').trim()
     const updatedAt = Number((raw as any).updatedAt || 0)
-    if (!rid || !cid) return false
+    if (!tid || !cid) return false
 
-    const activeRid = String(state.draft.activeRoleId || state.data?.ui?.activeRoleId || '').trim()
-    if (!activeRid || rid !== activeRid) return false
+    const activeKind = activeTargetKind()
+    const activeTid =
+      activeKind === 'group'
+        ? String((state.draft as any).activeGroupId || (state.data?.ui as any)?.activeGroupId || '').trim()
+        : String(state.draft.activeRoleId || state.data?.ui?.activeRoleId || '').trim()
+    if (!activeTid || kind !== activeKind || tid !== activeTid) return false
 
     const activeChatId = String(activeChatFromData()?.id || '').trim()
     if (activeChatId && cid === activeChatId) {
-      const ok = await syncChatByIdFromStorage(rid, cid)
+      const ok = kind === 'group' ? await syncGroupChatByIdFromStorage(tid, cid) : await syncChatByIdFromStorage(tid, cid)
       return !!ok
     }
 
     // 非当前会话：并发生成时也要尽快把“生成中…”替换为落盘内容，否则列表会一直显示 pending。
     try {
-      const ok = await syncChatByIdFromStorage(rid, cid)
+      const ok = kind === 'group' ? await syncGroupChatByIdFromStorage(tid, cid) : await syncChatByIdFromStorage(tid, cid)
       if (ok) return true
     } catch (_) {}
 
     // 兜底：如果读取失败，至少更新时间戳（如果该会话在内存里）。
-    const box = state.data?.chatsByRole?.[rid]
+    const box = kind === 'group' ? (state.data as any)?.chatsByGroup?.[tid] : state.data?.chatsByRole?.[tid]
     const chats = Array.isArray(box?.chats) ? box.chats : []
     const it = chats.find((c) => String(c?.id || '') === cid) || null
     if (it && updatedAt && Number(it.updatedAt || 0) !== updatedAt) {
@@ -4891,6 +5952,16 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const box = state.data.chatsByRole?.[rid]
     const chats = Array.isArray(box?.chats) ? box.chats : []
     return chats.find((c) => String(c?.id || '') === cid) || null
+  }
+
+  function findGroupChatByIds(groupId: any, chatId: any) {
+    if (!state.data) return null
+    const gid = String(groupId || '')
+    const cid = String(chatId || '')
+    if (!gid || !cid) return null
+    const box = (state.data as any).chatsByGroup?.[gid]
+    const chats = Array.isArray((box as any)?.chats) ? (box as any).chats : []
+    return chats.find((c: any) => String(c?.id || '') === cid) || null
   }
 
   function startUiPollers() {
@@ -4937,12 +6008,12 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       const t = now()
       if (t - uiLastMetaCheckMs > 350) {
         uiLastMetaCheckMs = t
-        if (state.sending || state.pendingChat) return
+        if (state.sending || state.pendingChat || (state as any).pendingGroupChat) return
         try {
           const meta = await loadSplitMeta()
           const updatedAt = Number(meta?.updatedAt || 0)
           if (updatedAt && updatedAt !== uiLastMetaUpdatedAt) {
-            await syncActiveRoleChatsFromStorage(meta)
+            await syncActiveTargetChatsFromStorage(meta)
             chat = activeChatFromData()
             reapplyUiStreamCache(chat)
             emit()
@@ -4960,12 +6031,12 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const t2 = now()
     if (t2 - uiLastMetaCheckMs > 900) {
       uiLastMetaCheckMs = t2
-      if (!state.sending && !state.pendingChat) {
+      if (!state.sending && !state.pendingChat && !(state as any).pendingGroupChat) {
         try {
           const meta = await loadSplitMeta()
           const updatedAt = Number(meta?.updatedAt || 0)
           if (updatedAt && updatedAt !== uiLastMetaUpdatedAt) {
-            await syncActiveRoleChatsFromStorage(meta)
+            await syncActiveTargetChatsFromStorage(meta)
             chat = activeChatFromData()
             reapplyUiStreamCache(chat)
             emit()
@@ -5008,12 +6079,42 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     render()
   }
 
+  async function pickGroupAvatarImage() {
+    if (state.loading) return
+    if (typeof api?.files?.pickImages !== 'function') return api.ui?.showToast?.('未授权：files.pickImages')
+
+    try {
+      const items = await api.files.pickImages(1)
+      const list = Array.isArray(items) ? items : []
+      const it = list.length ? list[0] : null
+      const u0 = String(it?.dataUrl || '')
+      if (!looksLikeImageDataUrl(u0)) return api.ui?.showToast?.('未选择图片')
+
+      const shrunk = await shrinkImageDataUrl(u0, 1024)
+      const u = shrunk || u0
+      if (!looksLikeImageDataUrl(u)) return api.ui?.showToast?.('头像图片无效')
+
+      ;(state.draft as any).groupAvatarImageCropSrc = u
+      render()
+    } catch (e) {
+      api.ui?.showToast?.(String((e as any)?.message || e || '选择头像失败'))
+    }
+  }
+
+  function clearGroupAvatarImage() {
+    ;(state.draft as any).groupAvatarImage = ''
+    ;(state.draft as any).groupAvatarImageCropSrc = ''
+    render()
+  }
+
   function closeModal() {
     cancelMermaidDrag()
     state.modal = ''
     state.draft.deleteRoleId = ''
+    ;(state.draft as any).deleteGroupId = ''
     state.draft.deleteProviderId = ''
     state.draft.roleAvatarImageCropSrc = ''
+    ;(state.draft as any).groupAvatarImageCropSrc = ''
     if (String(state.draft.editRoleId || '') === NEW_ROLE_ID) {
       state.draft.editRoleId = ''
       state.draft.roleName = ''
@@ -5025,6 +6126,20 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       state.draft.roleModelId = ''
       state.draft.roleCustomModelId = ''
       state.draft.roleTemperature = '0.7'
+    }
+    if (String((state.draft as any).editGroupId || '') === NEW_GROUP_ID) {
+      ;(state.draft as any).editGroupId = ''
+      ;(state.draft as any).groupName = ''
+      ;(state.draft as any).groupAvatar = ''
+      ;(state.draft as any).groupAvatarImage = ''
+      ;(state.draft as any).groupAvatarImageCropSrc = ''
+      ;(state.draft as any).groupPrompt = ''
+      ;(state.draft as any).groupMode = 'roundRobin'
+      ;(state.draft as any).groupMemberRoleIds = []
+      ;(state.draft as any).groupRoundRobinOrder = []
+      ;(state.draft as any).groupRandomWeights = {}
+      ;(state.draft as any).groupRandomMinCount = 1
+      ;(state.draft as any).groupRandomMaxCount = 2
     }
     render()
   }
@@ -5152,11 +6267,203 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       state.data.settings.providers = state.data.settings.providers.length ? state.data.settings.providers : d.settings.providers
       state.data.roles = d.roles
       state.data.chatsByRole = d.chatsByRole
+      ;(state.data as any).groups = (d as any).groups
+      ;(state.data as any).chatsByGroup = (d as any).chatsByGroup
       state.data.ui = d.ui
     }
 
     state.draft.activeRoleId = String(state.data.roles[0]?.id || '')
+    if (!Array.isArray((state.data as any).groups) || !(state.data as any).groups.length) {
+      ;(state.draft as any).activeTargetKind = 'role'
+      ;(state.draft as any).activeGroupId = ''
+    }
     save().catch(() => {})
+  }
+
+  function ensureGroupsList() {
+    if (!state.data) return
+    if (!Array.isArray((state.data as any).groups)) (state.data as any).groups = []
+    if (!(state.data as any).chatsByGroup || typeof (state.data as any).chatsByGroup !== 'object') (state.data as any).chatsByGroup = {}
+  }
+
+  function ensureGroupChatsBox(groupId: any) {
+    if (!state.data) return null
+    ensureGroupsList()
+    const gid = String(groupId || '').trim()
+    if (!gid) return null
+    if (!(state.data as any).chatsByGroup[gid] || typeof (state.data as any).chatsByGroup[gid] !== 'object') (state.data as any).chatsByGroup[gid] = { activeChatId: '', chats: [] }
+    const box = (state.data as any).chatsByGroup[gid]
+    if (!Array.isArray(box.chats)) box.chats = []
+    box.activeChatId = String(box.activeChatId || '')
+    if (!box.chats.length) {
+      const cid = uid('gc')
+      const t = now()
+      box.chats = [{ id: cid, title: '群聊', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }]
+      box.activeChatId = cid
+    }
+    if (!box.activeChatId || !box.chats.some((c: any) => String(c?.id) === box.activeChatId)) box.activeChatId = String(box.chats[0]?.id || '')
+    return box
+  }
+
+  function openNewGroupEditor() {
+    if (!state.data) return
+    ensureGroupsList()
+
+    ;(state.draft as any).editGroupId = NEW_GROUP_ID
+    ;(state.draft as any).groupName = '新群组'
+    ;(state.draft as any).groupAvatar = '👥'
+    ;(state.draft as any).groupAvatarImage = ''
+    ;(state.draft as any).groupAvatarImageCropSrc = ''
+    ;(state.draft as any).groupPrompt = ''
+    ;(state.draft as any).groupMode = 'roundRobin'
+    ;(state.draft as any).groupMemberRoleIds = []
+    ;(state.draft as any).groupRoundRobinOrder = []
+    ;(state.draft as any).groupRandomWeights = {}
+    ;(state.draft as any).groupRandomMinCount = 1
+    ;(state.draft as any).groupRandomMaxCount = 2
+
+    state.modal = 'group'
+    render()
+  }
+
+  function createGroup() {
+    openNewGroupEditor()
+  }
+
+  function openGroupEditor(groupId: any) {
+    if (!state.data) return
+    ensureGroupsList()
+
+    const gid = String(groupId || '').trim()
+    if (!gid) return
+    const group = ((state.data as any).groups as any[]).find((g: any) => String(g?.id || '') === gid) || null
+    if (!group) return
+
+    ;(state.draft as any).editGroupId = gid
+    ;(state.draft as any).groupName = String(group?.name || '')
+    ;(state.draft as any).groupAvatar = String(group?.avatar || '')
+    ;(state.draft as any).groupAvatarImage = looksLikeImageDataUrl(group?.avatarImage) ? String(group?.avatarImage || '') : ''
+    ;(state.draft as any).groupAvatarImageCropSrc = ''
+    ;(state.draft as any).groupPrompt = String(group?.prompt || '')
+    ;(state.draft as any).groupMode = String(group?.mode || 'roundRobin') === 'random' ? 'random' : 'roundRobin'
+    ;(state.draft as any).groupMemberRoleIds = Array.isArray(group?.memberRoleIds) ? group.memberRoleIds.slice(0, 50) : []
+    ;(state.draft as any).groupRoundRobinOrder = Array.isArray(group?.roundRobinOrder) ? group.roundRobinOrder.slice(0, 80) : []
+
+    const randomCfg = group?.random && typeof group.random === 'object' ? group.random : {}
+    ;(state.draft as any).groupRandomWeights = randomCfg.weightsByRoleId && typeof randomCfg.weightsByRoleId === 'object' ? { ...randomCfg.weightsByRoleId } : {}
+    ;(state.draft as any).groupRandomMinCount = clamp(Math.round(Number(randomCfg.minCount ?? 1)), 1, 20)
+    ;(state.draft as any).groupRandomMaxCount = clamp(Math.round(Number(randomCfg.maxCount ?? 2)), 1, 20)
+
+    state.modal = 'group'
+    render()
+  }
+
+  function saveGroupEditor() {
+    if (!state.data) return
+    ensureGroupsList()
+
+    const gid = String((state.draft as any).editGroupId || '').trim()
+    const name = String((state.draft as any).groupName || '').replace(/\s+/g, ' ').trim() || '未命名群组'
+    const avatar = String((state.draft as any).groupAvatar || '').trim() || '👥'
+    const avatarImage = looksLikeImageDataUrl((state.draft as any).groupAvatarImage) ? String((state.draft as any).groupAvatarImage || '') : ''
+    const prompt = String((state.draft as any).groupPrompt || '').trim()
+    const mode = String((state.draft as any).groupMode || '').trim() === 'random' ? 'random' : 'roundRobin'
+
+    const roles = Array.isArray(state.data.roles) ? state.data.roles : []
+    const roleIdSet = new Set(roles.map((r: any) => String(r?.id || '')).filter(Boolean))
+    const members0 = Array.isArray((state.draft as any).groupMemberRoleIds) ? (state.draft as any).groupMemberRoleIds : []
+    const memberRoleIds = Array.from(new Set(members0.map((x: any) => String(x || '').trim()).filter((x: any) => !!x && roleIdSet.has(x)))).slice(0, 50)
+    if (!memberRoleIds.length) return api.ui?.showToast?.('请至少选择 1 个群组成员角色')
+
+    const order0 = Array.isArray((state.draft as any).groupRoundRobinOrder) ? (state.draft as any).groupRoundRobinOrder : []
+    const order = order0.map((x: any) => String(x || '').trim()).filter((x: any) => !!x && memberRoleIds.includes(x))
+    const roundRobinOrder = order.length ? order : memberRoleIds.slice()
+
+    const weights0 = (state.draft as any).groupRandomWeights && typeof (state.draft as any).groupRandomWeights === 'object' ? (state.draft as any).groupRandomWeights : {}
+    const weightsByRoleId: any = {}
+    for (const rid of memberRoleIds) {
+      const w = Number((weights0 as any)[rid] ?? 1)
+      weightsByRoleId[rid] = isFinite(w) && w >= 0 ? w : 1
+    }
+    let minCount = Number((state.draft as any).groupRandomMinCount ?? 1)
+    let maxCount = Number((state.draft as any).groupRandomMaxCount ?? 2)
+    if (!isFinite(minCount)) minCount = 1
+    if (!isFinite(maxCount)) maxCount = 2
+    minCount = clamp(Math.round(minCount), 1, 20)
+    maxCount = clamp(Math.round(maxCount), 1, 20)
+    if (maxCount < minCount) maxCount = minCount
+
+    const nowT = now()
+    const groups = (state.data as any).groups as any[]
+
+    if (gid === NEW_GROUP_ID) {
+      const newGid = uid('g')
+      const chatId = uid('gc')
+      const group = {
+        id: newGid,
+        name,
+        avatar,
+        avatarImage,
+        prompt,
+        mode,
+        memberRoleIds,
+        roundRobinOrder,
+        random: { weightsByRoleId, minCount, maxCount },
+        createdAt: nowT,
+        updatedAt: nowT,
+      }
+      groups.unshift(group)
+      ;(state.data as any).chatsByGroup[newGid] = {
+        activeChatId: chatId,
+        chats: [{ id: chatId, title: '群聊', createdAt: nowT, updatedAt: nowT, branching: createDefaultChatBranching('', nowT, nowT), messages: [] }],
+      }
+      ;(state.draft as any).activeTargetKind = 'group'
+      ;(state.draft as any).activeGroupId = newGid
+      save().catch(() => {})
+      closeModal()
+      return
+    }
+
+    const group = groups.find((g: any) => String(g?.id || '') === gid) || null
+    if (!group) return
+
+    group.name = name
+    group.avatar = avatar
+    group.avatarImage = avatarImage
+    group.prompt = prompt
+    group.mode = mode
+    group.memberRoleIds = memberRoleIds
+    group.roundRobinOrder = roundRobinOrder
+    group.random = { weightsByRoleId, minCount, maxCount }
+    group.updatedAt = nowT
+
+    save().catch(() => {})
+    closeModal()
+  }
+
+  function deleteGroup(groupId: any) {
+    if (!state.data) return
+    ensureGroupsList()
+    const gid = String(groupId || '').trim()
+    if (!gid) return
+
+    ;(state.data as any).groups = ((state.data as any).groups as any[]).filter((g: any) => String(g?.id || '') !== gid)
+    if ((state.data as any).chatsByGroup && typeof (state.data as any).chatsByGroup === 'object') delete (state.data as any).chatsByGroup[gid]
+
+    const curKind = activeTargetKind()
+    const curGid = String((state.draft as any).activeGroupId || '')
+    if (curKind === 'group' && curGid === gid) {
+      const next = Array.isArray((state.data as any).groups) ? (state.data as any).groups[0] : null
+      if (next) {
+        ;(state.draft as any).activeGroupId = String(next?.id || '')
+      } else {
+        ;(state.draft as any).activeTargetKind = 'role'
+        ;(state.draft as any).activeGroupId = ''
+      }
+    }
+
+    save().catch(() => {})
+    render()
   }
 
   function openProvidersEditor() {
@@ -5320,6 +6627,25 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     save().catch(() => {})
     render()
     scrollToBottomSoon()
+  }
+
+  function pickChatForActiveGroup(chatId: any) {
+    const group = activeGroup()
+    if (!group || !state.data) return
+    clearPendingGroupChat()
+    const box = ensureGroupChatsBox(String((group as any).id || ''))
+    if (!box) return
+    const cid = String(chatId || '')
+    if (!cid || !box.chats.some((c: any) => String(c?.id) === cid)) return
+    box.activeChatId = cid
+    save().catch(() => {})
+    render()
+    scrollToBottomSoon()
+  }
+
+  function pickChatForActiveTarget(chatId: any) {
+    if (activeTargetKind() === 'group') return pickChatForActiveGroup(chatId)
+    return pickChatForActiveRole(chatId)
   }
 
   function renameChatTitle(roleId, chatId, title) {
@@ -5744,15 +7070,27 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       },
       setActiveRole: (roleId) => {
         clearPendingChat()
+        clearPendingGroupChat()
         state.branchDraft = null
+        ;(state.draft as any).activeTargetKind = 'role'
         state.draft.activeRoleId = String(roleId || '')
         ensureChatsBox(state.draft.activeRoleId)
         save().catch(() => {})
         emit()
       },
+      setActiveGroup: (groupId) => {
+        clearPendingChat()
+        clearPendingGroupChat()
+        state.branchDraft = null
+        ;(state.draft as any).activeTargetKind = 'group'
+        ;(state.draft as any).activeGroupId = String(groupId || '')
+        ensureGroupChatsBox((state.draft as any).activeGroupId)
+        save().catch(() => {})
+        emit()
+      },
       setActiveChat: (chatId) => {
         state.branchDraft = null
-        pickChatForActiveRole(String(chatId || ''))
+        pickChatForActiveTarget(String(chatId || ''))
       },
       toggleStream: () => {
         if (!state.data) return
@@ -6341,25 +7679,41 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       askDeleteProvider: (providerId) => {
         state.draft.deleteProviderId = String(providerId || '')
         state.draft.deleteRoleId = ''
+        ;(state.draft as any).deleteGroupId = ''
         state.modal = 'confirm'
         emit()
       },
       openRoleEditor: (roleId) => openRoleEditor(String(roleId || '')),
       createRole: () => createRole(),
       saveRole: () => saveRoleEditor(),
+      openGroupEditor: (groupId) => openGroupEditor(String(groupId || '')),
+      createGroup: () => createGroup(),
+      saveGroup: () => saveGroupEditor(),
       askDeleteRole: (roleId) => {
         const rid = String(roleId || '')
         if (!rid || rid === NEW_ROLE_ID) return
         state.draft.deleteRoleId = rid
+        ;(state.draft as any).deleteGroupId = ''
+        state.draft.deleteProviderId = ''
+        state.modal = 'confirm'
+        emit()
+      },
+      askDeleteGroup: (groupId) => {
+        const gid = String(groupId || '')
+        if (!gid || gid === NEW_GROUP_ID) return
+        ;(state.draft as any).deleteGroupId = gid
+        state.draft.deleteRoleId = ''
         state.draft.deleteProviderId = ''
         state.modal = 'confirm'
         emit()
       },
       confirmDelete: () => {
         const rid = String(state.draft.deleteRoleId || '')
+        const gid = String((state.draft as any).deleteGroupId || '')
         const pid = String(state.draft.deleteProviderId || '')
         closeModal()
         if (rid) deleteRole(rid)
+        if (gid) deleteGroup(gid)
         if (pid) deleteProvider(pid)
         emit()
       },
@@ -6471,7 +7825,10 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         state.imageViewer.scale = 1
         emit()
       },
-      createChat: () => createChatForActiveRole(),
+      createChat: () => {
+        if (activeTargetKind() === 'group') return api.ui?.showToast?.('群聊暂不支持多会话')
+        return createChatForActiveRole()
+      },
       aiGenerateChatTitle: (roleId, chatId) =>
         Promise.resolve()
           .then(() => {
@@ -6524,6 +7881,8 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       refreshModels: (providerId, force) => refreshModels(String(providerId || ''), !!force),
       pickRoleAvatarImage: () => pickRoleAvatarImage(),
       clearRoleAvatarImage: () => clearRoleAvatarImage(),
+      pickGroupAvatarImage: () => pickGroupAvatarImage(),
+      clearGroupAvatarImage: () => clearGroupAvatarImage(),
       removeDraftImage: (id) => {
         removeDraftImage(String(id || ''))
         emit()
