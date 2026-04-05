@@ -192,6 +192,24 @@ function noteFilename(id: string, title: string): string {
   return `${id}_${safeTitleForFile(title)}.html`
 }
 
+function noteMonthFolderFromIdOrNow(id: string): string {
+  const s = String(id || '').trim()
+  if (/^\d{6,}$/.test(s)) {
+    const y = s.slice(0, 4)
+    const m = s.slice(4, 6)
+    if (/^\d{4}$/.test(y) && /^(0[1-9]|1[0-2])$/.test(m)) return `${y}-${m}`
+  }
+  return monthFolder()
+}
+
+function noteDirForId(id: string): string {
+  return `${NOTES_DIR}/${noteMonthFolderFromIdOrNow(id)}`
+}
+
+function noteRelPath(id: string, title: string): string {
+  return `${noteDirForId(id)}/${noteFilename(id, title)}`
+}
+
 function parseNoteFilename(name: string): { id: string; title: string } | null {
   const lower = name.toLowerCase()
   if (!(lower.endsWith('.html') || lower.endsWith('.htm'))) return null
@@ -236,16 +254,26 @@ function buildNoteHtmlDoc(meta: { id: string; title: string; contentHtml: string
 </html>`
 }
 
-function normalizeEditorHtmlForSave(html: string): string {
+function relPrefixToRootFromFile(file: string): string {
+  const parts = String(file || '')
+    .replaceAll('\\', '/')
+    .split('/')
+    .slice(0, -1)
+    .filter(Boolean)
+  return parts.length ? '../'.repeat(parts.length) : ''
+}
+
+function normalizeEditorHtmlForSave(html: string, noteFile: string): string {
   const doc = new DOMParser().parseFromString(`<div id="__root__">${html || ''}</div>`, 'text/html')
   const root = doc.getElementById('__root__')
   if (!root) return html || ''
 
+  const prefix = relPrefixToRootFromFile(noteFile)
   const imgs = Array.from(root.querySelectorAll('img'))
   for (const img of imgs) {
     const assetRel = (img.getAttribute('data-hypercortex-asset') || '').trim()
     if (assetRel) {
-      img.setAttribute('src', `../${assetRel.replace(/^[./]+/, '')}`)
+      img.setAttribute('src', `${prefix}${assetRel.replace(/^[./]+/, '')}`)
     }
   }
   return root.innerHTML
@@ -295,9 +323,13 @@ async function probeHasVault(api: Api, scope: VaultScope): Promise<boolean> {
   if (!hasNotesDir) return false
 
   const notes = await api.files.listDir({ scope, dir: NOTES_DIR }).catch(() => [])
-  for (const ent of notes) {
-    if (!ent.isFile) continue
-    if (parseNoteFilename(ent.name)) return true
+  for (const monthDir of notes) {
+    if (!monthDir.isDirectory) continue
+    const items = await api.files.listDir({ scope, dir: `${NOTES_DIR}/${monthDir.name}` }).catch(() => [])
+    for (const ent of items) {
+      if (!ent.isFile) continue
+      if (parseNoteFilename(ent.name)) return true
+    }
   }
   return false
 }
@@ -331,24 +363,28 @@ async function saveIndex(api: Api, scope: VaultScope, idx: HyperCortexIndexV1): 
 
 async function rebuildIndexFromFs(api: Api, scope: VaultScope, idx: HyperCortexIndexV1): Promise<HyperCortexIndexV1> {
   await ensureVaultDirs(api, scope)
-  const items = await api.files.listDir({ scope, dir: NOTES_DIR })
+  const monthDirs = await api.files.listDir({ scope, dir: NOTES_DIR })
   const nextNotes: Record<string, NoteMeta> = {}
 
-  for (const ent of items) {
-    if (!ent.isFile) continue
-    const parsed = parseNoteFilename(ent.name)
-    if (!parsed) continue
+  for (const monthDir of monthDirs) {
+    if (!monthDir.isDirectory) continue
+    const items = await api.files.listDir({ scope, dir: `${NOTES_DIR}/${monthDir.name}` }).catch(() => [])
+    for (const ent of items) {
+      if (!ent.isFile) continue
+      const parsed = parseNoteFilename(ent.name)
+      if (!parsed) continue
 
-    const file = `${NOTES_DIR}/${ent.name}`
-    const existing = idx.notes[parsed.id]
-    const createdAtMs = existing?.createdAtMs ?? ent.modifiedMs ?? Date.now()
-    const updatedAtMs = ent.modifiedMs ?? existing?.updatedAtMs ?? createdAtMs
-    nextNotes[parsed.id] = {
-      id: parsed.id,
-      title: parsed.title,
-      file,
-      createdAtMs,
-      updatedAtMs,
+      const file = `${NOTES_DIR}/${monthDir.name}/${ent.name}`
+      const existing = idx.notes[parsed.id]
+      const createdAtMs = existing?.createdAtMs ?? ent.modifiedMs ?? Date.now()
+      const updatedAtMs = ent.modifiedMs ?? existing?.updatedAtMs ?? createdAtMs
+      nextNotes[parsed.id] = {
+        id: parsed.id,
+        title: parsed.title,
+        file,
+        createdAtMs,
+        updatedAtMs,
+      }
     }
   }
 
@@ -376,10 +412,7 @@ async function readNoteDoc(
   for (const img of imgs) {
     const src = (img.getAttribute('src') || '').trim()
     if (!src) continue
-    const rel =
-      src.startsWith('../') ? src.slice(3)
-      : src.startsWith('./') ? src.slice(2)
-      : src
+    const rel = src.replace(/^[./]+/, '')
     if (!rel.startsWith(`${ASSETS_DIR}/`)) continue
 
     img.setAttribute('data-hypercortex-asset', rel)
@@ -519,8 +552,7 @@ function App() {
     try {
       const id = nowId()
       const t = '未命名'
-      const filename = noteFilename(id, t)
-      const file = `${NOTES_DIR}/${filename}`
+      const file = noteRelPath(id, t)
 
       const contentHtml = `<h1>${escapeHtml(t)}</h1><p></p>`
       const htmlDoc = buildNoteHtmlDoc({ id, title: t, contentHtml })
@@ -546,14 +578,13 @@ function App() {
     try {
       const id = active.id
       const nextTitle = String(title || '').trim() || '未命名'
-      const nextFilename = noteFilename(id, nextTitle)
-      const nextFile = `${NOTES_DIR}/${nextFilename}`
+      const nextFile = noteRelPath(id, nextTitle)
 
       if (active.file !== nextFile) {
         await api.files.rename({ scope: vaultScope, from: active.file, to: nextFile, overwrite: false })
       }
 
-      const contentHtml = normalizeEditorHtmlForSave(getEditorHtml())
+      const contentHtml = normalizeEditorHtmlForSave(getEditorHtml(), nextFile)
       const htmlDoc = buildNoteHtmlDoc({ id, title: nextTitle, contentHtml })
       await api.files.writeText({ scope: vaultScope, path: nextFile, text: htmlDoc, overwrite: true })
 
