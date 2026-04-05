@@ -914,7 +914,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
             topbarBlur: 0,
             composerOpacity: 86,
             composerBlur: 10,
-            branchTree: { dir: 'lr', view: 'right', followSelected: true },
+            branchTree: { dir: 'lr', view: 'right', followSelected: true, modalHotkey: '' },
             toolRequestRenderPreset: 'classic',
             toolRequestRenderPresets: [],
             userMessageCollapseEnabled: false,
@@ -1003,6 +1003,8 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const okView = view0 === 'right' || view0 === 'float'
     btree.view = okView ? view0 : 'right'
     if (typeof btree.followSelected !== 'boolean') btree.followSelected = true
+    if (typeof btree.modalHotkey !== 'string') btree.modalHotkey = ''
+    btree.modalHotkey = String(btree.modalHotkey || '').trim().slice(0, 80)
     if (typeof d.settings.toolRequestRenderPreset !== 'string') d.settings.toolRequestRenderPreset = 'classic'
     ;(d.settings as any).toolRequestRenderPresets = normalizeToolRequestRenderPresets((d.settings as any).toolRequestRenderPresets)
     if (typeof d.settings.userMessageCollapseEnabled !== 'boolean') d.settings.userMessageCollapseEnabled = false
@@ -5336,7 +5338,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         if (!state.data) return
         if (!state.data.settings || typeof state.data.settings !== 'object') state.data.settings = {}
         if (!(state.data.settings as any).branchTree || typeof (state.data.settings as any).branchTree !== 'object')
-          (state.data.settings as any).branchTree = { dir: 'lr', view: 'right', followSelected: true }
+          (state.data.settings as any).branchTree = { dir: 'lr', view: 'right', followSelected: true, modalHotkey: '' }
         const v = String(dir || '').trim()
         const ok = v === 'lr' || v === 'tb' || v === 'bt' || v === 'rl'
         ;(state.data.settings as any).branchTree.dir = ok ? v : 'lr'
@@ -5347,7 +5349,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         if (!state.data) return
         if (!state.data.settings || typeof state.data.settings !== 'object') state.data.settings = {}
         if (!(state.data.settings as any).branchTree || typeof (state.data.settings as any).branchTree !== 'object')
-          (state.data.settings as any).branchTree = { dir: 'lr', view: 'right', followSelected: true }
+          (state.data.settings as any).branchTree = { dir: 'lr', view: 'right', followSelected: true, modalHotkey: '' }
         const v = String(view || '').trim()
         const ok = v === 'right' || v === 'float'
         ;(state.data.settings as any).branchTree.view = ok ? v : 'right'
@@ -5358,8 +5360,18 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         if (!state.data) return
         if (!state.data.settings || typeof state.data.settings !== 'object') state.data.settings = {}
         if (!(state.data.settings as any).branchTree || typeof (state.data.settings as any).branchTree !== 'object')
-          (state.data.settings as any).branchTree = { dir: 'lr', view: 'right', followSelected: true }
+          (state.data.settings as any).branchTree = { dir: 'lr', view: 'right', followSelected: true, modalHotkey: '' }
         ;(state.data.settings as any).branchTree.followSelected = !!enabled
+        save().catch(() => {})
+        emit()
+      },
+      setBranchTreeModalHotkey: (hotkey) => {
+        if (!state.data) return
+        if (!state.data.settings || typeof state.data.settings !== 'object') state.data.settings = {}
+        if (!(state.data.settings as any).branchTree || typeof (state.data.settings as any).branchTree !== 'object')
+          (state.data.settings as any).branchTree = { dir: 'lr', view: 'right', followSelected: true, modalHotkey: '' }
+        const v = String(hotkey || '').trim().slice(0, 80)
+        ;(state.data.settings as any).branchTree.modalHotkey = v
         save().catch(() => {})
         emit()
       },

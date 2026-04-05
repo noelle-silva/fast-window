@@ -169,6 +169,51 @@ function svgSafeId(raw: any) {
   return s.replace(/[^a-zA-Z0-9\-_:.]/g, '_').slice(0, 80) || 'x'
 }
 
+function normalizeHotkeyString(raw: any) {
+  const s0 = typeof raw === 'string' ? raw : String(raw ?? '')
+  const s = s0.trim()
+  if (!s) return ''
+  const parts = s
+    .split('+')
+    .map((x) => String(x || '').trim())
+    .filter((x) => !!x)
+
+  const modSet = new Set<string>()
+  let key = ''
+  for (const p0 of parts) {
+    const p = p0.toLowerCase()
+    if (p === 'ctrl' || p === 'control') modSet.add('Ctrl')
+    else if (p === 'alt' || p === 'option') modSet.add('Alt')
+    else if (p === 'shift') modSet.add('Shift')
+    else if (p === 'meta' || p === 'cmd' || p === 'command' || p === 'win') modSet.add('Meta')
+    else key = p0
+  }
+
+  const k0 = String(key || '').trim()
+  if (!k0) return ''
+  const k1 = k0.length === 1 ? k0.toUpperCase() : k0
+
+  const mods = ['Ctrl', 'Alt', 'Shift', 'Meta'].filter((m) => modSet.has(m))
+  return [...mods, k1].join('+')
+}
+
+function hotkeyFromKeyEvent(e: { key?: any; ctrlKey?: any; altKey?: any; shiftKey?: any; metaKey?: any }) {
+  const k0 = String(e?.key || '').trim()
+  if (!k0) return ''
+  const lower = k0.toLowerCase()
+  if (lower === 'control' || lower === 'shift' || lower === 'alt' || lower === 'meta') return ''
+
+  const mods: string[] = []
+  if (e?.ctrlKey) mods.push('Ctrl')
+  if (e?.altKey) mods.push('Alt')
+  if (e?.shiftKey) mods.push('Shift')
+  if (e?.metaKey) mods.push('Meta')
+
+  const key =
+    k0 === ' ' ? 'Space' : k0.length === 1 ? k0.toUpperCase() : k0.startsWith('Arrow') ? k0 : k0[0].toUpperCase() + k0.slice(1)
+  return normalizeHotkeyString([...mods, key].join('+'))
+}
+
 function buildChatTreeLayout(messagesRaw: any[], opts?: { maxNodes?: number }) {
   const maxNodes = Math.max(50, Math.min(2000, Math.floor(Number(opts?.maxNodes ?? 600))))
   const msgs = Array.isArray(messagesRaw) ? messagesRaw : []
@@ -753,6 +798,10 @@ export function AiChatApp(props: { controller: any }) {
     const raw = String(((data?.settings as any)?.branchTree?.view ?? '') as any).trim()
     return raw === 'right' || raw === 'float' ? (raw as any) : 'right'
   })() as 'right' | 'float'
+  const savedTreeModalHotkey = (() => {
+    const raw = String(((data?.settings as any)?.branchTree?.modalHotkey ?? '') as any).trim()
+    return normalizeHotkeyString(raw)
+  })()
   const savedTreeFollowSelected = (() => {
     const raw = (data?.settings as any)?.branchTree?.followSelected
     return typeof raw === 'boolean' ? raw : true
@@ -767,6 +816,7 @@ export function AiChatApp(props: { controller: any }) {
       : null
   const branchDraftKey = branchDraft ? `${String(branchDraft?.chatId || '')}:${String(branchDraft?.forkFromMid || '')}:${String(branchDraft?.createdAt || '')}` : ''
   const [treeOpen, setTreeOpen] = React.useState(false)
+  const [treeViewOverride, setTreeViewOverride] = React.useState<'' | 'right' | 'float'>('')
   const [treePan, setTreePan] = React.useState<{ x: number; y: number }>({ x: 18, y: 18 })
   const [treeScale, setTreeScale] = React.useState(1)
   const [treeDir, setTreeDir] = React.useState<'lr' | 'tb' | 'bt' | 'rl'>(() => savedTreeDir)
@@ -782,6 +832,8 @@ export function AiChatApp(props: { controller: any }) {
   const treeHostFloatRef = React.useRef<HTMLDivElement | null>(null)
   const treeFollowRafRef = React.useRef<number>(0)
   const treeFollowAnimRef = React.useRef<{ targetX: number; targetY: number; lastT: number } | null>(null)
+
+  const effectiveTreeView = (treeViewOverride || savedTreeView) as 'right' | 'float'
   const isChatGenerating = React.useCallback((chat: any) => {
     const msgs = Array.isArray(chat?.messages) ? chat.messages : []
     return msgs.some((m: any) => m && m.role === 'assistant' && m.pending)
@@ -887,6 +939,7 @@ export function AiChatApp(props: { controller: any }) {
     treeDragRef.current = null
     treeSuppressClickRef.current = false
     setTreeDragging(false)
+    setTreeViewOverride('')
     stopTreeFollow()
   }, [treeOpen, stopTreeFollow])
 
@@ -1024,6 +1077,7 @@ export function AiChatApp(props: { controller: any }) {
   })
 
   const closeTreeModal = useEvent((focusComposer: boolean) => {
+    setTreeViewOverride('')
     setTreeOpen(false)
     if (focusComposer) focusComposerSoon()
   })
@@ -1487,7 +1541,7 @@ export function AiChatApp(props: { controller: any }) {
     const node = tr.byId.get(mid) || null
     if (!node) return
 
-    const host = (savedTreeView === 'float' ? treeHostFloatRef.current : treeHostRightRef.current) as HTMLDivElement | null
+    const host = (effectiveTreeView === 'float' ? treeHostFloatRef.current : treeHostRightRef.current) as HTMLDivElement | null
     if (!host) return
     const w = Number(host.clientWidth || 0)
     const h = Number(host.clientHeight || 0)
@@ -1555,11 +1609,11 @@ export function AiChatApp(props: { controller: any }) {
 
     start()
     return () => stopTreeFollow()
-  }, [treeOpen, savedTreeView, savedTreeFollowSelected, treeSelectedMid, treeRender, scheduleTreeViewTransform, stopTreeFollow])
+  }, [treeOpen, effectiveTreeView, savedTreeFollowSelected, treeSelectedMid, treeRender, scheduleTreeViewTransform, stopTreeFollow])
 
   // 分支树（悬浮模态窗）：键盘方向键切换选中节点（按“深度/平级/分支最深”策略）
   React.useEffect(() => {
-    if (!treeOpen || savedTreeView !== 'float') return
+    if (!treeOpen || effectiveTreeView !== 'float') return
     const tr: any = treeRender
     if (!tr || !Array.isArray(tr.nodes) || tr.nodes.length === 0) return
     const byId = tr?.byId
@@ -1609,7 +1663,7 @@ export function AiChatApp(props: { controller: any }) {
     leaves.sort(sortByLane)
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (!treeOpen || savedTreeView !== 'float') return
+      if (!treeOpen || effectiveTreeView !== 'float') return
       if (e.defaultPrevented) return
       if ((e as any).isComposing) return
       if (e.metaKey || e.ctrlKey || e.altKey) return
@@ -1705,13 +1759,13 @@ export function AiChatApp(props: { controller: any }) {
 
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [treeOpen, savedTreeView, treeRender, treeSelectedMid, lastMsgId, jumpToMessage])
+  }, [treeOpen, effectiveTreeView, treeRender, treeSelectedMid, lastMsgId, jumpToMessage])
 
   // 分支树（悬浮模态窗）：按 Enter 关闭
   React.useEffect(() => {
-    if (!treeOpen || savedTreeView !== 'float') return
+    if (!treeOpen || effectiveTreeView !== 'float') return
     const onKeyDown = (e: KeyboardEvent) => {
-      if (!treeOpen || savedTreeView !== 'float') return
+      if (!treeOpen || effectiveTreeView !== 'float') return
       if (e.defaultPrevented) return
       if ((e as any).isComposing) return
       if (e.metaKey || e.ctrlKey || e.altKey) return
@@ -1728,7 +1782,35 @@ export function AiChatApp(props: { controller: any }) {
     }
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [treeOpen, savedTreeView, closeTreeModal])
+  }, [treeOpen, effectiveTreeView, closeTreeModal])
+
+  // 全局：快捷键打开/关闭“分支树模态窗”（不改变默认显示方式）
+  React.useEffect(() => {
+    if (page !== 'chat') return
+    const hk = String(savedTreeModalHotkey || '').trim()
+    if (!hk) return
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
+      if ((e as any).isComposing) return
+      const cur = hotkeyFromKeyEvent(e)
+      if (!cur || cur !== hk) return
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      if (treeOpen && effectiveTreeView === 'float') {
+        closeTreeModal(true)
+        return
+      }
+
+      setTreeViewOverride('float')
+      setTreeOpen(true)
+    }
+
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [page, savedTreeModalHotkey, treeOpen, effectiveTreeView, closeTreeModal])
   const activeBranchHeadMid = React.useMemo(() => {
     const chat: any = activeChat
     if (!chat) return ''
@@ -2565,7 +2647,7 @@ export function AiChatApp(props: { controller: any }) {
                   overflowY: 'auto',
                  overflowX: 'hidden',
                  pl: 2,
-                 pr: treeOpen && savedTreeView === 'right' ? `calc(16px + ${Math.round(treePanelW)}px)` : 2,
+                 pr: treeOpen && effectiveTreeView === 'right' ? `calc(16px + ${Math.round(treePanelW)}px)` : 2,
                  pt: `calc(${TOPBAR_H}px + 16px)`,
                  bgcolor: transparentChatBg ? 'transparent' : 'grey.50',
                  paddingBottom: `calc(${Math.max(0, composerHeight)}px + 24px)`,
@@ -3290,16 +3372,16 @@ export function AiChatApp(props: { controller: any }) {
                   top: TOPBAR_H,
                   right: 0,
                   bottom: 0,
-                  width: treeOpen && savedTreeView === 'right' ? Math.round(treePanelW) : 0,
+                  width: treeOpen && effectiveTreeView === 'right' ? Math.round(treePanelW) : 0,
                   transition: treeResizing ? 'none' : 'width 180ms ease',
                   overflow: 'hidden',
-                  pointerEvents: treeOpen && savedTreeView === 'right' ? 'auto' : 'none',
-                  borderLeft: treeOpen && savedTreeView === 'right' ? '1px solid rgba(0,0,0,.10)' : '1px solid transparent',
+                  pointerEvents: treeOpen && effectiveTreeView === 'right' ? 'auto' : 'none',
+                  borderLeft: treeOpen && effectiveTreeView === 'right' ? '1px solid rgba(0,0,0,.10)' : '1px solid transparent',
                   bgcolor: transparentChatBg ? `rgba(255,255,255,${Math.max(0.72, bgAlpha)})` : 'background.paper',
                   zIndex: 1000,
                 }}
               >
-                {treeOpen && savedTreeView === 'right' ? (
+                {treeOpen && effectiveTreeView === 'right' ? (
                   <Box
                     onPointerDown={onTreeSplitterPointerDown}
                     onPointerMove={onTreeSplitterPointerMove}
@@ -3622,7 +3704,7 @@ export function AiChatApp(props: { controller: any }) {
               </Box>
 
               <Dialog
-                open={treeOpen && savedTreeView === 'float'}
+                open={treeOpen && effectiveTreeView === 'float'}
                 onClose={() => closeTreeModal(true)}
                 maxWidth={false}
                 disableRestoreFocus
@@ -3898,7 +3980,7 @@ export function AiChatApp(props: { controller: any }) {
                  sx={{
                  position: 'absolute',
                  left: 16,
-                 right: treeOpen && savedTreeView === 'right' ? 16 + Math.round(treePanelW) : 16,
+                 right: treeOpen && effectiveTreeView === 'right' ? 16 + Math.round(treePanelW) : 16,
                  bottom: 16,
                 zIndex: 1299,
                 p: 1.5,
@@ -5146,6 +5228,46 @@ function PluginSettingsPage(props: {
     count: 0,
   }))
   const [toolReqPresetsOpen, setToolReqPresetsOpen] = React.useState(false)
+  const [treeHotkeyRecording, setTreeHotkeyRecording] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!treeHotkeyRecording) return
+    const toast = (s: string) => controller?.api?.ui?.showToast?.(s)
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
+      if ((e as any).isComposing) return
+
+      const key = String(e.key || '')
+      if (key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        setTreeHotkeyRecording(false)
+        toast('已取消录制')
+        return
+      }
+
+      const hk = hotkeyFromKeyEvent(e)
+      if (!hk) return
+
+      const hasMainMod = !!(e.ctrlKey || e.altKey || e.metaKey)
+      if (!hasMainMod) {
+        e.preventDefault()
+        e.stopPropagation()
+        toast('请使用 Ctrl / Alt / Meta + 任意键')
+        return
+      }
+
+      e.preventDefault()
+      e.stopPropagation()
+      setTreeHotkeyRecording(false)
+      controller.actions.setBranchTreeModalHotkey?.(hk)
+      toast(`快捷键已设置：${hk}`)
+    }
+
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [treeHotkeyRecording, controller])
 
   const runToolServerTest = useEvent(async (baseUrlRaw: string, tokenRaw: string) => {
     const api = controller?.api
@@ -5323,6 +5445,10 @@ function PluginSettingsPage(props: {
     const raw = (data?.settings as any)?.branchTree?.followSelected
     return typeof raw === 'boolean' ? raw : true
   })()
+  const branchTreeModalHotkey = (() => {
+    const raw = String(((data?.settings as any)?.branchTree?.modalHotkey ?? '') as any).trim()
+    return normalizeHotkeyString(raw)
+  })()
 
   const appearancePanel = (
     <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
@@ -5415,6 +5541,41 @@ function PluginSettingsPage(props: {
               选中节点自动居中
             </Typography>
           </Stack>
+
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+            <TextField
+              size="small"
+              label="快捷键（打开模态窗）"
+              value={branchTreeModalHotkey || ''}
+              placeholder="未设置"
+              disabled={loading}
+              sx={{ flex: 1, minWidth: 0 }}
+              InputProps={{ readOnly: true }}
+            />
+            <Button
+              size="small"
+              variant={treeHotkeyRecording ? 'contained' : 'outlined'}
+              color={treeHotkeyRecording ? 'success' : 'inherit'}
+              onClick={() => setTreeHotkeyRecording((v) => !v)}
+              disabled={loading}
+            >
+              {treeHotkeyRecording ? '录制中…' : '录制'}
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              color="inherit"
+              onClick={() => controller.actions.setBranchTreeModalHotkey?.('')}
+              disabled={loading || !branchTreeModalHotkey}
+            >
+              清除
+            </Button>
+          </Stack>
+          {treeHotkeyRecording ? (
+            <Typography variant="caption" color="text.secondary">
+              按下组合键完成录制（建议 Ctrl/Alt/Meta + 任意键），按 Esc 取消。
+            </Typography>
+          ) : null}
           <Typography variant="caption" color="text.secondary">
             “右侧面板”会挤压聊天内容；“悬浮模态窗”会覆盖在当前界面上方。
           </Typography>
