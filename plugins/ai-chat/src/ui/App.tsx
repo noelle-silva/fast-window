@@ -3182,13 +3182,7 @@ export function AiChatApp(props: { controller: any }) {
                             const isSelected = id === String(treeSelectedMid || '')
                             const isAi = role === 'assistant'
                             const clipId = `fw-tree-clip-${svgSafeId(id)}`
-
-                            const palette =
-                              role === 'assistant'
-                                ? { fill: 'rgba(46, 125, 50, .07)', stroke: 'rgba(46, 125, 50, .30)' }
-                                : { fill: 'rgba(25, 118, 210, .07)', stroke: 'rgba(25, 118, 210, .30)' }
-                            const stroke = isSelected ? 'rgba(245, 124, 0, .85)' : palette.stroke
-                            const strokeWidth = isSelected ? 2.25 : 1.25
+                            const nodeFill = '#ffffff'
 
                             return (
                               <g key={id} transform={`translate(${Math.round(x)},${Math.round(y)})`}>
@@ -3221,13 +3215,12 @@ export function AiChatApp(props: { controller: any }) {
                                         fill="transparent"
                                         pointerEvents="all"
                                       />
+                                      {isSelected ? <circle cx={w / 2} cy={h / 2} r={18} fill="rgba(245,124,0,.18)" /> : null}
                                       <circle
                                         cx={w / 2}
                                         cy={h / 2}
                                         r={isSelected ? 10 : 8}
-                                        fill="rgba(34,197,94,.92)"
-                                        stroke={isSelected ? 'rgba(245, 124, 0, .85)' : 'rgba(22,163,74,.55)'}
-                                        strokeWidth={isSelected ? 3 : 2}
+                                        fill="#22c55e"
                                       />
                                       <title>{text || 'AI'}</title>
                                     </>
@@ -3238,7 +3231,8 @@ export function AiChatApp(props: { controller: any }) {
                                           <rect x={10} y={6} width={Math.max(0, w - 20)} height={Math.max(0, h - 12)} rx={8} />
                                         </clipPath>
                                       </defs>
-                                      <rect x={0} y={0} width={w} height={h} rx={12} fill={palette.fill} stroke={stroke} strokeWidth={strokeWidth} />
+                                      {isSelected ? <rect x={-4} y={-4} width={w + 8} height={h + 8} rx={14} fill="rgba(245,124,0,.18)" /> : null}
+                                      <rect x={0} y={0} width={w} height={h} rx={12} fill={nodeFill} />
                                       <text
                                         x={12}
                                         y={h / 2}
