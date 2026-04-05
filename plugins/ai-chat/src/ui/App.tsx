@@ -848,11 +848,17 @@ export function AiChatApp(props: { controller: any }) {
     return msgs.some((m: any) => m && m.role === 'assistant' && m.pending)
   }, [])
   const isSendingThisChat = React.useCallback(
-    (roleId: string, chatId: string) => {
-      const rid = String(roleId || '')
+    (targetKind: 'role' | 'group', targetId: string, chatId: string) => {
+      const tid = String(targetId || '')
       const cid = String(chatId || '')
-      if (!rid || !cid) return false
-      const box = data?.chatsByRole?.[rid]
+      if (!tid || !cid) return false
+      if (targetKind === 'group') {
+        const box = (data as any)?.chatsByGroup?.[tid]
+        const chats = Array.isArray(box?.chats) ? box.chats : []
+        const chat = chats.find((c: any) => String(c?.id || '') === cid) || null
+        return isChatGenerating(chat)
+      }
+      const box = data?.chatsByRole?.[tid]
       const chats = Array.isArray(box?.chats) ? box.chats : []
       const chat = chats.find((c: any) => String(c?.id || '') === cid) || null
       return isChatGenerating(chat)
@@ -2127,25 +2133,42 @@ export function AiChatApp(props: { controller: any }) {
     role: 'assistant',
   })
   const [editingMsg, setEditingMsg] = React.useState<{ mid: string; text: string }>({ mid: '', text: '' })
-  const [chatMenu, setChatMenu] = React.useState<{ roleId: string; chatId: string; title: string; x: number; y: number }>({
-    roleId: '',
+  const [chatMenu, setChatMenu] = React.useState<{
+    targetKind: 'role' | 'group'
+    targetId: string
+    chatId: string
+    title: string
+    x: number
+    y: number
+  }>({
+    targetKind: 'role',
+    targetId: '',
     chatId: '',
     title: '',
     x: 0,
     y: 0,
   })
-  const [confirmDelChat, setConfirmDelChat] = React.useState<{ roleId: string; chatId: string }>({ roleId: '', chatId: '' })
-  const [editingChatTitle, setEditingChatTitle] = React.useState<{ roleId: string; chatId: string; text: string }>({ roleId: '', chatId: '', text: '' })
+  const [confirmDelChat, setConfirmDelChat] = React.useState<{ targetKind: 'role' | 'group'; targetId: string; chatId: string }>({
+    targetKind: 'role',
+    targetId: '',
+    chatId: '',
+  })
+  const [editingChatTitle, setEditingChatTitle] = React.useState<{ targetKind: 'role' | 'group'; targetId: string; chatId: string; text: string }>({
+    targetKind: 'role',
+    targetId: '',
+    chatId: '',
+    text: '',
+  })
 
   React.useEffect(() => {
     setEditingMsg({ mid: '', text: '' })
   }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey])
 
   React.useEffect(() => {
-    setChatMenu({ roleId: '', chatId: '', title: '', x: 0, y: 0 })
-    setConfirmDelChat({ roleId: '', chatId: '' })
-    setEditingChatTitle({ roleId: '', chatId: '', text: '' })
-  }, [page, activeRole?.id])
+    setChatMenu({ targetKind: 'role', targetId: '', chatId: '', title: '', x: 0, y: 0 })
+    setConfirmDelChat({ targetKind: 'role', targetId: '', chatId: '' })
+    setEditingChatTitle({ targetKind: 'role', targetId: '', chatId: '', text: '' })
+  }, [page, activeRole?.id, (activeGroup as any)?.id, activeTargetKind])
 
   const closeMsgMenu = useEvent(() => setMsgMenu({ mid: '', role: 'assistant', x: 0, y: 0, pending: false }))
   const onMessageContextMenu = useEvent((e: React.MouseEvent, mid: string, role: 'user' | 'assistant', pending: boolean) => {
@@ -2170,14 +2193,15 @@ export function AiChatApp(props: { controller: any }) {
     setTreeNodeMenu({ mid: id, role, x: Number(e?.clientX || 0), y: Number(e?.clientY || 0) })
   })
 
-  const closeChatMenu = useEvent(() => setChatMenu({ roleId: '', chatId: '', title: '', x: 0, y: 0 }))
-  const onChatContextMenu = useEvent((e: React.MouseEvent, roleId: string, chatId: string, title: string) => {
-    const rid = String(roleId || '')
+  const closeChatMenu = useEvent(() => setChatMenu({ targetKind: 'role', targetId: '', chatId: '', title: '', x: 0, y: 0 }))
+  const onChatContextMenu = useEvent((e: React.MouseEvent, targetKind: 'role' | 'group', targetId: string, chatId: string, title: string) => {
+    const kind = targetKind === 'group' ? 'group' : 'role'
+    const tid = String(targetId || '')
     const cid = String(chatId || '')
-    if (!rid || !cid) return
+    if (!tid || !cid) return
     e.preventDefault()
     e.stopPropagation()
-    setChatMenu({ roleId: rid, chatId: cid, title: String(title ?? ''), x: e.clientX, y: e.clientY })
+    setChatMenu({ targetKind: kind, targetId: tid, chatId: cid, title: String(title ?? ''), x: e.clientX, y: e.clientY })
   })
 
   React.useEffect(() => {
@@ -4804,19 +4828,22 @@ export function AiChatApp(props: { controller: any }) {
                        const raw = String(last?.content || '').replace(/\s+/g, ' ').trim()
                        const snippet = raw.length > 40 ? raw.slice(0, 40) + '…' : raw
                        const time = controller.fmtTime(Number(c?.updatedAt || c?.createdAt || 0))
-                      return (
-                        <ListItemButton
-                          key={String(c?.id || '')}
-                          selected={on}
-                          onClick={() => {
-                            controller.actions.setActiveChat(String(c?.id || ''))
-                            closeChatPicker()
-                          }}
-                          sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}
-                        >
-                          <ListItemText
-                            sx={{ minWidth: 0 }}
-                            primary={
+                       return (
+                         <ListItemButton
+                           key={String(c?.id || '')}
+                           selected={on}
+                           onClick={() => {
+                             controller.actions.setActiveChat(String(c?.id || ''))
+                             closeChatPicker()
+                           }}
+                           onContextMenu={(e) =>
+                             onChatContextMenu(e, 'group', String((activeGroup as any)?.id || ''), String(c?.id || ''), String(c?.title || '群聊'))
+                           }
+                           sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}
+                         >
+                           <ListItemText
+                             sx={{ minWidth: 0 }}
+                             primary={
                               <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
                                 <Typography sx={{ fontWeight: 900, fontSize: 13, flex: 1, minWidth: 0 }} noWrap>
                                   {String(c?.title || '群聊')}
@@ -4894,7 +4921,9 @@ export function AiChatApp(props: { controller: any }) {
                           controller.actions.setActiveChat(String(c?.id || ''))
                           closeChatPicker()
                         }}
-                        onContextMenu={(e) => onChatContextMenu(e, String(role?.id || ''), String(c?.id || ''), String(c?.title || '新聊天'))}
+                        onContextMenu={(e) =>
+                          onChatContextMenu(e, 'role', String(role?.id || ''), String(c?.id || ''), String(c?.title || '新聊天'))
+                        }
                         sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}
                       >
                         <ListItemText
@@ -4933,11 +4962,11 @@ export function AiChatApp(props: { controller: any }) {
         >
           <Box sx={{ minWidth: 180, p: 0.5 }}>
             <MenuItem
-              disabled={!chatMenu.chatId || !chatMenu.roleId || s.loading}
+              disabled={!chatMenu.chatId || !chatMenu.targetId || s.loading}
               onClick={() => {
-                const { roleId, chatId, title } = chatMenu
+                const { targetKind, targetId, chatId, title } = chatMenu
                 closeChatMenu()
-                setEditingChatTitle({ roleId, chatId, text: String(title ?? '') })
+                setEditingChatTitle({ targetKind, targetId, chatId, text: String(title ?? '') })
               }}
               sx={{ gap: 1 }}
             >
@@ -4945,12 +4974,15 @@ export function AiChatApp(props: { controller: any }) {
               编辑标题
             </MenuItem>
             <MenuItem
-              disabled={!chatMenu.chatId || !chatMenu.roleId || s.loading || isSendingThisChat(chatMenu.roleId, chatMenu.chatId)}
+              disabled={!chatMenu.chatId || !chatMenu.targetId || s.loading || isSendingThisChat(chatMenu.targetKind, chatMenu.targetId, chatMenu.chatId)}
               onClick={() => {
-                const { roleId, chatId } = chatMenu
+                const { targetKind, targetId, chatId } = chatMenu
                 closeChatMenu()
                 Promise.resolve()
-                  .then(() => controller.actions.aiGenerateChatTitle?.(roleId, chatId))
+                  .then(() => {
+                    if (targetKind === 'group') return controller.actions.aiGenerateGroupChatTitle?.(targetId, chatId)
+                    return controller.actions.aiGenerateChatTitle?.(targetId, chatId)
+                  })
                   .catch(() => {})
               }}
               sx={{ gap: 1 }}
@@ -4959,11 +4991,11 @@ export function AiChatApp(props: { controller: any }) {
               AI 生成标题
             </MenuItem>
             <MenuItem
-              disabled={!chatMenu.chatId || !chatMenu.roleId || s.loading || isSendingThisChat(chatMenu.roleId, chatMenu.chatId)}
+              disabled={!chatMenu.chatId || !chatMenu.targetId || s.loading || isSendingThisChat(chatMenu.targetKind, chatMenu.targetId, chatMenu.chatId)}
               onClick={() => {
-                const { roleId, chatId } = chatMenu
+                const { targetKind, targetId, chatId } = chatMenu
                 closeChatMenu()
-                setConfirmDelChat({ roleId, chatId })
+                setConfirmDelChat({ targetKind, targetId, chatId })
               }}
               sx={{ gap: 1 }}
             >
@@ -4975,7 +5007,7 @@ export function AiChatApp(props: { controller: any }) {
 
         <Dialog
           open={!!editingChatTitle.chatId}
-          onClose={() => setEditingChatTitle({ roleId: '', chatId: '', text: '' })}
+          onClose={() => setEditingChatTitle({ targetKind: 'role', targetId: '', chatId: '', text: '' })}
           maxWidth="xs"
           fullWidth
         >
@@ -4990,29 +5022,31 @@ export function AiChatApp(props: { controller: any }) {
               value={String(editingChatTitle.text ?? '')}
               onChange={(e) => setEditingChatTitle((p) => ({ ...p, text: e.target.value }))}
               onKeyDown={(e) => {
-                if (e.key === 'Escape') setEditingChatTitle({ roleId: '', chatId: '', text: '' })
+                if (e.key === 'Escape') setEditingChatTitle({ targetKind: 'role', targetId: '', chatId: '', text: '' })
                 if (e.key === 'Enter') {
                   e.preventDefault()
-                  const { roleId, chatId, text } = editingChatTitle
-                  if (!roleId || !chatId || s.loading) return
-                  setEditingChatTitle({ roleId: '', chatId: '', text: '' })
-                  controller.actions.renameChat?.(roleId, chatId, String(text ?? ''))
+                  const { targetKind, targetId, chatId, text } = editingChatTitle
+                  if (!targetId || !chatId || s.loading) return
+                  setEditingChatTitle({ targetKind: 'role', targetId: '', chatId: '', text: '' })
+                  if (targetKind === 'group') controller.actions.renameGroupChat?.(targetId, chatId, String(text ?? ''))
+                  else controller.actions.renameChat?.(targetId, chatId, String(text ?? ''))
                 }
               }}
               sx={{ mt: 1 }}
             />
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setEditingChatTitle({ roleId: '', chatId: '', text: '' })}>取消</Button>
+            <Button onClick={() => setEditingChatTitle({ targetKind: 'role', targetId: '', chatId: '', text: '' })}>取消</Button>
             <Button
               variant="contained"
               onClick={() => {
-                const { roleId, chatId, text } = editingChatTitle
-                if (!roleId || !chatId || s.loading) return
-                setEditingChatTitle({ roleId: '', chatId: '', text: '' })
-                controller.actions.renameChat?.(roleId, chatId, String(text ?? ''))
+                const { targetKind, targetId, chatId, text } = editingChatTitle
+                if (!targetId || !chatId || s.loading) return
+                setEditingChatTitle({ targetKind: 'role', targetId: '', chatId: '', text: '' })
+                if (targetKind === 'group') controller.actions.renameGroupChat?.(targetId, chatId, String(text ?? ''))
+                else controller.actions.renameChat?.(targetId, chatId, String(text ?? ''))
               }}
-              disabled={!editingChatTitle.roleId || !editingChatTitle.chatId || s.loading}
+              disabled={!editingChatTitle.targetId || !editingChatTitle.chatId || s.loading}
             >
               保存
             </Button>
@@ -5021,7 +5055,7 @@ export function AiChatApp(props: { controller: any }) {
 
         <Dialog
           open={!!confirmDelChat.chatId}
-          onClose={() => setConfirmDelChat({ roleId: '', chatId: '' })}
+          onClose={() => setConfirmDelChat({ targetKind: 'role', targetId: '', chatId: '' })}
           maxWidth="xs"
           fullWidth
         >
@@ -5032,17 +5066,23 @@ export function AiChatApp(props: { controller: any }) {
             </Typography>
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setConfirmDelChat({ roleId: '', chatId: '' })}>取消</Button>
+            <Button onClick={() => setConfirmDelChat({ targetKind: 'role', targetId: '', chatId: '' })}>取消</Button>
             <Button
               variant="contained"
               color="error"
               onClick={() => {
-                const { roleId, chatId } = confirmDelChat
-                setConfirmDelChat({ roleId: '', chatId: '' })
-                if (!roleId || !chatId) return
-                controller.actions.deleteChat?.(roleId, chatId)
+                const { targetKind, targetId, chatId } = confirmDelChat
+                setConfirmDelChat({ targetKind: 'role', targetId: '', chatId: '' })
+                if (!targetId || !chatId) return
+                if (targetKind === 'group') controller.actions.deleteGroupChat?.(targetId, chatId)
+                else controller.actions.deleteChat?.(targetId, chatId)
               }}
-              disabled={!confirmDelChat.roleId || !confirmDelChat.chatId || s.loading || isSendingThisChat(confirmDelChat.roleId, confirmDelChat.chatId)}
+              disabled={
+                !confirmDelChat.targetId ||
+                !confirmDelChat.chatId ||
+                s.loading ||
+                isSendingThisChat(confirmDelChat.targetKind, confirmDelChat.targetId, confirmDelChat.chatId)
+              }
             >
               删除
             </Button>

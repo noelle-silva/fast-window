@@ -2384,12 +2384,9 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
 
   const chatTitleNamingWriteQueue = new Map<string, Promise<void>>()
 
-  function enqueueChatTitleNamingWrite(roleId, chatId, fn) {
-    const rid = String(roleId || '').trim()
-    const cid = String(chatId || '').trim()
-    if (!rid || !cid) return Promise.reject(new Error('未找到会话ID'))
-
-    const key = `${rid}:${cid}`
+  function enqueueChatTitleNamingWriteKey(keyRaw: any, fn: any) {
+    const key = String(keyRaw || '').trim()
+    if (!key) return Promise.reject(new Error('未找到会话ID'))
     const prev = chatTitleNamingWriteQueue.get(key) || Promise.resolve()
     const run = prev.catch(() => {}).then(fn)
     const completion = run.then(
@@ -2401,6 +2398,14 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       if (chatTitleNamingWriteQueue.get(key) === completion) chatTitleNamingWriteQueue.delete(key)
     })
     return run
+  }
+
+  function enqueueChatTitleNamingWrite(roleId, chatId, fn) {
+    const rid = String(roleId || '').trim()
+    const cid = String(chatId || '').trim()
+    if (!rid || !cid) return Promise.reject(new Error('未找到会话ID'))
+    const key = `role:${rid}:${cid}`
+    return enqueueChatTitleNamingWriteKey(key, fn)
   }
 
   function normalizeAiGeneratedChatTitle(input) {
@@ -2474,6 +2479,44 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       const title = normalizeAiGeneratedChatTitle(reply)
       if (!title) throw new Error('AI 未返回标题')
       renameChatTitle(rid, cid, title)
+      return title
+    })
+  }
+
+  async function aiGenerateGroupChatTitle(groupId: any, chatId: any) {
+    if (!state.data) throw new Error('数据未加载')
+
+    const cfg = (state.data?.settings?.aiServices as any)?.chatTitleNaming || {}
+    const enabled = !!cfg.enabled
+    if (!enabled) throw new Error('未启用：AI 聊天记录取名（插件设置 → AI 微服务）')
+
+    const providerId = String(cfg.providerId || '').trim()
+    const modelId = resolveAiModelId(cfg.modelId, cfg.customModelId)
+    const systemPrompt = typeof cfg.systemPrompt === 'string' ? cfg.systemPrompt : DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT
+
+    const gid = String(groupId || '').trim()
+    const cid = String(chatId || '').trim()
+    if (!gid || !cid) throw new Error('未找到会话ID')
+
+    const group = getGroupById(gid)
+    if (!group) throw new Error('群组不存在')
+
+    const box = ensureGroupChatsBoxBare(gid)
+    if (!box) throw new Error('群组不存在')
+    const chats = Array.isArray(box.chats) ? box.chats : []
+    const chat = chats.find((c: any) => String(c?.id || '') === cid) || null
+    if (!chat) throw new Error('会话不存在')
+    if (chatHasPendingAssistant(chat)) throw new Error('会话正在生成中，请稍后再试')
+
+    const userContent = buildChatTranscriptForTitle(chat, 24)
+    if (!userContent) throw new Error('聊天记录为空，无法生成标题')
+
+    const key = `group:${gid}:${cid}`
+    return enqueueChatTitleNamingWriteKey(key, async () => {
+      const reply = await requestOpenAiChatOnce({ providerId, modelId, systemPrompt, userContent })
+      const title = normalizeAiGeneratedChatTitle(reply)
+      if (!title) throw new Error('AI 未返回标题')
+      renameGroupChatTitle(gid, cid, title)
       return title
     })
   }
@@ -6293,6 +6336,20 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     if (!(state.data as any).chatsByGroup || typeof (state.data as any).chatsByGroup !== 'object') (state.data as any).chatsByGroup = {}
   }
 
+  function ensureGroupChatsBoxBare(groupId: any) {
+    if (!state.data) return null
+    ensureGroupsList()
+    const gid = String(groupId || '').trim()
+    if (!gid) return null
+    if (!(state.data as any).chatsByGroup[gid] || typeof (state.data as any).chatsByGroup[gid] !== 'object') (state.data as any).chatsByGroup[gid] = { activeChatId: '', chats: [] }
+    const box = (state.data as any).chatsByGroup[gid]
+    if (!Array.isArray(box.chats)) box.chats = []
+    box.activeChatId = String(box.activeChatId || '')
+    if (box.activeChatId && !box.chats.some((c: any) => String(c?.id || '') === box.activeChatId)) box.activeChatId = ''
+    if (!box.activeChatId && box.chats.length) box.activeChatId = String(box.chats[0]?.id || '')
+    return box
+  }
+
   function ensureGroupChatsBox(groupId: any) {
     if (!state.data) return null
     ensureGroupsList()
@@ -6712,6 +6769,28 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     render()
   }
 
+  function renameGroupChatTitle(groupId: any, chatId: any, title: any) {
+    if (!state.data) return
+    const gid = String(groupId || '').trim()
+    const cid = String(chatId || '').trim()
+    if (!gid || !cid) return
+
+    const box = ensureGroupChatsBoxBare(gid)
+    if (!box) return
+    const chats = Array.isArray(box.chats) ? box.chats : []
+    const chat = chats.find((c: any) => String(c?.id) === cid) || null
+    if (!chat) return
+
+    let t = String(title ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (t.length > 80) t = t.slice(0, 80).trim()
+    chat.title = t || '群聊'
+
+    save().catch(() => {})
+    render()
+  }
+
   function collectChatImagePathSet(chat: any): Set<string> {
     const out = new Set<string>()
     const msgs = Array.isArray(chat?.messages) ? chat.messages : []
@@ -6750,6 +6829,41 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         }
       }
     }
+    return out
+  }
+
+  function collectOtherChatsImagePathSetForGroup(excludeGroupId: string, excludeChatId: string): Set<string> {
+    const out = new Set<string>()
+    if (!state.data) return out
+
+    const byRole: Record<string, any> = state.data.chatsByRole && typeof state.data.chatsByRole === 'object' ? (state.data.chatsByRole as any) : {}
+    for (const box of Object.values(byRole)) {
+      const chats = Array.isArray((box as any)?.chats) ? (box as any).chats : []
+      for (const c of chats) {
+        const paths = collectChatImagePathSet(c)
+        for (const p of paths) {
+          out.add(p)
+          const base = imageBasename(p)
+          if (base && base !== p) out.add(base)
+        }
+      }
+    }
+
+    const byGroup = (state.data as any).chatsByGroup && typeof (state.data as any).chatsByGroup === 'object' ? (state.data as any).chatsByGroup : {}
+    for (const [gid, box] of Object.entries(byGroup)) {
+      const chats = Array.isArray((box as any)?.chats) ? (box as any).chats : []
+      for (const c of chats) {
+        const cid = String((c as any)?.id || '')
+        if (String(gid) === String(excludeGroupId || '') && cid === String(excludeChatId || '')) continue
+        const paths = collectChatImagePathSet(c)
+        for (const p of paths) {
+          out.add(p)
+          const base = imageBasename(p)
+          if (base && base !== p) out.add(base)
+        }
+      }
+    }
+
     return out
   }
 
@@ -6795,6 +6909,46 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       const nid = uid('c')
       const t = now()
       box.chats = [{ id: nid, title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }]
+      box.activeChatId = nid
+    }
+
+    void save()
+      .then(() => deleteChatImages(toDeleteImages))
+      .catch(() => {})
+    render()
+  }
+
+  function deleteChatForGroup(groupId: any, chatId: any) {
+    if (!state.data) return
+    const gid = String(groupId || '').trim()
+    const cid = String(chatId || '').trim()
+    if (!gid || !cid) return
+
+    const box = ensureGroupChatsBoxBare(gid)
+    if (!box) return
+    const before = Array.isArray(box.chats) ? box.chats : []
+    const target = before.find((c: any) => String(c?.id) === cid) || null
+    if (!target) return
+    if (chatHasPendingAssistant(target)) {
+      api.ui?.showToast?.('正在生成中，不能删除该会话')
+      return
+    }
+
+    const targetImagePaths = collectChatImagePathSet(target)
+    const otherImagePaths = targetImagePaths.size ? collectOtherChatsImagePathSetForGroup(gid, cid) : new Set<string>()
+    const toDeleteImages: string[] = []
+    for (const p of targetImagePaths) {
+      const base = imageBasename(p)
+      if (!otherImagePaths.has(p) && (!base || !otherImagePaths.has(base))) toDeleteImages.push(p)
+    }
+
+    box.chats = before.filter((c: any) => String(c?.id) !== cid)
+    if (String(box.activeChatId || '') === cid) box.activeChatId = String(box.chats[0]?.id || '')
+
+    if (!box.chats.length) {
+      const nid = uid('gc')
+      const t = now()
+      box.chats = [{ id: nid, title: '群聊', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }]
       box.activeChatId = nid
     }
 
@@ -7884,6 +8038,20 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
             api.ui?.showToast?.(String(e?.message || e || 'AI 生成标题失败'))
             throw e
           }),
+      aiGenerateGroupChatTitle: (groupId, chatId) =>
+        Promise.resolve()
+          .then(() => {
+            api.ui?.showToast?.('AI 生成标题中…')
+            return aiGenerateGroupChatTitle(String(groupId || ''), String(chatId || ''))
+          })
+          .then((title) => {
+            api.ui?.showToast?.(`已更新标题：${String(title || '').trim() || '（空）'}`)
+            return title
+          })
+          .catch((e) => {
+            api.ui?.showToast?.(String(e?.message || e || 'AI 生成标题失败'))
+            throw e
+          }),
       aiGenerateStickerName: (categoryName, stickerName) =>
         Promise.resolve()
           .then(() => {
@@ -7899,7 +8067,9 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
             throw e
           }),
       renameChat: (roleId, chatId, title) => renameChatTitle(String(roleId || ''), String(chatId || ''), String(title ?? '')),
+      renameGroupChat: (groupId, chatId, title) => renameGroupChatTitle(String(groupId || ''), String(chatId || ''), String(title ?? '')),
       deleteChat: (roleId, chatId) => deleteChatForRole(String(roleId || ''), String(chatId || '')),
+      deleteGroupChat: (groupId, chatId) => deleteChatForGroup(String(groupId || ''), String(chatId || '')),
       setDraft: (key, value) => {
         const k = String(key || '')
         if (!k) return
