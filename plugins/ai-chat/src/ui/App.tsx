@@ -4712,6 +4712,20 @@ export function AiChatApp(props: { controller: any }) {
               onClick={() => {
                 const { roleId, chatId } = chatMenu
                 closeChatMenu()
+                Promise.resolve()
+                  .then(() => controller.actions.aiGenerateChatTitle?.(roleId, chatId))
+                  .catch(() => {})
+              }}
+              sx={{ gap: 1 }}
+            >
+              <AutorenewIcon fontSize="small" />
+              AI 生成标题
+            </MenuItem>
+            <MenuItem
+              disabled={!chatMenu.chatId || !chatMenu.roleId || s.loading || isSendingThisChat(chatMenu.roleId, chatMenu.chatId)}
+              onClick={() => {
+                const { roleId, chatId } = chatMenu
+                closeChatMenu()
                 setConfirmDelChat({ roleId, chatId })
               }}
               sx={{ gap: 1 }}
@@ -6209,18 +6223,32 @@ function PluginSettingsPage(props: {
   }
 
   if (tab === 'services') {
-    const cfg = (data?.settings?.aiServices?.mermaidFix && typeof data.settings.aiServices.mermaidFix === 'object') ? data.settings.aiServices.mermaidFix : {}
-    const enabled = !!cfg.enabled
-    const providerId = String(cfg.providerId || providers?.[0]?.id || '')
-    const modelPick = String(cfg.modelId || '')
-    const customModelId = String(cfg.customModelId || '')
-    const systemPrompt = typeof cfg.systemPrompt === 'string' ? cfg.systemPrompt : ''
-    const defaultPrompt = String(controller?.defaults?.mermaidFixSystemPrompt || '')
-    const promptChanged = !!defaultPrompt && systemPrompt.trim() !== defaultPrompt.trim()
+    const mmCfg = (data?.settings?.aiServices?.mermaidFix && typeof data.settings.aiServices.mermaidFix === 'object') ? data.settings.aiServices.mermaidFix : {}
+    const mmEnabled = !!mmCfg.enabled
+    const mmProviderId = String(mmCfg.providerId || providers?.[0]?.id || '')
+    const mmModelPick = String(mmCfg.modelId || '')
+    const mmCustomModelId = String(mmCfg.customModelId || '')
+    const mmSystemPrompt = typeof mmCfg.systemPrompt === 'string' ? mmCfg.systemPrompt : ''
+    const mmDefaultPrompt = String(controller?.defaults?.mermaidFixSystemPrompt || '')
+    const mmPromptChanged = !!mmDefaultPrompt && mmSystemPrompt.trim() !== mmDefaultPrompt.trim()
 
-    const p = providers.find((x: any) => String(x?.id || '') === providerId) || null
-    const modelItems = Array.isArray(p?.modelsCache?.items) ? (p.modelsCache.items as any[]).map((x) => String(x)) : []
-    const hasPickInList = !!modelPick && modelPick !== '__custom__' && modelItems.some((x) => x === modelPick)
+    const ctnCfg = (data?.settings?.aiServices?.chatTitleNaming && typeof (data.settings.aiServices as any).chatTitleNaming === 'object') ? (data.settings.aiServices as any).chatTitleNaming : {}
+    const ctnEnabled = !!ctnCfg.enabled
+    const ctnProviderId = String(ctnCfg.providerId || providers?.[0]?.id || '')
+    const ctnModelPick = String(ctnCfg.modelId || '')
+    const ctnCustomModelId = String(ctnCfg.customModelId || '')
+    const ctnSystemPrompt = typeof ctnCfg.systemPrompt === 'string' ? ctnCfg.systemPrompt : ''
+    const ctnDefaultPrompt = String(controller?.defaults?.chatTitleNamingSystemPrompt || '')
+    const ctnPromptChanged = !!ctnDefaultPrompt && ctnSystemPrompt.trim() !== ctnDefaultPrompt.trim()
+
+    const mmP = providers.find((x: any) => String(x?.id || '') === mmProviderId) || null
+    const mmModelItems = Array.isArray(mmP?.modelsCache?.items) ? (mmP.modelsCache.items as any[]).map((x) => String(x)) : []
+    const mmHasPickInList = !!mmModelPick && mmModelPick !== '__custom__' && mmModelItems.some((x) => x === mmModelPick)
+
+    const ctnP = providers.find((x: any) => String(x?.id || '') === ctnProviderId) || null
+    const ctnModelItems = Array.isArray(ctnP?.modelsCache?.items) ? (ctnP.modelsCache.items as any[]).map((x) => String(x)) : []
+    const ctnHasPickInList = !!ctnModelPick && ctnModelPick !== '__custom__' && ctnModelItems.some((x) => x === ctnModelPick)
+
     const modelLoading = !!models?.loading
 
     return (
@@ -6238,7 +6266,7 @@ function PluginSettingsPage(props: {
                 <Typography sx={{ fontWeight: 900 }}>Mermaid AI 修复</Typography>
                 <Box sx={{ flex: 1 }} />
                 <Stack direction="row" alignItems="center" spacing={1}>
-                  <Switch size="small" checked={enabled} onChange={(e) => controller.actions.setMermaidFixEnabled?.(e.target.checked)} />
+                  <Switch size="small" checked={mmEnabled} onChange={(e) => controller.actions.setMermaidFixEnabled?.(e.target.checked)} />
                   <Typography variant="body2" color="text.secondary">
                     启用
                   </Typography>
@@ -6254,7 +6282,7 @@ function PluginSettingsPage(props: {
                   <InputLabel id="mmfix-provider">供应商</InputLabel>
                   <Select
                     labelId="mmfix-provider"
-                    value={providerId}
+                    value={mmProviderId}
                     label="供应商"
                     onChange={(e) => controller.actions.setMermaidFixProviderId?.(e.target.value)}
                     disabled={loading || !providers.length}
@@ -6271,7 +6299,7 @@ function PluginSettingsPage(props: {
                 </FormControl>
 
                 <Stack direction="row" spacing={1} sx={{ pt: { xs: 0, sm: 0.5 } }}>
-                  <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => controller.actions.refreshModels(providerId, true)} disabled={!providerId || modelLoading}>
+                  <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => controller.actions.refreshModels(mmProviderId, true)} disabled={!mmProviderId || modelLoading}>
                     {modelLoading ? '刷新中…' : '刷新模型'}
                   </Button>
                 </Stack>
@@ -6281,15 +6309,15 @@ function PluginSettingsPage(props: {
                 <InputLabel id="mmfix-model">模型</InputLabel>
                 <Select
                   labelId="mmfix-model"
-                  value={hasPickInList ? modelPick : modelPick === '__custom__' ? '__custom__' : ''}
+                  value={mmHasPickInList ? mmModelPick : mmModelPick === '__custom__' ? '__custom__' : ''}
                   label="模型"
                   onChange={(e) => controller.actions.setMermaidFixModelId?.(e.target.value)}
-                  disabled={loading || !providerId}
+                  disabled={loading || !mmProviderId}
                 >
                   <MenuItem value="">
                     <em>请选择…</em>
                   </MenuItem>
-                  {modelItems.map((id: string) => (
+                  {mmModelItems.map((id: string) => (
                     <MenuItem key={id} value={id}>
                       {id}
                     </MenuItem>
@@ -6298,11 +6326,11 @@ function PluginSettingsPage(props: {
                 </Select>
               </FormControl>
 
-              {modelPick === '__custom__' ? (
+              {mmModelPick === '__custom__' ? (
                 <TextField
                   size="small"
                   label="自定义模型ID"
-                  value={customModelId}
+                  value={mmCustomModelId}
                   onChange={(e) => controller.actions.setMermaidFixCustomModelId?.(e.target.value)}
                   placeholder="例如：gpt-4.1-mini / deepseek-chat"
                   fullWidth
@@ -6312,7 +6340,7 @@ function PluginSettingsPage(props: {
               <TextField
                 size="small"
                 label="系统提示词"
-                value={systemPrompt}
+                value={mmSystemPrompt}
                 onChange={(e) => controller.actions.setMermaidFixSystemPrompt?.(e.target.value)}
                 placeholder="写入系统提示词…"
                 fullWidth
@@ -6321,18 +6349,123 @@ function PluginSettingsPage(props: {
               />
 
               <Stack direction="row" spacing={1} alignItems="center">
-                <Typography variant="caption" color={promptChanged ? 'warning.main' : 'text.secondary'}>
-                  {promptChanged ? '已自定义系统提示词' : '当前为默认系统提示词'}
+                <Typography variant="caption" color={mmPromptChanged ? 'warning.main' : 'text.secondary'}>
+                  {mmPromptChanged ? '已自定义系统提示词' : '当前为默认系统提示词'}
                 </Typography>
                 <Box sx={{ flex: 1 }} />
                 <Button
                   size="small"
                   variant="outlined"
                   onClick={() => controller.actions.resetMermaidFixSystemPromptDefault?.()}
-                  disabled={!defaultPrompt || !promptChanged}
+                  disabled={!mmDefaultPrompt || !mmPromptChanged}
                 >
                   恢复默认
                 </Button>
+              </Stack>
+
+              <Divider sx={{ my: 1.25 }} />
+
+              <Stack spacing={1.25}>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Typography sx={{ fontWeight: 900 }}>AI 聊天记录取名</Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <Switch size="small" checked={ctnEnabled} onChange={(e) => controller.actions.setChatTitleNamingEnabled?.(e.target.checked)} />
+                    <Typography variant="body2" color="text.secondary">
+                      启用
+                    </Typography>
+                  </Stack>
+                </Stack>
+
+                <Typography variant="caption" color="text.secondary">
+                  在“聊天记录”的会话菜单里，可点击“AI 生成标题”，用选定供应商/模型按系统提示词为当前会话生成新标题。
+                </Typography>
+
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                  <FormControl size="small" fullWidth>
+                    <InputLabel id="ctn-provider">供应商</InputLabel>
+                    <Select
+                      labelId="ctn-provider"
+                      value={ctnProviderId}
+                      label="供应商"
+                      onChange={(e) => controller.actions.setChatTitleNamingProviderId?.(e.target.value)}
+                      disabled={loading || !providers.length}
+                    >
+                      {providers.map((pp: any) => {
+                        const id = String(pp?.id || '')
+                        return (
+                          <MenuItem key={id} value={id}>
+                            {id}
+                          </MenuItem>
+                        )
+                      })}
+                    </Select>
+                  </FormControl>
+
+                  <Stack direction="row" spacing={1} sx={{ pt: { xs: 0, sm: 0.5 } }}>
+                    <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => controller.actions.refreshModels(ctnProviderId, true)} disabled={!ctnProviderId || modelLoading}>
+                      {modelLoading ? '刷新中…' : '刷新模型'}
+                    </Button>
+                  </Stack>
+                </Stack>
+
+                <FormControl size="small" fullWidth>
+                  <InputLabel id="ctn-model">模型</InputLabel>
+                  <Select
+                    labelId="ctn-model"
+                    value={ctnHasPickInList ? ctnModelPick : ctnModelPick === '__custom__' ? '__custom__' : ''}
+                    label="模型"
+                    onChange={(e) => controller.actions.setChatTitleNamingModelId?.(e.target.value)}
+                    disabled={loading || !ctnProviderId}
+                  >
+                    <MenuItem value="">
+                      <em>请选择…</em>
+                    </MenuItem>
+                    {ctnModelItems.map((id: string) => (
+                      <MenuItem key={id} value={id}>
+                        {id}
+                      </MenuItem>
+                    ))}
+                    <MenuItem value="__custom__">自定义模型ID…</MenuItem>
+                  </Select>
+                </FormControl>
+
+                {ctnModelPick === '__custom__' ? (
+                  <TextField
+                    size="small"
+                    label="自定义模型ID"
+                    value={ctnCustomModelId}
+                    onChange={(e) => controller.actions.setChatTitleNamingCustomModelId?.(e.target.value)}
+                    placeholder="例如：gpt-4.1-mini / deepseek-chat"
+                    fullWidth
+                  />
+                ) : null}
+
+                <TextField
+                  size="small"
+                  label="系统提示词"
+                  value={ctnSystemPrompt}
+                  onChange={(e) => controller.actions.setChatTitleNamingSystemPrompt?.(e.target.value)}
+                  placeholder="写入系统提示词…"
+                  fullWidth
+                  multiline
+                  minRows={6}
+                />
+
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Typography variant="caption" color={ctnPromptChanged ? 'warning.main' : 'text.secondary'}>
+                    {ctnPromptChanged ? '已自定义系统提示词' : '当前为默认系统提示词'}
+                  </Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => controller.actions.resetChatTitleNamingSystemPromptDefault?.()}
+                    disabled={!ctnDefaultPrompt || !ctnPromptChanged}
+                  >
+                    恢复默认
+                  </Button>
+                </Stack>
               </Stack>
             </Stack>
           </Stack>

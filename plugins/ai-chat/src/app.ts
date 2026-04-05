@@ -56,6 +56,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
   const REF_IMG_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
   const NEW_ROLE_ID = '__new__'
   const DEFAULT_MERMAID_FIX_SYSTEM_PROMPT = `你是 Mermaid 语法修复器。\n\n你会收到一段 Mermaid 源码（可能无法渲染）。你的任务：在尽量保持原意不变的前提下，修复语法/结构错误，让它可以被 Mermaid 渲染。\n\n输出要求：\n- 只输出修复后的 Mermaid 源码本体\n- 不要输出解释、不要输出 Markdown 代码块标记（不要输出 \`\`\`mermaid）`
+  const DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT = `你是“聊天标题生成器”。\n\n你会收到一段聊天记录。你的任务：为这段聊天生成一个简短、贴切的中文标题。\n\n输出要求：\n- 只输出标题本身（纯文本）\n- 不要输出引号、不要输出解释\n- 尽量不超过 20 个汉字`
 
   const uiRefImgCache = new Map()
   const uiRefImgPending = new Set()
@@ -942,6 +943,13 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
                 customModelId: '',
                 systemPrompt: DEFAULT_MERMAID_FIX_SYSTEM_PROMPT,
               },
+              chatTitleNaming: {
+                enabled: false,
+                providerId: pid,
+                modelId: '',
+                customModelId: '',
+                systemPrompt: DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT,
+              },
             },
             toolCallServer: {
               baseUrl: DEFAULT_TOOL_CALL_SERVER_BASE_URL,
@@ -1093,6 +1101,15 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     if (typeof mm.modelId !== 'string') mm.modelId = ''
     if (typeof mm.customModelId !== 'string') mm.customModelId = ''
     if (typeof mm.systemPrompt !== 'string') mm.systemPrompt = DEFAULT_MERMAID_FIX_SYSTEM_PROMPT
+
+    if (!as.chatTitleNaming || typeof as.chatTitleNaming !== 'object') as.chatTitleNaming = {}
+    const ctn = as.chatTitleNaming as any
+    if (typeof ctn.enabled !== 'boolean') ctn.enabled = false
+    if (typeof ctn.providerId !== 'string') ctn.providerId = fallbackPid
+    if (!ctn.providerId || !d.settings.providers.some((p) => String(p?.id || '') === String(ctn.providerId || ''))) ctn.providerId = fallbackPid
+    if (typeof ctn.modelId !== 'string') ctn.modelId = ''
+    if (typeof ctn.customModelId !== 'string') ctn.customModelId = ''
+    if (typeof ctn.systemPrompt !== 'string') ctn.systemPrompt = DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT
 
     if (!d.settings.toolCallServer || typeof d.settings.toolCallServer !== 'object') d.settings.toolCallServer = {}
     const tcs = d.settings.toolCallServer
@@ -1888,6 +1905,102 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
 
       await patchMessageContentSilent(messageId, r.text)
       return fixed
+    })
+  }
+
+  const chatTitleNamingWriteQueue = new Map<string, Promise<void>>()
+
+  function enqueueChatTitleNamingWrite(roleId, chatId, fn) {
+    const rid = String(roleId || '').trim()
+    const cid = String(chatId || '').trim()
+    if (!rid || !cid) return Promise.reject(new Error('未找到会话ID'))
+
+    const key = `${rid}:${cid}`
+    const prev = chatTitleNamingWriteQueue.get(key) || Promise.resolve()
+    const run = prev.catch(() => {}).then(fn)
+    const completion = run.then(
+      () => {},
+      () => {},
+    )
+    chatTitleNamingWriteQueue.set(key, completion)
+    completion.finally(() => {
+      if (chatTitleNamingWriteQueue.get(key) === completion) chatTitleNamingWriteQueue.delete(key)
+    })
+    return run
+  }
+
+  function normalizeAiGeneratedChatTitle(input) {
+    let s = String(input || '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\s+\n/g, '\n')
+      .trim()
+
+    // 只取第一行有效文本：避免模型输出多行说明。
+    const lines = s.split('\n').map((x) => String(x || '').trim()).filter((x) => !!x)
+    s = String(lines[0] || '').trim()
+
+    // 去掉常见前缀与引号
+    s = s.replace(/^(标题|会话标题|建议标题)\s*[:：]\s*/i, '').trim()
+    s = s.replace(/^["'“”‘’`]+|["'“”‘’`]+$/g, '').trim()
+
+    // 统一空白
+    s = s.replace(/\s+/g, ' ').trim()
+    if (s.length > 80) s = s.slice(0, 80).trim()
+    return s
+  }
+
+  function buildChatTranscriptForTitle(chat, maxTurns = 24) {
+    const msgs = Array.isArray(chat?.messages) ? chat.messages : []
+    const his = limitHistory(msgs, clamp(Math.round(Number(maxTurns || 0)), 2, 60))
+    const parts = []
+
+    for (const m of his) {
+      if (!m || typeof m !== 'object') continue
+      const role = m.role === 'assistant' ? '助手' : '用户'
+      let content = String(m.content || '').trim()
+      if (!content) continue
+      if (content.length > 1800) content = `${content.slice(0, 1800).trim()}…`
+      parts.push(`${role}：${content}`)
+      if (parts.length >= 80) break
+    }
+
+    const transcript = parts.join('\n\n').trim()
+    if (!transcript) return ''
+    const userContent = `请为以下聊天记录生成一个简短标题：\n\n${transcript}`
+    return userContent.length > 16000 ? userContent.slice(Math.max(0, userContent.length - 16000)).trim() : userContent
+  }
+
+  async function aiGenerateChatTitle(roleId, chatId) {
+    if (!state.data) throw new Error('数据未加载')
+
+    const cfg = (state.data?.settings?.aiServices as any)?.chatTitleNaming || {}
+    const enabled = !!cfg.enabled
+    if (!enabled) throw new Error('未启用：AI 聊天记录取名（插件设置 → AI 微服务）')
+
+    const providerId = String(cfg.providerId || '').trim()
+    const modelId = resolveAiModelId(cfg.modelId, cfg.customModelId)
+    const systemPrompt = typeof cfg.systemPrompt === 'string' ? cfg.systemPrompt : DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT
+
+    const rid = String(roleId || '').trim()
+    const cid = String(chatId || '').trim()
+    if (!rid || !cid) throw new Error('未找到会话ID')
+
+    const box = ensureChatsBoxBare(rid)
+    if (!box) throw new Error('角色不存在')
+    const chats = Array.isArray(box.chats) ? box.chats : []
+    const chat = chats.find((c) => String(c?.id || '') === cid) || null
+    if (!chat) throw new Error('会话不存在')
+    if (chatHasPendingAssistant(chat)) throw new Error('会话正在生成中，请稍后再试')
+
+    const userContent = buildChatTranscriptForTitle(chat, 24)
+    if (!userContent) throw new Error('聊天记录为空，无法生成标题')
+
+    return enqueueChatTitleNamingWrite(rid, cid, async () => {
+      const reply = await requestOpenAiChatOnce({ providerId, modelId, systemPrompt, userContent })
+      const title = normalizeAiGeneratedChatTitle(reply)
+      if (!title) throw new Error('AI 未返回标题')
+      renameChatTitle(rid, cid, title)
+      return title
     })
   }
 
@@ -5474,6 +5587,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     api,
     defaults: {
       mermaidFixSystemPrompt: DEFAULT_MERMAID_FIX_SYSTEM_PROMPT,
+      chatTitleNamingSystemPrompt: DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT,
     },
     getState: () => state,
     getSnapshot: () => ver,
@@ -5956,6 +6070,58 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         save().catch(() => {})
         emit()
       },
+      setChatTitleNamingEnabled: (on) => {
+        if (!state.data) return
+        if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {}
+        if (!state.data.settings.aiServices.chatTitleNaming || typeof state.data.settings.aiServices.chatTitleNaming !== 'object') state.data.settings.aiServices.chatTitleNaming = {}
+        state.data.settings.aiServices.chatTitleNaming.enabled = !!on
+        save().catch(() => {})
+        emit()
+      },
+      setChatTitleNamingProviderId: (providerId) => {
+        if (!state.data) return
+        const pid = String(providerId || '')
+        if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {}
+        if (!state.data.settings.aiServices.chatTitleNaming || typeof state.data.settings.aiServices.chatTitleNaming !== 'object') state.data.settings.aiServices.chatTitleNaming = {}
+        state.data.settings.aiServices.chatTitleNaming.providerId = pid
+        save().catch(() => {})
+        emit()
+      },
+      setChatTitleNamingModelId: (modelId) => {
+        if (!state.data) return
+        const mid = String(modelId || '')
+        if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {}
+        if (!state.data.settings.aiServices.chatTitleNaming || typeof state.data.settings.aiServices.chatTitleNaming !== 'object') state.data.settings.aiServices.chatTitleNaming = {}
+        state.data.settings.aiServices.chatTitleNaming.modelId = mid
+        save().catch(() => {})
+        emit()
+      },
+      setChatTitleNamingCustomModelId: (customModelId) => {
+        if (!state.data) return
+        const mid = String(customModelId || '')
+        if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {}
+        if (!state.data.settings.aiServices.chatTitleNaming || typeof state.data.settings.aiServices.chatTitleNaming !== 'object') state.data.settings.aiServices.chatTitleNaming = {}
+        state.data.settings.aiServices.chatTitleNaming.customModelId = mid
+        save().catch(() => {})
+        emit()
+      },
+      setChatTitleNamingSystemPrompt: (systemPrompt) => {
+        if (!state.data) return
+        const p = typeof systemPrompt === 'string' ? systemPrompt : String(systemPrompt ?? '')
+        if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {}
+        if (!state.data.settings.aiServices.chatTitleNaming || typeof state.data.settings.aiServices.chatTitleNaming !== 'object') state.data.settings.aiServices.chatTitleNaming = {}
+        state.data.settings.aiServices.chatTitleNaming.systemPrompt = p
+        save().catch(() => {})
+        emit()
+      },
+      resetChatTitleNamingSystemPromptDefault: () => {
+        if (!state.data) return
+        if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {}
+        if (!state.data.settings.aiServices.chatTitleNaming || typeof state.data.settings.aiServices.chatTitleNaming !== 'object') state.data.settings.aiServices.chatTitleNaming = {}
+        state.data.settings.aiServices.chatTitleNaming.systemPrompt = DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT
+        save().catch(() => {})
+        emit()
+      },
       setToolCallServerBaseUrl: (baseUrl) => {
         if (!state.data) return
         const v = String(baseUrl ?? '').trim()
@@ -6115,6 +6281,20 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         emit()
       },
       createChat: () => createChatForActiveRole(),
+      aiGenerateChatTitle: (roleId, chatId) =>
+        Promise.resolve()
+          .then(() => {
+            api.ui?.showToast?.('AI 生成标题中…')
+            return aiGenerateChatTitle(String(roleId || ''), String(chatId || ''))
+          })
+          .then((title) => {
+            api.ui?.showToast?.(`已更新标题：${String(title || '').trim() || '（空）'}`)
+            return title
+          })
+          .catch((e) => {
+            api.ui?.showToast?.(String(e?.message || e || 'AI 生成标题失败'))
+            throw e
+          }),
       renameChat: (roleId, chatId, title) => renameChatTitle(String(roleId || ''), String(chatId || ''), String(title ?? '')),
       deleteChat: (roleId, chatId) => deleteChatForRole(String(roleId || ''), String(chatId || '')),
       setDraft: (key, value) => {
