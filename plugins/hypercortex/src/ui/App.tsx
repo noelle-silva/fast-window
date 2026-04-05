@@ -99,8 +99,9 @@ export function HyperCortexApp() {
             sx={{
               gap: 0.5,
               minHeight: 40,
-              px: 1,
-              '&.MuiToolbar-root': { minHeight: 40 },
+              pl: 0,
+              pr: 1,
+              '&.MuiToolbar-root': { minHeight: 40, paddingLeft: 0, paddingRight: 8 },
               WebkitAppRegion: 'drag',
             }}
             onPointerDown={onTopbarPointerDown}
@@ -110,7 +111,7 @@ export function HyperCortexApp() {
               size="small"
               aria-label="返回主界面"
               data-tauri-drag-region="false"
-              sx={{ WebkitAppRegion: 'no-drag' }}
+              sx={{ WebkitAppRegion: 'no-drag', ml: 0.25 }}
             >
               <ArrowBackRoundedIcon fontSize="small" />
             </IconButton>
