@@ -1140,7 +1140,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
             topbarBlur: 0,
             composerOpacity: 86,
             composerBlur: 10,
-            branchTree: { dir: 'lr', view: 'right', followSelected: true, modalHotkey: '' },
+            branchTree: { dir: 'lr', view: 'float', followSelected: true, modalHotkey: '' },
             toolRequestRenderPreset: 'classic',
             toolRequestRenderPresets: [],
             userMessageCollapseEnabled: false,
@@ -1243,7 +1243,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     btree.dir = okDir ? dir0 : 'lr'
     const view0 = String(btree?.view || '').trim()
     const okView = view0 === 'right' || view0 === 'float'
-    btree.view = okView ? view0 : 'right'
+    btree.view = okView ? view0 : 'float'
     if (typeof btree.followSelected !== 'boolean') btree.followSelected = true
     if (typeof btree.modalHotkey !== 'string') btree.modalHotkey = ''
     btree.modalHotkey = String(btree.modalHotkey || '').trim().slice(0, 80)
