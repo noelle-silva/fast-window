@@ -2,9 +2,14 @@ import * as React from 'react'
 import { AppBar, Box, CssBaseline, GlobalStyles, IconButton, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
+import AddRoundedIcon from '@mui/icons-material/AddRounded'
+import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
+import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded'
+import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
+import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded'
 import { getApi } from '../core'
 
-type PageId = 'home'
+type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'index' | 'settings'
 
 const theme = createTheme({
   palette: {
@@ -101,7 +106,7 @@ export function HyperCortexApp() {
               gap: 0.5,
             }}
           >
-            <Tooltip title="主页">
+            <Tooltip title="主页" placement="right">
               <IconButton
                 size="small"
                 aria-label="主页"
@@ -115,12 +120,92 @@ export function HyperCortexApp() {
                 <HomeRoundedIcon fontSize="small" />
               </IconButton>
             </Tooltip>
+
+            <Tooltip title="新建笔记" placement="right">
+              <IconButton
+                size="small"
+                aria-label="新建笔记"
+                onClick={() => setPage('new-note')}
+                sx={{
+                  borderRadius: 2,
+                  bgcolor: page === 'new-note' ? 'rgba(25,118,210,.10)' : 'transparent',
+                  '&:hover': { bgcolor: page === 'new-note' ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
+                }}
+              >
+                <AddRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+
+            <Tooltip title="索引" placement="right">
+              <IconButton
+                size="small"
+                aria-label="索引"
+                onClick={() => setPage('index')}
+                sx={{
+                  borderRadius: 2,
+                  bgcolor: page === 'index' ? 'rgba(25,118,210,.10)' : 'transparent',
+                  '&:hover': { bgcolor: page === 'index' ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
+                }}
+              >
+                <AccountTreeRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+
+            <Tooltip title="附件" placement="right">
+              <IconButton
+                size="small"
+                aria-label="附件"
+                onClick={() => setPage('attachments')}
+                sx={{
+                  borderRadius: 2,
+                  bgcolor: page === 'attachments' ? 'rgba(25,118,210,.10)' : 'transparent',
+                  '&:hover': { bgcolor: page === 'attachments' ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
+                }}
+              >
+                <AttachFileRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+
+            <Tooltip title="全部笔记" placement="right">
+              <IconButton
+                size="small"
+                aria-label="全部笔记"
+                onClick={() => setPage('all-notes')}
+                sx={{
+                  borderRadius: 2,
+                  bgcolor: page === 'all-notes' ? 'rgba(25,118,210,.10)' : 'transparent',
+                  '&:hover': { bgcolor: page === 'all-notes' ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
+                }}
+              >
+                <NotesRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+
+            <Tooltip title="设置" placement="right">
+              <IconButton
+                size="small"
+                aria-label="设置"
+                onClick={() => setPage('settings')}
+                sx={{
+                  borderRadius: 2,
+                  bgcolor: page === 'settings' ? 'rgba(25,118,210,.10)' : 'transparent',
+                  '&:hover': { bgcolor: page === 'settings' ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
+                }}
+              >
+                <SettingsRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+
+            <Box sx={{ flex: 1 }} />
           </Box>
 
           <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, p: 2 }}>
-            {page === 'home' ? (
-              <Typography color="text.secondary">主页（占位）。下一步按你的指挥继续搭 UI。</Typography>
-            ) : null}
+            {page === 'home' ? <Typography color="text.secondary">这是主页页面。</Typography> : null}
+            {page === 'new-note' ? <Typography color="text.secondary">这是新笔记页面。</Typography> : null}
+            {page === 'attachments' ? <Typography color="text.secondary">这是附件页面。</Typography> : null}
+            {page === 'all-notes' ? <Typography color="text.secondary">这是全部笔记页面。</Typography> : null}
+            {page === 'index' ? <Typography color="text.secondary">这是索引页面。</Typography> : null}
+            {page === 'settings' ? <Typography color="text.secondary">这是设置页面。</Typography> : null}
           </Box>
         </Box>
       </Box>
