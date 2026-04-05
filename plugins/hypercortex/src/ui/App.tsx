@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { AppBar, Box, CssBaseline, GlobalStyles, IconButton, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
+import { AppBar, Box, CssBaseline, GlobalStyles, IconButton, InputBase, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
@@ -30,6 +30,7 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
 export function HyperCortexApp() {
   const api = React.useMemo(() => getApi(), [])
   const [page, setPage] = React.useState<PageId>('home')
+  const [newNoteTitle, setNewNoteTitle] = React.useState('新建笔记')
 
   const backToHost = React.useCallback(() => {
     try {
@@ -75,17 +76,15 @@ export function HyperCortexApp() {
             }}
             onPointerDown={onTopbarPointerDown}
           >
-            <Tooltip title="返回主界面">
-              <IconButton
-                onClick={backToHost}
-                size="small"
-                aria-label="返回主界面"
-                data-tauri-drag-region="false"
-                sx={{ WebkitAppRegion: 'no-drag' }}
-              >
-                <ArrowBackRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+            <IconButton
+              onClick={backToHost}
+              size="small"
+              aria-label="返回主界面"
+              data-tauri-drag-region="false"
+              sx={{ WebkitAppRegion: 'no-drag' }}
+            >
+              <ArrowBackRoundedIcon fontSize="small" />
+            </IconButton>
 
             <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
               HyperCortex
@@ -201,7 +200,36 @@ export function HyperCortexApp() {
 
           <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, p: 2 }}>
             {page === 'home' ? <Typography color="text.secondary">这是主页页面。</Typography> : null}
-            {page === 'new-note' ? <Typography color="text.secondary">这是新笔记页面。</Typography> : null}
+            {page === 'new-note' ? (
+              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <Box
+                  sx={{
+                    width: '100%',
+                    maxWidth: 240,
+                    pb: 0.5,
+                    borderBottom: '1px solid',
+                    borderColor: 'rgba(0,0,0,.16)',
+                  }}
+                >
+                  <InputBase
+                    value={newNoteTitle}
+                    onChange={e => setNewNoteTitle(e.target.value)}
+                    placeholder="输入标题"
+                    fullWidth
+                    inputProps={{ 'aria-label': '笔记标题' }}
+                    sx={{
+                      fontSize: 28,
+                      lineHeight: 1.2,
+                      fontWeight: 900,
+                      color: '#111',
+                      '& input': {
+                        p: 0,
+                      },
+                    }}
+                  />
+                </Box>
+              </Box>
+            ) : null}
             {page === 'attachments' ? <Typography color="text.secondary">这是附件页面。</Typography> : null}
             {page === 'all-notes' ? <Typography color="text.secondary">这是全部笔记页面。</Typography> : null}
             {page === 'index' ? <Typography color="text.secondary">这是索引页面。</Typography> : null}
