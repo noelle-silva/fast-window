@@ -57,7 +57,7 @@ export function HyperCortexApp() {
       />
 
       <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#fff' }}>
-        <AppBar position="static" elevation={0} sx={{ bgcolor: '#fff', color: 'text.primary', borderBottom: '1px solid', borderColor: 'divider' }}>
+        <AppBar position="static" elevation={0} sx={{ bgcolor: '#fff', color: 'text.primary' }}>
           <Toolbar
             variant="dense"
             data-tauri-drag-region="true"
@@ -94,8 +94,6 @@ export function HyperCortexApp() {
           <Box
             sx={{
               width: 52,
-              borderRight: '1px solid',
-              borderColor: 'divider',
               py: 1,
               display: 'flex',
               flexDirection: 'column',
