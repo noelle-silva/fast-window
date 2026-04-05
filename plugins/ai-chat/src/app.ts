@@ -914,7 +914,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
             topbarBlur: 0,
             composerOpacity: 86,
             composerBlur: 10,
-            branchTree: { dir: 'lr' },
+            branchTree: { dir: 'lr', view: 'right' },
             toolRequestRenderPreset: 'classic',
             toolRequestRenderPresets: [],
             userMessageCollapseEnabled: false,
@@ -999,6 +999,9 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const dir0 = String(btree?.dir || '').trim()
     const okDir = dir0 === 'lr' || dir0 === 'tb' || dir0 === 'bt' || dir0 === 'rl'
     btree.dir = okDir ? dir0 : 'lr'
+    const view0 = String(btree?.view || '').trim()
+    const okView = view0 === 'right' || view0 === 'float'
+    btree.view = okView ? view0 : 'right'
     if (typeof d.settings.toolRequestRenderPreset !== 'string') d.settings.toolRequestRenderPreset = 'classic'
     ;(d.settings as any).toolRequestRenderPresets = normalizeToolRequestRenderPresets((d.settings as any).toolRequestRenderPresets)
     if (typeof d.settings.userMessageCollapseEnabled !== 'boolean') d.settings.userMessageCollapseEnabled = false
@@ -5335,6 +5338,16 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         const v = String(dir || '').trim()
         const ok = v === 'lr' || v === 'tb' || v === 'bt' || v === 'rl'
         ;(state.data.settings as any).branchTree.dir = ok ? v : 'lr'
+        save().catch(() => {})
+        emit()
+      },
+      setBranchTreeView: (view) => {
+        if (!state.data) return
+        if (!state.data.settings || typeof state.data.settings !== 'object') state.data.settings = {}
+        if (!(state.data.settings as any).branchTree || typeof (state.data.settings as any).branchTree !== 'object') (state.data.settings as any).branchTree = { dir: 'lr', view: 'right' }
+        const v = String(view || '').trim()
+        const ok = v === 'right' || v === 'float'
+        ;(state.data.settings as any).branchTree.view = ok ? v : 'right'
         save().catch(() => {})
         emit()
       },

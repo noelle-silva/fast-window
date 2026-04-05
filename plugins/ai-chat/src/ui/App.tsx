@@ -749,6 +749,10 @@ export function AiChatApp(props: { controller: any }) {
     const raw = String(((data?.settings as any)?.branchTree?.dir ?? '') as any).trim()
     return raw === 'lr' || raw === 'tb' || raw === 'bt' || raw === 'rl' ? (raw as any) : 'lr'
   })() as 'lr' | 'tb' | 'bt' | 'rl'
+  const savedTreeView = (() => {
+    const raw = String(((data?.settings as any)?.branchTree?.view ?? '') as any).trim()
+    return raw === 'right' || raw === 'float' ? (raw as any) : 'right'
+  })() as 'right' | 'float'
   const branchDraftRaw: any = (s as any)?.branchDraft
   const branchDraft =
     branchDraftRaw &&
@@ -823,6 +827,8 @@ export function AiChatApp(props: { controller: any }) {
     if (treeDir === savedTreeDir) return
     setTreeDir(savedTreeDir)
   }, [savedTreeDir, treeDir])
+
+  // float 模态窗不需要“吸附/定位”逻辑
 
   const applyTreeViewTransform = useEvent(() => {
     const g = treeViewportRef.current
@@ -2258,7 +2264,7 @@ export function AiChatApp(props: { controller: any }) {
                   overflowY: 'auto',
                  overflowX: 'hidden',
                  pl: 2,
-                 pr: treeOpen ? `calc(16px + ${Math.round(treePanelW)}px)` : 2,
+                 pr: treeOpen && savedTreeView === 'right' ? `calc(16px + ${Math.round(treePanelW)}px)` : 2,
                  pt: `calc(${TOPBAR_H}px + 16px)`,
                  bgcolor: transparentChatBg ? 'transparent' : 'grey.50',
                  paddingBottom: `calc(${Math.max(0, composerHeight)}px + 24px)`,
@@ -2983,16 +2989,16 @@ export function AiChatApp(props: { controller: any }) {
                   top: TOPBAR_H,
                   right: 0,
                   bottom: 0,
-                  width: treeOpen ? Math.round(treePanelW) : 0,
+                  width: treeOpen && savedTreeView === 'right' ? Math.round(treePanelW) : 0,
                   transition: treeResizing ? 'none' : 'width 180ms ease',
                   overflow: 'hidden',
-                  pointerEvents: treeOpen ? 'auto' : 'none',
-                  borderLeft: treeOpen ? '1px solid rgba(0,0,0,.10)' : '1px solid transparent',
+                  pointerEvents: treeOpen && savedTreeView === 'right' ? 'auto' : 'none',
+                  borderLeft: treeOpen && savedTreeView === 'right' ? '1px solid rgba(0,0,0,.10)' : '1px solid transparent',
                   bgcolor: transparentChatBg ? `rgba(255,255,255,${Math.max(0.72, bgAlpha)})` : 'background.paper',
                   zIndex: 1000,
                 }}
               >
-                {treeOpen ? (
+                {treeOpen && savedTreeView === 'right' ? (
                   <Box
                     onPointerDown={onTreeSplitterPointerDown}
                     onPointerMove={onTreeSplitterPointerMove}
@@ -3273,13 +3279,242 @@ export function AiChatApp(props: { controller: any }) {
                 </Box>
               </Box>
 
+              <Dialog
+                open={treeOpen && savedTreeView === 'float'}
+                onClose={() => setTreeOpen(false)}
+                maxWidth={false}
+                PaperProps={{
+                  sx: {
+                    width: 'min(92vw, 980px)',
+                    height: 'min(80vh, 760px)',
+                    borderRadius: 3,
+                    overflow: 'hidden',
+                    bgcolor: transparentChatBg ? `rgba(255,255,255,${Math.max(0.72, bgAlpha)})` : 'background.paper',
+                  },
+                }}
+              >
+                <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
+                  <Box sx={{ position: 'absolute', top: 10, right: 10, zIndex: 3, display: 'flex', gap: 1 }}>
+                    <Tooltip
+                      title={
+                        treeDir === 'lr'
+                          ? '切换方向（当前：左→右）'
+                          : treeDir === 'rl'
+                            ? '切换方向（当前：右→左）'
+                            : treeDir === 'tb'
+                              ? '切换方向（当前：上→下）'
+                              : '切换方向（当前：下→上）'
+                      }
+                    >
+                      <span>
+                        <IconButton
+                          size="small"
+                          onClick={cycleTreeDir}
+                          sx={{
+                            bgcolor: 'rgba(255,255,255,.72)',
+                            border: '1px solid rgba(0,0,0,.12)',
+                            backdropFilter: 'blur(8px)',
+                            WebkitBackdropFilter: 'blur(8px)',
+                            '&:hover': { bgcolor: 'rgba(255,255,255,.82)' },
+                          }}
+                        >
+                          <AutorenewIcon fontSize="inherit" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    <Tooltip title="重置视图">
+                      <span>
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            setTreePan({ x: 18, y: 18 })
+                            setTreeScale(1)
+                            treeViewRef.current = { x: 18, y: 18, scale: 1 }
+                            scheduleTreeViewTransform()
+                          }}
+                          sx={{
+                            bgcolor: 'rgba(255,255,255,.72)',
+                            border: '1px solid rgba(0,0,0,.12)',
+                            backdropFilter: 'blur(8px)',
+                            WebkitBackdropFilter: 'blur(8px)',
+                            '&:hover': { bgcolor: 'rgba(255,255,255,.82)' },
+                          }}
+                        >
+                          <RestartAltIcon fontSize="inherit" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </Box>
+                  <Box
+                    onPointerDown={onTreePointerDown}
+                    onPointerMove={onTreePointerMove}
+                    onPointerUp={endTreeDrag}
+                    onPointerCancel={endTreeDrag}
+                    onWheel={onTreeWheel}
+                    sx={{
+                      position: 'absolute',
+                      inset: 0,
+                      bgcolor: 'rgba(0,0,0,.03)',
+                      overflow: 'hidden',
+                      cursor: treeDragging ? 'grabbing' : 'grab',
+                      touchAction: 'none',
+                      userSelect: 'none',
+                      WebkitUserSelect: 'none',
+                      contain: 'strict',
+                    }}
+                  >
+                    {treeRender && Array.isArray((treeRender as any).nodes) && (treeRender as any).nodes.length ? (
+                      <svg width="100%" height="100%" style={{ display: 'block' }}>
+                        <g
+                          ref={(el) => {
+                            treeViewportRef.current = el
+                            if (el) requestAnimationFrame(() => applyTreeViewTransform())
+                          }}
+                          transform="translate(0,0) scale(1)"
+                        >
+                          {Array.isArray((treeRender as any).edges)
+                            ? ((treeRender as any).edges as any[]).map((e: any) => {
+                                const from = String(e?.from || '').trim()
+                                const to = String(e?.to || '').trim()
+                                if (!from || !to) return null
+                                const a = (treeRender as any)?.byId?.get(from) || null
+                                const b = (treeRender as any)?.byId?.get(to) || null
+                                if (!a || !b) return null
+                                const w = Number((treeRender as any).nodeW || 168)
+                                const h = Number((treeRender as any).nodeH || 44)
+                                const ax = Number(a.x || 0)
+                                const ay = Number(a.y || 0)
+                                const bx = Number(b.x || 0)
+                                const by = Number(b.y || 0)
+
+                                const horizontal = treeDir === 'lr' || treeDir === 'rl'
+                                let sx = 0
+                                let sy = 0
+                                let tx = 0
+                                let ty = 0
+                                let d = ''
+
+                                if (horizontal) {
+                                  const forward = bx >= ax
+                                  sx = ax + (forward ? w : 0)
+                                  sy = ay + h / 2
+                                  tx = bx + (forward ? 0 : w)
+                                  ty = by + h / 2
+                                  const dd = Math.max(42, Math.abs(tx - sx) * 0.5)
+                                  d = `M ${sx} ${sy} C ${sx + (forward ? dd : -dd)} ${sy} ${tx - (forward ? dd : -dd)} ${ty} ${tx} ${ty}`
+                                } else {
+                                  const forward = by >= ay
+                                  sx = ax + w / 2
+                                  sy = ay + (forward ? h : 0)
+                                  tx = bx + w / 2
+                                  ty = by + (forward ? 0 : h)
+                                  const dd = Math.max(42, Math.abs(ty - sy) * 0.5)
+                                  d = `M ${sx} ${sy} C ${sx} ${sy + (forward ? dd : -dd)} ${tx} ${ty - (forward ? dd : -dd)} ${tx} ${ty}`
+                                }
+                                const key = `${from}->${to}`
+                                const hi = treeHighlightEdgeKeys.has(key)
+                                return (
+                                  <path
+                                    key={key}
+                                    d={d}
+                                    fill="none"
+                                    stroke={hi ? 'rgba(34,197,94,.85)' : 'rgba(0,0,0,.16)'}
+                                    strokeWidth={6}
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                )
+                              })
+                            : null}
+
+                          {((treeRender as any).nodes as any[]).map((n: any) => {
+                            const id = String(n?.id || '').trim()
+                            if (!id) return null
+                            const x = Number(n?.x || 0)
+                            const y = Number(n?.y || 0)
+                            const w = Number((treeRender as any).nodeW || 168)
+                            const h = Number((treeRender as any).nodeH || 44)
+                            const role = String(n?.role || '')
+                            const text = String(n?.text || '')
+                            const isSelected = id === String(treeSelectedMid || '')
+                            const isAi = role === 'assistant'
+                            const clipId = `fw-tree-clip-${svgSafeId(id)}`
+
+                            return (
+                              <g key={id} transform={`translate(${Math.round(x)},${Math.round(y)})`}>
+                                <g
+                                  className="fw-tree-node"
+                                  data-pop={treePop.id === id ? '1' : undefined}
+                                  style={{ cursor: 'pointer' }}
+                                  data-tree-node="1"
+                                  onClick={(ev) => {
+                                    if (treeSuppressClickRef.current) {
+                                      treeSuppressClickRef.current = false
+                                      ev.preventDefault()
+                                      ev.stopPropagation()
+                                      return
+                                    }
+                                    setTreeSelectedMid(id)
+                                    setTreePop({ id, at: Date.now() })
+                                    jumpToMessage(id)
+                                  }}
+                                  onPointerDown={(ev) => {
+                                    ev.stopPropagation()
+                                  }}
+                                >
+                                  {isAi ? (
+                                    <>
+                                      <circle cx={w / 2} cy={h / 2} r={(isSelected ? 10 : 8) + 6} fill="transparent" pointerEvents="all" />
+                                      {isSelected ? <circle cx={w / 2} cy={h / 2} r={18} fill="rgba(245,124,0,.18)" /> : null}
+                                      <circle cx={w / 2} cy={h / 2} r={isSelected ? 10 : 8} fill="#22c55e" />
+                                      <title>{text || 'AI'}</title>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <defs>
+                                        <clipPath id={clipId}>
+                                          <rect x={10} y={6} width={Math.max(0, w - 20)} height={Math.max(0, h - 12)} rx={8} />
+                                        </clipPath>
+                                      </defs>
+                                      {isSelected ? <rect x={-4} y={-4} width={w + 8} height={h + 8} rx={14} fill="rgba(245,124,0,.18)" /> : null}
+                                      <rect x={0} y={0} width={w} height={h} rx={12} fill="#ffffff" />
+                                      <text
+                                        x={12}
+                                        y={h / 2}
+                                        fill="rgba(0,0,0,.82)"
+                                        fontSize={12}
+                                        dominantBaseline="middle"
+                                        clipPath={`url(#${clipId})`}
+                                        style={{ pointerEvents: 'none' }}
+                                      >
+                                        {text}
+                                      </text>
+                                    </>
+                                  )}
+                                </g>
+                              </g>
+                            )
+                          })}
+                        </g>
+                      </svg>
+                    ) : (
+                      <Box sx={{ p: 1.5 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          暂无可展示的树（至少需要 1 条消息）。
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                </Box>
+              </Dialog>
+
                <Box
                  ref={composerRef}
                  onClick={onClickOpenImageViewer}
                  sx={{
                  position: 'absolute',
                  left: 16,
-                 right: treeOpen ? 16 + Math.round(treePanelW) : 16,
+                 right: treeOpen && savedTreeView === 'right' ? 16 + Math.round(treePanelW) : 16,
                  bottom: 16,
                 zIndex: 1299,
                 p: 1.5,
@@ -4696,6 +4931,10 @@ function PluginSettingsPage(props: {
   const attachMaxFileSizeMbPdf = clampNum(Number((attachMaxFileSizeMbByKind as any)?.pdf ?? 10), 0, 2048)
   const attachMaxFileSizeMbDocx = clampNum(Number((attachMaxFileSizeMbByKind as any)?.docx ?? 10), 0, 2048)
   const attachMaxFileSizeMbPpt = clampNum(Number((attachMaxFileSizeMbByKind as any)?.ppt ?? 10), 0, 2048)
+  const branchTreeView = (() => {
+    const raw = String(((data?.settings as any)?.branchTree?.view ?? '') as any).trim()
+    return raw === 'right' || raw === 'float' ? raw : 'right'
+  })()
 
   const appearancePanel = (
     <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
@@ -4753,6 +4992,33 @@ function PluginSettingsPage(props: {
             onChangeCommitted={(_e, v) => controller.actions.setChatBgBlur?.(v, true)}
             disabled={loading || !transparentChatBg}
           />
+        </Box>
+
+        <Divider />
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              分支树面板
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <InputLabel id="fw-branch-tree-view">显示方式</InputLabel>
+              <Select
+                labelId="fw-branch-tree-view"
+                label="显示方式"
+                value={branchTreeView}
+                onChange={(e) => controller.actions.setBranchTreeView?.(String(e.target.value || ''))}
+                disabled={loading}
+              >
+                <MenuItem value="right">右侧面板</MenuItem>
+                <MenuItem value="float">悬浮模态窗</MenuItem>
+              </Select>
+            </FormControl>
+          </Stack>
+          <Typography variant="caption" color="text.secondary">
+            “右侧面板”会挤压聊天内容；“悬浮模态窗”会覆盖在当前界面上方。
+          </Typography>
         </Box>
 
         <Divider />
