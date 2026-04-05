@@ -3642,7 +3642,10 @@ export function AiChatApp(props: { controller: any }) {
                                 if (!a || !b) return null
                                 const w = Number((treeRender as any).nodeW || 168)
                                 const h = Number((treeRender as any).nodeH || 44)
-                                const r = 8
+                                const strokeW = 6
+                                const capR = strokeW / 2
+                                const aiGap = 2
+                                const selectedMid = String(treeSelectedMid || '')
 
                                 const ax = Number(a.x || 0)
                                 const ay = Number(a.y || 0)
@@ -3650,6 +3653,10 @@ export function AiChatApp(props: { controller: any }) {
                                 const by = Number(b.y || 0)
                                 const aIsAi = String(a?.role || '') === 'assistant'
                                 const bIsAi = String(b?.role || '') === 'assistant'
+                                const aDotR = aIsAi && from === selectedMid ? 10 : 8
+                                const bDotR = bIsAi && to === selectedMid ? 10 : 8
+                                const aOff = aIsAi ? aDotR + capR + aiGap : 0
+                                const bOff = bIsAi ? bDotR + capR + aiGap : 0
 
                                 const horizontal = treeDir === 'lr' || treeDir === 'rl'
                                 let sx = 0
@@ -3665,9 +3672,9 @@ export function AiChatApp(props: { controller: any }) {
                                   const bcx = bx + w / 2
                                   const bcy = by + h / 2
 
-                                  sx = aIsAi ? acx + (forward ? r : -r) : ax + (forward ? w : 0)
+                                  sx = aIsAi ? acx + (forward ? aOff : -aOff) : ax + (forward ? w : 0)
                                   sy = aIsAi ? acy : ay + h / 2
-                                  tx = bIsAi ? bcx + (forward ? -r : r) : bx + (forward ? 0 : w)
+                                  tx = bIsAi ? bcx + (forward ? -bOff : bOff) : bx + (forward ? 0 : w)
                                   ty = bIsAi ? bcy : by + h / 2
                                   const dd = Math.max(42, Math.abs(tx - sx) * 0.5)
                                   d = `M ${sx} ${sy} C ${sx + (forward ? dd : -dd)} ${sy} ${tx - (forward ? dd : -dd)} ${ty} ${tx} ${ty}`
@@ -3679,9 +3686,9 @@ export function AiChatApp(props: { controller: any }) {
                                   const bcy = by + h / 2
 
                                   sx = aIsAi ? acx : ax + w / 2
-                                  sy = aIsAi ? acy + (forward ? r : -r) : ay + (forward ? h : 0)
+                                  sy = aIsAi ? acy + (forward ? aOff : -aOff) : ay + (forward ? h : 0)
                                   tx = bIsAi ? bcx : bx + w / 2
-                                  ty = bIsAi ? bcy + (forward ? -r : r) : by + (forward ? 0 : h)
+                                  ty = bIsAi ? bcy + (forward ? -bOff : bOff) : by + (forward ? 0 : h)
                                   const dd = Math.max(42, Math.abs(ty - sy) * 0.5)
                                   d = `M ${sx} ${sy} C ${sx} ${sy + (forward ? dd : -dd)} ${tx} ${ty - (forward ? dd : -dd)} ${tx} ${ty}`
                                 }
@@ -3693,7 +3700,7 @@ export function AiChatApp(props: { controller: any }) {
                                     d={d}
                                     fill="none"
                                     stroke={hi ? 'rgba(34,197,94,.85)' : 'rgba(0,0,0,.16)'}
-                                    strokeWidth={6}
+                                    strokeWidth={strokeW}
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
                                   />
@@ -3953,6 +3960,16 @@ export function AiChatApp(props: { controller: any }) {
                                 const ay = Number(a.y || 0)
                                 const bx = Number(b.x || 0)
                                 const by = Number(b.y || 0)
+                                const strokeW = 6
+                                const capR = strokeW / 2
+                                const aiGap = 2
+                                const selectedMid = String(treeSelectedMid || '')
+                                const aIsAi = String(a?.role || '') === 'assistant'
+                                const bIsAi = String(b?.role || '') === 'assistant'
+                                const aDotR = aIsAi && from === selectedMid ? 10 : 8
+                                const bDotR = bIsAi && to === selectedMid ? 10 : 8
+                                const aOff = aIsAi ? aDotR + capR + aiGap : 0
+                                const bOff = bIsAi ? bDotR + capR + aiGap : 0
 
                                 const horizontal = treeDir === 'lr' || treeDir === 'rl'
                                 let sx = 0
@@ -3963,18 +3980,28 @@ export function AiChatApp(props: { controller: any }) {
 
                                 if (horizontal) {
                                   const forward = bx >= ax
-                                  sx = ax + (forward ? w : 0)
-                                  sy = ay + h / 2
-                                  tx = bx + (forward ? 0 : w)
-                                  ty = by + h / 2
+                                  const acx = ax + w / 2
+                                  const acy = ay + h / 2
+                                  const bcx = bx + w / 2
+                                  const bcy = by + h / 2
+
+                                  sx = aIsAi ? acx + (forward ? aOff : -aOff) : ax + (forward ? w : 0)
+                                  sy = aIsAi ? acy : ay + h / 2
+                                  tx = bIsAi ? bcx + (forward ? -bOff : bOff) : bx + (forward ? 0 : w)
+                                  ty = bIsAi ? bcy : by + h / 2
                                   const dd = Math.max(42, Math.abs(tx - sx) * 0.5)
                                   d = `M ${sx} ${sy} C ${sx + (forward ? dd : -dd)} ${sy} ${tx - (forward ? dd : -dd)} ${ty} ${tx} ${ty}`
                                 } else {
                                   const forward = by >= ay
-                                  sx = ax + w / 2
-                                  sy = ay + (forward ? h : 0)
-                                  tx = bx + w / 2
-                                  ty = by + (forward ? 0 : h)
+                                  const acx = ax + w / 2
+                                  const acy = ay + h / 2
+                                  const bcx = bx + w / 2
+                                  const bcy = by + h / 2
+
+                                  sx = aIsAi ? acx : ax + w / 2
+                                  sy = aIsAi ? acy + (forward ? aOff : -aOff) : ay + (forward ? h : 0)
+                                  tx = bIsAi ? bcx : bx + w / 2
+                                  ty = bIsAi ? bcy + (forward ? -bOff : bOff) : by + (forward ? 0 : h)
                                   const dd = Math.max(42, Math.abs(ty - sy) * 0.5)
                                   d = `M ${sx} ${sy} C ${sx} ${sy + (forward ? dd : -dd)} ${tx} ${ty - (forward ? dd : -dd)} ${tx} ${ty}`
                                 }
@@ -3986,7 +4013,7 @@ export function AiChatApp(props: { controller: any }) {
                                     d={d}
                                     fill="none"
                                     stroke={hi ? 'rgba(34,197,94,.85)' : 'rgba(0,0,0,.16)'}
-                                    strokeWidth={6}
+                                    strokeWidth={strokeW}
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
                                   />
