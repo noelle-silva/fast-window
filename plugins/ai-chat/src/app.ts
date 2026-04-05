@@ -3300,19 +3300,26 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
 
       const streamEnabled = !!state.data?.settings?.streamEnabled
 
-      if (!(state.data as any).chatsByGroup || typeof (state.data as any).chatsByGroup !== 'object') (state.data as any).chatsByGroup = {}
-      if (!(state.data as any).chatsByGroup[gid] || typeof (state.data as any).chatsByGroup[gid] !== 'object') (state.data as any).chatsByGroup[gid] = { activeChatId: '', chats: [] }
-      const box = (state.data as any).chatsByGroup[gid]
-      if (!Array.isArray(box.chats)) box.chats = []
-      box.activeChatId = String(box.activeChatId || '')
-      if (!box.chats.length) {
-        const cid = uid('gc')
-        const t = now()
-        box.chats = [{ id: cid, title: '群聊', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }]
-        box.activeChatId = cid
+      const pending = (state as any).pendingGroupChat
+      if (pending && String(pending.groupId || '') === gid && pending.chat) {
+        chat = createChatForGroup(gid)
+        clearPendingGroupChat()
+      } else {
+        if (!(state.data as any).chatsByGroup || typeof (state.data as any).chatsByGroup !== 'object') (state.data as any).chatsByGroup = {}
+        if (!(state.data as any).chatsByGroup[gid] || typeof (state.data as any).chatsByGroup[gid] !== 'object')
+          (state.data as any).chatsByGroup[gid] = { activeChatId: '', chats: [] }
+        const box = (state.data as any).chatsByGroup[gid]
+        if (!Array.isArray(box.chats)) box.chats = []
+        box.activeChatId = String(box.activeChatId || '')
+        if (!box.chats.length) {
+          const cid = uid('gc')
+          const t = now()
+          box.chats = [{ id: cid, title: '群聊', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }]
+          box.activeChatId = cid
+        }
+        if (!box.activeChatId || !box.chats.some((c: any) => String(c?.id || '') === box.activeChatId)) box.activeChatId = String(box.chats[0]?.id || '')
+        chat = box.chats.find((c: any) => String(c?.id || '') === String(box.activeChatId || '')) || box.chats[0] || null
       }
-      if (!box.activeChatId || !box.chats.some((c: any) => String(c?.id || '') === box.activeChatId)) box.activeChatId = String(box.chats[0]?.id || '')
-      chat = box.chats.find((c: any) => String(c?.id || '') === String(box.activeChatId || '')) || box.chats[0] || null
       if (!chat) throw new Error('创建会话失败')
       if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
 
@@ -6599,6 +6606,18 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     return chat
   }
 
+  function createChatForGroup(groupId: any) {
+    const gid = String(groupId || '').trim()
+    const box = ensureGroupChatsBox(gid)
+    if (!box) return null
+    const cid = uid('gc')
+    const t = now()
+    const chat = { id: cid, title: '群聊', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }
+    box.chats.unshift(chat)
+    box.activeChatId = cid
+    return chat
+  }
+
   function createChatForActiveRole() {
     const role = activeRole()
     if (!role) return api.ui?.showToast?.('请先选择角色')
@@ -6613,6 +6632,29 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     state.draft.images = []
     render()
     scrollToBottomSoon()
+  }
+
+  function createChatForActiveGroup() {
+    const group = activeGroup()
+    if (!group) return api.ui?.showToast?.('请先选择群组')
+    const gid = String((group as any).id || '').trim()
+    if (!gid) return api.ui?.showToast?.('群组无效')
+    const t = now()
+    ;(state as any).pendingGroupChat = {
+      groupId: gid,
+      chat: { id: uid('pgc'), title: '群聊', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [], pendingLocal: true },
+    }
+    state.sideTab = 'chats'
+    state.draft.input = ''
+    state.draft.images = []
+    ;(state.draft as any).files = []
+    render()
+    scrollToBottomSoon()
+  }
+
+  function createChatForActiveTarget() {
+    if (activeTargetKind() === 'group') return createChatForActiveGroup()
+    return createChatForActiveRole()
   }
 
   function pickChatForActiveRole(chatId) {
@@ -6824,7 +6866,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
 
     if (act === 'open-providers') return openProvidersEditor()
     if (act === 'new-role') return createRole()
-    if (act === 'new-chat') return createChatForActiveRole()
+    if (act === 'new-chat') return createChatForActiveTarget()
 
     if (act === 'edit-role') {
       const r = activeRole()
@@ -6843,7 +6885,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       return
     }
 
-    if (act === 'pick-chat') return pickChatForActiveRole(String(t.getAttribute('data-id') || ''))
+    if (act === 'pick-chat') return pickChatForActiveTarget(String(t.getAttribute('data-id') || ''))
 
     if (act === 'pick-images') return pickImages()
     if (act === 'rm-draft-img') {
@@ -7826,8 +7868,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         emit()
       },
       createChat: () => {
-        if (activeTargetKind() === 'group') return api.ui?.showToast?.('群聊暂不支持多会话')
-        return createChatForActiveRole()
+        return createChatForActiveTarget()
       },
       aiGenerateChatTitle: (roleId, chatId) =>
         Promise.resolve()
