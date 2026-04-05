@@ -54,6 +54,7 @@ import RestartAltIcon from '@mui/icons-material/RestartAlt'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import AccountTreeIcon from '@mui/icons-material/AccountTree'
+import AutorenewIcon from '@mui/icons-material/Autorenew'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
@@ -285,24 +286,22 @@ function buildChatTreeLayout(messagesRaw: any[], opts?: { maxNodes?: number }) {
     .map((n) => {
       const p = pos.get(n.id)
       if (!p) return null
-      const x = pad + p.depth * (nodeW + gapX)
-      const y = pad + p.y * gapY
-      return { ...n, x, y, depth: p.depth }
+      return { ...n, depth: Number(p.depth || 0), lane: Number(p.y || 0) }
     })
     .filter(Boolean) as any[]
+
+  let maxDepth = 0
+  let maxLane = 0
+  for (const n of laidNodes) {
+    maxDepth = Math.max(maxDepth, Math.floor(Number(n.depth || 0)))
+    maxLane = Math.max(maxLane, Number(n.lane || 0))
+  }
 
   const edges = laidNodes
     .filter((n) => !!n.parentId && pos.has(n.parentId))
     .map((n) => ({ from: n.parentId, to: n.id }))
 
-  let maxX = 0
-  let maxY = 0
-  for (const n of laidNodes) {
-    maxX = Math.max(maxX, Number(n.x || 0) + nodeW)
-    maxY = Math.max(maxY, Number(n.y || 0) + nodeH)
-  }
-
-  return { nodes: laidNodes, edges, byId, roots, size: { w: maxX + pad, h: maxY + pad }, nodeW, nodeH }
+  return { nodes: laidNodes, edges, byId, roots, nodeW, nodeH, gapX, gapY, pad, maxDepth, maxLane }
 }
 
 function RoleAvatarCropper(props: { controller: any; src: string }) {
@@ -758,6 +757,7 @@ export function AiChatApp(props: { controller: any }) {
   const [treeOpen, setTreeOpen] = React.useState(false)
   const [treePan, setTreePan] = React.useState<{ x: number; y: number }>({ x: 18, y: 18 })
   const [treeScale, setTreeScale] = React.useState(1)
+  const [treeDir, setTreeDir] = React.useState<'lr' | 'tb' | 'bt' | 'rl'>('lr')
   const [treeDragging, setTreeDragging] = React.useState(false)
   const treeDragRef = React.useRef<{ pid: number; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null)
   const treeSuppressClickRef = React.useRef(false)
@@ -1043,6 +1043,15 @@ export function AiChatApp(props: { controller: any }) {
     setTreePan({ x: nx, y: ny })
   })
 
+  const cycleTreeDir = useEvent(() => {
+    const order: Array<'lr' | 'tb' | 'bt' | 'rl'> = ['lr', 'tb', 'bt', 'rl']
+    const i = Math.max(0, order.indexOf(treeDir))
+    const next = order[(i + 1) % order.length]
+    setTreeDir(next)
+    setTreePan({ x: 18, y: 18 })
+    setTreeScale(1)
+  })
+
   const chatAllMessagesRaw: any[] = Array.isArray(activeChat?.messages) ? (activeChat.messages as any[]) : []
   const chatAllById = (() => {
     const m = new Map<string, any>()
@@ -1112,15 +1121,60 @@ export function AiChatApp(props: { controller: any }) {
     if (!activeChat) return null
     return buildChatTreeLayout(chatAllMessagesRaw, { maxNodes: 900 })
   }, [String(activeChat?.id || ''), Number((activeChat as any)?.updatedAt || 0), chatAllMessagesRaw.length])
-  const treeNodeById = React.useMemo(() => {
-    const map = new Map<string, any>()
-    const list = treeLayout && Array.isArray((treeLayout as any).nodes) ? ((treeLayout as any).nodes as any[]) : []
-    for (const n of list) {
+  const treeRender = React.useMemo(() => {
+    const tl: any = treeLayout
+    if (!tl || !Array.isArray(tl.nodes) || tl.nodes.length === 0) return null
+
+    const nodeW = Number(tl.nodeW || 168)
+    const nodeH = Number(tl.nodeH || 44)
+    const gapX = Number(tl.gapX || 120)
+    const gapY = Number(tl.gapY || 70)
+    const pad = Number(tl.pad || 22)
+    const maxDepth = Math.max(0, Math.floor(Number(tl.maxDepth || 0)))
+    const maxLane = Math.max(0, Number(tl.maxLane || 0))
+
+    const stepDepthX = nodeW + gapX
+    const stepDepthY = nodeH + gapY
+    const stepLaneX = nodeW + gapX
+    const stepLaneY = gapY
+
+    const nodes = (tl.nodes as any[]).map((n: any) => {
+      const depth = Math.max(0, Math.floor(Number(n?.depth || 0)))
+      const lane = Math.max(0, Number(n?.lane || 0))
+      let x = 0
+      let y = 0
+
+      if (treeDir === 'lr' || treeDir === 'rl') {
+        const d = treeDir === 'rl' ? maxDepth - depth : depth
+        x = pad + d * stepDepthX
+        y = pad + lane * stepLaneY
+      } else {
+        const d = treeDir === 'bt' ? maxDepth - depth : depth
+        x = pad + lane * stepLaneX
+        y = pad + d * stepDepthY
+      }
+
+      return { ...n, depth, lane, x, y }
+    })
+
+    const byId = new Map<string, any>()
+    for (const n of nodes) {
       const id = String(n?.id || '').trim()
-      if (id && !map.has(id)) map.set(id, n)
+      if (id && !byId.has(id)) byId.set(id, n)
     }
-    return map
-  }, [treeLayout])
+
+    const edges = Array.isArray(tl.edges) ? (tl.edges as any[]) : []
+
+    let maxX = 0
+    let maxY = 0
+    for (const n of nodes) {
+      maxX = Math.max(maxX, Number(n.x || 0) + nodeW)
+      maxY = Math.max(maxY, Number(n.y || 0) + nodeH)
+    }
+
+    const size = { w: maxX + pad, h: maxY + pad }
+    return { nodes, edges, byId, nodeW, nodeH, size }
+  }, [treeLayout, treeDir])
   const activeBranchIdUi = String((activeChat as any)?.branching?.activeBranchId || '')
   const allMessages: any[] = (() => {
     const chat: any = activeChat
@@ -2881,6 +2935,39 @@ export function AiChatApp(props: { controller: any }) {
                     </span>
                   </Tooltip>
 
+                  <Tooltip
+                    title={
+                      treeDir === 'lr'
+                        ? '切换方向（当前：左→右）'
+                        : treeDir === 'rl'
+                          ? '切换方向（当前：右→左）'
+                          : treeDir === 'tb'
+                            ? '切换方向（当前：上→下）'
+                            : '切换方向（当前：下→上）'
+                    }
+                  >
+                    <span>
+                      <IconButton
+                        size="small"
+                        onClick={cycleTreeDir}
+                        disabled={!treeOpen}
+                        sx={{
+                          position: 'absolute',
+                          top: 10,
+                          right: 52,
+                          zIndex: 2,
+                          bgcolor: 'rgba(255,255,255,.72)',
+                          border: '1px solid rgba(0,0,0,.12)',
+                          backdropFilter: 'blur(8px)',
+                          WebkitBackdropFilter: 'blur(8px)',
+                          '&:hover': { bgcolor: 'rgba(255,255,255,.82)' },
+                        }}
+                      >
+                        <AutorenewIcon fontSize="inherit" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+
                   <Box
                     onPointerDown={onTreePointerDown}
                     onPointerMove={onTreePointerMove}
@@ -2898,36 +2985,60 @@ export function AiChatApp(props: { controller: any }) {
                       WebkitUserSelect: 'none',
                     }}
                   >
-                    {treeLayout && Array.isArray((treeLayout as any).nodes) && (treeLayout as any).nodes.length ? (
+                    {treeRender && Array.isArray((treeRender as any).nodes) && (treeRender as any).nodes.length ? (
                       <svg width="100%" height="100%" style={{ display: 'block' }}>
                         <g transform={`translate(${Math.round(treePan.x)},${Math.round(treePan.y)}) scale(${Number(treeScale || 1)})`}>
-                          {Array.isArray((treeLayout as any).edges)
-                            ? ((treeLayout as any).edges as any[]).map((e: any) => {
+                          {Array.isArray((treeRender as any).edges)
+                            ? ((treeRender as any).edges as any[]).map((e: any) => {
                                 const from = String(e?.from || '').trim()
                                 const to = String(e?.to || '').trim()
                                 if (!from || !to) return null
-                                const a = treeNodeById.get(from) || null
-                                const b = treeNodeById.get(to) || null
+                                const a = (treeRender as any)?.byId?.get(from) || null
+                                const b = (treeRender as any)?.byId?.get(to) || null
                                 if (!a || !b) return null
-                                const w = Number((treeLayout as any).nodeW || 168)
-                                const h = Number((treeLayout as any).nodeH || 44)
-                                const sx = Number(a.x || 0) + w
-                                const sy = Number(a.y || 0) + h / 2
-                                const tx = Number(b.x || 0)
-                                const ty = Number(b.y || 0) + h / 2
-                                const dd = Math.max(42, Math.abs(tx - sx) * 0.5)
-                                const d = `M ${sx} ${sy} C ${sx + dd} ${sy} ${tx - dd} ${ty} ${tx} ${ty}`
+                                const w = Number((treeRender as any).nodeW || 168)
+                                const h = Number((treeRender as any).nodeH || 44)
+
+                                const ax = Number(a.x || 0)
+                                const ay = Number(a.y || 0)
+                                const bx = Number(b.x || 0)
+                                const by = Number(b.y || 0)
+
+                                const horizontal = treeDir === 'lr' || treeDir === 'rl'
+                                let sx = 0
+                                let sy = 0
+                                let tx = 0
+                                let ty = 0
+                                let d = ''
+
+                                if (horizontal) {
+                                  const forward = bx >= ax
+                                  sx = ax + (forward ? w : 0)
+                                  sy = ay + h / 2
+                                  tx = bx + (forward ? 0 : w)
+                                  ty = by + h / 2
+                                  const dd = Math.max(42, Math.abs(tx - sx) * 0.5)
+                                  d = `M ${sx} ${sy} C ${sx + (forward ? dd : -dd)} ${sy} ${tx - (forward ? dd : -dd)} ${ty} ${tx} ${ty}`
+                                } else {
+                                  const forward = by >= ay
+                                  sx = ax + w / 2
+                                  sy = ay + (forward ? h : 0)
+                                  tx = bx + w / 2
+                                  ty = by + (forward ? 0 : h)
+                                  const dd = Math.max(42, Math.abs(ty - sy) * 0.5)
+                                  d = `M ${sx} ${sy} C ${sx} ${sy + (forward ? dd : -dd)} ${tx} ${ty - (forward ? dd : -dd)} ${tx} ${ty}`
+                                }
                                 return <path key={`${from}->${to}`} d={d} fill="none" stroke="rgba(0,0,0,.16)" strokeWidth={1.5} />
                               })
                             : null}
 
-                          {((treeLayout as any).nodes as any[]).map((n: any) => {
+                          {((treeRender as any).nodes as any[]).map((n: any) => {
                             const id = String(n?.id || '').trim()
                             if (!id) return null
                             const x = Number(n?.x || 0)
                             const y = Number(n?.y || 0)
-                            const w = Number((treeLayout as any).nodeW || 168)
-                            const h = Number((treeLayout as any).nodeH || 44)
+                            const w = Number((treeRender as any).nodeW || 168)
+                            const h = Number((treeRender as any).nodeH || 44)
                             const role = String(n?.role || '')
                             const text = String(n?.text || '')
                             const isActive = id === String(lastMsgId || '')
