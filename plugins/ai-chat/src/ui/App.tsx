@@ -1686,6 +1686,29 @@ export function AiChatApp(props: { controller: any }) {
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [treeOpen, savedTreeView, treeRender, treeSelectedMid, lastMsgId, jumpToMessage])
+
+  // 分支树（悬浮模态窗）：按 Enter 关闭
+  React.useEffect(() => {
+    if (!treeOpen || savedTreeView !== 'float') return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!treeOpen || savedTreeView !== 'float') return
+      if (e.defaultPrevented) return
+      if ((e as any).isComposing) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (String(e.key || '') !== 'Enter') return
+
+      const target = e.target as any
+      const tag = String(target?.tagName || '').toUpperCase()
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || !!target?.isContentEditable) return
+      if (tag === 'BUTTON' || tag === 'A' || String(target?.getAttribute?.('role') || '') === 'button') return
+
+      e.preventDefault()
+      e.stopPropagation()
+      setTreeOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [treeOpen, savedTreeView])
   const activeBranchHeadMid = React.useMemo(() => {
     const chat: any = activeChat
     if (!chat) return ''
