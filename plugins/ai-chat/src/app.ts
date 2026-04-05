@@ -3249,6 +3249,40 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     if (!input && !draftImages.length && !hasFiles) return api.ui?.showToast?.('输入不能为空')
     if (hasFiles && draftFiles.some((x: any) => !!x?.pending)) return api.ui?.showToast?.('文件解析中，请稍候…')
 
+    const extractAtMentionNames = (text: string) => {
+      const t = String(text || '')
+      if (!t) return [] as string[]
+      const out: string[] = []
+      const re = /@\{([^\}\r\n]{1,80})\}/g
+      let m: RegExpExecArray | null = null
+      while ((m = re.exec(t))) {
+        const name = String(m[1] || '').trim()
+        if (name) out.push(name)
+      }
+      return out
+    }
+
+    const atMentionSpeakerRoleIds = (() => {
+      const names = extractAtMentionNames(input)
+      if (!names.length) return [] as string[]
+      const idByName = new Map<string, string>()
+      for (const rid of memberRoleIds) {
+        const r = roleById.get(rid) || null
+        const name = String((r as any)?.name || '').trim()
+        if (!name || idByName.has(name)) continue
+        idByName.set(name, rid)
+      }
+      const out: string[] = []
+      const seen = new Set<string>()
+      for (const name of names) {
+        const rid = idByName.get(name) || ''
+        if (!rid || seen.has(rid)) continue
+        seen.add(rid)
+        out.push(rid)
+      }
+      return out
+    })()
+
     const mode = String((group as any).mode || '').trim() === 'random' ? 'random' : 'roundRobin'
 
     const pickRandomRolesOnce = () => {
@@ -3298,6 +3332,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     }
 
     const speakerRoleIds = (() => {
+      if (atMentionSpeakerRoleIds.length) return atMentionSpeakerRoleIds
       if (mode === 'random') return pickRandomRolesOnce()
       const order0 = Array.isArray((group as any).roundRobinOrder) ? (group as any).roundRobinOrder : []
       const order = order0.map((x: any) => String(x || '').trim()).filter((x: any) => !!x && memberRoleIds.includes(x))

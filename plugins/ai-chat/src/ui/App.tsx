@@ -81,6 +81,28 @@ function useEvent<T extends (...args: any[]) => any>(fn: T): T {
   return React.useCallback(((...args: any[]) => ref.current(...args)) as any, [])
 }
 
+function findAtMentionTrigger(text: string, cursorIndex: number) {
+  const t = String(text || '')
+  const cursor = Math.max(0, Math.min(t.length, Math.floor(Number(cursorIndex) || 0)))
+  if (!cursor) return null
+
+  const at = t.lastIndexOf('@', cursor - 1)
+  if (at < 0) return null
+
+  // Avoid matching emails like "a@b" by requiring a boundary before '@'.
+  const prev = at > 0 ? t[at - 1] : ''
+  if (prev && !/[\s\n\r\t\(\（\[\【\{\《\<“"'、，。！？：；,\.!\?:;]/.test(prev)) return null
+
+  // Completed mention uses "@{...}" – don't reopen.
+  const next = t[at + 1] || ''
+  if (next === '{') return null
+
+  const between = t.slice(at + 1, cursor)
+  if (/[ \t\r\n]/.test(between)) return null
+
+  return { triggerIndex: at, cursorIndex: cursor, query: between }
+}
+
 function ApiKeyField(props: { value: string; onValueChange: (next: string) => void }) {
   const { value, onValueChange } = props
   const [visible, setVisible] = React.useState(false)
@@ -1072,6 +1094,8 @@ export function AiChatApp(props: { controller: any }) {
   const [tempModelPick, setTempModelPick] = React.useState('')
   const [tempCustomModelId, setTempCustomModelId] = React.useState('')
   const composerInputRef = React.useRef<HTMLTextAreaElement | HTMLInputElement | null>(null)
+  const [atPicker, setAtPicker] = React.useState<null | { triggerIndex: number; cursorIndex: number; query: string }>(null)
+  const closeAtPicker = useEvent(() => setAtPicker(null))
 
   const backToHost = useEvent(() => {
     const host = (controller as any)?.api?.host
@@ -2044,6 +2068,7 @@ export function AiChatApp(props: { controller: any }) {
 
   const onSend = useEvent(() => {
     if (draftFilesPending) return controller?.api?.ui?.showToast?.('文件解析中，请稍候…')
+    closeAtPicker()
     const warns = draftFiles
       .map((f: any) => {
         if (!f || f.pending) return null
@@ -2262,8 +2287,85 @@ export function AiChatApp(props: { controller: any }) {
     controller.actions.addDraftImagesFromFiles(files)
   })
 
+  const syncAtPicker = useEvent((text?: string, cursorIndex?: number) => {
+    if (s.loading || uiBusy || chatLocked) return closeAtPicker()
+    if (activeTargetKind !== 'group' || !activeGroup) return closeAtPicker()
+
+    const members0 = Array.isArray((activeGroup as any)?.memberRoleIds) ? ((activeGroup as any).memberRoleIds as any[]) : []
+    const memberIds = members0.map((x) => String(x || '').trim()).filter((x) => !!x)
+    if (!memberIds.length) return closeAtPicker()
+
+    const el = composerInputRef.current as any
+    const v =
+      typeof text === 'string'
+        ? text
+        : el && typeof el.value === 'string'
+          ? String(el.value || '')
+          : String(s.draft?.input || '')
+    const c0 =
+      typeof cursorIndex === 'number'
+        ? cursorIndex
+        : el && typeof el.selectionStart === 'number'
+          ? Number(el.selectionStart || 0)
+          : v.length
+
+    const hit = findAtMentionTrigger(v, c0)
+    if (!hit) return closeAtPicker()
+    setAtPicker(hit)
+  })
+
+  const atPickerOptions = React.useMemo(() => {
+    if (!atPicker) return []
+    if (activeTargetKind !== 'group' || !activeGroup) return []
+    const members0 = Array.isArray((activeGroup as any)?.memberRoleIds) ? ((activeGroup as any).memberRoleIds as any[]) : []
+    const memberIds = members0.map((x) => String(x || '').trim()).filter((x) => !!x)
+    if (!memberIds.length) return []
+    const memberRoles = memberIds.map((rid) => roles.find((r: any) => String(r?.id || '') === rid) || null).filter((x) => !!x) as any[]
+    const q = String(atPicker.query || '').trim().toLowerCase()
+    if (!q) return memberRoles.slice(0, 30)
+    return memberRoles
+      .filter((r: any) => String(r?.name || '').toLowerCase().includes(q) || String(r?.id || '').toLowerCase().includes(q))
+      .slice(0, 30)
+  }, [atPicker, activeTargetKind, activeGroup, roles])
+
+  const applyAtPickRole = useEvent((role: any) => {
+    const el = composerInputRef.current as any
+    if (!el) return
+    const v = typeof el.value === 'string' ? String(el.value || '') : String(s.draft?.input || '')
+    const cursor = typeof el.selectionStart === 'number' ? Number(el.selectionStart || 0) : v.length
+    const hit = atPicker ? findAtMentionTrigger(v, cursor) : null
+    if (!hit) return closeAtPicker()
+
+    const rawName = String(role?.name || '').trim()
+    const safeName = rawName.replace(/[{}]/g, '').slice(0, 80) || 'AI'
+    const insert = `@{${safeName}} `
+    const next = v.slice(0, hit.triggerIndex) + insert + v.slice(hit.cursorIndex)
+    controller.actions.setDraft('input', next)
+    closeAtPicker()
+
+    requestAnimationFrame(() => {
+      try {
+        el.focus?.()
+        const pos = Math.min(next.length, hit.triggerIndex + insert.length)
+        el.setSelectionRange?.(pos, pos)
+      } catch (_) {}
+    })
+  })
+
   const onKeyDown = useEvent((e: React.KeyboardEvent) => {
     if (isReplying) return
+    if (atPicker) {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        closeAtPicker()
+        return
+      }
+      if (e.key === 'Enter' && !e.shiftKey && atPickerOptions.length) {
+        e.preventDefault()
+        applyAtPickRole(atPickerOptions[0])
+        return
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       onSend()
@@ -4380,8 +4482,13 @@ export function AiChatApp(props: { controller: any }) {
                     inputRef={(el) => {
                       composerInputRef.current = el as any
                     }}
-                    onChange={(e) => controller.actions.setDraft('input', e.target.value)}
+                    onChange={(e) => {
+                      controller.actions.setDraft('input', e.target.value)
+                      syncAtPicker(e.target.value, typeof (e.target as any).selectionStart === 'number' ? Number((e.target as any).selectionStart || 0) : e.target.value.length)
+                    }}
                     onKeyDown={onKeyDown}
+                    onKeyUp={() => syncAtPicker()}
+                    onClick={() => syncAtPicker()}
                     onPaste={onPaste}
                     disabled={s.loading || !activeRole}
                     sx={{
@@ -4390,6 +4497,52 @@ export function AiChatApp(props: { controller: any }) {
                       '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { border: 0 },
                     }}
                   />
+
+                  <Popover
+                    open={!!atPicker && !!composerInputRef.current && activeTargetKind === 'group' && !!activeGroup}
+                    anchorEl={(composerInputRef.current as any) || undefined}
+                    onClose={closeAtPicker}
+                    anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+                    transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+                    disableAutoFocus
+                    disableEnforceFocus
+                    PaperProps={{ sx: { width: 280, maxHeight: 320, overflow: 'hidden' } }}
+                  >
+                    <Box sx={{ p: 0.5, maxHeight: 320, overflowY: 'auto' }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ px: 1, display: 'block', pb: 0.5 }}>
+                        点名回答：选择要被 @ 的角色
+                      </Typography>
+                      {atPickerOptions.length ? (
+                        <List dense sx={{ py: 0 }}>
+                          {atPickerOptions.map((r: any) => {
+                            const id = String(r?.id || '')
+                            const name = String(r?.name || '')
+                            const avatar = String(r?.avatar || '🙂')
+                            return (
+                              <ListItemButton
+                                key={id || name}
+                                onMouseDown={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  applyAtPickRole(r)
+                                }}
+                                sx={{ borderRadius: 1 }}
+                              >
+                                <ListItemAvatar sx={{ minWidth: 40 }}>
+                                  <Avatar sx={{ width: 28, height: 28, fontSize: 16 }}>{avatar}</Avatar>
+                                </ListItemAvatar>
+                                <ListItemText primary={name || '未命名角色'} secondary={id ? `ID: ${id}` : ''} />
+                              </ListItemButton>
+                            )
+                          })}
+                        </List>
+                      ) : (
+                        <Typography variant="body2" sx={{ px: 1, py: 1 }} color="text.secondary">
+                          没找到匹配的角色
+                        </Typography>
+                      )}
+                    </Box>
+                  </Popover>
 
                   {isReplying ? (
                     <Button variant="contained" color="error" onClick={onStop} disabled={s.loading || !activeRole} sx={{ borderRadius: 999 }}>
