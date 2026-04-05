@@ -5609,6 +5609,10 @@ function PluginSettingsPage(props: {
           </Stack>
         </Stack>
 
+        <Typography variant="body2" sx={{ fontWeight: 900 }} color="text.secondary">
+          组件调节
+        </Typography>
+
         <Box>
           <Stack direction="row" spacing={1} alignItems="center">
             <Typography variant="body2" sx={{ fontWeight: 900 }}>
@@ -5651,6 +5655,130 @@ function PluginSettingsPage(props: {
             onChangeCommitted={(_e, v) => controller.actions.setChatBgBlur?.(v, true)}
             disabled={loading || !transparentChatBg}
           />
+        </Box>
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              顶部栏透明度
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {Math.round(topbarOpacity)}%
+            </Typography>
+          </Stack>
+          <Slider
+            size="small"
+            value={topbarOpacity}
+            min={0}
+            max={100}
+            step={1}
+            onChange={(_e, v) => controller.actions.setTopbarOpacity?.(v, false)}
+            onChangeCommitted={(_e, v) => controller.actions.setTopbarOpacity?.(v, true)}
+            disabled={loading}
+          />
+        </Box>
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              顶部栏磨砂度
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {Math.round(topbarBlur)}px
+            </Typography>
+          </Stack>
+          <Slider
+            size="small"
+            value={topbarBlur}
+            min={0}
+            max={24}
+            step={1}
+            onChange={(_e, v) => controller.actions.setTopbarBlur?.(v, false)}
+            onChangeCommitted={(_e, v) => controller.actions.setTopbarBlur?.(v, true)}
+            disabled={loading}
+          />
+        </Box>
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              输入栏透明度
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {Math.round(composerOpacity)}%
+            </Typography>
+          </Stack>
+          <Slider
+            size="small"
+            value={composerOpacity}
+            min={40}
+            max={100}
+            step={1}
+            onChange={(_e, v) => controller.actions.setComposerOpacity?.(v, false)}
+            onChangeCommitted={(_e, v) => controller.actions.setComposerOpacity?.(v, true)}
+            disabled={loading}
+          />
+        </Box>
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              输入栏磨砂度
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {Math.round(composerBlur)}px
+            </Typography>
+          </Stack>
+          <Slider
+            size="small"
+            value={composerBlur}
+            min={0}
+            max={24}
+            step={1}
+            onChange={(_e, v) => controller.actions.setComposerBlur?.(v, false)}
+            onChangeCommitted={(_e, v) => controller.actions.setComposerBlur?.(v, true)}
+            disabled={loading}
+          />
+        </Box>
+
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Typography sx={{ fontWeight: 900 }}>用户消息折叠</Typography>
+          <Box sx={{ flex: 1 }} />
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <Switch size="small" checked={userMessageCollapseEnabled} onChange={() => controller.actions.toggleUserMessageCollapse?.()} />
+            <Typography variant="body2" color="text.secondary">
+              启用
+            </Typography>
+          </Stack>
+        </Stack>
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              折叠行数
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {Math.round(userMessageCollapseLines)} 行
+            </Typography>
+          </Stack>
+          <Slider
+            size="small"
+            value={userMessageCollapseLines}
+            min={1}
+            max={50}
+            step={1}
+            onChange={(_e, v) => controller.actions.setUserMessageCollapseLines?.(v, false)}
+            onChangeCommitted={(_e, v) => controller.actions.setUserMessageCollapseLines?.(v, true)}
+            disabled={loading || !userMessageCollapseEnabled}
+          />
+          <Typography variant="caption" color="text.secondary">
+            用户消息超过该行数时默认折叠，可在消息中展开/收起。
+          </Typography>
         </Box>
 
         <Divider />
@@ -5729,97 +5857,7 @@ function PluginSettingsPage(props: {
         <Divider />
 
         <Box>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography variant="body2" sx={{ fontWeight: 900 }}>
-              顶部栏透明度
-            </Typography>
-            <Box sx={{ flex: 1 }} />
-            <Typography variant="caption" color="text.secondary">
-              {Math.round(topbarOpacity)}%
-            </Typography>
-          </Stack>
-          <Slider
-            size="small"
-            value={topbarOpacity}
-            min={0}
-            max={100}
-            step={1}
-            onChange={(_e, v) => controller.actions.setTopbarOpacity?.(v, false)}
-            onChangeCommitted={(_e, v) => controller.actions.setTopbarOpacity?.(v, true)}
-            disabled={loading}
-          />
-        </Box>
-
-        <Box>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography variant="body2" sx={{ fontWeight: 900 }}>
-              顶部栏磨砂度
-            </Typography>
-            <Box sx={{ flex: 1 }} />
-            <Typography variant="caption" color="text.secondary">
-              {Math.round(topbarBlur)}px
-            </Typography>
-          </Stack>
-          <Slider
-            size="small"
-            value={topbarBlur}
-            min={0}
-            max={24}
-            step={1}
-            onChange={(_e, v) => controller.actions.setTopbarBlur?.(v, false)}
-            onChangeCommitted={(_e, v) => controller.actions.setTopbarBlur?.(v, true)}
-            disabled={loading}
-          />
-        </Box>
-
-        <Divider />
-
-        <Box>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography variant="body2" sx={{ fontWeight: 900 }}>
-              输入栏透明度
-            </Typography>
-            <Box sx={{ flex: 1 }} />
-            <Typography variant="caption" color="text.secondary">
-              {Math.round(composerOpacity)}%
-            </Typography>
-          </Stack>
-          <Slider
-            size="small"
-            value={composerOpacity}
-            min={40}
-            max={100}
-            step={1}
-            onChange={(_e, v) => controller.actions.setComposerOpacity?.(v, false)}
-            onChangeCommitted={(_e, v) => controller.actions.setComposerOpacity?.(v, true)}
-            disabled={loading}
-          />
-        </Box>
-
-        <Box>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography variant="body2" sx={{ fontWeight: 900 }}>
-              输入栏磨砂度
-            </Typography>
-            <Box sx={{ flex: 1 }} />
-            <Typography variant="caption" color="text.secondary">
-              {Math.round(composerBlur)}px
-            </Typography>
-          </Stack>
-          <Slider
-            size="small"
-            value={composerBlur}
-            min={0}
-            max={24}
-            step={1}
-            onChange={(_e, v) => controller.actions.setComposerBlur?.(v, false)}
-            onChangeCommitted={(_e, v) => controller.actions.setComposerBlur?.(v, true)}
-            disabled={loading}
-          />
-        </Box>
-
-        <Box>
-          <Stack direction="row" spacing={1} alignItems="center">
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
             <Typography variant="body2" sx={{ fontWeight: 900 }}>
               工具调用渲染预设
             </Typography>
@@ -5883,44 +5921,6 @@ function PluginSettingsPage(props: {
             loading={loading}
             userPresets={toolRequestRenderPresets}
           />
-        </Box>
-
-        <Divider />
-
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Typography sx={{ fontWeight: 900 }}>用户消息折叠</Typography>
-          <Box sx={{ flex: 1 }} />
-          <Stack direction="row" alignItems="center" spacing={1}>
-            <Switch size="small" checked={userMessageCollapseEnabled} onChange={() => controller.actions.toggleUserMessageCollapse?.()} />
-            <Typography variant="body2" color="text.secondary">
-              启用
-            </Typography>
-          </Stack>
-        </Stack>
-
-        <Box>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography variant="body2" sx={{ fontWeight: 900 }}>
-              折叠行数
-            </Typography>
-            <Box sx={{ flex: 1 }} />
-            <Typography variant="caption" color="text.secondary">
-              {Math.round(userMessageCollapseLines)} 行
-            </Typography>
-          </Stack>
-          <Slider
-            size="small"
-            value={userMessageCollapseLines}
-            min={1}
-            max={50}
-            step={1}
-            onChange={(_e, v) => controller.actions.setUserMessageCollapseLines?.(v, false)}
-            onChangeCommitted={(_e, v) => controller.actions.setUserMessageCollapseLines?.(v, true)}
-            disabled={loading || !userMessageCollapseEnabled}
-          />
-          <Typography variant="caption" color="text.secondary">
-            用户消息超过该行数时默认折叠，可在消息中展开/收起。
-          </Typography>
         </Box>
       </Stack>
     </Paper>
