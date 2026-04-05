@@ -1676,6 +1676,35 @@ export function AiChatApp(props: { controller: any }) {
       const isArrow = key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown'
       if (!isArrow) return
 
+      const action = (() => {
+        // 让方向键按“屏幕方向”适配 4 种树生长方向：
+        // - 深度轴（父/子）跟随树的生长方向；
+        // - 平级（lane）轴跟随与深度轴正交的方向。
+        if (treeDir === 'tb') {
+          if (key === 'ArrowUp') return 'parent'
+          if (key === 'ArrowDown') return 'child'
+          if (key === 'ArrowLeft') return 'lanePrev'
+          return 'laneNext'
+        }
+        if (treeDir === 'bt') {
+          if (key === 'ArrowDown') return 'parent'
+          if (key === 'ArrowUp') return 'child'
+          if (key === 'ArrowLeft') return 'lanePrev'
+          return 'laneNext'
+        }
+        if (treeDir === 'lr') {
+          if (key === 'ArrowLeft') return 'parent'
+          if (key === 'ArrowRight') return 'child'
+          if (key === 'ArrowUp') return 'lanePrev'
+          return 'laneNext'
+        }
+        // rl
+        if (key === 'ArrowRight') return 'parent'
+        if (key === 'ArrowLeft') return 'child'
+        if (key === 'ArrowUp') return 'lanePrev'
+        return 'laneNext'
+      })() as 'parent' | 'child' | 'lanePrev' | 'laneNext'
+
       const pickStartId = () => {
         const a = String(treeSelectedMid || '').trim()
         if (a && byId.get(a)) return a
@@ -1694,11 +1723,10 @@ export function AiChatApp(props: { controller: any }) {
       const curLane = Number(cur?.lane ?? 0)
 
       // 策略：
-      // - 左右：在“同深度”上按 lane（平级）移动；如果同深度边界无节点，则按 lane 去找“相邻分支”的叶子（最深节点）。
-      // - 上：走父节点。
-      // - 下：走子节点（多子时选 lane 最接近的那个）。
+      // - 平级：在“同深度”上按 lane 移动；如果同深度边界无节点，则按 lane 去找“相邻分支”的叶子（最深节点）。
+      // - 深度：parent/child。
       let nextId = ''
-      if (key === 'ArrowLeft') {
+      if (action === 'lanePrev') {
         const list = nodesAtDepth.get(curDepth) || []
         const idx = list.findIndex((x: any) => String(x?.id || '').trim() === curId)
         if (idx > 0) nextId = String(list[idx - 1]?.id || '').trim()
@@ -1716,7 +1744,7 @@ export function AiChatApp(props: { controller: any }) {
             .find((x: any) => Number(x?.lane ?? Number.POSITIVE_INFINITY) < curLane && String(x?.id || '').trim() !== curId)
           nextId = leaf ? String(leaf?.id || '').trim() : ''
         }
-      } else if (key === 'ArrowRight') {
+      } else if (action === 'laneNext') {
         const list = nodesAtDepth.get(curDepth) || []
         const idx = list.findIndex((x: any) => String(x?.id || '').trim() === curId)
         if (idx >= 0 && idx + 1 < list.length) nextId = String(list[idx + 1]?.id || '').trim()
@@ -1728,10 +1756,10 @@ export function AiChatApp(props: { controller: any }) {
           const leaf = leaves.find((x: any) => Number(x?.lane ?? Number.POSITIVE_INFINITY) > curLane && String(x?.id || '').trim() !== curId)
           nextId = leaf ? String(leaf?.id || '').trim() : ''
         }
-      } else if (key === 'ArrowUp') {
+      } else if (action === 'parent') {
         const pid = String(cur?.parentId || '').trim()
         if (pid && byId.get(pid)) nextId = pid
-      } else {
+      } else if (action === 'child') {
         const kids = childrenById.get(curId) || []
         if (kids.length === 1) nextId = String(kids[0]?.id || '').trim()
         else if (kids.length > 1) {
@@ -1759,7 +1787,7 @@ export function AiChatApp(props: { controller: any }) {
 
     window.addEventListener('keydown', onKeyDown, true)
     return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [treeOpen, effectiveTreeView, treeRender, treeSelectedMid, lastMsgId, jumpToMessage])
+  }, [treeOpen, effectiveTreeView, treeDir, treeRender, treeSelectedMid, lastMsgId, jumpToMessage])
 
   // 分支树（悬浮模态窗）：按 Enter 关闭
   React.useEffect(() => {
@@ -2070,7 +2098,17 @@ export function AiChatApp(props: { controller: any }) {
     y: 0,
     pending: false,
   })
+  const [treeNodeMenu, setTreeNodeMenu] = React.useState<{ mid: string; role: 'user' | 'assistant'; x: number; y: number }>({
+    mid: '',
+    role: 'assistant',
+    x: 0,
+    y: 0,
+  })
   const [confirmDelMsg, setConfirmDelMsg] = React.useState<{ mid: string; role: 'user' | 'assistant' }>({ mid: '', role: 'assistant' })
+  const [confirmDelTree, setConfirmDelTree] = React.useState<{ mid: string; role: 'user' | 'assistant' }>({
+    mid: '',
+    role: 'assistant',
+  })
   const [editingMsg, setEditingMsg] = React.useState<{ mid: string; text: string }>({ mid: '', text: '' })
   const [chatMenu, setChatMenu] = React.useState<{ roleId: string; chatId: string; title: string; x: number; y: number }>({
     roleId: '',
@@ -2098,6 +2136,21 @@ export function AiChatApp(props: { controller: any }) {
     e.preventDefault()
     e.stopPropagation()
     setMsgMenu({ mid, role, x: e.clientX, y: e.clientY, pending })
+  })
+
+  const closeTreeNodeMenu = useEvent(() => setTreeNodeMenu({ mid: '', role: 'assistant', x: 0, y: 0 }))
+  const onTreeNodeContextMenu = useEvent((e: any, mid: string, role: 'user' | 'assistant') => {
+    const id = String(mid || '').trim()
+    if (!id) return
+    try {
+      e.preventDefault?.()
+      e.stopPropagation?.()
+    } catch (_) {}
+    treeSuppressClickRef.current = true
+    setTimeout(() => {
+      treeSuppressClickRef.current = false
+    }, 0)
+    setTreeNodeMenu({ mid: id, role, x: Number(e?.clientX || 0), y: Number(e?.clientY || 0) })
   })
 
   const closeChatMenu = useEvent(() => setChatMenu({ roleId: '', chatId: '', title: '', x: 0, y: 0 }))
@@ -3277,6 +3330,46 @@ export function AiChatApp(props: { controller: any }) {
                 </Box>
               </Popover>
 
+              <Popover
+                open={!!treeNodeMenu.mid}
+                onClose={closeTreeNodeMenu}
+                anchorReference="anchorPosition"
+                anchorPosition={treeNodeMenu.mid ? { top: treeNodeMenu.y, left: treeNodeMenu.x } : undefined}
+                transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+              >
+                <Box sx={{ minWidth: 220, p: 0.5 }}>
+                  <MenuItem
+                    disabled={!treeNodeMenu.mid || s.loading || uiBusy || chatLocked}
+                    onClick={() => {
+                      const mid = String(treeNodeMenu.mid || '').trim()
+                      const role = treeNodeMenu.role
+                      closeTreeNodeMenu()
+                      if (!mid) return
+                      setConfirmDelMsg({ mid, role })
+                    }}
+                    sx={{ gap: 1 }}
+                  >
+                    <DeleteOutlineIcon fontSize="small" />
+                    仅删除当前节点
+                  </MenuItem>
+
+                  <MenuItem
+                    disabled={!treeNodeMenu.mid || s.loading || uiBusy || chatLocked}
+                    onClick={() => {
+                      const mid = String(treeNodeMenu.mid || '').trim()
+                      const role = treeNodeMenu.role
+                      closeTreeNodeMenu()
+                      if (!mid) return
+                      setConfirmDelTree({ mid, role })
+                    }}
+                    sx={{ gap: 1 }}
+                  >
+                    <DeleteOutlineIcon fontSize="small" />
+                    删除节点及子节点
+                  </MenuItem>
+                </Box>
+              </Popover>
+
              <Dialog
                open={!!confirmDelMsg.mid}
                onClose={() => setConfirmDelMsg({ mid: '', role: 'assistant' })}
@@ -3305,6 +3398,35 @@ export function AiChatApp(props: { controller: any }) {
                  </Button>
                </DialogActions>
              </Dialog>
+
+              <Dialog
+                open={!!confirmDelTree.mid}
+                onClose={() => setConfirmDelTree({ mid: '', role: 'assistant' })}
+                maxWidth="xs"
+                fullWidth
+              >
+                <DialogTitle>确认删除该节点及其子节点？</DialogTitle>
+                <DialogContent>
+                  <Typography variant="body2" color="text.secondary">
+                    将删除该{confirmDelTree.role === 'assistant' ? ' AI 回复' : '用户消息'}节点，以及它后面所有分支上的子节点。
+                  </Typography>
+                </DialogContent>
+                <DialogActions>
+                  <Button onClick={() => setConfirmDelTree({ mid: '', role: 'assistant' })}>取消</Button>
+                  <Button
+                    variant="contained"
+                    color="error"
+                    onClick={() => {
+                      const mid = confirmDelTree.mid
+                      setConfirmDelTree({ mid: '', role: 'assistant' })
+                      controller.actions.deleteMessageSubtree?.(mid)
+                    }}
+                    disabled={!confirmDelTree.mid || s.loading || uiBusy || chatLocked}
+                  >
+                    删除
+                  </Button>
+                </DialogActions>
+              </Dialog>
 
               <Dialog
                 open={!!regen.mid}
@@ -3885,6 +4007,12 @@ export function AiChatApp(props: { controller: any }) {
                                     setTreeSelectedMid(id)
                                     setTreePop({ id, at: Date.now() })
                                     jumpToMessage(id)
+                                  }}
+                                  onContextMenu={(ev) => {
+                                    onTreeNodeContextMenu(ev, id, isAi ? 'assistant' : 'user')
+                                  }}
+                                  onContextMenu={(ev) => {
+                                    onTreeNodeContextMenu(ev, id, isAi ? 'assistant' : 'user')
                                   }}
                                   onPointerDown={(ev) => {
                                     ev.stopPropagation()

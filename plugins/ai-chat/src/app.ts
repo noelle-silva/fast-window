@@ -2907,23 +2907,47 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       if (target.pending) return api.ui?.showToast?.('该消息正在生成中，无法删除')
     }
 
+    const oldById = new Map<string, any>()
+    for (const m of msgs) {
+      const id = String(m?.id || '').trim()
+      if (!id || oldById.has(id)) continue
+      oldById.set(id, m)
+    }
+
+    const targetParentMid = String((target as any)?.parentMid || '').trim()
+    const removedIds = new Set<string>([mid])
+
     const groupId = String((target as any)?.groupId || '').trim()
     const groupRole = String((target as any)?.groupRole || '').trim()
+    let nextMsgs: any[] = []
     if (target.role === 'user' && groupId && groupRole === 'root') {
       const rootMid = String((target as any)?.id || '').trim()
       const next = msgs.filter((m: any) => {
         if (!m || typeof m !== 'object') return true
-        if (String(m?.id || '') === mid) return false
+        const id = String(m?.id || '').trim()
+        if (id === mid) return false
         if (String(m?.role || '') !== 'user') return true
         if (String((m as any)?.groupId || '').trim() !== groupId) return true
         if (String((m as any)?.groupRole || '').trim() !== 'attachment') return true
         if (String((m as any)?.groupParentMid || '').trim() !== rootMid) return true
+        if (id) removedIds.add(id)
         return false
       })
-      chat.messages = next
+      nextMsgs = next
     } else {
-      msgs.splice(idx, 1)
+      nextMsgs = msgs.filter((m: any) => String(m?.id || '').trim() !== mid)
     }
+
+    // 关键：单节点删除要“接上来”——把后续子节点的 parentMid 指向被删节点的 parentMid
+    for (const m of nextMsgs) {
+      if (!m || typeof m !== 'object') continue
+      const pid = String((m as any)?.parentMid || '').trim()
+      if (!pid) continue
+      if (!removedIds.has(pid)) continue
+      ;(m as any).parentMid = targetParentMid
+    }
+
+    chat.messages = nextMsgs
     chat.updatedAt = now()
     repairChatLinearBranching(chat)
 
@@ -2936,9 +2960,207 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       } catch (_) {}
     }
 
+    // 修复各分支 headMid（避免 head 指向已删除的 mid）
+    const branching = ensureChatBranching(chat)
+    const newMsgs = Array.isArray(chat.messages) ? (chat.messages as any[]) : []
+    const newById = new Map<string, any>()
+    for (const m of newMsgs) {
+      const id = String(m?.id || '').trim()
+      if (!id || newById.has(id)) continue
+      newById.set(id, m)
+    }
+    const lastMid = newMsgs.length ? String((newMsgs[newMsgs.length - 1] as any)?.id || '').trim() : ''
+    const branches = Array.isArray((branching as any)?.branches) ? ((branching as any).branches as any[]) : []
+    for (const b of branches) {
+      const bid = normalizeBranchId((b as any)?.id)
+      if (!bid) continue
+      const head0 = String((b as any)?.headMid || '').trim()
+      if (head0 && newById.has(head0)) continue
+
+      // 1) 沿旧链往上找仍存在的祖先
+      let cur = head0
+      const seen = new Set<string>()
+      let guard = 0
+      while (cur && !newById.has(cur) && !seen.has(cur) && guard < 6000) {
+        guard++
+        seen.add(cur)
+        const m = oldById.get(cur) || null
+        cur = m ? String((m as any)?.parentMid || '').trim() : ''
+      }
+      if (cur && newById.has(cur)) {
+        ;(b as any).headMid = cur
+        continue
+      }
+
+      // 2) 找该分支里“最新”的消息作为 head（更符合“接上来”的直觉）
+      let pick = ''
+      let pickAt = -1
+      for (const m of newMsgs) {
+        if (!m || typeof m !== 'object') continue
+        if (normalizeBranchId((m as any)?.branchId) !== bid) continue
+        const t = Number((m as any)?.createdAt || 0)
+        if (t > pickAt) {
+          pickAt = t
+          pick = String((m as any)?.id || '').trim()
+        }
+      }
+
+      const fallback = targetParentMid && newById.has(targetParentMid) ? targetParentMid : lastMid
+      ;(b as any).headMid = pick || fallback || ''
+    }
+
     emit()
     if (!pendingChat) save().catch(() => {})
     api.ui?.showToast?.('已删除')
+  }
+
+  async function deleteMessageSubtree(messageId) {
+    if (state.loading || !state.data) return
+    if (state.sending) return api.ui?.showToast?.('操作中，请稍后重试')
+
+    const mid0 = String(messageId || '').trim()
+    if (!mid0) return
+
+    const role = activeRole()
+    if (!role) return
+
+    const rid = String(role.id || '')
+    const pendingChat = state.pendingChat && String(state.pendingChat.roleId || '') === rid ? state.pendingChat.chat : null
+    const chat = pendingChat || activeChatFromData()
+    if (!chat) return
+    if (chatHasPendingAssistant(chat)) return api.ui?.showToast?.('该会话正在生成中，无法删除消息')
+
+    const msgs = Array.isArray(chat.messages) ? (chat.messages as any[]) : []
+    const idx = msgs.findIndex((m) => String(m?.id || '') === mid0)
+    if (idx < 0) return api.ui?.showToast?.('未找到该消息')
+
+    const oldById = new Map<string, any>()
+    for (const m of msgs) {
+      const id = String(m?.id || '').trim()
+      if (!id || oldById.has(id)) continue
+      oldById.set(id, m)
+    }
+
+    const children = new Map<string, string[]>()
+    for (const m of msgs) {
+      const id = String(m?.id || '').trim()
+      if (!id) continue
+      const pid = String((m as any)?.parentMid || '').trim()
+      if (!pid) continue
+      const list = children.get(pid) || []
+      list.push(id)
+      children.set(pid, list)
+    }
+
+    const toDelete = new Set<string>()
+    const stack = [mid0]
+    while (stack.length) {
+      const cur = String(stack.pop() || '').trim()
+      if (!cur || toDelete.has(cur)) continue
+      toDelete.add(cur)
+      const kids = children.get(cur) || []
+      for (const k of kids) {
+        const id = String(k || '').trim()
+        if (id && !toDelete.has(id)) stack.push(id)
+      }
+    }
+
+    // 附件组：如果删除了某条“附件 root 用户消息”，一并删除其 attachment 子消息（避免遗留孤儿消息）
+    const extra = new Set<string>()
+    for (const id of toDelete) {
+      const m = oldById.get(id) || null
+      if (!m || String(m?.role || '') !== 'user') continue
+      const groupId = String((m as any)?.groupId || '').trim()
+      const groupRole = String((m as any)?.groupRole || '').trim()
+      if (!groupId || groupRole !== 'root') continue
+      const rootMid = String((m as any)?.id || '').trim()
+      for (const x of msgs) {
+        if (!x || typeof x !== 'object') continue
+        if (String(x?.role || '') !== 'user') continue
+        if (String((x as any)?.groupId || '').trim() !== groupId) continue
+        if (String((x as any)?.groupRole || '').trim() !== 'attachment') continue
+        if (String((x as any)?.groupParentMid || '').trim() !== rootMid) continue
+        const xid = String((x as any)?.id || '').trim()
+        if (xid) extra.add(xid)
+      }
+    }
+    for (const id of extra) toDelete.add(id)
+
+    const nextMsgs = msgs.filter((m) => {
+      const id = String(m?.id || '').trim()
+      if (!id) return true
+      return !toDelete.has(id)
+    })
+
+    if (nextMsgs.length === msgs.length) return api.ui?.showToast?.('未删除任何消息')
+
+    chat.messages = nextMsgs
+    chat.updatedAt = now()
+
+    // 清理 assistant 的流式缓存（避免残留）
+    for (const id of toDelete) {
+      const m = oldById.get(id) || null
+      if (!m || String(m?.role || '') !== 'assistant') continue
+      try {
+        uiStreamCache.delete(id)
+      } catch (_) {}
+      try {
+        await runtimeStorage.remove(streamKey(id))
+      } catch (_) {}
+    }
+
+    repairChatLinearBranching(chat)
+
+    // 修复各分支 headMid（避免 head 指向已删除消息导致后续切分支“空/坏”）
+    const branching = ensureChatBranching(chat)
+    const newById = new Map<string, any>()
+    for (const m of nextMsgs) {
+      const id = String(m?.id || '').trim()
+      if (!id || newById.has(id)) continue
+      newById.set(id, m)
+    }
+    const lastMid = nextMsgs.length ? String((nextMsgs[nextMsgs.length - 1] as any)?.id || '').trim() : ''
+
+    const branches = Array.isArray((branching as any)?.branches) ? ((branching as any).branches as any[]) : []
+    for (const b of branches) {
+      const bid = normalizeBranchId((b as any)?.id)
+      if (!bid) continue
+      let head = String((b as any)?.headMid || '').trim()
+      if (head && newById.has(head)) continue
+
+      // 1) 尝试沿 parentMid 往上找仍存在的祖先
+      let cur = head
+      const seen = new Set<string>()
+      let guard = 0
+      while (cur && !newById.has(cur) && !seen.has(cur) && guard < 6000) {
+        guard++
+        seen.add(cur)
+        const m = oldById.get(cur) || null
+        cur = m ? String((m as any)?.parentMid || '').trim() : ''
+      }
+      if (cur && newById.has(cur)) {
+        ;(b as any).headMid = cur
+        continue
+      }
+
+      // 2) 找该分支里“最新”的消息作为 head
+      let pick = ''
+      let pickAt = -1
+      for (const m of nextMsgs) {
+        if (!m || typeof m !== 'object') continue
+        if (normalizeBranchId((m as any)?.branchId) !== bid) continue
+        const t = Number((m as any)?.createdAt || 0)
+        if (t > pickAt) {
+          pickAt = t
+          pick = String((m as any)?.id || '').trim()
+        }
+      }
+      ;(b as any).headMid = pick || lastMid
+    }
+
+    emit()
+    if (!pendingChat) save().catch(() => {})
+    api.ui?.showToast?.('已删除（含子节点）')
   }
 
   async function editMessage(messageId, content) {
@@ -5995,6 +6217,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         api.ui?.showToast?.('已清除当前会话临时模型')
       },
       deleteMessage: (messageId) => deleteMessage(String(messageId || '')),
+      deleteMessageSubtree: (messageId) => deleteMessageSubtree(String(messageId || '')),
       editMessage: (messageId, content) => editMessage(String(messageId || ''), content),
     },
   }
