@@ -897,7 +897,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     await writeJobQueue(out)
   }
 
-  function defaultData() {
+      function defaultData() {
     const providerName = '默认供应商（OpenAI 兼容）'
     const pid = providerName
     const rid = uid('r')
@@ -914,7 +914,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
             topbarBlur: 0,
             composerOpacity: 86,
             composerBlur: 10,
-            branchTree: { dir: 'lr', view: 'right' },
+            branchTree: { dir: 'lr', view: 'right', followSelected: true },
             toolRequestRenderPreset: 'classic',
             toolRequestRenderPresets: [],
             userMessageCollapseEnabled: false,
@@ -1002,6 +1002,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const view0 = String(btree?.view || '').trim()
     const okView = view0 === 'right' || view0 === 'float'
     btree.view = okView ? view0 : 'right'
+    if (typeof btree.followSelected !== 'boolean') btree.followSelected = true
     if (typeof d.settings.toolRequestRenderPreset !== 'string') d.settings.toolRequestRenderPreset = 'classic'
     ;(d.settings as any).toolRequestRenderPresets = normalizeToolRequestRenderPresets((d.settings as any).toolRequestRenderPresets)
     if (typeof d.settings.userMessageCollapseEnabled !== 'boolean') d.settings.userMessageCollapseEnabled = false
@@ -5334,7 +5335,8 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       setBranchTreeDir: (dir) => {
         if (!state.data) return
         if (!state.data.settings || typeof state.data.settings !== 'object') state.data.settings = {}
-        if (!(state.data.settings as any).branchTree || typeof (state.data.settings as any).branchTree !== 'object') (state.data.settings as any).branchTree = { dir: 'lr' }
+        if (!(state.data.settings as any).branchTree || typeof (state.data.settings as any).branchTree !== 'object')
+          (state.data.settings as any).branchTree = { dir: 'lr', view: 'right', followSelected: true }
         const v = String(dir || '').trim()
         const ok = v === 'lr' || v === 'tb' || v === 'bt' || v === 'rl'
         ;(state.data.settings as any).branchTree.dir = ok ? v : 'lr'
@@ -5344,10 +5346,20 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       setBranchTreeView: (view) => {
         if (!state.data) return
         if (!state.data.settings || typeof state.data.settings !== 'object') state.data.settings = {}
-        if (!(state.data.settings as any).branchTree || typeof (state.data.settings as any).branchTree !== 'object') (state.data.settings as any).branchTree = { dir: 'lr', view: 'right' }
+        if (!(state.data.settings as any).branchTree || typeof (state.data.settings as any).branchTree !== 'object')
+          (state.data.settings as any).branchTree = { dir: 'lr', view: 'right', followSelected: true }
         const v = String(view || '').trim()
         const ok = v === 'right' || v === 'float'
         ;(state.data.settings as any).branchTree.view = ok ? v : 'right'
+        save().catch(() => {})
+        emit()
+      },
+      setBranchTreeFollowSelected: (enabled) => {
+        if (!state.data) return
+        if (!state.data.settings || typeof state.data.settings !== 'object') state.data.settings = {}
+        if (!(state.data.settings as any).branchTree || typeof (state.data.settings as any).branchTree !== 'object')
+          (state.data.settings as any).branchTree = { dir: 'lr', view: 'right', followSelected: true }
+        ;(state.data.settings as any).branchTree.followSelected = !!enabled
         save().catch(() => {})
         emit()
       },

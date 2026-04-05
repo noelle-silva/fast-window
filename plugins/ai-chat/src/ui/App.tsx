@@ -753,6 +753,10 @@ export function AiChatApp(props: { controller: any }) {
     const raw = String(((data?.settings as any)?.branchTree?.view ?? '') as any).trim()
     return raw === 'right' || raw === 'float' ? (raw as any) : 'right'
   })() as 'right' | 'float'
+  const savedTreeFollowSelected = (() => {
+    const raw = (data?.settings as any)?.branchTree?.followSelected
+    return typeof raw === 'boolean' ? raw : true
+  })() as boolean
   const branchDraftRaw: any = (s as any)?.branchDraft
   const branchDraft =
     branchDraftRaw &&
@@ -774,6 +778,10 @@ export function AiChatApp(props: { controller: any }) {
   const treeViewportRef = React.useRef<SVGGElement | null>(null)
   const treeViewRef = React.useRef<{ x: number; y: number; scale: number }>({ x: 18, y: 18, scale: 1 })
   const treeViewRafRef = React.useRef<number>(0)
+  const treeHostRightRef = React.useRef<HTMLDivElement | null>(null)
+  const treeHostFloatRef = React.useRef<HTMLDivElement | null>(null)
+  const treeFollowRafRef = React.useRef<number>(0)
+  const treeFollowAnimRef = React.useRef<{ targetX: number; targetY: number; lastT: number } | null>(null)
   const isChatGenerating = React.useCallback((chat: any) => {
     const msgs = Array.isArray(chat?.messages) ? chat.messages : []
     return msgs.some((m: any) => m && m.role === 'assistant' && m.pending)
@@ -850,6 +858,14 @@ export function AiChatApp(props: { controller: any }) {
     })
   })
 
+  const stopTreeFollow = useEvent(() => {
+    treeFollowAnimRef.current = null
+    if (treeFollowRafRef.current) {
+      cancelAnimationFrame(treeFollowRafRef.current)
+      treeFollowRafRef.current = 0
+    }
+  })
+
   React.useLayoutEffect(() => {
     treeViewRef.current = { x: treePan.x, y: treePan.y, scale: treeScale }
     applyTreeViewTransform()
@@ -871,7 +887,8 @@ export function AiChatApp(props: { controller: any }) {
     treeDragRef.current = null
     treeSuppressClickRef.current = false
     setTreeDragging(false)
-  }, [treeOpen])
+    stopTreeFollow()
+  }, [treeOpen, stopTreeFollow])
 
   const endTreeResize = useEvent((e: React.PointerEvent) => {
     const st = treeResizeRef.current
@@ -1428,6 +1445,90 @@ export function AiChatApp(props: { controller: any }) {
     setBranchNav({ mid, at: Date.now() })
     if (bid && bid !== curBid) controller.actions.setActiveBranch?.(bid)
   })
+
+  // 选中节点 → 视角自动追踪到中心（可开关，全局持久化）
+  React.useEffect(() => {
+    stopTreeFollow()
+    if (!treeOpen) return
+    if (!savedTreeFollowSelected) return
+    const mid = String(treeSelectedMid || '').trim()
+    if (!mid) return
+    if (treeDragging) return
+    const tr: any = treeRender
+    if (!tr || !tr.byId || typeof tr.byId.get !== 'function') return
+
+    const node = tr.byId.get(mid) || null
+    if (!node) return
+
+    const host = (savedTreeView === 'float' ? treeHostFloatRef.current : treeHostRightRef.current) as HTMLDivElement | null
+    if (!host) return
+    const w = Number(host.clientWidth || 0)
+    const h = Number(host.clientHeight || 0)
+    if (w < 20 || h < 20) return
+
+    const nodeW = Number(tr.nodeW || 168)
+    const nodeH = Number(tr.nodeH || 44)
+    const wx = Number(node?.x || 0) + nodeW / 2
+    const wy = Number(node?.y || 0) + nodeH / 2
+
+    const v0 = treeViewRef.current
+    const s = clampNum(Number(v0?.scale || 1), 0.35, 2.6)
+    const cx = w / 2
+    const cy = h / 2
+    const targetX = cx - wx * s
+    const targetY = cy - wy * s
+
+    const start = () => {
+      const speed = 1800 // px / s（屏幕坐标）
+      const tick = (t: number) => {
+        treeFollowRafRef.current = 0
+        if (!treeOpen || !savedTreeFollowSelected) {
+          treeFollowAnimRef.current = null
+          return
+        }
+        if (treeDragRef.current) {
+          treeFollowAnimRef.current = null
+          return
+        }
+
+        const a = treeFollowAnimRef.current
+        if (!a) return
+
+        const last = Number(a.lastT || 0) || t
+        const dt = Math.min(0.05, Math.max(0.001, (t - last) / 1000))
+        a.lastT = t
+
+        const v = treeViewRef.current
+        const x0 = Number(v?.x || 0)
+        const y0 = Number(v?.y || 0)
+        const dx = Number(a.targetX) - x0
+        const dy = Number(a.targetY) - y0
+        const dist = Math.hypot(dx, dy)
+
+        if (dist < 0.8) {
+          treeViewRef.current = { ...treeViewRef.current, x: Number(a.targetX), y: Number(a.targetY) }
+          scheduleTreeViewTransform()
+          setTreePan({ x: Number(a.targetX), y: Number(a.targetY) })
+          treeFollowAnimRef.current = null
+          return
+        }
+
+        const step = Math.min(dist, speed * dt)
+        const nx = x0 + (dx / dist) * step
+        const ny = y0 + (dy / dist) * step
+        treeViewRef.current = { ...treeViewRef.current, x: nx, y: ny }
+        scheduleTreeViewTransform()
+
+        treeFollowRafRef.current = requestAnimationFrame(tick)
+      }
+
+      treeFollowAnimRef.current = { targetX, targetY, lastT: performance.now() }
+      treeFollowRafRef.current = requestAnimationFrame(tick)
+    }
+
+    start()
+    return () => stopTreeFollow()
+  }, [treeOpen, savedTreeView, savedTreeFollowSelected, treeSelectedMid, treeRender, treeDragging, scheduleTreeViewTransform, stopTreeFollow])
 
   // 分支树（悬浮模态窗）：键盘方向键切换选中节点（按“深度/平级/分支最深”策略）
   React.useEffect(() => {
@@ -3241,12 +3342,15 @@ export function AiChatApp(props: { controller: any }) {
                     </span>
                   </Tooltip>
 
-                  <Box
+                <Box
                     onPointerDown={onTreePointerDown}
                     onPointerMove={onTreePointerMove}
                     onPointerUp={endTreeDrag}
                     onPointerCancel={endTreeDrag}
                     onWheel={onTreeWheel}
+                    ref={(el: any) => {
+                      treeHostRightRef.current = el
+                    }}
                     sx={{
                       position: 'absolute',
                       inset: 0,
@@ -3501,6 +3605,9 @@ export function AiChatApp(props: { controller: any }) {
                     onPointerUp={endTreeDrag}
                     onPointerCancel={endTreeDrag}
                     onWheel={onTreeWheel}
+                    ref={(el: any) => {
+                      treeHostFloatRef.current = el
+                    }}
                     sx={{
                       position: 'absolute',
                       inset: 0,
@@ -5085,6 +5192,10 @@ function PluginSettingsPage(props: {
     const raw = String(((data?.settings as any)?.branchTree?.view ?? '') as any).trim()
     return raw === 'right' || raw === 'float' ? raw : 'right'
   })()
+  const branchTreeFollowSelected = (() => {
+    const raw = (data?.settings as any)?.branchTree?.followSelected
+    return typeof raw === 'boolean' ? raw : true
+  })()
 
   const appearancePanel = (
     <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
@@ -5165,6 +5276,17 @@ function PluginSettingsPage(props: {
                 <MenuItem value="float">悬浮模态窗</MenuItem>
               </Select>
             </FormControl>
+          </Stack>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+            <Switch
+              size="small"
+              checked={!!branchTreeFollowSelected}
+              onChange={(e) => controller.actions.setBranchTreeFollowSelected?.(!!e.target.checked)}
+              disabled={loading}
+            />
+            <Typography variant="body2" color="text.secondary">
+              选中节点自动居中
+            </Typography>
           </Stack>
           <Typography variant="caption" color="text.secondary">
             “右侧面板”会挤压聊天内容；“悬浮模态窗”会覆盖在当前界面上方。
