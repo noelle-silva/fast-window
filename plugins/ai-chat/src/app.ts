@@ -3402,10 +3402,23 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
 
       const branching = ensureChatBranching(chat)
-      const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
+      let activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
       const activeBranch = ensureChatBranch(chat, activeBranchId)
       let parentMid = String(activeBranch?.headMid || '').trim()
-      if (!parentMid) {
+
+      const forkOverride = String(_opts?.forkFromMid || '').trim()
+      let draftForkMid = ''
+      let draftNewBranchId = ''
+      if (forkOverride) {
+        draftForkMid = forkOverride
+        const items0 = Array.isArray(chat.messages) ? chat.messages : []
+        const ok = items0.some((m: any) => String(m?.id || '') === draftForkMid)
+        if (!ok) throw new Error('选中的节点不存在，无法从该节点发送')
+
+        draftNewBranchId = genUniqueBranchId(branching)
+        activeBranchId = draftNewBranchId
+        parentMid = draftForkMid
+      } else if (!parentMid) {
         const items0 = Array.isArray(chat.messages) ? chat.messages : []
         parentMid = items0.length ? String(items0[items0.length - 1]?.id || '') : ''
       }
@@ -3479,6 +3492,22 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         rootMsg.groupParentMid = ''
       }
       parentMid = rootMid
+
+      if (draftNewBranchId && draftForkMid) {
+        const t = now()
+        const branches = Array.isArray((branching as any).branches) ? (branching as any).branches : []
+        branches.push({
+          id: draftNewBranchId,
+          name: '分支',
+          headMid: draftForkMid,
+          createdAt: t,
+          updatedAt: t,
+          forkFromMid: draftForkMid,
+        })
+        ;(branching as any).branches = branches.slice(0, 200)
+        ;(branching as any).activeBranchId = draftNewBranchId
+        ;(chat as any).branching = branching
+      }
 
       chat.messages.push(...attachMsgs, rootMsg)
       chat.updatedAt = now()
