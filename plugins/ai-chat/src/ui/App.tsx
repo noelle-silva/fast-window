@@ -1198,6 +1198,7 @@ export function AiChatApp(props: { controller: any }) {
 
     let headMid = String(b?.headMid || '').trim()
     if (branchDraft) headMid = String(branchDraft?.forkFromMid || '').trim() || headMid
+    if (!branchDraft && treeSelectedMid) headMid = String(treeSelectedMid || '').trim() || headMid
     if (!headMid) headMid = String(msgs[msgs.length - 1]?.id || '').trim()
     if (!headMid) return msgs
 
@@ -1351,6 +1352,15 @@ export function AiChatApp(props: { controller: any }) {
     setBranchNav({ mid, at: Date.now() })
     if (bid && bid !== curBid) controller.actions.setActiveBranch?.(bid)
   })
+  const activeBranchHeadMid = React.useMemo(() => {
+    const chat: any = activeChat
+    if (!chat) return ''
+    const branching = chat?.branching
+    const bid = String(branching?.activeBranchId || 'main').trim() || 'main'
+    const branches = Array.isArray(branching?.branches) ? branching.branches : []
+    const b = branches.find((x: any) => String(x?.id || '') === bid) || null
+    return String(b?.headMid || '').trim()
+  }, [String(activeChat?.id || ''), Number((activeChat as any)?.updatedAt || 0), activeBranchIdUi])
   const draftFiles: any[] = Array.isArray((s.draft as any)?.files) ? ((s.draft as any).files as any[]) : []
   const hasDraftFiles = draftFiles.length > 0
   const draftFilesPending = hasDraftFiles && draftFiles.some((f: any) => !!f?.pending)
@@ -1505,14 +1515,24 @@ export function AiChatApp(props: { controller: any }) {
 
   const [sendWarn, setSendWarn] = React.useState<{ open: boolean; items: any[] }>({ open: false, items: [] })
   const closeSendWarn = useEvent(() => setSendWarn({ open: false, items: [] }))
+  const sendFromComposer = useEvent(() => {
+    stickToBottomRef.current = true
+    const mid = !branchDraft ? String(treeSelectedMid || '').trim() : ''
+    const canFork = !!mid && !!activeChat && mid !== String(activeBranchHeadMid || '').trim()
+    if (canFork) {
+      setTreeSelectedMid('')
+      controller.actions.sendFromMid?.(mid)
+      return
+    }
+    setTreeSelectedMid('')
+    controller.actions.send()
+  })
   const confirmSendWarn = useEvent(() => {
     setSendWarn({ open: false, items: [] })
-    stickToBottomRef.current = true
-    controller.actions.send()
+    sendFromComposer()
   })
 
   const onSend = useEvent(() => {
-    stickToBottomRef.current = true
     if (draftFilesPending) return controller?.api?.ui?.showToast?.('文件解析中，请稍候…')
     const warns = draftFiles
       .map((f: any) => {
@@ -1528,7 +1548,7 @@ export function AiChatApp(props: { controller: any }) {
       })
       .filter(Boolean)
     if (warns.length) return setSendWarn({ open: true, items: warns })
-    controller.actions.send()
+    sendFromComposer()
   })
   const onStop = useEvent(() => controller.actions.stop?.())
   const onPickImages = useEvent(() => controller.actions.pickImages())

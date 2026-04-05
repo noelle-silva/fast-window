@@ -2217,7 +2217,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     }
   }
 
-  async function sendChat() {
+  async function sendChat(opts?: { forkFromMid?: string }) {
     if (state.sending || state.loading || !state.data) return
 
     const role = activeRole()
@@ -2293,10 +2293,12 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       const draft =
         draft0 && String(draft0?.roleId || '') === rid2 && String(draft0?.chatId || '') === String(chat.id || '') ? draft0 : null
 
+      const forkOverride = !draft ? String(opts?.forkFromMid || '').trim() : ''
+
       let draftForkMid = ''
       let draftNewBranchId = ''
-      if (draft) {
-        draftForkMid = String(draft?.forkFromMid || '').trim()
+      if (draft || forkOverride) {
+        draftForkMid = String((draft ? draft?.forkFromMid : forkOverride) || '').trim()
         if (!draftForkMid) throw new Error('分支草稿无效（缺少基点）')
         const items0 = Array.isArray(chat.messages) ? chat.messages : []
         const ok = items0.some((m: any) => String(m?.id || '') === draftForkMid)
@@ -2408,7 +2410,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       state.draft.input = ''
       state.draft.images = []
       ;(state.draft as any).files = []
-      if (draftNewBranchId && draftForkMid) state.branchDraft = null
+      if (draft && draftNewBranchId && draftForkMid) state.branchDraft = null
 
       chat.messages.push({
         id: assistantMid,
@@ -5897,6 +5899,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         await addDraftFilesFromFiles(Array.isArray(files) ? files : [])
       },
       send: () => sendChat(),
+      sendFromMid: (forkFromMid) => sendChat({ forkFromMid: String(forkFromMid || '') }),
       stop: () => {
         stopSending().catch(() => {})
       },
