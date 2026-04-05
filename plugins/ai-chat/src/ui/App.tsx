@@ -763,6 +763,9 @@ export function AiChatApp(props: { controller: any }) {
   const [treeDragging, setTreeDragging] = React.useState(false)
   const treeDragRef = React.useRef<{ pid: number; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null)
   const treeSuppressClickRef = React.useRef(false)
+  const treeViewportRef = React.useRef<SVGGElement | null>(null)
+  const treeViewRef = React.useRef<{ x: number; y: number; scale: number }>({ x: 18, y: 18, scale: 1 })
+  const treeViewRafRef = React.useRef<number>(0)
   const isChatGenerating = React.useCallback((chat: any) => {
     const msgs = Array.isArray(chat?.messages) ? chat.messages : []
     return msgs.some((m: any) => m && m.role === 'assistant' && m.pending)
@@ -809,7 +812,33 @@ export function AiChatApp(props: { controller: any }) {
     setTreePan({ x: 18, y: 18 })
     setTreeScale(1)
     setTreeSelectedMid('')
+    treeViewRef.current = { x: 18, y: 18, scale: 1 }
   }, [String(activeChat?.id || '')])
+
+  const applyTreeViewTransform = useEvent(() => {
+    const g = treeViewportRef.current
+    if (!g) return
+    const v = treeViewRef.current
+    const x = Math.round(Number(v?.x || 0))
+    const y = Math.round(Number(v?.y || 0))
+    const s = clampNum(Number(v?.scale || 1), 0.35, 2.6)
+    try {
+      g.setAttribute('transform', `translate(${x},${y}) scale(${s})`)
+    } catch (_) {}
+  })
+
+  const scheduleTreeViewTransform = useEvent(() => {
+    if (treeViewRafRef.current) return
+    treeViewRafRef.current = requestAnimationFrame(() => {
+      treeViewRafRef.current = 0
+      applyTreeViewTransform()
+    })
+  })
+
+  React.useLayoutEffect(() => {
+    treeViewRef.current = { x: treePan.x, y: treePan.y, scale: treeScale }
+    applyTreeViewTransform()
+  }, [treeOpen, treePan.x, treePan.y, treeScale, applyTreeViewTransform])
 
   React.useEffect(() => {
     const id = String(treePop.id || '').trim()
@@ -993,6 +1022,9 @@ export function AiChatApp(props: { controller: any }) {
     if (Number(e.pointerId) !== Number(st.pid)) return
     treeDragRef.current = null
     setTreeDragging(false)
+    const v = treeViewRef.current
+    setTreePan({ x: Number(v?.x || 0), y: Number(v?.y || 0) })
+    setTreeScale(clampNum(Number(v?.scale || 1), 0.35, 2.6))
     if (st.moved) {
       treeSuppressClickRef.current = true
       setTimeout(() => {
@@ -1009,7 +1041,8 @@ export function AiChatApp(props: { controller: any }) {
       if (t && typeof t.closest === 'function' && t.closest('[data-tree-node="1"]')) return
     } catch (_) {}
     treeSuppressClickRef.current = false
-    treeDragRef.current = { pid: Number(e.pointerId), sx: Number(e.clientX), sy: Number(e.clientY), ox: treePan.x, oy: treePan.y, moved: false }
+    const v = treeViewRef.current
+    treeDragRef.current = { pid: Number(e.pointerId), sx: Number(e.clientX), sy: Number(e.clientY), ox: Number(v?.x || 0), oy: Number(v?.y || 0), moved: false }
     setTreeDragging(true)
     e.preventDefault()
     try {
@@ -1024,7 +1057,8 @@ export function AiChatApp(props: { controller: any }) {
     const dx = Number(e.clientX) - Number(st.sx)
     const dy = Number(e.clientY) - Number(st.sy)
     if (!st.moved && Math.hypot(dx, dy) > 3) st.moved = true
-    setTreePan({ x: st.ox + dx, y: st.oy + dy })
+    treeViewRef.current = { ...treeViewRef.current, x: st.ox + dx, y: st.oy + dy }
+    scheduleTreeViewTransform()
   })
 
   const onTreeWheel = useEvent((e: React.WheelEvent) => {
@@ -1039,18 +1073,19 @@ export function AiChatApp(props: { controller: any }) {
     const cx = Number(e.clientX) - Number(rect.left)
     const cy = Number(e.clientY) - Number(rect.top)
 
-    const scale0 = Number(treeScale || 1)
+    const scale0 = Number(treeViewRef.current?.scale || 1)
     const factor = dy > 0 ? 1 / 1.12 : 1.12
     const nextScale = clampNum(scale0 * factor, 0.35, 2.6)
     if (Math.abs(nextScale - scale0) < 1e-6) return
 
-    const wx = (cx - treePan.x) / scale0
-    const wy = (cy - treePan.y) / scale0
+    const pan0 = treeViewRef.current
+    const wx = (cx - Number(pan0?.x || 0)) / scale0
+    const wy = (cy - Number(pan0?.y || 0)) / scale0
     const nx = cx - wx * nextScale
     const ny = cy - wy * nextScale
 
-    setTreeScale(nextScale)
-    setTreePan({ x: nx, y: ny })
+    treeViewRef.current = { x: nx, y: ny, scale: nextScale }
+    scheduleTreeViewTransform()
   })
 
   const cycleTreeDir = useEvent(() => {
@@ -1060,6 +1095,8 @@ export function AiChatApp(props: { controller: any }) {
     setTreeDir(next)
     setTreePan({ x: 18, y: 18 })
     setTreeScale(1)
+    treeViewRef.current = { x: 18, y: 18, scale: 1 }
+    scheduleTreeViewTransform()
   })
 
   const chatAllMessagesRaw: any[] = Array.isArray(activeChat?.messages) ? (activeChat.messages as any[]) : []
@@ -2984,6 +3021,8 @@ export function AiChatApp(props: { controller: any }) {
                         onClick={() => {
                           setTreePan({ x: 18, y: 18 })
                           setTreeScale(1)
+                          treeViewRef.current = { x: 18, y: 18, scale: 1 }
+                          scheduleTreeViewTransform()
                         }}
                         disabled={!treeOpen}
                         sx={{
@@ -3055,7 +3094,13 @@ export function AiChatApp(props: { controller: any }) {
                   >
                     {treeRender && Array.isArray((treeRender as any).nodes) && (treeRender as any).nodes.length ? (
                       <svg width="100%" height="100%" style={{ display: 'block' }}>
-                        <g transform={`translate(${Math.round(treePan.x)},${Math.round(treePan.y)}) scale(${Number(treeScale || 1)})`}>
+                        <g
+                          ref={(el) => {
+                            treeViewportRef.current = el
+                            if (el) requestAnimationFrame(() => applyTreeViewTransform())
+                          }}
+                          transform="translate(0,0) scale(1)"
+                        >
                           {Array.isArray((treeRender as any).edges)
                             ? ((treeRender as any).edges as any[]).map((e: any) => {
                                 const from = String(e?.from || '').trim()
