@@ -5053,6 +5053,18 @@ function StickersSettingsPanel(props: { controller: any; loading: boolean; data:
                       >
                         复制 token
                       </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => {
+                          Promise.resolve()
+                            .then(() => controller.actions.aiGenerateStickerName?.(cat, name))
+                            .catch(() => {})
+                        }}
+                        disabled={loading}
+                      >
+                        AI 取名
+                      </Button>
                       <Button size="small" variant="outlined" onClick={() => onOpenRename(name)} disabled={loading}>
                         改名
                       </Button>
@@ -6241,6 +6253,15 @@ function PluginSettingsPage(props: {
     const ctnDefaultPrompt = String(controller?.defaults?.chatTitleNamingSystemPrompt || '')
     const ctnPromptChanged = !!ctnDefaultPrompt && ctnSystemPrompt.trim() !== ctnDefaultPrompt.trim()
 
+    const snCfg = (data?.settings?.aiServices?.stickerNaming && typeof (data.settings.aiServices as any).stickerNaming === 'object') ? (data.settings.aiServices as any).stickerNaming : {}
+    const snEnabled = !!snCfg.enabled
+    const snProviderId = String(snCfg.providerId || providers?.[0]?.id || '')
+    const snModelPick = String(snCfg.modelId || '')
+    const snCustomModelId = String(snCfg.customModelId || '')
+    const snSystemPrompt = typeof snCfg.systemPrompt === 'string' ? snCfg.systemPrompt : ''
+    const snDefaultPrompt = String(controller?.defaults?.stickerNamingSystemPrompt || '')
+    const snPromptChanged = !!snDefaultPrompt && snSystemPrompt.trim() !== snDefaultPrompt.trim()
+
     const mmP = providers.find((x: any) => String(x?.id || '') === mmProviderId) || null
     const mmModelItems = Array.isArray(mmP?.modelsCache?.items) ? (mmP.modelsCache.items as any[]).map((x) => String(x)) : []
     const mmHasPickInList = !!mmModelPick && mmModelPick !== '__custom__' && mmModelItems.some((x) => x === mmModelPick)
@@ -6248,6 +6269,10 @@ function PluginSettingsPage(props: {
     const ctnP = providers.find((x: any) => String(x?.id || '') === ctnProviderId) || null
     const ctnModelItems = Array.isArray(ctnP?.modelsCache?.items) ? (ctnP.modelsCache.items as any[]).map((x) => String(x)) : []
     const ctnHasPickInList = !!ctnModelPick && ctnModelPick !== '__custom__' && ctnModelItems.some((x) => x === ctnModelPick)
+
+    const snP = providers.find((x: any) => String(x?.id || '') === snProviderId) || null
+    const snModelItems = Array.isArray(snP?.modelsCache?.items) ? (snP.modelsCache.items as any[]).map((x) => String(x)) : []
+    const snHasPickInList = !!snModelPick && snModelPick !== '__custom__' && snModelItems.some((x) => x === snModelPick)
 
     const modelLoading = !!models?.loading
 
@@ -6462,6 +6487,111 @@ function PluginSettingsPage(props: {
                     variant="outlined"
                     onClick={() => controller.actions.resetChatTitleNamingSystemPromptDefault?.()}
                     disabled={!ctnDefaultPrompt || !ctnPromptChanged}
+                  >
+                    恢复默认
+                  </Button>
+                </Stack>
+              </Stack>
+
+              <Divider sx={{ my: 1.25 }} />
+
+              <Stack spacing={1.25}>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Typography sx={{ fontWeight: 900 }}>表情包取名服务</Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <Switch size="small" checked={snEnabled} onChange={(e) => controller.actions.setStickerNamingEnabled?.(e.target.checked)} />
+                    <Typography variant="body2" color="text.secondary">
+                      启用
+                    </Typography>
+                  </Stack>
+                </Stack>
+
+                <Typography variant="caption" color="text.secondary">
+                  在“表情包”设置页，每个表情条目里可点击“AI 取名”，将图片按系统提示词交给模型生成新名称并自动改名。
+                </Typography>
+
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                  <FormControl size="small" fullWidth>
+                    <InputLabel id="sn-provider">供应商</InputLabel>
+                    <Select
+                      labelId="sn-provider"
+                      value={snProviderId}
+                      label="供应商"
+                      onChange={(e) => controller.actions.setStickerNamingProviderId?.(e.target.value)}
+                      disabled={loading || !providers.length}
+                    >
+                      {providers.map((pp: any) => {
+                        const id = String(pp?.id || '')
+                        return (
+                          <MenuItem key={id} value={id}>
+                            {id}
+                          </MenuItem>
+                        )
+                      })}
+                    </Select>
+                  </FormControl>
+
+                  <Stack direction="row" spacing={1} sx={{ pt: { xs: 0, sm: 0.5 } }}>
+                    <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => controller.actions.refreshModels(snProviderId, true)} disabled={!snProviderId || modelLoading}>
+                      {modelLoading ? '刷新中…' : '刷新模型'}
+                    </Button>
+                  </Stack>
+                </Stack>
+
+                <FormControl size="small" fullWidth>
+                  <InputLabel id="sn-model">模型</InputLabel>
+                  <Select
+                    labelId="sn-model"
+                    value={snHasPickInList ? snModelPick : snModelPick === '__custom__' ? '__custom__' : ''}
+                    label="模型"
+                    onChange={(e) => controller.actions.setStickerNamingModelId?.(e.target.value)}
+                    disabled={loading || !snProviderId}
+                  >
+                    <MenuItem value="">
+                      <em>请选择…</em>
+                    </MenuItem>
+                    {snModelItems.map((id: string) => (
+                      <MenuItem key={id} value={id}>
+                        {id}
+                      </MenuItem>
+                    ))}
+                    <MenuItem value="__custom__">自定义模型ID…</MenuItem>
+                  </Select>
+                </FormControl>
+
+                {snModelPick === '__custom__' ? (
+                  <TextField
+                    size="small"
+                    label="自定义模型ID"
+                    value={snCustomModelId}
+                    onChange={(e) => controller.actions.setStickerNamingCustomModelId?.(e.target.value)}
+                    placeholder="例如：gpt-4.1-mini / deepseek-chat"
+                    fullWidth
+                  />
+                ) : null}
+
+                <TextField
+                  size="small"
+                  label="系统提示词"
+                  value={snSystemPrompt}
+                  onChange={(e) => controller.actions.setStickerNamingSystemPrompt?.(e.target.value)}
+                  placeholder="写入系统提示词…"
+                  fullWidth
+                  multiline
+                  minRows={6}
+                />
+
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Typography variant="caption" color={snPromptChanged ? 'warning.main' : 'text.secondary'}>
+                    {snPromptChanged ? '已自定义系统提示词' : '当前为默认系统提示词'}
+                  </Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => controller.actions.resetStickerNamingSystemPromptDefault?.()}
+                    disabled={!snDefaultPrompt || !snPromptChanged}
                   >
                     恢复默认
                   </Button>

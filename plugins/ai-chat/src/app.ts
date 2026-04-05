@@ -57,6 +57,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
   const NEW_ROLE_ID = '__new__'
   const DEFAULT_MERMAID_FIX_SYSTEM_PROMPT = `你是 Mermaid 语法修复器。\n\n你会收到一段 Mermaid 源码（可能无法渲染）。你的任务：在尽量保持原意不变的前提下，修复语法/结构错误，让它可以被 Mermaid 渲染。\n\n输出要求：\n- 只输出修复后的 Mermaid 源码本体\n- 不要输出解释、不要输出 Markdown 代码块标记（不要输出 \`\`\`mermaid）`
   const DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT = `你是“聊天标题生成器”。\n\n你会收到一段聊天记录。你的任务：为这段聊天生成一个简短、贴切的中文标题。\n\n输出要求：\n- 只输出标题本身（纯文本）\n- 不要输出引号、不要输出解释\n- 尽量不超过 20 个汉字`
+  const DEFAULT_STICKER_NAMING_SYSTEM_PROMPT = `你是“表情包取名助手”。\n\n你会收到一张表情包图片。你的任务：根据图片内容给它取一个简短、好记的中文名字。\n\n输出要求：\n- 只输出名字本身（纯文本）\n- 不要输出引号、不要输出解释\n- 不要包含 / 或 \\\\ 或 ] 或换行\n- 尽量不超过 12 个汉字`
 
   const uiRefImgCache = new Map()
   const uiRefImgPending = new Set()
@@ -950,6 +951,13 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
                 customModelId: '',
                 systemPrompt: DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT,
               },
+              stickerNaming: {
+                enabled: false,
+                providerId: pid,
+                modelId: '',
+                customModelId: '',
+                systemPrompt: DEFAULT_STICKER_NAMING_SYSTEM_PROMPT,
+              },
             },
             toolCallServer: {
               baseUrl: DEFAULT_TOOL_CALL_SERVER_BASE_URL,
@@ -1110,6 +1118,15 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     if (typeof ctn.modelId !== 'string') ctn.modelId = ''
     if (typeof ctn.customModelId !== 'string') ctn.customModelId = ''
     if (typeof ctn.systemPrompt !== 'string') ctn.systemPrompt = DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT
+
+    if (!as.stickerNaming || typeof as.stickerNaming !== 'object') as.stickerNaming = {}
+    const sn = as.stickerNaming as any
+    if (typeof sn.enabled !== 'boolean') sn.enabled = false
+    if (typeof sn.providerId !== 'string') sn.providerId = fallbackPid
+    if (!sn.providerId || !d.settings.providers.some((p) => String(p?.id || '') === String(sn.providerId || ''))) sn.providerId = fallbackPid
+    if (typeof sn.modelId !== 'string') sn.modelId = ''
+    if (typeof sn.customModelId !== 'string') sn.customModelId = ''
+    if (typeof sn.systemPrompt !== 'string') sn.systemPrompt = DEFAULT_STICKER_NAMING_SYSTEM_PROMPT
 
     if (!d.settings.toolCallServer || typeof d.settings.toolCallServer !== 'object') d.settings.toolCallServer = {}
     const tcs = d.settings.toolCallServer
@@ -1596,6 +1613,8 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const userContent = String(req?.userContent ?? '').trim()
     const userMessagesRaw = Array.isArray(req?.userMessages) ? req.userMessages : null
     const userMessages = userMessagesRaw ? userMessagesRaw.map((x) => String(x ?? '').trim()).filter((x) => !!x).slice(0, 6) : null
+    const userPartsRaw = Array.isArray(req?.userParts) ? req.userParts : null
+    const userParts = userPartsRaw ? userPartsRaw.slice(0, 12) : null
 
     if (!providerId) throw new Error('供应商ID 为空')
     const p = getProvider(providerId)
@@ -1606,14 +1625,17 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     if (!isHttpBaseUrl(baseUrl)) throw new Error('Base URL 无效（需 http/https）')
     if (!apiKey) throw new Error('API Key 为空')
     if (!modelId) throw new Error('模型ID 为空')
+    if (userParts && !userParts.length) throw new Error('用户消息为空')
     if (userMessages && !userMessages.length) throw new Error('用户消息为空')
-    if (!userMessages && !userContent) throw new Error('用户消息为空')
+    if (!userParts && !userMessages && !userContent) throw new Error('用户消息为空')
 
     if (typeof api?.net?.request !== 'function') throw new Error('未授权：net.request')
 
     const messages = []
     if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
-    if (userMessages) {
+    if (userParts) {
+      messages.push({ role: 'user', content: userParts })
+    } else if (userMessages) {
       for (const m of userMessages) messages.push({ role: 'user', content: m })
     } else {
       messages.push({ role: 'user', content: userContent })
@@ -2001,6 +2023,122 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       if (!title) throw new Error('AI 未返回标题')
       renameChatTitle(rid, cid, title)
       return title
+    })
+  }
+
+  const stickerNamingWriteQueue = new Map<string, Promise<void>>()
+
+  function enqueueStickerNamingWrite(categoryName, stickerName, fn) {
+    const cat = String(categoryName || '').trim()
+    const name = String(stickerName || '').trim()
+    if (!cat || !name) return Promise.reject(new Error('未找到表情包ID'))
+
+    const key = `${cat}:${name}`
+    const prev = stickerNamingWriteQueue.get(key) || Promise.resolve()
+    const run = prev.catch(() => {}).then(fn)
+    const completion = run.then(
+      () => {},
+      () => {},
+    )
+    stickerNamingWriteQueue.set(key, completion)
+    completion.finally(() => {
+      if (stickerNamingWriteQueue.get(key) === completion) stickerNamingWriteQueue.delete(key)
+    })
+    return run
+  }
+
+  function normalizeAiGeneratedStickerName(input) {
+    let s = String(input || '')
+      .replace(/\r\n/g, '\n')
+      .trim()
+
+    const lines = s.split('\n').map((x) => String(x || '').trim()).filter((x) => !!x)
+    s = String(lines[0] || '').trim()
+
+    s = s.replace(/^(名称|表情名|建议名称|建议表情名)\s*[:：]\s*/i, '').trim()
+    s = s.replace(/^["'“”‘’`]+|["'“”‘’`]+$/g, '').trim()
+    s = s.replace(/[\/\\\]\r\n]/g, '_').trim()
+    s = s.replace(/\s+/g, ' ').trim()
+    if (s.length > 80) s = s.slice(0, 80).trim()
+    return s
+  }
+
+  async function aiGenerateStickerName(categoryName, stickerName) {
+    if (!state.data) throw new Error('数据未加载')
+
+    const cfg = (state.data?.settings?.aiServices as any)?.stickerNaming || {}
+    const enabled = !!cfg.enabled
+    if (!enabled) throw new Error('未启用：表情包取名服务（插件设置 → AI 微服务）')
+
+    const providerId = String(cfg.providerId || '').trim()
+    const modelId = resolveAiModelId(cfg.modelId, cfg.customModelId)
+    const systemPrompt = typeof cfg.systemPrompt === 'string' ? cfg.systemPrompt : DEFAULT_STICKER_NAMING_SYSTEM_PROMPT
+
+    const cat = String(categoryName || '').trim()
+    const oldName = String(stickerName || '').trim()
+    if (!cat || !oldName) throw new Error('表情包参数无效')
+
+    const st = state.data.settings?.stickers
+    const map = st && typeof st === 'object' ? (st as any).map : null
+    const box = map && typeof map === 'object' ? map[cat] : null
+    const it = box && typeof box === 'object' ? box[oldName] : null
+    const relPath = it && typeof it === 'object' ? String((it as any).relPath || '').trim() : ''
+    if (!relPath) throw new Error('未找到表情包图片路径')
+
+    if (typeof api?.files?.images?.read !== 'function') throw new Error('未授权：files.images.read')
+    const imgUrl = await api.files.images.read({ scope: 'data', path: relPath }).catch(() => '')
+    const url = String(imgUrl || '').trim()
+    if (!url) throw new Error('读取表情包图片失败')
+
+    return enqueueStickerNamingWrite(cat, oldName, async () => {
+      const userText =
+        `请根据这张表情包图片取一个简短中文名字，用作 token [[sticker:${cat}/名称]] 的“名称”。\n` +
+        `限制：不要包含 / 或 \\\\ 或 ] 或换行；只输出名字本身。\n` +
+        `当前分类：${cat}\n当前名称：${oldName}`
+
+      const reply = await requestOpenAiChatOnce({
+        providerId,
+        modelId,
+        systemPrompt,
+        userParts: [
+          { type: 'text', text: userText },
+          { type: 'image_url', image_url: { url } },
+        ],
+      })
+
+      const next0 = normalizeAiGeneratedStickerName(reply)
+      const v = validateStickerName(next0)
+      if (!v.ok) throw new Error(v.error || '表情名无效')
+      const nextName = v.name
+
+      if (nextName === oldName) return nextName
+
+      if (!state.data) throw new Error('数据未加载')
+      if (!state.data.settings.stickers || typeof state.data.settings.stickers !== 'object') throw new Error('表情包配置不存在')
+      const st2 = state.data.settings.stickers as any
+      if (!st2.map || typeof st2.map !== 'object') throw new Error('表情包映射损坏')
+      if (!st2.map[cat] || typeof st2.map[cat] !== 'object') throw new Error('分类不存在')
+      const box2 = st2.map[cat] as any
+
+      const it2 = box2[oldName]
+      if (!it2 || typeof it2 !== 'object') throw new Error('表情不存在')
+      if (box2[nextName]) throw new Error('重名：该分类下已存在同名表情')
+
+      const rp = String((it2 as any).relPath || '').trim()
+      if (!rp) throw new Error('映射损坏：缺少 relPath')
+
+      const t = now()
+      const createdAt = Number((it2 as any).createdAt || t)
+      const next = { relPath: rp, createdAt, updatedAt: t }
+      box2[nextName] = next
+      try {
+        delete box2[oldName]
+      } catch (_) {}
+
+      save().catch(() => {})
+      emit()
+
+      return nextName
     })
   }
 
@@ -5588,6 +5726,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     defaults: {
       mermaidFixSystemPrompt: DEFAULT_MERMAID_FIX_SYSTEM_PROMPT,
       chatTitleNamingSystemPrompt: DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT,
+      stickerNamingSystemPrompt: DEFAULT_STICKER_NAMING_SYSTEM_PROMPT,
     },
     getState: () => state,
     getSnapshot: () => ver,
@@ -6122,6 +6261,58 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         save().catch(() => {})
         emit()
       },
+      setStickerNamingEnabled: (on) => {
+        if (!state.data) return
+        if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {}
+        if (!state.data.settings.aiServices.stickerNaming || typeof state.data.settings.aiServices.stickerNaming !== 'object') state.data.settings.aiServices.stickerNaming = {}
+        state.data.settings.aiServices.stickerNaming.enabled = !!on
+        save().catch(() => {})
+        emit()
+      },
+      setStickerNamingProviderId: (providerId) => {
+        if (!state.data) return
+        const pid = String(providerId || '')
+        if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {}
+        if (!state.data.settings.aiServices.stickerNaming || typeof state.data.settings.aiServices.stickerNaming !== 'object') state.data.settings.aiServices.stickerNaming = {}
+        state.data.settings.aiServices.stickerNaming.providerId = pid
+        save().catch(() => {})
+        emit()
+      },
+      setStickerNamingModelId: (modelId) => {
+        if (!state.data) return
+        const mid = String(modelId || '')
+        if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {}
+        if (!state.data.settings.aiServices.stickerNaming || typeof state.data.settings.aiServices.stickerNaming !== 'object') state.data.settings.aiServices.stickerNaming = {}
+        state.data.settings.aiServices.stickerNaming.modelId = mid
+        save().catch(() => {})
+        emit()
+      },
+      setStickerNamingCustomModelId: (customModelId) => {
+        if (!state.data) return
+        const mid = String(customModelId || '')
+        if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {}
+        if (!state.data.settings.aiServices.stickerNaming || typeof state.data.settings.aiServices.stickerNaming !== 'object') state.data.settings.aiServices.stickerNaming = {}
+        state.data.settings.aiServices.stickerNaming.customModelId = mid
+        save().catch(() => {})
+        emit()
+      },
+      setStickerNamingSystemPrompt: (systemPrompt) => {
+        if (!state.data) return
+        const p = typeof systemPrompt === 'string' ? systemPrompt : String(systemPrompt ?? '')
+        if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {}
+        if (!state.data.settings.aiServices.stickerNaming || typeof state.data.settings.aiServices.stickerNaming !== 'object') state.data.settings.aiServices.stickerNaming = {}
+        state.data.settings.aiServices.stickerNaming.systemPrompt = p
+        save().catch(() => {})
+        emit()
+      },
+      resetStickerNamingSystemPromptDefault: () => {
+        if (!state.data) return
+        if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {}
+        if (!state.data.settings.aiServices.stickerNaming || typeof state.data.settings.aiServices.stickerNaming !== 'object') state.data.settings.aiServices.stickerNaming = {}
+        state.data.settings.aiServices.stickerNaming.systemPrompt = DEFAULT_STICKER_NAMING_SYSTEM_PROMPT
+        save().catch(() => {})
+        emit()
+      },
       setToolCallServerBaseUrl: (baseUrl) => {
         if (!state.data) return
         const v = String(baseUrl ?? '').trim()
@@ -6293,6 +6484,20 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
           })
           .catch((e) => {
             api.ui?.showToast?.(String(e?.message || e || 'AI 生成标题失败'))
+            throw e
+          }),
+      aiGenerateStickerName: (categoryName, stickerName) =>
+        Promise.resolve()
+          .then(() => {
+            api.ui?.showToast?.('AI 取名中…')
+            return aiGenerateStickerName(String(categoryName || ''), String(stickerName || ''))
+          })
+          .then((name) => {
+            api.ui?.showToast?.(`已更新表情名：${String(name || '').trim() || '（空）'}`)
+            return name
+          })
+          .catch((e) => {
+            api.ui?.showToast?.(String(e?.message || e || 'AI 取名失败'))
             throw e
           }),
       renameChat: (roleId, chatId, title) => renameChatTitle(String(roleId || ''), String(chatId || ''), String(title ?? '')),
