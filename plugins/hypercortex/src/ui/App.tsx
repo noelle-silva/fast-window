@@ -31,6 +31,7 @@ export function HyperCortexApp() {
   const api = React.useMemo(() => getApi(), [])
   const [page, setPage] = React.useState<PageId>('home')
   const [newNoteTitle, setNewNoteTitle] = React.useState('新建笔记')
+  const [newNoteContent, setNewNoteContent] = React.useState('')
 
   const backToHost = React.useCallback(() => {
     try {
@@ -201,7 +202,7 @@ export function HyperCortexApp() {
           <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, p: 2 }}>
             {page === 'home' ? <Typography color="text.secondary">这是主页页面。</Typography> : null}
             {page === 'new-note' ? (
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+              <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                 <Box
                   sx={{
                     width: '100%',
@@ -228,6 +229,29 @@ export function HyperCortexApp() {
                     }}
                   />
                 </Box>
+
+                <InputBase
+                  value={newNoteContent}
+                  onChange={e => setNewNoteContent(e.target.value)}
+                  placeholder="开始输入正文..."
+                  fullWidth
+                  multiline
+                  minRows={12}
+                  inputProps={{ 'aria-label': '笔记正文' }}
+                  sx={{
+                    mt: 2,
+                    width: '100%',
+                    flex: 1,
+                    alignItems: 'flex-start',
+                    fontSize: 16,
+                    lineHeight: 1.8,
+                    color: '#222',
+                    '& textarea': {
+                      padding: 0,
+                      resize: 'none',
+                    },
+                  }}
+                />
               </Box>
             ) : null}
             {page === 'attachments' ? <Typography color="text.secondary">这是附件页面。</Typography> : null}
