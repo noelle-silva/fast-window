@@ -2,7 +2,7 @@
   "id": "ai-chat",
   "name": "AI 聊天",
   "author": "fast-window",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "多供应商 + 角色系统的 AI 聊天；支持 Markdown/LaTeX/HTML(div) 渲染",
   "main": "index.js",
   "icon": "svg:icon.svg",
