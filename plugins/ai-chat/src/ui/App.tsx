@@ -1072,6 +1072,7 @@ export function AiChatApp(props: { controller: any }) {
       const t = e.target as any
       if (t && typeof t.closest === 'function' && t.closest('[data-tree-node="1"]')) return
     } catch (_) {}
+    stopTreeFollow()
     treeSuppressClickRef.current = false
     const v = treeViewRef.current
     treeDragRef.current = { pid: Number(e.pointerId), sx: Number(e.clientX), sy: Number(e.clientY), ox: Number(v?.x || 0), oy: Number(v?.y || 0), moved: false }
@@ -1453,7 +1454,6 @@ export function AiChatApp(props: { controller: any }) {
     if (!savedTreeFollowSelected) return
     const mid = String(treeSelectedMid || '').trim()
     if (!mid) return
-    if (treeDragging) return
     const tr: any = treeRender
     if (!tr || !tr.byId || typeof tr.byId.get !== 'function') return
 
@@ -1528,7 +1528,7 @@ export function AiChatApp(props: { controller: any }) {
 
     start()
     return () => stopTreeFollow()
-  }, [treeOpen, savedTreeView, savedTreeFollowSelected, treeSelectedMid, treeRender, treeDragging, scheduleTreeViewTransform, stopTreeFollow])
+  }, [treeOpen, savedTreeView, savedTreeFollowSelected, treeSelectedMid, treeRender, scheduleTreeViewTransform, stopTreeFollow])
 
   // 分支树（悬浮模态窗）：键盘方向键切换选中节点（按“深度/平级/分支最深”策略）
   React.useEffect(() => {
