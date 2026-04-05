@@ -3610,6 +3610,11 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
   async function regenerateAssistantMessage(assistantMid) {
     if (state.sending || state.loading || !state.data) return
 
+    if (activeTargetKind() === 'group') {
+      await regenerateGroupAssistantMessage(String(assistantMid || ''))
+      return
+    }
+
     const role = activeRole()
     const chat = activeChatFromData()
     if (!role || !chat) return
@@ -3710,8 +3715,123 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     }
   }
 
+  async function regenerateGroupAssistantMessage(assistantMid: string) {
+    if (state.sending || state.loading || !state.data) return
+
+    const group = activeGroup()
+    const chat = activeChatFromData()
+    if (!group || !chat) return
+
+    const groupId = String((group as any)?.id || '').trim()
+    const chatId = String((chat as any)?.id || '').trim()
+    const mid = String(assistantMid || '').trim()
+    if (!groupId || !chatId || !mid) return
+
+    const roles = Array.isArray(state.data.roles) ? state.data.roles : []
+    const roleById = new Map<string, any>()
+    for (const r of roles) {
+      const rid = String(r?.id || '').trim()
+      if (!rid || roleById.has(rid)) continue
+      roleById.set(rid, r)
+    }
+
+    try {
+      state.sending = true
+      renderComposer()
+
+      const msgs = Array.isArray(chat.messages) ? chat.messages : []
+      const aiIndex = msgs.findIndex((m) => String(m?.id || '') === mid)
+      if (aiIndex < 0) throw new Error('未找到该消息')
+
+      const target = msgs[aiIndex]
+      if (!target || target.role !== 'assistant') throw new Error('只能重新生成 AI 回复')
+      if (target.pending) throw new Error('该消息正在生成中')
+      if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
+
+      let speakerRoleId = String((target as any)?.speakerRoleId || '').trim()
+      if (!speakerRoleId) {
+        const member0 = Array.isArray((group as any)?.memberRoleIds) ? ((group as any).memberRoleIds as any[]) : []
+        const memberRoleIds = member0.map((x) => String(x || '').trim()).filter((x) => !!x && roleById.has(x))
+        speakerRoleId = memberRoleIds[0] ? String(memberRoleIds[0]) : ''
+      }
+      if (!speakerRoleId) throw new Error('该消息缺少 speakerRoleId，无法确定由谁重新生成')
+
+      const speakerRole = roleById.get(speakerRoleId) || null
+      if (!speakerRole) throw new Error('群组成员角色不存在')
+      ensureRoleDefaults(speakerRole)
+
+      const picked = pickChatModelRef(speakerRole, null)
+      const providerId = String(picked.providerId || '')
+      const modelId = String(picked.modelId || '').trim()
+      const p = getProvider(providerId)
+      if (!p) throw new Error(`未找到供应商：${String((speakerRole as any).name || '角色')}`)
+      const baseUrl = trimSlash(p.baseUrl || '')
+      const apiKey = String(p.apiKey || '').trim()
+      if (!isHttpBaseUrl(baseUrl)) throw new Error(`请先为「${String((speakerRole as any).name || '角色')}」配置 Base URL（http/https）`)
+      if (!apiKey) throw new Error(`请先为「${String((speakerRole as any).name || '角色')}」配置 API Key`)
+      if (!modelId) throw new Error(`请先为「${String((speakerRole as any).name || '角色')}」选择模型ID`)
+
+      const streamEnabled = !!state.data?.settings?.streamEnabled
+      target.content = '（生成中…）'
+      target.pending = true
+      target.streaming = streamEnabled
+      ;(target as any).speakerRoleId = speakerRoleId
+      chat.updatedAt = now()
+      repairChatLinearBranching(chat)
+
+      try {
+        await runtimeStorage.remove(streamKey(mid))
+      } catch (_) {}
+
+      const branching = ensureChatBranching(chat)
+      const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
+      const branchId = normalizeBranchId((target as any)?.branchId || activeBranchId)
+
+      const jobId = uid('job')
+      const job = {
+        id: jobId,
+        kind: 'openai.chat.completions',
+        status: 'queued',
+        createdAt: now(),
+        targetKind: 'group',
+        groupId,
+        roleId: String(speakerRoleId || ''),
+        chatId,
+        assistantMid: mid,
+        cutoffMid: mid,
+        branchId,
+        stream: streamEnabled,
+      }
+
+      await save()
+      await runtimeStorage.set(jobKey(jobId), job)
+      await enqueueJob(jobId)
+    } catch (e) {
+      const msg = String((e as any)?.message || e || '请求失败')
+      try {
+        const items = Array.isArray((chat as any)?.messages) ? (chat as any).messages : []
+        const am = mid ? items.find((m: any) => String(m?.id || '') === mid) : null
+        if (am) {
+          am.content = `（请求失败：${msg}）`
+          am.pending = false
+          am.streaming = false
+        }
+      } catch (_) {}
+      save().catch(() => {})
+      api.ui?.showToast?.(msg)
+    } finally {
+      state.sending = false
+      render()
+    }
+  }
+
   async function replyFromUserMessage(userMid) {
     if (state.sending || state.loading || !state.data) return
+
+    if (activeTargetKind() === 'group') {
+      await replyFromUserMessageInGroup(String(userMid || ''))
+      return
+    }
 
     const role = activeRole()
     const chat = activeChatFromData()
@@ -3794,6 +3914,219 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         am.streaming = false
       }
       save().catch(() => {})
+      api.ui?.showToast?.(msg)
+    } finally {
+      state.sending = false
+      render()
+    }
+  }
+
+  async function replyFromUserMessageInGroup(userMid: string) {
+    if (state.sending || state.loading || !state.data) return
+
+    const group = activeGroup()
+    const chat = activeChatFromData()
+    if (!group || !chat) return
+
+    const groupId = String((group as any)?.id || '').trim()
+    const chatId = String((chat as any)?.id || '').trim()
+    const mid = String(userMid || '').trim()
+    if (!groupId || !chatId || !mid) return
+
+    const roles = Array.isArray(state.data.roles) ? state.data.roles : []
+    const roleById = new Map<string, any>()
+    for (const r of roles) {
+      const rid = String(r?.id || '').trim()
+      if (!rid || roleById.has(rid)) continue
+      roleById.set(rid, r)
+    }
+
+    const member0 = Array.isArray((group as any).memberRoleIds) ? ((group as any).memberRoleIds as any[]) : []
+    const memberRoleIds = member0.map((x) => String(x || '').trim()).filter((x) => !!x && roleById.has(x)).slice(0, 50)
+    if (!memberRoleIds.length) return api.ui?.showToast?.('该群组还没有成员角色')
+
+    const extractAtMentionNames = (text: string) => {
+      const t = String(text || '')
+      if (!t) return [] as string[]
+      const out: string[] = []
+      const re = /@\{([^\}\r\n]{1,80})\}/g
+      let m: RegExpExecArray | null = null
+      while ((m = re.exec(t))) {
+        const name = String(m[1] || '').trim()
+        if (name) out.push(name)
+      }
+      return out
+    }
+
+    const buildAtMentionSpeakerRoleIds = (text: string) => {
+      const names = extractAtMentionNames(text)
+      if (!names.length) return [] as string[]
+      const idByName = new Map<string, string>()
+      for (const rid of memberRoleIds) {
+        const r = roleById.get(rid) || null
+        const name = String((r as any)?.name || '').trim()
+        if (!name || idByName.has(name)) continue
+        idByName.set(name, rid)
+      }
+      const out: string[] = []
+      const seen = new Set<string>()
+      for (const name of names) {
+        const rid = idByName.get(name) || ''
+        if (!rid || seen.has(rid)) continue
+        seen.add(rid)
+        out.push(rid)
+      }
+      return out
+    }
+
+    const mode = String((group as any).mode || '').trim() === 'random' ? 'random' : 'roundRobin'
+
+    const pickRandomRolesOnce = () => {
+      const randomCfg = (group as any).random && typeof (group as any).random === 'object' ? (group as any).random : {}
+      const weights0 = (randomCfg as any).weightsByRoleId && typeof (randomCfg as any).weightsByRoleId === 'object' ? (randomCfg as any).weightsByRoleId : {}
+      let minCount = Number((randomCfg as any).minCount ?? 1)
+      let maxCount = Number((randomCfg as any).maxCount ?? 2)
+      if (!isFinite(minCount)) minCount = 1
+      if (!isFinite(maxCount)) maxCount = 2
+      minCount = clamp(Math.round(minCount), 1, 20)
+      maxCount = clamp(Math.round(maxCount), 1, 20)
+      if (maxCount < minCount) maxCount = minCount
+
+      const pool = memberRoleIds
+        .map((rid) => {
+          const w = Number((weights0 as any)[rid] ?? 1)
+          const weight = isFinite(w) && w >= 0 ? w : 1
+          return { rid, weight }
+        })
+        .filter((x) => x.weight > 0)
+
+      const candidates = pool.length ? pool.slice() : memberRoleIds.map((rid) => ({ rid, weight: 1 }))
+      const maxK = Math.max(1, Math.min(candidates.length, maxCount))
+      const minK = Math.max(1, Math.min(maxK, minCount))
+      const k = minK + Math.floor(Math.random() * (maxK - minK + 1))
+
+      const chosen: string[] = []
+      const bag = candidates.slice()
+      for (let i = 0; i < k && bag.length; i++) {
+        let sum = 0
+        for (const it of bag) sum += it.weight
+        if (!(sum > 0)) break
+        let r = Math.random() * sum
+        let idx = -1
+        for (let j = 0; j < bag.length; j++) {
+          r -= bag[j].weight
+          if (r <= 0) {
+            idx = j
+            break
+          }
+        }
+        if (idx < 0) idx = bag.length - 1
+        const picked = bag.splice(idx, 1)[0]
+        if (picked?.rid) chosen.push(String(picked.rid))
+      }
+      return chosen.length ? chosen : memberRoleIds.slice(0, 1)
+    }
+
+    try {
+      state.sending = true
+      renderComposer()
+
+      const msgs = Array.isArray(chat.messages) ? chat.messages : []
+      const userIndex = msgs.findIndex((m) => String(m?.id || '') === mid)
+      if (userIndex < 0) throw new Error('未找到该消息')
+
+      const target = msgs[userIndex]
+      if (!target || target.role !== 'user') throw new Error('只能从用户消息发起重新回复')
+      if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，请先停止或等待完成')
+
+      const userText = String((target as any)?.content || '').trim()
+      const atMentionSpeakerRoleIds = buildAtMentionSpeakerRoleIds(userText)
+
+      const speakerRoleIds = (() => {
+        if (atMentionSpeakerRoleIds.length) return atMentionSpeakerRoleIds
+        if (mode === 'random') return pickRandomRolesOnce()
+        const order0 = Array.isArray((group as any).roundRobinOrder) ? (group as any).roundRobinOrder : []
+        const order = order0.map((x: any) => String(x || '').trim()).filter((x: any) => !!x && memberRoleIds.includes(x))
+        return order.length ? order : memberRoleIds.slice()
+      })()
+
+      // 校验每个参与发言的角色是否可用（避免插入“生成中…”但后台不接单）
+      for (const rid of speakerRoleIds) {
+        const r = roleById.get(String(rid || ''))
+        if (!r) throw new Error('群组成员角色不存在')
+        ensureRoleDefaults(r)
+        const picked = pickChatModelRef(r, null)
+        const providerId = String(picked.providerId || '')
+        const modelId = String(picked.modelId || '').trim()
+        const p = getProvider(providerId)
+        if (!p) throw new Error(`未找到供应商：${String((r as any).name || '角色')}`)
+        const baseUrl = trimSlash(p.baseUrl || '')
+        const apiKey = String(p.apiKey || '').trim()
+        if (!isHttpBaseUrl(baseUrl)) throw new Error(`请先为「${String((r as any).name || '角色')}」配置 Base URL（http/https）`)
+        if (!apiKey) throw new Error(`请先为「${String((r as any).name || '角色')}」配置 API Key`)
+        if (!modelId) throw new Error(`请先为「${String((r as any).name || '角色')}」选择模型ID`)
+      }
+
+      const streamEnabled = !!state.data?.settings?.streamEnabled
+      const branching = ensureChatBranching(chat)
+      const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
+      const desiredBranchId = normalizeBranchId((target as any)?.branchId || activeBranchId)
+
+      const toInsert: any[] = []
+      let parentMid = mid
+      for (const rid of speakerRoleIds) {
+        const assistantMid = uid('m')
+        toInsert.push({
+          id: assistantMid,
+          role: 'assistant',
+          speakerRoleId: String(rid || ''),
+          content: '（生成中…）',
+          branchId: desiredBranchId,
+          parentMid,
+          pending: true,
+          streaming: streamEnabled,
+          createdAt: now(),
+        })
+        parentMid = assistantMid
+      }
+
+      if (!toInsert.length) throw new Error('未选中任何发言角色')
+
+      msgs.splice(userIndex + 1, 0, ...toInsert)
+      chat.messages = msgs
+      chat.updatedAt = now()
+      setChatBranchHeadMid(chat, desiredBranchId, String(toInsert[toInsert.length - 1]?.id || ''))
+      repairChatLinearBranching(chat)
+
+      await save()
+
+      for (const am of toInsert) {
+        const assistantMid = String((am as any)?.id || '').trim()
+        const roleId = String((am as any)?.speakerRoleId || '').trim()
+        if (!assistantMid || !roleId) continue
+        try {
+          await runtimeStorage.remove(streamKey(assistantMid))
+        } catch (_) {}
+        const jobId = uid('job')
+        const job = {
+          id: jobId,
+          kind: 'openai.chat.completions',
+          status: 'queued',
+          createdAt: now(),
+          targetKind: 'group',
+          groupId,
+          roleId,
+          chatId,
+          assistantMid,
+          cutoffMid: assistantMid,
+          branchId: desiredBranchId,
+          stream: streamEnabled,
+        }
+        await runtimeStorage.set(jobKey(jobId), job)
+        await enqueueJob(jobId)
+      }
+    } catch (e) {
+      const msg = String((e as any)?.message || e || '请求失败')
       api.ui?.showToast?.(msg)
     } finally {
       state.sending = false
