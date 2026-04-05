@@ -4747,6 +4747,10 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
 
     const messages: any[] = []
     if (sys) messages.push({ role: 'system', content: sys })
+    messages.push({
+      role: 'system',
+      content: '你只能以你自己/当前这个成员的身份发言，不得冒充或代替其他任何群成员或用户说话。',
+    })
     if (groupPrompt) messages.push({ role: 'system', content: `群聊设定：\n${groupPrompt}` })
 
     for (const m of history) {
