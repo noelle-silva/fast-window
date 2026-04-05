@@ -745,6 +745,10 @@ export function AiChatApp(props: { controller: any }) {
 
   const activeRole = controller.activeRole()
   const activeChat = controller.activeChat()
+  const savedTreeDir = (() => {
+    const raw = String(((data?.settings as any)?.branchTree?.dir ?? '') as any).trim()
+    return raw === 'lr' || raw === 'tb' || raw === 'bt' || raw === 'rl' ? (raw as any) : 'lr'
+  })() as 'lr' | 'tb' | 'bt' | 'rl'
   const branchDraftRaw: any = (s as any)?.branchDraft
   const branchDraft =
     branchDraftRaw &&
@@ -757,7 +761,7 @@ export function AiChatApp(props: { controller: any }) {
   const [treeOpen, setTreeOpen] = React.useState(false)
   const [treePan, setTreePan] = React.useState<{ x: number; y: number }>({ x: 18, y: 18 })
   const [treeScale, setTreeScale] = React.useState(1)
-  const [treeDir, setTreeDir] = React.useState<'lr' | 'tb' | 'bt' | 'rl'>('lr')
+  const [treeDir, setTreeDir] = React.useState<'lr' | 'tb' | 'bt' | 'rl'>(() => savedTreeDir)
   const [treeSelectedMid, setTreeSelectedMid] = React.useState('')
   const [treePop, setTreePop] = React.useState<{ id: string; at: number }>({ id: '', at: 0 })
   const [treeDragging, setTreeDragging] = React.useState(false)
@@ -814,6 +818,11 @@ export function AiChatApp(props: { controller: any }) {
     setTreeSelectedMid('')
     treeViewRef.current = { x: 18, y: 18, scale: 1 }
   }, [String(activeChat?.id || '')])
+
+  React.useEffect(() => {
+    if (treeDir === savedTreeDir) return
+    setTreeDir(savedTreeDir)
+  }, [savedTreeDir, treeDir])
 
   const applyTreeViewTransform = useEvent(() => {
     const g = treeViewportRef.current
@@ -1093,6 +1102,7 @@ export function AiChatApp(props: { controller: any }) {
     const i = Math.max(0, order.indexOf(treeDir))
     const next = order[(i + 1) % order.length]
     setTreeDir(next)
+    controller.actions.setBranchTreeDir?.(next)
     setTreePan({ x: 18, y: 18 })
     setTreeScale(1)
     treeViewRef.current = { x: 18, y: 18, scale: 1 }

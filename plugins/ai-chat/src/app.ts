@@ -914,6 +914,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
             topbarBlur: 0,
             composerOpacity: 86,
             composerBlur: 10,
+            branchTree: { dir: 'lr' },
             toolRequestRenderPreset: 'classic',
             toolRequestRenderPresets: [],
             userMessageCollapseEnabled: false,
@@ -993,6 +994,11 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     if (typeof d.settings.topbarBlur !== 'number' || !isFinite(d.settings.topbarBlur)) d.settings.topbarBlur = 0
     if (typeof d.settings.composerOpacity !== 'number' || !isFinite(d.settings.composerOpacity)) d.settings.composerOpacity = 86
     if (typeof d.settings.composerBlur !== 'number' || !isFinite(d.settings.composerBlur)) d.settings.composerBlur = 10
+    if (!(d.settings as any).branchTree || typeof (d.settings as any).branchTree !== 'object') (d.settings as any).branchTree = { dir: 'lr' }
+    const btree = (d.settings as any).branchTree
+    const dir0 = String(btree?.dir || '').trim()
+    const okDir = dir0 === 'lr' || dir0 === 'tb' || dir0 === 'bt' || dir0 === 'rl'
+    btree.dir = okDir ? dir0 : 'lr'
     if (typeof d.settings.toolRequestRenderPreset !== 'string') d.settings.toolRequestRenderPreset = 'classic'
     ;(d.settings as any).toolRequestRenderPresets = normalizeToolRequestRenderPresets((d.settings as any).toolRequestRenderPresets)
     if (typeof d.settings.userMessageCollapseEnabled !== 'boolean') d.settings.userMessageCollapseEnabled = false
@@ -5319,6 +5325,16 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         if (!state.data) return
         const v = String(preset || '').trim().slice(0, 60)
         state.data.settings.toolRequestRenderPreset = v || 'classic'
+        save().catch(() => {})
+        emit()
+      },
+      setBranchTreeDir: (dir) => {
+        if (!state.data) return
+        if (!state.data.settings || typeof state.data.settings !== 'object') state.data.settings = {}
+        if (!(state.data.settings as any).branchTree || typeof (state.data.settings as any).branchTree !== 'object') (state.data.settings as any).branchTree = { dir: 'lr' }
+        const v = String(dir || '').trim()
+        const ok = v === 'lr' || v === 'tb' || v === 'bt' || v === 'rl'
+        ;(state.data.settings as any).branchTree.dir = ok ? v : 'lr'
         save().catch(() => {})
         emit()
       },
