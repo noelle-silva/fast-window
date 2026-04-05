@@ -758,6 +758,7 @@ export function AiChatApp(props: { controller: any }) {
   const [treePan, setTreePan] = React.useState<{ x: number; y: number }>({ x: 18, y: 18 })
   const [treeScale, setTreeScale] = React.useState(1)
   const [treeDir, setTreeDir] = React.useState<'lr' | 'tb' | 'bt' | 'rl'>('lr')
+  const [treePop, setTreePop] = React.useState<{ id: string; at: number }>({ id: '', at: 0 })
   const [treeDragging, setTreeDragging] = React.useState(false)
   const treeDragRef = React.useRef<{ pid: number; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null)
   const treeSuppressClickRef = React.useRef(false)
@@ -807,6 +808,13 @@ export function AiChatApp(props: { controller: any }) {
     setTreePan({ x: 18, y: 18 })
     setTreeScale(1)
   }, [String(activeChat?.id || '')])
+
+  React.useEffect(() => {
+    const id = String(treePop.id || '').trim()
+    if (!id) return
+    const t = window.setTimeout(() => setTreePop({ id: '', at: 0 }), 420)
+    return () => window.clearTimeout(t)
+  }, [treePop.id, treePop.at])
 
   React.useEffect(() => {
     treePanelWRef.current = treePanelW
@@ -1741,6 +1749,20 @@ export function AiChatApp(props: { controller: any }) {
             backgroundColor: transparentChatBg ? `rgba(255,255,255,${bgAlpha})` : '#fff',
             backdropFilter: transparentChatBg && chatBgBlur > 0 ? `blur(${chatBgBlur}px)` : 'none',
             WebkitBackdropFilter: transparentChatBg && chatBgBlur > 0 ? `blur(${chatBgBlur}px)` : 'none',
+          },
+          '@keyframes fw-tree-pop': {
+            '0%': { transform: 'scale(1)' },
+            '28%': { transform: 'scale(.92)' },
+            '62%': { transform: 'scale(1.07)' },
+            '100%': { transform: 'scale(1)' },
+          },
+          '.fw-tree-node': {
+            transformOrigin: 'center',
+            transformBox: 'fill-box',
+            willChange: 'transform',
+          },
+          '.fw-tree-node[data-pop="1"]': {
+            animation: 'fw-tree-pop 420ms cubic-bezier(.2,.9,.2,1) both',
           },
           '.prose': {
             fontSize: 14,
@@ -3052,41 +3074,44 @@ export function AiChatApp(props: { controller: any }) {
                             const strokeWidth = isActive ? 2.25 : 1.25
 
                             return (
-                              <g
-                                key={id}
-                                transform={`translate(${Math.round(x)},${Math.round(y)})`}
-                                style={{ cursor: 'pointer' }}
-                                data-tree-node="1"
-                                onClick={(ev) => {
-                                  if (treeSuppressClickRef.current) {
-                                    treeSuppressClickRef.current = false
-                                    ev.preventDefault()
+                              <g key={id} transform={`translate(${Math.round(x)},${Math.round(y)})`}>
+                                <g
+                                  className="fw-tree-node"
+                                  data-pop={treePop.id === id ? '1' : undefined}
+                                  style={{ cursor: 'pointer' }}
+                                  data-tree-node="1"
+                                  onClick={(ev) => {
+                                    if (treeSuppressClickRef.current) {
+                                      treeSuppressClickRef.current = false
+                                      ev.preventDefault()
+                                      ev.stopPropagation()
+                                      return
+                                    }
+                                    setTreePop({ id, at: Date.now() })
+                                    jumpToMessage(id)
+                                  }}
+                                  onPointerDown={(ev) => {
                                     ev.stopPropagation()
-                                    return
-                                  }
-                                  jumpToMessage(id)
-                                }}
-                                onPointerDown={(ev) => {
-                                  ev.stopPropagation()
-                                }}
-                              >
-                                <defs>
-                                  <clipPath id={clipId}>
-                                    <rect x={10} y={6} width={Math.max(0, w - 20)} height={Math.max(0, h - 12)} rx={8} />
-                                  </clipPath>
-                                </defs>
-                                <rect x={0} y={0} width={w} height={h} rx={12} fill={palette.fill} stroke={stroke} strokeWidth={strokeWidth} />
-                                <text
-                                  x={12}
-                                  y={h / 2}
-                                  fill="rgba(0,0,0,.82)"
-                                  fontSize={12}
-                                  dominantBaseline="middle"
-                                  clipPath={`url(#${clipId})`}
-                                  style={{ pointerEvents: 'none' }}
+                                  }}
                                 >
-                                  {text}
-                                </text>
+                                  <defs>
+                                    <clipPath id={clipId}>
+                                      <rect x={10} y={6} width={Math.max(0, w - 20)} height={Math.max(0, h - 12)} rx={8} />
+                                    </clipPath>
+                                  </defs>
+                                  <rect x={0} y={0} width={w} height={h} rx={12} fill={palette.fill} stroke={stroke} strokeWidth={strokeWidth} />
+                                  <text
+                                    x={12}
+                                    y={h / 2}
+                                    fill="rgba(0,0,0,.82)"
+                                    fontSize={12}
+                                    dominantBaseline="middle"
+                                    clipPath={`url(#${clipId})`}
+                                    style={{ pointerEvents: 'none' }}
+                                  >
+                                    {text}
+                                  </text>
+                                </g>
                               </g>
                             )
                           })}
