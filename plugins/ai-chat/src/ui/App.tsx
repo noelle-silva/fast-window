@@ -1802,7 +1802,6 @@ export function AiChatApp(props: { controller: any }) {
       const target = e.target as any
       const tag = String(target?.tagName || '').toUpperCase()
       if (tag === 'INPUT' || tag === 'TEXTAREA' || !!target?.isContentEditable) return
-      if (tag === 'BUTTON' || tag === 'A' || String(target?.getAttribute?.('role') || '') === 'button') return
 
       e.preventDefault()
       e.stopPropagation()
@@ -3539,11 +3538,14 @@ export function AiChatApp(props: { controller: any }) {
                     <span>
                       <IconButton
                         size="small"
-                        onClick={() => {
+                        onClick={(e) => {
                           setTreePan({ x: 18, y: 18 })
                           setTreeScale(1)
                           treeViewRef.current = { x: 18, y: 18, scale: 1 }
                           scheduleTreeViewTransform()
+                          try {
+                            ;(e.currentTarget as any)?.blur?.()
+                          } catch (_) {}
                         }}
                         disabled={!treeOpen}
                         sx={{
@@ -3574,14 +3576,19 @@ export function AiChatApp(props: { controller: any }) {
                             : '切换方向（当前：下→上）'
                     }
                   >
-                    <span>
-                      <IconButton
-                        size="small"
-                        onClick={cycleTreeDir}
-                        disabled={!treeOpen}
-                        sx={{
-                          position: 'absolute',
-                          top: 10,
+                      <span>
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            cycleTreeDir()
+                            try {
+                              ;(e.currentTarget as any)?.blur?.()
+                            } catch (_) {}
+                          }}
+                          disabled={!treeOpen}
+                          sx={{
+                            position: 'absolute',
+                            top: 10,
                           right: 52,
                           zIndex: 2,
                           bgcolor: 'rgba(255,255,255,.72)',
@@ -3856,7 +3863,12 @@ export function AiChatApp(props: { controller: any }) {
                       <span>
                         <IconButton
                           size="small"
-                          onClick={cycleTreeDir}
+                          onClick={(e) => {
+                            cycleTreeDir()
+                            try {
+                              ;(e.currentTarget as any)?.blur?.()
+                            } catch (_) {}
+                          }}
                           sx={{
                             bgcolor: 'rgba(255,255,255,.72)',
                             border: '1px solid rgba(0,0,0,.12)',
@@ -3878,6 +3890,11 @@ export function AiChatApp(props: { controller: any }) {
                             setTreeScale(1)
                             treeViewRef.current = { x: 18, y: 18, scale: 1 }
                             scheduleTreeViewTransform()
+                          }}
+                          onMouseUp={(e) => {
+                            try {
+                              ;(e.currentTarget as any)?.blur?.()
+                            } catch (_) {}
                           }}
                           sx={{
                             bgcolor: 'rgba(255,255,255,.72)',
