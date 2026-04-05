@@ -1396,6 +1396,13 @@ export function AiChatApp(props: { controller: any }) {
   const uiBusy = !!s.sending
   const chatLocked = isReplying
   const jumpToMessage = useEvent((mid0: string) => {
+    // 重要：树视图的缩放/平移是用 ref 更新的（为了性能不频繁 setState）。
+    // 但一旦触发 React render（比如点击节点），useLayoutEffect 会用 treePan/treeScale 覆盖 ref。
+    // 所以这里先把 ref 的最新值同步回 state，避免“缩放后第一次点击不居中、第二次才正常”的错位。
+    const vv = treeViewRef.current
+    setTreePan({ x: Number(vv?.x || 0), y: Number(vv?.y || 0) })
+    setTreeScale(clampNum(Number(vv?.scale || 1), 0.35, 2.6))
+
     const mid = String(mid0 || '').trim()
     if (!mid) return
     if (!activeChat) return
