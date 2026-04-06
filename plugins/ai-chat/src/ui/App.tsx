@@ -67,7 +67,6 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import StarBorderRoundedIcon from '@mui/icons-material/StarBorderRounded'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import DriveFileMoveOutlinedIcon from '@mui/icons-material/DriveFileMoveOutlined'
-import UnfoldMoreIcon from '@mui/icons-material/UnfoldMore'
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess'
 import { BUILTIN_TOOL_REQUEST_PRESETS, stringifyToolRequestRenderPreset } from '../core/toolRequestPresets'
 import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from '../core/viewerZoom'
@@ -1027,14 +1026,6 @@ export function AiChatApp(props: { controller: any }) {
       return next
     })
     closeMoveFavoriteFolderDialog()
-  })
-  const expandAllFavoriteFolders = useEvent(() => {
-    const next: Record<string, boolean> = {}
-    for (const folder of favoriteFolders) {
-      const fid = String(folder?.id || '')
-      if (fid) next[fid] = true
-    }
-    setFavoriteFolderExpanded(next)
   })
   const collapseAllFavoriteFolders = useEvent(() => {
     const next: Record<string, boolean> = {}
@@ -2566,6 +2557,23 @@ export function AiChatApp(props: { controller: any }) {
     x: 0,
     y: 0,
   })
+  const [favoriteChatMenu, setFavoriteChatMenu] = React.useState<{
+    folderId: string
+    targetKind: 'role' | 'group'
+    targetId: string
+    chatId: string
+    title: string
+    x: number
+    y: number
+  }>({
+    folderId: '',
+    targetKind: 'role',
+    targetId: '',
+    chatId: '',
+    title: '',
+    x: 0,
+    y: 0,
+  })
   const [confirmDelChat, setConfirmDelChat] = React.useState<{ targetKind: 'role' | 'group'; targetId: string; chatId: string }>({
     targetKind: 'role',
     targetId: '',
@@ -2584,6 +2592,7 @@ export function AiChatApp(props: { controller: any }) {
 
   React.useEffect(() => {
     setChatMenu({ targetKind: 'role', targetId: '', chatId: '', title: '', x: 0, y: 0 })
+    setFavoriteChatMenu({ folderId: '', targetKind: 'role', targetId: '', chatId: '', title: '', x: 0, y: 0 })
     setConfirmDelChat({ targetKind: 'role', targetId: '', chatId: '' })
     setEditingChatTitle({ targetKind: 'role', targetId: '', chatId: '', text: '' })
   }, [page, activeRole?.id, (activeGroup as any)?.id, activeTargetKind])
@@ -2745,6 +2754,7 @@ export function AiChatApp(props: { controller: any }) {
                     key={`${fid}:${targetKind}:${targetId}:${chatId}`}
                     sx={{ pl: 3 + depth * 2, pr: 1 }}
                     onClick={() => openFavoritedChat(targetKind as any, targetId, chatId)}
+                    onContextMenu={(e) => onFavoriteChatContextMenu(e, fid, targetKind as any, targetId, chatId, String((chat as any)?.title || ''))}
                   >
                     <StarBorderRoundedIcon sx={{ fontSize: 17, color: 'warning.main', mr: 1 }} />
                     <ListItemText
@@ -2759,7 +2769,15 @@ export function AiChatApp(props: { controller: any }) {
         )
       })
     },
-    [favoriteChildrenMap, favoriteChatRefsByFolderId, favoriteFolderExpanded, getChatByFavoriteRef, openCreateFavoriteFolder, openFavoritedChat, toggleFavoriteFolderExpanded],
+    [
+      favoriteChildrenMap,
+      favoriteChatRefsByFolderId,
+      favoriteFolderExpanded,
+      getChatByFavoriteRef,
+      openCreateFavoriteFolder,
+      openFavoritedChat,
+      toggleFavoriteFolderExpanded,
+    ],
   )
 
   const closeMsgMenu = useEvent(() => setMsgMenu({ mid: '', role: 'assistant', x: 0, y: 0, pending: false }))
@@ -2786,6 +2804,7 @@ export function AiChatApp(props: { controller: any }) {
   })
 
   const closeChatMenu = useEvent(() => setChatMenu({ targetKind: 'role', targetId: '', chatId: '', title: '', x: 0, y: 0 }))
+  const closeFavoriteChatMenu = useEvent(() => setFavoriteChatMenu({ folderId: '', targetKind: 'role', targetId: '', chatId: '', title: '', x: 0, y: 0 }))
   const onChatContextMenu = useEvent((e: React.MouseEvent, targetKind: 'role' | 'group', targetId: string, chatId: string, title: string) => {
     const kind = targetKind === 'group' ? 'group' : 'role'
     const tid = String(targetId || '')
@@ -2795,6 +2814,18 @@ export function AiChatApp(props: { controller: any }) {
     e.stopPropagation()
     setChatMenu({ targetKind: kind, targetId: tid, chatId: cid, title: String(title ?? ''), x: e.clientX, y: e.clientY })
   })
+  const onFavoriteChatContextMenu = useEvent(
+    (e: React.MouseEvent, folderId: string, targetKind: 'role' | 'group', targetId: string, chatId: string, title: string) => {
+      const fid = String(folderId || '')
+      const kind = targetKind === 'group' ? 'group' : 'role'
+      const tid = String(targetId || '')
+      const cid = String(chatId || '')
+      if (!fid || !tid || !cid) return
+      e.preventDefault()
+      e.stopPropagation()
+      setFavoriteChatMenu({ folderId: fid, targetKind: kind, targetId: tid, chatId: cid, title: String(title ?? ''), x: e.clientX, y: e.clientY })
+    },
+  )
 
   React.useEffect(() => {
     if (page !== 'chat') return
@@ -2831,6 +2862,7 @@ export function AiChatApp(props: { controller: any }) {
     setChatPickerEl(null)
     setChatPickerView('history')
     closeChatMenu()
+    closeFavoriteChatMenu()
     closeFavoriteFolderMenu()
     closeFavoriteDialog()
     closeCreateFavoriteFolder()
@@ -5806,13 +5838,6 @@ export function AiChatApp(props: { controller: any }) {
                     </IconButton>
                   </Tooltip>
                   <Typography sx={{ fontWeight: 800, flex: 1 }}>收藏夹</Typography>
-                  <Tooltip title="展开全部">
-                    <span>
-                      <IconButton size="small" onClick={expandAllFavoriteFolders} disabled={!favoriteFolders.length}>
-                        <UnfoldMoreIcon fontSize="inherit" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
                   <Tooltip title="折叠全部">
                     <span>
                       <IconButton size="small" onClick={collapseAllFavoriteFolders} disabled={!favoriteFolders.length}>
@@ -5904,6 +5929,83 @@ export function AiChatApp(props: { controller: any }) {
             <MenuItem onClick={() => openDeleteFavoriteFolderConfirm(favoriteFolderMenu.folderId, 'tree')} sx={{ gap: 1 }}>
               <DeleteOutlineIcon fontSize="small" />
               删除文件夹及其子内容
+            </MenuItem>
+          </Box>
+        </Popover>
+
+        <Popover
+          open={!!favoriteChatMenu.chatId}
+          onClose={closeFavoriteChatMenu}
+          anchorReference="anchorPosition"
+          anchorPosition={favoriteChatMenu.chatId ? { top: favoriteChatMenu.y, left: favoriteChatMenu.x } : undefined}
+          transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        >
+          <Box sx={{ minWidth: 200, p: 0.5 }}>
+            <MenuItem
+              disabled={!favoriteChatMenu.chatId || !favoriteChatMenu.targetId || s.loading}
+              onClick={() => {
+                const { targetKind, targetId, chatId, title } = favoriteChatMenu
+                closeFavoriteChatMenu()
+                openFavoriteDialog(targetKind, targetId, chatId, title)
+              }}
+              sx={{ gap: 1 }}
+            >
+              <StarBorderRoundedIcon fontSize="small" />
+              收藏到...
+            </MenuItem>
+            <MenuItem
+              disabled={!favoriteChatMenu.chatId || !favoriteChatMenu.targetId || !favoriteChatMenu.folderId || s.loading}
+              onClick={() => {
+                const { folderId, targetKind, targetId, chatId } = favoriteChatMenu
+                const currentIds = Array.isArray(controller.actions.getChatFavoriteFolderIds?.(targetKind, targetId, chatId))
+                  ? controller.actions.getChatFavoriteFolderIds(targetKind, targetId, chatId)
+                  : []
+                closeFavoriteChatMenu()
+                controller.actions.setChatFavoriteFolders?.(
+                  targetKind,
+                  targetId,
+                  chatId,
+                  currentIds.filter((id: any) => String(id || '') !== String(folderId || '')),
+                )
+              }}
+              sx={{ gap: 1 }}
+            >
+              <DeleteOutlineIcon fontSize="small" />
+              从当前文件夹移除
+            </MenuItem>
+            <MenuItem
+              disabled={!favoriteChatMenu.chatId || !favoriteChatMenu.targetId || s.loading}
+              onClick={() => {
+                const { targetKind, targetId, chatId, title } = favoriteChatMenu
+                closeFavoriteChatMenu()
+                setEditingChatTitle({ targetKind, targetId, chatId, text: String(title ?? '') })
+              }}
+              sx={{ gap: 1 }}
+            >
+              <EditOutlinedIcon fontSize="small" />
+              编辑标题
+            </MenuItem>
+            <MenuItem
+              disabled={
+                !favoriteChatMenu.chatId ||
+                !favoriteChatMenu.targetId ||
+                s.loading ||
+                isSendingThisChat(favoriteChatMenu.targetKind, favoriteChatMenu.targetId, favoriteChatMenu.chatId)
+              }
+              onClick={() => {
+                const { targetKind, targetId, chatId } = favoriteChatMenu
+                closeFavoriteChatMenu()
+                Promise.resolve()
+                  .then(() => {
+                    if (targetKind === 'group') return controller.actions.aiGenerateGroupChatTitle?.(targetId, chatId)
+                    return controller.actions.aiGenerateChatTitle?.(targetId, chatId)
+                  })
+                  .catch(() => {})
+              }}
+              sx={{ gap: 1 }}
+            >
+              <AutorenewIcon fontSize="small" />
+              AI 生成标题
             </MenuItem>
           </Box>
         </Popover>
