@@ -975,6 +975,16 @@ export function AiChatApp(props: { controller: any }) {
     [groups, roles],
   )
 
+  const formatModelRefText = React.useCallback(
+    (modelRef: any) => {
+      const providerId = String(modelRef?.providerId || '').trim()
+      const modelId = String(modelRef?.modelId || '').trim()
+      if (!providerId && !modelId) return ''
+      return providerId && modelId ? `${providerId} / ${modelId}` : providerId || modelId
+    },
+    [],
+  )
+
   const openCreateFavoriteFolder = useEvent((parentId = '') => {
     setCreateFavoriteFolder({ open: true, parentId: String(parentId || ''), name: '' })
   })
@@ -3732,6 +3742,7 @@ export function AiChatApp(props: { controller: any }) {
                     const roleName = String((speakerRole as any)?.name || (activeTargetKind === 'group' ? 'AI' : activeRole?.name || 'AI'))
                     const roleAvatarEmoji = String((speakerRole as any)?.avatar || '🤖')
                     const roleAvatarImage = String((speakerRole as any)?.avatarImage || '')
+                    const roleModelText = !isUser ? formatModelRefText((m as any)?.modelRef) : ''
                     const time = controller.fmtTime(Number(m?.createdAt || 0))
                     const imgPaths = isUser ? (Array.isArray(m?.images) ? m.images : []) : []
                     const attMsgs = isUser ? (groupedAttMsgsByRootMid.get(String(m?.id || '').trim()) || []) : []
@@ -3793,9 +3804,16 @@ export function AiChatApp(props: { controller: any }) {
                                 <Avatar src={roleAvatarImage || undefined} sx={{ width: 66, height: 66, fontSize: 28 }}>
                                   {roleAvatarEmoji}
                                 </Avatar>
-                                <Typography variant="subtitle1" sx={{ fontWeight: 900, minWidth: 0, fontSize: 20 }} noWrap>
-                                  {roleName}
-                                </Typography>
+                                <Stack spacing={0} sx={{ minWidth: 0 }}>
+                                  <Typography variant="subtitle1" sx={{ fontWeight: 900, minWidth: 0, fontSize: 20 }} noWrap>
+                                    {roleName}
+                                  </Typography>
+                                  {roleModelText ? (
+                                    <Typography variant="caption" color="text.secondary" sx={{ minWidth: 0, lineHeight: 1.2 }} noWrap>
+                                      {roleModelText}
+                                    </Typography>
+                                  ) : null}
+                                </Stack>
                               </Stack>
                             )}
                             <Box sx={{ flex: 1 }} />

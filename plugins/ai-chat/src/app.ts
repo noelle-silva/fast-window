@@ -1696,6 +1696,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
                   pending: !!m.pending,
                   streaming: !!m.streaming,
                   createdAt: Number(m.createdAt || now()),
+                  modelRef: normalizeMessageModelRef(m),
                 })),
           }
 
@@ -2054,6 +2055,22 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const modelId = String(o?.modelId || '').trim()
     if (!providerId || !modelId) return null
     return { providerId, modelId }
+  }
+
+  function normalizeMessageModelRef(message) {
+    const m = message && typeof message === 'object' ? message : null
+    const r = m && (m as any).modelRef && typeof (m as any).modelRef === 'object' ? (m as any).modelRef : null
+    const providerId = String(r?.providerId || '').trim()
+    const modelId = String(r?.modelId || '').trim()
+    if (!providerId || !modelId) return null
+    return { providerId, modelId }
+  }
+
+  function buildMessageModelRef(providerId, modelId) {
+    const pid = String(providerId || '').trim()
+    const mid = String(modelId || '').trim()
+    if (!pid || !mid) return null
+    return { providerId: pid, modelId: mid }
   }
 
   function pickChatModelRef(role, chat) {
@@ -3335,6 +3352,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       }
       if (!chat) throw new Error('创建会话失败')
 
+      const messageModelRef = buildMessageModelRef(providerId, modelId)
       const branching = ensureChatBranching(chat)
       let activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
       const activeBranch = ensureChatBranch(chat, activeBranchId)
@@ -3475,6 +3493,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         pending: true,
         streaming: streamEnabled,
         createdAt: now(),
+        modelRef: messageModelRef,
       })
       chat.updatedAt = now()
       setChatBranchHeadMid(chat, activeBranchId, assistantMid)
@@ -3814,18 +3833,23 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
 
       assistantMids = []
       for (const rid of speakerRoleIds) {
+        const rid0 = String(rid || '')
+        const speakerRole = roleById.get(rid0)
+        const picked = pickChatModelRef(speakerRole, null)
+        const messageModelRef = buildMessageModelRef(picked.providerId, picked.modelId)
         const mid = uid('m')
-        assistantMids.push({ roleId: String(rid || ''), mid })
+        assistantMids.push({ roleId: rid0, mid })
         chat.messages.push({
           id: mid,
           role: 'assistant',
-          speakerRoleId: String(rid || ''),
+          speakerRoleId: rid0,
           content: '（生成中…）',
           branchId: activeBranchId,
           parentMid,
           pending: true,
           streaming: streamEnabled,
           createdAt: now(),
+          modelRef: messageModelRef,
         })
         parentMid = mid
       }
@@ -3997,6 +4021,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       target.content = '（生成中…）'
       target.pending = true
       target.streaming = streamEnabled
+      target.modelRef = buildMessageModelRef(providerId, modelId)
       chat.updatedAt = now()
       repairChatLinearBranching(chat)
 
@@ -4102,6 +4127,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       target.pending = true
       target.streaming = streamEnabled
       ;(target as any).speakerRoleId = speakerRoleId
+      ;(target as any).modelRef = buildMessageModelRef(providerId, modelId)
       chat.updatedAt = now()
       repairChatLinearBranching(chat)
 
@@ -4193,6 +4219,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       const branching = ensureChatBranching(chat)
       const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
       if (chatHasPendingAssistantInBranch(chat, activeBranchId)) throw new Error('该分支正在生成中，请先停止或等待完成')
+      const messageModelRef = buildMessageModelRef(providerId, modelId)
       assistantMid = uid('m')
       msgs.splice(userIndex + 1, 0, {
         id: assistantMid,
@@ -4203,6 +4230,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         pending: true,
         streaming: streamEnabled,
         createdAt: now(),
+        modelRef: messageModelRef,
       })
       chat.messages = msgs
       chat.updatedAt = now()
@@ -4397,17 +4425,22 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       const toInsert: any[] = []
       let parentMid = mid
       for (const rid of speakerRoleIds) {
+        const rid0 = String(rid || '')
+        const speakerRole = roleById.get(rid0)
+        const picked = pickChatModelRef(speakerRole, null)
+        const messageModelRef = buildMessageModelRef(picked.providerId, picked.modelId)
         const assistantMid = uid('m')
         toInsert.push({
           id: assistantMid,
           role: 'assistant',
-          speakerRoleId: String(rid || ''),
+          speakerRoleId: rid0,
           content: '（生成中…）',
           branchId: desiredBranchId,
           parentMid,
           pending: true,
           streaming: streamEnabled,
           createdAt: now(),
+          modelRef: messageModelRef,
         })
         parentMid = assistantMid
       }
@@ -5724,6 +5757,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
                 pending: true,
                 streaming: !!streamEnabled,
                 createdAt: assistantMid2CreatedAt,
+                modelRef: buildMessageModelRef(providerId, modelId),
               },
             ])
 
