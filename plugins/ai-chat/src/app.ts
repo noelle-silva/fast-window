@@ -559,6 +559,113 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     return { ok: true, name: raw, error: '' }
   }
 
+  function validateFavoriteFolderName(input) {
+    const raw = String(input || '').replace(/\s+/g, ' ').trim()
+    if (!raw) return { ok: false, name: '', error: '文件夹名不能为空' }
+    if (raw.length > 60) return { ok: false, name: '', error: '文件夹名太长（最多 60 字符）' }
+    if (raw.includes('/') || raw.includes('\\')) return { ok: false, name: '', error: '文件夹名不能包含 / 或 \\' }
+    if (raw.includes('\n') || raw.includes('\r')) return { ok: false, name: '', error: '文件夹名包含不支持的字符' }
+    return { ok: true, name: raw, error: '' }
+  }
+
+  function favoriteChatRefKey(targetKind: any, targetId: any, chatId: any) {
+    const kind = String(targetKind || '').trim() === 'group' ? 'group' : 'role'
+    const tid = String(targetId || '').trim()
+    const cid = String(chatId || '').trim()
+    if (!tid || !cid) return ''
+    return `${kind}::${tid}::${cid}`
+  }
+
+  function normalizeFavoriteFolder(input: any) {
+    const raw = input && typeof input === 'object' ? input : {}
+    const id = String((raw as any).id || uid('favf')).trim() || uid('favf')
+    let name = String((raw as any).name || '').replace(/\s+/g, ' ').trim()
+    if (!name) name = '未命名文件夹'
+    if (name.length > 60) name = name.slice(0, 60).trim() || '未命名文件夹'
+    const createdAt = Number((raw as any).createdAt || now())
+    const updatedAt = Number((raw as any).updatedAt || createdAt || now())
+    const parentId0 = String((raw as any).parentId || '').trim()
+    return {
+      id,
+      name,
+      parentId: parentId0 && parentId0 !== id ? parentId0 : '',
+      createdAt,
+      updatedAt,
+    }
+  }
+
+  function normalizeFavoriteChatRef(input: any) {
+    const raw = input && typeof input === 'object' ? input : null
+    if (!raw) return null
+    const targetKind = String((raw as any).targetKind || '').trim() === 'group' ? 'group' : 'role'
+    const targetId = String((raw as any).targetId || '').trim()
+    const chatId = String((raw as any).chatId || '').trim()
+    if (!targetId || !chatId) return null
+    return {
+      targetKind,
+      targetId,
+      chatId,
+      addedAt: Number((raw as any).addedAt || now()),
+    }
+  }
+
+  function normalizeFavorites(raw: any) {
+    const src = raw && typeof raw === 'object' ? raw : {}
+    const folders0 = Array.isArray((src as any).folders) ? (src as any).folders : []
+    const folders: any[] = []
+    const folderIdSet = new Set<string>()
+    for (const it of folders0) {
+      const f = normalizeFavoriteFolder(it)
+      if (!f.id || folderIdSet.has(f.id)) continue
+      folderIdSet.add(f.id)
+      folders.push(f)
+      if (folders.length >= 1000) break
+    }
+
+    const parentMap = new Map<string, string>()
+    for (const f of folders) parentMap.set(String(f.id || ''), String(f.parentId || ''))
+    for (const f of folders) {
+      let pid = String(f.parentId || '').trim()
+      if (!pid || !folderIdSet.has(pid) || pid === String(f.id || '')) {
+        f.parentId = ''
+        continue
+      }
+      const seen = new Set<string>([String(f.id || '')])
+      let cur = pid
+      let ok = true
+      while (cur) {
+        if (!folderIdSet.has(cur) || seen.has(cur)) {
+          ok = false
+          break
+        }
+        seen.add(cur)
+        cur = String(parentMap.get(cur) || '').trim()
+      }
+      if (!ok) f.parentId = ''
+    }
+
+    const refs0 = (src as any).chatRefsByFolderId && typeof (src as any).chatRefsByFolderId === 'object' ? (src as any).chatRefsByFolderId : {}
+    const chatRefsByFolderId: Record<string, any[]> = {}
+    for (const f of folders) {
+      const fid = String(f.id || '')
+      const list0 = Array.isArray((refs0 as any)[fid]) ? (refs0 as any)[fid] : []
+      const list: any[] = []
+      const seen = new Set<string>()
+      for (const it of list0) {
+        const ref = normalizeFavoriteChatRef(it)
+        if (!ref) continue
+        const key = favoriteChatRefKey(ref.targetKind, ref.targetId, ref.chatId)
+        if (!key || seen.has(key)) continue
+        seen.add(key)
+        list.push(ref)
+        if (list.length >= 5000) break
+      }
+      chatRefsByFolderId[fid] = list
+    }
+
+    return { folders, chatRefsByFolderId }
+  }
+
   function validateStickerName(input) {
     const raw = String(input || '').trim()
     if (!raw) return { ok: false, name: '', error: '表情名不能为空' }
@@ -697,6 +804,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       updatedAt: Number(raw.updatedAt || 0),
       ui: raw.ui && typeof raw.ui === 'object' ? raw.ui : {},
       settings: raw.settings && typeof raw.settings === 'object' ? raw.settings : {},
+      favorites: normalizeFavorites((raw as any).favorites),
       roleOrder,
       roleFolders,
       chatIndexByRole,
@@ -761,6 +869,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const d = {
       version: VERSION,
       settings: meta.settings && typeof meta.settings === 'object' ? meta.settings : {},
+      favorites: normalizeFavorites((meta as any).favorites),
       roles: [],
       chatsByRole: {},
       groups: [],
@@ -1096,6 +1205,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       updatedAt: now(),
       ui: d.ui && typeof d.ui === 'object' ? d.ui : {},
       settings: settingsMeta,
+      favorites: normalizeFavorites((d as any).favorites),
       roleOrder,
       roleFolders,
       chatIndexByRole,
@@ -1345,6 +1455,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
           },
         ],
       },
+      favorites: { folders: [], chatRefsByFolderId: {} },
       roles: [
         {
           id: rid,
@@ -1518,6 +1629,8 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       if (!Array.isArray(p.modelsCache.items)) p.modelsCache.items = []
       p.modelsCache.fetchedAt = Number(p.modelsCache.fetchedAt || 0)
     }
+
+    ;(d as any).favorites = normalizeFavorites((d as any).favorites)
 
     if (!Array.isArray(d.roles) || d.roles.length === 0) d.roles = defaultData().roles
 
@@ -1806,6 +1919,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       updatedAt: now(),
       ui: state.data.ui && typeof state.data.ui === 'object' ? state.data.ui : {},
       settings: settingsMeta,
+      favorites: normalizeFavorites((state.data as any).favorites),
     }
 
     await api.storage.set(SPLIT_META_KEY, meta)
@@ -6913,6 +7027,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const rid = String(roleId || '')
     state.data.roles = state.data.roles.filter((r) => String(r?.id) !== rid)
     if (state.data.chatsByRole && typeof state.data.chatsByRole === 'object') delete state.data.chatsByRole[rid]
+    cleanupFavoriteRefsForTarget('role', rid)
 
     if (!state.data.roles.length) {
       const d = defaultData()
@@ -6969,6 +7084,103 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     }
     if (!box.activeChatId || !box.chats.some((c: any) => String(c?.id) === box.activeChatId)) box.activeChatId = String(box.chats[0]?.id || '')
     return box
+  }
+
+  function ensureFavoritesBare() {
+    if (!state.data) return null
+    if (!(state.data as any).favorites || typeof (state.data as any).favorites !== 'object') (state.data as any).favorites = { folders: [], chatRefsByFolderId: {} }
+    const fav = (state.data as any).favorites
+    if (!Array.isArray(fav.folders)) fav.folders = []
+    if (!fav.chatRefsByFolderId || typeof fav.chatRefsByFolderId !== 'object') fav.chatRefsByFolderId = {}
+    return fav
+  }
+
+  function getFavoriteFolderIdsForChat(targetKind: any, targetId: any, chatId: any) {
+    const fav = ensureFavoritesBare()
+    if (!fav) return []
+    const key = favoriteChatRefKey(targetKind, targetId, chatId)
+    if (!key) return []
+    const out: string[] = []
+    for (const f of Array.isArray(fav.folders) ? fav.folders : []) {
+      const fid = String((f as any)?.id || '').trim()
+      if (!fid) continue
+      const refs = Array.isArray(fav.chatRefsByFolderId?.[fid]) ? fav.chatRefsByFolderId[fid] : []
+      if (refs.some((ref: any) => favoriteChatRefKey(ref?.targetKind, ref?.targetId, ref?.chatId) === key)) out.push(fid)
+    }
+    return out
+  }
+
+  function cleanupFavoriteRefsForChat(targetKind: any, targetId: any, chatId: any) {
+    const fav = ensureFavoritesBare()
+    if (!fav) return
+    const key = favoriteChatRefKey(targetKind, targetId, chatId)
+    if (!key) return
+    for (const f of Array.isArray(fav.folders) ? fav.folders : []) {
+      const fid = String((f as any)?.id || '').trim()
+      if (!fid) continue
+      const refs = Array.isArray(fav.chatRefsByFolderId?.[fid]) ? fav.chatRefsByFolderId[fid] : []
+      fav.chatRefsByFolderId[fid] = refs.filter((ref: any) => favoriteChatRefKey(ref?.targetKind, ref?.targetId, ref?.chatId) !== key)
+    }
+  }
+
+  function cleanupFavoriteRefsForTarget(targetKind: any, targetId: any) {
+    const fav = ensureFavoritesBare()
+    if (!fav) return
+    const kind = String(targetKind || '').trim() === 'group' ? 'group' : 'role'
+    const tid = String(targetId || '').trim()
+    if (!tid) return
+    for (const f of Array.isArray(fav.folders) ? fav.folders : []) {
+      const fid = String((f as any)?.id || '').trim()
+      if (!fid) continue
+      const refs = Array.isArray(fav.chatRefsByFolderId?.[fid]) ? fav.chatRefsByFolderId[fid] : []
+      fav.chatRefsByFolderId[fid] = refs.filter((ref: any) => !(String(ref?.targetKind || '').trim() === kind && String(ref?.targetId || '').trim() === tid))
+    }
+  }
+
+  function createFavoriteFolder(name: any, parentId?: any) {
+    const fav = ensureFavoritesBare()
+    if (!fav) return
+    const v = validateFavoriteFolderName(name)
+    if (!v.ok) return api.ui?.showToast?.(v.error || '文件夹名无效')
+    const pid = String(parentId || '').trim()
+    if (pid && !fav.folders.some((f: any) => String(f?.id || '') === pid)) return api.ui?.showToast?.('父文件夹不存在')
+    const normName = String(v.name || '').replace(/\s+/g, ' ').trim().toLowerCase()
+    if (fav.folders.some((f: any) => String(f?.name || '').replace(/\s+/g, ' ').trim().toLowerCase() === normName)) {
+      return api.ui?.showToast?.('文件夹已存在')
+    }
+    const t = now()
+    const id = uid('favf')
+    fav.folders = fav.folders.concat([{ id, name: v.name, parentId: pid, createdAt: t, updatedAt: t }])
+    fav.chatRefsByFolderId = { ...(fav.chatRefsByFolderId || {}), [id]: [] }
+    save().catch(() => {})
+    emit()
+    return id
+  }
+
+  function setChatFavoriteFolders(targetKind: any, targetId: any, chatId: any, folderIds: any) {
+    const fav = ensureFavoritesBare()
+    if (!fav) return
+    const kind = String(targetKind || '').trim() === 'group' ? 'group' : 'role'
+    const tid = String(targetId || '').trim()
+    const cid = String(chatId || '').trim()
+    const key = favoriteChatRefKey(kind, tid, cid)
+    if (!key) return
+    const validFolderIds = new Set(
+      (Array.isArray(folderIds) ? folderIds : [])
+        .map((x: any) => String(x || '').trim())
+        .filter((x: string) => !!x && fav.folders.some((f: any) => String(f?.id || '') === x)),
+    )
+    const addedAt = now()
+    for (const f of Array.isArray(fav.folders) ? fav.folders : []) {
+      const fid = String((f as any)?.id || '').trim()
+      if (!fid) continue
+      const refs = Array.isArray(fav.chatRefsByFolderId?.[fid]) ? fav.chatRefsByFolderId[fid] : []
+      const next = refs.filter((ref: any) => favoriteChatRefKey(ref?.targetKind, ref?.targetId, ref?.chatId) !== key)
+      if (validFolderIds.has(fid)) next.push({ targetKind: kind, targetId: tid, chatId: cid, addedAt })
+      fav.chatRefsByFolderId[fid] = next
+    }
+    save().catch(() => {})
+    emit()
   }
 
   function openNewGroupEditor() {
@@ -7115,6 +7327,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
 
     ;(state.data as any).groups = ((state.data as any).groups as any[]).filter((g: any) => String(g?.id || '') !== gid)
     if ((state.data as any).chatsByGroup && typeof (state.data as any).chatsByGroup === 'object') delete (state.data as any).chatsByGroup[gid]
+    cleanupFavoriteRefsForTarget('group', gid)
 
     const curKind = activeTargetKind()
     const curGid = String((state.draft as any).activeGroupId || '')
@@ -7505,6 +7718,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     }
 
     box.chats = before.filter((c) => String(c?.id) !== cid)
+    cleanupFavoriteRefsForChat('role', rid, cid)
     if (String(box.activeChatId || '') === cid) box.activeChatId = String(box.chats[0]?.id || '')
 
     if (!box.chats.length) {
@@ -7545,6 +7759,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     }
 
     box.chats = before.filter((c: any) => String(c?.id) !== cid)
+    cleanupFavoriteRefsForChat('group', gid, cid)
     if (String(box.activeChatId || '') === cid) box.activeChatId = String(box.chats[0]?.id || '')
 
     if (!box.chats.length) {
@@ -8141,6 +8356,9 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         save().catch(() => {})
         emit()
       },
+      createFavoriteFolder: (name, parentId) => createFavoriteFolder(name, parentId),
+      setChatFavoriteFolders: (targetKind, targetId, chatId, folderIds) => setChatFavoriteFolders(targetKind, targetId, chatId, folderIds),
+      getChatFavoriteFolderIds: (targetKind, targetId, chatId) => getFavoriteFolderIdsForChat(targetKind, targetId, chatId),
       deleteStickerCategory: async (categoryName) => {
         if (!state.data) return
         const st = state.data.settings?.stickers

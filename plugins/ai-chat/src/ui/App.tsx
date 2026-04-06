@@ -64,6 +64,8 @@ import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import StarBorderRoundedIcon from '@mui/icons-material/StarBorderRounded'
+import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import { BUILTIN_TOOL_REQUEST_PRESETS, stringifyToolRequestRenderPreset } from '../core/toolRequestPresets'
 import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from '../core/viewerZoom'
 
@@ -785,6 +787,10 @@ export function AiChatApp(props: { controller: any }) {
   const roles = Array.isArray(data?.roles) ? data.roles : []
   const groups = Array.isArray((data as any)?.groups) ? ((data as any).groups as any[]) : []
   const providers = Array.isArray(data?.settings?.providers) ? data.settings.providers : []
+  const favorites = (data as any)?.favorites && typeof (data as any).favorites === 'object' ? (data as any).favorites : { folders: [], chatRefsByFolderId: {} }
+  const favoriteFolders = Array.isArray((favorites as any)?.folders) ? ((favorites as any).folders as any[]) : []
+  const favoriteChatRefsByFolderId =
+    (favorites as any)?.chatRefsByFolderId && typeof (favorites as any).chatRefsByFolderId === 'object' ? (favorites as any).chatRefsByFolderId : {}
   const transparentChatBg = !!data?.settings?.transparentChatBg
   const chatBgOpacity = clampNum(Number(data?.settings?.chatBgOpacity ?? 0), 0, 100)
   const chatBgBlur = clampNum(Number(data?.settings?.chatBgBlur ?? 0), 0, 24)
@@ -891,6 +897,89 @@ export function AiChatApp(props: { controller: any }) {
     },
     [data, isChatGenerating],
   )
+
+  const favoriteChildrenMap = (() => {
+    const map: Record<string, any[]> = {}
+    for (const f of favoriteFolders) {
+      const pid = String((f as any)?.parentId || '')
+      if (!map[pid]) map[pid] = []
+      map[pid].push(f)
+    }
+    for (const list of Object.values(map)) {
+      list.sort((a: any, b: any) => Number(a?.createdAt || 0) - Number(b?.createdAt || 0))
+    }
+    return map
+  })()
+
+  const getChatByFavoriteRef = React.useCallback(
+    (targetKind: 'role' | 'group', targetId: string, chatId: string) => {
+      const tid = String(targetId || '')
+      const cid = String(chatId || '')
+      if (!tid || !cid) return null
+      if (targetKind === 'group') {
+        const box = (data as any)?.chatsByGroup?.[tid]
+        const chats = Array.isArray(box?.chats) ? box.chats : []
+        return chats.find((c: any) => String(c?.id || '') === cid) || null
+      }
+      const box = data?.chatsByRole?.[tid]
+      const chats = Array.isArray(box?.chats) ? box.chats : []
+      return chats.find((c: any) => String(c?.id || '') === cid) || null
+    },
+    [data],
+  )
+
+  const openCreateFavoriteFolder = useEvent((parentId = '') => {
+    setCreateFavoriteFolder({ open: true, parentId: String(parentId || ''), name: '' })
+  })
+  const closeCreateFavoriteFolder = useEvent(() => setCreateFavoriteFolder({ open: false, parentId: '', name: '' }))
+  const toggleFavoriteFolderExpanded = useEvent((folderId: string) => {
+    const fid = String(folderId || '')
+    if (!fid) return
+    setFavoriteFolderExpanded((p) => ({ ...p, [fid]: !p[fid] }))
+  })
+  const toggleFavoriteFolderChecked = useEvent((folderId: string) => {
+    const fid = String(folderId || '')
+    if (!fid) return
+    setFavoriteCheckedFolderIds((p) => (p.includes(fid) ? p.filter((x) => x !== fid) : p.concat(fid)))
+  })
+  const openFavoriteDialog = useEvent((targetKind: 'role' | 'group', targetId: string, chatId: string, title: string) => {
+    const tid = String(targetId || '')
+    const cid = String(chatId || '')
+    if (!tid || !cid) return
+    const ids = Array.isArray(controller.actions.getChatFavoriteFolderIds?.(targetKind, tid, cid))
+      ? controller.actions.getChatFavoriteFolderIds(targetKind, tid, cid)
+      : []
+    setFavoriteCheckedFolderIds(ids.map((x: any) => String(x || '')).filter(Boolean))
+    setFavoriteDialog({ open: true, targetKind, targetId: tid, chatId: cid, title: String(title || '') })
+  })
+  const closeFavoriteDialog = useEvent(() => {
+    setFavoriteDialog({ open: false, targetKind: 'role', targetId: '', chatId: '', title: '' })
+    setFavoriteCheckedFolderIds([])
+  })
+  const saveFavoriteDialog = useEvent(() => {
+    const { targetKind, targetId, chatId } = favoriteDialog
+    if (!targetId || !chatId) return
+    controller.actions.setChatFavoriteFolders?.(targetKind, targetId, chatId, favoriteCheckedFolderIds)
+    closeFavoriteDialog()
+  })
+  const submitCreateFavoriteFolder = useEvent(() => {
+    const name = String(createFavoriteFolder.name || '').trim()
+    if (!name) return
+    const id = controller.actions.createFavoriteFolder?.(name, createFavoriteFolder.parentId)
+    if (id) {
+      setFavoriteFolderExpanded((p) => (createFavoriteFolder.parentId ? { ...p, [createFavoriteFolder.parentId]: true } : p))
+      closeCreateFavoriteFolder()
+    }
+  })
+  const openFavoritedChat = useEvent((targetKind: 'role' | 'group', targetId: string, chatId: string) => {
+    const tid = String(targetId || '')
+    const cid = String(chatId || '')
+    if (!tid || !cid) return
+    if (targetKind === 'group') controller.actions.setActiveGroup?.(tid)
+    else controller.actions.setActiveRole?.(tid)
+    controller.actions.setActiveChat?.(cid)
+    closeChatPicker()
+  })
 
   const chatRootRef = React.useRef<HTMLDivElement | null>(null)
   const stickToBottomRef = React.useRef(true)
@@ -1092,9 +1181,24 @@ export function AiChatApp(props: { controller: any }) {
   const [rolePickerEl, setRolePickerEl] = React.useState<HTMLElement | null>(null)
   const [rolePickerTab, setRolePickerTab] = React.useState<'roles' | 'groups'>('roles')
   const [chatPickerEl, setChatPickerEl] = React.useState<HTMLElement | null>(null)
+  const [chatPickerView, setChatPickerView] = React.useState<'history' | 'favorites'>('history')
   const [chatPickerSearchOpen, setChatPickerSearchOpen] = React.useState(false)
   const [chatPickerSearchText, setChatPickerSearchText] = React.useState('')
   const chatPickerSearchInputRef = React.useRef<HTMLInputElement | null>(null)
+  const [favoriteFolderExpanded, setFavoriteFolderExpanded] = React.useState<Record<string, boolean>>({})
+  const [favoriteDialog, setFavoriteDialog] = React.useState<{ open: boolean; targetKind: 'role' | 'group'; targetId: string; chatId: string; title: string }>({
+    open: false,
+    targetKind: 'role',
+    targetId: '',
+    chatId: '',
+    title: '',
+  })
+  const [favoriteCheckedFolderIds, setFavoriteCheckedFolderIds] = React.useState<string[]>([])
+  const [createFavoriteFolder, setCreateFavoriteFolder] = React.useState<{ open: boolean; parentId: string; name: string }>({
+    open: false,
+    parentId: '',
+    name: '',
+  })
   const [tempModelPickerEl, setTempModelPickerEl] = React.useState<HTMLElement | null>(null)
   const [fileAdjust, setFileAdjust] = React.useState<{ el: HTMLElement | null; id: string }>({ el: null, id: '' })
   const [tempModelProviderId, setTempModelProviderId] = React.useState('')
@@ -2349,6 +2453,99 @@ export function AiChatApp(props: { controller: any }) {
     setEditingChatTitle({ targetKind: 'role', targetId: '', chatId: '', text: '' })
   }, [page, activeRole?.id, (activeGroup as any)?.id, activeTargetKind])
 
+  React.useEffect(() => {
+    if (!favoriteDialog.open) return
+    setFavoriteCheckedFolderIds((p) => p.filter((id) => favoriteFolders.some((f: any) => String(f?.id || '') === String(id || ''))))
+  }, [favoriteDialog.open, favoriteFolders])
+
+  const renderFavoriteFolderPicker = React.useCallback(
+    (parentId = '', depth = 0): React.ReactNode => {
+      const items = favoriteChildrenMap[String(parentId || '')] || []
+      return items.map((folder: any) => {
+        const fid = String(folder?.id || '')
+        const children = favoriteChildrenMap[fid] || []
+        const expanded = !!favoriteFolderExpanded[fid]
+        return (
+          <React.Fragment key={`pick-${fid}`}>
+            <ListItemButton sx={{ pl: 1 + depth * 2, pr: 1 }} onClick={() => toggleFavoriteFolderExpanded(fid)}>
+              <Checkbox
+                size="small"
+                edge="start"
+                checked={favoriteCheckedFolderIds.includes(fid)}
+                onClick={(e) => e.stopPropagation()}
+                onChange={() => toggleFavoriteFolderChecked(fid)}
+              />
+              {children.length ? (expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />) : <Box sx={{ width: 20 }} />}
+              <FolderOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', ml: 0.5, mr: 1 }} />
+              <ListItemText primary={String(folder?.name || '未命名文件夹')} />
+            </ListItemButton>
+            {children.length ? <Collapse in={expanded}>{renderFavoriteFolderPicker(fid, depth + 1)}</Collapse> : null}
+          </React.Fragment>
+        )
+      })
+    },
+    [favoriteChildrenMap, favoriteFolderExpanded, favoriteCheckedFolderIds, toggleFavoriteFolderExpanded, toggleFavoriteFolderChecked],
+  )
+
+  const renderFavoriteFolderTree = React.useCallback(
+    (parentId = '', depth = 0): React.ReactNode => {
+      const items = favoriteChildrenMap[String(parentId || '')] || []
+      return items.map((folder: any) => {
+        const fid = String(folder?.id || '')
+        const children = favoriteChildrenMap[fid] || []
+        const refs = Array.isArray((favoriteChatRefsByFolderId as any)?.[fid]) ? (favoriteChatRefsByFolderId as any)[fid] : []
+        const expanded = favoriteFolderExpanded[fid] ?? true
+        return (
+          <React.Fragment key={fid}>
+            <ListItemButton sx={{ pl: 1 + depth * 2, pr: 1 }} onClick={() => toggleFavoriteFolderExpanded(fid)}>
+              {children.length || refs.length ? expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" /> : <Box sx={{ width: 20 }} />}
+              <FolderOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', ml: 0.5, mr: 1 }} />
+              <ListItemText primary={String(folder?.name || '未命名文件夹')} secondary={refs.length ? `${refs.length} 条收藏` : undefined} />
+              <Tooltip title="新建子文件夹">
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      openCreateFavoriteFolder(fid)
+                    }}
+                  >
+                    <AddIcon fontSize="inherit" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </ListItemButton>
+            <Collapse in={expanded}>
+              {children.length ? renderFavoriteFolderTree(fid, depth + 1) : null}
+              {refs.map((ref: any) => {
+                const targetKind = String(ref?.targetKind || '').trim() === 'group' ? 'group' : 'role'
+                const targetId = String(ref?.targetId || '')
+                const chatId = String(ref?.chatId || '')
+                const chat = getChatByFavoriteRef(targetKind as any, targetId, chatId)
+                if (!chat) return null
+                const label = targetKind === 'group' ? '群聊' : '聊天'
+                return (
+                  <ListItemButton
+                    key={`${fid}:${targetKind}:${targetId}:${chatId}`}
+                    sx={{ pl: 3 + depth * 2, pr: 1 }}
+                    onClick={() => openFavoritedChat(targetKind as any, targetId, chatId)}
+                  >
+                    <StarBorderRoundedIcon sx={{ fontSize: 17, color: 'warning.main', mr: 1 }} />
+                    <ListItemText
+                      primary={String((chat as any)?.title || (targetKind === 'group' ? '群聊' : '新聊天'))}
+                      secondary={`${label} · ${snippetText((Array.isArray((chat as any)?.messages) ? (chat as any).messages : []).slice(-1)[0]?.content || '')}`}
+                    />
+                  </ListItemButton>
+                )
+              })}
+            </Collapse>
+          </React.Fragment>
+        )
+      })
+    },
+    [favoriteChildrenMap, favoriteChatRefsByFolderId, favoriteFolderExpanded, getChatByFavoriteRef, openCreateFavoriteFolder, openFavoritedChat, toggleFavoriteFolderExpanded],
+  )
+
   const closeMsgMenu = useEvent(() => setMsgMenu({ mid: '', role: 'assistant', x: 0, y: 0, pending: false }))
   const onMessageContextMenu = useEvent((e: React.MouseEvent, mid: string, role: 'user' | 'assistant', pending: boolean) => {
     if (!mid) return
@@ -2410,10 +2607,16 @@ export function AiChatApp(props: { controller: any }) {
     setRolePickerEl(e.currentTarget)
   })
   const closeRolePicker = useEvent(() => setRolePickerEl(null))
-  const openChatPicker = useEvent((e: React.MouseEvent<HTMLElement>) => setChatPickerEl(e.currentTarget))
+  const openChatPicker = useEvent((e: React.MouseEvent<HTMLElement>) => {
+    setChatPickerView('history')
+    setChatPickerEl(e.currentTarget)
+  })
   const closeChatPicker = useEvent(() => {
     setChatPickerEl(null)
+    setChatPickerView('history')
     closeChatMenu()
+    closeFavoriteDialog()
+    closeCreateFavoriteFolder()
     setChatPickerSearchOpen(false)
     setChatPickerSearchText('')
   })
@@ -5108,82 +5311,192 @@ export function AiChatApp(props: { controller: any }) {
           anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
           transformOrigin={{ vertical: 'top', horizontal: 'right' }}
         >
-          <Box sx={{ width: 420, maxHeight: '70vh', overflowY: 'auto' }}>
-            <Box sx={{ p: 1.5, pb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Tooltip title={chatPickerSearchOpen ? '关闭搜索' : '搜索'}>
-                <IconButton
-                  size="small"
-                  onClick={() => {
-                    setChatPickerSearchOpen((p) => !p)
-                    if (chatPickerSearchOpen) setChatPickerSearchText('')
-                  }}
-                >
-                  {chatPickerSearchOpen ? <CloseIcon fontSize="inherit" /> : <SearchIcon fontSize="inherit" />}
-                </IconButton>
-              </Tooltip>
-              <Box sx={{ flex: 1 }} />
-            </Box>
-            <Collapse in={chatPickerSearchOpen}>
-              <Box sx={{ px: 1.5, pb: 1 }}>
-                <TextField
-                  inputRef={chatPickerSearchInputRef}
-                  fullWidth
-                  size="small"
-                  placeholder="搜索会话…"
-                  value={String(chatPickerSearchText || '')}
-                  onChange={(e) => setChatPickerSearchText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      e.preventDefault()
-                      setChatPickerSearchOpen(false)
-                      setChatPickerSearchText('')
+          <Box sx={{ width: 420, maxHeight: '70vh', overflow: 'hidden' }}>
+            <Box
+              sx={{
+                width: 840,
+                display: 'flex',
+                transform: chatPickerView === 'favorites' ? 'translateX(-420px)' : 'translateX(0)',
+                transition: 'transform 220ms ease',
+              }}
+            >
+              <Box sx={{ width: 420, maxHeight: '70vh', overflowY: 'auto', flex: '0 0 420px' }}>
+                <Box sx={{ p: 1.5, pb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Tooltip title={chatPickerSearchOpen ? '关闭搜索' : '搜索'}>
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        setChatPickerSearchOpen((p) => !p)
+                        if (chatPickerSearchOpen) setChatPickerSearchText('')
+                      }}
+                    >
+                      {chatPickerSearchOpen ? <CloseIcon fontSize="inherit" /> : <SearchIcon fontSize="inherit" />}
+                    </IconButton>
+                  </Tooltip>
+                  <Box sx={{ flex: 1 }} />
+                  <Tooltip title="收藏夹">
+                    <IconButton size="small" onClick={() => setChatPickerView('favorites')}>
+                      <StarBorderRoundedIcon fontSize="inherit" />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+                <Collapse in={chatPickerSearchOpen}>
+                  <Box sx={{ px: 1.5, pb: 1 }}>
+                    <TextField
+                      inputRef={chatPickerSearchInputRef}
+                      fullWidth
+                      size="small"
+                      placeholder="搜索会话…"
+                      value={String(chatPickerSearchText || '')}
+                      onChange={(e) => setChatPickerSearchText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          e.preventDefault()
+                          setChatPickerSearchOpen(false)
+                          setChatPickerSearchText('')
+                        }
+                      }}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <SearchIcon fontSize="small" />
+                          </InputAdornment>
+                        ),
+                      }}
+                    />
+                  </Box>
+                </Collapse>
+                <Divider />
+                {(() => {
+                  const q = String(chatPickerSearchText || '').trim().toLowerCase()
+                  const match = (chat: any, fallbackTitle: string) => {
+                    if (!q) return true
+                    if (!chat) return false
+                    const title = String(chat?.title || fallbackTitle || '')
+                    const msgs = Array.isArray(chat?.messages) ? chat.messages : []
+                    const last = msgs.length ? msgs[msgs.length - 1] : null
+                    const raw = String(last?.content || '')
+                      .replace(/\s+/g, ' ')
+                      .trim()
+                    return (title + '\n' + raw).toLowerCase().includes(q)
+                  }
+                  if (activeTargetKind === 'group') {
+                    if (!activeGroup) {
+                      return (
+                        <Box sx={{ p: 2 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            先选择群组
+                          </Typography>
+                        </Box>
+                      )
                     }
-                  }}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <SearchIcon fontSize="small" />
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-              </Box>
-            </Collapse>
-            <Divider />
-            {(() => {
-              const q = String(chatPickerSearchText || '').trim().toLowerCase()
-              const match = (chat: any, fallbackTitle: string) => {
-                if (!q) return true
-                if (!chat) return false
-                const title = String(chat?.title || fallbackTitle || '')
-                const msgs = Array.isArray(chat?.messages) ? chat.messages : []
-                const last = msgs.length ? msgs[msgs.length - 1] : null
-                const raw = String(last?.content || '')
-                  .replace(/\s+/g, ' ')
-                  .trim()
-                return (title + '\n' + raw).toLowerCase().includes(q)
-              }
-              if (activeTargetKind === 'group') {
-                if (!activeGroup) {
-                  return (
-                    <Box sx={{ p: 2 }}>
-                      <Typography variant="body2" color="text.secondary">
-                        先选择群组
-                      </Typography>
-                    </Box>
-                 )
-                 }
-                 const box = (data as any)?.chatsByGroup?.[String((activeGroup as any).id || '')]
-                 const chats = Array.isArray(box?.chats) ? box.chats.slice() : []
-                 const activeChatId = String(box?.activeChatId || '')
-                  const pendingChat =
-                    (s as any)?.pendingGroupChat && String((s as any).pendingGroupChat?.groupId || '') === String((activeGroup as any)?.id || '')
-                      ? (s as any).pendingGroupChat.chat
-                      : null
+                    const box = (data as any)?.chatsByGroup?.[String((activeGroup as any).id || '')]
+                    const chats = Array.isArray(box?.chats) ? box.chats.slice() : []
+                    const activeChatId = String(box?.activeChatId || '')
+                    const pendingChat =
+                      (s as any)?.pendingGroupChat && String((s as any).pendingGroupChat?.groupId || '') === String((activeGroup as any)?.id || '')
+                        ? (s as any).pendingGroupChat.chat
+                        : null
+                    const hasPending = !!pendingChat
+                    chats.sort((a: any, b: any) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0))
+                    const showPending = hasPending && match(pendingChat, '群聊')
+                    const shownChats = chats.filter((c: any) => match(c, '群聊'))
+                    if (!showPending && !shownChats.length) {
+                      return (
+                        <Box sx={{ p: 2 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            没有匹配的会话
+                          </Typography>
+                        </Box>
+                      )
+                    }
+                    return (
+                      <List dense sx={{ py: 0 }}>
+                        {showPending ? (
+                          <ListItemButton selected sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}>
+                            <ListItemText
+                              sx={{ minWidth: 0 }}
+                              primary={
+                                <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+                                  <Typography sx={{ fontWeight: 900, fontSize: 13, flex: 1, minWidth: 0 }} noWrap>
+                                    {String(pendingChat?.title || '群聊')}（未发送）
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {controller.fmtTime(Number(pendingChat?.updatedAt || pendingChat?.createdAt || 0))}
+                                  </Typography>
+                                </Stack>
+                              }
+                              secondary={
+                                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', minWidth: 0 }}>
+                                  （草稿）
+                                </Typography>
+                              }
+                            />
+                          </ListItemButton>
+                        ) : null}
+                        {shownChats.map((c: any) => {
+                          const on = !showPending && String(c?.id || '') === activeChatId
+                          const msgs = Array.isArray(c?.messages) ? c.messages : []
+                          const last = msgs.length ? msgs[msgs.length - 1] : null
+                          const raw = String(last?.content || '').replace(/\s+/g, ' ').trim()
+                          const snippet = raw.length > 40 ? raw.slice(0, 40) + '…' : raw
+                          const time = controller.fmtTime(Number(c?.updatedAt || c?.createdAt || 0))
+                          return (
+                            <ListItemButton
+                              key={String(c?.id || '')}
+                              selected={on}
+                              onClick={() => {
+                                controller.actions.setActiveChat(String(c?.id || ''))
+                                closeChatPicker()
+                              }}
+                              onContextMenu={(e) =>
+                                onChatContextMenu(e, 'group', String((activeGroup as any)?.id || ''), String(c?.id || ''), String(c?.title || '群聊'))
+                              }
+                              sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}
+                            >
+                              <ListItemText
+                                sx={{ minWidth: 0 }}
+                                primary={
+                                  <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+                                    <Typography sx={{ fontWeight: 900, fontSize: 13, flex: 1, minWidth: 0 }} noWrap>
+                                      {String(c?.title || '群聊')}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {time}
+                                    </Typography>
+                                  </Stack>
+                                }
+                                secondary={
+                                  <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', minWidth: 0 }}>
+                                    {snippet || '（空）'}
+                                  </Typography>
+                                }
+                              />
+                            </ListItemButton>
+                          )
+                        })}
+                      </List>
+                    )
+                  }
+
+                  const role = activeRole
+                  if (!role) {
+                    return (
+                      <Box sx={{ p: 2 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          先选择角色
+                        </Typography>
+                      </Box>
+                    )
+                  }
+                  const box = data?.chatsByRole?.[String(role.id)]
+                  const chats = Array.isArray(box?.chats) ? box.chats.slice() : []
+                  const activeChatId = String(box?.activeChatId || '')
+                  const pendingChat = s?.pendingChat && String(s.pendingChat?.roleId || '') === String(role.id) ? s.pendingChat.chat : null
                   const hasPending = !!pendingChat
                   chats.sort((a: any, b: any) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0))
-                  const showPending = hasPending && match(pendingChat, '群聊')
-                  const shownChats = chats.filter((c: any) => match(c, '群聊'))
+                  const showPending = hasPending && match(pendingChat, '新聊天')
+                  const shownChats = chats.filter((c: any) => match(c, '新聊天'))
                   if (!showPending && !shownChats.length) {
                     return (
                       <Box sx={{ p: 2 }}>
@@ -5201,19 +5514,19 @@ export function AiChatApp(props: { controller: any }) {
                             sx={{ minWidth: 0 }}
                             primary={
                               <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
-                               <Typography sx={{ fontWeight: 900, fontSize: 13, flex: 1, minWidth: 0 }} noWrap>
-                                 {String(pendingChat?.title || '群聊')}（未发送）
-                               </Typography>
-                               <Typography variant="caption" color="text.secondary">
-                                 {controller.fmtTime(Number(pendingChat?.updatedAt || pendingChat?.createdAt || 0))}
-                               </Typography>
-                             </Stack>
-                           }
-                           secondary={
-                             <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', minWidth: 0 }}>
-                               （草稿）
-                             </Typography>
-                           }
+                                <Typography sx={{ fontWeight: 900, fontSize: 13, flex: 1, minWidth: 0 }} noWrap>
+                                  {String(pendingChat?.title || '新聊天')}（未发送）
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {controller.fmtTime(Number(pendingChat?.updatedAt || pendingChat?.createdAt || 0))}
+                                </Typography>
+                              </Stack>
+                            }
+                            secondary={
+                              <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', minWidth: 0 }}>
+                                （草稿）
+                              </Typography>
+                            }
                           />
                         </ListItemButton>
                       ) : null}
@@ -5224,139 +5537,71 @@ export function AiChatApp(props: { controller: any }) {
                         const raw = String(last?.content || '').replace(/\s+/g, ' ').trim()
                         const snippet = raw.length > 40 ? raw.slice(0, 40) + '…' : raw
                         const time = controller.fmtTime(Number(c?.updatedAt || c?.createdAt || 0))
-                       return (
-                         <ListItemButton
-                           key={String(c?.id || '')}
-                           selected={on}
-                           onClick={() => {
-                             controller.actions.setActiveChat(String(c?.id || ''))
-                             closeChatPicker()
-                           }}
-                           onContextMenu={(e) =>
-                             onChatContextMenu(e, 'group', String((activeGroup as any)?.id || ''), String(c?.id || ''), String(c?.title || '群聊'))
-                           }
-                           sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}
-                         >
-                           <ListItemText
-                             sx={{ minWidth: 0 }}
-                             primary={
-                              <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
-                                <Typography sx={{ fontWeight: 900, fontSize: 13, flex: 1, minWidth: 0 }} noWrap>
-                                  {String(c?.title || '群聊')}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                  {time}
-                                </Typography>
-                              </Stack>
+                        return (
+                          <ListItemButton
+                            key={String(c?.id || '')}
+                            selected={on}
+                            onClick={() => {
+                              controller.actions.setActiveChat(String(c?.id || ''))
+                              closeChatPicker()
+                            }}
+                            onContextMenu={(e) =>
+                              onChatContextMenu(e, 'role', String(role?.id || ''), String(c?.id || ''), String(c?.title || '新聊天'))
                             }
-                            secondary={
-                              <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', minWidth: 0 }}>
-                                {snippet || '（空）'}
-                              </Typography>
-                            }
-                          />
-                        </ListItemButton>
-                      )
-                    })}
-                  </List>
-                )
-              }
+                            sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}
+                          >
+                            <ListItemText
+                              sx={{ minWidth: 0 }}
+                              primary={
+                                <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+                                  <Typography sx={{ fontWeight: 900, fontSize: 13, flex: 1, minWidth: 0 }} noWrap>
+                                    {String(c?.title || '新聊天')}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {time}
+                                  </Typography>
+                                </Stack>
+                              }
+                              secondary={
+                                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', minWidth: 0 }}>
+                                  {snippet || '（空）'}
+                                </Typography>
+                              }
+                            />
+                          </ListItemButton>
+                        )
+                      })}
+                    </List>
+                  )
+                })()}
+              </Box>
 
-              const role = activeRole
-              if (!role) {
-                return (
-                  <Box sx={{ p: 2 }}>
+              <Box sx={{ width: 420, maxHeight: '70vh', overflowY: 'auto', flex: '0 0 420px' }}>
+                <Box sx={{ p: 1.5, pb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Tooltip title="返回历史记录">
+                    <IconButton size="small" onClick={() => setChatPickerView('history')}>
+                      <ArrowBackRoundedIcon fontSize="inherit" />
+                    </IconButton>
+                  </Tooltip>
+                  <Typography sx={{ fontWeight: 800, flex: 1 }}>收藏夹</Typography>
+                  <Tooltip title="新建文件夹">
+                    <IconButton size="small" onClick={() => openCreateFavoriteFolder('')}>
+                      <AddIcon fontSize="inherit" />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+                <Divider />
+                {!favoriteFolders.length ? (
+                  <Box sx={{ p: 2.5 }}>
                     <Typography variant="body2" color="text.secondary">
-                      先选择角色
+                      还没有收藏夹，点击右上角加号新建。
                     </Typography>
                   </Box>
-                )
-              }
-              const box = data?.chatsByRole?.[String(role.id)]
-              const chats = Array.isArray(box?.chats) ? box.chats.slice() : []
-              const activeChatId = String(box?.activeChatId || '')
-              const pendingChat = s?.pendingChat && String(s.pendingChat?.roleId || '') === String(role.id) ? s.pendingChat.chat : null
-              const hasPending = !!pendingChat
-              chats.sort((a: any, b: any) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0))
-              const showPending = hasPending && match(pendingChat, '新聊天')
-              const shownChats = chats.filter((c: any) => match(c, '新聊天'))
-              if (!showPending && !shownChats.length) {
-                return (
-                  <Box sx={{ p: 2 }}>
-                    <Typography variant="body2" color="text.secondary">
-                      没有匹配的会话
-                    </Typography>
-                  </Box>
-                )
-              }
-              return (
-                <List dense sx={{ py: 0 }}>
-                  {showPending ? (
-                    <ListItemButton selected sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}>
-                      <ListItemText
-                        sx={{ minWidth: 0 }}
-                        primary={
-                          <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
-                            <Typography sx={{ fontWeight: 900, fontSize: 13, flex: 1, minWidth: 0 }} noWrap>
-                              {String(pendingChat?.title || '新聊天')}（未发送）
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {controller.fmtTime(Number(pendingChat?.updatedAt || pendingChat?.createdAt || 0))}
-                            </Typography>
-                          </Stack>
-                        }
-                        secondary={
-                          <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', minWidth: 0 }}>
-                            （草稿）
-                          </Typography>
-                        }
-                      />
-                    </ListItemButton>
-                  ) : null}
-                  {shownChats.map((c: any) => {
-                    const on = !showPending && String(c?.id || '') === activeChatId
-                    const msgs = Array.isArray(c?.messages) ? c.messages : []
-                    const last = msgs.length ? msgs[msgs.length - 1] : null
-                    const raw = String(last?.content || '').replace(/\s+/g, ' ').trim()
-                    const snippet = raw.length > 40 ? raw.slice(0, 40) + '…' : raw
-                    const time = controller.fmtTime(Number(c?.updatedAt || c?.createdAt || 0))
-                    return (
-                      <ListItemButton
-                        key={String(c?.id || '')}
-                        selected={on}
-                        onClick={() => {
-                          controller.actions.setActiveChat(String(c?.id || ''))
-                          closeChatPicker()
-                        }}
-                        onContextMenu={(e) =>
-                          onChatContextMenu(e, 'role', String(role?.id || ''), String(c?.id || ''), String(c?.title || '新聊天'))
-                        }
-                        sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}
-                      >
-                        <ListItemText
-                          sx={{ minWidth: 0 }}
-                          primary={
-                            <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
-                              <Typography sx={{ fontWeight: 900, fontSize: 13, flex: 1, minWidth: 0 }} noWrap>
-                                {String(c?.title || '新聊天')}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                {time}
-                              </Typography>
-                            </Stack>
-                          }
-                          secondary={
-                            <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', minWidth: 0 }}>
-                              {snippet || '（空）'}
-                            </Typography>
-                          }
-                        />
-                      </ListItemButton>
-                    )
-                  })}
-                </List>
-              )
-            })()}
+                ) : (
+                  <List dense sx={{ py: 0 }}>{renderFavoriteFolderTree('', 0)}</List>
+                )}
+              </Box>
+            </Box>
           </Box>
         </Popover>
 
@@ -5398,6 +5643,18 @@ export function AiChatApp(props: { controller: any }) {
               AI 生成标题
             </MenuItem>
             <MenuItem
+              disabled={!chatMenu.chatId || !chatMenu.targetId || s.loading}
+              onClick={() => {
+                const { targetKind, targetId, chatId, title } = chatMenu
+                closeChatMenu()
+                openFavoriteDialog(targetKind, targetId, chatId, title)
+              }}
+              sx={{ gap: 1 }}
+            >
+              <StarBorderRoundedIcon fontSize="small" />
+              收藏到...
+            </MenuItem>
+            <MenuItem
               disabled={!chatMenu.chatId || !chatMenu.targetId || s.loading || isSendingThisChat(chatMenu.targetKind, chatMenu.targetId, chatMenu.chatId)}
               onClick={() => {
                 const { targetKind, targetId, chatId } = chatMenu
@@ -5411,6 +5668,64 @@ export function AiChatApp(props: { controller: any }) {
             </MenuItem>
           </Box>
         </Popover>
+
+        <Dialog open={createFavoriteFolder.open} onClose={closeCreateFavoriteFolder} maxWidth="xs" fullWidth>
+          <DialogTitle>{createFavoriteFolder.parentId ? '新建子文件夹' : '新建文件夹'}</DialogTitle>
+          <DialogContent>
+            <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+              <TextField
+                autoFocus
+                size="small"
+                label="文件夹名"
+                value={createFavoriteFolder.name}
+                onChange={(e) => setCreateFavoriteFolder((p) => ({ ...p, name: e.target.value }))}
+                placeholder="例如：工作 / 灵感 / 需求"
+                fullWidth
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    submitCreateFavoriteFolder()
+                  }
+                }}
+              />
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeCreateFavoriteFolder}>取消</Button>
+            <Button variant="contained" onClick={submitCreateFavoriteFolder} disabled={!String(createFavoriteFolder.name || '').trim() || s.loading}>
+              创建
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog open={favoriteDialog.open} onClose={closeFavoriteDialog} maxWidth="xs" fullWidth>
+          <DialogTitle>收藏到文件夹</DialogTitle>
+          <DialogContent>
+            <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+              <Typography variant="body2" color="text.secondary">
+                {String(favoriteDialog.title || '未命名会话')}
+              </Typography>
+              {!favoriteFolders.length ? (
+                <Box sx={{ py: 1 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    还没有收藏夹，请先新建文件夹。
+                  </Typography>
+                </Box>
+              ) : (
+                <List dense sx={{ py: 0 }}>{renderFavoriteFolderPicker('', 0)}</List>
+              )}
+              <Button variant="outlined" startIcon={<AddIcon />} onClick={() => openCreateFavoriteFolder('')} sx={{ alignSelf: 'flex-start' }}>
+                新建文件夹
+              </Button>
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeFavoriteDialog}>取消</Button>
+            <Button variant="contained" onClick={saveFavoriteDialog} disabled={!favoriteDialog.targetId || !favoriteDialog.chatId || s.loading}>
+              保存
+            </Button>
+          </DialogActions>
+        </Dialog>
 
         <Dialog
           open={!!editingChatTitle.chatId}
