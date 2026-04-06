@@ -467,6 +467,12 @@ export function HyperCortexApp() {
                             display: 'flex',
                             alignItems: 'center',
                             boxShadow: '0 1px 2px rgba(0,0,0,.04)',
+                            transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
+                            '&:hover': {
+                              bgcolor: 'rgba(0,0,0,.02)',
+                              boxShadow: '0 6px 16px rgba(0,0,0,.08)',
+                              transform: 'translateY(-1px)',
+                            },
                           }}
                         >
                           <Typography
@@ -510,6 +516,12 @@ export function HyperCortexApp() {
                             justifyContent: 'center',
                             textAlign: 'center',
                             boxShadow: '0 1px 2px rgba(0,0,0,.04)',
+                            transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
+                            '&:hover': {
+                              bgcolor: 'rgba(0,0,0,.02)',
+                              boxShadow: '0 6px 16px rgba(0,0,0,.08)',
+                              transform: 'translateY(-1px)',
+                            },
                           }}
                         >
                           <Typography
@@ -542,9 +554,11 @@ export function HyperCortexApp() {
                             borderRadius: 3,
                             bgcolor: '#fff',
                             boxShadow: '0 1px 2px rgba(0,0,0,.04)',
-                            transition: 'background-color .16s ease',
+                            transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
                             '&:hover': {
                               bgcolor: 'rgba(0,0,0,.02)',
+                              boxShadow: '0 6px 16px rgba(0,0,0,.08)',
+                              transform: 'translateY(-1px)',
                             },
                           }}
                         >
