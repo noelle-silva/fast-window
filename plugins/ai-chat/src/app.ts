@@ -7200,7 +7200,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     return out
   }
 
-  function deleteFavoriteFolderKeepContents(folderId: any) {
+  function deleteFavoriteFolderKeepContents(folderId: any, targetFolderId?: any) {
     const fav = ensureFavoritesBare()
     if (!fav) return
     const fid = String(folderId || '').trim()
@@ -7209,18 +7209,23 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     if (!folder) return
     const parentId = String(folder?.parentId || '').trim()
     const ownRefs = Array.isArray(fav.chatRefsByFolderId?.[fid]) ? fav.chatRefsByFolderId[fid] : []
-    if (!parentId && ownRefs.length) return api.ui?.showToast?.('顶层文件夹含有收藏时，暂不支持“内容保留”删除')
+    const targetIdRaw = String(targetFolderId || '').trim()
+    const moveTargetId = parentId || targetIdRaw
+    if (!parentId && ownRefs.length && (!moveTargetId || moveTargetId === fid)) return api.ui?.showToast?.('请选择一个目标文件夹来承接内容')
+    if (moveTargetId && !fav.folders.some((f: any) => String(f?.id || '') === moveTargetId && String(f?.id || '') !== fid)) {
+      return api.ui?.showToast?.('目标文件夹不存在')
+    }
 
     fav.folders = fav.folders
       .filter((f: any) => String(f?.id || '') !== fid)
-      .map((f: any) => (String(f?.parentId || '').trim() === fid ? { ...f, parentId, updatedAt: now() } : f))
+      .map((f: any) => (String(f?.parentId || '').trim() === fid ? { ...f, parentId: moveTargetId, updatedAt: now() } : f))
 
     const nextRefs = { ...(fav.chatRefsByFolderId || {}) }
-    if (parentId) {
-      const prev = Array.isArray(nextRefs[parentId]) ? nextRefs[parentId] : []
+    if (moveTargetId) {
+      const prev = Array.isArray(nextRefs[moveTargetId]) ? nextRefs[moveTargetId] : []
       const merged = prev.concat(ownRefs)
       const seen = new Set<string>()
-      nextRefs[parentId] = merged.filter((ref: any) => {
+      nextRefs[moveTargetId] = merged.filter((ref: any) => {
         const key = favoriteChatRefKey(ref?.targetKind, ref?.targetId, ref?.chatId)
         if (!key || seen.has(key)) return false
         seen.add(key)
@@ -8453,7 +8458,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       },
       createFavoriteFolder: (name, parentId) => createFavoriteFolder(name, parentId),
       renameFavoriteFolder: (folderId, name) => renameFavoriteFolder(folderId, name),
-      deleteFavoriteFolderKeepContents: (folderId) => deleteFavoriteFolderKeepContents(folderId),
+      deleteFavoriteFolderKeepContents: (folderId, targetFolderId) => deleteFavoriteFolderKeepContents(folderId, targetFolderId),
       deleteFavoriteFolderTree: (folderId) => deleteFavoriteFolderTree(folderId),
       setChatFavoriteFolders: (targetKind, targetId, chatId, folderIds) => setChatFavoriteFolders(targetKind, targetId, chatId, folderIds),
       getChatFavoriteFolderIds: (targetKind, targetId, chatId) => getFavoriteFolderIdsForChat(targetKind, targetId, chatId),

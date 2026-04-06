@@ -953,12 +953,33 @@ export function AiChatApp(props: { controller: any }) {
     setConfirmDeleteFavoriteFolder({ open: true, folderId: String(folderId || ''), mode })
   })
   const closeDeleteFavoriteFolderConfirm = useEvent(() => setConfirmDeleteFavoriteFolder({ open: false, folderId: '', mode: 'keep' }))
+  const closeMoveFavoriteFolderContents = useEvent(() => setMoveFavoriteFolderContents({ open: false, folderId: '', targetFolderId: '' }))
   const submitDeleteFavoriteFolder = useEvent(() => {
     const fid = String(confirmDeleteFavoriteFolder.folderId || '')
     if (!fid) return
-    if (confirmDeleteFavoriteFolder.mode === 'tree') controller.actions.deleteFavoriteFolderTree?.(fid)
-    else controller.actions.deleteFavoriteFolderKeepContents?.(fid)
+    const folder = favoriteFolders.find((f: any) => String(f?.id || '') === fid) || null
+    const isTop = !String((folder as any)?.parentId || '').trim()
+    const refs = Array.isArray((favoriteChatRefsByFolderId as any)?.[fid]) ? (favoriteChatRefsByFolderId as any)[fid] : []
+    if (confirmDeleteFavoriteFolder.mode === 'tree') {
+      controller.actions.deleteFavoriteFolderTree?.(fid)
+      closeDeleteFavoriteFolderConfirm()
+      return
+    }
+    if (isTop && refs.length) {
+      const fallback = favoriteFolders.find((f: any) => String(f?.id || '') !== fid) || null
+      setMoveFavoriteFolderContents({ open: true, folderId: fid, targetFolderId: String((fallback as any)?.id || '') })
+      closeDeleteFavoriteFolderConfirm()
+      return
+    }
+    controller.actions.deleteFavoriteFolderKeepContents?.(fid)
     closeDeleteFavoriteFolderConfirm()
+  })
+  const submitMoveFavoriteFolderContents = useEvent(() => {
+    const fid = String(moveFavoriteFolderContents.folderId || '')
+    const targetFolderId = String(moveFavoriteFolderContents.targetFolderId || '')
+    if (!fid || !targetFolderId) return
+    controller.actions.deleteFavoriteFolderKeepContents?.(fid, targetFolderId)
+    closeMoveFavoriteFolderContents()
   })
   const toggleFavoriteFolderExpanded = useEvent((folderId: string) => {
     const fid = String(folderId || '')
@@ -1233,6 +1254,11 @@ export function AiChatApp(props: { controller: any }) {
     open: false,
     folderId: '',
     mode: 'keep',
+  })
+  const [moveFavoriteFolderContents, setMoveFavoriteFolderContents] = React.useState<{ open: boolean; folderId: string; targetFolderId: string }>({
+    open: false,
+    folderId: '',
+    targetFolderId: '',
   })
   const [tempModelPickerEl, setTempModelPickerEl] = React.useState<HTMLElement | null>(null)
   const [fileAdjust, setFileAdjust] = React.useState<{ el: HTMLElement | null; id: string }>({ el: null, id: '' })
@@ -2663,6 +2689,7 @@ export function AiChatApp(props: { controller: any }) {
     closeCreateFavoriteFolder()
     closeRenameFavoriteFolder()
     closeDeleteFavoriteFolderConfirm()
+    closeMoveFavoriteFolderContents()
     setChatPickerSearchOpen(false)
     setChatPickerSearchText('')
   })
@@ -5820,6 +5847,40 @@ export function AiChatApp(props: { controller: any }) {
             <Button onClick={closeDeleteFavoriteFolderConfirm}>取消</Button>
             <Button variant="contained" color="error" onClick={submitDeleteFavoriteFolder} disabled={!confirmDeleteFavoriteFolder.folderId || s.loading}>
               删除
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog open={moveFavoriteFolderContents.open} onClose={closeMoveFavoriteFolderContents} maxWidth="xs" fullWidth>
+          <DialogTitle>选择内容迁移目标</DialogTitle>
+          <DialogContent>
+            <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+              <Typography variant="body2" color="text.secondary">
+                这个顶层文件夹里有收藏内容。删除前，请先选择一个文件夹来承接这些内容和子文件夹。
+              </Typography>
+              <FormControl fullWidth size="small">
+                <InputLabel id="move-favorite-folder-target-label">目标文件夹</InputLabel>
+                <Select
+                  labelId="move-favorite-folder-target-label"
+                  label="目标文件夹"
+                  value={String(moveFavoriteFolderContents.targetFolderId || '')}
+                  onChange={(e) => setMoveFavoriteFolderContents((p) => ({ ...p, targetFolderId: String(e.target.value || '') }))}
+                >
+                  {favoriteFolders
+                    .filter((f: any) => String(f?.id || '') !== String(moveFavoriteFolderContents.folderId || ''))
+                    .map((f: any) => (
+                      <MenuItem key={String(f?.id || '')} value={String(f?.id || '')}>
+                        {String(f?.name || '未命名文件夹')}
+                      </MenuItem>
+                    ))}
+                </Select>
+              </FormControl>
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeMoveFavoriteFolderContents}>取消</Button>
+            <Button variant="contained" onClick={submitMoveFavoriteFolderContents} disabled={!String(moveFavoriteFolderContents.targetFolderId || '').trim() || s.loading}>
+              确认迁移并删除
             </Button>
           </DialogActions>
         </Dialog>
