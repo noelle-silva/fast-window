@@ -7257,6 +7257,42 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     emit()
   }
 
+  function clearFavoriteFolderRefs(folderId: any) {
+    const fav = ensureFavoritesBare()
+    if (!fav) return
+    const fid = String(folderId || '').trim()
+    if (!fid) return
+    if (!fav.folders.some((f: any) => String(f?.id || '').trim() === fid)) return
+    fav.chatRefsByFolderId = { ...(fav.chatRefsByFolderId || {}), [fid]: [] }
+    save().catch(() => {})
+    emit()
+  }
+
+  function moveFavoriteFolder(folderId: any, nextParentId?: any) {
+    const fav = ensureFavoritesBare()
+    if (!fav) return
+    const fid = String(folderId || '').trim()
+    if (!fid) return
+    const folder = fav.folders.find((f: any) => String(f?.id || '').trim() === fid) || null
+    if (!folder) return api.ui?.showToast?.('文件夹不存在')
+
+    const pid = String(nextParentId || '').trim()
+    if (pid === fid) return api.ui?.showToast?.('不能移动到自己下面')
+    if (pid) {
+      const parent = fav.folders.find((f: any) => String(f?.id || '').trim() === pid) || null
+      if (!parent) return api.ui?.showToast?.('目标文件夹不存在')
+      const subtree = new Set(collectFavoriteFolderSubtreeIds(fid))
+      if (subtree.has(pid)) return api.ui?.showToast?.('不能移动到自己的子文件夹下面')
+    }
+
+    const curParentId = String(folder?.parentId || '').trim()
+    if (curParentId === pid) return
+
+    fav.folders = fav.folders.map((f: any) => (String(f?.id || '').trim() === fid ? { ...f, parentId: pid, updatedAt: now() } : f))
+    save().catch(() => {})
+    emit()
+  }
+
   function setChatFavoriteFolders(targetKind: any, targetId: any, chatId: any, folderIds: any) {
     const fav = ensureFavoritesBare()
     if (!fav) return
@@ -8460,6 +8496,8 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       renameFavoriteFolder: (folderId, name) => renameFavoriteFolder(folderId, name),
       deleteFavoriteFolderKeepContents: (folderId, targetFolderId) => deleteFavoriteFolderKeepContents(folderId, targetFolderId),
       deleteFavoriteFolderTree: (folderId) => deleteFavoriteFolderTree(folderId),
+      clearFavoriteFolderRefs: (folderId) => clearFavoriteFolderRefs(folderId),
+      moveFavoriteFolder: (folderId, nextParentId) => moveFavoriteFolder(folderId, nextParentId),
       setChatFavoriteFolders: (targetKind, targetId, chatId, folderIds) => setChatFavoriteFolders(targetKind, targetId, chatId, folderIds),
       getChatFavoriteFolderIds: (targetKind, targetId, chatId) => getFavoriteFolderIdsForChat(targetKind, targetId, chatId),
       deleteStickerCategory: async (categoryName) => {
