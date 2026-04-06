@@ -2661,7 +2661,7 @@ export function AiChatApp(props: { controller: any }) {
         const expanded = !!favoriteFolderExpanded[fid]
         return (
           <React.Fragment key={`pick-${fid}`}>
-            <ListItemButton sx={{ pl: 1 + depth * 2, pr: 1 }} onClick={() => toggleFavoriteFolderExpanded(fid)}>
+            <ListItemButton sx={{ pl: 1 + depth * 2, pr: 1 }} onClick={() => toggleFavoriteFolderChecked(fid)}>
               <Checkbox
                 size="small"
                 edge="start"
@@ -2669,7 +2669,21 @@ export function AiChatApp(props: { controller: any }) {
                 onClick={(e) => e.stopPropagation()}
                 onChange={() => toggleFavoriteFolderChecked(fid)}
               />
-              {children.length ? (expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />) : <Box sx={{ width: 20 }} />}
+              {children.length ? (
+                <IconButton
+                  size="small"
+                  edge="start"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    toggleFavoriteFolderExpanded(fid)
+                  }}
+                  sx={{ mr: 0.5 }}
+                >
+                  {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                </IconButton>
+              ) : (
+                <Box sx={{ width: 28 }} />
+              )}
               <FolderOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', ml: 0.5, mr: 1 }} />
               <ListItemText primary={String(folder?.name || '未命名文件夹')} />
             </ListItemButton>
