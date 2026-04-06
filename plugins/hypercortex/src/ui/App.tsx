@@ -7,7 +7,8 @@ import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
 import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded'
 import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
 import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded'
-import { getApi } from '../core'
+import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
+import { buildNoteHtmlDoc, ensureIndex, ensureVaultDirs, escapeHtml, getApi, noteRelPath, nowId, saveIndex } from '../core'
 
 type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'index' | 'settings'
 
@@ -32,6 +33,8 @@ export function HyperCortexApp() {
   const [page, setPage] = React.useState<PageId>('home')
   const [newNoteTitle, setNewNoteTitle] = React.useState('新建笔记')
   const [newNoteContent, setNewNoteContent] = React.useState('')
+  const [newNoteSaving, setNewNoteSaving] = React.useState(false)
+  const [savedNote, setSavedNote] = React.useState<{ id: string; file: string; createdAtMs: number } | null>(null)
 
   const backToHost = React.useCallback(() => {
     try {
@@ -51,6 +54,50 @@ export function HyperCortexApp() {
     },
     [api],
   )
+
+  const handleSaveNewNote = React.useCallback(async () => {
+    if (newNoteSaving) return
+    setNewNoteSaving(true)
+    try {
+      const scope = 'library' as const
+      const title = String(newNoteTitle || '').trim() || '未命名'
+      const contentHtml = newNoteContent
+        .split(/\r?\n/)
+        .map(line => `<p>${escapeHtml(line)}</p>`)
+        .join('')
+
+      const existing = savedNote
+      const id = existing?.id || nowId()
+      const relPath = noteRelPath(id, title)
+      const html = buildNoteHtmlDoc({ id, title, contentHtml })
+      const nowMs = Date.now()
+
+      await ensureVaultDirs(api, scope)
+      await api.files.writeText({ scope, path: relPath, text: html, overwrite: true })
+
+      const idx = await ensureIndex(api, scope)
+      const next = {
+        ...idx,
+        notes: {
+          ...idx.notes,
+          [id]: {
+            id,
+            title,
+            file: relPath,
+            createdAtMs: existing?.createdAtMs ?? nowMs,
+            updatedAtMs: nowMs,
+          },
+        },
+      }
+      await saveIndex(api, scope, next)
+      setSavedNote({ id, file: relPath, createdAtMs: existing?.createdAtMs ?? nowMs })
+      await api.ui.showToast('笔记已保存')
+    } catch (e: any) {
+      await api.ui.showToast(String(e?.message || e || '保存失败'))
+    } finally {
+      setNewNoteSaving(false)
+    }
+  }, [api, newNoteContent, newNoteSaving, newNoteTitle, savedNote])
 
   return (
     <ThemeProvider theme={theme}>
@@ -233,31 +280,58 @@ export function HyperCortexApp() {
               {page === 'home' ? <Typography color="text.secondary">这是主页页面。</Typography> : null}
               {page === 'new-note' ? (
                 <Box sx={{ minHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                  <Box
-                    sx={{
-                      width: '100%',
-                      maxWidth: 240,
-                      pb: 0.5,
-                      borderBottom: '1px solid',
-                      borderColor: 'rgba(0,0,0,.16)',
-                    }}
-                  >
-                    <InputBase
-                      value={newNoteTitle}
-                      onChange={e => setNewNoteTitle(e.target.value)}
-                      placeholder="输入标题"
-                      fullWidth
-                      inputProps={{ 'aria-label': '笔记标题' }}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+                    <Box
                       sx={{
-                        fontSize: 28,
-                        lineHeight: 1.2,
-                        fontWeight: 900,
-                        color: '#111',
-                        '& input': {
-                          p: 0,
-                        },
+                        width: '100%',
+                        maxWidth: 240,
+                        pb: 0.5,
+                        borderBottom: '1px solid',
+                        borderColor: 'rgba(0,0,0,.16)',
                       }}
-                    />
+                    >
+                      <InputBase
+                        value={newNoteTitle}
+                        onChange={e => setNewNoteTitle(e.target.value)}
+                        placeholder="输入标题"
+                        fullWidth
+                        inputProps={{ 'aria-label': '笔记标题' }}
+                        sx={{
+                          fontSize: 28,
+                          lineHeight: 1.2,
+                          fontWeight: 900,
+                          color: '#111',
+                          '& input': {
+                            p: 0,
+                          },
+                        }}
+                      />
+                    </Box>
+
+                    <Tooltip title="保存" placement="right">
+                      <IconButton
+                        size="small"
+                        aria-label="保存笔记"
+                        onClick={() => void handleSaveNewNote()}
+                        disabled={newNoteSaving}
+                        sx={{
+                          color: 'rgba(0,0,0,.58)',
+                          bgcolor: 'transparent',
+                          boxShadow: 'none',
+                          border: 0,
+                          transition: 'background-color .16s ease, color .16s ease',
+                          '&:hover': {
+                            bgcolor: 'rgba(0,0,0,.06)',
+                            color: '#111',
+                          },
+                          '&.Mui-disabled': {
+                            color: 'rgba(0,0,0,.28)',
+                          },
+                        }}
+                      >
+                        <SaveRoundedIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                   </Box>
 
                   <InputBase
