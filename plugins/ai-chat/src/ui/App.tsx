@@ -951,6 +951,30 @@ export function AiChatApp(props: { controller: any }) {
     [data],
   )
 
+  const getFavoriteTargetMeta = React.useCallback(
+    (targetKind: 'role' | 'group', targetId: string) => {
+      const tid = String(targetId || '')
+      if (!tid) return null
+      if (targetKind === 'group') {
+        const g = groups.find((it: any) => String(it?.id || '') === tid) || null
+        if (!g) return null
+        return {
+          name: String(g?.name || '群聊'),
+          avatar: String(g?.avatar || '👥'),
+          avatarImage: String(g?.avatarImage || ''),
+        }
+      }
+      const r = roles.find((it: any) => String(it?.id || '') === tid) || null
+      if (!r) return null
+      return {
+        name: String(r?.name || '角色'),
+        avatar: String(r?.avatar || '🙂'),
+        avatarImage: String(r?.avatarImage || ''),
+      }
+    },
+    [groups, roles],
+  )
+
   const openCreateFavoriteFolder = useEvent((parentId = '') => {
     setCreateFavoriteFolder({ open: true, parentId: String(parentId || ''), name: '' })
   })
@@ -2726,19 +2750,6 @@ export function AiChatApp(props: { controller: any }) {
               {children.length || refs.length ? expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" /> : <Box sx={{ width: 20 }} />}
               <FolderOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', ml: 0.5, mr: 1 }} />
               <ListItemText primary={String(folder?.name || '未命名文件夹')} secondary={refs.length ? `${refs.length} 条收藏` : undefined} />
-              <Tooltip title="新建子文件夹">
-                <span>
-                  <IconButton
-                    size="small"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      openCreateFavoriteFolder(fid)
-                    }}
-                  >
-                    <AddIcon fontSize="inherit" />
-                  </IconButton>
-                </span>
-              </Tooltip>
             </ListItemButton>
             <Collapse in={expanded}>
               {children.length ? renderFavoriteFolderTree(fid, depth + 1) : null}
@@ -2748,18 +2759,27 @@ export function AiChatApp(props: { controller: any }) {
                 const chatId = String(ref?.chatId || '')
                 const chat = getChatByFavoriteRef(targetKind as any, targetId, chatId)
                 if (!chat) return null
-                const label = targetKind === 'group' ? '群聊' : '聊天'
+                const targetMeta = getFavoriteTargetMeta(targetKind as any, targetId)
+                const targetName = String(targetMeta?.name || (targetKind === 'group' ? '群聊' : '角色'))
                 return (
                   <ListItemButton
                     key={`${fid}:${targetKind}:${targetId}:${chatId}`}
-                    sx={{ pl: 3 + depth * 2, pr: 1 }}
+                    sx={{ pl: 3 + depth * 2, pr: 1, alignItems: 'flex-start', gap: 1 }}
                     onClick={() => openFavoritedChat(targetKind as any, targetId, chatId)}
                     onContextMenu={(e) => onFavoriteChatContextMenu(e, fid, targetKind as any, targetId, chatId, String((chat as any)?.title || ''))}
                   >
-                    <StarBorderRoundedIcon sx={{ fontSize: 17, color: 'warning.main', mr: 1 }} />
+                    <Stack spacing={0.5} alignItems="center" sx={{ width: 48, flex: '0 0 48px', pt: 0.25 }}>
+                      <Avatar src={String(targetMeta?.avatarImage || '') || undefined} sx={{ width: 28, height: 28, fontSize: 14 }}>
+                        {String(targetMeta?.avatar || (targetKind === 'group' ? '👥' : '🙂'))}
+                      </Avatar>
+                      <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: '100%' }}>
+                        {targetName}
+                      </Typography>
+                    </Stack>
                     <ListItemText
+                      sx={{ minWidth: 0, mt: 0.25 }}
                       primary={String((chat as any)?.title || (targetKind === 'group' ? '群聊' : '新聊天'))}
-                      secondary={`${label} · ${snippetText((Array.isArray((chat as any)?.messages) ? (chat as any).messages : []).slice(-1)[0]?.content || '')}`}
+                      secondary={snippetText((Array.isArray((chat as any)?.messages) ? (chat as any).messages : []).slice(-1)[0]?.content || '')}
                     />
                   </ListItemButton>
                 )
@@ -2774,6 +2794,7 @@ export function AiChatApp(props: { controller: any }) {
       favoriteChatRefsByFolderId,
       favoriteFolderExpanded,
       getChatByFavoriteRef,
+      getFavoriteTargetMeta,
       openCreateFavoriteFolder,
       openFavoritedChat,
       toggleFavoriteFolderExpanded,
