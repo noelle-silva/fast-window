@@ -45,6 +45,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import HistoryIcon from '@mui/icons-material/History'
+import SearchIcon from '@mui/icons-material/Search'
 import ImageIcon from '@mui/icons-material/Image'
 import AttachFileIcon from '@mui/icons-material/AttachFile'
 import RefreshIcon from '@mui/icons-material/Refresh'
@@ -1091,6 +1092,9 @@ export function AiChatApp(props: { controller: any }) {
   const [rolePickerEl, setRolePickerEl] = React.useState<HTMLElement | null>(null)
   const [rolePickerTab, setRolePickerTab] = React.useState<'roles' | 'groups'>('roles')
   const [chatPickerEl, setChatPickerEl] = React.useState<HTMLElement | null>(null)
+  const [chatPickerSearchOpen, setChatPickerSearchOpen] = React.useState(false)
+  const [chatPickerSearchText, setChatPickerSearchText] = React.useState('')
+  const chatPickerSearchInputRef = React.useRef<HTMLInputElement | null>(null)
   const [tempModelPickerEl, setTempModelPickerEl] = React.useState<HTMLElement | null>(null)
   const [fileAdjust, setFileAdjust] = React.useState<{ el: HTMLElement | null; id: string }>({ el: null, id: '' })
   const [tempModelProviderId, setTempModelProviderId] = React.useState('')
@@ -2410,16 +2414,35 @@ export function AiChatApp(props: { controller: any }) {
   const closeChatPicker = useEvent(() => {
     setChatPickerEl(null)
     closeChatMenu()
+    setChatPickerSearchOpen(false)
+    setChatPickerSearchText('')
   })
 
   const openPluginSettings = useEvent(
     (tab: 'appearance' | 'attachments' | 'groups' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers' = 'roles') => {
     setRolePickerEl(null)
     setChatPickerEl(null)
+    setChatPickerSearchOpen(false)
+    setChatPickerSearchText('')
     setSettingsTab(tab)
     setPage('settings')
   })
   const closePluginSettings = useEvent(() => setPage('chat'))
+
+  React.useEffect(() => {
+    if (!chatPickerEl) return
+    if (!chatPickerSearchOpen) return
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const el = chatPickerSearchInputRef.current
+        if (!el) return
+        try {
+          el.focus?.()
+          el.select?.()
+        } catch (_) {}
+      }, 0)
+    })
+  }, [chatPickerEl, chatPickerSearchOpen])
 
   const onPaste = useEvent((e: React.ClipboardEvent) => {
     if (s.loading) return
@@ -5086,13 +5109,60 @@ export function AiChatApp(props: { controller: any }) {
           transformOrigin={{ vertical: 'top', horizontal: 'right' }}
         >
           <Box sx={{ width: 420, maxHeight: '70vh', overflowY: 'auto' }}>
-            <Box sx={{ p: 1.5, pb: 1 }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
-                聊天记录
-              </Typography>
+            <Box sx={{ p: 1.5, pb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Tooltip title={chatPickerSearchOpen ? '关闭搜索' : '搜索'}>
+                <IconButton
+                  size="small"
+                  onClick={() => {
+                    setChatPickerSearchOpen((p) => !p)
+                    if (chatPickerSearchOpen) setChatPickerSearchText('')
+                  }}
+                >
+                  {chatPickerSearchOpen ? <CloseIcon fontSize="inherit" /> : <SearchIcon fontSize="inherit" />}
+                </IconButton>
+              </Tooltip>
+              <Box sx={{ flex: 1 }} />
             </Box>
+            <Collapse in={chatPickerSearchOpen}>
+              <Box sx={{ px: 1.5, pb: 1 }}>
+                <TextField
+                  inputRef={chatPickerSearchInputRef}
+                  fullWidth
+                  size="small"
+                  placeholder="搜索会话…"
+                  value={String(chatPickerSearchText || '')}
+                  onChange={(e) => setChatPickerSearchText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      e.preventDefault()
+                      setChatPickerSearchOpen(false)
+                      setChatPickerSearchText('')
+                    }
+                  }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon fontSize="small" />
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+              </Box>
+            </Collapse>
             <Divider />
             {(() => {
+              const q = String(chatPickerSearchText || '').trim().toLowerCase()
+              const match = (chat: any, fallbackTitle: string) => {
+                if (!q) return true
+                if (!chat) return false
+                const title = String(chat?.title || fallbackTitle || '')
+                const msgs = Array.isArray(chat?.messages) ? chat.messages : []
+                const last = msgs.length ? msgs[msgs.length - 1] : null
+                const raw = String(last?.content || '')
+                  .replace(/\s+/g, ' ')
+                  .trim()
+                return (title + '\n' + raw).toLowerCase().includes(q)
+              }
               if (activeTargetKind === 'group') {
                 if (!activeGroup) {
                   return (
@@ -5106,20 +5176,31 @@ export function AiChatApp(props: { controller: any }) {
                  const box = (data as any)?.chatsByGroup?.[String((activeGroup as any).id || '')]
                  const chats = Array.isArray(box?.chats) ? box.chats.slice() : []
                  const activeChatId = String(box?.activeChatId || '')
-                 const pendingChat =
-                   (s as any)?.pendingGroupChat && String((s as any).pendingGroupChat?.groupId || '') === String((activeGroup as any)?.id || '')
-                     ? (s as any).pendingGroupChat.chat
-                     : null
-                 const hasPending = !!pendingChat
-                 chats.sort((a: any, b: any) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0))
-                 return (
-                   <List dense sx={{ py: 0 }}>
-                     {hasPending ? (
-                       <ListItemButton selected sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}>
-                         <ListItemText
-                           sx={{ minWidth: 0 }}
-                           primary={
-                             <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+                  const pendingChat =
+                    (s as any)?.pendingGroupChat && String((s as any).pendingGroupChat?.groupId || '') === String((activeGroup as any)?.id || '')
+                      ? (s as any).pendingGroupChat.chat
+                      : null
+                  const hasPending = !!pendingChat
+                  chats.sort((a: any, b: any) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0))
+                  const showPending = hasPending && match(pendingChat, '群聊')
+                  const shownChats = chats.filter((c: any) => match(c, '群聊'))
+                  if (!showPending && !shownChats.length) {
+                    return (
+                      <Box sx={{ p: 2 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          没有匹配的会话
+                        </Typography>
+                      </Box>
+                    )
+                  }
+                  return (
+                    <List dense sx={{ py: 0 }}>
+                      {showPending ? (
+                        <ListItemButton selected sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}>
+                          <ListItemText
+                            sx={{ minWidth: 0 }}
+                            primary={
+                              <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
                                <Typography sx={{ fontWeight: 900, fontSize: 13, flex: 1, minWidth: 0 }} noWrap>
                                  {String(pendingChat?.title || '群聊')}（未发送）
                                </Typography>
@@ -5133,16 +5214,16 @@ export function AiChatApp(props: { controller: any }) {
                                （草稿）
                              </Typography>
                            }
-                         />
-                       </ListItemButton>
-                     ) : null}
-                     {chats.map((c: any) => {
-                       const on = !hasPending && String(c?.id || '') === activeChatId
-                       const msgs = Array.isArray(c?.messages) ? c.messages : []
-                       const last = msgs.length ? msgs[msgs.length - 1] : null
-                       const raw = String(last?.content || '').replace(/\s+/g, ' ').trim()
-                       const snippet = raw.length > 40 ? raw.slice(0, 40) + '…' : raw
-                       const time = controller.fmtTime(Number(c?.updatedAt || c?.createdAt || 0))
+                          />
+                        </ListItemButton>
+                      ) : null}
+                      {shownChats.map((c: any) => {
+                        const on = !showPending && String(c?.id || '') === activeChatId
+                        const msgs = Array.isArray(c?.messages) ? c.messages : []
+                        const last = msgs.length ? msgs[msgs.length - 1] : null
+                        const raw = String(last?.content || '').replace(/\s+/g, ' ').trim()
+                        const snippet = raw.length > 40 ? raw.slice(0, 40) + '…' : raw
+                        const time = controller.fmtTime(Number(c?.updatedAt || c?.createdAt || 0))
                        return (
                          <ListItemButton
                            key={String(c?.id || '')}
@@ -5197,9 +5278,20 @@ export function AiChatApp(props: { controller: any }) {
               const pendingChat = s?.pendingChat && String(s.pendingChat?.roleId || '') === String(role.id) ? s.pendingChat.chat : null
               const hasPending = !!pendingChat
               chats.sort((a: any, b: any) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0))
+              const showPending = hasPending && match(pendingChat, '新聊天')
+              const shownChats = chats.filter((c: any) => match(c, '新聊天'))
+              if (!showPending && !shownChats.length) {
+                return (
+                  <Box sx={{ p: 2 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      没有匹配的会话
+                    </Typography>
+                  </Box>
+                )
+              }
               return (
                 <List dense sx={{ py: 0 }}>
-                  {hasPending ? (
+                  {showPending ? (
                     <ListItemButton selected sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}>
                       <ListItemText
                         sx={{ minWidth: 0 }}
@@ -5221,8 +5313,8 @@ export function AiChatApp(props: { controller: any }) {
                       />
                     </ListItemButton>
                   ) : null}
-                  {chats.map((c: any) => {
-                    const on = !hasPending && String(c?.id || '') === activeChatId
+                  {shownChats.map((c: any) => {
+                    const on = !showPending && String(c?.id || '') === activeChatId
                     const msgs = Array.isArray(c?.messages) ? c.messages : []
                     const last = msgs.length ? msgs[msgs.length - 1] : null
                     const raw = String(last?.content || '').replace(/\s+/g, ' ').trim()
