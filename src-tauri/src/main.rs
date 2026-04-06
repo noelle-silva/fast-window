@@ -32,6 +32,7 @@ const PLUGIN_AUTO_UPDATE_PREFS_FILE: &str = "plugins-auto-update.json";
 const WAKE_SHORTCUT_KEY: &str = "wakeShortcut";
 const AUTO_START_KEY: &str = "autoStart";
 const MAIN_WINDOW_BOUNDS_KEY: &str = "mainWindowBounds";
+const BROWSER_WINDOW_BOUNDS_KEY: &str = "browserWindowBounds";
 const PLUGIN_OUTPUT_DIRS_KEY: &str = "pluginOutputDirs";
 const PLUGIN_LIBRARY_DIRS_KEY: &str = "pluginLibraryDirs";
 const WEBVIEW_SETTINGS_KEY: &str = "webview";
@@ -812,7 +813,7 @@ async fn open_browser_window(
         1020.0,
         (BROWSER_STACK_TOTAL_HEIGHT - BROWSER_BAR_HEIGHT).max(200.0),
     )
-    .resizable(false)
+    .resizable(true)
     .maximizable(false)
     .minimizable(false)
     .decorations(false)
@@ -824,11 +825,37 @@ async fn open_browser_window(
     .build()
     .map_err(|e| format!("创建浏览窗口失败: {e}"))?;
 
+    // 初次创建时不要跟随 main（因为 main 已被移到屏幕外隐藏了），用浏览栈的恢复/居中逻辑。
+    let saved = {
+        let state = app.state::<BrowserWindowState>();
+        state
+            .last_bounds
+            .lock()
+            .ok()
+            .and_then(|g| g.clone())
+            .or_else(|| load_browser_window_bounds_from_config(&app))
+    };
+    if let Some((pos, total)) = saved {
+        let state = app.state::<BrowserWindowState>();
+        if let Ok(mut g) = state.last_bounds.lock() {
+            *g = Some((pos, total));
+        };
+        restore_browser_stack_bounds_or_center(&app, &bar, &content, pos, total);
+        if let Ok(p) = bar.outer_position() {
+            if p.x > -9000 && p.y > -9000 {
+                if let Ok(mut g) = state.last_position.lock() {
+                    *g = Some(p);
+                }
+            }
+        }
+        // 兜底：把“实际应用后的尺寸/位置”同步回内存（供 hide/show 使用）
+        save_browser_stack_bounds_if_valid(&app);
+    } else {
+        browser_stack_restore_or_center(&app);
+    }
+
     // 让“网页主体窗口”只有底部两个角是圆角（顶部两个角会和顶部栏拼接，不要圆角）。
     apply_bottom_rounded_corners(&content, 16.0);
-
-    // 初次创建时不要跟随 main（因为 main 已被移到屏幕外隐藏了），用浏览栈的恢复/居中逻辑。
-    browser_stack_restore_or_center(&app);
 
     let _ = bar.show();
     let _ = content.show();
@@ -1694,6 +1721,8 @@ struct BrowserWindowState {
     restore_bounds: Mutex<Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>)>>,
     pinned: Mutex<bool>,
     closing: Mutex<bool>,
+    last_bounds: Mutex<Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>)>>,
+    save_seq: AtomicU64,
 }
 
 impl Default for BrowserWindowState {
@@ -1709,6 +1738,8 @@ impl Default for BrowserWindowState {
             pinned: Mutex::new(false),
             // 关闭防抖：我们有两个窗口（顶部栏 + 内容），关闭时需要避免 CloseRequested 互相触发导致循环。
             closing: Mutex::new(false),
+            last_bounds: Mutex::new(None),
+            save_seq: AtomicU64::new(0),
         }
     }
 }
@@ -1947,6 +1978,197 @@ fn schedule_persist_main_window_bounds(app: &tauri::AppHandle) {
         }
         persist_main_window_bounds(&app, &state);
     });
+}
+
+fn browser_stack_bar_height_px(bar: &tauri::WebviewWindow) -> u32 {
+    if let Ok(s) = bar.inner_size() {
+        if s.height > 0 {
+            return s.height;
+        }
+    }
+    let scale = bar.scale_factor().unwrap_or(1.0);
+    (BROWSER_BAR_HEIGHT * scale).round().max(1.0) as u32
+}
+
+fn load_browser_window_bounds_from_config(
+    app: &tauri::AppHandle,
+) -> Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>)> {
+    let map = read_app_config_map(app);
+    let raw = map.get(BROWSER_WINDOW_BOUNDS_KEY)?.clone();
+    let parsed = serde_json::from_value::<PersistedWindowBounds>(raw).ok()?;
+
+    if parsed.x <= -9000 || parsed.y <= -9000 {
+        return None;
+    }
+    if parsed.width < 200 || parsed.height < 200 {
+        return None;
+    }
+    if parsed.width > 20000 || parsed.height > 20000 {
+        return None;
+    }
+
+    Some((
+        tauri::PhysicalPosition::new(parsed.x, parsed.y),
+        tauri::PhysicalSize::new(parsed.width, parsed.height),
+    ))
+}
+
+fn persist_browser_window_bounds(app: &tauri::AppHandle, state: &BrowserWindowState) {
+    let saved = state.last_bounds.lock().ok().and_then(|g| g.clone());
+    let Some((pos, size)) = saved else {
+        return;
+    };
+
+    let bounds = PersistedWindowBounds {
+        x: pos.x,
+        y: pos.y,
+        width: size.width,
+        height: size.height,
+    };
+
+    let mut map = read_app_config_map(app);
+    let Ok(v) = serde_json::to_value(bounds) else {
+        return;
+    };
+    map.insert(BROWSER_WINDOW_BOUNDS_KEY.to_string(), v);
+    if let Err(e) = write_app_config_map(app, &map) {
+        eprintln!("[config] failed to persist browser window bounds: {e}");
+    }
+}
+
+fn schedule_persist_browser_window_bounds(app: &tauri::AppHandle) {
+    let state = app.state::<BrowserWindowState>();
+    let next = state
+        .save_seq
+        .fetch_add(1, Ordering::Relaxed)
+        .saturating_add(1);
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(350)).await;
+        let state = app.state::<BrowserWindowState>();
+        if state.save_seq.load(Ordering::Relaxed) != next {
+            return;
+        }
+        persist_browser_window_bounds(&app, &state);
+    });
+}
+
+fn save_browser_stack_bounds_if_valid(app: &tauri::AppHandle) {
+    let state = app.state::<BrowserWindowState>();
+    if state.fullscreen.lock().ok().map(|g| *g).unwrap_or(false) {
+        return;
+    }
+
+    let (Some(bar), Some(content)) = (
+        app.get_webview_window(BROWSER_BAR_WINDOW_LABEL),
+        app.get_webview_window(BROWSER_WINDOW_LABEL),
+    ) else {
+        return;
+    };
+
+    let Ok(pos) = bar.outer_position() else {
+        return;
+    };
+    if pos.x <= -9000 || pos.y <= -9000 {
+        return;
+    }
+
+    let Ok(content_size) = content.inner_size() else {
+        return;
+    };
+    if content_size.width < 200 || content_size.height < 150 {
+        return;
+    }
+
+    let bar_h = browser_stack_bar_height_px(&bar);
+    let total = tauri::PhysicalSize::new(content_size.width, bar_h.saturating_add(content_size.height));
+
+    if let Ok(mut g) = state.last_bounds.lock() {
+        *g = Some((pos, total));
+    };
+}
+
+fn restore_browser_stack_bounds_or_center(
+    app: &tauri::AppHandle,
+    bar: &tauri::WebviewWindow,
+    content: &tauri::WebviewWindow,
+    pos: tauri::PhysicalPosition<i32>,
+    total: tauri::PhysicalSize<u32>,
+) {
+    let monitors = bar.available_monitors().unwrap_or_default();
+    let mut next_pos = pos;
+    let mut next_total = total;
+
+    if !monitors.is_empty() {
+        let mut intersected: Option<tauri::PhysicalRect<i32, u32>> = None;
+        for m in &monitors {
+            let wa = *m.work_area();
+            if rect_intersects(
+                next_pos,
+                next_total,
+                wa.position,
+                tauri::PhysicalSize::new(wa.size.width, wa.size.height),
+            ) {
+                intersected = Some(wa);
+                break;
+            }
+        }
+
+        if let Some(wa) = intersected {
+            let max_w = wa.size.width.max(1);
+            let max_h = wa.size.height.max(1);
+            next_total = tauri::PhysicalSize::new(
+                next_total.width.min(max_w),
+                next_total.height.min(max_h),
+            );
+
+            let min_x = wa.position.x;
+            let min_y = wa.position.y;
+            let max_x = wa.position.x + wa.size.width as i32 - next_total.width as i32;
+            let max_y = wa.position.y + wa.size.height as i32 - next_total.height as i32;
+            next_pos = tauri::PhysicalPosition::new(
+                clamp_i32(next_pos.x, min_x, max_x),
+                clamp_i32(next_pos.y, min_y, max_y),
+            );
+        } else {
+            // 配置位置不在任何屏幕上：保留尺寸，改为居中
+            if let Some(m) = bar
+                .primary_monitor()
+                .ok()
+                .flatten()
+                .or_else(|| bar.current_monitor().ok().flatten())
+            {
+                let wa = *m.work_area();
+                let max_w = wa.size.width.max(1);
+                let max_h = wa.size.height.max(1);
+                next_total = tauri::PhysicalSize::new(
+                    next_total.width.min(max_w),
+                    next_total.height.min(max_h),
+                );
+                let x = wa.position.x + ((wa.size.width as i32 - next_total.width as i32) / 2);
+                let y = wa.position.y + ((wa.size.height as i32 - next_total.height as i32) / 2);
+                next_pos = tauri::PhysicalPosition::new(x, y);
+            } else {
+                let _ = bar.center();
+                if let Ok(p) = bar.outer_position() {
+                    next_pos = p;
+                }
+            }
+        }
+    }
+
+    let bar_h = browser_stack_bar_height_px(bar);
+    if next_total.height <= bar_h.saturating_add(50) || next_total.width < 200 {
+        browser_stack_restore_or_center(app);
+        return;
+    }
+
+    let content_h = next_total.height.saturating_sub(bar_h).max(1);
+    let _ = bar.set_position(next_pos);
+    let _ = bar.set_size(tauri::PhysicalSize::new(next_total.width, bar_h));
+
+    let _ = content.set_position(tauri::PhysicalPosition::new(next_pos.x, next_pos.y + bar_h as i32));
+    let _ = content.set_size(tauri::PhysicalSize::new(next_total.width, content_h));
 }
 
 fn portable_base_dir_from_env() -> Option<PathBuf> {
@@ -4135,6 +4357,9 @@ fn browser_stack_hide(app: &tauri::AppHandle) {
     };
 
     let state = app.state::<BrowserWindowState>();
+    // 隐藏前先落盘当前边界（避免隐藏时坐标被移到屏幕外导致写入无效值）
+    save_browser_stack_bounds_if_valid(app);
+    persist_browser_window_bounds(app, &state);
     if let Ok(pos) = bar.outer_position() {
         // 隐藏时会把窗口移到屏幕外（-10000, -10000），不要把这种位置记成“上次位置”
         if pos.x > -9000 && pos.y > -9000 {
@@ -6758,6 +6983,14 @@ fn main() {
                 }
             }
 
+            // 浏览窗口尺寸/位置：从配置预载（真正恢复发生在首次打开“浏览栈”时）
+            if let Some(saved) = load_browser_window_bounds_from_config(app.handle()) {
+                let state = app.state::<BrowserWindowState>();
+                if let Ok(mut g) = state.last_bounds.lock() {
+                    *g = Some(saved);
+                };
+            }
+
             // 宿主数据迁移：仅迁移宿主私有存储（__app）。插件数据由插件自行调用 storage.migrate 处理。
             let _ = migrations::migrate_plugin_storage(app.handle(), APP_STORAGE_ID);
             let _ = migrations::migrate_host_files_into_app_dir(app.handle());
@@ -6865,12 +7098,16 @@ fn main() {
                             .map(|s| s.height)
                             .unwrap_or(BROWSER_BAR_HEIGHT.round().max(1.0) as u32);
                         if let Some(p) = bar_pos {
-                            let _ = content.set_position(tauri::PhysicalPosition::new(
-                                p.x,
-                                p.y + bar_h as i32,
-                            ));
+                            let desired =
+                                tauri::PhysicalPosition::new(p.x, p.y + bar_h as i32);
+                            let cur = content.outer_position().ok();
+                            if cur != Some(desired) {
+                                let _ = content.set_position(desired);
+                            }
                         }
                     }
+                    save_browser_stack_bounds_if_valid(app);
+                    schedule_persist_browser_window_bounds(app);
                 }
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     if browser_stack_is_closing(app) {
@@ -6901,6 +7138,46 @@ fn main() {
             }
             if window.label() == BROWSER_WINDOW_LABEL {
                 let app = window.app_handle();
+                if let WindowEvent::Moved(_) = event {
+                    if let (Some(bar), Some(content)) = (
+                        app.get_webview_window(BROWSER_BAR_WINDOW_LABEL),
+                        app.get_webview_window(BROWSER_WINDOW_LABEL),
+                    ) {
+                        let content_pos = content.outer_position().ok();
+                        let bar_h = browser_stack_bar_height_px(&bar);
+                        if let Some(p) = content_pos {
+                            let desired = tauri::PhysicalPosition::new(p.x, p.y - bar_h as i32);
+                            let cur = bar.outer_position().ok();
+                            if cur != Some(desired) {
+                                let _ = bar.set_position(desired);
+                            }
+                        }
+                    }
+                    save_browser_stack_bounds_if_valid(app);
+                    schedule_persist_browser_window_bounds(app);
+                }
+                if let WindowEvent::Resized(_) = event {
+                    if let (Some(bar), Some(content)) = (
+                        app.get_webview_window(BROWSER_BAR_WINDOW_LABEL),
+                        app.get_webview_window(BROWSER_WINDOW_LABEL),
+                    ) {
+                        let bar_h = browser_stack_bar_height_px(&bar);
+                        let content_w = content
+                            .inner_size()
+                            .ok()
+                            .map(|s| s.width)
+                            .unwrap_or(0);
+                        if content_w > 0 {
+                            let cur_w = bar.inner_size().ok().map(|s| s.width).unwrap_or(0);
+                            if cur_w != content_w {
+                                let _ = bar.set_size(tauri::PhysicalSize::new(content_w, bar_h));
+                            }
+                        }
+                        apply_bottom_rounded_corners(&content, 16.0);
+                    }
+                    save_browser_stack_bounds_if_valid(app);
+                    schedule_persist_browser_window_bounds(app);
+                }
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     if browser_stack_is_closing(app) {
                         return;
