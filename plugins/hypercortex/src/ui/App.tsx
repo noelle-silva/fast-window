@@ -8,7 +8,10 @@ import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded'
 import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
 import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded'
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
-import { buildNoteHtmlDoc, ensureIndex, ensureVaultDirs, escapeHtml, getApi, noteRelPath, nowId, saveIndex } from '../core'
+import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
+import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
+import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
+import { buildNoteHtmlDoc, ensureIndex, ensureVaultDirs, escapeHtml, getApi, noteRelPath, nowId, rebuildIndexFromFs, saveIndex, tryLoadIndex, type NoteMeta } from '../core'
 
 type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'index' | 'settings'
 
@@ -35,6 +38,10 @@ export function HyperCortexApp() {
   const [newNoteContent, setNewNoteContent] = React.useState('')
   const [newNoteSaving, setNewNoteSaving] = React.useState(false)
   const [savedNote, setSavedNote] = React.useState<{ id: string; file: string; createdAtMs: number } | null>(null)
+  const [allNotesLayout, setAllNotesLayout] = React.useState<'list' | 'grid' | 'icon'>('list')
+  const [allNotes, setAllNotes] = React.useState<NoteMeta[]>([])
+  const [allNotesLoading, setAllNotesLoading] = React.useState(false)
+  const [allNotesLoadError, setAllNotesLoadError] = React.useState<string | null>(null)
 
   const backToHost = React.useCallback(() => {
     try {
@@ -54,6 +61,38 @@ export function HyperCortexApp() {
     },
     [api],
   )
+
+  const sortNotes = React.useCallback((list: NoteMeta[]) => {
+    return list.slice().sort((a, b) => (b.updatedAtMs || 0) - (a.updatedAtMs || 0))
+  }, [])
+
+  const toggleAllNotesLayout = React.useCallback(() => {
+    setAllNotesLayout(prev => (prev === 'list' ? 'grid' : prev === 'grid' ? 'icon' : 'list'))
+  }, [])
+
+  const loadAllNotes = React.useCallback(async () => {
+    setAllNotesLoading(true)
+    setAllNotesLoadError(null)
+    try {
+      const scope = 'library' as const
+      let idx = await tryLoadIndex(api, scope)
+      if (!idx) {
+        idx = await ensureIndex(api, scope)
+        idx = await rebuildIndexFromFs(api, scope, idx)
+      }
+      const notes = sortNotes(Object.values(idx.notes || {}))
+      setAllNotes(notes)
+    } catch (e: any) {
+      setAllNotesLoadError(String(e?.message || e || '加载全部笔记失败'))
+    } finally {
+      setAllNotesLoading(false)
+    }
+  }, [api, sortNotes])
+
+  React.useEffect(() => {
+    if (page !== 'all-notes') return
+    void loadAllNotes()
+  }, [loadAllNotes, page])
 
   const handleSaveNewNote = React.useCallback(async () => {
     if (newNoteSaving) return
@@ -91,6 +130,18 @@ export function HyperCortexApp() {
       }
       await saveIndex(api, scope, next)
       setSavedNote({ id, file: relPath, createdAtMs: existing?.createdAtMs ?? nowMs })
+      setAllNotes(prev =>
+        sortNotes([
+          {
+            id,
+            title,
+            file: relPath,
+            createdAtMs: existing?.createdAtMs ?? nowMs,
+            updatedAtMs: nowMs,
+          },
+          ...prev.filter(item => item.id !== id),
+        ]),
+      )
       await api.ui.showToast('笔记已保存')
     } catch (e: any) {
       await api.ui.showToast(String(e?.message || e || '保存失败'))
@@ -359,7 +410,163 @@ export function HyperCortexApp() {
                 </Box>
               ) : null}
               {page === 'attachments' ? <Typography color="text.secondary">这是附件页面。</Typography> : null}
-              {page === 'all-notes' ? <Typography color="text.secondary">这是全部笔记页面。</Typography> : null}
+              {page === 'all-notes' ? (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                    <Typography sx={{ fontSize: 24, lineHeight: 1.25, fontWeight: 900, color: '#111' }}>全部笔记</Typography>
+                    <Tooltip
+                      title={allNotesLayout === 'list' ? '切换到网格' : allNotesLayout === 'grid' ? '切换到紧凑' : '切换到列表'}
+                      placement="left"
+                    >
+                      <IconButton
+                        size="small"
+                        aria-label={allNotesLayout === 'list' ? '切换到网格' : allNotesLayout === 'grid' ? '切换到紧凑' : '切换到列表'}
+                        onClick={toggleAllNotesLayout}
+                        sx={{
+                          color: 'rgba(0,0,0,.58)',
+                          bgcolor: 'transparent',
+                          boxShadow: 'none',
+                          border: 0,
+                          '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                        }}
+                      >
+                        {allNotesLayout === 'list' ? (
+                          <ViewModuleRoundedIcon fontSize="small" />
+                        ) : allNotesLayout === 'grid' ? (
+                          <AppsRoundedIcon fontSize="small" />
+                        ) : (
+                          <ViewListRoundedIcon fontSize="small" />
+                        )}
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+
+                  {allNotesLoading ? <Typography color="text.secondary">正在加载笔记...</Typography> : null}
+                  {!allNotesLoading && allNotesLoadError ? <Typography color="error">{allNotesLoadError}</Typography> : null}
+                  {!allNotesLoading && !allNotesLoadError && allNotes.length === 0 ? (
+                    <Typography color="text.secondary">还没有笔记。</Typography>
+                  ) : null}
+
+                  {!allNotesLoading && !allNotesLoadError && allNotes.length > 0 && allNotesLayout === 'grid' ? (
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                        gap: 1,
+                      }}
+                    >
+                      {allNotes.map(note => (
+                        <Box
+                          key={note.id}
+                          sx={{
+                            minHeight: 72,
+                            px: 1.5,
+                            py: 1.25,
+                            borderRadius: 3,
+                            bgcolor: '#fff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            boxShadow: '0 1px 2px rgba(0,0,0,.04)',
+                          }}
+                        >
+                          <Typography
+                            sx={{
+                              fontSize: 14,
+                              lineHeight: 1.5,
+                              fontWeight: 600,
+                              color: '#111',
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            {note.title}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                  ) : null}
+
+                  {!allNotesLoading && !allNotesLoadError && allNotes.length > 0 && allNotesLayout === 'icon' ? (
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(112px, 1fr))',
+                        gap: 1,
+                      }}
+                    >
+                      {allNotes.map(note => (
+                        <Box
+                          key={note.id}
+                          sx={{
+                            minHeight: 84,
+                            px: 1.25,
+                            py: 1.25,
+                            borderRadius: 3,
+                            bgcolor: '#fff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            textAlign: 'center',
+                            boxShadow: '0 1px 2px rgba(0,0,0,.04)',
+                          }}
+                        >
+                          <Typography
+                            sx={{
+                              fontSize: 13,
+                              lineHeight: 1.45,
+                              fontWeight: 600,
+                              color: '#111',
+                              display: '-webkit-box',
+                              WebkitLineClamp: 2,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            {note.title}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                  ) : null}
+
+                  {!allNotesLoading && !allNotesLoadError && allNotes.length > 0 && allNotesLayout === 'list' ? (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                      {allNotes.map(note => (
+                        <Box
+                          key={note.id}
+                          sx={{
+                            px: 1.5,
+                            py: 1.15,
+                            borderRadius: 3,
+                            bgcolor: '#fff',
+                            boxShadow: '0 1px 2px rgba(0,0,0,.04)',
+                            transition: 'background-color .16s ease',
+                            '&:hover': {
+                              bgcolor: 'rgba(0,0,0,.02)',
+                            },
+                          }}
+                        >
+                          <Typography
+                            sx={{
+                              fontSize: 14,
+                              lineHeight: 1.5,
+                              fontWeight: 600,
+                              color: '#111',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                            }}
+                          >
+                            {note.title}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                  ) : null}
+                </Box>
+              ) : null}
               {page === 'index' ? <Typography color="text.secondary">这是索引页面。</Typography> : null}
               {page === 'settings' ? <Typography color="text.secondary">这是设置页面。</Typography> : null}
             </Box>
