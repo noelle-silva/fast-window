@@ -7137,6 +7137,19 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     }
   }
 
+  function favoriteFolderNameExists(name: any, excludeId?: any) {
+    const fav = ensureFavoritesBare()
+    if (!fav) return false
+    const nextName = String(name || '').replace(/\s+/g, ' ').trim().toLowerCase()
+    const skipId = String(excludeId || '').trim()
+    if (!nextName) return false
+    return fav.folders.some((f: any) => {
+      const fid = String(f?.id || '').trim()
+      if (skipId && fid === skipId) return false
+      return String(f?.name || '').replace(/\s+/g, ' ').trim().toLowerCase() === nextName
+    })
+  }
+
   function createFavoriteFolder(name: any, parentId?: any) {
     const fav = ensureFavoritesBare()
     if (!fav) return
@@ -7144,10 +7157,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     if (!v.ok) return api.ui?.showToast?.(v.error || '文件夹名无效')
     const pid = String(parentId || '').trim()
     if (pid && !fav.folders.some((f: any) => String(f?.id || '') === pid)) return api.ui?.showToast?.('父文件夹不存在')
-    const normName = String(v.name || '').replace(/\s+/g, ' ').trim().toLowerCase()
-    if (fav.folders.some((f: any) => String(f?.name || '').replace(/\s+/g, ' ').trim().toLowerCase() === normName)) {
-      return api.ui?.showToast?.('文件夹已存在')
-    }
+    if (favoriteFolderNameExists(v.name)) return api.ui?.showToast?.('文件夹已存在')
     const t = now()
     const id = uid('favf')
     fav.folders = fav.folders.concat([{ id, name: v.name, parentId: pid, createdAt: t, updatedAt: t }])
@@ -7155,6 +7165,91 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     save().catch(() => {})
     emit()
     return id
+  }
+
+  function renameFavoriteFolder(folderId: any, name: any) {
+    const fav = ensureFavoritesBare()
+    if (!fav) return
+    const fid = String(folderId || '').trim()
+    if (!fid) return
+    const folder = fav.folders.find((f: any) => String(f?.id || '') === fid) || null
+    if (!folder) return
+    const v = validateFavoriteFolderName(name)
+    if (!v.ok) return api.ui?.showToast?.(v.error || '文件夹名无效')
+    if (favoriteFolderNameExists(v.name, fid)) return api.ui?.showToast?.('文件夹已存在')
+    fav.folders = fav.folders.map((f: any) => (String(f?.id || '') === fid ? { ...f, name: v.name, updatedAt: now() } : f))
+    save().catch(() => {})
+    emit()
+  }
+
+  function collectFavoriteFolderSubtreeIds(folderId: any) {
+    const fav = ensureFavoritesBare()
+    if (!fav) return []
+    const rootId = String(folderId || '').trim()
+    if (!rootId) return []
+    const out: string[] = []
+    const stack = [rootId]
+    while (stack.length) {
+      const cur = String(stack.pop() || '').trim()
+      if (!cur || out.includes(cur)) continue
+      out.push(cur)
+      for (const f of fav.folders) {
+        if (String((f as any)?.parentId || '').trim() === cur) stack.push(String((f as any)?.id || '').trim())
+      }
+    }
+    return out
+  }
+
+  function deleteFavoriteFolderKeepContents(folderId: any) {
+    const fav = ensureFavoritesBare()
+    if (!fav) return
+    const fid = String(folderId || '').trim()
+    if (!fid) return
+    const folder = fav.folders.find((f: any) => String(f?.id || '') === fid) || null
+    if (!folder) return
+    const parentId = String(folder?.parentId || '').trim()
+    const ownRefs = Array.isArray(fav.chatRefsByFolderId?.[fid]) ? fav.chatRefsByFolderId[fid] : []
+    if (!parentId && ownRefs.length) return api.ui?.showToast?.('顶层文件夹含有收藏时，暂不支持“内容保留”删除')
+
+    fav.folders = fav.folders
+      .filter((f: any) => String(f?.id || '') !== fid)
+      .map((f: any) => (String(f?.parentId || '').trim() === fid ? { ...f, parentId, updatedAt: now() } : f))
+
+    const nextRefs = { ...(fav.chatRefsByFolderId || {}) }
+    if (parentId) {
+      const prev = Array.isArray(nextRefs[parentId]) ? nextRefs[parentId] : []
+      const merged = prev.concat(ownRefs)
+      const seen = new Set<string>()
+      nextRefs[parentId] = merged.filter((ref: any) => {
+        const key = favoriteChatRefKey(ref?.targetKind, ref?.targetId, ref?.chatId)
+        if (!key || seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+    }
+    try {
+      delete nextRefs[fid]
+    } catch (_) {}
+    fav.chatRefsByFolderId = nextRefs
+    save().catch(() => {})
+    emit()
+  }
+
+  function deleteFavoriteFolderTree(folderId: any) {
+    const fav = ensureFavoritesBare()
+    if (!fav) return
+    const ids = new Set(collectFavoriteFolderSubtreeIds(folderId))
+    if (!ids.size) return
+    fav.folders = fav.folders.filter((f: any) => !ids.has(String(f?.id || '').trim()))
+    const nextRefs = { ...(fav.chatRefsByFolderId || {}) }
+    for (const id of ids) {
+      try {
+        delete nextRefs[id]
+      } catch (_) {}
+    }
+    fav.chatRefsByFolderId = nextRefs
+    save().catch(() => {})
+    emit()
   }
 
   function setChatFavoriteFolders(targetKind: any, targetId: any, chatId: any, folderIds: any) {
@@ -8357,6 +8452,9 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         emit()
       },
       createFavoriteFolder: (name, parentId) => createFavoriteFolder(name, parentId),
+      renameFavoriteFolder: (folderId, name) => renameFavoriteFolder(folderId, name),
+      deleteFavoriteFolderKeepContents: (folderId) => deleteFavoriteFolderKeepContents(folderId),
+      deleteFavoriteFolderTree: (folderId) => deleteFavoriteFolderTree(folderId),
       setChatFavoriteFolders: (targetKind, targetId, chatId, folderIds) => setChatFavoriteFolders(targetKind, targetId, chatId, folderIds),
       getChatFavoriteFolderIds: (targetKind, targetId, chatId) => getFavoriteFolderIdsForChat(targetKind, targetId, chatId),
       deleteStickerCategory: async (categoryName) => {

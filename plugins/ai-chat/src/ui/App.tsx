@@ -932,6 +932,34 @@ export function AiChatApp(props: { controller: any }) {
     setCreateFavoriteFolder({ open: true, parentId: String(parentId || ''), name: '' })
   })
   const closeCreateFavoriteFolder = useEvent(() => setCreateFavoriteFolder({ open: false, parentId: '', name: '' }))
+  const closeFavoriteFolderMenu = useEvent(() => setFavoriteFolderMenu({ folderId: '', x: 0, y: 0 }))
+  const openRenameFavoriteFolder = useEvent((folderId: string) => {
+    const fid = String(folderId || '')
+    const folder = favoriteFolders.find((f: any) => String(f?.id || '') === fid) || null
+    if (!folder) return
+    closeFavoriteFolderMenu()
+    setRenameFavoriteFolder({ open: true, folderId: fid, name: String(folder?.name || '') })
+  })
+  const closeRenameFavoriteFolder = useEvent(() => setRenameFavoriteFolder({ open: false, folderId: '', name: '' }))
+  const submitRenameFavoriteFolder = useEvent(() => {
+    const fid = String(renameFavoriteFolder.folderId || '')
+    const name = String(renameFavoriteFolder.name || '').trim()
+    if (!fid || !name) return
+    controller.actions.renameFavoriteFolder?.(fid, name)
+    closeRenameFavoriteFolder()
+  })
+  const openDeleteFavoriteFolderConfirm = useEvent((folderId: string, mode: 'keep' | 'tree') => {
+    closeFavoriteFolderMenu()
+    setConfirmDeleteFavoriteFolder({ open: true, folderId: String(folderId || ''), mode })
+  })
+  const closeDeleteFavoriteFolderConfirm = useEvent(() => setConfirmDeleteFavoriteFolder({ open: false, folderId: '', mode: 'keep' }))
+  const submitDeleteFavoriteFolder = useEvent(() => {
+    const fid = String(confirmDeleteFavoriteFolder.folderId || '')
+    if (!fid) return
+    if (confirmDeleteFavoriteFolder.mode === 'tree') controller.actions.deleteFavoriteFolderTree?.(fid)
+    else controller.actions.deleteFavoriteFolderKeepContents?.(fid)
+    closeDeleteFavoriteFolderConfirm()
+  })
   const toggleFavoriteFolderExpanded = useEvent((folderId: string) => {
     const fid = String(folderId || '')
     if (!fid) return
@@ -1198,6 +1226,13 @@ export function AiChatApp(props: { controller: any }) {
     open: false,
     parentId: '',
     name: '',
+  })
+  const [favoriteFolderMenu, setFavoriteFolderMenu] = React.useState<{ folderId: string; x: number; y: number }>({ folderId: '', x: 0, y: 0 })
+  const [renameFavoriteFolder, setRenameFavoriteFolder] = React.useState<{ open: boolean; folderId: string; name: string }>({ open: false, folderId: '', name: '' })
+  const [confirmDeleteFavoriteFolder, setConfirmDeleteFavoriteFolder] = React.useState<{ open: boolean; folderId: string; mode: 'keep' | 'tree' }>({
+    open: false,
+    folderId: '',
+    mode: 'keep',
   })
   const [tempModelPickerEl, setTempModelPickerEl] = React.useState<HTMLElement | null>(null)
   const [fileAdjust, setFileAdjust] = React.useState<{ el: HTMLElement | null; id: string }>({ el: null, id: '' })
@@ -2497,7 +2532,15 @@ export function AiChatApp(props: { controller: any }) {
         const expanded = favoriteFolderExpanded[fid] ?? true
         return (
           <React.Fragment key={fid}>
-            <ListItemButton sx={{ pl: 1 + depth * 2, pr: 1 }} onClick={() => toggleFavoriteFolderExpanded(fid)}>
+            <ListItemButton
+              sx={{ pl: 1 + depth * 2, pr: 1 }}
+              onClick={() => toggleFavoriteFolderExpanded(fid)}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                setFavoriteFolderMenu({ folderId: fid, x: e.clientX, y: e.clientY })
+              }}
+            >
               {children.length || refs.length ? expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" /> : <Box sx={{ width: 20 }} />}
               <FolderOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', ml: 0.5, mr: 1 }} />
               <ListItemText primary={String(folder?.name || '未命名文件夹')} secondary={refs.length ? `${refs.length} 条收藏` : undefined} />
@@ -2615,8 +2658,11 @@ export function AiChatApp(props: { controller: any }) {
     setChatPickerEl(null)
     setChatPickerView('history')
     closeChatMenu()
+    closeFavoriteFolderMenu()
     closeFavoriteDialog()
     closeCreateFavoriteFolder()
+    closeRenameFavoriteFolder()
+    closeDeleteFavoriteFolderConfirm()
     setChatPickerSearchOpen(false)
     setChatPickerSearchText('')
   })
@@ -5606,6 +5652,41 @@ export function AiChatApp(props: { controller: any }) {
         </Popover>
 
         <Popover
+          open={!!favoriteFolderMenu.folderId}
+          onClose={closeFavoriteFolderMenu}
+          anchorReference="anchorPosition"
+          anchorPosition={favoriteFolderMenu.folderId ? { top: favoriteFolderMenu.y, left: favoriteFolderMenu.x } : undefined}
+          transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        >
+          <Box sx={{ minWidth: 220, p: 0.5 }}>
+            <MenuItem
+              onClick={() => {
+                const fid = String(favoriteFolderMenu.folderId || '')
+                if (!fid) return
+                openCreateFavoriteFolder(fid)
+                closeFavoriteFolderMenu()
+              }}
+              sx={{ gap: 1 }}
+            >
+              <AddIcon fontSize="small" />
+              新建子文件夹
+            </MenuItem>
+            <MenuItem onClick={() => openRenameFavoriteFolder(favoriteFolderMenu.folderId)} sx={{ gap: 1 }}>
+              <EditOutlinedIcon fontSize="small" />
+              重命名
+            </MenuItem>
+            <MenuItem onClick={() => openDeleteFavoriteFolderConfirm(favoriteFolderMenu.folderId, 'keep')} sx={{ gap: 1 }}>
+              <DeleteOutlineIcon fontSize="small" />
+              删除文件夹（内容保留）
+            </MenuItem>
+            <MenuItem onClick={() => openDeleteFavoriteFolderConfirm(favoriteFolderMenu.folderId, 'tree')} sx={{ gap: 1 }}>
+              <DeleteOutlineIcon fontSize="small" />
+              删除文件夹及其子内容
+            </MenuItem>
+          </Box>
+        </Popover>
+
+        <Popover
           open={!!chatMenu.chatId}
           onClose={closeChatMenu}
           anchorReference="anchorPosition"
@@ -5694,6 +5775,51 @@ export function AiChatApp(props: { controller: any }) {
             <Button onClick={closeCreateFavoriteFolder}>取消</Button>
             <Button variant="contained" onClick={submitCreateFavoriteFolder} disabled={!String(createFavoriteFolder.name || '').trim() || s.loading}>
               创建
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog open={renameFavoriteFolder.open} onClose={closeRenameFavoriteFolder} maxWidth="xs" fullWidth>
+          <DialogTitle>重命名文件夹</DialogTitle>
+          <DialogContent>
+            <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+              <TextField
+                autoFocus
+                size="small"
+                label="文件夹名"
+                value={renameFavoriteFolder.name}
+                onChange={(e) => setRenameFavoriteFolder((p) => ({ ...p, name: e.target.value }))}
+                fullWidth
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    submitRenameFavoriteFolder()
+                  }
+                }}
+              />
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeRenameFavoriteFolder}>取消</Button>
+            <Button variant="contained" onClick={submitRenameFavoriteFolder} disabled={!String(renameFavoriteFolder.name || '').trim() || s.loading}>
+              保存
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog open={confirmDeleteFavoriteFolder.open} onClose={closeDeleteFavoriteFolderConfirm} maxWidth="xs" fullWidth>
+          <DialogTitle>{confirmDeleteFavoriteFolder.mode === 'tree' ? '删除文件夹及其子内容？' : '删除文件夹（内容保留）？'}</DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" color="text.secondary">
+              {confirmDeleteFavoriteFolder.mode === 'tree'
+                ? '这会删除当前文件夹、它的子文件夹，以及这一整棵树里的收藏关系。'
+                : '这会删除当前文件夹，并尽量保留内容：子文件夹会上移到上一层；当前文件夹里的收藏会移动到父文件夹。若它是带收藏的顶层文件夹，则会阻止删除。'}
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeDeleteFavoriteFolderConfirm}>取消</Button>
+            <Button variant="contained" color="error" onClick={submitDeleteFavoriteFolder} disabled={!confirmDeleteFavoriteFolder.folderId || s.loading}>
+              删除
             </Button>
           </DialogActions>
         </Dialog>
