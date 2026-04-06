@@ -1317,6 +1317,9 @@ export function AiChatApp(props: { controller: any }) {
   const [chatPickerSearchOpen, setChatPickerSearchOpen] = React.useState(false)
   const [chatPickerSearchText, setChatPickerSearchText] = React.useState('')
   const chatPickerSearchInputRef = React.useRef<HTMLInputElement | null>(null)
+  const [favoriteSearchOpen, setFavoriteSearchOpen] = React.useState(false)
+  const [favoriteSearchText, setFavoriteSearchText] = React.useState('')
+  const favoriteSearchInputRef = React.useRef<HTMLInputElement | null>(null)
   const [favoriteFolderExpanded, setFavoriteFolderExpanded] = React.useState<Record<string, boolean>>({})
   const [favoriteDialog, setFavoriteDialog] = React.useState<{ open: boolean; targetKind: 'role' | 'group'; targetId: string; chatId: string; title: string }>({
     open: false,
@@ -2729,16 +2732,75 @@ export function AiChatApp(props: { controller: any }) {
 
   const renderFavoriteFolderTree = React.useCallback(
     (parentId = '', depth = 0): React.ReactNode => {
-      const items = favoriteChildrenMap[String(parentId || '')] || []
-      return items.map((folder: any) => {
+      const q = String(favoriteSearchText || '').trim().toLowerCase()
+      const itemMatches = (folder: any, refs: any[]) => {
+        if (!q) return true
+        const folderName = String(folder?.name || '').toLowerCase()
+        if (folderName.includes(q)) return true
+        for (const ref of refs) {
+          const targetKind = String(ref?.targetKind || '').trim() === 'group' ? 'group' : 'role'
+          const targetId = String(ref?.targetId || '')
+          const chatId = String(ref?.chatId || '')
+          const chat = getChatByFavoriteRef(targetKind as any, targetId, chatId)
+          const targetMeta = getFavoriteTargetMeta(targetKind as any, targetId)
+          const hay = [
+            String((chat as any)?.title || ''),
+            snippetText((Array.isArray((chat as any)?.messages) ? (chat as any).messages : []).slice(-1)[0]?.content || ''),
+            String(targetMeta?.name || ''),
+          ]
+            .join('\n')
+            .toLowerCase()
+          if (hay.includes(q)) return true
+        }
+        return false
+      }
+      const renderNode = (folder: any, depth2: number): React.ReactNode => {
         const fid = String(folder?.id || '')
         const children = favoriteChildrenMap[fid] || []
         const refs = Array.isArray((favoriteChatRefsByFolderId as any)?.[fid]) ? (favoriteChatRefsByFolderId as any)[fid] : []
-        const expanded = favoriteFolderExpanded[fid] ?? true
+        const visibleChildren = children
+          .map((child: any) => renderNode(child, depth2 + 1))
+          .filter((node) => node !== null)
+        const visibleRefs = refs
+          .map((ref: any) => {
+            const targetKind = String(ref?.targetKind || '').trim() === 'group' ? 'group' : 'role'
+            const targetId = String(ref?.targetId || '')
+            const chatId = String(ref?.chatId || '')
+            const chat = getChatByFavoriteRef(targetKind as any, targetId, chatId)
+            if (!chat) return null
+            const targetMeta = getFavoriteTargetMeta(targetKind as any, targetId)
+            const targetName = String(targetMeta?.name || (targetKind === 'group' ? '群聊' : '角色'))
+            const snippet = snippetText((Array.isArray((chat as any)?.messages) ? (chat as any).messages : []).slice(-1)[0]?.content || '')
+            if (q) {
+              const hay = [String((chat as any)?.title || ''), snippet, targetName].join('\n').toLowerCase()
+              if (!hay.includes(q)) return null
+            }
+            return (
+              <ListItemButton
+                key={`${fid}:${targetKind}:${targetId}:${chatId}`}
+                sx={{ pl: 3 + depth2 * 2, pr: 1, alignItems: 'flex-start', gap: 1 }}
+                onClick={() => openFavoritedChat(targetKind as any, targetId, chatId)}
+                onContextMenu={(e) => onFavoriteChatContextMenu(e, fid, targetKind as any, targetId, chatId, String((chat as any)?.title || ''))}
+              >
+                <Stack spacing={0.5} alignItems="center" sx={{ width: 48, flex: '0 0 48px', pt: 0.25 }}>
+                  <Avatar src={String(targetMeta?.avatarImage || '') || undefined} sx={{ width: 28, height: 28, fontSize: 14 }}>
+                    {String(targetMeta?.avatar || (targetKind === 'group' ? '👥' : '🙂'))}
+                  </Avatar>
+                  <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: '100%' }}>
+                    {targetName}
+                  </Typography>
+                </Stack>
+                <ListItemText sx={{ minWidth: 0, mt: 0.25 }} primary={String((chat as any)?.title || (targetKind === 'group' ? '群聊' : '新聊天'))} secondary={snippet} />
+              </ListItemButton>
+            )
+          })
+          .filter((node) => node !== null)
+        if (!itemMatches(folder, refs) && !visibleChildren.length && !visibleRefs.length) return null
+        const expanded = q ? true : favoriteFolderExpanded[fid] ?? true
         return (
           <React.Fragment key={fid}>
             <ListItemButton
-              sx={{ pl: 1 + depth * 2, pr: 1 }}
+              sx={{ pl: 1 + depth2 * 2, pr: 1 }}
               onClick={() => toggleFavoriteFolderExpanded(fid)}
               onContextMenu={(e) => {
                 e.preventDefault()
@@ -2747,55 +2809,27 @@ export function AiChatApp(props: { controller: any }) {
                 setFavoriteFolderMenu({ folderId: fid, x: e.clientX, y: e.clientY, parentId: folderParentId })
               }}
             >
-              {children.length || refs.length ? expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" /> : <Box sx={{ width: 20 }} />}
+              {visibleChildren.length || visibleRefs.length ? expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" /> : <Box sx={{ width: 20 }} />}
               <FolderOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', ml: 0.5, mr: 1 }} />
-              <ListItemText primary={String(folder?.name || '未命名文件夹')} secondary={refs.length ? `${refs.length} 条收藏` : undefined} />
+              <ListItemText primary={String(folder?.name || '未命名文件夹')} secondary={visibleRefs.length ? `${visibleRefs.length} 条收藏` : undefined} />
             </ListItemButton>
             <Collapse in={expanded}>
-              {children.length ? renderFavoriteFolderTree(fid, depth + 1) : null}
-              {refs.map((ref: any) => {
-                const targetKind = String(ref?.targetKind || '').trim() === 'group' ? 'group' : 'role'
-                const targetId = String(ref?.targetId || '')
-                const chatId = String(ref?.chatId || '')
-                const chat = getChatByFavoriteRef(targetKind as any, targetId, chatId)
-                if (!chat) return null
-                const targetMeta = getFavoriteTargetMeta(targetKind as any, targetId)
-                const targetName = String(targetMeta?.name || (targetKind === 'group' ? '群聊' : '角色'))
-                return (
-                  <ListItemButton
-                    key={`${fid}:${targetKind}:${targetId}:${chatId}`}
-                    sx={{ pl: 3 + depth * 2, pr: 1, alignItems: 'flex-start', gap: 1 }}
-                    onClick={() => openFavoritedChat(targetKind as any, targetId, chatId)}
-                    onContextMenu={(e) => onFavoriteChatContextMenu(e, fid, targetKind as any, targetId, chatId, String((chat as any)?.title || ''))}
-                  >
-                    <Stack spacing={0.5} alignItems="center" sx={{ width: 48, flex: '0 0 48px', pt: 0.25 }}>
-                      <Avatar src={String(targetMeta?.avatarImage || '') || undefined} sx={{ width: 28, height: 28, fontSize: 14 }}>
-                        {String(targetMeta?.avatar || (targetKind === 'group' ? '👥' : '🙂'))}
-                      </Avatar>
-                      <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: '100%' }}>
-                        {targetName}
-                      </Typography>
-                    </Stack>
-                    <ListItemText
-                      sx={{ minWidth: 0, mt: 0.25 }}
-                      primary={String((chat as any)?.title || (targetKind === 'group' ? '群聊' : '新聊天'))}
-                      secondary={snippetText((Array.isArray((chat as any)?.messages) ? (chat as any).messages : []).slice(-1)[0]?.content || '')}
-                    />
-                  </ListItemButton>
-                )
-              })}
+              {visibleChildren}
+              {visibleRefs}
             </Collapse>
           </React.Fragment>
         )
-      })
+      }
+      const items = favoriteChildrenMap[String(parentId || '')] || []
+      return items.map((folder: any) => renderNode(folder, depth)).filter((node) => node !== null)
     },
     [
       favoriteChildrenMap,
       favoriteChatRefsByFolderId,
       favoriteFolderExpanded,
+      favoriteSearchText,
       getChatByFavoriteRef,
       getFavoriteTargetMeta,
-      openCreateFavoriteFolder,
       openFavoritedChat,
       toggleFavoriteFolderExpanded,
     ],
@@ -2894,6 +2928,8 @@ export function AiChatApp(props: { controller: any }) {
     closeConfirmClearFavoriteFolder()
     setChatPickerSearchOpen(false)
     setChatPickerSearchText('')
+    setFavoriteSearchOpen(false)
+    setFavoriteSearchText('')
   })
 
   const openPluginSettings = useEvent(
@@ -5859,6 +5895,17 @@ export function AiChatApp(props: { controller: any }) {
                     </IconButton>
                   </Tooltip>
                   <Typography sx={{ fontWeight: 800, flex: 1 }}>收藏夹</Typography>
+                  <Tooltip title={favoriteSearchOpen ? '关闭搜索' : '搜索'}>
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        setFavoriteSearchOpen((p) => !p)
+                        if (favoriteSearchOpen) setFavoriteSearchText('')
+                      }}
+                    >
+                      {favoriteSearchOpen ? <CloseIcon fontSize="inherit" /> : <SearchIcon fontSize="inherit" />}
+                    </IconButton>
+                  </Tooltip>
                   <Tooltip title="折叠全部">
                     <span>
                       <IconButton size="small" onClick={collapseAllFavoriteFolders} disabled={!favoriteFolders.length}>
@@ -5872,6 +5919,32 @@ export function AiChatApp(props: { controller: any }) {
                     </IconButton>
                   </Tooltip>
                 </Box>
+                <Collapse in={favoriteSearchOpen}>
+                  <Box sx={{ px: 1.5, pb: 1 }}>
+                    <TextField
+                      inputRef={favoriteSearchInputRef}
+                      fullWidth
+                      size="small"
+                      placeholder="搜索收藏夹…"
+                      value={String(favoriteSearchText || '')}
+                      onChange={(e) => setFavoriteSearchText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          e.preventDefault()
+                          setFavoriteSearchOpen(false)
+                          setFavoriteSearchText('')
+                        }
+                      }}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <SearchIcon fontSize="small" />
+                          </InputAdornment>
+                        ),
+                      }}
+                    />
+                  </Box>
+                </Collapse>
                 <Divider />
                 {!favoriteFolders.length ? (
                   <Box sx={{ p: 2.5 }}>
