@@ -475,7 +475,7 @@ export function HyperCortexApp() {
                     <Box
                       sx={{
                         display: 'grid',
-                        gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                        gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
                         gap: 1,
                       }}
                     >
@@ -483,13 +483,14 @@ export function HyperCortexApp() {
                         <Box
                           key={note.id}
                           sx={{
-                            minHeight: 72,
+                            minHeight: 144,
                             px: 1.5,
-                            py: 1.25,
+                            py: 1.5,
                             borderRadius: 3,
                             bgcolor: '#fff',
                             display: 'flex',
-                            alignItems: 'center',
+                            alignItems: 'flex-start',
+                            justifyContent: 'flex-start',
                             boxShadow: '0 1px 2px rgba(0,0,0,.04)',
                             transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
                             '&:hover': {
