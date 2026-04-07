@@ -3,10 +3,12 @@ import './vendor'
 import { parseToolRequestCalls } from '@noelle-silva/eucli-aitoolcall-sdk'
 import { presetVarsToInlineStyle, type ToolRequestRenderPreset } from '../core/toolRequestPresets'
 
+type RenderSafetyPolicy = 'original' | 'baseline' | 'unsafe'
+
 export type AssistantRenderEngine = {
   ensureRenderer: () => Promise<void>
-  sanitizeHtml: (html: unknown) => string
-  sanitizeSvg: (svg: unknown) => string
+  sanitizeHtml: (html: unknown, policy?: RenderSafetyPolicy) => string
+  sanitizeSvg: (svg: unknown, policy?: RenderSafetyPolicy) => string
   renderAssistantInto: (
     el: unknown,
     text: unknown,
@@ -14,6 +16,7 @@ export type AssistantRenderEngine = {
       stickersEnabled?: boolean
       getStickerPath?: (category: string, name: string) => string
       toolRequestPreset?: ToolRequestRenderPreset | null
+      renderSafetyPolicy?: RenderSafetyPolicy
     },
   ) => void
 }
@@ -430,11 +433,14 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
     return rendererPromise
   }
 
-  function sanitizeHtml(html: unknown) {
+  function sanitizeHtml(html: unknown, policy?: RenderSafetyPolicy) {
     const raw = String(html || '')
+    const mode: RenderSafetyPolicy = policy === 'unsafe' ? 'unsafe' : policy === 'baseline' ? 'baseline' : 'original'
 
     function isSafeHref(href: unknown) {
       const s = String(href || '').trim().toLowerCase()
+      if (mode === 'unsafe') return true
+      if (mode === 'baseline') return !s.startsWith('javascript:')
       return s.startsWith('http://') || s.startsWith('https://') || s.startsWith('mailto:')
     }
 
@@ -444,6 +450,14 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
 
       if (!n) return false
       if (n.startsWith('on')) return false
+      if (mode === 'unsafe') return true
+      if (mode === 'baseline') {
+        if (n === 'id' || n === 'class' || n === 'style') return true
+        if (n.startsWith('data-')) return true
+        if (n.startsWith('aria-') || n === 'role' || n === 'tabindex' || n === 'title') return true
+        if (t === 'A') return n === 'href' || n === 'target' || n === 'rel' || n === 'download'
+        return true
+      }
       if (n === 'id') return true
       if (n === 'class' || n === 'style') return true
       if (n.startsWith('data-')) return true
@@ -472,6 +486,13 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
         if (!key || !value) continue
 
         const v = value.toLowerCase()
+        if (mode === 'unsafe') return s
+        if (mode === 'baseline') {
+          if (v.includes('expression(') || v.includes('javascript:')) continue
+          if (value.includes('<') || value.includes('>')) continue
+          out.push(`${key}:${value}`)
+          continue
+        }
         if (v.includes('expression(') || v.includes('javascript:') || v.includes('@import') || v.includes('url(')) continue
         if (value.includes('<') || value.includes('>')) continue
         out.push(`${key}:${value}`)
@@ -498,6 +519,15 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
           })
         }
 
+        if (mode === 'unsafe') return raw
+        if (mode === 'baseline') {
+          return w.DOMPurify.sanitize(raw, {
+            FORBID_TAGS: ['script'],
+            ALLOW_DATA_ATTR: true,
+            ADD_TAGS: ['button', 'details', 'summary', 'input', 'label', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'img', 'video', 'audio', 'source', 'iframe', 'object', 'embed', 'style'],
+            ADD_ATTR: ['id', 'style', 'class', 'role', 'tabindex', 'colspan', 'rowspan', 'href', 'target', 'rel', 'title', 'src', 'alt', 'controls', 'autoplay', 'muted', 'loop', 'playsinline', 'poster', 'download', 'open', 'type', 'value', 'checked', 'disabled', 'placeholder', 'name', 'for', 'width', 'height'],
+          })
+        }
         return w.DOMPurify.sanitize(raw, {
           FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed'],
           ALLOW_DATA_ATTR: true,
@@ -510,39 +540,83 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
     const tpl = document.createElement('template')
     tpl.innerHTML = raw
 
-    const allowedTags = new Set([
-      'DIV',
-      'SPAN',
-      'P',
-      'BR',
-      'PRE',
-      'CODE',
-      'EM',
-      'STRONG',
-      'UL',
-      'OL',
-      'LI',
-      'BLOCKQUOTE',
-      'A',
-      'BUTTON',
-      'DETAILS',
-      'SUMMARY',
-      'INPUT',
-      'LABEL',
-      'TABLE',
-      'THEAD',
-      'TBODY',
-      'TR',
-      'TH',
-      'TD',
-      'H1',
-      'H2',
-      'H3',
-      'H4',
-      'H5',
-      'H6',
-      'HR',
-    ])
+    const allowedTags = new Set(
+      mode === 'baseline'
+        ? [
+            'DIV',
+            'SPAN',
+            'P',
+            'BR',
+            'PRE',
+            'CODE',
+            'EM',
+            'STRONG',
+            'UL',
+            'OL',
+            'LI',
+            'BLOCKQUOTE',
+            'A',
+            'BUTTON',
+            'DETAILS',
+            'SUMMARY',
+            'INPUT',
+            'LABEL',
+            'TABLE',
+            'THEAD',
+            'TBODY',
+            'TR',
+            'TH',
+            'TD',
+            'H1',
+            'H2',
+            'H3',
+            'H4',
+            'H5',
+            'H6',
+            'HR',
+            'IMG',
+            'VIDEO',
+            'AUDIO',
+            'SOURCE',
+            'IFRAME',
+            'OBJECT',
+            'EMBED',
+            'STYLE',
+          ]
+        : [
+            'DIV',
+            'SPAN',
+            'P',
+            'BR',
+            'PRE',
+            'CODE',
+            'EM',
+            'STRONG',
+            'UL',
+            'OL',
+            'LI',
+            'BLOCKQUOTE',
+            'A',
+            'BUTTON',
+            'DETAILS',
+            'SUMMARY',
+            'INPUT',
+            'LABEL',
+            'TABLE',
+            'THEAD',
+            'TBODY',
+            'TR',
+            'TH',
+            'TD',
+            'H1',
+            'H2',
+            'H3',
+            'H4',
+            'H5',
+            'H6',
+            'HR',
+          ],
+    )
 
     const walker = document.createTreeWalker(tpl.content, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT, null)
     const toRemove: Node[] = []
@@ -616,10 +690,18 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
       .join('')
   }
 
-  function sanitizeSvg(svg: unknown) {
+  function sanitizeSvg(svg: unknown, policy?: RenderSafetyPolicy) {
     const raw = String(svg || '')
     if (!raw) return ''
+    const mode: RenderSafetyPolicy = policy === 'unsafe' ? 'unsafe' : policy === 'baseline' ? 'baseline' : 'original'
     const w = window as any
+    if (mode === 'unsafe') return raw
+    if (mode === 'baseline') {
+      return raw
+        .replace(/<script\b[\s\S]*?<\/script>/gi, '')
+        .replace(/\son[a-z0-9_-]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+        .replace(/\shref\s*=\s*("\s*javascript:[^"]*"|'\s*javascript:[^']*'|\s*javascript:[^\s>]+)/gi, '')
+    }
     if (w.DOMPurify && w.DOMPurify.sanitize) {
       try {
         return w.DOMPurify.sanitize(raw, { USE_PROFILES: { svg: true, svgFilters: true } })
@@ -628,8 +710,9 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
     return raw
   }
 
-  async function renderMermaidInto(el: unknown) {
+  async function renderMermaidInto(el: unknown, policy?: RenderSafetyPolicy) {
     if (!(el instanceof HTMLElement)) return
+    const renderSafetyPolicy: RenderSafetyPolicy = policy === 'unsafe' ? 'unsafe' : policy === 'baseline' ? 'baseline' : 'original'
     const m = (window as any).mermaid
     if (!m || !m.render) return
 
@@ -676,7 +759,7 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
         const id = uid('mm')
         const r = await doRender(id, src, holder)
         const svg = typeof r === 'string' ? r : String(r?.svg || '')
-        const safe = sanitizeSvg(svg)
+        const safe = sanitizeSvg(svg, renderSafetyPolicy)
         if (!safe) throw new Error('empty svg')
         if (mermaidSvgCache.size >= 50) {
           const first = mermaidSvgCache.keys().next().value
@@ -842,12 +925,15 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
       stickersEnabled?: boolean
       getStickerPath?: (category: string, name: string) => string
       toolRequestPreset?: ToolRequestRenderPreset | null
+      renderSafetyPolicy?: RenderSafetyPolicy
     },
   ) {
     if (!(el instanceof HTMLElement)) return
     ensureToolReqCssOnce()
     const raw = String(text || '')
     let html = ''
+    const renderSafetyPolicy: RenderSafetyPolicy =
+      options?.renderSafetyPolicy === 'unsafe' ? 'unsafe' : options?.renderSafetyPolicy === 'baseline' ? 'baseline' : 'original'
 
     const noIndent = preprocessHtmlIndentation(raw)
     const toolReqPreset = (options as any)?.toolRequestPreset
@@ -871,7 +957,7 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
       }
     }
 
-    let safe = sanitizeHtml(html)
+    let safe = sanitizeHtml(html, renderSafetyPolicy)
     if (Array.isArray(pre.math) && pre.math.length) {
       safe = safe.replace(/@@MATH_(INLINE|BLOCK)_(\d+)@@/g, (_m, kind, id) => {
         const it = pre.math[Number(id)]
@@ -943,7 +1029,7 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
       enhanceMathCopyButtons(el)
     }
 
-    renderMermaidInto(el).catch(() => {})
+    renderMermaidInto(el, renderSafetyPolicy).catch(() => {})
   }
 
   return { ensureRenderer, sanitizeHtml, sanitizeSvg, renderAssistantInto }

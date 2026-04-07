@@ -168,6 +168,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       deleteRoleId: '',
       deleteGroupId: '',
       deleteProviderId: '',
+      renderSafetyPolicyTarget: '',
     },
     data: null,
   }
@@ -1401,6 +1402,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
             branchTree: { dir: 'lr', view: 'float', followSelected: true, modalHotkey: '' },
             toolRequestRenderPreset: 'classic',
             toolRequestRenderPresets: [],
+            renderSafetyPolicy: 'original',
             userMessageCollapseEnabled: false,
             userMessageCollapseLines: 8,
             attachments: {
@@ -1508,6 +1510,13 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     btree.modalHotkey = String(btree.modalHotkey || '').trim().slice(0, 80)
     if (typeof d.settings.toolRequestRenderPreset !== 'string') d.settings.toolRequestRenderPreset = 'classic'
     ;(d.settings as any).toolRequestRenderPresets = normalizeToolRequestRenderPresets((d.settings as any).toolRequestRenderPresets)
+    const normalizeRenderSafetyPolicy = (v0: unknown) => {
+      const v = String(v0 || '').trim()
+      if (v === 'unsafe') return 'unsafe'
+      if (v === 'baseline' || v === 'minimal') return 'baseline'
+      return 'original'
+    }
+    ;(d.settings as any).renderSafetyPolicy = normalizeRenderSafetyPolicy((d.settings as any).renderSafetyPolicy)
     if (typeof d.settings.userMessageCollapseEnabled !== 'boolean') d.settings.userMessageCollapseEnabled = false
     if (typeof d.settings.userMessageCollapseLines !== 'number' || !isFinite(d.settings.userMessageCollapseLines)) d.settings.userMessageCollapseLines = 8
     if (!d.settings.attachments || typeof d.settings.attachments !== 'object') d.settings.attachments = {}
@@ -1524,6 +1533,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     d.settings.composerOpacity = clamp(Math.round(Number(d.settings.composerOpacity || 0)), 40, 100)
     d.settings.composerBlur = clamp(Math.round(Number(d.settings.composerBlur || 0)), 0, 24)
     d.settings.toolRequestRenderPreset = String(d.settings.toolRequestRenderPreset || '').trim().slice(0, 60) || 'classic'
+    ;(d.settings as any).renderSafetyPolicy = normalizeRenderSafetyPolicy((d.settings as any).renderSafetyPolicy)
     d.settings.userMessageCollapseLines = clamp(Math.round(Number(d.settings.userMessageCollapseLines || 8)), 1, 50)
     at.sendLimitChars = clamp(Math.round(Number(at.sendLimitChars || DEFAULT_ATTACH_SEND_LIMIT_CHARS)), 1000, 2_000_000)
 
@@ -2119,15 +2129,22 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     return relPath
   }
 
+  function currentRenderSafetyPolicy() {
+    const v = String((state.data?.settings as any)?.renderSafetyPolicy || '').trim()
+    return v === 'unsafe' ? 'unsafe' : v === 'baseline' ? 'baseline' : 'original'
+  }
+
   function renderAssistantInto(el, text) {
     const enabled = !!state.data?.settings?.stickers?.enabled
     const activeId = String(state.data?.settings?.toolRequestRenderPreset || 'classic')
     const userPresets = (state.data?.settings as any)?.toolRequestRenderPresets
     const resolved = resolveToolRequestRenderPreset(activeId, userPresets)
+    const renderSafetyPolicy = currentRenderSafetyPolicy()
     renderAssistantIntoRaw(el, text, {
       stickersEnabled: enabled,
       getStickerPath: getStickerRelPath,
       toolRequestPreset: resolved,
+      renderSafetyPolicy,
     })
   }
 
@@ -2138,8 +2155,9 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     for (const b of list) {
       if (!(b instanceof HTMLElement)) continue
       const svgEl = b.querySelector('svg')
-      if (svgEl) items.push({ svg: sanitizeSvg(svgEl.outerHTML || '') })
-      else items.push({ svg: sanitizeHtml(b.innerHTML || '') })
+      const renderSafetyPolicy = currentRenderSafetyPolicy()
+      if (svgEl) items.push({ svg: sanitizeSvg(svgEl.outerHTML || '', renderSafetyPolicy) })
+      else items.push({ svg: sanitizeHtml(b.innerHTML || '', renderSafetyPolicy) })
     }
     return { blocks: list, items }
   }
@@ -6913,6 +6931,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     state.draft.deleteRoleId = ''
     ;(state.draft as any).deleteGroupId = ''
     state.draft.deleteProviderId = ''
+    ;(state.draft as any).renderSafetyPolicyTarget = ''
     state.draft.roleAvatarImageCropSrc = ''
     ;(state.draft as any).groupAvatarImageCropSrc = ''
     if (String(state.draft.editRoleId || '') === NEW_ROLE_ID) {
@@ -8330,6 +8349,22 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         save().catch(() => {})
         emit()
       },
+      requestSetRenderSafetyPolicy: (policy) => {
+        if (!state.data) return
+        const raw = String(policy || '').trim()
+        const next = raw === 'unsafe' ? 'unsafe' : raw === 'baseline' ? 'baseline' : 'original'
+        const cur = currentRenderSafetyPolicy()
+        if (next === cur) return
+        if (next === 'unsafe') {
+          ;(state.draft as any).renderSafetyPolicyTarget = next
+          state.modal = 'confirm'
+          emit()
+          return
+        }
+        ;(state.data.settings as any).renderSafetyPolicy = next
+        save().catch(() => {})
+        emit()
+      },
       setBranchTreeDir: (dir) => {
         if (!state.data) return
         if (!state.data.settings || typeof state.data.settings !== 'object') state.data.settings = {}
@@ -8902,10 +8937,15 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         const rid = String(state.draft.deleteRoleId || '')
         const gid = String((state.draft as any).deleteGroupId || '')
         const pid = String(state.draft.deleteProviderId || '')
+        const nextRenderSafetyPolicy = String((state.draft as any).renderSafetyPolicyTarget || '').trim() === 'unsafe' ? 'unsafe' : ''
         closeModal()
         if (rid) deleteRole(rid)
         if (gid) deleteGroup(gid)
         if (pid) deleteProvider(pid)
+        if (nextRenderSafetyPolicy && state.data) {
+          ;(state.data.settings as any).renderSafetyPolicy = nextRenderSafetyPolicy
+          save().catch(() => {})
+        }
         emit()
       },
       aiFixMermaid: (messageId, mermaidSrc, renderErrorMsg) =>
@@ -8914,10 +8954,11 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         const root = rootEl instanceof Element ? rootEl : document.body
         const blocks = Array.from(root.querySelectorAll?.('.mermaid-block[data-mermaid=\"1\"]') || [])
         const items = []
+        const renderSafetyPolicy = currentRenderSafetyPolicy()
         for (const b of blocks) {
           const svg = b instanceof HTMLElement ? String(b.innerHTML || '') : ''
           if (!svg) continue
-          items.push({ svg })
+          items.push({ svg: sanitizeSvg(svg, renderSafetyPolicy) })
         }
         if (!items.length) return
 
