@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { AppBar, Box, CssBaseline, GlobalStyles, IconButton, InputBase, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
+import { AppBar, Box, Button, CssBaseline, GlobalStyles, IconButton, InputBase, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
@@ -11,9 +11,9 @@ import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
-import { buildNoteHtmlDoc, ensureIndex, ensureMetadata, ensureVaultDirs, escapeHtml, getApi, noteRelPath, nowId, rebuildIndexFromFs, saveIndex, saveMetadata, tryLoadIndex, tryLoadMetadata, type NoteMeta } from '../core'
+import { buildNoteHtmlDoc, ensureIndex, ensureMetadata, ensureVaultDirs, escapeHtml, getApi, noteRelPath, nowId, readNoteDoc, rebuildIndexFromFs, saveIndex, saveMetadata, tryLoadIndex, tryLoadMetadata, type NoteMeta } from '../core'
 
-type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'index' | 'settings'
+type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'note-detail' | 'index' | 'settings'
 
 type AllNotesLayout = 'list' | 'grid' | 'icon'
 
@@ -49,6 +49,10 @@ export function HyperCortexApp() {
   const [allNotesLoading, setAllNotesLoading] = React.useState(false)
   const [allNotesLoadError, setAllNotesLoadError] = React.useState<string | null>(null)
   const [allNotesLayoutReady, setAllNotesLayoutReady] = React.useState(false)
+  const [activeNote, setActiveNote] = React.useState<NoteMeta | null>(null)
+  const [activeNoteDoc, setActiveNoteDoc] = React.useState<{ title: string; contentHtml: string } | null>(null)
+  const [activeNoteLoading, setActiveNoteLoading] = React.useState(false)
+  const [activeNoteLoadError, setActiveNoteLoadError] = React.useState<string | null>(null)
 
   const backToHost = React.useCallback(() => {
     try {
@@ -172,7 +176,36 @@ export function HyperCortexApp() {
     } finally {
       setNewNoteSaving(false)
     }
-  }, [api, newNoteContent, newNoteSaving, newNoteTitle, savedNote])
+  }, [api, newNoteContent, newNoteSaving, newNoteTitle, savedNote, sortNotes])
+
+  const handleOpenNote = React.useCallback(
+    async (note: NoteMeta) => {
+      setActiveNote(note)
+      setActiveNoteDoc(null)
+      setActiveNoteLoadError(null)
+      setActiveNoteLoading(true)
+      setPage('note-detail')
+      try {
+        const doc = await readNoteDoc(api, 'library', note.file)
+        setActiveNoteDoc(doc)
+      } catch (e: any) {
+        const message = String(e?.message || e || '加载笔记失败')
+        setActiveNoteLoadError(message)
+        await api.ui.showToast(message)
+      } finally {
+        setActiveNoteLoading(false)
+      }
+    },
+    [api],
+  )
+
+  const handleCloseActiveNote = React.useCallback(() => {
+    setPage('all-notes')
+    setActiveNote(null)
+    setActiveNoteDoc(null)
+    setActiveNoteLoadError(null)
+    setActiveNoteLoading(false)
+  }, [])
 
   return (
     <ThemeProvider theme={theme}>
@@ -482,6 +515,15 @@ export function HyperCortexApp() {
                       {allNotes.map(note => (
                         <Box
                           key={note.id}
+                          onClick={() => void handleOpenNote(note)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              void handleOpenNote(note)
+                            }
+                          }}
                           sx={{
                             minHeight: 144,
                             px: 1.5,
@@ -492,6 +534,7 @@ export function HyperCortexApp() {
                             alignItems: 'flex-start',
                             justifyContent: 'flex-start',
                             boxShadow: '0 1px 2px rgba(0,0,0,.04)',
+                            cursor: 'pointer',
                             transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
                             '&:hover': {
                               bgcolor: 'rgba(0,0,0,.02)',
@@ -530,6 +573,15 @@ export function HyperCortexApp() {
                       {allNotes.map(note => (
                         <Box
                           key={note.id}
+                          onClick={() => void handleOpenNote(note)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              void handleOpenNote(note)
+                            }
+                          }}
                           sx={{
                             minHeight: 84,
                             px: 1.25,
@@ -541,6 +593,7 @@ export function HyperCortexApp() {
                             justifyContent: 'center',
                             textAlign: 'center',
                             boxShadow: '0 1px 2px rgba(0,0,0,.04)',
+                            cursor: 'pointer',
                             transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
                             '&:hover': {
                               bgcolor: 'rgba(0,0,0,.02)',
@@ -573,12 +626,22 @@ export function HyperCortexApp() {
                       {allNotes.map(note => (
                         <Box
                           key={note.id}
+                          onClick={() => void handleOpenNote(note)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              void handleOpenNote(note)
+                            }
+                          }}
                           sx={{
                             px: 1.5,
                             py: 1.15,
                             borderRadius: 3,
                             bgcolor: '#fff',
                             boxShadow: '0 1px 2px rgba(0,0,0,.04)',
+                            cursor: 'pointer',
                             transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
                             '&:hover': {
                               bgcolor: 'rgba(0,0,0,.02)',
@@ -602,6 +665,53 @@ export function HyperCortexApp() {
                           </Typography>
                         </Box>
                       ))}
+                    </Box>
+                  ) : null}
+                </Box>
+              ) : null}
+              {page === 'note-detail' ? (
+                <Box sx={{ display: 'flex', minHeight: '100%', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
+                  <Button
+                    variant="text"
+                    startIcon={<ArrowBackRoundedIcon fontSize="small" />}
+                    onClick={handleCloseActiveNote}
+                    sx={{
+                      minWidth: 0,
+                      px: 0,
+                      color: '#111',
+                      fontWeight: 700,
+                      textTransform: 'none',
+                      alignSelf: 'flex-start',
+                      '&:hover': { bgcolor: 'transparent', opacity: 0.72 },
+                    }}
+                  >
+                    退出
+                  </Button>
+
+                  {activeNoteLoading ? <Typography color="text.secondary">正在加载笔记...</Typography> : null}
+                  {!activeNoteLoading && activeNoteLoadError ? <Typography color="error">{activeNoteLoadError}</Typography> : null}
+                  {!activeNoteLoading && !activeNoteLoadError && activeNoteDoc ? (
+                    <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <Typography sx={{ fontSize: 28, lineHeight: 1.2, fontWeight: 900, color: '#111' }}>
+                        {activeNoteDoc.title || activeNote?.title || '未命名'}
+                      </Typography>
+                      <Box
+                        sx={{
+                          width: '100%',
+                          color: '#222',
+                          fontSize: 16,
+                          lineHeight: 1.8,
+                          '& img': { maxWidth: '100%', height: 'auto' },
+                          '& p': { mt: 0, mb: 1.5 },
+                          '& pre': {
+                            overflow: 'auto',
+                            borderRadius: 2,
+                            p: 1.5,
+                            bgcolor: 'rgba(0,0,0,.03)',
+                          },
+                        }}
+                        dangerouslySetInnerHTML={{ __html: activeNoteDoc.contentHtml }}
+                      />
                     </Box>
                   ) : null}
                 </Box>
