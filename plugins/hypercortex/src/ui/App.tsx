@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { AppBar, Box, Button, CssBaseline, GlobalStyles, IconButton, InputBase, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
+import { AppBar, Box, CssBaseline, GlobalStyles, IconButton, InputBase, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
@@ -671,30 +671,29 @@ export function HyperCortexApp() {
               ) : null}
               {page === 'note-detail' ? (
                 <Box sx={{ display: 'flex', minHeight: '100%', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-                  <Button
-                    variant="text"
-                    startIcon={<ArrowBackRoundedIcon fontSize="small" />}
-                    onClick={handleCloseActiveNote}
-                    sx={{
-                      minWidth: 0,
-                      px: 0,
-                      color: '#111',
-                      fontWeight: 700,
-                      textTransform: 'none',
-                      alignSelf: 'flex-start',
-                      '&:hover': { bgcolor: 'transparent', opacity: 0.72 },
-                    }}
-                  >
-                    退出
-                  </Button>
+                  <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <IconButton
+                      size="small"
+                      aria-label="返回全部笔记"
+                      onClick={handleCloseActiveNote}
+                      sx={{
+                        color: '#111',
+                        flex: '0 0 auto',
+                        ml: -0.75,
+                        '&:hover': { bgcolor: 'rgba(0,0,0,.06)' },
+                      }}
+                    >
+                      <ArrowBackRoundedIcon fontSize="small" />
+                    </IconButton>
+                    <Typography sx={{ minWidth: 0, fontSize: 28, lineHeight: 1.2, fontWeight: 900, color: '#111' }}>
+                      {activeNoteDoc?.title || activeNote?.title || '未命名'}
+                    </Typography>
+                  </Box>
 
                   {activeNoteLoading ? <Typography color="text.secondary">正在加载笔记...</Typography> : null}
                   {!activeNoteLoading && activeNoteLoadError ? <Typography color="error">{activeNoteLoadError}</Typography> : null}
                   {!activeNoteLoading && !activeNoteLoadError && activeNoteDoc ? (
                     <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <Typography sx={{ fontSize: 28, lineHeight: 1.2, fontWeight: 900, color: '#111' }}>
-                        {activeNoteDoc.title || activeNote?.title || '未命名'}
-                      </Typography>
                       <Box
                         sx={{
                           width: '100%',
