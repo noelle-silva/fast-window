@@ -22,7 +22,7 @@ function noteDocumentStyle(): string {
 }
 
 function noteRuntimeScript(): string {
-  return `
+  return String.raw`
 (function () {
   var root = document.querySelector('hypercortex-note-source');
   var target = document.getElementById('hypercortex-content');
@@ -67,7 +67,7 @@ function noteRuntimeScript(): string {
     + '<div class="hypercortex-note-body">' + renderParagraphs(body) + '</div>'
     + '</article>';
 })();
-    `.trim()
+  `.trim()
 }
 
 export function buildNoteHtmlDoc(meta: { id: string; source: HyperCortexNoteSourceInput }): string {
