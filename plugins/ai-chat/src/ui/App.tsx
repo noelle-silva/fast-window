@@ -3699,6 +3699,7 @@ export function AiChatApp(props: { controller: any }) {
                                       if (e.key === 'Escape') cancelEditMessage()
                                       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveEditMessage()
                                     }}
+                                    sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#fff' } }}
                                   />
                                   <Stack direction="row" spacing={1} sx={{ mt: 1 }} justifyContent="flex-end">
                                     <Button size="small" variant="contained" onClick={saveEditMessage} disabled={s.loading || uiBusy || chatLocked}>
@@ -3849,6 +3850,7 @@ export function AiChatApp(props: { controller: any }) {
                                 if (e.key === 'Escape') cancelEditMessage()
                                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveEditMessage()
                               }}
+                              sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#fff' } }}
                             />
                           ) : isUser ? (
                             <Box>
