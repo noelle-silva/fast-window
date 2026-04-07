@@ -38,6 +38,17 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
   return !!t.closest('button, a, input, textarea, select, [role="button"]')
 }
 
+function normalizeTagText(value: string): string {
+  return String(value || '').trim()
+}
+
+function appendTag(list: string[], raw: string): string[] {
+  const tag = normalizeTagText(raw)
+  if (!tag) return list
+  if (list.includes(tag)) return list
+  return [...list, tag]
+}
+
 export function HyperCortexApp() {
   const api = React.useMemo(() => getApi(), [])
   const [page, setPage] = React.useState<PageId>('home')
@@ -57,6 +68,8 @@ export function HyperCortexApp() {
   const [activeNoteEditing, setActiveNoteEditing] = React.useState(false)
   const [activeNoteEditTitle, setActiveNoteEditTitle] = React.useState('')
   const [activeNoteEditBody, setActiveNoteEditBody] = React.useState('')
+  const [activeNoteEditTags, setActiveNoteEditTags] = React.useState<string[]>([])
+  const [activeNoteTagInput, setActiveNoteTagInput] = React.useState('')
   const [activeNoteSaving, setActiveNoteSaving] = React.useState(false)
 
   const backToHost = React.useCallback(() => {
@@ -205,6 +218,8 @@ export function HyperCortexApp() {
     if (!activeNoteDoc) return
     setActiveNoteEditTitle(activeNoteDoc.title || activeNote?.title || '未命名')
     setActiveNoteEditBody(activeNoteDoc.body || '')
+    setActiveNoteEditTags(activeNoteDoc.tags || [])
+    setActiveNoteTagInput('')
     setActiveNoteEditing(true)
   }, [activeNote, activeNoteDoc])
 
@@ -216,7 +231,8 @@ export function HyperCortexApp() {
       const title = String(activeNoteEditTitle || '').trim() || '未命名'
       const nextFile = noteRelPath(activeNote.id, title)
       const body = String(activeNoteEditBody || '').replace(/\r\n/g, '\n')
-      const html = buildNoteHtmlDoc({ id: activeNote.id, source: { title, body, tags: activeNoteDoc?.tags || [] } })
+      const tags = activeNoteEditTags.map(normalizeTagText).filter(Boolean)
+      const html = buildNoteHtmlDoc({ id: activeNote.id, source: { title, body, tags } })
       const nowMs = Date.now()
 
       await ensureVaultDirs(api, scope)
@@ -247,6 +263,8 @@ export function HyperCortexApp() {
       setActiveNoteDoc(refreshed)
       setActiveNoteEditTitle(refreshed.title)
       setActiveNoteEditBody(refreshed.body)
+      setActiveNoteEditTags(refreshed.tags)
+      setActiveNoteTagInput('')
       setActiveNoteEditing(false)
       await api.ui.showToast('笔记已保存')
     } catch (e: any) {
@@ -255,6 +273,15 @@ export function HyperCortexApp() {
       setActiveNoteSaving(false)
     }
   }, [activeNote, activeNoteEditBody, activeNoteEditTitle, activeNoteSaving, api, sortNotes])
+
+  const handleAddActiveNoteTag = React.useCallback(() => {
+    setActiveNoteEditTags(prev => appendTag(prev, activeNoteTagInput))
+    setActiveNoteTagInput('')
+  }, [activeNoteTagInput])
+
+  const handleRemoveActiveNoteTag = React.useCallback((tag: string) => {
+    setActiveNoteEditTags(prev => prev.filter(item => item !== tag))
+  }, [])
 
   const handleCloseActiveNote = React.useCallback(() => {
     setPage('all-notes')
@@ -265,6 +292,8 @@ export function HyperCortexApp() {
     setActiveNoteEditing(false)
     setActiveNoteEditTitle('')
     setActiveNoteEditBody('')
+    setActiveNoteEditTags([])
+    setActiveNoteTagInput('')
     setActiveNoteSaving(false)
   }, [])
 
@@ -805,10 +834,118 @@ export function HyperCortexApp() {
                   {!activeNoteLoading && activeNoteLoadError ? <Typography color="error">{activeNoteLoadError}</Typography> : null}
                   {!activeNoteLoading && !activeNoteLoadError && activeNoteDoc ? (
                     <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <Box sx={{ width: '100%', display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
+                        {activeNoteEditing ? (
+                          <>
+                            {activeNoteEditTags.map(tag => (
+                              <Box
+                                key={tag}
+                                sx={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  minHeight: 30,
+                                  pl: 1.25,
+                                  pr: 0.5,
+                                  borderRadius: 999,
+                                  bgcolor: 'rgba(0,0,0,.05)',
+                                  color: '#374151',
+                                  fontSize: 12,
+                                  lineHeight: 1,
+                                  fontWeight: 600,
+                                  gap: 0.25,
+                                }}
+                              >
+                                <Box component="span">{tag}</Box>
+                                <IconButton
+                                  size="small"
+                                  aria-label={`删除标签 ${tag}`}
+                                  onClick={() => handleRemoveActiveNoteTag(tag)}
+                                  sx={{
+                                    color: 'rgba(0,0,0,.48)',
+                                    p: 0.35,
+                                    '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                                  }}
+                                >
+                                  ×
+                                </IconButton>
+                              </Box>
+                            ))}
+
+                            <Box
+                              sx={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                minHeight: 30,
+                                pl: 1.25,
+                                pr: 0.5,
+                                borderRadius: 999,
+                                border: '1px solid rgba(0,0,0,.12)',
+                                bgcolor: '#fff',
+                                gap: 0.25,
+                              }}
+                            >
+                              <InputBase
+                                value={activeNoteTagInput}
+                                onChange={e => setActiveNoteTagInput(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                    handleAddActiveNoteTag()
+                                  }
+                                }}
+                                placeholder="输入标签"
+                                inputProps={{ 'aria-label': '输入标签' }}
+                                sx={{
+                                  minWidth: 88,
+                                  fontSize: 12,
+                                  lineHeight: 1,
+                                  color: '#374151',
+                                  '& input': { p: 0 },
+                                }}
+                              />
+                              <IconButton
+                                size="small"
+                                aria-label="添加标签"
+                                onClick={handleAddActiveNoteTag}
+                                sx={{
+                                  color: 'rgba(0,0,0,.58)',
+                                  p: 0.35,
+                                  '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                                }}
+                              >
+                                <AddRoundedIcon fontSize="inherit" />
+                              </IconButton>
+                            </Box>
+                          </>
+                        ) : (activeNoteDoc.tags || []).length > 0 ? (
+                          activeNoteDoc.tags.map(tag => (
+                            <Box
+                              key={tag}
+                              sx={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                minHeight: 28,
+                                px: 1.25,
+                                borderRadius: 999,
+                                bgcolor: 'rgba(0,0,0,.05)',
+                                color: '#374151',
+                                fontSize: 12,
+                                lineHeight: 1,
+                                fontWeight: 600,
+                              }}
+                            >
+                              {tag}
+                            </Box>
+                          ))
+                        ) : (
+                          <Typography sx={{ fontSize: 13, lineHeight: 1.5, color: 'rgba(0,0,0,.38)' }}>暂无标签</Typography>
+                        )}
+                      </Box>
+
                       {activeNoteEditing ? (
                         <InputBase
                           value={activeNoteEditBody}
-                          onChange={e => setActiveNoteEditHtml(e.target.value)}
+                          onChange={e => setActiveNoteEditBody(e.target.value)}
                           placeholder="开始编辑正文..."
                           fullWidth
                           multiline
