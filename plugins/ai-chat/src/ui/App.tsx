@@ -9370,10 +9370,35 @@ function MermaidDialog(props: { open: boolean; controller: any; mermaid: any }) 
   const viewerZoom = Number(mermaid?.scale || 1)
 
   const stageElRef = React.useRef<HTMLDivElement | null>(null)
+  const contentElRef = React.useRef<HTMLDivElement | null>(null)
   const [stageEl, setStageEl] = React.useState<HTMLDivElement | null>(null)
   const setStageRef = React.useCallback((node: HTMLDivElement | null) => {
     stageElRef.current = node
     setStageEl(node)
+  }, [])
+
+  const parseSvgSize = React.useCallback((raw: string) => {
+    try {
+      const doc = new DOMParser().parseFromString(raw, 'image/svg+xml')
+      const root = doc.querySelector('svg') || doc.documentElement
+      if (!root) return { w: 0, h: 0 }
+      const vb = String(root.getAttribute('viewBox') || '').trim()
+      if (vb) {
+        const nums = vb
+          .split(/[\s,]+/g)
+          .map((x) => Number(x))
+          .filter((x) => isFinite(x))
+        if (nums.length >= 4) return { w: Math.max(0, nums[2]), h: Math.max(0, nums[3]) }
+      }
+      const w = String(root.getAttribute('width') || '').trim()
+      const h = String(root.getAttribute('height') || '').trim()
+      if (w.endsWith('%') || h.endsWith('%')) return { w: 0, h: 0 }
+      const nw = parseFloat(w)
+      const nh = parseFloat(h)
+      return { w: Math.max(0, isFinite(nw) ? nw : 0), h: Math.max(0, isFinite(nh) ? nh : 0) }
+    } catch (_) {
+      return { w: 0, h: 0 }
+    }
   }, [])
 
   const dragRef = React.useRef<null | { x: number; y: number; sl: number; st: number; el: HTMLElement }>(null)
@@ -9401,31 +9426,8 @@ function MermaidDialog(props: { open: boolean; controller: any; mermaid: any }) 
 
   React.useEffect(() => {
     if (!open || !svg) return setContentSize({ w: 0, h: 0 })
-    const parseSvgSize = (raw: string) => {
-      try {
-        const doc = new DOMParser().parseFromString(raw, 'image/svg+xml')
-        const root = doc.querySelector('svg') || doc.documentElement
-        if (!root) return { w: 0, h: 0 }
-        const vb = String(root.getAttribute('viewBox') || '').trim()
-        if (vb) {
-          const nums = vb
-            .split(/[\s,]+/g)
-            .map((x) => Number(x))
-            .filter((x) => isFinite(x))
-          if (nums.length >= 4) return { w: Math.max(0, nums[2]), h: Math.max(0, nums[3]) }
-        }
-        const w = String(root.getAttribute('width') || '').trim()
-        const h = String(root.getAttribute('height') || '').trim()
-        if (w.endsWith('%') || h.endsWith('%')) return { w: 0, h: 0 }
-        const nw = parseFloat(w)
-        const nh = parseFloat(h)
-        return { w: Math.max(0, isFinite(nw) ? nw : 0), h: Math.max(0, isFinite(nh) ? nh : 0) }
-      } catch (_) {
-        return { w: 0, h: 0 }
-      }
-    }
     setContentSize(parseSvgSize(svg))
-  }, [open, svg])
+  }, [open, svg, parseSvgSize])
 
   React.useLayoutEffect(() => {
     if (!open) return
@@ -9572,6 +9574,77 @@ function MermaidDialog(props: { open: boolean; controller: any; mermaid: any }) 
     setOffset(clampOffset({ x: cx, y: cy }, stageSize, contentSize, safeFit, 1))
   })
 
+  const onCopyImage = useEvent(async () => {
+    if (!svg) return
+    try {
+      const liveSvg = contentElRef.current?.querySelector?.('svg') as SVGSVGElement | null
+      if (!liveSvg) throw new Error('未找到已渲染的 Mermaid 图')
+
+      const serialized = new XMLSerializer().serializeToString(liveSvg)
+      const raw = String(serialized || '').trim()
+      if (!raw) throw new Error('无法读取 Mermaid 图内容')
+
+      const rect = liveSvg.getBoundingClientRect()
+      const parsed = parseSvgSize(raw)
+      const baseW = Math.max(Math.round(rect.width || 0), Math.round(parsed.w || 0))
+      const baseH = Math.max(Math.round(rect.height || 0), Math.round(parsed.h || 0))
+      if (!(baseW > 0 && baseH > 0)) throw new Error('无法确定图片尺寸')
+
+      const exportScale = Math.min(6, Math.max(3, Number(window.devicePixelRatio || 1) * 3))
+      const maxSide = 12288
+      const scaledLongest = Math.max(baseW, baseH) * exportScale
+      const fitScale = scaledLongest > maxSide ? maxSide / scaledLongest : 1
+      const pixelScale = exportScale * fitScale
+      const width = Math.max(1, Math.round(baseW * pixelScale))
+      const height = Math.max(1, Math.round(baseH * pixelScale))
+
+      const svgDoc = new DOMParser().parseFromString(raw, 'image/svg+xml')
+      const root = svgDoc.querySelector('svg') || svgDoc.documentElement
+      if (!root) throw new Error('SVG 内容无效')
+      if (!root.getAttribute('xmlns')) root.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+      if (!root.getAttribute('xmlns:xlink')) root.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
+      root.setAttribute('width', String(baseW))
+      root.setAttribute('height', String(baseH))
+      if (!String(root.getAttribute('viewBox') || '').trim()) root.setAttribute('viewBox', `0 0 ${baseW} ${baseH}`)
+
+      const finalSvg = new XMLSerializer().serializeToString(root)
+      const blob = new Blob([finalSvg], { type: 'image/svg+xml;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const img = new Image()
+          img.onload = () => {
+            try {
+              const canvas = document.createElement('canvas')
+              canvas.width = width
+              canvas.height = height
+              const ctx = canvas.getContext('2d')
+              if (!ctx) return reject(new Error('无法创建画布'))
+              ctx.fillStyle = '#ffffff'
+              ctx.fillRect(0, 0, width, height)
+              ctx.imageSmoothingEnabled = true
+              ;(ctx as any).imageSmoothingQuality = 'high'
+              ctx.drawImage(img, 0, 0, width, height)
+              const out = canvas.toDataURL('image/png')
+              if (!String(out || '').startsWith('data:image/')) return reject(new Error('导出图片失败'))
+              resolve(out)
+            } catch (e) {
+              reject(e)
+            }
+          }
+          img.onerror = () => reject(new Error('SVG 转图片失败'))
+          img.src = url
+        })
+        await controller.api?.clipboard?.writeImage?.(dataUrl)
+        controller.api?.ui?.showToast?.('已复制图片到剪贴板')
+      } finally {
+        URL.revokeObjectURL(url)
+      }
+    } catch (e) {
+      controller.api?.ui?.showToast?.(`复制失败：${String((e as any)?.message || e || '未知错误')}`)
+    }
+  })
+
   React.useLayoutEffect(() => {
     if (!open) return
     userInteractedRef.current = false
@@ -9686,7 +9759,7 @@ function MermaidDialog(props: { open: boolean; controller: any; mermaid: any }) 
           {svg ? (
             <Box sx={{ transform: `translate(${offset.x}px,${offset.y}px)`, display: 'inline-block' }}>
               <Box sx={{ transformOrigin: '0 0', transform: `scale(${effectiveScale})`, display: 'inline-block', pointerEvents: 'none', userSelect: 'none' }}>
-                <Box sx={{ display: 'block' }} dangerouslySetInnerHTML={{ __html: svg }} />
+                <Box ref={contentElRef} sx={{ display: 'block' }} dangerouslySetInnerHTML={{ __html: svg }} />
               </Box>
             </Box>
           ) : (
@@ -9741,6 +9814,22 @@ function MermaidDialog(props: { open: boolean; controller: any; mermaid: any }) 
             >
               <RestartAltIcon />
             </IconButton>
+          </Tooltip>
+          <Tooltip title="复制图片">
+            <span>
+              <IconButton
+                aria-label="复制图片"
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  void onCopyImage()
+                }}
+                disabled={!svg}
+                sx={{ bgcolor: 'rgba(0,0,0,.35)', color: 'rgba(255,255,255,.92)', border: '1px solid rgba(255,255,255,.18)', '&:hover': { bgcolor: 'rgba(0,0,0,.48)' } }}
+              >
+                <ContentCopyIcon />
+              </IconButton>
+            </span>
           </Tooltip>
           <IconButton
             aria-label="关闭"

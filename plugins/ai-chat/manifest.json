@@ -30,6 +30,7 @@
     "tauri:plugin_images_delete",
     "tauri:plugin:window|start_dragging",
     "tauri:plugin:clipboard-manager|write_text",
-    "tauri:plugin:clipboard-manager|read_text"
+    "tauri:plugin:clipboard-manager|read_text",
+    "tauri:clipboard_write_image_data_url"
   ]
 }
