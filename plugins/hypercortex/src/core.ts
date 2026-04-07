@@ -1,4 +1,4 @@
-export type VaultScope = 'library' | 'output'
+export type VaultScope = 'library' | 'output' | 'data'
 
 export type Api = {
   __meta?: { runtime?: 'ui' | 'background' }
@@ -43,7 +43,13 @@ export type HyperCortexIndexV1 = {
 export const NOTES_DIR = 'Notes'
 export const ASSETS_DIR = 'Assets'
 export const INDEX_FILE = 'hypercortex-index.json'
+export const METADATA_FILE = 'hypercortex-metadata.json'
 export const PLUGIN_ID = 'hypercortex'
+
+export type HyperCortexMetadataV1 = {
+  version: 1
+  allNotesLayout?: 'list' | 'grid' | 'icon'
+}
 
 type TauriLike = { invoke: (req: { command: string; payload?: any }) => Promise<any> }
 
@@ -374,6 +380,30 @@ export async function ensureIndex(api: Api, scope: VaultScope): Promise<HyperCor
 
 export async function saveIndex(api: Api, scope: VaultScope, idx: HyperCortexIndexV1): Promise<void> {
   await api.files.writeText({ scope, path: INDEX_FILE, text: JSON.stringify(idx, null, 2), overwrite: true })
+}
+
+export async function tryLoadMetadata(api: Api): Promise<HyperCortexMetadataV1 | null> {
+  try {
+    const raw = await api.files.readText({ scope: 'data', path: METADATA_FILE })
+    const parsed = JSON.parse(raw || 'null')
+    if (!parsed || typeof parsed !== 'object') return null
+    if (parsed.version !== 1) return null
+    return parsed as HyperCortexMetadataV1
+  } catch {
+    return null
+  }
+}
+
+export async function ensureMetadata(api: Api): Promise<HyperCortexMetadataV1> {
+  const existing = await tryLoadMetadata(api)
+  if (existing) return existing
+  const fresh: HyperCortexMetadataV1 = { version: 1 }
+  await api.files.writeText({ scope: 'data', path: METADATA_FILE, text: JSON.stringify(fresh, null, 2), overwrite: true }).catch(() => {})
+  return fresh
+}
+
+export async function saveMetadata(api: Api, meta: HyperCortexMetadataV1): Promise<void> {
+  await api.files.writeText({ scope: 'data', path: METADATA_FILE, text: JSON.stringify(meta, null, 2), overwrite: true })
 }
 
 export async function rebuildIndexFromFs(api: Api, scope: VaultScope, idx: HyperCortexIndexV1): Promise<HyperCortexIndexV1> {

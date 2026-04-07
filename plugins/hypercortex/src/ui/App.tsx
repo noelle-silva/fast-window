@@ -11,9 +11,15 @@ import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
-import { buildNoteHtmlDoc, ensureIndex, ensureVaultDirs, escapeHtml, getApi, noteRelPath, nowId, rebuildIndexFromFs, saveIndex, tryLoadIndex, type NoteMeta } from '../core'
+import { buildNoteHtmlDoc, ensureIndex, ensureMetadata, ensureVaultDirs, escapeHtml, getApi, noteRelPath, nowId, rebuildIndexFromFs, saveIndex, saveMetadata, tryLoadIndex, tryLoadMetadata, type NoteMeta } from '../core'
 
 type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'index' | 'settings'
+
+type AllNotesLayout = 'list' | 'grid' | 'icon'
+
+function normalizeAllNotesLayout(value: unknown): AllNotesLayout {
+  return value === 'grid' || value === 'icon' ? value : 'list'
+}
 
 const theme = createTheme({
   palette: {
@@ -38,10 +44,11 @@ export function HyperCortexApp() {
   const [newNoteContent, setNewNoteContent] = React.useState('')
   const [newNoteSaving, setNewNoteSaving] = React.useState(false)
   const [savedNote, setSavedNote] = React.useState<{ id: string; file: string; createdAtMs: number } | null>(null)
-  const [allNotesLayout, setAllNotesLayout] = React.useState<'list' | 'grid' | 'icon'>('list')
+  const [allNotesLayout, setAllNotesLayout] = React.useState<AllNotesLayout>('list')
   const [allNotes, setAllNotes] = React.useState<NoteMeta[]>([])
   const [allNotesLoading, setAllNotesLoading] = React.useState(false)
   const [allNotesLoadError, setAllNotesLoadError] = React.useState<string | null>(null)
+  const [allNotesLayoutReady, setAllNotesLayoutReady] = React.useState(false)
 
   const backToHost = React.useCallback(() => {
     try {
@@ -88,6 +95,23 @@ export function HyperCortexApp() {
       setAllNotesLoading(false)
     }
   }, [api, sortNotes])
+
+  React.useEffect(() => {
+    void (async () => {
+      try {
+        const meta = (await tryLoadMetadata(api)) || (await ensureMetadata(api))
+        setAllNotesLayout(normalizeAllNotesLayout(meta.allNotesLayout))
+      } catch {
+      } finally {
+        setAllNotesLayoutReady(true)
+      }
+    })()
+  }, [api])
+
+  React.useEffect(() => {
+    if (!allNotesLayoutReady) return
+    void saveMetadata(api, { version: 1, allNotesLayout }).catch(() => {})
+  }, [api, allNotesLayout, allNotesLayoutReady])
 
   React.useEffect(() => {
     if (page !== 'all-notes') return
