@@ -12,7 +12,7 @@ import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
-import { buildNoteHtmlDoc, ensureIndex, ensureMetadata, ensureVaultDirs, escapeHtml, getApi, noteRelPath, nowId, readNoteDoc, rebuildIndexFromFs, saveIndex, saveMetadata, tryLoadIndex, tryLoadMetadata, type NoteMeta } from '../core'
+import { buildNoteHtmlDoc, ensureIndex, ensureMetadata, ensureVaultDirs, getApi, noteRelPath, nowId, readNoteDoc, rebuildIndexFromFs, saveIndex, saveMetadata, tryLoadIndex, tryLoadMetadata, type HyperCortexNoteDoc, type NoteMeta } from '../core'
 
 type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'note-detail' | 'index' | 'settings'
 
@@ -38,13 +38,6 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
   return !!t.closest('button, a, input, textarea, select, [role="button"]')
 }
 
-function htmlToPlainText(html: string): string {
-  const doc = new DOMParser().parseFromString(`<div id="__root__">${html || ''}</div>`, 'text/html')
-  const root = doc.getElementById('__root__')
-  const text = String(root?.textContent || '')
-  return text.replace(/\r\n/g, '\n')
-}
-
 export function HyperCortexApp() {
   const api = React.useMemo(() => getApi(), [])
   const [page, setPage] = React.useState<PageId>('home')
@@ -58,12 +51,12 @@ export function HyperCortexApp() {
   const [allNotesLoadError, setAllNotesLoadError] = React.useState<string | null>(null)
   const [allNotesLayoutReady, setAllNotesLayoutReady] = React.useState(false)
   const [activeNote, setActiveNote] = React.useState<NoteMeta | null>(null)
-  const [activeNoteDoc, setActiveNoteDoc] = React.useState<{ title: string; contentHtml: string } | null>(null)
+  const [activeNoteDoc, setActiveNoteDoc] = React.useState<HyperCortexNoteDoc | null>(null)
   const [activeNoteLoading, setActiveNoteLoading] = React.useState(false)
   const [activeNoteLoadError, setActiveNoteLoadError] = React.useState<string | null>(null)
   const [activeNoteEditing, setActiveNoteEditing] = React.useState(false)
   const [activeNoteEditTitle, setActiveNoteEditTitle] = React.useState('')
-  const [activeNoteEditHtml, setActiveNoteEditHtml] = React.useState('')
+  const [activeNoteEditBody, setActiveNoteEditBody] = React.useState('')
   const [activeNoteSaving, setActiveNoteSaving] = React.useState(false)
 
   const backToHost = React.useCallback(() => {
@@ -140,15 +133,12 @@ export function HyperCortexApp() {
     try {
       const scope = 'library' as const
       const title = String(newNoteTitle || '').trim() || '未命名'
-      const contentHtml = newNoteContent
-        .split(/\r?\n/)
-        .map(line => `<p>${escapeHtml(line)}</p>`)
-        .join('')
+      const body = String(newNoteContent || '').replace(/\r\n/g, '\n')
 
       const existing = savedNote
       const id = existing?.id || nowId()
       const relPath = noteRelPath(id, title)
-      const html = buildNoteHtmlDoc({ id, title, contentHtml })
+      const html = buildNoteHtmlDoc({ id, source: { title, body, tags: [] } })
       const nowMs = Date.now()
 
       await ensureVaultDirs(api, scope)
@@ -214,7 +204,7 @@ export function HyperCortexApp() {
   const handleStartEditingActiveNote = React.useCallback(() => {
     if (!activeNoteDoc) return
     setActiveNoteEditTitle(activeNoteDoc.title || activeNote?.title || '未命名')
-    setActiveNoteEditHtml(htmlToPlainText(activeNoteDoc.contentHtml || ''))
+    setActiveNoteEditBody(activeNoteDoc.body || '')
     setActiveNoteEditing(true)
   }, [activeNote, activeNoteDoc])
 
@@ -225,11 +215,8 @@ export function HyperCortexApp() {
       const scope = 'library' as const
       const title = String(activeNoteEditTitle || '').trim() || '未命名'
       const nextFile = noteRelPath(activeNote.id, title)
-      const contentHtml = activeNoteEditHtml
-        .split(/\r?\n/)
-        .map(line => `<p>${escapeHtml(line)}</p>`)
-        .join('')
-      const html = buildNoteHtmlDoc({ id: activeNote.id, title, contentHtml })
+      const body = String(activeNoteEditBody || '').replace(/\r\n/g, '\n')
+      const html = buildNoteHtmlDoc({ id: activeNote.id, source: { title, body, tags: activeNoteDoc?.tags || [] } })
       const nowMs = Date.now()
 
       await ensureVaultDirs(api, scope)
@@ -259,7 +246,7 @@ export function HyperCortexApp() {
       const refreshed = await readNoteDoc(api, scope, nextFile)
       setActiveNoteDoc(refreshed)
       setActiveNoteEditTitle(refreshed.title)
-      setActiveNoteEditHtml(refreshed.contentHtml)
+      setActiveNoteEditBody(refreshed.body)
       setActiveNoteEditing(false)
       await api.ui.showToast('笔记已保存')
     } catch (e: any) {
@@ -267,7 +254,7 @@ export function HyperCortexApp() {
     } finally {
       setActiveNoteSaving(false)
     }
-  }, [activeNote, activeNoteEditHtml, activeNoteEditTitle, activeNoteSaving, api, sortNotes])
+  }, [activeNote, activeNoteEditBody, activeNoteEditTitle, activeNoteSaving, api, sortNotes])
 
   const handleCloseActiveNote = React.useCallback(() => {
     setPage('all-notes')
@@ -277,7 +264,7 @@ export function HyperCortexApp() {
     setActiveNoteLoading(false)
     setActiveNoteEditing(false)
     setActiveNoteEditTitle('')
-    setActiveNoteEditHtml('')
+    setActiveNoteEditBody('')
     setActiveNoteSaving(false)
   }, [])
 
@@ -820,7 +807,7 @@ export function HyperCortexApp() {
                     <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 2 }}>
                       {activeNoteEditing ? (
                         <InputBase
-                          value={activeNoteEditHtml}
+                          value={activeNoteEditBody}
                           onChange={e => setActiveNoteEditHtml(e.target.value)}
                           placeholder="开始编辑正文..."
                           fullWidth
@@ -855,7 +842,7 @@ export function HyperCortexApp() {
                               bgcolor: 'rgba(0,0,0,.03)',
                             },
                           }}
-                          dangerouslySetInnerHTML={{ __html: activeNoteDoc.contentHtml }}
+                          dangerouslySetInnerHTML={{ __html: activeNoteDoc.displayHtml }}
                         />
                       )}
                     </Box>

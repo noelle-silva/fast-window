@@ -243,62 +243,8 @@ export function parseNoteFilename(name: string): { id: string; title: string } |
   return { id, title: title || '未命名' }
 }
 
-export function escapeHtml(s: string): string {
-  return String(s || '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
-}
-
-export function buildNoteHtmlDoc(meta: { id: string; title: string; contentHtml: string }): string {
-  const title = String(meta.title || '未命名').trim() || '未命名'
-  return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="hypercortex-note-id" content="${escapeHtml(meta.id)}" />
-    <title>${escapeHtml(title)}</title>
-    <style>
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; line-height: 1.6; margin: 22px; }
-      img { max-width: 100%; height: auto; }
-      pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-      pre { padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 10px; overflow: auto; }
-      blockquote { margin: 0; padding-left: 12px; border-left: 3px solid #e5e7eb; color: #374151; }
-    </style>
-  </head>
-  <body>
-    <div id="hypercortex-content">${meta.contentHtml || ''}</div>
-  </body>
-</html>`
-}
-
-function relPrefixToRootFromFile(file: string): string {
-  const parts = String(file || '')
-    .replaceAll('\\', '/')
-    .split('/')
-    .slice(0, -1)
-    .filter(Boolean)
-  return parts.length ? '../'.repeat(parts.length) : ''
-}
-
-export function normalizeEditorHtmlForSave(html: string, noteFile: string): string {
-  const doc = new DOMParser().parseFromString(`<div id="__root__">${html || ''}</div>`, 'text/html')
-  const root = doc.getElementById('__root__')
-  if (!root) return html || ''
-
-  const prefix = relPrefixToRootFromFile(noteFile)
-  const imgs = Array.from(root.querySelectorAll('img'))
-  for (const img of imgs) {
-    const assetRel = (img.getAttribute('data-hypercortex-asset') || '').trim()
-    if (assetRel) {
-      img.setAttribute('src', `${prefix}${assetRel.replace(/^[./]+/, '')}`)
-    }
-  }
-  return root.innerHTML
-}
+export { escapeHtml } from './html'
+export { buildNoteHtmlDoc, readNoteDoc, type HyperCortexNoteDoc } from './noteHtml'
 
 export async function sha256Hex(dataUrlOrBase64: string): Promise<string> {
   const s = String(dataUrlOrBase64 || '').trim()
@@ -438,37 +384,3 @@ export async function rebuildIndexFromFs(api: Api, scope: VaultScope, idx: Hyper
   return next
 }
 
-export async function readNoteDoc(
-  api: Api,
-  scope: VaultScope,
-  file: string,
-): Promise<{ title: string; contentHtml: string }> {
-  const raw = await api.files.readText({ scope, path: file })
-  const doc = new DOMParser().parseFromString(raw, 'text/html')
-  const title = String(doc.querySelector('title')?.textContent || '').trim() || '未命名'
-  const root = doc.getElementById('hypercortex-content')
-  const content = root ? root.innerHTML : (doc.body?.innerHTML || '')
-
-  const wrap = new DOMParser().parseFromString(`<div id="__root__">${content}</div>`, 'text/html')
-  const r = wrap.getElementById('__root__')
-  if (!r) return { title, contentHtml: content }
-
-  const imgs = Array.from(r.querySelectorAll('img'))
-  for (const img of imgs) {
-    const src = (img.getAttribute('src') || '').trim()
-    if (!src) continue
-    const rel = src.replace(/^[./]+/, '')
-    if (!rel.startsWith(`${ASSETS_DIR}/`)) continue
-
-    img.setAttribute('data-hypercortex-asset', rel)
-    img.setAttribute('data-hypercortex-src', src)
-    try {
-      const dataUrl = await api.files.readBase64({ scope, path: rel })
-      if (String(dataUrl || '').startsWith('data:')) {
-        img.setAttribute('src', dataUrl)
-      }
-    } catch {}
-  }
-
-  return { title, contentHtml: r.innerHTML }
-}
