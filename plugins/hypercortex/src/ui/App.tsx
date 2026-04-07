@@ -8,6 +8,7 @@ import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded'
 import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
 import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded'
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
+import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
@@ -37,6 +38,13 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
   return !!t.closest('button, a, input, textarea, select, [role="button"]')
 }
 
+function htmlToPlainText(html: string): string {
+  const doc = new DOMParser().parseFromString(`<div id="__root__">${html || ''}</div>`, 'text/html')
+  const root = doc.getElementById('__root__')
+  const text = String(root?.textContent || '')
+  return text.replace(/\r\n/g, '\n')
+}
+
 export function HyperCortexApp() {
   const api = React.useMemo(() => getApi(), [])
   const [page, setPage] = React.useState<PageId>('home')
@@ -53,6 +61,10 @@ export function HyperCortexApp() {
   const [activeNoteDoc, setActiveNoteDoc] = React.useState<{ title: string; contentHtml: string } | null>(null)
   const [activeNoteLoading, setActiveNoteLoading] = React.useState(false)
   const [activeNoteLoadError, setActiveNoteLoadError] = React.useState<string | null>(null)
+  const [activeNoteEditing, setActiveNoteEditing] = React.useState(false)
+  const [activeNoteEditTitle, setActiveNoteEditTitle] = React.useState('')
+  const [activeNoteEditHtml, setActiveNoteEditHtml] = React.useState('')
+  const [activeNoteSaving, setActiveNoteSaving] = React.useState(false)
 
   const backToHost = React.useCallback(() => {
     try {
@@ -199,12 +211,74 @@ export function HyperCortexApp() {
     [api],
   )
 
+  const handleStartEditingActiveNote = React.useCallback(() => {
+    if (!activeNoteDoc) return
+    setActiveNoteEditTitle(activeNoteDoc.title || activeNote?.title || '未命名')
+    setActiveNoteEditHtml(htmlToPlainText(activeNoteDoc.contentHtml || ''))
+    setActiveNoteEditing(true)
+  }, [activeNote, activeNoteDoc])
+
+  const handleSaveActiveNote = React.useCallback(async () => {
+    if (!activeNote || activeNoteSaving) return
+    setActiveNoteSaving(true)
+    try {
+      const scope = 'library' as const
+      const title = String(activeNoteEditTitle || '').trim() || '未命名'
+      const nextFile = noteRelPath(activeNote.id, title)
+      const contentHtml = activeNoteEditHtml
+        .split(/\r?\n/)
+        .map(line => `<p>${escapeHtml(line)}</p>`)
+        .join('')
+      const html = buildNoteHtmlDoc({ id: activeNote.id, title, contentHtml })
+      const nowMs = Date.now()
+
+      await ensureVaultDirs(api, scope)
+      if (nextFile !== activeNote.file) {
+        await api.files.rename({ scope, from: activeNote.file, to: nextFile, overwrite: true })
+      }
+      await api.files.writeText({ scope, path: nextFile, text: html, overwrite: true })
+
+      const idx = await ensureIndex(api, scope)
+      const nextMeta: NoteMeta = {
+        id: activeNote.id,
+        title,
+        file: nextFile,
+        createdAtMs: activeNote.createdAtMs,
+        updatedAtMs: nowMs,
+      }
+      await saveIndex(api, scope, {
+        ...idx,
+        notes: {
+          ...idx.notes,
+          [activeNote.id]: nextMeta,
+        },
+      })
+
+      setAllNotes(prev => sortNotes([nextMeta, ...prev.filter(item => item.id !== activeNote.id)]))
+      setActiveNote(nextMeta)
+      const refreshed = await readNoteDoc(api, scope, nextFile)
+      setActiveNoteDoc(refreshed)
+      setActiveNoteEditTitle(refreshed.title)
+      setActiveNoteEditHtml(refreshed.contentHtml)
+      setActiveNoteEditing(false)
+      await api.ui.showToast('笔记已保存')
+    } catch (e: any) {
+      await api.ui.showToast(String(e?.message || e || '保存失败'))
+    } finally {
+      setActiveNoteSaving(false)
+    }
+  }, [activeNote, activeNoteEditHtml, activeNoteEditTitle, activeNoteSaving, api, sortNotes])
+
   const handleCloseActiveNote = React.useCallback(() => {
     setPage('all-notes')
     setActiveNote(null)
     setActiveNoteDoc(null)
     setActiveNoteLoadError(null)
     setActiveNoteLoading(false)
+    setActiveNoteEditing(false)
+    setActiveNoteEditTitle('')
+    setActiveNoteEditHtml('')
+    setActiveNoteSaving(false)
   }, [])
 
   return (
@@ -685,32 +759,105 @@ export function HyperCortexApp() {
                     >
                       <ArrowBackRoundedIcon fontSize="small" />
                     </IconButton>
-                    <Typography sx={{ minWidth: 0, fontSize: 28, lineHeight: 1.2, fontWeight: 900, color: '#111' }}>
-                      {activeNoteDoc?.title || activeNote?.title || '未命名'}
-                    </Typography>
+
+                    {activeNoteEditing ? (
+                      <Box
+                        sx={{
+                          minWidth: 0,
+                          flex: 1,
+                          pb: 0.5,
+                          borderBottom: '1px solid',
+                          borderColor: 'rgba(0,0,0,.16)',
+                        }}
+                      >
+                        <InputBase
+                          value={activeNoteEditTitle}
+                          onChange={e => setActiveNoteEditTitle(e.target.value)}
+                          placeholder="输入标题"
+                          fullWidth
+                          inputProps={{ 'aria-label': '编辑笔记标题' }}
+                          sx={{
+                            fontSize: 28,
+                            lineHeight: 1.2,
+                            fontWeight: 900,
+                            color: '#111',
+                            '& input': { p: 0 },
+                          }}
+                        />
+                      </Box>
+                    ) : (
+                      <Typography sx={{ minWidth: 0, flex: 1, fontSize: 28, lineHeight: 1.2, fontWeight: 900, color: '#111' }}>
+                        {activeNoteDoc?.title || activeNote?.title || '未命名'}
+                      </Typography>
+                    )}
+
+                    {!activeNoteLoading && !activeNoteLoadError && activeNoteDoc ? (
+                      <Tooltip title={activeNoteEditing ? '保存' : '编辑'} placement="left">
+                        <IconButton
+                          size="small"
+                          aria-label={activeNoteEditing ? '保存笔记' : '编辑笔记'}
+                          onClick={() => void (activeNoteEditing ? handleSaveActiveNote() : handleStartEditingActiveNote())}
+                          disabled={activeNoteSaving}
+                          sx={{
+                            color: 'rgba(0,0,0,.58)',
+                            bgcolor: 'transparent',
+                            boxShadow: 'none',
+                            border: 0,
+                            flex: '0 0 auto',
+                            '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                            '&.Mui-disabled': { color: 'rgba(0,0,0,.28)' },
+                          }}
+                        >
+                          {activeNoteEditing ? <SaveRoundedIcon fontSize="small" /> : <EditRoundedIcon fontSize="small" />}
+                        </IconButton>
+                      </Tooltip>
+                    ) : null}
                   </Box>
 
                   {activeNoteLoading ? <Typography color="text.secondary">正在加载笔记...</Typography> : null}
                   {!activeNoteLoading && activeNoteLoadError ? <Typography color="error">{activeNoteLoadError}</Typography> : null}
                   {!activeNoteLoading && !activeNoteLoadError && activeNoteDoc ? (
                     <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      <Box
-                        sx={{
-                          width: '100%',
-                          color: '#222',
-                          fontSize: 16,
-                          lineHeight: 1.8,
-                          '& img': { maxWidth: '100%', height: 'auto' },
-                          '& p': { mt: 0, mb: 1.5 },
-                          '& pre': {
-                            overflow: 'auto',
-                            borderRadius: 2,
-                            p: 1.5,
-                            bgcolor: 'rgba(0,0,0,.03)',
-                          },
-                        }}
-                        dangerouslySetInnerHTML={{ __html: activeNoteDoc.contentHtml }}
-                      />
+                      {activeNoteEditing ? (
+                        <InputBase
+                          value={activeNoteEditHtml}
+                          onChange={e => setActiveNoteEditHtml(e.target.value)}
+                          placeholder="开始编辑正文..."
+                          fullWidth
+                          multiline
+                          minRows={18}
+                          inputProps={{ 'aria-label': '编辑笔记正文' }}
+                          sx={{
+                            width: '100%',
+                            alignItems: 'flex-start',
+                            fontSize: 16,
+                            lineHeight: 1.8,
+                            color: '#222',
+                            '& textarea': {
+                              padding: 0,
+                              resize: 'none',
+                            },
+                          }}
+                        />
+                      ) : (
+                        <Box
+                          sx={{
+                            width: '100%',
+                            color: '#222',
+                            fontSize: 16,
+                            lineHeight: 1.8,
+                            '& img': { maxWidth: '100%', height: 'auto' },
+                            '& p': { mt: 0, mb: 1.5 },
+                            '& pre': {
+                              overflow: 'auto',
+                              borderRadius: 2,
+                              p: 1.5,
+                              bgcolor: 'rgba(0,0,0,.03)',
+                            },
+                          }}
+                          dangerouslySetInnerHTML={{ __html: activeNoteDoc.contentHtml }}
+                        />
+                      )}
                     </Box>
                   ) : null}
                 </Box>
