@@ -13,7 +13,7 @@ import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
 import { ensureMetadata, getApi, saveMetadata, tryLoadMetadata, type HyperCortexNoteDoc, type NoteMeta } from '../core'
-import { loadHtmlFace, loadNoteIndex, loadNotePackage, saveNotePackage } from '../notePackage'
+import { loadHtmlFace, loadNoteIndex, loadNotePackage, saveHtmlFace, saveNotePackage } from '../notePackage'
 
 type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'note-detail' | 'index' | 'settings'
 
@@ -72,6 +72,7 @@ export function HyperCortexApp() {
   const [activeNoteEditBody, setActiveNoteEditBody] = React.useState('')
   const [activeNoteEditTags, setActiveNoteEditTags] = React.useState<string[]>([])
   const [activeNoteTagInput, setActiveNoteTagInput] = React.useState('')
+  const [activeNoteEditHtml, setActiveNoteEditHtml] = React.useState('')
   const [activeNoteSaving, setActiveNoteSaving] = React.useState(false)
   const [activeNoteFace, setActiveNoteFace] = React.useState<NoteFaceId>('text')
   const [activeNoteFaces, setActiveNoteFaces] = React.useState<NoteFaceId[]>(['text'])
@@ -186,6 +187,7 @@ export function HyperCortexApp() {
           loadHtmlFace(api, 'library', note.dir).catch(() => null),
         ])
         setActiveNoteDoc(doc)
+        setActiveNoteEditHtml(htmlFace?.html || '')
         setActiveNoteFaces(htmlFace?.exists ? ['text', 'html'] : ['text'])
       } catch (e: any) {
         const message = String(e?.message || e || '加载笔记失败')
@@ -198,14 +200,22 @@ export function HyperCortexApp() {
     [api],
   )
 
-  const handleStartEditingActiveNote = React.useCallback(() => {
-    if (!activeNoteDoc) return
+  const handleStartEditingActiveNote = React.useCallback(async () => {
+    if (!activeNoteDoc || !activeNote) return
     setActiveNoteEditTitle(activeNoteDoc.title || activeNote?.title || '未命名')
     setActiveNoteEditBody(activeNoteDoc.body || '')
     setActiveNoteEditTags(activeNoteDoc.tags || [])
     setActiveNoteTagInput('')
+    if (activeNoteFace === 'html') {
+      try {
+        const htmlFace = await loadHtmlFace(api, 'library', activeNote.dir)
+        setActiveNoteEditHtml(htmlFace.html || '')
+      } catch {
+        setActiveNoteEditHtml('')
+      }
+    }
     setActiveNoteEditing(true)
-  }, [activeNote, activeNoteDoc])
+  }, [activeNote, activeNoteDoc, activeNoteFace, api])
 
   const handleSaveActiveNote = React.useCallback(async () => {
     if (!activeNote || activeNoteSaving) return
@@ -215,31 +225,51 @@ export function HyperCortexApp() {
       const title = String(activeNoteEditTitle || '').trim() || '未命名'
       const body = String(activeNoteEditBody || '').replace(/\r\n/g, '\n')
       const tags = activeNoteEditTags.map(normalizeTagText).filter(Boolean)
-      const result = await saveNotePackage(api, scope, {
-        id: activeNote.id,
-        title,
-        body,
-        tags,
-        createdAtMs: activeNote.createdAtMs,
-        resources: activeNoteDoc?.resources || [],
-        saveTextFace: true,
-      })
 
-      setAllNotes(prev => sortNotes([result.meta, ...prev.filter(item => item.id !== activeNote.id)]))
-      setActiveNote(result.meta)
-      setActiveNoteDoc(result.doc)
-      setActiveNoteEditTitle(result.doc.title)
-      setActiveNoteEditBody(result.doc.body)
-      setActiveNoteEditTags(result.doc.tags)
-      setActiveNoteTagInput('')
-      setActiveNoteEditing(false)
-      await api.ui.showToast('笔记已保存')
+      if (activeNoteFace === 'html') {
+        const result = await saveHtmlFace(api, scope, {
+          id: activeNote.id,
+          packageDir: activeNote.dir,
+          title,
+          body: activeNoteDoc?.body || '',
+          tags,
+          createdAtMs: activeNote.createdAtMs,
+          resources: activeNoteDoc?.resources || [],
+          html: activeNoteEditHtml,
+        })
+        setAllNotes(prev => sortNotes([result.meta, ...prev.filter(item => item.id !== activeNote.id)]))
+        setActiveNote(result.meta)
+        setActiveNoteFaces(prev => (prev.includes('html') ? prev : [...prev, 'html']))
+        setActiveNoteTagInput('')
+        setActiveNoteEditing(false)
+        await api.ui.showToast('HTML 面已保存')
+      } else {
+        const result = await saveNotePackage(api, scope, {
+          id: activeNote.id,
+          title,
+          body,
+          tags,
+          createdAtMs: activeNote.createdAtMs,
+          resources: activeNoteDoc?.resources || [],
+          saveTextFace: true,
+        })
+
+        setAllNotes(prev => sortNotes([result.meta, ...prev.filter(item => item.id !== activeNote.id)]))
+        setActiveNote(result.meta)
+        setActiveNoteDoc(result.doc)
+        setActiveNoteEditTitle(result.doc.title)
+        setActiveNoteEditBody(result.doc.body)
+        setActiveNoteEditTags(result.doc.tags)
+        setActiveNoteTagInput('')
+        setActiveNoteEditing(false)
+        await api.ui.showToast('笔记已保存')
+      }
     } catch (e: any) {
       await api.ui.showToast(String(e?.message || e || '保存失败'))
     } finally {
       setActiveNoteSaving(false)
     }
-  }, [activeNote, activeNoteDoc?.resources, activeNoteEditBody, activeNoteEditTags, activeNoteEditTitle, activeNoteSaving, api, sortNotes])
+  }, [activeNote, activeNoteDoc?.body, activeNoteDoc?.resources, activeNoteEditBody, activeNoteEditHtml, activeNoteEditTags, activeNoteEditTitle, activeNoteFace, activeNoteSaving, api, sortNotes])
 
   const handleAddActiveNoteTag = React.useCallback(() => {
     setActiveNoteEditTags(prev => appendTag(prev, activeNoteTagInput))
@@ -250,15 +280,22 @@ export function HyperCortexApp() {
     setActiveNoteEditTags(prev => prev.filter(item => item !== tag))
   }, [])
 
-  const handleAddActiveNoteFace = React.useCallback(() => {
+  const handleAddActiveNoteFace = React.useCallback(async () => {
     if (!activeNotePendingAddFace) return
-    if (activeNotePendingAddFace === 'html') {
+    if (activeNotePendingAddFace === 'html' && activeNote) {
+      try {
+        const htmlFace = await loadHtmlFace(api, 'library', activeNote.dir)
+        setActiveNoteEditHtml(htmlFace.html || '')
+      } catch {
+        setActiveNoteEditHtml('')
+      }
       setActiveNoteFaces(prev => (prev.includes('html') ? prev : [...prev, 'html']))
       setActiveNoteFace('html')
+      setActiveNoteEditing(true)
     }
     setActiveNoteAddFaceSelectorVisible(false)
     setActiveNotePendingAddFace(null)
-  }, [activeNotePendingAddFace])
+  }, [activeNote, activeNotePendingAddFace, api])
 
   const handleCloseActiveNote = React.useCallback(() => {
     setPage('all-notes')
@@ -271,6 +308,7 @@ export function HyperCortexApp() {
     setActiveNoteEditBody('')
     setActiveNoteEditTags([])
     setActiveNoteTagInput('')
+    setActiveNoteEditHtml('')
     setActiveNoteSaving(false)
     setActiveNoteFace('text')
     setActiveNoteFaces(['text'])
@@ -1052,7 +1090,29 @@ export function HyperCortexApp() {
                         )}
                       </Box>
 
-                      {activeNoteFace === 'html' ? (
+                      {activeNoteFace === 'html' ? activeNoteEditing ? (
+                        <InputBase
+                          value={activeNoteEditHtml}
+                          onChange={e => setActiveNoteEditHtml(e.target.value)}
+                          placeholder="输入 HTML 代码..."
+                          fullWidth
+                          multiline
+                          minRows={18}
+                          inputProps={{ 'aria-label': '编辑 HTML 正文代码' }}
+                          sx={{
+                            width: '100%',
+                            alignItems: 'flex-start',
+                            fontSize: 14,
+                            lineHeight: 1.7,
+                            color: '#1f2937',
+                            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                            '& textarea': {
+                              padding: 0,
+                              resize: 'none',
+                            },
+                          }}
+                        />
+                      ) : (
                         <Box
                           sx={{
                             width: '100%',
