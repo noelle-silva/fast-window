@@ -18,6 +18,7 @@ import { loadNoteIndex, loadNotePackage, saveNotePackage } from '../notePackage'
 type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'note-detail' | 'index' | 'settings'
 
 type AllNotesLayout = 'list' | 'grid' | 'icon'
+type NoteFaceId = 'text' | 'html'
 
 function normalizeAllNotesLayout(value: unknown): AllNotesLayout {
   return value === 'grid' || value === 'icon' ? value : 'list'
@@ -72,6 +73,8 @@ export function HyperCortexApp() {
   const [activeNoteEditTags, setActiveNoteEditTags] = React.useState<string[]>([])
   const [activeNoteTagInput, setActiveNoteTagInput] = React.useState('')
   const [activeNoteSaving, setActiveNoteSaving] = React.useState(false)
+  const [activeNoteFace, setActiveNoteFace] = React.useState<NoteFaceId>('text')
+  const [activeNoteFaceSelectorVisible, setActiveNoteFaceSelectorVisible] = React.useState(false)
 
   const backToHost = React.useCallback(() => {
     try {
@@ -170,6 +173,8 @@ export function HyperCortexApp() {
       setActiveNoteDoc(null)
       setActiveNoteLoadError(null)
       setActiveNoteLoading(true)
+      setActiveNoteFace('text')
+      setActiveNoteFaceSelectorVisible(false)
       setPage('note-detail')
       try {
         const doc = await loadNotePackage(api, 'library', note.dir)
@@ -249,6 +254,8 @@ export function HyperCortexApp() {
     setActiveNoteEditTags([])
     setActiveNoteTagInput('')
     setActiveNoteSaving(false)
+    setActiveNoteFace('text')
+    setActiveNoteFaceSelectorVisible(false)
   }, [])
 
   return (
@@ -714,73 +721,129 @@ export function HyperCortexApp() {
                 </Box>
               ) : null}
               {page === 'note-detail' ? (
-                <Box sx={{ display: 'flex', minHeight: '100%', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-                  <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <IconButton
-                      size="small"
-                      aria-label="返回全部笔记"
-                      onClick={handleCloseActiveNote}
-                      sx={{
-                        color: '#111',
-                        flex: '0 0 auto',
-                        ml: -0.75,
-                        '&:hover': { bgcolor: 'rgba(0,0,0,.06)' },
-                      }}
-                    >
-                      <ArrowBackRoundedIcon fontSize="small" />
-                    </IconButton>
-
-                    {activeNoteEditing ? (
-                      <Box
+                <Box sx={{ display: 'flex', minHeight: '100%', flexDirection: 'column', alignItems: 'flex-start', gap: 2.5 }}>
+                  <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <IconButton
+                        size="small"
+                        aria-label="返回全部笔记"
+                        onClick={handleCloseActiveNote}
                         sx={{
-                          minWidth: 0,
-                          flex: 1,
-                          pb: 0.5,
-                          borderBottom: '1px solid',
-                          borderColor: 'rgba(0,0,0,.16)',
+                          color: '#111',
+                          flex: '0 0 auto',
+                          ml: -0.75,
+                          '&:hover': { bgcolor: 'rgba(0,0,0,.06)' },
                         }}
                       >
-                        <InputBase
-                          value={activeNoteEditTitle}
-                          onChange={e => setActiveNoteEditTitle(e.target.value)}
-                          placeholder="输入标题"
-                          fullWidth
-                          inputProps={{ 'aria-label': '编辑笔记标题' }}
-                          sx={{
-                            fontSize: 28,
-                            lineHeight: 1.2,
-                            fontWeight: 900,
-                            color: '#111',
-                            '& input': { p: 0 },
-                          }}
-                        />
-                      </Box>
-                    ) : (
-                      <Typography sx={{ minWidth: 0, flex: 1, fontSize: 28, lineHeight: 1.2, fontWeight: 900, color: '#111' }}>
-                        {activeNoteDoc?.title || activeNote?.title || '未命名'}
-                      </Typography>
-                    )}
+                        <ArrowBackRoundedIcon fontSize="small" />
+                      </IconButton>
+
+                      {!activeNoteLoading && !activeNoteLoadError && activeNoteDoc ? (
+                        <Tooltip title={activeNoteEditing ? '保存' : '编辑'} placement="bottom-start">
+                          <IconButton
+                            size="small"
+                            aria-label={activeNoteEditing ? '保存笔记' : '编辑笔记'}
+                            onClick={() => void (activeNoteEditing ? handleSaveActiveNote() : handleStartEditingActiveNote())}
+                            disabled={activeNoteSaving}
+                            sx={{
+                              color: 'rgba(0,0,0,.58)',
+                              bgcolor: 'transparent',
+                              boxShadow: 'none',
+                              border: 0,
+                              flex: '0 0 auto',
+                              '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                              '&.Mui-disabled': { color: 'rgba(0,0,0,.28)' },
+                            }}
+                          >
+                            {activeNoteEditing ? <SaveRoundedIcon fontSize="small" /> : <EditRoundedIcon fontSize="small" />}
+                          </IconButton>
+                        </Tooltip>
+                      ) : null}
+                    </Box>
 
                     {!activeNoteLoading && !activeNoteLoadError && activeNoteDoc ? (
-                      <Tooltip title={activeNoteEditing ? '保存' : '编辑'} placement="left">
-                        <IconButton
-                          size="small"
-                          aria-label={activeNoteEditing ? '保存笔记' : '编辑笔记'}
-                          onClick={() => void (activeNoteEditing ? handleSaveActiveNote() : handleStartEditingActiveNote())}
-                          disabled={activeNoteSaving}
-                          sx={{
-                            color: 'rgba(0,0,0,.58)',
-                            bgcolor: 'transparent',
-                            boxShadow: 'none',
-                            border: 0,
-                            flex: '0 0 auto',
-                            '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
-                            '&.Mui-disabled': { color: 'rgba(0,0,0,.28)' },
-                          }}
-                        >
-                          {activeNoteEditing ? <SaveRoundedIcon fontSize="small" /> : <EditRoundedIcon fontSize="small" />}
-                        </IconButton>
-                      </Tooltip>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Tooltip title="新增面" placement="bottom-end">
+                          <IconButton
+                            size="small"
+                            aria-label="新增面"
+                            onClick={() => setActiveNoteFaceSelectorVisible(prev => !prev)}
+                            sx={{
+                              color: 'rgba(0,0,0,.58)',
+                              bgcolor: 'transparent',
+                              '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                            }}
+                          >
+                            <AddRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+
+                        {activeNoteFaceSelectorVisible ? (
+                          <Box
+                            sx={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              p: 0.5,
+                              borderRadius: 999,
+                              bgcolor: 'rgba(0,0,0,.05)',
+                              gap: 0.5,
+                            }}
+                          >
+                            <Box
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => setActiveNoteFace('text')}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault()
+                                  setActiveNoteFace('text')
+                                }
+                              }}
+                              sx={{
+                                minWidth: 56,
+                                px: 1.5,
+                                py: 0.75,
+                                borderRadius: 999,
+                                bgcolor: activeNoteFace === 'text' ? '#111' : 'transparent',
+                                color: activeNoteFace === 'text' ? '#fff' : '#374151',
+                                fontSize: 12,
+                                lineHeight: 1,
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                userSelect: 'none',
+                              }}
+                            >
+                              文本
+                            </Box>
+                            <Box
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => setActiveNoteFace('html')}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault()
+                                  setActiveNoteFace('html')
+                                }
+                              }}
+                              sx={{
+                                minWidth: 56,
+                                px: 1.5,
+                                py: 0.75,
+                                borderRadius: 999,
+                                bgcolor: activeNoteFace === 'html' ? '#111' : 'transparent',
+                                color: activeNoteFace === 'html' ? '#fff' : '#374151',
+                                fontSize: 12,
+                                lineHeight: 1,
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                userSelect: 'none',
+                              }}
+                            >
+                              HTML
+                            </Box>
+                          </Box>
+                        ) : null}
+                      </Box>
                     ) : null}
                   </Box>
 
@@ -788,6 +851,38 @@ export function HyperCortexApp() {
                   {!activeNoteLoading && activeNoteLoadError ? <Typography color="error">{activeNoteLoadError}</Typography> : null}
                   {!activeNoteLoading && !activeNoteLoadError && activeNoteDoc ? (
                     <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      {activeNoteEditing ? (
+                        <Box
+                          sx={{
+                            minWidth: 0,
+                            width: '100%',
+                            mt: 0.5,
+                            pb: 0.5,
+                            borderBottom: '1px solid',
+                            borderColor: 'rgba(0,0,0,.16)',
+                          }}
+                        >
+                          <InputBase
+                            value={activeNoteEditTitle}
+                            onChange={e => setActiveNoteEditTitle(e.target.value)}
+                            placeholder="输入标题"
+                            fullWidth
+                            inputProps={{ 'aria-label': '编辑笔记标题' }}
+                            sx={{
+                              fontSize: 28,
+                              lineHeight: 1.2,
+                              fontWeight: 900,
+                              color: '#111',
+                              '& input': { p: 0 },
+                            }}
+                          />
+                        </Box>
+                      ) : (
+                        <Typography sx={{ minWidth: 0, width: '100%', mt: 0.5, fontSize: 28, lineHeight: 1.2, fontWeight: 900, color: '#111' }}>
+                          {activeNoteDoc?.title || activeNote?.title || '未命名'}
+                        </Typography>
+                      )}
+
                       <Box sx={{ width: '100%', display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
                         {activeNoteEditing ? (
                           <>
@@ -896,7 +991,24 @@ export function HyperCortexApp() {
                         )}
                       </Box>
 
-                      {activeNoteEditing ? (
+                      {activeNoteFace === 'html' ? (
+                        <Box
+                          sx={{
+                            width: '100%',
+                            minHeight: 320,
+                            borderRadius: 3,
+                            bgcolor: 'rgba(0,0,0,.02)',
+                            color: 'rgba(0,0,0,.5)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: 15,
+                            lineHeight: 1.6,
+                          }}
+                        >
+                          这里是html渲染处。
+                        </Box>
+                      ) : activeNoteEditing ? (
                         <InputBase
                           value={activeNoteEditBody}
                           onChange={e => setActiveNoteEditBody(e.target.value)}
