@@ -11,6 +11,7 @@ import {
   saveIndex,
   tryLoadIndex,
 } from './core'
+import { buildEmptyHtmlViewDoc, normalizeHtmlViewContent } from './noteHtml'
 import { renderNoteDisplayHtml } from './noteRender'
 import {
   NOTE_HTML_VIEW_FILE,
@@ -23,6 +24,17 @@ import {
   type HyperCortexNoteManifestV1,
   type HyperCortexNoteResourceRef,
 } from './noteSchema'
+
+export type HyperCortexHtmlFaceDoc = {
+  id: string
+  packageDir: string
+  title: string
+  html: string
+  exists: boolean
+  createdAtMs: number
+  updatedAtMs: number
+  schemaVersion: number
+}
 
 export function notePackageDirForId(id: string): string {
   const noteId = String(id || '').trim()
@@ -47,6 +59,19 @@ function noteDocWithDisplay(doc: HyperCortexNoteDocData): HyperCortexNoteDoc {
   return {
     ...doc,
     displayHtml: renderNoteDisplayHtml(doc),
+  }
+}
+
+function htmlFaceDocFromManifest(manifest: HyperCortexNoteManifestV1, packageDir: string, html: string, exists: boolean): HyperCortexHtmlFaceDoc {
+  return {
+    id: manifest.id,
+    packageDir,
+    title: manifest.title,
+    html,
+    exists,
+    createdAtMs: manifest.createdAtMs,
+    updatedAtMs: manifest.updatedAtMs,
+    schemaVersion: manifest.schemaVersion,
   }
 }
 
@@ -80,13 +105,13 @@ async function saveNoteFiles(
     saveTextFace?: boolean
     htmlViewContent?: string | null
   },
-): Promise<void> {
+): Promise<HyperCortexNoteManifestV1> {
   const existingManifest = await readNoteManifest(api, scope, doc.packageDir).catch(() => null)
   const faces: HyperCortexNoteManifestV1['faces'] = {
     ...(existingManifest?.faces || {}),
   }
 
-  if (options?.saveTextFace !== false) {
+  if (options?.saveTextFace === true) {
     await api.files.writeText({
       scope,
       path: notePathInPackage(doc.packageDir, NOTE_TEXT_FILE),
@@ -104,7 +129,7 @@ async function saveNoteFiles(
       await api.files.writeText({
         scope,
         path: notePathInPackage(doc.packageDir, NOTE_HTML_VIEW_FILE),
-        text: String(options.htmlViewContent),
+        text: normalizeHtmlViewContent(options.htmlViewContent),
         overwrite: true,
       })
       faces.htmlView = { file: NOTE_HTML_VIEW_FILE }
@@ -121,6 +146,7 @@ async function saveNoteFiles(
     text: JSON.stringify(manifest, null, 2),
     overwrite: true,
   })
+  return manifest
 }
 
 async function upsertNoteIndex(api: Api, scope: VaultScope, meta: NoteMeta): Promise<void> {
@@ -188,6 +214,91 @@ export async function loadNotePackage(api: Api, scope: VaultScope, packageDir: s
     resources: manifest.resources,
   })
   return noteDocWithDisplay(docData)
+}
+
+export async function loadHtmlFace(api: Api, scope: VaultScope, packageDir: string): Promise<HyperCortexHtmlFaceDoc> {
+  const manifest = await readNoteManifest(api, scope, packageDir)
+  if (!manifest.faces.htmlView) {
+    return htmlFaceDocFromManifest(
+      manifest,
+      packageDir,
+      buildEmptyHtmlViewDoc({ title: manifest.title, noteId: manifest.id, schemaVersion: manifest.schemaVersion }),
+      false,
+    )
+  }
+  const html = await api.files.readText({ scope, path: notePathInPackage(packageDir, manifest.faces.htmlView.file) })
+  return htmlFaceDocFromManifest(manifest, packageDir, normalizeHtmlViewContent(html), true)
+}
+
+export async function saveHtmlFace(
+  api: Api,
+  scope: VaultScope,
+  input: {
+    id?: string
+    packageDir?: string
+    title?: string
+    body?: string
+    tags?: string[]
+    createdAtMs?: number
+    resources?: HyperCortexNoteResourceRef[]
+    html: string
+  },
+): Promise<{ meta: NoteMeta; htmlFace: HyperCortexHtmlFaceDoc }> {
+  await ensureVaultDirs(api, scope)
+  const id = String(input.id || '').trim() || nowId()
+  const packageDir = String(input.packageDir || '').trim() || notePackageDirForId(id)
+  const manifest = await readNoteManifest(api, scope, packageDir).catch(() => null)
+  const nowMs = Date.now()
+  const docData = createNoteDocData({
+    id,
+    packageDir,
+    title: input.title ?? manifest?.title,
+    body: input.body,
+    tags: input.tags ?? manifest?.tags,
+    createdAtMs: input.createdAtMs ?? manifest?.createdAtMs ?? nowMs,
+    updatedAtMs: nowMs,
+    resources: input.resources ?? manifest?.resources,
+  })
+  const nextManifest = await saveNoteFiles(api, scope, docData, {
+    saveTextFace: false,
+    htmlViewContent: input.html,
+  })
+  const meta = noteMetaFromDoc(docData)
+  await upsertNoteIndex(api, scope, meta)
+  return {
+    meta,
+    htmlFace: htmlFaceDocFromManifest(nextManifest, packageDir, normalizeHtmlViewContent(input.html), true),
+  }
+}
+
+export async function deleteHtmlFace(api: Api, scope: VaultScope, packageDir: string): Promise<HyperCortexHtmlFaceDoc> {
+  const manifest = await readNoteManifest(api, scope, packageDir)
+  const body = manifest.faces.text
+    ? await api.files.readText({ scope, path: notePathInPackage(packageDir, manifest.faces.text.file) }).catch(() => '')
+    : ''
+  const docData = createNoteDocData({
+    id: manifest.id,
+    packageDir,
+    title: manifest.title,
+    body,
+    tags: manifest.tags,
+    createdAtMs: manifest.createdAtMs,
+    updatedAtMs: Date.now(),
+    schemaVersion: manifest.schemaVersion,
+    resources: manifest.resources,
+  })
+  const nextManifest = await saveNoteFiles(api, scope, docData, {
+    saveTextFace: false,
+    htmlViewContent: null,
+  })
+  const meta = noteMetaFromDoc(docData)
+  await upsertNoteIndex(api, scope, meta)
+  return htmlFaceDocFromManifest(
+    nextManifest,
+    packageDir,
+    buildEmptyHtmlViewDoc({ title: nextManifest.title, noteId: nextManifest.id, schemaVersion: nextManifest.schemaVersion }),
+    false,
+  )
 }
 
 export async function rebuildNoteIndexFromFs(api: Api, scope: VaultScope, idx: HyperCortexIndexV1): Promise<HyperCortexIndexV1> {
