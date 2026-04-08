@@ -1,22 +1,53 @@
-import { escapeHtml } from './html'
-
-export const NOTE_SOURCE_TAG = 'hypercortex-note-source'
-export const NOTE_TITLE_TAG = 'note-title'
-export const NOTE_BODY_TAG = 'note-body'
-export const NOTE_TAGS_TAG = 'note-tags'
-export const NOTE_TAG_TAG = 'note-tag'
-export const NOTE_META_TAG = 'note-meta'
-export const NOTE_SCHEMA_VERSION_TAG = 'note-schema-version'
 export const HYPERCORTEX_NOTE_SCHEMA_VERSION = 1
+export const NOTE_MANIFEST_FILE = 'manifest.json'
+export const NOTE_TEXT_FILE = 'text.md'
+export const NOTE_HTML_VIEW_FILE = 'html-view.html'
 
-export type HyperCortexNoteSource = {
+export type HyperCortexNoteResourceRef = {
+  assetId: string
+  mime?: string
+  ext?: string
+  kind?: string
+  name?: string
+}
+
+export type HyperCortexNoteManifestV1 = {
+  schemaVersion: number
+  id: string
+  title: string
+  tags: string[]
+  createdAtMs: number
+  updatedAtMs: number
+  faces: {
+    text: { file: string }
+    htmlView: { file: string }
+  }
+  resources: HyperCortexNoteResourceRef[]
+}
+
+export type HyperCortexNoteDocData = {
+  id: string
+  packageDir: string
   title: string
   body: string
   tags: string[]
+  createdAtMs: number
+  updatedAtMs: number
   schemaVersion: number
+  resources: HyperCortexNoteResourceRef[]
 }
 
-export type HyperCortexNoteSourceInput = Partial<HyperCortexNoteSource>
+export type HyperCortexNoteDoc = HyperCortexNoteDocData & {
+  displayHtml: string
+}
+
+export type HyperCortexNoteDocInput = Partial<Omit<HyperCortexNoteDocData, 'id' | 'packageDir'>> & {
+  id: string
+  packageDir: string
+  title?: string
+  body?: string
+  tags?: string[]
+}
 
 function normalizeText(value: string): string {
   return String(value || '').replace(/\r\n/g, '\n')
@@ -26,37 +57,61 @@ function normalizeTag(value: string): string {
   return String(value || '').trim()
 }
 
-export function createNoteSource(input?: HyperCortexNoteSourceInput): HyperCortexNoteSource {
-  const title = String(input?.title || '').trim() || '未命名'
-  const body = normalizeText(String(input?.body || ''))
-  const tags = Array.from(new Set((input?.tags || []).map(normalizeTag).filter(Boolean)))
-  const schemaVersion = Number(input?.schemaVersion) > 0 ? Number(input?.schemaVersion) : HYPERCORTEX_NOTE_SCHEMA_VERSION
-  return { title, body, tags, schemaVersion }
+function normalizeResources(list?: HyperCortexNoteResourceRef[]): HyperCortexNoteResourceRef[] {
+  return Array.from(
+    new Map(
+      (list || [])
+        .map(item => ({
+          assetId: String(item?.assetId || '').trim(),
+          mime: String(item?.mime || '').trim() || undefined,
+          ext: String(item?.ext || '').trim() || undefined,
+          kind: String(item?.kind || '').trim() || undefined,
+          name: String(item?.name || '').trim() || undefined,
+        }))
+        .filter(item => item.assetId)
+        .map(item => [item.assetId, item]),
+    ).values(),
+  )
 }
 
-export function serializeNoteSource(source: HyperCortexNoteSource): string {
-  const normalized = createNoteSource(source)
-  const tagsHtml = normalized.tags.map(tag => `      <${NOTE_TAG_TAG}>${escapeHtml(tag)}</${NOTE_TAG_TAG}>`).join('\n')
-  return `<${NOTE_SOURCE_TAG} hidden>
-  <${NOTE_TITLE_TAG}>${escapeHtml(normalized.title)}</${NOTE_TITLE_TAG}>
-  <${NOTE_TAGS_TAG}>${tagsHtml ? `\n${tagsHtml}\n  ` : ''}</${NOTE_TAGS_TAG}>
-  <${NOTE_BODY_TAG}>${escapeHtml(normalized.body)}</${NOTE_BODY_TAG}>
-  <${NOTE_META_TAG}>
-    <${NOTE_SCHEMA_VERSION_TAG}>${normalized.schemaVersion}</${NOTE_SCHEMA_VERSION_TAG}>
-  </${NOTE_META_TAG}>
-</${NOTE_SOURCE_TAG}>`
+export function createNoteDocData(input: HyperCortexNoteDocInput): HyperCortexNoteDocData {
+  const createdAtMs = Number(input.createdAtMs) > 0 ? Number(input.createdAtMs) : Date.now()
+  const updatedAtMs = Number(input.updatedAtMs) > 0 ? Number(input.updatedAtMs) : createdAtMs
+  return {
+    id: String(input.id || '').trim(),
+    packageDir: String(input.packageDir || '').trim(),
+    title: String(input.title || '').trim() || '未命名',
+    body: normalizeText(String(input.body || '')),
+    tags: Array.from(new Set((input.tags || []).map(normalizeTag).filter(Boolean))),
+    createdAtMs,
+    updatedAtMs,
+    schemaVersion: Number(input.schemaVersion) > 0 ? Number(input.schemaVersion) : HYPERCORTEX_NOTE_SCHEMA_VERSION,
+    resources: normalizeResources(input.resources),
+  }
 }
 
-export function parseNoteSourceDocument(doc: Document): HyperCortexNoteSource {
-  const root = doc.querySelector(NOTE_SOURCE_TAG)
-  if (!root) throw new Error('笔记 source 区缺失')
-
-  const title = String(root.querySelector(NOTE_TITLE_TAG)?.textContent || '').trim() || '未命名'
-  const body = normalizeText(String(root.querySelector(NOTE_BODY_TAG)?.textContent || ''))
-  const tags = Array.from(root.querySelectorAll(`${NOTE_TAGS_TAG} > ${NOTE_TAG_TAG}`))
-    .map(node => normalizeTag(node.textContent || ''))
-    .filter(Boolean)
-  const schemaVersionRaw = String(root.querySelector(`${NOTE_META_TAG} > ${NOTE_SCHEMA_VERSION_TAG}`)?.textContent || '').trim()
-  const schemaVersion = Number(schemaVersionRaw) || HYPERCORTEX_NOTE_SCHEMA_VERSION
-  return createNoteSource({ title, body, tags, schemaVersion })
+export function createNoteManifest(input: {
+  id: string
+  title?: string
+  tags?: string[]
+  createdAtMs?: number
+  updatedAtMs?: number
+  schemaVersion?: number
+  resources?: HyperCortexNoteResourceRef[]
+}): HyperCortexNoteManifestV1 {
+  const createdAtMs = Number(input.createdAtMs) > 0 ? Number(input.createdAtMs) : Date.now()
+  const updatedAtMs = Number(input.updatedAtMs) > 0 ? Number(input.updatedAtMs) : createdAtMs
+  return {
+    schemaVersion: Number(input.schemaVersion) > 0 ? Number(input.schemaVersion) : HYPERCORTEX_NOTE_SCHEMA_VERSION,
+    id: String(input.id || '').trim(),
+    title: String(input.title || '').trim() || '未命名',
+    tags: Array.from(new Set((input.tags || []).map(normalizeTag).filter(Boolean))),
+    createdAtMs,
+    updatedAtMs,
+    faces: {
+      text: { file: NOTE_TEXT_FILE },
+      htmlView: { file: NOTE_HTML_VIEW_FILE },
+    },
+    resources: normalizeResources(input.resources),
+  }
 }

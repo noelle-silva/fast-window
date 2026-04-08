@@ -1,7 +1,11 @@
-import { createNoteSource, type HyperCortexNoteSource } from './noteSchema'
-
 export type RenderNoteDisplayOptions = {
   includeTitle?: boolean
+}
+
+export type RenderNoteDisplayInput = {
+  title: string
+  body: string
+  tags: string[]
 }
 
 export const NOTE_DOCUMENT_STYLE = `
@@ -29,6 +33,10 @@ function normalizeBodyForDisplay(body: string): string {
   return String(body || '').replace(/\r\n/g, '\n')
 }
 
+function normalizeTagsForDisplay(tags: string[]): string[] {
+  return Array.from(new Set((tags || []).map(tag => String(tag || '').trim()).filter(Boolean)))
+}
+
 function renderParagraphsHtml(body: string): string {
   const lines = normalizeBodyForDisplay(body).split('\n')
   const html = lines.map(line => `<p>${line ? escapeHtmlForDisplay(line) : '<br />'}</p>`).join('')
@@ -42,55 +50,20 @@ function renderTagsHtml(tags: string[]): string {
     .join('')}</div>`
 }
 
-function renderDisplayHtmlFromFields(fields: { title: string; body: string; tags: string[] }, includeTitle: boolean): string {
+function renderDisplayHtmlFromFields(fields: RenderNoteDisplayInput, includeTitle: boolean): string {
   const titleHtml = includeTitle ? `<h1 class="hypercortex-note-title">${escapeHtmlForDisplay(fields.title)}</h1>` : ''
   const tagsHtml = renderTagsHtml(fields.tags)
   const bodyHtml = `<div class="hypercortex-note-body">${renderParagraphsHtml(fields.body)}</div>`
   return `<article class="hypercortex-note-view">${titleHtml}${tagsHtml}${bodyHtml}</article>`
 }
 
-export function renderNoteDisplayHtml(source: HyperCortexNoteSource, options?: RenderNoteDisplayOptions): string {
-  const normalized = createNoteSource(source)
+export function renderNoteDisplayHtml(source: RenderNoteDisplayInput, options?: RenderNoteDisplayOptions): string {
   return renderDisplayHtmlFromFields(
     {
-      title: normalized.title,
-      body: normalized.body,
-      tags: normalized.tags,
+      title: String(source?.title || '').trim() || '未命名',
+      body: normalizeBodyForDisplay(String(source?.body || '')),
+      tags: normalizeTagsForDisplay(source?.tags || []),
     },
     options?.includeTitle === true,
   )
-}
-
-function runtimeRenderNoteFromSource() {
-  var root = document.querySelector('hypercortex-note-source')
-  var target = document.getElementById('hypercortex-content')
-  if (!root || !target) return
-
-  function textOf(selector, fallback) {
-    var node = root.querySelector(selector)
-    var text = node && node.textContent ? node.textContent : fallback || ''
-    return normalizeBodyForDisplay(String(text || ''))
-  }
-
-  var title = String(textOf('note-title', '未命名')).trim() || '未命名'
-  var body = textOf('note-body', '')
-  var tags = Array.from(root.querySelectorAll('note-tags > note-tag'))
-    .map(function (node) {
-      return String(node.textContent || '').trim()
-    })
-    .filter(Boolean)
-
-  document.title = title
-  target.innerHTML = renderDisplayHtmlFromFields({ title: title, body: body, tags: tags }, true)
-}
-
-export function buildNoteRuntimeScript(): string {
-  return [
-    escapeHtmlForDisplay.toString(),
-    normalizeBodyForDisplay.toString(),
-    renderParagraphsHtml.toString(),
-    renderTagsHtml.toString(),
-    renderDisplayHtmlFromFields.toString(),
-    `(${runtimeRenderNoteFromSource.toString()})();`,
-  ].join('\n\n')
 }

@@ -12,7 +12,8 @@ import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
-import { buildNoteHtmlDoc, ensureIndex, ensureMetadata, ensureVaultDirs, getApi, noteRelPath, nowId, readNoteDoc, rebuildIndexFromFs, saveIndex, saveMetadata, tryLoadIndex, tryLoadMetadata, type HyperCortexNoteDoc, type NoteMeta } from '../core'
+import { ensureMetadata, getApi, saveMetadata, tryLoadMetadata, type HyperCortexNoteDoc, type NoteMeta } from '../core'
+import { loadNoteIndex, loadNotePackage, saveNotePackage } from '../notePackage'
 
 type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'note-detail' | 'index' | 'settings'
 
@@ -55,7 +56,7 @@ export function HyperCortexApp() {
   const [newNoteTitle, setNewNoteTitle] = React.useState('新建笔记')
   const [newNoteContent, setNewNoteContent] = React.useState('')
   const [newNoteSaving, setNewNoteSaving] = React.useState(false)
-  const [savedNote, setSavedNote] = React.useState<{ id: string; file: string; createdAtMs: number } | null>(null)
+  const [savedNote, setSavedNote] = React.useState<{ id: string; dir: string; createdAtMs: number } | null>(null)
   const [allNotesLayout, setAllNotesLayout] = React.useState<AllNotesLayout>('list')
   const [allNotes, setAllNotes] = React.useState<NoteMeta[]>([])
   const [allNotesLoading, setAllNotesLoading] = React.useState(false)
@@ -104,11 +105,7 @@ export function HyperCortexApp() {
     setAllNotesLoadError(null)
     try {
       const scope = 'library' as const
-      let idx = await tryLoadIndex(api, scope)
-      if (!idx) {
-        idx = await ensureIndex(api, scope)
-        idx = await rebuildIndexFromFs(api, scope, idx)
-      }
+      const idx = await loadNoteIndex(api, scope)
       const notes = sortNotes(Object.values(idx.notes || {}))
       setAllNotes(notes)
     } catch (e: any) {
@@ -147,44 +144,17 @@ export function HyperCortexApp() {
       const scope = 'library' as const
       const title = String(newNoteTitle || '').trim() || '未命名'
       const body = String(newNoteContent || '').replace(/\r\n/g, '\n')
-
       const existing = savedNote
-      const id = existing?.id || nowId()
-      const relPath = noteRelPath(id, title)
-      const html = buildNoteHtmlDoc({ id, source: { title, body, tags: [] } })
-      const nowMs = Date.now()
+      const result = await saveNotePackage(api, scope, {
+        id: existing?.id,
+        title,
+        body,
+        tags: [],
+        createdAtMs: existing?.createdAtMs,
+      })
 
-      await ensureVaultDirs(api, scope)
-      await api.files.writeText({ scope, path: relPath, text: html, overwrite: true })
-
-      const idx = await ensureIndex(api, scope)
-      const next = {
-        ...idx,
-        notes: {
-          ...idx.notes,
-          [id]: {
-            id,
-            title,
-            file: relPath,
-            createdAtMs: existing?.createdAtMs ?? nowMs,
-            updatedAtMs: nowMs,
-          },
-        },
-      }
-      await saveIndex(api, scope, next)
-      setSavedNote({ id, file: relPath, createdAtMs: existing?.createdAtMs ?? nowMs })
-      setAllNotes(prev =>
-        sortNotes([
-          {
-            id,
-            title,
-            file: relPath,
-            createdAtMs: existing?.createdAtMs ?? nowMs,
-            updatedAtMs: nowMs,
-          },
-          ...prev.filter(item => item.id !== id),
-        ]),
-      )
+      setSavedNote({ id: result.meta.id, dir: result.meta.dir, createdAtMs: result.meta.createdAtMs })
+      setAllNotes(prev => sortNotes([result.meta, ...prev.filter(item => item.id !== result.meta.id)]))
       await api.ui.showToast('笔记已保存')
     } catch (e: any) {
       await api.ui.showToast(String(e?.message || e || '保存失败'))
@@ -201,7 +171,7 @@ export function HyperCortexApp() {
       setActiveNoteLoading(true)
       setPage('note-detail')
       try {
-        const doc = await readNoteDoc(api, 'library', note.file)
+        const doc = await loadNotePackage(api, 'library', note.dir)
         setActiveNoteDoc(doc)
       } catch (e: any) {
         const message = String(e?.message || e || '加载笔记失败')
@@ -229,41 +199,23 @@ export function HyperCortexApp() {
     try {
       const scope = 'library' as const
       const title = String(activeNoteEditTitle || '').trim() || '未命名'
-      const nextFile = noteRelPath(activeNote.id, title)
       const body = String(activeNoteEditBody || '').replace(/\r\n/g, '\n')
       const tags = activeNoteEditTags.map(normalizeTagText).filter(Boolean)
-      const html = buildNoteHtmlDoc({ id: activeNote.id, source: { title, body, tags } })
-      const nowMs = Date.now()
-
-      await ensureVaultDirs(api, scope)
-      if (nextFile !== activeNote.file) {
-        await api.files.rename({ scope, from: activeNote.file, to: nextFile, overwrite: true })
-      }
-      await api.files.writeText({ scope, path: nextFile, text: html, overwrite: true })
-
-      const idx = await ensureIndex(api, scope)
-      const nextMeta: NoteMeta = {
+      const result = await saveNotePackage(api, scope, {
         id: activeNote.id,
         title,
-        file: nextFile,
+        body,
+        tags,
         createdAtMs: activeNote.createdAtMs,
-        updatedAtMs: nowMs,
-      }
-      await saveIndex(api, scope, {
-        ...idx,
-        notes: {
-          ...idx.notes,
-          [activeNote.id]: nextMeta,
-        },
+        resources: activeNoteDoc?.resources || [],
       })
 
-      setAllNotes(prev => sortNotes([nextMeta, ...prev.filter(item => item.id !== activeNote.id)]))
-      setActiveNote(nextMeta)
-      const refreshed = await readNoteDoc(api, scope, nextFile)
-      setActiveNoteDoc(refreshed)
-      setActiveNoteEditTitle(refreshed.title)
-      setActiveNoteEditBody(refreshed.body)
-      setActiveNoteEditTags(refreshed.tags)
+      setAllNotes(prev => sortNotes([result.meta, ...prev.filter(item => item.id !== activeNote.id)]))
+      setActiveNote(result.meta)
+      setActiveNoteDoc(result.doc)
+      setActiveNoteEditTitle(result.doc.title)
+      setActiveNoteEditBody(result.doc.body)
+      setActiveNoteEditTags(result.doc.tags)
       setActiveNoteTagInput('')
       setActiveNoteEditing(false)
       await api.ui.showToast('笔记已保存')
@@ -272,7 +224,7 @@ export function HyperCortexApp() {
     } finally {
       setActiveNoteSaving(false)
     }
-  }, [activeNote, activeNoteEditBody, activeNoteEditTitle, activeNoteSaving, api, sortNotes])
+  }, [activeNote, activeNoteDoc?.resources, activeNoteEditBody, activeNoteEditTags, activeNoteEditTitle, activeNoteSaving, api, sortNotes])
 
   const handleAddActiveNoteTag = React.useCallback(() => {
     setActiveNoteEditTags(prev => appendTag(prev, activeNoteTagInput))

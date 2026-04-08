@@ -1,3 +1,5 @@
+import { NOTE_MANIFEST_FILE, createNoteManifest, type HyperCortexNoteManifestV1 } from './noteSchema'
+
 export type VaultScope = 'library' | 'output' | 'data'
 
 export type Api = {
@@ -30,7 +32,7 @@ export type Api = {
 export type NoteMeta = {
   id: string
   title: string
-  file: string
+  dir: string
   createdAtMs: number
   updatedAtMs: number
 }
@@ -209,10 +211,6 @@ export function safeTitleForFile(title: string): string {
   return s || '未命名'
 }
 
-export function noteFilename(id: string, title: string): string {
-  return `${id}_${safeTitleForFile(title)}.html`
-}
-
 export function noteMonthFolderFromIdOrNow(id: string): string {
   const s = String(id || '').trim()
   if (/^\d{6,}$/.test(s)) {
@@ -223,32 +221,12 @@ export function noteMonthFolderFromIdOrNow(id: string): string {
   return monthFolder()
 }
 
-export function noteDirForId(id: string): string {
-  return `${NOTES_DIR}/${noteMonthFolderFromIdOrNow(id)}`
-}
-
-export function noteRelPath(id: string, title: string): string {
-  return `${noteDirForId(id)}/${noteFilename(id, title)}`
-}
-
-export function parseNoteFilename(name: string): { id: string; title: string } | null {
-  const lower = name.toLowerCase()
-  if (!(lower.endsWith('.html') || lower.endsWith('.htm'))) return null
-  const base = name.replace(/\.html?$/i, '')
-  const idx = base.indexOf('_')
-  if (idx <= 0) return null
-  const id = base.slice(0, idx).trim()
-  if (!/^\d{8,}$/.test(id)) return null
-  const title = base.slice(idx + 1).trim()
-  return { id, title: title || '未命名' }
-}
-
 export { escapeHtml } from './html'
-export { buildNoteHtmlDoc, readNoteDoc, type HyperCortexNoteDoc } from './noteHtml'
+export type { HyperCortexNoteDoc } from './noteSchema'
 
 export async function sha256Hex(dataUrlOrBase64: string): Promise<string> {
   const s = String(dataUrlOrBase64 || '').trim()
-  const b64 = s.startsWith('data:') ? (s.split(',', 2)[1] || '') : s
+  const b64 = s.startsWith('data:') ? s.split(',', 2)[1] || '' : s
   const bin = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
   const hash = await crypto.subtle.digest('SHA-256', bin)
   const out = Array.from(new Uint8Array(hash))
@@ -283,6 +261,20 @@ export async function ensureVaultDirs(api: Api, scope: VaultScope): Promise<void
   await api.files.listDir({ scope, dir: ASSETS_DIR }).catch(() => {})
 }
 
+function normalizeManifest(input: any): HyperCortexNoteManifestV1 {
+  const id = String(input?.id || '').trim()
+  if (!id) throw new Error('笔记 manifest 缺少 id')
+  return createNoteManifest({
+    id,
+    title: input?.title,
+    tags: Array.isArray(input?.tags) ? input.tags : [],
+    createdAtMs: Number(input?.createdAtMs),
+    updatedAtMs: Number(input?.updatedAtMs),
+    schemaVersion: Number(input?.schemaVersion),
+    resources: Array.isArray(input?.resources) ? input.resources : [],
+  })
+}
+
 export async function probeHasVault(api: Api, scope: VaultScope): Promise<boolean> {
   const root = await api.files.listDir({ scope, dir: null }).catch(() => [])
   if (root.some(ent => ent.isFile && ent.name === INDEX_FILE)) return true
@@ -294,8 +286,10 @@ export async function probeHasVault(api: Api, scope: VaultScope): Promise<boolea
     if (!monthDir.isDirectory) continue
     const items = await api.files.listDir({ scope, dir: `${NOTES_DIR}/${monthDir.name}` }).catch(() => [])
     for (const ent of items) {
-      if (!ent.isFile) continue
-      if (parseNoteFilename(ent.name)) return true
+      if (!ent.isDirectory) continue
+      const packageDir = `${NOTES_DIR}/${monthDir.name}/${ent.name}`
+      const packageItems = await api.files.listDir({ scope, dir: packageDir }).catch(() => [])
+      if (packageItems.some(item => item.isFile && item.name === NOTE_MANIFEST_FILE)) return true
     }
   }
   return false
@@ -308,7 +302,27 @@ export async function tryLoadIndex(api: Api, scope: VaultScope): Promise<HyperCo
     if (!parsed || typeof parsed !== 'object') return null
     if (parsed.version !== 1) return null
     if (!parsed.notes || typeof parsed.notes !== 'object') return null
-    return parsed as HyperCortexIndexV1
+
+    const notes = Object.fromEntries(
+      Object.entries(parsed.notes)
+        .map(([id, value]) => {
+          const note = value as any
+          const dir = String(note?.dir || '').trim()
+          if (!dir) throw new Error('index note dir 缺失')
+          return [
+            id,
+            {
+              id: String(note?.id || id).trim(),
+              title: String(note?.title || '').trim() || '未命名',
+              dir,
+              createdAtMs: Number(note?.createdAtMs) > 0 ? Number(note.createdAtMs) : 0,
+              updatedAtMs: Number(note?.updatedAtMs) > 0 ? Number(note.updatedAtMs) : 0,
+            } satisfies NoteMeta,
+          ]
+        }),
+    )
+
+    return { version: 1, notes }
   } catch {
     return null
   }
@@ -354,27 +368,26 @@ export async function saveMetadata(api: Api, meta: HyperCortexMetadataV1): Promi
 
 export async function rebuildIndexFromFs(api: Api, scope: VaultScope, idx: HyperCortexIndexV1): Promise<HyperCortexIndexV1> {
   await ensureVaultDirs(api, scope)
-  const monthDirs = await api.files.listDir({ scope, dir: NOTES_DIR })
+  const monthDirs = await api.files.listDir({ scope, dir: NOTES_DIR }).catch(() => [])
   const nextNotes: Record<string, NoteMeta> = {}
 
   for (const monthDir of monthDirs) {
     if (!monthDir.isDirectory) continue
-    const items = await api.files.listDir({ scope, dir: `${NOTES_DIR}/${monthDir.name}` }).catch(() => [])
-    for (const ent of items) {
-      if (!ent.isFile) continue
-      const parsed = parseNoteFilename(ent.name)
-      if (!parsed) continue
-
-      const file = `${NOTES_DIR}/${monthDir.name}/${ent.name}`
-      const existing = idx.notes[parsed.id]
-      const createdAtMs = existing?.createdAtMs ?? ent.modifiedMs ?? Date.now()
-      const updatedAtMs = ent.modifiedMs ?? existing?.updatedAtMs ?? createdAtMs
-      nextNotes[parsed.id] = {
-        id: parsed.id,
-        title: parsed.title,
-        file,
-        createdAtMs,
-        updatedAtMs,
+    const packageDirs = await api.files.listDir({ scope, dir: `${NOTES_DIR}/${monthDir.name}` }).catch(() => [])
+    for (const packageEntry of packageDirs) {
+      if (!packageEntry.isDirectory) continue
+      const packageDir = `${NOTES_DIR}/${monthDir.name}/${packageEntry.name}`
+      try {
+        const raw = await api.files.readText({ scope, path: `${packageDir}/${NOTE_MANIFEST_FILE}` })
+        const manifest = normalizeManifest(JSON.parse(raw || 'null'))
+        nextNotes[manifest.id] = {
+          id: manifest.id,
+          title: manifest.title,
+          dir: packageDir,
+          createdAtMs: Number(manifest.createdAtMs) > 0 ? Number(manifest.createdAtMs) : packageEntry.modifiedMs || Date.now(),
+          updatedAtMs: Number(manifest.updatedAtMs) > 0 ? Number(manifest.updatedAtMs) : packageEntry.modifiedMs || Date.now(),
+        }
+      } catch {
       }
     }
   }
@@ -383,4 +396,3 @@ export async function rebuildIndexFromFs(api: Api, scope: VaultScope, idx: Hyper
   await saveIndex(api, scope, next).catch(() => {})
   return next
 }
-
