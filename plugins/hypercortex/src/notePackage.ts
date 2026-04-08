@@ -11,9 +11,9 @@ import {
   saveIndex,
   tryLoadIndex,
 } from './core'
-import { buildNoteHtmlView } from './noteHtml'
 import { renderNoteDisplayHtml } from './noteRender'
 import {
+  NOTE_HTML_VIEW_FILE,
   NOTE_MANIFEST_FILE,
   NOTE_TEXT_FILE,
   createNoteDocData,
@@ -50,6 +50,10 @@ function noteDocWithDisplay(doc: HyperCortexNoteDocData): HyperCortexNoteDoc {
   }
 }
 
+async function deleteNoteFileIfExists(api: Api, scope: VaultScope, packageDir: string, file: string): Promise<void> {
+  await api.files.delete({ scope, path: notePathInPackage(packageDir, file) }).catch(() => {})
+}
+
 async function readNoteManifest(api: Api, scope: VaultScope, packageDir: string): Promise<HyperCortexNoteManifestV1> {
   const raw = await api.files.readText({ scope, path: notePathInPackage(packageDir, NOTE_MANIFEST_FILE) })
   const parsed = JSON.parse(raw || 'null')
@@ -64,27 +68,57 @@ async function readNoteManifest(api: Api, scope: VaultScope, packageDir: string)
     updatedAtMs: Number((parsed as any).updatedAtMs),
     schemaVersion: Number((parsed as any).schemaVersion),
     resources: Array.isArray((parsed as any).resources) ? ((parsed as any).resources as HyperCortexNoteResourceRef[]) : [],
+    faces: (parsed as any).faces,
   })
 }
 
-async function saveNoteFiles(api: Api, scope: VaultScope, doc: HyperCortexNoteDocData): Promise<void> {
-  const manifest = createNoteManifest(doc)
+async function saveNoteFiles(
+  api: Api,
+  scope: VaultScope,
+  doc: HyperCortexNoteDocData,
+  options?: {
+    saveTextFace?: boolean
+    htmlViewContent?: string | null
+  },
+): Promise<void> {
+  const existingManifest = await readNoteManifest(api, scope, doc.packageDir).catch(() => null)
+  const faces: HyperCortexNoteManifestV1['faces'] = {
+    ...(existingManifest?.faces || {}),
+  }
+
+  if (options?.saveTextFace !== false) {
+    await api.files.writeText({
+      scope,
+      path: notePathInPackage(doc.packageDir, NOTE_TEXT_FILE),
+      text: doc.body,
+      overwrite: true,
+    })
+    faces.text = { file: NOTE_TEXT_FILE }
+  }
+
+  if (options && Object.prototype.hasOwnProperty.call(options, 'htmlViewContent')) {
+    if (options.htmlViewContent == null) {
+      await deleteNoteFileIfExists(api, scope, doc.packageDir, NOTE_HTML_VIEW_FILE)
+      delete faces.htmlView
+    } else {
+      await api.files.writeText({
+        scope,
+        path: notePathInPackage(doc.packageDir, NOTE_HTML_VIEW_FILE),
+        text: String(options.htmlViewContent),
+        overwrite: true,
+      })
+      faces.htmlView = { file: NOTE_HTML_VIEW_FILE }
+    }
+  }
+
+  const manifest = createNoteManifest({
+    ...doc,
+    faces,
+  })
   await api.files.writeText({
     scope,
     path: notePathInPackage(doc.packageDir, NOTE_MANIFEST_FILE),
     text: JSON.stringify(manifest, null, 2),
-    overwrite: true,
-  })
-  await api.files.writeText({
-    scope,
-    path: notePathInPackage(doc.packageDir, NOTE_TEXT_FILE),
-    text: doc.body,
-    overwrite: true,
-  })
-  await api.files.writeText({
-    scope,
-    path: notePathInPackage(doc.packageDir, manifest.faces.htmlView.file),
-    text: buildNoteHtmlView(doc),
     overwrite: true,
   })
 }
@@ -110,6 +144,8 @@ export async function saveNotePackage(
     tags?: string[]
     createdAtMs?: number
     resources?: HyperCortexNoteResourceRef[]
+    saveTextFace?: boolean
+    htmlViewContent?: string | null
   },
 ): Promise<{ meta: NoteMeta; doc: HyperCortexNoteDoc }> {
   await ensureVaultDirs(api, scope)
@@ -126,7 +162,10 @@ export async function saveNotePackage(
     updatedAtMs: nowMs,
     resources: input.resources,
   })
-  await saveNoteFiles(api, scope, docData)
+  await saveNoteFiles(api, scope, docData, {
+    saveTextFace: input.saveTextFace,
+    htmlViewContent: input.htmlViewContent,
+  })
   const meta = noteMetaFromDoc(docData)
   await upsertNoteIndex(api, scope, meta)
   return { meta, doc: noteDocWithDisplay(docData) }
@@ -134,7 +173,9 @@ export async function saveNotePackage(
 
 export async function loadNotePackage(api: Api, scope: VaultScope, packageDir: string): Promise<HyperCortexNoteDoc> {
   const manifest = await readNoteManifest(api, scope, packageDir)
-  const body = await api.files.readText({ scope, path: notePathInPackage(packageDir, manifest.faces.text.file) })
+  const body = manifest.faces.text
+    ? await api.files.readText({ scope, path: notePathInPackage(packageDir, manifest.faces.text.file) })
+    : ''
   const docData = createNoteDocData({
     id: manifest.id,
     packageDir,

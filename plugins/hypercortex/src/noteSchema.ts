@@ -19,8 +19,8 @@ export type HyperCortexNoteManifestV1 = {
   createdAtMs: number
   updatedAtMs: number
   faces: {
-    text: { file: string }
-    htmlView: { file: string }
+    text?: { file: string }
+    htmlView?: { file: string }
   }
   resources: HyperCortexNoteResourceRef[]
 }
@@ -74,6 +74,15 @@ function normalizeResources(list?: HyperCortexNoteResourceRef[]): HyperCortexNot
   )
 }
 
+function normalizeFaces(faces?: HyperCortexNoteManifestV1['faces']): HyperCortexNoteManifestV1['faces'] {
+  const next: HyperCortexNoteManifestV1['faces'] = {}
+  const textFile = String(faces?.text?.file || '').trim()
+  const htmlViewFile = String(faces?.htmlView?.file || '').trim()
+  if (textFile) next.text = { file: textFile }
+  if (htmlViewFile) next.htmlView = { file: htmlViewFile }
+  return next
+}
+
 export function createNoteDocData(input: HyperCortexNoteDocInput): HyperCortexNoteDocData {
   const createdAtMs = Number(input.createdAtMs) > 0 ? Number(input.createdAtMs) : Date.now()
   const updatedAtMs = Number(input.updatedAtMs) > 0 ? Number(input.updatedAtMs) : createdAtMs
@@ -98,6 +107,7 @@ export function createNoteManifest(input: {
   updatedAtMs?: number
   schemaVersion?: number
   resources?: HyperCortexNoteResourceRef[]
+  faces?: HyperCortexNoteManifestV1['faces']
 }): HyperCortexNoteManifestV1 {
   const createdAtMs = Number(input.createdAtMs) > 0 ? Number(input.createdAtMs) : Date.now()
   const updatedAtMs = Number(input.updatedAtMs) > 0 ? Number(input.updatedAtMs) : createdAtMs
@@ -108,10 +118,7 @@ export function createNoteManifest(input: {
     tags: Array.from(new Set((input.tags || []).map(normalizeTag).filter(Boolean))),
     createdAtMs,
     updatedAtMs,
-    faces: {
-      text: { file: NOTE_TEXT_FILE },
-      htmlView: { file: NOTE_HTML_VIEW_FILE },
-    },
+    faces: normalizeFaces(input.faces),
     resources: normalizeResources(input.resources),
   }
 }

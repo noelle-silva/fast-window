@@ -151,6 +151,7 @@ export function HyperCortexApp() {
         body,
         tags: [],
         createdAtMs: existing?.createdAtMs,
+        saveTextFace: true,
       })
 
       setSavedNote({ id: result.meta.id, dir: result.meta.dir, createdAtMs: result.meta.createdAtMs })
@@ -208,6 +209,7 @@ export function HyperCortexApp() {
         tags,
         createdAtMs: activeNote.createdAtMs,
         resources: activeNoteDoc?.resources || [],
+        saveTextFace: true,
       })
 
       setAllNotes(prev => sortNotes([result.meta, ...prev.filter(item => item.id !== activeNote.id)]))
