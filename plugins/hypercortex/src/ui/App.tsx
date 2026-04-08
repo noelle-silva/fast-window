@@ -13,7 +13,7 @@ import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
 import { ensureMetadata, getApi, saveMetadata, tryLoadMetadata, type HyperCortexNoteDoc, type NoteMeta } from '../core'
-import { loadNoteIndex, loadNotePackage, saveNotePackage } from '../notePackage'
+import { loadHtmlFace, loadNoteIndex, loadNotePackage, saveNotePackage } from '../notePackage'
 
 type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'note-detail' | 'index' | 'settings'
 
@@ -74,7 +74,9 @@ export function HyperCortexApp() {
   const [activeNoteTagInput, setActiveNoteTagInput] = React.useState('')
   const [activeNoteSaving, setActiveNoteSaving] = React.useState(false)
   const [activeNoteFace, setActiveNoteFace] = React.useState<NoteFaceId>('text')
-  const [activeNoteFaceSelectorVisible, setActiveNoteFaceSelectorVisible] = React.useState(false)
+  const [activeNoteFaces, setActiveNoteFaces] = React.useState<NoteFaceId[]>(['text'])
+  const [activeNoteAddFaceSelectorVisible, setActiveNoteAddFaceSelectorVisible] = React.useState(false)
+  const [activeNotePendingAddFace, setActiveNotePendingAddFace] = React.useState<NoteFaceId | null>(null)
 
   const backToHost = React.useCallback(() => {
     try {
@@ -174,11 +176,17 @@ export function HyperCortexApp() {
       setActiveNoteLoadError(null)
       setActiveNoteLoading(true)
       setActiveNoteFace('text')
-      setActiveNoteFaceSelectorVisible(false)
+      setActiveNoteFaces(['text'])
+      setActiveNoteAddFaceSelectorVisible(false)
+      setActiveNotePendingAddFace(null)
       setPage('note-detail')
       try {
-        const doc = await loadNotePackage(api, 'library', note.dir)
+        const [doc, htmlFace] = await Promise.all([
+          loadNotePackage(api, 'library', note.dir),
+          loadHtmlFace(api, 'library', note.dir).catch(() => null),
+        ])
         setActiveNoteDoc(doc)
+        setActiveNoteFaces(htmlFace?.exists ? ['text', 'html'] : ['text'])
       } catch (e: any) {
         const message = String(e?.message || e || '加载笔记失败')
         setActiveNoteLoadError(message)
@@ -242,6 +250,16 @@ export function HyperCortexApp() {
     setActiveNoteEditTags(prev => prev.filter(item => item !== tag))
   }, [])
 
+  const handleAddActiveNoteFace = React.useCallback(() => {
+    if (!activeNotePendingAddFace) return
+    if (activeNotePendingAddFace === 'html') {
+      setActiveNoteFaces(prev => (prev.includes('html') ? prev : [...prev, 'html']))
+      setActiveNoteFace('html')
+    }
+    setActiveNoteAddFaceSelectorVisible(false)
+    setActiveNotePendingAddFace(null)
+  }, [activeNotePendingAddFace])
+
   const handleCloseActiveNote = React.useCallback(() => {
     setPage('all-notes')
     setActiveNote(null)
@@ -255,7 +273,9 @@ export function HyperCortexApp() {
     setActiveNoteTagInput('')
     setActiveNoteSaving(false)
     setActiveNoteFace('text')
-    setActiveNoteFaceSelectorVisible(false)
+    setActiveNoteFaces(['text'])
+    setActiveNoteAddFaceSelectorVisible(false)
+    setActiveNotePendingAddFace(null)
   }, [])
 
   return (
@@ -767,7 +787,7 @@ export function HyperCortexApp() {
                           <IconButton
                             size="small"
                             aria-label="新增面"
-                            onClick={() => setActiveNoteFaceSelectorVisible(prev => !prev)}
+                            onClick={() => setActiveNoteAddFaceSelectorVisible(prev => !prev)}
                             sx={{
                               color: 'rgba(0,0,0,.58)',
                               bgcolor: 'transparent',
@@ -778,7 +798,7 @@ export function HyperCortexApp() {
                           </IconButton>
                         </Tooltip>
 
-                        {activeNoteFaceSelectorVisible ? (
+                        {activeNoteAddFaceSelectorVisible ? (
                           <Box
                             sx={{
                               display: 'inline-flex',
@@ -792,11 +812,11 @@ export function HyperCortexApp() {
                             <Box
                               role="button"
                               tabIndex={0}
-                              onClick={() => setActiveNoteFace('text')}
+                              onClick={() => setActiveNotePendingAddFace('html')}
                               onKeyDown={e => {
                                 if (e.key === 'Enter' || e.key === ' ') {
                                   e.preventDefault()
-                                  setActiveNoteFace('text')
+                                  setActiveNotePendingAddFace('html')
                                 }
                               }}
                               sx={{
@@ -804,34 +824,8 @@ export function HyperCortexApp() {
                                 px: 1.5,
                                 py: 0.75,
                                 borderRadius: 999,
-                                bgcolor: activeNoteFace === 'text' ? '#111' : 'transparent',
-                                color: activeNoteFace === 'text' ? '#fff' : '#374151',
-                                fontSize: 12,
-                                lineHeight: 1,
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                userSelect: 'none',
-                              }}
-                            >
-                              文本
-                            </Box>
-                            <Box
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => setActiveNoteFace('html')}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                  e.preventDefault()
-                                  setActiveNoteFace('html')
-                                }
-                              }}
-                              sx={{
-                                minWidth: 56,
-                                px: 1.5,
-                                py: 0.75,
-                                borderRadius: 999,
-                                bgcolor: activeNoteFace === 'html' ? '#111' : 'transparent',
-                                color: activeNoteFace === 'html' ? '#fff' : '#374151',
+                                bgcolor: activeNotePendingAddFace === 'html' ? '#111' : 'transparent',
+                                color: activeNotePendingAddFace === 'html' ? '#fff' : '#374151',
                                 fontSize: 12,
                                 lineHeight: 1,
                                 fontWeight: 700,
@@ -841,8 +835,75 @@ export function HyperCortexApp() {
                             >
                               HTML
                             </Box>
+                            <Box
+                              role="button"
+                              tabIndex={0}
+                              onClick={handleAddActiveNoteFace}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault()
+                                  handleAddActiveNoteFace()
+                                }
+                              }}
+                              sx={{
+                                minWidth: 56,
+                                px: 1.5,
+                                py: 0.75,
+                                borderRadius: 999,
+                                bgcolor: '#fff',
+                                color: activeNotePendingAddFace ? '#111' : 'rgba(0,0,0,.32)',
+                                fontSize: 12,
+                                lineHeight: 1,
+                                fontWeight: 700,
+                                cursor: activeNotePendingAddFace ? 'pointer' : 'default',
+                                userSelect: 'none',
+                              }}
+                            >
+                              添加
+                            </Box>
                           </Box>
                         ) : null}
+
+                        <Box
+                          sx={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            p: 0.5,
+                            borderRadius: 999,
+                            bgcolor: 'rgba(0,0,0,.05)',
+                            gap: 0.5,
+                          }}
+                        >
+                          {activeNoteFaces.map(face => (
+                            <Box
+                              key={face}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => setActiveNoteFace(face)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault()
+                                  setActiveNoteFace(face)
+                                }
+                              }}
+                              sx={{
+                                minWidth: 56,
+                                px: 1.5,
+                                py: 0.75,
+                                borderRadius: 999,
+                                bgcolor: activeNoteFace === face ? '#111' : 'transparent',
+                                color: activeNoteFace === face ? '#fff' : '#374151',
+                                fontSize: 12,
+                                lineHeight: 1,
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                userSelect: 'none',
+                              }}
+                            >
+                              {face === 'text' ? '文本' : 'HTML'}
+                            </Box>
+                          ))}
+                        </Box>
                       </Box>
                     ) : null}
                   </Box>
