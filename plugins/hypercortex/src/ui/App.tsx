@@ -839,89 +839,87 @@ export function HyperCortexApp() {
 
                     {!activeNoteLoading && !activeNoteLoadError && activeNoteDoc ? (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        {!activeNoteFaces.includes('html') ? (
-                          <>
-                            <Tooltip title="新增面" placement="bottom-end">
-                              <IconButton
-                                size="small"
-                                aria-label="新增面"
-                                onClick={() => setActiveNoteAddFaceSelectorVisible(prev => !prev)}
-                                sx={{
-                                  color: 'rgba(0,0,0,.58)',
-                                  bgcolor: 'transparent',
-                                  '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
-                                }}
-                              >
-                                <AddRoundedIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
+                        <Tooltip title="新增面" placement="bottom-end">
+                          <IconButton
+                            size="small"
+                            aria-label="新增面"
+                            onClick={() => setActiveNoteAddFaceSelectorVisible(prev => !prev)}
+                            sx={{
+                              color: 'rgba(0,0,0,.58)',
+                              bgcolor: 'transparent',
+                              '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                            }}
+                          >
+                            <AddRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
 
-                            {activeNoteAddFaceSelectorVisible ? (
+                        {activeNoteAddFaceSelectorVisible ? (
+                          <Box
+                            sx={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              p: 0.5,
+                              borderRadius: 999,
+                              bgcolor: 'rgba(0,0,0,.05)',
+                              gap: 0.5,
+                            }}
+                          >
+                            {!activeNoteFaces.includes('html') ? (
                               <Box
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => setActiveNotePendingAddFace('html')}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault()
+                                    setActiveNotePendingAddFace('html')
+                                  }
+                                }}
                                 sx={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  p: 0.5,
+                                  minWidth: 56,
+                                  px: 1.5,
+                                  py: 0.75,
                                   borderRadius: 999,
-                                  bgcolor: 'rgba(0,0,0,.05)',
-                                  gap: 0.5,
+                                  bgcolor: activeNotePendingAddFace === 'html' ? '#111' : 'transparent',
+                                  color: activeNotePendingAddFace === 'html' ? '#fff' : '#374151',
+                                  fontSize: 12,
+                                  lineHeight: 1,
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  userSelect: 'none',
                                 }}
                               >
-                                <Box
-                                  role="button"
-                                  tabIndex={0}
-                                  onClick={() => setActiveNotePendingAddFace('html')}
-                                  onKeyDown={e => {
-                                    if (e.key === 'Enter' || e.key === ' ') {
-                                      e.preventDefault()
-                                      setActiveNotePendingAddFace('html')
-                                    }
-                                  }}
-                                  sx={{
-                                    minWidth: 56,
-                                    px: 1.5,
-                                    py: 0.75,
-                                    borderRadius: 999,
-                                    bgcolor: activeNotePendingAddFace === 'html' ? '#111' : 'transparent',
-                                    color: activeNotePendingAddFace === 'html' ? '#fff' : '#374151',
-                                    fontSize: 12,
-                                    lineHeight: 1,
-                                    fontWeight: 700,
-                                    cursor: 'pointer',
-                                    userSelect: 'none',
-                                  }}
-                                >
-                                  HTML
-                                </Box>
-                                <Box
-                                  role="button"
-                                  tabIndex={0}
-                                  onClick={handleAddActiveNoteFace}
-                                  onKeyDown={e => {
-                                    if (e.key === 'Enter' || e.key === ' ') {
-                                      e.preventDefault()
-                                      handleAddActiveNoteFace()
-                                    }
-                                  }}
-                                  sx={{
-                                    minWidth: 56,
-                                    px: 1.5,
-                                    py: 0.75,
-                                    borderRadius: 999,
-                                    bgcolor: '#fff',
-                                    color: activeNotePendingAddFace ? '#111' : 'rgba(0,0,0,.32)',
-                                    fontSize: 12,
-                                    lineHeight: 1,
-                                    fontWeight: 700,
-                                    cursor: activeNotePendingAddFace ? 'pointer' : 'default',
-                                    userSelect: 'none',
-                                  }}
-                                >
-                                  添加
-                                </Box>
+                                HTML
                               </Box>
                             ) : null}
-                          </>
+                            <Box
+                              role="button"
+                              tabIndex={0}
+                              onClick={handleAddActiveNoteFace}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault()
+                                  handleAddActiveNoteFace()
+                                }
+                              }}
+                              sx={{
+                                minWidth: 56,
+                                px: 1.5,
+                                py: 0.75,
+                                borderRadius: 999,
+                                bgcolor: '#fff',
+                                color: activeNotePendingAddFace ? '#111' : 'rgba(0,0,0,.32)',
+                                fontSize: 12,
+                                lineHeight: 1,
+                                fontWeight: 700,
+                                cursor: activeNotePendingAddFace ? 'pointer' : 'default',
+                                userSelect: 'none',
+                              }}
+                            >
+                              添加
+                            </Box>
+                          </Box>
                         ) : null}
 
                         <Box
