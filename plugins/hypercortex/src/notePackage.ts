@@ -121,19 +121,17 @@ async function saveNoteFiles(
     faces.text = { file: NOTE_TEXT_FILE }
   }
 
-  if (options && Object.prototype.hasOwnProperty.call(options, 'htmlViewContent')) {
-    if (options.htmlViewContent == null) {
-      await deleteNoteFileIfExists(api, scope, doc.packageDir, NOTE_HTML_VIEW_FILE)
-      delete faces.htmlView
-    } else {
-      await api.files.writeText({
-        scope,
-        path: notePathInPackage(doc.packageDir, NOTE_HTML_VIEW_FILE),
-        text: normalizeHtmlViewContent(options.htmlViewContent),
-        overwrite: true,
-      })
-      faces.htmlView = { file: NOTE_HTML_VIEW_FILE }
-    }
+  if (typeof options?.htmlViewContent === 'string') {
+    await api.files.writeText({
+      scope,
+      path: notePathInPackage(doc.packageDir, NOTE_HTML_VIEW_FILE),
+      text: normalizeHtmlViewContent(options.htmlViewContent),
+      overwrite: true,
+    })
+    faces.htmlView = { file: NOTE_HTML_VIEW_FILE }
+  } else if (options?.htmlViewContent === null) {
+    await deleteNoteFileIfExists(api, scope, doc.packageDir, NOTE_HTML_VIEW_FILE)
+    delete faces.htmlView
   }
 
   const manifest = createNoteManifest({

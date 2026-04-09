@@ -209,12 +209,17 @@ export function HyperCortexApp() {
     [api],
   )
 
-  const handleStartEditingActiveNote = React.useCallback(async () => {
-    if (!activeNoteDoc || !activeNote) return
-    setActiveNoteEditTitle(activeNoteDoc.title || activeNote?.title || '未命名')
+  const prepareEditFields = React.useCallback((): boolean => {
+    if (!activeNoteDoc || !activeNote) return false
+    setActiveNoteEditTitle(activeNoteDoc.title || activeNote.title || '未命名')
     setActiveNoteEditBody(activeNoteDoc.body || '')
     setActiveNoteEditTags(activeNoteDoc.tags || [])
     setActiveNoteTagInput('')
+    return true
+  }, [activeNote, activeNoteDoc])
+
+  const handleStartEditingActiveNote = React.useCallback(async () => {
+    if (!prepareEditFields() || !activeNote) return
     if (activeNoteFace === 'html') {
       try {
         const htmlFace = await loadHtmlFace(api, 'library', activeNote.dir)
@@ -224,7 +229,7 @@ export function HyperCortexApp() {
       }
     }
     setActiveNoteEditing(true)
-  }, [activeNote, activeNoteDoc, activeNoteFace, api])
+  }, [activeNote, activeNoteFace, api, prepareEditFields])
 
   const handleSaveActiveNote = React.useCallback(async () => {
     if (!activeNote || activeNoteSaving) return
@@ -234,6 +239,9 @@ export function HyperCortexApp() {
       const title = String(activeNoteEditTitle || '').trim() || '未命名'
       const body = String(activeNoteEditBody || '').replace(/\r\n/g, '\n')
       const tags = activeNoteEditTags.map(normalizeTagText).filter(Boolean)
+
+      let meta: NoteMeta
+      let toastMsg: string
 
       if (activeNoteFace === 'html') {
         const result = await saveHtmlFace(api, scope, {
@@ -246,12 +254,10 @@ export function HyperCortexApp() {
           resources: activeNoteDoc?.resources || [],
           html: activeNoteEditHtml,
         })
-        setAllNotes(prev => sortNotes([result.meta, ...prev.filter(item => item.id !== activeNote.id)]))
-        setActiveNote(result.meta)
+        meta = result.meta
+        setActiveNoteDoc(prev => prev ? { ...prev, title, tags } : prev)
         setActiveNoteFaces(prev => (prev.includes('html') ? prev : [...prev, 'html']))
-        setActiveNoteTagInput('')
-        setActiveNoteEditing(false)
-        await api.ui.showToast('HTML 面已保存')
+        toastMsg = 'HTML 面已保存'
       } else {
         const result = await saveNotePackage(api, scope, {
           id: activeNote.id,
@@ -262,17 +268,19 @@ export function HyperCortexApp() {
           resources: activeNoteDoc?.resources || [],
           saveTextFace: true,
         })
-
-        setAllNotes(prev => sortNotes([result.meta, ...prev.filter(item => item.id !== activeNote.id)]))
-        setActiveNote(result.meta)
+        meta = result.meta
         setActiveNoteDoc(result.doc)
-        setActiveNoteEditTitle(result.doc.title)
         setActiveNoteEditBody(result.doc.body)
-        setActiveNoteEditTags(result.doc.tags)
-        setActiveNoteTagInput('')
-        setActiveNoteEditing(false)
-        await api.ui.showToast('笔记已保存')
+        toastMsg = '笔记已保存'
       }
+
+      setAllNotes(prev => sortNotes([meta, ...prev.filter(item => item.id !== activeNote.id)]))
+      setActiveNote(meta)
+      setActiveNoteEditTitle(title)
+      setActiveNoteEditTags(tags)
+      setActiveNoteTagInput('')
+      setActiveNoteEditing(false)
+      await api.ui.showToast(toastMsg)
     } catch (e: any) {
       await api.ui.showToast(String(e?.message || e || '保存失败'))
     } finally {
@@ -292,6 +300,7 @@ export function HyperCortexApp() {
   const handleAddActiveNoteFace = React.useCallback(async () => {
     if (!activeNotePendingAddFace) return
     if (activeNotePendingAddFace === 'html' && activeNote) {
+      if (!prepareEditFields()) return
       try {
         const htmlFace = await loadHtmlFace(api, 'library', activeNote.dir)
         setActiveNoteEditHtml(htmlFace.html || '')
@@ -304,7 +313,7 @@ export function HyperCortexApp() {
     }
     setActiveNoteAddFaceSelectorVisible(false)
     setActiveNotePendingAddFace(null)
-  }, [activeNote, activeNotePendingAddFace, api])
+  }, [activeNote, activeNotePendingAddFace, api, prepareEditFields])
 
   const handleCloseActiveNote = React.useCallback(() => {
     setPage('all-notes')
@@ -830,85 +839,89 @@ export function HyperCortexApp() {
 
                     {!activeNoteLoading && !activeNoteLoadError && activeNoteDoc ? (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Tooltip title="新增面" placement="bottom-end">
-                          <IconButton
-                            size="small"
-                            aria-label="新增面"
-                            onClick={() => setActiveNoteAddFaceSelectorVisible(prev => !prev)}
-                            sx={{
-                              color: 'rgba(0,0,0,.58)',
-                              bgcolor: 'transparent',
-                              '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
-                            }}
-                          >
-                            <AddRoundedIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+                        {!activeNoteFaces.includes('html') ? (
+                          <>
+                            <Tooltip title="新增面" placement="bottom-end">
+                              <IconButton
+                                size="small"
+                                aria-label="新增面"
+                                onClick={() => setActiveNoteAddFaceSelectorVisible(prev => !prev)}
+                                sx={{
+                                  color: 'rgba(0,0,0,.58)',
+                                  bgcolor: 'transparent',
+                                  '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                                }}
+                              >
+                                <AddRoundedIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
 
-                        {activeNoteAddFaceSelectorVisible ? (
-                          <Box
-                            sx={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              p: 0.5,
-                              borderRadius: 999,
-                              bgcolor: 'rgba(0,0,0,.05)',
-                              gap: 0.5,
-                            }}
-                          >
-                            <Box
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => setActiveNotePendingAddFace('html')}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                  e.preventDefault()
-                                  setActiveNotePendingAddFace('html')
-                                }
-                              }}
-                              sx={{
-                                minWidth: 56,
-                                px: 1.5,
-                                py: 0.75,
-                                borderRadius: 999,
-                                bgcolor: activeNotePendingAddFace === 'html' ? '#111' : 'transparent',
-                                color: activeNotePendingAddFace === 'html' ? '#fff' : '#374151',
-                                fontSize: 12,
-                                lineHeight: 1,
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                userSelect: 'none',
-                              }}
-                            >
-                              HTML
-                            </Box>
-                            <Box
-                              role="button"
-                              tabIndex={0}
-                              onClick={handleAddActiveNoteFace}
-                              onKeyDown={e => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                  e.preventDefault()
-                                  handleAddActiveNoteFace()
-                                }
-                              }}
-                              sx={{
-                                minWidth: 56,
-                                px: 1.5,
-                                py: 0.75,
-                                borderRadius: 999,
-                                bgcolor: '#fff',
-                                color: activeNotePendingAddFace ? '#111' : 'rgba(0,0,0,.32)',
-                                fontSize: 12,
-                                lineHeight: 1,
-                                fontWeight: 700,
-                                cursor: activeNotePendingAddFace ? 'pointer' : 'default',
-                                userSelect: 'none',
-                              }}
-                            >
-                              添加
-                            </Box>
-                          </Box>
+                            {activeNoteAddFaceSelectorVisible ? (
+                              <Box
+                                sx={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  p: 0.5,
+                                  borderRadius: 999,
+                                  bgcolor: 'rgba(0,0,0,.05)',
+                                  gap: 0.5,
+                                }}
+                              >
+                                <Box
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={() => setActiveNotePendingAddFace('html')}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      e.preventDefault()
+                                      setActiveNotePendingAddFace('html')
+                                    }
+                                  }}
+                                  sx={{
+                                    minWidth: 56,
+                                    px: 1.5,
+                                    py: 0.75,
+                                    borderRadius: 999,
+                                    bgcolor: activeNotePendingAddFace === 'html' ? '#111' : 'transparent',
+                                    color: activeNotePendingAddFace === 'html' ? '#fff' : '#374151',
+                                    fontSize: 12,
+                                    lineHeight: 1,
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    userSelect: 'none',
+                                  }}
+                                >
+                                  HTML
+                                </Box>
+                                <Box
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={handleAddActiveNoteFace}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      e.preventDefault()
+                                      handleAddActiveNoteFace()
+                                    }
+                                  }}
+                                  sx={{
+                                    minWidth: 56,
+                                    px: 1.5,
+                                    py: 0.75,
+                                    borderRadius: 999,
+                                    bgcolor: '#fff',
+                                    color: activeNotePendingAddFace ? '#111' : 'rgba(0,0,0,.32)',
+                                    fontSize: 12,
+                                    lineHeight: 1,
+                                    fontWeight: 700,
+                                    cursor: activeNotePendingAddFace ? 'pointer' : 'default',
+                                    userSelect: 'none',
+                                  }}
+                                >
+                                  添加
+                                </Box>
+                              </Box>
+                            ) : null}
+                          </>
                         ) : null}
 
                         <Box
