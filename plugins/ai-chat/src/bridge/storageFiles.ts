@@ -68,6 +68,22 @@ export function createAiChatStorage(tauri: any, pluginId: string) {
   const rtQueue = new Map<string, { t: 'set'; v: any } | { t: 'rm' }>()
   let rtFlushTimer: any = 0
 
+  function safeRuntimeDirKey(raw: any) {
+    const k = String(raw ?? '').trim()
+    if (!k) throw new Error('runtime dir 不能为空')
+    if (k.length > 600) throw new Error('runtime dir 过长')
+    if (k.includes('\\')) throw new Error('runtime dir 不允许包含反斜杠')
+    if (k.startsWith('/')) throw new Error('runtime dir 不能以 / 开头')
+    if (k.includes('\0')) throw new Error('runtime dir 不合法')
+    const parts = k.split('/')
+    for (const p of parts) {
+      const seg = String(p ?? '').trim()
+      if (!seg) throw new Error('runtime dir 不允许空路径段')
+      if (seg === '.' || seg === '..') throw new Error('runtime dir 不允许相对路径段')
+    }
+    return k
+  }
+
   function scheduleRtFlush() {
     if (rtFlushTimer) return
     rtFlushTimer = setTimeout(() => {
@@ -134,6 +150,11 @@ export function createAiChatStorage(tauri: any, pluginId: string) {
     set: async (key: any, value: any) => runtimeSetRaw(String(key ?? ''), value),
     remove: async (key: any) => runtimeRemoveRaw(String(key ?? '')),
     flush: async () => runtimeFlush(),
+    listDir: async (runtimeDirKey: any) => {
+      await ensureReady()
+      const dir = safeRuntimeDirKey(String(runtimeDirKey ?? ''))
+      return client.listDir(`runtime/${dir}`)
+    },
   }
 
   return { storage, runtimeStorage }
