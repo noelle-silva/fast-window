@@ -58,6 +58,9 @@ export type AiChatRun = {
   id: string
   status: AiChatRunStatus
   createdAt: number
+  // 同一 scope 内的 FIFO 顺序键（越小越先执行）。
+  // 运行时数据：不做迁移；不存在时用 createdAt/id 兜底。
+  order?: number
   updatedAt: number
   startedAt?: number
   finishedAt?: number

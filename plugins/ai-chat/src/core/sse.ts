@@ -47,11 +47,21 @@ export function sseFeed(state: any, chunkText: any, onJson: ((json: any) => void
 
     // OpenAI 兼容实现常见差异：不发送 [DONE]，而是在最后一块 JSON 中携带 finish_reason。
     // 若只等 [DONE] 或连接 close，会出现“内容已完整但 pending 一直不结束”。
+    const choice0 = json?.choices?.[0] ?? null
+    const delta0 = choice0?.delta ?? null
     const fr =
-      json?.choices?.[0]?.finish_reason ??
-      json?.choices?.[0]?.finishReason ??
+      choice0?.finish_reason ??
+      choice0?.finishReason ??
+      delta0?.finish_reason ??
+      delta0?.finishReason ??
+      choice0?.stop_reason ??
+      choice0?.stopReason ??
+      delta0?.stop_reason ??
+      delta0?.stopReason ??
       json?.finish_reason ??
       json?.finishReason ??
+      json?.stop_reason ??
+      json?.stopReason ??
       null
     if (fr != null && String(fr).trim()) {
       state.done = true

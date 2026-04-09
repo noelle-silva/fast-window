@@ -19,7 +19,9 @@ export function createAiChatEngine(opts: {
   const runner = createAiChatRunner({ store, net, owner, onProgress: opts.onProgress, onFinal: opts.onFinal })
 
   const running = new Set<string>()
+  const scopeBusy = new Set<string>()
   let ticking = false
+  let enqueueSeq = 0
 
   function targetScope(run: AiChatRun) {
     const kind = run.target?.kind === 'group' ? 'group' : 'role'
@@ -54,6 +56,7 @@ export function createAiChatEngine(opts: {
       id: runId,
       status: 'queued',
       createdAt: t,
+      order: t * 1024 + ((enqueueSeq++ % 1024) | 0),
       updatedAt: t,
       owner: '',
       scopeKey,
@@ -80,6 +83,30 @@ export function createAiChatEngine(opts: {
     await runs.patchRun(id, { cancelRequestedAt: now() })
   }
 
+  async function finalizeQueuedCanceled(run: AiChatRun) {
+    const runId = String(run?.id || '').trim()
+    if (!runId) return
+    if (run.status !== 'queued') return
+    if (!(typeof run.cancelRequestedAt === 'number' && run.cancelRequestedAt > 0)) return
+
+    const t = now()
+    try {
+      await runs.patchRun(runId, { status: 'canceled', finishedAt: t })
+    } catch (_) {}
+    let text = '（已停止）'
+    try {
+      const p = await runs.getProgress(runId)
+      const s = String(p?.text || '').trim()
+      if (s) text = s
+    } catch (_) {}
+    try {
+      if (opts.onFinal) await opts.onFinal({ ...(run as any), status: 'canceled' } as any, text)
+    } catch (_) {}
+    try {
+      await runs.removeRun(runId)
+    } catch (_) {}
+  }
+
   async function tryClaim(run: AiChatRun) {
     const runId = String(run?.id || '').trim()
     if (!runId) return false
@@ -90,23 +117,28 @@ export function createAiChatEngine(opts: {
     if (!scopeKey || !lockKey) return false
 
     // 互斥域：同 chat+branch 只允许一个 running（由 scope lock 兜底）。
-    return withRuntimeLock({
-      store,
-      lockKey,
-      owner,
-      ttlMs: 2500,
-      deadlineMs: 1200,
-      fn: async () => {
-        const cur = await runs.getRun(runId)
-        if (!cur || cur.status !== 'queued') return false
-        cur.status = 'running'
-        cur.owner = owner
-        cur.startedAt = now()
-        cur.updatedAt = now()
-        await runs.setRun(cur)
-        return true
-      },
-    })
+    try {
+      return await withRuntimeLock({
+        store,
+        lockKey,
+        owner: `claim:${owner}:${runId}`,
+        ttlMs: 6000,
+        deadlineMs: 6000,
+        keepAlive: false,
+        fn: async () => {
+          const cur = await runs.getRun(runId)
+          if (!cur || cur.status !== 'queued') return false
+          cur.status = 'running'
+          cur.owner = owner
+          cur.startedAt = now()
+          cur.updatedAt = now()
+          await runs.setRun(cur)
+          return true
+        },
+      })
+    } catch (_) {
+      return false
+    }
   }
 
   async function tick() {
@@ -116,28 +148,97 @@ export function createAiChatEngine(opts: {
       const ids = await runs.listRunIds(200).catch(() => [])
       if (!ids.length) return
 
-      // 简单策略：按 createdAt 升序跑（先到先服务）。
-      const candidates: AiChatRun[] = []
+      const all: AiChatRun[] = []
       for (const id of ids) {
         const r = await runs.getRun(id)
         if (!r) continue
-        if (r.status !== 'queued') continue
-        candidates.push(r)
-        if (candidates.length >= 50) break
+        all.push(r)
+        // 兜底：宿主重启/后台崩溃后，遗留的 running run 会卡死在“生成中”。
+        // 若 owner 与当前实例不一致，重新入队，让新的后台实例接管并收尾。
+        if (r.status === 'running') {
+          const prevOwner = String((r as any).owner || '').trim()
+          if (prevOwner && prevOwner !== owner && !(r as any).finishedAt) {
+            try {
+              r.status = 'queued'
+              ;(r as any).owner = ''
+              try {
+                delete (r as any).startedAt
+              } catch (_) {}
+              r.updatedAt = now()
+              await runs.setRun(r)
+            } catch (_) {}
+          }
+        }
       }
-      candidates.sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0))
 
-      for (const r of candidates) {
+      // queued + cancelRequested：直接收尾，避免永远排队挂起。
+      for (const r of all) {
+        if (r.status === 'queued' && typeof (r as any).cancelRequestedAt === 'number' && (r as any).cancelRequestedAt > 0) {
+          await finalizeQueuedCanceled(r).catch(() => {})
+        }
+      }
+
+      const scopeHasRunning = new Set<string>()
+      for (const r of all) {
+        const sk = String(r?.scopeKey || '').trim()
+        if (!sk) continue
+        if (r.status === 'running') scopeHasRunning.add(sk)
+      }
+
+      // FIFO：每个 scope 只挑一个最早 queued。
+      const chosenByScope = new Map<string, AiChatRun>()
+      for (const r of all) {
+        if (!r || r.status !== 'queued') continue
+        const sk = String(r.scopeKey || '').trim()
+        if (!sk) continue
+        if (scopeBusy.has(sk) || scopeHasRunning.has(sk)) continue
+        const prev = chosenByScope.get(sk) || null
+        if (!prev) {
+          chosenByScope.set(sk, r)
+          continue
+        }
+        const ao = typeof r.order === 'number' && isFinite(r.order) ? r.order : Number(r.createdAt || 0)
+        const bo = typeof prev.order === 'number' && isFinite(prev.order) ? prev.order : Number(prev.createdAt || 0)
+        if (ao !== bo) {
+          if (ao < bo) chosenByScope.set(sk, r)
+          continue
+        }
+        const ac = Number(r.createdAt || 0)
+        const bc = Number(prev.createdAt || 0)
+        if (ac !== bc) {
+          if (ac < bc) chosenByScope.set(sk, r)
+          continue
+        }
+        if (String(r.id || '') < String(prev.id || '')) chosenByScope.set(sk, r)
+      }
+
+      const picked = Array.from(chosenByScope.values())
+      picked.sort((a, b) => {
+        const ao = typeof a.order === 'number' && isFinite(a.order) ? a.order : Number(a.createdAt || 0)
+        const bo = typeof b.order === 'number' && isFinite(b.order) ? b.order : Number(b.createdAt || 0)
+        if (ao !== bo) return ao - bo
+        const ac = Number(a.createdAt || 0)
+        const bc = Number(b.createdAt || 0)
+        if (ac !== bc) return ac - bc
+        return String(a.id || '').localeCompare(String(b.id || ''))
+      })
+
+      for (const r of picked.slice(0, 50)) {
+        const sk = String(r.scopeKey || '').trim()
+        if (!sk) continue
+        if (scopeBusy.has(sk) || scopeHasRunning.has(sk)) continue
         const ok = await tryClaim(r).catch(() => false)
         if (!ok) continue
 
         const runId = r.id
         running.add(runId)
+        scopeBusy.add(sk)
         runner
           .runWithScopeLock(runId)
           .catch(() => {})
           .finally(() => {
             running.delete(runId)
+            scopeBusy.delete(sk)
           })
       }
     } finally {

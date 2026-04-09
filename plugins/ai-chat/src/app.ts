@@ -22,6 +22,8 @@ import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
 import mammoth from 'mammoth/mammoth.browser'
 import { extractPptMarkdown } from './core/ppt'
 import { createAiChatFastWindowApi } from './bridge/tauriCompat'
+import { createAiChatRequestBridge } from './aiRequestBridge'
+import { createAiChatRequestPipeline } from './requestPipeline'
 import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from './core/viewerZoom'
 ;(function () {
   const api = createAiChatFastWindowApi(window.fastWindow, 'ai-chat')
@@ -34,11 +36,8 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     }
   } catch (_) {}
 
-  const BG_JOB_KEY_PREFIX = 'bg.job.'
   const BG_STREAM_KEY_PREFIX = 'bg.stream.'
-  const BG_CANCEL_KEY_PREFIX = 'bg.cancel.'
-  const BG_CANCEL_MID_KEY_PREFIX = 'bg.cancel.mid.'
-  const BG_QUEUE_KEY = 'bg.queue'
+  const ENGINE_FINAL_PREFIX = 'engine.v1/final/'
   const VERSION = 2
   const SPLIT_SCHEMA_VERSION = 1
   const SPLIT_META_KEY = 'meta/index'
@@ -48,6 +47,159 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
   const runtimeStorage = api && (api as any).runtimeStorage && typeof (api as any).runtimeStorage.get === 'function' ? (api as any).runtimeStorage : api.storage
 
   const sleepMs = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, Math.floor(ms || 0))))
+
+  function streamKey(mid: any) {
+    return `${BG_STREAM_KEY_PREFIX}${String(mid || '')}`
+  }
+
+  function finalKey(mid: any) {
+    return `${ENGINE_FINAL_PREFIX}${String(mid || '')}`
+  }
+
+  async function onAssistantRunFinal(run: any, finalText: string) {
+    const kind = String(run?.target?.kind || '').trim() === 'group' ? 'group' : 'role'
+    const roleId = String(run?.target?.roleId || '').trim()
+    const groupId = String(run?.target?.groupId || '').trim()
+    const chatId = String(run?.target?.chatId || '').trim()
+    const branchId = String(run?.target?.branchId || '').trim()
+    const assistantMid = String(run?.target?.assistantMid || '').trim()
+    const text = String(finalText || '')
+    if (!roleId || !chatId || !assistantMid || (kind === 'group' && !groupId)) return
+
+    const jobLike: any = {
+      kind: 'openai.chat.completions',
+      targetKind: kind === 'group' ? 'group' : undefined,
+      groupId: kind === 'group' ? groupId : undefined,
+      roleId,
+      chatId,
+      branchId,
+      assistantMid,
+      cutoffMid: assistantMid,
+      stream: !!run?.stream,
+    }
+
+    try {
+      await patchAssistantMessage(jobLike, text)
+    } catch (_) {}
+
+    // TOOL_REQUEST：属于业务逻辑，不属于引擎；这里保持“生成结束后再执行工具，再排下一轮生成”的线性链。
+    if (String(run?.status || '') === 'succeeded') {
+      try {
+        const parsed = parseToolRequestCalls(text)
+        const calls = mapParsedCallsToServerCalls(parsed.calls)
+        if (parsed.ok && Array.isArray(calls) && calls.length) {
+          ;(async () => {
+            const buildFailureResults = (items: any[], msg: any, status: any) => {
+              const list = Array.isArray(items) ? items : []
+              const error = String(msg || 'tool call failed')
+              const s = String(status || 'failed') || 'failed'
+              if (!list.length) return [{ tool_name: '', status: s, error }]
+              return list.map((c) => ({ tool_name: String((c as any)?.tool_name || ''), status: s, error }))
+            }
+
+            let baseUrl = ''
+            let token = ''
+            let streamEnabled = !!run?.stream
+            try {
+              const cfg = await loadToolCallServerConfigFromStorage()
+              baseUrl = cfg.baseUrl
+              token = cfg.token
+              streamEnabled = !!cfg.streamEnabled
+            } catch (_) {}
+
+            let results: any[] = []
+            if (!baseUrl || !isHttpBaseUrl(baseUrl)) {
+              results = buildFailureResults(calls, '工具服务未配置或 Base URL 无效（需 http/https）', 'failed')
+            } else {
+              try {
+                const resp = await executeToolCallsOnServer({
+                  request: (x) => api.net.request(x as any) as any,
+                  server: { baseUrl, token },
+                  body: { timeout_ms: 30000, calls },
+                })
+                const box = (resp as any)?.json
+                results = Array.isArray(box?.results) ? box.results : []
+              } catch (e) {
+                const msg = String((e as any)?.message || e || 'tool server request failed')
+                results = buildFailureResults(calls, msg, 'failed')
+              }
+            }
+
+            if (!Array.isArray(results) || !results.length) {
+              results = buildFailureResults(calls, '工具调用失败（未知原因）', 'failed')
+            }
+
+            const toolResponseText = formatToolResponseBlock(results as any)
+            const toolMid = uid('m')
+
+            const insertedTool = await insertMessagesAfterMessageId(jobLike, assistantMid, [
+              { id: toolMid, role: 'user', content: toolResponseText, createdAt: now() },
+            ])
+            if (!insertedTool.ok) return
+
+            const assistantMid2 = uid('m')
+            const insertedAssistant = await insertMessagesAfterMessageId(jobLike, toolMid, [
+              {
+                id: assistantMid2,
+                role: 'assistant',
+                content: '（生成中…）',
+                pending: true,
+                streaming: !!streamEnabled,
+                createdAt: now(),
+                speakerRoleId: kind === 'group' ? roleId : undefined,
+              },
+            ])
+            if (!insertedAssistant.ok || !insertedAssistant.insertedAssistant) return
+
+            const jobStub2: any = {
+              kind: 'openai.chat.completions',
+              targetKind: kind === 'group' ? 'group' : undefined,
+              groupId: kind === 'group' ? groupId : undefined,
+              roleId,
+              chatId,
+              assistantMid: assistantMid2,
+              cutoffMid: assistantMid2,
+              branchId,
+              stream: !!streamEnabled,
+            }
+
+            await requestPipeline.enqueueOne({
+              target: {
+                kind: kind === 'group' ? 'group' : 'role',
+                groupId: kind === 'group' ? groupId : undefined,
+                roleId,
+                chatId,
+                branchId,
+                assistantMid: assistantMid2,
+              } as any,
+              stream: !!streamEnabled,
+              jobStub: jobStub2,
+            })
+          })().catch(() => {})
+        }
+      } catch (_) {}
+    }
+  }
+
+  const requestBridge = createAiChatRequestBridge({
+    runtime: runtime === 'background' ? 'background' : 'ui',
+    store: runtimeStorage,
+    net: {
+      request: (req: any) => api.net.request(req),
+      requestStream: typeof api?.net?.requestStream === 'function' ? (req: any) => api.net.requestStream(req) : undefined,
+    },
+    streamKey,
+    onRunFinal: onAssistantRunFinal,
+  })
+
+  const requestPipeline = createAiChatRequestPipeline({
+    store: runtimeStorage,
+    streamKey: (mid) => streamKey(mid),
+    finalKey: (mid) => finalKey(mid),
+    bridge: requestBridge,
+    buildRoleReqFromStorage: (jobStub) => buildOpenAiChatReqFromStorage(jobStub),
+    buildGroupReqFromStorage: (jobStub) => buildOpenAiGroupChatReqFromStorage(jobStub),
+  })
 
   function chatWriteLockKey(kind: any, targetId: any, chatId: any) {
     const k = String(kind || '').trim() === 'group' ? 'g' : 'r'
@@ -1347,41 +1499,6 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     }
   }
 
-  async function readJobQueue() {
-    try {
-      const raw = await runtimeStorage.get(BG_QUEUE_KEY)
-      const list = Array.isArray(raw) ? raw : []
-      return list.map((x) => String(x || '')).filter((x) => !!x).slice(0, 2000)
-    } catch (_) {
-      return []
-    }
-  }
-
-  async function writeJobQueue(ids) {
-    try {
-      const list = Array.isArray(ids) ? ids.map((x) => String(x || '')).filter((x) => !!x) : []
-      await runtimeStorage.set(BG_QUEUE_KEY, list.slice(0, 2000))
-    } catch (_) {}
-  }
-
-  async function enqueueJob(jobId) {
-    const id = String(jobId || '')
-    if (!id) return
-    const q = await readJobQueue()
-    if (q.includes(id)) return
-    q.push(id)
-    await writeJobQueue(q)
-  }
-
-  async function dequeueJob(jobId) {
-    const id = String(jobId || '')
-    if (!id) return
-    const q = await readJobQueue()
-    const out = q.filter((x) => x !== id)
-    if (out.length === q.length) return
-    await writeJobQueue(out)
-  }
-
       function defaultData() {
     const providerName = '默认供应商（OpenAI 兼容）'
     const pid = providerName
@@ -1904,7 +2021,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
   }
 
   if (runtime === 'background') {
-    backgroundMain().catch(() => {})
+    requestBridge.startBackgroundLoop(350).catch(() => {})
     return
   }
 
@@ -2968,22 +3085,6 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     return ua.slice(Math.max(0, ua.length - maxTurns))
   }
 
-  function jobKey(jobId) {
-    return `${BG_JOB_KEY_PREFIX}${String(jobId || '')}`
-  }
-
-  function streamKey(mid) {
-    return `${BG_STREAM_KEY_PREFIX}${String(mid || '')}`
-  }
-
-  function cancelKey(jobId) {
-    return `${BG_CANCEL_KEY_PREFIX}${String(jobId || '')}`
-  }
-
-  function cancelMidKey(mid) {
-    return `${BG_CANCEL_MID_KEY_PREFIX}${String(mid || '')}`
-  }
-
   function looksLikeImageDataUrl(s) {
     const t = String(s || '')
     return t.startsWith('data:image/')
@@ -3517,22 +3618,27 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       setChatBranchHeadMid(chat, activeBranchId, assistantMid)
       repairChatLinearBranching(chat)
 
-      const jobId = uid('job')
-      const job = {
-        id: jobId,
+      await save()
+
+      const jobStub: any = {
         kind: 'openai.chat.completions',
-        status: 'queued',
-        createdAt: now(),
         roleId: String(role.id || ''),
         chatId: String(chat.id || ''),
         assistantMid,
         branchId: activeBranchId,
         stream: streamEnabled,
       }
-
-      await save()
-      await runtimeStorage.set(jobKey(jobId), job)
-      await enqueueJob(jobId)
+      await requestPipeline.enqueueOne({
+        target: {
+          kind: 'role',
+          roleId: String(role.id || ''),
+          chatId: String(chat.id || ''),
+          branchId: activeBranchId,
+          assistantMid,
+        } as any,
+        stream: streamEnabled,
+        jobStub,
+      })
     } catch (e) {
       const msg = String(e?.message || e || '请求失败')
       const items = Array.isArray(chat?.messages) ? chat.messages : []
@@ -3878,24 +3984,37 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
 
       await save()
 
-      for (const it of assistantMids) {
-        const jobId = uid('job')
-        const job = {
-          id: jobId,
-          kind: 'openai.chat.completions',
-          status: 'queued',
-          createdAt: now(),
-          targetKind: 'group',
-          groupId: gid,
-          roleId: String(it.roleId || ''),
-          chatId: String(chat.id || ''),
-          assistantMid: String(it.mid || ''),
-          branchId: activeBranchId,
-          stream: streamEnabled,
-        }
-        await runtimeStorage.set(jobKey(jobId), job)
-        await enqueueJob(jobId)
-      }
+      await requestPipeline.enqueueMany(
+        assistantMids
+          .map((it: any) => {
+            const assistantMid = String(it?.mid || '').trim()
+            const roleId = String(it?.roleId || '').trim()
+            if (!assistantMid || !roleId) return null
+            const jobStub: any = {
+              kind: 'openai.chat.completions',
+              targetKind: 'group',
+              groupId: gid,
+              roleId,
+              chatId: String(chat.id || ''),
+              assistantMid,
+              branchId: activeBranchId,
+              stream: streamEnabled,
+            }
+            return {
+              target: {
+                kind: 'group',
+                groupId: gid,
+                roleId,
+                chatId: String(chat.id || ''),
+                branchId: activeBranchId,
+                assistantMid,
+              } as any,
+              stream: streamEnabled,
+              jobStub,
+            }
+          })
+          .filter((x: any) => !!x)
+      )
     } catch (e) {
       const msg = String((e as any)?.message || e || '请求失败')
       const items = Array.isArray(chat?.messages) ? chat.messages : []
@@ -3933,7 +4052,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     if (!mid) return api.ui?.showToast?.('当前会话没有正在生成的消息')
 
     try {
-      await runtimeStorage.set(cancelMidKey(mid), { requestedAt: now() })
+      await requestBridge.requestCancelByAssistantMid(mid)
     } catch (_) {}
 
     if (state.data && chatId && mid && (kind === 'role' ? roleId : groupId)) {
@@ -4044,15 +4163,13 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       repairChatLinearBranching(chat)
 
       try {
-        await runtimeStorage.remove(streamKey(mid))
+        await requestPipeline.resetAssistantRuntime(mid)
       } catch (_) {}
 
-      const jobId = uid('job')
-      const job = {
-        id: jobId,
+      await save()
+
+      const jobStub: any = {
         kind: 'openai.chat.completions',
-        status: 'queued',
-        createdAt: now(),
         roleId: String(role.id || ''),
         chatId: String(chat.id || ''),
         assistantMid: mid,
@@ -4060,10 +4177,17 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         branchId,
         stream: streamEnabled,
       }
-
-      await save()
-      await runtimeStorage.set(jobKey(jobId), job)
-      await enqueueJob(jobId)
+      await requestPipeline.enqueueOne({
+        target: {
+          kind: 'role',
+          roleId: String(role.id || ''),
+          chatId: String(chat.id || ''),
+          branchId,
+          assistantMid: mid,
+        } as any,
+        stream: streamEnabled,
+        jobStub,
+      })
     } catch (e) {
       const msg = String(e?.message || e || '请求失败')
       const items = Array.isArray(chat.messages) ? chat.messages : []
@@ -4150,15 +4274,13 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       repairChatLinearBranching(chat)
 
       try {
-        await runtimeStorage.remove(streamKey(mid))
+        await requestPipeline.resetAssistantRuntime(mid)
       } catch (_) {}
 
-      const jobId = uid('job')
-      const job = {
-        id: jobId,
+      await save()
+
+      const jobStub: any = {
         kind: 'openai.chat.completions',
-        status: 'queued',
-        createdAt: now(),
         targetKind: 'group',
         groupId,
         roleId: String(speakerRoleId || ''),
@@ -4168,10 +4290,18 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         branchId,
         stream: streamEnabled,
       }
-
-      await save()
-      await runtimeStorage.set(jobKey(jobId), job)
-      await enqueueJob(jobId)
+      await requestPipeline.enqueueOne({
+        target: {
+          kind: 'group',
+          groupId,
+          roleId: String(speakerRoleId || ''),
+          chatId,
+          branchId,
+          assistantMid: mid,
+        } as any,
+        stream: streamEnabled,
+        jobStub,
+      })
     } catch (e) {
       const msg = String((e as any)?.message || e || '请求失败')
       try {
@@ -4255,12 +4385,10 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       setChatBranchHeadMid(chat, activeBranchId, assistantMid)
       repairChatLinearBranching(chat)
 
-      const jobId = uid('job')
-      const job = {
-        id: jobId,
+      await save()
+
+      const jobStub: any = {
         kind: 'openai.chat.completions',
-        status: 'queued',
-        createdAt: now(),
         roleId: String(role.id || ''),
         chatId: String(chat.id || ''),
         assistantMid,
@@ -4268,10 +4396,17 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         branchId: activeBranchId,
         stream: streamEnabled,
       }
-
-      await save()
-      await runtimeStorage.set(jobKey(jobId), job)
-      await enqueueJob(jobId)
+      await requestPipeline.enqueueOne({
+        target: {
+          kind: 'role',
+          roleId: String(role.id || ''),
+          chatId: String(chat.id || ''),
+          branchId: activeBranchId,
+          assistantMid,
+        } as any,
+        stream: streamEnabled,
+        jobStub,
+      })
     } catch (e) {
       const msg = String(e?.message || e || '请求失败')
       const items = Array.isArray(chat?.messages) ? chat.messages : []
@@ -4473,31 +4608,38 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
 
       await save()
 
-      for (const am of toInsert) {
-        const assistantMid = String((am as any)?.id || '').trim()
-        const roleId = String((am as any)?.speakerRoleId || '').trim()
-        if (!assistantMid || !roleId) continue
-        try {
-          await runtimeStorage.remove(streamKey(assistantMid))
-        } catch (_) {}
-        const jobId = uid('job')
-        const job = {
-          id: jobId,
-          kind: 'openai.chat.completions',
-          status: 'queued',
-          createdAt: now(),
-          targetKind: 'group',
-          groupId,
-          roleId,
-          chatId,
-          assistantMid,
-          cutoffMid: assistantMid,
-          branchId: desiredBranchId,
-          stream: streamEnabled,
-        }
-        await runtimeStorage.set(jobKey(jobId), job)
-        await enqueueJob(jobId)
-      }
+      await requestPipeline.enqueueMany(
+        toInsert
+          .map((am: any) => {
+            const assistantMid = String(am?.id || '').trim()
+            const roleId = String(am?.speakerRoleId || '').trim()
+            if (!assistantMid || !roleId) return null
+            const jobStub: any = {
+              kind: 'openai.chat.completions',
+              targetKind: 'group',
+              groupId,
+              roleId,
+              chatId,
+              assistantMid,
+              cutoffMid: assistantMid,
+              branchId: desiredBranchId,
+              stream: streamEnabled,
+            }
+            return {
+              target: {
+                kind: 'group',
+                groupId,
+                roleId,
+                chatId,
+                branchId: desiredBranchId,
+                assistantMid,
+              } as any,
+              stream: streamEnabled,
+              jobStub,
+            }
+          })
+          .filter((x: any) => !!x)
+      )
     } catch (e) {
       const msg = String((e as any)?.message || e || '请求失败')
       api.ui?.showToast?.(msg)
@@ -5103,86 +5245,6 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     })
   }
 
-  async function backgroundMain() {
-    const runningJobs = new Map()
-    let ticking = false
-
-    const tick = async () => {
-      if (ticking) return
-      ticking = true
-      try {
-        const q = await readJobQueue()
-        if (!q.length) return
-
-        const runningChatKeys = new Set()
-        const runningRunKeys = new Set()
-        for (const v of Array.from(runningJobs.values())) {
-          const k = v && typeof v === 'object' ? String((v as any).chatKey || '') : ''
-          const rk = v && typeof v === 'object' ? String((v as any).runKey || '') : ''
-          if (k) runningChatKeys.add(k)
-          if (rk) runningRunKeys.add(rk)
-        }
-
-        for (const id0 of q.slice(0, 200)) {
-          const jobId = String(id0 || '')
-          if (!jobId || runningJobs.has(jobId)) continue
-
-          const j = await runtimeStorage.get(jobKey(jobId))
-          const job = j && typeof j === 'object' ? j : null
-          if (!job) {
-            await dequeueJob(jobId)
-            continue
-          }
-          if (String(job.status || '') !== 'queued') {
-            await dequeueJob(jobId)
-            continue
-          }
-
-          const kind = String((job as any).targetKind || '').trim() === 'group' || !!(job as any).groupId ? 'group' : 'role'
-          const roleId = String(job.roleId || '')
-          const chatId = String(job.chatId || '')
-          const groupId = String((job as any).groupId || '')
-          if (!roleId || !chatId || (kind === 'group' && !groupId)) {
-            await dequeueJob(jobId)
-            continue
-          }
-          const chatKey = kind === 'group' ? `g:${groupId}/${chatId}` : `r:${roleId}/${chatId}`
-          const branchIdRaw = String((job as any)?.branchId || '').trim()
-          const branchId = branchIdRaw ? normalizeBranchId(branchIdRaw) : ''
-          const runKey = branchId ? `${chatKey}@${branchId}` : chatKey
-          if (runningRunKeys.has(runKey)) continue
-          if (branchId && runningRunKeys.has(chatKey)) continue
-          if (!branchId && runningChatKeys.has(chatKey)) continue
-          runningChatKeys.add(chatKey)
-          runningRunKeys.add(runKey)
-
-          job.status = 'running'
-          job.startedAt = now()
-          await runtimeStorage.set(jobKey(job.id), job)
-
-          runningJobs.set(jobId, { chatKey, runKey })
-          runBackgroundJob(job)
-            .catch(() => {})
-            .finally(async () => {
-              try {
-                await dequeueJob(jobId)
-              } catch (_) {}
-              runningJobs.delete(jobId)
-            })
-        }
-
-      } catch (_) {
-      } finally {
-        ticking = false
-      }
-    }
-
-    await tick()
-    setInterval(() => {
-      tick().catch(() => {})
-    }, 800)
-  }
-
   async function buildOpenAiChatReqFromStorage(job) {
     const roleId = String(job?.roleId || '')
     const chatId = String(job?.chatId || '')
@@ -5541,369 +5603,6 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const token = String((tcs as any).token || '').trim()
     const streamEnabled = !!d.settings.streamEnabled
     return { baseUrl, token, streamEnabled }
-  }
-
-  async function runBackgroundJob(job) {
-    const streamWanted = !!job?.stream
-    let req = job?.req || null
-    const mid = String(job?.assistantMid || '')
-    if (!req || typeof req !== 'object') {
-      if (String(job?.kind || '') === 'openai.chat.completions') {
-        const kind = String((job as any).targetKind || '').trim() === 'group' || !!(job as any).groupId ? 'group' : 'role'
-        req = kind === 'group' ? await buildOpenAiGroupChatReqFromStorage(job) : await buildOpenAiChatReqFromStorage(job)
-      }
-    }
-    if (!req || typeof req !== 'object') throw new Error('job.req 无效')
-
-    let out = ''
-    let status = 0
-    let bad = false
-    let badBody = ''
-    let lastFlush = 0
-    let canceled = false
-    let lastCancelCheck = 0
-    let toolRequestCompleted = false
-    const toolTruncator = createToolRequestStreamTruncator('')
-
-    const checkCanceled = async (force) => {
-      if (canceled) return true
-      const t = now()
-      if (!force && t - lastCancelCheck < 250) return false
-      lastCancelCheck = t
-      try {
-        const v1 = await runtimeStorage.get(cancelKey(job.id))
-        const v2 = mid ? await runtimeStorage.get(cancelMidKey(mid)) : null
-        if (v1) canceled = true
-        if (!canceled && v2) {
-          const requestedAt = Number((v2 as any)?.requestedAt || 0)
-          const createdAt = Number(job?.createdAt || 0)
-          // cancelMidKey(mid) 语义：取消“在 requestedAt 之前创建”的那一轮生成。
-          // regenerate 会复用同一个 mid，但 job.createdAt 会更新；因此需做时间判定，避免新 job 被旧 cancel 误杀。
-          if (requestedAt > 0 && createdAt > 0) canceled = requestedAt >= createdAt
-          else canceled = true
-        }
-      } catch (_) {}
-      return canceled
-    }
-
-    const flush = async (force) => {
-      if (!mid) return
-      const t = now()
-      if (!force && t - lastFlush < 220) return
-      lastFlush = t
-      await runtimeStorage.set(streamKey(mid), { text: out, updatedAt: t })
-    }
-
-    try {
-      await checkCanceled(true)
-      if (canceled) {
-        const finalOut = out || '（已停止）'
-        await flush(true)
-        await patchAssistantMessage(job, finalOut)
-        return
-      }
-
-      const canStream = streamWanted && typeof api?.net?.requestStream === 'function'
-      if (canStream) {
-        const stream = await api.net.requestStream(req)
-        const sse = { buf: '', done: false }
-
-        for await (const ev of stream) {
-          await checkCanceled(false)
-          if (canceled) break
-
-          const t = String(ev?.type || '')
-          if (t === 'start') {
-            status = Number(ev?.status || 0)
-            bad = status < 200 || status >= 300
-            continue
-          }
-          if (t === 'chunk') {
-            const text = String(ev?.text || '')
-            if (!text) continue
-            if (bad) {
-              badBody += text
-              continue
-            }
-
-            sseFeed(sse, text, (json) => {
-              if (json?.error?.message) throw new Error(String(json.error.message))
-              const delta = extractOpenAiDelta(json)
-              if (typeof delta === 'string' && delta) {
-                const r = toolTruncator.appendDelta(delta)
-                out = r.text
-                toolRequestCompleted = r.toolRequestCompleted
-              }
-            })
-
-            // If we just completed a TOOL_REQUEST block, force-flush immediately.
-            // Otherwise the final marker can get stuck behind the flush throttle while we execute tools.
-            if (toolRequestCompleted) await flush(true)
-            else await flush(false)
-            if (toolRequestCompleted || sse.done) break
-            continue
-          }
-          if (t === 'error') throw new Error(String(ev?.message || '请求失败'))
-          if (t === 'end') break
-        }
-
-        if (canceled) {
-          try {
-            await (stream as any)?.cancel?.()
-          } catch (_) {}
-          const finalOut = out || '（已停止）'
-          await flush(true)
-          await patchAssistantMessage(job, finalOut)
-          return
-        }
-
-        if (bad) {
-          let msg = String(badBody || '').trim()
-          try {
-            const j = JSON.parse(msg || '{}')
-            msg = String(j?.error?.message || msg || `HTTP ${status}`)
-          } catch (_) {}
-          throw new Error(msg || `HTTP ${status}`)
-        }
-      } else {
-        await checkCanceled(true)
-        if (canceled) {
-          const finalOut = out || '（已停止）'
-          await flush(true)
-          await patchAssistantMessage(job, finalOut)
-          return
-        }
-
-        const r = await api.net.request(req)
-        await checkCanceled(true)
-        if (canceled) {
-          const finalOut = out || '（已停止）'
-          await flush(true)
-          await patchAssistantMessage(job, finalOut)
-          return
-        }
-
-        status = Number(r?.status || 0)
-        const bodyText = String(r?.body || '')
-        bad = status < 200 || status >= 300
-
-        if (streamWanted) {
-          const sse = { buf: '', done: false }
-          sseFeed(sse, bodyText, (json) => {
-            if (json?.error?.message) throw new Error(String(json.error.message))
-            const delta = extractOpenAiDelta(json)
-            if (typeof delta === 'string' && delta) {
-              const r2 = toolTruncator.appendDelta(delta)
-              out = r2.text
-              toolRequestCompleted = r2.toolRequestCompleted
-            }
-          })
-        } else {
-          const json = JSON.parse(bodyText || '{}')
-          if (bad) throw new Error(json?.error?.message || bodyText || `HTTP ${status}`)
-          out = json?.choices?.[0]?.message?.content ?? json?.choices?.[0]?.text ?? json?.output_text ?? ''
-          out = String(out || '')
-        }
-
-        if (bad) {
-          let msg = String(bodyText || '').trim()
-          try {
-            const j = JSON.parse(msg || '{}')
-            msg = String(j?.error?.message || msg || `HTTP ${status}`)
-          } catch (_) {}
-          throw new Error(msg || `HTTP ${status}`)
-        }
-      }
-
-        if (toolRequestCompleted) {
-          // 本轮 AI 回复在 TOOL_REQUEST 块闭合时就应结束；不要等待工具执行。
-          await flush(true)
-          await patchAssistantMessage(job, out)
-
-          // Fire-and-forget: execute tools, inject TOOL_RESPONSE (role:user), then enqueue next AI round.
-          ;(async () => {
-            const buildFailureResults = (calls, msg, status) => {
-              const items = Array.isArray(calls) ? calls : []
-              const error = String(msg || 'tool call failed')
-              const s = String(status || 'failed') || 'failed'
-              if (!items.length) return [{ tool_name: '', status: s, error }]
-              return items.map((c) => ({ tool_name: String(c?.tool_name || ''), status: s, error }))
-            }
-
-            const roleId = String(job?.roleId || '')
-            const chatId = String(job?.chatId || '')
-            const anchorMid = String(job?.assistantMid || '')
-            const targetKind = String((job as any)?.targetKind || '').trim() === 'group' || !!(job as any)?.groupId ? 'group' : 'role'
-            const groupId = String((job as any)?.groupId || '').trim()
-            const branchId = normalizeBranchId((job as any)?.branchId || CHAT_DEFAULT_BRANCH_ID)
-
-            const assistantMid2 = uid('m')
-            const jobId2 = uid('job')
-            const assistantMid2CreatedAt = now()
-
-            const isCanceledByMid = async (mid, createdAt) => {
-              const m = String(mid || '').trim()
-              if (!m) return false
-              try {
-                const v = await runtimeStorage.get(cancelMidKey(m))
-                if (!v) return false
-                const requestedAt = Number((v as any)?.requestedAt || 0)
-                const ca = Number(createdAt || 0)
-                if (requestedAt > 0 && ca > 0) return requestedAt >= ca
-                return true
-              } catch (_) {
-                return false
-              }
-            }
-
-            const markAssistantFailed = async (msg) => {
-              const text = String(msg || '').trim() || '（工具调用失败）'
-              try {
-                await patchAssistantMessage({ roleId, chatId, assistantMid: assistantMid2 }, text)
-              } catch (_) {}
-            }
-
-            let streamEnabled = !!job?.stream
-            let calls = []
-            let results = []
-
-            const insertedAssistant = await insertMessagesAfterMessageId(job, anchorMid, [
-              {
-                id: assistantMid2,
-                role: 'assistant',
-                content: '（生成中…）',
-                pending: true,
-                streaming: !!streamEnabled,
-                createdAt: assistantMid2CreatedAt,
-                modelRef: buildMessageModelRef(providerId, modelId),
-              },
-            ])
-
-            if (!insertedAssistant.ok || !insertedAssistant.insertedAssistant) return
-            if (await isCanceledByMid(assistantMid2, assistantMid2CreatedAt)) return
-
-            try {
-              const parsed = parseToolRequestCalls(out)
-              calls = mapParsedCallsToServerCalls(parsed.calls)
-
-              let baseUrl = ''
-              let token = ''
-              try {
-                const cfg = await loadToolCallServerConfigFromStorage()
-                baseUrl = cfg.baseUrl
-                token = cfg.token
-                streamEnabled = !!cfg.streamEnabled
-              } catch (e) {
-                results = buildFailureResults(calls, `读取工具服务配置失败：${String(e?.message || e || 'unknown')}`, 'failed')
-              }
-
-              if (!results.length) {
-                if (!parsed.ok) {
-                  results = buildFailureResults(calls, `解析 TOOL_REQUEST 失败：${String(parsed.error || 'unknown')}`, 'failed')
-                } else if (!baseUrl || !isHttpBaseUrl(baseUrl)) {
-                  results = buildFailureResults(calls, '工具服务未配置或 Base URL 无效（需 http/https）', 'failed')
-                } else {
-                  if (await isCanceledByMid(assistantMid2, assistantMid2CreatedAt)) return
-                  try {
-                    const resp = await executeToolCallsOnServer({
-                      request: (x) => api.net.request(x as any) as any,
-                      server: { baseUrl, token },
-                      body: { timeout_ms: 30000, calls },
-                    })
-                    const box = (resp as any)?.json
-                    results = Array.isArray(box?.results) ? box.results : []
-                  } catch (e) {
-                    const msg = String(e?.message || e || 'tool server request failed')
-                    results = buildFailureResults(calls, msg, 'failed')
-                  }
-                }
-              }
-            } catch (e) {
-              results = buildFailureResults(calls, `工具链异常：${String(e?.message || e || 'unknown')}`, 'failed')
-            }
-
-            if (!Array.isArray(results) || !results.length) {
-              results = buildFailureResults(calls, '工具调用失败（未知原因）', 'failed')
-            }
-
-            if (await isCanceledByMid(assistantMid2, assistantMid2CreatedAt)) return
-
-            const toolResponseText = formatToolResponseBlock(results as any)
-            const toolMid = uid('m')
-
-            const insertedTool = await insertMessagesAfterMessageId(job, anchorMid, [
-              { id: toolMid, role: 'user', content: toolResponseText, createdAt: now() },
-            ])
-
-            if (!insertedTool.ok) {
-              await markAssistantFailed('（工具调用失败：写入 TOOL_RESPONSE 失败）')
-              return
-            }
-
-            if (await isCanceledByMid(assistantMid2, assistantMid2CreatedAt)) return
-
-            const job2 = {
-              id: jobId2,
-              kind: 'openai.chat.completions',
-              status: 'queued',
-              createdAt: assistantMid2CreatedAt,
-              targetKind: targetKind === 'group' ? 'group' : undefined,
-              groupId: targetKind === 'group' ? groupId : undefined,
-              roleId,
-              chatId,
-              assistantMid: assistantMid2,
-              cutoffMid: assistantMid2,
-              branchId,
-              stream: !!streamEnabled,
-            }
-
-            try {
-              await runtimeStorage.set(jobKey(jobId2), job2)
-              if (await isCanceledByMid(assistantMid2, assistantMid2CreatedAt)) return
-              await enqueueJob(jobId2)
-            } catch (_) {
-              await markAssistantFailed('（工具调用失败：排队下一轮失败）')
-              return
-            }
-          })().catch(() => {})
-
-          return
-        }
-
-      await flush(true)
-      await patchAssistantMessage(job, out)
-    } catch (e) {
-      try {
-        await checkCanceled(true)
-      } catch (_) {}
-
-      if (canceled) {
-        const finalOut = out || '（已停止）'
-        try {
-          await flush(true)
-        } catch (_) {}
-        await patchAssistantMessage(job, finalOut)
-      } else {
-        const msg = String(e?.message || e || '请求失败')
-        out = out || `（请求失败：${msg}）`
-        try {
-          await flush(true)
-        } catch (_) {}
-        await patchAssistantMessage(job, out)
-      }
-    } finally {
-      if (mid) {
-        try {
-          await runtimeStorage.remove(streamKey(mid))
-        } catch (_) {}
-      }
-      try {
-        await runtimeStorage.remove(jobKey(job.id))
-      } catch (_) {}
-      try {
-        await runtimeStorage.remove(cancelKey(job.id))
-      } catch (_) {}
-    }
   }
 
   const css = `
@@ -6813,14 +6512,39 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         if (!m.streaming) continue
         const s = await runtimeStorage.get(streamKey(String(m.id || '')))
         const text = String(s?.text || '')
-        if (!text) continue
         const mid = String(m.id || '')
+        if (!text) {
+          // 兜底：如果后台已经“收尾”但落盘失败/被锁卡住，UI 不能永远显示（生成中…）。
+          // final marker 属于运行时信号，不做历史数据迁移。
+          try {
+            const fin = await runtimeStorage.get(finalKey(mid))
+            const finText = String(fin?.text || '').trim()
+            const exp = Number(fin?.expiresAt || 0)
+            if (fin && (!exp || exp > now())) {
+              if (finText) m.content = finText
+              m.pending = false
+              m.streaming = false
+              changed = true
+              try {
+                await runtimeStorage.remove(finalKey(mid))
+              } catch (_) {}
+              try {
+                await runtimeStorage.remove(streamKey(mid))
+              } catch (_) {}
+            }
+          } catch (_) {}
+          continue
+        }
         if (uiStreamCache.get(mid) === text) continue
         uiStreamCache.set(mid, text)
         m.content = text
         changed = true
       }
-      if (changed) emit()
+      if (changed) {
+        emit()
+        // best-effort：把 pending=false 落盘，避免刷新后又回到（生成中…）
+        save().catch(() => {})
+      }
 
       // 有 pending assistant 时，工具调用/后台写入的落盘也更频繁；此时把 meta 检查频率提到 tick 级别。
       const t = now()
