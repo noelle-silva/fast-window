@@ -14,6 +14,7 @@ import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
 import { ensureMetadata, getApi, saveMetadata, tryLoadMetadata, type HyperCortexNoteDoc, type NoteMeta } from '../core'
 import { loadHtmlFace, loadNoteIndex, loadNotePackage, saveHtmlFace, saveNotePackage } from '../notePackage'
+import { createMarkdownRenderEngine } from '../render/engine'
 
 type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'note-detail' | 'index' | 'settings'
 
@@ -78,6 +79,14 @@ export function HyperCortexApp() {
   const [activeNoteFaces, setActiveNoteFaces] = React.useState<NoteFaceId[]>(['text'])
   const [activeNoteAddFaceSelectorVisible, setActiveNoteAddFaceSelectorVisible] = React.useState(false)
   const [activeNotePendingAddFace, setActiveNotePendingAddFace] = React.useState<NoteFaceId | null>(null)
+
+  const renderEngineRef = React.useRef(createMarkdownRenderEngine())
+  const textRenderRef = React.useRef<HTMLDivElement>(null)
+
+  React.useLayoutEffect(() => {
+    if (activeNoteFace !== 'text' || activeNoteEditing || !textRenderRef.current || !activeNoteDoc) return
+    renderEngineRef.current.renderInto(textRenderRef.current, activeNoteDoc.body)
+  }, [activeNoteFace, activeNoteEditing, activeNoteDoc])
 
   const backToHost = React.useCallback(() => {
     try {
@@ -1152,21 +1161,9 @@ export function HyperCortexApp() {
                         />
                       ) : (
                         <Box
-                          sx={{
-                            width: '100%',
-                            color: '#222',
-                            fontSize: 16,
-                            lineHeight: 1.8,
-                            '& img': { maxWidth: '100%', height: 'auto' },
-                            '& p': { mt: 0, mb: 1.5 },
-                            '& pre': {
-                              overflow: 'auto',
-                              borderRadius: 2,
-                              p: 1.5,
-                              bgcolor: 'rgba(0,0,0,.03)',
-                            },
-                          }}
-                          dangerouslySetInnerHTML={{ __html: activeNoteDoc.displayHtml }}
+                          ref={textRenderRef}
+                          className="hc-render"
+                          sx={{ width: '100%', minHeight: 120 }}
                         />
                       )}
                     </Box>

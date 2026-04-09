@@ -8,6 +8,10 @@
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^7.3.6",
     "@mui/material": "^7.3.6",
+    "dompurify": "^3.0.11",
+    "katex": "^0.16.11",
+    "marked": "^12.0.2",
+    "mermaid": "^10.9.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

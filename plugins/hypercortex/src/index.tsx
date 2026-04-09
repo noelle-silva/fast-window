@@ -1,3 +1,4 @@
+import './render/vendor'
 import * as React from 'react'
 import { createRoot } from 'react-dom/client'
 import { HyperCortexApp } from './ui/App'
