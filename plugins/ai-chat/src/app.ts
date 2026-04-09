@@ -57,6 +57,10 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
   }
 
   async function onAssistantRunFinal(run: any, finalText: string) {
+    // service run：不属于聊天消息生成，不允许触发 patchAssistantMessage / 工具链。
+    // 结果由 engine.v1/final/<assistantMid> 交给调用方自行消费。
+    if (String(run?.target?.tag || '').trim() === 'service') return
+
     const kind = String(run?.target?.kind || '').trim() === 'group' ? 'group' : 'role'
     const roleId = String(run?.target?.roleId || '').trim()
     const groupId = String(run?.target?.groupId || '').trim()
@@ -2454,6 +2458,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
   }
 
   async function requestOpenAiChatOnce(req) {
+    const purpose = String(req?.purpose || '').trim() || 'misc'
     const providerId = String(req?.providerId || '').trim()
     const modelId = String(req?.modelId || '').trim()
     const systemPrompt = String(req?.systemPrompt ?? '').trim()
@@ -2488,29 +2493,52 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       messages.push({ role: 'user', content: userContent })
     }
 
-    const r = await api.net.request({
+    const httpReq = {
       method: 'POST',
       url: `${baseUrl}/chat/completions`,
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({ model: modelId, messages, temperature: 0, stream: false }),
       timeoutMs: 120000,
-    })
-
-    const status = Number(r?.status || 0)
-    const bodyText = String(r?.body || '')
-    let json = null
-    try {
-      json = JSON.parse(bodyText || '{}')
-    } catch (_) {}
-
-    if (status < 200 || status >= 300) {
-      const msg = String(json?.error?.message || bodyText || `HTTP ${status}`)
-      throw new Error(msg || `HTTP ${status}`)
     }
 
-    let out = json?.choices?.[0]?.message?.content ?? json?.choices?.[0]?.text ?? json?.output_text ?? ''
-    out = String(out || '')
-    return out
+    const assistantMid = uid('svc')
+    const target = {
+      kind: 'role',
+      roleId: '__ai_service__',
+      chatId: `svc:${purpose}`,
+      branchId: 'main',
+      assistantMid,
+      tag: 'service',
+      service: purpose,
+    }
+
+    const waitFinal = async (mid: string, timeoutMs: number) => {
+      const deadline = now() + Math.max(2000, Math.floor(timeoutMs || 0))
+      while (now() < deadline) {
+        let fin: any = null
+        try {
+          fin = await runtimeStorage.get(finalKey(mid))
+        } catch (_) {
+          fin = null
+        }
+        if (fin && typeof fin === 'object') {
+          const status = String(fin?.status || '').trim()
+          const text = String(fin?.text || '')
+          try {
+            await runtimeStorage.remove(finalKey(mid))
+          } catch (_) {}
+          if (status && status !== 'succeeded') throw new Error(text || '请求失败')
+          return text
+        }
+        await sleepMs(120)
+      }
+      throw new Error('AI 微服务请求超时（后台可能未启动或已卡住）')
+    }
+
+    await requestPipeline.enqueueReq({ target: target as any, req: httpReq, stream: false })
+
+    const out = await waitFinal(assistantMid, 140_000)
+    return String(out || '')
   }
 
   function extractMermaidCodeFromAiReply(input) {
@@ -2784,7 +2812,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     const err = String(renderErrorMsg || '').trim()
     const userMessages = [`Mermaid 源码：\n${src}`, err ? `渲染错误信息：\n${err}` : ''].filter((x) => !!String(x || '').trim())
 
-    const fixedPromise = requestOpenAiChatOnce({ providerId, modelId, systemPrompt, userMessages }).then((reply) => {
+    const fixedPromise = requestOpenAiChatOnce({ purpose: 'mermaidFix', providerId, modelId, systemPrompt, userMessages }).then((reply) => {
       const fixed = extractMermaidCodeFromAiReply(reply)
       if (!fixed.trim()) throw new Error('AI 未返回 Mermaid 代码')
       return fixed
@@ -2917,7 +2945,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
     if (!userContent) throw new Error('聊天记录为空，无法生成标题')
 
     return enqueueChatTitleNamingWrite(rid, cid, async () => {
-      const reply = await requestOpenAiChatOnce({ providerId, modelId, systemPrompt, userContent })
+      const reply = await requestOpenAiChatOnce({ purpose: 'chatTitleNaming', providerId, modelId, systemPrompt, userContent })
       const title = normalizeAiGeneratedChatTitle(reply)
       if (!title) throw new Error('AI 未返回标题')
       renameChatTitle(rid, cid, title)
@@ -2955,7 +2983,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
 
     const key = `group:${gid}:${cid}`
     return enqueueChatTitleNamingWriteKey(key, async () => {
-      const reply = await requestOpenAiChatOnce({ providerId, modelId, systemPrompt, userContent })
+      const reply = await requestOpenAiChatOnce({ purpose: 'chatTitleNaming', providerId, modelId, systemPrompt, userContent })
       const title = normalizeAiGeneratedChatTitle(reply)
       if (!title) throw new Error('AI 未返回标题')
       renameGroupChatTitle(gid, cid, title)
@@ -3034,6 +3062,7 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         `当前分类：${cat}\n当前名称：${oldName}`
 
       const reply = await requestOpenAiChatOnce({
+        purpose: 'stickerNaming',
         providerId,
         modelId,
         systemPrompt,
@@ -8672,8 +8701,25 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
         }
         emit()
       },
-      aiFixMermaid: (messageId, mermaidSrc, renderErrorMsg) =>
-        aiFixMermaidInMessage(String(messageId || ''), String(mermaidSrc || ''), String(renderErrorMsg || '')),
+      aiFixMermaid: (messageId, mermaidSrc, renderErrorMsg) => {
+        let t0 = 0
+        const cost = () => ((now() - t0) / 1000).toFixed(1)
+        return Promise.resolve()
+          .then(() => {
+            t0 = now()
+            api.ui?.showToast?.('AI 修复 Mermaid 中…')
+            return aiFixMermaidInMessage(String(messageId || ''), String(mermaidSrc || ''), String(renderErrorMsg || ''))
+          })
+          .then((fixed) => {
+            api.ui?.showToast?.(`Mermaid 已修复（${cost()}s）`)
+            return fixed
+          })
+          .catch((e) => {
+            const msg = String(e?.message || e || 'AI 修复 Mermaid 失败')
+            api.ui?.showToast?.(`AI 修复 Mermaid 失败（${cost()}s）：${msg}`)
+            throw e
+          })
+      },
       openMermaidViewer: (rootEl, srcEl) => {
         const root = rootEl instanceof Element ? rootEl : document.body
         const blocks = Array.from(root.querySelectorAll?.('.mermaid-block[data-mermaid=\"1\"]') || [])
@@ -8784,48 +8830,63 @@ import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from 
       createChat: () => {
         return createChatForActiveTarget()
       },
-      aiGenerateChatTitle: (roleId, chatId) =>
-        Promise.resolve()
+      aiGenerateChatTitle: (roleId, chatId) => {
+        let t0 = 0
+        const cost = () => ((now() - t0) / 1000).toFixed(1)
+        return Promise.resolve()
           .then(() => {
+            t0 = now()
             api.ui?.showToast?.('AI 生成标题中…')
             return aiGenerateChatTitle(String(roleId || ''), String(chatId || ''))
           })
           .then((title) => {
-            api.ui?.showToast?.(`已更新标题：${String(title || '').trim() || '（空）'}`)
+            api.ui?.showToast?.(`已更新标题（${cost()}s）：${String(title || '').trim() || '（空）'}`)
             return title
           })
           .catch((e) => {
-            api.ui?.showToast?.(String(e?.message || e || 'AI 生成标题失败'))
+            const msg = String(e?.message || e || 'AI 生成标题失败')
+            api.ui?.showToast?.(`AI 生成标题失败（${cost()}s）：${msg}`)
             throw e
-          }),
-      aiGenerateGroupChatTitle: (groupId, chatId) =>
-        Promise.resolve()
+          })
+      },
+      aiGenerateGroupChatTitle: (groupId, chatId) => {
+        let t0 = 0
+        const cost = () => ((now() - t0) / 1000).toFixed(1)
+        return Promise.resolve()
           .then(() => {
+            t0 = now()
             api.ui?.showToast?.('AI 生成标题中…')
             return aiGenerateGroupChatTitle(String(groupId || ''), String(chatId || ''))
           })
           .then((title) => {
-            api.ui?.showToast?.(`已更新标题：${String(title || '').trim() || '（空）'}`)
+            api.ui?.showToast?.(`已更新标题（${cost()}s）：${String(title || '').trim() || '（空）'}`)
             return title
           })
           .catch((e) => {
-            api.ui?.showToast?.(String(e?.message || e || 'AI 生成标题失败'))
+            const msg = String(e?.message || e || 'AI 生成标题失败')
+            api.ui?.showToast?.(`AI 生成标题失败（${cost()}s）：${msg}`)
             throw e
-          }),
-      aiGenerateStickerName: (categoryName, stickerName) =>
-        Promise.resolve()
+          })
+      },
+      aiGenerateStickerName: (categoryName, stickerName) => {
+        let t0 = 0
+        const cost = () => ((now() - t0) / 1000).toFixed(1)
+        return Promise.resolve()
           .then(() => {
+            t0 = now()
             api.ui?.showToast?.('AI 取名中…')
             return aiGenerateStickerName(String(categoryName || ''), String(stickerName || ''))
           })
           .then((name) => {
-            api.ui?.showToast?.(`已更新表情名：${String(name || '').trim() || '（空）'}`)
+            api.ui?.showToast?.(`已更新表情名（${cost()}s）：${String(name || '').trim() || '（空）'}`)
             return name
           })
           .catch((e) => {
-            api.ui?.showToast?.(String(e?.message || e || 'AI 取名失败'))
+            const msg = String(e?.message || e || 'AI 取名失败')
+            api.ui?.showToast?.(`AI 取名失败（${cost()}s）：${msg}`)
             throw e
-          }),
+          })
+      },
       renameChat: (roleId, chatId, title) => renameChatTitle(String(roleId || ''), String(chatId || ''), String(title ?? '')),
       renameGroupChat: (groupId, chatId, title) => renameGroupChatTitle(String(groupId || ''), String(chatId || ''), String(title ?? '')),
       deleteChat: (roleId, chatId) => deleteChatForRole(String(roleId || ''), String(chatId || '')),

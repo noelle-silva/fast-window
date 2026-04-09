@@ -4,6 +4,7 @@ import { createAiChatRunStore } from './store'
 import { newOwnerId, newRunId, runScopeKey, scopeLockKey } from './keys'
 import { withRuntimeLock } from './lock'
 import { createAiChatRunner } from './runner'
+import { wrapRuntimeStoreWithTimeout } from './storeTimeout'
 
 export function createAiChatEngine(opts: {
   store: AiChatRuntimeStore
@@ -12,7 +13,7 @@ export function createAiChatEngine(opts: {
   onProgress?: (run: AiChatRun, text: string) => Promise<void> | void
   onFinal?: (run: AiChatRun, finalText: string) => Promise<void> | void
 }) {
-  const store = opts.store
+  const store = wrapRuntimeStoreWithTimeout(opts.store, { readMs: 2500, writeMs: 2500, listDirMs: 8000 })
   const net = opts.net
   const owner = newOwnerId()
   const runs = createAiChatRunStore(store)
@@ -22,14 +23,6 @@ export function createAiChatEngine(opts: {
   const scopeBusy = new Set<string>()
   let ticking = false
   let enqueueSeq = 0
-
-  function targetScope(run: AiChatRun) {
-    const kind = run.target?.kind === 'group' ? 'group' : 'role'
-    const targetId = kind === 'group' ? String(run.target?.groupId || '') : String(run.target?.roleId || '')
-    const chatId = String(run.target?.chatId || '')
-    const branchId = String(run.target?.branchId || '')
-    return runScopeKey({ kind, targetId, chatId, branchId })
-  }
 
   async function enqueue(spec: {
     target: AiChatRun['target']
@@ -70,6 +63,8 @@ export function createAiChatEngine(opts: {
         chatId,
         branchId,
         assistantMid,
+        tag: String((target as any)?.tag || '').trim() === 'service' ? 'service' : undefined,
+        service: String((target as any)?.service || '').trim() || undefined,
       },
     }
 
@@ -246,5 +241,5 @@ export function createAiChatEngine(opts: {
     }
   }
 
-  return { owner, enqueue, cancel, tick, targetScope }
+  return { owner, enqueue, cancel, tick }
 }

@@ -52,6 +52,9 @@ export type AiChatRunTarget = {
   chatId: string
   branchId: string
   assistantMid: string
+  // 业务层路由用：引擎不理解其含义，仅用于区分“聊天生成”与“其它 AI 微服务请求”。
+  tag?: 'chat' | 'service'
+  service?: string
 }
 
 export type AiChatRun = {

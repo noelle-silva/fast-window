@@ -27,6 +27,7 @@ export function createAiChatRunner(opts: {
   const NO_PROGRESS_MS = Math.max(5000, Math.min(10 * 60 * 1000, Math.floor(opts.noProgressTimeoutMs ?? 25_000)))
   // 兜底：无论底层实现如何抖动/乱发事件，都必须“必然收尾”。
   const MAX_RUN_MS = Math.max(30_000, Math.min(60 * 60 * 1000, Math.floor(opts.maxRunMs ?? 15 * 60 * 1000)))
+  const CONNECT_STREAM_MS = 15_000
 
   function timeoutErr(label: string) {
     return new Error(`${label} timeout`)
@@ -107,7 +108,7 @@ export function createAiChatRunner(opts: {
       }
 
       if (run.stream && typeof net.requestStream === 'function') {
-        const stream = await net.requestStream(run.req)
+        const stream = await withTimeout(net.requestStream(run.req), CONNECT_STREAM_MS, 'requestStream')
         const sse = { buf: '', done: false }
 
         let streamClosed = false
@@ -261,8 +262,22 @@ export function createAiChatRunner(opts: {
           }
         }
       } else {
-        const r = await net.request(run.req)
+        const reqTimeoutMsRaw = Number((run.req as any)?.timeoutMs || 0)
+        const reqTimeoutMs = isFinite(reqTimeoutMsRaw) && reqTimeoutMsRaw > 0 ? reqTimeoutMsRaw : 120_000
+        const waitMs = Math.max(5000, Math.min(MAX_RUN_MS, reqTimeoutMs + 5000))
+        const r = await withTimeout(net.request(run.req), waitMs, 'request')
+        const status = Number((r as any)?.status || 0)
         const bodyText = String(r?.body || '')
+
+        if (status < 200 || status >= 300) {
+          let json: any = null
+          try {
+            json = JSON.parse(bodyText || '{}')
+          } catch (_) {}
+          const msg = String(json?.error?.message || bodyText || `HTTP ${status}`)
+          throw new Error(msg || `HTTP ${status}`)
+        }
+
         if (run.stream) {
           const sse = { buf: '', done: false }
           sseFeed(sse, bodyText, (json) => {
