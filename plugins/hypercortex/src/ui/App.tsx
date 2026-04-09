@@ -1133,22 +1133,16 @@ export function HyperCortexApp() {
                           }}
                         />
                       ) : (
-                        <Box
-                          sx={{
+                        <iframe
+                          srcDoc={activeNoteEditHtml}
+                          sandbox="allow-scripts"
+                          style={{
+                            display: 'block',
                             width: '100%',
-                            minHeight: 320,
-                            borderRadius: 3,
-                            bgcolor: 'rgba(0,0,0,.02)',
-                            color: 'rgba(0,0,0,.5)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: 15,
-                            lineHeight: 1.6,
+                            height: 'calc(100vh - 180px)',
+                            border: 'none',
                           }}
-                        >
-                          这里是html渲染处。
-                        </Box>
+                        />
                       ) : activeNoteEditing ? (
                         <InputBase
                           value={activeNoteEditBody}
