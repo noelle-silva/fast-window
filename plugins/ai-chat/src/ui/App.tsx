@@ -51,8 +51,6 @@ import AttachFileIcon from '@mui/icons-material/AttachFile'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import SettingsIcon from '@mui/icons-material/Settings'
 import StorageIcon from '@mui/icons-material/Storage'
-import VisibilityIcon from '@mui/icons-material/Visibility'
-import VisibilityOffIcon from '@mui/icons-material/VisibilityOff'
 import ZoomInIcon from '@mui/icons-material/ZoomIn'
 import ZoomOutIcon from '@mui/icons-material/ZoomOut'
 import RestartAltIcon from '@mui/icons-material/RestartAlt'
@@ -70,104 +68,11 @@ import DriveFileMoveOutlinedIcon from '@mui/icons-material/DriveFileMoveOutlined
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess'
 import { BUILTIN_TOOL_REQUEST_PRESETS, stringifyToolRequestRenderPreset } from '../core/toolRequestPresets'
 import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from '../core/viewerZoom'
-
-function useAiChatState(controller: any) {
-  React.useSyncExternalStore(
-    controller.subscribe,
-    () => controller.getSnapshot?.() ?? 0,
-    () => controller.getSnapshot?.() ?? 0,
-  )
-  return controller.getState()
-}
-
-function useEvent<T extends (...args: any[]) => any>(fn: T): T {
-  const ref = React.useRef(fn)
-  ref.current = fn
-  return React.useCallback(((...args: any[]) => ref.current(...args)) as any, [])
-}
-
-function findAtMentionTrigger(text: string, cursorIndex: number) {
-  const t = String(text || '')
-  const cursor = Math.max(0, Math.min(t.length, Math.floor(Number(cursorIndex) || 0)))
-  if (!cursor) return null
-
-  const at = t.lastIndexOf('@', cursor - 1)
-  if (at < 0) return null
-
-  // Avoid matching emails like "a@b" by requiring a boundary before '@'.
-  const prev = at > 0 ? t[at - 1] : ''
-  if (prev && !/[\s\n\r\t\(\（\[\【\{\《\<“"'、，。！？：；,\.!\?:;]/.test(prev)) return null
-
-  // Completed mention uses "@{...}" – don't reopen.
-  const next = t[at + 1] || ''
-  if (next === '{') return null
-
-  const between = t.slice(at + 1, cursor)
-  if (/[ \t\r\n]/.test(between)) return null
-
-  return { triggerIndex: at, cursorIndex: cursor, query: between }
-}
-
-function ApiKeyField(props: { value: string; onValueChange: (next: string) => void }) {
-  const { value, onValueChange } = props
-  const [visible, setVisible] = React.useState(false)
-
-  const label = visible ? '隐藏 API Key' : '显示 API Key'
-
-  return (
-    <TextField
-      label="API Key"
-      type={visible ? 'text' : 'password'}
-      autoComplete="off"
-      value={String(value || '')}
-      onChange={(e) => onValueChange(e.target.value)}
-      InputProps={{
-        endAdornment: (
-          <InputAdornment position="end">
-            <Tooltip title={label}>
-              <IconButton
-                size="small"
-                aria-label={label}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => setVisible((v) => !v)}
-              >
-                {visible ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
-              </IconButton>
-            </Tooltip>
-          </InputAdornment>
-        ),
-      }}
-    />
-  )
-}
-
-function SecretField(props: { label: string; value: string; onValueChange: (next: string) => void }) {
-  const { label, value, onValueChange } = props
-  const [visible, setVisible] = React.useState(false)
-
-  const tip = visible ? `隐藏 ${label}` : `显示 ${label}`
-
-  return (
-    <TextField
-      label={label}
-      type={visible ? 'text' : 'password'}
-      autoComplete="off"
-      value={String(value || '')}
-      onChange={(e) => onValueChange(e.target.value)}
-      InputProps={{
-        endAdornment: (
-          <InputAdornment position="end">
-            <Tooltip title={tip}>
-              <IconButton size="small" aria-label={tip} onMouseDown={(e) => e.preventDefault()} onClick={() => setVisible((v) => !v)}>
-                {visible ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
-              </IconButton>
-            </Tooltip>
-          </InputAdornment>
-        ),
-      }}
-    />
-  )
-}
+import { ApiKeyField } from './components/fields/ApiKeyField'
+import { SecretField } from './components/fields/SecretField'
+import { useAiChatState } from './hooks/useAiChatState'
+import { useEvent } from './hooks/useEvent'
+import { findAtMentionTrigger } from './utils/mention'
 
 function isNearBottom(el: HTMLElement, thresholdPx = 24) {
   const gap = el.scrollHeight - el.scrollTop - el.clientHeight
