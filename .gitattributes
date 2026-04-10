@@ -1,0 +1,9 @@
+* text=auto
+
+# Windows 脚本保持 CRLF，避免执行兼容问题
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Unix 脚本保持 LF
+*.sh text eol=lf

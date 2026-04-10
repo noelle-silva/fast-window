@@ -57,7 +57,7 @@ fn decide_wake_key(snapshot: Snapshot) -> (UiMode, WakeAction) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{decide, Snapshot, UiMode, WakeAction, WakeEvent};
 
     fn s() -> Snapshot {
         Snapshot {
