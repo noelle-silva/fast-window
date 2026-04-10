@@ -1,21 +1,40 @@
-use super::*;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
-use crate::plugins::{
-    get_data_dir, get_plugins_allow_overwrite_on_update, get_plugins_auto_update_enabled,
-    get_plugins_dir, install_plugin_files, list_plugins, open_data_dir, open_data_root_dir,
-    open_plugins_dir, plugin_store_install, read_plugin_file, read_plugin_file_base64,
-    read_plugins_dir, set_plugin_allow_overwrite_on_update, set_plugin_auto_update_enabled,
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Manager, WindowEvent,
 };
-use crate::tasks::{task_cancel, task_create, task_get, task_list};
-use crate::wallpaper::{
-    get_plugin_icon_overrides, get_wallpaper_settings, read_wallpaper_config,
-    remove_plugin_icon_override, remove_wallpaper, remove_wallpaper_item, resolve_wallpaper_item,
-    cycle_wallpaper, set_active_wallpaper, set_plugin_icon_override, set_wallpaper_image,
-    set_wallpaper_settings, set_wallpaper_view,
-};
-use crate::clipboard::{clipboard_read_image_data_url, clipboard_write_image_data_url};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-pub(crate) fn run() {
+use crate::{
+    app_data_dir, apply_bottom_rounded_corners, handle_wake_shortcut, image_mime_by_ext,
+    load_auto_start_pref, load_wake_shortcut, migrate_legacy_plugin_store_files, query_get_param,
+    safe_relative_path, browser_ui_set_mode, show_main_window, APP_STORAGE_ID,
+    AUTO_START_REG_VALUE, BROWSER_BAR_HEIGHT, BROWSER_BAR_WINDOW_LABEL, BROWSER_WINDOW_LABEL,
+    WakeShortcutState,
+};
+use crate::browser_stack::{
+    browser_stack_bar_height_px, browser_stack_hide, browser_stack_hide_to_main,
+    browser_stack_is_closing, browser_stack_is_focused, browser_stack_is_pinned,
+    browser_stack_should_suppress_hide,
+};
+use crate::http_api::HttpStreamManagerState;
+use crate::tasks::TaskManagerState;
+use crate::wallpaper::{read_wallpaper_config, resolve_wallpaper_item};
+use crate::windowing::{
+    load_browser_window_bounds_from_config, load_main_window_bounds_from_config,
+    persist_main_window_bounds, restore_bounds_or_center, save_bounds_if_valid,
+    save_browser_stack_bounds_if_valid, schedule_persist_browser_window_bounds,
+    schedule_persist_main_window_bounds, BrowserWindowState, WindowState,
+};
+use crate::{migrations, wake_logic};
+
+#[cfg(target_os = "windows")]
+use crate::auto_start;
+
+pub(crate) fn builder_base() -> tauri::Builder<tauri::Wry> {
     tauri::Builder::default()
         .register_uri_scheme_protocol("wallpaper", |ctx, request| {
             let app = ctx.app_handle();
@@ -94,91 +113,10 @@ pub(crate) fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![
-            get_plugins_dir,
-            get_data_dir,
-            get_wallpaper_settings,
-            set_wallpaper_settings,
-            set_wallpaper_view,
-            set_wallpaper_image,
-            remove_wallpaper,
-            set_active_wallpaper,
-            remove_wallpaper_item,
-            cycle_wallpaper,
-            open_data_root_dir,
-            open_data_dir,
-            open_plugins_dir,
-            list_plugins,
-            read_plugin_file,
-            read_plugin_file_base64,
-            set_plugin_auto_update_enabled,
-            get_plugins_auto_update_enabled,
-            set_plugin_allow_overwrite_on_update,
-            get_plugins_allow_overwrite_on_update,
-            read_plugins_dir,
-            install_plugin_files,
-            plugin_store_install,
-            open_external_url,
-            open_external_uri,
-            open_browser_window,
-            close_browser_window,
-            hide_browser_stack,
-            browser_go_back,
-            browser_go_forward,
-            browser_reload,
-            get_webview_settings,
-            set_webview_settings,
-            browser_video_set_rate,
-            browser_video_toggle_preset,
-            browser_stack_toggle_fullscreen,
-            browser_stack_get_pinned,
-            browser_stack_toggle_pinned,
-            http_request,
-            http_request_base64,
-            http_request_stream,
-            http_request_stream_cancel,
-            gateway_test_channel,
-            clipboard_write_image_data_url,
-            clipboard_read_image_data_url,
-            storage_get,
-            storage_set,
-            storage_remove,
-            storage_get_all,
-            storage_set_all,
-            storage_migrate,
-            get_plugin_icon_overrides,
-            set_plugin_icon_override,
-            remove_plugin_icon_override,
-            plugin_get_output_dir,
-            plugin_get_library_dir,
-            plugin_pick_output_dir,
-            plugin_pick_library_dir,
-            plugin_pick_dir,
-            plugin_open_output_dir,
-            plugin_open_dir,
-            plugin_files_list_dir,
-            plugin_files_read_text,
-            plugin_files_write_text,
-            plugin_files_read_base64,
-            plugin_files_write_base64,
-            plugin_files_rename,
-            plugin_files_delete,
-            plugin_images_write_base64,
-            plugin_images_list,
-            plugin_images_read,
-            plugin_images_delete,
-            plugin_pick_images,
-            task_create,
-            task_get,
-            task_list,
-            task_cancel,
-            get_wake_shortcut,
-            set_wake_shortcut,
-            pause_wake_shortcut,
-            resume_wake_shortcut,
-            get_auto_start,
-            set_auto_start
-        ])
+}
+
+pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+    builder
         .setup(|app| {
             app.manage(WindowState::default());
             app.manage(Arc::new(TaskManagerState::default()));
@@ -461,6 +399,4 @@ pub(crate) fn run() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
 }

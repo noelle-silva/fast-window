@@ -11,11 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use tauri::ipc::Channel;
-use tauri::{
-    menu::{Menu, MenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, EventTarget, Manager, WindowEvent,
-};
+use tauri::{Emitter, EventTarget, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 mod migrations;
@@ -38,10 +34,22 @@ mod auto_start;
 use browser_stack::*;
 use windowing::*;
 use http_api::*;
+use crate::clipboard::{clipboard_read_image_data_url, clipboard_write_image_data_url};
+use crate::plugins::{
+    get_data_dir, get_plugins_allow_overwrite_on_update, get_plugins_auto_update_enabled,
+    get_plugins_dir, install_plugin_files, list_plugins, open_data_dir, open_data_root_dir,
+    open_plugins_dir, plugin_store_install, read_plugin_file, read_plugin_file_base64,
+    read_plugins_dir, set_plugin_allow_overwrite_on_update, set_plugin_auto_update_enabled,
+};
+use crate::tasks::{task_cancel, task_create, task_get, task_list};
+use crate::wallpaper::{
+    cycle_wallpaper, get_plugin_icon_overrides, get_wallpaper_settings, remove_plugin_icon_override,
+    remove_wallpaper, remove_wallpaper_item, set_active_wallpaper, set_plugin_icon_override,
+    set_wallpaper_image, set_wallpaper_settings, set_wallpaper_view,
+};
 pub(crate) use plugins::{
     is_safe_id, query_get_param, safe_relative_path,
 };
-pub(crate) use tasks::TaskManagerState;
 pub(crate) use os_actions::{open_dir_in_file_manager, open_external_uri, open_external_url};
 pub(crate) use crate::core::{
     is_dir_writable, is_http_url, is_https_url, normalize_zip_name, now_ms, parse_sha256_hex_32,
@@ -2749,6 +2757,93 @@ fn set_auto_start(app: tauri::AppHandle, enabled: bool) -> Result<AutoStartStatu
 
 
 fn main() {
-    app::run();
+    let builder = app::builder_base().invoke_handler(tauri::generate_handler![
+        get_plugins_dir,
+        get_data_dir,
+        get_wallpaper_settings,
+        set_wallpaper_settings,
+        set_wallpaper_view,
+        set_wallpaper_image,
+        remove_wallpaper,
+        set_active_wallpaper,
+        remove_wallpaper_item,
+        cycle_wallpaper,
+        open_data_root_dir,
+        open_data_dir,
+        open_plugins_dir,
+        list_plugins,
+        read_plugin_file,
+        read_plugin_file_base64,
+        set_plugin_auto_update_enabled,
+        get_plugins_auto_update_enabled,
+        set_plugin_allow_overwrite_on_update,
+        get_plugins_allow_overwrite_on_update,
+        read_plugins_dir,
+        install_plugin_files,
+        plugin_store_install,
+        open_external_url,
+        open_external_uri,
+        open_browser_window,
+        close_browser_window,
+        hide_browser_stack,
+        browser_go_back,
+        browser_go_forward,
+        browser_reload,
+        get_webview_settings,
+        set_webview_settings,
+        browser_video_set_rate,
+        browser_video_toggle_preset,
+        browser_stack_toggle_fullscreen,
+        browser_stack_get_pinned,
+        browser_stack_toggle_pinned,
+        http_request,
+        http_request_base64,
+        http_request_stream,
+        http_request_stream_cancel,
+        gateway_test_channel,
+        clipboard_write_image_data_url,
+        clipboard_read_image_data_url,
+        storage_get,
+        storage_set,
+        storage_remove,
+        storage_get_all,
+        storage_set_all,
+        storage_migrate,
+        get_plugin_icon_overrides,
+        set_plugin_icon_override,
+        remove_plugin_icon_override,
+        plugin_get_output_dir,
+        plugin_get_library_dir,
+        plugin_pick_output_dir,
+        plugin_pick_library_dir,
+        plugin_pick_dir,
+        plugin_open_output_dir,
+        plugin_open_dir,
+        plugin_files_list_dir,
+        plugin_files_read_text,
+        plugin_files_write_text,
+        plugin_files_read_base64,
+        plugin_files_write_base64,
+        plugin_files_rename,
+        plugin_files_delete,
+        plugin_images_write_base64,
+        plugin_images_list,
+        plugin_images_read,
+        plugin_images_delete,
+        plugin_pick_images,
+        task_create,
+        task_get,
+        task_list,
+        task_cancel,
+        get_wake_shortcut,
+        set_wake_shortcut,
+        pause_wake_shortcut,
+        resume_wake_shortcut,
+        get_auto_start,
+        set_auto_start
+    ]);
+    app::builder_tail(builder)
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
 }
 
