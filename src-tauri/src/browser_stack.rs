@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn browser_stack_set_always_on_top(app: &tauri::AppHandle, enable: bool) {
+pub(crate) fn browser_stack_set_always_on_top(app: &tauri::AppHandle, enable: bool) {
     if let Some(w) = app.get_webview_window(BROWSER_BAR_WINDOW_LABEL) {
         let _ = w.set_always_on_top(enable);
     }
@@ -9,12 +9,12 @@ pub(super) fn browser_stack_set_always_on_top(app: &tauri::AppHandle, enable: bo
     }
 }
 
-pub(super) fn browser_stack_is_pinned(app: &tauri::AppHandle) -> bool {
+pub(crate) fn browser_stack_is_pinned(app: &tauri::AppHandle) -> bool {
     let state = app.state::<BrowserWindowState>();
     state.pinned.lock().ok().map(|g| *g).unwrap_or(false)
 }
 
-pub(super) fn browser_stack_bar_height_px(bar: &tauri::WebviewWindow) -> u32 {
+pub(crate) fn browser_stack_bar_height_px(bar: &tauri::WebviewWindow) -> u32 {
     if let Ok(s) = bar.inner_size() {
         if s.height > 0 {
             return s.height;
@@ -24,12 +24,12 @@ pub(super) fn browser_stack_bar_height_px(bar: &tauri::WebviewWindow) -> u32 {
     (BROWSER_BAR_HEIGHT * scale).round().max(1.0) as u32
 }
 
-pub(super) fn browser_stack_exists(app: &tauri::AppHandle) -> bool {
+pub(crate) fn browser_stack_exists(app: &tauri::AppHandle) -> bool {
     app.get_webview_window(BROWSER_BAR_WINDOW_LABEL).is_some()
         && app.get_webview_window(BROWSER_WINDOW_LABEL).is_some()
 }
 
-pub(super) fn browser_stack_is_visible(app: &tauri::AppHandle) -> bool {
+pub(crate) fn browser_stack_is_visible(app: &tauri::AppHandle) -> bool {
     let bar = app.get_webview_window(BROWSER_BAR_WINDOW_LABEL);
     let content = app.get_webview_window(BROWSER_WINDOW_LABEL);
     bar.as_ref()
@@ -41,7 +41,7 @@ pub(super) fn browser_stack_is_visible(app: &tauri::AppHandle) -> bool {
             .unwrap_or(false)
 }
 
-pub(super) fn browser_stack_is_focused(app: &tauri::AppHandle) -> bool {
+pub(crate) fn browser_stack_is_focused(app: &tauri::AppHandle) -> bool {
     let bar = app.get_webview_window(BROWSER_BAR_WINDOW_LABEL);
     let content = app.get_webview_window(BROWSER_WINDOW_LABEL);
     bar.as_ref()
@@ -53,7 +53,7 @@ pub(super) fn browser_stack_is_focused(app: &tauri::AppHandle) -> bool {
             .unwrap_or(false)
 }
 
-pub(super) fn browser_stack_set_suppress_hide(app: &tauri::AppHandle, duration_ms: u64) {
+pub(crate) fn browser_stack_set_suppress_hide(app: &tauri::AppHandle, duration_ms: u64) {
     let state = app.state::<BrowserWindowState>();
     let until = now_ms().saturating_add(duration_ms);
     if let Ok(mut g) = state.suppress_hide_until_ms.lock() {
@@ -61,7 +61,7 @@ pub(super) fn browser_stack_set_suppress_hide(app: &tauri::AppHandle, duration_m
     };
 }
 
-pub(super) fn browser_stack_should_suppress_hide(app: &tauri::AppHandle) -> bool {
+pub(crate) fn browser_stack_should_suppress_hide(app: &tauri::AppHandle) -> bool {
     let state = app.state::<BrowserWindowState>();
     let until = state
         .suppress_hide_until_ms
@@ -72,7 +72,7 @@ pub(super) fn browser_stack_should_suppress_hide(app: &tauri::AppHandle) -> bool
     now_ms() < until
 }
 
-pub(super) fn browser_stack_restore_or_center(app: &tauri::AppHandle) {
+pub(crate) fn browser_stack_restore_or_center(app: &tauri::AppHandle) {
     let bar = match app.get_webview_window(BROWSER_BAR_WINDOW_LABEL) {
         Some(w) => w,
         None => return,
@@ -126,7 +126,7 @@ pub(super) fn browser_stack_restore_or_center(app: &tauri::AppHandle) {
     }
 }
 
-pub(super) fn browser_stack_show(app: &tauri::AppHandle) {
+pub(crate) fn browser_stack_show(app: &tauri::AppHandle) {
     if !browser_stack_exists(app) {
         return;
     }
@@ -149,7 +149,7 @@ pub(super) fn browser_stack_show(app: &tauri::AppHandle) {
     browser_ui_set_mode(app, wake_logic::UiMode::BrowserVisible);
 }
 
-pub(super) fn browser_stack_hide(app: &tauri::AppHandle) {
+pub(crate) fn browser_stack_hide(app: &tauri::AppHandle) {
     let bar = match app.get_webview_window(BROWSER_BAR_WINDOW_LABEL) {
         Some(w) => w,
         None => return,
@@ -179,14 +179,14 @@ pub(super) fn browser_stack_hide(app: &tauri::AppHandle) {
     browser_ui_set_mode(app, wake_logic::UiMode::Hidden);
 }
 
-pub(super) fn browser_stack_hide_to_main(app: &tauri::AppHandle) {
+pub(crate) fn browser_stack_hide_to_main(app: &tauri::AppHandle) {
     // “隐藏”只做 UI 切换：保留浏览栈窗口与 session 状态，方便再次唤起继续用。
     browser_stack_hide(app);
     emit_activate_plugin_if_any(app);
     show_main_window(app);
 }
 
-pub(super) fn browser_stack_end_session(app: &tauri::AppHandle) {
+pub(crate) fn browser_stack_end_session(app: &tauri::AppHandle) {
     browser_stack_hide(app);
     let state = app.state::<BrowserWindowState>();
     if let Ok(mut g) = state.active.lock() {
@@ -202,19 +202,19 @@ pub(super) fn browser_stack_end_session(app: &tauri::AppHandle) {
     show_main_window(app);
 }
 
-pub(super) fn browser_stack_is_closing(app: &tauri::AppHandle) -> bool {
+pub(crate) fn browser_stack_is_closing(app: &tauri::AppHandle) -> bool {
     let state = app.state::<BrowserWindowState>();
     state.closing.lock().ok().map(|g| *g).unwrap_or(false)
 }
 
-pub(super) fn browser_stack_set_closing(app: &tauri::AppHandle, closing: bool) {
+pub(crate) fn browser_stack_set_closing(app: &tauri::AppHandle, closing: bool) {
     let state = app.state::<BrowserWindowState>();
     if let Ok(mut g) = state.closing.lock() {
         *g = closing;
     };
 }
 
-pub(super) fn browser_stack_close(app: &tauri::AppHandle) {
+pub(crate) fn browser_stack_close(app: &tauri::AppHandle) {
     // “关闭浏览”应当真正销毁 WebView：否则只是 hide，会导致网页音频继续播放。
     browser_stack_set_closing(app, true);
     browser_stack_end_session(app);
@@ -227,7 +227,7 @@ pub(super) fn browser_stack_close(app: &tauri::AppHandle) {
     }
 }
 
-pub(super) fn browser_stack_apply_fullscreen(app: &tauri::AppHandle, enable: bool) -> Result<(), String> {
+pub(crate) fn browser_stack_apply_fullscreen(app: &tauri::AppHandle, enable: bool) -> Result<(), String> {
     let bar = app
         .get_webview_window(BROWSER_BAR_WINDOW_LABEL)
         .ok_or_else(|| "顶部栏窗口不存在".to_string())?;
