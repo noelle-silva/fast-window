@@ -1,4 +1,5 @@
 use super::*;
+
 use crate::plugins::{
     get_data_dir, get_plugins_allow_overwrite_on_update, get_plugins_auto_update_enabled,
     get_plugins_dir, install_plugin_files, list_plugins, open_data_dir, open_data_root_dir,

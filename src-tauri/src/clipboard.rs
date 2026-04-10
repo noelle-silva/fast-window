@@ -1,9 +1,11 @@
-use super::*;
-
 use base64::engine::general_purpose;
+use base64::Engine as _;
 use image::codecs::png::PngEncoder;
 use image::{ColorType, ImageEncoder};
+use tauri::AppHandle;
 use tauri_plugin_clipboard_manager::ClipboardExt;
+
+use crate::decode_base64_image_payload;
 
 fn encode_rgba_to_png_bytes(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
     if width == 0 || height == 0 {

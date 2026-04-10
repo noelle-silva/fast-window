@@ -1,4 +1,15 @@
-use super::*;
+use base64::engine::general_purpose;
+use base64::Engine as _;
+use serde::Serialize;
+use serde_json::{Map, Value};
+use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::plugins::{is_safe_id, safe_relative_path};
+use crate::{
+    app_data_dir, decode_base64_image_payload, image_mime_by_ext, read_json_value,
+    storage_value_path, write_json_value,
+};
 
 const WALLPAPER_SETTINGS_KEY: &str = "wallpaper";
 const APP_ICON_OVERRIDES_KEY: &str = "pluginIconOverrides";

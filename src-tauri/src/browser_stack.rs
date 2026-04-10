@@ -1,4 +1,14 @@
-use super::*;
+use tauri::Manager;
+
+use crate::wake_logic;
+use crate::windowing::{
+    persist_browser_window_bounds, save_browser_stack_bounds_if_valid, BrowserWindowState,
+};
+use crate::{
+    apply_bottom_rounded_corners, browser_ui_set_mode, emit_activate_plugin_if_any, hide_main_window,
+    now_ms, show_main_window, BROWSER_BAR_HEIGHT, BROWSER_BAR_WINDOW_LABEL,
+    BROWSER_STACK_TOTAL_HEIGHT, BROWSER_WINDOW_LABEL,
+};
 
 pub(crate) fn browser_stack_set_always_on_top(app: &tauri::AppHandle, enable: bool) {
     if let Some(w) = app.get_webview_window(BROWSER_BAR_WINDOW_LABEL) {

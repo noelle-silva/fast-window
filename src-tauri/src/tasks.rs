@@ -1,7 +1,10 @@
-use super::*;
+use crate::http_api::{http_request, HttpRequest};
+use crate::plugins::is_safe_id;
+use crate::{ensure_writable_dir, resolve_plugin_output_dir};
 
 use image::codecs::png::PngEncoder;
 use image::ColorType;
+use image::ImageEncoder;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -9,6 +12,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::Manager;
+use tauri_plugin_clipboard_manager::ClipboardExt;
 
 const TASKS_RETENTION_LIMIT: usize = 120;
 const TASKS_PER_PLUGIN_LIMIT: usize = 40;

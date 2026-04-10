@@ -1,4 +1,14 @@
-use super::*;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use base64::engine::general_purpose;
+use base64::Engine as _;
+use serde::{Deserialize, Serialize};
+use tauri::Manager;
+
+use crate::Channel;
+use crate::{is_http_url, make_http_stream_id};
 
 #[derive(Deserialize)]
 pub(crate) struct HttpRequest {

@@ -1,26 +1,22 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::{engine::general_purpose, Engine as _};
-use image::ImageEncoder;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::HashMap;
 use tauri::ipc::Channel;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, EventTarget, Manager, WindowEvent,
+    Emitter, EventTarget, Manager, WindowEvent,
 };
-use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
-use tokio::io::AsyncWriteExt;
 
 mod migrations;
 mod wake_logic;
@@ -29,9 +25,12 @@ mod windowing;
 mod http_api;
 mod plugins;
 mod app;
+mod config_store;
 mod tasks;
 mod wallpaper;
 mod clipboard;
+mod os_actions;
+mod core;
 
 #[cfg(target_os = "windows")]
 mod auto_start;
@@ -43,6 +42,17 @@ pub(crate) use plugins::{
     is_safe_id, query_get_param, safe_relative_path,
 };
 pub(crate) use tasks::TaskManagerState;
+pub(crate) use os_actions::{open_dir_in_file_manager, open_external_uri, open_external_url};
+pub(crate) use crate::core::{
+    is_dir_writable, is_http_url, is_https_url, normalize_zip_name, now_ms, parse_sha256_hex_32,
+    portable_base_dir_from_env, rand_u32, to_hex_lower,
+};
+pub(crate) use config_store::{
+    app_config_path, plugin_default_library_dir, plugin_default_output_dir, plugin_default_ref_images_dir,
+    read_app_config_map, read_plugin_auto_update_prefs, read_plugin_library_dir_from_config,
+    read_plugin_output_dir_from_config, write_app_config_map, write_plugin_auto_update_prefs,
+    write_plugin_library_dir_to_config, write_plugin_output_dir_to_config,
+};
 
 const DEFAULT_WAKE_SHORTCUT: &str = "control+alt+Space";
 const APP_STORAGE_ID: &str = "__app";
@@ -142,133 +152,11 @@ fn apply_bottom_rounded_corners(window: &tauri::WebviewWindow, radius_dip: f64) 
 #[cfg(not(windows))]
 fn apply_bottom_rounded_corners(_window: &tauri::WebviewWindow, _radius_dip: f64) {}
 
-fn is_http_url(url: &str) -> bool {
-    let u = url.trim();
-    let u = u.to_ascii_lowercase();
-    u.starts_with("http://") || u.starts_with("https://")
-}
-
-fn is_https_url(url: &str) -> bool {
-    let u = url.trim();
-    let u = u.to_ascii_lowercase();
-    u.starts_with("https://")
-}
-
-fn hex_val(c: u8) -> Option<u8> {
-    match c {
-        b'0'..=b'9' => Some(c - b'0'),
-        b'a'..=b'f' => Some(c - b'a' + 10),
-        b'A'..=b'F' => Some(c - b'A' + 10),
-        _ => None,
-    }
-}
-
-fn parse_sha256_hex_32(raw: &str) -> Result<[u8; 32], String> {
-    let s = raw.trim();
-    if s.len() != 64 {
-        return Err("sha256 必须为 64 位十六进制字符串".to_string());
-    }
-    let bytes = s.as_bytes();
-    let mut out = [0u8; 32];
-    let mut i = 0usize;
-    while i < 64 {
-        let hi = hex_val(bytes[i]).ok_or_else(|| "sha256 存在非十六进制字符".to_string())?;
-        let lo = hex_val(bytes[i + 1]).ok_or_else(|| "sha256 存在非十六进制字符".to_string())?;
-        out[i / 2] = (hi << 4) | lo;
-        i += 2;
-    }
-    Ok(out)
-}
-
-fn to_hex_lower(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut out = Vec::<u8>::with_capacity(bytes.len() * 2);
-    for &b in bytes {
-        out.push(HEX[(b >> 4) as usize]);
-        out.push(HEX[(b & 0x0f) as usize]);
-    }
-    String::from_utf8(out).unwrap_or_default()
-}
-
-fn normalize_zip_name(name: &str) -> String {
-    let mut s = name.replace('\\', "/");
-    while s.starts_with('/') {
-        s.remove(0);
-    }
-    if s.starts_with("./") {
-        s = s.trim_start_matches("./").to_string();
-    }
-    s
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_millis(0))
-        .as_millis() as u64
-}
-
-fn rand_u32(seed: u64) -> u32 {
-    let mut x = (seed as u32).wrapping_mul(1664525).wrapping_add(1013904223);
-    x ^= x << 13;
-    x ^= x >> 17;
-    x ^ (x << 5)
-}
-
 fn make_http_stream_id() -> String {
     let stamp = now_ms();
     let seq = HTTP_STREAM_ID_SEQ.fetch_add(1, Ordering::Relaxed);
     let rnd = format!("{:08x}", rand_u32(stamp ^ (seq as u64)));
     format!("httpstream-{stamp}-{seq:08x}-{rnd}")
-}
-
-#[tauri::command]
-fn open_external_url(url: String) -> Result<(), String> {
-    let mut u = url.trim().to_string();
-    if u.chars().any(|c| c.is_whitespace()) {
-        return Err("url 不允许包含空白字符，请先进行 URL 编码（例如空格用 %20）".to_string());
-    }
-    if u.contains('\\') {
-        // 避免 Windows 上被当成路径导致 explorer 打开资源管理器。
-        u = u.replace('\\', "/");
-    }
-
-    if !is_http_url(&u) {
-        return Err("url 必须以 http(s):// 开头".to_string());
-    }
-
-    open::that(&u).map_err(|e| format!("打开链接失败: {e}"))?;
-    Ok(())
-}
-
-#[tauri::command]
-fn open_external_uri(uri: String) -> Result<(), String> {
-    let mut u = uri.trim().to_string();
-    if u.is_empty() {
-        return Ok(());
-    }
-    if u.chars().any(|c| c.is_whitespace()) {
-        return Err("uri 不允许包含空白字符，请先进行 URL 编码（例如空格用 %20）".to_string());
-    }
-    if u.contains('\\') {
-        u = u.replace('\\', "/");
-    }
-
-    let parsed = tauri::Url::parse(&u).map_err(|e| format!("uri 解析失败: {e}"))?;
-    let scheme = parsed.scheme().to_ascii_lowercase();
-    // 避免把 Windows 路径（如 C:/xxx）误判成 scheme。
-    if scheme.len() < 2 {
-        return Err("uri scheme 不合法（太短）".to_string());
-    }
-    if scheme == "file" {
-        return Err("不允许打开 file:// uri".to_string());
-    }
-    if scheme == "javascript" {
-        return Err("不允许打开 javascript: uri".to_string());
-    }
-
-    open::that(parsed.as_str()).map_err(|e| format!("打开失败: {e}"))?;
-    Ok(())
 }
 
 #[tauri::command]
@@ -609,32 +497,6 @@ async fn browser_stack_toggle_pinned(app: tauri::AppHandle) -> Result<bool, Stri
     Ok(next)
 }
 
-fn portable_base_dir_from_env() -> Option<PathBuf> {
-    let Ok(raw) = std::env::var(DATA_DIR_ENV) else {
-        return None;
-    };
-    let raw = raw.trim();
-    if raw.is_empty() {
-        return None;
-    }
-    Some(PathBuf::from(raw))
-}
-
-fn is_dir_writable(dir: &Path) -> bool {
-    let test = dir.join(".fast-window.write-test");
-    match std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .open(&test)
-    {
-        Ok(_) => {
-            let _ = std::fs::remove_file(&test);
-            true
-        }
-        Err(_) => false,
-    }
-}
-
 fn app_local_base_dir(app: &tauri::AppHandle) -> PathBuf {
     if let Some(p) = portable_base_dir_from_env() {
         return p;
@@ -732,216 +594,6 @@ fn migrate_legacy_plugin_store_files(app: &tauri::AppHandle) -> Result<(), Strin
     }
 
     Ok(())
-}
-
-fn app_config_path(app: &tauri::AppHandle) -> PathBuf {
-    app_data_dir(app).join(APP_STORAGE_ID).join(APP_CONFIG_FILE)
-}
-
-fn app_config_legacy_path(app: &tauri::AppHandle) -> PathBuf {
-    app_data_dir(app).join(APP_CONFIG_FILE)
-}
-
-fn app_plugin_auto_update_prefs_path(app: &tauri::AppHandle) -> PathBuf {
-    app_data_dir(app)
-        .join(APP_STORAGE_ID)
-        .join(PLUGIN_AUTO_UPDATE_PREFS_FILE)
-}
-
-fn read_json_map_opt(path: &Path) -> Option<Map<String, Value>> {
-    if !path.is_file() {
-        return None;
-    }
-    let content = std::fs::read_to_string(path).ok()?;
-    let v = serde_json::from_str::<Value>(&content).ok()?;
-    match v {
-        Value::Object(map) => Some(map),
-        _ => None,
-    }
-}
-
-fn read_app_config_map(app: &tauri::AppHandle) -> Map<String, Value> {
-    let p = app_config_path(app);
-    if let Some(map) = read_json_map_opt(&p) {
-        return map;
-    }
-    let legacy = app_config_legacy_path(app);
-    read_json_map_opt(&legacy).unwrap_or_else(Map::new)
-}
-
-fn write_app_config_map(app: &tauri::AppHandle, map: &Map<String, Value>) -> Result<(), String> {
-    let p = app_config_path(app);
-    write_json_map(&p, map)
-}
-
-fn read_plugin_auto_update_prefs(app: &tauri::AppHandle) -> BTreeMap<String, bool> {
-    let p = app_plugin_auto_update_prefs_path(app);
-    let Some(map) = read_json_map_opt(&p) else {
-        return BTreeMap::new();
-    };
-
-    let mut out: BTreeMap<String, bool> = BTreeMap::new();
-    for (k, v) in map {
-        if !is_safe_id(&k) {
-            continue;
-        }
-        if v.as_bool() == Some(true) {
-            out.insert(k, true);
-        }
-    }
-    out
-}
-
-fn write_plugin_auto_update_prefs(
-    app: &tauri::AppHandle,
-    prefs: &BTreeMap<String, bool>,
-) -> Result<(), String> {
-    let p = app_plugin_auto_update_prefs_path(app);
-    if let Some(parent) = p.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
-    }
-
-    let mut obj = Map::<String, Value>::new();
-    for (k, v) in prefs {
-        // 仅持久化 true（开启自动更新）。缺失/false 视为关闭。
-        if *v {
-            obj.insert(k.clone(), Value::Bool(true));
-        }
-    }
-    let out = serde_json::to_string_pretty(&Value::Object(obj))
-        .map_err(|e| format!("序列化自动更新配置失败: {e}"))?;
-    std::fs::write(&p, format!("{out}\n")).map_err(|e| format!("写入自动更新配置失败: {e}"))?;
-    Ok(())
-}
-
-fn open_dir_in_file_manager(dir: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(dir).map_err(|e| format!("创建目录失败: {e}"))?;
-
-    #[cfg(target_os = "windows")]
-    {
-        std::process::Command::new("explorer")
-            .arg(dir)
-            .spawn()
-            .map_err(|e| format!("打开目录失败: {e}"))?;
-        return Ok(());
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open")
-            .arg(dir)
-            .spawn()
-            .map_err(|e| format!("打开目录失败: {e}"))?;
-        return Ok(());
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(dir)
-            .spawn()
-            .map_err(|e| format!("打开目录失败: {e}"))?;
-        return Ok(());
-    }
-
-    #[allow(unreachable_code)]
-    Err("当前平台不支持打开文件管理器".to_string())
-}
-
-fn plugin_default_output_dir(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf {
-    // 默认输出目录：
-    // - 新用户：data/<pluginId>/output
-    // - 老用户：若旧目录 data/<pluginId>/output-images 已存在，则沿用（不破坏用户空间）
-    let base = app_data_dir(app).join(plugin_id);
-    let legacy = base.join("output-images");
-    if legacy.is_dir() {
-        return legacy;
-    }
-    base.join("output")
-}
-
-fn plugin_default_ref_images_dir(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf {
-    // 插件私有图片存放在 data/<pluginId>/ref-images（不走可配置输出目录，避免混入用户空间）
-    app_data_dir(app).join(plugin_id).join("ref-images")
-}
-
-fn plugin_default_library_dir(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf {
-    // 默认库目录：data/<pluginId>/library
-    app_data_dir(app).join(plugin_id).join("library")
-}
-
-fn read_plugin_output_dir_from_config(app: &tauri::AppHandle, plugin_id: &str) -> Option<PathBuf> {
-    let map = read_app_config_map(app);
-    let Some(Value::Object(obj)) = map.get(PLUGIN_OUTPUT_DIRS_KEY) else {
-        return None;
-    };
-    let Some(Value::String(s)) = obj.get(plugin_id) else {
-        return None;
-    };
-    let raw = s.trim();
-    if raw.is_empty() {
-        return None;
-    }
-    Some(PathBuf::from(raw))
-}
-
-fn read_plugin_library_dir_from_config(app: &tauri::AppHandle, plugin_id: &str) -> Option<PathBuf> {
-    let map = read_app_config_map(app);
-    let Some(Value::Object(obj)) = map.get(PLUGIN_LIBRARY_DIRS_KEY) else {
-        return None;
-    };
-    let Some(Value::String(s)) = obj.get(plugin_id) else {
-        return None;
-    };
-    let raw = s.trim();
-    if raw.is_empty() {
-        return None;
-    }
-    Some(PathBuf::from(raw))
-}
-
-fn write_plugin_output_dir_to_config(
-    app: &tauri::AppHandle,
-    plugin_id: &str,
-    dir: &Path,
-) -> Result<(), String> {
-    let mut map = read_app_config_map(app);
-
-    let v = map
-        .entry(PLUGIN_OUTPUT_DIRS_KEY.to_string())
-        .or_insert_with(|| Value::Object(Map::new()));
-    if !v.is_object() {
-        *v = Value::Object(Map::new());
-    }
-    let obj = v.as_object_mut().unwrap();
-    obj.insert(
-        plugin_id.to_string(),
-        Value::String(dir.to_string_lossy().to_string()),
-    );
-
-    write_app_config_map(app, &map)
-}
-
-fn write_plugin_library_dir_to_config(
-    app: &tauri::AppHandle,
-    plugin_id: &str,
-    dir: &Path,
-) -> Result<(), String> {
-    let mut map = read_app_config_map(app);
-
-    let v = map
-        .entry(PLUGIN_LIBRARY_DIRS_KEY.to_string())
-        .or_insert_with(|| Value::Object(Map::new()));
-    if !v.is_object() {
-        *v = Value::Object(Map::new());
-    }
-    let obj = v.as_object_mut().unwrap();
-    obj.insert(
-        plugin_id.to_string(),
-        Value::String(dir.to_string_lossy().to_string()),
-    );
-
-    write_app_config_map(app, &map)
 }
 
 fn ensure_writable_dir(dir: &Path) -> Result<(), String> {
