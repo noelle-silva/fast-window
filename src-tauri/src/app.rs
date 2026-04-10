@@ -5,6 +5,14 @@ use crate::plugins::{
     open_plugins_dir, plugin_store_install, read_plugin_file, read_plugin_file_base64,
     read_plugins_dir, set_plugin_allow_overwrite_on_update, set_plugin_auto_update_enabled,
 };
+use crate::tasks::{task_cancel, task_create, task_get, task_list};
+use crate::wallpaper::{
+    get_plugin_icon_overrides, get_wallpaper_settings, read_wallpaper_config,
+    remove_plugin_icon_override, remove_wallpaper, remove_wallpaper_item, resolve_wallpaper_item,
+    cycle_wallpaper, set_active_wallpaper, set_plugin_icon_override, set_wallpaper_image,
+    set_wallpaper_settings, set_wallpaper_view,
+};
+use crate::clipboard::{clipboard_read_image_data_url, clipboard_write_image_data_url};
 
 pub(crate) fn run() {
     tauri::Builder::default()
