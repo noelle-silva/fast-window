@@ -15,6 +15,7 @@ import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
 import { ensureMetadata, getApi, saveMetadata, tryLoadMetadata, type HyperCortexNoteDoc, type NoteMeta } from '../core'
 import { loadHtmlFace, loadNoteIndex, loadNotePackage, saveHtmlFace, saveNotePackage } from '../notePackage'
 import { createMarkdownRenderEngine } from '../render/engine'
+import { AutoHeightHtmlIframe } from './AutoHeightHtmlIframe'
 
 type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'note-detail' | 'index' | 'settings'
 
@@ -1133,16 +1134,7 @@ export function HyperCortexApp() {
                           }}
                         />
                       ) : (
-                        <iframe
-                          srcDoc={activeNoteEditHtml}
-                          sandbox="allow-scripts"
-                          style={{
-                            display: 'block',
-                            width: '100%',
-                            height: 'calc(100vh - 180px)',
-                            border: 'none',
-                          }}
-                        />
+                        <AutoHeightHtmlIframe html={activeNoteEditHtml} minHeightPx={240} />
                       ) : activeNoteEditing ? (
                         <InputBase
                           value={activeNoteEditBody}
