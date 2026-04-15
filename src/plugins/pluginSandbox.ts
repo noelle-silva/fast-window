@@ -2,10 +2,30 @@ import { PLUGIN_API_VERSION } from './pluginContract'
 
 export type PluginRuntime = 'ui' | 'background'
 
-export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; token: string; runtime: PluginRuntime }) {
-  const { pluginId, pluginCode, token, runtime } = opts
+export function buildPluginSdkCode(opts: {
+  pluginId: string
+  token: string
+  runtime: PluginRuntime
+}) {
+  const { pluginId, token, runtime } = opts
 
-  const sdk = `
+  const sendExpr = `(() => {
+  const p = globalThis.__fastWindowPort;
+  if (!p || typeof p.postMessage !== 'function') throw new Error('fastWindow MessagePort is not ready');
+  return (payload) => p.postMessage(payload);
+})()`
+
+  const listenExpr = `(() => {
+  const handler = (msg) => onMsg(msg);
+  try {
+    const p = globalThis.__fastWindowPort;
+    if (p) {
+      p.onmessage = (e) => handler(e && e.data);
+    }
+  } catch {}
+})()`
+
+  return `
 (() => {
   const pluginId = ${JSON.stringify(pluginId)};
   const apiVersion = ${PLUGIN_API_VERSION};
@@ -106,32 +126,24 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
         const t0 = spec && typeof spec.timeoutMs === 'number' ? spec.timeoutMs : 0;
         if (t0 > 0) return Math.max(DEFAULT_TIMEOUT_MS, Math.min(t0, 5 * 60 * 1000));
 
-        // 兼容：一些插件把超时放在 payload（例如 payload.req.timeoutMs），但没填到 spec.timeoutMs，
-        // 这会导致宿主侧仍按默认 8s 超时，从而误伤“局部编辑/大图/慢模型”等请求。
         const payload = spec && spec.payload && typeof spec.payload === 'object' ? spec.payload : null;
         if (payload) {
           let inferred = 0;
           try {
-            // 常见：http_request / http_request_base64 / http_request_stream：timeout 在 payload.req.timeoutMs
             if (command === 'http_request' || command === 'http_request_base64' || command === 'http_request_stream') {
               const req = payload.req && typeof payload.req === 'object' ? payload.req : null;
               const t1 = req && typeof req.timeoutMs === 'number' ? req.timeoutMs : 0;
               if (t1 > 0) inferred = t1;
             }
-            // 兜底：payload.timeoutMs
             if (!inferred) {
               const t2 = typeof payload.timeoutMs === 'number' ? payload.timeoutMs : 0;
               if (t2 > 0) inferred = t2;
             }
           } catch {}
-          if (inferred > 0) return Math.max(DEFAULT_TIMEOUT_MS, Math.min(inferred, 5 * 60 * 1000));
+          if (inferred > 0) return Math.max(DEFAULT_TIMEOUT_MS, Math.min(inferred, LONG_TIMEOUT_MS));
         }
 
-        // 自研“文件/目录选择”命令（rfd 对话框）属于人类交互时长，默认给长超时。
-        if (command.startsWith('plugin_pick_')) return LONG_TIMEOUT_MS;
-        // 常见交互类命令：对话框类给一个更宽松的前端等待时间。
         if (command.startsWith('plugin:dialog|')) return LONG_TIMEOUT_MS;
-        // store 可能读写较大的 JSON（例如聊天历史）；默认 8s 容易误伤。
         if (command.startsWith('plugin:store|')) return 30 * 1000;
       }
     } catch {}
@@ -152,13 +164,11 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
       if (!payload) return spec;
 
       let inferred = 0;
-      // 常见：http 请求把超时放在 req.timeoutMs。
       if (command === 'http_request' || command === 'http_request_base64' || command === 'http_request_stream') {
         const req = payload.req && typeof payload.req === 'object' ? payload.req : null;
         const t1 = req && typeof req.timeoutMs === 'number' ? req.timeoutMs : 0;
         if (t1 > 0) inferred = t1;
       }
-      // 兜底：payload.timeoutMs。
       if (!inferred) {
         const t2 = typeof payload.timeoutMs === 'number' ? payload.timeoutMs : 0;
         if (t2 > 0) inferred = t2;
@@ -170,6 +180,8 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
       return spec;
     }
   }
+
+  const send = ${sendExpr};
 
   function call(method, args) {
     const id = ++seq;
@@ -186,12 +198,11 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
       }, timeoutMs);
 
       pending.set(id, { resolve, reject, timer });
-      parent.postMessage({ __fastWindowRequest: true, pluginId, apiVersion, token, id, method, args }, '*');
+      send({ __fastWindowRequest: true, pluginId, apiVersion, token, id, method, args });
     });
   }
 
-  window.addEventListener('message', (e) => {
-    const msg = e && e.data;
+  function onMsg(msg) {
     if (msg && msg.__fastWindowStream === true) {
       if (msg.pluginId !== pluginId) return;
       if (msg.token !== token) return;
@@ -212,10 +223,12 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
       if (msg.data !== undefined) err.data = msg.data;
       entry.reject(err);
     }
-  });
+  }
 
-   window.fastWindow = {
-     __meta: { pluginId, apiVersion, runtime },
+  ${listenExpr};
+
+  window.fastWindow = {
+    __meta: { pluginId, apiVersion, runtime },
     host: {
       back: () => call('host.back', []),
     },
@@ -231,7 +244,9 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
     },
   };
 })();`
+}
 
+export function buildPluginShellSrcDoc() {
   return `<!doctype html>
 <html>
   <head>
@@ -243,9 +258,79 @@ export function buildPluginSrcDoc(opts: { pluginId: string; pluginCode: string; 
     </style>
   </head>
   <body>
-    ${runtime === 'ui' ? '<div id="app"></div>' : ''}
-    <script>;(new Function(${JSON.stringify(sdk)}))();</script>
-    <script>;(new Function(${JSON.stringify(pluginCode)}))();</script>
+    <div id="app"></div>
+    <script>
+      (() => {
+        let port = null;
+        let expected = null;
+
+        function postStatus(type, payload) {
+          try {
+            if (port) port.postMessage({ __fastWindowShell: true, type, ...payload });
+          } catch {}
+        }
+
+        async function loadCodeAsScript(code, label) {
+          const blob = new Blob([String(code || '') + '\\n//# sourceURL=' + String(label || 'plugin') + '\\n'], {
+            type: 'text/javascript',
+          });
+          const url = URL.createObjectURL(blob);
+          try {
+            await new Promise((resolve, reject) => {
+              const s = document.createElement('script');
+              s.src = url;
+              s.async = false;
+              s.onload = () => resolve(null);
+              s.onerror = () => reject(new Error('Failed to load ' + String(label || 'script')));
+              document.head.appendChild(s);
+            });
+          } finally {
+            URL.revokeObjectURL(url);
+          }
+        }
+
+        function onInitMessage(event) {
+          const msg = event && event.data;
+          if (!msg || msg.__fastWindowInitPort !== true) return;
+          if (port) return;
+
+          const p = event && event.ports && event.ports[0];
+          if (!p) return;
+          port = p;
+          expected = {
+            token: String(msg.token || ''),
+            pluginId: String(msg.pluginId || ''),
+            runtime: String(msg.runtime || ''),
+          };
+
+          globalThis.__fastWindowPort = port;
+          try {
+            if (!globalThis.fastWindow) globalThis.fastWindow = {};
+            const m = (globalThis.fastWindow.__meta && typeof globalThis.fastWindow.__meta === 'object') ? globalThis.fastWindow.__meta : {};
+            globalThis.fastWindow.__meta = { ...m, pluginId: expected.pluginId, runtime: expected.runtime };
+          } catch {}
+
+          port.onmessage = async (e) => {
+            const data = e && e.data;
+            if (!data || data.__fastWindowBoot !== true) return;
+            if (!expected || String(data.token || '') !== expected.token) return;
+
+            try {
+              await loadCodeAsScript(String(data.sdkCode || ''), 'fast-window-sdk.js');
+              await loadCodeAsScript(String(data.pluginCode || ''), expected.pluginId ? (expected.pluginId + '.js') : 'plugin.js');
+              postStatus('boot-ok', { pluginId: expected.pluginId, runtime: expected.runtime });
+            } catch (err) {
+              postStatus('boot-error', { message: String(err && err.message ? err.message : err) });
+              throw err;
+            }
+          };
+
+          postStatus('port-ready', { pluginId: expected.pluginId, runtime: expected.runtime });
+        }
+
+        window.addEventListener('message', onInitMessage);
+      })();
+    </script>
   </body>
 </html>`
 }
