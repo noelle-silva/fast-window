@@ -16,25 +16,65 @@ function createToken(): string {
 }
 
 function injectAutoHeightProbe(src: string, token: string) {
-  const style = `<style id="hc-auto-height-style">html,body{margin:0;overflow:hidden!important;}</style>`
-  const script = `<script id="hc-auto-height-probe">(()=>{const TOKEN=${JSON.stringify(
-    token,
-  )};let last=0;let raf=0;function height(){const de=document.documentElement;const b=document.body;const h=Math.max(de?de.scrollHeight:0,b?b.scrollHeight:0,de?Math.ceil(de.getBoundingClientRect().height):0);return h||0;}function post(h){try{parent.postMessage({__hcAutoHeight:true,token:TOKEN,height:h},'*');}catch{}}function tick(){raf=0;const h=height();if(Math.abs(h-last)>1){last=h;post(h);}}function schedule(){if(raf) return;raf=requestAnimationFrame(tick);}try{const ro=new ResizeObserver(()=>schedule());if(document.documentElement) ro.observe(document.documentElement);if(document.body) ro.observe(document.body);}catch{}try{new MutationObserver(()=>schedule()).observe(document.documentElement,{subtree:true,childList:true,attributes:true,characterData:true});}catch{}window.addEventListener('load',()=>schedule());document.addEventListener('DOMContentLoaded',()=>schedule());schedule();})();</script>`
-
   const raw = String(src || '')
+  const doc = new DOMParser().parseFromString(raw, 'text/html')
 
-  if (/<\/head\s*>/i.test(raw)) {
-    return raw.replace(/<\/head\s*>/i, `${style}${script}</head>`)
-  }
-  if (/<head\b[^>]*>/i.test(raw)) {
-    return raw.replace(/<head\b[^>]*>/i, (m) => `${m}${style}${script}`)
-  }
-  if (/<html\b[^>]*>/i.test(raw)) {
-    return raw.replace(/<html\b[^>]*>/i, (m) => `${m}<head>${style}${script}</head>`)
-  }
+  const head = doc.head || doc.getElementsByTagName('head')[0] || doc.documentElement
 
-  // Fragment HTML
-  return `<!doctype html><html><head><meta charset="utf-8" />${style}${script}</head><body>${raw}</body></html>`
+  const oldStyle = doc.getElementById('hc-auto-height-style')
+  if (oldStyle && oldStyle.parentNode) oldStyle.parentNode.removeChild(oldStyle)
+  const oldScript = doc.getElementById('hc-auto-height-probe')
+  if (oldScript && oldScript.parentNode) oldScript.parentNode.removeChild(oldScript)
+
+  const styleEl = doc.createElement('style')
+  styleEl.id = 'hc-auto-height-style'
+  styleEl.textContent = 'html,body{margin:0;overflow:hidden!important;}'
+
+  const scriptEl = doc.createElement('script')
+  scriptEl.id = 'hc-auto-height-probe'
+  scriptEl.textContent = `(() => {
+  const TOKEN = ${JSON.stringify(token)};
+  let last = 0;
+  let raf = 0;
+  function height() {
+    const de = document.documentElement;
+    const b = document.body;
+    const h = Math.max(
+      de ? de.scrollHeight : 0,
+      b ? b.scrollHeight : 0,
+      de ? Math.ceil(de.getBoundingClientRect().height) : 0,
+    );
+    return h || 0;
+  }
+  function post(h) {
+    try { parent.postMessage({ __hcAutoHeight: true, token: TOKEN, height: h }, '*'); } catch {}
+  }
+  function tick() {
+    raf = 0;
+    const h = height();
+    if (Math.abs(h - last) > 1) { last = h; post(h); }
+  }
+  function schedule() {
+    if (raf) return;
+    raf = requestAnimationFrame(tick);
+  }
+  try {
+    const ro = new ResizeObserver(() => schedule());
+    if (document.documentElement) ro.observe(document.documentElement);
+    if (document.body) ro.observe(document.body);
+  } catch {}
+  try {
+    new MutationObserver(() => schedule()).observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+  } catch {}
+  window.addEventListener('load', () => schedule());
+  document.addEventListener('DOMContentLoaded', () => schedule());
+  schedule();
+})();`
+
+  head.appendChild(styleEl)
+  head.appendChild(scriptEl)
+
+  return `<!doctype html>\n${doc.documentElement.outerHTML}`
 }
 
 export function AutoHeightHtmlIframe(props: Props) {
@@ -81,4 +121,3 @@ export function AutoHeightHtmlIframe(props: Props) {
     />
   )
 }
-
