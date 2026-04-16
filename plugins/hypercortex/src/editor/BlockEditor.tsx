@@ -9,6 +9,16 @@ export interface BlockEditorProps {
   minHeight?: number
 }
 
+/** 全局撤销/重做的历史快照 */
+interface HistoryEntry {
+  blocks: string[]
+  activeIndex: number | null
+  cursorPos: number
+}
+
+const MAX_HISTORY = 100
+const DEBOUNCE_MS = 100
+
 /**
  * Markdown Live Preview 块编辑器
  *
@@ -28,6 +38,14 @@ export const BlockEditor = React.memo(function BlockEditor({
   // 切换块后需要把光标放到指定位置（0 = 块首，-1 = 块尾）
   const pendingCursorRef = React.useRef<number | null>(null)
 
+  // ── 全局撤销/重做 ──
+  const undoStackRef = React.useRef<HistoryEntry[]>([])
+  const redoStackRef = React.useRef<HistoryEntry[]>([])
+  const isRestoringRef = React.useRef(false)
+  const debounceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 用于防抖期间暂存"变化前"的快照（第一次变化时捕获，防抖结束时推入栈）
+  const pendingSnapshotRef = React.useRef<HistoryEntry | null>(null)
+
   // 每个块的 textarea ref
   const textareaRefsRef = React.useRef<Map<number, React.RefObject<HTMLTextAreaElement | null>>>(new Map())
   const getTextareaRef = (index: number) => {
@@ -42,14 +60,6 @@ export const BlockEditor = React.memo(function BlockEditor({
   const onChangeRef = React.useRef(onChange)
   onChangeRef.current = onChange
 
-  // 外部 value 变化（加载新笔记等）→ 重新拆块
-  React.useEffect(() => {
-    if (value === externalValueRef.current) return
-    externalValueRef.current = value
-    setBlocks(splitBlocks(value))
-    setActiveIndex(null)
-  }, [value])
-
   // blocks 变化 → 通知外部
   const notifyChange = React.useCallback((newBlocks: string[]) => {
     const joined = joinBlocks(newBlocks)
@@ -57,15 +67,138 @@ export const BlockEditor = React.memo(function BlockEditor({
     onChangeRef.current(joined)
   }, [])
 
+  // ── 历史栈工具函数 ──
+
+  /** 捕获当前状态快照 */
+  const captureSnapshot = React.useCallback((): HistoryEntry => {
+    // 读取当前活跃 textarea 的光标位置
+    let cursorPos = 0
+    if (activeIndex !== null) {
+      const ref = textareaRefsRef.current.get(activeIndex)
+      const ta = ref?.current
+      if (ta) cursorPos = ta.selectionStart
+    }
+    return { blocks: [...blocks], activeIndex, cursorPos }
+  }, [blocks, activeIndex])
+
+  /** 推入撤销栈 */
+  const pushUndo = React.useCallback((entry: HistoryEntry) => {
+    undoStackRef.current.push(entry)
+    if (undoStackRef.current.length > MAX_HISTORY) {
+      undoStackRef.current.shift()
+    }
+    redoStackRef.current = []
+  }, [])
+
+  /** 防抖记录（打字用） */
+  const debouncedRecord = React.useCallback(() => {
+    // 首次变化时捕获快照
+    if (!pendingSnapshotRef.current) {
+      pendingSnapshotRef.current = captureSnapshot()
+    }
+    // 重置防抖计时器
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    debounceTimerRef.current = setTimeout(() => {
+      if (pendingSnapshotRef.current) {
+        pushUndo(pendingSnapshotRef.current)
+        pendingSnapshotRef.current = null
+      }
+      debounceTimerRef.current = null
+    }, DEBOUNCE_MS)
+  }, [captureSnapshot, pushUndo])
+
+  /** 立即记录（结构性变化用） */
+  const immediateRecord = React.useCallback(() => {
+    // 如果有未提交的防抖快照，先提交
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = null
+    }
+    if (pendingSnapshotRef.current) {
+      pushUndo(pendingSnapshotRef.current)
+      pendingSnapshotRef.current = null
+    } else {
+      pushUndo(captureSnapshot())
+    }
+  }, [captureSnapshot, pushUndo])
+
+  /** 撤销 */
+  const undo = React.useCallback(() => {
+    // 先把未提交的防抖快照提交
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = null
+    }
+    if (pendingSnapshotRef.current) {
+      pushUndo(pendingSnapshotRef.current)
+      pendingSnapshotRef.current = null
+    }
+
+    const stack = undoStackRef.current
+    if (!stack.length) return
+
+    // 当前状态推入重做栈
+    redoStackRef.current.push(captureSnapshot())
+
+    const entry = stack.pop()!
+    isRestoringRef.current = true
+    setBlocks(entry.blocks)
+    notifyChange(entry.blocks)
+    setActiveIndex(entry.activeIndex)
+    pendingCursorRef.current = entry.cursorPos
+
+    requestAnimationFrame(() => {
+      isRestoringRef.current = false
+    })
+  }, [captureSnapshot, pushUndo, notifyChange])
+
+  /** 重做 */
+  const redo = React.useCallback(() => {
+    const stack = redoStackRef.current
+    if (!stack.length) return
+
+    // 当前状态推入撤销栈
+    undoStackRef.current.push(captureSnapshot())
+
+    const entry = stack.pop()!
+    isRestoringRef.current = true
+    setBlocks(entry.blocks)
+    notifyChange(entry.blocks)
+    setActiveIndex(entry.activeIndex)
+    pendingCursorRef.current = entry.cursorPos
+
+    requestAnimationFrame(() => {
+      isRestoringRef.current = false
+    })
+  }, [captureSnapshot, notifyChange])
+
+  // 外部 value 变化（加载新笔记等）→ 重新拆块 + 清空历史
+  React.useEffect(() => {
+    if (value === externalValueRef.current) return
+    externalValueRef.current = value
+    setBlocks(splitBlocks(value))
+    setActiveIndex(null)
+    undoStackRef.current = []
+    redoStackRef.current = []
+    pendingSnapshotRef.current = null
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = null
+    }
+  }, [value])
+
   // 某块内容变化
   const handleBlockChange = React.useCallback((index: number, newContent: string) => {
+    if (!isRestoringRef.current) {
+      debouncedRecord()
+    }
     setBlocks(prev => {
       const next = [...prev]
       next[index] = newContent
       notifyChange(next)
       return next
     })
-  }, [notifyChange])
+  }, [notifyChange, debouncedRecord])
 
   // 点击渲染态 → 进入编辑
   const handleRequestEdit = React.useCallback((index: number) => {
@@ -89,9 +222,26 @@ export const BlockEditor = React.memo(function BlockEditor({
     const ta = e.currentTarget
     const { selectionStart, selectionEnd, value: text } = ta
 
+    // ── Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y：全局撤销/重做 ──
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+      e.preventDefault()
+      if (e.shiftKey) {
+        redo()
+      } else {
+        undo()
+      }
+      return
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+      e.preventDefault()
+      redo()
+      return
+    }
+
     // ── Enter：从光标处拆分当前块 ──
     if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault()
+      immediateRecord()
       const before = text.slice(0, selectionStart)
       const after = text.slice(selectionEnd)
       setBlocks(prev => {
@@ -108,6 +258,7 @@ export const BlockEditor = React.memo(function BlockEditor({
     // ── Backspace：光标在块首 + 有上一块 → 合并 ──
     if (e.key === 'Backspace' && selectionStart === 0 && selectionEnd === 0 && index > 0) {
       e.preventDefault()
+      immediateRecord()
       const prevBlock = blocks[index - 1]
       const cursorPos = prevBlock.length
       setBlocks(prev => {
@@ -124,6 +275,7 @@ export const BlockEditor = React.memo(function BlockEditor({
     // ── Delete：光标在块尾 + 有下一块 → 合并 ──
     if (e.key === 'Delete' && selectionStart === text.length && selectionEnd === text.length && index < blocks.length - 1) {
       e.preventDefault()
+      immediateRecord()
       const nextBlock = blocks[index + 1]
       const cursorPos = text.length
       setBlocks(prev => {
@@ -159,7 +311,7 @@ export const BlockEditor = React.memo(function BlockEditor({
         return
       }
     }
-  }, [blocks, notifyChange])
+  }, [blocks, notifyChange, undo, redo, immediateRecord])
 
   // ── activeIndex 变化时，设置光标位置 ──
   React.useEffect(() => {
