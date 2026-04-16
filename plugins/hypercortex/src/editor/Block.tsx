@@ -22,7 +22,15 @@ export interface BlockProps {
   placeholder?: string
 }
 
-/** 单个块：编辑态 = textarea，渲染态 = renderInto 产物 */
+/**
+ * 单个块：渲染层始终存在撑高度，编辑态时 textarea 叠在上面。
+ *
+ * 核心机制：
+ * - 外壳 div 用 position: relative，尺寸永远由渲染层决定
+ * - 编辑态时渲染层 visibility: hidden（仍占空间），textarea absolute 铺满
+ * - textarea 继承渲染产物首元素的字体样式（fontSize/fontWeight/lineHeight）
+ * - 位置零跳动，字体视觉一致
+ */
 export const Block = React.memo(function Block({
   markdown,
   editing,
@@ -37,12 +45,12 @@ export const Block = React.memo(function Block({
   const localTextareaRef = React.useRef<HTMLTextAreaElement>(null)
   const taRef = textareaRef ?? localTextareaRef
 
-  // 从渲染态 DOM 捕获的样式，让 textarea 继承渲染产物的视觉尺寸
-  const [editStyle, setEditStyle] = React.useState<React.CSSProperties>({})
+  // 仅字体相关样式，从渲染产物继承
+  const [fontStyle, setFontStyle] = React.useState<React.CSSProperties>({})
 
-  // ── 渲染态：用渲染引擎把 markdown 渲染到 DOM ──
+  // ── 渲染层：始终渲染 markdown ──
   React.useEffect(() => {
-    if (editing || !renderRef.current) return
+    if (!renderRef.current) return
     const el = renderRef.current
     const trimmed = markdown.trim()
     if (!trimmed) {
@@ -54,64 +62,41 @@ export const Block = React.memo(function Block({
     } catch {
       el.textContent = trimmed
     }
-  }, [markdown, editing])
+  }, [markdown])
 
-  // ── 编辑态：自动聚焦 + 自动高度 ──
+  // ── 进入编辑态时：捕获字体样式 + 聚焦 ──
   React.useEffect(() => {
     if (!editing) return
-    const ta = taRef.current
-    if (!ta) return
-    ta.focus()
-    autoResize(ta)
-  }, [editing, taRef])
 
-  // 点击渲染态 → 捕获样式和高度 → 请求编辑
-  const handleRequestEdit = React.useCallback(() => {
+    // 从渲染产物读字体样式
     if (renderRef.current) {
-      const containerHeight = renderRef.current.getBoundingClientRect().height
       const target = renderRef.current.firstElementChild as HTMLElement | null
       if (target) {
         const computed = window.getComputedStyle(target)
-        setEditStyle({
+        setFontStyle({
           fontSize: computed.fontSize,
           fontWeight: computed.fontWeight,
           lineHeight: computed.lineHeight,
-          marginTop: computed.marginTop,
-          marginBottom: computed.marginBottom,
-          minHeight: containerHeight + 'px',
         })
       } else {
-        setEditStyle({ minHeight: containerHeight + 'px' })
+        setFontStyle({})
       }
     }
-    onRequestEdit()
-  }, [onRequestEdit])
 
-  if (editing) {
-    return (
-      <textarea
-        ref={taRef}
-        className="hc-block-editor"
-        style={editStyle}
-        value={markdown}
-        placeholder={placeholder}
-        onChange={e => {
-          onChange(e.target.value)
-          autoResize(e.target)
-        }}
-        onBlur={onBlur}
-        onKeyDown={onKeyDown}
-        rows={1}
-      />
-    )
-  }
+    const ta = taRef.current
+    if (!ta) return
+    // 延迟一帧等 fontStyle 生效后再聚焦
+    requestAnimationFrame(() => {
+      ta.focus()
+    })
+  }, [editing, taRef])
 
-  // 渲染态：空块显示占位
-  if (!markdown.trim()) {
+  // 空块占位
+  if (!markdown.trim() && !editing) {
     return (
       <div
         className="hc-block-rendered hc-block-empty"
-        onClick={handleRequestEdit}
+        onClick={onRequestEdit}
       >
         {placeholder && <span className="hc-block-placeholder">{placeholder}</span>}
       </div>
@@ -119,16 +104,35 @@ export const Block = React.memo(function Block({
   }
 
   return (
-    <div
-      ref={renderRef}
-      className="hc-render hc-block-rendered"
-      onClick={handleRequestEdit}
-    />
+    <div className="hc-block-shell" style={{ position: 'relative' }}>
+      {/* 渲染层：始终存在撑高度，编辑态时隐藏但保留占位 */}
+      <div
+        ref={renderRef}
+        className="hc-render hc-block-rendered"
+        style={editing ? { visibility: 'hidden' } : undefined}
+        onClick={!editing ? onRequestEdit : undefined}
+      />
+
+      {/* 编辑层：absolute 铺满外壳 */}
+      {editing && (
+        <textarea
+          ref={taRef}
+          className="hc-block-editor"
+          style={{
+            ...fontStyle,
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+          }}
+          value={markdown}
+          placeholder={placeholder}
+          onChange={e => onChange(e.target.value)}
+          onBlur={onBlur}
+          onKeyDown={onKeyDown}
+        />
+      )}
+    </div>
   )
 })
-
-/** textarea 自动高度 */
-function autoResize(ta: HTMLTextAreaElement) {
-  ta.style.height = '0'
-  ta.style.height = ta.scrollHeight + 'px'
-}
