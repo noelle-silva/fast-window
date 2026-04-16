@@ -68,13 +68,15 @@ export const BlockEditor = React.memo(function BlockEditor({
     setActiveIndex(null)
   }, [])
 
-  // 点击编辑器空白区域 → 聚焦最后一个块或创建新块
+  // 点击编辑器空白区域（所有块的下方） → 聚焦最后一个块
   const handleContainerClick = React.useCallback((e: React.MouseEvent) => {
-    // 只处理点击容器本身，不处理子元素
     if (e.target !== e.currentTarget) return
-    const lastIndex = blocks.length - 1
-    if (lastIndex >= 0) {
-      setActiveIndex(lastIndex)
+    // 只在点击低于所有块时才聚焦末尾，避免点击块间间隙误跳
+    const container = e.currentTarget as HTMLElement
+    const lastChild = container.lastElementChild as HTMLElement | null
+    if (lastChild && e.clientY > lastChild.getBoundingClientRect().bottom) {
+      const lastIndex = blocks.length - 1
+      if (lastIndex >= 0) setActiveIndex(lastIndex)
     }
   }, [blocks.length])
 
