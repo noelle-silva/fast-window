@@ -37,6 +37,9 @@ export const Block = React.memo(function Block({
   const localTextareaRef = React.useRef<HTMLTextAreaElement>(null)
   const taRef = textareaRef ?? localTextareaRef
 
+  // 从渲染态 DOM 捕获的样式，让 textarea 继承渲染产物的视觉尺寸
+  const [editStyle, setEditStyle] = React.useState<React.CSSProperties>({})
+
   // ── 渲染态：用渲染引擎把 markdown 渲染到 DOM ──
   React.useEffect(() => {
     if (editing || !renderRef.current) return
@@ -62,11 +65,30 @@ export const Block = React.memo(function Block({
     autoResize(ta)
   }, [editing, taRef])
 
+  // 点击渲染态 → 捕获样式 → 请求编辑
+  const handleRequestEdit = React.useCallback(() => {
+    if (renderRef.current) {
+      const target = renderRef.current.firstElementChild as HTMLElement | null
+      if (target) {
+        const computed = window.getComputedStyle(target)
+        setEditStyle({
+          fontSize: computed.fontSize,
+          fontWeight: computed.fontWeight,
+          lineHeight: computed.lineHeight,
+        })
+      } else {
+        setEditStyle({})
+      }
+    }
+    onRequestEdit()
+  }, [onRequestEdit])
+
   if (editing) {
     return (
       <textarea
         ref={taRef}
         className="hc-block-editor"
+        style={editStyle}
         value={markdown}
         placeholder={placeholder}
         onChange={e => {
@@ -85,7 +107,7 @@ export const Block = React.memo(function Block({
     return (
       <div
         className="hc-block-rendered hc-block-empty"
-        onClick={onRequestEdit}
+        onClick={handleRequestEdit}
       >
         {placeholder && <span className="hc-block-placeholder">{placeholder}</span>}
       </div>
@@ -96,7 +118,7 @@ export const Block = React.memo(function Block({
     <div
       ref={renderRef}
       className="hc-render hc-block-rendered"
-      onClick={onRequestEdit}
+      onClick={handleRequestEdit}
     />
   )
 })
