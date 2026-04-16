@@ -65,9 +65,10 @@ export const Block = React.memo(function Block({
     autoResize(ta)
   }, [editing, taRef])
 
-  // 点击渲染态 → 捕获样式 → 请求编辑
+  // 点击渲染态 → 捕获样式和高度 → 请求编辑
   const handleRequestEdit = React.useCallback(() => {
     if (renderRef.current) {
+      const containerHeight = renderRef.current.getBoundingClientRect().height
       const target = renderRef.current.firstElementChild as HTMLElement | null
       if (target) {
         const computed = window.getComputedStyle(target)
@@ -75,9 +76,12 @@ export const Block = React.memo(function Block({
           fontSize: computed.fontSize,
           fontWeight: computed.fontWeight,
           lineHeight: computed.lineHeight,
+          marginTop: computed.marginTop,
+          marginBottom: computed.marginBottom,
+          minHeight: containerHeight + 'px',
         })
       } else {
-        setEditStyle({})
+        setEditStyle({ minHeight: containerHeight + 'px' })
       }
     }
     onRequestEdit()
