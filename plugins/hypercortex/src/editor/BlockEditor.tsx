@@ -104,16 +104,89 @@ export const BlockEditor = React.memo(function BlockEditor({
 /*  工具函数                                                           */
 /* ------------------------------------------------------------------ */
 
-/** 按空行拆分文档为块 */
+/** 智能分块：逐行扫描，多行结构（代码块/表格/列表/引用）整体成块，其余每行独立 */
 function splitBlocks(text: string): string[] {
   const s = (text || '').replace(/\r\n/g, '\n')
   if (!s) return ['']
-  // 按连续空行拆分（保留块内的单个换行）
-  const blocks = s.split(/\n{2,}/)
+
+  const lines = s.split('\n')
+  const blocks: string[] = []
+  let i = 0
+
+  while (i < lines.length) {
+    const line = lines[i]
+
+    // 空行 → 独立空块
+    if (!line.trim()) {
+      blocks.push('')
+      i++
+      continue
+    }
+
+    // 围栏代码块：``` 或 ~~~ 开头，收集到闭合栏
+    const fenceMatch = line.match(/^(`{3,}|~{3,})/)
+    if (fenceMatch) {
+      const fence = fenceMatch[1]
+      const group = [line]
+      i++
+      while (i < lines.length) {
+        group.push(lines[i])
+        if (lines[i].trimEnd() === fence) { i++; break }
+        i++
+      }
+      blocks.push(group.join('\n'))
+      continue
+    }
+
+    // 表格：| 开头的连续行
+    if (line.startsWith('|')) {
+      const group = [line]
+      i++
+      while (i < lines.length && lines[i].startsWith('|')) {
+        group.push(lines[i])
+        i++
+      }
+      blocks.push(group.join('\n'))
+      continue
+    }
+
+    // 列表：- / * / + / 数字. 开头，含缩进续行
+    if (/^(\s*[-*+]|\s*\d+\.)\s/.test(line)) {
+      const group = [line]
+      i++
+      while (i < lines.length) {
+        const next = lines[i]
+        // 列表项或缩进续行
+        if (/^(\s*[-*+]|\s*\d+\.)\s/.test(next) || /^[ \t]{2,}\S/.test(next)) {
+          group.push(next)
+          i++
+        } else break
+      }
+      blocks.push(group.join('\n'))
+      continue
+    }
+
+    // 引用块：> 开头的连续行
+    if (line.startsWith('>')) {
+      const group = [line]
+      i++
+      while (i < lines.length && lines[i].startsWith('>')) {
+        group.push(lines[i])
+        i++
+      }
+      blocks.push(group.join('\n'))
+      continue
+    }
+
+    // 普通行：独立成块
+    blocks.push(line)
+    i++
+  }
+
   return blocks.length ? blocks : ['']
 }
 
 /** 将块拼回完整文档 */
 function joinBlocks(blocks: string[]): string {
-  return blocks.join('\n\n')
+  return blocks.join('\n')
 }
