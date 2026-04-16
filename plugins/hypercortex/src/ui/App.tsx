@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { AppBar, Box, CssBaseline, GlobalStyles, IconButton, InputBase, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
+import { BlockEditor } from '../editor/BlockEditor'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
@@ -570,28 +571,9 @@ export function HyperCortexApp() {
                     </Tooltip>
                   </Box>
 
-                  <InputBase
-                    value={newNoteContent}
-                    onChange={e => setNewNoteContent(e.target.value)}
-                    placeholder="开始输入正文..."
-                    fullWidth
-                    multiline
-                    minRows={12}
-                    inputProps={{ 'aria-label': '笔记正文' }}
-                    sx={{
-                      mt: 2,
-                      width: '100%',
-                      flex: 1,
-                      alignItems: 'flex-start',
-                      fontSize: 16,
-                      lineHeight: 1.8,
-                      color: '#222',
-                      '& textarea': {
-                        padding: 0,
-                        resize: 'none',
-                      },
-                    }}
-                  />
+                  <Box sx={{ mt: 2, width: '100%', flex: 1 }}>
+                    <BlockEditor value={newNoteContent} onChange={setNewNoteContent} placeholder="开始输入正文..." minHeight={280} />
+                  </Box>
                 </Box>
               ) : null}
               {page === 'attachments' ? <Typography color="text.secondary">这是附件页面。</Typography> : null}
@@ -1136,26 +1118,7 @@ export function HyperCortexApp() {
                       ) : (
                         <AutoHeightHtmlIframe html={activeNoteEditHtml} minHeightPx={240} />
                       ) : activeNoteEditing ? (
-                        <InputBase
-                          value={activeNoteEditBody}
-                          onChange={e => setActiveNoteEditBody(e.target.value)}
-                          placeholder="开始编辑正文..."
-                          fullWidth
-                          multiline
-                          minRows={18}
-                          inputProps={{ 'aria-label': '编辑笔记正文' }}
-                          sx={{
-                            width: '100%',
-                            alignItems: 'flex-start',
-                            fontSize: 16,
-                            lineHeight: 1.8,
-                            color: '#222',
-                            '& textarea': {
-                              padding: 0,
-                              resize: 'none',
-                            },
-                          }}
-                        />
+                        <BlockEditor value={activeNoteEditBody} onChange={setActiveNoteEditBody} placeholder="开始编辑正文..." minHeight={400} />
                       ) : (
                         <Box
                           ref={textRenderRef}
