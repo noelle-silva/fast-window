@@ -116,9 +116,8 @@ function splitBlocks(text: string): string[] {
   while (i < lines.length) {
     const line = lines[i]
 
-    // 空行 → 独立空块
+    // 空行 → 跳过，不生成块（joinBlocks 用 \n\n 补回）
     if (!line.trim()) {
-      blocks.push('')
       i++
       continue
     }
@@ -188,5 +187,5 @@ function splitBlocks(text: string): string[] {
 
 /** 将块拼回完整文档 */
 function joinBlocks(blocks: string[]): string {
-  return blocks.join('\n')
+  return blocks.join('\n\n')
 }
