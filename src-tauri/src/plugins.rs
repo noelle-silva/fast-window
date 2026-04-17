@@ -12,10 +12,11 @@ use tokio::io::AsyncWriteExt;
 use crate::{
     app_data_dir, app_local_base_dir, app_plugins_dir, is_https_url, normalize_zip_name, now_ms,
     open_dir_in_file_manager, parse_sha256_hex_32, rand_u32, read_plugin_auto_update_prefs,
-    same_path, to_hex_lower, write_plugin_auto_update_prefs, PLUGIN_STORE_MAX_EXTRACT_BYTES,
+    to_hex_lower, write_plugin_auto_update_prefs, PLUGIN_STORE_MAX_EXTRACT_BYTES,
     PLUGIN_STORE_MAX_ZIP_BYTES,
 };
 
+#[cfg(debug_assertions)]
 fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
@@ -206,7 +207,7 @@ pub(crate) fn get_plugins_dir(app: tauri::AppHandle) -> String {
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         let repo_plugins = workspace_root.join("plugins");
-        if repo_plugins.is_dir() && !same_path(&repo_plugins, &plugins_dir) {
+        if repo_plugins.is_dir() && !crate::same_path(&repo_plugins, &plugins_dir) {
             // 每次都覆盖同步：以仓库为真源。
             // 只同步运行时需要的最小集合（manifest/main/bg/icon），避免 node_modules 等大目录拖慢/失败。
             let _ = sync_repo_plugins_into(&repo_plugins, &plugins_dir);
@@ -231,7 +232,7 @@ pub(crate) fn get_data_dir(app: tauri::AppHandle) -> String {
                 .map(|p| p.to_path_buf())
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
             let repo_data = workspace_root.join("data");
-            if repo_data.is_dir() && !same_path(&repo_data, &data_dir) {
+            if repo_data.is_dir() && !crate::same_path(&repo_data, &data_dir) {
                 let _ = copy_dir_all(&repo_data, &data_dir);
             }
         }
