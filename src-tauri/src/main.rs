@@ -2799,7 +2799,9 @@ fn apply_main_window_focus_mode(app: &tauri::AppHandle, mode: MainWindowFocusMod
     *g = mode;
 
     if let Some(w) = app.get_webview_window("main") {
-        let _ = w.set_always_on_top(mode == MainWindowFocusMode::AlwaysOnTop);
+        // 默认窗口配置本身是 alwaysOnTop=true（tauri.conf.json）。
+        // 这里仅在“窗口模式”时取消置顶；其余模式保持与历史一致（仍为置顶）。
+        let _ = w.set_always_on_top(mode != MainWindowFocusMode::Normal);
     }
 }
 

@@ -135,7 +135,7 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
                 *g = pref;
 
                 if let Some(w) = app.get_webview_window("main") {
-                    let _ = w.set_always_on_top(pref == MainWindowFocusMode::AlwaysOnTop);
+                    let _ = w.set_always_on_top(pref != MainWindowFocusMode::Normal);
                 }
             }
 
