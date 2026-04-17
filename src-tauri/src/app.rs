@@ -10,10 +10,11 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 use crate::{
     app_data_dir, apply_bottom_rounded_corners, handle_wake_shortcut, image_mime_by_ext,
-    load_auto_start_pref, load_wake_shortcut, migrate_legacy_plugin_store_files, query_get_param,
-    safe_relative_path, browser_ui_set_mode, show_main_window, APP_STORAGE_ID,
+    handle_main_window_mode_shortcut, load_auto_start_pref, load_main_window_focus_mode_pref,
+    load_main_window_mode_shortcut, load_wake_shortcut, migrate_legacy_plugin_store_files,
+    query_get_param, safe_relative_path, browser_ui_set_mode, show_main_window, APP_STORAGE_ID,
     AUTO_START_REG_VALUE, BROWSER_BAR_HEIGHT, BROWSER_BAR_WINDOW_LABEL, BROWSER_WINDOW_LABEL,
-    WakeShortcutState,
+    MainWindowModeShortcutState, WakeShortcutState,
 };
 use crate::browser_stack::{
     browser_stack_bar_height_px, browser_stack_hide, browser_stack_hide_to_main,
@@ -27,7 +28,7 @@ use crate::windowing::{
     load_browser_window_bounds_from_config, load_main_window_bounds_from_config,
     persist_main_window_bounds, restore_bounds_or_center, save_bounds_if_valid,
     save_browser_stack_bounds_if_valid, schedule_persist_browser_window_bounds,
-    schedule_persist_main_window_bounds, BrowserWindowState, WindowState,
+    schedule_persist_main_window_bounds, BrowserWindowState, MainWindowFocusMode, WindowState,
 };
 use crate::{migrations, wake_logic};
 
@@ -123,6 +124,21 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
             app.manage(Arc::new(HttpStreamManagerState::default()));
             app.manage(BrowserWindowState::default());
 
+            // 主窗口行为：三档“焦点模式”（默认：失焦自动隐藏）。
+            {
+                let pref = load_main_window_focus_mode_pref(app.handle());
+                let state = app.state::<WindowState>();
+                let mut g = state
+                    .focus_mode
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                *g = pref;
+
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.set_always_on_top(pref == MainWindowFocusMode::AlwaysOnTop);
+                }
+            }
+
             // store legacy 还原：历史上插件用 `plugins/<id>.json` 落盘到 data/plugins/；
             // 现在收敛到 data/<pluginId>/ 下。由于 tauri-plugin-store 会静默忽略 load 错误，
             // 若不提前还原，插件可能初始化默认数据并覆盖用户的旧数据文件。
@@ -157,6 +173,12 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
             let (wake_shortcut, wake_shortcut_text) = load_wake_shortcut(app.handle());
             app.manage(WakeShortcutState {
                 current: Mutex::new(wake_shortcut),
+                paused: Mutex::new(false),
+            });
+
+            let (mode_shortcut, mode_shortcut_text) = load_main_window_mode_shortcut(app.handle());
+            app.manage(MainWindowModeShortcutState {
+                current: Mutex::new(mode_shortcut),
                 paused: Mutex::new(false),
             });
 
@@ -223,6 +245,23 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
                     "Failed to register wake shortcut {}: {}",
                     wake_shortcut_text, e
                 );
+            }
+
+            if let Some(s) = mode_shortcut {
+                if let Err(e) =
+                    app.global_shortcut()
+                        .on_shortcut(s, move |app, _shortcut, event| {
+                            if event.state != ShortcutState::Pressed {
+                                return;
+                            }
+                            handle_main_window_mode_shortcut(app);
+                        })
+                {
+                    eprintln!(
+                        "Failed to register mainWindowModeShortcut {}: {}",
+                        mode_shortcut_text, e
+                    );
+                }
             }
 
             Ok(())
@@ -384,6 +423,10 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
                     let window = window.clone();
                     let app = window.app_handle().clone();
                     let state = app.state::<WindowState>();
+                    let mode = state.focus_mode.lock().map(|g| *g).unwrap_or_default();
+                    if mode != MainWindowFocusMode::AutoHide {
+                        return;
+                    }
                     save_bounds_if_valid(&window, &state);
                     persist_main_window_bounds(&app, &state);
                     tauri::async_runtime::spawn(async move {

@@ -15,6 +15,8 @@ import {
   Tab,
   Tabs,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from '@mui/material'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
@@ -185,6 +187,8 @@ type AutoStartStatus = {
   scope: string
 }
 
+type MainWindowFocusMode = 'autoHide' | 'normal' | 'alwaysOnTop'
+
 type WebviewVideoSpeedPreset = {
   label: string
   rate: number
@@ -267,6 +271,12 @@ export default function SettingsView(props: { onBack: () => void }) {
   const [recordingPresetIndex, setRecordingPresetIndex] = useState<number | null>(null)
   const [autoStart, setAutoStart] = useState<AutoStartStatus>({ supported: false, enabled: false, scope: 'unknown' })
   const [autoStartSaving, setAutoStartSaving] = useState(false)
+  const [mainWindowMode, setMainWindowMode] = useState<MainWindowFocusMode>('autoHide')
+  const [mainWindowModeSaving, setMainWindowModeSaving] = useState(false)
+  const [modeShortcutCurrent, setModeShortcutCurrent] = useState<string>('')
+  const [modeShortcutInput, setModeShortcutInput] = useState<string>('')
+  const [modeShortcutSaving, setModeShortcutSaving] = useState(false)
+  const [modeShortcutRecording, setModeShortcutRecording] = useState(false)
   const [tabIndex, setTabIndex] = useState(TAB_GENERAL)
   const [pluginManageList, setPluginManageList] = useState<PluginManageItem[]>([])
   const [pluginManageDisabledIds, setPluginManageDisabledIds] = useState<string[]>([])
@@ -305,12 +315,14 @@ export default function SettingsView(props: { onBack: () => void }) {
 
   useEffect(() => {
     async function load() {
-      const [ver, dir, pdir, cur, st, wv, wp] = await Promise.all([
+      const [ver, dir, pdir, cur, st, mode, modeShot, wv, wp] = await Promise.all([
         getAppVersion().catch(() => ''),
         invoke<string>('get_data_dir').catch(() => ''),
         invoke<string>('get_plugins_dir').catch(() => ''),
         invoke<string>('get_wake_shortcut').catch(() => ''),
         invoke<AutoStartStatus>('get_auto_start').catch(() => ({ supported: false, enabled: false, scope: 'unknown' })),
+        invoke<MainWindowFocusMode>('get_main_window_focus_mode').catch(() => 'autoHide' as MainWindowFocusMode),
+        invoke<string>('get_main_window_mode_shortcut').catch(() => ''),
         invoke<WebviewSettings>('get_webview_settings').catch(() => null),
         getWallpaperSettings().catch(() => null),
       ])
@@ -320,6 +332,9 @@ export default function SettingsView(props: { onBack: () => void }) {
       setCurrent(cur)
       setInput(cur || DEFAULT_WAKE_SHORTCUT)
       setAutoStart(st)
+      setMainWindowMode(mode)
+      setModeShortcutCurrent(modeShot)
+      setModeShortcutInput(modeShot)
       setWebview(wv || DEFAULT_WEBVIEW_SETTINGS)
       setWallpaper(
         wp || { enabled: false, opacity: 0.65, blur: 0, titlebarOpacity: 0.62, titlebarBlur: 12, filePath: null, items: [], activeId: null },
@@ -617,10 +632,42 @@ export default function SettingsView(props: { onBack: () => void }) {
     }
   }
 
+  async function saveMainWindowMode(nextMode: MainWindowFocusMode) {
+    setMainWindowModeSaving(true)
+    try {
+      const normalized = await invoke<MainWindowFocusMode>('set_main_window_focus_mode', { mode: nextMode })
+      setMainWindowMode(normalized)
+    } catch (e: any) {
+      toast(String(e?.message || e || '设置失败'))
+    } finally {
+      setMainWindowModeSaving(false)
+    }
+  }
+
+  async function saveMainWindowModeShortcut(next: string) {
+    setModeShortcutSaving(true)
+    try {
+      const normalized = await invoke<string>('set_main_window_mode_shortcut', { shortcut: next })
+      setModeShortcutCurrent(normalized)
+      setModeShortcutInput(normalized)
+      toast(normalized ? '已更新模式切换快捷键' : '已关闭模式切换快捷键')
+    } catch (e: any) {
+      toast(String(e?.message || e || '设置失败'))
+    } finally {
+      setModeShortcutSaving(false)
+    }
+  }
+
+  const modeShortcutHint = useMemo(() => {
+    if (!modeShortcutRecording) return '点击“开始录制”，然后按下你想要的组合键（ESC 取消）。'
+    return '录制中…按下组合键（修饰键 + 主键），ESC 取消。'
+  }, [modeShortcutRecording])
+
   useEffect(() => {
     if (!recording) return
 
     invoke('pause_wake_shortcut').catch(() => {})
+    invoke('pause_main_window_mode_shortcut').catch(() => {})
 
     const onKeyDown = (e: KeyboardEvent) => {
       e.preventDefault()
@@ -646,6 +693,7 @@ export default function SettingsView(props: { onBack: () => void }) {
     return () => {
       window.removeEventListener('keydown', onKeyDown, true)
       invoke('resume_wake_shortcut').catch(() => {})
+      invoke('resume_main_window_mode_shortcut').catch(() => {})
     }
   }, [recording])
 
@@ -653,6 +701,7 @@ export default function SettingsView(props: { onBack: () => void }) {
     if (recordingPresetIndex == null) return
 
     invoke('pause_wake_shortcut').catch(() => {})
+    invoke('pause_main_window_mode_shortcut').catch(() => {})
 
     const onKeyDown = (e: KeyboardEvent) => {
       e.preventDefault()
@@ -681,8 +730,43 @@ export default function SettingsView(props: { onBack: () => void }) {
     return () => {
       window.removeEventListener('keydown', onKeyDown, true)
       invoke('resume_wake_shortcut').catch(() => {})
+      invoke('resume_main_window_mode_shortcut').catch(() => {})
     }
   }, [recordingPresetIndex])
+
+  useEffect(() => {
+    if (!modeShortcutRecording) return
+
+    invoke('pause_wake_shortcut').catch(() => {})
+    invoke('pause_main_window_mode_shortcut').catch(() => {})
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      ;(e as any).stopImmediatePropagation?.()
+
+      if (e.key === 'Escape') {
+        setModeShortcutRecording(false)
+        toast('已取消录制')
+        return
+      }
+
+      if (e.repeat) return
+      const shot = buildShortcutFromEvent(e)
+      if (!shot) return
+
+      setModeShortcutRecording(false)
+      setModeShortcutInput(shot)
+      saveMainWindowModeShortcut(shot)
+    }
+
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true)
+      invoke('resume_wake_shortcut').catch(() => {})
+      invoke('resume_main_window_mode_shortcut').catch(() => {})
+    }
+  }, [modeShortcutRecording])
 
   async function saveWebview(next: WebviewSettings) {
     setWebviewSaving(true)
@@ -734,9 +818,10 @@ export default function SettingsView(props: { onBack: () => void }) {
             value={tabIndex}
             onChange={(_, next) => {
               const nextIndex = typeof next === 'number' ? next : TAB_GENERAL
-              if ((recording || recordingPresetIndex != null) && nextIndex !== tabIndex) {
+              if ((recording || recordingPresetIndex != null || modeShortcutRecording) && nextIndex !== tabIndex) {
                 setRecording(false)
                 setRecordingPresetIndex(null)
+                setModeShortcutRecording(false)
                 toast('已取消录制')
               }
               setTabIndex(nextIndex)
@@ -766,7 +851,7 @@ export default function SettingsView(props: { onBack: () => void }) {
               <Typography variant="caption" color="text.secondary">
                 {autoStart.supported
                   ? `开启后会在 Windows 登录后自动运行（${autoStart.scope === 'currentUser' ? '当前用户' : autoStart.scope}）。配置写入 ${
-                      dataDir ? `${dataDir}/app.json` : 'data/app.json'
+                      dataDir ? `${dataDir}/__app/app.json` : 'data/__app/app.json'
                     } 的 autoStart`
                   : '当前平台不支持开机自启设置'}
               </Typography>
@@ -786,6 +871,42 @@ export default function SettingsView(props: { onBack: () => void }) {
                 <Typography variant="caption" color="text.secondary">
                   {autoStart.supported ? '仅影响本机当前用户' : '不可用'}
                 </Typography>
+              </Box>
+            </Box>
+
+            <Box sx={panelSx}>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                主窗口模式
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'pre-line' }}>
+                默认模式：主窗口失焦后自动隐藏
+                {'\n'}窗口模式：主窗口失焦不隐藏，只会被其它窗口盖住
+                {'\n'}置顶模式：主窗口失焦不隐藏，并保持在最上层
+              </Typography>
+
+              <Box sx={{ mt: 1 }}>
+                <ToggleButtonGroup
+                  exclusive
+                  value={mainWindowMode}
+                  onChange={(_, next) => {
+                    if (!next) return
+                    if (next === mainWindowMode) return
+                    void saveMainWindowMode(next as MainWindowFocusMode)
+                  }}
+                  aria-label="主窗口模式"
+                  size="small"
+                  disabled={mainWindowModeSaving || saving || recording || modeShortcutRecording}
+                >
+                  <ToggleButton value="autoHide" aria-label="默认模式">
+                    默认模式
+                  </ToggleButton>
+                  <ToggleButton value="normal" aria-label="窗口模式">
+                    窗口模式
+                  </ToggleButton>
+                  <ToggleButton value="alwaysOnTop" aria-label="置顶模式">
+                    置顶模式
+                  </ToggleButton>
+                </ToggleButtonGroup>
               </Box>
             </Box>
 
@@ -1219,7 +1340,7 @@ export default function SettingsView(props: { onBack: () => void }) {
                 唤醒窗口快捷键
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                保存后立即生效，并写入 {dataDir ? `${dataDir}/app.json` : 'data/app.json'} 的 wakeShortcut
+                保存后立即生效，并写入 {dataDir ? `${dataDir}/__app/app.json` : 'data/__app/app.json'} 的 wakeShortcut
               </Typography>
             </Box>
 
@@ -1247,35 +1368,35 @@ export default function SettingsView(props: { onBack: () => void }) {
               <Button
                 variant={recording ? 'contained' : 'outlined'}
                 color={recording ? 'warning' : 'primary'}
-                disabled={saving || recordingPresetIndex != null || webviewSaving}
+                disabled={saving || recordingPresetIndex != null || webviewSaving || modeShortcutRecording || modeShortcutSaving}
                 onClick={() => setRecording(v => !v)}
               >
                 {recording ? '录制中…' : '开始录制'}
               </Button>
               <Button
                 variant="outlined"
-                disabled={saving || recordingPresetIndex != null || webviewSaving}
+                disabled={saving || recordingPresetIndex != null || webviewSaving || modeShortcutRecording || modeShortcutSaving}
                 onClick={() => save(DEFAULT_WAKE_SHORTCUT)}
               >
                 恢复默认
               </Button>
               <Button
                 variant="outlined"
-                disabled={saving || recordingPresetIndex != null || webviewSaving}
+                disabled={saving || recordingPresetIndex != null || webviewSaving || modeShortcutRecording || modeShortcutSaving}
                 onClick={() => save('alt+Space')}
               >
                 预设 Alt+Space（Windows）
               </Button>
               <Button
                 variant="outlined"
-                disabled={saving || recordingPresetIndex != null || webviewSaving}
+                disabled={saving || recordingPresetIndex != null || webviewSaving || modeShortcutRecording || modeShortcutSaving}
                 onClick={() => save('control+alt+KeyQ')}
               >
                 预设 Ctrl+Alt+Q
               </Button>
               <Button
                 variant="outlined"
-                disabled={saving || recordingPresetIndex != null || webviewSaving}
+                disabled={saving || recordingPresetIndex != null || webviewSaving || modeShortcutRecording || modeShortcutSaving}
                 onClick={() => save('control+alt+KeyW')}
               >
                 预设 Ctrl+Alt+W
@@ -1285,6 +1406,59 @@ export default function SettingsView(props: { onBack: () => void }) {
             <Box sx={theme => ({ ...panelSx(theme), p: 1 })}>
               <Typography variant="caption" color={recording ? 'warning.main' : 'text.secondary'}>
                 {recordHint}
+              </Typography>
+            </Box>
+
+            <Box sx={panelSx}>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                主窗口模式切换快捷键
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                按下后会在三种“主窗口模式”之间循环切换，并弹出小提醒。
+              </Typography>
+            </Box>
+
+            <Box sx={theme => ({ ...panelSx(theme), display: 'flex', justifyContent: 'space-between', gap: 1 })}>
+              <Typography variant="caption" color="text.secondary">
+                当前
+              </Typography>
+              <Typography variant="caption" sx={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
+                {modeShortcutCurrent || '-'}
+              </Typography>
+            </Box>
+
+            <TextField
+              label="新的组合"
+              value={modeShortcutInput}
+              onChange={e => setModeShortcutInput(e.target.value)}
+              placeholder="点击“开始录制”"
+              size="small"
+              autoComplete="off"
+              helperText="录制后会立即生效（用于循环切换主窗口模式）"
+              inputProps={{ readOnly: true, 'aria-readonly': true }}
+            />
+
+            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+              <Button
+                variant={modeShortcutRecording ? 'contained' : 'outlined'}
+                color={modeShortcutRecording ? 'warning' : 'primary'}
+                disabled={modeShortcutSaving || saving || recording || recordingPresetIndex != null || webviewSaving}
+                onClick={() => setModeShortcutRecording(v => !v)}
+              >
+                {modeShortcutRecording ? '录制中…' : '开始录制'}
+              </Button>
+              <Button
+                variant="outlined"
+                disabled={modeShortcutSaving || saving || recording || recordingPresetIndex != null || webviewSaving}
+                onClick={() => saveMainWindowModeShortcut('')}
+              >
+                清除/关闭
+              </Button>
+            </Stack>
+
+            <Box sx={theme => ({ ...panelSx(theme), p: 1 })}>
+              <Typography variant="caption" color={modeShortcutRecording ? 'warning.main' : 'text.secondary'}>
+                {modeShortcutHint}
               </Typography>
             </Box>
           </Stack>
@@ -1299,7 +1473,7 @@ export default function SettingsView(props: { onBack: () => void }) {
                 WebView（浏览）
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                配置写入 {dataDir ? `${dataDir}/app.json` : 'data/app.json'} 的 webview.video（快捷键仅在浏览窗口内生效）
+                配置写入 {dataDir ? `${dataDir}/__app/app.json` : 'data/__app/app.json'} 的 webview.video（快捷键仅在浏览窗口内生效）
               </Typography>
             </Box>
 

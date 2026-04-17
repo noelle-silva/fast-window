@@ -69,6 +69,8 @@ const PLUGIN_AUTO_UPDATE_PREFS_FILE: &str = "plugins-auto-update.json";
 const WAKE_SHORTCUT_KEY: &str = "wakeShortcut";
 const AUTO_START_KEY: &str = "autoStart";
 const MAIN_WINDOW_BOUNDS_KEY: &str = "mainWindowBounds";
+const MAIN_WINDOW_FOCUS_MODE_KEY: &str = "mainWindowFocusMode";
+const MAIN_WINDOW_MODE_SHORTCUT_KEY: &str = "mainWindowModeShortcut";
 const BROWSER_WINDOW_BOUNDS_KEY: &str = "browserWindowBounds";
 const PLUGIN_OUTPUT_DIRS_KEY: &str = "pluginOutputDirs";
 const PLUGIN_LIBRARY_DIRS_KEY: &str = "pluginLibraryDirs";
@@ -2132,6 +2134,65 @@ fn load_auto_start_pref(app: &tauri::AppHandle) -> Option<bool> {
     None
 }
 
+pub(crate) fn load_main_window_focus_mode_pref(app: &tauri::AppHandle) -> MainWindowFocusMode {
+    let map = read_app_config_map(app);
+    let raw = map
+        .get(MAIN_WINDOW_FOCUS_MODE_KEY)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+
+    if raw.eq_ignore_ascii_case("autoHide") || raw.eq_ignore_ascii_case("autohide") {
+        return MainWindowFocusMode::AutoHide;
+    }
+    if raw.eq_ignore_ascii_case("normal") {
+        return MainWindowFocusMode::Normal;
+    }
+    if raw.eq_ignore_ascii_case("alwaysOnTop") || raw.eq_ignore_ascii_case("alwaysontop") {
+        return MainWindowFocusMode::AlwaysOnTop;
+    }
+
+    // 兼容上一版（短暂存在过的 bool 开关）：true => Normal；false/缺失 => AutoHide
+    if map.contains_key("mainWindowKeepVisibleOnBlur") {
+        if map
+            .get("mainWindowKeepVisibleOnBlur")
+            .and_then(|v| v.as_bool())
+            == Some(true)
+        {
+            return MainWindowFocusMode::Normal;
+        }
+    }
+
+    MainWindowFocusMode::AutoHide
+}
+
+fn load_main_window_mode_shortcut(app: &tauri::AppHandle) -> (Option<Shortcut>, String) {
+    let cfg_path = app_config_path(app);
+    let map = read_app_config_map(app);
+    let raw = map
+        .get(MAIN_WINDOW_MODE_SHORTCUT_KEY)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+
+    if raw.is_empty() {
+        return (None, "-".to_string());
+    }
+
+    match Shortcut::from_str(raw.trim()) {
+        Ok(s) => (Some(s), s.to_string()),
+        Err(e) => {
+            eprintln!(
+                "[config] invalid mainWindowModeShortcut \"{}\" in {:?}: {}",
+                raw, cfg_path, e
+            );
+            (None, "-".to_string())
+        }
+    }
+}
+
 fn load_wake_shortcut(app: &tauri::AppHandle) -> (Shortcut, String) {
     let cfg_path = app_config_path(app);
     let map = read_app_config_map(app);
@@ -2706,6 +2767,238 @@ fn resume_wake_shortcut(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Clone, Serialize)]
+struct ToastPayload {
+    message: String,
+}
+
+fn emit_host_toast(app: &tauri::AppHandle, message: impl Into<String>) {
+    let _ = app.emit_to(
+        EventTarget::webview_window("main"),
+        "fast-window:toast",
+        ToastPayload {
+            message: message.into(),
+        },
+    );
+}
+
+fn main_window_focus_mode_title(mode: MainWindowFocusMode) -> &'static str {
+    match mode {
+        MainWindowFocusMode::AutoHide => "默认模式",
+        MainWindowFocusMode::Normal => "窗口模式",
+        MainWindowFocusMode::AlwaysOnTop => "置顶模式",
+    }
+}
+
+fn apply_main_window_focus_mode(app: &tauri::AppHandle, mode: MainWindowFocusMode) {
+    let state = app.state::<WindowState>();
+    let mut g = state
+        .focus_mode
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    *g = mode;
+
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.set_always_on_top(mode == MainWindowFocusMode::AlwaysOnTop);
+    }
+}
+
+fn persist_main_window_focus_mode(app: &tauri::AppHandle, mode: MainWindowFocusMode) -> Result<(), String> {
+    let mut map = read_app_config_map(app);
+
+    // 清理 legacy（上一版 bool key）
+    map.remove("mainWindowKeepVisibleOnBlur");
+
+    if mode == MainWindowFocusMode::AutoHide {
+        // 默认行为：不写配置（避免污染用户空间）
+        map.remove(MAIN_WINDOW_FOCUS_MODE_KEY);
+    } else {
+        let v = match mode {
+            MainWindowFocusMode::AutoHide => "autoHide",
+            MainWindowFocusMode::Normal => "normal",
+            MainWindowFocusMode::AlwaysOnTop => "alwaysOnTop",
+        };
+        map.insert(MAIN_WINDOW_FOCUS_MODE_KEY.to_string(), Value::String(v.to_string()));
+    }
+
+    write_app_config_map(app, &map)
+}
+
+fn cycle_main_window_focus_mode_internal(app: &tauri::AppHandle) -> Result<MainWindowFocusMode, String> {
+    let state = app.state::<WindowState>();
+    let cur = state.focus_mode.lock().map(|g| *g).unwrap_or_default();
+    let next = match cur {
+        MainWindowFocusMode::AutoHide => MainWindowFocusMode::Normal,
+        MainWindowFocusMode::Normal => MainWindowFocusMode::AlwaysOnTop,
+        MainWindowFocusMode::AlwaysOnTop => MainWindowFocusMode::AutoHide,
+    };
+    persist_main_window_focus_mode(app, next)?;
+    apply_main_window_focus_mode(app, next);
+    Ok(next)
+}
+
+pub(crate) fn handle_main_window_mode_shortcut(app: &tauri::AppHandle) {
+    match cycle_main_window_focus_mode_internal(app) {
+        Ok(next) => emit_host_toast(app, format!("已切换到：{}", main_window_focus_mode_title(next))),
+        Err(e) => emit_host_toast(app, format!("切换模式失败：{e}")),
+    }
+}
+
+#[tauri::command]
+fn get_main_window_focus_mode(app: tauri::AppHandle) -> MainWindowFocusMode {
+    let state = app.state::<WindowState>();
+    state.focus_mode.lock().map(|g| *g).unwrap_or_default()
+}
+
+#[tauri::command]
+fn set_main_window_focus_mode(app: tauri::AppHandle, mode: MainWindowFocusMode) -> Result<MainWindowFocusMode, String> {
+    persist_main_window_focus_mode(&app, mode)?;
+    apply_main_window_focus_mode(&app, mode);
+    Ok(mode)
+}
+
+#[tauri::command]
+fn cycle_main_window_focus_mode(app: tauri::AppHandle) -> Result<MainWindowFocusMode, String> {
+    let next = cycle_main_window_focus_mode_internal(&app)?;
+    emit_host_toast(&app, format!("已切换到：{}", main_window_focus_mode_title(next)));
+    Ok(next)
+}
+
+#[tauri::command]
+fn get_main_window_mode_shortcut(app: tauri::AppHandle) -> String {
+    let state = app.state::<MainWindowModeShortcutState>();
+    state
+        .current
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref().map(|s| s.to_string()))
+        .unwrap_or_else(|| "".to_string())
+}
+
+#[tauri::command]
+fn set_main_window_mode_shortcut(app: tauri::AppHandle, shortcut: String) -> Result<String, String> {
+    let raw = shortcut.trim();
+
+    let state = app.state::<MainWindowModeShortcutState>();
+    let prev = state.current.lock().ok().and_then(|g| *g);
+
+    // 空字符串：视为“禁用快捷键”
+    if raw.is_empty() {
+        if let Some(s) = prev {
+            let _ = app.global_shortcut().unregister(s);
+        }
+        let mut map = read_app_config_map(&app);
+        map.remove(MAIN_WINDOW_MODE_SHORTCUT_KEY);
+        if let Err(e) = write_app_config_map(&app, &map) {
+            return Err(e);
+        }
+
+        if let Ok(mut g) = state.current.lock() {
+            *g = None;
+        }
+        if let Ok(mut p) = state.paused.lock() {
+            *p = false;
+        }
+        return Ok("".to_string());
+    }
+
+    let next = Shortcut::from_str(raw).map_err(|e| format!("快捷键格式不合法: {e}"))?;
+    let normalized = next.to_string();
+
+    // 先尝试注册新快捷键：避免先删后加导致用户短暂失去可用热键。
+    app.global_shortcut()
+        .on_shortcut(next, move |app, _shortcut, event| {
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
+            handle_main_window_mode_shortcut(app);
+        })
+        .map_err(|e| format!("注册全局快捷键失败: {e}"))?;
+
+    let mut map = read_app_config_map(&app);
+    map.insert(
+        MAIN_WINDOW_MODE_SHORTCUT_KEY.to_string(),
+        Value::String(normalized.clone()),
+    );
+    if let Err(e) = write_app_config_map(&app, &map) {
+        let _ = app.global_shortcut().unregister(next);
+        return Err(e);
+    }
+
+    if let Some(s) = prev {
+        let _ = app.global_shortcut().unregister(s);
+    }
+
+    if let Ok(mut g) = state.current.lock() {
+        *g = Some(next);
+    }
+    if let Ok(mut p) = state.paused.lock() {
+        *p = false;
+    }
+    Ok(normalized)
+}
+
+#[tauri::command]
+fn pause_main_window_mode_shortcut(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<MainWindowModeShortcutState>();
+    let current = state
+        .current
+        .lock()
+        .map_err(|_| "内部状态锁失败".to_string())?
+        .clone();
+
+    if let Ok(mut p) = state.paused.lock() {
+        if *p {
+            return Ok(());
+        }
+        if let Some(s) = current {
+            let _ = app.global_shortcut().unregister(s);
+        }
+        *p = true;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn resume_main_window_mode_shortcut(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<MainWindowModeShortcutState>();
+    let current = state
+        .current
+        .lock()
+        .map_err(|_| "内部状态锁失败".to_string())?
+        .clone();
+
+    let mut should_resume = false;
+    if let Ok(p) = state.paused.lock() {
+        should_resume = *p;
+    }
+    if !should_resume {
+        return Ok(());
+    }
+
+    let Some(s) = current else {
+        if let Ok(mut p) = state.paused.lock() {
+            *p = false;
+        }
+        return Ok(());
+    };
+
+    app.global_shortcut()
+        .on_shortcut(s, move |app, _shortcut, event| {
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
+            handle_main_window_mode_shortcut(app);
+        })
+        .map_err(|e| format!("注册全局快捷键失败: {e}"))?;
+
+    if let Ok(mut p) = state.paused.lock() {
+        *p = false;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 fn get_auto_start(_app: tauri::AppHandle) -> AutoStartStatus {
     #[cfg(target_os = "windows")]
@@ -2839,6 +3132,13 @@ fn main() {
         set_wake_shortcut,
         pause_wake_shortcut,
         resume_wake_shortcut,
+        get_main_window_focus_mode,
+        set_main_window_focus_mode,
+        cycle_main_window_focus_mode,
+        get_main_window_mode_shortcut,
+        set_main_window_mode_shortcut,
+        pause_main_window_mode_shortcut,
+        resume_main_window_mode_shortcut,
         get_auto_start,
         set_auto_start
     ]);

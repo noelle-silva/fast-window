@@ -944,6 +944,21 @@ function App() {
     return () => window.removeEventListener('fast-window:toast', onToast)
   }, [])
 
+  // 宿主后端触发 toast（通过 tauri event）
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null
+    void (async () => {
+      unlisten = await listen<{ message?: unknown }>('fast-window:toast', event => {
+        const message = typeof (event as any)?.payload?.message === 'string' ? String((event as any).payload.message) : ''
+        if (!message) return
+        setToast(prev => ({ open: true, message, key: prev.key + 1 }))
+      })
+    })().catch(() => {})
+    return () => {
+      if (unlisten) unlisten()
+    }
+  }, [])
+
   // 过滤插件
   useEffect(() => {
     const q = query.trim()

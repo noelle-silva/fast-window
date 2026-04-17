@@ -6,10 +6,28 @@ use serde::{Deserialize, Serialize};
 use tauri::Manager;
 use tauri_plugin_global_shortcut::Shortcut;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum MainWindowFocusMode {
+    /// 失焦自动隐藏（原交互）
+    AutoHide,
+    /// 像普通窗口一样：失焦不隐藏（仅被其它窗口覆盖）
+    Normal,
+    /// 失焦不隐藏 + 一直置顶
+    AlwaysOnTop,
+}
+
+impl Default for MainWindowFocusMode {
+    fn default() -> Self {
+        Self::AutoHide
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct WindowState {
     pub(crate) last_bounds: Mutex<Option<(tauri::PhysicalPosition<i32>, tauri::PhysicalSize<u32>)>>,
     pub(crate) save_seq: AtomicU64,
+    pub(crate) focus_mode: Mutex<MainWindowFocusMode>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
@@ -64,6 +82,11 @@ pub(crate) struct ActivatePluginPayload {
 
 pub(crate) struct WakeShortcutState {
     pub(crate) current: Mutex<Shortcut>,
+    pub(crate) paused: Mutex<bool>,
+}
+
+pub(crate) struct MainWindowModeShortcutState {
+    pub(crate) current: Mutex<Option<Shortcut>>,
     pub(crate) paused: Mutex<bool>,
 }
 
