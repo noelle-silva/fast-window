@@ -19,6 +19,7 @@ import { loadHtmlFace, loadNoteIndex, loadNotePackage, saveHtmlFace, saveNotePac
 import { createMarkdownRenderEngine } from '../render/engine'
 import { AutoHeightHtmlIframe } from './AutoHeightHtmlIframe'
 import { AssetPoolPanel } from './AssetPoolPanel'
+import { resolveAssetsInElement } from '../render/assetResolver'
 
 type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'note-detail' | 'index' | 'settings'
 
@@ -101,6 +102,7 @@ export function HyperCortexApp() {
   React.useLayoutEffect(() => {
     if (activeNoteFace !== 'text' || activeNoteEditing || !textRenderRef.current || !activeNoteDoc) return
     renderEngineRef.current.renderInto(textRenderRef.current, activeNoteDoc.body)
+    resolveAssetsInElement(textRenderRef.current, api, 'library').catch(() => {})
   }, [activeNoteFace, activeNoteEditing, activeNoteDoc])
 
   const backToHost = React.useCallback(() => {

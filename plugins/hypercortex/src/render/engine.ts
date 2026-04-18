@@ -675,6 +675,15 @@ export function createMarkdownRenderEngine(): MarkdownRenderEngine {
       })
     }
 
+    // 回填 Asset 占位符
+    if (Array.isArray(pre.assets) && pre.assets.length) {
+      safe = safe.replace(/@@ASSET_(\d+)@@/g, (_m, id) => {
+        const a = pre.assets[Number(id)]
+        if (!a) return ''
+        return `<span class="hc-asset" data-asset-id="${esc(a.assetId)}" data-asset-ext="${esc(a.ext)}" data-asset-name="${esc(a.name)}"></span>`
+      })
+    }
+
     // 注入 DOM
     el.innerHTML = safe
 
@@ -713,6 +722,7 @@ export function createMarkdownRenderEngine(): MarkdownRenderEngine {
 /* ================================================================== */
 
 type PreprocessedMath = { tex: string; display: boolean }
+type PreprocessedAsset = { assetId: string; ext: string; name: string }
 
 type FenceToken =
   | { kind: 'text'; text: string }
@@ -720,13 +730,16 @@ type FenceToken =
 
 function preprocessContent(
   source: unknown,
-): { text: string; math: PreprocessedMath[]; mermaid: string[] } {
+): { text: string; math: PreprocessedMath[]; mermaid: string[]; assets: PreprocessedAsset[] } {
   const src = String(source || '').replace(/\r\n/g, '\n')
   const tokens = tokenizeFences(src)
 
   const mermaid: string[] = []
   const math: PreprocessedMath[] = []
+  const assets: PreprocessedAsset[] = []
   const out: string[] = []
+
+  const assetPattern = /\{\{asset:([^}|]+?)(?:\|([^}]*?))?\}\}/g
 
   for (const t of tokens) {
     if (t.kind === 'fence') {
@@ -742,11 +755,23 @@ function preprocessContent(
       continue
     }
 
-    const withMath = replaceMathOutsideInlineCode(t.text, math)
+    // 先提取 asset 标记，再处理数学公式
+    const withAssets = t.text.replace(assetPattern, (_m, ref, displayName) => {
+      const r = String(ref || '').trim()
+      const dotIdx = r.lastIndexOf('.')
+      const assetId = dotIdx > 0 ? r.slice(0, dotIdx) : r
+      const ext = dotIdx > 0 ? r.slice(dotIdx + 1).toLowerCase() : ''
+      const name = String(displayName || '').trim() || (ext ? `${assetId.slice(0, 8)}.${ext}` : assetId.slice(0, 8))
+      const id = assets.length
+      assets.push({ assetId, ext, name })
+      return `@@ASSET_${id}@@`
+    })
+
+    const withMath = replaceMathOutsideInlineCode(withAssets, math)
     out.push(withMath)
   }
 
-  return { text: out.join(''), math, mermaid }
+  return { text: out.join(''), math, mermaid, assets }
 }
 
 function tokenizeFences(input: string): FenceToken[] {

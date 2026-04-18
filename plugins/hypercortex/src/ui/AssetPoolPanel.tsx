@@ -7,6 +7,7 @@ import AudioFileRoundedIcon from '@mui/icons-material/AudioFileRounded'
 import VideoFileRoundedIcon from '@mui/icons-material/VideoFileRounded'
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
+import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import { type Api, type VaultScope, acceptString, kindFromMime, mimeFromExt } from '../core'
 import { importFilesToAssetPool, listAssetsInPool, readAssetAsDataUrl } from '../assetPool'
 import type { HyperCortexNoteResourceRef } from '../noteSchema'
@@ -343,6 +344,28 @@ export function AssetPoolPanel({ api, scope }: Props) {
               <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.38)', flexShrink: 0 }}>
                 {humanSize(asset.size)}
               </Typography>
+
+              {/* 复制引用 */}
+              <Tooltip title="复制引用标记" placement="bottom">
+                <IconButton
+                  size="small"
+                  aria-label="复制引用标记"
+                  onClick={() => {
+                    const ref = asset.ext ? `${asset.assetId}.${asset.ext}` : asset.assetId
+                    const marker = `{{asset:${ref}}}`
+                    api.clipboard.writeText(marker).then(
+                      () => api.ui.showToast('已复制'),
+                      () => api.ui.showToast('复制失败'),
+                    )
+                  }}
+                  sx={{
+                    color: 'rgba(0,0,0,.3)',
+                    '&:hover': { color: '#1976d2', bgcolor: 'rgba(25,118,210,.06)' },
+                  }}
+                >
+                  <ContentCopyRoundedIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
 
               {/* 删除 */}
               <Tooltip title="删除" placement="left">

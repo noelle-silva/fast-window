@@ -10,6 +10,9 @@ export type Api = {
     back?: () => Promise<void> | void
     startDragging?: () => Promise<void> | void
   }
+  clipboard: {
+    writeText: (text: string) => Promise<void>
+  }
   files: {
     getLibraryDir: () => Promise<string>
     // legacy: 用于兼容旧库（曾存放在 output scope 下）
@@ -128,6 +131,13 @@ export function createCompatApi(baseApi: any): Api {
           if (baseToast) return baseToast(msg)
           console.log(`[HyperCortex] ${msg}`)
         }
+      },
+    },
+    clipboard: {
+      ...(base.clipboard || {}),
+      writeText: async (text: string) => {
+        const s = String(text ?? '')
+        await tauri.invoke({ command: 'plugin:clipboard-manager|write_text', payload: { text: s } })
       },
     },
     files: {

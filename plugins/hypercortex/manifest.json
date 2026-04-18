@@ -25,6 +25,7 @@
     "tauri:plugin_files_write_base64",
     "tauri:plugin_files_rename",
     "tauri:plugin_files_delete",
-    "tauri:plugin_pick_images"
+    "tauri:plugin_pick_images",
+    "tauri:plugin:clipboard-manager|write_text"
   ]
 }
