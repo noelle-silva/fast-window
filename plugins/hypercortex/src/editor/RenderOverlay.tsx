@@ -19,6 +19,8 @@ export const RenderOverlay = React.memo(function RenderOverlay({
   const blockCacheRef = React.useRef<Map<string, HTMLDivElement>>(new Map())
   const focusIndexRef = React.useRef<number | null>(null)
   const segmentsRef = React.useRef<Segment[]>([])
+  /** 每个段落上一次渲染产物的高度（用于聚焦时保持区域不缩短） */
+  const segRenderHeightRef = React.useRef<Map<number, number>>(new Map())
   const rafRef = React.useRef<number>(0)
   const scheduleUpdateRef = React.useRef<() => void>(() => {})
 
@@ -98,11 +100,22 @@ export const RenderOverlay = React.memo(function RenderOverlay({
 
       if (i === focusIdx) {
         // Focused: restore all lines to normal, add focused class
+        const prevRenderH = segRenderHeightRef.current.get(i) || 0
         for (let j = seg.startLine; j < seg.endLine && j < children.length; j++) {
           const el = children[j] as HTMLElement
           el.classList.remove('hc-line--collapsed')
           el.classList.add('hc-line--focused')
           el.style.minHeight = ''
+        }
+        // 源码行全部恢复后，测量自然高度，若比渲染矮则把差值补到最后一行底部
+        if (prevRenderH > 0 && seg.startLine < children.length) {
+          const firstEl = children[seg.startLine] as HTMLElement
+          const lastIdx = Math.min(seg.endLine - 1, children.length - 1)
+          const lastEl = children[lastIdx] as HTMLElement
+          const naturalH = (lastEl.offsetTop + lastEl.offsetHeight) - firstEl.offsetTop
+          if (naturalH < prevRenderH) {
+            lastEl.style.minHeight = (lastEl.offsetHeight + prevRenderH - naturalH) + 'px'
+          }
         }
         continue
       }
@@ -164,6 +177,8 @@ export const RenderOverlay = React.memo(function RenderOverlay({
 
         // Set first line's minHeight to render height
         firstEl.style.minHeight = renderHeight > 0 ? renderHeight + 'px' : ''
+        // 记住这个段落的渲染高度，供聚焦时保持区域不缩短
+        if (renderHeight > 0) segRenderHeightRef.current.set(i, renderHeight)
 
         // Now position the block using the (possibly updated) first line offset
         block.style.top = firstEl.offsetTop + 'px'
