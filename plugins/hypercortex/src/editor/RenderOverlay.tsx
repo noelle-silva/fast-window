@@ -103,6 +103,18 @@ export const RenderOverlay = React.memo(function RenderOverlay({
     const focusIdx = detectFocusSegment(segments)
     focusIndexRef.current = focusIdx
 
+    // Mark focused segment lines with z-index class, clear others
+    const children = editor.children
+    for (let i = 0; i < children.length; i++) {
+      (children[i] as HTMLElement).classList.remove('hc-line--focused')
+    }
+    if (focusIdx !== null) {
+      const seg = segments[focusIdx]
+      for (let i = seg.startLine; i < seg.endLine && i < children.length; i++) {
+        (children[i] as HTMLElement).classList.add('hc-line--focused')
+      }
+    }
+
     const frag = document.createDocumentFragment()
 
     for (let i = 0; i < segments.length; i++) {

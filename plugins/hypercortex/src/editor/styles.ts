@@ -166,7 +166,6 @@ const OVERLAY_CSS = `
   position: absolute;
   left: 0;
   right: 0;
-  overflow: hidden;
   background: var(--hc-editor-bg, #fff);
 }
 .hc-render-overlay-block .hc-render {
@@ -177,6 +176,11 @@ const OVERLAY_CSS = `
 }
 .hc-render-overlay-block .hc-render > *:last-child {
   margin-bottom: 0;
+}
+.hc-line--focused {
+  position: relative;
+  z-index: 3;
+  background: var(--hc-editor-bg, #fff);
 }
 `
 
