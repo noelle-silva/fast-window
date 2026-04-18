@@ -109,14 +109,19 @@ export function HyperCortexApp() {
   const handleBlockRendered = React.useCallback((el: HTMLElement, requestUpdate: () => void) => {
     resolveAssetsInElement(el, api, 'library')
       .then(() => {
-        const imgs = Array.from(el.querySelectorAll('img'))
-        const pending = imgs.filter(img => !img.complete)
+        const pending: { el: HTMLElement; event: string }[] = []
+        el.querySelectorAll('img').forEach(img => {
+          if (!img.complete) pending.push({ el: img, event: 'load' })
+        })
+        el.querySelectorAll('video').forEach(vid => {
+          if (vid.readyState < 1) pending.push({ el: vid, event: 'loadedmetadata' })
+        })
         if (!pending.length) { requestUpdate(); return }
         let remaining = pending.length
         const done = () => { if (--remaining <= 0) requestUpdate() }
-        pending.forEach(img => {
-          img.addEventListener('load', done, { once: true })
-          img.addEventListener('error', done, { once: true })
+        pending.forEach(({ el: m, event }) => {
+          m.addEventListener(event, done, { once: true })
+          m.addEventListener('error', done, { once: true })
         })
       })
       .catch(() => {})

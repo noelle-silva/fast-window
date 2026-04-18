@@ -5,6 +5,7 @@ export type LineType =
   | 'ul' | 'ol'
   | 'hr'
   | 'table'
+  | 'asset'
   | 'empty'
   | 'paragraph'
 
@@ -72,6 +73,11 @@ export function classifyLines(lines: string[]): LineType[] {
       continue
     }
 
+    if (RE_ASSET.test(trimmedEnd)) {
+      result[i] = 'asset'
+      continue
+    }
+
     result[i] = 'paragraph'
   }
 
@@ -96,3 +102,4 @@ function isFenceClose(trimmedEnd: string, fenceMarker: string): boolean {
 const RE_UL = /^\s*[-*+]\s/
 const RE_OL = /^\s*\d+\.\s/
 const RE_HR = /^(-{3,}|\*{3,}|_{3,})\s*$/
+const RE_ASSET = /^\{\{asset:[^}]+\}\}\s*$/
