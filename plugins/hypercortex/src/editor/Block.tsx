@@ -87,7 +87,11 @@ export const Block = React.memo(function Block({
     if (!ta) return
     // 延迟一帧等 fontStyle 生效后再聚焦
     requestAnimationFrame(() => {
-      ta.focus()
+      try {
+        ta.focus({ preventScroll: true })
+      } catch {
+        ta.focus()
+      }
     })
   }, [editing, taRef])
 
