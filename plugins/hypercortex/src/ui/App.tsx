@@ -18,6 +18,7 @@ import { ensureMetadata, getApi, saveMetadata, tryLoadMetadata, type HyperCortex
 import { loadHtmlFace, loadNoteIndex, loadNotePackage, saveHtmlFace, saveNotePackage } from '../notePackage'
 import { createMarkdownRenderEngine } from '../render/engine'
 import { AutoHeightHtmlIframe } from './AutoHeightHtmlIframe'
+import { AssetPoolPanel } from './AssetPoolPanel'
 
 type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'note-detail' | 'index' | 'settings'
 
@@ -637,7 +638,7 @@ export function HyperCortexApp() {
                   </Box>
                 </Box>
               ) : null}
-              {page === 'attachments' ? <Typography color="text.secondary">这是附件页面。</Typography> : null}
+              {page === 'attachments' ? <AssetPoolPanel api={api} scope="library" /> : null}
               {page === 'all-notes' ? (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
