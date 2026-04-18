@@ -2976,7 +2976,7 @@ export function AiChatApp(props: { controller: any }) {
           '.math-inline.fw-math-host > .fw-math-copy': {
             left: '100%',
             top: '50%',
-            transform: 'translate(6px, -50%)',
+            transform: 'translate(0, -50%)',
           },
           '.math-block.fw-math-host > .fw-math-copy': {
             right: 6,
