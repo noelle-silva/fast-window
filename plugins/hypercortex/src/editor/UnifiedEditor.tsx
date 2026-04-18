@@ -15,6 +15,8 @@ export interface UnifiedEditorProps {
   onChange: (value: string) => void
   placeholder?: string
   minHeight?: number
+  /** 渲染覆盖层中每个 block 渲染完成后的后处理钩子（如资源解析）。第二个参数 requestUpdate 用于异步内容就绪后请求重新布局。 */
+  onBlockRendered?: (el: HTMLElement, requestUpdate: () => void) => void
 }
 
 interface HistoryEntry {
@@ -37,6 +39,7 @@ export const UnifiedEditor = React.memo(function UnifiedEditor({
   onChange,
   placeholder,
   minHeight = 200,
+  onBlockRendered,
 }: UnifiedEditorProps) {
   const editorRef = React.useRef<HTMLDivElement>(null)
   const internalValueRef = React.useRef(value)
@@ -250,7 +253,7 @@ export const UnifiedEditor = React.memo(function UnifiedEditor({
         onCompositionStart={handleCompositionStart}
         onCompositionEnd={handleCompositionEnd}
       />
-      <RenderOverlay editorRef={editorRef} value={overlayValue} />
+      <RenderOverlay editorRef={editorRef} value={overlayValue} onBlockRendered={onBlockRendered} />
       {showPlaceholder && (
         <div className="hc-unified-placeholder">{placeholder}</div>
       )}

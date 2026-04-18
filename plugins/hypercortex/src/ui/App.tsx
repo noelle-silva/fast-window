@@ -105,6 +105,23 @@ export function HyperCortexApp() {
     resolveAssetsInElement(textRenderRef.current, api, 'library').catch(() => {})
   }, [activeNoteFace, activeNoteEditing, activeNoteDoc])
 
+  /** 编辑器覆盖层渲染完 block 后，异步解析其中的资源占位符，完成后请求重新布局 */
+  const handleBlockRendered = React.useCallback((el: HTMLElement, requestUpdate: () => void) => {
+    resolveAssetsInElement(el, api, 'library')
+      .then(() => {
+        const imgs = Array.from(el.querySelectorAll('img'))
+        const pending = imgs.filter(img => !img.complete)
+        if (!pending.length) { requestUpdate(); return }
+        let remaining = pending.length
+        const done = () => { if (--remaining <= 0) requestUpdate() }
+        pending.forEach(img => {
+          img.addEventListener('load', done, { once: true })
+          img.addEventListener('error', done, { once: true })
+        })
+      })
+      .catch(() => {})
+  }, [api])
+
   const backToHost = React.useCallback(() => {
     try {
       if (typeof api.ui?.back === 'function') return void api.ui.back()
@@ -1203,7 +1220,7 @@ export function HyperCortexApp() {
                       ) : (
                         <AutoHeightHtmlIframe html={activeNoteEditHtml} minHeightPx={240} />
                       ) : activeNoteEditing ? (
-                        <BlockEditor value={activeNoteEditBody} onChange={setActiveNoteEditBody} placeholder="开始编辑正文..." minHeight={400} />
+                        <BlockEditor value={activeNoteEditBody} onChange={setActiveNoteEditBody} placeholder="开始编辑正文..." minHeight={400} onBlockRendered={handleBlockRendered} />
                       ) : (
                         <Box
                           ref={textRenderRef}

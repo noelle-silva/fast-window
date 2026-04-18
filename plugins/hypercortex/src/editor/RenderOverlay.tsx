@@ -6,17 +6,21 @@ import { ensureRenderOverlayStyles } from './styles'
 export interface RenderOverlayProps {
   editorRef: React.RefObject<HTMLDivElement>
   value: string
+  /** 每个 block 渲染完成后的后处理钩子（如资源解析）。第二个参数 requestUpdate 用于异步内容就绪后请求重新布局。 */
+  onBlockRendered?: (el: HTMLElement, requestUpdate: () => void) => void
 }
 
 export const RenderOverlay = React.memo(function RenderOverlay({
   editorRef,
   value,
+  onBlockRendered,
 }: RenderOverlayProps) {
   const overlayRef = React.useRef<HTMLDivElement>(null)
   const blockCacheRef = React.useRef<Map<string, HTMLDivElement>>(new Map())
   const focusIndexRef = React.useRef<number | null>(null)
   const segmentsRef = React.useRef<Segment[]>([])
   const rafRef = React.useRef<number>(0)
+  const scheduleUpdateRef = React.useRef<() => void>(() => {})
 
   React.useLayoutEffect(() => {
     ensureRenderOverlayStyles()
@@ -126,6 +130,8 @@ export const RenderOverlay = React.memo(function RenderOverlay({
             engine.renderInto(inner, seg.markdown)
           }
 
+          if (onBlockRendered) onBlockRendered(inner, () => scheduleUpdateRef.current())
+
           blockCacheRef.current.set(cacheKey, block)
           if (blockCacheRef.current.size > 200) {
             const firstKey = blockCacheRef.current.keys().next().value!
@@ -166,13 +172,14 @@ export const RenderOverlay = React.memo(function RenderOverlay({
     }
 
     overlay.replaceChildren(frag)
-  }, [editorRef, value, getSegments, detectFocusSegment, measureSegmentRect])
+  }, [editorRef, value, getSegments, detectFocusSegment, measureSegmentRect, onBlockRendered])
 
   React.useEffect(() => {
     const scheduleUpdate = () => {
       cancelAnimationFrame(rafRef.current)
       rafRef.current = requestAnimationFrame(update)
     }
+    scheduleUpdateRef.current = scheduleUpdate
 
     scheduleUpdate()
 
