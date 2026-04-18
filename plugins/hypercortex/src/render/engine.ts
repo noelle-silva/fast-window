@@ -73,7 +73,7 @@ const ENGINE_CSS = `
 .fw-math-copy:hover{background:rgba(0,0,0,.06);border-color:rgba(0,0,0,.12);color:rgba(0,0,0,.72);}
 .fw-math-copy:active{background:rgba(0,0,0,.10);border-color:rgba(0,0,0,.12);color:rgba(0,0,0,.76);}
 .fw-math-copy:focus-visible{outline:2px solid rgba(25,118,210,.35);outline-offset:2px;}
-.math-inline.fw-math-host>.fw-math-copy{left:100%;top:50%;transform:translate(6px,-50%);}
+.math-inline.fw-math-host>.fw-math-copy{left:100%;top:50%;transform:translate(0,-50%);}
 .math-block.fw-math-host>.fw-math-copy{right:6px;top:50%;transform:translateY(-50%);}
 .fw-math-host:hover>.fw-math-copy,.fw-math-host:focus-within>.fw-math-copy{opacity:1;visibility:visible;pointer-events:auto;}
 .mermaid-block{margin:10px 0;overflow-x:auto;cursor:zoom-in;}
