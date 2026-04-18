@@ -62,37 +62,6 @@ export const RenderOverlay = React.memo(function RenderOverlay({
     return { top, height }
   }, [])
 
-  const renderSegmentBlock = React.useCallback((
-    segment: Segment,
-    rect: { top: number; height: number },
-  ): HTMLDivElement => {
-    const cacheKey = segment.markdown
-    let block = blockCacheRef.current.get(cacheKey)
-
-    if (!block) {
-      block = document.createElement('div')
-      block.className = 'hc-render-overlay-block'
-      const inner = document.createElement('div')
-      inner.className = 'hc-render'
-      block.appendChild(inner)
-
-      const engine = (window as any).__hcRenderEngine
-      if (engine && typeof engine.renderInto === 'function') {
-        engine.renderInto(inner, segment.markdown)
-      }
-
-      blockCacheRef.current.set(cacheKey, block)
-      if (blockCacheRef.current.size > 200) {
-        const firstKey = blockCacheRef.current.keys().next().value!
-        blockCacheRef.current.delete(firstKey)
-      }
-    }
-
-    block.style.top = rect.top + 'px'
-    block.style.height = rect.height + 'px'
-    return block
-  }, [])
-
   const update = React.useCallback(() => {
     const editor = editorRef.current
     const overlay = overlayRef.current
@@ -101,36 +70,103 @@ export const RenderOverlay = React.memo(function RenderOverlay({
     const segments = getSegments(value)
     segmentsRef.current = segments
     const focusIdx = detectFocusSegment(segments)
+    const prevFocusIdx = focusIndexRef.current
     focusIndexRef.current = focusIdx
 
-    // Mark focused segment lines with z-index class, clear others
     const children = editor.children
-    for (let i = 0; i < children.length; i++) {
-      (children[i] as HTMLElement).classList.remove('hc-line--focused')
-    }
-    if (focusIdx !== null) {
-      const seg = segments[focusIdx]
-      for (let i = seg.startLine; i < seg.endLine && i < children.length; i++) {
-        (children[i] as HTMLElement).classList.add('hc-line--focused')
+
+    // Restore previously focused segment lines (remove focused, add collapsed)
+    if (prevFocusIdx !== null && prevFocusIdx !== focusIdx && prevFocusIdx < segments.length) {
+      const prevSeg = segments[prevFocusIdx]
+      if (prevSeg) {
+        for (let i = prevSeg.startLine; i < prevSeg.endLine && i < children.length; i++) {
+          const el = children[i] as HTMLElement
+          el.classList.remove('hc-line--focused')
+        }
       }
     }
 
+    // Build overlay and manage line classes
     const frag = document.createDocumentFragment()
 
     for (let i = 0; i < segments.length; i++) {
-      if (i === focusIdx) continue
       const seg = segments[i]
-      if (seg.markdown.trim() === '') continue
 
-      const rect = measureSegmentRect(seg, editor)
-      if (!rect || rect.height === 0) continue
+      if (i === focusIdx) {
+        // Focused: restore all lines to normal, add focused class
+        for (let j = seg.startLine; j < seg.endLine && j < children.length; j++) {
+          const el = children[j] as HTMLElement
+          el.classList.remove('hc-line--collapsed')
+          el.classList.add('hc-line--focused')
+          el.style.minHeight = ''
+        }
+        continue
+      }
 
-      const block = renderSegmentBlock(seg, rect)
-      frag.appendChild(block)
+      // Non-focused: render overlay block
+      const isEmpty = seg.markdown.trim() === ''
+
+      // First: render the block to measure its height
+      let block: HTMLDivElement | null = null
+      let renderHeight = 0
+
+      if (!isEmpty) {
+        const cacheKey = seg.markdown
+        block = blockCacheRef.current.get(cacheKey) ?? null
+
+        if (!block) {
+          block = document.createElement('div')
+          block.className = 'hc-render-overlay-block'
+          const inner = document.createElement('div')
+          inner.className = 'hc-render'
+          block.appendChild(inner)
+
+          const engine = (window as any).__hcRenderEngine
+          if (engine && typeof engine.renderInto === 'function') {
+            engine.renderInto(inner, seg.markdown)
+          }
+
+          blockCacheRef.current.set(cacheKey, block)
+          if (blockCacheRef.current.size > 200) {
+            const firstKey = blockCacheRef.current.keys().next().value!
+            blockCacheRef.current.delete(firstKey)
+          }
+        }
+      }
+
+      // Collapse all lines in this segment except the first
+      // First line gets minHeight = max(renderHeight, 0) to hold space
+      for (let j = seg.startLine; j < seg.endLine && j < children.length; j++) {
+        const el = children[j] as HTMLElement
+        el.classList.remove('hc-line--focused')
+        if (j === seg.startLine) {
+          el.classList.remove('hc-line--collapsed')
+          // Will set minHeight after measuring render block
+        } else {
+          el.classList.add('hc-line--collapsed')
+          el.style.minHeight = ''
+        }
+      }
+
+      if (block && seg.startLine < children.length) {
+        // Temporarily add block to overlay to measure its height
+        overlay.appendChild(block)
+        const firstEl = children[seg.startLine] as HTMLElement
+        block.style.top = firstEl.offsetTop + 'px'
+        renderHeight = block.offsetHeight
+        block.remove()
+
+        // Set first line's minHeight to render height
+        firstEl.style.minHeight = renderHeight > 0 ? renderHeight + 'px' : ''
+
+        // Now position the block using the (possibly updated) first line offset
+        block.style.top = firstEl.offsetTop + 'px'
+        frag.appendChild(block)
+      }
     }
 
     overlay.replaceChildren(frag)
-  }, [editorRef, value, getSegments, detectFocusSegment, measureSegmentRect, renderSegmentBlock])
+  }, [editorRef, value, getSegments, detectFocusSegment, measureSegmentRect])
 
   React.useEffect(() => {
     const scheduleUpdate = () => {

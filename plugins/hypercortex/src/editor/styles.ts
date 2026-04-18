@@ -177,6 +177,14 @@ const OVERLAY_CSS = `
 .hc-render-overlay-block .hc-render > *:last-child {
   margin-bottom: 0;
 }
+.hc-line--collapsed {
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+}
 .hc-line--focused {
   position: relative;
   z-index: 3;
