@@ -8,6 +8,7 @@ import {
   domSelectionToTextOffset,
   restoreSelectionFromTextOffset,
 } from './domHelpers'
+import { RenderOverlay } from './RenderOverlay'
 
 export interface UnifiedEditorProps {
   value: string
@@ -52,6 +53,7 @@ export const UnifiedEditor = React.memo(function UnifiedEditor({
   const debounceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [isEmpty, setIsEmpty] = React.useState(!value)
+  const [overlayValue, setOverlayValue] = React.useState(value)
 
   // ── helpers ──
 
@@ -151,6 +153,7 @@ export const UnifiedEditor = React.memo(function UnifiedEditor({
     internalValueRef.current = newValue
     reclassifyLines(root)
     setIsEmpty(!newValue)
+    setOverlayValue(newValue)
     commitAfterChange()
     externalValueRef.current = newValue
     onChangeRef.current(newValue)
@@ -216,6 +219,7 @@ export const UnifiedEditor = React.memo(function UnifiedEditor({
     externalValueRef.current = value
     internalValueRef.current = value
     setIsEmpty(!value)
+    setOverlayValue(value)
     const root = editorRef.current
     if (root) rebuildDOM(root, value)
     undoStackRef.current = []
@@ -246,6 +250,7 @@ export const UnifiedEditor = React.memo(function UnifiedEditor({
         onCompositionStart={handleCompositionStart}
         onCompositionEnd={handleCompositionEnd}
       />
+      <RenderOverlay editorRef={editorRef} value={overlayValue} />
       {showPlaceholder && (
         <div className="hc-unified-placeholder">{placeholder}</div>
       )}

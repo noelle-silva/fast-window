@@ -150,3 +150,40 @@ export function ensureUnifiedEditorStyles() {
   el.textContent = UNIFIED_CSS
   document.head.appendChild(el)
 }
+
+const OVERLAY_STYLE_ID = 'hc-render-overlay-css'
+
+const OVERLAY_CSS = `
+.hc-render-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.hc-render-overlay-block {
+  position: absolute;
+  left: 0;
+  right: 0;
+  overflow: hidden;
+  background: var(--hc-editor-bg, #fff);
+}
+.hc-render-overlay-block .hc-render {
+  pointer-events: none;
+}
+.hc-render-overlay-block .hc-render > *:first-child {
+  margin-top: 0;
+}
+.hc-render-overlay-block .hc-render > *:last-child {
+  margin-bottom: 0;
+}
+`
+
+export function ensureRenderOverlayStyles() {
+  if (document.getElementById(OVERLAY_STYLE_ID)) return
+  const el = document.createElement('style')
+  el.id = OVERLAY_STYLE_ID
+  el.textContent = OVERLAY_CSS
+  document.head.appendChild(el)
+}

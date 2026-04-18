@@ -83,6 +83,7 @@ export function HyperCortexApp() {
   const [activeNotePendingAddFace, setActiveNotePendingAddFace] = React.useState<NoteFaceId | null>(null)
 
   const renderEngineRef = React.useRef(createMarkdownRenderEngine())
+  ;(window as any).__hcRenderEngine = renderEngineRef.current
   const textRenderRef = React.useRef<HTMLDivElement>(null)
 
   React.useLayoutEffect(() => {
