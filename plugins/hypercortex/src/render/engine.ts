@@ -680,7 +680,7 @@ export function createMarkdownRenderEngine(): MarkdownRenderEngine {
       safe = safe.replace(/@@ASSET_(\d+)@@/g, (_m, id) => {
         const a = pre.assets[Number(id)]
         if (!a) return ''
-        return `<span class="hc-asset" data-asset-id="${esc(a.assetId)}" data-asset-ext="${esc(a.ext)}" data-asset-name="${esc(a.name)}"></span>`
+        return `<span class="hc-asset" data-asset-id="${esc(a.assetId)}" data-asset-ext="${esc(a.ext)}" data-asset-name="${esc(a.name)}"${a.width ? ` data-asset-width="${a.width}"` : ''}></span>`
       })
     }
 
@@ -722,7 +722,7 @@ export function createMarkdownRenderEngine(): MarkdownRenderEngine {
 /* ================================================================== */
 
 type PreprocessedMath = { tex: string; display: boolean }
-type PreprocessedAsset = { assetId: string; ext: string; name: string }
+type PreprocessedAsset = { assetId: string; ext: string; name: string; width?: number }
 
 type FenceToken =
   | { kind: 'text'; text: string }
@@ -739,7 +739,7 @@ function preprocessContent(
   const assets: PreprocessedAsset[] = []
   const out: string[] = []
 
-  const assetPattern = /\{\{asset:([^}|]+?)(?:\|([^}]*?))?\}\}/g
+  const assetPattern = /\{\{asset:([^}|]+?)(?:\|([^}|]*?))?(?:\|(\d+))?\}\}/g
 
   for (const t of tokens) {
     if (t.kind === 'fence') {
@@ -756,14 +756,15 @@ function preprocessContent(
     }
 
     // 先提取 asset 标记，再处理数学公式
-    const withAssets = t.text.replace(assetPattern, (_m, ref, displayName) => {
+    const withAssets = t.text.replace(assetPattern, (_m, ref, displayName, widthStr) => {
       const r = String(ref || '').trim()
       const dotIdx = r.lastIndexOf('.')
       const assetId = dotIdx > 0 ? r.slice(0, dotIdx) : r
       const ext = dotIdx > 0 ? r.slice(dotIdx + 1).toLowerCase() : ''
       const name = String(displayName || '').trim() || (ext ? `${assetId.slice(0, 8)}.${ext}` : assetId.slice(0, 8))
+      const width = widthStr ? Number(widthStr) : undefined
       const id = assets.length
-      assets.push({ assetId, ext, name })
+      assets.push({ assetId, ext, name, width })
       return `@@ASSET_${id}@@`
     })
 

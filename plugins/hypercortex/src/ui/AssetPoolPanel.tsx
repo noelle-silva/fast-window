@@ -352,7 +352,10 @@ export function AssetPoolPanel({ api, scope }: Props) {
                   aria-label="复制引用标记"
                   onClick={() => {
                     const ref = asset.ext ? `${asset.assetId}.${asset.ext}` : asset.assetId
-                    const marker = `{{asset:${ref}}}`
+                    const defaultWidth = asset.kind === 'image' ? 320 : asset.kind === 'video' ? 480 : 0
+                    const marker = defaultWidth
+                      ? `{{asset:${ref}||${defaultWidth}}}`
+                      : `{{asset:${ref}}}`
                     api.clipboard.writeText(marker).then(
                       () => api.ui.showToast('已复制'),
                       () => api.ui.showToast('复制失败'),

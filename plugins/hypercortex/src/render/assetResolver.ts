@@ -37,11 +37,16 @@ async function getBlobUrl(api: Api, scope: VaultScope, assetId: string, ext: str
 /*  DOM 元素构建                                                        */
 /* ------------------------------------------------------------------ */
 
-function buildImageElement(blobUrl: string, name: string): HTMLElement {
+function buildImageElement(blobUrl: string, name: string, width?: number): HTMLElement {
   const img = document.createElement('img')
   img.src = blobUrl
   img.alt = name
-  img.style.maxWidth = '100%'
+  if (width && width > 0) {
+    img.style.width = `${width}px`
+    img.style.maxWidth = '100%'
+  } else {
+    img.style.maxWidth = '100%'
+  }
   img.style.height = 'auto'
   img.style.borderRadius = '6px'
   img.style.cursor = 'zoom-in'
@@ -72,7 +77,7 @@ function buildAudioElement(blobUrl: string, name: string): HTMLElement {
   return wrap
 }
 
-function buildVideoElement(blobUrl: string, name: string): HTMLElement {
+function buildVideoElement(blobUrl: string, name: string, width?: number): HTMLElement {
   const wrap = document.createElement('div')
   wrap.style.display = 'flex'
   wrap.style.flexDirection = 'column'
@@ -90,7 +95,12 @@ function buildVideoElement(blobUrl: string, name: string): HTMLElement {
   const video = document.createElement('video')
   video.src = blobUrl
   video.controls = true
-  video.style.maxWidth = '100%'
+  if (width && width > 0) {
+    video.style.width = `${width}px`
+    video.style.maxWidth = '100%'
+  } else {
+    video.style.maxWidth = '100%'
+  }
   video.style.borderRadius = '6px'
   wrap.appendChild(video)
   return wrap
@@ -141,6 +151,8 @@ export async function resolveAssetsInElement(
     const assetId = span.getAttribute('data-asset-id') || ''
     const ext = span.getAttribute('data-asset-ext') || ''
     const name = span.getAttribute('data-asset-name') || ''
+    const widthAttr = span.getAttribute('data-asset-width')
+    const width = widthAttr ? Number(widthAttr) : undefined
     if (!assetId) return
 
     const mime = mimeFromExt(ext)
@@ -156,11 +168,11 @@ export async function resolveAssetsInElement(
 
       let element: HTMLElement
       if (kind === 'image') {
-        element = buildImageElement(blobUrl, name)
+        element = buildImageElement(blobUrl, name, width)
       } else if (kind === 'audio') {
         element = buildAudioElement(blobUrl, name)
       } else if (kind === 'video') {
-        element = buildVideoElement(blobUrl, name)
+        element = buildVideoElement(blobUrl, name, width)
       } else {
         element = buildDocumentElement(name)
       }
