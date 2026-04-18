@@ -456,8 +456,8 @@ export function createMarkdownRenderEngine(): MarkdownRenderEngine {
         return w.DOMPurify.sanitize(raw, {
           FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed'],
           ALLOW_DATA_ATTR: true,
-          ADD_TAGS: ['button', 'details', 'summary', 'input', 'label', 'table', 'thead', 'tbody', 'tr', 'th', 'td'],
-          ADD_ATTR: ['id', 'style', 'class', 'role', 'tabindex', 'colspan', 'rowspan'],
+          ADD_TAGS: ['button', 'details', 'summary', 'input', 'label', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'img', 'audio', 'video', 'source'],
+          ADD_ATTR: ['id', 'style', 'class', 'role', 'tabindex', 'colspan', 'rowspan', 'src', 'alt', 'controls', 'autoplay', 'muted', 'loop', 'playsinline', 'poster', 'type', 'width', 'height', 'href', 'target', 'rel', 'title', 'download'],
         })
       } catch (_) {}
     }
@@ -469,7 +469,7 @@ export function createMarkdownRenderEngine(): MarkdownRenderEngine {
     const allowedTags = new Set(
       mode === 'baseline'
         ? ['DIV', 'SPAN', 'P', 'BR', 'PRE', 'CODE', 'EM', 'STRONG', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'A', 'BUTTON', 'DETAILS', 'SUMMARY', 'INPUT', 'LABEL', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HR', 'IMG', 'VIDEO', 'AUDIO', 'SOURCE', 'IFRAME', 'OBJECT', 'EMBED', 'STYLE']
-        : ['DIV', 'SPAN', 'P', 'BR', 'PRE', 'CODE', 'EM', 'STRONG', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'A', 'BUTTON', 'DETAILS', 'SUMMARY', 'INPUT', 'LABEL', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HR'],
+        : ['DIV', 'SPAN', 'P', 'BR', 'PRE', 'CODE', 'EM', 'STRONG', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'A', 'BUTTON', 'DETAILS', 'SUMMARY', 'INPUT', 'LABEL', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HR', 'IMG', 'AUDIO', 'VIDEO', 'SOURCE'],
     )
 
     const walker = document.createTreeWalker(tpl.content, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_COMMENT, null)

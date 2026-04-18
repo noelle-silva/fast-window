@@ -1,4 +1,13 @@
-import { ASSETS_DIR, type Api, type VaultScope, ensureVaultDirs, extFromMime, mimeFromDataUrl, sha256Hex } from './core'
+import {
+  ASSETS_DIR,
+  type Api,
+  type VaultScope,
+  ensureVaultDirs,
+  extFromMime,
+  kindFromMime,
+  mimeFromDataUrl,
+  sha256Hex,
+} from './core'
 import type { HyperCortexNoteResourceRef } from './noteSchema'
 
 export function assetRelPath(assetId: string, ext?: string): string {
@@ -44,4 +53,51 @@ export async function importPickedImagesToAssetPool(api: Api, scope: VaultScope,
     )
   }
   return out
+}
+
+export async function importFileToAssetPool(
+  api: Api,
+  scope: VaultScope,
+  input: { name?: string; dataUrl: string },
+): Promise<HyperCortexNoteResourceRef> {
+  await ensureVaultDirs(api, scope)
+  const dataUrl = String(input.dataUrl || '').trim()
+  if (!dataUrl) throw new Error('文件数据为空')
+  const assetId = await sha256Hex(dataUrl)
+  const mime = mimeFromDataUrl(dataUrl)
+  const ext = extFromMime(mime)
+  const kind = kindFromMime(mime)
+  await api.files.writeBase64({
+    scope,
+    path: assetRelPath(assetId, ext),
+    dataUrlOrBase64: dataUrl,
+    overwrite: true,
+  })
+  return {
+    assetId,
+    mime: mime || undefined,
+    ext: ext || undefined,
+    kind: kind || undefined,
+    name: String(input.name || '').trim() || undefined,
+  }
+}
+
+export async function importFilesToAssetPool(
+  api: Api,
+  scope: VaultScope,
+  inputs: { name?: string; dataUrl: string }[],
+): Promise<HyperCortexNoteResourceRef[]> {
+  const out: HyperCortexNoteResourceRef[] = []
+  for (const item of Array.isArray(inputs) ? inputs : []) {
+    out.push(await importFileToAssetPool(api, scope, item))
+  }
+  return out
+}
+
+export async function listAssetsInPool(api: Api, scope: VaultScope) {
+  return api.files.listDir({ scope, dir: ASSETS_DIR }).catch(() => [])
+}
+
+export async function readAssetAsDataUrl(api: Api, scope: VaultScope, assetId: string, ext?: string): Promise<string> {
+  return api.files.readBase64({ scope, path: assetRelPath(assetId, ext) })
 }
