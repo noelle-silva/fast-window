@@ -17,7 +17,6 @@ export const RenderOverlay = React.memo(function RenderOverlay({
 }: RenderOverlayProps) {
   const overlayRef = React.useRef<HTMLDivElement>(null)
   const blockCacheRef = React.useRef<Map<string, HTMLDivElement>>(new Map())
-  const focusIndexRef = React.useRef<number | null>(null)
   const segmentsRef = React.useRef<Segment[]>([])
   /** 每个段落上一次渲染产物的高度（用于聚焦时保持区域不缩短） */
   const segRenderHeightRef = React.useRef<Map<number, number>>(new Map())
@@ -34,23 +33,27 @@ export const RenderOverlay = React.memo(function RenderOverlay({
     return groupLinesIntoSegments(lines, types)
   }, [])
 
-  const detectFocusSegment = React.useCallback((segments: Segment[]): number | null => {
+  const detectFocusLineRange = React.useCallback((): { startLine: number; endLine: number } | null => {
     const editor = editorRef.current
     if (!editor) return null
     const sel = window.getSelection()
-    if (!sel || !sel.focusNode || !editor.contains(sel.focusNode)) return null
+    if (!sel || !sel.anchorNode || !sel.focusNode) return null
+    if (!editor.contains(sel.anchorNode) || !editor.contains(sel.focusNode)) return null
 
-    let node: Node | null = sel.focusNode
-    while (node && node.parentNode !== editor) node = node.parentNode
-    if (!node) return null
-
-    const lineIndex = Array.from(editor.children).indexOf(node as Element)
-    if (lineIndex === -1) return null
-
-    for (let i = 0; i < segments.length; i++) {
-      if (lineIndex >= segments[i].startLine && lineIndex < segments[i].endLine) return i
+    const findDirectChild = (n: Node | null) => {
+      let node: Node | null = n
+      while (node && node.parentNode !== editor) node = node.parentNode
+      return node
     }
-    return null
+
+    const a = findDirectChild(sel.anchorNode)
+    const b = findDirectChild(sel.focusNode)
+    if (!a || !b) return null
+
+    const ai = Array.from(editor.children).indexOf(a as Element)
+    const bi = Array.from(editor.children).indexOf(b as Element)
+    if (ai === -1 || bi === -1) return null
+    return { startLine: Math.min(ai, bi), endLine: Math.max(ai, bi) }
   }, [editorRef])
 
   const measureSegmentRect = React.useCallback((
@@ -75,22 +78,9 @@ export const RenderOverlay = React.memo(function RenderOverlay({
 
     const segments = getSegments(value)
     segmentsRef.current = segments
-    const focusIdx = detectFocusSegment(segments)
-    const prevFocusIdx = focusIndexRef.current
-    focusIndexRef.current = focusIdx
+    const focusRange = detectFocusLineRange()
 
     const children = editor.children
-
-    // Restore previously focused segment lines (remove focused, add collapsed)
-    if (prevFocusIdx !== null && prevFocusIdx !== focusIdx && prevFocusIdx < segments.length) {
-      const prevSeg = segments[prevFocusIdx]
-      if (prevSeg) {
-        for (let i = prevSeg.startLine; i < prevSeg.endLine && i < children.length; i++) {
-          const el = children[i] as HTMLElement
-          el.classList.remove('hc-line--focused')
-        }
-      }
-    }
 
     // Build overlay and manage line classes
     const frag = document.createDocumentFragment()
@@ -98,7 +88,8 @@ export const RenderOverlay = React.memo(function RenderOverlay({
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i]
 
-      if (i === focusIdx) {
+      const isFocused = !!focusRange && !(seg.endLine - 1 < focusRange.startLine || seg.startLine > focusRange.endLine)
+      if (isFocused) {
         // Focused: restore all lines to normal, add focused class
         const prevRenderH = segRenderHeightRef.current.get(i) || 0
         for (let j = seg.startLine; j < seg.endLine && j < children.length; j++) {
@@ -187,7 +178,7 @@ export const RenderOverlay = React.memo(function RenderOverlay({
     }
 
     overlay.replaceChildren(frag)
-  }, [editorRef, value, getSegments, detectFocusSegment, measureSegmentRect, onBlockRendered])
+  }, [editorRef, value, getSegments, detectFocusLineRange, measureSegmentRect, onBlockRendered])
 
   React.useEffect(() => {
     const scheduleUpdate = () => {
