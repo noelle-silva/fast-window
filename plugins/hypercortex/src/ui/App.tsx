@@ -10,6 +10,7 @@ import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
 import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded'
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
+import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
@@ -22,6 +23,15 @@ type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'note-detail' 
 
 type AllNotesLayout = 'list' | 'grid' | 'icon'
 type NoteFaceId = 'text' | 'html'
+
+type ActiveNoteEditSnapshot = {
+  face: NoteFaceId
+  faces: NoteFaceId[]
+  title: string
+  body: string
+  tags: string[]
+  html: string
+}
 
 function normalizeAllNotesLayout(value: unknown): AllNotesLayout {
   return value === 'grid' || value === 'icon' ? value : 'list'
@@ -81,6 +91,7 @@ export function HyperCortexApp() {
   const [activeNoteFaces, setActiveNoteFaces] = React.useState<NoteFaceId[]>(['text'])
   const [activeNoteAddFaceSelectorVisible, setActiveNoteAddFaceSelectorVisible] = React.useState(false)
   const [activeNotePendingAddFace, setActiveNotePendingAddFace] = React.useState<NoteFaceId | null>(null)
+  const activeNoteEditSnapshotRef = React.useRef<ActiveNoteEditSnapshot | null>(null)
 
   const renderEngineRef = React.useRef(createMarkdownRenderEngine())
   ;(window as any).__hcRenderEngine = renderEngineRef.current
@@ -222,17 +233,50 @@ export function HyperCortexApp() {
   }, [activeNote, activeNoteDoc])
 
   const handleStartEditingActiveNote = React.useCallback(async () => {
-    if (!prepareEditFields() || !activeNote) return
+    if (!activeNoteDoc || !activeNote) return
+
+    const title = activeNoteDoc.title || activeNote.title || '未命名'
+    const body = activeNoteDoc.body || ''
+    const tags = activeNoteDoc.tags || []
+
+    let html = activeNoteEditHtml
     if (activeNoteFace === 'html') {
       try {
         const htmlFace = await loadHtmlFace(api, 'library', activeNote.dir)
-        setActiveNoteEditHtml(htmlFace.html || '')
+        html = htmlFace.html || ''
       } catch {
-        setActiveNoteEditHtml('')
+        // keep current html (preview state) on failure
       }
     }
+
+    activeNoteEditSnapshotRef.current = { face: activeNoteFace, faces: activeNoteFaces, title, body, tags, html }
+    setActiveNoteEditTitle(title)
+    setActiveNoteEditBody(body)
+    setActiveNoteEditTags(tags)
+    setActiveNoteTagInput('')
+    if (activeNoteFaces.includes('html')) setActiveNoteEditHtml(html)
     setActiveNoteEditing(true)
-  }, [activeNote, activeNoteFace, api, prepareEditFields])
+  }, [activeNote, activeNoteDoc, activeNoteEditHtml, activeNoteFace, activeNoteFaces, api])
+
+  const handleCancelEditingActiveNote = React.useCallback(() => {
+    if (activeNoteSaving) return
+    const snapshot = activeNoteEditSnapshotRef.current
+    if (snapshot) {
+      setActiveNoteFace(snapshot.face)
+      setActiveNoteFaces(snapshot.faces)
+      setActiveNoteEditTitle(snapshot.title)
+      setActiveNoteEditBody(snapshot.body)
+      setActiveNoteEditTags(snapshot.tags)
+      setActiveNoteEditHtml(snapshot.html)
+      setActiveNoteTagInput('')
+      setActiveNoteAddFaceSelectorVisible(false)
+      setActiveNotePendingAddFace(null)
+    } else {
+      prepareEditFields()
+    }
+    activeNoteEditSnapshotRef.current = null
+    setActiveNoteEditing(false)
+  }, [activeNoteSaving, prepareEditFields])
 
   const handleSaveActiveNote = React.useCallback(async () => {
     if (!activeNote || activeNoteSaving) return
@@ -283,6 +327,7 @@ export function HyperCortexApp() {
       setActiveNoteEditTags(tags)
       setActiveNoteTagInput('')
       setActiveNoteEditing(false)
+      activeNoteEditSnapshotRef.current = null
       await api.ui.showToast(toastMsg)
     } catch (e: any) {
       await api.ui.showToast(String(e?.message || e || '保存失败'))
@@ -303,6 +348,20 @@ export function HyperCortexApp() {
   const handleAddActiveNoteFace = React.useCallback(async () => {
     if (!activeNotePendingAddFace) return
     if (activeNotePendingAddFace === 'html' && activeNote) {
+      if (!activeNoteDoc) return
+
+      const snapTitle = activeNoteDoc.title || activeNote.title || '未命名'
+      const snapBody = activeNoteDoc.body || ''
+      const snapTags = activeNoteDoc.tags || []
+      activeNoteEditSnapshotRef.current = {
+        face: activeNoteFace,
+        faces: activeNoteFaces,
+        title: snapTitle,
+        body: snapBody,
+        tags: snapTags,
+        html: activeNoteEditHtml,
+      }
+
       if (!prepareEditFields()) return
       try {
         const htmlFace = await loadHtmlFace(api, 'library', activeNote.dir)
@@ -316,7 +375,7 @@ export function HyperCortexApp() {
     }
     setActiveNoteAddFaceSelectorVisible(false)
     setActiveNotePendingAddFace(null)
-  }, [activeNote, activeNotePendingAddFace, api, prepareEditFields])
+  }, [activeNote, activeNoteDoc, activeNoteEditHtml, activeNoteFace, activeNoteFaces, activeNotePendingAddFace, api, prepareEditFields])
 
   const handleCloseActiveNote = React.useCallback(() => {
     setPage('all-notes')
@@ -335,6 +394,7 @@ export function HyperCortexApp() {
     setActiveNoteFaces(['text'])
     setActiveNoteAddFaceSelectorVisible(false)
     setActiveNotePendingAddFace(null)
+    activeNoteEditSnapshotRef.current = null
   }, [])
 
   return (
@@ -816,6 +876,27 @@ export function HyperCortexApp() {
                             }}
                           >
                             {activeNoteEditing ? <SaveRoundedIcon fontSize="small" /> : <EditRoundedIcon fontSize="small" />}
+                          </IconButton>
+                        </Tooltip>
+                      ) : null}
+                      {!activeNoteLoading && !activeNoteLoadError && activeNoteDoc && activeNoteEditing ? (
+                        <Tooltip title="取消" placement="bottom-start">
+                          <IconButton
+                            size="small"
+                            aria-label="取消编辑并返回预览"
+                            onClick={handleCancelEditingActiveNote}
+                            disabled={activeNoteSaving}
+                            sx={{
+                              color: 'rgba(0,0,0,.58)',
+                              bgcolor: 'transparent',
+                              boxShadow: 'none',
+                              border: 0,
+                              flex: '0 0 auto',
+                              '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                              '&.Mui-disabled': { color: 'rgba(0,0,0,.28)' },
+                            }}
+                          >
+                            <CloseRoundedIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
                       ) : null}
