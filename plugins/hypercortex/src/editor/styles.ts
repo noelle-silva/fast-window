@@ -62,3 +62,91 @@ export function ensureBlockEditorStyles() {
   el.textContent = CSS
   document.head.appendChild(el)
 }
+
+const UNIFIED_STYLE_ID = 'hc-unified-editor-css'
+
+const UNIFIED_CSS = `
+/* 容器 */
+.hc-unified-editor-container {
+  position: relative;
+  width: 100%;
+}
+
+.hc-unified-editor {
+  width: 100%;
+  outline: none;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.8;
+  color: #222;
+  word-break: break-word;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  caret-color: #1976d2;
+  min-height: inherit;
+}
+
+.hc-line {
+  min-height: 1.8em;
+}
+
+/* 标题 */
+.hc-line--h1 { font-size: 1.6em; font-weight: 700; margin: 4px 0; }
+.hc-line--h2 { font-size: 1.35em; font-weight: 700; margin: 2px 0; }
+.hc-line--h3 { font-size: 1.15em; font-weight: 600; margin: 2px 0; }
+.hc-line--h4, .hc-line--h5, .hc-line--h6 { font-size: 1em; font-weight: 600; }
+
+/* 代码块 */
+.hc-line--fence-open,
+.hc-line--fence-body,
+.hc-line--fence-close {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  background: #0b1220;
+  color: #e5e7eb;
+  padding: 0 10px;
+}
+.hc-line--fence-open  { border-radius: 10px 10px 0 0; padding-top: 6px; }
+.hc-line--fence-close { border-radius: 0 0 10px 10px; padding-bottom: 6px; }
+
+/* 引用 */
+.hc-line--blockquote {
+  padding-left: 12px;
+  border-left: 4px solid rgba(25, 118, 210, 0.35);
+  background: rgba(25, 118, 210, 0.06);
+  color: #555;
+}
+
+/* 列表 */
+.hc-line--ul, .hc-line--ol { padding-left: 18px; }
+
+/* 水平线 */
+.hc-line--hr { color: rgba(0, 0, 0, 0.38); }
+
+/* 表格 */
+.hc-line--table {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 14px;
+}
+
+/* Placeholder */
+.hc-unified-placeholder {
+  position: absolute;
+  top: 0;
+  left: 0;
+  color: rgba(0, 0, 0, 0.42);
+  pointer-events: none;
+  user-select: none;
+  font-size: 16px;
+  line-height: 1.8;
+}
+`
+
+export function ensureUnifiedEditorStyles() {
+  if (document.getElementById(UNIFIED_STYLE_ID)) return
+  const el = document.createElement('style')
+  el.id = UNIFIED_STYLE_ID
+  el.textContent = UNIFIED_CSS
+  document.head.appendChild(el)
+}

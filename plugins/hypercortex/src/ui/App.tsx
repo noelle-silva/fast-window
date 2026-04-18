@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { AppBar, Box, CssBaseline, GlobalStyles, IconButton, InputBase, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
-import { BlockEditor } from '../editor/BlockEditor'
+import { UnifiedEditor as BlockEditor } from '../editor/UnifiedEditor'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
