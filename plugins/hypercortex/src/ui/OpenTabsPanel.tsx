@@ -14,7 +14,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material'
-import AddRoundedIcon from '@mui/icons-material/AddRounded'
+import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
 import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
@@ -369,7 +369,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               disableTouchListener={disableTopTooltips}
             >
               <IconButton size="small" aria-label="新建分组" onClick={onCreateGroup} sx={{ color: 'rgba(0,0,0,.58)' }}>
-                <AddRoundedIcon fontSize="small" />
+                <FolderRoundedIcon fontSize="small" />
               </IconButton>
             </Tooltip>
 
