@@ -2988,9 +2988,9 @@ export function AiChatApp(props: { controller: any }) {
             visibility: 'visible',
             pointerEvents: 'auto',
           },
-           '.mermaid-block': { margin: '10px 0', overflowX: 'auto' },
+           '.mermaid-block': { margin: '10px 0', overflowX: 'auto', textAlign: 'center' },
             '.mermaid-block[data-mermaid="1"]': { cursor: 'zoom-in' },
-            '.mermaid-block svg': { maxWidth: '100%', height: 'auto', display: 'block' },
+             '.mermaid-block svg': { maxWidth: '100%', height: 'auto', display: 'block', margin: '0 auto' },
            '.mermaid-error': { margin: '10px 0', overflowX: 'auto' },
            '.mermaid-error-box': {
              position: 'relative',
