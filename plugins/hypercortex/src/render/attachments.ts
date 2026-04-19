@@ -113,9 +113,11 @@ export function setAssetPlaceholderState(el: HTMLElement, state: 'loading' | 'er
   el.appendChild(buildChip(state === 'loading' ? `📎 ${name}（加载中…）` : `⚠️ ${name}（加载失败）`, state === 'loading' ? 'loading' : 'error'))
 }
 
-export async function resolveAssetsInElement(root: HTMLElement, api: Api, scope: VaultScope): Promise<void> {
+export async function resolveAssetsInElement(root: HTMLElement, api: Api, scope: VaultScope, opts?: { inline?: boolean }): Promise<void> {
   const placeholders = Array.from(root.querySelectorAll<HTMLElement>('.hc-asset[data-hc-asset-ref]'))
   if (!placeholders.length) return
+
+  const inlineMode = !!opts?.inline
 
   const tasks = placeholders.map(async (ph) => {
     if (ph.getAttribute('data-hc-asset-done') === '1') return
@@ -142,15 +144,24 @@ export async function resolveAssetsInElement(root: HTMLElement, api: Api, scope:
       const blobUrl = await getBlobUrl(api, scope, ref.assetId, ref.ext)
 
       if (kind === 'image') {
-        ph.replaceWith(wrapBlock(ref.name, buildImage(blobUrl, ref.name, ref.width)))
+        if (inlineMode) ph.replaceWith(buildChip(`🖼 ${ref.name}`, 'doc'))
+        else ph.replaceWith(wrapBlock(ref.name, buildImage(blobUrl, ref.name, ref.width)))
         return
       }
       if (kind === 'audio') {
-        ph.replaceWith(wrapBlock(ref.name, buildAudio(blobUrl)))
+        if (inlineMode) {
+          ph.replaceWith(buildChip(`🔊 ${ref.name}`, 'doc'))
+        } else {
+          ph.replaceWith(wrapBlock(ref.name, buildAudio(blobUrl)))
+        }
         return
       }
       if (kind === 'video') {
-        ph.replaceWith(wrapBlock(ref.name, buildVideo(blobUrl, ref.width)))
+        if (inlineMode) {
+          ph.replaceWith(buildChip(`🎞 ${ref.name}`, 'doc'))
+        } else {
+          ph.replaceWith(wrapBlock(ref.name, buildVideo(blobUrl, ref.width)))
+        }
         return
       }
 

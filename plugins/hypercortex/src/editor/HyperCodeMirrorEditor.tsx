@@ -25,6 +25,7 @@ export interface UnifiedEditorProps {
 
 type LiveBlockKind = 'latex' | 'mermaid' | 'code' | 'table'
 type LiveBlock = { from: number; to: number; focusTo: number; kind: LiveBlockKind; source: string }
+type AssetPlaceholder = { from: number; to: number; line: number; inline: boolean; source: string; ext: string }
 
 function requestCmLayout(view: EditorView) {
   try {
@@ -129,6 +130,86 @@ function scanLiveBlocks(doc: Text): LiveBlock[] {
   }
 
   return blocks
+}
+
+const RE_ASSET_MARKER = /\{\{asset:[^}]+?\}\}/g
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'svg'])
+
+function assetMarkerExt(marker: string): string {
+  // marker: {{asset:REF||width}} or {{asset:REF|name|width}} or {{asset:REF}}
+  const m = /^\{\{asset:([\s\S]+?)\}\}$/.exec(String(marker || '').trim())
+  if (!m) return ''
+  const body = String(m[1] || '').trim()
+  if (!body) return ''
+  const dbl = body.indexOf('||')
+  const head = (dbl >= 0 ? body.slice(0, dbl) : body.split('|')[0] || '').trim()
+  if (!head) return ''
+  const dot = head.lastIndexOf('.')
+  if (dot < 0) return ''
+  return head.slice(dot + 1).toLowerCase()
+}
+
+function scanAssetPlaceholders(doc: Text): AssetPlaceholder[] {
+  const out: AssetPlaceholder[] = []
+  const open = (t: string) => /^\s*(`{3,}|~{3,})/.exec(t)
+  const isClose = (t: string, marker: string) => {
+    const ch = marker[0]
+    let count = 0
+    while (count < t.length && t[count] === ch) count++
+    if (count < marker.length) return false
+    for (let i = count; i < t.length; i++) {
+      if (t[i] !== ' ' && t[i] !== '\t') return false
+    }
+    return true
+  }
+
+  let inFence = false
+  let fenceMarker = ''
+
+  for (let ln = 1; ln <= doc.lines; ln++) {
+    const line = doc.line(ln)
+    const text = line.text
+
+    if (inFence) {
+      if (isClose(text.trimEnd(), fenceMarker)) {
+        inFence = false
+        fenceMarker = ''
+      }
+      continue
+    }
+
+    const m = open(text.trimEnd())
+    if (m) {
+      inFence = true
+      fenceMarker = m[1]
+      continue
+    }
+
+    const codeRanges = findInlineCodeRanges(text)
+    const inCode = (idx: number) => codeRanges.some(([a, b]) => idx >= a && idx < b)
+
+    RE_ASSET_MARKER.lastIndex = 0
+    for (let mm = RE_ASSET_MARKER.exec(text); mm; mm = RE_ASSET_MARKER.exec(text)) {
+      const raw = mm[0] || ''
+      const at = mm.index
+      if (at < 0) continue
+      if (inCode(at)) continue
+
+      const marker = raw.trim()
+      const inline = text.trim() !== marker
+
+      out.push({
+        from: line.from + at,
+        to: line.from + at + raw.length,
+        line: ln,
+        inline,
+        source: marker,
+        ext: assetMarkerExt(marker),
+      })
+    }
+  }
+
+  return out
 }
 
 function selectionIntersects(sel: { from: number; to: number; head: number }, block: { from: number; focusTo: number }) {
@@ -515,6 +596,48 @@ class HyperBlockWidget extends WidgetType {
   }
 }
 
+class AssetPlaceholderWidget extends WidgetType {
+  constructor(
+    readonly source: string,
+    readonly onBlockRendered: (() => UnifiedEditorProps['onBlockRendered']) | undefined,
+    readonly inline: boolean,
+  ) { super() }
+
+  eq(other: WidgetType) {
+    return other instanceof AssetPlaceholderWidget && other.source === this.source && other.inline === this.inline
+  }
+
+  toDOM(view: EditorView) {
+    const wrap = document.createElement(this.inline ? 'span' : 'div')
+    wrap.className = this.inline ? 'hc-cm6-inline-preview' : 'hc-cm6-preview'
+    wrap.setAttribute('data-kind', this.inline ? 'asset-inline' : 'asset')
+
+    const inner = document.createElement(this.inline ? 'span' : 'div')
+    inner.className = 'hc-render'
+    wrap.appendChild(inner)
+
+    const engine = (window as any).__hcRenderEngine
+    if (engine && typeof engine.renderInto === 'function') {
+      engine.renderInto(inner, this.source, { onAsyncLayout: () => requestCmLayout(view), assetInline: this.inline })
+    } else {
+      inner.textContent = this.source
+    }
+
+    const hook = this.onBlockRendered?.()
+    if (hook) hook(inner, () => requestCmLayout(view))
+
+    requestCmLayout(view)
+
+    return wrap
+  }
+
+  ignoreEvent(e: Event) {
+    const target = e.target instanceof Element ? e.target : null
+    if (target?.closest?.('button, a, input, textarea, select, audio, video')) return true
+    return false
+  }
+}
+
 function livePreviewExtension(opts: { getOnBlockRendered?: () => UnifiedEditorProps['onBlockRendered'] }) {
   function buildDecos(state: EditorState): DecorationSet {
     const doc = state.doc
@@ -526,6 +649,56 @@ function livePreviewExtension(opts: { getOnBlockRendered?: () => UnifiedEditorPr
       const widget = new HyperBlockWidget(b.kind, b.source, opts.getOnBlockRendered)
       decos.push(Decoration.replace({ widget, block: true }).range(b.from, b.to))
     }
+    return Decoration.set(decos, true)
+  }
+
+  return StateField.define<DecorationSet>({
+    create(state) {
+      return buildDecos(state)
+    },
+    update(value, tr) {
+      if (tr.docChanged || tr.selection) {
+        return buildDecos(tr.state)
+      }
+      return value
+    },
+    provide: (f) => EditorView.decorations.from(f),
+  })
+}
+
+function assetPreviewExtension(opts: { getOnBlockRendered?: () => UnifiedEditorProps['onBlockRendered'] }) {
+  function buildDecos(state: EditorState): DecorationSet {
+    const doc = state.doc
+    const sel = state.selection.main
+    const cursorLine = doc.lineAt(sel.head).number
+    const assets = scanAssetPlaceholders(doc)
+    const decos: Range<Decoration>[] = []
+
+    for (const a of assets) {
+      if (a.line === cursorLine) continue
+      if (selectionIntersects({ from: sel.from, to: sel.to, head: sel.head }, { from: a.from, focusTo: a.to })) continue
+
+      const forceBlock = IMAGE_EXTS.has(a.ext)
+      const widget = new AssetPlaceholderWidget(a.source, opts.getOnBlockRendered, a.inline && !forceBlock)
+
+      if (a.inline && !forceBlock) {
+        decos.push(Decoration.replace({ widget }).range(a.from, a.to))
+        continue
+      }
+
+      // 块级：
+      // - 独占一行的占位符：替换整行（更稳定）
+      // - 行内图片占位符：替换占位符本身，但以 block widget 插入（让图片自然“落到下一行”预览）
+      if (!a.inline) {
+        const line = doc.line(a.line)
+        const from = line.from
+        const to = sliceLineEndWithBreak(doc, line)
+        decos.push(Decoration.replace({ widget, block: true }).range(from, to))
+      } else {
+        decos.push(Decoration.replace({ widget, block: true }).range(a.from, a.to))
+      }
+    }
+
     return Decoration.set(decos, true)
   }
 
@@ -571,6 +744,10 @@ export const HyperCodeMirrorEditor = React.memo(function HyperCodeMirrorEditor({
     return livePreviewExtension({ getOnBlockRendered: () => onBlockRenderedRef.current })
   }, [])
 
+  const assetExt = React.useMemo(() => {
+    return assetPreviewExtension({ getOnBlockRendered: () => onBlockRenderedRef.current })
+  }, [])
+
   React.useLayoutEffect(() => {
     ensureHyperCodeMirrorEditorStyles()
 
@@ -593,6 +770,7 @@ export const HyperCodeMirrorEditor = React.memo(function HyperCodeMirrorEditor({
         placeholder ? cmPlaceholder(placeholder) : [],
         updateListener,
         syntaxHighlightPlugin,
+        assetExt,
         liveExt,
       ],
     })

@@ -268,6 +268,18 @@ const CM6_CSS = `
 .hc-cm6-preview .hc-render > *:first-child{margin-top:0;}
 .hc-cm6-preview .hc-render > *:last-child{margin-bottom:0;}
 
+/* 行内附件预览：以“小贴纸”形式嵌入，不撑爆行高 */
+.hc-cm6-inline-preview{
+  display:inline-flex;
+  align-items:center;
+  vertical-align:middle;
+  padding:0 2px;
+}
+.hc-cm6-inline-preview .hc-render{
+  display:inline-flex;
+  align-items:center;
+}
+
 /* Mark Decoration：语法装饰（标题、强调、行内代码、变淡标记符） */
 .cm-hc-h1, .cm-hc-h2, .cm-hc-h3, .cm-hc-h4{
   font-weight:bold;

@@ -19,7 +19,7 @@ export type MarkdownRenderEngine = {
   renderInto: (
     el: unknown,
     text: unknown,
-    options?: { renderSafetyPolicy?: RenderSafetyPolicy; onAsyncLayout?: () => void },
+    options?: { renderSafetyPolicy?: RenderSafetyPolicy; onAsyncLayout?: () => void; assetInline?: boolean },
   ) => void
   noteIndex?: Record<string, { title: string }>
 }
@@ -669,7 +669,7 @@ export function createMarkdownRenderEngine(init?: { api?: Api; scope?: VaultScop
   function renderInto(
     el: unknown,
     text: unknown,
-    options?: { renderSafetyPolicy?: RenderSafetyPolicy; onAsyncLayout?: () => void },
+    options?: { renderSafetyPolicy?: RenderSafetyPolicy; onAsyncLayout?: () => void; assetInline?: boolean },
   ) {
     if (!(el instanceof HTMLElement)) return
     ensureEngineCss()
@@ -679,6 +679,7 @@ export function createMarkdownRenderEngine(init?: { api?: Api; scope?: VaultScop
     const renderSafetyPolicy: RenderSafetyPolicy =
       options?.renderSafetyPolicy === 'unsafe' ? 'unsafe' : options?.renderSafetyPolicy === 'baseline' ? 'baseline' : 'original'
     const onAsyncLayout = typeof options?.onAsyncLayout === 'function' ? options.onAsyncLayout : null
+    const assetInline = !!options?.assetInline
 
     const noIndent = preprocessHtmlIndentation(raw)
     const pre = preprocessContent(noIndent)
@@ -785,7 +786,7 @@ export function createMarkdownRenderEngine(init?: { api?: Api; scope?: VaultScop
     // 附件/资源渲染（MVP：作为统一后处理链路的一环）
     if (defaultApi) {
       tasks.push(
-        resolveAssetsInElement(el, defaultApi, defaultScope)
+        resolveAssetsInElement(el, defaultApi, defaultScope, { inline: assetInline })
           .catch(() => {})
           .finally(() => { if (onAsyncLayout) { try { onAsyncLayout() } catch (_) {} } }),
       )
@@ -825,7 +826,7 @@ function preprocessContent(
   const assets: PreprocessedAsset[] = []
   const noteRefs: PreprocessedNoteRef[] = []
   const out: string[] = []
-  const assetPattern = /\{\{asset:([^}|]+?)(?:\|([^}|]*?))?(?:\|(\d+))?\}\}/g
+  const withAssets = (input: string) => replaceAssetsOutsideInlineCode(input, assets)
 
   for (const t of tokens) {
     if (t.kind === 'fence') {
@@ -841,26 +842,61 @@ function preprocessContent(
       continue
     }
 
-    const withAssets = t.text.replace(assetPattern, (_m, refText, displayName, widthStr) => {
-      const ref = String(refText || '').trim()
-      if (!ref) return ''
-      const dotIdx = ref.lastIndexOf('.')
-      const ext = dotIdx > 0 ? ref.slice(dotIdx + 1).toLowerCase() : ''
-      const assetId = dotIdx > 0 ? ref.slice(0, dotIdx) : ref
-      const name0 = String(displayName || '').trim()
-      const name = name0 || (ext ? `${assetId.slice(0, 8)}.${ext}` : assetId.slice(0, 8))
-      const width = widthStr ? Number(widthStr) : undefined
-      const id = assets.length
-      assets.push({ ref, name, width })
-      return `@@ASSET_${id}@@`
-    })
-
-    const withNoteRefs = replaceNoteRefsOutsideInlineCode(withAssets, noteRefs)
+    const withNoteRefs = replaceNoteRefsOutsideInlineCode(withAssets(t.text), noteRefs)
     const withMath = replaceMathOutsideInlineCode(withNoteRefs, math)
     out.push(withMath)
   }
 
   return { text: out.join(''), math, mermaid, assets, noteRefs }
+}
+
+function replaceAssetsOutsideInlineCode(input: string, acc: PreprocessedAsset[]) {
+  const parts = splitInlineCodeSpans(input)
+  return parts
+    .map((p) => {
+      if (p.kind === 'code') return p.value
+      return replaceAssetsInPlainText(p.value, acc)
+    })
+    .join('')
+}
+
+function replaceAssetsInPlainText(input: string, acc: PreprocessedAsset[]) {
+  // 支持两种语法：
+  // 1) {{asset:ref}} / {{asset:ref|displayName|width}}
+  // 2) {{asset:ref||width}}（UI 当前默认生成这种“只带宽度”的格式）
+  const assetPattern = /\{\{asset:([^\}\n]+?)\}\}/g
+  return String(input || '').replace(assetPattern, (_m, bodyRaw) => {
+    const body = String(bodyRaw || '').trim()
+    if (!body) return ''
+
+    let refText = body
+    let displayName = ''
+    let widthStr = ''
+
+    const dbl = body.indexOf('||')
+    if (dbl >= 0) {
+      refText = body.slice(0, dbl).trim()
+      widthStr = body.slice(dbl + 2).trim()
+    } else {
+      const parts = body.split('|')
+      refText = String(parts[0] || '').trim()
+      displayName = String(parts[1] || '').trim()
+      widthStr = String(parts[2] || '').trim()
+    }
+
+    const ref = String(refText || '').trim()
+    if (!ref) return ''
+    const dotIdx = ref.lastIndexOf('.')
+    const ext = dotIdx > 0 ? ref.slice(dotIdx + 1).toLowerCase() : ''
+    const assetId = dotIdx > 0 ? ref.slice(0, dotIdx) : ref
+    const name0 = String(displayName || '').trim()
+    const name = name0 || (ext ? `${assetId.slice(0, 8)}.${ext}` : assetId.slice(0, 8))
+    const widthNum = widthStr ? Number(widthStr) : NaN
+    const width = Number.isFinite(widthNum) && widthNum > 0 ? widthNum : undefined
+    const id = acc.length
+    acc.push({ ref, name, width })
+    return `@@ASSET_${id}@@`
+  })
 }
 
 function tokenizeFences(input: string): FenceToken[] {
