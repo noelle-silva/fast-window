@@ -212,7 +212,11 @@ const syntaxHighlightPlugin = ViewPlugin.fromClass(
         const base = line.from
         const focused = ln === cursorLine
 
-        if (info === 'fence-open' || info === 'fence-close') {
+        if (info === 'fence-open') {
+          lineDeco(base, 'cm-hc-fence-open')
+          continue
+        }
+        if (info === 'fence-close') {
           lineDeco(base, 'cm-hc-fence-close')
           continue
         }

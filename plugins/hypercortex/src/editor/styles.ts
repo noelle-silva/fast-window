@@ -253,17 +253,17 @@ const CM6_CSS = `
   border-left:2px solid #1976d2;
 }
 
- /* Live Preview 小组件（自然融入正文） */
- .hc-cm6-preview{
-   /* 说明：不要用 margin 来制造上下间距（CM6 的高度测量不会把 margin 计入 heightMap）
-      否则在折叠/预览块之后，gutter 行号可能开始与内容“错位漂移”。 */
-   display:flow-root;
-   background:transparent;
-   border:none;
-   box-shadow:none;
-   margin:0;
-   padding:4px 0;
- }
+/* Live Preview 小组件（自然融入正文） */
+.hc-cm6-preview{
+  /* 说明：不要用 margin 来制造上下间距（CM6 的高度测量不会把 margin 计入 heightMap）
+     否则在折叠/预览块之后，gutter 行号可能开始与内容“错位漂移”。 */
+  display:flow-root;
+  background:transparent;
+  border:none;
+  box-shadow:none;
+  margin:0;
+  padding:4px 0;
+}
 .hc-cm6-preview .hc-render table{display:table;}
 .hc-cm6-preview .hc-render > *:first-child{margin-top:0;}
 .hc-cm6-preview .hc-render > *:last-child{margin-bottom:0;}
@@ -319,10 +319,26 @@ const CM6_CSS = `
 .cm-hc-hr{color:rgba(0,0,0,0.25);text-align:center;border-bottom:1px solid rgba(0,0,0,0.12);line-height:0.1em;margin:8px 0;}
 
 /* 代码块围栏行 */
-.cm-hc-fence-open,.cm-hc-fence-close{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:13px;color:rgba(255,255,255,0.5);background:#0b1220;padding:0 10px;}
-.cm-hc-fence-open{border-radius:10px 10px 0 0;padding-top:6px;}
-.cm-hc-fence-close{border-radius:0 0 10px 10px;padding-bottom:6px;}
-.cm-hc-fence-body{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:13px;line-height:1.6;background:#0b1220;color:#e5e7eb;padding:0 10px;}
+.cm-hc-fence-open,.cm-hc-fence-close,.cm-hc-fence-body{
+  box-sizing:border-box;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  font-size:13px;
+  background:#0b1220;
+  padding:0 10px;
+  border-left:1px solid rgba(255,255,255,.06);
+  border-right:1px solid rgba(255,255,255,.06);
+}
+.cm-hc-fence-open{color:rgba(255,255,255,0.5);border-radius:10px 10px 0 0;border-top:1px solid rgba(255,255,255,.06);padding-top:6px;}
+.cm-hc-fence-close{color:rgba(255,255,255,0.5);border-radius:0 0 10px 10px;border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:6px;}
+.cm-hc-fence-body{color:#e5e7eb;line-height:1.6;}
+
+/* 当光标落在代码块内时，CM6 默认的 activeLine 浅色高亮会“切断”深色代码块，导致形状破碎。
+   这里用更高 specificity 覆盖，使代码块在聚焦/非聚焦（预览态）外观保持一致。 */
+.hc-cm6-editor-container .cm-activeLine.cm-hc-fence-open,
+.hc-cm6-editor-container .cm-activeLine.cm-hc-fence-close,
+.hc-cm6-editor-container .cm-activeLine.cm-hc-fence-body{
+  background:#0b1220;
+}
 
 /* 占位符（CM6 placeholder 扩展会用到这个 class） */
 .hc-cm6-editor-container .cm-placeholder{
