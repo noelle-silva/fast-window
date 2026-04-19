@@ -20,6 +20,7 @@ import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
 import SyncAltRoundedIcon from '@mui/icons-material/SyncAltRounded'
+import WorkspacesRoundedIcon from '@mui/icons-material/WorkspacesRounded'
 import type { HyperCortexTabGroupV1, NoteMeta } from '../core'
 import { TAB_GROUP_PRESET_COLORS } from './tabGroups'
 import { useOpenTabsPointerDnd } from './useOpenTabsPointerDnd'
@@ -30,10 +31,16 @@ export type OpenTabsPanelProps = {
   tabsCollapsed: boolean
   openNoteTabs: NoteMeta[]
   activeNoteId?: string
+  workspaces: { id: string; title: string }[]
+  activeWorkspaceId: string
   tabGroups: HyperCortexTabGroupV1[]
   tabGroupByNoteId: Record<string, string>
   onToggleTabsCollapsed: () => void
   onToggleTabsMode: () => void
+  onSwitchWorkspace: (workspaceId: string) => void
+  onCreateWorkspace: (title: string) => void
+  onRenameWorkspace: (workspaceId: string, title: string) => void
+  onDeleteWorkspace: (workspaceId: string) => void
   onCreateGroup: () => void
   onOpenTab: (tab: NoteMeta) => void
   onCloseTab: (noteId: string) => void
@@ -57,10 +64,16 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     tabsCollapsed,
     openNoteTabs,
     activeNoteId,
+    workspaces,
+    activeWorkspaceId,
     tabGroups,
     tabGroupByNoteId,
     onToggleTabsCollapsed,
     onToggleTabsMode,
+    onSwitchWorkspace,
+    onCreateWorkspace,
+    onRenameWorkspace,
+    onDeleteWorkspace,
     onCreateGroup,
     onOpenTab,
     onCloseTab,
@@ -109,6 +122,15 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
 
   const [groupMenu, setGroupMenu] = React.useState<GroupMenuState>(null)
   const [renameState, setRenameState] = React.useState<{ groupId: string; title: string } | null>(null)
+  const [workspaceMenuAnchorEl, setWorkspaceMenuAnchorEl] = React.useState<HTMLElement | null>(null)
+  const [workspaceEditor, setWorkspaceEditor] = React.useState<{ mode: 'create' | 'rename'; title: string } | null>(null)
+
+  const activeWorkspaceTitle = React.useMemo(() => {
+    return workspaces.find(w => w.id === activeWorkspaceId)?.title || workspaces[0]?.title || '工作区'
+  }, [activeWorkspaceId, workspaces])
+
+  const workspaceMenuOpen = !!workspaceMenuAnchorEl
+  const closeWorkspaceMenu = React.useCallback(() => setWorkspaceMenuAnchorEl(null), [])
 
   const menuGroup = groupMenu ? groupById[groupMenu.groupId] : null
   const menuOpen = !!groupMenu && !!menuGroup
@@ -251,31 +273,50 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         }}
       >
         {panelWidth <= 52 ? (
-          tabsMode === 'manual' ? (
+          <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Tooltip
-              title={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'}
+              title="工作区"
               placement="right"
               disableHoverListener={disableTopTooltips}
               disableFocusListener={disableTopTooltips}
               disableTouchListener={disableTopTooltips}
             >
-              <IconButton size="small" aria-label={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'} onClick={onToggleTabsCollapsed} sx={{ mx: 'auto' }}>
-                {tabsCollapsed ? <ChevronRightRoundedIcon fontSize="small" /> : <ChevronLeftRoundedIcon fontSize="small" />}
+              <IconButton
+                size="small"
+                aria-label="选择工作区"
+                onClick={e => setWorkspaceMenuAnchorEl(e.currentTarget)}
+                sx={{ width: 30, height: 30, borderRadius: 999, color: 'rgba(0,0,0,.58)' }}
+              >
+                <WorkspacesRoundedIcon fontSize="small" />
               </IconButton>
             </Tooltip>
-          ) : (
-            <Tooltip
-              title="切换到手动展开（挤压）"
-              placement="right"
-              disableHoverListener={disableTopTooltips}
-              disableFocusListener={disableTopTooltips}
-              disableTouchListener={disableTopTooltips}
-            >
-              <IconButton size="small" aria-label="切换侧边栏模式" onClick={onToggleTabsMode} sx={{ mx: 'auto', color: 'rgba(0,0,0,.58)' }}>
-                <SyncAltRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          )
+
+            {tabsMode === 'manual' ? (
+              <Tooltip
+                title={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'}
+                placement="right"
+                disableHoverListener={disableTopTooltips}
+                disableFocusListener={disableTopTooltips}
+                disableTouchListener={disableTopTooltips}
+              >
+                <IconButton size="small" aria-label={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'} onClick={onToggleTabsCollapsed}>
+                  {tabsCollapsed ? <ChevronRightRoundedIcon fontSize="small" /> : <ChevronLeftRoundedIcon fontSize="small" />}
+                </IconButton>
+              </Tooltip>
+            ) : (
+              <Tooltip
+                title="切换到手动展开（挤压）"
+                placement="right"
+                disableHoverListener={disableTopTooltips}
+                disableFocusListener={disableTopTooltips}
+                disableTouchListener={disableTopTooltips}
+              >
+                <IconButton size="small" aria-label="切换侧边栏模式" onClick={onToggleTabsMode} sx={{ color: 'rgba(0,0,0,.58)' }}>
+                  <SyncAltRoundedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
         ) : (
           <Box sx={{ width: '100%', display: 'flex', alignItems: 'center' }}>
             <Box sx={{ width: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -294,7 +335,30 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               ) : null}
             </Box>
 
-            <Box sx={{ flex: 1 }} />
+            <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center' }}>
+              <Tooltip
+                title="工作区"
+                placement="right"
+                disableHoverListener={disableTopTooltips}
+                disableFocusListener={disableTopTooltips}
+                disableTouchListener={disableTopTooltips}
+              >
+                <IconButton
+                  size="small"
+                  onClick={e => setWorkspaceMenuAnchorEl(e.currentTarget)}
+                  aria-label="选择工作区"
+                  sx={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 999,
+                    color: 'rgba(0,0,0,.72)',
+                    '&:hover': { bgcolor: 'rgba(0,0,0,.04)' },
+                  }}
+                >
+                  <WorkspacesRoundedIcon sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
+            </Box>
 
             <Tooltip
               title="新建分组"
@@ -506,6 +570,103 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           删除分组并关闭全部标签页
         </MenuItem>
       </Menu>
+
+      <Menu open={workspaceMenuOpen} onClose={closeWorkspaceMenu} anchorEl={workspaceMenuAnchorEl}>
+        {workspaces.map(ws => (
+          <MenuItem
+            key={ws.id}
+            selected={ws.id === (activeWorkspaceId || workspaces[0]?.id)}
+            onClick={() => {
+              closeWorkspaceMenu()
+              onSwitchWorkspace(ws.id)
+            }}
+          >
+            {ws.title || '工作区'}
+          </MenuItem>
+        ))}
+        <Divider />
+        <MenuItem
+          onClick={() => {
+            closeWorkspaceMenu()
+            setWorkspaceEditor({ mode: 'rename', title: activeWorkspaceTitle })
+          }}
+        >
+          重命名当前工作区…
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            closeWorkspaceMenu()
+            setWorkspaceEditor({ mode: 'create', title: '' })
+          }}
+        >
+          新建工作区…
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            closeWorkspaceMenu()
+            const wid = activeWorkspaceId || workspaces[0]?.id || ''
+            if (!wid) return
+            onDeleteWorkspace(wid)
+          }}
+          disabled={workspaces.length <= 1}
+          sx={{ color: '#d32f2f' }}
+        >
+          删除当前工作区
+        </MenuItem>
+      </Menu>
+
+      <Dialog open={!!workspaceEditor} onClose={() => setWorkspaceEditor(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>{workspaceEditor?.mode === 'create' ? '新建工作区' : '重命名工作区'}</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="工作区名称"
+            fullWidth
+            value={workspaceEditor?.title || ''}
+            onChange={e => setWorkspaceEditor(s => (s ? { ...s, title: e.target.value } : s))}
+            onKeyDown={e => {
+              if (e.key !== 'Enter') return
+              e.preventDefault()
+              const state = workspaceEditor
+              if (!state) return
+              const title = String(state.title || '').trim()
+              const wid = activeWorkspaceId || workspaces[0]?.id || ''
+              if (state.mode === 'rename') {
+                if (!wid || !title) return
+                onRenameWorkspace(wid, title)
+                setWorkspaceEditor(null)
+                return
+              }
+              onCreateWorkspace(title)
+              setWorkspaceEditor(null)
+            }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setWorkspaceEditor(null)}>取消</Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              const state = workspaceEditor
+              if (!state) return
+              const title = String(state.title || '').trim()
+              const wid = activeWorkspaceId || workspaces[0]?.id || ''
+              if (state.mode === 'rename') {
+                if (!wid || !title) return
+                onRenameWorkspace(wid, title)
+                setWorkspaceEditor(null)
+                return
+              }
+              onCreateWorkspace(title)
+              setWorkspaceEditor(null)
+            }}
+            disabled={workspaceEditor?.mode === 'rename' && !String(workspaceEditor?.title || '').trim()}
+          >
+            确定
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={!!renameState} onClose={() => setRenameState(null)} maxWidth="xs" fullWidth>
         <DialogTitle>重命名分组</DialogTitle>

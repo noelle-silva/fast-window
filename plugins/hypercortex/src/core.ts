@@ -59,6 +59,14 @@ export type HyperCortexTabGroupV1 = {
   collapsed?: boolean
 }
 
+export type HyperCortexWorkspaceV1 = {
+  id: string
+  title: string
+  openNoteIds: string[]
+  tabGroups: HyperCortexTabGroupV1[]
+  tabGroupByNoteId: Record<string, string>
+}
+
 export type HyperCortexMetadataV1 = {
   version: 1
   allNotesLayout?: 'list' | 'grid' | 'icon'
@@ -68,6 +76,8 @@ export type HyperCortexMetadataV1 = {
   tabsMode?: 'manual' | 'hover'
   tabGroups?: HyperCortexTabGroupV1[]
   tabGroupByNoteId?: Record<string, string>
+  workspaces?: HyperCortexWorkspaceV1[]
+  activeWorkspaceId?: string
 }
 
 type TauriLike = { invoke: (req: { command: string; payload?: any }) => Promise<any> }
