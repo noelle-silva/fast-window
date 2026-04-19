@@ -13,6 +13,7 @@ import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
+import SyncAltRoundedIcon from '@mui/icons-material/SyncAltRounded'
 import CodeRoundedIcon from '@mui/icons-material/CodeRounded'
 import WysiwygRoundedIcon from '@mui/icons-material/WysiwygRounded'
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
@@ -30,6 +31,7 @@ type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'note-detail' 
 type AllNotesLayout = 'list' | 'grid' | 'icon'
 type NoteFaceId = 'text' | 'html'
 type TextEditorMode = 'source' | 'live'
+type TabsMode = 'manual' | 'hover'
 
 type ActiveNoteEditSnapshot = {
   face: NoteFaceId
@@ -58,6 +60,10 @@ function normalizeOpenNoteIds(value: unknown): string[] {
 
 function normalizeBoolean(value: unknown): boolean {
   return value === true
+}
+
+function normalizeTabsMode(value: unknown): TabsMode {
+  return value === 'hover' ? 'hover' : 'manual'
 }
 
 const theme = createTheme({
@@ -150,6 +156,8 @@ export function HyperCortexApp() {
   const [tabsCollapsed, setTabsCollapsed] = React.useState(false)
   const [openNoteTabs, setOpenNoteTabs] = React.useState<NoteMeta[]>([])
   const [tabsInitReady, setTabsInitReady] = React.useState(false)
+  const [tabsMode, setTabsMode] = React.useState<TabsMode>('manual')
+  const [tabsHoverOpen, setTabsHoverOpen] = React.useState(false)
 
   const renderEngineRef = React.useRef(createMarkdownRenderEngine({ api, scope: 'library' }))
   ;(window as any).__hcRenderEngine = renderEngineRef.current
@@ -165,6 +173,11 @@ export function HyperCortexApp() {
     },
     [api],
   )
+
+  const isHoverTabsMode = tabsMode === 'hover'
+  const sidebarRailWidth = isHoverTabsMode ? 52 : tabsCollapsed ? 52 : 220
+  const sidebarPanelExpanded = isHoverTabsMode ? tabsHoverOpen : !tabsCollapsed
+  const sidebarPanelWidth = isHoverTabsMode ? (tabsHoverOpen ? 220 : 52) : sidebarRailWidth
 
   React.useLayoutEffect(() => {
     if (activeNoteFace !== 'text' || activeNoteEditing || !textRenderRef.current || !activeNoteDoc) return
@@ -229,6 +242,15 @@ export function HyperCortexApp() {
     })
   }, [metaReady, persistMetadataPatch])
 
+  const toggleTabsMode = React.useCallback(() => {
+    setTabsMode(prev => {
+      const next: TabsMode = prev === 'manual' ? 'hover' : 'manual'
+      setTabsHoverOpen(false)
+      if (metaReady) void persistMetadataPatch({ tabsMode: next }).catch(() => {})
+      return next
+    })
+  }, [metaReady, persistMetadataPatch])
+
   const loadAllNotes = React.useCallback(async () => {
     setAllNotesLoading(true)
     setAllNotesLoadError(null)
@@ -257,6 +279,7 @@ export function HyperCortexApp() {
         metaRef.current = meta
         setAllNotesLayout(normalizeAllNotesLayout(meta.allNotesLayout))
         setTabsCollapsed(normalizeBoolean(meta.tabsCollapsed))
+        setTabsMode(normalizeTabsMode(meta.tabsMode))
         const activeId = typeof meta.activeNoteId === 'string' ? meta.activeNoteId.trim() : ''
         restoreActiveNoteIdRef.current = activeId
 
@@ -682,111 +705,176 @@ export function HyperCortexApp() {
           </Toolbar>
         </AppBar>
 
-        <Box sx={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'stretch' }}>
+        <Box sx={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'stretch', position: 'relative' }}>
           <Box
+            onMouseEnter={() => isHoverTabsMode && setTabsHoverOpen(true)}
+            onMouseLeave={() => isHoverTabsMode && setTabsHoverOpen(false)}
             sx={{
-              width: tabsCollapsed ? 52 : 220,
-              minWidth: tabsCollapsed ? 52 : 220,
-              display: 'flex',
-              flexDirection: 'column',
+              width: sidebarRailWidth,
+              minWidth: sidebarRailWidth,
               minHeight: 0,
-              borderRight: '1px solid rgba(0,0,0,.08)',
+              position: 'relative',
               bgcolor: '#fff',
+              borderRight: '1px solid rgba(0,0,0,.08)',
             }}
           >
             <Box
               sx={{
-                px: 0.75,
-                py: 0.5,
+                width: sidebarPanelWidth,
+                minHeight: 0,
+                height: '100%',
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: tabsCollapsed ? 'center' : 'space-between',
-                borderBottom: '1px solid rgba(0,0,0,.06)',
+                flexDirection: 'column',
+                bgcolor: '#fff',
+                borderRight: sidebarPanelWidth > sidebarRailWidth ? '1px solid rgba(0,0,0,.08)' : 'none',
+                position: isHoverTabsMode && sidebarPanelExpanded ? 'absolute' : 'relative',
+                left: 0,
+                top: 0,
+                bottom: 0,
+                zIndex: isHoverTabsMode && sidebarPanelExpanded ? 20 : 'auto',
+                boxShadow: isHoverTabsMode && sidebarPanelExpanded ? '0 10px 30px rgba(0,0,0,.14)' : 'none',
               }}
             >
-              <Tooltip title={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'} placement="right">
-                <IconButton size="small" aria-label={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'} onClick={toggleTabsCollapsed}>
-                  {tabsCollapsed ? <ChevronRightRoundedIcon fontSize="small" /> : <ChevronLeftRoundedIcon fontSize="small" />}
-                </IconButton>
-              </Tooltip>
-              {!tabsCollapsed ? (
-                <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'rgba(0,0,0,.58)', mr: 0.5 }}>已打开</Typography>
-              ) : null}
-            </Box>
-
-            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: 0.5, py: 0.75, display: 'flex', flexDirection: 'column', gap: 0.25 }}>
-              {!openNoteTabs.length && !tabsCollapsed ? (
-                <Typography sx={{ px: 0.75, py: 0.5, fontSize: 12, color: 'rgba(0,0,0,.42)' }}>还没有打开的笔记</Typography>
-              ) : null}
-
-              {openNoteTabs.map(tab => {
-                const isActive = activeNote?.id === tab.id
-                const title = tab.title || '未命名'
-                return (
-                  <Tooltip key={tab.id} title={tabsCollapsed ? title : ''} placement="right" disableHoverListener={!tabsCollapsed}>
-                    <Box
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => void handleOpenNote(tab)}
-                      onKeyDown={e => {
-                        if (e.key !== 'Enter' && e.key !== ' ') return
-                        e.preventDefault()
-                        void handleOpenNote(tab)
-                      }}
-                      sx={{
-                        width: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 0.75,
-                        px: tabsCollapsed ? 0.75 : 1,
-                        py: 0.6,
-                        borderRadius: 2,
-                        cursor: 'pointer',
-                        userSelect: 'none',
-                        outline: 'none',
-                        bgcolor: isActive ? 'rgba(25,118,210,.10)' : 'transparent',
-                        '&:hover': { bgcolor: isActive ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
-                        '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
-                      }}
-                    >
-                      <NotesRoundedIcon fontSize="small" sx={{ color: isActive ? '#1976d2' : 'rgba(0,0,0,.48)' }} />
-                      {!tabsCollapsed ? (
-                        <Typography
-                          noWrap
-                          sx={{
-                            flex: 1,
-                            minWidth: 0,
-                            fontSize: 12,
-                            lineHeight: 1.2,
-                            fontWeight: isActive ? 900 : 600,
-                            color: isActive ? '#111' : 'rgba(0,0,0,.72)',
-                          }}
-                        >
-                          {title}
-                        </Typography>
-                      ) : null}
-                      {!tabsCollapsed ? (
-                        <Tooltip title="关闭" placement="left">
+              <Box
+                sx={{
+                  px: 0.75,
+                  py: 0.5,
+                  display: 'flex',
+                  alignItems: 'center',
+                  borderBottom: '1px solid rgba(0,0,0,.06)',
+                }}
+              >
+                {sidebarPanelWidth <= 52 ? (
+                  tabsMode === 'manual' ? (
+                    <Tooltip title={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'} placement="right">
+                      <IconButton
+                        size="small"
+                        aria-label={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'}
+                        onClick={toggleTabsCollapsed}
+                        sx={{ mx: 'auto' }}
+                      >
+                        {tabsCollapsed ? <ChevronRightRoundedIcon fontSize="small" /> : <ChevronLeftRoundedIcon fontSize="small" />}
+                      </IconButton>
+                    </Tooltip>
+                  ) : (
+                    <Tooltip title="切换到手动展开（挤压）" placement="right">
+                      <IconButton
+                        size="small"
+                        aria-label="切换侧边栏模式"
+                        onClick={toggleTabsMode}
+                        sx={{ mx: 'auto', color: 'rgba(0,0,0,.58)' }}
+                      >
+                        <SyncAltRoundedIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )
+                ) : (
+                  <Box sx={{ width: '100%', display: 'flex', alignItems: 'center' }}>
+                    <Box sx={{ width: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {tabsMode === 'manual' ? (
+                        <Tooltip title={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'} placement="right">
                           <IconButton
                             size="small"
-                            aria-label={`关闭 ${title}`}
-                            onClick={e => {
-                              e.stopPropagation()
-                              handleCloseTab(tab.id)
-                            }}
-                            sx={{
-                              color: 'rgba(0,0,0,.42)',
-                              '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
-                            }}
+                            aria-label={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'}
+                            onClick={toggleTabsCollapsed}
                           >
-                            <CloseRoundedIcon fontSize="small" />
+                            {tabsCollapsed ? <ChevronRightRoundedIcon fontSize="small" /> : <ChevronLeftRoundedIcon fontSize="small" />}
                           </IconButton>
                         </Tooltip>
                       ) : null}
                     </Box>
-                  </Tooltip>
-                )
-              })}
+
+                    <Box sx={{ flex: 1 }} />
+
+                    <Tooltip title={tabsMode === 'manual' ? '切换到悬停展开（覆盖）' : '切换到手动展开（挤压）'} placement="left">
+                      <IconButton
+                        size="small"
+                        aria-label="切换侧边栏模式"
+                        onClick={toggleTabsMode}
+                        sx={{ color: 'rgba(0,0,0,.58)' }}
+                      >
+                        <SyncAltRoundedIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                )}
+              </Box>
+
+              <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: 0.5, py: 0.75, display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+                {!openNoteTabs.length && sidebarPanelWidth > 52 ? (
+                  <Typography sx={{ px: 0.75, py: 0.5, fontSize: 12, color: 'rgba(0,0,0,.42)' }}>还没有打开的笔记</Typography>
+                ) : null}
+
+                {openNoteTabs.map(tab => {
+                  const isActive = activeNote?.id === tab.id
+                  const title = tab.title || '未命名'
+                  const showTitle = sidebarPanelWidth > 52
+                  return (
+                    <Tooltip key={tab.id} title={!showTitle ? title : ''} placement="right" disableHoverListener={showTitle}>
+                      <Box
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => void handleOpenNote(tab)}
+                        onKeyDown={e => {
+                          if (e.key !== 'Enter' && e.key !== ' ') return
+                          e.preventDefault()
+                          void handleOpenNote(tab)
+                        }}
+                        sx={{
+                          width: '100%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 0.75,
+                          px: showTitle ? 1 : 0.75,
+                          py: 0.6,
+                          borderRadius: 2,
+                          cursor: 'pointer',
+                          userSelect: 'none',
+                          outline: 'none',
+                          bgcolor: isActive ? 'rgba(25,118,210,.10)' : 'transparent',
+                          '&:hover': { bgcolor: isActive ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
+                          '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
+                        }}
+                      >
+                        <NotesRoundedIcon fontSize="small" sx={{ color: isActive ? '#1976d2' : 'rgba(0,0,0,.48)' }} />
+                        {showTitle ? (
+                          <Typography
+                            noWrap
+                            sx={{
+                              flex: 1,
+                              minWidth: 0,
+                              fontSize: 12,
+                              lineHeight: 1.2,
+                              fontWeight: isActive ? 900 : 600,
+                              color: isActive ? '#111' : 'rgba(0,0,0,.72)',
+                            }}
+                          >
+                            {title}
+                          </Typography>
+                        ) : null}
+                        {showTitle ? (
+                          <Tooltip title="关闭" placement="left">
+                            <IconButton
+                              size="small"
+                              aria-label={`关闭 ${title}`}
+                              onClick={e => {
+                                e.stopPropagation()
+                                handleCloseTab(tab.id)
+                              }}
+                              sx={{
+                                color: 'rgba(0,0,0,.42)',
+                                '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                              }}
+                            >
+                              <CloseRoundedIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        ) : null}
+                      </Box>
+                    </Tooltip>
+                  )
+                })}
+              </Box>
             </Box>
           </Box>
 

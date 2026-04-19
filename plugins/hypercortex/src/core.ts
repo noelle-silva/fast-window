@@ -58,6 +58,7 @@ export type HyperCortexMetadataV1 = {
   openNoteIds?: string[]
   activeNoteId?: string
   tabsCollapsed?: boolean
+  tabsMode?: 'manual' | 'hover'
 }
 
 type TauriLike = { invoke: (req: { command: string; payload?: any }) => Promise<any> }
