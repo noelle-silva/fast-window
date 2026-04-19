@@ -420,56 +420,54 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           const groupTitle = g.title || '分组'
           return (
             <React.Fragment key={`group_${g.id}`}>
-              <Tooltip title={!showTitle ? groupTitle : ''} placement="right" disableHoverListener={showTitle}>
-                <Box
-                  {...dnd.getGroupProps(g.id)}
-                  role="button"
-                  tabIndex={0}
-                  data-tauri-drag-region="false"
-                  onClick={() => {
-                    if (dnd.suppressClickRef.current) return
-                    onToggleGroupCollapsed(g.id)
-                  }}
-                  onKeyDown={e => {
-                    if (e.key !== 'Enter' && e.key !== ' ') return
-                    e.preventDefault()
-                    onToggleGroupCollapsed(g.id)
-                  }}
-                  onContextMenu={e => {
-                    e.preventDefault()
-                    setGroupMenu({ mouseX: e.clientX, mouseY: e.clientY, groupId: g.id })
-                  }}
-                  sx={{
-                    width: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 0.75,
-                    px: showTitle ? 1 : 0.75,
-                    py: 0.5,
-                    borderRadius: 2,
-                    userSelect: 'none',
-                    outline: 'none',
-                    WebkitAppRegion: 'no-drag',
-                    cursor: isDragging ? 'grabbing' : 'grab',
-                    opacity: isDragging ? 0.78 : 1,
-                    bgcolor: g.color,
-                    backgroundImage: isDragOver ? 'linear-gradient(0deg, rgba(25,118,210,.10), rgba(25,118,210,.10))' : 'none',
-                    '&:hover': { filter: 'brightness(0.985)' },
-                    '&:focus-visible': { backgroundImage: 'linear-gradient(0deg, rgba(25,118,210,.14), rgba(25,118,210,.14))' },
-                  }}
-                >
-                  <ChevronRightRoundedIcon
-                    fontSize="small"
-                    sx={{ color: 'rgba(0,0,0,.42)', transform: isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)', transition: 'transform 120ms ease' }}
-                  />
-                  {showTitle ? (
-                    <Typography noWrap sx={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 900, color: 'rgba(0,0,0,.72)' }}>
-                      {groupTitle}
-                    </Typography>
-                  ) : null}
-                  {showTitle ? <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.42)' }}>{list.length}</Typography> : null}
-                </Box>
-              </Tooltip>
+              <Box
+                {...dnd.getGroupProps(g.id)}
+                role="button"
+                tabIndex={0}
+                data-tauri-drag-region="false"
+                onClick={() => {
+                  if (dnd.suppressClickRef.current) return
+                  onToggleGroupCollapsed(g.id)
+                }}
+                onKeyDown={e => {
+                  if (e.key !== 'Enter' && e.key !== ' ') return
+                  e.preventDefault()
+                  onToggleGroupCollapsed(g.id)
+                }}
+                onContextMenu={e => {
+                  e.preventDefault()
+                  setGroupMenu({ mouseX: e.clientX, mouseY: e.clientY, groupId: g.id })
+                }}
+                sx={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.75,
+                  px: showTitle ? 1 : 0.75,
+                  py: 0.5,
+                  borderRadius: 2,
+                  userSelect: 'none',
+                  outline: 'none',
+                  WebkitAppRegion: 'no-drag',
+                  cursor: isDragging ? 'grabbing' : 'grab',
+                  opacity: isDragging ? 0.78 : 1,
+                  bgcolor: g.color,
+                  backgroundImage: isDragOver ? 'linear-gradient(0deg, rgba(25,118,210,.10), rgba(25,118,210,.10))' : 'none',
+                  '&:hover': { filter: 'brightness(0.985)' },
+                  '&:focus-visible': { backgroundImage: 'linear-gradient(0deg, rgba(25,118,210,.14), rgba(25,118,210,.14))' },
+                }}
+              >
+                <ChevronRightRoundedIcon
+                  fontSize="small"
+                  sx={{ color: 'rgba(0,0,0,.42)', transform: isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)', transition: 'transform 120ms ease' }}
+                />
+                {showTitle ? (
+                  <Typography noWrap sx={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 900, color: 'rgba(0,0,0,.72)' }}>
+                    {groupTitle}
+                  </Typography>
+                ) : null}
+                {showTitle ? <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.42)' }}>{list.length}</Typography> : null}
+              </Box>
               {isCollapsed ? null : list.length ? (
                 <Box
                   sx={{
