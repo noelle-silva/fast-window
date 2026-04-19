@@ -23,7 +23,7 @@ export interface UnifiedEditorProps {
   onBlockRendered?: (el: HTMLElement, requestUpdate: () => void) => void
 }
 
-type LiveBlockKind = 'latex' | 'mermaid' | 'code'
+type LiveBlockKind = 'latex' | 'mermaid' | 'code' | 'table'
 type LiveBlock = { from: number; to: number; focusTo: number; kind: LiveBlockKind; source: string }
 
 function requestCmLayout(view: EditorView) {
@@ -103,16 +103,46 @@ function scanLiveBlocks(doc: Text): LiveBlock[] {
       blocks.push({ from, to, focusTo: line.to, kind: 'latex', source: doc.sliceString(from, to) })
       continue
     }
+
+    // 表格：第一行必须 | 开头，后续行 | 开头或纯分隔线 |---|
+    if (/^\s*\|/.test(text)) {
+      let endLn = ln
+      for (let j = ln + 1; j <= doc.lines; j++) {
+        const jt = doc.line(j).text
+        if (/^\s*\|/.test(jt) || /^[\s|:-]+$/.test(jt) && jt.includes('|')) endLn = j
+        else break
+      }
+      if (endLn > ln) {
+        const startLine = doc.line(ln)
+        const endLine = doc.line(endLn)
+        const from = startLine.from
+        const to = sliceLineEndWithBreak(doc, endLine)
+        blocks.push({ from, to, focusTo: endLine.to, kind: 'table', source: doc.sliceString(from, to).trim() })
+        ln = endLn
+        continue
+      }
+    }
   }
 
   return blocks
 }
 
 function selectionIntersects(sel: { from: number; to: number; head: number }, block: { from: number; focusTo: number }) {
-  // 光标（空选区）：边界也算“进入块内”，这样点击预览会立刻展开源码
+  // 光标（空选区）：边界也算”进入块内”，这样点击预览会立刻展开源码
   if (sel.from === sel.to) return sel.head >= block.from && sel.head <= block.focusTo
-  // 选区：只要有交集就视为“在块内”
+  // 选区：只要有交集就视为”在块内”
   return sel.from <= block.focusTo && sel.to >= block.from
+}
+
+class BulletWidget extends WidgetType {
+  constructor(readonly indent: number) { super() }
+  eq(other: WidgetType) { return other instanceof BulletWidget && other.indent === this.indent }
+  toDOM() {
+    const span = document.createElement('span')
+    span.className = 'cm-hc-bullet'
+    span.textContent = '\u2002'.repeat(this.indent) + '•\u2002'
+    return span
+  }
 }
 
 const syntaxHighlightPlugin = ViewPlugin.fromClass(
@@ -215,8 +245,17 @@ const syntaxHighlightPlugin = ViewPlugin.fromClass(
         }
 
         // 列表标记
-        const ulm = /^(\s*[-*+]\s)/.exec(t)
-        if (ulm) mark(base, base + ulm[1].length, 'cm-hc-list-marker')
+        const ulm = /^(\s*)([-*+])(\s)/.exec(t)
+        if (ulm) {
+          const markerFrom = base
+          const markerTo = base + ulm[0].length
+          if (focused) {
+            mark(markerFrom, markerTo, 'cm-hc-list-marker')
+          } else {
+            const indent = Math.floor((ulm[1] ?? '').length / 2)
+            decos.push(Decoration.replace({ widget: new BulletWidget(indent) }).range(markerFrom, markerTo))
+          }
+        }
         const olm = /^(\s*\d+\.\s)/.exec(t)
         if (olm) mark(base, base + olm[1].length, 'cm-hc-list-marker')
 

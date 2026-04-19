@@ -261,6 +261,7 @@ const CM6_CSS = `
   padding:0;
   margin:4px 0;
 }
+.hc-cm6-preview .hc-render table{display:table;}
 .hc-cm6-preview .hc-render > *:first-child{margin-top:0;}
 .hc-cm6-preview .hc-render > *:last-child{margin-bottom:0;}
 
@@ -309,6 +310,7 @@ const CM6_CSS = `
 
 /* 列表标记 */
 .cm-hc-list-marker{color:rgba(25,118,210,0.6);font-weight:bold;}
+.cm-hc-bullet{color:rgba(25,118,210,0.6);}
 
 /* 水平线 */
 .cm-hc-hr{color:rgba(0,0,0,0.25);text-align:center;border-bottom:1px solid rgba(0,0,0,0.12);line-height:0.1em;margin:8px 0;}
