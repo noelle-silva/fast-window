@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { AppBar, Box, CssBaseline, GlobalStyles, IconButton, InputBase, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
+import { AppBar, Box, Button, CssBaseline, Dialog, DialogActions, DialogContent, DialogTitle, GlobalStyles, IconButton, InputBase, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
 import { HyperCodeMirrorEditor as BlockEditor } from '../editor/HyperCodeMirrorEditor'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
@@ -27,7 +27,7 @@ import {
   type HyperCortexWorkspaceV1,
   type NoteMeta,
 } from '../core'
-import { loadHtmlFace, loadNoteIndex, loadNotePackage, saveHtmlFace, saveNotePackage } from '../notePackage'
+import { loadHtmlFace, loadNoteIndex, loadNotePackage, saveHtmlFace, saveNotePackage, type HyperCortexHtmlFaceDoc } from '../notePackage'
 import { loadRefIndex, getBacklinksFor, type NoteRefIndex } from '../noteRefs'
 import { createMarkdownRenderEngine } from '../render/engine'
 import { AutoHeightHtmlIframe } from './AutoHeightHtmlIframe'
@@ -43,9 +43,9 @@ type NoteFaceId = 'text' | 'html'
 type TextEditorMode = 'source' | 'live'
 type TabsMode = 'manual' | 'hover'
 
-type ActiveNoteEditSnapshot = {
-  face: NoteFaceId
-  faces: NoteFaceId[]
+type NoteEditMode = 'read' | 'edit'
+
+type NoteContent = {
   title: string
   body: string
   tags: string[]
@@ -53,15 +53,12 @@ type ActiveNoteEditSnapshot = {
 }
 
 type NoteEditSession = {
-  editing: boolean
-  snapshot: ActiveNoteEditSnapshot | null
+  mode: NoteEditMode
   face: NoteFaceId
   faces: NoteFaceId[]
   textEditorMode: TextEditorMode
-  title: string
-  body: string
-  tags: string[]
-  html: string
+  base: NoteContent
+  draft: NoteContent
 }
 
 function normalizeAllNotesLayout(value: unknown): AllNotesLayout {
@@ -101,6 +98,19 @@ function appendTag(list: string[], raw: string): string[] {
   if (!tag) return list
   if (list.includes(tag)) return list
   return [...list, tag]
+}
+
+function areStringListsEqual(a: string[], b: string[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
+}
+
+function isNoteContentEqual(a: NoteContent, b: NoteContent): boolean {
+  return a.title === b.title && a.body === b.body && a.html === b.html && areStringListsEqual(a.tags, b.tags)
 }
 
 function NavIconButton(props: {
@@ -158,8 +168,8 @@ export function HyperCortexApp() {
   const [activeNoteFaces, setActiveNoteFaces] = React.useState<NoteFaceId[]>(['text'])
   const [activeNoteAddFaceSelectorVisible, setActiveNoteAddFaceSelectorVisible] = React.useState(false)
   const [activeNotePendingAddFace, setActiveNotePendingAddFace] = React.useState<NoteFaceId | null>(null)
-  const activeNoteEditSnapshotRef = React.useRef<ActiveNoteEditSnapshot | null>(null)
   const noteEditSessionsRef = React.useRef<Record<string, NoteEditSession>>({})
+  const [closeTabPrompt, setCloseTabPrompt] = React.useState<{ noteId: string } | null>(null)
   const [tabsCollapsed, setTabsCollapsed] = React.useState(false)
   const [workspaces, setWorkspaces] = React.useState<HyperCortexWorkspaceV1[]>([])
   const [activeWorkspaceId, setActiveWorkspaceId] = React.useState<string>('')
@@ -190,16 +200,20 @@ export function HyperCortexApp() {
   const stashActiveNoteEditSession = React.useCallback(() => {
     const noteId = String(activeNote?.id || '').trim()
     if (!noteId) return
-    noteEditSessionsRef.current[noteId] = {
-      editing: activeNoteEditing,
-      snapshot: activeNoteEditSnapshotRef.current,
-      face: activeNoteFace,
-      faces: activeNoteFaces,
-      textEditorMode: activeNoteTextEditorMode,
+    const prev = noteEditSessionsRef.current[noteId]
+    const draft: NoteContent = {
       title: activeNoteEditTitle,
       body: activeNoteEditBody,
       tags: activeNoteEditTags,
       html: activeNoteEditHtml,
+    }
+    noteEditSessionsRef.current[noteId] = {
+      mode: activeNoteEditing ? 'edit' : 'read',
+      face: activeNoteFace,
+      faces: activeNoteFaces,
+      textEditorMode: activeNoteTextEditorMode,
+      base: prev?.base || draft,
+      draft,
     }
   }, [
     activeNote?.id,
@@ -217,7 +231,6 @@ export function HyperCortexApp() {
     const nid = String(noteId || '').trim()
     const session = nid ? noteEditSessionsRef.current[nid] : undefined
     if (!session) {
-      activeNoteEditSnapshotRef.current = null
       setActiveNoteEditing(false)
       setActiveNoteTextEditorMode('live')
       setActiveNoteEditTitle('')
@@ -232,19 +245,61 @@ export function HyperCortexApp() {
       return
     }
 
-    activeNoteEditSnapshotRef.current = session.snapshot
-    setActiveNoteEditing(session.editing)
+    setActiveNoteEditing(session.mode === 'edit')
     setActiveNoteTextEditorMode(session.textEditorMode)
-    setActiveNoteEditTitle(session.title)
-    setActiveNoteEditBody(session.body)
-    setActiveNoteEditTags(session.tags)
+    setActiveNoteEditTitle(session.draft.title)
+    setActiveNoteEditBody(session.draft.body)
+    setActiveNoteEditTags(session.draft.tags)
     setActiveNoteTagInput('')
-    setActiveNoteEditHtml(session.html)
+    setActiveNoteEditHtml(session.draft.html)
     setActiveNoteFace(session.face)
     setActiveNoteFaces(session.faces)
     setActiveNoteAddFaceSelectorVisible(false)
     setActiveNotePendingAddFace(null)
   }, [])
+
+  const ensureNoteEditSessionFromLoaded = React.useCallback(
+    (note: NoteMeta, doc: HyperCortexNoteDoc, htmlFace: HyperCortexHtmlFaceDoc | null) => {
+      const noteId = String(note.id || '').trim()
+      if (!noteId) return
+
+      const existing = noteEditSessionsRef.current[noteId]
+      const loadedContent: NoteContent = {
+        title: doc.title || note.title || '未命名',
+        body: doc.body || '',
+        tags: doc.tags || [],
+        html: htmlFace?.html || '',
+      }
+
+      const allowHtml = !!htmlFace?.exists || !!existing?.faces?.includes('html') || existing?.face === 'html'
+      const faces: NoteFaceId[] = allowHtml ? ['text', 'html'] : ['text']
+
+      if (!existing) {
+        noteEditSessionsRef.current[noteId] = {
+          mode: 'read',
+          face: 'text',
+          faces,
+          textEditorMode: 'live',
+          base: loadedContent,
+          draft: loadedContent,
+        }
+        return
+      }
+
+      const wasPristine = isNoteContentEqual(existing.base, existing.draft)
+      existing.faces = faces
+      if (existing.face === 'html' && !allowHtml) existing.face = 'text'
+
+      if (!existing.base) existing.base = loadedContent
+      if (!existing.draft) existing.draft = loadedContent
+
+      if (wasPristine && !isNoteContentEqual(existing.base, loadedContent)) {
+        existing.base = loadedContent
+        existing.draft = loadedContent
+      }
+    },
+    [],
+  )
 
   const persistMetadataPatch = React.useCallback(
     async (patch: Partial<HyperCortexMetadataV1>) => {
@@ -309,9 +364,9 @@ export function HyperCortexApp() {
   const sidebarPanelWidth = isHoverTabsMode ? (tabsHoverOpen ? 220 : 52) : sidebarRailWidth
 
   React.useLayoutEffect(() => {
-    if (activeNoteFace !== 'text' || activeNoteEditing || !textRenderRef.current || !activeNoteDoc) return
-    renderEngineRef.current.renderInto(textRenderRef.current, activeNoteDoc.body)
-  }, [activeNoteFace, activeNoteEditing, activeNoteDoc])
+    if (activeNoteFace !== 'text' || activeNoteEditing || !textRenderRef.current) return
+    renderEngineRef.current.renderInto(textRenderRef.current, activeNoteEditBody || '')
+  }, [activeNoteEditBody, activeNoteEditing, activeNoteFace])
 
   /** 编辑器覆盖层渲染完 block 后：等待异步媒体就绪，完成后请求重新布局 */
   const handleBlockRendered = React.useCallback((el: HTMLElement, requestUpdate: () => void) => {
@@ -778,18 +833,8 @@ export function HyperCortexApp() {
           loadHtmlFace(api, 'library', note.dir).catch(() => null),
         ])
         setActiveNoteDoc(doc)
-        const hasHtml = !!htmlFace?.exists
-        const session = noteEditSessionsRef.current[note.id]
-        const sessionWantsHtml = !!session && (session.face === 'html' || session.faces.includes('html'))
-        const allowHtml = hasHtml || sessionWantsHtml
-        setActiveNoteFaces(prev => {
-          const shouldKeepHtml = prev.includes('html') || allowHtml
-          return shouldKeepHtml ? ['text', 'html'] : ['text']
-        })
-        setActiveNoteFace(prev => (prev === 'html' && !allowHtml ? 'text' : prev))
-
-        const isEditingHtml = !!session && session.editing && session.face === 'html'
-        if (!isEditingHtml) setActiveNoteEditHtml(htmlFace?.html || '')
+        ensureNoteEditSessionFromLoaded(note, doc, htmlFace)
+        restoreNoteEditSession(note.id)
       } catch (e: any) {
         const message = String(e?.message || e || '加载笔记失败')
         setActiveNoteLoadError(message)
@@ -798,7 +843,7 @@ export function HyperCortexApp() {
         setActiveNoteLoading(false)
       }
     },
-    [api, commitActiveWorkspacePatch, metaReady, persistMetadataPatch, restoreNoteEditSession, stashActiveNoteEditSession],
+    [api, commitActiveWorkspacePatch, ensureNoteEditSessionFromLoaded, metaReady, persistMetadataPatch, restoreNoteEditSession, stashActiveNoteEditSession],
   )
 
   React.useEffect(() => {
@@ -863,7 +908,37 @@ export function HyperCortexApp() {
     [activeNote?.id, commitActiveWorkspacePatch, handleOpenNote, metaReady, persistMetadataPatch, stashActiveNoteEditSession],
   )
 
-  const handleCloseTab = React.useCallback((noteId: string) => handleCloseTabs([noteId]), [handleCloseTabs])
+  const isNoteDirtyById = React.useCallback(
+    (noteId: string) => {
+      const nid = String(noteId || '').trim()
+      if (!nid) return false
+      const session = noteEditSessionsRef.current[nid]
+      if (!session) return false
+      if (activeNote?.id === nid) {
+        const activeDraft: NoteContent = {
+          title: activeNoteEditTitle,
+          body: activeNoteEditBody,
+          tags: activeNoteEditTags,
+          html: activeNoteEditHtml,
+        }
+        return !isNoteContentEqual(activeDraft, session.base)
+      }
+      return !isNoteContentEqual(session.draft, session.base)
+    },
+    [activeNote?.id, activeNoteEditBody, activeNoteEditHtml, activeNoteEditTags, activeNoteEditTitle],
+  )
+
+  const requestCloseTab = React.useCallback(
+    (noteId: string) => {
+      const nid = String(noteId || '').trim()
+      if (!nid) return
+      if (isNoteDirtyById(nid)) return setCloseTabPrompt({ noteId: nid })
+      handleCloseTabs([nid])
+    },
+    [handleCloseTabs, isNoteDirtyById],
+  )
+
+  const handleCloseTab = React.useCallback((noteId: string) => requestCloseTab(noteId), [requestCloseTab])
 
   const handleDeleteGroupAndCloseTabs = React.useCallback(
     (groupId: string) => {
@@ -893,103 +968,79 @@ export function HyperCortexApp() {
     return () => el.removeEventListener('click', handler)
   }, [allNotes, handleOpenNote])
 
-  const prepareEditFields = React.useCallback((): boolean => {
-    if (!activeNoteDoc || !activeNote) return false
-    setActiveNoteEditTitle(activeNoteDoc.title || activeNote.title || '未命名')
-    setActiveNoteEditBody(activeNoteDoc.body || '')
-    setActiveNoteEditTags(activeNoteDoc.tags || [])
-    setActiveNoteTagInput('')
-    return true
-  }, [activeNote, activeNoteDoc])
-
-  const handleStartEditingActiveNote = React.useCallback(async () => {
-    if (!activeNoteDoc || !activeNote) return
-
-    const title = activeNoteDoc.title || activeNote.title || '未命名'
-    const body = activeNoteDoc.body || ''
-    const tags = activeNoteDoc.tags || []
-
-    let html = activeNoteEditHtml
-    if (activeNoteFace === 'html') {
-      try {
-        const htmlFace = await loadHtmlFace(api, 'library', activeNote.dir)
-        html = htmlFace.html || ''
-      } catch {
-        // keep current html (preview state) on failure
-      }
-    }
-
-    activeNoteEditSnapshotRef.current = { face: activeNoteFace, faces: activeNoteFaces, title, body, tags, html }
-    setActiveNoteEditTitle(title)
-    setActiveNoteEditBody(body)
-    setActiveNoteEditTags(tags)
-    setActiveNoteTagInput('')
-    if (activeNoteFaces.includes('html')) setActiveNoteEditHtml(html)
-    setActiveNoteTextEditorMode('live')
-    setActiveNoteEditing(true)
-
-    noteEditSessionsRef.current[activeNote.id] = {
-      editing: true,
-      snapshot: activeNoteEditSnapshotRef.current,
-      face: activeNoteFace,
-      faces: activeNoteFaces,
-      textEditorMode: 'live',
-      title,
-      body,
-      tags,
-      html: activeNoteFaces.includes('html') ? html : activeNoteEditHtml,
-    }
-  }, [activeNote, activeNoteDoc, activeNoteEditHtml, activeNoteFace, activeNoteFaces, api])
-
-  const toggleActiveNoteTextEditorMode = React.useCallback(() => {
-    setActiveNoteTextEditorMode(prev => (prev === 'source' ? 'live' : 'source'))
-  }, [])
-
-  const handleCancelEditingActiveNote = React.useCallback(() => {
-    if (activeNoteSaving) return
-    const snapshot = activeNoteEditSnapshotRef.current
-    if (snapshot) {
-      setActiveNoteFace(snapshot.face)
-      setActiveNoteFaces(snapshot.faces)
-      setActiveNoteEditTitle(snapshot.title)
-      setActiveNoteEditBody(snapshot.body)
-      setActiveNoteEditTags(snapshot.tags)
-      setActiveNoteEditHtml(snapshot.html)
-      setActiveNoteTagInput('')
-      setActiveNoteAddFaceSelectorVisible(false)
-      setActiveNotePendingAddFace(null)
-    } else {
-      prepareEditFields()
-    }
-    activeNoteEditSnapshotRef.current = null
-    setActiveNoteEditing(false)
-
+  React.useEffect(() => {
     const noteId = String(activeNote?.id || '').trim()
-    if (noteId) {
-      noteEditSessionsRef.current[noteId] = {
-        editing: false,
-        snapshot: null,
-        face: snapshot?.face || activeNoteFace,
-        faces: snapshot?.faces || activeNoteFaces,
-        textEditorMode: activeNoteTextEditorMode,
-        title: snapshot?.title || activeNoteEditTitle,
-        body: snapshot?.body || activeNoteEditBody,
-        tags: snapshot?.tags || activeNoteEditTags,
-        html: snapshot?.html || activeNoteEditHtml,
-      }
+    if (!noteId) return
+    const session = noteEditSessionsRef.current[noteId]
+    if (!session) return
+    const draft: NoteContent = {
+      title: activeNoteEditTitle,
+      body: activeNoteEditBody,
+      tags: activeNoteEditTags,
+      html: activeNoteEditHtml,
     }
+    session.mode = activeNoteEditing ? 'edit' : 'read'
+    session.face = activeNoteFace
+    session.faces = activeNoteFaces
+    session.textEditorMode = activeNoteTextEditorMode
+    session.base = session.base || draft
+    session.draft = draft
   }, [
     activeNote?.id,
     activeNoteEditBody,
     activeNoteEditHtml,
     activeNoteEditTags,
     activeNoteEditTitle,
+    activeNoteEditing,
     activeNoteFace,
     activeNoteFaces,
-    activeNoteSaving,
     activeNoteTextEditorMode,
-    prepareEditFields,
   ])
+
+  const discardNoteDraft = React.useCallback(
+    (noteId: string) => {
+      const nid = String(noteId || '').trim()
+      if (!nid) return
+      const session = noteEditSessionsRef.current[nid]
+      if (!session) return
+      const nextDraft: NoteContent = {
+        title: session.base.title,
+        body: session.base.body,
+        tags: session.base.tags.slice(),
+        html: session.base.html,
+      }
+      session.draft = nextDraft
+      session.mode = 'read'
+      if (activeNote?.id === nid) {
+        setActiveNoteEditTitle(nextDraft.title)
+        setActiveNoteEditBody(nextDraft.body)
+        setActiveNoteEditTags(nextDraft.tags)
+        setActiveNoteEditHtml(nextDraft.html)
+        setActiveNoteTagInput('')
+        setActiveNoteAddFaceSelectorVisible(false)
+        setActiveNotePendingAddFace(null)
+        setActiveNoteTextEditorMode('live')
+        setActiveNoteEditing(false)
+      }
+    },
+    [activeNote?.id],
+  )
+
+  const toggleActiveNoteTextEditorMode = React.useCallback(() => {
+    setActiveNoteTextEditorMode(prev => (prev === 'source' ? 'live' : 'source'))
+  }, [])
+
+  const handleToggleActiveNoteMode = React.useCallback(() => {
+    if (!activeNoteDoc || !activeNote) return
+    setActiveNoteEditing(prev => !prev)
+  }, [activeNote, activeNoteDoc])
+
+  const handleCancelEditingActiveNote = React.useCallback(() => {
+    if (activeNoteSaving) return
+    const noteId = String(activeNote?.id || '').trim()
+    if (!noteId) return
+    discardNoteDraft(noteId)
+  }, [activeNote?.id, activeNoteSaving, discardNoteDraft])
 
   const handleSaveActiveNote = React.useCallback(async () => {
     if (!activeNote || activeNoteSaving) return
@@ -1040,19 +1091,17 @@ export function HyperCortexApp() {
       setActiveNoteEditTitle(title)
       setActiveNoteEditTags(tags)
       setActiveNoteTagInput('')
-      setActiveNoteEditing(false)
-      activeNoteEditSnapshotRef.current = null
-
-      noteEditSessionsRef.current[meta.id] = {
-        editing: false,
-        snapshot: null,
-        face: activeNoteFace,
-        faces: activeNoteFaces,
-        textEditorMode: activeNoteTextEditorMode,
-        title,
-        body: activeNoteFace === 'html' ? (activeNoteDoc?.body || '') : body,
-        tags,
-        html: activeNoteEditHtml,
+      const session = noteEditSessionsRef.current[meta.id]
+      if (session) {
+        const nextBase: NoteContent = {
+          title,
+          body: session.base.body,
+          tags: tags.slice(),
+          html: session.base.html,
+        }
+        if (activeNoteFace === 'text') nextBase.body = body
+        if (activeNoteFace === 'html') nextBase.html = activeNoteEditHtml
+        session.base = nextBase
       }
       await api.ui.showToast(toastMsg)
     } catch (e: any) {
@@ -1089,20 +1138,6 @@ export function HyperCortexApp() {
     if (!activeNotePendingAddFace) return
     if (activeNotePendingAddFace === 'html' && activeNote) {
       if (!activeNoteDoc) return
-
-      const snapTitle = activeNoteDoc.title || activeNote.title || '未命名'
-      const snapBody = activeNoteDoc.body || ''
-      const snapTags = activeNoteDoc.tags || []
-      activeNoteEditSnapshotRef.current = {
-        face: activeNoteFace,
-        faces: activeNoteFaces,
-        title: snapTitle,
-        body: snapBody,
-        tags: snapTags,
-        html: activeNoteEditHtml,
-      }
-
-      if (!prepareEditFields()) return
       try {
         const htmlFace = await loadHtmlFace(api, 'library', activeNote.dir)
         setActiveNoteEditHtml(htmlFace.html || '')
@@ -1115,7 +1150,7 @@ export function HyperCortexApp() {
     }
     setActiveNoteAddFaceSelectorVisible(false)
     setActiveNotePendingAddFace(null)
-  }, [activeNote, activeNoteDoc, activeNoteEditHtml, activeNoteFace, activeNoteFaces, activeNotePendingAddFace, api, prepareEditFields])
+  }, [activeNote, activeNoteDoc, activeNotePendingAddFace, api])
 
   const handleCloseActiveNote = React.useCallback(() => {
     stashActiveNoteEditSession()
@@ -1135,8 +1170,38 @@ export function HyperCortexApp() {
     setActiveNoteFaces(['text'])
     setActiveNoteAddFaceSelectorVisible(false)
     setActiveNotePendingAddFace(null)
-    activeNoteEditSnapshotRef.current = null
   }, [stashActiveNoteEditSession])
+
+  const activeNoteDirty = !!activeNote && isNoteDirtyById(activeNote.id)
+  const closeTabPromptTargetSaving = !!closeTabPrompt && !!activeNoteSaving && activeNote?.id === closeTabPrompt.noteId
+
+  const closeTabPromptTitle = React.useMemo(() => {
+    const nid = String(closeTabPrompt?.noteId || '').trim()
+    if (!nid) return '未命名'
+    const meta = openNoteTabs.find(t => t.id === nid) || allNotes.find(n => n.id === nid)
+    return meta?.title || nid.slice(0, 12) + '…'
+  }, [allNotes, closeTabPrompt?.noteId, openNoteTabs])
+
+  const handleCloseTabPromptCancel = React.useCallback(() => setCloseTabPrompt(null), [])
+
+  const handleCloseTabPromptGoSave = React.useCallback(() => {
+    const nid = String(closeTabPrompt?.noteId || '').trim()
+    if (!nid) return
+    setCloseTabPrompt(null)
+    const session = noteEditSessionsRef.current[nid]
+    if (session) session.mode = 'edit'
+    if (activeNote?.id === nid) return setActiveNoteEditing(true)
+    const meta = openNoteTabs.find(t => t.id === nid) || allNotes.find(n => n.id === nid)
+    if (meta) void handleOpenNote(meta)
+  }, [activeNote?.id, allNotes, closeTabPrompt?.noteId, handleOpenNote, openNoteTabs])
+
+  const handleCloseTabPromptDiscardAndClose = React.useCallback(() => {
+    const nid = String(closeTabPrompt?.noteId || '').trim()
+    if (!nid) return
+    setCloseTabPrompt(null)
+    discardNoteDraft(nid)
+    handleCloseTabs([nid])
+  }, [closeTabPrompt?.noteId, discardNoteDraft, handleCloseTabs])
 
   return (
     <ThemeProvider theme={theme}>
@@ -1572,11 +1637,11 @@ export function HyperCortexApp() {
                   <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                       {!activeNoteLoading && !activeNoteLoadError && activeNoteDoc ? (
-                        <Tooltip title={activeNoteEditing ? '保存' : '编辑'} placement="bottom-start">
+                        <Tooltip title={activeNoteEditing ? '切到阅读模式' : '切到编辑模式'} placement="bottom-start">
                           <IconButton
                             size="small"
-                            aria-label={activeNoteEditing ? '保存笔记' : '编辑笔记'}
-                            onClick={() => void (activeNoteEditing ? handleSaveActiveNote() : handleStartEditingActiveNote())}
+                            aria-label={activeNoteEditing ? '切换到阅读模式' : '切换到编辑模式'}
+                            onClick={handleToggleActiveNoteMode}
                             disabled={activeNoteSaving}
                             sx={{
                               color: 'rgba(0,0,0,.58)',
@@ -1588,15 +1653,36 @@ export function HyperCortexApp() {
                               '&.Mui-disabled': { color: 'rgba(0,0,0,.28)' },
                             }}
                           >
-                            {activeNoteEditing ? <SaveRoundedIcon fontSize="small" /> : <EditRoundedIcon fontSize="small" />}
+                            {activeNoteEditing ? <WysiwygRoundedIcon fontSize="small" /> : <EditRoundedIcon fontSize="small" />}
                           </IconButton>
                         </Tooltip>
                       ) : null}
-                      {!activeNoteLoading && !activeNoteLoadError && activeNoteDoc && activeNoteEditing ? (
-                        <Tooltip title="取消" placement="bottom-start">
+                      {!activeNoteLoading && !activeNoteLoadError && activeNoteDoc ? (
+                        <Tooltip title="保存" placement="bottom-start">
                           <IconButton
                             size="small"
-                            aria-label="取消编辑并返回预览"
+                            aria-label="保存笔记"
+                            onClick={() => void handleSaveActiveNote()}
+                            disabled={activeNoteSaving || !activeNoteDirty}
+                            sx={{
+                              color: 'rgba(0,0,0,.58)',
+                              bgcolor: 'transparent',
+                              boxShadow: 'none',
+                              border: 0,
+                              flex: '0 0 auto',
+                              '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                              '&.Mui-disabled': { color: 'rgba(0,0,0,.28)' },
+                            }}
+                          >
+                            <SaveRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      ) : null}
+                      {!activeNoteLoading && !activeNoteLoadError && activeNoteDoc && activeNoteDirty ? (
+                        <Tooltip title="放弃改动（回到已保存状态）" placement="bottom-start">
+                          <IconButton
+                            size="small"
+                            aria-label="放弃未保存改动"
                             onClick={handleCancelEditingActiveNote}
                             disabled={activeNoteSaving}
                             sx={{
@@ -1797,7 +1883,7 @@ export function HyperCortexApp() {
                         </Box>
                       ) : (
                         <Typography sx={{ minWidth: 0, width: '100%', mt: 0.5, fontSize: 28, lineHeight: 1.2, fontWeight: 900, color: '#111' }}>
-                          {activeNoteDoc?.title || activeNote?.title || '未命名'}
+                          {activeNoteEditTitle || activeNoteDoc?.title || activeNote?.title || '未命名'}
                         </Typography>
                       )}
 
@@ -1884,8 +1970,8 @@ export function HyperCortexApp() {
                               </IconButton>
                             </Box>
                           </>
-                        ) : (activeNoteDoc.tags || []).length > 0 ? (
-                          activeNoteDoc.tags.map(tag => (
+                        ) : (activeNoteEditTags || []).length > 0 ? (
+                          activeNoteEditTags.map(tag => (
                             <Box
                               key={tag}
                               sx={{
@@ -2011,6 +2097,20 @@ export function HyperCortexApp() {
           </Box>
         </Box>
       </Box>
+
+      <Dialog open={!!closeTabPrompt} onClose={handleCloseTabPromptCancel} maxWidth="xs" fullWidth>
+        <DialogTitle>未保存改动</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.72)' }}>
+            笔记「{closeTabPromptTitle}」还有未保存的改动。关闭标签页会丢失这些改动，请先保存或放弃改动。
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseTabPromptCancel}>取消</Button>
+          <Button variant="outlined" onClick={handleCloseTabPromptGoSave}>去保存</Button>
+          <Button variant="contained" color="error" onClick={handleCloseTabPromptDiscardAndClose} disabled={closeTabPromptTargetSaving}>放弃改动并关闭</Button>
+        </DialogActions>
+      </Dialog>
     </ThemeProvider>
   )
 }
