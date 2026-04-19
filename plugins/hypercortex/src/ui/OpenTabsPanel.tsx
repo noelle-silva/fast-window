@@ -124,6 +124,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
   const [renameState, setRenameState] = React.useState<{ groupId: string; title: string } | null>(null)
   const [workspaceMenuAnchorEl, setWorkspaceMenuAnchorEl] = React.useState<HTMLElement | null>(null)
   const [workspaceEditor, setWorkspaceEditor] = React.useState<{ mode: 'create' | 'rename'; title: string } | null>(null)
+  const [workspaceDeleteTarget, setWorkspaceDeleteTarget] = React.useState<{ id: string; title: string } | null>(null)
 
   const activeWorkspaceTitle = React.useMemo(() => {
     return workspaces.find(w => w.id === activeWorkspaceId)?.title || workspaces[0]?.title || '工作区'
@@ -606,7 +607,8 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
             closeWorkspaceMenu()
             const wid = activeWorkspaceId || workspaces[0]?.id || ''
             if (!wid) return
-            onDeleteWorkspace(wid)
+            const title = workspaces.find(w => w.id === wid)?.title || '工作区'
+            setWorkspaceDeleteTarget({ id: wid, title })
           }}
           disabled={workspaces.length <= 1}
           sx={{ color: '#d32f2f' }}
@@ -614,6 +616,30 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           删除当前工作区
         </MenuItem>
       </Menu>
+
+      <Dialog open={!!workspaceDeleteTarget} onClose={() => setWorkspaceDeleteTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>删除工作区</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.72)' }}>
+            确定删除工作区「{workspaceDeleteTarget?.title || '工作区'}」吗？此操作不可撤销。
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setWorkspaceDeleteTarget(null)}>取消</Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={() => {
+              const state = workspaceDeleteTarget
+              if (!state) return
+              onDeleteWorkspace(state.id)
+              setWorkspaceDeleteTarget(null)
+            }}
+          >
+            删除
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={!!workspaceEditor} onClose={() => setWorkspaceEditor(null)} maxWidth="xs" fullWidth>
         <DialogTitle>{workspaceEditor?.mode === 'create' ? '新建工作区' : '重命名工作区'}</DialogTitle>

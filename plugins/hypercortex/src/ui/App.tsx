@@ -429,7 +429,6 @@ export function HyperCortexApp() {
       if (workspaces.length <= 1) return void api.ui.showToast('至少保留一个工作区')
       const target = workspaces.find(w => w.id === wid)
       if (!target) return
-      if (!window.confirm(`确定删除工作区「${target.title}」吗？`)) return
 
       const nextWorkspaces = workspaces.filter(w => w.id !== wid)
       const deletingActive = activeWorkspaceIdRef.current === wid
