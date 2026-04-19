@@ -69,6 +69,35 @@ function appendTag(list: string[], raw: string): string[] {
   return [...list, tag]
 }
 
+function NavIconButton(props: {
+  title: string
+  ariaLabel: string
+  active?: boolean
+  onClick: () => void
+  children: React.ReactNode
+  tooltipPlacement?: 'bottom' | 'bottom-start' | 'bottom-end' | 'left' | 'right' | 'top'
+}) {
+  const { title, ariaLabel, active, onClick, children, tooltipPlacement = 'bottom' } = props
+  return (
+    <Tooltip title={title} placement={tooltipPlacement}>
+      <IconButton
+        size="small"
+        aria-label={ariaLabel}
+        onClick={onClick}
+        data-tauri-drag-region="false"
+        sx={{
+          WebkitAppRegion: 'no-drag',
+          borderRadius: 2,
+          bgcolor: active ? 'rgba(25,118,210,.10)' : 'transparent',
+          '&:hover': { bgcolor: active ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
+        }}
+      >
+        {children}
+      </IconButton>
+    </Tooltip>
+  )
+}
+
 export function HyperCortexApp() {
   const api = React.useMemo(() => getApi(), [])
   const [page, setPage] = React.useState<PageId>('home')
@@ -499,139 +528,65 @@ export function HyperCortexApp() {
               gap: 0.5,
               minHeight: 40,
               pl: 0,
-              pr: 1,
-              '&.MuiToolbar-root': { minHeight: 40, paddingLeft: 0, paddingRight: 8 },
+              pr: 0,
+              '&.MuiToolbar-root': { minHeight: 40, paddingLeft: 0, paddingRight: 0 },
               WebkitAppRegion: 'drag',
+              justifyContent: 'space-between',
             }}
             onPointerDown={onTopbarPointerDown}
           >
-            <IconButton
-              onClick={backToHost}
-              size="small"
-              aria-label="返回主界面"
-              data-tauri-drag-region="false"
-              sx={{ WebkitAppRegion: 'no-drag', ml: 0.25 }}
-            >
-              <ArrowBackRoundedIcon fontSize="small" />
-            </IconButton>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+              <IconButton
+                onClick={backToHost}
+                size="small"
+                aria-label="返回主界面"
+                data-tauri-drag-region="false"
+                sx={{ WebkitAppRegion: 'no-drag', ml: 0.25 }}
+              >
+                <ArrowBackRoundedIcon fontSize="small" />
+              </IconButton>
 
-            <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
-              HyperCortex
-            </Typography>
+              <Typography variant="subtitle2" sx={{ fontWeight: 900, whiteSpace: 'nowrap' }}>
+                HyperCortex
+              </Typography>
 
-            <Box sx={{ flex: 1 }} />
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, ml: 0.25 }}>
+                <NavIconButton title="主页" ariaLabel="主页" active={page === 'home'} onClick={() => setPage('home')}>
+                  <HomeRoundedIcon fontSize="small" />
+                </NavIconButton>
+                <NavIconButton
+                  title="新建笔记"
+                  ariaLabel="新建笔记"
+                  active={page === 'new-note'}
+                  onClick={() => {
+                    setActiveNoteTextEditorMode('live')
+                    setPage('new-note')
+                  }}
+                >
+                  <AddRoundedIcon fontSize="small" />
+                </NavIconButton>
+                <NavIconButton title="索引" ariaLabel="索引" active={page === 'index'} onClick={() => setPage('index')}>
+                  <AccountTreeRoundedIcon fontSize="small" />
+                </NavIconButton>
+                <NavIconButton title="附件" ariaLabel="附件" active={page === 'attachments'} onClick={() => setPage('attachments')}>
+                  <AttachFileRoundedIcon fontSize="small" />
+                </NavIconButton>
+                <NavIconButton title="全部笔记" ariaLabel="全部笔记" active={page === 'all-notes'} onClick={() => setPage('all-notes')}>
+                  <NotesRoundedIcon fontSize="small" />
+                </NavIconButton>
+              </Box>
+            </Box>
+
+            <Box sx={{ display: 'flex', alignItems: 'center', pr: 1 }}>
+              <NavIconButton title="设置" ariaLabel="设置" active={page === 'settings'} onClick={() => setPage('settings')}>
+                <SettingsRoundedIcon fontSize="small" />
+              </NavIconButton>
+            </Box>
           </Toolbar>
         </AppBar>
 
-        <Box sx={{ flex: 1, minHeight: 0, display: 'flex' }}>
-          <Box
-            sx={{
-              width: 52,
-              py: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: 0.5,
-            }}
-          >
-            <Tooltip title="主页" placement="right">
-              <IconButton
-                size="small"
-                aria-label="主页"
-                onClick={() => setPage('home')}
-                sx={{
-                  borderRadius: 2,
-                  bgcolor: page === 'home' ? 'rgba(25,118,210,.10)' : 'transparent',
-                  '&:hover': { bgcolor: page === 'home' ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
-                }}
-              >
-                <HomeRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-
-            <Tooltip title="新建笔记" placement="right">
-              <IconButton
-                size="small"
-                aria-label="新建笔记"
-                onClick={() => {
-                  setActiveNoteTextEditorMode('live')
-                  setPage('new-note')
-                }}
-                sx={{
-                  borderRadius: 2,
-                  bgcolor: page === 'new-note' ? 'rgba(25,118,210,.10)' : 'transparent',
-                  '&:hover': { bgcolor: page === 'new-note' ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
-                }}
-              >
-                <AddRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-
-            <Tooltip title="索引" placement="right">
-              <IconButton
-                size="small"
-                aria-label="索引"
-                onClick={() => setPage('index')}
-                sx={{
-                  borderRadius: 2,
-                  bgcolor: page === 'index' ? 'rgba(25,118,210,.10)' : 'transparent',
-                  '&:hover': { bgcolor: page === 'index' ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
-                }}
-              >
-                <AccountTreeRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-
-            <Tooltip title="附件" placement="right">
-              <IconButton
-                size="small"
-                aria-label="附件"
-                onClick={() => setPage('attachments')}
-                sx={{
-                  borderRadius: 2,
-                  bgcolor: page === 'attachments' ? 'rgba(25,118,210,.10)' : 'transparent',
-                  '&:hover': { bgcolor: page === 'attachments' ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
-                }}
-              >
-                <AttachFileRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-
-            <Tooltip title="全部笔记" placement="right">
-              <IconButton
-                size="small"
-                aria-label="全部笔记"
-                onClick={() => setPage('all-notes')}
-                sx={{
-                  borderRadius: 2,
-                  bgcolor: page === 'all-notes' ? 'rgba(25,118,210,.10)' : 'transparent',
-                  '&:hover': { bgcolor: page === 'all-notes' ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
-                }}
-              >
-                <NotesRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-
-            <Tooltip title="设置" placement="right">
-              <IconButton
-                size="small"
-                aria-label="设置"
-                onClick={() => setPage('settings')}
-                sx={{
-                  borderRadius: 2,
-                  bgcolor: page === 'settings' ? 'rgba(25,118,210,.10)' : 'transparent',
-                  '&:hover': { bgcolor: page === 'settings' ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
-                }}
-              >
-                <SettingsRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-
-            <Box sx={{ flex: 1 }} />
-          </Box>
-
-          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto' }}>
-            <Box sx={{ minHeight: '100%', p: 2 }}>
+        <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto' }}>
+          <Box sx={{ minHeight: '100%', p: 2 }}>
               {page === 'home' ? <Typography color="text.secondary">这是主页页面。</Typography> : null}
               {page === 'new-note' ? (
                 <Box sx={{ minHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
@@ -1460,7 +1415,6 @@ export function HyperCortexApp() {
               {page === 'settings' ? <Typography color="text.secondary">这是设置页面。</Typography> : null}
             </Box>
           </Box>
-        </Box>
       </Box>
     </ThemeProvider>
   )
