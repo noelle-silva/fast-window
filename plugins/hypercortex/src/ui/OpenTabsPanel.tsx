@@ -296,7 +296,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           py: 0.5,
           display: 'flex',
           alignItems: 'center',
-          borderBottom: '1px solid rgba(0,0,0,.06)',
+          borderBottom: 'none',
         }}
       >
         {panelWidth <= 52 ? (
@@ -558,6 +558,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         onClose={closeMenu}
         anchorReference="anchorPosition"
         anchorPosition={groupMenu ? { top: groupMenu.mouseY, left: groupMenu.mouseX } : undefined}
+        PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}
       >
         <MenuItem
           onClick={() => {
@@ -626,7 +627,12 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         </MenuItem>
       </Menu>
 
-      <Menu open={workspaceMenuOpen} onClose={closeWorkspaceMenu} anchorEl={workspaceMenuAnchorEl}>
+      <Menu
+        open={workspaceMenuOpen}
+        onClose={closeWorkspaceMenu}
+        anchorEl={workspaceMenuAnchorEl}
+        PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}
+      >
         {workspaces.map(ws => (
           <MenuItem
             key={ws.id}
@@ -695,7 +701,13 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={!!workspaceEditor} onClose={() => setWorkspaceEditor(null)} maxWidth="xs" fullWidth>
+      <Dialog
+        open={!!workspaceEditor}
+        onClose={() => setWorkspaceEditor(null)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 7 } }}
+      >
         <DialogTitle>{workspaceEditor?.mode === 'create' ? '新建工作区' : '重命名工作区'}</DialogTitle>
         <DialogContent>
           <TextField
@@ -748,7 +760,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={!!renameState} onClose={() => setRenameState(null)} maxWidth="xs" fullWidth>
+      <Dialog open={!!renameState} onClose={() => setRenameState(null)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 7 } }}>
         <DialogTitle>重命名分组</DialogTitle>
         <DialogContent>
           <TextField
