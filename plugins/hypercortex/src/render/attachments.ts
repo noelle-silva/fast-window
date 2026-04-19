@@ -64,8 +64,10 @@ function buildImage(blobUrl: string, name: string, width?: number) {
   img.alt = name
   img.loading = 'lazy'
   img.decoding = 'async'
+  img.style.display = 'block'
   img.style.maxWidth = '100%'
   img.style.height = 'auto'
+  img.style.margin = '0 auto'
   img.style.borderRadius = '8px'
   img.style.cursor = 'zoom-in'
   if (width && width > 0) img.style.width = `${width}px`
@@ -77,7 +79,9 @@ function buildAudio(blobUrl: string) {
   audio.src = blobUrl
   audio.controls = true
   audio.preload = 'metadata'
+  audio.style.display = 'block'
   audio.style.width = 'min(520px, 100%)'
+  audio.style.margin = '0 auto'
   return audio
 }
 
@@ -86,7 +90,9 @@ function buildVideo(blobUrl: string, width?: number) {
   video.src = blobUrl
   video.controls = true
   video.preload = 'metadata'
+  video.style.display = 'block'
   video.style.maxWidth = '100%'
+  video.style.margin = '0 auto'
   video.style.borderRadius = '8px'
   if (width && width > 0) video.style.width = `${width}px`
   return video
