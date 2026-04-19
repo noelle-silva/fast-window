@@ -149,6 +149,77 @@ class BulletWidget extends WidgetType {
   }
 }
 
+function findInlineMathRanges(lineText: string, codeRanges: Array<[number, number]>) {
+  const ranges: Array<{ from: number; to: number; tex: string }> = []
+  const isEscaped = (i: number) => i > 0 && lineText[i - 1] === '\\'
+  const inCode = (i: number) => codeRanges.some(([a, b]) => i >= a && i < b)
+
+  for (let i = 0; i < lineText.length; i++) {
+    if (lineText[i] !== '$') continue
+    if (isEscaped(i)) continue
+    if (inCode(i)) continue
+    if (lineText[i + 1] === '$') continue // 跳过 $$（块公式/行间公式）
+
+    // 找右侧闭合 $
+    let j = i + 1
+    for (; j < lineText.length; j++) {
+      if (lineText[j] !== '$') continue
+      if (isEscaped(j)) continue
+      if (inCode(j)) continue
+      if (lineText[j - 1] === '$') continue // 避免 $$ 右半边
+      break
+    }
+    if (j >= lineText.length) break
+
+    const inner = lineText.slice(i + 1, j)
+    const tex = inner.trim()
+    if (!tex) { i = j; continue }
+
+    ranges.push({ from: i, to: j + 1, tex })
+    i = j
+  }
+
+  return ranges
+}
+
+function findInlineCodeRanges(lineText: string) {
+  const ranges: Array<[number, number]> = []
+  let i = 0
+  while (i < lineText.length) {
+    if (lineText[i] !== '`') { i++; continue }
+    const start = i
+    i++
+    for (; i < lineText.length; i++) {
+      if (lineText[i] !== '`') continue
+      const end = i + 1
+      ranges.push([start, end])
+      i = end
+      break
+    }
+  }
+  return ranges
+}
+
+class InlineMathWidget extends WidgetType {
+  constructor(readonly tex: string) { super() }
+  eq(other: WidgetType) { return other instanceof InlineMathWidget && other.tex === this.tex }
+  toDOM(view: EditorView) {
+    const span = document.createElement('span')
+    span.className = 'cm-hc-inline-math'
+    const w = window as any
+    const katex = w?.katex
+    if (katex && typeof katex.render === 'function') {
+      try { katex.render(this.tex, span, { displayMode: false, throwOnError: false }) } catch (_) { span.textContent = this.tex }
+    } else {
+      span.textContent = this.tex
+    }
+    // 公式字体/布局可能在下一帧才稳定，触发一次测量避免高度映射滞后
+    requestAnimationFrame(() => requestCmLayout(view))
+    return span
+  }
+  ignoreEvent() { return false }
+}
+
 const syntaxHighlightPlugin = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet
@@ -330,6 +401,17 @@ const syntaxHighlightPlugin = ViewPlugin.fromClass(
           mark(ob + 1 + text.length, ob + 1 + text.length + 1, dimOrHide)
           const op = ob + 1 + text.length + 1
           mark(op, op + 1 + url.length + 1, focused ? 'cm-hc-link-url' : 'cm-hc-link-url-hide')
+        }
+
+        // 行内公式：仅在“非聚焦行”渲染成 KaTeX，避免打断正在编辑的那一行
+        if (!focused && t.includes('$')) {
+          const codeRanges = findInlineCodeRanges(t)
+          const mathRanges = findInlineMathRanges(t, codeRanges)
+          for (const r of mathRanges) {
+            const from = base + r.from
+            const to = base + r.to
+            decos.push(Decoration.replace({ widget: new InlineMathWidget(r.tex) }).range(from, to))
+          }
         }
       }
 

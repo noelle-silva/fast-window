@@ -293,6 +293,11 @@ const CM6_CSS = `
   padding:1px 4px;
   border-radius:4px;
 }
+.cm-hc-inline-math{
+  display:inline-block;
+  vertical-align:baseline;
+  white-space:nowrap;
+}
 .cm-hc-dim{color:rgba(0,0,0,0.3);}
 .cm-hc-hide{font-size:0;line-height:0;overflow:hidden;}
 
