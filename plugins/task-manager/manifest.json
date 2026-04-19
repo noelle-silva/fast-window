@@ -1,0 +1,21 @@
+{
+  "id": "task-manager",
+  "name": "任务管理",
+  "author": "fast-window",
+  "version": "1.0.0",
+  "description": "支持无限层级子任务的任务管理器",
+  "main": "index.js",
+  "icon": "svg:icon.svg",
+  "keyword": "task",
+  "apiVersion": 2,
+  "ui": {
+    "type": "iframe",
+    "keepAlive": true
+  },
+  "requires": [
+    "tauri:plugin_files_list_dir",
+    "tauri:plugin_files_read_text",
+    "tauri:plugin_files_write_text",
+    "tauri:plugin_files_delete"
+  ]
+}

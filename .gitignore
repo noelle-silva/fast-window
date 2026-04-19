@@ -46,3 +46,5 @@ npm-debug.log*
 
 # TypeScript cache
 *.tsbuildinfo
+
+dev-docs/
