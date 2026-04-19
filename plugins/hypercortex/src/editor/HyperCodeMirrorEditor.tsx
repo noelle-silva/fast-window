@@ -3,7 +3,7 @@ import { ensureHyperCodeMirrorEditorStyles } from './styles'
 
 // CM6（新一代编辑器核心）
 import { basicSetup } from 'codemirror'
-import { EditorState, RangeSetBuilder, type Text } from '@codemirror/state'
+import { EditorState, StateField, type Range, type Text } from '@codemirror/state'
 import {
   Decoration,
   EditorView,
@@ -23,7 +23,7 @@ export interface UnifiedEditorProps {
   onBlockRendered?: (el: HTMLElement, requestUpdate: () => void) => void
 }
 
-type LiveBlockKind = 'latex' | 'mermaid'
+type LiveBlockKind = 'latex' | 'mermaid' | 'code'
 type LiveBlock = { from: number; to: number; focusTo: number; kind: LiveBlockKind; source: string }
 
 function requestCmLayout(view: EditorView) {
@@ -56,21 +56,25 @@ function scanLiveBlocks(doc: Text): LiveBlock[] {
     if (open) {
       const lang = String(open[1] || '').trim().toLowerCase()
       const isMermaid = lang === 'mermaid'
-      if (isMermaid) {
-        let endLn = -1
-        for (let j = ln + 1; j <= doc.lines; j++) {
-          const l2 = doc.line(j)
-          if (isFenceClose(l2.text)) { endLn = j; break }
-        }
-        if (endLn !== -1) {
-          const startLine = doc.line(ln)
-          const endLine = doc.line(endLn)
-          const from = startLine.from
-          const to = sliceLineEndWithBreak(doc, endLine)
-          blocks.push({ from, to, focusTo: endLine.to, kind: 'mermaid', source: doc.sliceString(from, to) })
-          ln = endLn
-          continue
-        }
+      let endLn = -1
+      for (let j = ln + 1; j <= doc.lines; j++) {
+        const l2 = doc.line(j)
+        if (isFenceClose(l2.text)) { endLn = j; break }
+      }
+      if (endLn !== -1) {
+        const startLine = doc.line(ln)
+        const endLine = doc.line(endLn)
+        const from = startLine.from
+        const to = sliceLineEndWithBreak(doc, endLine)
+        blocks.push({
+          from,
+          to,
+          focusTo: endLine.to,
+          kind: isMermaid ? 'mermaid' : 'code',
+          source: doc.sliceString(from, to),
+        })
+        ln = endLn
+        continue
       }
     }
 
@@ -116,80 +120,166 @@ const syntaxHighlightPlugin = ViewPlugin.fromClass(
     decorations: DecorationSet
 
     constructor(view: EditorView) {
-      this.decorations = this.build(view.state.doc)
+      this.decorations = this.build(view)
     }
 
     update(update: ViewUpdate) {
-      if (update.docChanged) {
-        this.decorations = this.build(update.state.doc)
+      if (update.docChanged || update.selectionSet) {
+        this.decorations = this.build(update.view)
       }
     }
 
-    private build(doc: Text): DecorationSet {
-      const builder = new RangeSetBuilder<Decoration>()
+    private build(view: EditorView): DecorationSet {
+      const doc = view.state.doc
+      const decos: Range<Decoration>[] = []
 
-      const addMark = (from: number, to: number, className: string) => {
-        if (from >= to) return
-        builder.add(from, to, Decoration.mark({ class: className }))
+      const mark = (from: number, to: number, cls: string) => {
+        if (from < to) decos.push(Decoration.mark({ class: cls }).range(from, to))
+      }
+      const lineDeco = (pos: number, cls: string) => {
+        decos.push(Decoration.line({ class: cls }).range(pos))
+      }
+
+      const liveBlocks = scanLiveBlocks(doc)
+      const sel = view.state.selection.main
+
+      const lineInfo = new Map<number, string>()
+      for (const b of liveBlocks) {
+        const focused = selectionIntersects({ from: sel.from, to: sel.to, head: sel.head }, b)
+        const startLn = doc.lineAt(b.from).number
+        const endLn = doc.lineAt(b.focusTo).number
+        for (let ln = startLn; ln <= endLn; ln++) {
+          if (!focused) {
+            lineInfo.set(ln, 'skip')
+          } else if (b.kind === 'code') {
+            if (ln === startLn) lineInfo.set(ln, 'fence-open')
+            else if (ln === endLn) lineInfo.set(ln, 'fence-close')
+            else lineInfo.set(ln, 'fence-body')
+          } else {
+            lineInfo.set(ln, 'raw')
+          }
+        }
       }
 
       const boldRe = /\*\*(.+?)\*\*/g
       const italicRe = /(^|[^*])\*(?!\*)([^*\n]+?)\*(?!\*)/g
       const inlineCodeRe = /`([^`]*?)`/g
+      const strikeRe = /~~(.+?)~~/g
+      const imageRe = /!\[([^\]]*)\]\(([^)]*)\)/g
+      const linkRe = /\[([^\]]*)\]\(([^)]*)\)/g
 
       for (let ln = 1; ln <= doc.lines; ln++) {
+        const info = lineInfo.get(ln)
+        if (info === 'skip' || info === 'raw') continue
+
         const line = doc.line(ln)
-        const t = line.text
         const base = line.from
 
-        // 标题：^(#{1,3}) (.*)$
+        if (info === 'fence-open' || info === 'fence-close') {
+          lineDeco(base, 'cm-hc-fence-close')
+          continue
+        }
+        if (info === 'fence-body') {
+          lineDeco(base, 'cm-hc-fence-body')
+          continue
+        }
+
+        const t = line.text
+
+        // 标题
         const hm = /^(#{1,3}) (.*)$/.exec(t)
         if (hm) {
-          const hashes = hm[1]
-          const level = hashes.length
-          addMark(base, base + level, 'cm-hc-dim')
-
-          const contentFrom = base + level + 1
-          const contentTo = base + t.length
+          const level = hm[1].length
+          mark(base, base + level, 'cm-hc-dim')
           const cls = level === 1 ? 'cm-hc-h1' : level === 2 ? 'cm-hc-h2' : 'cm-hc-h3'
-          addMark(contentFrom, contentTo, cls)
+          mark(base + level + 1, base + t.length, cls)
         }
 
-        // 加粗：\*\*(.*?)\*\*
+        // 水平线
+        if (/^([-*_]{3,})\s*$/.test(t)) {
+          mark(base, base + t.length, 'cm-hc-hr')
+          continue
+        }
+
+        // 引用
+        const bqm = /^(>\s?)(.*)$/.exec(t)
+        if (bqm) {
+          mark(base, base + (bqm[1] ?? '').length, 'cm-hc-blockquote-marker')
+          mark(base, base + t.length, 'cm-hc-blockquote')
+        }
+
+        // 列表标记
+        const ulm = /^(\s*[-*+]\s)/.exec(t)
+        if (ulm) mark(base, base + ulm[1].length, 'cm-hc-list-marker')
+        const olm = /^(\s*\d+\.\s)/.exec(t)
+        if (olm) mark(base, base + olm[1].length, 'cm-hc-list-marker')
+
+        // 加粗
         boldRe.lastIndex = 0
         for (let m = boldRe.exec(t); m; m = boldRe.exec(t)) {
-          const start = m.index
+          const o = base + m.index
           const inner = m[1] ?? ''
-          const openFrom = base + start
-          addMark(openFrom, openFrom + 2, 'cm-hc-dim')
-          addMark(openFrom + 2, openFrom + 2 + inner.length, 'cm-hc-bold')
-          addMark(openFrom + 2 + inner.length, openFrom + 2 + inner.length + 2, 'cm-hc-dim')
+          mark(o, o + 2, 'cm-hc-dim')
+          mark(o + 2, o + 2 + inner.length, 'cm-hc-bold')
+          mark(o + 2 + inner.length, o + 2 + inner.length + 2, 'cm-hc-dim')
         }
 
-        // 斜体：\*(.*?)\*（不要和加粗冲突）
+        // 斜体
         italicRe.lastIndex = 0
         for (let m = italicRe.exec(t); m; m = italicRe.exec(t)) {
           const prefix = m[1] ?? ''
           const inner = m[2] ?? ''
-          const starFrom = base + m.index + prefix.length
-          addMark(starFrom, starFrom + 1, 'cm-hc-dim')
-          addMark(starFrom + 1, starFrom + 1 + inner.length, 'cm-hc-italic')
-          addMark(starFrom + 1 + inner.length, starFrom + 1 + inner.length + 1, 'cm-hc-dim')
+          const s = base + m.index + prefix.length
+          mark(s, s + 1, 'cm-hc-dim')
+          mark(s + 1, s + 1 + inner.length, 'cm-hc-italic')
+          mark(s + 1 + inner.length, s + 1 + inner.length + 1, 'cm-hc-dim')
         }
 
-        // 行内代码：`(.*?)`
+        // 行内代码
         inlineCodeRe.lastIndex = 0
         for (let m = inlineCodeRe.exec(t); m; m = inlineCodeRe.exec(t)) {
-          const start = m.index
+          const o = base + m.index
           const inner = m[1] ?? ''
-          const openFrom = base + start
-          addMark(openFrom, openFrom + 1, 'cm-hc-dim')
-          addMark(openFrom + 1, openFrom + 1 + inner.length, 'cm-hc-inline-code')
-          addMark(openFrom + 1 + inner.length, openFrom + 1 + inner.length + 1, 'cm-hc-dim')
+          mark(o, o + 1, 'cm-hc-dim')
+          mark(o + 1, o + 1 + inner.length, 'cm-hc-inline-code')
+          mark(o + 1 + inner.length, o + 1 + inner.length + 1, 'cm-hc-dim')
+        }
+
+        // 删除线
+        strikeRe.lastIndex = 0
+        for (let m = strikeRe.exec(t); m; m = strikeRe.exec(t)) {
+          const o = base + m.index
+          const inner = m[1] ?? ''
+          mark(o, o + 2, 'cm-hc-dim')
+          mark(o + 2, o + 2 + inner.length, 'cm-hc-strikethrough')
+          mark(o + 2 + inner.length, o + 2 + inner.length + 2, 'cm-hc-dim')
+        }
+
+        // 图片
+        const imgRanges: Array<[number, number]> = []
+        imageRe.lastIndex = 0
+        for (let m = imageRe.exec(t); m; m = imageRe.exec(t)) {
+          const f = base + m.index, tt = f + m[0].length
+          imgRanges.push([f, tt])
+          mark(f, tt, 'cm-hc-image-marker')
+        }
+
+        // 链接
+        linkRe.lastIndex = 0
+        for (let m = linkRe.exec(t); m; m = linkRe.exec(t)) {
+          const f = base + m.index, tt = f + m[0].length
+          if (imgRanges.some(([a, b]) => f < b && tt > a)) continue
+          const text = m[1] ?? '', url = m[2] ?? ''
+          const ob = f
+          mark(ob, ob + 1, 'cm-hc-dim')
+          mark(ob + 1, ob + 1 + text.length, 'cm-hc-link-text')
+          mark(ob + 1 + text.length, ob + 1 + text.length + 1, 'cm-hc-dim')
+          const op = ob + 1 + text.length + 1
+          mark(op, op + 1 + url.length + 1, 'cm-hc-link-url')
         }
       }
 
-      return builder.finish()
+      return Decoration.set(decos, true)
     }
   },
   { decorations: (v) => v.decorations },
@@ -238,36 +328,31 @@ class HyperBlockWidget extends WidgetType {
 }
 
 function livePreviewExtension(opts: { getOnBlockRendered?: () => UnifiedEditorProps['onBlockRendered'] }) {
-  return ViewPlugin.fromClass(
-    class {
-      decorations: DecorationSet
-      private blocks: LiveBlock[]
+  function buildDecos(state: EditorState): DecorationSet {
+    const doc = state.doc
+    const sel = state.selection.main
+    const blocks = scanLiveBlocks(doc)
+    const decos: Range<Decoration>[] = []
+    for (const b of blocks) {
+      if (selectionIntersects({ from: sel.from, to: sel.to, head: sel.head }, b)) continue
+      const widget = new HyperBlockWidget(b.kind, b.source, opts.getOnBlockRendered)
+      decos.push(Decoration.replace({ widget, block: true }).range(b.from, b.to))
+    }
+    return Decoration.set(decos, true)
+  }
 
-      constructor(view: EditorView) {
-        this.blocks = scanLiveBlocks(view.state.doc)
-        this.decorations = this.build(view, this.blocks)
-      }
-
-      update(update: ViewUpdate) {
-        if (update.docChanged) this.blocks = scanLiveBlocks(update.state.doc)
-        if (update.docChanged || update.selectionSet || update.viewportChanged) {
-          this.decorations = this.build(update.view, this.blocks)
-        }
-      }
-
-      private build(view: EditorView, blocks: LiveBlock[]): DecorationSet {
-        const sel = view.state.selection.main
-        const builder = new RangeSetBuilder<Decoration>()
-        for (const b of blocks) {
-          if (selectionIntersects({ from: sel.from, to: sel.to, head: sel.head }, b)) continue
-          const widget = new HyperBlockWidget(b.kind, b.source, opts.getOnBlockRendered)
-          builder.add(b.from, b.to, Decoration.replace({ widget, block: true }))
-        }
-        return builder.finish()
-      }
+  return StateField.define<DecorationSet>({
+    create(state) {
+      return buildDecos(state)
     },
-    { decorations: (v) => v.decorations },
-  )
+    update(value, tr) {
+      if (tr.docChanged || tr.selection) {
+        return buildDecos(tr.state)
+      }
+      return value
+    },
+    provide: (f) => EditorView.decorations.from(f),
+  })
 }
 
 /**
