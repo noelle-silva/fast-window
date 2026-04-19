@@ -3,7 +3,7 @@
  *
  * 从 ai-chat 的 assistantEngineDefault.ts 裁剪而来。
  * 保留：Markdown 渲染、数学公式 (KaTeX)、流程图 (Mermaid)、代码块复制、HTML 消毒 (DOMPurify)
- * 移除：工具调用卡片、贴纸系统、AI 修复 Mermaid、引用图片加载
+ * 移除：工具调用卡片、贴纸系统、AI 修复 Mermaid、附件/资源渲染
  */
 
 import './vendor'
@@ -675,15 +675,6 @@ export function createMarkdownRenderEngine(): MarkdownRenderEngine {
       })
     }
 
-    // 回填 Asset 占位符
-    if (Array.isArray(pre.assets) && pre.assets.length) {
-      safe = safe.replace(/@@ASSET_(\d+)@@/g, (_m, id) => {
-        const a = pre.assets[Number(id)]
-        if (!a) return ''
-        return `<span class="hc-asset" data-asset-id="${esc(a.assetId)}" data-asset-ext="${esc(a.ext)}" data-asset-name="${esc(a.name)}"${a.width ? ` data-asset-width="${a.width}"` : ''}></span>`
-      })
-    }
-
     // 注入 DOM
     el.innerHTML = safe
 
@@ -722,7 +713,6 @@ export function createMarkdownRenderEngine(): MarkdownRenderEngine {
 /* ================================================================== */
 
 type PreprocessedMath = { tex: string; display: boolean }
-type PreprocessedAsset = { assetId: string; ext: string; name: string; width?: number }
 
 type FenceToken =
   | { kind: 'text'; text: string }
@@ -730,16 +720,13 @@ type FenceToken =
 
 function preprocessContent(
   source: unknown,
-): { text: string; math: PreprocessedMath[]; mermaid: string[]; assets: PreprocessedAsset[] } {
+): { text: string; math: PreprocessedMath[]; mermaid: string[] } {
   const src = String(source || '').replace(/\r\n/g, '\n')
   const tokens = tokenizeFences(src)
 
   const mermaid: string[] = []
   const math: PreprocessedMath[] = []
-  const assets: PreprocessedAsset[] = []
   const out: string[] = []
-
-  const assetPattern = /\{\{asset:([^}|]+?)(?:\|([^}|]*?))?(?:\|(\d+))?\}\}/g
 
   for (const t of tokens) {
     if (t.kind === 'fence') {
@@ -755,24 +742,11 @@ function preprocessContent(
       continue
     }
 
-    // 先提取 asset 标记，再处理数学公式
-    const withAssets = t.text.replace(assetPattern, (_m, ref, displayName, widthStr) => {
-      const r = String(ref || '').trim()
-      const dotIdx = r.lastIndexOf('.')
-      const assetId = dotIdx > 0 ? r.slice(0, dotIdx) : r
-      const ext = dotIdx > 0 ? r.slice(dotIdx + 1).toLowerCase() : ''
-      const name = String(displayName || '').trim() || (ext ? `${assetId.slice(0, 8)}.${ext}` : assetId.slice(0, 8))
-      const width = widthStr ? Number(widthStr) : undefined
-      const id = assets.length
-      assets.push({ assetId, ext, name, width })
-      return `@@ASSET_${id}@@`
-    })
-
-    const withMath = replaceMathOutsideInlineCode(withAssets, math)
+    const withMath = replaceMathOutsideInlineCode(t.text, math)
     out.push(withMath)
   }
 
-  return { text: out.join(''), math, mermaid, assets }
+  return { text: out.join(''), math, mermaid }
 }
 
 function tokenizeFences(input: string): FenceToken[] {

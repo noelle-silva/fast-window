@@ -19,7 +19,6 @@ import { loadHtmlFace, loadNoteIndex, loadNotePackage, saveHtmlFace, saveNotePac
 import { createMarkdownRenderEngine } from '../render/engine'
 import { AutoHeightHtmlIframe } from './AutoHeightHtmlIframe'
 import { AssetPoolPanel } from './AssetPoolPanel'
-import { resolveAssetsInElement } from '../render/assetResolver'
 
 type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'note-detail' | 'index' | 'settings'
 
@@ -102,30 +101,26 @@ export function HyperCortexApp() {
   React.useLayoutEffect(() => {
     if (activeNoteFace !== 'text' || activeNoteEditing || !textRenderRef.current || !activeNoteDoc) return
     renderEngineRef.current.renderInto(textRenderRef.current, activeNoteDoc.body)
-    resolveAssetsInElement(textRenderRef.current, api, 'library').catch(() => {})
   }, [activeNoteFace, activeNoteEditing, activeNoteDoc])
 
-  /** 编辑器覆盖层渲染完 block 后，异步解析其中的资源占位符，完成后请求重新布局 */
+  /** 编辑器覆盖层渲染完 block 后：等待异步媒体就绪，完成后请求重新布局 */
   const handleBlockRendered = React.useCallback((el: HTMLElement, requestUpdate: () => void) => {
-    resolveAssetsInElement(el, api, 'library')
-      .then(() => {
-        const pending: { el: HTMLElement; event: string }[] = []
-        el.querySelectorAll('img').forEach(img => {
-          if (!img.complete) pending.push({ el: img, event: 'load' })
-        })
-        el.querySelectorAll('video').forEach(vid => {
-          if (vid.readyState < 1) pending.push({ el: vid, event: 'loadedmetadata' })
-        })
-        if (!pending.length) { requestUpdate(); return }
-        let remaining = pending.length
-        const done = () => { if (--remaining <= 0) requestUpdate() }
-        pending.forEach(({ el: m, event }) => {
-          m.addEventListener(event, done, { once: true })
-          m.addEventListener('error', done, { once: true })
-        })
-      })
-      .catch(() => {})
-  }, [api])
+    const pending: { el: HTMLElement; event: string }[] = []
+    el.querySelectorAll('img').forEach(img => {
+      if (!img.complete) pending.push({ el: img, event: 'load' })
+    })
+    el.querySelectorAll('video').forEach(vid => {
+      if (vid.readyState < 1) pending.push({ el: vid, event: 'loadedmetadata' })
+    })
+    if (!pending.length) return
+
+    let remaining = pending.length
+    const done = () => { if (--remaining <= 0) requestUpdate() }
+    pending.forEach(({ el: m, event }) => {
+      m.addEventListener(event, done, { once: true })
+      m.addEventListener('error', done, { once: true })
+    })
+  }, [])
 
   const backToHost = React.useCallback(() => {
     try {
