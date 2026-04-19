@@ -131,7 +131,7 @@ export const RenderOverlay = React.memo(function RenderOverlay({
 
           const engine = (window as any).__hcRenderEngine
           if (engine && typeof engine.renderInto === 'function') {
-            engine.renderInto(inner, seg.markdown)
+            engine.renderInto(inner, seg.markdown, { onAsyncLayout: () => scheduleUpdateRef.current() })
           }
 
           if (onBlockRendered) onBlockRendered(inner, () => scheduleUpdateRef.current())

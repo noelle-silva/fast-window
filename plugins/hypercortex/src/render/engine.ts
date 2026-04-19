@@ -3,10 +3,12 @@
  *
  * 从 ai-chat 的 assistantEngineDefault.ts 裁剪而来。
  * 保留：Markdown 渲染、数学公式 (KaTeX)、流程图 (Mermaid)、代码块复制、HTML 消毒 (DOMPurify)
- * 移除：工具调用卡片、贴纸系统、AI 修复 Mermaid、附件/资源渲染
+ * 移除：工具调用卡片、贴纸系统、AI 修复 Mermaid
  */
 
 import './vendor'
+import { type Api, type VaultScope } from '../core'
+import { resolveAssetsInElement } from './attachments'
 
 type RenderSafetyPolicy = 'original' | 'baseline' | 'unsafe'
 
@@ -17,7 +19,7 @@ export type MarkdownRenderEngine = {
   renderInto: (
     el: unknown,
     text: unknown,
-    options?: { renderSafetyPolicy?: RenderSafetyPolicy },
+    options?: { renderSafetyPolicy?: RenderSafetyPolicy; onAsyncLayout?: () => void },
   ) => void
 }
 
@@ -61,6 +63,13 @@ const ENGINE_CSS = `
 .hc-render pre.fw-code-block .fw-code-copy:focus-visible{outline:2px solid rgba(255,255,255,.35);outline-offset:2px;}
 .hc-render pre.fw-code-block .fw-code-copy[data-state="ok"]{color:#34d399;}
 .hc-render pre.fw-code-block .fw-code-copy[data-state="fail"]{color:#f87171;}
+.hc-asset{display:inline-block;vertical-align:middle;}
+.hc-asset-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:rgba(0,0,0,.05);color:rgba(0,0,0,.72);font-size:12px;line-height:1;user-select:none;}
+.hc-asset-chip--loading{background:rgba(25,118,210,.06);color:rgba(25,118,210,.85);}
+.hc-asset-chip--error{background:rgba(211,47,47,.08);color:rgba(211,47,47,.85);}
+.hc-asset-chip--doc{background:rgba(0,0,0,.05);color:rgba(0,0,0,.72);}
+.hc-asset-block{margin:10px 0;display:flex;flex-direction:column;gap:6px;}
+.hc-asset-title{font-size:12px;color:rgba(0,0,0,.52);font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .math-block{margin:10px 0;overflow-x:auto;}
 .hc-render .katex,.hc-render .katex-display{max-width:100%;}
 .hc-render span.katex{display:inline-block;overflow:visible;vertical-align:middle;}
@@ -103,12 +112,14 @@ function ensureEngineCss() {
 /*  工厂函数                                                           */
 /* ------------------------------------------------------------------ */
 
-export function createMarkdownRenderEngine(): MarkdownRenderEngine {
+export function createMarkdownRenderEngine(init?: { api?: Api; scope?: VaultScope }): MarkdownRenderEngine {
   let rendererPromise: Promise<void> | null = null
   let domPurifyHooked = false
   let mermaidInited = false
   let markedConfigured = false
   const mermaidSvgCache = new Map<string, string>()
+  const defaultApi = init?.api
+  const defaultScope: VaultScope = init?.scope || 'library'
 
   const ICON_COPY =
     '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M16 1H6c-1.1 0-2 .9-2 2v12h2V3h10V1zm3 4H10c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h9c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16h-9V7h9v14z"/></svg>'
@@ -356,6 +367,34 @@ export function createMarkdownRenderEngine(): MarkdownRenderEngine {
           </div>
         `
       }
+    }
+  }
+
+  function requestLayoutAfterMediaReady(root: HTMLElement, onAsyncLayout: () => void) {
+    const pending: { el: HTMLElement; event: string }[] = []
+    root.querySelectorAll('img').forEach((img) => {
+      if (!(img instanceof HTMLImageElement)) return
+      if (!img.complete) pending.push({ el: img, event: 'load' })
+    })
+    root.querySelectorAll('video').forEach((vid) => {
+      if (!(vid instanceof HTMLVideoElement)) return
+      if (vid.readyState < 1) pending.push({ el: vid, event: 'loadedmetadata' })
+    })
+
+    if (!pending.length) {
+      try { onAsyncLayout() } catch (_) {}
+      return
+    }
+
+    let remaining = pending.length
+    const done = () => {
+      remaining -= 1
+      if (remaining > 0) return
+      try { onAsyncLayout() } catch (_) {}
+    }
+    for (const { el, event } of pending) {
+      el.addEventListener(event, done, { once: true })
+      el.addEventListener('error', done, { once: true })
     }
   }
 
@@ -626,7 +665,7 @@ export function createMarkdownRenderEngine(): MarkdownRenderEngine {
   function renderInto(
     el: unknown,
     text: unknown,
-    options?: { renderSafetyPolicy?: RenderSafetyPolicy },
+    options?: { renderSafetyPolicy?: RenderSafetyPolicy; onAsyncLayout?: () => void },
   ) {
     if (!(el instanceof HTMLElement)) return
     ensureEngineCss()
@@ -635,6 +674,7 @@ export function createMarkdownRenderEngine(): MarkdownRenderEngine {
     let html = ''
     const renderSafetyPolicy: RenderSafetyPolicy =
       options?.renderSafetyPolicy === 'unsafe' ? 'unsafe' : options?.renderSafetyPolicy === 'baseline' ? 'baseline' : 'original'
+    const onAsyncLayout = typeof options?.onAsyncLayout === 'function' ? options.onAsyncLayout : null
 
     const noIndent = preprocessHtmlIndentation(raw)
     const pre = preprocessContent(noIndent)
@@ -675,6 +715,16 @@ export function createMarkdownRenderEngine(): MarkdownRenderEngine {
       })
     }
 
+    // 回填 Asset 占位符
+    if (Array.isArray(pre.assets) && pre.assets.length) {
+      safe = safe.replace(/@@ASSET_(\d+)@@/g, (_m, id) => {
+        const a = pre.assets[Number(id)]
+        if (!a) return ''
+        const nm = esc(a.name)
+        return `<span class="hc-asset" data-hc-asset-ref="${esc(a.ref)}" data-hc-asset-name="${nm}" data-hc-asset-state="loading"${a.width ? ` data-hc-asset-width="${a.width}"` : ''}><span class="hc-asset-chip hc-asset-chip--loading">📎 ${nm}（加载中…）</span></span>`
+      })
+    }
+
     // 注入 DOM
     el.innerHTML = safe
 
@@ -701,8 +751,29 @@ export function createMarkdownRenderEngine(): MarkdownRenderEngine {
       enhanceMathCopyButtons(el)
     }
 
+    const tasks: Promise<any>[] = []
+
     // Mermaid 图表异步渲染
-    renderMermaidInto(el, renderSafetyPolicy).catch(() => {})
+    tasks.push(
+      renderMermaidInto(el, renderSafetyPolicy)
+        .catch(() => {})
+        .finally(() => { if (onAsyncLayout) { try { onAsyncLayout() } catch (_) {} } }),
+    )
+
+    // 附件/资源渲染（MVP：作为统一后处理链路的一环）
+    if (defaultApi) {
+      tasks.push(
+        resolveAssetsInElement(el, defaultApi, defaultScope)
+          .catch(() => {})
+          .finally(() => { if (onAsyncLayout) { try { onAsyncLayout() } catch (_) {} } }),
+      )
+    }
+
+    if (onAsyncLayout) {
+      Promise.allSettled(tasks)
+        .then(() => requestLayoutAfterMediaReady(el, onAsyncLayout))
+        .catch(() => {})
+    }
   }
 
   return { ensureRenderer, sanitizeHtml, sanitizeSvg, renderInto }
@@ -713,6 +784,7 @@ export function createMarkdownRenderEngine(): MarkdownRenderEngine {
 /* ================================================================== */
 
 type PreprocessedMath = { tex: string; display: boolean }
+type PreprocessedAsset = { ref: string; name: string; width?: number }
 
 type FenceToken =
   | { kind: 'text'; text: string }
@@ -720,13 +792,15 @@ type FenceToken =
 
 function preprocessContent(
   source: unknown,
-): { text: string; math: PreprocessedMath[]; mermaid: string[] } {
+): { text: string; math: PreprocessedMath[]; mermaid: string[]; assets: PreprocessedAsset[] } {
   const src = String(source || '').replace(/\r\n/g, '\n')
   const tokens = tokenizeFences(src)
 
   const mermaid: string[] = []
   const math: PreprocessedMath[] = []
+  const assets: PreprocessedAsset[] = []
   const out: string[] = []
+  const assetPattern = /\{\{asset:([^}|]+?)(?:\|([^}|]*?))?(?:\|(\d+))?\}\}/g
 
   for (const t of tokens) {
     if (t.kind === 'fence') {
@@ -742,11 +816,25 @@ function preprocessContent(
       continue
     }
 
-    const withMath = replaceMathOutsideInlineCode(t.text, math)
+    const withAssets = t.text.replace(assetPattern, (_m, refText, displayName, widthStr) => {
+      const ref = String(refText || '').trim()
+      if (!ref) return ''
+      const dotIdx = ref.lastIndexOf('.')
+      const ext = dotIdx > 0 ? ref.slice(dotIdx + 1).toLowerCase() : ''
+      const assetId = dotIdx > 0 ? ref.slice(0, dotIdx) : ref
+      const name0 = String(displayName || '').trim()
+      const name = name0 || (ext ? `${assetId.slice(0, 8)}.${ext}` : assetId.slice(0, 8))
+      const width = widthStr ? Number(widthStr) : undefined
+      const id = assets.length
+      assets.push({ ref, name, width })
+      return `@@ASSET_${id}@@`
+    })
+
+    const withMath = replaceMathOutsideInlineCode(withAssets, math)
     out.push(withMath)
   }
 
-  return { text: out.join(''), math, mermaid }
+  return { text: out.join(''), math, mermaid, assets }
 }
 
 function tokenizeFences(input: string): FenceToken[] {
