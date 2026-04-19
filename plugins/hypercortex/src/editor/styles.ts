@@ -199,3 +199,109 @@ export function ensureRenderOverlayStyles() {
   el.textContent = OVERLAY_CSS
   document.head.appendChild(el)
 }
+
+/* ================================================================== */
+/*  HyperCodeMirror (CM6) 编辑器样式                                    */
+/* ================================================================== */
+
+const CM6_STYLE_ID = 'hc-cm6-editor-css'
+
+const CM6_CSS = `
+/* 容器 */
+.hc-cm6-editor-container{
+  position:relative;
+  width:100%;
+  --hc-editor-bg:#fff;
+}
+.hc-cm6-editor-container > div{min-height:inherit;}
+
+/* CodeMirror 本体（尽量继承旧 UnifiedEditor 的观感） */
+.hc-cm6-editor-container .cm-editor{
+  background:transparent;
+  outline:none;
+  min-height:inherit;
+  border-radius:12px;
+}
+.hc-cm6-editor-container .cm-scroller{
+  font-family:'PingFang SC','Microsoft YaHei',system-ui,sans-serif;
+  font-size:16px;
+  line-height:1.8;
+  color:#222;
+  caret-color:#1976d2;
+  padding:8px 10px;
+}
+.hc-cm6-editor-container .cm-content{
+  padding:0;
+}
+.hc-cm6-editor-container .cm-line{
+  padding:0;
+}
+.hc-cm6-editor-container .cm-gutters{
+  background:transparent;
+  border-right:none;
+  color:rgba(0,0,0,.35);
+}
+.hc-cm6-editor-container .cm-activeLine,
+.hc-cm6-editor-container .cm-activeLineGutter{
+  background:rgba(25,118,210,.04);
+}
+.hc-cm6-editor-container .cm-selectionBackground,
+.hc-cm6-editor-container .cm-content ::selection{
+  background:rgba(25,118,210,.18);
+}
+.hc-cm6-editor-container .cm-cursor{
+  border-left:2px solid #1976d2;
+}
+
+/* Live Preview 小组件（自然融入正文） */
+.hc-cm6-preview{
+  background:transparent;
+  border:none;
+  box-shadow:none;
+  padding:0;
+  margin:4px 0;
+}
+.hc-cm6-preview .hc-render > *:first-child{margin-top:0;}
+.hc-cm6-preview .hc-render > *:last-child{margin-bottom:0;}
+
+/* Mark Decoration：语法装饰（标题、强调、行内代码、变淡标记符） */
+.cm-hc-h1, .cm-hc-h2, .cm-hc-h3{
+  font-weight:bold;
+  color:var(--text-primary, #000);
+  display:inline-block;
+  width:100%;
+}
+.cm-hc-h1{
+  font-size:1.6em;
+  border-bottom:1px solid rgba(0,0,0,0.08);
+  padding-bottom:4px;
+}
+.cm-hc-h2{font-size:1.4em;}
+.cm-hc-h3{font-size:1.2em;}
+.cm-hc-bold{
+  font-weight:bold;
+  color:#000;
+}
+.cm-hc-italic{font-style:italic;}
+.cm-hc-inline-code{
+  font-family:ui-monospace, monospace;
+  background:rgba(25,118,210,0.06);
+  color:#1976d2;
+  padding:1px 4px;
+  border-radius:4px;
+}
+.cm-hc-dim{color:rgba(0,0,0,0.3);}
+
+/* 占位符（CM6 placeholder 扩展会用到这个 class） */
+.hc-cm6-editor-container .cm-placeholder{
+  color:rgba(0,0,0,.42);
+}
+`
+
+export function ensureHyperCodeMirrorEditorStyles() {
+  if (document.getElementById(CM6_STYLE_ID)) return
+  const el = document.createElement('style')
+  el.id = CM6_STYLE_ID
+  el.textContent = CM6_CSS
+  document.head.appendChild(el)
+}
