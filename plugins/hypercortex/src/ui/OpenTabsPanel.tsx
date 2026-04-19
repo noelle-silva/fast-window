@@ -76,6 +76,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
   } = props
 
   const showTitle = panelWidth > 52
+  const disableTopTooltips = tabsMode === 'hover'
   const openNoteIds = React.useMemo(() => openNoteTabs.map(t => t.id), [openNoteTabs])
 
   const groupById = React.useMemo(() => {
@@ -129,8 +130,16 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       const title = tab.title || '未命名'
       const isDragOver = dnd.dragOverKey === `tab_${tab.id}`
       const isDragging = dnd.draggingKey === `tab_${tab.id}`
+      const disableTitleTooltip = tabsMode === 'hover'
       return (
-        <Tooltip key={tab.id} title={!showTitle ? title : ''} placement="right" disableHoverListener={showTitle}>
+        <Tooltip
+          key={tab.id}
+          title={!showTitle && !disableTitleTooltip ? title : ''}
+          placement="right"
+          disableHoverListener={showTitle || disableTitleTooltip}
+          disableFocusListener={disableTitleTooltip}
+          disableTouchListener={disableTitleTooltip}
+        >
           <Box
             {...dnd.getTabProps(tab.id)}
             role="button"
@@ -202,7 +211,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         </Tooltip>
       )
     },
-    [activeNoteId, dnd, onCloseTab, onOpenTab, showTitle],
+    [activeNoteId, dnd, onCloseTab, onOpenTab, showTitle, tabsMode],
   )
 
   const mixedItems = React.useMemo(() => {
@@ -243,13 +252,25 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       >
         {panelWidth <= 52 ? (
           tabsMode === 'manual' ? (
-            <Tooltip title={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'} placement="right">
+            <Tooltip
+              title={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'}
+              placement="right"
+              disableHoverListener={disableTopTooltips}
+              disableFocusListener={disableTopTooltips}
+              disableTouchListener={disableTopTooltips}
+            >
               <IconButton size="small" aria-label={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'} onClick={onToggleTabsCollapsed} sx={{ mx: 'auto' }}>
                 {tabsCollapsed ? <ChevronRightRoundedIcon fontSize="small" /> : <ChevronLeftRoundedIcon fontSize="small" />}
               </IconButton>
             </Tooltip>
           ) : (
-            <Tooltip title="切换到手动展开（挤压）" placement="right">
+            <Tooltip
+              title="切换到手动展开（挤压）"
+              placement="right"
+              disableHoverListener={disableTopTooltips}
+              disableFocusListener={disableTopTooltips}
+              disableTouchListener={disableTopTooltips}
+            >
               <IconButton size="small" aria-label="切换侧边栏模式" onClick={onToggleTabsMode} sx={{ mx: 'auto', color: 'rgba(0,0,0,.58)' }}>
                 <SyncAltRoundedIcon fontSize="small" />
               </IconButton>
@@ -259,7 +280,13 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           <Box sx={{ width: '100%', display: 'flex', alignItems: 'center' }}>
             <Box sx={{ width: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               {tabsMode === 'manual' ? (
-                <Tooltip title={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'} placement="right">
+                <Tooltip
+                  title={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'}
+                  placement="right"
+                  disableHoverListener={disableTopTooltips}
+                  disableFocusListener={disableTopTooltips}
+                  disableTouchListener={disableTopTooltips}
+                >
                   <IconButton size="small" aria-label={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'} onClick={onToggleTabsCollapsed}>
                     {tabsCollapsed ? <ChevronRightRoundedIcon fontSize="small" /> : <ChevronLeftRoundedIcon fontSize="small" />}
                   </IconButton>
@@ -269,13 +296,25 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
 
             <Box sx={{ flex: 1 }} />
 
-            <Tooltip title="新建分组" placement="left">
+            <Tooltip
+              title="新建分组"
+              placement="left"
+              disableHoverListener={disableTopTooltips}
+              disableFocusListener={disableTopTooltips}
+              disableTouchListener={disableTopTooltips}
+            >
               <IconButton size="small" aria-label="新建分组" onClick={onCreateGroup} sx={{ color: 'rgba(0,0,0,.58)' }}>
                 <AddRoundedIcon fontSize="small" />
               </IconButton>
             </Tooltip>
 
-            <Tooltip title={tabsMode === 'manual' ? '切换到悬停展开（覆盖）' : '切换到手动展开（挤压）'} placement="left">
+            <Tooltip
+              title={tabsMode === 'manual' ? '切换到悬停展开（覆盖）' : '切换到手动展开（挤压）'}
+              placement="left"
+              disableHoverListener={disableTopTooltips}
+              disableFocusListener={disableTopTooltips}
+              disableTouchListener={disableTopTooltips}
+            >
               <IconButton size="small" aria-label="切换侧边栏模式" onClick={onToggleTabsMode} sx={{ color: 'rgba(0,0,0,.58)' }}>
                 <SyncAltRoundedIcon fontSize="small" />
               </IconButton>
