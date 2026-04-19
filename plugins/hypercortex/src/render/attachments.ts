@@ -118,7 +118,6 @@ export async function resolveAssetsInElement(root: HTMLElement, api: Api, scope:
   if (!placeholders.length) return
 
   const tasks = placeholders.map(async (ph) => {
-    if (!ph.isConnected) return
     if (ph.getAttribute('data-hc-asset-done') === '1') return
     ph.setAttribute('data-hc-asset-done', '1')
 
@@ -163,4 +162,3 @@ export async function resolveAssetsInElement(root: HTMLElement, api: Api, scope:
 
   await Promise.all(tasks)
 }
-
