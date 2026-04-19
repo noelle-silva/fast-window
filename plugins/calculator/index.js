@@ -20,12 +20,13 @@
       el.style.transform = 'translateX(-50%)'
       el.style.maxWidth = 'min(520px, calc(100vw - 24px))'
       el.style.padding = '10px 12px'
-      el.style.borderRadius = '10px'
-      el.style.background = 'rgba(0,0,0,0.82)'
-      el.style.color = '#fff'
+      el.style.borderRadius = '12px'
+      el.style.background = '#141413'
+      el.style.color = '#b0aea5'
       el.style.fontSize = '12px'
-      el.style.lineHeight = '1.4'
-      el.style.boxShadow = '0 6px 18px rgba(0,0,0,0.28)'
+      el.style.lineHeight = '1.5'
+      el.style.fontFamily = "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Arial, sans-serif"
+      el.style.boxShadow = 'rgba(0,0,0,0.35) 0px 10px 28px'
       el.style.zIndex = '999999'
       el.style.opacity = '0'
       el.style.transition = 'opacity 160ms ease'
@@ -251,132 +252,256 @@
 
   const styles = `
   :root {
-    --bg: #FAFAFA;
-    --surface: #FFFFFF;
-    --text: #212121;
-    --muted: #757575;
-    --outline: #E0E0E0;
-    --primary: #1976D2;
-    --danger: #D32F2F;
-    --shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+    --bg-parchment: #f5f4ed;
+    --surface-ivory: #faf9f5;
+    --surface-white: #ffffff;
+
+    --text-primary: #141413;
+    --text-secondary: #5e5d59;
+    --text-tertiary: #87867f;
+
+    --brand: #c96442;
+    --brand-soft: #d97757;
+    --danger: #b53333;
+    --focus: #3898ec;
+
+    --border-cream: #f0eee6;
+    --border-warm: #e8e6dc;
+    --ring-warm: #d1cfc5;
+    --ring-deep: #c2c0b6;
+
+    --shadow-whisper: rgba(0,0,0,0.05) 0px 4px 24px;
+
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+
+    --font-serif: Georgia, 'Times New Roman', Times, serif;
+    --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
   }
+
   * { box-sizing: border-box; }
-  body { background: var(--bg); color: var(--text); }
+  html, body { height: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--bg-parchment);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    line-height: 1.6;
+  }
+
+  ::selection { background: rgba(201, 100, 66, 0.18); }
+
   .wrap { height: 100vh; display: flex; flex-direction: column; }
+
   .topbar {
-    height: 44px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--outline);
+    height: 52px;
+    background: var(--bg-parchment);
+    border-bottom: 0;
+    box-shadow: rgba(0,0,0,0.04) 0px 8px 24px;
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 0 10px;
-    box-shadow: var(--shadow);
+    padding: 0 14px;
     flex-shrink: 0;
   }
-  .btn {
-    border: 1px solid var(--outline);
-    background: var(--surface);
-    color: var(--text);
-    height: 30px;
-    padding: 0 10px;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 12px;
-    line-height: 28px;
+
+  .title {
+    font-family: var(--font-serif);
+    font-weight: 500;
+    font-size: 16px;
+    line-height: 1.2;
+    margin-right: auto;
     user-select: none;
   }
-  .btn.primary { border-color: transparent; background: var(--primary); color: white; }
-  .btn.danger { border-color: transparent; background: var(--danger); color: white; }
-  .title { font-weight: 700; font-size: 13px; margin-right: auto; }
-  .content { flex: 1; overflow: auto; padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+
+  .btn, .iconBtn, .key {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+  }
+
+  .btn {
+    height: 32px;
+    padding: 0 12px;
+    border-radius: var(--radius-sm);
+    background: var(--border-warm);
+    color: #4d4c48;
+    cursor: pointer;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+    box-shadow: none;
+    transition: background 140ms ease, transform 60ms ease, filter 140ms ease;
+  }
+
+  .btn:hover { background: var(--border-cream); filter: brightness(0.99); }
+  .btn:active { transform: translateY(0.5px); }
+  .btn:focus-visible { outline: none; filter: brightness(0.99); }
+
+  .btn.primary {
+    background: var(--brand);
+    color: var(--surface-ivory);
+    box-shadow: none;
+  }
+  .btn.primary:hover { background: var(--brand-soft); }
+
+  .btn.danger {
+    background: var(--danger);
+    color: var(--surface-ivory);
+    box-shadow: none;
+  }
+
+  .content {
+    flex: 1;
+    overflow: auto;
+    padding: 16px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+
   @media (max-width: 860px) {
     .content { grid-template-columns: 1fr; }
   }
+
   .panel {
-    background: var(--surface);
-    border: 1px solid var(--outline);
-    border-radius: 12px;
-    padding: 10px;
-    box-shadow: var(--shadow);
+    background: var(--surface-ivory);
+    border: 0;
+    border-radius: var(--radius-lg);
+    padding: 16px;
+    box-shadow: var(--shadow-whisper);
     min-width: 0;
   }
-  .exprRow { display: flex; gap: 8px; align-items: center; }
+
+  .exprRow { display: flex; gap: 10px; align-items: center; }
+
   .expr {
     width: 100%;
-    height: 76px;
-    border: 1px solid var(--outline);
-    border-radius: 10px;
-    padding: 0 10px;
+    height: 56px;
+    border: 0;
+    border-radius: var(--radius-md);
+    padding: 0 12px;
     font-size: 16px;
     outline: none;
-    background: white;
-    color: var(--text);
+    background: var(--surface-white);
+    color: var(--text-primary);
+    transition: filter 140ms ease;
   }
-  .rightCol { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-  .subRow { margin-top: 8px; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
-  .hint { font-size: 12px; color: var(--muted); }
+
+  .expr::placeholder { color: var(--text-tertiary); }
+
+  .expr:focus {
+    caret-color: var(--brand);
+    filter: brightness(0.99);
+  }
+
+  .rightCol { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+  .subRow { margin-top: 10px; display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+  .hint { font-size: 12px; color: var(--text-secondary); }
+
   .result {
     font-size: 28px;
-    font-weight: 900;
+    font-weight: 600;
     text-align: right;
-    min-height: 56px;
+    min-height: 44px;
     display: flex;
     align-items: center;
     justify-content: flex-end;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
   }
+
   .error { color: var(--danger); }
+
   .keypad {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
+    gap: 10px;
   }
+
   .key {
-    height: 42px;
-    border: 1px solid var(--outline);
-    border-radius: 12px;
-    background: white;
+    height: 44px;
+    padding: 0;
+    border-radius: var(--radius-md);
+    background: var(--surface-white);
     cursor: pointer;
     font-size: 14px;
-    line-height: 40px;
-    text-align: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     user-select: none;
+    box-shadow: none;
+    transition: background 140ms ease, transform 60ms ease, filter 140ms ease;
+    color: var(--text-primary);
   }
-  .key.op { background: #F5F5F5; }
-  .key.primary { border-color: transparent; background: var(--primary); color: white; font-weight: 700; }
-  .key.danger { border-color: transparent; background: var(--danger); color: white; }
-  .historyTop { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-  .historyList { display: flex; flex-direction: column; gap: 8px; }
+
+  .key:hover { background: var(--border-cream); filter: brightness(0.99); }
+  .key:active { transform: translateY(0.5px); }
+  .key:focus-visible { outline: none; filter: brightness(0.99); }
+
+  .key.op { background: var(--border-warm); color: #4d4c48; }
+  .key.primary { background: var(--brand); color: var(--surface-ivory); font-weight: 600; box-shadow: none; }
+  .key.primary:hover { background: var(--brand-soft); }
+  .key.danger { background: var(--danger); color: var(--surface-ivory); box-shadow: none; }
+
+  .historyTop { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .historyList { display: flex; flex-direction: column; gap: 10px; }
+
   .histItem {
-    border: 1px solid var(--outline);
-    border-radius: 12px;
-    padding: 8px 10px;
-    background: white;
+    border: 0;
+    border-radius: var(--radius-lg);
+    padding: 12px 12px;
+    background: var(--surface-white);
     display: grid;
     grid-template-columns: 1fr auto;
-    gap: 8px;
+    gap: 10px;
     align-items: center;
   }
-  .histExpr { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .histVal { font-size: 14px; font-weight: 800; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .histBtns { display: flex; gap: 6px; }
+
+  .histExpr { font-size: 13px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .histVal { font-size: 14px; font-weight: 600; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+  .histBtns { display: flex; gap: 8px; }
+
   .iconBtn {
-    width: 30px;
-    height: 30px;
-    border: 1px solid var(--outline);
-    border-radius: 10px;
-    background: white;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: var(--radius-md);
+    background: var(--surface-white);
     cursor: pointer;
     font-size: 14px;
-    line-height: 28px;
-    text-align: center;
-    color: var(--muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
     user-select: none;
+    box-shadow: none;
+    transition: background 140ms ease, transform 60ms ease, filter 140ms ease;
   }
-  .empty { color: var(--muted); text-align: center; padding: 10px 0; font-size: 13px; }
+
+  .iconBtn:hover { background: var(--border-cream); filter: brightness(0.99); }
+  .iconBtn:active { transform: translateY(0.5px); }
+  .iconBtn:focus-visible { outline: none; filter: brightness(0.99); }
+
+  .empty { color: var(--text-tertiary); text-align: center; padding: 12px 0; font-size: 13px; }
+
+  @media (max-width: 640px) {
+    .content { padding: 12px; gap: 12px; }
+    .panel { padding: 14px; }
+    .topbar { padding: 0 12px; }
+  }
   `
 
   function escapeHtml(s) {
@@ -736,35 +861,35 @@
         <div class="content">
           <div class="panel">
             <div class="keypad" aria-label="键盘">
-              <div class="key op" data-insert="(">(</div>
-              <div class="key op" data-insert=")">)</div>
-              <div class="key op" data-insert="^">^</div>
-              <div class="key danger" data-act="bs" aria-label="退格" title="退格">⌫</div>
+              <button type="button" class="key op" data-insert="(">(</button>
+              <button type="button" class="key op" data-insert=")">)</button>
+              <button type="button" class="key op" data-insert="^">^</button>
+              <button type="button" class="key danger" data-act="bs" aria-label="退格" title="退格">⌫</button>
 
-              <div class="key" data-insert="7">7</div>
-              <div class="key" data-insert="8">8</div>
-              <div class="key" data-insert="9">9</div>
-              <div class="key op" data-insert="/">÷</div>
+              <button type="button" class="key" data-insert="7">7</button>
+              <button type="button" class="key" data-insert="8">8</button>
+              <button type="button" class="key" data-insert="9">9</button>
+              <button type="button" class="key op" data-insert="/">÷</button>
 
-              <div class="key" data-insert="4">4</div>
-              <div class="key" data-insert="5">5</div>
-              <div class="key" data-insert="6">6</div>
-              <div class="key op" data-insert="*">×</div>
+              <button type="button" class="key" data-insert="4">4</button>
+              <button type="button" class="key" data-insert="5">5</button>
+              <button type="button" class="key" data-insert="6">6</button>
+              <button type="button" class="key op" data-insert="*">×</button>
 
-              <div class="key" data-insert="1">1</div>
-              <div class="key" data-insert="2">2</div>
-              <div class="key" data-insert="3">3</div>
-              <div class="key op" data-insert="-">−</div>
+              <button type="button" class="key" data-insert="1">1</button>
+              <button type="button" class="key" data-insert="2">2</button>
+              <button type="button" class="key" data-insert="3">3</button>
+              <button type="button" class="key op" data-insert="-">−</button>
 
-              <div class="key op" data-act="ans" aria-label="插入上次结果" title="Ans">Ans</div>
-              <div class="key" data-insert="0">0</div>
-              <div class="key" data-insert=".">.</div>
-              <div class="key op" data-insert="+">+</div>
+              <button type="button" class="key op" data-act="ans" aria-label="插入上次结果" title="Ans">Ans</button>
+              <button type="button" class="key" data-insert="0">0</button>
+              <button type="button" class="key" data-insert=".">.</button>
+              <button type="button" class="key op" data-insert="+">+</button>
 
-              <div class="key op" data-act="clear" aria-label="清空">清空</div>
-              <div class="key op" data-act="useLast" aria-label="使用上次结果">=Ans</div>
-              <div class="key op" data-act="copyExpr" aria-label="复制表达式">复制式</div>
-              <div class="key primary" data-act="eq" aria-label="计算">=</div>
+              <button type="button" class="key op" data-act="clear" aria-label="清空">清空</button>
+              <button type="button" class="key op" data-act="useLast" aria-label="使用上次结果">=Ans</button>
+              <button type="button" class="key op" data-act="copyExpr" aria-label="复制表达式">复制式</button>
+              <button type="button" class="key primary" data-act="eq" aria-label="计算">=</button>
             </div>
           </div>
 
@@ -782,7 +907,7 @@
 
             <div class="panel">
               <div class="historyTop">
-                <div class="title" style="margin-right:auto">历史</div>
+                <div class="title">历史</div>
                 <button class="btn" data-act="clearHistory" aria-label="清空历史">清空历史</button>
               </div>
               <div class="historyList" data-area="history"></div>
