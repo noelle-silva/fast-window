@@ -52,6 +52,13 @@ export const METADATA_FILE = 'hypercortex-metadata.json'
 export const REFS_INDEX_FILE = 'hypercortex-refs.json'
 export const PLUGIN_ID = 'hypercortex'
 
+export type HyperCortexTabGroupV1 = {
+  id: string
+  title: string
+  color: string
+  collapsed?: boolean
+}
+
 export type HyperCortexMetadataV1 = {
   version: 1
   allNotesLayout?: 'list' | 'grid' | 'icon'
@@ -59,6 +66,8 @@ export type HyperCortexMetadataV1 = {
   activeNoteId?: string
   tabsCollapsed?: boolean
   tabsMode?: 'manual' | 'hover'
+  tabGroups?: HyperCortexTabGroupV1[]
+  tabGroupByNoteId?: Record<string, string>
 }
 
 type TauriLike = { invoke: (req: { command: string; payload?: any }) => Promise<any> }

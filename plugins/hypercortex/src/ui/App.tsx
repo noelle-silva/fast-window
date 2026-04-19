@@ -11,20 +11,19 @@ import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded'
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
-import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded'
-import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
-import SyncAltRoundedIcon from '@mui/icons-material/SyncAltRounded'
 import CodeRoundedIcon from '@mui/icons-material/CodeRounded'
 import WysiwygRoundedIcon from '@mui/icons-material/WysiwygRounded'
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
-import { ensureMetadata, getApi, saveMetadata, tryLoadMetadata, type HyperCortexMetadataV1, type HyperCortexNoteDoc, type NoteMeta } from '../core'
+import { ensureMetadata, getApi, saveMetadata, tryLoadMetadata, type HyperCortexMetadataV1, type HyperCortexNoteDoc, type HyperCortexTabGroupV1, type NoteMeta } from '../core'
 import { loadHtmlFace, loadNoteIndex, loadNotePackage, saveHtmlFace, saveNotePackage } from '../notePackage'
 import { loadRefIndex, getBacklinksFor, type NoteRefIndex } from '../noteRefs'
 import { createMarkdownRenderEngine } from '../render/engine'
 import { AutoHeightHtmlIframe } from './AutoHeightHtmlIframe'
 import { AssetPoolPanel } from './AssetPoolPanel'
+import { OpenTabsPanel } from './OpenTabsPanel'
+import { createTabGroupId, normalizeTabGroupByNoteId, normalizeTabGroups, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 
 type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'note-detail' | 'index' | 'settings'
 
@@ -158,6 +157,10 @@ export function HyperCortexApp() {
   const [tabsInitReady, setTabsInitReady] = React.useState(false)
   const [tabsMode, setTabsMode] = React.useState<TabsMode>('manual')
   const [tabsHoverOpen, setTabsHoverOpen] = React.useState(false)
+  const [tabGrouping, setTabGrouping] = React.useState<{ groups: HyperCortexTabGroupV1[]; byNoteId: Record<string, string> }>({
+    groups: [],
+    byNoteId: {},
+  })
 
   const renderEngineRef = React.useRef(createMarkdownRenderEngine({ api, scope: 'library' }))
   ;(window as any).__hcRenderEngine = renderEngineRef.current
@@ -172,6 +175,17 @@ export function HyperCortexApp() {
       await saveMetadata(api, next)
     },
     [api],
+  )
+
+  const updateTabGrouping = React.useCallback(
+    (updater: (prev: { groups: HyperCortexTabGroupV1[]; byNoteId: Record<string, string> }) => { groups: HyperCortexTabGroupV1[]; byNoteId: Record<string, string> }) => {
+      setTabGrouping(prev => {
+        const next = updater(prev)
+        if (metaReady) void persistMetadataPatch({ tabGroups: next.groups, tabGroupByNoteId: next.byNoteId }).catch(() => {})
+        return next
+      })
+    },
+    [metaReady, persistMetadataPatch],
   )
 
   const isHoverTabsMode = tabsMode === 'hover'
@@ -251,6 +265,86 @@ export function HyperCortexApp() {
     })
   }, [metaReady, persistMetadataPatch])
 
+  const handleCreateTabGroup = React.useCallback(() => {
+    updateTabGrouping(prev => {
+      const nextGroup: HyperCortexTabGroupV1 = {
+        id: createTabGroupId(),
+        title: pickNextTabGroupTitle(prev.groups),
+        color: pickNextTabGroupColor(prev.groups),
+        collapsed: false,
+      }
+      return { ...prev, groups: [...prev.groups, nextGroup] }
+    })
+  }, [updateTabGrouping])
+
+  const handleAssignTabToGroup = React.useCallback(
+    (noteId: string, groupId: string) => {
+      const nid = String(noteId || '').trim()
+      const gid = String(groupId || '').trim()
+      if (!nid || !gid) return
+      updateTabGrouping(prev => {
+        if (!prev.groups.some(g => g.id === gid)) return prev
+        return { ...prev, byNoteId: { ...prev.byNoteId, [nid]: gid } }
+      })
+    },
+    [updateTabGrouping],
+  )
+
+  const handleToggleGroupCollapsed = React.useCallback(
+    (groupId: string) => {
+      const gid = String(groupId || '').trim()
+      if (!gid) return
+      updateTabGrouping(prev => {
+        const nextGroups = prev.groups.map(g => (g.id === gid ? { ...g, collapsed: !g.collapsed } : g))
+        return { ...prev, groups: nextGroups }
+      })
+    },
+    [updateTabGrouping],
+  )
+
+  const handleRenameGroup = React.useCallback(
+    (groupId: string, title: string) => {
+      const gid = String(groupId || '').trim()
+      const nextTitle = String(title || '').trim()
+      if (!gid || !nextTitle) return
+      updateTabGrouping(prev => {
+        const nextGroups = prev.groups.map(g => (g.id === gid ? { ...g, title: nextTitle } : g))
+        return { ...prev, groups: nextGroups }
+      })
+    },
+    [updateTabGrouping],
+  )
+
+  const handleSetGroupColor = React.useCallback(
+    (groupId: string, color: string) => {
+      const gid = String(groupId || '').trim()
+      const nextColor = String(color || '').trim()
+      if (!gid || !nextColor) return
+      updateTabGrouping(prev => {
+        const nextGroups = prev.groups.map(g => (g.id === gid ? { ...g, color: nextColor } : g))
+        return { ...prev, groups: nextGroups }
+      })
+    },
+    [updateTabGrouping],
+  )
+
+  const handleDeleteGroupOnly = React.useCallback(
+    (groupId: string) => {
+      const gid = String(groupId || '').trim()
+      if (!gid) return
+      updateTabGrouping(prev => {
+        const nextGroups = prev.groups.filter(g => g.id !== gid)
+        const nextByNoteId: Record<string, string> = {}
+        for (const [noteId, mapped] of Object.entries(prev.byNoteId)) {
+          if (mapped === gid) continue
+          nextByNoteId[noteId] = mapped
+        }
+        return { groups: nextGroups, byNoteId: nextByNoteId }
+      })
+    },
+    [updateTabGrouping],
+  )
+
   const loadAllNotes = React.useCallback(async () => {
     setAllNotesLoading(true)
     setAllNotesLoadError(null)
@@ -280,6 +374,10 @@ export function HyperCortexApp() {
         setAllNotesLayout(normalizeAllNotesLayout(meta.allNotesLayout))
         setTabsCollapsed(normalizeBoolean(meta.tabsCollapsed))
         setTabsMode(normalizeTabsMode(meta.tabsMode))
+        setTabGrouping({
+          groups: normalizeTabGroups(meta.tabGroups),
+          byNoteId: normalizeTabGroupByNoteId(meta.tabGroupByNoteId),
+        })
         const activeId = typeof meta.activeNoteId === 'string' ? meta.activeNoteId.trim() : ''
         restoreActiveNoteIdRef.current = activeId
 
@@ -377,16 +475,41 @@ export function HyperCortexApp() {
     if (meta) void handleOpenNote(meta)
   }, [handleOpenNote, metaReady, openNoteTabs, tabsInitReady])
 
-  const handleCloseTab = React.useCallback(
-    (noteId: string) => {
+  const handleCloseTabs = React.useCallback(
+    (noteIds: string[]) => {
+      const closing = new Set(noteIds.map(s => String(s || '').trim()).filter(Boolean))
+      if (!closing.size) return
       setOpenNoteTabs(prev => {
-        const idx = prev.findIndex(t => t.id === noteId)
-        if (idx < 0) return prev
-        const next = prev.filter(t => t.id !== noteId)
-        const closingActive = activeNote?.id === noteId
-        const fallback = closingActive ? (next[idx] || next[idx - 1] || null) : null
-        const nextActiveId = closingActive ? fallback?.id : activeNote?.id
+        const hasAny = prev.some(t => closing.has(t.id))
+        if (!hasAny) return prev
+        const next = prev.filter(t => !closing.has(t.id))
+
+        const currentActiveId = activeNote?.id || ''
+        const closingActive = !!currentActiveId && closing.has(currentActiveId)
+        let fallback: NoteMeta | null = null
+        if (closingActive) {
+          const activeIdx = prev.findIndex(t => t.id === currentActiveId)
+          for (let i = activeIdx + 1; i < prev.length; i++) {
+            const t = prev[i]
+            if (!closing.has(t.id)) {
+              fallback = t
+              break
+            }
+          }
+          if (!fallback) {
+            for (let i = activeIdx - 1; i >= 0; i--) {
+              const t = prev[i]
+              if (!closing.has(t.id)) {
+                fallback = t
+                break
+              }
+            }
+          }
+        }
+
+        const nextActiveId = closingActive ? fallback?.id : currentActiveId
         if (metaReady) void persistMetadataPatch({ openNoteIds: next.map(t => t.id), activeNoteId: nextActiveId }).catch(() => {})
+
         if (!closingActive) return next
         if (fallback) void handleOpenNote(fallback)
         else {
@@ -401,6 +524,19 @@ export function HyperCortexApp() {
       })
     },
     [activeNote?.id, handleOpenNote, metaReady, persistMetadataPatch],
+  )
+
+  const handleCloseTab = React.useCallback((noteId: string) => handleCloseTabs([noteId]), [handleCloseTabs])
+
+  const handleDeleteGroupAndCloseTabs = React.useCallback(
+    (groupId: string) => {
+      const gid = String(groupId || '').trim()
+      if (!gid) return
+      const idsToClose = openNoteTabs.filter(t => tabGrouping.byNoteId[t.id] === gid).map(t => t.id)
+      handleDeleteGroupOnly(gid)
+      if (idsToClose.length) handleCloseTabs(idsToClose)
+    },
+    [handleCloseTabs, handleDeleteGroupOnly, openNoteTabs, tabGrouping.byNoteId],
   )
 
   React.useEffect(() => {
@@ -735,146 +871,26 @@ export function HyperCortexApp() {
                 boxShadow: isHoverTabsMode && sidebarPanelExpanded ? '0 10px 30px rgba(0,0,0,.14)' : 'none',
               }}
             >
-              <Box
-                sx={{
-                  px: 0.75,
-                  py: 0.5,
-                  display: 'flex',
-                  alignItems: 'center',
-                  borderBottom: '1px solid rgba(0,0,0,.06)',
-                }}
-              >
-                {sidebarPanelWidth <= 52 ? (
-                  tabsMode === 'manual' ? (
-                    <Tooltip title={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'} placement="right">
-                      <IconButton
-                        size="small"
-                        aria-label={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'}
-                        onClick={toggleTabsCollapsed}
-                        sx={{ mx: 'auto' }}
-                      >
-                        {tabsCollapsed ? <ChevronRightRoundedIcon fontSize="small" /> : <ChevronLeftRoundedIcon fontSize="small" />}
-                      </IconButton>
-                    </Tooltip>
-                  ) : (
-                    <Tooltip title="切换到手动展开（挤压）" placement="right">
-                      <IconButton
-                        size="small"
-                        aria-label="切换侧边栏模式"
-                        onClick={toggleTabsMode}
-                        sx={{ mx: 'auto', color: 'rgba(0,0,0,.58)' }}
-                      >
-                        <SyncAltRoundedIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  )
-                ) : (
-                  <Box sx={{ width: '100%', display: 'flex', alignItems: 'center' }}>
-                    <Box sx={{ width: 32, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      {tabsMode === 'manual' ? (
-                        <Tooltip title={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'} placement="right">
-                          <IconButton
-                            size="small"
-                            aria-label={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'}
-                            onClick={toggleTabsCollapsed}
-                          >
-                            {tabsCollapsed ? <ChevronRightRoundedIcon fontSize="small" /> : <ChevronLeftRoundedIcon fontSize="small" />}
-                          </IconButton>
-                        </Tooltip>
-                      ) : null}
-                    </Box>
-
-                    <Box sx={{ flex: 1 }} />
-
-                    <Tooltip title={tabsMode === 'manual' ? '切换到悬停展开（覆盖）' : '切换到手动展开（挤压）'} placement="left">
-                      <IconButton
-                        size="small"
-                        aria-label="切换侧边栏模式"
-                        onClick={toggleTabsMode}
-                        sx={{ color: 'rgba(0,0,0,.58)' }}
-                      >
-                        <SyncAltRoundedIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                )}
-              </Box>
-
-              <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: 0.5, py: 0.75, display: 'flex', flexDirection: 'column', gap: 0.25 }}>
-                {!openNoteTabs.length && sidebarPanelWidth > 52 ? (
-                  <Typography sx={{ px: 0.75, py: 0.5, fontSize: 12, color: 'rgba(0,0,0,.42)' }}>还没有打开的笔记</Typography>
-                ) : null}
-
-                {openNoteTabs.map(tab => {
-                  const isActive = activeNote?.id === tab.id
-                  const title = tab.title || '未命名'
-                  const showTitle = sidebarPanelWidth > 52
-                  return (
-                    <Tooltip key={tab.id} title={!showTitle ? title : ''} placement="right" disableHoverListener={showTitle}>
-                      <Box
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => void handleOpenNote(tab)}
-                        onKeyDown={e => {
-                          if (e.key !== 'Enter' && e.key !== ' ') return
-                          e.preventDefault()
-                          void handleOpenNote(tab)
-                        }}
-                        sx={{
-                          width: '100%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 0.75,
-                          px: showTitle ? 1 : 0.75,
-                          py: 0.6,
-                          borderRadius: 2,
-                          cursor: 'pointer',
-                          userSelect: 'none',
-                          outline: 'none',
-                          bgcolor: isActive ? 'rgba(25,118,210,.10)' : 'transparent',
-                          '&:hover': { bgcolor: isActive ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
-                          '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
-                        }}
-                      >
-                        <NotesRoundedIcon fontSize="small" sx={{ color: isActive ? '#1976d2' : 'rgba(0,0,0,.48)' }} />
-                        {showTitle ? (
-                          <Typography
-                            noWrap
-                            sx={{
-                              flex: 1,
-                              minWidth: 0,
-                              fontSize: 12,
-                              lineHeight: 1.2,
-                              fontWeight: isActive ? 900 : 600,
-                              color: isActive ? '#111' : 'rgba(0,0,0,.72)',
-                            }}
-                          >
-                            {title}
-                          </Typography>
-                        ) : null}
-                        {showTitle ? (
-                          <Tooltip title="关闭" placement="left">
-                            <IconButton
-                              size="small"
-                              aria-label={`关闭 ${title}`}
-                              onClick={e => {
-                                e.stopPropagation()
-                                handleCloseTab(tab.id)
-                              }}
-                              sx={{
-                                color: 'rgba(0,0,0,.42)',
-                                '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
-                              }}
-                            >
-                              <CloseRoundedIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        ) : null}
-                      </Box>
-                    </Tooltip>
-                  )
-                })}
-              </Box>
+              <OpenTabsPanel
+                panelWidth={sidebarPanelWidth}
+                tabsMode={tabsMode}
+                tabsCollapsed={tabsCollapsed}
+                openNoteTabs={openNoteTabs}
+                activeNoteId={activeNote?.id || ''}
+                tabGroups={tabGrouping.groups}
+                tabGroupByNoteId={tabGrouping.byNoteId}
+                onToggleTabsCollapsed={toggleTabsCollapsed}
+                onToggleTabsMode={toggleTabsMode}
+                onCreateGroup={handleCreateTabGroup}
+                onOpenTab={tab => void handleOpenNote(tab)}
+                onCloseTab={handleCloseTab}
+                onAssignTabToGroup={handleAssignTabToGroup}
+                onToggleGroupCollapsed={handleToggleGroupCollapsed}
+                onRenameGroup={handleRenameGroup}
+                onSetGroupColor={handleSetGroupColor}
+                onDeleteGroupOnly={handleDeleteGroupOnly}
+                onDeleteGroupAndCloseTabs={handleDeleteGroupAndCloseTabs}
+              />
             </Box>
           </Box>
 
