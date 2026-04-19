@@ -22,6 +22,7 @@ import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
 import SyncAltRoundedIcon from '@mui/icons-material/SyncAltRounded'
 import type { HyperCortexTabGroupV1, NoteMeta } from '../core'
 import { TAB_GROUP_PRESET_COLORS } from './tabGroups'
+import { useOpenTabsPointerDnd } from './useOpenTabsPointerDnd'
 
 export type OpenTabsPanelProps = {
   panelWidth: number
@@ -37,21 +38,17 @@ export type OpenTabsPanelProps = {
   onOpenTab: (tab: NoteMeta) => void
   onCloseTab: (noteId: string) => void
   onAssignTabToGroup: (noteId: string, groupId: string) => void
+  onUnassignTabFromGroup: (noteId: string) => void
   onToggleGroupCollapsed: (groupId: string) => void
   onRenameGroup: (groupId: string, title: string) => void
   onSetGroupColor: (groupId: string, color: string) => void
   onDeleteGroupOnly: (groupId: string) => void
   onDeleteGroupAndCloseTabs: (groupId: string) => void
+  onReorderOpenTabs: (nextOpenNoteIds: string[]) => void
+  onReorderTabGroups: (nextGroupIds: string[]) => void
 }
 
 type GroupMenuState = { mouseX: number; mouseY: number; groupId: string } | null
-
-function normalizeDraggedNoteId(e: React.DragEvent): string {
-  const dt = e.dataTransfer
-  const a = String(dt.getData('application/x-hc-note-id') || '').trim()
-  if (a) return a
-  return String(dt.getData('text/plain') || '').trim()
-}
 
 export function OpenTabsPanel(props: OpenTabsPanelProps) {
   const {
@@ -68,14 +65,18 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     onOpenTab,
     onCloseTab,
     onAssignTabToGroup,
+    onUnassignTabFromGroup,
     onToggleGroupCollapsed,
     onRenameGroup,
     onSetGroupColor,
     onDeleteGroupOnly,
     onDeleteGroupAndCloseTabs,
+    onReorderOpenTabs,
+    onReorderTabGroups,
   } = props
 
   const showTitle = panelWidth > 52
+  const openNoteIds = React.useMemo(() => openNoteTabs.map(t => t.id), [openNoteTabs])
 
   const groupById = React.useMemo(() => {
     const out: Record<string, HyperCortexTabGroupV1> = {}
@@ -94,7 +95,17 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     return { groupedTabs }
   }, [groupById, openNoteTabs, tabGroupByNoteId])
 
-  const [dragOverGroupId, setDragOverGroupId] = React.useState<string>('')
+  const dnd = useOpenTabsPointerDnd({
+    openNoteIds,
+    tabGroups,
+    tabGroupByNoteId,
+    isValidGroupId: (groupId: string) => !!groupById[String(groupId || '').trim()],
+    onAssignTabToGroup,
+    onUnassignTabFromGroup,
+    onReorderOpenTabs,
+    onReorderTabGroups,
+  })
+
   const [groupMenu, setGroupMenu] = React.useState<GroupMenuState>(null)
   const [renameState, setRenameState] = React.useState<{ groupId: string; title: string } | null>(null)
 
@@ -116,21 +127,19 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     (tab: NoteMeta) => {
       const isActive = activeNoteId === tab.id
       const title = tab.title || '未命名'
+      const isDragOver = dnd.dragOverKey === `tab_${tab.id}`
+      const isDragging = dnd.draggingKey === `tab_${tab.id}`
       return (
         <Tooltip key={tab.id} title={!showTitle ? title : ''} placement="right" disableHoverListener={showTitle}>
           <Box
+            {...dnd.getTabProps(tab.id)}
             role="button"
             tabIndex={0}
-            draggable
-            onDragStart={e => {
-              try {
-                e.dataTransfer.setData('application/x-hc-note-id', tab.id)
-                e.dataTransfer.setData('text/plain', tab.id)
-                e.dataTransfer.effectAllowed = 'move'
-              } catch {
-              }
+            data-tauri-drag-region="false"
+            onClick={() => {
+              if (dnd.suppressClickRef.current) return
+              onOpenTab(tab)
             }}
-            onClick={() => onOpenTab(tab)}
             onKeyDown={e => {
               if (e.key !== 'Enter' && e.key !== ' ') return
               e.preventDefault()
@@ -144,11 +153,13 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               px: showTitle ? 1 : 0.75,
               py: 0.6,
               borderRadius: 2,
-              cursor: 'pointer',
               userSelect: 'none',
               outline: 'none',
-              bgcolor: isActive ? 'rgba(25,118,210,.10)' : 'transparent',
-              '&:hover': { bgcolor: isActive ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
+              WebkitAppRegion: 'no-drag',
+              cursor: isDragging ? 'grabbing' : 'grab',
+              opacity: isDragging ? 0.72 : 1,
+              bgcolor: isDragOver ? 'rgba(25,118,210,.10)' : isActive ? 'rgba(25,118,210,.10)' : 'transparent',
+              '&:hover': { bgcolor: isDragOver ? 'rgba(25,118,210,.14)' : isActive ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
               '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
             }}
           >
@@ -173,6 +184,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                 <IconButton
                   size="small"
                   aria-label={`关闭 ${title}`}
+                  data-hc-no-drag="1"
                   onClick={e => {
                     e.stopPropagation()
                     onCloseTab(tab.id)
@@ -190,7 +202,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         </Tooltip>
       )
     },
-    [activeNoteId, onCloseTab, onOpenTab, showTitle],
+    [activeNoteId, dnd, onCloseTab, onOpenTab, showTitle],
   )
 
   const mixedItems = React.useMemo(() => {
@@ -272,7 +284,23 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         )}
       </Box>
 
-      <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: 0.5, py: 0.75, display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+      <Box
+        {...dnd.containerProps}
+        data-tauri-drag-region="false"
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          overflow: 'auto',
+          px: 0.5,
+          py: 0.75,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 0.25,
+          bgcolor: dnd.dragOverKey === 'container' ? 'rgba(25,118,210,.06)' : 'transparent',
+          transition: 'background-color 120ms ease',
+          WebkitAppRegion: 'no-drag',
+        }}
+      >
         {!openNoteTabs.length && !tabGroups.length && showTitle ? (
           <Typography sx={{ px: 0.75, py: 0.5, fontSize: 12, color: 'rgba(0,0,0,.42)' }}>还没有打开的笔记</Typography>
         ) : null}
@@ -283,15 +311,21 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           if (!g) return null
           const isCollapsed = g.collapsed === true
           const list = grouped.groupedTabs[g.id] || []
-          const isDragOver = dragOverGroupId === g.id
+          const isDragOver = dnd.dragOverKey === `group_${g.id}`
+          const isDragging = dnd.draggingKey === `group_${g.id}`
           const groupTitle = g.title || '分组'
           return (
             <React.Fragment key={`group_${g.id}`}>
               <Tooltip title={!showTitle ? groupTitle : ''} placement="right" disableHoverListener={showTitle}>
                 <Box
+                  {...dnd.getGroupProps(g.id)}
                   role="button"
                   tabIndex={0}
-                  onClick={() => onToggleGroupCollapsed(g.id)}
+                  data-tauri-drag-region="false"
+                  onClick={() => {
+                    if (dnd.suppressClickRef.current) return
+                    onToggleGroupCollapsed(g.id)
+                  }}
                   onKeyDown={e => {
                     if (e.key !== 'Enter' && e.key !== ' ') return
                     e.preventDefault()
@@ -301,22 +335,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                     e.preventDefault()
                     setGroupMenu({ mouseX: e.clientX, mouseY: e.clientY, groupId: g.id })
                   }}
-                  onDragOver={e => {
-                    e.preventDefault()
-                    setDragOverGroupId(g.id)
-                    try {
-                      e.dataTransfer.dropEffect = 'move'
-                    } catch {
-                    }
-                  }}
-                  onDragLeave={() => setDragOverGroupId(prev => (prev === g.id ? '' : prev))}
-                  onDrop={e => {
-                    e.preventDefault()
-                    const noteId = normalizeDraggedNoteId(e)
-                    setDragOverGroupId('')
-                    if (!noteId) return
-                    onAssignTabToGroup(noteId, g.id)
-                  }}
                   sx={{
                     width: '100%',
                     display: 'flex',
@@ -325,9 +343,11 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                     px: showTitle ? 1 : 0.75,
                     py: 0.5,
                     borderRadius: 2,
-                    cursor: 'pointer',
                     userSelect: 'none',
                     outline: 'none',
+                    WebkitAppRegion: 'no-drag',
+                    cursor: isDragging ? 'grabbing' : 'grab',
+                    opacity: isDragging ? 0.78 : 1,
                     bgcolor: isDragOver ? 'rgba(25,118,210,.10)' : 'rgba(0,0,0,.02)',
                     '&:hover': { bgcolor: isDragOver ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
                     '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.24)' },
@@ -425,12 +445,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         </MenuItem>
       </Menu>
 
-      <Dialog
-        open={!!renameState}
-        onClose={() => setRenameState(null)}
-        maxWidth="xs"
-        fullWidth
-      >
+      <Dialog open={!!renameState} onClose={() => setRenameState(null)} maxWidth="xs" fullWidth>
         <DialogTitle>重命名分组</DialogTitle>
         <DialogContent>
           <TextField
@@ -472,3 +487,4 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     </>
   )
 }
+

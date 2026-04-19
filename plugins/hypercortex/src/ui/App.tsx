@@ -290,6 +290,82 @@ export function HyperCortexApp() {
     [updateTabGrouping],
   )
 
+  const handleUnassignTabFromGroup = React.useCallback(
+    (noteId: string) => {
+      const nid = String(noteId || '').trim()
+      if (!nid) return
+      updateTabGrouping(prev => {
+        if (!prev.byNoteId[nid]) return prev
+        const nextByNoteId = { ...prev.byNoteId }
+        delete nextByNoteId[nid]
+        return { ...prev, byNoteId: nextByNoteId }
+      })
+    },
+    [updateTabGrouping],
+  )
+
+  const handleReorderOpenTabs = React.useCallback(
+    (nextOpenNoteIds: string[]) => {
+      const ids = Array.isArray(nextOpenNoteIds) ? nextOpenNoteIds : []
+      setOpenNoteTabs(prev => {
+        if (prev.length <= 1) return prev
+        const byId = new Map(prev.map(t => [t.id, t]))
+        const seen = new Set<string>()
+        const next: NoteMeta[] = []
+
+        for (const raw of ids) {
+          const id = typeof raw === 'string' ? raw.trim() : ''
+          if (!id || seen.has(id)) continue
+          const meta = byId.get(id)
+          if (!meta) continue
+          seen.add(id)
+          next.push(meta)
+        }
+        for (const meta of prev) {
+          if (seen.has(meta.id)) continue
+          seen.add(meta.id)
+          next.push(meta)
+        }
+
+        if (next.length === prev.length && next.every((t, i) => t.id === prev[i]?.id)) return prev
+        if (metaReady) void persistMetadataPatch({ openNoteIds: next.map(t => t.id) }).catch(() => {})
+        return next
+      })
+    },
+    [metaReady, persistMetadataPatch],
+  )
+
+  const handleReorderTabGroups = React.useCallback(
+    (nextGroupIds: string[]) => {
+      const ids = Array.isArray(nextGroupIds) ? nextGroupIds : []
+      updateTabGrouping(prev => {
+        if (prev.groups.length <= 1) return prev
+        const byId: Record<string, HyperCortexTabGroupV1> = {}
+        for (const g of prev.groups) byId[g.id] = g
+        const seen = new Set<string>()
+        const nextGroups: HyperCortexTabGroupV1[] = []
+
+        for (const raw of ids) {
+          const id = typeof raw === 'string' ? raw.trim() : ''
+          if (!id || seen.has(id)) continue
+          const g = byId[id]
+          if (!g) continue
+          seen.add(id)
+          nextGroups.push(g)
+        }
+        for (const g of prev.groups) {
+          if (seen.has(g.id)) continue
+          seen.add(g.id)
+          nextGroups.push(g)
+        }
+
+        if (nextGroups.length === prev.groups.length && nextGroups.every((g, i) => g.id === prev.groups[i]?.id)) return prev
+        return { ...prev, groups: nextGroups }
+      })
+    },
+    [updateTabGrouping],
+  )
+
   const handleToggleGroupCollapsed = React.useCallback(
     (groupId: string) => {
       const gid = String(groupId || '').trim()
@@ -885,11 +961,14 @@ export function HyperCortexApp() {
                 onOpenTab={tab => void handleOpenNote(tab)}
                 onCloseTab={handleCloseTab}
                 onAssignTabToGroup={handleAssignTabToGroup}
+                onUnassignTabFromGroup={handleUnassignTabFromGroup}
                 onToggleGroupCollapsed={handleToggleGroupCollapsed}
                 onRenameGroup={handleRenameGroup}
                 onSetGroupColor={handleSetGroupColor}
                 onDeleteGroupOnly={handleDeleteGroupOnly}
                 onDeleteGroupAndCloseTabs={handleDeleteGroupAndCloseTabs}
+                onReorderOpenTabs={handleReorderOpenTabs}
+                onReorderTabGroups={handleReorderTabGroups}
               />
             </Box>
           </Box>
