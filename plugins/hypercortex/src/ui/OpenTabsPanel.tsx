@@ -348,16 +348,16 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                     WebkitAppRegion: 'no-drag',
                     cursor: isDragging ? 'grabbing' : 'grab',
                     opacity: isDragging ? 0.78 : 1,
-                    bgcolor: isDragOver ? 'rgba(25,118,210,.10)' : 'rgba(0,0,0,.02)',
-                    '&:hover': { bgcolor: isDragOver ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
-                    '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.24)' },
+                    bgcolor: g.color,
+                    backgroundImage: isDragOver ? 'linear-gradient(0deg, rgba(25,118,210,.10), rgba(25,118,210,.10))' : 'none',
+                    '&:hover': { filter: 'brightness(0.985)' },
+                    '&:focus-visible': { backgroundImage: 'linear-gradient(0deg, rgba(25,118,210,.14), rgba(25,118,210,.14))' },
                   }}
                 >
                   <ChevronRightRoundedIcon
                     fontSize="small"
                     sx={{ color: 'rgba(0,0,0,.42)', transform: isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)', transition: 'transform 120ms ease' }}
                   />
-                  <Box sx={{ width: 10, height: 10, borderRadius: 2, bgcolor: g.color, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.08)' }} />
                   {showTitle ? (
                     <Typography noWrap sx={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: 900, color: 'rgba(0,0,0,.72)' }}>
                       {groupTitle}
@@ -487,4 +487,3 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     </>
   )
 }
-
