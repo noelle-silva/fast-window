@@ -89,8 +89,8 @@ const ENGINE_CSS = `
 .math-inline.fw-math-host>.fw-math-copy{left:100%;top:50%;transform:translate(0,-50%);}
 .math-block.fw-math-host>.fw-math-copy{right:6px;top:50%;transform:translateY(-50%);}
 .fw-math-host:hover>.fw-math-copy,.fw-math-host:focus-within>.fw-math-copy{opacity:1;visibility:visible;pointer-events:auto;}
-.mermaid-block{margin:10px 0;overflow-x:auto;cursor:zoom-in;}
-.mermaid-block svg{max-width:100%;height:auto;display:block;}
+.mermaid-block{margin:10px 0;overflow-x:auto;cursor:zoom-in;text-align:center;}
+.mermaid-block svg{max-width:100%;height:auto;display:block;margin:0 auto;}
 .mermaid-error{margin:10px 0;overflow-x:auto;}
 .mermaid-error-box{position:relative;background:#fff;border:1px solid rgba(0,0,0,.12);border-radius:12px;padding:10px 12px;padding-right:48px;}
 .mermaid-error-copy{position:absolute;top:8px;right:8px;width:28px;height:28px;padding:0;border-radius:999px;border:1px solid rgba(0,0,0,.12);background:#fff;color:rgba(0,0,0,.55);cursor:pointer;user-select:none;-webkit-user-select:none;display:inline-flex;align-items:center;justify-content:center;font-size:12px;}
