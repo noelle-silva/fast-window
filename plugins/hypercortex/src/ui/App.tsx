@@ -86,7 +86,7 @@ export function HyperCortexApp() {
   const [activeNoteLoading, setActiveNoteLoading] = React.useState(false)
   const [activeNoteLoadError, setActiveNoteLoadError] = React.useState<string | null>(null)
   const [activeNoteEditing, setActiveNoteEditing] = React.useState(false)
-  const [activeNoteTextEditorMode, setActiveNoteTextEditorMode] = React.useState<TextEditorMode>('source')
+  const [activeNoteTextEditorMode, setActiveNoteTextEditorMode] = React.useState<TextEditorMode>('live')
   const [activeNoteEditTitle, setActiveNoteEditTitle] = React.useState('')
   const [activeNoteEditBody, setActiveNoteEditBody] = React.useState('')
   const [activeNoteEditTags, setActiveNoteEditTags] = React.useState<string[]>([])
@@ -304,7 +304,7 @@ export function HyperCortexApp() {
     setActiveNoteEditTags(tags)
     setActiveNoteTagInput('')
     if (activeNoteFaces.includes('html')) setActiveNoteEditHtml(html)
-    setActiveNoteTextEditorMode('source')
+    setActiveNoteTextEditorMode('live')
     setActiveNoteEditing(true)
   }, [activeNote, activeNoteDoc, activeNoteEditHtml, activeNoteFace, activeNoteFaces, api])
 
@@ -554,7 +554,7 @@ export function HyperCortexApp() {
                 size="small"
                 aria-label="新建笔记"
                 onClick={() => {
-                  setActiveNoteTextEditorMode('source')
+                  setActiveNoteTextEditorMode('live')
                   setPage('new-note')
                 }}
                 sx={{
