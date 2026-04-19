@@ -149,6 +149,32 @@ class BulletWidget extends WidgetType {
   }
 }
 
+async function copyTextToClipboard(text: string) {
+  const t = String(text || '')
+  if (!t) return false
+  try {
+    const w = window as any
+    const writeText = w?.fastWindow?.clipboard?.writeText
+    if (typeof writeText === 'function') { await writeText(t); return true }
+    if (navigator?.clipboard?.writeText) { await navigator.clipboard.writeText(t); return true }
+  } catch (_) {}
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = t
+    ta.setAttribute('readonly', '')
+    ta.style.position = 'fixed'
+    ta.style.left = '-9999px'
+    ta.style.top = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    ta.setSelectionRange(0, ta.value.length)
+    const ok = document.execCommand('copy')
+    ta.remove()
+    return !!ok
+  } catch (_) {}
+  return false
+}
+
 function findInlineMathRanges(lineText: string, codeRanges: Array<[number, number]>) {
   const ranges: Array<{ from: number; to: number; tex: string }> = []
   const isEscaped = (i: number) => i > 0 && lineText[i - 1] === '\\'
@@ -205,19 +231,43 @@ class InlineMathWidget extends WidgetType {
   eq(other: WidgetType) { return other instanceof InlineMathWidget && other.tex === this.tex }
   toDOM(view: EditorView) {
     const span = document.createElement('span')
-    span.className = 'cm-hc-inline-math'
+    span.className = 'cm-hc-inline-math math-inline fw-math-host'
+    span.setAttribute('data-tex', this.tex)
+
+    const inner = document.createElement('span')
+    inner.className = 'cm-hc-inline-math-inner'
+
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'fw-math-copy'
+    btn.setAttribute('aria-label', '复制 LaTeX 公式')
+    btn.textContent = '⧉'
+    btn.addEventListener('click', (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      copyTextToClipboard(`$${this.tex}$`)
+        .then((ok) => { if (ok) { try { (window as any)?.fastWindow?.ui?.showToast?.('已复制公式') } catch (_) {} } })
+        .catch(() => {})
+    })
+    span.appendChild(inner)
+    span.appendChild(btn)
+
     const w = window as any
     const katex = w?.katex
     if (katex && typeof katex.render === 'function') {
-      try { katex.render(this.tex, span, { displayMode: false, throwOnError: false }) } catch (_) { span.textContent = this.tex }
+      try { katex.render(this.tex, inner, { displayMode: false, throwOnError: false }) } catch (_) { inner.textContent = this.tex }
     } else {
-      span.textContent = this.tex
+      inner.textContent = this.tex
     }
     // 公式字体/布局可能在下一帧才稳定，触发一次测量避免高度映射滞后
     requestAnimationFrame(() => requestCmLayout(view))
     return span
   }
-  ignoreEvent() { return false }
+  ignoreEvent(e: Event) {
+    const target = e.target instanceof Element ? e.target : null
+    if (target?.closest?.('button, a, input, textarea, select')) return true
+    return false
+  }
 }
 
 const syntaxHighlightPlugin = ViewPlugin.fromClass(
@@ -457,7 +507,9 @@ class HyperBlockWidget extends WidgetType {
     return wrap
   }
 
-  ignoreEvent() {
+  ignoreEvent(e: Event) {
+    const target = e.target instanceof Element ? e.target : null
+    if (target?.closest?.('button, a, input, textarea, select')) return true
     // 让点击预览时，光标能落在替换范围边界，从而“翻回源码”进入编辑态
     return false
   }
