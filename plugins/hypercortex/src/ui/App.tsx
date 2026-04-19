@@ -637,6 +637,14 @@ export function HyperCortexApp() {
     })
   }, [updateTabGrouping])
 
+  const handleCollapseAllGroups = React.useCallback(() => {
+    updateTabGrouping(prev => {
+      if (!prev.groups.length) return prev
+      if (prev.groups.every(g => g.collapsed === true)) return prev
+      return { ...prev, groups: prev.groups.map(g => (g.collapsed === true ? g : { ...g, collapsed: true })) }
+    })
+  }, [updateTabGrouping])
+
   const handleAssignTabToGroup = React.useCallback(
     (noteId: string, groupId: string) => {
       const nid = String(noteId || '').trim()
@@ -1519,6 +1527,7 @@ export function HyperCortexApp() {
                 onToggleTabsCollapsed={toggleTabsCollapsed}
                 onToggleTabsMode={toggleTabsMode}
                 onCreateDraftNote={handleCreateDraftNote}
+                onCollapseAllGroups={handleCollapseAllGroups}
                 onSwitchWorkspace={handleSwitchWorkspace}
                 onCreateWorkspace={handleCreateWorkspace}
                 onRenameWorkspace={handleRenameWorkspace}

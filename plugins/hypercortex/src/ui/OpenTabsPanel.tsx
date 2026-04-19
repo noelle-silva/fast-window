@@ -22,6 +22,7 @@ import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
 import SyncAltRoundedIcon from '@mui/icons-material/SyncAltRounded'
 import WorkspacesRoundedIcon from '@mui/icons-material/WorkspacesRounded'
+import UnfoldLessRoundedIcon from '@mui/icons-material/UnfoldLessRounded'
 import type { HyperCortexTabGroupV1, NoteMeta } from '../core'
 import { TAB_GROUP_PRESET_COLORS } from './tabGroups'
 import { useOpenTabsPointerDnd } from './useOpenTabsPointerDnd'
@@ -40,6 +41,7 @@ export type OpenTabsPanelProps = {
   onToggleTabsCollapsed: () => void
   onToggleTabsMode: () => void
   onCreateDraftNote: () => void
+  onCollapseAllGroups: () => void
   onSwitchWorkspace: (workspaceId: string) => void
   onCreateWorkspace: (title: string) => void
   onRenameWorkspace: (workspaceId: string, title: string) => void
@@ -75,6 +77,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     onToggleTabsCollapsed,
     onToggleTabsMode,
     onCreateDraftNote,
+    onCollapseAllGroups,
     onSwitchWorkspace,
     onCreateWorkspace,
     onRenameWorkspace,
@@ -405,6 +408,24 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
             >
               <IconButton size="small" aria-label="新建分组" onClick={onCreateGroup} sx={{ color: 'rgba(0,0,0,.58)' }}>
                 <FolderRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+
+            <Tooltip
+              title="全部收起分组"
+              placement="left"
+              disableHoverListener={disableTopTooltips}
+              disableFocusListener={disableTopTooltips}
+              disableTouchListener={disableTopTooltips}
+            >
+              <IconButton
+                size="small"
+                aria-label="全部收起分组"
+                onClick={onCollapseAllGroups}
+                disabled={tabGroups.length === 0}
+                sx={{ color: 'rgba(0,0,0,.58)' }}
+              >
+                <UnfoldLessRoundedIcon fontSize="small" />
               </IconButton>
             </Tooltip>
 
