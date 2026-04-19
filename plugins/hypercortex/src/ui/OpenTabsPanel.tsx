@@ -366,7 +366,30 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                   {showTitle ? <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.42)' }}>{list.length}</Typography> : null}
                 </Box>
               </Tooltip>
-              {isCollapsed ? null : list.map(renderTabRow)}
+              {isCollapsed ? null : list.length ? (
+                <Box
+                  sx={{
+                    position: 'relative',
+                    pl: showTitle ? 1 : 0.75,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 0.25,
+                    py: 0.25,
+                    '&::before': {
+                      content: '""',
+                      position: 'absolute',
+                      left: 0,
+                      top: 2,
+                      bottom: 2,
+                      width: 3,
+                      borderRadius: 2,
+                      bgcolor: g.color,
+                    },
+                  }}
+                >
+                  {list.map(renderTabRow)}
+                </Box>
+              ) : null}
             </React.Fragment>
           )
         })}
