@@ -55,6 +55,9 @@ export const PLUGIN_ID = 'hypercortex'
 export type HyperCortexMetadataV1 = {
   version: 1
   allNotesLayout?: 'list' | 'grid' | 'icon'
+  openNoteIds?: string[]
+  activeNoteId?: string
+  tabsCollapsed?: boolean
 }
 
 type TauriLike = { invoke: (req: { command: string; payload?: any }) => Promise<any> }

@@ -11,12 +11,14 @@ import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded'
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
+import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded'
+import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import CodeRoundedIcon from '@mui/icons-material/CodeRounded'
 import WysiwygRoundedIcon from '@mui/icons-material/WysiwygRounded'
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
-import { ensureMetadata, getApi, saveMetadata, tryLoadMetadata, type HyperCortexNoteDoc, type NoteMeta } from '../core'
+import { ensureMetadata, getApi, saveMetadata, tryLoadMetadata, type HyperCortexMetadataV1, type HyperCortexNoteDoc, type NoteMeta } from '../core'
 import { loadHtmlFace, loadNoteIndex, loadNotePackage, saveHtmlFace, saveNotePackage } from '../notePackage'
 import { loadRefIndex, getBacklinksFor, type NoteRefIndex } from '../noteRefs'
 import { createMarkdownRenderEngine } from '../render/engine'
@@ -40,6 +42,22 @@ type ActiveNoteEditSnapshot = {
 
 function normalizeAllNotesLayout(value: unknown): AllNotesLayout {
   return value === 'grid' || value === 'icon' ? value : 'list'
+}
+
+function normalizeOpenNoteIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const out: string[] = []
+  for (const item of value) {
+    const id = typeof item === 'string' ? item.trim() : ''
+    if (!id) continue
+    if (out.includes(id)) continue
+    out.push(id)
+  }
+  return out
+}
+
+function normalizeBoolean(value: unknown): boolean {
+  return value === true
 }
 
 const theme = createTheme({
@@ -101,6 +119,9 @@ function NavIconButton(props: {
 export function HyperCortexApp() {
   const api = React.useMemo(() => getApi(), [])
   const [page, setPage] = React.useState<PageId>('home')
+  const metaRef = React.useRef<HyperCortexMetadataV1 | null>(null)
+  const [metaReady, setMetaReady] = React.useState(false)
+  const restoreActiveNoteIdRef = React.useRef<string>('')
   const [newNoteTitle, setNewNoteTitle] = React.useState('新建笔记')
   const [newNoteContent, setNewNoteContent] = React.useState('')
   const [newNoteSaving, setNewNoteSaving] = React.useState(false)
@@ -109,7 +130,6 @@ export function HyperCortexApp() {
   const [allNotes, setAllNotes] = React.useState<NoteMeta[]>([])
   const [allNotesLoading, setAllNotesLoading] = React.useState(false)
   const [allNotesLoadError, setAllNotesLoadError] = React.useState<string | null>(null)
-  const [allNotesLayoutReady, setAllNotesLayoutReady] = React.useState(false)
   const [activeNote, setActiveNote] = React.useState<NoteMeta | null>(null)
   const [activeNoteDoc, setActiveNoteDoc] = React.useState<HyperCortexNoteDoc | null>(null)
   const [activeNoteLoading, setActiveNoteLoading] = React.useState(false)
@@ -127,11 +147,24 @@ export function HyperCortexApp() {
   const [activeNoteAddFaceSelectorVisible, setActiveNoteAddFaceSelectorVisible] = React.useState(false)
   const [activeNotePendingAddFace, setActiveNotePendingAddFace] = React.useState<NoteFaceId | null>(null)
   const activeNoteEditSnapshotRef = React.useRef<ActiveNoteEditSnapshot | null>(null)
+  const [tabsCollapsed, setTabsCollapsed] = React.useState(false)
+  const [openNoteTabs, setOpenNoteTabs] = React.useState<NoteMeta[]>([])
+  const [tabsInitReady, setTabsInitReady] = React.useState(false)
 
   const renderEngineRef = React.useRef(createMarkdownRenderEngine({ api, scope: 'library' }))
   ;(window as any).__hcRenderEngine = renderEngineRef.current
   const textRenderRef = React.useRef<HTMLDivElement>(null)
   const [refIndex, setRefIndex] = React.useState<NoteRefIndex>({})
+
+  const persistMetadataPatch = React.useCallback(
+    async (patch: Partial<HyperCortexMetadataV1>) => {
+      const current = metaRef.current || { version: 1 }
+      const next: HyperCortexMetadataV1 = { ...current, ...patch, version: 1 }
+      metaRef.current = next
+      await saveMetadata(api, next)
+    },
+    [api],
+  )
 
   React.useLayoutEffect(() => {
     if (activeNoteFace !== 'text' || activeNoteEditing || !textRenderRef.current || !activeNoteDoc) return
@@ -181,8 +214,20 @@ export function HyperCortexApp() {
   }, [])
 
   const toggleAllNotesLayout = React.useCallback(() => {
-    setAllNotesLayout(prev => (prev === 'list' ? 'grid' : prev === 'grid' ? 'icon' : 'list'))
-  }, [])
+    setAllNotesLayout(prev => {
+      const next = prev === 'list' ? 'grid' : prev === 'grid' ? 'icon' : 'list'
+      if (metaReady) void persistMetadataPatch({ allNotesLayout: next }).catch(() => {})
+      return next
+    })
+  }, [metaReady, persistMetadataPatch])
+
+  const toggleTabsCollapsed = React.useCallback(() => {
+    setTabsCollapsed(prev => {
+      const next = !prev
+      if (metaReady) void persistMetadataPatch({ tabsCollapsed: next }).catch(() => {})
+      return next
+    })
+  }, [metaReady, persistMetadataPatch])
 
   const loadAllNotes = React.useCallback(async () => {
     setAllNotesLoading(true)
@@ -209,18 +254,29 @@ export function HyperCortexApp() {
     void (async () => {
       try {
         const meta = (await tryLoadMetadata(api)) || (await ensureMetadata(api))
+        metaRef.current = meta
         setAllNotesLayout(normalizeAllNotesLayout(meta.allNotesLayout))
+        setTabsCollapsed(normalizeBoolean(meta.tabsCollapsed))
+        const activeId = typeof meta.activeNoteId === 'string' ? meta.activeNoteId.trim() : ''
+        restoreActiveNoteIdRef.current = activeId
+
+        const openIds = normalizeOpenNoteIds(meta.openNoteIds)
+        if (activeId && !openIds.includes(activeId)) openIds.push(activeId)
+        if (openIds.length) {
+          try {
+            const idx = await loadNoteIndex(api, 'library')
+            const tabs = openIds.map(id => idx.notes?.[id]).filter(Boolean) as NoteMeta[]
+            setOpenNoteTabs(tabs)
+          } catch {
+          }
+        }
       } catch {
       } finally {
-        setAllNotesLayoutReady(true)
+        setTabsInitReady(true)
+        setMetaReady(true)
       }
     })()
   }, [api])
-
-  React.useEffect(() => {
-    if (!allNotesLayoutReady) return
-    void saveMetadata(api, { version: 1, allNotesLayout }).catch(() => {})
-  }, [api, allNotesLayout, allNotesLayoutReady])
 
   React.useEffect(() => {
     if (page !== 'all-notes') return
@@ -256,6 +312,11 @@ export function HyperCortexApp() {
 
   const handleOpenNote = React.useCallback(
     async (note: NoteMeta) => {
+      setOpenNoteTabs(prev => {
+        const next = prev.some(t => t.id === note.id) ? prev : [...prev, note]
+        if (metaReady) void persistMetadataPatch({ openNoteIds: next.map(t => t.id), activeNoteId: note.id }).catch(() => {})
+        return next
+      })
       setActiveNote(note)
       setActiveNoteDoc(null)
       setActiveNoteLoadError(null)
@@ -281,7 +342,42 @@ export function HyperCortexApp() {
         setActiveNoteLoading(false)
       }
     },
-    [api],
+    [api, metaReady, persistMetadataPatch],
+  )
+
+  React.useEffect(() => {
+    if (!metaReady || !tabsInitReady) return
+    const targetId = restoreActiveNoteIdRef.current
+    if (!targetId) return
+    const meta = openNoteTabs.find(t => t.id === targetId)
+    restoreActiveNoteIdRef.current = ''
+    if (meta) void handleOpenNote(meta)
+  }, [handleOpenNote, metaReady, openNoteTabs, tabsInitReady])
+
+  const handleCloseTab = React.useCallback(
+    (noteId: string) => {
+      setOpenNoteTabs(prev => {
+        const idx = prev.findIndex(t => t.id === noteId)
+        if (idx < 0) return prev
+        const next = prev.filter(t => t.id !== noteId)
+        const closingActive = activeNote?.id === noteId
+        const fallback = closingActive ? (next[idx] || next[idx - 1] || null) : null
+        const nextActiveId = closingActive ? fallback?.id : activeNote?.id
+        if (metaReady) void persistMetadataPatch({ openNoteIds: next.map(t => t.id), activeNoteId: nextActiveId }).catch(() => {})
+        if (!closingActive) return next
+        if (fallback) void handleOpenNote(fallback)
+        else {
+          setActiveNote(null)
+          setActiveNoteDoc(null)
+          setActiveNoteLoadError(null)
+          setActiveNoteLoading(false)
+          setActiveNoteEditing(false)
+          setPage('home')
+        }
+        return next
+      })
+    },
+    [activeNote?.id, handleOpenNote, metaReady, persistMetadataPatch],
   )
 
   React.useEffect(() => {
@@ -406,6 +502,7 @@ export function HyperCortexApp() {
 
       setAllNotes(prev => sortNotes([meta, ...prev.filter(item => item.id !== activeNote.id)]))
       setActiveNote(meta)
+      setOpenNoteTabs(prev => prev.map(t => (t.id === meta.id ? meta : t)))
       setActiveNoteEditTitle(title)
       setActiveNoteEditTags(tags)
       setActiveNoteTagInput('')
@@ -585,8 +682,116 @@ export function HyperCortexApp() {
           </Toolbar>
         </AppBar>
 
-        <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto' }}>
-          <Box sx={{ minHeight: '100%', p: 2 }}>
+        <Box sx={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'stretch' }}>
+          <Box
+            sx={{
+              width: tabsCollapsed ? 52 : 220,
+              minWidth: tabsCollapsed ? 52 : 220,
+              display: 'flex',
+              flexDirection: 'column',
+              minHeight: 0,
+              borderRight: '1px solid rgba(0,0,0,.08)',
+              bgcolor: '#fff',
+            }}
+          >
+            <Box
+              sx={{
+                px: 0.75,
+                py: 0.5,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: tabsCollapsed ? 'center' : 'space-between',
+                borderBottom: '1px solid rgba(0,0,0,.06)',
+              }}
+            >
+              <Tooltip title={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'} placement="right">
+                <IconButton size="small" aria-label={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'} onClick={toggleTabsCollapsed}>
+                  {tabsCollapsed ? <ChevronRightRoundedIcon fontSize="small" /> : <ChevronLeftRoundedIcon fontSize="small" />}
+                </IconButton>
+              </Tooltip>
+              {!tabsCollapsed ? (
+                <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'rgba(0,0,0,.58)', mr: 0.5 }}>已打开</Typography>
+              ) : null}
+            </Box>
+
+            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: 0.5, py: 0.75, display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+              {!openNoteTabs.length && !tabsCollapsed ? (
+                <Typography sx={{ px: 0.75, py: 0.5, fontSize: 12, color: 'rgba(0,0,0,.42)' }}>还没有打开的笔记</Typography>
+              ) : null}
+
+              {openNoteTabs.map(tab => {
+                const isActive = activeNote?.id === tab.id
+                const title = tab.title || '未命名'
+                return (
+                  <Tooltip key={tab.id} title={tabsCollapsed ? title : ''} placement="right" disableHoverListener={!tabsCollapsed}>
+                    <Box
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => void handleOpenNote(tab)}
+                      onKeyDown={e => {
+                        if (e.key !== 'Enter' && e.key !== ' ') return
+                        e.preventDefault()
+                        void handleOpenNote(tab)
+                      }}
+                      sx={{
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 0.75,
+                        px: tabsCollapsed ? 0.75 : 1,
+                        py: 0.6,
+                        borderRadius: 2,
+                        cursor: 'pointer',
+                        userSelect: 'none',
+                        outline: 'none',
+                        bgcolor: isActive ? 'rgba(25,118,210,.10)' : 'transparent',
+                        '&:hover': { bgcolor: isActive ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
+                        '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
+                      }}
+                    >
+                      <NotesRoundedIcon fontSize="small" sx={{ color: isActive ? '#1976d2' : 'rgba(0,0,0,.48)' }} />
+                      {!tabsCollapsed ? (
+                        <Typography
+                          noWrap
+                          sx={{
+                            flex: 1,
+                            minWidth: 0,
+                            fontSize: 12,
+                            lineHeight: 1.2,
+                            fontWeight: isActive ? 900 : 600,
+                            color: isActive ? '#111' : 'rgba(0,0,0,.72)',
+                          }}
+                        >
+                          {title}
+                        </Typography>
+                      ) : null}
+                      {!tabsCollapsed ? (
+                        <Tooltip title="关闭" placement="left">
+                          <IconButton
+                            size="small"
+                            aria-label={`关闭 ${title}`}
+                            onClick={e => {
+                              e.stopPropagation()
+                              handleCloseTab(tab.id)
+                            }}
+                            sx={{
+                              color: 'rgba(0,0,0,.42)',
+                              '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                            }}
+                          >
+                            <CloseRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      ) : null}
+                    </Box>
+                  </Tooltip>
+                )
+              })}
+            </Box>
+          </Box>
+
+          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto' }}>
+            <Box sx={{ minHeight: '100%', p: 2 }}>
               {page === 'home' ? <Typography color="text.secondary">这是主页页面。</Typography> : null}
               {page === 'new-note' ? (
                 <Box sx={{ minHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
@@ -1415,6 +1620,7 @@ export function HyperCortexApp() {
               {page === 'settings' ? <Typography color="text.secondary">这是设置页面。</Typography> : null}
             </Box>
           </Box>
+        </Box>
       </Box>
     </ThemeProvider>
   )
