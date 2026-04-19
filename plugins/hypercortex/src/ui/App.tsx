@@ -11,6 +11,8 @@ import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded'
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
+import CodeRoundedIcon from '@mui/icons-material/CodeRounded'
+import WysiwygRoundedIcon from '@mui/icons-material/WysiwygRounded'
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
@@ -24,6 +26,7 @@ type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'note-detail' 
 
 type AllNotesLayout = 'list' | 'grid' | 'icon'
 type NoteFaceId = 'text' | 'html'
+type TextEditorMode = 'source' | 'live'
 
 type ActiveNoteEditSnapshot = {
   face: NoteFaceId
@@ -82,6 +85,7 @@ export function HyperCortexApp() {
   const [activeNoteLoading, setActiveNoteLoading] = React.useState(false)
   const [activeNoteLoadError, setActiveNoteLoadError] = React.useState<string | null>(null)
   const [activeNoteEditing, setActiveNoteEditing] = React.useState(false)
+  const [activeNoteTextEditorMode, setActiveNoteTextEditorMode] = React.useState<TextEditorMode>('source')
   const [activeNoteEditTitle, setActiveNoteEditTitle] = React.useState('')
   const [activeNoteEditBody, setActiveNoteEditBody] = React.useState('')
   const [activeNoteEditTags, setActiveNoteEditTags] = React.useState<string[]>([])
@@ -275,8 +279,13 @@ export function HyperCortexApp() {
     setActiveNoteEditTags(tags)
     setActiveNoteTagInput('')
     if (activeNoteFaces.includes('html')) setActiveNoteEditHtml(html)
+    setActiveNoteTextEditorMode('source')
     setActiveNoteEditing(true)
   }, [activeNote, activeNoteDoc, activeNoteEditHtml, activeNoteFace, activeNoteFaces, api])
+
+  const toggleActiveNoteTextEditorMode = React.useCallback(() => {
+    setActiveNoteTextEditorMode(prev => (prev === 'source' ? 'live' : 'source'))
+  }, [])
 
   const handleCancelEditingActiveNote = React.useCallback(() => {
     if (activeNoteSaving) return
@@ -519,7 +528,10 @@ export function HyperCortexApp() {
               <IconButton
                 size="small"
                 aria-label="新建笔记"
-                onClick={() => setPage('new-note')}
+                onClick={() => {
+                  setActiveNoteTextEditorMode('source')
+                  setPage('new-note')
+                }}
                 sx={{
                   borderRadius: 2,
                   bgcolor: page === 'new-note' ? 'rgba(25,118,210,.10)' : 'transparent',
@@ -650,10 +662,50 @@ export function HyperCortexApp() {
                         <SaveRoundedIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
+                    <Tooltip title={activeNoteTextEditorMode === 'source' ? '切换到 Live 编辑' : '切换到 源码编辑'} placement="right">
+                      <IconButton
+                        size="small"
+                        aria-label={activeNoteTextEditorMode === 'source' ? '切换到 Live 编辑' : '切换到 源码编辑'}
+                        onClick={toggleActiveNoteTextEditorMode}
+                        disabled={newNoteSaving}
+                        sx={{
+                          color: 'rgba(0,0,0,.58)',
+                          bgcolor: 'transparent',
+                          boxShadow: 'none',
+                          border: 0,
+                          transition: 'background-color .16s ease, color .16s ease',
+                          '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                          '&.Mui-disabled': { color: 'rgba(0,0,0,.28)' },
+                        }}
+                      >
+                        {activeNoteTextEditorMode === 'source' ? <WysiwygRoundedIcon fontSize="small" /> : <CodeRoundedIcon fontSize="small" />}
+                      </IconButton>
+                    </Tooltip>
                   </Box>
 
                   <Box sx={{ mt: 2, width: '100%', flex: 1 }}>
-                    <BlockEditor value={newNoteContent} onChange={setNewNoteContent} placeholder="开始输入正文..." minHeight={280} />
+                    {activeNoteTextEditorMode === 'live' ? (
+                      <BlockEditor value={newNoteContent} onChange={setNewNoteContent} placeholder="开始输入正文..." minHeight={280} />
+                    ) : (
+                      <InputBase
+                        value={newNoteContent}
+                        onChange={e => setNewNoteContent(e.target.value)}
+                        placeholder="开始输入正文..."
+                        fullWidth
+                        multiline
+                        minRows={14}
+                        inputProps={{ 'aria-label': '编辑 Markdown 正文源码', spellCheck: false }}
+                        sx={{
+                          width: '100%',
+                          alignItems: 'flex-start',
+                          fontSize: 14,
+                          lineHeight: 1.7,
+                          color: '#1f2937',
+                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                          '& textarea': { padding: 0, resize: 'none' },
+                        }}
+                      />
+                    )}
                   </Box>
                 </Box>
               ) : null}
@@ -917,6 +969,27 @@ export function HyperCortexApp() {
                             }}
                           >
                             <CloseRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      ) : null}
+                      {!activeNoteLoading && !activeNoteLoadError && activeNoteDoc && activeNoteEditing && activeNoteFace === 'text' ? (
+                        <Tooltip title={activeNoteTextEditorMode === 'source' ? '切换到 Live 编辑' : '切换到 源码编辑'} placement="bottom-start">
+                          <IconButton
+                            size="small"
+                            aria-label={activeNoteTextEditorMode === 'source' ? '切换到 Live 编辑' : '切换到 源码编辑'}
+                            onClick={toggleActiveNoteTextEditorMode}
+                            disabled={activeNoteSaving}
+                            sx={{
+                              color: 'rgba(0,0,0,.58)',
+                              bgcolor: 'transparent',
+                              boxShadow: 'none',
+                              border: 0,
+                              flex: '0 0 auto',
+                              '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                              '&.Mui-disabled': { color: 'rgba(0,0,0,.28)' },
+                            }}
+                          >
+                            {activeNoteTextEditorMode === 'source' ? <WysiwygRoundedIcon fontSize="small" /> : <CodeRoundedIcon fontSize="small" />}
                           </IconButton>
                         </Tooltip>
                       ) : null}
@@ -1219,8 +1292,27 @@ export function HyperCortexApp() {
                         />
                       ) : (
                         <AutoHeightHtmlIframe html={activeNoteEditHtml} minHeightPx={240} />
-                      ) : activeNoteEditing ? (
+                      ) : activeNoteEditing ? activeNoteTextEditorMode === 'live' ? (
                         <BlockEditor value={activeNoteEditBody} onChange={setActiveNoteEditBody} placeholder="开始编辑正文..." minHeight={400} onBlockRendered={handleBlockRendered} />
+                      ) : (
+                        <InputBase
+                          value={activeNoteEditBody}
+                          onChange={e => setActiveNoteEditBody(e.target.value)}
+                          placeholder="开始编辑正文..."
+                          fullWidth
+                          multiline
+                          minRows={18}
+                          inputProps={{ 'aria-label': '编辑 Markdown 正文源码', spellCheck: false }}
+                          sx={{
+                            width: '100%',
+                            alignItems: 'flex-start',
+                            fontSize: 14,
+                            lineHeight: 1.7,
+                            color: '#1f2937',
+                            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                            '& textarea': { padding: 0, resize: 'none' },
+                          }}
+                        />
                       ) : (
                         <Box
                           ref={textRenderRef}
