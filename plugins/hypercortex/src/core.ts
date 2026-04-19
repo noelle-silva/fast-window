@@ -49,6 +49,7 @@ export const NOTES_DIR = 'Notes'
 export const ASSETS_DIR = 'Assets'
 export const INDEX_FILE = 'hypercortex-index.json'
 export const METADATA_FILE = 'hypercortex-metadata.json'
+export const REFS_INDEX_FILE = 'hypercortex-refs.json'
 export const PLUGIN_ID = 'hypercortex'
 
 export type HyperCortexMetadataV1 = {

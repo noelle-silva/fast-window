@@ -21,6 +21,7 @@ export type MarkdownRenderEngine = {
     text: unknown,
     options?: { renderSafetyPolicy?: RenderSafetyPolicy; onAsyncLayout?: () => void },
   ) => void
+  noteIndex?: Record<string, { title: string }>
 }
 
 /* ------------------------------------------------------------------ */
@@ -70,6 +71,9 @@ const ENGINE_CSS = `
 .hc-asset-chip--doc{background:rgba(0,0,0,.05);color:rgba(0,0,0,.72);}
 .hc-asset-block{margin:10px 0;display:flex;flex-direction:column;gap:6px;}
 .hc-asset-title{font-size:12px;color:rgba(0,0,0,.52);font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.hc-note-ref{color:#1976d2;text-decoration:none;border-bottom:1px dashed rgba(25,118,210,.35);cursor:pointer;transition:border-color 120ms ease;}
+.hc-note-ref:hover{border-bottom-color:rgba(25,118,210,.7);}
+.hc-note-ref--broken{color:rgba(0,0,0,.38);text-decoration:line-through;border-bottom:1px dashed rgba(0,0,0,.18);cursor:default;}
 .math-block{margin:10px 0;overflow-x:auto;}
 .hc-render .katex,.hc-render .katex-display{max-width:100%;}
 .hc-render span.katex{display:inline-block;overflow:visible;vertical-align:middle;}
@@ -725,6 +729,24 @@ export function createMarkdownRenderEngine(init?: { api?: Api; scope?: VaultScop
       })
     }
 
+    // 回填笔记引用占位符
+    if (Array.isArray(pre.noteRefs) && pre.noteRefs.length) {
+      const ni = self.noteIndex
+      safe = safe.replace(/@@NOTE_REF_(\d+)@@/g, (_m, id) => {
+        const r = pre.noteRefs[Number(id)]
+        if (!r) return ''
+        let label = r.displayText
+        if (!label && ni) {
+          const meta = ni[r.noteId]
+          label = meta ? meta.title : ''
+        }
+        if (!label) {
+          return `<a class="hc-note-ref hc-note-ref--broken" data-note-id="${esc(r.noteId)}">未知笔记</a>`
+        }
+        return `<a class="hc-note-ref" data-note-id="${esc(r.noteId)}">${esc(label)}</a>`
+      })
+    }
+
     // 注入 DOM
     el.innerHTML = safe
 
@@ -776,7 +798,8 @@ export function createMarkdownRenderEngine(init?: { api?: Api; scope?: VaultScop
     }
   }
 
-  return { ensureRenderer, sanitizeHtml, sanitizeSvg, renderInto }
+  const self: MarkdownRenderEngine = { ensureRenderer, sanitizeHtml, sanitizeSvg, renderInto }
+  return self
 }
 
 /* ================================================================== */
@@ -785,6 +808,7 @@ export function createMarkdownRenderEngine(init?: { api?: Api; scope?: VaultScop
 
 type PreprocessedMath = { tex: string; display: boolean }
 type PreprocessedAsset = { ref: string; name: string; width?: number }
+type PreprocessedNoteRef = { noteId: string; displayText: string }
 
 type FenceToken =
   | { kind: 'text'; text: string }
@@ -792,13 +816,14 @@ type FenceToken =
 
 function preprocessContent(
   source: unknown,
-): { text: string; math: PreprocessedMath[]; mermaid: string[]; assets: PreprocessedAsset[] } {
+): { text: string; math: PreprocessedMath[]; mermaid: string[]; assets: PreprocessedAsset[]; noteRefs: PreprocessedNoteRef[] } {
   const src = String(source || '').replace(/\r\n/g, '\n')
   const tokens = tokenizeFences(src)
 
   const mermaid: string[] = []
   const math: PreprocessedMath[] = []
   const assets: PreprocessedAsset[] = []
+  const noteRefs: PreprocessedNoteRef[] = []
   const out: string[] = []
   const assetPattern = /\{\{asset:([^}|]+?)(?:\|([^}|]*?))?(?:\|(\d+))?\}\}/g
 
@@ -830,11 +855,12 @@ function preprocessContent(
       return `@@ASSET_${id}@@`
     })
 
-    const withMath = replaceMathOutsideInlineCode(withAssets, math)
+    const withNoteRefs = replaceNoteRefsOutsideInlineCode(withAssets, noteRefs)
+    const withMath = replaceMathOutsideInlineCode(withNoteRefs, math)
     out.push(withMath)
   }
 
-  return { text: out.join(''), math, mermaid, assets }
+  return { text: out.join(''), math, mermaid, assets, noteRefs }
 }
 
 function tokenizeFences(input: string): FenceToken[] {
@@ -938,6 +964,24 @@ function replaceMathOutsideInlineCode(input: string, acc: PreprocessedMath[]) {
     .map((p) => {
       if (p.kind === 'code') return p.value
       return replaceMathInPlainText(p.value, acc)
+    })
+    .join('')
+}
+
+function replaceNoteRefsOutsideInlineCode(input: string, acc: PreprocessedNoteRef[]) {
+  const noteRefPattern = /\[\[([^\]|]+?)(?:\|([^\]]*?))?\]\]/g
+  const parts = splitInlineCodeSpans(input)
+  return parts
+    .map((p) => {
+      if (p.kind === 'code') return p.value
+      return p.value.replace(noteRefPattern, (_m, idRaw, textRaw) => {
+        const noteId = String(idRaw || '').trim()
+        if (!noteId) return _m
+        const displayText = String(textRaw || '').trim()
+        const id = acc.length
+        acc.push({ noteId, displayText })
+        return `@@NOTE_REF_${id}@@`
+      })
     })
     .join('')
 }

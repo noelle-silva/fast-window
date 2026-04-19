@@ -13,6 +13,7 @@ import {
 } from './core'
 import { buildEmptyHtmlViewDoc, normalizeHtmlViewContent } from './noteHtml'
 import { renderNoteDisplayHtml } from './noteRender'
+import { updateRefsForNote } from './noteRefs'
 import {
   NOTE_HTML_VIEW_FILE,
   NOTE_MANIFEST_FILE,
@@ -192,6 +193,7 @@ export async function saveNotePackage(
   })
   const meta = noteMetaFromDoc(docData)
   await upsertNoteIndex(api, scope, meta)
+  await updateRefsForNote(api, scope, id, input.body ?? '').catch(() => {})
   return { meta, doc: noteDocWithDisplay(docData) }
 }
 

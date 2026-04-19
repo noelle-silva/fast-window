@@ -18,6 +18,7 @@ import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
 import { ensureMetadata, getApi, saveMetadata, tryLoadMetadata, type HyperCortexNoteDoc, type NoteMeta } from '../core'
 import { loadHtmlFace, loadNoteIndex, loadNotePackage, saveHtmlFace, saveNotePackage } from '../notePackage'
+import { loadRefIndex, getBacklinksFor, type NoteRefIndex } from '../noteRefs'
 import { createMarkdownRenderEngine } from '../render/engine'
 import { AutoHeightHtmlIframe } from './AutoHeightHtmlIframe'
 import { AssetPoolPanel } from './AssetPoolPanel'
@@ -101,6 +102,7 @@ export function HyperCortexApp() {
   const renderEngineRef = React.useRef(createMarkdownRenderEngine({ api, scope: 'library' }))
   ;(window as any).__hcRenderEngine = renderEngineRef.current
   const textRenderRef = React.useRef<HTMLDivElement>(null)
+  const [refIndex, setRefIndex] = React.useState<NoteRefIndex>({})
 
   React.useLayoutEffect(() => {
     if (activeNoteFace !== 'text' || activeNoteEditing || !textRenderRef.current || !activeNoteDoc) return
@@ -161,6 +163,12 @@ export function HyperCortexApp() {
       const idx = await loadNoteIndex(api, scope)
       const notes = sortNotes(Object.values(idx.notes || {}))
       setAllNotes(notes)
+
+      const noteIndexMap: Record<string, { title: string }> = {}
+      for (const n of notes) noteIndexMap[n.id] = { title: n.title }
+      renderEngineRef.current.noteIndex = noteIndexMap
+
+      loadRefIndex(api, scope).then(ri => setRefIndex(ri)).catch(() => {})
     } catch (e: any) {
       setAllNotesLoadError(String(e?.message || e || '加载全部笔记失败'))
     } finally {
@@ -246,6 +254,23 @@ export function HyperCortexApp() {
     },
     [api],
   )
+
+  React.useEffect(() => {
+    const el = textRenderRef.current
+    if (!el) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target instanceof Element ? e.target : null
+      const link = target?.closest?.('.hc-note-ref') as HTMLElement | null
+      if (!link) return
+      const noteId = link.getAttribute('data-note-id')
+      if (!noteId) return
+      e.preventDefault()
+      const meta = allNotes.find(n => n.id === noteId)
+      if (meta) handleOpenNote(meta)
+    }
+    el.addEventListener('click', handler)
+    return () => el.removeEventListener('click', handler)
+  }, [allNotes, handleOpenNote])
 
   const prepareEditFields = React.useCallback((): boolean => {
     if (!activeNoteDoc || !activeNote) return false
@@ -1320,6 +1345,46 @@ export function HyperCortexApp() {
                           sx={{ width: '100%', minHeight: 120 }}
                         />
                       )}
+
+                      {/* 反向链接区域 */}
+                      {!activeNoteEditing && activeNote && (() => {
+                        const bl = getBacklinksFor(refIndex, activeNote.id)
+                        if (!bl.length) return null
+                        return (
+                          <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid rgba(0,0,0,.08)' }}>
+                            <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.42)', mb: 1 }}>
+                              被以下笔记引用
+                            </Typography>
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+                              {bl.map(bid => {
+                                const meta = allNotes.find(n => n.id === bid)
+                                return (
+                                  <Box
+                                    key={bid}
+                                    component="span"
+                                    onClick={() => meta && handleOpenNote(meta)}
+                                    sx={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      px: 1.25,
+                                      py: 0.5,
+                                      borderRadius: 999,
+                                      fontSize: 12,
+                                      color: '#1976d2',
+                                      bgcolor: 'rgba(25,118,210,.06)',
+                                      cursor: meta ? 'pointer' : 'default',
+                                      transition: 'background 120ms',
+                                      '&:hover': meta ? { bgcolor: 'rgba(25,118,210,.12)' } : {},
+                                    }}
+                                  >
+                                    {meta?.title || bid.slice(0, 12) + '…'}
+                                  </Box>
+                                )
+                              })}
+                            </Box>
+                          </Box>
+                        )
+                      })()}
                     </Box>
                   ) : null}
                 </Box>
