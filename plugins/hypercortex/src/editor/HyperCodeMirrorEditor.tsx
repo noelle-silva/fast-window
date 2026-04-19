@@ -241,7 +241,8 @@ const syntaxHighlightPlugin = ViewPlugin.fromClass(
 
         // 水平线
         if (/^([-*_]{3,})\s*$/.test(t)) {
-          mark(base, base + t.length, 'cm-hc-hr')
+          lineDeco(base, 'cm-hc-hr-line')
+          if (!focused) mark(base, base + t.length, 'cm-hc-hr-text-hidden')
           continue
         }
 

@@ -316,7 +316,22 @@ const CM6_CSS = `
 .cm-hc-bullet{color:rgba(25,118,210,0.6);}
 
 /* 水平线 */
-.cm-hc-hr{color:rgba(0,0,0,0.25);text-align:center;border-bottom:1px solid rgba(0,0,0,0.12);line-height:0.1em;margin:8px 0;}
+.cm-hc-hr-line{
+  position:relative;
+}
+.cm-hc-hr-line::after{
+  content:'';
+  position:absolute;
+  left:0;
+  right:0;
+  top:50%;
+  border-top:1px solid rgba(0,0,0,0.12);
+  transform:translateY(-50%);
+  pointer-events:none;
+}
+.cm-hc-hr-text-hidden{
+  color:transparent;
+}
 
 /* 代码块围栏行 */
 .cm-hc-fence-open,.cm-hc-fence-close,.cm-hc-fence-body{
