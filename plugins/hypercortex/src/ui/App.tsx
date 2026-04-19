@@ -36,7 +36,7 @@ import { OpenTabsPanel } from './OpenTabsPanel'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
 
-type PageId = 'home' | 'new-note' | 'attachments' | 'all-notes' | 'note-detail' | 'index' | 'settings'
+type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'index' | 'settings'
 
 type AllNotesLayout = 'list' | 'grid' | 'icon'
 type NoteFaceId = 'text' | 'html'
@@ -126,10 +126,6 @@ export function HyperCortexApp() {
   const metaRef = React.useRef<HyperCortexMetadataV1 | null>(null)
   const [metaReady, setMetaReady] = React.useState(false)
   const restoreActiveNoteIdRef = React.useRef<string>('')
-  const [newNoteTitle, setNewNoteTitle] = React.useState('新建笔记')
-  const [newNoteContent, setNewNoteContent] = React.useState('')
-  const [newNoteSaving, setNewNoteSaving] = React.useState(false)
-  const [savedNote, setSavedNote] = React.useState<{ id: string; dir: string; createdAtMs: number } | null>(null)
   const [allNotesLayout, setAllNotesLayout] = React.useState<AllNotesLayout>('list')
   const [allNotes, setAllNotes] = React.useState<NoteMeta[]>([])
   const [allNotesLoading, setAllNotesLoading] = React.useState(false)
@@ -688,33 +684,6 @@ export function HyperCortexApp() {
     void loadAllNotes()
   }, [loadAllNotes, page])
 
-  const handleSaveNewNote = React.useCallback(async () => {
-    if (newNoteSaving) return
-    setNewNoteSaving(true)
-    try {
-      const scope = 'library' as const
-      const title = String(newNoteTitle || '').trim() || '未命名'
-      const body = String(newNoteContent || '').replace(/\r\n/g, '\n')
-      const existing = savedNote
-      const result = await saveNotePackage(api, scope, {
-        id: existing?.id,
-        title,
-        body,
-        tags: [],
-        createdAtMs: existing?.createdAtMs,
-        saveTextFace: true,
-      })
-
-      setSavedNote({ id: result.meta.id, dir: result.meta.dir, createdAtMs: result.meta.createdAtMs })
-      setAllNotes(prev => sortNotes([result.meta, ...prev.filter(item => item.id !== result.meta.id)]))
-      await api.ui.showToast('笔记已保存')
-    } catch (e: any) {
-      await api.ui.showToast(String(e?.message || e || '保存失败'))
-    } finally {
-      setNewNoteSaving(false)
-    }
-  }, [api, newNoteContent, newNoteSaving, newNoteTitle, savedNote, sortNotes])
-
   const handleOpenNote = React.useCallback(
     async (note: NoteMeta) => {
       setOpenNoteTabs(prev => {
@@ -1096,17 +1065,6 @@ export function HyperCortexApp() {
                 <NavIconButton title="主页" ariaLabel="主页" active={page === 'home'} onClick={() => setPage('home')}>
                   <HomeRoundedIcon fontSize="small" />
                 </NavIconButton>
-                <NavIconButton
-                  title="新建笔记"
-                  ariaLabel="新建笔记"
-                  active={page === 'new-note'}
-                  onClick={() => {
-                    setActiveNoteTextEditorMode('live')
-                    setPage('new-note')
-                  }}
-                >
-                  <AddRoundedIcon fontSize="small" />
-                </NavIconButton>
                 <NavIconButton title="索引" ariaLabel="索引" active={page === 'index'} onClick={() => setPage('index')}>
                   <AccountTreeRoundedIcon fontSize="small" />
                 </NavIconButton>
@@ -1192,107 +1150,6 @@ export function HyperCortexApp() {
           <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto' }}>
             <Box sx={{ minHeight: '100%', p: 2 }}>
               {page === 'home' ? <Typography color="text.secondary">这是主页页面。</Typography> : null}
-              {page === 'new-note' ? (
-                <Box sx={{ minHeight: '100%', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-                    <Box
-                      sx={{
-                        width: '100%',
-                        maxWidth: 240,
-                        pb: 0.5,
-                        borderBottom: '1px solid',
-                        borderColor: 'rgba(0,0,0,.16)',
-                      }}
-                    >
-                      <InputBase
-                        value={newNoteTitle}
-                        onChange={e => setNewNoteTitle(e.target.value)}
-                        placeholder="输入标题"
-                        fullWidth
-                        inputProps={{ 'aria-label': '笔记标题' }}
-                        sx={{
-                          fontSize: 28,
-                          lineHeight: 1.2,
-                          fontWeight: 900,
-                          color: '#111',
-                          '& input': {
-                            p: 0,
-                          },
-                        }}
-                      />
-                    </Box>
-
-                    <Tooltip title="保存" placement="right">
-                      <IconButton
-                        size="small"
-                        aria-label="保存笔记"
-                        onClick={() => void handleSaveNewNote()}
-                        disabled={newNoteSaving}
-                        sx={{
-                          color: 'rgba(0,0,0,.58)',
-                          bgcolor: 'transparent',
-                          boxShadow: 'none',
-                          border: 0,
-                          transition: 'background-color .16s ease, color .16s ease',
-                          '&:hover': {
-                            bgcolor: 'rgba(0,0,0,.06)',
-                            color: '#111',
-                          },
-                          '&.Mui-disabled': {
-                            color: 'rgba(0,0,0,.28)',
-                          },
-                        }}
-                      >
-                        <SaveRoundedIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title={activeNoteTextEditorMode === 'source' ? '切换到 Live 编辑' : '切换到 源码编辑'} placement="right">
-                      <IconButton
-                        size="small"
-                        aria-label={activeNoteTextEditorMode === 'source' ? '切换到 Live 编辑' : '切换到 源码编辑'}
-                        onClick={toggleActiveNoteTextEditorMode}
-                        disabled={newNoteSaving}
-                        sx={{
-                          color: 'rgba(0,0,0,.58)',
-                          bgcolor: 'transparent',
-                          boxShadow: 'none',
-                          border: 0,
-                          transition: 'background-color .16s ease, color .16s ease',
-                          '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
-                          '&.Mui-disabled': { color: 'rgba(0,0,0,.28)' },
-                        }}
-                      >
-                        {activeNoteTextEditorMode === 'source' ? <WysiwygRoundedIcon fontSize="small" /> : <CodeRoundedIcon fontSize="small" />}
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-
-                  <Box sx={{ mt: 2, width: '100%', flex: 1 }}>
-                    {activeNoteTextEditorMode === 'live' ? (
-                      <BlockEditor value={newNoteContent} onChange={setNewNoteContent} placeholder="开始输入正文..." minHeight={280} />
-                    ) : (
-                      <InputBase
-                        value={newNoteContent}
-                        onChange={e => setNewNoteContent(e.target.value)}
-                        placeholder="开始输入正文..."
-                        fullWidth
-                        multiline
-                        minRows={14}
-                        inputProps={{ 'aria-label': '编辑 Markdown 正文源码', spellCheck: false }}
-                        sx={{
-                          width: '100%',
-                          alignItems: 'flex-start',
-                          fontSize: 14,
-                          lineHeight: 1.7,
-                          color: '#1f2937',
-                          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-                          '& textarea': { padding: 0, resize: 'none' },
-                        }}
-                      />
-                    )}
-                  </Box>
-                </Box>
-              ) : null}
               {page === 'attachments' ? <AssetPoolPanel api={api} scope="library" /> : null}
               {page === 'all-notes' ? (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
