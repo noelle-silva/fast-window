@@ -18,6 +18,7 @@ import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
 import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
+import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
 import SyncAltRoundedIcon from '@mui/icons-material/SyncAltRounded'
 import WorkspacesRoundedIcon from '@mui/icons-material/WorkspacesRounded'
@@ -38,6 +39,7 @@ export type OpenTabsPanelProps = {
   tabGroupByNoteId: Record<string, string>
   onToggleTabsCollapsed: () => void
   onToggleTabsMode: () => void
+  onCreateDraftNote: () => void
   onSwitchWorkspace: (workspaceId: string) => void
   onCreateWorkspace: (title: string) => void
   onRenameWorkspace: (workspaceId: string, title: string) => void
@@ -72,6 +74,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     tabGroupByNoteId,
     onToggleTabsCollapsed,
     onToggleTabsMode,
+    onCreateDraftNote,
     onSwitchWorkspace,
     onCreateWorkspace,
     onRenameWorkspace,
@@ -380,6 +383,18 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                 </IconButton>
               </Tooltip>
             </Box>
+
+            <Tooltip
+              title="新建笔记"
+              placement="left"
+              disableHoverListener={disableTopTooltips}
+              disableFocusListener={disableTopTooltips}
+              disableTouchListener={disableTopTooltips}
+            >
+              <IconButton size="small" aria-label="新建笔记" onClick={onCreateDraftNote} sx={{ color: 'rgba(0,0,0,.58)' }}>
+                <AddRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
 
             <Tooltip
               title="新建分组"
