@@ -253,14 +253,17 @@ const CM6_CSS = `
   border-left:2px solid #1976d2;
 }
 
-/* Live Preview 小组件（自然融入正文） */
-.hc-cm6-preview{
-  background:transparent;
-  border:none;
-  box-shadow:none;
-  padding:0;
-  margin:4px 0;
-}
+ /* Live Preview 小组件（自然融入正文） */
+ .hc-cm6-preview{
+   /* 说明：不要用 margin 来制造上下间距（CM6 的高度测量不会把 margin 计入 heightMap）
+      否则在折叠/预览块之后，gutter 行号可能开始与内容“错位漂移”。 */
+   display:flow-root;
+   background:transparent;
+   border:none;
+   box-shadow:none;
+   margin:0;
+   padding:4px 0;
+ }
 .hc-cm6-preview .hc-render table{display:table;}
 .hc-cm6-preview .hc-render > *:first-child{margin-top:0;}
 .hc-cm6-preview .hc-render > *:last-child{margin-bottom:0;}

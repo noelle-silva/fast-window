@@ -27,9 +27,13 @@ type LiveBlockKind = 'latex' | 'mermaid' | 'code' | 'table'
 type LiveBlock = { from: number; to: number; focusTo: number; kind: LiveBlockKind; source: string }
 
 function requestCmLayout(view: EditorView) {
-  const v: any = view as any
   try {
-    if (typeof v?.requestMeasure === 'function') v.requestMeasure()
+    // CM6 的高度映射/行号定位依赖测量周期；当 widget 内容异步变高（Mermaid/图片/资源解析等）
+    // 若不触发一次 measure，后续行号与内容可能出现“错位漂移”。
+    view.requestMeasure({
+      read: () => null,
+      write: () => {},
+    })
   } catch (_) {
     // ignore
   }
