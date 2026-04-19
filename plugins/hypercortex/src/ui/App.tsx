@@ -1333,6 +1333,7 @@ export function HyperCortexApp() {
                 tabsCollapsed={tabsCollapsed}
                 openNoteTabs={openNoteTabs}
                 activeNoteId={activeNote?.id || ''}
+                isNoteDirty={isNoteDirtyById}
                 workspaces={workspaces.map(w => ({ id: w.id, title: w.title }))}
                 activeWorkspaceId={activeWorkspaceId}
                 tabGroups={tabGrouping.groups}
@@ -1718,6 +1719,22 @@ export function HyperCortexApp() {
                           >
                             {activeNoteTextEditorMode === 'source' ? <WysiwygRoundedIcon fontSize="small" /> : <CodeRoundedIcon fontSize="small" />}
                           </IconButton>
+                        </Tooltip>
+                      ) : null}
+                      {activeNoteDirty ? (
+                        <Tooltip title="有未保存改动" placement="bottom-start">
+                          <Box
+                            aria-label="有未保存改动"
+                            sx={{
+                              ml: 0.25,
+                              width: 8,
+                              height: 8,
+                              borderRadius: 999,
+                              bgcolor: '#f59e0b',
+                              boxShadow: '0 0 0 2px #fff',
+                              flex: '0 0 auto',
+                            }}
+                          />
                         </Tooltip>
                       ) : null}
                     </Box>

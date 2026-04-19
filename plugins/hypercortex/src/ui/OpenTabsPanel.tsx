@@ -31,6 +31,7 @@ export type OpenTabsPanelProps = {
   tabsCollapsed: boolean
   openNoteTabs: NoteMeta[]
   activeNoteId?: string
+  isNoteDirty?: (noteId: string) => boolean
   workspaces: { id: string; title: string }[]
   activeWorkspaceId: string
   tabGroups: HyperCortexTabGroupV1[]
@@ -64,6 +65,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     tabsCollapsed,
     openNoteTabs,
     activeNoteId,
+    isNoteDirty,
     workspaces,
     activeWorkspaceId,
     tabGroups,
@@ -151,6 +153,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     (tab: NoteMeta) => {
       const isActive = activeNoteId === tab.id
       const title = tab.title || '未命名'
+      const dirty = !!isNoteDirty?.(tab.id)
       const isDragOver = dnd.dragOverKey === `tab_${tab.id}`
       const isDragging = dnd.draggingKey === `tab_${tab.id}`
       const disableTitleTooltip = tabsMode === 'hover'
@@ -195,7 +198,24 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
             }}
           >
-            <NotesRoundedIcon fontSize="small" sx={{ color: isActive ? '#1976d2' : 'rgba(0,0,0,.48)' }} />
+            <Box sx={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>
+              <NotesRoundedIcon fontSize="small" sx={{ color: isActive ? '#1976d2' : 'rgba(0,0,0,.48)' }} />
+              {dirty ? (
+                <Box
+                  aria-label="未保存改动"
+                  sx={{
+                    position: 'absolute',
+                    left: -1,
+                    top: -1,
+                    width: 8,
+                    height: 8,
+                    borderRadius: 999,
+                    bgcolor: '#f59e0b',
+                    boxShadow: '0 0 0 2px #fff',
+                  }}
+                />
+              ) : null}
+            </Box>
             {showTitle ? (
               <Typography
                 noWrap
@@ -234,7 +254,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         </Tooltip>
       )
     },
-    [activeNoteId, dnd, onCloseTab, onOpenTab, showTitle, tabsMode],
+    [activeNoteId, dnd, isNoteDirty, onCloseTab, onOpenTab, showTitle, tabsMode],
   )
 
   const mixedItems = React.useMemo(() => {
