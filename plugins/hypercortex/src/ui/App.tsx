@@ -52,6 +52,18 @@ type ActiveNoteEditSnapshot = {
   html: string
 }
 
+type NoteEditSession = {
+  editing: boolean
+  snapshot: ActiveNoteEditSnapshot | null
+  face: NoteFaceId
+  faces: NoteFaceId[]
+  textEditorMode: TextEditorMode
+  title: string
+  body: string
+  tags: string[]
+  html: string
+}
+
 function normalizeAllNotesLayout(value: unknown): AllNotesLayout {
   return value === 'grid' || value === 'icon' ? value : 'list'
 }
@@ -147,6 +159,7 @@ export function HyperCortexApp() {
   const [activeNoteAddFaceSelectorVisible, setActiveNoteAddFaceSelectorVisible] = React.useState(false)
   const [activeNotePendingAddFace, setActiveNotePendingAddFace] = React.useState<NoteFaceId | null>(null)
   const activeNoteEditSnapshotRef = React.useRef<ActiveNoteEditSnapshot | null>(null)
+  const noteEditSessionsRef = React.useRef<Record<string, NoteEditSession>>({})
   const [tabsCollapsed, setTabsCollapsed] = React.useState(false)
   const [workspaces, setWorkspaces] = React.useState<HyperCortexWorkspaceV1[]>([])
   const [activeWorkspaceId, setActiveWorkspaceId] = React.useState<string>('')
@@ -173,6 +186,65 @@ export function HyperCortexApp() {
   ;(window as any).__hcRenderEngine = renderEngineRef.current
   const textRenderRef = React.useRef<HTMLDivElement>(null)
   const [refIndex, setRefIndex] = React.useState<NoteRefIndex>({})
+
+  const stashActiveNoteEditSession = React.useCallback(() => {
+    const noteId = String(activeNote?.id || '').trim()
+    if (!noteId) return
+    noteEditSessionsRef.current[noteId] = {
+      editing: activeNoteEditing,
+      snapshot: activeNoteEditSnapshotRef.current,
+      face: activeNoteFace,
+      faces: activeNoteFaces,
+      textEditorMode: activeNoteTextEditorMode,
+      title: activeNoteEditTitle,
+      body: activeNoteEditBody,
+      tags: activeNoteEditTags,
+      html: activeNoteEditHtml,
+    }
+  }, [
+    activeNote?.id,
+    activeNoteEditing,
+    activeNoteEditBody,
+    activeNoteEditHtml,
+    activeNoteEditTags,
+    activeNoteEditTitle,
+    activeNoteFace,
+    activeNoteFaces,
+    activeNoteTextEditorMode,
+  ])
+
+  const restoreNoteEditSession = React.useCallback((noteId: string) => {
+    const nid = String(noteId || '').trim()
+    const session = nid ? noteEditSessionsRef.current[nid] : undefined
+    if (!session) {
+      activeNoteEditSnapshotRef.current = null
+      setActiveNoteEditing(false)
+      setActiveNoteTextEditorMode('live')
+      setActiveNoteEditTitle('')
+      setActiveNoteEditBody('')
+      setActiveNoteEditTags([])
+      setActiveNoteTagInput('')
+      setActiveNoteEditHtml('')
+      setActiveNoteFace('text')
+      setActiveNoteFaces(['text'])
+      setActiveNoteAddFaceSelectorVisible(false)
+      setActiveNotePendingAddFace(null)
+      return
+    }
+
+    activeNoteEditSnapshotRef.current = session.snapshot
+    setActiveNoteEditing(session.editing)
+    setActiveNoteTextEditorMode(session.textEditorMode)
+    setActiveNoteEditTitle(session.title)
+    setActiveNoteEditBody(session.body)
+    setActiveNoteEditTags(session.tags)
+    setActiveNoteTagInput('')
+    setActiveNoteEditHtml(session.html)
+    setActiveNoteFace(session.face)
+    setActiveNoteFaces(session.faces)
+    setActiveNoteAddFaceSelectorVisible(false)
+    setActiveNotePendingAddFace(null)
+  }, [])
 
   const persistMetadataPatch = React.useCallback(
     async (patch: Partial<HyperCortexMetadataV1>) => {
@@ -349,6 +421,7 @@ export function HyperCortexApp() {
 
       const currentActiveId = activeNote?.id || ''
       if (currentActiveId && !openIds.includes(currentActiveId)) {
+        stashActiveNoteEditSession()
         setActiveNote(null)
         setActiveNoteDoc(null)
         setActiveNoteLoadError(null)
@@ -357,7 +430,7 @@ export function HyperCortexApp() {
         setPage('home')
       }
     },
-    [activeNote?.id, api],
+    [activeNote?.id, api, stashActiveNoteEditSession],
   )
 
   const handleSwitchWorkspace = React.useCallback(
@@ -686,6 +759,8 @@ export function HyperCortexApp() {
 
   const handleOpenNote = React.useCallback(
     async (note: NoteMeta) => {
+      stashActiveNoteEditSession()
+      restoreNoteEditSession(note.id)
       setOpenNoteTabs(prev => {
         const next = prev.some(t => t.id === note.id) ? prev : [...prev, note]
         commitActiveWorkspacePatch({ openNoteIds: next.map(t => t.id) })
@@ -696,10 +771,6 @@ export function HyperCortexApp() {
       setActiveNoteDoc(null)
       setActiveNoteLoadError(null)
       setActiveNoteLoading(true)
-      setActiveNoteFace('text')
-      setActiveNoteFaces(['text'])
-      setActiveNoteAddFaceSelectorVisible(false)
-      setActiveNotePendingAddFace(null)
       setPage('note-detail')
       try {
         const [doc, htmlFace] = await Promise.all([
@@ -707,8 +778,18 @@ export function HyperCortexApp() {
           loadHtmlFace(api, 'library', note.dir).catch(() => null),
         ])
         setActiveNoteDoc(doc)
-        setActiveNoteEditHtml(htmlFace?.html || '')
-        setActiveNoteFaces(htmlFace?.exists ? ['text', 'html'] : ['text'])
+        const hasHtml = !!htmlFace?.exists
+        const session = noteEditSessionsRef.current[note.id]
+        const sessionWantsHtml = !!session && (session.face === 'html' || session.faces.includes('html'))
+        const allowHtml = hasHtml || sessionWantsHtml
+        setActiveNoteFaces(prev => {
+          const shouldKeepHtml = prev.includes('html') || allowHtml
+          return shouldKeepHtml ? ['text', 'html'] : ['text']
+        })
+        setActiveNoteFace(prev => (prev === 'html' && !allowHtml ? 'text' : prev))
+
+        const isEditingHtml = !!session && session.editing && session.face === 'html'
+        if (!isEditingHtml) setActiveNoteEditHtml(htmlFace?.html || '')
       } catch (e: any) {
         const message = String(e?.message || e || '加载笔记失败')
         setActiveNoteLoadError(message)
@@ -717,7 +798,7 @@ export function HyperCortexApp() {
         setActiveNoteLoading(false)
       }
     },
-    [api, commitActiveWorkspacePatch, metaReady, persistMetadataPatch],
+    [api, commitActiveWorkspacePatch, metaReady, persistMetadataPatch, restoreNoteEditSession, stashActiveNoteEditSession],
   )
 
   React.useEffect(() => {
@@ -768,6 +849,7 @@ export function HyperCortexApp() {
         if (!closingActive) return next
         if (fallback) void handleOpenNote(fallback)
         else {
+          stashActiveNoteEditSession()
           setActiveNote(null)
           setActiveNoteDoc(null)
           setActiveNoteLoadError(null)
@@ -778,7 +860,7 @@ export function HyperCortexApp() {
         return next
       })
     },
-    [activeNote?.id, commitActiveWorkspacePatch, handleOpenNote, metaReady, persistMetadataPatch],
+    [activeNote?.id, commitActiveWorkspacePatch, handleOpenNote, metaReady, persistMetadataPatch, stashActiveNoteEditSession],
   )
 
   const handleCloseTab = React.useCallback((noteId: string) => handleCloseTabs([noteId]), [handleCloseTabs])
@@ -845,6 +927,18 @@ export function HyperCortexApp() {
     if (activeNoteFaces.includes('html')) setActiveNoteEditHtml(html)
     setActiveNoteTextEditorMode('live')
     setActiveNoteEditing(true)
+
+    noteEditSessionsRef.current[activeNote.id] = {
+      editing: true,
+      snapshot: activeNoteEditSnapshotRef.current,
+      face: activeNoteFace,
+      faces: activeNoteFaces,
+      textEditorMode: 'live',
+      title,
+      body,
+      tags,
+      html: activeNoteFaces.includes('html') ? html : activeNoteEditHtml,
+    }
   }, [activeNote, activeNoteDoc, activeNoteEditHtml, activeNoteFace, activeNoteFaces, api])
 
   const toggleActiveNoteTextEditorMode = React.useCallback(() => {
@@ -869,7 +963,33 @@ export function HyperCortexApp() {
     }
     activeNoteEditSnapshotRef.current = null
     setActiveNoteEditing(false)
-  }, [activeNoteSaving, prepareEditFields])
+
+    const noteId = String(activeNote?.id || '').trim()
+    if (noteId) {
+      noteEditSessionsRef.current[noteId] = {
+        editing: false,
+        snapshot: null,
+        face: snapshot?.face || activeNoteFace,
+        faces: snapshot?.faces || activeNoteFaces,
+        textEditorMode: activeNoteTextEditorMode,
+        title: snapshot?.title || activeNoteEditTitle,
+        body: snapshot?.body || activeNoteEditBody,
+        tags: snapshot?.tags || activeNoteEditTags,
+        html: snapshot?.html || activeNoteEditHtml,
+      }
+    }
+  }, [
+    activeNote?.id,
+    activeNoteEditBody,
+    activeNoteEditHtml,
+    activeNoteEditTags,
+    activeNoteEditTitle,
+    activeNoteFace,
+    activeNoteFaces,
+    activeNoteSaving,
+    activeNoteTextEditorMode,
+    prepareEditFields,
+  ])
 
   const handleSaveActiveNote = React.useCallback(async () => {
     if (!activeNote || activeNoteSaving) return
@@ -922,13 +1042,39 @@ export function HyperCortexApp() {
       setActiveNoteTagInput('')
       setActiveNoteEditing(false)
       activeNoteEditSnapshotRef.current = null
+
+      noteEditSessionsRef.current[meta.id] = {
+        editing: false,
+        snapshot: null,
+        face: activeNoteFace,
+        faces: activeNoteFaces,
+        textEditorMode: activeNoteTextEditorMode,
+        title,
+        body: activeNoteFace === 'html' ? (activeNoteDoc?.body || '') : body,
+        tags,
+        html: activeNoteEditHtml,
+      }
       await api.ui.showToast(toastMsg)
     } catch (e: any) {
       await api.ui.showToast(String(e?.message || e || '保存失败'))
     } finally {
       setActiveNoteSaving(false)
     }
-  }, [activeNote, activeNoteDoc?.body, activeNoteDoc?.resources, activeNoteEditBody, activeNoteEditHtml, activeNoteEditTags, activeNoteEditTitle, activeNoteFace, activeNoteSaving, api, sortNotes])
+  }, [
+    activeNote,
+    activeNoteDoc?.body,
+    activeNoteDoc?.resources,
+    activeNoteEditBody,
+    activeNoteEditHtml,
+    activeNoteEditTags,
+    activeNoteEditTitle,
+    activeNoteFace,
+    activeNoteFaces,
+    activeNoteSaving,
+    activeNoteTextEditorMode,
+    api,
+    sortNotes,
+  ])
 
   const handleAddActiveNoteTag = React.useCallback(() => {
     setActiveNoteEditTags(prev => appendTag(prev, activeNoteTagInput))
@@ -972,6 +1118,7 @@ export function HyperCortexApp() {
   }, [activeNote, activeNoteDoc, activeNoteEditHtml, activeNoteFace, activeNoteFaces, activeNotePendingAddFace, api, prepareEditFields])
 
   const handleCloseActiveNote = React.useCallback(() => {
+    stashActiveNoteEditSession()
     setPage('all-notes')
     setActiveNote(null)
     setActiveNoteDoc(null)
@@ -989,7 +1136,7 @@ export function HyperCortexApp() {
     setActiveNoteAddFaceSelectorVisible(false)
     setActiveNotePendingAddFace(null)
     activeNoteEditSnapshotRef.current = null
-  }, [])
+  }, [stashActiveNoteEditSession])
 
   return (
     <ThemeProvider theme={theme}>
