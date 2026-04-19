@@ -1567,20 +1567,6 @@ export function HyperCortexApp() {
                 <Box sx={{ display: 'flex', minHeight: '100%', flexDirection: 'column', alignItems: 'flex-start', gap: 2.5 }}>
                   <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <IconButton
-                        size="small"
-                        aria-label="返回全部笔记"
-                        onClick={handleCloseActiveNote}
-                        sx={{
-                          color: '#111',
-                          flex: '0 0 auto',
-                          ml: -0.75,
-                          '&:hover': { bgcolor: 'rgba(0,0,0,.06)' },
-                        }}
-                      >
-                        <ArrowBackRoundedIcon fontSize="small" />
-                      </IconButton>
-
                       {!activeNoteLoading && !activeNoteLoadError && activeNoteDoc ? (
                         <Tooltip title={activeNoteEditing ? '保存' : '编辑'} placement="bottom-start">
                           <IconButton
