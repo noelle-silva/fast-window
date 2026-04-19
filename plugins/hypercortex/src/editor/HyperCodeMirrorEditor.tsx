@@ -133,6 +133,9 @@ const syntaxHighlightPlugin = ViewPlugin.fromClass(
       const doc = view.state.doc
       const decos: Range<Decoration>[] = []
 
+      const sel = view.state.selection.main
+      const cursorLine = doc.lineAt(sel.head).number
+
       const mark = (from: number, to: number, cls: string) => {
         if (from < to) decos.push(Decoration.mark({ class: cls }).range(from, to))
       }
@@ -141,7 +144,6 @@ const syntaxHighlightPlugin = ViewPlugin.fromClass(
       }
 
       const liveBlocks = scanLiveBlocks(doc)
-      const sel = view.state.selection.main
 
       const lineInfo = new Map<number, string>()
       for (const b of liveBlocks) {
@@ -174,6 +176,7 @@ const syntaxHighlightPlugin = ViewPlugin.fromClass(
 
         const line = doc.line(ln)
         const base = line.from
+        const focused = ln === cursorLine
 
         if (info === 'fence-open' || info === 'fence-close') {
           lineDeco(base, 'cm-hc-fence-close')
@@ -185,13 +188,16 @@ const syntaxHighlightPlugin = ViewPlugin.fromClass(
         }
 
         const t = line.text
+        const dimOrHide = focused ? 'cm-hc-dim' : 'cm-hc-hide'
 
-        // 标题
-        const hm = /^(#{1,3}) (.*)$/.exec(t)
+        // 标题：非聚焦行隐藏 # 和空格
+        const hm = /^(#{1,6}) (.*)$/.exec(t)
         if (hm) {
           const level = hm[1].length
-          mark(base, base + level, 'cm-hc-dim')
-          const cls = level === 1 ? 'cm-hc-h1' : level === 2 ? 'cm-hc-h2' : 'cm-hc-h3'
+          mark(base, base + level + 1, dimOrHide)
+          const cls = level <= 3
+            ? (level === 1 ? 'cm-hc-h1' : level === 2 ? 'cm-hc-h2' : 'cm-hc-h3')
+            : 'cm-hc-h4'
           mark(base + level + 1, base + t.length, cls)
         }
 
@@ -219,9 +225,9 @@ const syntaxHighlightPlugin = ViewPlugin.fromClass(
         for (let m = boldRe.exec(t); m; m = boldRe.exec(t)) {
           const o = base + m.index
           const inner = m[1] ?? ''
-          mark(o, o + 2, 'cm-hc-dim')
+          mark(o, o + 2, dimOrHide)
           mark(o + 2, o + 2 + inner.length, 'cm-hc-bold')
-          mark(o + 2 + inner.length, o + 2 + inner.length + 2, 'cm-hc-dim')
+          mark(o + 2 + inner.length, o + 2 + inner.length + 2, dimOrHide)
         }
 
         // 斜体
@@ -230,9 +236,9 @@ const syntaxHighlightPlugin = ViewPlugin.fromClass(
           const prefix = m[1] ?? ''
           const inner = m[2] ?? ''
           const s = base + m.index + prefix.length
-          mark(s, s + 1, 'cm-hc-dim')
+          mark(s, s + 1, dimOrHide)
           mark(s + 1, s + 1 + inner.length, 'cm-hc-italic')
-          mark(s + 1 + inner.length, s + 1 + inner.length + 1, 'cm-hc-dim')
+          mark(s + 1 + inner.length, s + 1 + inner.length + 1, dimOrHide)
         }
 
         // 行内代码
@@ -240,9 +246,9 @@ const syntaxHighlightPlugin = ViewPlugin.fromClass(
         for (let m = inlineCodeRe.exec(t); m; m = inlineCodeRe.exec(t)) {
           const o = base + m.index
           const inner = m[1] ?? ''
-          mark(o, o + 1, 'cm-hc-dim')
+          mark(o, o + 1, dimOrHide)
           mark(o + 1, o + 1 + inner.length, 'cm-hc-inline-code')
-          mark(o + 1 + inner.length, o + 1 + inner.length + 1, 'cm-hc-dim')
+          mark(o + 1 + inner.length, o + 1 + inner.length + 1, dimOrHide)
         }
 
         // 删除线
@@ -250,9 +256,9 @@ const syntaxHighlightPlugin = ViewPlugin.fromClass(
         for (let m = strikeRe.exec(t); m; m = strikeRe.exec(t)) {
           const o = base + m.index
           const inner = m[1] ?? ''
-          mark(o, o + 2, 'cm-hc-dim')
+          mark(o, o + 2, dimOrHide)
           mark(o + 2, o + 2 + inner.length, 'cm-hc-strikethrough')
-          mark(o + 2 + inner.length, o + 2 + inner.length + 2, 'cm-hc-dim')
+          mark(o + 2 + inner.length, o + 2 + inner.length + 2, dimOrHide)
         }
 
         // 图片
@@ -261,7 +267,7 @@ const syntaxHighlightPlugin = ViewPlugin.fromClass(
         for (let m = imageRe.exec(t); m; m = imageRe.exec(t)) {
           const f = base + m.index, tt = f + m[0].length
           imgRanges.push([f, tt])
-          mark(f, tt, 'cm-hc-image-marker')
+          mark(f, tt, focused ? 'cm-hc-image-marker' : 'cm-hc-hide')
         }
 
         // 链接
@@ -271,11 +277,11 @@ const syntaxHighlightPlugin = ViewPlugin.fromClass(
           if (imgRanges.some(([a, b]) => f < b && tt > a)) continue
           const text = m[1] ?? '', url = m[2] ?? ''
           const ob = f
-          mark(ob, ob + 1, 'cm-hc-dim')
+          mark(ob, ob + 1, dimOrHide)
           mark(ob + 1, ob + 1 + text.length, 'cm-hc-link-text')
-          mark(ob + 1 + text.length, ob + 1 + text.length + 1, 'cm-hc-dim')
+          mark(ob + 1 + text.length, ob + 1 + text.length + 1, dimOrHide)
           const op = ob + 1 + text.length + 1
-          mark(op, op + 1 + url.length + 1, 'cm-hc-link-url')
+          mark(op, op + 1 + url.length + 1, focused ? 'cm-hc-link-url' : 'cm-hc-link-url-hide')
         }
       }
 

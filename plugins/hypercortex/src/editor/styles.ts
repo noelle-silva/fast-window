@@ -265,11 +265,9 @@ const CM6_CSS = `
 .hc-cm6-preview .hc-render > *:last-child{margin-bottom:0;}
 
 /* Mark Decoration：语法装饰（标题、强调、行内代码、变淡标记符） */
-.cm-hc-h1, .cm-hc-h2, .cm-hc-h3{
+.cm-hc-h1, .cm-hc-h2, .cm-hc-h3, .cm-hc-h4{
   font-weight:bold;
   color:var(--text-primary, #000);
-  display:inline-block;
-  width:100%;
 }
 .cm-hc-h1{
   font-size:1.6em;
@@ -278,6 +276,7 @@ const CM6_CSS = `
 }
 .cm-hc-h2{font-size:1.4em;}
 .cm-hc-h3{font-size:1.2em;}
+.cm-hc-h4{font-size:1em;font-weight:600;}
 .cm-hc-bold{
   font-weight:bold;
   color:#000;
@@ -291,6 +290,7 @@ const CM6_CSS = `
   border-radius:4px;
 }
 .cm-hc-dim{color:rgba(0,0,0,0.3);}
+.cm-hc-hide{font-size:0;line-height:0;overflow:hidden;}
 
 /* 删除线 */
 .cm-hc-strikethrough{text-decoration:line-through;color:rgba(0,0,0,0.45);}
@@ -298,25 +298,26 @@ const CM6_CSS = `
 /* 链接 */
 .cm-hc-link-text{color:#1976d2;text-decoration:underline;text-underline-offset:2px;}
 .cm-hc-link-url{color:rgba(0,0,0,0.3);font-size:0.9em;}
+.cm-hc-link-url-hide{font-size:0;line-height:0;overflow:hidden;}
 
 /* 图片标记 */
 .cm-hc-image-marker{color:rgba(0,0,0,0.3);font-size:0.9em;}
 
 /* 引用块 */
-.cm-hc-blockquote{padding-left:12px;border-left:4px solid rgba(25,118,210,0.35);background:rgba(25,118,210,0.04);display:inline-block;width:100%;}
+.cm-hc-blockquote{padding-left:12px;border-left:4px solid rgba(25,118,210,0.35);background:rgba(25,118,210,0.04);}
 .cm-hc-blockquote-marker{color:rgba(25,118,210,0.5);font-weight:bold;}
 
 /* 列表标记 */
 .cm-hc-list-marker{color:rgba(25,118,210,0.6);font-weight:bold;}
 
 /* 水平线 */
-.cm-hc-hr{color:rgba(0,0,0,0.25);text-align:center;display:inline-block;width:100%;border-bottom:1px solid rgba(0,0,0,0.12);line-height:0.1em;margin:8px 0;}
+.cm-hc-hr{color:rgba(0,0,0,0.25);text-align:center;border-bottom:1px solid rgba(0,0,0,0.12);line-height:0.1em;margin:8px 0;}
 
 /* 代码块围栏行 */
-.cm-hc-fence-open,.cm-hc-fence-close{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:13px;color:rgba(255,255,255,0.5);background:#0b1220;display:inline-block;width:100%;padding:0 10px;}
+.cm-hc-fence-open,.cm-hc-fence-close{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:13px;color:rgba(255,255,255,0.5);background:#0b1220;padding:0 10px;}
 .cm-hc-fence-open{border-radius:10px 10px 0 0;padding-top:6px;}
 .cm-hc-fence-close{border-radius:0 0 10px 10px;padding-bottom:6px;}
-.cm-hc-fence-body{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:13px;line-height:1.6;background:#0b1220;color:#e5e7eb;display:inline-block;width:100%;padding:0 10px;}
+.cm-hc-fence-body{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:13px;line-height:1.6;background:#0b1220;color:#e5e7eb;padding:0 10px;}
 
 /* 占位符（CM6 placeholder 扩展会用到这个 class） */
 .hc-cm6-editor-container .cm-placeholder{
