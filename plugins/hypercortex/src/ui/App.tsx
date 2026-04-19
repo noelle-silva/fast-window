@@ -793,6 +793,7 @@ export function HyperCortexApp() {
                             }
                           }}
                           sx={{
+                            position: 'relative',
                             minHeight: 144,
                             px: 1.5,
                             py: 1.5,
@@ -809,8 +810,29 @@ export function HyperCortexApp() {
                               boxShadow: '0 6px 16px rgba(0,0,0,.08)',
                               transform: 'translateY(-1px)',
                             },
+                            '&:hover .hc-copy-ref-btn': { opacity: 1 },
                           }}
                         >
+                          <Box
+                            component="button"
+                            className="hc-copy-ref-btn"
+                            onClick={(e: React.MouseEvent) => {
+                              e.stopPropagation()
+                              void api.clipboard.writeText(`[[${note.id}|${note.title}]]`)
+                              void api.ui.showToast('已复制引用占位符')
+                            }}
+                            sx={{
+                              position: 'absolute', top: 6, right: 6,
+                              opacity: 0, transition: 'opacity .15s',
+                              border: 'none', background: 'rgba(0,0,0,.05)', borderRadius: 1.5,
+                              width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              cursor: 'pointer', fontSize: 13, color: 'rgba(0,0,0,.45)',
+                              '&:hover': { background: 'rgba(0,0,0,.1)' },
+                            }}
+                            title="复制引用占位符"
+                          >
+                            🔗
+                          </Box>
                           <Typography
                             sx={{
                               fontSize: 14,
@@ -851,6 +873,7 @@ export function HyperCortexApp() {
                             }
                           }}
                           sx={{
+                            position: 'relative',
                             minHeight: 84,
                             px: 1.25,
                             py: 1.25,
@@ -868,8 +891,29 @@ export function HyperCortexApp() {
                               boxShadow: '0 6px 16px rgba(0,0,0,.08)',
                               transform: 'translateY(-1px)',
                             },
+                            '&:hover .hc-copy-ref-btn': { opacity: 1 },
                           }}
                         >
+                          <Box
+                            component="button"
+                            className="hc-copy-ref-btn"
+                            onClick={(e: React.MouseEvent) => {
+                              e.stopPropagation()
+                              void api.clipboard.writeText(`[[${note.id}|${note.title}]]`)
+                              void api.ui.showToast('已复制引用占位符')
+                            }}
+                            sx={{
+                              position: 'absolute', top: 4, right: 4,
+                              opacity: 0, transition: 'opacity .15s',
+                              border: 'none', background: 'rgba(0,0,0,.05)', borderRadius: 1.5,
+                              width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              cursor: 'pointer', fontSize: 11, color: 'rgba(0,0,0,.45)',
+                              '&:hover': { background: 'rgba(0,0,0,.1)' },
+                            }}
+                            title="复制引用占位符"
+                          >
+                            🔗
+                          </Box>
                           <Typography
                             sx={{
                               fontSize: 13,
@@ -904,6 +948,7 @@ export function HyperCortexApp() {
                             }
                           }}
                           sx={{
+                            position: 'relative',
                             px: 1.5,
                             py: 1.15,
                             borderRadius: 3,
@@ -916,8 +961,29 @@ export function HyperCortexApp() {
                               boxShadow: '0 6px 16px rgba(0,0,0,.08)',
                               transform: 'translateY(-1px)',
                             },
+                            '&:hover .hc-copy-ref-btn': { opacity: 1 },
                           }}
                         >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Box
+                              component="button"
+                              className="hc-copy-ref-btn"
+                              onClick={(e: React.MouseEvent) => {
+                                e.stopPropagation()
+                                void api.clipboard.writeText(`[[${note.id}|${note.title}]]`)
+                                void api.ui.showToast('已复制引用占位符')
+                              }}
+                              sx={{
+                                opacity: 0, transition: 'opacity .15s',
+                                border: 'none', background: 'rgba(0,0,0,.05)', borderRadius: 1.5,
+                                width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                cursor: 'pointer', fontSize: 13, color: 'rgba(0,0,0,.45)', flexShrink: 0,
+                                '&:hover': { background: 'rgba(0,0,0,.1)' },
+                              }}
+                              title="复制引用占位符"
+                            >
+                              🔗
+                            </Box>
                           <Typography
                             sx={{
                               fontSize: 14,
@@ -931,6 +997,7 @@ export function HyperCortexApp() {
                           >
                             {note.title}
                           </Typography>
+                          </Box>
                         </Box>
                       ))}
                     </Box>
