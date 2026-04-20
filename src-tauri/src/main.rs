@@ -1673,8 +1673,21 @@ fn plugin_files_rename(
     let overwrite = req.overwrite.unwrap_or(false);
 
     let (_root_c, from_c) = resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.from)?;
-    if !from_c.is_file() {
-        return Err("源文件不存在".to_string());
+    let from_is_file = from_c.is_file();
+    let from_is_dir = from_c.is_dir();
+    eprintln!(
+        "[plugin_files_rename] pluginId={} scope={} from={} to={} from_c={} is_file={} is_dir={} overwrite={}",
+        plugin_id,
+        scope,
+        req.from,
+        req.to,
+        from_c.to_string_lossy(),
+        from_is_file,
+        from_is_dir,
+        overwrite
+    );
+    if !(from_is_file || from_is_dir) {
+        return Err(format!("源文件不存在（from={}）", req.from));
     }
 
     let (_root_c2, to) = resolve_write_path_in_scope(&app, &plugin_id, &scope, &req.to)?;
