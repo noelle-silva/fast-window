@@ -55,14 +55,15 @@ function NoteRefSection(props: {
   onOpenId: (id: string) => void
 }) {
   const ids = Array.from(new Set((props.ids || []).map(v => String(v || '').trim()).filter(Boolean)))
+  const visibleIds = ids.filter(id => props.canOpenId(id))
   return (
     <Box>
       <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.42)', mb: 0.75 }}>
-        {props.title}{ids.length ? `（${ids.length}）` : ''}
+        {props.title}{visibleIds.length ? `（${visibleIds.length}）` : ''}
       </Typography>
-      {ids.length ? (
+      {visibleIds.length ? (
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-          {ids.map(id => {
+          {visibleIds.map(id => {
             const title = props.resolveTitle(id)
             const canOpen = props.canOpenId(id)
             return (

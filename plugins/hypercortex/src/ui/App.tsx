@@ -2293,20 +2293,22 @@ export function HyperCortexApp() {
                       {/* 反向链接区域 */}
                       {!activeNoteInfoSidebarVisible && !activeNoteEditing && activeNote && (() => {
                         const bl = activeNoteBacklinkIds
-                        if (!bl.length) return null
+                        const entries = bl
+                          .map(bid => ({ bid, meta: allNotesById[bid] }))
+                          .filter(item => !!item.meta)
+                        if (!entries.length) return null
                         return (
                           <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid rgba(0,0,0,.08)' }}>
                             <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.42)', mb: 1 }}>
                               被以下笔记引用
                             </Typography>
                             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-                              {bl.map(bid => {
-                                const meta = allNotes.find(n => n.id === bid)
+                              {entries.map(({ bid, meta }) => {
                                 return (
                                   <Box
                                     key={bid}
                                     component="span"
-                                    onClick={() => meta && handleOpenNote(meta)}
+                                    onClick={() => handleOpenNote(meta as NoteMeta)}
                                     sx={{
                                       display: 'inline-flex',
                                       alignItems: 'center',
@@ -2316,12 +2318,12 @@ export function HyperCortexApp() {
                                       fontSize: 12,
                                       color: '#1976d2',
                                       bgcolor: 'rgba(25,118,210,.06)',
-                                      cursor: meta ? 'pointer' : 'default',
+                                      cursor: 'pointer',
                                       transition: 'background 120ms',
-                                      '&:hover': meta ? { bgcolor: 'rgba(25,118,210,.12)' } : {},
+                                      '&:hover': { bgcolor: 'rgba(25,118,210,.12)' },
                                     }}
                                   >
-                                    {meta?.title || bid.slice(0, 12) + '…'}
+                                    {(meta as NoteMeta).title || bid.slice(0, 12) + '…'}
                                   </Box>
                                 )
                               })}
