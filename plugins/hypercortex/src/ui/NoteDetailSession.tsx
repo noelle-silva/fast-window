@@ -16,6 +16,7 @@ import { loadHtmlFace, loadNotePackage, saveHtmlFace, saveNotePackage, type Hype
 import type { Api, NoteMeta, VaultScope, HyperCortexNoteDoc } from '../core'
 import { NoteInfoSidebar } from './NoteInfoSidebar'
 import { AutoHeightHtmlIframe } from './AutoHeightHtmlIframe'
+import { CodeMirrorCodeEditor } from '../editor/CodeMirrorCodeEditor'
 import { HyperCodeMirrorEditor as BlockEditor } from '../editor/HyperCodeMirrorEditor'
 
 type NoteFaceId = 'text' | 'html'
@@ -853,26 +854,15 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
             </Box>
 
             {face === 'html' ? editing ? (
-              <InputBase
+              <CodeMirrorCodeEditor
                 value={editHtml}
-                onChange={e => setEditHtml(e.target.value)}
+                onChange={setEditHtml}
                 placeholder="输入 HTML 代码..."
-                fullWidth
-                multiline
-                minRows={18}
-                inputProps={{ 'aria-label': '编辑 HTML 正文代码' }}
-                sx={{
-                  width: '100%',
-                  alignItems: 'flex-start',
-                  fontSize: 14,
-                  lineHeight: 1.7,
-                  color: '#1f2937',
-                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-                  '& textarea': {
-                    padding: 0,
-                    resize: 'none',
-                  },
-                }}
+                minHeight={420}
+                active={visible}
+                ariaLabel="编辑 HTML 正文代码"
+                lineWrapping
+                mode="html"
               />
             ) : (
               <AutoHeightHtmlIframe html={editHtml} minHeightPx={240} />

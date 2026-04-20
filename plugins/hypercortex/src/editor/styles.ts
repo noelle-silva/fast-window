@@ -253,6 +253,14 @@ const CM6_CSS = `
   border-left:2px solid #1976d2;
 }
 
+/* 代码编辑（HTML / 纯源码）：更“像编辑器”一点 */
+.hc-cm6-editor-container.hc-cm6-code .cm-scroller{
+  font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size:13px;
+  line-height:1.6;
+  color:#111827;
+}
+
 /* Live Preview 小组件（自然融入正文） */
 .hc-cm6-preview{
   /* 说明：不要用 margin 来制造上下间距（CM6 的高度测量不会把 margin 计入 heightMap）
@@ -327,6 +335,32 @@ const CM6_CSS = `
 /* 引用块 */
 .cm-hc-blockquote{padding-left:12px;border-left:4px solid rgba(25,118,210,0.35);background:rgba(25,118,210,0.04);}
 .cm-hc-blockquote-marker{color:rgba(25,118,210,0.5);font-weight:bold;}
+
+/* HTML 高亮（轻量版） */
+/* 彩虹调色盘：更“亮”、更有区分度 */
+.cm-hc-html-bracket{color:rgba(17,24,39,0.55);}
+.cm-hc-html-tag{color:#ef4444;font-weight:800;}        /* red */
+.cm-hc-html-attr{color:#f59e0b;font-weight:700;}       /* amber */
+.cm-hc-html-operator{color:rgba(17,24,39,0.55);}
+.cm-hc-html-value{color:#22c55e;}                      /* green */
+.cm-hc-html-string{color:#a855f7;}                     /* purple */
+.cm-hc-html-entity{color:#06b6d4;}                     /* cyan */
+.cm-hc-html-doctype{color:#eab308;font-weight:800;}    /* yellow */
+.cm-hc-html-comment{color:rgba(17,24,39,0.35);font-style:italic;}
+
+/* script/style 内的轻量 JS/CSS 高亮 */
+.cm-hc-js-keyword{color:#ec4899;font-weight:800;}     /* pink */
+.cm-hc-js-fn{color:#3b82f6;font-weight:800;}          /* blue */
+.cm-hc-js-builtin{color:#14b8a6;font-weight:800;}     /* teal */
+.cm-hc-js-number{color:#f97316;}                      /* orange */
+.cm-hc-js-string{color:#a855f7;}                      /* purple */
+.cm-hc-js-comment{color:rgba(17,24,39,0.35);font-style:italic;}
+
+.cm-hc-css-atrule{color:#8b5cf6;font-weight:800;}     /* violet */
+.cm-hc-css-prop{color:#3b82f6;font-weight:800;}       /* blue */
+.cm-hc-css-value{color:#f97316;}                      /* orange */
+.cm-hc-css-string{color:#22c55e;}                     /* green */
+.cm-hc-css-comment{color:rgba(17,24,39,0.35);font-style:italic;}
 
 /* 列表标记 */
 .cm-hc-list-marker{color:rgba(25,118,210,0.6);font-weight:bold;}
