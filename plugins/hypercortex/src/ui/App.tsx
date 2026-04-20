@@ -147,6 +147,10 @@ export function HyperCortexApp() {
 
   // ---- 核心 UI 状态
   const [page, setPage] = React.useState<PageId>('home')
+  const pageRef = React.useRef<PageId>('home')
+  React.useEffect(() => {
+    pageRef.current = page
+  }, [page])
 
   // ---- 元数据（持久化）
   const metaRef = React.useRef<HyperCortexMetadataV1 | null>(null)
@@ -162,6 +166,49 @@ export function HyperCortexApp() {
 
   // ---- 详情页（tab 常驻 Session）
   const [activeNoteId, setActiveNoteId] = React.useState<string>('')
+  const activeNoteIdRef = React.useRef<string>('')
+  React.useEffect(() => {
+    activeNoteIdRef.current = activeNoteId
+  }, [activeNoteId])
+
+  const mainScrollElRef = React.useRef<HTMLDivElement | null>(null)
+  const noteScrollTopByIdRef = React.useRef<Record<string, number>>({})
+  const scrollSaveRafRef = React.useRef<number | null>(null)
+
+  React.useEffect(() => {
+    const el = mainScrollElRef.current
+    if (!el) return
+
+    const onScroll = () => {
+      if (scrollSaveRafRef.current != null) return
+      scrollSaveRafRef.current = requestAnimationFrame(() => {
+        scrollSaveRafRef.current = null
+        if (pageRef.current !== 'note-detail') return
+        const nid = String(activeNoteIdRef.current || '').trim()
+        if (!nid) return
+        noteScrollTopByIdRef.current[nid] = el.scrollTop
+      })
+    }
+
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      el.removeEventListener('scroll', onScroll)
+      if (scrollSaveRafRef.current != null) cancelAnimationFrame(scrollSaveRafRef.current)
+      scrollSaveRafRef.current = null
+    }
+  }, [])
+
+  React.useLayoutEffect(() => {
+    const el = mainScrollElRef.current
+    if (!el) return
+    if (page !== 'note-detail') return
+    const nid = String(activeNoteId || '').trim()
+    if (!nid) return
+    const saved = noteScrollTopByIdRef.current[nid]
+    const next = typeof saved === 'number' && Number.isFinite(saved) && saved > 0 ? saved : 0
+    el.scrollTop = next
+  }, [activeNoteId, page])
+
   const noteSessionHandlesRef = React.useRef<Record<string, NoteDetailSessionHandle | null>>({})
   const noteInitSnapshotsRef = React.useRef<Record<string, NoteDetailSnapshotV1>>({})
   const draftNoteMetaRef = React.useRef<Record<string, NoteMeta>>({})
@@ -837,6 +884,7 @@ export function HyperCortexApp() {
         for (const id of closing) {
           delete noteSessionHandlesRef.current[id]
           delete noteInitSnapshotsRef.current[id]
+          delete noteScrollTopByIdRef.current[id]
         }
         const next = prev.filter(t => !closing.has(t.id))
 
@@ -914,6 +962,10 @@ export function HyperCortexApp() {
       delete draftNoteMetaRef.current[originalId]
       delete noteSessionHandlesRef.current[originalId]
       delete noteInitSnapshotsRef.current[originalId]
+      if (noteScrollTopByIdRef.current[originalId] != null) {
+        noteScrollTopByIdRef.current[meta.id] = noteScrollTopByIdRef.current[originalId]
+        delete noteScrollTopByIdRef.current[originalId]
+      }
       updateTabGrouping(prev => {
         const gid = prev.byNoteId[originalId]
         if (!gid) return prev
@@ -1140,7 +1192,7 @@ export function HyperCortexApp() {
             </Box>
           </Box>
 
-          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto' }}>
+          <Box ref={mainScrollElRef} sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto' }}>
             <Box sx={{ minHeight: '100%', p: 2 }}>
               {page === 'home' ? <Typography color="text.secondary">这是主页页面。</Typography> : null}
               {page === 'attachments' ? <AssetPoolPanel api={api} scope="library" /> : null}
