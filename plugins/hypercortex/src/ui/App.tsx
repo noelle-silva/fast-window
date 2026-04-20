@@ -1,19 +1,12 @@
 import * as React from 'react'
 import { AppBar, Box, Button, CssBaseline, Dialog, DialogActions, DialogContent, DialogTitle, GlobalStyles, IconButton, InputBase, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
-import { HyperCodeMirrorEditor as BlockEditor } from '../editor/HyperCodeMirrorEditor'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
-import InfoRoundedIcon from '@mui/icons-material/InfoRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
 import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded'
 import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
 import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded'
-import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
-import EditRoundedIcon from '@mui/icons-material/EditRounded'
-import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
-import CodeRoundedIcon from '@mui/icons-material/CodeRounded'
-import WysiwygRoundedIcon from '@mui/icons-material/WysiwygRounded'
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
@@ -23,52 +16,24 @@ import {
   saveMetadata,
   tryLoadMetadata,
   type HyperCortexMetadataV1,
-  type HyperCortexNoteDoc,
   type HyperCortexTabGroupV1,
   type HyperCortexWorkspaceV1,
   type NoteMeta,
 } from '../core'
-import { loadHtmlFace, loadNoteIndex, loadNotePackage, saveHtmlFace, saveNotePackage, type HyperCortexHtmlFaceDoc } from '../notePackage'
-import { renderNoteDisplayHtml } from '../noteRender'
-import { extractNoteRefs, getBacklinksFor, saveRefIndex, type NoteRefIndex } from '../noteRefs'
+import { loadNoteIndex, loadNotePackage } from '../notePackage'
+import { extractNoteRefs, saveRefIndex, type NoteRefIndex } from '../noteRefs'
 import { createMarkdownRenderEngine } from '../render/engine'
-import { HYPERCORTEX_NOTE_SCHEMA_VERSION } from '../noteSchema'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
-import { AutoHeightHtmlIframe } from './AutoHeightHtmlIframe'
 import { AssetPoolPanel } from './AssetPoolPanel'
-import { NoteInfoSidebar } from './NoteInfoSidebar'
 import { OpenTabsPanel } from './OpenTabsPanel'
+import { NoteDetailSession, type NoteDetailSessionHandle, type NoteDetailSnapshotV1 } from './NoteDetailSession'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
 
 type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'index' | 'settings'
 
 type AllNotesLayout = 'list' | 'grid' | 'icon'
-type NoteFaceId = 'text' | 'html'
-type TextEditorMode = 'source' | 'live'
 type TabsMode = 'manual' | 'hover'
-
-type NoteEditMode = 'read' | 'edit'
-
-type NoteContent = {
-  title: string
-  body: string
-  tags: string[]
-  html: string
-}
-
-function isDraftNoteId(noteId: string): boolean {
-  return String(noteId || '').startsWith('draft_')
-}
-
-type NoteEditSession = {
-  mode: NoteEditMode
-  face: NoteFaceId
-  faces: NoteFaceId[]
-  textEditorMode: TextEditorMode
-  base: NoteContent
-  draft: NoteContent
-}
 
 function normalizeAllNotesLayout(value: unknown): AllNotesLayout {
   return value === 'grid' || value === 'icon' ? value : 'list'
@@ -98,28 +63,8 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
   return !!t.closest('button, a, input, textarea, select, [role="button"]')
 }
 
-function normalizeTagText(value: string): string {
-  return String(value || '').trim()
-}
-
-function appendTag(list: string[], raw: string): string[] {
-  const tag = normalizeTagText(raw)
-  if (!tag) return list
-  if (list.includes(tag)) return list
-  return [...list, tag]
-}
-
-function areStringListsEqual(a: string[], b: string[]): boolean {
-  if (a === b) return true
-  if (a.length !== b.length) return false
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false
-  }
-  return true
-}
-
-function isNoteContentEqual(a: NoteContent, b: NoteContent): boolean {
-  return a.title === b.title && a.body === b.body && a.html === b.html && areStringListsEqual(a.tags, b.tags)
+function isDraftNoteId(noteId: string): boolean {
+  return String(noteId || '').startsWith('draft_')
 }
 
 function NavIconButton(props: {
@@ -161,24 +106,9 @@ export function HyperCortexApp() {
   const [allNotes, setAllNotes] = React.useState<NoteMeta[]>([])
   const [allNotesLoading, setAllNotesLoading] = React.useState(false)
   const [allNotesLoadError, setAllNotesLoadError] = React.useState<string | null>(null)
-  const [activeNote, setActiveNote] = React.useState<NoteMeta | null>(null)
-  const [activeNoteDoc, setActiveNoteDoc] = React.useState<HyperCortexNoteDoc | null>(null)
-  const [activeNoteLoading, setActiveNoteLoading] = React.useState(false)
-  const [activeNoteLoadError, setActiveNoteLoadError] = React.useState<string | null>(null)
-  const [activeNoteEditing, setActiveNoteEditing] = React.useState(false)
-  const [activeNoteTextEditorMode, setActiveNoteTextEditorMode] = React.useState<TextEditorMode>('live')
-  const [activeNoteEditTitle, setActiveNoteEditTitle] = React.useState('')
-  const [activeNoteEditBody, setActiveNoteEditBody] = React.useState('')
-  const [activeNoteEditTags, setActiveNoteEditTags] = React.useState<string[]>([])
-  const [activeNoteTagInput, setActiveNoteTagInput] = React.useState('')
-  const [activeNoteEditHtml, setActiveNoteEditHtml] = React.useState('')
-  const [activeNoteSaving, setActiveNoteSaving] = React.useState(false)
-  const [activeNoteFace, setActiveNoteFace] = React.useState<NoteFaceId>('text')
-  const [activeNoteFaces, setActiveNoteFaces] = React.useState<NoteFaceId[]>(['text'])
-  const [activeNoteAddFaceSelectorVisible, setActiveNoteAddFaceSelectorVisible] = React.useState(false)
-  const [activeNotePendingAddFace, setActiveNotePendingAddFace] = React.useState<NoteFaceId | null>(null)
-  const [activeNoteInfoSidebarVisible, setActiveNoteInfoSidebarVisible] = React.useState(false)
-  const noteEditSessionsRef = React.useRef<Record<string, NoteEditSession>>({})
+  const [activeNoteId, setActiveNoteId] = React.useState<string>('')
+  const noteSessionHandlesRef = React.useRef<Record<string, NoteDetailSessionHandle | null>>({})
+  const noteInitSnapshotsRef = React.useRef<Record<string, NoteDetailSnapshotV1>>({})
   const draftNoteMetaRef = React.useRef<Record<string, NoteMeta>>({})
   const [closeTabPrompt, setCloseTabPrompt] = React.useState<{ noteId: string } | null>(null)
   const [tabsCollapsed, setTabsCollapsed] = React.useState(false)
@@ -206,137 +136,50 @@ export function HyperCortexApp() {
   const renderEngineRef = React.useRef(createMarkdownRenderEngine({ api, scope: 'library' }))
   ;(window as any).__hcRenderEngine = renderEngineRef.current
 
-  React.useEffect(() => {
-    const noteIndexMap: Record<string, { title: string }> = {}
-    for (const n of allNotes) noteIndexMap[n.id] = { title: n.title }
-    renderEngineRef.current.noteIndex = noteIndexMap
+  const noteIndexMap = React.useMemo(() => {
+    const map: Record<string, { title: string }> = {}
+    for (const n of allNotes) map[n.id] = { title: n.title }
+    return map
   }, [allNotes])
 
-  const textRenderRef = React.useRef<HTMLDivElement>(null)
+  React.useEffect(() => {
+    renderEngineRef.current.noteIndex = noteIndexMap
+  }, [noteIndexMap])
+
+  const consumeInitSnapshot = React.useCallback((noteId: string): NoteDetailSnapshotV1 | null => {
+    const nid = String(noteId || '').trim()
+    if (!nid) return null
+    const snap = noteInitSnapshotsRef.current[nid]
+    if (!snap) return null
+    delete noteInitSnapshotsRef.current[nid]
+    return snap
+  }, [])
+
+  const setNoteSessionHandle = React.useCallback((noteId: string, handle: NoteDetailSessionHandle | null) => {
+    const nid = String(noteId || '').trim()
+    if (!nid) return
+    if (!handle) delete noteSessionHandlesRef.current[nid]
+    else noteSessionHandlesRef.current[nid] = handle
+  }, [])
+
+  const isNoteDirtyById = React.useCallback((noteId: string): boolean => {
+    const nid = String(noteId || '').trim()
+    if (!nid) return false
+    return noteSessionHandlesRef.current[nid]?.isDirty?.() === true
+  }, [])
+
+  const isNoteSavingById = React.useCallback((noteId: string): boolean => {
+    const nid = String(noteId || '').trim()
+    if (!nid) return false
+    return noteSessionHandlesRef.current[nid]?.isSaving?.() === true
+  }, [])
+
   const [refIndex, setRefIndex] = React.useState<NoteRefIndex>({})
   const allNotesById = React.useMemo(() => {
     const map: Record<string, NoteMeta> = {}
     for (const n of allNotes) map[n.id] = n
     return map
   }, [allNotes])
-
-  const activeNoteOutgoingIds = React.useMemo(() => {
-    if (!activeNoteInfoSidebarVisible) return []
-    const noteId = String(activeNoteDoc?.id || '').trim()
-    if (!noteId) return []
-    const body = activeNoteEditing && activeNoteFace === 'text' ? activeNoteEditBody : (activeNoteDoc?.body || '')
-    return extractNoteRefs(body)
-  }, [activeNoteDoc?.body, activeNoteDoc?.id, activeNoteEditBody, activeNoteEditing, activeNoteFace, activeNoteInfoSidebarVisible])
-
-  const activeNoteBacklinkIds = React.useMemo(() => {
-    const noteId = String(activeNote?.id || '').trim()
-    if (!noteId) return []
-    return getBacklinksFor(refIndex, noteId)
-  }, [activeNote?.id, refIndex])
-
-  const stashActiveNoteEditSession = React.useCallback(() => {
-    const noteId = String(activeNote?.id || '').trim()
-    if (!noteId) return
-    const prev = noteEditSessionsRef.current[noteId]
-    const draft: NoteContent = {
-      title: activeNoteEditTitle,
-      body: activeNoteEditBody,
-      tags: activeNoteEditTags,
-      html: activeNoteEditHtml,
-    }
-    noteEditSessionsRef.current[noteId] = {
-      mode: activeNoteEditing ? 'edit' : 'read',
-      face: activeNoteFace,
-      faces: activeNoteFaces,
-      textEditorMode: activeNoteTextEditorMode,
-      base: prev?.base || draft,
-      draft,
-    }
-  }, [
-    activeNote?.id,
-    activeNoteEditing,
-    activeNoteEditBody,
-    activeNoteEditHtml,
-    activeNoteEditTags,
-    activeNoteEditTitle,
-    activeNoteFace,
-    activeNoteFaces,
-    activeNoteTextEditorMode,
-  ])
-
-  const restoreNoteEditSession = React.useCallback((noteId: string) => {
-    const nid = String(noteId || '').trim()
-    const session = nid ? noteEditSessionsRef.current[nid] : undefined
-    if (!session) {
-      setActiveNoteEditing(false)
-      setActiveNoteTextEditorMode('live')
-      setActiveNoteEditTitle('')
-      setActiveNoteEditBody('')
-      setActiveNoteEditTags([])
-      setActiveNoteTagInput('')
-      setActiveNoteEditHtml('')
-      setActiveNoteFace('text')
-      setActiveNoteFaces(['text'])
-      setActiveNoteAddFaceSelectorVisible(false)
-      setActiveNotePendingAddFace(null)
-      return
-    }
-
-    setActiveNoteEditing(session.mode === 'edit')
-    setActiveNoteTextEditorMode(session.textEditorMode)
-    setActiveNoteEditTitle(session.draft.title)
-    setActiveNoteEditBody(session.draft.body)
-    setActiveNoteEditTags(session.draft.tags)
-    setActiveNoteTagInput('')
-    setActiveNoteEditHtml(session.draft.html)
-    setActiveNoteFace(session.face)
-    setActiveNoteFaces(session.faces)
-    setActiveNoteAddFaceSelectorVisible(false)
-    setActiveNotePendingAddFace(null)
-  }, [])
-
-  const ensureNoteEditSessionFromLoaded = React.useCallback(
-    (note: NoteMeta, doc: HyperCortexNoteDoc, htmlFace: HyperCortexHtmlFaceDoc | null) => {
-      const noteId = String(note.id || '').trim()
-      if (!noteId) return
-
-      const existing = noteEditSessionsRef.current[noteId]
-      const loadedContent: NoteContent = {
-        title: doc.title || note.title || '未命名',
-        body: doc.body || '',
-        tags: doc.tags || [],
-        html: htmlFace?.html || '',
-      }
-
-      const allowHtml = !!htmlFace?.exists || !!existing?.faces?.includes('html') || existing?.face === 'html'
-      const faces: NoteFaceId[] = allowHtml ? ['text', 'html'] : ['text']
-
-      if (!existing) {
-        noteEditSessionsRef.current[noteId] = {
-          mode: 'read',
-          face: 'text',
-          faces,
-          textEditorMode: 'live',
-          base: loadedContent,
-          draft: loadedContent,
-        }
-        return
-      }
-
-      const wasPristine = isNoteContentEqual(existing.base, existing.draft)
-      existing.faces = faces
-      if (existing.face === 'html' && !allowHtml) existing.face = 'text'
-
-      if (!existing.base) existing.base = loadedContent
-      if (!existing.draft) existing.draft = loadedContent
-
-      if (wasPristine && !isNoteContentEqual(existing.base, loadedContent)) {
-        existing.base = loadedContent
-        existing.draft = loadedContent
-      }
-    },
-    [],
-  )
 
   const sanitizeMetadataForSave = React.useCallback((meta: HyperCortexMetadataV1): HyperCortexMetadataV1 => {
     const next: HyperCortexMetadataV1 = { ...meta, version: 1 }
@@ -442,30 +285,6 @@ export function HyperCortexApp() {
   const sidebarPanelExpanded = isHoverTabsMode ? tabsHoverOpen : !tabsCollapsed
   const sidebarPanelWidth = isHoverTabsMode ? (tabsHoverOpen ? 220 : 52) : sidebarRailWidth
 
-  React.useLayoutEffect(() => {
-    if (activeNoteFace !== 'text' || activeNoteEditing || !textRenderRef.current) return
-    renderEngineRef.current.renderInto(textRenderRef.current, activeNoteEditBody || '')
-  }, [activeNoteEditBody, activeNoteEditing, activeNoteFace])
-
-  /** 编辑器覆盖层渲染完 block 后：等待异步媒体就绪，完成后请求重新布局 */
-  const handleBlockRendered = React.useCallback((el: HTMLElement, requestUpdate: () => void) => {
-    const pending: { el: HTMLElement; event: string }[] = []
-    el.querySelectorAll('img').forEach(img => {
-      if (!img.complete) pending.push({ el: img, event: 'load' })
-    })
-    el.querySelectorAll('video').forEach(vid => {
-      if (vid.readyState < 1) pending.push({ el: vid, event: 'loadedmetadata' })
-    })
-    if (!pending.length) return
-
-    let remaining = pending.length
-    const done = () => { if (--remaining <= 0) requestUpdate() }
-    pending.forEach(({ el: m, event }) => {
-      m.addEventListener(event, done, { once: true })
-      m.addEventListener('error', done, { once: true })
-    })
-  }, [])
-
   const backToHost = React.useCallback(() => {
     try {
       if (typeof api.ui?.back === 'function') return void api.ui.back()
@@ -559,18 +378,13 @@ export function HyperCortexApp() {
         })()
       }
 
-      const currentActiveId = activeNote?.id || ''
+      const currentActiveId = String(activeNoteId || '').trim()
       if (currentActiveId && !openIds.includes(currentActiveId)) {
-        stashActiveNoteEditSession()
-        setActiveNote(null)
-        setActiveNoteDoc(null)
-        setActiveNoteLoadError(null)
-        setActiveNoteLoading(false)
-        setActiveNoteEditing(false)
-        setPage('home')
+        setActiveNoteId('')
+        if (page === 'note-detail') setPage('home')
       }
     },
-    [activeNote?.id, api, stashActiveNoteEditSession],
+    [activeNoteId, api, page],
   )
 
   const handleSwitchWorkspace = React.useCallback(
@@ -828,10 +642,6 @@ export function HyperCortexApp() {
       const notes = sortNotes(Object.values(idx.notes || {}))
       setAllNotes(notes)
 
-      const noteIndexMap: Record<string, { title: string }> = {}
-      for (const n of notes) noteIndexMap[n.id] = { title: n.title }
-      renderEngineRef.current.noteIndex = noteIndexMap
-
       // 开发阶段迁移：旧语法不兼容，引用索引直接按新语法重建
       const existingIds = new Set(notes.map(n => n.id))
       const nextRefIndex: NoteRefIndex = {}
@@ -919,8 +729,6 @@ export function HyperCortexApp() {
   }, [loadAllNotes, page])
 
   const handleCreateDraftNote = React.useCallback(() => {
-    stashActiveNoteEditSession()
-
     const now = Date.now()
     const draftId = `draft_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`
     const meta: NoteMeta = {
@@ -932,14 +740,19 @@ export function HyperCortexApp() {
     }
     draftNoteMetaRef.current[draftId] = meta
 
-    const initial: NoteContent = { title: '未命名', body: '', tags: [], html: '' }
-    noteEditSessionsRef.current[draftId] = {
-      mode: 'edit',
+    noteInitSnapshotsRef.current[draftId] = {
+      doc: null,
+      htmlFace: null,
+      base: { title: '未命名', body: '', tags: [], html: '' },
+      editing: true,
+      textEditorMode: 'live',
       face: 'text',
       faces: ['text'],
-      textEditorMode: 'live',
-      base: initial,
-      draft: initial,
+      editTitle: '未命名',
+      editBody: '',
+      editTags: [],
+      editHtml: '',
+      infoSidebarVisible: false,
     }
 
     setOpenNoteTabs(prev => {
@@ -948,99 +761,24 @@ export function HyperCortexApp() {
       return next
     })
 
-    setActiveNote(meta)
-    setActiveNoteDoc({
-      id: draftId,
-      packageDir: '',
-      title: initial.title,
-      body: initial.body,
-      tags: initial.tags,
-      createdAtMs: now,
-      updatedAtMs: now,
-      schemaVersion: HYPERCORTEX_NOTE_SCHEMA_VERSION,
-      resources: [],
-      displayHtml: renderNoteDisplayHtml({ title: initial.title, body: initial.body, tags: initial.tags }),
-    })
-    setActiveNoteLoadError(null)
-    setActiveNoteLoading(false)
-    setActiveNoteEditing(true)
-    setActiveNoteTextEditorMode('live')
-    setActiveNoteEditTitle(initial.title)
-    setActiveNoteEditBody(initial.body)
-    setActiveNoteEditTags(initial.tags)
-    setActiveNoteTagInput('')
-    setActiveNoteEditHtml(initial.html)
-    setActiveNoteFace('text')
-    setActiveNoteFaces(['text'])
-    setActiveNoteAddFaceSelectorVisible(false)
-    setActiveNotePendingAddFace(null)
+    setActiveNoteId(draftId)
     setPage('note-detail')
-  }, [commitActiveWorkspacePatch, stashActiveNoteEditSession])
+  }, [commitActiveWorkspacePatch])
 
   const handleOpenNote = React.useCallback(
-    async (note: NoteMeta) => {
-      stashActiveNoteEditSession()
-      restoreNoteEditSession(note.id)
+    (note: NoteMeta) => {
+      const nid = String(note?.id || '').trim()
+      if (!nid) return
       setOpenNoteTabs(prev => {
-        const next = prev.some(t => t.id === note.id) ? prev : [...prev, note]
+        const next = prev.some(t => t.id === nid) ? prev : [...prev, note]
         commitActiveWorkspacePatch({ openNoteIds: next.map(t => t.id) })
-        if (metaReady) void persistMetadataPatch({ activeNoteId: note.id }).catch(() => {})
+        if (metaReady && !isDraftNoteId(nid)) void persistMetadataPatch({ activeNoteId: nid }).catch(() => {})
         return next
       })
-      setActiveNote(note)
-      setActiveNoteDoc(null)
-      setActiveNoteLoadError(null)
-      setActiveNoteLoading(true)
+      setActiveNoteId(nid)
       setPage('note-detail')
-
-      if (isDraftNoteId(note.id) || !String(note.dir || '').trim()) {
-        const now = Date.now()
-        if (!noteEditSessionsRef.current[note.id]) {
-          const initial: NoteContent = { title: note.title || '未命名', body: '', tags: [], html: '' }
-          noteEditSessionsRef.current[note.id] = {
-            mode: 'edit',
-            face: 'text',
-            faces: ['text'],
-            textEditorMode: 'live',
-            base: initial,
-            draft: initial,
-          }
-        }
-        const session = noteEditSessionsRef.current[note.id]
-        const draft = session?.draft || { title: note.title || '未命名', body: '', tags: [], html: '' }
-        setActiveNoteDoc({
-          id: note.id,
-          packageDir: '',
-          title: draft.title,
-          body: draft.body,
-          tags: draft.tags,
-          createdAtMs: Number(note.createdAtMs) > 0 ? Number(note.createdAtMs) : now,
-          updatedAtMs: Number(note.updatedAtMs) > 0 ? Number(note.updatedAtMs) : now,
-          schemaVersion: HYPERCORTEX_NOTE_SCHEMA_VERSION,
-          resources: [],
-          displayHtml: renderNoteDisplayHtml({ title: draft.title, body: draft.body, tags: draft.tags }),
-        })
-        setActiveNoteLoadError(null)
-        setActiveNoteLoading(false)
-        return
-      }
-      try {
-        const [doc, htmlFace] = await Promise.all([
-          loadNotePackage(api, 'library', note.dir),
-          loadHtmlFace(api, 'library', note.dir).catch(() => null),
-        ])
-        setActiveNoteDoc(doc)
-        ensureNoteEditSessionFromLoaded(note, doc, htmlFace)
-        restoreNoteEditSession(note.id)
-      } catch (e: any) {
-        const message = String(e?.message || e || '加载笔记失败')
-        setActiveNoteLoadError(message)
-        await api.ui.showToast(message)
-      } finally {
-        setActiveNoteLoading(false)
-      }
     },
-    [api, commitActiveWorkspacePatch, ensureNoteEditSessionFromLoaded, metaReady, persistMetadataPatch, restoreNoteEditSession, stashActiveNoteEditSession],
+    [commitActiveWorkspacePatch, metaReady, persistMetadataPatch],
   )
 
   React.useEffect(() => {
@@ -1049,7 +787,7 @@ export function HyperCortexApp() {
     if (!targetId) return
     const meta = openNoteTabs.find(t => t.id === targetId)
     restoreActiveNoteIdRef.current = ''
-    if (meta) void handleOpenNote(meta)
+    if (meta) handleOpenNote(meta)
   }, [handleOpenNote, metaReady, openNoteTabs, tabsInitReady])
 
   const handleCloseTabs = React.useCallback(
@@ -1062,11 +800,15 @@ export function HyperCortexApp() {
         for (const id of closing) {
           if (!isDraftNoteId(id)) continue
           delete draftNoteMetaRef.current[id]
-          delete noteEditSessionsRef.current[id]
+          delete noteInitSnapshotsRef.current[id]
+        }
+        for (const id of closing) {
+          delete noteSessionHandlesRef.current[id]
+          delete noteInitSnapshotsRef.current[id]
         }
         const next = prev.filter(t => !closing.has(t.id))
 
-        const currentActiveId = activeNote?.id || ''
+        const currentActiveId = String(activeNoteId || '').trim()
         const closingActive = !!currentActiveId && closing.has(currentActiveId)
         let fallback: NoteMeta | null = null
         if (closingActive) {
@@ -1091,43 +833,15 @@ export function HyperCortexApp() {
 
         const nextActiveId = closingActive ? fallback?.id : currentActiveId
         commitActiveWorkspacePatch({ openNoteIds: next.map(t => t.id) })
-        if (metaReady) void persistMetadataPatch({ activeNoteId: nextActiveId }).catch(() => {})
+        if (metaReady && !isDraftNoteId(nextActiveId || '')) void persistMetadataPatch({ activeNoteId: nextActiveId }).catch(() => {})
 
         if (!closingActive) return next
-        if (fallback) void handleOpenNote(fallback)
-        else {
-          stashActiveNoteEditSession()
-          setActiveNote(null)
-          setActiveNoteDoc(null)
-          setActiveNoteLoadError(null)
-          setActiveNoteLoading(false)
-          setActiveNoteEditing(false)
-          setPage('home')
-        }
+        setActiveNoteId(nextActiveId || '')
+        if (page === 'note-detail') setPage(nextActiveId ? 'note-detail' : 'home')
         return next
       })
     },
-    [activeNote?.id, commitActiveWorkspacePatch, handleOpenNote, metaReady, persistMetadataPatch, stashActiveNoteEditSession],
-  )
-
-  const isNoteDirtyById = React.useCallback(
-    (noteId: string) => {
-      const nid = String(noteId || '').trim()
-      if (!nid) return false
-      const session = noteEditSessionsRef.current[nid]
-      if (!session) return false
-      if (activeNote?.id === nid) {
-        const activeDraft: NoteContent = {
-          title: activeNoteEditTitle,
-          body: activeNoteEditBody,
-          tags: activeNoteEditTags,
-          html: activeNoteEditHtml,
-        }
-        return !isNoteContentEqual(activeDraft, session.base)
-      }
-      return !isNoteContentEqual(session.draft, session.base)
-    },
-    [activeNote?.id, activeNoteEditBody, activeNoteEditHtml, activeNoteEditTags, activeNoteEditTitle],
+    [activeNoteId, commitActiveWorkspacePatch, metaReady, page, persistMetadataPatch],
   )
 
   const requestCloseTab = React.useCallback(
@@ -1153,256 +867,53 @@ export function HyperCortexApp() {
     [handleCloseTabs, handleDeleteGroupOnly, openNoteTabs, tabGrouping.byNoteId],
   )
 
-  React.useEffect(() => {
-    const el = textRenderRef.current
-    if (!el) return
-    const handler = (e: MouseEvent) => {
-      const target = e.target instanceof Element ? e.target : null
-      const link = target?.closest?.('.hc-note-ref') as HTMLElement | null
-      if (!link) return
-      const noteId = link.getAttribute('data-note-id')
-      if (!noteId) return
-      e.preventDefault()
-      const meta = allNotes.find(n => n.id === noteId)
-      if (meta) handleOpenNote(meta)
-    }
-    el.addEventListener('click', handler)
-    return () => el.removeEventListener('click', handler)
-  }, [allNotes, handleOpenNote])
+  const handleNoteSessionSaved = React.useCallback((payload: {
+    originalId: string
+    meta: NoteMeta
+    snapshotForNewId?: NoteDetailSnapshotV1
+  }) => {
+    const originalId = String(payload.originalId || '').trim()
+    const meta = payload.meta
+    if (!originalId || !meta?.id) return
 
-  React.useEffect(() => {
-    const noteId = String(activeNote?.id || '').trim()
-    if (!noteId) return
-    const session = noteEditSessionsRef.current[noteId]
-    if (!session) return
-    const draft: NoteContent = {
-      title: activeNoteEditTitle,
-      body: activeNoteEditBody,
-      tags: activeNoteEditTags,
-      html: activeNoteEditHtml,
-    }
-    session.mode = activeNoteEditing ? 'edit' : 'read'
-    session.face = activeNoteFace
-    session.faces = activeNoteFaces
-    session.textEditorMode = activeNoteTextEditorMode
-    session.base = session.base || draft
-    session.draft = draft
-  }, [
-    activeNote?.id,
-    activeNoteEditBody,
-    activeNoteEditHtml,
-    activeNoteEditTags,
-    activeNoteEditTitle,
-    activeNoteEditing,
-    activeNoteFace,
-    activeNoteFaces,
-    activeNoteTextEditorMode,
-  ])
-
-  const discardNoteDraft = React.useCallback(
-    (noteId: string) => {
-      const nid = String(noteId || '').trim()
-      if (!nid) return
-      const session = noteEditSessionsRef.current[nid]
-      if (!session) return
-      const nextDraft: NoteContent = {
-        title: session.base.title,
-        body: session.base.body,
-        tags: session.base.tags.slice(),
-        html: session.base.html,
-      }
-      session.draft = nextDraft
-      session.mode = 'read'
-      if (activeNote?.id === nid) {
-        setActiveNoteEditTitle(nextDraft.title)
-        setActiveNoteEditBody(nextDraft.body)
-        setActiveNoteEditTags(nextDraft.tags)
-        setActiveNoteEditHtml(nextDraft.html)
-        setActiveNoteTagInput('')
-        setActiveNoteAddFaceSelectorVisible(false)
-        setActiveNotePendingAddFace(null)
-        setActiveNoteTextEditorMode('live')
-        setActiveNoteEditing(false)
-      }
-    },
-    [activeNote?.id],
-  )
-
-  const toggleActiveNoteTextEditorMode = React.useCallback(() => {
-    setActiveNoteTextEditorMode(prev => (prev === 'source' ? 'live' : 'source'))
-  }, [])
-
-  const handleToggleActiveNoteMode = React.useCallback(() => {
-    if (!activeNoteDoc || !activeNote) return
-    setActiveNoteEditing(prev => !prev)
-  }, [activeNote, activeNoteDoc])
-
-  const handleCancelEditingActiveNote = React.useCallback(() => {
-    if (activeNoteSaving) return
-    const noteId = String(activeNote?.id || '').trim()
-    if (!noteId) return
-    discardNoteDraft(noteId)
-  }, [activeNote?.id, activeNoteSaving, discardNoteDraft])
-
-  const handleSaveActiveNote = React.useCallback(async () => {
-    if (!activeNote || activeNoteSaving) return
-    setActiveNoteSaving(true)
-    try {
-      const scope = 'library' as const
-      const originalId = activeNote.id
-      const isDraft = isDraftNoteId(originalId) || !String(activeNote.dir || '').trim()
-      const title = String(activeNoteEditTitle || '').trim() || '未命名'
-      const body = String(activeNoteEditBody || '').replace(/\r\n/g, '\n')
-      const tags = activeNoteEditTags.map(normalizeTagText).filter(Boolean)
-
-      let meta: NoteMeta
-      let toastMsg: string
-
-      if (activeNoteFace === 'html') {
-        const result = await saveHtmlFace(api, scope, {
-          id: isDraft ? undefined : activeNote.id,
-          packageDir: isDraft ? undefined : activeNote.dir,
-          title,
-          body: activeNoteDoc?.body || '',
-          tags,
-          createdAtMs: activeNote.createdAtMs,
-          resources: activeNoteDoc?.resources || [],
-          html: activeNoteEditHtml,
-        })
-        meta = result.meta
-        setActiveNoteDoc(prev => prev ? { ...prev, id: meta.id, packageDir: meta.dir, title, tags, updatedAtMs: meta.updatedAtMs } : prev)
-        setActiveNoteFaces(prev => (prev.includes('html') ? prev : [...prev, 'html']))
-        toastMsg = 'HTML 面已保存'
-      } else {
-        const result = await saveNotePackage(api, scope, {
-          id: isDraft ? undefined : activeNote.id,
-          title,
-          body,
-          tags,
-          createdAtMs: activeNote.createdAtMs,
-          resources: activeNoteDoc?.resources || [],
-          saveTextFace: true,
-        })
-        meta = result.meta
-        setActiveNoteDoc(result.doc)
-        setActiveNoteEditBody(result.doc.body)
-        toastMsg = '笔记已保存'
-      }
-
-      if (isDraft && meta.id !== originalId) {
-        delete draftNoteMetaRef.current[originalId]
-      }
-
-      setAllNotes(prev => sortNotes([meta, ...prev.filter(item => item.id !== originalId)]))
-      setActiveNote(meta)
-      setOpenNoteTabs(prev => {
-        const next = prev.map(t => (t.id === originalId ? meta : t))
-        commitActiveWorkspacePatch({ openNoteIds: next.map(t => t.id) })
-        return next
+    const didMigrateId = meta.id !== originalId
+    if (didMigrateId && payload.snapshotForNewId) {
+      noteInitSnapshotsRef.current[meta.id] = payload.snapshotForNewId
+      delete draftNoteMetaRef.current[originalId]
+      delete noteSessionHandlesRef.current[originalId]
+      delete noteInitSnapshotsRef.current[originalId]
+      updateTabGrouping(prev => {
+        const gid = prev.byNoteId[originalId]
+        if (!gid) return prev
+        const byNoteId = { ...prev.byNoteId }
+        byNoteId[meta.id] = gid
+        delete byNoteId[originalId]
+        return { ...prev, byNoteId }
       })
-      setActiveNoteEditTitle(title)
-      setActiveNoteEditTags(tags)
-      setActiveNoteTagInput('')
-      const existingSession = noteEditSessionsRef.current[originalId]
-      const session = isDraft && meta.id !== originalId && existingSession ? (noteEditSessionsRef.current[meta.id] = existingSession) : noteEditSessionsRef.current[meta.id]
-      if (isDraft && meta.id !== originalId && existingSession) delete noteEditSessionsRef.current[originalId]
-      if (session) {
-        const nextBase: NoteContent = {
-          title,
-          body: session.base.body,
-          tags: tags.slice(),
-          html: session.base.html,
-        }
-        if (activeNoteFace === 'text') nextBase.body = body
-        if (activeNoteFace === 'html') nextBase.html = activeNoteEditHtml
-        session.base = nextBase
-        session.draft = { ...nextBase, tags: nextBase.tags.slice() }
-      }
-      if (isDraft && meta.id !== originalId) {
-        updateTabGrouping(prev => {
-          const gid = prev.byNoteId[originalId]
-          if (!gid) return prev
-          const byNoteId = { ...prev.byNoteId }
-          byNoteId[meta.id] = gid
-          delete byNoteId[originalId]
-          return { ...prev, byNoteId }
-        })
-        setCloseTabPrompt(p => (p?.noteId === originalId ? { noteId: meta.id } : p))
-      }
-      await api.ui.showToast(toastMsg)
-    } catch (e: any) {
-      await api.ui.showToast(String(e?.message || e || '保存失败'))
-    } finally {
-      setActiveNoteSaving(false)
+      setCloseTabPrompt(p => (p?.noteId === originalId ? { noteId: meta.id } : p))
     }
-  }, [
-    activeNote,
-    activeNoteDoc?.body,
-    activeNoteDoc?.resources,
-    activeNoteEditBody,
-    activeNoteEditHtml,
-    activeNoteEditTags,
-    activeNoteEditTitle,
-    activeNoteFace,
-    activeNoteFaces,
-    activeNoteSaving,
-    activeNoteTextEditorMode,
-    api,
-    commitActiveWorkspacePatch,
-    sortNotes,
-    updateTabGrouping,
-  ])
 
-  const handleAddActiveNoteTag = React.useCallback(() => {
-    setActiveNoteEditTags(prev => appendTag(prev, activeNoteTagInput))
-    setActiveNoteTagInput('')
-  }, [activeNoteTagInput])
+    setAllNotes(prev => sortNotes([meta, ...prev.filter(item => item.id !== originalId)]))
 
-  const handleRemoveActiveNoteTag = React.useCallback((tag: string) => {
-    setActiveNoteEditTags(prev => prev.filter(item => item !== tag))
-  }, [])
-
-  const handleAddActiveNoteFace = React.useCallback(async () => {
-    if (!activeNotePendingAddFace) return
-    if (activeNotePendingAddFace === 'html' && activeNote) {
-      if (!activeNoteDoc) return
-      try {
-        const htmlFace = await loadHtmlFace(api, 'library', activeNote.dir)
-        setActiveNoteEditHtml(htmlFace.html || '')
-      } catch {
-        setActiveNoteEditHtml('')
+    setOpenNoteTabs(prev => {
+      const replaced = prev.map(t => (t.id === originalId ? meta : t))
+      const seen = new Set<string>()
+      const next: NoteMeta[] = []
+      for (const t of replaced) {
+        if (!t?.id) continue
+        if (seen.has(t.id)) continue
+        seen.add(t.id)
+        next.push(t)
       }
-      setActiveNoteFaces(prev => (prev.includes('html') ? prev : [...prev, 'html']))
-      setActiveNoteFace('html')
-      setActiveNoteEditing(true)
-    }
-    setActiveNoteAddFaceSelectorVisible(false)
-    setActiveNotePendingAddFace(null)
-  }, [activeNote, activeNoteDoc, activeNotePendingAddFace, api])
+      commitActiveWorkspacePatch({ openNoteIds: next.map(t => t.id) })
+      return next
+    })
 
-  const handleCloseActiveNote = React.useCallback(() => {
-    stashActiveNoteEditSession()
-    setPage('all-notes')
-    setActiveNote(null)
-    setActiveNoteDoc(null)
-    setActiveNoteLoadError(null)
-    setActiveNoteLoading(false)
-    setActiveNoteEditing(false)
-    setActiveNoteEditTitle('')
-    setActiveNoteEditBody('')
-    setActiveNoteEditTags([])
-    setActiveNoteTagInput('')
-    setActiveNoteEditHtml('')
-    setActiveNoteSaving(false)
-    setActiveNoteFace('text')
-    setActiveNoteFaces(['text'])
-    setActiveNoteAddFaceSelectorVisible(false)
-    setActiveNotePendingAddFace(null)
-  }, [stashActiveNoteEditSession])
+    if (activeNoteId === originalId) setActiveNoteId(meta.id)
+    if (metaReady && activeNoteId === originalId && !isDraftNoteId(meta.id)) void persistMetadataPatch({ activeNoteId: meta.id }).catch(() => {})
+  }, [activeNoteId, commitActiveWorkspacePatch, metaReady, persistMetadataPatch, sortNotes, updateTabGrouping])
 
-  const activeNoteDirty = !!activeNote && isNoteDirtyById(activeNote.id)
-  const activeNoteIsDraft = !!activeNote && (isDraftNoteId(activeNote.id) || !String(activeNote.dir || '').trim())
-  const closeTabPromptTargetSaving = !!closeTabPrompt && !!activeNoteSaving && activeNote?.id === closeTabPrompt.noteId
+  const closeTabPromptTargetSaving = !!closeTabPrompt && isNoteSavingById(closeTabPrompt.noteId)
 
   const closeTabPromptTitle = React.useMemo(() => {
     const nid = String(closeTabPrompt?.noteId || '').trim()
@@ -1417,20 +928,18 @@ export function HyperCortexApp() {
     const nid = String(closeTabPrompt?.noteId || '').trim()
     if (!nid) return
     setCloseTabPrompt(null)
-    const session = noteEditSessionsRef.current[nid]
-    if (session) session.mode = 'edit'
-    if (activeNote?.id === nid) return setActiveNoteEditing(true)
-    const meta = openNoteTabs.find(t => t.id === nid) || allNotes.find(n => n.id === nid)
-    if (meta) void handleOpenNote(meta)
-  }, [activeNote?.id, allNotes, closeTabPrompt?.noteId, handleOpenNote, openNoteTabs])
+    setActiveNoteId(nid)
+    setPage('note-detail')
+    noteSessionHandlesRef.current[nid]?.enterEditMode?.()
+  }, [closeTabPrompt?.noteId])
 
   const handleCloseTabPromptDiscardAndClose = React.useCallback(() => {
     const nid = String(closeTabPrompt?.noteId || '').trim()
     if (!nid) return
     setCloseTabPrompt(null)
-    discardNoteDraft(nid)
+    noteSessionHandlesRef.current[nid]?.discardChanges?.()
     handleCloseTabs([nid])
-  }, [closeTabPrompt?.noteId, discardNoteDraft, handleCloseTabs])
+  }, [closeTabPrompt?.noteId, handleCloseTabs])
 
   return (
     <ThemeProvider theme={theme}>
@@ -1561,7 +1070,7 @@ export function HyperCortexApp() {
                 tabsMode={tabsMode}
                 tabsCollapsed={tabsCollapsed}
                 openNoteTabs={openNoteTabs}
-                activeNoteId={activeNote?.id || ''}
+                activeNoteId={activeNoteId}
                 isNoteDirty={isNoteDirtyById}
                 workspaces={workspaces.map(w => ({ id: w.id, title: w.title }))}
                 activeWorkspaceId={activeWorkspaceId}
@@ -1864,8 +1373,29 @@ export function HyperCortexApp() {
                   ) : null}
                 </Box>
               ) : null}
-              {page === 'note-detail' ? (
-                <Box sx={{ display: 'flex', minHeight: '100%', flexDirection: 'column', alignItems: 'flex-start', gap: 2.5 }}>
+              <Box sx={{ display: page === 'note-detail' ? 'flex' : 'none', minHeight: '100%', flexDirection: 'column', alignItems: 'flex-start', gap: 2.5 }}>
+                  {!openNoteTabs.length ? (
+                    <Typography color="text.secondary">没有打开的笔记。</Typography>
+                  ) : (
+                    openNoteTabs.map(tab => (
+                      <NoteDetailSession
+                        key={tab.id}
+                        ref={(handle) => setNoteSessionHandle(tab.id, handle)}
+                        api={api}
+                        scope="library"
+                        note={tab}
+                        visible={page === 'note-detail' && tab.id === activeNoteId}
+                        noteIndexMap={noteIndexMap}
+                        allNotesById={allNotesById}
+                        refIndex={refIndex}
+                        consumeInitSnapshot={consumeInitSnapshot}
+                        onOpenNote={handleOpenNote}
+                        onSaved={handleNoteSessionSaved}
+                      />
+                    ))
+                  )}
+
+                  {/*
                   <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                       {!activeNoteLoading && !activeNoteLoadError && activeNoteDoc ? (
@@ -2311,7 +1841,6 @@ export function HyperCortexApp() {
                         />
                       )}
 
-                      {/* 反向链接区域 */}
                       {!activeNoteInfoSidebarVisible && !activeNoteEditing && activeNote && (() => {
                         const bl = activeNoteBacklinkIds
                         const entries = bl
@@ -2370,8 +1899,8 @@ export function HyperCortexApp() {
                       ) : null}
                     </Box>
                   ) : null}
+                  */}
                 </Box>
-              ) : null}
               {page === 'index' ? <Typography color="text.secondary">这是索引页面。</Typography> : null}
               {page === 'settings' ? <Typography color="text.secondary">这是设置页面。</Typography> : null}
             </Box>

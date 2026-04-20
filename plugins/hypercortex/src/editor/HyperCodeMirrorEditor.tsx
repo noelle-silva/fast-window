@@ -19,6 +19,8 @@ export interface UnifiedEditorProps {
   onChange: (value: string) => void
   placeholder?: string
   minHeight?: number
+  /** 是否处于可见/活跃态：用于 tab 切换后触发一次测量，避免隐藏期间布局漂移。 */
+  active?: boolean
   /** widget 渲染完成后的后处理钩子（如资源解析）。第二个参数 requestUpdate 用于异步内容就绪后请求重新布局。 */
   onBlockRendered?: (el: HTMLElement, requestUpdate: () => void) => void
 }
@@ -729,6 +731,7 @@ export const HyperCodeMirrorEditor = React.memo(function HyperCodeMirrorEditor({
   onChange,
   placeholder,
   minHeight = 200,
+  active,
   onBlockRendered,
 }: UnifiedEditorProps) {
   const hostRef = React.useRef<HTMLDivElement | null>(null)
@@ -804,6 +807,20 @@ export const HyperCodeMirrorEditor = React.memo(function HyperCodeMirrorEditor({
       requestAnimationFrame(() => { isApplyingExternalRef.current = false })
     }
   }, [value])
+
+  React.useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+    if (active !== true) return
+    try {
+      view.requestMeasure({
+        read: () => null,
+        write: () => {},
+      })
+    } catch (_) {
+      // ignore
+    }
+  }, [active])
 
   return (
     <div className="hc-cm6-editor-container" style={{ minHeight }}>
