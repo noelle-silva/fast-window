@@ -1,6 +1,7 @@
-import { REFS_INDEX_FILE, type Api, type VaultScope } from './core'
+import { REFS_INDEX_FILE, tryLoadIndex, type Api, type VaultScope } from './core'
+import { parseNotePlaceholderBody } from './notePlaceholder'
 
-export const NOTE_REF_PATTERN = /\[\[([^\]|]+?)(?:\|([^\]]*?))?\]\]/g
+const NOTE_PLACEHOLDER_PATTERN = /\[\[([^\]\n]+?)\]\]/g
 
 export type NoteRefIndex = Record<string, string[]>
 
@@ -66,8 +67,10 @@ export function extractNoteRefs(body: string): string[] {
   const text = maskCode(body)
   const ids = new Set<string>()
 
-  for (const match of text.matchAll(NOTE_REF_PATTERN)) {
-    const id = String(match?.[1] || '').trim()
+  for (const match of text.matchAll(NOTE_PLACEHOLDER_PATTERN)) {
+    const inner = String(match?.[1] || '').trim()
+    const parsed = parseNotePlaceholderBody(inner)
+    const id = String(parsed?.noteId || '').trim()
     if (!id) continue
     ids.add(id)
   }
@@ -101,9 +104,12 @@ export async function updateRefsForNote(api: Api, scope: VaultScope, noteId: str
   if (!id) return
 
   const refs = extractNoteRefs(body)
+  const idx = await tryLoadIndex(api, scope).catch(() => null)
+  const existingIds = new Set(Object.keys(idx?.notes || {}))
+  const filtered = refs.filter(rid => existingIds.has(rid))
   const index = await loadRefIndex(api, scope)
 
-  if (refs.length > 0) index[id] = refs
+  if (filtered.length > 0) index[id] = filtered
   else delete index[id]
 
   await saveRefIndex(api, scope, index)
@@ -129,4 +135,3 @@ export function getBacklinksFor(index: NoteRefIndex, noteId: string): string[] {
   }
   return backlinks
 }
-

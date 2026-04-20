@@ -8,6 +8,7 @@
 
 import './vendor'
 import { type Api, type VaultScope } from '../core'
+import { parseNotePlaceholderBody } from '../notePlaceholder'
 import { resolveAssetsInElement } from './attachments'
 
 type RenderSafetyPolicy = 'original' | 'baseline' | 'unsafe'
@@ -736,15 +737,16 @@ export function createMarkdownRenderEngine(init?: { api?: Api; scope?: VaultScop
       safe = safe.replace(/@@NOTE_REF_(\d+)@@/g, (_m, id) => {
         const r = pre.noteRefs[Number(id)]
         if (!r) return ''
+        const remarksAttr = r.remarks ? ` data-note-remarks="${esc(r.remarks)}"` : ''
         let label = r.displayText
         if (!label && ni) {
           const meta = ni[r.noteId]
           label = meta ? meta.title : ''
         }
         if (!label) {
-          return `<a class="hc-note-ref hc-note-ref--broken" data-note-id="${esc(r.noteId)}">未知笔记</a>`
+          return `<a class="hc-note-ref hc-note-ref--broken" data-note-id="${esc(r.noteId)}"${remarksAttr}>未知笔记</a>`
         }
-        return `<a class="hc-note-ref" data-note-id="${esc(r.noteId)}">${esc(label)}</a>`
+        return `<a class="hc-note-ref" data-note-id="${esc(r.noteId)}"${remarksAttr}>${esc(label)}</a>`
       })
     }
 
@@ -809,7 +811,7 @@ export function createMarkdownRenderEngine(init?: { api?: Api; scope?: VaultScop
 
 type PreprocessedMath = { tex: string; display: boolean }
 type PreprocessedAsset = { ref: string; name: string; width?: number }
-type PreprocessedNoteRef = { noteId: string; displayText: string }
+type PreprocessedNoteRef = { noteId: string; displayText: string; remarks: string }
 
 type FenceToken =
   | { kind: 'text'; text: string }
@@ -1005,17 +1007,21 @@ function replaceMathOutsideInlineCode(input: string, acc: PreprocessedMath[]) {
 }
 
 function replaceNoteRefsOutsideInlineCode(input: string, acc: PreprocessedNoteRef[]) {
-  const noteRefPattern = /\[\[([^\]|]+?)(?:\|([^\]]*?))?\]\]/g
+  const notePlaceholderPattern = /\[\[([^\]\n]+?)\]\]/g
   const parts = splitInlineCodeSpans(input)
   return parts
     .map((p) => {
       if (p.kind === 'code') return p.value
-      return p.value.replace(noteRefPattern, (_m, idRaw, textRaw) => {
-        const noteId = String(idRaw || '').trim()
-        if (!noteId) return _m
-        const displayText = String(textRaw || '').trim()
+      return p.value.replace(notePlaceholderPattern, (m, innerRaw) => {
+        const inner = String(innerRaw || '').trim()
+        const parsed = parseNotePlaceholderBody(inner)
+        if (!parsed?.noteId) return m
+        const noteId = String(parsed.noteId || '').trim()
+        if (!noteId) return m
+        const displayText = String(parsed.title || '').trim()
+        const remarks = String(parsed.remarks || '').trim()
         const id = acc.length
-        acc.push({ noteId, displayText })
+        acc.push({ noteId, displayText, remarks })
         return `@@NOTE_REF_${id}@@`
       })
     })

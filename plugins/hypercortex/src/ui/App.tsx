@@ -30,9 +30,10 @@ import {
 } from '../core'
 import { loadHtmlFace, loadNoteIndex, loadNotePackage, saveHtmlFace, saveNotePackage, type HyperCortexHtmlFaceDoc } from '../notePackage'
 import { renderNoteDisplayHtml } from '../noteRender'
-import { extractNoteRefs, loadRefIndex, getBacklinksFor, type NoteRefIndex } from '../noteRefs'
+import { extractNoteRefs, getBacklinksFor, saveRefIndex, type NoteRefIndex } from '../noteRefs'
 import { createMarkdownRenderEngine } from '../render/engine'
 import { HYPERCORTEX_NOTE_SCHEMA_VERSION } from '../noteSchema'
+import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { AutoHeightHtmlIframe } from './AutoHeightHtmlIframe'
 import { AssetPoolPanel } from './AssetPoolPanel'
 import { NoteInfoSidebar } from './NoteInfoSidebar'
@@ -204,6 +205,13 @@ export function HyperCortexApp() {
 
   const renderEngineRef = React.useRef(createMarkdownRenderEngine({ api, scope: 'library' }))
   ;(window as any).__hcRenderEngine = renderEngineRef.current
+
+  React.useEffect(() => {
+    const noteIndexMap: Record<string, { title: string }> = {}
+    for (const n of allNotes) noteIndexMap[n.id] = { title: n.title }
+    renderEngineRef.current.noteIndex = noteIndexMap
+  }, [allNotes])
+
   const textRenderRef = React.useRef<HTMLDivElement>(null)
   const [refIndex, setRefIndex] = React.useState<NoteRefIndex>({})
   const allNotesById = React.useMemo(() => {
@@ -824,7 +832,20 @@ export function HyperCortexApp() {
       for (const n of notes) noteIndexMap[n.id] = { title: n.title }
       renderEngineRef.current.noteIndex = noteIndexMap
 
-      loadRefIndex(api, scope).then(ri => setRefIndex(ri)).catch(() => {})
+      // 开发阶段迁移：旧语法不兼容，引用索引直接按新语法重建
+      const existingIds = new Set(notes.map(n => n.id))
+      const nextRefIndex: NoteRefIndex = {}
+      await Promise.all(
+        notes.map(async (n) => {
+          const doc = await loadNotePackage(api, scope, n.dir).catch(() => null)
+          if (!doc) return
+          const refs = extractNoteRefs(doc.body)
+          const filtered = refs.filter(id => existingIds.has(id))
+          if (filtered.length) nextRefIndex[n.id] = filtered
+        }),
+      )
+      await saveRefIndex(api, scope, nextRefIndex).catch(() => {})
+      setRefIndex(nextRefIndex)
     } catch (e: any) {
       setAllNotesLoadError(String(e?.message || e || '加载全部笔记失败'))
     } finally {
@@ -1657,7 +1678,7 @@ export function HyperCortexApp() {
                             className="hc-copy-ref-btn"
                             onClick={(e: React.MouseEvent) => {
                               e.stopPropagation()
-                              void api.clipboard.writeText(`[[${note.id}|${note.title}]]`)
+                              void api.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
                               void api.ui.showToast('已复制引用占位符')
                             }}
                             sx={{
@@ -1738,7 +1759,7 @@ export function HyperCortexApp() {
                             className="hc-copy-ref-btn"
                             onClick={(e: React.MouseEvent) => {
                               e.stopPropagation()
-                              void api.clipboard.writeText(`[[${note.id}|${note.title}]]`)
+                              void api.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
                               void api.ui.showToast('已复制引用占位符')
                             }}
                             sx={{
@@ -1809,7 +1830,7 @@ export function HyperCortexApp() {
                               className="hc-copy-ref-btn"
                               onClick={(e: React.MouseEvent) => {
                                 e.stopPropagation()
-                                void api.clipboard.writeText(`[[${note.id}|${note.title}]]`)
+                                void api.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
                                 void api.ui.showToast('已复制引用占位符')
                               }}
                               sx={{
