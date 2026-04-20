@@ -12,7 +12,8 @@ function updateBinding(bindings: HyperCortexShortcutBindingsV1, id: HyperCortexS
   const chord = String(nextChord || '').trim()
   if (id === 'newNote') return { ...bindings, newNote: chord }
   if (id === 'saveNote') return { ...bindings, saveNote: chord }
-  return { ...bindings, toggleMode: chord }
+  if (id === 'toggleMode') return { ...bindings, toggleMode: chord }
+  return { ...bindings, toggleSidebar: chord }
 }
 
 export function ShortcutSettingsPanel(props: {
@@ -109,6 +110,7 @@ export function ShortcutSettingsPanel(props: {
         <Row id="newNote" title="新建笔记" value={bindings.newNote} />
         <Row id="saveNote" title="保存笔记" value={bindings.saveNote} />
         <Row id="toggleMode" title="切换阅读/编辑" value={bindings.toggleMode} />
+        <Row id="toggleSidebar" title="侧边栏展开/收起" value={bindings.toggleSidebar} />
       </Box>
     </Box>
   )

@@ -1,10 +1,11 @@
-export type HyperCortexShortcutId = 'newNote' | 'saveNote' | 'toggleMode'
+export type HyperCortexShortcutId = 'newNote' | 'saveNote' | 'toggleMode' | 'toggleSidebar'
 
 export type HyperCortexShortcutBindingsV1 = {
   version: 1
   newNote: string
   saveNote: string
   toggleMode: string
+  toggleSidebar: string
 }
 
 export const DEFAULT_SHORTCUT_BINDINGS: HyperCortexShortcutBindingsV1 = {
@@ -12,6 +13,7 @@ export const DEFAULT_SHORTCUT_BINDINGS: HyperCortexShortcutBindingsV1 = {
   newNote: '',
   saveNote: '',
   toggleMode: '',
+  toggleSidebar: '',
 }
 
 function normChord(value: unknown): string {
@@ -27,6 +29,7 @@ export function normalizeShortcutBindings(input: unknown): HyperCortexShortcutBi
     newNote: normChord(obj.newNote),
     saveNote: normChord(obj.saveNote),
     toggleMode: normChord(obj.toggleMode),
+    toggleSidebar: normChord(obj.toggleSidebar),
   }
 }
 
@@ -37,7 +40,7 @@ export function formatChordForDisplay(chord: string): string {
 
 const MODIFIER_KEYS = new Set(['Shift', 'Control', 'Alt', 'Meta'])
 
-function normalizeMainKey(key: string): string {
+export function normalizeMainKey(key: string): string {
   const k = String(key || '')
   if (!k) return ''
   if (k === ' ') return 'Space'
@@ -61,6 +64,14 @@ export function chordFromKeyboardEvent(e: Pick<KeyboardEvent, 'key' | 'ctrlKey' 
   if (e.metaKey) parts.push('Meta')
   parts.push(mainKey)
   return parts.join('+')
+}
+
+export function mainKeyFromChord(chord: string): string {
+  const s = String(chord || '').trim()
+  if (!s) return ''
+  const parts = s.split('+').map(p => p.trim()).filter(Boolean)
+  const tail = parts[parts.length - 1] || ''
+  return normalizeMainKey(tail)
 }
 
 export function isEditableTarget(target: EventTarget | null): boolean {
@@ -89,4 +100,3 @@ export function shouldTriggerShortcut(e: KeyboardEvent, chord: string): boolean 
   if (!chordHasModifier(expected) && isEditableTarget(e.target)) return false
   return true
 }
-

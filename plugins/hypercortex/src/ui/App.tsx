@@ -31,7 +31,7 @@ import { NoteDetailSession, type NoteDetailSessionHandle, type NoteDetailSnapsho
 import { ShortcutSettingsPanel } from './ShortcutSettingsPanel'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
-import { DEFAULT_SHORTCUT_BINDINGS, normalizeShortcutBindings, shouldTriggerShortcut, type HyperCortexShortcutBindingsV1 } from '../shortcuts'
+import { DEFAULT_SHORTCUT_BINDINGS, mainKeyFromChord, normalizeMainKey, normalizeShortcutBindings, shouldTriggerShortcut, type HyperCortexShortcutBindingsV1 } from '../shortcuts'
 
 type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'index' | 'settings'
 
@@ -112,9 +112,15 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
   return !!t.closest('button, a, input, textarea, select, [role="button"]')
 }
 
-function isDraftNoteId(noteId: string): boolean {
-  return String(noteId || '').startsWith('draft_')
-}
+  function isDraftNoteId(noteId: string): boolean {
+    return String(noteId || '').startsWith('draft_')
+  }
+
+  function isKeyUpForChordMainKey(e: KeyboardEvent, chord: string): boolean {
+    const main = mainKeyFromChord(chord)
+    if (!main) return false
+    return normalizeMainKey(e.key) === main
+  }
 
 function NavIconButton(props: {
   title: string
@@ -236,6 +242,8 @@ export function HyperCortexApp() {
   const [tabsInitReady, setTabsInitReady] = React.useState(false)
   const [tabsMode, setTabsMode] = React.useState<TabsMode>('manual')
   const [tabsHoverOpen, setTabsHoverOpen] = React.useState(false)
+  const sidebarHoverRef = React.useRef(false)
+  const sidebarShortcutHoldRef = React.useRef(false)
   const [tabGrouping, setTabGrouping] = React.useState<{ groups: HyperCortexTabGroupV1[]; byNoteId: Record<string, string> }>({
     groups: [],
     byNoteId: {},
@@ -407,6 +415,18 @@ export function HyperCortexApp() {
   const sidebarRailWidth = isHoverTabsMode ? 52 : tabsCollapsed ? 52 : 220
   const sidebarPanelExpanded = isHoverTabsMode ? tabsHoverOpen : !tabsCollapsed
   const sidebarPanelWidth = isHoverTabsMode ? (tabsHoverOpen ? 220 : 52) : sidebarRailWidth
+
+  const onSidebarMouseEnter = React.useCallback(() => {
+    sidebarHoverRef.current = true
+    if (isHoverTabsMode) setTabsHoverOpen(true)
+  }, [isHoverTabsMode])
+
+  const onSidebarMouseLeave = React.useCallback(() => {
+    sidebarHoverRef.current = false
+    if (!isHoverTabsMode) return
+    if (sidebarShortcutHoldRef.current) return
+    setTabsHoverOpen(false)
+  }, [isHoverTabsMode])
 
   const backToHost = React.useCallback(() => {
     try {
@@ -875,6 +895,18 @@ export function HyperCortexApp() {
       const bindings = shortcutBindingsRef.current
       if (!bindings) return
 
+      if (shouldTriggerShortcut(e, bindings.toggleSidebar)) {
+        e.preventDefault()
+        e.stopPropagation()
+        if (tabsMode === 'hover') {
+          sidebarShortcutHoldRef.current = true
+          setTabsHoverOpen(true)
+        } else {
+          toggleTabsCollapsed()
+        }
+        return
+      }
+
       if (shouldTriggerShortcut(e, bindings.newNote)) {
         e.preventDefault()
         e.stopPropagation()
@@ -902,9 +934,26 @@ export function HyperCortexApp() {
       }
     }
 
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (shortcutRecordingRef.current) return
+      if (tabsMode !== 'hover') return
+      if (!sidebarShortcutHoldRef.current) return
+      const bindings = shortcutBindingsRef.current
+      if (!bindings) return
+      if (!bindings.toggleSidebar) return
+      if (!isKeyUpForChordMainKey(e, bindings.toggleSidebar)) return
+
+      sidebarShortcutHoldRef.current = false
+      if (!sidebarHoverRef.current) setTabsHoverOpen(false)
+    }
+
     window.addEventListener('keydown', onKeyDown, true)
-    return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [handleCreateDraftNote])
+    window.addEventListener('keyup', onKeyUp, true)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown, true)
+      window.removeEventListener('keyup', onKeyUp, true)
+    }
+  }, [handleCreateDraftNote, tabsMode, toggleTabsCollapsed])
 
   const handleOpenNote = React.useCallback(
     (note: NoteMeta) => {
@@ -1206,8 +1255,8 @@ export function HyperCortexApp() {
 
         <Box sx={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'stretch', position: 'relative' }}>
           <Box
-            onMouseEnter={() => isHoverTabsMode && setTabsHoverOpen(true)}
-            onMouseLeave={() => isHoverTabsMode && setTabsHoverOpen(false)}
+            onMouseEnter={onSidebarMouseEnter}
+            onMouseLeave={onSidebarMouseLeave}
             sx={{
               width: sidebarRailWidth,
               minWidth: sidebarRailWidth,
