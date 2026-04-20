@@ -196,7 +196,7 @@ export function HyperCortexApp() {
       if (scrollSaveRafRef.current != null) cancelAnimationFrame(scrollSaveRafRef.current)
       scrollSaveRafRef.current = null
     }
-  }, [])
+  }, [activeNoteId, page])
 
   React.useLayoutEffect(() => {
     const el = mainScrollElRef.current
@@ -1192,8 +1192,17 @@ export function HyperCortexApp() {
             </Box>
           </Box>
 
-          <Box ref={mainScrollElRef} sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto' }}>
-            <Box sx={{ minHeight: '100%', p: 2 }}>
+          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: page === 'note-detail' ? 'hidden' : 'auto' }}>
+            <Box
+              sx={{
+                minHeight: page === 'note-detail' ? 0 : '100%',
+                height: page === 'note-detail' ? '100%' : 'auto',
+                p: page === 'note-detail' ? 0 : 2,
+                boxSizing: 'border-box',
+                display: 'flex',
+                flexDirection: 'column',
+              }}
+            >
               {page === 'home' ? <Typography color="text.secondary">这是主页页面。</Typography> : null}
               {page === 'attachments' ? <AssetPoolPanel api={api} scope="library" /> : null}
               {page === 'all-notes' ? (
@@ -1465,28 +1474,31 @@ export function HyperCortexApp() {
                   ) : null}
                 </Box>
               ) : null}
-              <Box sx={{ display: page === 'note-detail' ? 'flex' : 'none', minHeight: '100%', flexDirection: 'column', alignItems: 'flex-start', gap: 2.5 }}>
-                  {!openNoteTabs.length ? (
+              <Box sx={{ display: page === 'note-detail' ? 'flex' : 'none', flex: 1, minHeight: 0, width: '100%', flexDirection: 'column' }}>
+                {!openNoteTabs.length ? (
+                  <Box sx={{ p: 2 }}>
                     <Typography color="text.secondary">没有打开的笔记。</Typography>
-                  ) : (
-                    openNoteTabs.map(tab => (
-                      <NoteDetailSession
-                        key={tab.id}
-                        ref={(handle) => setNoteSessionHandle(tab.id, handle)}
-                        api={api}
-                        scope="library"
-                        note={tab}
-                        visible={page === 'note-detail' && tab.id === activeNoteId}
-                        noteIndexMap={noteIndexMap}
-                        allNotesById={allNotesById}
-                        refIndex={refIndex}
-                        consumeInitSnapshot={consumeInitSnapshot}
-                        onOpenNote={handleOpenNote}
-                        onSaved={handleNoteSessionSaved}
-                      />
-                    ))
-                  )}
-                </Box>
+                  </Box>
+                ) : (
+                  openNoteTabs.map(tab => (
+                    <NoteDetailSession
+                      key={tab.id}
+                      ref={(handle) => setNoteSessionHandle(tab.id, handle)}
+                      api={api}
+                      scope="library"
+                      note={tab}
+                      visible={page === 'note-detail' && tab.id === activeNoteId}
+                      bodyScrollRef={page === 'note-detail' && tab.id === activeNoteId ? mainScrollElRef : undefined}
+                      noteIndexMap={noteIndexMap}
+                      allNotesById={allNotesById}
+                      refIndex={refIndex}
+                      consumeInitSnapshot={consumeInitSnapshot}
+                      onOpenNote={handleOpenNote}
+                      onSaved={handleNoteSessionSaved}
+                    />
+                  ))
+                )}
+              </Box>
               {page === 'index' ? <Typography color="text.secondary">这是索引页面。</Typography> : null}
               {page === 'settings' ? <Typography color="text.secondary">这是设置页面。</Typography> : null}
             </Box>

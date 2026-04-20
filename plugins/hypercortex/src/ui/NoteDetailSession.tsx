@@ -84,6 +84,7 @@ export type NoteDetailSessionProps = {
   scope: VaultScope
   note: NoteMeta
   visible: boolean
+  bodyScrollRef?: React.Ref<HTMLDivElement>
   noteIndexMap: Record<string, { title: string }>
   allNotesById: Record<string, NoteMeta>
   refIndex: NoteRefIndex
@@ -102,6 +103,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     scope,
     note,
     visible,
+    bodyScrollRef,
     noteIndexMap,
     allNotesById,
     refIndex,
@@ -454,8 +456,19 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   if (!noteId) return null
 
   return (
-    <Box sx={{ width: '100%', display: visible ? 'flex' : 'none', flexDirection: 'column', gap: 2.5 }}>
-      <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+    <Box
+      sx={{
+        width: '100%',
+        height: '100%',
+        minHeight: 0,
+        display: visible ? 'flex' : 'none',
+        flexDirection: 'column',
+        gap: 2.5,
+        p: 2,
+        boxSizing: 'border-box',
+      }}
+    >
+      <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flex: '0 0 auto' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
           {!loading && !loadError && doc ? (
             <Tooltip title={editing ? '切到阅读模式' : '切到编辑模式'} placement="bottom-start">
@@ -711,8 +724,9 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       {!loading && loadError ? <Typography color="error">{loadError}</Typography> : null}
 
       {!loading && !loadError && doc ? (
-        <Box sx={{ width: '100%', display: 'flex', minWidth: 0, gap: 2, alignItems: 'flex-start' }}>
-          <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <Box sx={{ width: '100%', flex: 1, minHeight: 0, display: 'flex', minWidth: 0, gap: 2, alignItems: 'stretch' }}>
+          <Box ref={bodyScrollRef} sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', overscrollBehavior: 'contain' }}>
+            <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
             {editing ? (
               <Box
                 sx={{
@@ -931,22 +945,25 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                 </Box>
               )
             })()}
+            </Box>
           </Box>
 
           {infoSidebarVisible ? (
-            <NoteInfoSidebar
-              noteId={doc.id}
-              createdAtMs={doc.createdAtMs}
-              updatedAtMs={doc.updatedAtMs}
-              outgoingIds={outgoingIds}
-              backlinkIds={backlinkIds}
-              resolveTitle={id => allNotesById[id]?.title}
-              canOpenId={id => !!allNotesById[id]}
-              onOpenId={id => {
-                const meta = allNotesById[id]
-                if (meta) onOpenNote(meta)
-              }}
-            />
+            <Box sx={{ flex: '0 0 280px', width: 280, minWidth: 280, minHeight: 0, overflow: 'auto', overscrollBehavior: 'contain' }}>
+              <NoteInfoSidebar
+                noteId={doc.id}
+                createdAtMs={doc.createdAtMs}
+                updatedAtMs={doc.updatedAtMs}
+                outgoingIds={outgoingIds}
+                backlinkIds={backlinkIds}
+                resolveTitle={id => allNotesById[id]?.title}
+                canOpenId={id => !!allNotesById[id]}
+                onOpenId={id => {
+                  const meta = allNotesById[id]
+                  if (meta) onOpenNote(meta)
+                }}
+              />
+            </Box>
           ) : null}
         </Box>
       ) : null}

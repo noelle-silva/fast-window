@@ -95,62 +95,47 @@ export function NoteInfoSidebar(props: {
 }) {
   const noteId = String(props.noteId || '').trim()
   return (
-    <Box
-      aria-label="笔记信息侧边栏"
-      sx={{
-        flex: '0 0 280px',
-        width: 280,
-        minWidth: 280,
-      }}
-    >
-      <Box
-        sx={{
-          position: 'sticky',
-          top: 12,
-          p: 2,
-        }}
-      >
-        <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'rgba(0,0,0,.55)', mb: 1.25 }}>
-          引用关系
-        </Typography>
+    <Box aria-label="笔记信息侧边栏" sx={{ width: '100%', p: 2, boxSizing: 'border-box' }}>
+      <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'rgba(0,0,0,.55)', mb: 1.25 }}>
+        引用关系
+      </Typography>
 
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-          <NoteRefSection title="本笔记引用" ids={props.outgoingIds} resolveTitle={props.resolveTitle} canOpenId={props.canOpenId} onOpenId={props.onOpenId} />
-          <NoteRefSection title="引用本笔记" ids={props.backlinkIds} resolveTitle={props.resolveTitle} canOpenId={props.canOpenId} onOpenId={props.onOpenId} />
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+        <NoteRefSection title="本笔记引用" ids={props.outgoingIds} resolveTitle={props.resolveTitle} canOpenId={props.canOpenId} onOpenId={props.onOpenId} />
+        <NoteRefSection title="引用本笔记" ids={props.backlinkIds} resolveTitle={props.resolveTitle} canOpenId={props.canOpenId} onOpenId={props.onOpenId} />
+      </Box>
+
+      <Box sx={{ my: 1.5, borderTop: '1px solid rgba(0,0,0,.08)' }} />
+
+      <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'rgba(0,0,0,.55)', mb: 1 }}>
+        笔记信息
+      </Typography>
+
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <Box>
+          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.42)' }}>创建时间</Typography>
+          <Typography sx={{ fontSize: 13, color: '#111', fontWeight: 700 }}>{formatDateTime(props.createdAtMs)}</Typography>
         </Box>
-
-        <Box sx={{ my: 1.5, borderTop: '1px solid rgba(0,0,0,.08)' }} />
-
-        <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'rgba(0,0,0,.55)', mb: 1 }}>
-          笔记信息
-        </Typography>
-
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          <Box>
-            <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.42)' }}>创建时间</Typography>
-            <Typography sx={{ fontSize: 13, color: '#111', fontWeight: 700 }}>{formatDateTime(props.createdAtMs)}</Typography>
-          </Box>
-          <Box>
-            <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.42)' }}>最后修改</Typography>
-            <Typography sx={{ fontSize: 13, color: '#111', fontWeight: 700 }}>{formatDateTime(props.updatedAtMs)}</Typography>
-          </Box>
-          <Box>
-            <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.42)' }}>笔记 ID</Typography>
-            <Typography
-              component="code"
-              sx={{
-                display: 'block',
-                fontSize: 12,
-                color: '#111',
-                fontWeight: 700,
-                fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-                wordBreak: 'break-all',
-                whiteSpace: 'pre-wrap',
-              }}
-            >
-              {noteId || '—'}
-            </Typography>
-          </Box>
+        <Box>
+          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.42)' }}>最后修改</Typography>
+          <Typography sx={{ fontSize: 13, color: '#111', fontWeight: 700 }}>{formatDateTime(props.updatedAtMs)}</Typography>
+        </Box>
+        <Box>
+          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.42)' }}>笔记 ID</Typography>
+          <Typography
+            component="code"
+            sx={{
+              display: 'block',
+              fontSize: 12,
+              color: '#111',
+              fontWeight: 700,
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+              wordBreak: 'break-all',
+              whiteSpace: 'pre-wrap',
+            }}
+          >
+            {noteId || '—'}
+          </Typography>
         </Box>
       </Box>
     </Box>
