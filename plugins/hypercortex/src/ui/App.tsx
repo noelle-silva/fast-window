@@ -30,7 +30,7 @@ import {
 } from '../core'
 import { loadHtmlFace, loadNoteIndex, loadNotePackage, saveHtmlFace, saveNotePackage, type HyperCortexHtmlFaceDoc } from '../notePackage'
 import { renderNoteDisplayHtml } from '../noteRender'
-import { loadRefIndex, getBacklinksFor, type NoteRefIndex } from '../noteRefs'
+import { extractNoteRefs, loadRefIndex, getBacklinksFor, type NoteRefIndex } from '../noteRefs'
 import { createMarkdownRenderEngine } from '../render/engine'
 import { HYPERCORTEX_NOTE_SCHEMA_VERSION } from '../noteSchema'
 import { AutoHeightHtmlIframe } from './AutoHeightHtmlIframe'
@@ -206,6 +206,25 @@ export function HyperCortexApp() {
   ;(window as any).__hcRenderEngine = renderEngineRef.current
   const textRenderRef = React.useRef<HTMLDivElement>(null)
   const [refIndex, setRefIndex] = React.useState<NoteRefIndex>({})
+  const allNotesById = React.useMemo(() => {
+    const map: Record<string, NoteMeta> = {}
+    for (const n of allNotes) map[n.id] = n
+    return map
+  }, [allNotes])
+
+  const activeNoteOutgoingIds = React.useMemo(() => {
+    if (!activeNoteInfoSidebarVisible) return []
+    const noteId = String(activeNoteDoc?.id || '').trim()
+    if (!noteId) return []
+    const body = activeNoteEditing && activeNoteFace === 'text' ? activeNoteEditBody : (activeNoteDoc?.body || '')
+    return extractNoteRefs(body)
+  }, [activeNoteDoc?.body, activeNoteDoc?.id, activeNoteEditBody, activeNoteEditing, activeNoteFace, activeNoteInfoSidebarVisible])
+
+  const activeNoteBacklinkIds = React.useMemo(() => {
+    const noteId = String(activeNote?.id || '').trim()
+    if (!noteId) return []
+    return getBacklinksFor(refIndex, noteId)
+  }, [activeNote?.id, refIndex])
 
   const stashActiveNoteEditSession = React.useCallback(() => {
     const noteId = String(activeNote?.id || '').trim()
@@ -2272,8 +2291,8 @@ export function HyperCortexApp() {
                       )}
 
                       {/* 反向链接区域 */}
-                      {!activeNoteEditing && activeNote && (() => {
-                        const bl = getBacklinksFor(refIndex, activeNote.id)
+                      {!activeNoteInfoSidebarVisible && !activeNoteEditing && activeNote && (() => {
+                        const bl = activeNoteBacklinkIds
                         if (!bl.length) return null
                         return (
                           <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid rgba(0,0,0,.08)' }}>
@@ -2316,6 +2335,14 @@ export function HyperCortexApp() {
                           noteId={activeNoteDoc.id}
                           createdAtMs={activeNoteDoc.createdAtMs}
                           updatedAtMs={activeNoteDoc.updatedAtMs}
+                          outgoingIds={activeNoteOutgoingIds}
+                          backlinkIds={activeNoteBacklinkIds}
+                          resolveTitle={id => allNotesById[id]?.title}
+                          canOpenId={id => !!allNotesById[id]}
+                          onOpenId={id => {
+                            const meta = allNotesById[id]
+                            if (meta) handleOpenNote(meta)
+                          }}
                         />
                       ) : null}
                     </Box>

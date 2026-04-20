@@ -17,10 +17,80 @@ function formatDateTime(ms: number): string {
   }
 }
 
+function NoteIdChip(props: {
+  noteId: string
+  title?: string
+  onOpen?: () => void
+}) {
+  const { noteId, title, onOpen } = props
+  const clickable = typeof onOpen === 'function'
+  return (
+    <Box
+      component="span"
+      onClick={clickable ? onOpen : undefined}
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        px: 1.25,
+        py: 0.5,
+        borderRadius: 999,
+        fontSize: 12,
+        color: clickable ? '#1976d2' : 'rgba(0,0,0,.55)',
+        bgcolor: clickable ? 'rgba(25,118,210,.06)' : 'rgba(0,0,0,.04)',
+        cursor: clickable ? 'pointer' : 'default',
+        transition: 'background 120ms',
+        '&:hover': clickable ? { bgcolor: 'rgba(25,118,210,.12)' } : {},
+      }}
+    >
+      {title || (noteId ? noteId.slice(0, 12) + (noteId.length > 12 ? '…' : '') : '—')}
+    </Box>
+  )
+}
+
+function NoteRefSection(props: {
+  title: string
+  ids: string[]
+  resolveTitle: (id: string) => string | undefined
+  canOpenId: (id: string) => boolean
+  onOpenId: (id: string) => void
+}) {
+  const ids = Array.from(new Set((props.ids || []).map(v => String(v || '').trim()).filter(Boolean)))
+  return (
+    <Box>
+      <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.42)', mb: 0.75 }}>
+        {props.title}{ids.length ? `（${ids.length}）` : ''}
+      </Typography>
+      {ids.length ? (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+          {ids.map(id => {
+            const title = props.resolveTitle(id)
+            const canOpen = props.canOpenId(id)
+            return (
+              <NoteIdChip
+                key={id}
+                noteId={id}
+                title={title || (id ? id.slice(0, 12) + (id.length > 12 ? '…' : '') : '—')}
+                onOpen={canOpen ? () => props.onOpenId(id) : undefined}
+              />
+            )
+          })}
+        </Box>
+      ) : (
+        <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.35)' }}>暂无</Typography>
+      )}
+    </Box>
+  )
+}
+
 export function NoteInfoSidebar(props: {
   noteId: string
   createdAtMs: number
   updatedAtMs: number
+  outgoingIds: string[]
+  backlinkIds: string[]
+  resolveTitle: (id: string) => string | undefined
+  canOpenId: (id: string) => boolean
+  onOpenId: (id: string) => void
 }) {
   const noteId = String(props.noteId || '').trim()
   return (
@@ -42,6 +112,17 @@ export function NoteInfoSidebar(props: {
           border: '1px solid rgba(0,0,0,.08)',
         }}
       >
+        <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'rgba(0,0,0,.55)', mb: 1.25 }}>
+          引用关系
+        </Typography>
+
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+          <NoteRefSection title="本笔记引用" ids={props.outgoingIds} resolveTitle={props.resolveTitle} canOpenId={props.canOpenId} onOpenId={props.onOpenId} />
+          <NoteRefSection title="引用本笔记" ids={props.backlinkIds} resolveTitle={props.resolveTitle} canOpenId={props.canOpenId} onOpenId={props.onOpenId} />
+        </Box>
+
+        <Box sx={{ my: 1.5, borderTop: '1px solid rgba(0,0,0,.08)' }} />
+
         <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'rgba(0,0,0,.55)', mb: 1 }}>
           笔记信息
         </Typography>
@@ -77,4 +158,3 @@ export function NoteInfoSidebar(props: {
     </Box>
   )
 }
-
