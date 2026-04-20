@@ -94,6 +94,7 @@ export type NoteDetailSessionProps = {
   refIndex: NoteRefIndex
   consumeInitSnapshot: (noteId: string) => NoteDetailSnapshotV1 | null
   onOpenNote: (note: NoteMeta) => void
+  onDirtyChange?: (payload: { noteId: string; dirty: boolean }) => void
   onSaved: (payload: {
     originalId: string
     meta: NoteMeta
@@ -108,6 +109,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     scope,
     note,
     visible,
+    onDirtyChange,
     bodyScrollRef,
     noteIndexMap,
     allNotesById,
@@ -171,6 +173,12 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   }, [editBody, editHtml, editTags, editTitle])
 
   const dirty = React.useMemo(() => !isNoteContentEqual(draftNowRef, base), [base, draftNowRef])
+  const lastDirtyRef = React.useRef<boolean | null>(null)
+  React.useEffect(() => {
+    if (lastDirtyRef.current === dirty) return
+    lastDirtyRef.current = dirty
+    onDirtyChange?.({ noteId, dirty })
+  }, [dirty, noteId, onDirtyChange])
 
   const ensureDraftDocIfNeeded = React.useCallback(() => {
     if (!isDraft) return
@@ -414,6 +422,10 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       const refsSourceBody = face === 'text' ? body : (doc?.body || '')
       const refsForIndex = extractNoteRefs(refsSourceBody).filter(id => !!allNotesById[id])
       onSaved({ originalId, meta: nextMeta, snapshotForNewId, refsForIndex })
+
+      // 侧边栏未保存黄点：保存成功后应立即消失（不依赖上层重新渲染时机）。
+      onDirtyChange?.({ noteId: originalId, dirty: false })
+      if (nextMeta.id && nextMeta.id !== originalId) onDirtyChange?.({ noteId: nextMeta.id, dirty: false })
       await api.ui.showToast(toastMsg)
     } catch (e: any) {
       await api.ui.showToast(String(e?.message || e || '保存失败'))

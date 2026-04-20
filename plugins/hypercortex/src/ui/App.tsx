@@ -282,18 +282,41 @@ export function HyperCortexApp() {
     return snap
   }, [])
 
+  const [noteDirtyById, setNoteDirtyById] = React.useState<Record<string, boolean>>({})
+  const handleNoteDirtyChange = React.useCallback((payload: { noteId: string; dirty: boolean }) => {
+    const nid = String(payload?.noteId || '').trim()
+    if (!nid) return
+    const nextDirty = payload?.dirty === true
+    setNoteDirtyById(prev => {
+      const had = Object.prototype.hasOwnProperty.call(prev, nid)
+      const prevValue = had ? prev[nid] === true : false
+      if (had && prevValue === nextDirty) return prev
+      return { ...prev, [nid]: nextDirty }
+    })
+  }, [])
+
   const setNoteSessionHandle = React.useCallback((noteId: string, handle: NoteDetailSessionHandle | null) => {
     const nid = String(noteId || '').trim()
     if (!nid) return
-    if (!handle) delete noteSessionHandlesRef.current[nid]
-    else noteSessionHandlesRef.current[nid] = handle
+    if (!handle) {
+      delete noteSessionHandlesRef.current[nid]
+      setNoteDirtyById(prev => {
+        if (!Object.prototype.hasOwnProperty.call(prev, nid)) return prev
+        const next = { ...prev }
+        delete next[nid]
+        return next
+      })
+      return
+    }
+    noteSessionHandlesRef.current[nid] = handle
   }, [])
 
   const isNoteDirtyById = React.useCallback((noteId: string): boolean => {
     const nid = String(noteId || '').trim()
     if (!nid) return false
+    if (Object.prototype.hasOwnProperty.call(noteDirtyById, nid)) return noteDirtyById[nid] === true
     return noteSessionHandlesRef.current[nid]?.isDirty?.() === true
-  }, [])
+  }, [noteDirtyById])
 
   const isNoteSavingById = React.useCallback((noteId: string): boolean => {
     const nid = String(noteId || '').trim()
@@ -1628,6 +1651,7 @@ export function HyperCortexApp() {
                       refIndex={refIndex}
                       consumeInitSnapshot={consumeInitSnapshot}
                       onOpenNote={handleOpenNote}
+                      onDirtyChange={handleNoteDirtyChange}
                       onSaved={handleNoteSessionSaved}
                     />
                   ))
