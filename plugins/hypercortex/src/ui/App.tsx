@@ -31,7 +31,7 @@ import { NoteDetailSession, type NoteDetailSessionHandle, type NoteDetailSnapsho
 import { ShortcutSettingsPanel } from './ShortcutSettingsPanel'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
-import { DEFAULT_SHORTCUT_BINDINGS, mainKeyFromChord, normalizeMainKey, normalizeShortcutBindings, shouldTriggerShortcut, type HyperCortexShortcutBindingsV1 } from '../shortcuts'
+import { DEFAULT_SHORTCUT_BINDINGS, isEditableTarget, mainKeyFromChord, normalizeMainKey, normalizeShortcutBindings, shouldTriggerShortcut, type HyperCortexShortcutBindingsV1 } from '../shortcuts'
 
 type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'index' | 'settings'
 
@@ -892,6 +892,14 @@ export function HyperCortexApp() {
   React.useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (shortcutRecordingRef.current) return
+
+      // 禁用 Tab 的默认“焦点切换/选中游走”，但不影响编辑器/输入框内的 Tab（例如缩进）。
+      if (e.key === 'Tab' && !isEditableTarget(e.target)) {
+        e.preventDefault()
+        e.stopPropagation()
+        return
+      }
+
       const bindings = shortcutBindingsRef.current
       if (!bindings) return
 
