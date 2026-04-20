@@ -28,6 +28,7 @@ import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { AssetPoolPanel } from './AssetPoolPanel'
 import { OpenTabsPanel } from './OpenTabsPanel'
 import { NoteDetailSession, type NoteDetailSessionHandle, type NoteDetailSnapshotV1 } from './NoteDetailSession'
+import { ErrorBoundary } from './ErrorBoundary'
 import { ShortcutSettingsPanel } from './ShortcutSettingsPanel'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
@@ -295,11 +296,13 @@ export function HyperCortexApp() {
     })
   }, [])
 
+  const noteSessionRefCallbacksRef = React.useRef<Record<string, (handle: NoteDetailSessionHandle | null) => void>>({})
   const setNoteSessionHandle = React.useCallback((noteId: string, handle: NoteDetailSessionHandle | null) => {
     const nid = String(noteId || '').trim()
     if (!nid) return
     if (!handle) {
       delete noteSessionHandlesRef.current[nid]
+      delete noteSessionRefCallbacksRef.current[nid]
       setNoteDirtyById(prev => {
         if (!Object.prototype.hasOwnProperty.call(prev, nid)) return prev
         const next = { ...prev }
@@ -310,6 +313,17 @@ export function HyperCortexApp() {
     }
     noteSessionHandlesRef.current[nid] = handle
   }, [])
+
+  const getNoteSessionRefCallback = React.useCallback((noteId: string) => {
+    const nid = String(noteId || '').trim()
+    if (!nid) return undefined
+    if (!noteSessionRefCallbacksRef.current[nid]) {
+      noteSessionRefCallbacksRef.current[nid] = (handle: NoteDetailSessionHandle | null) => {
+        setNoteSessionHandle(nid, handle)
+      }
+    }
+    return noteSessionRefCallbacksRef.current[nid]
+  }, [setNoteSessionHandle])
 
   const isNoteDirtyById = React.useCallback((noteId: string): boolean => {
     const nid = String(noteId || '').trim()
@@ -1229,30 +1243,31 @@ export function HyperCortexApp() {
         }}
       />
 
-      <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#fff' }}>
-        <AppBar position="static" elevation={0} sx={{ bgcolor: '#fff', color: 'text.primary' }}>
-          <Toolbar
-            variant="dense"
-            data-tauri-drag-region="true"
-            sx={{
-              gap: 0.5,
-              minHeight: 40,
-              pl: 0,
-              pr: 0,
-              '&.MuiToolbar-root': { minHeight: 40, paddingLeft: 0, paddingRight: 0 },
-              WebkitAppRegion: 'drag',
-              justifyContent: 'space-between',
-            }}
-            onPointerDown={onTopbarPointerDown}
-          >
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
-              <IconButton
-                onClick={backToHost}
-                size="small"
-                aria-label="返回主界面"
-                data-tauri-drag-region="false"
-                sx={{ WebkitAppRegion: 'no-drag', ml: 0.25 }}
-              >
+      <ErrorBoundary>
+        <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#fff' }}>
+          <AppBar position="static" elevation={0} sx={{ bgcolor: '#fff', color: 'text.primary' }}>
+            <Toolbar
+              variant="dense"
+              data-tauri-drag-region="true"
+              sx={{
+                gap: 0.5,
+                minHeight: 40,
+                pl: 0,
+                pr: 0,
+                '&.MuiToolbar-root': { minHeight: 40, paddingLeft: 0, paddingRight: 0 },
+                WebkitAppRegion: 'drag',
+                justifyContent: 'space-between',
+              }}
+              onPointerDown={onTopbarPointerDown}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+                <IconButton
+                  onClick={backToHost}
+                  size="small"
+                  aria-label="返回主界面"
+                  data-tauri-drag-region="false"
+                  sx={{ WebkitAppRegion: 'no-drag', ml: 0.25 }}
+                >
                 <ArrowBackRoundedIcon fontSize="small" />
               </IconButton>
 
@@ -1281,8 +1296,8 @@ export function HyperCortexApp() {
                 <SettingsRoundedIcon fontSize="small" />
               </NavIconButton>
             </Box>
-          </Toolbar>
-        </AppBar>
+            </Toolbar>
+          </AppBar>
 
         <Box sx={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'stretch', position: 'relative' }}>
           <Box
@@ -1640,7 +1655,7 @@ export function HyperCortexApp() {
                   openNoteTabs.map(tab => (
                     <NoteDetailSession
                       key={tab.id}
-                      ref={(handle) => setNoteSessionHandle(tab.id, handle)}
+                      ref={getNoteSessionRefCallback(tab.id)}
                       api={api}
                       scope="library"
                       note={tab}
@@ -1670,7 +1685,8 @@ export function HyperCortexApp() {
             </Box>
           </Box>
         </Box>
-      </Box>
+        </Box>
+      </ErrorBoundary>
 
       <Dialog open={!!closeTabPrompt} onClose={handleCloseTabPromptCancel} maxWidth="xs" fullWidth>
         <DialogTitle>未保存改动</DialogTitle>
