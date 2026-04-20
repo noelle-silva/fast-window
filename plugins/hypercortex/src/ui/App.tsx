@@ -4,6 +4,7 @@ import { HyperCodeMirrorEditor as BlockEditor } from '../editor/HyperCodeMirrorE
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
+import InfoRoundedIcon from '@mui/icons-material/InfoRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
 import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded'
 import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
@@ -34,6 +35,7 @@ import { createMarkdownRenderEngine } from '../render/engine'
 import { HYPERCORTEX_NOTE_SCHEMA_VERSION } from '../noteSchema'
 import { AutoHeightHtmlIframe } from './AutoHeightHtmlIframe'
 import { AssetPoolPanel } from './AssetPoolPanel'
+import { NoteInfoSidebar } from './NoteInfoSidebar'
 import { OpenTabsPanel } from './OpenTabsPanel'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
@@ -174,6 +176,7 @@ export function HyperCortexApp() {
   const [activeNoteFaces, setActiveNoteFaces] = React.useState<NoteFaceId[]>(['text'])
   const [activeNoteAddFaceSelectorVisible, setActiveNoteAddFaceSelectorVisible] = React.useState(false)
   const [activeNotePendingAddFace, setActiveNotePendingAddFace] = React.useState<NoteFaceId | null>(null)
+  const [activeNoteInfoSidebarVisible, setActiveNoteInfoSidebarVisible] = React.useState(false)
   const noteEditSessionsRef = React.useRef<Record<string, NoteEditSession>>({})
   const draftNoteMetaRef = React.useRef<Record<string, NoteMeta>>({})
   const [closeTabPrompt, setCloseTabPrompt] = React.useState<{ noteId: string } | null>(null)
@@ -1929,6 +1932,20 @@ export function HyperCortexApp() {
 
                     {!activeNoteLoading && !activeNoteLoadError && activeNoteDoc ? (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Tooltip title={activeNoteInfoSidebarVisible ? '隐藏信息侧栏' : '显示信息侧栏'} placement="bottom-end">
+                          <IconButton
+                            size="small"
+                            aria-label="笔记信息"
+                            onClick={() => setActiveNoteInfoSidebarVisible(prev => !prev)}
+                            sx={{
+                              color: activeNoteInfoSidebarVisible ? '#111' : 'rgba(0,0,0,.58)',
+                              bgcolor: activeNoteInfoSidebarVisible ? 'rgba(0,0,0,.06)' : 'transparent',
+                              '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                            }}
+                          >
+                            <InfoRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                         <Tooltip title="新增面" placement="bottom-end">
                           <IconButton
                             size="small"
@@ -2059,7 +2076,8 @@ export function HyperCortexApp() {
                   {activeNoteLoading ? <Typography color="text.secondary">正在加载笔记...</Typography> : null}
                   {!activeNoteLoading && activeNoteLoadError ? <Typography color="error">{activeNoteLoadError}</Typography> : null}
                   {!activeNoteLoading && !activeNoteLoadError && activeNoteDoc ? (
-                    <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <Box sx={{ width: '100%', display: 'flex', minWidth: 0, gap: 2, alignItems: 'flex-start' }}>
+                      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
                       {activeNoteEditing ? (
                         <Box
                           sx={{
@@ -2292,6 +2310,14 @@ export function HyperCortexApp() {
                           </Box>
                         )
                       })()}
+                      </Box>
+                      {activeNoteInfoSidebarVisible ? (
+                        <NoteInfoSidebar
+                          noteId={activeNoteDoc.id}
+                          createdAtMs={activeNoteDoc.createdAtMs}
+                          updatedAtMs={activeNoteDoc.updatedAtMs}
+                        />
+                      ) : null}
                     </Box>
                   ) : null}
                 </Box>
