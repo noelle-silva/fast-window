@@ -8,6 +8,7 @@ import {
   ensureVaultDirs,
   noteMonthFolderFromIdOrNow,
   nowId,
+  safeTitleForFile,
   saveIndex,
   tryLoadIndex,
 } from './core'
@@ -37,9 +38,16 @@ export type HyperCortexHtmlFaceDoc = {
   schemaVersion: number
 }
 
-export function notePackageDirForId(id: string): string {
+function notePackageFolderNameForTitleAndId(title: string, id: string): string {
+  const safeTitle = safeTitleForFile(title)
   const noteId = String(id || '').trim()
-  return `${NOTES_DIR}/${noteMonthFolderFromIdOrNow(noteId)}/${noteId}`
+  return `${safeTitle}_${noteId}`
+}
+
+export function notePackageDirForId(id: string, title?: string): string {
+  const noteId = String(id || '').trim()
+  const t = String(title ?? '').trim() || '未命名'
+  return `${NOTES_DIR}/${noteMonthFolderFromIdOrNow(noteId)}/${notePackageFolderNameForTitleAndId(t, noteId)}`
 }
 
 function notePathInPackage(packageDir: string, file: string): string {
@@ -164,6 +172,7 @@ export async function saveNotePackage(
   scope: VaultScope,
   input: {
     id?: string
+    packageDir?: string
     title?: string
     body?: string
     tags?: string[]
@@ -175,12 +184,19 @@ export async function saveNotePackage(
 ): Promise<{ meta: NoteMeta; doc: HyperCortexNoteDoc }> {
   await ensureVaultDirs(api, scope)
   const id = String(input.id || '').trim() || nowId()
-  const packageDir = notePackageDirForId(id)
+  const title = String(input.title ?? '').trim() || '未命名'
+  const desiredDir = notePackageDirForId(id, title)
+  const currentDir = String(input.packageDir || '').trim()
+
+  if (currentDir && currentDir !== desiredDir) {
+    await api.files.rename({ scope, from: currentDir, to: desiredDir, overwrite: false })
+  }
+  const packageDir = desiredDir
   const nowMs = Date.now()
   const docData = createNoteDocData({
     id,
     packageDir,
-    title: input.title,
+    title,
     body: input.body,
     tags: input.tags,
     createdAtMs: input.createdAtMs ?? nowMs,
@@ -246,13 +262,20 @@ export async function saveHtmlFace(
 ): Promise<{ meta: NoteMeta; htmlFace: HyperCortexHtmlFaceDoc }> {
   await ensureVaultDirs(api, scope)
   const id = String(input.id || '').trim() || nowId()
-  const packageDir = String(input.packageDir || '').trim() || notePackageDirForId(id)
+  const title = String(input.title ?? '').trim() || '未命名'
+  const desiredDir = notePackageDirForId(id, title)
+  const currentDir = String(input.packageDir || '').trim()
+
+  if (currentDir && currentDir !== desiredDir) {
+    await api.files.rename({ scope, from: currentDir, to: desiredDir, overwrite: false })
+  }
+  const packageDir = desiredDir
   const manifest = await readNoteManifest(api, scope, packageDir).catch(() => null)
   const nowMs = Date.now()
   const docData = createNoteDocData({
     id,
     packageDir,
-    title: input.title ?? manifest?.title,
+    title,
     body: input.body,
     tags: input.tags ?? manifest?.tags,
     createdAtMs: input.createdAtMs ?? manifest?.createdAtMs ?? nowMs,

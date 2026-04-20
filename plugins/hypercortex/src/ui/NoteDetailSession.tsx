@@ -370,6 +370,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       } else {
         const result = await saveNotePackage(api, scope, {
           id: isDraft ? undefined : originalId,
+          packageDir: isDraft ? undefined : note.dir,
           title,
           body,
           tags,
