@@ -7,12 +7,14 @@ import CodeRoundedIcon from '@mui/icons-material/CodeRounded'
 import WysiwygRoundedIcon from '@mui/icons-material/WysiwygRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import InfoRoundedIcon from '@mui/icons-material/InfoRounded'
+import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 
 import { createMarkdownRenderEngine } from '../render/engine'
 import { HYPERCORTEX_NOTE_SCHEMA_VERSION } from '../noteSchema'
 import { renderNoteDisplayHtml } from '../noteRender'
 import { extractNoteRefs, getBacklinksFor, type NoteRefIndex } from '../noteRefs'
 import { loadHtmlFace, loadNotePackage, saveHtmlFace, saveNotePackage, type HyperCortexHtmlFaceDoc } from '../notePackage'
+import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import type { Api, NoteMeta, VaultScope, HyperCortexNoteDoc } from '../core'
 import { NoteInfoSidebar } from './NoteInfoSidebar'
 import { AutoHeightHtmlIframe } from './AutoHeightHtmlIframe'
@@ -578,6 +580,24 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
         {!loading && !loadError && doc ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Tooltip title="复制引用占位符" placement="bottom-end">
+              <IconButton
+                size="small"
+                aria-label="复制引用占位符"
+                onClick={() => {
+                  void api.clipboard.writeText(buildNotePlaceholderForCopy(doc.id, editTitle || doc.title || note.title || ''))
+                  void api.ui.showToast('已复制引用占位符')
+                }}
+                sx={{
+                  color: 'rgba(0,0,0,.58)',
+                  bgcolor: 'transparent',
+                  '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                }}
+              >
+                <ContentCopyRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+
             <Tooltip title={infoSidebarVisible ? '隐藏信息侧栏' : '显示信息侧栏'} placement="bottom-end">
               <IconButton
                 size="small"
