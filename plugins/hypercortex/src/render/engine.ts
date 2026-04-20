@@ -738,14 +738,14 @@ export function createMarkdownRenderEngine(init?: { api?: Api; scope?: VaultScop
         const r = pre.noteRefs[Number(id)]
         if (!r) return ''
         const remarksAttr = r.remarks ? ` data-note-remarks="${esc(r.remarks)}"` : ''
-        let label = r.displayText
-        if (!label && ni) {
-          const meta = ni[r.noteId]
-          label = meta ? meta.title : ''
+        const meta = ni ? ni[r.noteId] : undefined
+        const exists = !!meta
+        if (!exists) {
+          const custom = String(r.displayText || '').trim()
+          const text = custom || '未知笔记'
+          return `<a class="hc-note-ref hc-note-ref--broken" data-note-id="${esc(r.noteId)}"${remarksAttr}>${esc(`不存在笔记：${text}`)}</a>`
         }
-        if (!label) {
-          return `<a class="hc-note-ref hc-note-ref--broken" data-note-id="${esc(r.noteId)}"${remarksAttr}>未知笔记</a>`
-        }
+        const label = String(r.displayText || '').trim() || String(meta?.title || '').trim() || '未知笔记'
         return `<a class="hc-note-ref" data-note-id="${esc(r.noteId)}"${remarksAttr}>${esc(label)}</a>`
       })
     }
