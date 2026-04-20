@@ -47,6 +47,51 @@ function normalizeTabsMode(value: unknown): TabsMode {
   return value === 'hover' ? 'hover' : 'manual'
 }
 
+function sortNotesByUpdatedAtDesc(list: NoteMeta[]): NoteMeta[] {
+  return (Array.isArray(list) ? list : []).slice().sort((a, b) => (b.updatedAtMs || 0) - (a.updatedAtMs || 0))
+}
+
+function stripDraftIds(ids: unknown): string[] {
+  const list = Array.isArray(ids) ? ids : []
+  return list
+    .map(v => (typeof v === 'string' ? v.trim() : ''))
+    .filter(Boolean)
+    .filter(id => !isDraftNoteId(id))
+}
+
+function stripDraftKeys(value: any): Record<string, string> {
+  if (!value || typeof value !== 'object') return {}
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(value)) {
+    const key = String(k || '').trim()
+    if (!key || isDraftNoteId(key)) continue
+    const val = String(v || '').trim()
+    if (!val) continue
+    out[key] = val
+  }
+  return out
+}
+
+function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetadataV1 {
+  const next: HyperCortexMetadataV1 = { ...meta, version: 1 }
+
+  if (typeof (next as any).activeNoteId === 'string' && isDraftNoteId((next as any).activeNoteId)) {
+    ;(next as any).activeNoteId = ''
+  }
+  if ('openNoteIds' in next) (next as any).openNoteIds = stripDraftIds((next as any).openNoteIds)
+  if ('tabGroupByNoteId' in next) (next as any).tabGroupByNoteId = stripDraftKeys((next as any).tabGroupByNoteId)
+
+  if (Array.isArray(next.workspaces)) {
+    next.workspaces = next.workspaces.map(ws => {
+      const openNoteIds = stripDraftIds((ws as any).openNoteIds)
+      const tabGroupByNoteId = stripDraftKeys((ws as any).tabGroupByNoteId)
+      return { ...ws, openNoteIds, tabGroupByNoteId }
+    })
+  }
+
+  return next
+}
+
 const theme = createTheme({
   palette: {
     mode: 'light',
@@ -98,19 +143,29 @@ function NavIconButton(props: {
 
 export function HyperCortexApp() {
   const api = React.useMemo(() => getApi(), [])
+
+  // ---- 核心 UI 状态
   const [page, setPage] = React.useState<PageId>('home')
+
+  // ---- 元数据（持久化）
   const metaRef = React.useRef<HyperCortexMetadataV1 | null>(null)
   const [metaReady, setMetaReady] = React.useState(false)
   const restoreActiveNoteIdRef = React.useRef<string>('')
+
+  // ---- 全部笔记列表
   const [allNotesLayout, setAllNotesLayout] = React.useState<AllNotesLayout>('list')
   const [allNotes, setAllNotes] = React.useState<NoteMeta[]>([])
   const [allNotesLoading, setAllNotesLoading] = React.useState(false)
   const [allNotesLoadError, setAllNotesLoadError] = React.useState<string | null>(null)
+
+  // ---- 详情页（tab 常驻 Session）
   const [activeNoteId, setActiveNoteId] = React.useState<string>('')
   const noteSessionHandlesRef = React.useRef<Record<string, NoteDetailSessionHandle | null>>({})
   const noteInitSnapshotsRef = React.useRef<Record<string, NoteDetailSnapshotV1>>({})
   const draftNoteMetaRef = React.useRef<Record<string, NoteMeta>>({})
   const [closeTabPrompt, setCloseTabPrompt] = React.useState<{ noteId: string } | null>(null)
+
+  // ---- 侧边栏 / 工作区 / 分组
   const [tabsCollapsed, setTabsCollapsed] = React.useState(false)
   const [workspaces, setWorkspaces] = React.useState<HyperCortexWorkspaceV1[]>([])
   const [activeWorkspaceId, setActiveWorkspaceId] = React.useState<string>('')
@@ -174,53 +229,13 @@ export function HyperCortexApp() {
     return noteSessionHandlesRef.current[nid]?.isSaving?.() === true
   }, [])
 
+  // ---- 引用索引（反向链接）
   const [refIndex, setRefIndex] = React.useState<NoteRefIndex>({})
   const allNotesById = React.useMemo(() => {
     const map: Record<string, NoteMeta> = {}
     for (const n of allNotes) map[n.id] = n
     return map
   }, [allNotes])
-
-  const sanitizeMetadataForSave = React.useCallback((meta: HyperCortexMetadataV1): HyperCortexMetadataV1 => {
-    const next: HyperCortexMetadataV1 = { ...meta, version: 1 }
-
-    const stripDraftIds = (ids: unknown): string[] => {
-      const list = Array.isArray(ids) ? ids : []
-      return list
-        .map(v => (typeof v === 'string' ? v.trim() : ''))
-        .filter(Boolean)
-        .filter(id => !isDraftNoteId(id))
-    }
-
-    const stripDraftKeys = (value: any): Record<string, string> => {
-      if (!value || typeof value !== 'object') return {}
-      const out: Record<string, string> = {}
-      for (const [k, v] of Object.entries(value)) {
-        const key = String(k || '').trim()
-        if (!key || isDraftNoteId(key)) continue
-        const val = String(v || '').trim()
-        if (!val) continue
-        out[key] = val
-      }
-      return out
-    }
-
-    if (typeof (next as any).activeNoteId === 'string' && isDraftNoteId((next as any).activeNoteId)) {
-      ;(next as any).activeNoteId = ''
-    }
-    if ('openNoteIds' in next) (next as any).openNoteIds = stripDraftIds((next as any).openNoteIds)
-    if ('tabGroupByNoteId' in next) (next as any).tabGroupByNoteId = stripDraftKeys((next as any).tabGroupByNoteId)
-
-    if (Array.isArray(next.workspaces)) {
-      next.workspaces = next.workspaces.map(ws => {
-        const openNoteIds = stripDraftIds((ws as any).openNoteIds)
-        const tabGroupByNoteId = stripDraftKeys((ws as any).tabGroupByNoteId)
-        return { ...ws, openNoteIds, tabGroupByNoteId }
-      })
-    }
-
-    return next
-  }, [])
 
   const persistMetadataPatch = React.useCallback(
     async (patch: Partial<HyperCortexMetadataV1>) => {
@@ -230,7 +245,7 @@ export function HyperCortexApp() {
       metaRef.current = sanitized
       await saveMetadata(api, sanitized)
     },
-    [api, sanitizeMetadataForSave],
+    [api],
   )
 
   const commitActiveWorkspacePatch = React.useCallback(
@@ -303,10 +318,6 @@ export function HyperCortexApp() {
     },
     [api],
   )
-
-  const sortNotes = React.useCallback((list: NoteMeta[]) => {
-    return list.slice().sort((a, b) => (b.updatedAtMs || 0) - (a.updatedAtMs || 0))
-  }, [])
 
   const toggleAllNotesLayout = React.useCallback(() => {
     setAllNotesLayout(prev => {
@@ -639,7 +650,7 @@ export function HyperCortexApp() {
     try {
       const scope = 'library' as const
       const idx = await loadNoteIndex(api, scope)
-      const notes = sortNotes(Object.values(idx.notes || {}))
+      const notes = sortNotesByUpdatedAtDesc(Object.values(idx.notes || {}))
       setAllNotes(notes)
 
       // 开发阶段迁移：旧语法不兼容，引用索引直接按新语法重建
@@ -661,7 +672,7 @@ export function HyperCortexApp() {
     } finally {
       setAllNotesLoading(false)
     }
-  }, [api, sortNotes])
+  }, [api])
 
   React.useEffect(() => {
     void (async () => {
@@ -893,7 +904,7 @@ export function HyperCortexApp() {
       setCloseTabPrompt(p => (p?.noteId === originalId ? { noteId: meta.id } : p))
     }
 
-    setAllNotes(prev => sortNotes([meta, ...prev.filter(item => item.id !== originalId)]))
+    setAllNotes(prev => sortNotesByUpdatedAtDesc([meta, ...prev.filter(item => item.id !== originalId)]))
 
     setOpenNoteTabs(prev => {
       const replaced = prev.map(t => (t.id === originalId ? meta : t))
@@ -911,7 +922,7 @@ export function HyperCortexApp() {
 
     if (activeNoteId === originalId) setActiveNoteId(meta.id)
     if (metaReady && activeNoteId === originalId && !isDraftNoteId(meta.id)) void persistMetadataPatch({ activeNoteId: meta.id }).catch(() => {})
-  }, [activeNoteId, commitActiveWorkspacePatch, metaReady, persistMetadataPatch, sortNotes, updateTabGrouping])
+  }, [activeNoteId, commitActiveWorkspacePatch, metaReady, persistMetadataPatch, updateTabGrouping])
 
   const closeTabPromptTargetSaving = !!closeTabPrompt && isNoteSavingById(closeTabPrompt.noteId)
 
