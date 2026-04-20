@@ -1162,7 +1162,7 @@ export function HyperCortexApp() {
                 tabsMode={tabsMode}
                 tabsCollapsed={tabsCollapsed}
                 openNoteTabs={openNoteTabs}
-                activeNoteId={activeNoteId}
+                activeNoteId={page === 'note-detail' ? activeNoteId : ''}
                 isNoteDirty={isNoteDirtyById}
                 workspaces={workspaces.map(w => ({ id: w.id, title: w.title }))}
                 activeWorkspaceId={activeWorkspaceId}
