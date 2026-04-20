@@ -15,13 +15,14 @@ import {
   getApi,
   saveMetadata,
   tryLoadMetadata,
+  type HyperCortexIndexV1,
   type HyperCortexMetadataV1,
   type HyperCortexTabGroupV1,
   type HyperCortexWorkspaceV1,
   type NoteMeta,
 } from '../core'
-import { loadNoteIndex, loadNotePackage } from '../notePackage'
-import { extractNoteRefs, saveRefIndex, type NoteRefIndex } from '../noteRefs'
+import { loadNoteIndex } from '../notePackage'
+import { loadRefIndex, type NoteRefIndex } from '../noteRefs'
 import { createMarkdownRenderEngine } from '../render/engine'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { AssetPoolPanel } from './AssetPoolPanel'
@@ -153,6 +154,7 @@ export function HyperCortexApp() {
   const restoreActiveNoteIdRef = React.useRef<string>('')
 
   // ---- 全部笔记列表
+  const [noteIndex, setNoteIndex] = React.useState<HyperCortexIndexV1 | null>(null)
   const [allNotesLayout, setAllNotesLayout] = React.useState<AllNotesLayout>('list')
   const [allNotes, setAllNotes] = React.useState<NoteMeta[]>([])
   const [allNotesLoading, setAllNotesLoading] = React.useState(false)
@@ -193,9 +195,10 @@ export function HyperCortexApp() {
 
   const noteIndexMap = React.useMemo(() => {
     const map: Record<string, { title: string }> = {}
-    for (const n of allNotes) map[n.id] = { title: n.title }
+    const list = noteIndex ? Object.values(noteIndex.notes || {}) : allNotes
+    for (const n of list) map[n.id] = { title: n.title }
     return map
-  }, [allNotes])
+  }, [allNotes, noteIndex])
 
   React.useEffect(() => {
     renderEngineRef.current.noteIndex = noteIndexMap
@@ -233,9 +236,43 @@ export function HyperCortexApp() {
   const [refIndex, setRefIndex] = React.useState<NoteRefIndex>({})
   const allNotesById = React.useMemo(() => {
     const map: Record<string, NoteMeta> = {}
-    for (const n of allNotes) map[n.id] = n
+    const list = noteIndex ? Object.values(noteIndex.notes || {}) : allNotes
+    for (const n of list) map[n.id] = n
     return map
-  }, [allNotes])
+  }, [allNotes, noteIndex])
+
+  const noteIndexRef = React.useRef<HyperCortexIndexV1 | null>(null)
+  React.useEffect(() => {
+    noteIndexRef.current = noteIndex
+  }, [noteIndex])
+
+  const noteIndexLoadPromiseRef = React.useRef<Promise<HyperCortexIndexV1> | null>(null)
+  const ensureNoteIndexLoaded = React.useCallback(async () => {
+    if (noteIndexRef.current) return noteIndexRef.current
+    if (!noteIndexLoadPromiseRef.current) noteIndexLoadPromiseRef.current = loadNoteIndex(api, 'library')
+    const idx = await noteIndexLoadPromiseRef.current
+    setNoteIndex(idx)
+    return idx
+  }, [api])
+
+  const refIndexRef = React.useRef<NoteRefIndex>({})
+  React.useEffect(() => {
+    refIndexRef.current = refIndex
+  }, [refIndex])
+
+  const refIndexLoadPromiseRef = React.useRef<Promise<NoteRefIndex> | null>(null)
+  const ensureRefIndexLoaded = React.useCallback(async () => {
+    if (refIndexRef.current && Object.keys(refIndexRef.current).length) return refIndexRef.current
+    if (!refIndexLoadPromiseRef.current) refIndexLoadPromiseRef.current = loadRefIndex(api, 'library')
+    const idx = await refIndexLoadPromiseRef.current
+    setRefIndex(idx)
+    return idx
+  }, [api])
+
+  React.useEffect(() => {
+    void ensureNoteIndexLoaded().catch(() => {})
+    void ensureRefIndexLoaded().catch(() => {})
+  }, [ensureNoteIndexLoaded, ensureRefIndexLoaded])
 
   const persistMetadataPatch = React.useCallback(
     async (patch: Partial<HyperCortexMetadataV1>) => {
@@ -648,31 +685,15 @@ export function HyperCortexApp() {
     setAllNotesLoading(true)
     setAllNotesLoadError(null)
     try {
-      const scope = 'library' as const
-      const idx = await loadNoteIndex(api, scope)
+      const idx = await ensureNoteIndexLoaded()
       const notes = sortNotesByUpdatedAtDesc(Object.values(idx.notes || {}))
       setAllNotes(notes)
-
-      // 开发阶段迁移：旧语法不兼容，引用索引直接按新语法重建
-      const existingIds = new Set(notes.map(n => n.id))
-      const nextRefIndex: NoteRefIndex = {}
-      await Promise.all(
-        notes.map(async (n) => {
-          const doc = await loadNotePackage(api, scope, n.dir).catch(() => null)
-          if (!doc) return
-          const refs = extractNoteRefs(doc.body)
-          const filtered = refs.filter(id => existingIds.has(id))
-          if (filtered.length) nextRefIndex[n.id] = filtered
-        }),
-      )
-      await saveRefIndex(api, scope, nextRefIndex).catch(() => {})
-      setRefIndex(nextRefIndex)
     } catch (e: any) {
       setAllNotesLoadError(String(e?.message || e || '加载全部笔记失败'))
     } finally {
       setAllNotesLoading(false)
     }
-  }, [api])
+  }, [api, ensureNoteIndexLoaded])
 
   React.useEffect(() => {
     void (async () => {
@@ -709,7 +730,7 @@ export function HyperCortexApp() {
         const openIds = activeWs.openNoteIds
         if (openIds.length) {
           try {
-            const idx = await loadNoteIndex(api, 'library')
+            const idx = await ensureNoteIndexLoaded()
             const tabs = openIds.map(id => idx.notes?.[id]).filter(Boolean) as NoteMeta[]
             setOpenNoteTabs(tabs)
           } catch {
@@ -903,6 +924,14 @@ export function HyperCortexApp() {
       })
       setCloseTabPrompt(p => (p?.noteId === originalId ? { noteId: meta.id } : p))
     }
+
+    setNoteIndex(prev => {
+      const current = prev || { version: 1, notes: {} }
+      const nextNotes = { ...(current.notes || {}) }
+      if (didMigrateId) delete nextNotes[originalId]
+      nextNotes[meta.id] = meta
+      return { ...current, notes: nextNotes }
+    })
 
     setAllNotes(prev => sortNotesByUpdatedAtDesc([meta, ...prev.filter(item => item.id !== originalId)]))
 

@@ -1,6 +1,6 @@
 import { NOTE_MANIFEST_FILE, createNoteManifest, type HyperCortexNoteManifestV1 } from './noteSchema'
 
-export type VaultScope = 'library' | 'output' | 'data'
+export type VaultScope = 'library' | 'data'
 
 export type Api = {
   __meta?: { runtime?: 'ui' | 'background' }
@@ -15,8 +15,6 @@ export type Api = {
   }
   files: {
     getLibraryDir: () => Promise<string>
-    // legacy: 用于兼容旧库（曾存放在 output scope 下）
-    getOutputDir: () => Promise<string>
     pickLibraryDir: () => Promise<string | null>
     openDir: (dir: string) => Promise<void>
     listDir: (req: { scope: VaultScope; dir?: string | null }) => Promise<
@@ -168,9 +166,6 @@ export function createCompatApi(baseApi: any): Api {
       ...(base.files || {}),
       getLibraryDir: async () => {
         return tauri.invoke({ command: 'plugin_get_library_dir', payload: { pluginId: PLUGIN_ID } })
-      },
-      getOutputDir: async () => {
-        return tauri.invoke({ command: 'plugin_get_output_dir', payload: { pluginId: PLUGIN_ID } })
       },
       pickLibraryDir: async () => {
         return tauri.invoke({ command: 'plugin_pick_library_dir', payload: { pluginId: PLUGIN_ID } })

@@ -260,7 +260,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     if (!visible) return
     if (face !== 'text' || editing || !textRenderRef.current) return
     renderEngineRef.current.renderInto(textRenderRef.current, editBody || '')
-  }, [editBody, editing, face, visible])
+  }, [editBody, editing, face, noteIndexMap, visible])
 
   React.useEffect(() => {
     const el = textRenderRef.current
