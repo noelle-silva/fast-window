@@ -96,6 +96,7 @@ export type NoteDetailSessionProps = {
     originalId: string
     meta: NoteMeta
     snapshotForNewId?: NoteDetailSnapshotV1
+    refsForIndex?: string[]
   }) => void
 }
 
@@ -423,14 +424,16 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         infoSidebarVisible,
       } : undefined
 
-      onSaved({ originalId, meta: nextMeta, snapshotForNewId })
+      const refsSourceBody = face === 'text' ? body : (doc?.body || '')
+      const refsForIndex = extractNoteRefs(refsSourceBody).filter(id => !!allNotesById[id])
+      onSaved({ originalId, meta: nextMeta, snapshotForNewId, refsForIndex })
       await api.ui.showToast(toastMsg)
     } catch (e: any) {
       await api.ui.showToast(String(e?.message || e || '保存失败'))
     } finally {
       setSaving(false)
     }
-  }, [api, base.body, base.html, doc, editBody, editHtml, editTags, editTitle, editing, face, faces, htmlFace, infoSidebarVisible, isDraft, note.createdAtMs, note.dir, noteId, onSaved, saving, scope, textEditorMode])
+  }, [api, allNotesById, base.body, base.html, doc, editBody, editHtml, editTags, editTitle, editing, face, faces, htmlFace, infoSidebarVisible, isDraft, note.createdAtMs, note.dir, noteId, onSaved, saving, scope, textEditorMode])
 
   const handleAddFace = React.useCallback(async () => {
     if (!pendingAddFace) return

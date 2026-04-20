@@ -951,6 +951,7 @@ export function HyperCortexApp() {
     originalId: string
     meta: NoteMeta
     snapshotForNewId?: NoteDetailSnapshotV1
+    refsForIndex?: string[]
   }) => {
     const originalId = String(payload.originalId || '').trim()
     const meta = payload.meta
@@ -986,6 +987,20 @@ export function HyperCortexApp() {
     })
 
     setAllNotes(prev => sortNotesByUpdatedAtDesc([meta, ...prev.filter(item => item.id !== originalId)]))
+
+    setRefIndex(prev => {
+      const next = { ...(prev || {}) }
+      if (didMigrateId) delete next[originalId]
+
+      const refs = Array.isArray(payload.refsForIndex)
+        ? Array.from(new Set(payload.refsForIndex.map(v => String(v || '').trim()).filter(Boolean)))
+        : []
+
+      if (refs.length) next[meta.id] = refs
+      else delete next[meta.id]
+
+      return next
+    })
 
     setOpenNoteTabs(prev => {
       const replaced = prev.map(t => (t.id === originalId ? meta : t))
