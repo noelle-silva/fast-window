@@ -108,9 +108,6 @@ export function NoteInfoSidebar(props: {
           position: 'sticky',
           top: 12,
           p: 2,
-          borderRadius: 2,
-          bgcolor: 'rgba(0,0,0,.03)',
-          border: '1px solid rgba(0,0,0,.08)',
         }}
       >
         <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'rgba(0,0,0,.55)', mb: 1.25 }}>
