@@ -1,4 +1,5 @@
 import { NOTE_MANIFEST_FILE, createNoteManifest, type HyperCortexNoteManifestV1 } from './noteSchema'
+import type { HyperCortexShortcutBindingsV1 } from './shortcuts'
 
 export type VaultScope = 'library' | 'data'
 
@@ -76,6 +77,7 @@ export type HyperCortexMetadataV1 = {
   tabGroupByNoteId?: Record<string, string>
   workspaces?: HyperCortexWorkspaceV1[]
   activeWorkspaceId?: string
+  shortcuts?: HyperCortexShortcutBindingsV1
 }
 
 type TauriLike = { invoke: (req: { command: string; payload?: any }) => Promise<any> }

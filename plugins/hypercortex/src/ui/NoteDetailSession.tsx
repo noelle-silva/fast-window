@@ -78,6 +78,8 @@ export type NoteDetailSessionHandle = {
   isDirty: () => boolean
   isSaving: () => boolean
   enterEditMode: () => void
+  toggleMode: () => void
+  save: () => Promise<void>
   discardChanges: () => void
 }
 
@@ -169,22 +171,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   }, [editBody, editHtml, editTags, editTitle])
 
   const dirty = React.useMemo(() => !isNoteContentEqual(draftNowRef, base), [base, draftNowRef])
-
-  React.useImperativeHandle(ref, () => ({
-    isDirty: () => dirty,
-    isSaving: () => saving,
-    enterEditMode: () => setEditing(true),
-    discardChanges: () => {
-      setEditTitle(base.title)
-      setEditBody(base.body)
-      setEditTags(base.tags.slice())
-      setEditHtml(base.html)
-      setTagInput('')
-      setAddFaceSelectorVisible(false)
-      setPendingAddFace(null)
-      setEditing(false)
-    },
-  }), [base, dirty, saving])
 
   const ensureDraftDocIfNeeded = React.useCallback(() => {
     if (!isDraft) return
@@ -434,6 +420,15 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       setSaving(false)
     }
   }, [api, allNotesById, base.body, base.html, doc, editBody, editHtml, editTags, editTitle, editing, face, faces, htmlFace, infoSidebarVisible, isDraft, note.createdAtMs, note.dir, noteId, onSaved, saving, scope, textEditorMode])
+
+  React.useImperativeHandle(ref, () => ({
+    isDirty: () => dirty,
+    isSaving: () => saving,
+    enterEditMode: () => setEditing(true),
+    toggleMode: () => handleToggleMode(),
+    save: () => handleSave(),
+    discardChanges: () => handleDiscard(),
+  }), [dirty, handleDiscard, handleSave, handleToggleMode, saving])
 
   const handleAddFace = React.useCallback(async () => {
     if (!pendingAddFace) return

@@ -28,8 +28,10 @@ import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { AssetPoolPanel } from './AssetPoolPanel'
 import { OpenTabsPanel } from './OpenTabsPanel'
 import { NoteDetailSession, type NoteDetailSessionHandle, type NoteDetailSnapshotV1 } from './NoteDetailSession'
+import { ShortcutSettingsPanel } from './ShortcutSettingsPanel'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
+import { DEFAULT_SHORTCUT_BINDINGS, normalizeShortcutBindings, shouldTriggerShortcut, type HyperCortexShortcutBindingsV1 } from '../shortcuts'
 
 type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'index' | 'settings'
 
@@ -81,6 +83,7 @@ function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetada
   }
   if ('openNoteIds' in next) (next as any).openNoteIds = stripDraftIds((next as any).openNoteIds)
   if ('tabGroupByNoteId' in next) (next as any).tabGroupByNoteId = stripDraftKeys((next as any).tabGroupByNoteId)
+  if ('shortcuts' in next) (next as any).shortcuts = normalizeShortcutBindings((next as any).shortcuts)
 
   if (Array.isArray(next.workspaces)) {
     next.workspaces = next.workspaces.map(ws => {
@@ -156,6 +159,17 @@ export function HyperCortexApp() {
   const metaRef = React.useRef<HyperCortexMetadataV1 | null>(null)
   const [metaReady, setMetaReady] = React.useState(false)
   const restoreActiveNoteIdRef = React.useRef<string>('')
+
+  // ---- 快捷键（持久化在 metadata）
+  const [shortcutBindings, setShortcutBindings] = React.useState<HyperCortexShortcutBindingsV1>(DEFAULT_SHORTCUT_BINDINGS)
+  const shortcutBindingsRef = React.useRef<HyperCortexShortcutBindingsV1>(DEFAULT_SHORTCUT_BINDINGS)
+  const shortcutRecordingRef = React.useRef(false)
+  const handleShortcutRecordingChange = React.useCallback((active: boolean) => {
+    shortcutRecordingRef.current = active
+  }, [])
+  React.useEffect(() => {
+    shortcutBindingsRef.current = shortcutBindings
+  }, [shortcutBindings])
 
   // ---- 全部笔记列表
   const [noteIndex, setNoteIndex] = React.useState<HyperCortexIndexV1 | null>(null)
@@ -330,6 +344,16 @@ export function HyperCortexApp() {
       await saveMetadata(api, sanitized)
     },
     [api],
+  )
+
+  const handleShortcutBindingsChange = React.useCallback(
+    (next: HyperCortexShortcutBindingsV1) => {
+      const normalized = normalizeShortcutBindings(next)
+      setShortcutBindings(normalized)
+      if (!metaReadyRef.current) return
+      void persistMetadataPatch({ shortcuts: normalized }).catch(() => {})
+    },
+    [persistMetadataPatch],
   )
 
   const commitActiveWorkspacePatch = React.useCallback(
@@ -747,6 +771,7 @@ export function HyperCortexApp() {
       try {
         const meta = (await tryLoadMetadata(api)) || (await ensureMetadata(api))
         metaRef.current = meta
+        setShortcutBindings(normalizeShortcutBindings(meta.shortcuts))
         setAllNotesLayout(normalizeAllNotesLayout(meta.allNotesLayout))
         setTabsCollapsed(normalizeBoolean(meta.tabsCollapsed))
         setTabsMode(normalizeTabsMode(meta.tabsMode))
@@ -843,6 +868,43 @@ export function HyperCortexApp() {
     setActiveNoteId(draftId)
     setPage('note-detail')
   }, [commitActiveWorkspacePatch])
+
+  React.useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (shortcutRecordingRef.current) return
+      const bindings = shortcutBindingsRef.current
+      if (!bindings) return
+
+      if (shouldTriggerShortcut(e, bindings.newNote)) {
+        e.preventDefault()
+        e.stopPropagation()
+        handleCreateDraftNote()
+        return
+      }
+
+      if (pageRef.current !== 'note-detail') return
+      const nid = String(activeNoteIdRef.current || '').trim()
+      if (!nid) return
+      const handle = noteSessionHandlesRef.current[nid]
+      if (!handle) return
+
+      if (shouldTriggerShortcut(e, bindings.saveNote)) {
+        e.preventDefault()
+        e.stopPropagation()
+        void handle.save()
+        return
+      }
+
+      if (shouldTriggerShortcut(e, bindings.toggleMode)) {
+        e.preventDefault()
+        e.stopPropagation()
+        handle.toggleMode()
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [handleCreateDraftNote])
 
   const handleOpenNote = React.useCallback(
     (note: NoteMeta) => {
@@ -1515,7 +1577,15 @@ export function HyperCortexApp() {
                 )}
               </Box>
               {page === 'index' ? <Typography color="text.secondary">这是索引页面。</Typography> : null}
-              {page === 'settings' ? <Typography color="text.secondary">这是设置页面。</Typography> : null}
+              {page === 'settings' ? (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, maxWidth: 760 }}>
+                  <ShortcutSettingsPanel
+                    bindings={shortcutBindings}
+                    onChange={handleShortcutBindingsChange}
+                    onRecordingChange={handleShortcutRecordingChange}
+                  />
+                </Box>
+              ) : null}
             </Box>
           </Box>
         </Box>
