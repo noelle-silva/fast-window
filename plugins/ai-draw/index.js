@@ -475,21 +475,103 @@
 		    return h
 		  }
 
-		  function formatDebugHttpRequest(req) {
-		    const r = req && typeof req === 'object' ? req : {}
-		    const method = String(r.method || '').trim() || 'POST'
-		    const url = String(r.url || '').trim()
-		    const headers = redactAuthHeaders(r.headers)
-		    const headerLines = Object.entries(headers)
-		      .map(([k, v]) => `${String(k)}: ${String(v)}`)
-		      .join('\n')
-		    const body = typeof r.body === 'string' ? r.body : ''
-		    return `${method} ${url}${headerLines ? `\n${headerLines}` : ''}${body ? `\n\n${body}` : ''}`
-		  }
+			  function formatDebugHttpRequest(req) {
+			    const r = req && typeof req === 'object' ? req : {}
+			    const method = String(r.method || '').trim() || 'POST'
+			    const url = String(r.url || '').trim()
+			    const headers = redactAuthHeaders(r.headers)
+			    const headerLines = Object.entries(headers)
+			      .map(([k, v]) => `${String(k)}: ${String(v)}`)
+			      .join('\n')
+			    const body = typeof r.body === 'string' ? r.body : ''
+			    return `${method} ${url}${headerLines ? `\n${headerLines}` : ''}${body ? `\n\n${body}` : ''}`
+			  }
 
-		  const api = createCompatApi(window.fastWindow)
-		  window.fastWindow = api
-		  const runtime = String((api && api.__meta && api.__meta.runtime) || 'ui')
+			  function encodeUtf8Bytes(input) {
+			    const s = String(input ?? '')
+			    try {
+			      if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(s)
+			    } catch {}
+			    const encoded = unescape(encodeURIComponent(s))
+			    const out = new Uint8Array(encoded.length)
+			    for (let i = 0; i < encoded.length; i++) out[i] = encoded.charCodeAt(i)
+			    return out
+			  }
+
+			  function base64ToBytes(input) {
+			    const b64 = normalizeImageBase64(input)
+			    if (!b64) return new Uint8Array(0)
+			    if (typeof atob !== 'function') throw new Error('atob 不可用，无法处理二进制请求体')
+			    const bin = atob(b64)
+			    const out = new Uint8Array(bin.length)
+			    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
+			    return out
+			  }
+
+			  function bytesToBase64(bytes) {
+			    if (!bytes || !bytes.length) return ''
+			    if (typeof btoa !== 'function') throw new Error('btoa 不可用，无法处理二进制请求体')
+			    try {
+			      if (typeof TextDecoder !== 'undefined') {
+			        const bin = new TextDecoder('latin1').decode(bytes)
+			        return btoa(bin)
+			      }
+			    } catch {}
+			    let bin = ''
+			    const chunk = 0x8000
+			    for (let i = 0; i < bytes.length; i += chunk) {
+			      const sub = bytes.subarray(i, i + chunk)
+			      bin += String.fromCharCode.apply(null, Array.from(sub))
+			    }
+			    return btoa(bin)
+			  }
+
+			  function concatBytes(chunks) {
+			    const list = Array.isArray(chunks) ? chunks.filter((x) => x && x.length) : []
+			    const total = list.reduce((sum, x) => sum + x.length, 0)
+			    const out = new Uint8Array(total)
+			    let offset = 0
+			    for (const c of list) {
+			      out.set(c, offset)
+			      offset += c.length
+			    }
+			    return out
+			  }
+
+			  function inferExtFromMime(mime) {
+			    const m = String(mime || '').toLowerCase()
+			    if (m.includes('jpeg') || m.includes('jpg')) return 'jpg'
+			    if (m.includes('webp')) return 'webp'
+			    if (m.includes('gif')) return 'gif'
+			    return 'png'
+			  }
+
+			  function buildMultipartFormDataBytes(boundary, parts) {
+			    const b = String(boundary || '').trim()
+			    if (!b) throw new Error('boundary is required')
+			    const items = Array.isArray(parts) ? parts.filter((x) => x && typeof x === 'object') : []
+			    const chunks = []
+			    for (const p of items) {
+			      const name = String(p.name || '').trim()
+			      if (!name) continue
+			      const isFile = !!(p.filename && p.contentType && p.dataBytes)
+			      const disp = isFile
+			        ? `Content-Disposition: form-data; name="${name}"; filename="${String(p.filename)}"\r\n`
+			        : `Content-Disposition: form-data; name="${name}"\r\n`
+			      const type = isFile ? `Content-Type: ${String(p.contentType)}\r\n` : ''
+			      const head = `--${b}\r\n${disp}${type}\r\n`
+			      chunks.push(encodeUtf8Bytes(head))
+			      if (isFile) chunks.push(p.dataBytes)
+			      else chunks.push(encodeUtf8Bytes(String(p.value ?? '')))
+			      chunks.push(encodeUtf8Bytes('\r\n'))
+			    }
+			    chunks.push(encodeUtf8Bytes(`--${b}--\r\n`))
+			    return concatBytes(chunks)
+			  }
+
+			  const api = createCompatApi(window.fastWindow)
+			  window.fastWindow = api
+			  const runtime = String((api && api.__meta && api.__meta.runtime) || 'ui')
 
 	  if (runtime === 'background') {
     const SETTINGS_KEY = 'settings'
@@ -3186,70 +3268,141 @@
 	    state.lastHttpResponse = null
 	    addPromptHistory(prompt)
 	    render()
-
-    const protocol = String(p?.protocol || 'images') === 'chat' ? 'chat' : 'images'
-    const refUrls = (Array.isArray(state.refImages) ? state.refImages : [])
-      .map((x) => String(x && x.dataUrl ? x.dataUrl : '').trim())
-      .filter((x) => x.startsWith('data:image/'))
-      .slice(0, MAX_REF_IMAGES)
-
-    if (refUrls.length && protocol !== 'chat') {
-      api.ui.showToast('参考图当前仅对 chat 协议生效（建议切到聊天补全）')
-    }
-    const chatUserContent = refUrls.length
-      ? [{ type: 'text', text: prompt }, ...refUrls.map((url) => ({ type: 'image_url', image_url: { url } }))]
-      : prompt
-
-    const body = JSON.stringify(
-      protocol === 'chat'
-        ? {
-            model,
-            messages: [
-              ...(String(p?.chatSystemPrompt || '').trim()
-                ? [{ role: 'system', content: String(p?.chatSystemPrompt || '').trim() }]
-                : []),
-              { role: 'user', content: chatUserContent },
-            ],
-            temperature: 0.2,
-          }
-        : {
-            model,
-            prompt,
-            size: String(p?.size || '').trim() || '1024x1024',
-            n: 1,
-            response_format: 'b64_json',
-          },
-    )
-
-    if (body.length > MAX_TASK_JSON_BODY_CHARS) {
-      state.submitting = false
-      api.ui.showToast('请求体过大：请减少参考图/换更小图片')
-      setError(
-        `请求体过大（约 ${formatBytes(body.length)}）。请减少参考图数量/换更小图片（建议裁剪或压缩），再试一次。`,
-      )
-      render()
-      return
-    }
-
-	    const req = {
-	      mode: 'task',
-	      method: 'POST',
-	      url: protocol === 'chat' ? `${baseUrl}/chat/completions` : `${baseUrl}/images/generations`,
-	      headers: {
-	        'Content-Type': 'application/json',
-	        Authorization: `Bearer ${apiKey}`,
-	      },
-	      body,
-	      timeoutMs: requestTimeoutMs(),
+	
+	    const protocol = String(p?.protocol || 'images') === 'chat' ? 'chat' : 'images'
+	    const refUrls = (Array.isArray(state.refImages) ? state.refImages : [])
+	      .map((x) => String(x && x.dataUrl ? x.dataUrl : '').trim())
+	      .filter((x) => x.startsWith('data:image/'))
+	      .slice(0, MAX_REF_IMAGES)
+	
+	    const refForSend = []
+	    for (const u of refUrls) {
+	      const safeUrl = isShrinkRefImagesEnabled() ? await shrinkRefImageDataUrl(u).catch(() => u) : u
+	      if (String(safeUrl || '').startsWith('data:image/')) refForSend.push(safeUrl)
 	    }
-
-	    state.lastHttpRequest = {
-	      at: Date.now(),
-	      method: req.method,
-	      url: req.url,
-	      headers: redactAuthHeaders(req.headers),
-	      body: req.body,
+	
+	    const useEdits = protocol === 'images' && refForSend.length
+	    if (useEdits) {
+	      api.ui.showToast('已选参考图：自动使用 /images/edits（多图参考）')
 	    }
+	
+	    const chatUserContent = refForSend.length
+	      ? [{ type: 'text', text: prompt }, ...refForSend.map((url) => ({ type: 'image_url', image_url: { url } }))]
+	      : prompt
+	
+	    const size = String(p?.size || '').trim() || '1024x1024'
+	    const protocolKind = protocol === 'chat' ? 'chat' : useEdits ? 'images-edits' : 'images'
+	
+	    let req = null
+	    let debugBodyText = ''
+	    if (protocolKind === 'chat') {
+	      const body = JSON.stringify({
+	        model,
+	        messages: [
+	          ...(String(p?.chatSystemPrompt || '').trim()
+	            ? [{ role: 'system', content: String(p?.chatSystemPrompt || '').trim() }]
+	            : []),
+	          { role: 'user', content: chatUserContent },
+	        ],
+	        temperature: 0.2,
+	      })
+	      if (body.length > MAX_TASK_JSON_BODY_CHARS) {
+	        state.submitting = false
+	        api.ui.showToast('请求体过大：请减少参考图/换更小图片')
+	        setError(`请求体过大（约 ${formatBytes(body.length)}）。请减少参考图数量/换更小图片（建议裁剪或压缩），再试一次。`)
+	        render()
+	        return
+	      }
+	      req = {
+	        mode: 'task',
+	        method: 'POST',
+	        url: `${baseUrl}/chat/completions`,
+	        headers: {
+	          'Content-Type': 'application/json',
+	          Authorization: `Bearer ${apiKey}`,
+	        },
+	        body,
+	        timeoutMs: requestTimeoutMs(),
+	      }
+	      debugBodyText = body
+	    } else if (protocolKind === 'images-edits') {
+	      const boundary = `fast-window-${Date.now()}-${Math.random().toString(16).slice(2)}`
+	      const parts = [
+	        { name: 'model', value: model },
+	        { name: 'prompt', value: prompt },
+	        { name: 'size', value: size },
+	        { name: 'response_format', value: 'b64_json' },
+	      ]
+	      for (let i = 0; i < refForSend.length; i++) {
+	        const url = refForSend[i]
+	        const mime = inferImageMimeFromBase64(url) || 'image/png'
+	        const ext = inferExtFromMime(mime)
+	        const dataBytes = base64ToBytes(url)
+	        parts.push({
+	          name: 'image[]',
+	          filename: `ref-${i + 1}.${ext}`,
+	          contentType: mime,
+	          dataBytes,
+	        })
+	      }
+	      const mpBytes = buildMultipartFormDataBytes(boundary, parts)
+	      if (mpBytes.length > MAX_TASK_JSON_BODY_CHARS) {
+	        state.submitting = false
+	        api.ui.showToast('请求体过大：请减少参考图/换更小图片')
+	        setError(`请求体过大（约 ${formatBytes(mpBytes.length)}）。请减少参考图数量/换更小图片（建议裁剪或压缩），再试一次。`)
+	        render()
+	        return
+	      }
+	      req = {
+	        mode: 'task',
+	        method: 'POST',
+	        url: `${baseUrl}/images/edits`,
+	        headers: {
+	          'Content-Type': `multipart/form-data; boundary=${boundary}`,
+	          Authorization: `Bearer ${apiKey}`,
+	        },
+	        bodyBase64: bytesToBase64(mpBytes),
+	        timeoutMs: requestTimeoutMs(),
+	      }
+	      debugBodyText = `[multipart/form-data] fields=model,prompt,size,response_format; images=${refForSend.length}; bytes=${formatBytes(
+	        mpBytes.length,
+	      )}`
+	    } else {
+	      const body = JSON.stringify({
+	        model,
+	        prompt,
+	        size,
+	        n: 1,
+	        response_format: 'b64_json',
+	      })
+		      if (body.length > MAX_TASK_JSON_BODY_CHARS) {
+		        state.submitting = false
+		        api.ui.showToast('请求体过大：请减少参考图/换更小图片')
+		        setError(`请求体过大（约 ${formatBytes(body.length)}）。请减少参考图数量/换更小图片（建议裁剪或压缩），再试一次。`)
+		        render()
+		        return
+		      }
+		      req = {
+		        mode: 'task',
+		        method: 'POST',
+		        url: `${baseUrl}/images/generations`,
+	        headers: {
+	          'Content-Type': 'application/json',
+	          Authorization: `Bearer ${apiKey}`,
+	        },
+	        body,
+	        timeoutMs: requestTimeoutMs(),
+	      }
+	      debugBodyText = body
+	    }
+	
+		    state.lastHttpRequest = {
+		      at: Date.now(),
+		      method: req.method,
+		      url: req.url,
+		      headers: redactAuthHeaders(req.headers),
+		      body: debugBodyText,
+		    }
 
 	    try {
       const results = await Promise.allSettled(
@@ -3300,14 +3453,19 @@
     const delPid = String(state.draft.deleteProviderId || '')
     const delP = delPid ? ps.find((x) => x && String(x.id || '') === delPid) : null
     const uiMode = normalizeUiMode(d && d.uiMode)
-    const modeBtnText = uiMode === UI_MODE_LOCAL_EDIT ? '模式：局部' : '模式：普通'
-
-    const isChat = String(p?.protocol || 'images') === 'chat'
-    const activeTasks = getActiveTasks()
-    const activeTaskCount = activeTasks.length
-    const canPromptPrev = canSwitchPromptPrev()
-    const canPromptNext = canSwitchPromptNext()
-    const canImagePrev = canSwitchImagePrev()
+	    const modeBtnText = uiMode === UI_MODE_LOCAL_EDIT ? '模式：局部' : '模式：普通'
+	
+	    const isChat = String(p?.protocol || 'images') === 'chat'
+	    const refHint = state.refImages.length
+	      ? isChat
+	        ? `<div class="meta">参考图已启用：会随聊天请求发送。</div>`
+	        : `<div class="meta">参考图已启用：会自动改用 <span class="mono">/images/edits</span>（而非 <span class="mono">/images/generations</span>）。</div>`
+	      : ''
+	    const activeTasks = getActiveTasks()
+	    const activeTaskCount = activeTasks.length
+	    const canPromptPrev = canSwitchPromptPrev()
+	    const canPromptNext = canSwitchPromptNext()
+	    const canImagePrev = canSwitchImagePrev()
     const canImageNext = canSwitchImageNext()
     const imageCount = state.imageHistory.length
     const currentImageIndex = state.imageHistoryIndex >= 0 ? state.imageHistoryIndex + 1 : 0
@@ -3819,10 +3977,10 @@
                  <button class="btn" data-act="open-prompt-library">提示词库</button>
                  <span class="kbd mono" aria-label="参考图数量">${state.refImages.length}/${MAX_REF_IMAGES}</span>
                </div>
-              <div id="ref-strip" class="refStrip" aria-label="参考图列表">
-                ${
-                  state.refImages.length
-                    ? state.refImages
+	              <div id="ref-strip" class="refStrip" aria-label="参考图列表">
+	                ${
+	                  state.refImages.length
+	                    ? state.refImages
                         .map(
                           (it) => `<div class="thumb" title="${esc(it.name || '')}">
                             <img alt="参考图" src="${esc(it.dataUrl)}" />
@@ -3830,22 +3988,23 @@
                           </div>`,
                         )
                         .join('')
-                    : `<div class="meta" style="margin:2px 0">未选择参考图（可选）</div>`
-                }
-              </div>
-              `
-                  : `
-              <div class="row refTop">
-                 <span class="meta" style="margin-top:0">参考图</span>
+	                    : `<div class="meta" style="margin:2px 0">未选择参考图（可选）</div>`
+	                }
+	              </div>
+	              ${refHint}
+	              `
+	                  : `
+	              <div class="row refTop">
+	                 <span class="meta" style="margin-top:0">参考图</span>
                  <button class="btn" data-act="pick-ref-images">外部参考图</button>
                  <button class="btn" data-act="open-ref-library">参考图库</button>
                  <button class="btn" data-act="open-prompt-library">提示词库</button>
                  <span class="kbd mono" aria-label="参考图数量">${state.refImages.length}/${MAX_REF_IMAGES}</span>
                </div>
-              <div id="ref-strip" class="refStrip" aria-label="参考图列表">
-                ${
-                  state.refImages.length
-                    ? state.refImages
+	              <div id="ref-strip" class="refStrip" aria-label="参考图列表">
+	                ${
+	                  state.refImages.length
+	                    ? state.refImages
                         .map(
                           (it) => `<div class="thumb" title="${esc(it.name || '')}">
                             <img alt="参考图" src="${esc(it.dataUrl)}" />
@@ -3853,11 +4012,12 @@
                           </div>`,
                         )
                         .join('')
-                    : `<div class="meta" style="margin:2px 0">未选择参考图（可选）</div>`
-                }
-              </div>
-              `
-              }
+	                    : `<div class="meta" style="margin:2px 0">未选择参考图（可选）</div>`
+	                }
+	              </div>
+	              ${refHint}
+	              `
+	              }
               ${
                 showCustom
                   ? `<input class="field mono" data-bind="activeCustomModel" placeholder="输入模型 ID…" value="${esc(
