@@ -1,6 +1,7 @@
 import { type Api, type VaultScope, kindFromMime, mimeFromExt } from '../core'
 import { readAssetAsDataUrl } from '../assetPool'
 import { ensureAssetsIndex } from '../assetStore'
+import { pickAssetDisplayName } from '../assetDisplayName'
 
 type AssetRef = { assetId: string; ext: string; name: string; width?: number; refText: string }
 
@@ -48,7 +49,7 @@ function parseRef(refText: string, displayName: string, width?: number): AssetRe
   const assetId = dotIdx > 0 ? ref.slice(0, dotIdx) : ref
   const ext = dotIdx > 0 ? ref.slice(dotIdx + 1).toLowerCase() : ''
   const name0 = String(displayName || '').trim()
-  const name = name0 || (ext ? `${assetId.slice(0, 8)}.${ext}` : assetId.slice(0, 8))
+  const name = pickAssetDisplayName({ explicitName: name0, ext })
   return { assetId, ext, name, width, refText: ref }
 }
 

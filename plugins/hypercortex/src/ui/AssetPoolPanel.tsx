@@ -10,6 +10,7 @@ import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import { PLUGIN_ID, type Api, type VaultScope, acceptString, kindFromMime, mimeFromExt } from '../core'
 import { deleteAssetFromPool, importFilesToAssetPool, listAssetsInPool, readAssetAsDataUrl } from '../assetPool'
+import { pickAssetDisplayName } from '../assetDisplayName'
 
 /* ------------------------------------------------------------------ */
 /*  类型                                                               */
@@ -99,7 +100,7 @@ function AssetCard({
   asset: AssetEntry
   onDelete: (asset: AssetEntry) => void
 }) {
-  const titleLabel = asset.displayName || (asset.ext ? `.${asset.ext}` : '文件')
+  const titleLabel = pickAssetDisplayName({ indexName: asset.displayName, ext: asset.ext })
   const handleCopy = React.useCallback(() => {
     const marker = buildAssetMarker(asset)
     api.clipboard.writeText(marker).then(

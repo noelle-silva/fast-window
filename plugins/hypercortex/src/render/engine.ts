@@ -10,6 +10,7 @@ import './vendor'
 import { type Api, type VaultScope } from '../core'
 import { parseNotePlaceholderBody } from '../notePlaceholder'
 import { resolveAssetsInElement } from './attachments'
+import { pickAssetDisplayName } from '../assetDisplayName'
 
 type RenderSafetyPolicy = 'original' | 'baseline' | 'unsafe'
 
@@ -891,10 +892,9 @@ function replaceAssetsInPlainText(input: string, acc: PreprocessedAsset[]) {
     if (!ref) return ''
     const dotIdx = ref.lastIndexOf('.')
     const ext = dotIdx > 0 ? ref.slice(dotIdx + 1).toLowerCase() : ''
-    const assetId = dotIdx > 0 ? ref.slice(0, dotIdx) : ref
     const name0 = String(displayName || '').trim()
     const nameIsDefault = !name0
-    const name = name0 || (ext ? `${assetId.slice(0, 8)}.${ext}` : assetId.slice(0, 8))
+    const name = pickAssetDisplayName({ explicitName: name0, ext })
     const widthNum = widthStr ? Number(widthStr) : NaN
     const width = Number.isFinite(widthNum) && widthNum > 0 ? widthNum : undefined
     const id = acc.length
