@@ -19,11 +19,10 @@ import {
   type PromptLibraryV1,
   type UiMode,
 } from '../core/schema'
-import { normalizeImageDataUrlOrBase64, inferImageMimeFromBase64, toImageDataUrlFromBase64 } from '../core/images'
+import { normalizeImageDataUrlOrBase64, inferImageMimeFromBase64 } from '../core/images'
 import {
   cropDataUrlByPixels,
   loadImageFromDataUrl,
-  normalizePickedImages,
   normalizeSelRect,
   selRectToPixels,
   shrinkRefImageDataUrl,
@@ -32,7 +31,7 @@ import {
 } from '../core/imageCanvas'
 import { formatBytes, id, isHttpBaseUrl, normalizeBatchCount, trimSlash } from '../core/utils'
 import { buildMultipartFormDataBytes, base64ToBytes, bytesToBase64, inferExtFromMime } from '../core/multipart'
-import { extractImageFromText, parseErrorBody, parseImageDataUrlFromHttpBodyText } from '../core/httpParse'
+import { parseErrorBody, parseImageDataUrlFromHttpBodyText } from '../core/httpParse'
 
 const STORAGE_KEY = 'settings'
 const PROMPT_LIBRARY_KEY = 'promptLibrary'
@@ -66,6 +65,12 @@ export type AiDrawControllerState = {
   prompt: string
   batchCount: string
   refImages: PickedImage[]
+  refLibrary: {
+    loading: boolean
+    busy: boolean
+    paths: string[]
+    itemsByPath: Record<string, { dataUrl: string; loading: boolean; error: string }>
+  }
   data: AiDrawSettingsV1 | null
   outputDir: string
   savedPath: string
@@ -98,6 +103,11 @@ export type AiDrawController = {
   pickRefImages: () => Promise<void>
   removeRefImage: (refId: string) => void
   clearRefImages: () => void
+  refreshRefLibrary: () => Promise<void>
+  ensureRefLibraryItemLoaded: (path: string) => void
+  importRefLibraryFromPicker: () => Promise<void>
+  deleteRefLibraryItem: (path: string) => Promise<void>
+  addRefImageFromLibrary: (path: string) => Promise<void>
 
   pickEditImage: () => Promise<void>
   clearEditImage: () => void
@@ -179,6 +189,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     prompt: '',
     batchCount: '1',
     refImages: [],
+    refLibrary: { loading: false, busy: false, paths: [], itemsByPath: {} },
     data: null,
     outputDir: '',
     savedPath: '',
@@ -982,10 +993,27 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       api.ui.showToast(`选择图片失败：${String(e?.message || e)}`)
       return []
     })
-    const processed = normalizePickedImages(picked, remaining)
-    if (!processed.length) return
-    const merged = state.refImages.concat(processed).slice(0, MAX_REF_IMAGES)
-    if (merged.length < state.refImages.length + processed.length) api.ui.showToast(`参考图最多 ${MAX_REF_IMAGES} 张`)
+    const list = Array.isArray(picked) ? picked : []
+    const out: PickedImage[] = []
+    for (const it of list) {
+      const name = typeof (it as any)?.name === 'string' ? (it as any).name : ''
+      const raw =
+        typeof (it as any)?.dataUrl === 'string'
+          ? (it as any).dataUrl
+          : typeof (it as any)?.data_url === 'string'
+            ? (it as any).data_url
+            : typeof (it as any)?.base64 === 'string'
+              ? (it as any).base64
+              : ''
+      const u = normalizeImageDataUrlOrBase64(raw)
+      if (!u.startsWith('data:image/')) continue
+      out.push({ id: id('ref'), name: String(name || ''), dataUrl: u })
+      if (out.length >= remaining) break
+    }
+
+    if (!out.length) return
+    const merged = state.refImages.concat(out).slice(0, MAX_REF_IMAGES)
+    if (merged.length < state.refImages.length + out.length) api.ui.showToast(`参考图最多 ${MAX_REF_IMAGES} 张`)
     state.refImages = merged
     notify()
   }
@@ -997,9 +1025,9 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     })
     const it = Array.isArray(picked) && picked[0] ? picked[0] : null
     const name = typeof it?.name === 'string' ? it.name : ''
-    const dataUrl = typeof it?.dataUrl === 'string' ? it.dataUrl : typeof it?.data_url === 'string' ? it.data_url : ''
-    const u = String(dataUrl || '').trim()
-    if (!u.startsWith('data:image/')) return api.ui.showToast('图片数据无效')
+    const raw = typeof (it as any)?.dataUrl === 'string' ? (it as any).dataUrl : typeof (it as any)?.data_url === 'string' ? (it as any).data_url : ''
+    const u = normalizeImageDataUrlOrBase64(raw)
+    if (!u.startsWith('data:image/')) return api.ui.showToast('图片数据无效（需要 data URL 或 base64）')
 
     try {
       const img = await loadImageFromDataUrl(u)
@@ -1015,6 +1043,109 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     } catch (e: any) {
       api.ui.showToast(`解析图片失败：${String(e?.message || e)}`)
     }
+  }
+
+  async function refreshRefLibrary() {
+    if (state.refLibrary.loading) return
+    state.refLibrary.loading = true
+    notify()
+    try {
+      const paths = await api.files.images.list({ scope: 'data' }).catch(() => [])
+      const list = (Array.isArray(paths) ? paths : []).map((x) => String(x || '').trim()).filter(Boolean)
+      state.refLibrary.paths = list
+      // 清理已不存在的缓存，避免无限增长
+      const next: AiDrawControllerState['refLibrary']['itemsByPath'] = {}
+      for (const p of list) {
+        next[p] = state.refLibrary.itemsByPath[p] || { dataUrl: '', loading: false, error: '' }
+      }
+      state.refLibrary.itemsByPath = next
+    } finally {
+      state.refLibrary.loading = false
+      notify()
+    }
+  }
+
+  function ensureRefLibraryItemLoaded(path: string) {
+    const p = String(path || '').trim()
+    if (!p) return
+    const slot = state.refLibrary.itemsByPath[p] || (state.refLibrary.itemsByPath[p] = { dataUrl: '', loading: false, error: '' })
+    if (slot.dataUrl) return
+    if (slot.loading) return
+    slot.loading = true
+    slot.error = ''
+    notify()
+
+    Promise.resolve()
+      .then(async () => {
+        const dataUrl = await api.files.images.read({ scope: 'data', path: p }).catch(() => '')
+        const u = normalizeImageDataUrlOrBase64(dataUrl)
+        if (!u.startsWith('data:image/')) throw new Error('图片数据无效')
+        slot.dataUrl = u
+      })
+      .catch((e: any) => {
+        slot.error = String(e?.message || e || '加载失败')
+      })
+      .finally(() => {
+        slot.loading = false
+        notify()
+      })
+  }
+
+  async function importRefLibraryFromPicker() {
+    if (state.refLibrary.busy) return
+    state.refLibrary.busy = true
+    notify()
+    try {
+      const picked = await api.files.pickImages(12).catch(() => [])
+      const list = Array.isArray(picked) ? picked : []
+      let ok = 0
+      for (const it of list) {
+        const raw =
+          typeof (it as any)?.dataUrl === 'string'
+            ? (it as any).dataUrl
+            : typeof (it as any)?.data_url === 'string'
+              ? (it as any).data_url
+              : typeof (it as any)?.base64 === 'string'
+                ? (it as any).base64
+                : ''
+        const u = normalizeImageDataUrlOrBase64(raw)
+        if (!u.startsWith('data:image/')) continue
+        const savedPath = await api.files.images.writeBase64({ scope: 'data', dataUrlOrBase64: u }).catch(() => '')
+        if (savedPath) ok++
+      }
+      if (ok) api.ui.showToast(`已导入 ${ok} 张到参考图库`)
+      await refreshRefLibrary()
+    } finally {
+      state.refLibrary.busy = false
+      notify()
+    }
+  }
+
+  async function deleteRefLibraryItem(path: string) {
+    const p = String(path || '').trim()
+    if (!p) return
+    await api.files.images.delete({ scope: 'data', path: p }).catch((e: any) => {
+      api.ui.showToast(`删除失败：${String(e?.message || e)}`)
+    })
+    await refreshRefLibrary()
+  }
+
+  async function addRefImageFromLibrary(path: string) {
+    const p = String(path || '').trim()
+    if (!p) return
+    if (state.refImages.length >= MAX_REF_IMAGES) return api.ui.showToast(`参考图最多 ${MAX_REF_IMAGES} 张`)
+    const slot = state.refLibrary.itemsByPath[p]
+    if (slot && slot.dataUrl) {
+      state.refImages = state.refImages.concat([{ id: id('ref'), name: p.split('/').pop() || p, dataUrl: slot.dataUrl }]).slice(0, MAX_REF_IMAGES)
+      notify()
+      return
+    }
+    const dataUrl = await api.files.images.read({ scope: 'data', path: p }).catch(() => '')
+    const u = normalizeImageDataUrlOrBase64(dataUrl)
+    if (!u.startsWith('data:image/')) return api.ui.showToast('图片数据无效')
+    state.refLibrary.itemsByPath[p] = { dataUrl: u, loading: false, error: '' }
+    state.refImages = state.refImages.concat([{ id: id('ref'), name: p.split('/').pop() || p, dataUrl: u }]).slice(0, MAX_REF_IMAGES)
+    notify()
   }
 
   function clearEditImage() {
@@ -1338,6 +1469,11 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       state.refImages = []
       notify()
     },
+    refreshRefLibrary,
+    ensureRefLibraryItemLoaded,
+    importRefLibraryFromPicker,
+    deleteRefLibraryItem,
+    addRefImageFromLibrary,
 
     pickEditImage,
     clearEditImage,

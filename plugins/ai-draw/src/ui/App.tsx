@@ -39,6 +39,7 @@ import NavigateBeforeRoundedIcon from '@mui/icons-material/NavigateBeforeRounded
 import NavigateNextRoundedIcon from '@mui/icons-material/NavigateNextRounded'
 import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
+import PhotoLibraryRoundedIcon from '@mui/icons-material/PhotoLibraryRounded'
 import type { AiDrawFastWindowApi } from '../bridge/tauriCompat'
 import { createAiDrawController } from '../controller/createController'
 import { UI_MODE_LOCAL_EDIT, UI_MODE_NORMAL, type AiDrawProvider, type UiMode } from '../core/schema'
@@ -173,7 +174,9 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
 
   const [settingsOpen, setSettingsOpen] = React.useState(false)
   const [promptLibOpen, setPromptLibOpen] = React.useState(false)
+  const [refLibraryOpen, setRefLibraryOpen] = React.useState(false)
   const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('provider')
+  const [refLibraryLimit, setRefLibraryLimit] = React.useState(36)
 
   const [providerDraft, setProviderDraft] = React.useState<any>(null)
   const [pluginDraft, setPluginDraft] = React.useState<any>(null)
@@ -202,6 +205,19 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
       })
     }
   }, [settingsOpen, provider?.id, data?.version])
+
+  React.useEffect(() => {
+    if (!refLibraryOpen) return
+    setRefLibraryLimit(36)
+    void controller.refreshRefLibrary()
+  }, [refLibraryOpen, controller])
+
+  React.useEffect(() => {
+    if (!refLibraryOpen) return
+    const paths = Array.isArray(state.refLibrary.paths) ? state.refLibrary.paths : []
+    const slice = paths.slice(0, Math.max(0, refLibraryLimit))
+    for (const p of slice) controller.ensureRefLibraryItemLoaded(p)
+  }, [refLibraryOpen, refLibraryLimit, state.refLibrary.paths, controller])
 
   const uiMode: UiMode = String(state.uiMode || UI_MODE_NORMAL) === UI_MODE_LOCAL_EDIT ? UI_MODE_LOCAL_EDIT : UI_MODE_NORMAL
   const autoSave = !!data?.autoSave
@@ -429,6 +445,14 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               <Stack direction="row" spacing={1} alignItems="center">
                 <Button size="small" variant="outlined" onClick={() => void controller.pickRefImages()}>
                   添加参考图
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<PhotoLibraryRoundedIcon fontSize="small" />}
+                  onClick={() => setRefLibraryOpen(true)}
+                >
+                  参考图库
                 </Button>
                 <Button size="small" variant="outlined" onClick={() => controller.clearRefImages()} disabled={!state.refImages.length}>
                   清空参考图
@@ -920,6 +944,102 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setPromptLibOpen(false)}>关闭</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={refLibraryOpen} onClose={() => setRefLibraryOpen(false)} fullWidth maxWidth="md">
+        <DialogTitle>参考图库</DialogTitle>
+        <DialogContent dividers>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+            <Button size="small" variant="outlined" onClick={() => void controller.refreshRefLibrary()} disabled={state.refLibrary.loading}>
+              刷新
+            </Button>
+            <Button
+              size="small"
+              variant="contained"
+              onClick={() => void controller.importRefLibraryFromPicker()}
+              disabled={state.refLibrary.busy}
+            >
+              导入图片到参考库
+            </Button>
+            <Box sx={{ flex: 1 }} />
+            <Chip size="small" variant="outlined" label={`共 ${state.refLibrary.paths.length} 张`} />
+          </Stack>
+
+          {state.refLibrary.loading ? (
+            <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>加载中…</Typography>
+          ) : state.refLibrary.paths.length ? (
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                gap: 1,
+              }}
+            >
+              {state.refLibrary.paths.slice(0, refLibraryLimit).map((p) => {
+                const slot = state.refLibrary.itemsByPath[p] || { dataUrl: '', loading: false, error: '' }
+                const name = p.split('/').pop() || p
+                return (
+                  <Paper key={p} variant="outlined" sx={{ p: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    <Box
+                      sx={{
+                        height: 96,
+                        borderRadius: 2,
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        bgcolor: '#fff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      {slot.dataUrl ? (
+                        <Box
+                          component="img"
+                          src={slot.dataUrl}
+                          alt={name}
+                          sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        />
+                      ) : slot.loading ? (
+                        <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>加载中…</Typography>
+                      ) : slot.error ? (
+                        <Typography sx={{ fontSize: 12, color: 'error.main' }}>加载失败</Typography>
+                      ) : (
+                        <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>未加载</Typography>
+                      )}
+                    </Box>
+
+                    <Typography sx={{ fontSize: 12 }} noWrap title={p}>
+                      {name}
+                    </Typography>
+
+                    <Stack direction="row" spacing={1}>
+                      <Button size="small" variant="contained" onClick={() => void controller.addRefImageFromLibrary(p)}>
+                        用作参考
+                      </Button>
+                      <Button size="small" variant="outlined" color="error" onClick={() => void controller.deleteRefLibraryItem(p)}>
+                        删除
+                      </Button>
+                    </Stack>
+                  </Paper>
+                )
+              })}
+            </Box>
+          ) : (
+            <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>参考库为空。你可以点“导入图片到参考库”。</Typography>
+          )}
+
+          {state.refLibrary.paths.length > refLibraryLimit ? (
+            <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center' }}>
+              <Button size="small" variant="outlined" onClick={() => setRefLibraryLimit((n) => n + 36)}>
+                加载更多
+              </Button>
+            </Box>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRefLibraryOpen(false)}>关闭</Button>
         </DialogActions>
       </Dialog>
     </ThemeProvider>
