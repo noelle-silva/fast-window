@@ -28,6 +28,7 @@ mod clipboard;
 mod os_actions;
 mod core;
 mod thumbnails;
+mod plugin_files_delete_tree;
 
 #[cfg(target_os = "windows")]
 mod auto_start;
@@ -48,6 +49,7 @@ use crate::wallpaper::{
     remove_wallpaper, remove_wallpaper_item, set_active_wallpaper, set_plugin_icon_override,
     set_wallpaper_image, set_wallpaper_settings, set_wallpaper_view,
 };
+use crate::plugin_files_delete_tree::plugin_files_delete_tree;
 pub(crate) use plugins::{
     is_safe_id, query_get_param, safe_relative_path,
 };
@@ -3154,6 +3156,7 @@ fn main() {
         plugin_files_write_base64,
         plugin_files_rename,
         plugin_files_delete,
+        plugin_files_delete_tree,
         plugin_images_write_base64,
         plugin_images_list,
         plugin_images_read,
