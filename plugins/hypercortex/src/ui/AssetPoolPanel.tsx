@@ -8,7 +8,7 @@ import VideoFileRoundedIcon from '@mui/icons-material/VideoFileRounded'
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
-import { type Api, type VaultScope, acceptString, kindFromMime, mimeFromExt } from '../core'
+import { PLUGIN_ID, type Api, type VaultScope, acceptString, kindFromMime, mimeFromExt } from '../core'
 import { deleteAssetFromPool, importFilesToAssetPool, listAssetsInPool, readAssetAsDataUrl } from '../assetPool'
 
 /* ------------------------------------------------------------------ */
@@ -16,6 +16,7 @@ import { deleteAssetFromPool, importFilesToAssetPool, listAssetsInPool, readAsse
 /* ------------------------------------------------------------------ */
 
 type AssetEntry = {
+  relPath: string
   fileName: string
   assetId: string
   ext: string
@@ -189,7 +190,7 @@ function AssetCard({
           justifyContent: 'center',
         }}
       >
-        {asset.kind === 'image' && asset.thumbnailUrl ? (
+        {(asset.kind === 'image' || asset.kind === 'video') && asset.thumbnailUrl ? (
           <Box
             component="img"
             src={asset.thumbnailUrl}
@@ -272,7 +273,7 @@ export function AssetPoolPanel({ api, scope }: Props) {
           const { assetId, ext } = parseAssetFileName(item.name)
           const mime = mimeFromExt(ext)
           const kind = mime ? kindFromMime(mime) : 'document'
-          return { fileName: item.name, assetId, ext, kind, size: item.size, modifiedMs: item.modifiedMs }
+          return { relPath: item.relPath, fileName: item.name, assetId, ext, kind, size: item.size, modifiedMs: item.modifiedMs }
         })
         .sort((a, b) => b.modifiedMs - a.modifiedMs)
       setAssets(entries)
@@ -307,6 +308,49 @@ export function AssetPoolPanel({ api, scope }: Props) {
     })()
     return () => { cancelled = true }
   }, [api, scope, thumbLoadTick])
+
+  /* ---- 加载视频缩略图（宿主生成；排障期输出详细错误） ---- */
+  React.useEffect(() => {
+    let cancelled = false
+    if (category !== 'video') return
+    const candidates = assets.filter(a => a.kind === 'video' && !a.thumbnailUrl).slice(0, 8)
+    if (!candidates.length) return
+
+    const tauriInvoke = (api as any)?.tauri?.invoke
+    if (typeof tauriInvoke !== 'function') return
+
+    ;(async () => {
+      for (const asset of candidates) {
+        if (cancelled) break
+        try {
+          const dataUrl = await tauriInvoke({
+            command: 'plugin_files_thumbnail',
+            payload: {
+              pluginId: PLUGIN_ID,
+              req: { scope, path: asset.relPath, width: 320, height: 180 },
+            },
+          })
+          if (cancelled) break
+          setAssets(prev =>
+            prev.map(a =>
+              a.assetId === asset.assetId && a.ext === asset.ext ? { ...a, thumbnailUrl: String(dataUrl || '') } : a,
+            ),
+          )
+        } catch (e: any) {
+          const hostMsg = String(e?.message || e || 'unknown error')
+          console.warn('[HyperCortex][thumb] host thumbnail failed:', {
+            asset: `${asset.assetId}.${asset.ext}`,
+            relPath: asset.relPath,
+            hostMsg,
+          })
+          api.ui.showToast(`宿主生成缩略图失败：${hostMsg}`)
+          break
+        }
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [api, scope, thumbLoadTick, category, assets.length])
 
   /* ---- 文件选择 & 导入 ---- */
   const handleFileSelect = React.useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
