@@ -10,6 +10,7 @@ import AccountTreeRoundedIcon from '@mui/icons-material/AccountTreeRounded'
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import {
   ensureMetadata,
   getApi,
@@ -34,6 +35,7 @@ import { NoteDetailSession, type NoteDetailSessionHandle, type NoteDetailSnapsho
 import { AssetDetailSession } from './AssetDetailSession'
 import { ErrorBoundary } from './ErrorBoundary'
 import { ShortcutSettingsPanel } from './ShortcutSettingsPanel'
+import { QuickSearchPopover } from './QuickSearchPopover'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
 import { DEFAULT_SHORTCUT_BINDINGS, isEditableTarget, mainKeyFromChord, normalizeMainKey, normalizeShortcutBindings, shouldTriggerShortcut, type HyperCortexShortcutBindingsV1 } from '../shortcuts'
@@ -207,6 +209,10 @@ export function HyperCortexApp() {
   }, [page])
   type NavHistoryEntry = { kind: 'page'; page: PageId } | { kind: 'tab'; tabKey: string }
   const navHistoryRef = React.useRef<NavHistoryEntry[]>([])
+
+  // ---- 顶部栏：快速搜索
+  const [quickSearchOpen, setQuickSearchOpen] = React.useState(false)
+  const quickSearchAnchorRef = React.useRef<HTMLButtonElement | null>(null)
 
   const pushNavHistory = React.useCallback((entry: NavHistoryEntry) => {
     const stack = navHistoryRef.current
@@ -425,6 +431,11 @@ export function HyperCortexApp() {
     const list = noteIndex ? Object.values(noteIndex.notes || {}) : allNotes
     for (const n of list) map[n.id] = n
     return map
+  }, [allNotes, noteIndex])
+
+  const notesForQuickSearch = React.useMemo(() => {
+    const list = noteIndex ? Object.values(noteIndex.notes || {}) : allNotes
+    return sortNotesByUpdatedAtDesc(list)
   }, [allNotes, noteIndex])
 
   const noteIndexRef = React.useRef<HyperCortexIndexV1 | null>(null)
@@ -1706,16 +1717,51 @@ export function HyperCortexApp() {
                 <NavIconButton title="全部笔记" ariaLabel="全部笔记" active={page === 'all-notes'} onClick={() => navigatePage('all-notes')}>
                   <NotesRoundedIcon fontSize="small" />
                 </NavIconButton>
+
+                <Tooltip title="搜索" placement="bottom">
+                  <IconButton
+                    ref={quickSearchAnchorRef}
+                    onClick={() => setQuickSearchOpen(v => !v)}
+                    size="small"
+                    aria-label="搜索"
+                    data-tauri-drag-region="false"
+                    sx={{
+                      WebkitAppRegion: 'no-drag',
+                      borderRadius: 2,
+                      bgcolor: quickSearchOpen ? 'rgba(25,118,210,.10)' : 'transparent',
+                      '&:hover': { bgcolor: quickSearchOpen ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
+                    }}
+                  >
+                    <SearchRoundedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
               </Box>
             </Box>
 
-            <Box sx={{ display: 'flex', alignItems: 'center', pr: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', pr: 1, gap: 0.25 }}>
               <NavIconButton title="设置" ariaLabel="设置" active={page === 'settings'} onClick={() => navigatePage('settings')}>
                 <SettingsRoundedIcon fontSize="small" />
               </NavIconButton>
             </Box>
             </Toolbar>
           </AppBar>
+
+          <QuickSearchPopover
+            api={api}
+            scope="library"
+            open={quickSearchOpen}
+            triggerEl={quickSearchAnchorRef.current}
+            notes={notesForQuickSearch}
+            onClose={() => setQuickSearchOpen(false)}
+            onOpenNote={note => {
+              setQuickSearchOpen(false)
+              handleOpenNote(note)
+            }}
+            onOpenAsset={asset => {
+              setQuickSearchOpen(false)
+              handleOpenAssetTab(asset)
+            }}
+          />
 
         <Box sx={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'stretch', position: 'relative' }}>
           <Box
