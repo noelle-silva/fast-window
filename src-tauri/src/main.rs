@@ -27,6 +27,7 @@ mod wallpaper;
 mod clipboard;
 mod os_actions;
 mod core;
+mod thumbnails;
 
 #[cfg(target_os = "windows")]
 mod auto_start;
@@ -1622,6 +1623,35 @@ fn plugin_files_read_base64(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct PluginFilesThumbnailReq {
+    scope: String,
+    path: String,
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+#[tauri::command]
+fn plugin_files_thumbnail(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    req: PluginFilesThumbnailReq,
+) -> Result<String, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let scope = req.scope.trim().to_string();
+    let (_root_c, full_c) = resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
+    if !full_c.is_file() {
+        return Err("文件不存在".to_string());
+    }
+
+    let w = req.width.unwrap_or(320).max(16).min(1024);
+    let h = req.height.unwrap_or(180).max(16).min(1024);
+    thumbnails::file_thumbnail_png_data_url(&full_c, w, h)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct PluginFilesWriteBase64Req {
     scope: String,
     path: String,
@@ -3120,6 +3150,7 @@ fn main() {
         plugin_files_read_text,
         plugin_files_write_text,
         plugin_files_read_base64,
+        plugin_files_thumbnail,
         plugin_files_write_base64,
         plugin_files_rename,
         plugin_files_delete,

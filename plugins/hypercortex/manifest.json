@@ -21,6 +21,7 @@
     "tauri:plugin_files_read_text",
     "tauri:plugin_files_write_text",
     "tauri:plugin_files_read_base64",
+    "tauri:plugin_files_thumbnail",
     "tauri:plugin_files_write_base64",
     "tauri:plugin_files_rename",
     "tauri:plugin_files_delete",
