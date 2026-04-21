@@ -102,6 +102,8 @@ export function createAiDrawFastWindowApi(baseApi: any, pluginId: string): AiDra
   if (!PLUGIN_ID) throw new Error('pluginId 为空')
 
   const toast = createToast()
+  const UI_PICKER_TIMEOUT_MS = 30 * 60 * 1000
+  const IMAGE_IO_TIMEOUT_MS = 15 * 60 * 1000
 
   function nowId() {
     const d = new Date()
@@ -345,7 +347,11 @@ export function createAiDrawFastWindowApi(baseApi: any, pluginId: string): AiDra
         return tauri.invoke({ command: 'plugin_get_output_dir', payload: { pluginId: PLUGIN_ID } })
       },
       pickOutputDir: async () => {
-        return tauri.invoke({ command: 'plugin_pick_output_dir', payload: { pluginId: PLUGIN_ID } })
+        return tauri.invoke({
+          command: 'plugin_pick_output_dir',
+          payload: { pluginId: PLUGIN_ID },
+          timeoutMs: UI_PICKER_TIMEOUT_MS,
+        })
       },
       openOutputDir: async () => {
         return tauri.invoke({ command: 'plugin_open_output_dir', payload: { pluginId: PLUGIN_ID } })
@@ -364,21 +370,37 @@ export function createAiDrawFastWindowApi(baseApi: any, pluginId: string): AiDra
       },
       pickImages: async (maxCount?: any) => {
         const mc = maxCount == null ? null : Number(maxCount)
-        return tauri.invoke({ command: 'plugin_pick_images', payload: { pluginId: PLUGIN_ID, maxCount: mc } })
+        return tauri.invoke({
+          command: 'plugin_pick_images',
+          payload: { pluginId: PLUGIN_ID, maxCount: mc },
+          timeoutMs: UI_PICKER_TIMEOUT_MS,
+        })
       },
       images: {
         ...((base.files && base.files.images) || {}),
         writeBase64: async (req: any) => {
-          return tauri.invoke({ command: 'plugin_images_write_base64', payload: { pluginId: PLUGIN_ID, req } })
+          return tauri.invoke({
+            command: 'plugin_images_write_base64',
+            payload: { pluginId: PLUGIN_ID, req },
+            timeoutMs: IMAGE_IO_TIMEOUT_MS,
+          })
         },
         read: async (req: any) => {
-          return tauri.invoke({ command: 'plugin_images_read', payload: { pluginId: PLUGIN_ID, req } })
+          return tauri.invoke({
+            command: 'plugin_images_read',
+            payload: { pluginId: PLUGIN_ID, req },
+            timeoutMs: IMAGE_IO_TIMEOUT_MS,
+          })
         },
         list: async (req: any) => {
           return tauri.invoke({ command: 'plugin_images_list', payload: { pluginId: PLUGIN_ID, req } })
         },
         delete: async (req: any) => {
-          return tauri.invoke({ command: 'plugin_images_delete', payload: { pluginId: PLUGIN_ID, req } })
+          return tauri.invoke({
+            command: 'plugin_images_delete',
+            payload: { pluginId: PLUGIN_ID, req },
+            timeoutMs: IMAGE_IO_TIMEOUT_MS,
+          })
         },
       },
     },
@@ -449,4 +471,3 @@ export function createAiDrawFastWindowApi(baseApi: any, pluginId: string): AiDra
     },
   }
 }
-

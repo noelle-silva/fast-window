@@ -1096,9 +1096,14 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     state.refLibrary.busy = true
     notify()
     try {
-      const picked = await api.files.pickImages(12).catch(() => [])
+      const picked = await api.files.pickImages(12).catch((e: any) => {
+        api.ui.showToast(`选择图片失败：${String(e?.message || e)}`)
+        return []
+      })
       const list = Array.isArray(picked) ? picked : []
       let ok = 0
+      let failed = 0
+      let firstError = ''
       for (const it of list) {
         const raw =
           typeof (it as any)?.dataUrl === 'string'
@@ -1110,10 +1115,18 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
                 : ''
         const u = normalizeImageDataUrlOrBase64(raw)
         if (!u.startsWith('data:image/')) continue
-        const savedPath = await api.files.images.writeBase64({ scope: 'data', dataUrlOrBase64: u }).catch(() => '')
-        if (savedPath) ok++
+        try {
+          const savedPath = await api.files.images.writeBase64({ scope: 'data', dataUrlOrBase64: u })
+          if (savedPath) ok++
+          else failed++
+        } catch (e: any) {
+          failed++
+          if (!firstError) firstError = String(e?.message || e || 'unknown')
+        }
       }
-      if (ok) api.ui.showToast(`已导入 ${ok} 张到参考图库`)
+      if (ok && failed) api.ui.showToast(`已导入 ${ok} 张，失败 ${failed} 张${firstError ? `：${firstError}` : ''}`)
+      else if (ok) api.ui.showToast(`已导入 ${ok} 张到参考图库`)
+      else if (failed) api.ui.showToast(`导入失败：${firstError || '请稍后重试'}`)
       await refreshRefLibrary()
     } finally {
       state.refLibrary.busy = false
