@@ -161,22 +161,26 @@ export function HyperCortexApp() {
   React.useEffect(() => {
     pageRef.current = page
   }, [page])
-  const pageHistoryRef = React.useRef<PageId[]>([])
+  type NavHistoryEntry = { kind: 'page'; page: PageId } | { kind: 'note'; noteId: string }
+  const navHistoryRef = React.useRef<NavHistoryEntry[]>([])
 
-  const pushPageHistory = React.useCallback((prev: PageId, next: PageId) => {
-    if (prev === next) return
-    const stack = pageHistoryRef.current
-    if (stack.length && stack[stack.length - 1] === prev) return
-    stack.push(prev)
-    if (stack.length > 64) stack.splice(0, stack.length - 64)
+  const pushNavHistory = React.useCallback((entry: NavHistoryEntry) => {
+    const stack = navHistoryRef.current
+    const last = stack.length ? stack[stack.length - 1] : null
+    if (last?.kind === entry.kind) {
+      if (entry.kind === 'page' && last.kind === 'page' && last.page === entry.page) return
+      if (entry.kind === 'note' && last.kind === 'note' && last.noteId === entry.noteId) return
+    }
+    stack.push(entry)
+    if (stack.length > 128) stack.splice(0, stack.length - 128)
   }, [])
 
   const navigatePage = React.useCallback((next: PageId, opts?: { recordHistory?: boolean }) => {
     setPageState(prev => {
-      if (prev !== next && opts?.recordHistory !== false) pushPageHistory(prev, next)
+      if (prev !== next && opts?.recordHistory !== false) pushNavHistory({ kind: 'page', page: prev })
       return next
     })
-  }, [pushPageHistory])
+  }, [pushNavHistory])
 
   // ---- 元数据（持久化）
   const metaRef = React.useRef<HyperCortexMetadataV1 | null>(null)
@@ -497,11 +501,25 @@ export function HyperCortexApp() {
   }, [api])
 
   const goBackPage = React.useCallback(async () => {
-    const stack = pageHistoryRef.current
+    const stack = navHistoryRef.current
     while (stack.length) {
-      const target = stack.pop() as PageId
-      if (!target || target === pageRef.current) continue
+      const entry = stack.pop()
+      if (!entry) continue
 
+      if (entry.kind === 'note') {
+        const noteId = String(entry.noteId || '').trim()
+        if (!noteId) continue
+        if (noteId === activeNoteIdRef.current && pageRef.current === 'note-detail') continue
+        const tabs = openNoteTabsRef.current || []
+        if (!tabs.some(t => t.id === noteId)) continue
+        setActiveNoteId(noteId)
+        if (metaReady && !isDraftNoteId(noteId)) void persistMetadataPatch({ activeNoteId: noteId }).catch(() => {})
+        navigatePage('note-detail', { recordHistory: false })
+        return
+      }
+
+      const target = entry.page
+      if (!target || target === pageRef.current) continue
       if (target === 'note-detail') {
         const tabs = openNoteTabsRef.current || []
         if (!tabs.length) continue
@@ -516,7 +534,7 @@ export function HyperCortexApp() {
       return
     }
     await api.ui.showToast('没有上一页了')
-  }, [api, navigatePage])
+  }, [api, metaReady, navigatePage, persistMetadataPatch])
 
   const onTopbarPointerDown = React.useCallback(
     (e: React.PointerEvent) => {
@@ -1071,6 +1089,10 @@ export function HyperCortexApp() {
     (note: NoteMeta) => {
       const nid = String(note?.id || '').trim()
       if (!nid) return
+      const prevActiveId = String(activeNoteIdRef.current || '').trim()
+      if (pageRef.current === 'note-detail' && prevActiveId && prevActiveId !== nid) {
+        pushNavHistory({ kind: 'note', noteId: prevActiveId })
+      }
       setOpenNoteTabs(prev => {
         const next = prev.some(t => t.id === nid) ? prev : [...prev, note]
         commitActiveWorkspacePatch({ openNoteIds: next.map(t => t.id) })
@@ -1080,7 +1102,7 @@ export function HyperCortexApp() {
       setActiveNoteId(nid)
       navigatePage('note-detail')
     },
-    [commitActiveWorkspacePatch, metaReady, navigatePage, persistMetadataPatch],
+    [commitActiveWorkspacePatch, metaReady, navigatePage, persistMetadataPatch, pushNavHistory],
   )
 
   React.useEffect(() => {
