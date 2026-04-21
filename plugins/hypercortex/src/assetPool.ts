@@ -1,19 +1,8 @@
-import {
-  ASSETS_DIR,
-  type Api,
-  type VaultScope,
-  ensureVaultDirs,
-  extFromMime,
-  kindFromMime,
-  mimeFromDataUrl,
-  sha256Hex,
-} from './core'
+import { type Api, ensureVaultDirs, extFromMime, kindFromMime, mimeFromDataUrl, sha256Hex, type VaultScope } from './core'
 import type { HyperCortexNoteResourceRef } from './noteSchema'
+import { deleteAssetById, getAssetWriteRelPath, recordAssetWritten, resolveAssetRelPath, scanAssetPool } from './assetStore'
 
-export function assetRelPath(assetId: string, ext?: string): string {
-  const suffix = String(ext || '').trim()
-  return `${ASSETS_DIR}/${assetId}${suffix ? `.${suffix}` : ''}`
-}
+export type { AssetPoolItem } from './assetStore'
 
 export async function importImageToAssetPool(
   api: Api,
@@ -26,12 +15,14 @@ export async function importImageToAssetPool(
   const assetId = await sha256Hex(dataUrl)
   const mime = mimeFromDataUrl(dataUrl)
   const ext = extFromMime(mime)
+  const path = await getAssetWriteRelPath(api, scope, assetId, ext, 'image')
   await api.files.writeBase64({
     scope,
-    path: assetRelPath(assetId, ext),
+    path,
     dataUrlOrBase64: dataUrl,
     overwrite: true,
   })
+  await recordAssetWritten(api, scope, { assetId, ext, relPath: path, kind: 'image' }).catch(() => {})
   return {
     assetId,
     mime: mime || undefined,
@@ -67,12 +58,14 @@ export async function importFileToAssetPool(
   const mime = mimeFromDataUrl(dataUrl)
   const ext = extFromMime(mime)
   const kind = kindFromMime(mime)
+  const path = await getAssetWriteRelPath(api, scope, assetId, ext, kind)
   await api.files.writeBase64({
     scope,
-    path: assetRelPath(assetId, ext),
+    path,
     dataUrlOrBase64: dataUrl,
     overwrite: true,
   })
+  await recordAssetWritten(api, scope, { assetId, ext, relPath: path, kind }).catch(() => {})
   return {
     assetId,
     mime: mime || undefined,
@@ -95,9 +88,16 @@ export async function importFilesToAssetPool(
 }
 
 export async function listAssetsInPool(api: Api, scope: VaultScope) {
-  return api.files.listDir({ scope, dir: ASSETS_DIR }).catch(() => [])
+  await ensureVaultDirs(api, scope)
+  return scanAssetPool(api, scope)
 }
 
 export async function readAssetAsDataUrl(api: Api, scope: VaultScope, assetId: string, ext?: string): Promise<string> {
-  return api.files.readBase64({ scope, path: assetRelPath(assetId, ext) })
+  const path = await resolveAssetRelPath(api, scope, assetId, ext)
+  return api.files.readBase64({ scope, path })
+}
+
+export async function deleteAssetFromPool(api: Api, scope: VaultScope, assetId: string, ext?: string): Promise<void> {
+  await ensureVaultDirs(api, scope)
+  await deleteAssetById(api, scope, assetId, ext)
 }

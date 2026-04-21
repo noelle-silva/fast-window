@@ -9,7 +9,7 @@ import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRound
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import { type Api, type VaultScope, acceptString, kindFromMime, mimeFromExt } from '../core'
-import { importFilesToAssetPool, listAssetsInPool, readAssetAsDataUrl } from '../assetPool'
+import { deleteAssetFromPool, importFilesToAssetPool, listAssetsInPool, readAssetAsDataUrl } from '../assetPool'
 import type { HyperCortexNoteResourceRef } from '../noteSchema'
 
 /* ------------------------------------------------------------------ */
@@ -89,7 +89,6 @@ export function AssetPoolPanel({ api, scope }: Props) {
     try {
       const items = await listAssetsInPool(api, scope)
       const entries: AssetEntry[] = items
-        .filter(item => item.isFile)
         .map(item => {
           const { assetId, ext } = parseAssetFileName(item.name)
           const mime = mimeFromExt(ext)
@@ -155,9 +154,9 @@ export function AssetPoolPanel({ api, scope }: Props) {
   /* ---- 删除资源 ---- */
   const handleDelete = React.useCallback(async (asset: AssetEntry) => {
     try {
-      await api.files.delete({ scope, path: `Assets/${asset.fileName}` })
+      await deleteAssetFromPool(api, scope, asset.assetId, asset.ext)
       api.ui.showToast('已删除')
-      setAssets(prev => prev.filter(a => a.assetId !== asset.assetId))
+      setAssets(prev => prev.filter(a => !(a.assetId === asset.assetId && a.ext === asset.ext)))
     } catch (err: any) {
       api.ui.showToast(`删除失败：${String(err?.message || err || '未知错误')}`)
     }

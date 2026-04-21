@@ -379,6 +379,10 @@ export function monthFolder(now = new Date()): string {
 export async function ensureVaultDirs(api: Api, scope: VaultScope): Promise<void> {
   await api.files.listDir({ scope, dir: NOTES_DIR }).catch(() => {})
   await api.files.listDir({ scope, dir: ASSETS_DIR }).catch(() => {})
+  // 附件新结构：Assets/(images|videos|docs)/YYYY-MM/...
+  await api.files.listDir({ scope, dir: `${ASSETS_DIR}/images` }).catch(() => {})
+  await api.files.listDir({ scope, dir: `${ASSETS_DIR}/videos` }).catch(() => {})
+  await api.files.listDir({ scope, dir: `${ASSETS_DIR}/docs` }).catch(() => {})
 }
 
 function normalizeManifest(input: any): HyperCortexNoteManifestV1 {
