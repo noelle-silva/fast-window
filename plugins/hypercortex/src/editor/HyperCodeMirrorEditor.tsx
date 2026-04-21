@@ -1,9 +1,10 @@
 import React from 'react'
 import { ensureHyperCodeMirrorEditorStyles } from './styles'
+import { parseNotePlaceholderBody } from '../notePlaceholder'
 
 // CM6（新一代编辑器核心）
 import { basicSetup } from 'codemirror'
-import { EditorState, StateField, type Range, type Text } from '@codemirror/state'
+import { EditorState, StateEffect, StateField, type Range, type Text } from '@codemirror/state'
 import {
   Decoration,
   EditorView,
@@ -21,6 +22,8 @@ export interface UnifiedEditorProps {
   minHeight?: number
   /** 是否处于可见/活跃态：用于 tab 切换后触发一次测量，避免隐藏期间布局漂移。 */
   active?: boolean
+  /** 外部触发一次“重建装饰/预览”的信号（例如 noteIndex 更新后要刷新标题渲染）。 */
+  refreshToken?: unknown
   /** widget 渲染完成后的后处理钩子（如资源解析）。第二个参数 requestUpdate 用于异步内容就绪后请求重新布局。 */
   onBlockRendered?: (el: HTMLElement, requestUpdate: () => void) => void
 }
@@ -28,6 +31,8 @@ export interface UnifiedEditorProps {
 type LiveBlockKind = 'latex' | 'mermaid' | 'code' | 'table'
 type LiveBlock = { from: number; to: number; focusTo: number; kind: LiveBlockKind; source: string }
 type AssetPlaceholder = { from: number; to: number; line: number; inline: boolean; source: string; ext: string }
+
+const refreshEffect = StateEffect.define<number>()
 
 function requestCmLayout(view: EditorView) {
   try {
@@ -221,6 +226,49 @@ function selectionIntersects(sel: { from: number; to: number; head: number }, bl
   return sel.from <= block.focusTo && sel.to >= block.from
 }
 
+type NoteIndexMap = Record<string, { title: string }>
+type NoteRefRange = { from: number; to: number; noteId: string; title: string; remarks: string }
+
+const NOTE_REF_PATTERN = /\[\[([^\]\n]+?)\]\]/g
+
+function getGlobalNoteIndexMap(): NoteIndexMap | null {
+  const engine = (window as any)?.__hcRenderEngine
+  const ni = engine?.noteIndex
+  return ni && typeof ni === 'object' ? (ni as NoteIndexMap) : null
+}
+
+function findNoteRefRanges(lineText: string, codeRanges: Array<[number, number]>): NoteRefRange[] {
+  const out: NoteRefRange[] = []
+  NOTE_REF_PATTERN.lastIndex = 0
+
+  const inCode = (idx: number) => codeRanges.some(([a, b]) => idx >= a && idx < b)
+
+  for (let m = NOTE_REF_PATTERN.exec(lineText); m; m = NOTE_REF_PATTERN.exec(lineText)) {
+    const raw = m[0] ?? ''
+    const at = m.index
+    if (at < 0) continue
+    if (!raw) continue
+    if (inCode(at)) continue
+
+    const inner = String(m[1] ?? '').trim()
+    const parsed = parseNotePlaceholderBody(inner)
+    if (!parsed?.noteId) continue
+
+    const noteId = String(parsed.noteId || '').trim()
+    if (!noteId) continue
+
+    out.push({
+      from: at,
+      to: at + raw.length,
+      noteId,
+      title: String(parsed.title || ''),
+      remarks: String(parsed.remarks || ''),
+    })
+  }
+
+  return out
+}
+
 class BulletWidget extends WidgetType {
   constructor(readonly indent: number) { super() }
   eq(other: WidgetType) { return other instanceof BulletWidget && other.indent === this.indent }
@@ -353,6 +401,36 @@ class InlineMathWidget extends WidgetType {
   }
 }
 
+class InlineNoteRefWidget extends WidgetType {
+  constructor(
+    readonly noteId: string,
+    readonly label: string,
+    readonly broken: boolean,
+    readonly remarks: string,
+  ) { super() }
+  eq(other: WidgetType) {
+    return other instanceof InlineNoteRefWidget
+      && other.noteId === this.noteId
+      && other.label === this.label
+      && other.broken === this.broken
+      && other.remarks === this.remarks
+  }
+  toDOM() {
+    const el = document.createElement('a')
+    el.className = this.broken ? 'hc-note-ref hc-note-ref--broken' : 'hc-note-ref'
+    el.setAttribute('data-note-id', this.noteId)
+    if (this.remarks) el.setAttribute('data-note-remarks', this.remarks)
+    el.textContent = this.broken ? `不存在笔记：${this.label}` : this.label
+    return el
+  }
+  ignoreEvent(e: Event) {
+    const target = e.target instanceof Element ? e.target : null
+    if (target?.closest?.('button,input,textarea,select')) return true
+    // 让点击时能落光标、并触发“进入该行 -> 还原源码”。
+    return false
+  }
+}
+
 const syntaxHighlightPlugin = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet
@@ -362,7 +440,8 @@ const syntaxHighlightPlugin = ViewPlugin.fromClass(
     }
 
     update(update: ViewUpdate) {
-      if (update.docChanged || update.selectionSet) {
+      const hasRefresh = update.transactions.some(tr => tr.effects.some(e => e.is(refreshEffect)))
+      if (update.docChanged || update.selectionSet || hasRefresh) {
         this.decorations = this.build(update.view)
       }
     }
@@ -373,6 +452,7 @@ const syntaxHighlightPlugin = ViewPlugin.fromClass(
 
       const sel = view.state.selection.main
       const cursorLine = doc.lineAt(sel.head).number
+      const noteIndexMap = getGlobalNoteIndexMap()
 
       const mark = (from: number, to: number, cls: string) => {
         if (from < to) decos.push(Decoration.mark({ class: cls }).range(from, to))
@@ -544,6 +624,25 @@ const syntaxHighlightPlugin = ViewPlugin.fromClass(
             const from = base + r.from
             const to = base + r.to
             decos.push(Decoration.replace({ widget: new InlineMathWidget(r.tex) }).range(from, to))
+          }
+        }
+
+        // 笔记引用占位符：仅在“非聚焦行”替换渲染，点击即可回到源码编辑
+        if (!focused && t.includes('[[')) {
+          const codeRanges = findInlineCodeRanges(t)
+          const refs = findNoteRefRanges(t, codeRanges)
+          if (refs.length) {
+            for (const r of refs) {
+              const from = base + r.from
+              const to = base + r.to
+              const meta = noteIndexMap ? noteIndexMap[r.noteId] : undefined
+              const hasIndex = !!noteIndexMap
+              const broken = hasIndex && !meta
+              const label = String(r.title || '').trim()
+                || String(meta?.title || '').trim()
+                || '未知笔记'
+              decos.push(Decoration.replace({ widget: new InlineNoteRefWidget(r.noteId, label, broken, r.remarks) }).range(from, to))
+            }
           }
         }
       }
@@ -732,6 +831,7 @@ export const HyperCodeMirrorEditor = React.memo(function HyperCodeMirrorEditor({
   placeholder,
   minHeight = 200,
   active,
+  refreshToken,
   onBlockRendered,
 }: UnifiedEditorProps) {
   const hostRef = React.useRef<HTMLDivElement | null>(null)
@@ -821,6 +921,16 @@ export const HyperCodeMirrorEditor = React.memo(function HyperCodeMirrorEditor({
       // ignore
     }
   }, [active])
+
+  React.useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+    try {
+      view.dispatch({ effects: refreshEffect.of(Date.now()) })
+    } catch (_) {
+      // ignore
+    }
+  }, [refreshToken])
 
   return (
     <div className="hc-cm6-editor-container" style={{ minHeight }}>

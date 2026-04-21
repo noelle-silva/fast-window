@@ -1064,7 +1064,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
             ) : (
               <AutoHeightHtmlIframe html={editHtml} minHeightPx={240} />
             ) : editing ? textEditorMode === 'live' ? (
-              <BlockEditor value={editBody} onChange={setEditBody} placeholder="开始编辑正文..." minHeight={400} onBlockRendered={handleBlockRendered} active={visible} />
+              <BlockEditor value={editBody} onChange={setEditBody} placeholder="开始编辑正文..." minHeight={400} onBlockRendered={handleBlockRendered} active={visible} refreshToken={noteIndexMap} />
             ) : (
               <InputBase
                 value={editBody}
