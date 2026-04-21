@@ -258,6 +258,7 @@ export function AssetPoolPanel({ api, scope }: Props) {
   const [error, setError] = React.useState<string | null>(null)
   const [importing, setImporting] = React.useState(false)
   const [category, setCategory] = React.useState<AssetCategory>('image')
+  const [thumbLoadTick, setThumbLoadTick] = React.useState(0)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
   /* ---- 加载资源列表 ---- */
@@ -275,6 +276,7 @@ export function AssetPoolPanel({ api, scope }: Props) {
         })
         .sort((a, b) => b.modifiedMs - a.modifiedMs)
       setAssets(entries)
+      setThumbLoadTick(t => t + 1)
     } catch (e: any) {
       setError(String(e?.message || e || '加载失败'))
     } finally {
@@ -304,7 +306,7 @@ export function AssetPoolPanel({ api, scope }: Props) {
       }
     })()
     return () => { cancelled = true }
-  }, [api, scope, assets.length])
+  }, [api, scope, thumbLoadTick])
 
   /* ---- 文件选择 & 导入 ---- */
   const handleFileSelect = React.useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
