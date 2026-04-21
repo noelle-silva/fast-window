@@ -727,7 +727,8 @@ export function createMarkdownRenderEngine(init?: { api?: Api; scope?: VaultScop
         const a = pre.assets[Number(id)]
         if (!a) return ''
         const nm = esc(a.name)
-        return `<span class="hc-asset" data-hc-asset-ref="${esc(a.ref)}" data-hc-asset-name="${nm}" data-hc-asset-state="loading"${a.width ? ` data-hc-asset-width="${a.width}"` : ''}><span class="hc-asset-chip hc-asset-chip--loading">📎 ${nm}（加载中…）</span></span>`
+        const defaultAttr = a.nameIsDefault ? ' data-hc-asset-name-default="1"' : ''
+        return `<span class="hc-asset" data-hc-asset-ref="${esc(a.ref)}" data-hc-asset-name="${nm}"${defaultAttr} data-hc-asset-state="loading"${a.width ? ` data-hc-asset-width="${a.width}"` : ''}><span class="hc-asset-chip hc-asset-chip--loading">📎 ${nm}（加载中…）</span></span>`
       })
     }
 
@@ -810,7 +811,7 @@ export function createMarkdownRenderEngine(init?: { api?: Api; scope?: VaultScop
 /* ================================================================== */
 
 type PreprocessedMath = { tex: string; display: boolean }
-type PreprocessedAsset = { ref: string; name: string; width?: number }
+type PreprocessedAsset = { ref: string; name: string; width?: number; nameIsDefault?: boolean }
 type PreprocessedNoteRef = { noteId: string; displayText: string; remarks: string }
 
 type FenceToken =
@@ -892,11 +893,12 @@ function replaceAssetsInPlainText(input: string, acc: PreprocessedAsset[]) {
     const ext = dotIdx > 0 ? ref.slice(dotIdx + 1).toLowerCase() : ''
     const assetId = dotIdx > 0 ? ref.slice(0, dotIdx) : ref
     const name0 = String(displayName || '').trim()
+    const nameIsDefault = !name0
     const name = name0 || (ext ? `${assetId.slice(0, 8)}.${ext}` : assetId.slice(0, 8))
     const widthNum = widthStr ? Number(widthStr) : NaN
     const width = Number.isFinite(widthNum) && widthNum > 0 ? widthNum : undefined
     const id = acc.length
-    acc.push({ ref, name, width })
+    acc.push({ ref, name, width, nameIsDefault })
     return `@@ASSET_${id}@@`
   })
 }

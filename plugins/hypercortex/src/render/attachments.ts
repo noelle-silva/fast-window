@@ -1,5 +1,6 @@
 import { type Api, type VaultScope, kindFromMime, mimeFromExt } from '../core'
 import { readAssetAsDataUrl } from '../assetPool'
+import { ensureAssetsIndex } from '../assetStore'
 
 type AssetRef = { assetId: string; ext: string; name: string; width?: number; refText: string }
 
@@ -124,13 +125,27 @@ export async function resolveAssetsInElement(root: HTMLElement, api: Api, scope:
   if (!placeholders.length) return
 
   const inlineMode = !!opts?.inline
+  const indexPromise = ensureAssetsIndex(api, scope).catch(() => null)
 
   const tasks = placeholders.map(async (ph) => {
     if (ph.getAttribute('data-hc-asset-done') === '1') return
     ph.setAttribute('data-hc-asset-done', '1')
 
     const refText = String(ph.getAttribute('data-hc-asset-ref') || '').trim()
-    const displayName = String(ph.getAttribute('data-hc-asset-name') || '').trim()
+    const defaultName = String(ph.getAttribute('data-hc-asset-name-default') || '').trim() === '1'
+
+    let displayName = String(ph.getAttribute('data-hc-asset-name') || '').trim()
+    if (defaultName) {
+      const ref0 = String(refText || '').trim()
+      const dotIdx = ref0.lastIndexOf('.')
+      const assetId = dotIdx > 0 ? ref0.slice(0, dotIdx) : ref0
+      const ext = dotIdx > 0 ? ref0.slice(dotIdx + 1).toLowerCase() : ''
+      const idx = await indexPromise
+      const key = ext ? `${assetId}.${ext}` : assetId
+      const fromIndex = String(idx?.assets?.[key]?.displayName || '').trim()
+      if (fromIndex) displayName = fromIndex
+      else displayName = ''
+    }
     const widthStr = String(ph.getAttribute('data-hc-asset-width') || '').trim()
     const width = widthStr ? Number(widthStr) : undefined
     const ref = parseRef(refText, displayName, width)
