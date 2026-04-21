@@ -1,4 +1,11 @@
-export type HyperCortexShortcutId = 'newNote' | 'saveNote' | 'toggleMode' | 'toggleSidebar'
+export type HyperCortexShortcutId =
+  | 'newNote'
+  | 'saveNote'
+  | 'toggleMode'
+  | 'toggleSidebar'
+  | 'goBackPage'
+  | 'closeActiveTab'
+  | 'cycleFace'
 
 export type HyperCortexShortcutBindingsV1 = {
   version: 1
@@ -6,6 +13,9 @@ export type HyperCortexShortcutBindingsV1 = {
   saveNote: string
   toggleMode: string
   toggleSidebar: string
+  goBackPage: string
+  closeActiveTab: string
+  cycleFace: string
 }
 
 export const DEFAULT_SHORTCUT_BINDINGS: HyperCortexShortcutBindingsV1 = {
@@ -14,6 +24,9 @@ export const DEFAULT_SHORTCUT_BINDINGS: HyperCortexShortcutBindingsV1 = {
   saveNote: '',
   toggleMode: '',
   toggleSidebar: '',
+  goBackPage: '',
+  closeActiveTab: '',
+  cycleFace: '',
 }
 
 function normChord(value: unknown): string {
@@ -30,6 +43,9 @@ export function normalizeShortcutBindings(input: unknown): HyperCortexShortcutBi
     saveNote: normChord(obj.saveNote),
     toggleMode: normChord(obj.toggleMode),
     toggleSidebar: normChord(obj.toggleSidebar),
+    goBackPage: normChord(obj.goBackPage),
+    closeActiveTab: normChord(obj.closeActiveTab),
+    cycleFace: normChord(obj.cycleFace),
   }
 }
 

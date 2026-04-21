@@ -156,11 +156,27 @@ export function HyperCortexApp() {
   const api = React.useMemo(() => getApi(), [])
 
   // ---- 核心 UI 状态
-  const [page, setPage] = React.useState<PageId>('home')
+  const [page, setPageState] = React.useState<PageId>('home')
   const pageRef = React.useRef<PageId>('home')
   React.useEffect(() => {
     pageRef.current = page
   }, [page])
+  const pageHistoryRef = React.useRef<PageId[]>([])
+
+  const pushPageHistory = React.useCallback((prev: PageId, next: PageId) => {
+    if (prev === next) return
+    const stack = pageHistoryRef.current
+    if (stack.length && stack[stack.length - 1] === prev) return
+    stack.push(prev)
+    if (stack.length > 64) stack.splice(0, stack.length - 64)
+  }, [])
+
+  const navigatePage = React.useCallback((next: PageId, opts?: { recordHistory?: boolean }) => {
+    setPageState(prev => {
+      if (prev !== next && opts?.recordHistory !== false) pushPageHistory(prev, next)
+      return next
+    })
+  }, [pushPageHistory])
 
   // ---- 元数据（持久化）
   const metaRef = React.useRef<HyperCortexMetadataV1 | null>(null)
@@ -234,12 +250,17 @@ export function HyperCortexApp() {
   const noteInitSnapshotsRef = React.useRef<Record<string, NoteDetailSnapshotV1>>({})
   const draftNoteMetaRef = React.useRef<Record<string, NoteMeta>>({})
   const [closeTabPrompt, setCloseTabPrompt] = React.useState<{ noteId: string } | null>(null)
+  const requestCloseTabRef = React.useRef<(noteId: string) => void>(() => {})
 
   // ---- 侧边栏 / 工作区 / 分组
   const [tabsCollapsed, setTabsCollapsed] = React.useState(false)
   const [workspaces, setWorkspaces] = React.useState<HyperCortexWorkspaceV1[]>([])
   const [activeWorkspaceId, setActiveWorkspaceId] = React.useState<string>('')
   const [openNoteTabs, setOpenNoteTabs] = React.useState<NoteMeta[]>([])
+  const openNoteTabsRef = React.useRef<NoteMeta[]>([])
+  React.useEffect(() => {
+    openNoteTabsRef.current = openNoteTabs
+  }, [openNoteTabs])
   const [tabsInitReady, setTabsInitReady] = React.useState(false)
   const [tabsMode, setTabsMode] = React.useState<TabsMode>('manual')
   const [tabsHoverOpen, setTabsHoverOpen] = React.useState(false)
@@ -475,6 +496,28 @@ export function HyperCortexApp() {
     }
   }, [api])
 
+  const goBackPage = React.useCallback(async () => {
+    const stack = pageHistoryRef.current
+    while (stack.length) {
+      const target = stack.pop() as PageId
+      if (!target || target === pageRef.current) continue
+
+      if (target === 'note-detail') {
+        const tabs = openNoteTabsRef.current || []
+        if (!tabs.length) continue
+        const currentActiveId = String(activeNoteIdRef.current || '').trim()
+        const activeValid = !!currentActiveId && tabs.some(t => t.id === currentActiveId)
+        if (!activeValid) setActiveNoteId(tabs[0].id)
+        navigatePage('note-detail', { recordHistory: false })
+        return
+      }
+
+      navigatePage(target, { recordHistory: false })
+      return
+    }
+    await api.ui.showToast('没有上一页了')
+  }, [api, navigatePage])
+
   const onTopbarPointerDown = React.useCallback(
     (e: React.PointerEvent) => {
       if (e.button !== 0) return
@@ -557,10 +600,10 @@ export function HyperCortexApp() {
       const currentActiveId = String(activeNoteId || '').trim()
       if (currentActiveId && !openIds.includes(currentActiveId)) {
         setActiveNoteId('')
-        if (page === 'note-detail') setPage('home')
+        if (page === 'note-detail') navigatePage('home')
       }
     },
-    [activeNoteId, api, page],
+    [activeNoteId, api, navigatePage, page],
   )
 
   const handleSwitchWorkspace = React.useCallback(
@@ -923,8 +966,8 @@ export function HyperCortexApp() {
     })
 
     setActiveNoteId(draftId)
-    setPage('note-detail')
-  }, [commitActiveWorkspacePatch])
+    navigatePage('note-detail')
+  }, [commitActiveWorkspacePatch, navigatePage])
 
   React.useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -952,10 +995,27 @@ export function HyperCortexApp() {
         return
       }
 
+      if (shouldTriggerShortcut(e, bindings.goBackPage)) {
+        e.preventDefault()
+        e.stopPropagation()
+        void goBackPage()
+        return
+      }
+
       if (shouldTriggerShortcut(e, bindings.newNote)) {
         e.preventDefault()
         e.stopPropagation()
         handleCreateDraftNote()
+        return
+      }
+
+      if (shouldTriggerShortcut(e, bindings.closeActiveTab)) {
+        if (pageRef.current !== 'note-detail') return
+        const nid = String(activeNoteIdRef.current || '').trim()
+        if (!nid) return
+        e.preventDefault()
+        e.stopPropagation()
+        requestCloseTabRef.current(nid)
         return
       }
 
@@ -976,6 +1036,13 @@ export function HyperCortexApp() {
         e.preventDefault()
         e.stopPropagation()
         handle.toggleMode()
+        return
+      }
+
+      if (shouldTriggerShortcut(e, bindings.cycleFace)) {
+        e.preventDefault()
+        e.stopPropagation()
+        handle.cycleFace()
       }
     }
 
@@ -998,7 +1065,7 @@ export function HyperCortexApp() {
       window.removeEventListener('keydown', onKeyDown, true)
       window.removeEventListener('keyup', onKeyUp, true)
     }
-  }, [handleCreateDraftNote, tabsMode, toggleTabsCollapsed])
+  }, [goBackPage, handleCreateDraftNote, tabsMode, toggleTabsCollapsed])
 
   const handleOpenNote = React.useCallback(
     (note: NoteMeta) => {
@@ -1011,9 +1078,9 @@ export function HyperCortexApp() {
         return next
       })
       setActiveNoteId(nid)
-      setPage('note-detail')
+      navigatePage('note-detail')
     },
-    [commitActiveWorkspacePatch, metaReady, persistMetadataPatch],
+    [commitActiveWorkspacePatch, metaReady, navigatePage, persistMetadataPatch],
   )
 
   React.useEffect(() => {
@@ -1073,11 +1140,11 @@ export function HyperCortexApp() {
 
         if (!closingActive) return next
         setActiveNoteId(nextActiveId || '')
-        if (page === 'note-detail') setPage(nextActiveId ? 'note-detail' : 'home')
+        if (page === 'note-detail') navigatePage(nextActiveId ? 'note-detail' : 'home')
         return next
       })
     },
-    [activeNoteId, commitActiveWorkspacePatch, metaReady, page, persistMetadataPatch],
+    [activeNoteId, commitActiveWorkspacePatch, metaReady, navigatePage, page, persistMetadataPatch],
   )
 
   const requestCloseTab = React.useCallback(
@@ -1091,6 +1158,10 @@ export function HyperCortexApp() {
   )
 
   const handleCloseTab = React.useCallback((noteId: string) => requestCloseTab(noteId), [requestCloseTab])
+
+  React.useEffect(() => {
+    requestCloseTabRef.current = requestCloseTab
+  }, [requestCloseTab])
 
   const handleDeleteGroupAndCloseTabs = React.useCallback(
     (groupId: string) => {
@@ -1192,9 +1263,9 @@ export function HyperCortexApp() {
     if (!nid) return
     setCloseTabPrompt(null)
     setActiveNoteId(nid)
-    setPage('note-detail')
+    navigatePage('note-detail')
     noteSessionHandlesRef.current[nid]?.enterEditMode?.()
-  }, [closeTabPrompt?.noteId])
+  }, [closeTabPrompt?.noteId, navigatePage])
 
   const handleCloseTabPromptDiscardAndClose = React.useCallback(() => {
     const nid = String(closeTabPrompt?.noteId || '').trim()
@@ -1276,23 +1347,23 @@ export function HyperCortexApp() {
               </Typography>
 
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25, ml: 0.25 }}>
-                <NavIconButton title="主页" ariaLabel="主页" active={page === 'home'} onClick={() => setPage('home')}>
+                <NavIconButton title="主页" ariaLabel="主页" active={page === 'home'} onClick={() => navigatePage('home')}>
                   <HomeRoundedIcon fontSize="small" />
                 </NavIconButton>
-                <NavIconButton title="索引" ariaLabel="索引" active={page === 'index'} onClick={() => setPage('index')}>
+                <NavIconButton title="索引" ariaLabel="索引" active={page === 'index'} onClick={() => navigatePage('index')}>
                   <AccountTreeRoundedIcon fontSize="small" />
                 </NavIconButton>
-                <NavIconButton title="附件" ariaLabel="附件" active={page === 'attachments'} onClick={() => setPage('attachments')}>
+                <NavIconButton title="附件" ariaLabel="附件" active={page === 'attachments'} onClick={() => navigatePage('attachments')}>
                   <AttachFileRoundedIcon fontSize="small" />
                 </NavIconButton>
-                <NavIconButton title="全部笔记" ariaLabel="全部笔记" active={page === 'all-notes'} onClick={() => setPage('all-notes')}>
+                <NavIconButton title="全部笔记" ariaLabel="全部笔记" active={page === 'all-notes'} onClick={() => navigatePage('all-notes')}>
                   <NotesRoundedIcon fontSize="small" />
                 </NavIconButton>
               </Box>
             </Box>
 
             <Box sx={{ display: 'flex', alignItems: 'center', pr: 1 }}>
-              <NavIconButton title="设置" ariaLabel="设置" active={page === 'settings'} onClick={() => setPage('settings')}>
+              <NavIconButton title="设置" ariaLabel="设置" active={page === 'settings'} onClick={() => navigatePage('settings')}>
                 <SettingsRoundedIcon fontSize="small" />
               </NavIconButton>
             </Box>

@@ -83,6 +83,7 @@ export type NoteDetailSessionHandle = {
   isSaving: () => boolean
   enterEditMode: () => void
   toggleMode: () => void
+  cycleFace: () => void
   save: () => Promise<void>
   discardChanges: () => void
 }
@@ -141,6 +142,10 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const [face, setFace] = React.useState<NoteFaceId>(init?.face ?? 'text')
   const [faces, setFaces] = React.useState<NoteFaceId[]>(init?.faces ?? ['text'])
   const [infoSidebarVisible, setInfoSidebarVisible] = React.useState(init?.infoSidebarVisible ?? false)
+  const facesRef = React.useRef<NoteFaceId[]>(faces)
+  React.useEffect(() => {
+    facesRef.current = faces
+  }, [faces])
 
   const [editTitle, setEditTitle] = React.useState(init?.editTitle ?? (note.title || ''))
   const [editBody, setEditBody] = React.useState(init?.editBody ?? '')
@@ -454,14 +459,25 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     }
   }, [api, allNotesById, base.body, base.html, doc, editBody, editHtml, editTags, editTitle, editing, face, faces, htmlFace, infoSidebarVisible, isDraft, note.createdAtMs, note.dir, noteId, onSaved, saving, scope, textEditorMode])
 
+  const handleCycleFace = React.useCallback(() => {
+    setFace(prev => {
+      const list = Array.isArray(facesRef.current) && facesRef.current.length ? facesRef.current : ['text']
+      if (list.length <= 1) return prev
+      const idx = list.indexOf(prev)
+      const next = list[(idx >= 0 ? idx + 1 : 0) % list.length]
+      return next
+    })
+  }, [])
+
   React.useImperativeHandle(ref, () => ({
     isDirty: () => dirty,
     isSaving: () => saving,
     enterEditMode: () => setEditing(true),
     toggleMode: () => handleToggleMode(),
+    cycleFace: () => handleCycleFace(),
     save: () => handleSave(),
     discardChanges: () => handleDiscard(),
-  }), [dirty, handleDiscard, handleSave, handleToggleMode, saving])
+  }), [dirty, handleCycleFace, handleDiscard, handleSave, handleToggleMode, saving])
 
   const handleAddFace = React.useCallback(async () => {
     if (!pendingAddFace) return
