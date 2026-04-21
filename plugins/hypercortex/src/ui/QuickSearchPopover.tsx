@@ -111,11 +111,13 @@ export function QuickSearchPopover(props: Props) {
   const [assets, setAssets] = React.useState<AssetEntry[]>([])
   const [assetsLoading, setAssetsLoading] = React.useState(false)
   const [assetsError, setAssetsError] = React.useState<string | null>(null)
+  const assetsLoadSeqRef = React.useRef(0)
 
   React.useEffect(() => {
     if (!open) return
     setMode('notes')
     setQuery('')
+    setAssetsLoading(false)
     setAssetsError(null)
     const raf = requestAnimationFrame(() => inputRef.current?.focus())
     return () => cancelAnimationFrame(raf)
@@ -124,31 +126,31 @@ export function QuickSearchPopover(props: Props) {
   React.useEffect(() => {
     if (!open) return
     if (mode !== 'assets') return
-    if (assetsLoading) return
     if (assets.length) return
 
-    let cancelled = false
+    const seq = ++assetsLoadSeqRef.current
     setAssetsLoading(true)
     setAssetsError(null)
     ;(async () => {
       try {
         const items = await listAssetsInPool(api, scope)
-        if (cancelled) return
+        if (assetsLoadSeqRef.current !== seq) return
         const entries = buildAssetEntries(items)
         entries.sort((a, b) => (b.modifiedMs || 0) - (a.modifiedMs || 0))
         setAssets(entries)
       } catch (e: any) {
-        if (cancelled) return
+        if (assetsLoadSeqRef.current !== seq) return
         setAssetsError(String(e?.message || e || '附件加载失败'))
       } finally {
-        if (!cancelled) setAssetsLoading(false)
+        if (assetsLoadSeqRef.current === seq) setAssetsLoading(false)
       }
     })()
 
     return () => {
-      cancelled = true
+      if (assetsLoadSeqRef.current === seq) assetsLoadSeqRef.current++
+      setAssetsLoading(false)
     }
-  }, [api, assets.length, assetsLoading, mode, open, scope])
+  }, [api, assets.length, mode, open, scope])
 
   React.useEffect(() => {
     if (!open) return
