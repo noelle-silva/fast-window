@@ -9,6 +9,7 @@ type AssetsIndexEntryV1 = {
   kind?: string
   size?: number
   modifiedMs?: number
+  displayName?: string
 }
 
 export type HyperCortexAssetsIndexV1 = {
@@ -19,6 +20,7 @@ export type HyperCortexAssetsIndexV1 = {
 export type AssetPoolItem = {
   relPath: string
   name: string
+  displayName?: string
   size: number
   modifiedMs: number
 }
@@ -181,26 +183,33 @@ export async function deleteAssetById(api: Api, scope: VaultScope, assetId: stri
 export async function recordAssetWritten(
   api: Api,
   scope: VaultScope,
-  input: { assetId: string; ext: string; relPath: string; kind?: string; size?: number; modifiedMs?: number },
+  input: { assetId: string; ext: string; relPath: string; kind?: string; size?: number; modifiedMs?: number; displayName?: string },
 ): Promise<void> {
   const assetId = String(input.assetId || '').trim()
   const ext = String(input.ext || '').trim().toLowerCase().replace(/^\./, '')
   const relPath = String(input.relPath || '').trim()
   if (!assetId || !relPath) return
+  const displayName0 = String(input.displayName || '').trim()
+  const displayName = displayName0 ? displayName0.slice(0, 180).trim() : ''
   await upsertIndex(api, scope, assetId, ext, {
     path: relPath,
     kind: String(input.kind || '').trim() || undefined,
     size: Number(input.size) > 0 ? Number(input.size) : undefined,
     modifiedMs: Number(input.modifiedMs) > 0 ? Number(input.modifiedMs) : undefined,
+    displayName: displayName || undefined,
   }).catch(() => {})
 }
 
 export async function scanAssetPool(api: Api, scope: VaultScope): Promise<AssetPoolItem[]> {
+  const idx = await ensureAssetsIndex(api, scope)
   const items: AssetPoolItem[] = []
 
   const pushFile = (relPath: string, name: string, size: number, modifiedMs: number) => {
     if (!name) return
-    items.push({ relPath, name, size: Number(size) || 0, modifiedMs: Number(modifiedMs) || 0 })
+    const { assetId, ext } = assetExtFromFileName(name)
+    const key = assetKey(assetId, ext)
+    const displayName = String(idx.assets[key]?.displayName || '').trim() || undefined
+    items.push({ relPath, name, displayName, size: Number(size) || 0, modifiedMs: Number(modifiedMs) || 0 })
   }
 
   // new: Assets/<category>/<yyyy-mm>/*
@@ -220,7 +229,6 @@ export async function scanAssetPool(api: Api, scope: VaultScope): Promise<AssetP
   }
 
   // 顺手把扫描结果补到 index（开发期：简单粗暴就够用了）
-  const idx = await ensureAssetsIndex(api, scope)
   let changed = false
   const nextAssets = { ...idx.assets }
   for (const it of items) {

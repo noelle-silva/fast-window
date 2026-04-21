@@ -18,6 +18,7 @@ import { deleteAssetFromPool, importFilesToAssetPool, listAssetsInPool, readAsse
 type AssetEntry = {
   relPath: string
   fileName: string
+  displayName?: string
   assetId: string
   ext: string
   kind: string
@@ -98,6 +99,7 @@ function AssetCard({
   asset: AssetEntry
   onDelete: (asset: AssetEntry) => void
 }) {
+  const titleLabel = asset.displayName || (asset.ext ? `.${asset.ext}` : '文件')
   const handleCopy = React.useCallback(() => {
     const marker = buildAssetMarker(asset)
     api.clipboard.writeText(marker).then(
@@ -226,9 +228,9 @@ function AssetCard({
             whiteSpace: 'nowrap',
             minWidth: 0,
           }}
-          title={asset.ext ? `.${asset.ext}` : '文件'}
+          title={titleLabel}
         >
-          {asset.ext ? `.${asset.ext}` : '文件'}
+          {titleLabel}
         </Typography>
         <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.38)', flexShrink: 0 }}>
           {humanSize(asset.size)}
@@ -273,7 +275,16 @@ export function AssetPoolPanel({ api, scope }: Props) {
           const { assetId, ext } = parseAssetFileName(item.name)
           const mime = mimeFromExt(ext)
           const kind = mime ? kindFromMime(mime) : 'document'
-          return { relPath: item.relPath, fileName: item.name, assetId, ext, kind, size: item.size, modifiedMs: item.modifiedMs }
+          return {
+            relPath: item.relPath,
+            fileName: item.name,
+            displayName: item.displayName,
+            assetId,
+            ext,
+            kind,
+            size: item.size,
+            modifiedMs: item.modifiedMs,
+          }
         })
         .sort((a, b) => b.modifiedMs - a.modifiedMs)
       setAssets(entries)

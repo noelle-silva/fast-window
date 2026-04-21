@@ -22,7 +22,7 @@ export async function importImageToAssetPool(
     dataUrlOrBase64: dataUrl,
     overwrite: true,
   })
-  await recordAssetWritten(api, scope, { assetId, ext, relPath: path, kind: 'image' }).catch(() => {})
+  await recordAssetWritten(api, scope, { assetId, ext, relPath: path, kind: 'image', displayName: input.name }).catch(() => {})
   return {
     assetId,
     mime: mime || undefined,
@@ -65,7 +65,7 @@ export async function importFileToAssetPool(
     dataUrlOrBase64: dataUrl,
     overwrite: true,
   })
-  await recordAssetWritten(api, scope, { assetId, ext, relPath: path, kind }).catch(() => {})
+  await recordAssetWritten(api, scope, { assetId, ext, relPath: path, kind, displayName: input.name }).catch(() => {})
   return {
     assetId,
     mime: mime || undefined,
