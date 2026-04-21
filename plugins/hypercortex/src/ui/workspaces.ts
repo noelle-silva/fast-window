@@ -1,63 +1,6 @@
 import type { HyperCortexTabGroupV1, HyperCortexWorkspaceV1 } from '../core'
-import { normalizeTabGroupByNoteId, normalizeTabGroupByTabKey, normalizeTabGroups } from './tabGroups'
-import { noteTabKey, noteIdFromTabKey, tabKind } from '../tabKey'
-
-function normalizeOpenNoteIds(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  const out: string[] = []
-  for (const item of value) {
-    const id = typeof item === 'string' ? item.trim() : ''
-    if (!id) continue
-    if (out.includes(id)) continue
-    out.push(id)
-  }
-  return out
-}
-
-function normalizeOpenTabKeys(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  const out: string[] = []
-  for (const item of value) {
-    const key = typeof item === 'string' ? item.trim() : ''
-    if (!key) continue
-    if (out.includes(key)) continue
-    out.push(key)
-  }
-  return out
-}
-
-function deriveOpenTabKeysFromOpenNoteIds(openNoteIds: string[]): string[] {
-  const out: string[] = []
-  for (const nid of openNoteIds) {
-    const key = noteTabKey(nid)
-    if (out.includes(key)) continue
-    out.push(key)
-  }
-  return out
-}
-
-function deriveTabGroupByTabKeyFromNoteMap(map: Record<string, string>): Record<string, string> {
-  const out: Record<string, string> = {}
-  for (const [noteId, gid] of Object.entries(map || {})) {
-    const nid = String(noteId || '').trim()
-    const g = String(gid || '').trim()
-    if (!nid || !g) continue
-    out[noteTabKey(nid)] = g
-  }
-  return out
-}
-
-function deriveOpenNoteIdsFromOpenTabKeys(openTabKeys: string[]): string[] {
-  const out: string[] = []
-  for (const key of openTabKeys || []) {
-    if (tabKind(key) !== 'note') continue
-    const nid = noteIdFromTabKey(key)
-    if (!nid) continue
-    if (out.includes(nid)) continue
-    out.push(nid)
-  }
-  return out
-}
+import { normalizeTabGroupByTabKey, normalizeTabGroups } from './tabGroups'
+import { normalizeOpenTabKeys } from './workspaceModel'
 
 export function createWorkspaceId(): string {
   const anyCrypto = globalThis.crypto as any
@@ -76,7 +19,7 @@ export function pickNextWorkspaceTitle(workspaces: { title: string }[]): string 
 
 export function normalizeWorkspaces(
   value: unknown,
-  fallback?: { openNoteIds?: unknown; tabGroups?: unknown; tabGroupByNoteId?: unknown },
+  fallback?: { openTabKeys?: unknown; activeTabKey?: unknown; tabGroups?: unknown; tabGroupByTabKey?: unknown },
 ): HyperCortexWorkspaceV1[] {
   if (Array.isArray(value)) {
     const out: HyperCortexWorkspaceV1[] = []
@@ -87,22 +30,15 @@ export function normalizeWorkspaces(
       const id = typeof raw.id === 'string' ? raw.id.trim() : ''
       if (!id || seen.has(id)) continue
       const title = typeof raw.title === 'string' ? raw.title.trim() : ''
-      const openTabKeysRaw = normalizeOpenTabKeys(raw.openTabKeys)
-      const openNoteIds = normalizeOpenNoteIds(raw.openNoteIds)
-      const openTabKeys = openTabKeysRaw.length ? openTabKeysRaw : deriveOpenTabKeysFromOpenNoteIds(openNoteIds)
+      const openTabKeys = normalizeOpenTabKeys(raw.openTabKeys)
       const tabGroups = normalizeTabGroups(raw.tabGroups)
-      const tabGroupByTabKey0 = normalizeTabGroupByTabKey(raw.tabGroupByTabKey)
-      const tabGroupByNoteId = normalizeTabGroupByNoteId(raw.tabGroupByNoteId)
-      const tabGroupByTabKey = Object.keys(tabGroupByTabKey0).length ? tabGroupByTabKey0 : deriveTabGroupByTabKeyFromNoteMap(tabGroupByNoteId)
+      const tabGroupByTabKey = normalizeTabGroupByTabKey(raw.tabGroupByTabKey)
       const activeTabKey = typeof raw.activeTabKey === 'string' ? raw.activeTabKey.trim() : ''
 
-      const normalizedOpenNoteIds = openTabKeysRaw.length ? deriveOpenNoteIdsFromOpenTabKeys(openTabKeys) : openNoteIds
       out.push({
         id,
         title: title || '工作区',
-        openNoteIds: normalizedOpenNoteIds,
         tabGroups,
-        tabGroupByNoteId,
         openTabKeys,
         tabGroupByTabKey,
         activeTabKey,
@@ -113,21 +49,18 @@ export function normalizeWorkspaces(
   }
 
   const id = createWorkspaceId()
-  const openNoteIds = normalizeOpenNoteIds(fallback?.openNoteIds)
-  const openTabKeys = deriveOpenTabKeysFromOpenNoteIds(openNoteIds)
+  const openTabKeys = normalizeOpenTabKeys(fallback?.openTabKeys)
   const tabGroups = normalizeTabGroups(fallback?.tabGroups)
-  const tabGroupByNoteId = normalizeTabGroupByNoteId(fallback?.tabGroupByNoteId)
-  const tabGroupByTabKey = deriveTabGroupByTabKeyFromNoteMap(tabGroupByNoteId)
+  const tabGroupByTabKey = normalizeTabGroupByTabKey(fallback?.tabGroupByTabKey)
+  const activeTabKey = typeof fallback?.activeTabKey === 'string' ? String(fallback.activeTabKey || '').trim() : ''
   return [
     {
       id,
       title: '默认工作区',
-      openNoteIds,
       tabGroups,
-      tabGroupByNoteId,
       openTabKeys,
       tabGroupByTabKey,
-      activeTabKey: '',
+      activeTabKey,
     },
   ]
 }
@@ -157,15 +90,9 @@ export function updateWorkspaceById(
 export function ensureWorkspaceShape(ws: HyperCortexWorkspaceV1): HyperCortexWorkspaceV1 {
   const id = String(ws.id || '').trim() || createWorkspaceId()
   const title = String(ws.title || '').trim() || '工作区'
-  const openNoteIds = normalizeOpenNoteIds(ws.openNoteIds)
-  const openTabKeys0 = normalizeOpenTabKeys((ws as any).openTabKeys)
-  const openTabKeys = openTabKeys0.length ? openTabKeys0 : deriveOpenTabKeysFromOpenNoteIds(openNoteIds)
+  const openTabKeys = normalizeOpenTabKeys((ws as any).openTabKeys)
   const tabGroups: HyperCortexTabGroupV1[] = normalizeTabGroups(ws.tabGroups)
-  const tabGroupByNoteId = normalizeTabGroupByNoteId(ws.tabGroupByNoteId)
-  const tabGroupByTabKey0 = normalizeTabGroupByTabKey((ws as any).tabGroupByTabKey)
-  const tabGroupByTabKey = Object.keys(tabGroupByTabKey0).length ? tabGroupByTabKey0 : deriveTabGroupByTabKeyFromNoteMap(tabGroupByNoteId)
+  const tabGroupByTabKey = normalizeTabGroupByTabKey((ws as any).tabGroupByTabKey)
   const activeTabKey = String((ws as any).activeTabKey || '').trim()
-
-  const normalizedOpenNoteIds = openTabKeys0.length ? deriveOpenNoteIdsFromOpenTabKeys(openTabKeys) : openNoteIds
-  return { id, title, openNoteIds: normalizedOpenNoteIds, tabGroups, tabGroupByNoteId, openTabKeys, tabGroupByTabKey, activeTabKey }
+  return { id, title, tabGroups, openTabKeys, tabGroupByTabKey, activeTabKey }
 }

@@ -61,28 +61,21 @@ export type HyperCortexTabGroupV1 = {
 export type HyperCortexWorkspaceV1 = {
   id: string
   title: string
-  openNoteIds: string[]
   tabGroups: HyperCortexTabGroupV1[]
-  tabGroupByNoteId: Record<string, string>
-  // v2 tab system (note + asset)
-  openTabKeys?: string[]
-  tabGroupByTabKey?: Record<string, string>
-  activeTabKey?: string
+  openTabKeys: string[]
+  tabGroupByTabKey: Record<string, string>
+  activeTabKey: string
 }
 
 export type HyperCortexMetadataV1 = {
   version: 1
   allNotesLayout?: 'list' | 'grid' | 'icon'
-  openNoteIds?: string[]
-  activeNoteId?: string
-  // v2 tab system (note + asset)
   openTabKeys?: string[]
   tabGroupByTabKey?: Record<string, string>
   activeTabKey?: string
   tabsCollapsed?: boolean
   tabsMode?: 'manual' | 'hover'
   tabGroups?: HyperCortexTabGroupV1[]
-  tabGroupByNoteId?: Record<string, string>
   workspaces?: HyperCortexWorkspaceV1[]
   activeWorkspaceId?: string
   shortcuts?: HyperCortexShortcutBindingsV1

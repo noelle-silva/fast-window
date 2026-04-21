@@ -63,18 +63,6 @@ export function normalizeTabGroups(value: unknown): HyperCortexTabGroupV1[] {
   return out
 }
 
-export function normalizeTabGroupByNoteId(value: unknown): Record<string, string> {
-  if (!value || typeof value !== 'object') return {}
-  const out: Record<string, string> = {}
-  for (const [k, v] of Object.entries(value as any)) {
-    const noteId = typeof k === 'string' ? k.trim() : ''
-    const groupId = typeof v === 'string' ? v.trim() : ''
-    if (!noteId || !groupId) continue
-    out[noteId] = groupId
-  }
-  return out
-}
-
 export function normalizeTabGroupByTabKey(value: unknown): Record<string, string> {
   if (!value || typeof value !== 'object') return {}
   const out: Record<string, string> = {}

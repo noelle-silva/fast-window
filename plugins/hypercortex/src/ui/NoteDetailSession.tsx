@@ -16,6 +16,7 @@ import { extractNoteRefs, getBacklinksFor, type NoteRefIndex } from '../noteRefs
 import { loadHtmlFace, loadNotePackage, saveHtmlFace, saveNotePackage, type HyperCortexHtmlFaceDoc } from '../notePackage'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import type { Api, NoteMeta, VaultScope, HyperCortexNoteDoc } from '../core'
+import { isDraftNoteId } from '../drafts'
 import { NoteInfoSidebar } from './NoteInfoSidebar'
 import { AutoHeightHtmlIframe } from './AutoHeightHtmlIframe'
 import { CodeMirrorCodeEditor } from '../editor/CodeMirrorCodeEditor'
@@ -33,10 +34,6 @@ type NoteContent = {
   body: string
   tags: string[]
   html: string
-}
-
-function isDraftNoteId(noteId: string): boolean {
-  return String(noteId || '').startsWith('draft_')
 }
 
 function normalizeTagText(value: string): string {
