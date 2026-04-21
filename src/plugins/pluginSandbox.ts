@@ -37,6 +37,7 @@ export function buildPluginSdkCode(opts: {
   const MAX_PENDING = 128;
   const DEFAULT_TIMEOUT_MS = 8000;
   const LONG_TIMEOUT_MS = 15 * 60 * 1000;
+  const UI_PICKER_TIMEOUT_MS = 30 * 60 * 1000;
 
   const streams = new Map();
   const pendingStreamEvents = new Map();
@@ -124,7 +125,14 @@ export function buildPluginSdkCode(opts: {
         const command = spec && spec.command ? String(spec.command) : '';
 
         const t0 = spec && typeof spec.timeoutMs === 'number' ? spec.timeoutMs : 0;
-        if (t0 > 0) return Math.max(DEFAULT_TIMEOUT_MS, Math.min(t0, 5 * 60 * 1000));
+        if (t0 > 0) {
+          const cap = command.startsWith('plugin_pick_')
+            ? UI_PICKER_TIMEOUT_MS
+            : (command.startsWith('plugin_images_') || command.startsWith('plugin_files_'))
+              ? LONG_TIMEOUT_MS
+              : 5 * 60 * 1000;
+          return Math.max(DEFAULT_TIMEOUT_MS, Math.min(t0, cap));
+        }
 
         const payload = spec && spec.payload && typeof spec.payload === 'object' ? spec.payload : null;
         if (payload) {
@@ -143,6 +151,8 @@ export function buildPluginSdkCode(opts: {
           if (inferred > 0) return Math.max(DEFAULT_TIMEOUT_MS, Math.min(inferred, LONG_TIMEOUT_MS));
         }
 
+        if (command.startsWith('plugin_pick_')) return UI_PICKER_TIMEOUT_MS;
+        if (command.startsWith('plugin_images_') || command.startsWith('plugin_files_')) return LONG_TIMEOUT_MS;
         if (command.startsWith('plugin:dialog|')) return LONG_TIMEOUT_MS;
         if (command.startsWith('plugin:store|')) return 30 * 1000;
       }
@@ -161,7 +171,11 @@ export function buildPluginSdkCode(opts: {
       if (t0 > 0) return spec;
 
       const payload = s.payload && typeof s.payload === 'object' ? s.payload : null;
-      if (!payload) return spec;
+      if (!payload) {
+        if (command.startsWith('plugin_pick_')) return { ...s, timeoutMs: UI_PICKER_TIMEOUT_MS };
+        if (command.startsWith('plugin_images_') || command.startsWith('plugin_files_')) return { ...s, timeoutMs: LONG_TIMEOUT_MS };
+        return spec;
+      }
 
       let inferred = 0;
       if (command === 'http_request' || command === 'http_request_base64' || command === 'http_request_stream') {
@@ -174,7 +188,11 @@ export function buildPluginSdkCode(opts: {
         if (t2 > 0) inferred = t2;
       }
 
-      if (inferred <= 0) return spec;
+      if (inferred <= 0) {
+        if (command.startsWith('plugin_pick_')) return { ...s, timeoutMs: UI_PICKER_TIMEOUT_MS };
+        if (command.startsWith('plugin_images_') || command.startsWith('plugin_files_')) return { ...s, timeoutMs: LONG_TIMEOUT_MS };
+        return spec;
+      }
       return { ...s, timeoutMs: inferred };
     } catch {
       return spec;
