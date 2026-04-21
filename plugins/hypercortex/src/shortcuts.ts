@@ -2,6 +2,7 @@ export type HyperCortexShortcutId =
   | 'newNote'
   | 'saveNote'
   | 'toggleMode'
+  | 'toggleQuickSearch'
   | 'toggleSidebar'
   | 'goBackPage'
   | 'closeActiveTab'
@@ -12,6 +13,7 @@ export type HyperCortexShortcutBindingsV1 = {
   newNote: string
   saveNote: string
   toggleMode: string
+  toggleQuickSearch: string
   toggleSidebar: string
   goBackPage: string
   closeActiveTab: string
@@ -23,6 +25,7 @@ export const DEFAULT_SHORTCUT_BINDINGS: HyperCortexShortcutBindingsV1 = {
   newNote: '',
   saveNote: '',
   toggleMode: '',
+  toggleQuickSearch: '',
   toggleSidebar: '',
   goBackPage: '',
   closeActiveTab: '',
@@ -42,6 +45,7 @@ export function normalizeShortcutBindings(input: unknown): HyperCortexShortcutBi
     newNote: normChord(obj.newNote),
     saveNote: normChord(obj.saveNote),
     toggleMode: normChord(obj.toggleMode),
+    toggleQuickSearch: normChord(obj.toggleQuickSearch),
     toggleSidebar: normChord(obj.toggleSidebar),
     goBackPage: normChord(obj.goBackPage),
     closeActiveTab: normChord(obj.closeActiveTab),

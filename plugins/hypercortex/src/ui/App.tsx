@@ -1253,6 +1253,13 @@ export function HyperCortexApp() {
         return
       }
 
+      if (shouldTriggerShortcut(e, bindings.toggleQuickSearch)) {
+        e.preventDefault()
+        e.stopPropagation()
+        setQuickSearchOpen(prev => !prev)
+        return
+      }
+
       if (shouldTriggerShortcut(e, bindings.closeActiveTab)) {
         if (pageRef.current !== 'note-detail' && pageRef.current !== 'asset-detail') return
         const key = String(activeTabKeyRef.current || '').trim()
