@@ -75,3 +75,14 @@ export function normalizeTabGroupByNoteId(value: unknown): Record<string, string
   return out
 }
 
+export function normalizeTabGroupByTabKey(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object') return {}
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(value as any)) {
+    const tabKey = typeof k === 'string' ? k.trim() : ''
+    const groupId = typeof v === 'string' ? v.trim() : ''
+    if (!tabKey || !groupId) continue
+    out[tabKey] = groupId
+  }
+  return out
+}

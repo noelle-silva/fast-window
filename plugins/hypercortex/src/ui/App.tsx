@@ -13,6 +13,8 @@ import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
 import {
   ensureMetadata,
   getApi,
+  kindFromMime,
+  mimeFromExt,
   saveMetadata,
   tryLoadMetadata,
   type HyperCortexIndexV1,
@@ -25,6 +27,7 @@ import { loadNoteIndex } from '../notePackage'
 import { loadRefIndex, type NoteRefIndex } from '../noteRefs'
 import { createMarkdownRenderEngine } from '../render/engine'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
+import { ensureAssetsIndex } from '../assetStore'
 import { AssetPoolPanel } from './AssetPoolPanel'
 import { OpenTabsPanel } from './OpenTabsPanel'
 import { NoteDetailSession, type NoteDetailSessionHandle, type NoteDetailSnapshotV1 } from './NoteDetailSession'
@@ -36,6 +39,7 @@ import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pic
 import { DEFAULT_SHORTCUT_BINDINGS, isEditableTarget, mainKeyFromChord, normalizeMainKey, normalizeShortcutBindings, shouldTriggerShortcut, type HyperCortexShortcutBindingsV1 } from '../shortcuts'
 import type { AssetEntry } from '../assetTypes'
 import { assetTabId } from '../assetTypes'
+import { assetRefKeyFromTabKey, noteIdFromTabKey, noteTabKey, parseAssetRefKey, tabKind, type TabKey } from '../tabKey'
 
 type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'asset-detail' | 'index' | 'settings'
 
@@ -79,21 +83,58 @@ function stripDraftKeys(value: any): Record<string, string> {
   return out
 }
 
+function stripDraftTabKeys(value: unknown): string[] {
+  const list = Array.isArray(value) ? value : []
+  const out: string[] = []
+  for (const item of list) {
+    const key = typeof item === 'string' ? item.trim() : ''
+    if (!key) continue
+    if (tabKind(key) === 'note' && isDraftNoteId(noteIdFromTabKey(key))) continue
+    if (out.includes(key)) continue
+    out.push(key)
+  }
+  return out
+}
+
+function stripDraftTabKeyMap(value: any): Record<string, string> {
+  if (!value || typeof value !== 'object') return {}
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(value)) {
+    const tabKey = String(k || '').trim()
+    if (!tabKey) continue
+    if (tabKind(tabKey) === 'note' && isDraftNoteId(noteIdFromTabKey(tabKey))) continue
+    const groupId = String(v || '').trim()
+    if (!groupId) continue
+    out[tabKey] = groupId
+  }
+  return out
+}
+
 function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetadataV1 {
   const next: HyperCortexMetadataV1 = { ...meta, version: 1 }
 
   if (typeof (next as any).activeNoteId === 'string' && isDraftNoteId((next as any).activeNoteId)) {
     ;(next as any).activeNoteId = ''
   }
+  if (typeof (next as any).activeTabKey === 'string') {
+    const k = String((next as any).activeTabKey || '').trim()
+    if (k && tabKind(k) === 'note' && isDraftNoteId(noteIdFromTabKey(k))) (next as any).activeTabKey = ''
+  }
   if ('openNoteIds' in next) (next as any).openNoteIds = stripDraftIds((next as any).openNoteIds)
+  if ('openTabKeys' in next) (next as any).openTabKeys = stripDraftTabKeys((next as any).openTabKeys)
   if ('tabGroupByNoteId' in next) (next as any).tabGroupByNoteId = stripDraftKeys((next as any).tabGroupByNoteId)
+  if ('tabGroupByTabKey' in next) (next as any).tabGroupByTabKey = stripDraftTabKeyMap((next as any).tabGroupByTabKey)
   if ('shortcuts' in next) (next as any).shortcuts = normalizeShortcutBindings((next as any).shortcuts)
 
   if (Array.isArray(next.workspaces)) {
     next.workspaces = next.workspaces.map(ws => {
       const openNoteIds = stripDraftIds((ws as any).openNoteIds)
       const tabGroupByNoteId = stripDraftKeys((ws as any).tabGroupByNoteId)
-      return { ...ws, openNoteIds, tabGroupByNoteId }
+      const openTabKeys = stripDraftTabKeys((ws as any).openTabKeys)
+      const tabGroupByTabKey = stripDraftTabKeyMap((ws as any).tabGroupByTabKey)
+      let activeTabKey = String((ws as any).activeTabKey || '').trim()
+      if (activeTabKey && tabKind(activeTabKey) === 'note' && isDraftNoteId(noteIdFromTabKey(activeTabKey))) activeTabKey = ''
+      return { ...ws, openNoteIds, tabGroupByNoteId, openTabKeys, tabGroupByTabKey, activeTabKey }
     })
   }
 
@@ -164,7 +205,7 @@ export function HyperCortexApp() {
   React.useEffect(() => {
     pageRef.current = page
   }, [page])
-  type NavHistoryEntry = { kind: 'page'; page: PageId } | { kind: 'note'; noteId: string }
+  type NavHistoryEntry = { kind: 'page'; page: PageId } | { kind: 'tab'; tabKey: string }
   const navHistoryRef = React.useRef<NavHistoryEntry[]>([])
 
   const pushNavHistory = React.useCallback((entry: NavHistoryEntry) => {
@@ -172,7 +213,7 @@ export function HyperCortexApp() {
     const last = stack.length ? stack[stack.length - 1] : null
     if (last?.kind === entry.kind) {
       if (entry.kind === 'page' && last.kind === 'page' && last.page === entry.page) return
-      if (entry.kind === 'note' && last.kind === 'note' && last.noteId === entry.noteId) return
+      if (entry.kind === 'tab' && last.kind === 'tab' && last.tabKey === entry.tabKey) return
     }
     stack.push(entry)
     if (stack.length > 128) stack.splice(0, stack.length - 128)
@@ -188,7 +229,7 @@ export function HyperCortexApp() {
   // ---- 元数据（持久化）
   const metaRef = React.useRef<HyperCortexMetadataV1 | null>(null)
   const [metaReady, setMetaReady] = React.useState(false)
-  const restoreActiveNoteIdRef = React.useRef<string>('')
+  const restoreActiveTabKeyRef = React.useRef<string>('')
 
   // ---- 快捷键（持久化在 metadata）
   const [shortcutBindings, setShortcutBindings] = React.useState<HyperCortexShortcutBindingsV1>(DEFAULT_SHORTCUT_BINDINGS)
@@ -215,12 +256,19 @@ export function HyperCortexApp() {
     activeNoteIdRef.current = activeNoteId
   }, [activeNoteId])
 
-  const [openAssetTabs, setOpenAssetTabs] = React.useState<AssetEntry[]>([])
-  const [activeAssetTabKey, setActiveAssetTabKey] = React.useState<string>('')
-  const activeAssetTabKeyRef = React.useRef('')
+  const [openTabKeys, setOpenTabKeys] = React.useState<TabKey[]>([])
+  const openTabKeysRef = React.useRef<TabKey[]>([])
   React.useEffect(() => {
-    activeAssetTabKeyRef.current = activeAssetTabKey
-  }, [activeAssetTabKey])
+    openTabKeysRef.current = openTabKeys
+  }, [openTabKeys])
+
+  const [activeTabKey, setActiveTabKey] = React.useState<TabKey>('')
+  const activeTabKeyRef = React.useRef<TabKey>('')
+  React.useEffect(() => {
+    activeTabKeyRef.current = activeTabKey
+  }, [activeTabKey])
+
+  const [openAssetTabs, setOpenAssetTabs] = React.useState<AssetEntry[]>([])
 
   const mainScrollElRef = React.useRef<HTMLDivElement | null>(null)
   const noteScrollTopByIdRef = React.useRef<Record<string, number>>({})
@@ -265,24 +313,21 @@ export function HyperCortexApp() {
   const draftNoteMetaRef = React.useRef<Record<string, NoteMeta>>({})
   const [closeTabPrompt, setCloseTabPrompt] = React.useState<{ noteId: string } | null>(null)
   const requestCloseTabRef = React.useRef<(noteId: string) => void>(() => {})
+  const closeTabKeysDirectRef = React.useRef<(tabKeys: string[]) => void>(() => {})
 
   // ---- 侧边栏 / 工作区 / 分组
   const [tabsCollapsed, setTabsCollapsed] = React.useState(false)
   const [workspaces, setWorkspaces] = React.useState<HyperCortexWorkspaceV1[]>([])
   const [activeWorkspaceId, setActiveWorkspaceId] = React.useState<string>('')
   const [openNoteTabs, setOpenNoteTabs] = React.useState<NoteMeta[]>([])
-  const openNoteTabsRef = React.useRef<NoteMeta[]>([])
-  React.useEffect(() => {
-    openNoteTabsRef.current = openNoteTabs
-  }, [openNoteTabs])
   const [tabsInitReady, setTabsInitReady] = React.useState(false)
   const [tabsMode, setTabsMode] = React.useState<TabsMode>('manual')
   const [tabsHoverOpen, setTabsHoverOpen] = React.useState(false)
   const sidebarHoverRef = React.useRef(false)
   const sidebarShortcutHoldRef = React.useRef(false)
-  const [tabGrouping, setTabGrouping] = React.useState<{ groups: HyperCortexTabGroupV1[]; byNoteId: Record<string, string> }>({
+  const [tabGrouping, setTabGrouping] = React.useState<{ groups: HyperCortexTabGroupV1[]; byTabKey: Record<string, string> }>({
     groups: [],
-    byNoteId: {},
+    byTabKey: {},
   })
 
   const metaReadyRef = React.useRef(false)
@@ -437,20 +482,64 @@ export function HyperCortexApp() {
   )
 
   const commitActiveWorkspacePatch = React.useCallback(
-    (patch: Partial<Pick<HyperCortexWorkspaceV1, 'title' | 'openNoteIds' | 'tabGroups' | 'tabGroupByNoteId'>>) => {
+    (patch: Partial<Pick<HyperCortexWorkspaceV1, 'title' | 'openTabKeys' | 'activeTabKey' | 'tabGroups' | 'tabGroupByTabKey'>>) => {
       setWorkspaces(prev => {
         const wid = activeWorkspaceIdRef.current
         if (!wid) return prev
         const idx = prev.findIndex(w => w.id === wid)
         if (idx < 0) return prev
         const current = prev[idx]
+
+        const openTabKeys0 =
+          Array.isArray((patch as any).openTabKeys) ? (patch as any).openTabKeys :
+          Array.isArray(current.openTabKeys) ? current.openTabKeys :
+          current.openNoteIds.map(id => noteTabKey(id))
+        const openTabKeys = openTabKeys0
+          .map((x: any) => (typeof x === 'string' ? x.trim() : ''))
+          .filter(Boolean)
+          .filter((x: string, i: number, arr: string[]) => arr.indexOf(x) === i)
+
+        const tabGroupByTabKeyRaw =
+          (patch as any).tabGroupByTabKey && typeof (patch as any).tabGroupByTabKey === 'object' ? (patch as any).tabGroupByTabKey :
+          current.tabGroupByTabKey && typeof current.tabGroupByTabKey === 'object' ? (current.tabGroupByTabKey as any) :
+          {}
+        const tabGroupByTabKey: Record<string, string> = {}
+        for (const [k, v] of Object.entries(tabGroupByTabKeyRaw || {})) {
+          const key = String(k || '').trim()
+          const gid = String(v || '').trim()
+          if (!key || !gid) continue
+          tabGroupByTabKey[key] = gid
+        }
+
+        const openNoteIds: string[] = []
+        for (const key of openTabKeys) {
+          if (tabKind(key) !== 'note') continue
+          const nid = noteIdFromTabKey(key)
+          if (!nid) continue
+          if (openNoteIds.includes(nid)) continue
+          openNoteIds.push(nid)
+        }
+
+        const tabGroupByNoteId: Record<string, string> = {}
+        for (const [key, gid] of Object.entries(tabGroupByTabKey)) {
+          if (tabKind(key) !== 'note') continue
+          const nid = noteIdFromTabKey(key)
+          if (!nid) continue
+          tabGroupByNoteId[nid] = gid
+        }
+
+        const activeTabKeyNext = typeof (patch as any).activeTabKey === 'string' ? String((patch as any).activeTabKey || '').trim() : String(current.activeTabKey || '').trim()
+
         const nextWs: HyperCortexWorkspaceV1 = {
           ...current,
           ...patch,
           title: typeof patch.title === 'string' ? patch.title.trim() || current.title : current.title,
-          openNoteIds: Array.isArray(patch.openNoteIds) ? patch.openNoteIds : current.openNoteIds,
+          openNoteIds,
           tabGroups: Array.isArray(patch.tabGroups) ? patch.tabGroups : current.tabGroups,
-          tabGroupByNoteId: patch.tabGroupByNoteId && typeof patch.tabGroupByNoteId === 'object' ? (patch.tabGroupByNoteId as any) : current.tabGroupByNoteId,
+          tabGroupByNoteId,
+          openTabKeys,
+          tabGroupByTabKey,
+          activeTabKey: activeTabKeyNext,
         }
         if (nextWs === current) return prev
         const nextList = prev.slice()
@@ -461,8 +550,11 @@ export function HyperCortexApp() {
             workspaces: nextList,
             activeWorkspaceId: wid,
             openNoteIds: nextWs.openNoteIds,
+            openTabKeys: nextWs.openTabKeys,
+            activeTabKey: nextWs.activeTabKey,
             tabGroups: nextWs.tabGroups,
             tabGroupByNoteId: nextWs.tabGroupByNoteId,
+            tabGroupByTabKey: nextWs.tabGroupByTabKey,
           }).catch(() => {})
         }
 
@@ -473,10 +565,10 @@ export function HyperCortexApp() {
   )
 
   const updateTabGrouping = React.useCallback(
-    (updater: (prev: { groups: HyperCortexTabGroupV1[]; byNoteId: Record<string, string> }) => { groups: HyperCortexTabGroupV1[]; byNoteId: Record<string, string> }) => {
+    (updater: (prev: { groups: HyperCortexTabGroupV1[]; byTabKey: Record<string, string> }) => { groups: HyperCortexTabGroupV1[]; byTabKey: Record<string, string> }) => {
       setTabGrouping(prev => {
         const next = updater(prev)
-        commitActiveWorkspacePatch({ tabGroups: next.groups, tabGroupByNoteId: next.byNoteId })
+        commitActiveWorkspacePatch({ tabGroups: next.groups, tabGroupByTabKey: next.byTabKey })
         return next
       })
     },
@@ -516,27 +608,67 @@ export function HyperCortexApp() {
       const entry = stack.pop()
       if (!entry) continue
 
-      if (entry.kind === 'note') {
-        const noteId = String(entry.noteId || '').trim()
-        if (!noteId) continue
-        if (noteId === activeNoteIdRef.current && pageRef.current === 'note-detail') continue
-        const tabs = openNoteTabsRef.current || []
-        if (!tabs.some(t => t.id === noteId)) continue
-        setActiveNoteId(noteId)
-        if (metaReady && !isDraftNoteId(noteId)) void persistMetadataPatch({ activeNoteId: noteId }).catch(() => {})
-        navigatePage('note-detail', { recordHistory: false })
-        return
+      if (entry.kind === 'tab') {
+        const key = String(entry.tabKey || '').trim()
+        if (!key) continue
+        if (!openTabKeysRef.current.includes(key)) continue
+        const currentKey = String(activeTabKeyRef.current || '').trim()
+        if (key === currentKey && (pageRef.current === 'note-detail' || pageRef.current === 'asset-detail')) continue
+
+        setActiveTabKey(key as any)
+        commitActiveWorkspacePatch({ activeTabKey: key })
+
+        const kind = tabKind(key)
+        if (kind === 'note') {
+          const noteId = noteIdFromTabKey(key)
+          if (!noteId) continue
+          setActiveNoteId(noteId)
+          if (metaReady && !isDraftNoteId(noteId)) void persistMetadataPatch({ activeNoteId: noteId, activeTabKey: key }).catch(() => {})
+          else if (metaReady) void persistMetadataPatch({ activeTabKey: key }).catch(() => {})
+          navigatePage('note-detail', { recordHistory: false })
+          return
+        }
+        if (kind === 'asset') {
+          setActiveNoteId('')
+          if (metaReady) void persistMetadataPatch({ activeTabKey: key }).catch(() => {})
+          navigatePage('asset-detail', { recordHistory: false })
+          return
+        }
+        continue
       }
 
       const target = entry.page
       if (!target || target === pageRef.current) continue
       if (target === 'note-detail') {
-        const tabs = openNoteTabsRef.current || []
-        if (!tabs.length) continue
-        const currentActiveId = String(activeNoteIdRef.current || '').trim()
-        const activeValid = !!currentActiveId && tabs.some(t => t.id === currentActiveId)
-        if (!activeValid) setActiveNoteId(tabs[0].id)
+        const keys = openTabKeysRef.current || []
+        const noteKeys = keys.filter(k => tabKind(k) === 'note')
+        if (!noteKeys.length) continue
+        const currentActive = String(activeTabKeyRef.current || '').trim()
+        const activeValid = !!currentActive && tabKind(currentActive) === 'note' && noteKeys.includes(currentActive)
+        const nextKey = activeValid ? currentActive : noteKeys[0]
+        const noteId = noteIdFromTabKey(nextKey)
+        if (!noteId) continue
+        setActiveTabKey(nextKey as any)
+        setActiveNoteId(noteId)
+        commitActiveWorkspacePatch({ activeTabKey: nextKey })
+        if (metaReady && !isDraftNoteId(noteId)) void persistMetadataPatch({ activeNoteId: noteId, activeTabKey: nextKey }).catch(() => {})
+        else if (metaReady) void persistMetadataPatch({ activeTabKey: nextKey }).catch(() => {})
         navigatePage('note-detail', { recordHistory: false })
+        return
+      }
+
+      if (target === 'asset-detail') {
+        const keys = openTabKeysRef.current || []
+        const assetKeys = keys.filter(k => tabKind(k) === 'asset')
+        if (!assetKeys.length) continue
+        const currentActive = String(activeTabKeyRef.current || '').trim()
+        const activeValid = !!currentActive && tabKind(currentActive) === 'asset' && assetKeys.includes(currentActive)
+        const nextKey = activeValid ? currentActive : assetKeys[0]
+        setActiveTabKey(nextKey as any)
+        setActiveNoteId('')
+        commitActiveWorkspacePatch({ activeTabKey: nextKey })
+        if (metaReady) void persistMetadataPatch({ activeTabKey: nextKey }).catch(() => {})
+        navigatePage('asset-detail', { recordHistory: false })
         return
       }
 
@@ -544,7 +676,7 @@ export function HyperCortexApp() {
       return
     }
     await api.ui.showToast('没有上一页了')
-  }, [api, metaReady, navigatePage, persistMetadataPatch])
+  }, [api, commitActiveWorkspacePatch, metaReady, navigatePage, persistMetadataPatch])
 
   const onTopbarPointerDown = React.useCallback(
     (e: React.PointerEvent) => {
@@ -590,8 +722,11 @@ export function HyperCortexApp() {
         workspaces: nextWorkspaces,
         activeWorkspaceId: wid,
         openNoteIds: activeWs.openNoteIds,
+        openTabKeys: activeWs.openTabKeys,
+        activeTabKey: activeWs.activeTabKey,
         tabGroups: activeWs.tabGroups,
         tabGroupByNoteId: activeWs.tabGroupByNoteId,
+        tabGroupByTabKey: activeWs.tabGroupByTabKey,
       }).catch(() => {})
     },
     [persistMetadataPatch],
@@ -599,39 +734,86 @@ export function HyperCortexApp() {
 
   const applyWorkspaceSidebarState = React.useCallback(
     (ws: HyperCortexWorkspaceV1) => {
-      setTabGrouping({ groups: ws.tabGroups, byNoteId: ws.tabGroupByNoteId })
+      const nextOpenTabKeys = Array.isArray(ws.openTabKeys) ? (ws.openTabKeys as string[]) : ws.openNoteIds.map(id => noteTabKey(id))
+      setTabGrouping({ groups: ws.tabGroups, byTabKey: (ws.tabGroupByTabKey as any) || {} })
+      setOpenTabKeys(nextOpenTabKeys as any)
+
+      const preferredActiveKey = String((ws as any).activeTabKey || '').trim()
+      if (preferredActiveKey && nextOpenTabKeys.includes(preferredActiveKey)) {
+        setActiveTabKey(preferredActiveKey as any)
+        if (tabKind(preferredActiveKey) === 'note') setActiveNoteId(noteIdFromTabKey(preferredActiveKey))
+        else setActiveNoteId('')
+      } else {
+        setActiveTabKey('')
+        setActiveNoteId('')
+      }
 
       const seq = (workspaceSwitchSeqRef.current += 1)
-      const openIds = ws.openNoteIds
-      if (!openIds.length) {
+      if (!nextOpenTabKeys.length) {
         setOpenNoteTabs([])
+        setOpenAssetTabs([])
       } else {
         void (async () => {
           try {
+            const noteKeys = nextOpenTabKeys.filter(k => tabKind(k) === 'note')
+            const assetKeys = nextOpenTabKeys.filter(k => tabKind(k) === 'asset')
+
             const idx = await loadNoteIndex(api, 'library')
-            const tabs = openIds
-              .map(id => {
-                const noteId = String(id || '').trim()
+            const noteTabs = noteKeys
+              .map(k => {
+                const noteId = noteIdFromTabKey(k)
                 if (!noteId) return null
                 return (idx.notes?.[noteId] as NoteMeta | undefined) || draftNoteMetaRef.current[noteId] || null
               })
               .filter(Boolean) as NoteMeta[]
+
+            const aidx = await ensureAssetsIndex(api, 'library').catch(() => ({ version: 1, assets: {} } as any))
+            const assetTabs = assetKeys
+              .map(k => {
+                const refKey = assetRefKeyFromTabKey(k)
+                const parsed = parseAssetRefKey(refKey)
+                if (!parsed) return null
+                const entry = (aidx as any)?.assets?.[refKey]
+                const relPath = String(entry?.path || '').trim()
+                if (!relPath) return null
+                const ext = parsed.ext || ''
+                const mime = mimeFromExt(ext)
+                const kind0 = String(entry?.kind || '').trim()
+                const kind = kind0 || (mime ? kindFromMime(mime) : 'document')
+                return {
+                  relPath,
+                  fileName: refKey,
+                  displayName: String(entry?.displayName || '').trim() || undefined,
+                  assetId: parsed.assetId,
+                  ext,
+                  kind: kind || 'document',
+                  size: Number(entry?.size || 0) || 0,
+                  modifiedMs: Number(entry?.modifiedMs || 0) || 0,
+                } as AssetEntry
+              })
+              .filter(Boolean) as AssetEntry[]
+
             if (workspaceSwitchSeqRef.current !== seq) return
-            setOpenNoteTabs(tabs)
+            setOpenNoteTabs(noteTabs)
+            setOpenAssetTabs(assetTabs)
           } catch {
             if (workspaceSwitchSeqRef.current !== seq) return
             setOpenNoteTabs([])
+            setOpenAssetTabs([])
           }
         })()
       }
 
-      const currentActiveId = String(activeNoteId || '').trim()
-      if (currentActiveId && !openIds.includes(currentActiveId)) {
-        setActiveNoteId('')
-        if (page === 'note-detail') navigatePage('home')
+      if (page === 'note-detail' || page === 'asset-detail') {
+        if (preferredActiveKey && nextOpenTabKeys.includes(preferredActiveKey)) {
+          const targetPage = tabKind(preferredActiveKey) === 'asset' ? 'asset-detail' : 'note-detail'
+          if (page !== targetPage) navigatePage(targetPage, { recordHistory: false })
+        } else {
+          navigatePage(page === 'note-detail' ? 'home' : 'attachments', { recordHistory: false })
+        }
       }
     },
-    [activeNoteId, api, navigatePage, page],
+    [api, navigatePage, page],
   )
 
   const handleSwitchWorkspace = React.useCallback(
@@ -648,8 +830,11 @@ export function HyperCortexApp() {
         void persistMetadataPatch({
           activeWorkspaceId: wid,
           openNoteIds: ws.openNoteIds,
+          openTabKeys: ws.openTabKeys,
+          activeTabKey: ws.activeTabKey,
           tabGroups: ws.tabGroups,
           tabGroupByNoteId: ws.tabGroupByNoteId,
+          tabGroupByTabKey: ws.tabGroupByTabKey,
         }).catch(() => {})
       }
     },
@@ -666,6 +851,9 @@ export function HyperCortexApp() {
         openNoteIds: [],
         tabGroups: [],
         tabGroupByNoteId: {},
+        openTabKeys: [],
+        tabGroupByTabKey: {},
+        activeTabKey: '',
       }
       const nextWorkspaces = [...workspaces, nextWs]
 
@@ -737,57 +925,57 @@ export function HyperCortexApp() {
   }, [updateTabGrouping])
 
   const handleAssignTabToGroup = React.useCallback(
-    (noteId: string, groupId: string) => {
-      const nid = String(noteId || '').trim()
+    (tabKey: string, groupId: string) => {
+      const nid = String(tabKey || '').trim()
       const gid = String(groupId || '').trim()
       if (!nid || !gid) return
       updateTabGrouping(prev => {
         if (!prev.groups.some(g => g.id === gid)) return prev
-        return { ...prev, byNoteId: { ...prev.byNoteId, [nid]: gid } }
+        return { ...prev, byTabKey: { ...prev.byTabKey, [nid]: gid } }
       })
     },
     [updateTabGrouping],
   )
 
   const handleUnassignTabFromGroup = React.useCallback(
-    (noteId: string) => {
-      const nid = String(noteId || '').trim()
+    (tabKey: string) => {
+      const nid = String(tabKey || '').trim()
       if (!nid) return
       updateTabGrouping(prev => {
-        if (!prev.byNoteId[nid]) return prev
-        const nextByNoteId = { ...prev.byNoteId }
-        delete nextByNoteId[nid]
-        return { ...prev, byNoteId: nextByNoteId }
+        if (!prev.byTabKey[nid]) return prev
+        const nextByTabKey = { ...prev.byTabKey }
+        delete nextByTabKey[nid]
+        return { ...prev, byTabKey: nextByTabKey }
       })
     },
     [updateTabGrouping],
   )
 
   const handleReorderOpenTabs = React.useCallback(
-    (nextOpenNoteIds: string[]) => {
-      const ids = Array.isArray(nextOpenNoteIds) ? nextOpenNoteIds : []
-      setOpenNoteTabs(prev => {
+    (nextOpenTabKeys: string[]) => {
+      const ids = Array.isArray(nextOpenTabKeys) ? nextOpenTabKeys : []
+      setOpenTabKeys(prev => {
         if (prev.length <= 1) return prev
-        const byId = new Map(prev.map(t => [t.id, t]))
+        const existed = new Set(prev)
         const seen = new Set<string>()
-        const next: NoteMeta[] = []
+        const next: string[] = []
 
         for (const raw of ids) {
-          const id = typeof raw === 'string' ? raw.trim() : ''
-          if (!id || seen.has(id)) continue
-          const meta = byId.get(id)
-          if (!meta) continue
-          seen.add(id)
-          next.push(meta)
-        }
-        for (const meta of prev) {
-          if (seen.has(meta.id)) continue
-          seen.add(meta.id)
-          next.push(meta)
+          const key = typeof raw === 'string' ? raw.trim() : ''
+          if (!key || seen.has(key)) continue
+          if (!existed.has(key)) continue
+          seen.add(key)
+          next.push(key)
         }
 
-        if (next.length === prev.length && next.every((t, i) => t.id === prev[i]?.id)) return prev
-        commitActiveWorkspacePatch({ openNoteIds: next.map(t => t.id) })
+        for (const key of prev) {
+          if (seen.has(key)) continue
+          seen.add(key)
+          next.push(key)
+        }
+
+        if (next.length === prev.length && next.every((k, i) => k === prev[i])) return prev
+        commitActiveWorkspacePatch({ openTabKeys: next })
         return next
       })
     },
@@ -869,12 +1057,12 @@ export function HyperCortexApp() {
       if (!gid) return
       updateTabGrouping(prev => {
         const nextGroups = prev.groups.filter(g => g.id !== gid)
-        const nextByNoteId: Record<string, string> = {}
-        for (const [noteId, mapped] of Object.entries(prev.byNoteId)) {
+        const nextByTabKey: Record<string, string> = {}
+        for (const [tabKey, mapped] of Object.entries(prev.byTabKey)) {
           if (mapped === gid) continue
-          nextByNoteId[noteId] = mapped
+          nextByTabKey[tabKey] = mapped
         }
-        return { groups: nextGroups, byNoteId: nextByNoteId }
+        return { groups: nextGroups, byTabKey: nextByTabKey }
       })
     },
     [updateTabGrouping],
@@ -904,7 +1092,9 @@ export function HyperCortexApp() {
         setTabsCollapsed(normalizeBoolean(meta.tabsCollapsed))
         setTabsMode(normalizeTabsMode(meta.tabsMode))
         const activeId = typeof meta.activeNoteId === 'string' ? meta.activeNoteId.trim() : ''
-        restoreActiveNoteIdRef.current = activeId
+        const activeKey0 = typeof (meta as any).activeTabKey === 'string' ? String((meta as any).activeTabKey || '').trim() : ''
+        const activeKey = activeKey0 || (activeId ? noteTabKey(activeId) : '')
+        restoreActiveTabKeyRef.current = activeKey
 
         let nextWorkspaces = normalizeWorkspaces(meta.workspaces, {
           openNoteIds: meta.openNoteIds,
@@ -915,36 +1105,46 @@ export function HyperCortexApp() {
         let activeWs = nextWorkspaces.find(w => w.id === nextActiveWorkspaceId) || nextWorkspaces[0]
 
         let didMutateActiveWorkspace = false
-        if (activeWs && activeId && !activeWs.openNoteIds.includes(activeId)) {
-          const nextOpenIds = [...activeWs.openNoteIds, activeId]
-          nextWorkspaces = updateWorkspaceById(nextWorkspaces, nextActiveWorkspaceId, ws => ({ ...ws, openNoteIds: nextOpenIds }))
-          activeWs = { ...activeWs, openNoteIds: nextOpenIds }
-          didMutateActiveWorkspace = true
+        if (activeWs && activeKey) {
+          const openKeys = Array.isArray(activeWs.openTabKeys) ? (activeWs.openTabKeys as string[]) : activeWs.openNoteIds.map(id => noteTabKey(id))
+          if (!openKeys.includes(activeKey)) {
+            const nextOpenKeys = [...openKeys, activeKey]
+            const nextOpenNoteIds: string[] = []
+            for (const k of nextOpenKeys) {
+              if (tabKind(k) !== 'note') continue
+              const nid = noteIdFromTabKey(k)
+              if (!nid) continue
+              if (nextOpenNoteIds.includes(nid)) continue
+              nextOpenNoteIds.push(nid)
+            }
+            nextWorkspaces = updateWorkspaceById(nextWorkspaces, nextActiveWorkspaceId, ws => ({ ...ws, openTabKeys: nextOpenKeys, openNoteIds: nextOpenNoteIds, activeTabKey: activeKey }))
+            activeWs = { ...activeWs, openTabKeys: nextOpenKeys, openNoteIds: nextOpenNoteIds, activeTabKey: activeKey }
+            didMutateActiveWorkspace = true
+          }
         }
 
         activeWorkspaceIdRef.current = nextActiveWorkspaceId
         setWorkspaces(nextWorkspaces)
         setActiveWorkspaceId(nextActiveWorkspaceId)
-        setTabGrouping({ groups: activeWs.tabGroups, byNoteId: activeWs.tabGroupByNoteId })
+        if (activeWs) applyWorkspaceSidebarState(activeWs)
 
-        const openIds = activeWs.openNoteIds
-        if (openIds.length) {
-          try {
-            const idx = await ensureNoteIndexLoaded()
-            const tabs = openIds.map(id => idx.notes?.[id]).filter(Boolean) as NoteMeta[]
-            setOpenNoteTabs(tabs)
-          } catch {
-          }
-        }
-
-        const shouldMigrateWorkspaces = !Array.isArray(meta.workspaces) || meta.activeWorkspaceId !== nextActiveWorkspaceId || didMutateActiveWorkspace
+        const shouldMigrateWorkspaces =
+          !Array.isArray(meta.workspaces) ||
+          meta.activeWorkspaceId !== nextActiveWorkspaceId ||
+          didMutateActiveWorkspace ||
+          !Array.isArray((meta as any).openTabKeys) ||
+          !(meta as any).tabGroupByTabKey
         if (shouldMigrateWorkspaces) {
+          const openKeys = (activeWs as any)?.openTabKeys || []
           void persistMetadataPatch({
             workspaces: nextWorkspaces,
             activeWorkspaceId: nextActiveWorkspaceId,
-            openNoteIds: openIds,
+            openNoteIds: activeWs.openNoteIds,
+            openTabKeys: openKeys,
+            activeTabKey: (activeWs as any)?.activeTabKey || '',
             tabGroups: activeWs.tabGroups,
             tabGroupByNoteId: activeWs.tabGroupByNoteId,
+            tabGroupByTabKey: (activeWs as any)?.tabGroupByTabKey || {},
           }).catch(() => {})
         }
       } catch {
@@ -963,6 +1163,7 @@ export function HyperCortexApp() {
   const handleCreateDraftNote = React.useCallback(() => {
     const now = Date.now()
     const draftId = `draft_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+    const draftKey = noteTabKey(draftId)
     const meta: NoteMeta = {
       id: draftId,
       title: '未命名',
@@ -988,12 +1189,16 @@ export function HyperCortexApp() {
     }
 
     setOpenNoteTabs(prev => {
-      const next = [...prev, meta]
-      commitActiveWorkspacePatch({ openNoteIds: next.map(t => t.id) })
-      return next
+      return [...prev, meta]
     })
 
     setActiveNoteId(draftId)
+    setActiveTabKey(draftKey)
+    setOpenTabKeys(prev => {
+      const next = [...prev, draftKey]
+      commitActiveWorkspacePatch({ openTabKeys: next, activeTabKey: draftKey })
+      return next
+    })
     navigatePage('note-detail')
   }, [commitActiveWorkspacePatch, navigatePage])
 
@@ -1038,12 +1243,18 @@ export function HyperCortexApp() {
       }
 
       if (shouldTriggerShortcut(e, bindings.closeActiveTab)) {
-        if (pageRef.current !== 'note-detail') return
-        const nid = String(activeNoteIdRef.current || '').trim()
-        if (!nid) return
+        if (pageRef.current !== 'note-detail' && pageRef.current !== 'asset-detail') return
+        const key = String(activeTabKeyRef.current || '').trim()
+        if (!key) return
         e.preventDefault()
         e.stopPropagation()
-        requestCloseTabRef.current(nid)
+        if (tabKind(key) === 'note') {
+          const nid = noteIdFromTabKey(key)
+          if (!nid) return
+          requestCloseTabRef.current(nid)
+        } else {
+          closeTabKeysDirectRef.current([key])
+        }
         return
       }
 
@@ -1099,17 +1310,23 @@ export function HyperCortexApp() {
     (note: NoteMeta) => {
       const nid = String(note?.id || '').trim()
       if (!nid) return
-      const prevActiveId = String(activeNoteIdRef.current || '').trim()
-      if (pageRef.current === 'note-detail' && prevActiveId && prevActiveId !== nid) {
-        pushNavHistory({ kind: 'note', noteId: prevActiveId })
+      const nextKey = noteTabKey(nid)
+      const prevActiveKey = String(activeTabKeyRef.current || '').trim()
+      if ((pageRef.current === 'note-detail' || pageRef.current === 'asset-detail') && prevActiveKey && prevActiveKey !== nextKey) {
+        pushNavHistory({ kind: 'tab', tabKey: prevActiveKey })
       }
       setOpenNoteTabs(prev => {
-        const next = prev.some(t => t.id === nid) ? prev : [...prev, note]
-        commitActiveWorkspacePatch({ openNoteIds: next.map(t => t.id) })
-        if (metaReady && !isDraftNoteId(nid)) void persistMetadataPatch({ activeNoteId: nid }).catch(() => {})
-        return next
+        return prev.some(t => t.id === nid) ? prev : [...prev, note]
       })
       setActiveNoteId(nid)
+      setActiveTabKey(nextKey)
+      setOpenTabKeys(prev => {
+        const next = prev.includes(nextKey) ? prev : [...prev, nextKey]
+        commitActiveWorkspacePatch({ openTabKeys: next, activeTabKey: nextKey })
+        return next
+      })
+      if (metaReady && !isDraftNoteId(nid)) void persistMetadataPatch({ activeNoteId: nid, activeTabKey: nextKey }).catch(() => {})
+      else if (metaReady) void persistMetadataPatch({ activeTabKey: nextKey }).catch(() => {})
       navigatePage('note-detail')
     },
     [commitActiveWorkspacePatch, metaReady, navigatePage, persistMetadataPatch, pushNavHistory],
@@ -1118,7 +1335,11 @@ export function HyperCortexApp() {
   const handleOpenAssetTab = React.useCallback(
     (asset: AssetEntry) => {
       const sanitized: AssetEntry = { ...asset, thumbnailUrl: undefined }
-      const tabKey = assetTabId(sanitized)
+      const tabKey = assetTabId(sanitized) as TabKey
+      const prevActiveKey = String(activeTabKeyRef.current || '').trim()
+      if ((pageRef.current === 'note-detail' || pageRef.current === 'asset-detail') && prevActiveKey && prevActiveKey !== tabKey) {
+        pushNavHistory({ kind: 'tab', tabKey: prevActiveKey })
+      }
       setOpenAssetTabs(prev => {
         const idx = prev.findIndex(a => assetTabId(a) === tabKey)
         if (idx >= 0) {
@@ -1128,103 +1349,131 @@ export function HyperCortexApp() {
         }
         return [...prev, sanitized]
       })
-      setActiveAssetTabKey(tabKey)
+      setActiveTabKey(tabKey)
+      setActiveNoteId('')
+      setOpenTabKeys(prev => {
+        const next = prev.includes(tabKey) ? prev : [...prev, tabKey]
+        commitActiveWorkspacePatch({ openTabKeys: next, activeTabKey: tabKey })
+        return next
+      })
+      if (metaReady) void persistMetadataPatch({ activeTabKey: tabKey }).catch(() => {})
       navigatePage('asset-detail')
     },
-    [navigatePage],
+    [commitActiveWorkspacePatch, metaReady, navigatePage, persistMetadataPatch, pushNavHistory],
   )
+
+  const activateExistingTabKey = React.useCallback(
+    (tabKey: string, opts?: { recordHistory?: boolean }) => {
+      const key = String(tabKey || '').trim()
+      if (!key) return false
+      if (!openTabKeysRef.current.includes(key)) return false
+
+      const kind = tabKind(key)
+      if (kind === 'note') {
+        const nid = noteIdFromTabKey(key)
+        if (!nid) return false
+        setActiveTabKey(key)
+        setActiveNoteId(nid)
+        commitActiveWorkspacePatch({ activeTabKey: key })
+        if (metaReady && !isDraftNoteId(nid)) void persistMetadataPatch({ activeNoteId: nid, activeTabKey: key }).catch(() => {})
+        else if (metaReady) void persistMetadataPatch({ activeTabKey: key }).catch(() => {})
+        navigatePage('note-detail', opts)
+        return true
+      }
+
+      if (kind === 'asset') {
+        setActiveTabKey(key)
+        setActiveNoteId('')
+        commitActiveWorkspacePatch({ activeTabKey: key })
+        if (metaReady) void persistMetadataPatch({ activeTabKey: key }).catch(() => {})
+        navigatePage('asset-detail', opts)
+        return true
+      }
+
+      return false
+    },
+    [commitActiveWorkspacePatch, metaReady, navigatePage, persistMetadataPatch],
+  )
+
+  const closeTabKeysDirect = React.useCallback(
+    (tabKeys: string[]) => {
+      const closing = new Set(tabKeys.map(s => String(s || '').trim()).filter(Boolean))
+      if (!closing.size) return
+
+      const prevKeys = openTabKeysRef.current || []
+      const nextKeys = prevKeys.filter(k => !closing.has(k))
+      const currentActive = String(activeTabKeyRef.current || '').trim()
+
+      for (const key of closing) {
+        if (tabKind(key) !== 'note') continue
+        const nid = noteIdFromTabKey(key)
+        if (!nid) continue
+        if (isDraftNoteId(nid)) {
+          delete draftNoteMetaRef.current[nid]
+          delete noteInitSnapshotsRef.current[nid]
+        }
+        delete noteSessionHandlesRef.current[nid]
+        delete noteInitSnapshotsRef.current[nid]
+        delete noteScrollTopByIdRef.current[nid]
+      }
+
+      let nextActive = currentActive
+      const didCloseActive = currentActive && closing.has(currentActive)
+      if (didCloseActive) {
+        const prevIdx = prevKeys.indexOf(currentActive)
+        nextActive = nextKeys[prevIdx] || nextKeys[prevIdx - 1] || ''
+      }
+
+      setOpenTabKeys(nextKeys as any)
+      commitActiveWorkspacePatch({ openTabKeys: nextKeys, activeTabKey: nextActive })
+
+      setOpenNoteTabs(prev => prev.filter(n => !closing.has(noteTabKey(n.id))))
+      setOpenAssetTabs(prev => prev.filter(a => !closing.has(assetTabId(a))))
+
+      setActiveTabKey(nextActive as any)
+
+      if (!didCloseActive) return
+
+      if (!nextActive) {
+        setActiveNoteId('')
+        if (pageRef.current === 'note-detail') navigatePage('home', { recordHistory: false })
+        if (pageRef.current === 'asset-detail') navigatePage('attachments', { recordHistory: false })
+        if (metaReady) void persistMetadataPatch({ activeTabKey: '' }).catch(() => {})
+        return
+      }
+
+      activateExistingTabKey(nextActive, { recordHistory: false })
+    },
+    [activateExistingTabKey, commitActiveWorkspacePatch, metaReady, navigatePage, persistMetadataPatch],
+  )
+
+  React.useEffect(() => {
+    closeTabKeysDirectRef.current = closeTabKeysDirect
+  }, [closeTabKeysDirect])
 
   const handleCloseAssetTab = React.useCallback(
     (tabKey: string) => {
       const closingKey = String(tabKey || '').trim()
       if (!closingKey) return
-
-      let nextActiveKey = ''
-      let didCloseActive = false
-      setOpenAssetTabs(prev => {
-        const currentActive = String(activeAssetTabKeyRef.current || '').trim()
-        didCloseActive = currentActive === closingKey
-
-        const idx = prev.findIndex(a => assetTabId(a) === closingKey)
-        if (idx < 0) return prev
-
-        const next = prev.filter(a => assetTabId(a) !== closingKey)
-        if (didCloseActive && next.length) {
-          const fallbackIdx = Math.min(idx, next.length - 1)
-          nextActiveKey = assetTabId(next[fallbackIdx])
-        }
-        return next
-      })
-
-      if (!didCloseActive) return
-      setActiveAssetTabKey(nextActiveKey)
-      if (!nextActiveKey && pageRef.current === 'asset-detail') navigatePage('attachments')
+      closeTabKeysDirect([closingKey])
     },
-    [navigatePage],
+    [closeTabKeysDirect],
   )
 
   React.useEffect(() => {
     if (!metaReady || !tabsInitReady) return
-    const targetId = restoreActiveNoteIdRef.current
-    if (!targetId) return
-    const meta = openNoteTabs.find(t => t.id === targetId)
-    restoreActiveNoteIdRef.current = ''
-    if (meta) handleOpenNote(meta)
-  }, [handleOpenNote, metaReady, openNoteTabs, tabsInitReady])
+    const targetKey = restoreActiveTabKeyRef.current
+    if (!targetKey) return
+    restoreActiveTabKeyRef.current = ''
+    void activateExistingTabKey(targetKey, { recordHistory: false })
+  }, [activateExistingTabKey, metaReady, tabsInitReady])
 
   const handleCloseTabs = React.useCallback(
     (noteIds: string[]) => {
-      const closing = new Set(noteIds.map(s => String(s || '').trim()).filter(Boolean))
-      if (!closing.size) return
-      setOpenNoteTabs(prev => {
-        const hasAny = prev.some(t => closing.has(t.id))
-        if (!hasAny) return prev
-        for (const id of closing) {
-          if (!isDraftNoteId(id)) continue
-          delete draftNoteMetaRef.current[id]
-          delete noteInitSnapshotsRef.current[id]
-        }
-        for (const id of closing) {
-          delete noteSessionHandlesRef.current[id]
-          delete noteInitSnapshotsRef.current[id]
-          delete noteScrollTopByIdRef.current[id]
-        }
-        const next = prev.filter(t => !closing.has(t.id))
-
-        const currentActiveId = String(activeNoteId || '').trim()
-        const closingActive = !!currentActiveId && closing.has(currentActiveId)
-        let fallback: NoteMeta | null = null
-        if (closingActive) {
-          const activeIdx = prev.findIndex(t => t.id === currentActiveId)
-          for (let i = activeIdx + 1; i < prev.length; i++) {
-            const t = prev[i]
-            if (!closing.has(t.id)) {
-              fallback = t
-              break
-            }
-          }
-          if (!fallback) {
-            for (let i = activeIdx - 1; i >= 0; i--) {
-              const t = prev[i]
-              if (!closing.has(t.id)) {
-                fallback = t
-                break
-              }
-            }
-          }
-        }
-
-        const nextActiveId = closingActive ? fallback?.id : currentActiveId
-        commitActiveWorkspacePatch({ openNoteIds: next.map(t => t.id) })
-        if (metaReady && !isDraftNoteId(nextActiveId || '')) void persistMetadataPatch({ activeNoteId: nextActiveId }).catch(() => {})
-
-        if (!closingActive) return next
-        setActiveNoteId(nextActiveId || '')
-        if (page === 'note-detail') navigatePage(nextActiveId ? 'note-detail' : 'home')
-        return next
-      })
+      const keys = (Array.isArray(noteIds) ? noteIds : []).map(id => noteTabKey(String(id || '').trim())).filter(Boolean)
+      closeTabKeysDirect(keys)
     },
-    [activeNoteId, commitActiveWorkspacePatch, metaReady, navigatePage, page, persistMetadataPatch],
+    [closeTabKeysDirect],
   )
 
   const requestCloseTab = React.useCallback(
@@ -1247,11 +1496,11 @@ export function HyperCortexApp() {
     (groupId: string) => {
       const gid = String(groupId || '').trim()
       if (!gid) return
-      const idsToClose = openNoteTabs.filter(t => tabGrouping.byNoteId[t.id] === gid).map(t => t.id)
+      const keysToClose = (openTabKeysRef.current || []).filter(k => tabGrouping.byTabKey[k] === gid)
       handleDeleteGroupOnly(gid)
-      if (idsToClose.length) handleCloseTabs(idsToClose)
+      if (keysToClose.length) closeTabKeysDirect(keysToClose)
     },
-    [handleCloseTabs, handleDeleteGroupOnly, openNoteTabs, tabGrouping.byNoteId],
+    [closeTabKeysDirect, handleDeleteGroupOnly, tabGrouping.byTabKey],
   )
 
   const handleNoteSessionSaved = React.useCallback((payload: {
@@ -1266,6 +1515,8 @@ export function HyperCortexApp() {
 
     const didMigrateId = meta.id !== originalId
     if (didMigrateId && payload.snapshotForNewId) {
+      const oldKey = noteTabKey(originalId)
+      const newKey = noteTabKey(meta.id)
       noteInitSnapshotsRef.current[meta.id] = payload.snapshotForNewId
       delete draftNoteMetaRef.current[originalId]
       delete noteSessionHandlesRef.current[originalId]
@@ -1275,14 +1526,29 @@ export function HyperCortexApp() {
         delete noteScrollTopByIdRef.current[originalId]
       }
       updateTabGrouping(prev => {
-        const gid = prev.byNoteId[originalId]
+        const gid = prev.byTabKey[oldKey]
         if (!gid) return prev
-        const byNoteId = { ...prev.byNoteId }
-        byNoteId[meta.id] = gid
-        delete byNoteId[originalId]
-        return { ...prev, byNoteId }
+        const byTabKey = { ...prev.byTabKey }
+        byTabKey[newKey] = gid
+        delete byTabKey[oldKey]
+        return { ...prev, byTabKey }
       })
       setCloseTabPrompt(p => (p?.noteId === originalId ? { noteId: meta.id } : p))
+
+      setOpenTabKeys(prev => {
+        const next = prev.map(k => (k === oldKey ? newKey : k))
+        const deduped: string[] = []
+        for (const k of next) {
+          const s = String(k || '').trim()
+          if (!s) continue
+          if (deduped.includes(s)) continue
+          deduped.push(s)
+        }
+        const nextActive = String(activeTabKeyRef.current || '').trim() === oldKey ? newKey : String(activeTabKeyRef.current || '').trim()
+        commitActiveWorkspacePatch({ openTabKeys: deduped, activeTabKey: nextActive })
+        if (String(activeTabKeyRef.current || '').trim() === oldKey) setActiveTabKey(newKey)
+        return deduped as any
+      })
     }
 
     setNoteIndex(prev => {
@@ -1319,12 +1585,11 @@ export function HyperCortexApp() {
         seen.add(t.id)
         next.push(t)
       }
-      commitActiveWorkspacePatch({ openNoteIds: next.map(t => t.id) })
       return next
     })
 
     if (activeNoteId === originalId) setActiveNoteId(meta.id)
-    if (metaReady && activeNoteId === originalId && !isDraftNoteId(meta.id)) void persistMetadataPatch({ activeNoteId: meta.id }).catch(() => {})
+    if (metaReady && activeNoteId === originalId && !isDraftNoteId(meta.id)) void persistMetadataPatch({ activeNoteId: meta.id, activeTabKey: noteTabKey(meta.id) }).catch(() => {})
   }, [activeNoteId, commitActiveWorkspacePatch, metaReady, persistMetadataPatch, updateTabGrouping])
 
   const closeTabPromptTargetSaving = !!closeTabPrompt && isNoteSavingById(closeTabPrompt.noteId)
@@ -1343,9 +1608,11 @@ export function HyperCortexApp() {
     if (!nid) return
     setCloseTabPrompt(null)
     setActiveNoteId(nid)
+    setActiveTabKey(noteTabKey(nid))
+    commitActiveWorkspacePatch({ activeTabKey: noteTabKey(nid) })
     navigatePage('note-detail')
     noteSessionHandlesRef.current[nid]?.enterEditMode?.()
-  }, [closeTabPrompt?.noteId, navigatePage])
+  }, [closeTabPrompt?.noteId, commitActiveWorkspacePatch, navigatePage])
 
   const handleCloseTabPromptDiscardAndClose = React.useCallback(() => {
     const nid = String(closeTabPrompt?.noteId || '').trim()
@@ -1484,15 +1751,15 @@ export function HyperCortexApp() {
                 panelWidth={sidebarPanelWidth}
                 tabsMode={tabsMode}
                 tabsCollapsed={tabsCollapsed}
+                openTabKeys={openTabKeys}
+                activeTabKey={activeTabKey}
                 openNoteTabs={openNoteTabs}
-                activeNoteId={page === 'note-detail' ? activeNoteId : ''}
                 openAssetTabs={openAssetTabs}
-                activeAssetTabKey={page === 'asset-detail' ? activeAssetTabKey : ''}
                 isNoteDirty={isNoteDirtyById}
                 workspaces={workspaces.map(w => ({ id: w.id, title: w.title }))}
                 activeWorkspaceId={activeWorkspaceId}
                 tabGroups={tabGrouping.groups}
-                tabGroupByNoteId={tabGrouping.byNoteId}
+                tabGroupByTabKey={tabGrouping.byTabKey}
                 onToggleTabsCollapsed={toggleTabsCollapsed}
                 onToggleTabsMode={toggleTabsMode}
                 onCreateDraftNote={handleCreateDraftNote}
@@ -1839,7 +2106,7 @@ export function HyperCortexApp() {
                       api={api}
                       scope="library"
                       asset={asset}
-                      visible={page === 'asset-detail' && assetTabId(asset) === activeAssetTabKey}
+                      visible={page === 'asset-detail' && assetTabId(asset) === activeTabKey}
                     />
                   ))
                 )}

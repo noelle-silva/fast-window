@@ -5,7 +5,7 @@ type DropPos = 'before' | 'after'
 
 type DndHit =
   | { type: 'container'; el: HTMLElement }
-  | { type: 'tab'; el: HTMLElement; noteId: string }
+  | { type: 'tab'; el: HTMLElement; tabKey: string }
   | { type: 'group'; el: HTMLElement; groupId: string }
 
 function getDropPosFromY(clientY: number, el: HTMLElement): DropPos {
@@ -26,21 +26,21 @@ function moveId(list: string[], movingId: string, anchorId: string, pos: DropPos
 }
 
 function moveGroupBlock(
-  openIds: string[],
+  openKeys: string[],
   movingGroupId: string,
-  anchor: { kind: 'tab'; noteId: string } | { kind: 'group'; groupId: string },
+  anchor: { kind: 'tab'; tabKey: string } | { kind: 'group'; groupId: string },
   pos: DropPos,
-  byNoteId: Record<string, string>,
+  byTabKey: Record<string, string>,
 ): string[] {
   const gid = String(movingGroupId || '').trim()
-  if (!gid) return openIds
-  const block = openIds.filter(id => String(byNoteId[id] || '').trim() === gid)
-  if (!block.length) return openIds
-  const remaining = openIds.filter(id => String(byNoteId[id] || '').trim() !== gid)
+  if (!gid) return openKeys
+  const block = openKeys.filter(key => String(byTabKey[key] || '').trim() === gid)
+  if (!block.length) return openKeys
+  const remaining = openKeys.filter(key => String(byTabKey[key] || '').trim() !== gid)
 
   let insertIdx = remaining.length
   if (anchor.kind === 'tab') {
-    const idx = remaining.indexOf(anchor.noteId)
+    const idx = remaining.indexOf(anchor.tabKey)
     if (idx >= 0) insertIdx = pos === 'before' ? idx : idx + 1
   } else {
     const anchorGid = String(anchor.groupId || '').trim()
@@ -48,8 +48,8 @@ function moveGroupBlock(
       let firstIdx = -1
       let lastIdx = -1
       for (let i = 0; i < remaining.length; i++) {
-        const id = remaining[i]
-        if (String(byNoteId[id] || '').trim() !== anchorGid) continue
+        const key = remaining[i]
+        if (String(byTabKey[key] || '').trim() !== anchorGid) continue
         if (firstIdx < 0) firstIdx = i
         lastIdx = i
       }
@@ -62,8 +62,8 @@ function moveGroupBlock(
 
 function pickDndHit(el: Element | null): DndHit | null {
   if (!el) return null
-  const tabEl = (el as any).closest?.('[data-hc-dnd-tab-id]') as HTMLElement | null
-  if (tabEl) return { type: 'tab', el: tabEl, noteId: String(tabEl.getAttribute('data-hc-dnd-tab-id') || '').trim() }
+  const tabEl = (el as any).closest?.('[data-hc-dnd-tab-key]') as HTMLElement | null
+  if (tabEl) return { type: 'tab', el: tabEl, tabKey: String(tabEl.getAttribute('data-hc-dnd-tab-key') || '').trim() }
   const groupEl = (el as any).closest?.('[data-hc-dnd-group-id]') as HTMLElement | null
   if (groupEl) return { type: 'group', el: groupEl, groupId: String(groupEl.getAttribute('data-hc-dnd-group-id') || '').trim() }
   const containerEl = (el as any).closest?.('[data-hc-dnd-container]') as HTMLElement | null
@@ -80,21 +80,21 @@ function isNoDragTarget(t: EventTarget | null): boolean {
 }
 
 export type OpenTabsPointerDndOptions = {
-  openNoteIds: string[]
+  openTabKeys: string[]
   tabGroups: HyperCortexTabGroupV1[]
-  tabGroupByNoteId: Record<string, string>
+  tabGroupByTabKey: Record<string, string>
   isValidGroupId: (groupId: string) => boolean
-  onAssignTabToGroup: (noteId: string, groupId: string) => void
-  onUnassignTabFromGroup: (noteId: string) => void
-  onReorderOpenTabs: (nextOpenNoteIds: string[]) => void
+  onAssignTabToGroup: (tabKey: string, groupId: string) => void
+  onUnassignTabFromGroup: (tabKey: string) => void
+  onReorderOpenTabs: (nextOpenTabKeys: string[]) => void
   onReorderTabGroups: (nextGroupIds: string[]) => void
 }
 
 export function useOpenTabsPointerDnd(opts: OpenTabsPointerDndOptions) {
   const {
-    openNoteIds,
+    openTabKeys,
     tabGroups,
-    tabGroupByNoteId,
+    tabGroupByTabKey,
     isValidGroupId,
     onAssignTabToGroup,
     onUnassignTabFromGroup,
@@ -141,7 +141,7 @@ export function useOpenTabsPointerDnd(opts: OpenTabsPointerDndOptions) {
       const setOverFromHit = (hit: DndHit | null) => {
         if (!hit) return setDragOverKey('')
         if (hit.type === 'container') return setDragOverKey('container')
-        if (hit.type === 'tab') return setDragOverKey(`tab_${hit.noteId}`)
+        if (hit.type === 'tab') return setDragOverKey(`tab_${hit.tabKey}`)
         return setDragOverKey(`group_${hit.groupId}`)
       }
 
@@ -149,41 +149,41 @@ export function useOpenTabsPointerDnd(opts: OpenTabsPointerDndOptions) {
         if (!hit) return
 
         if (kind === 'tab') {
-          const noteId = dragId
-          if (hit.type === 'container') return onUnassignTabFromGroup(noteId)
+          const tabKey = dragId
+          if (hit.type === 'container') return onUnassignTabFromGroup(tabKey)
 
           if (hit.type === 'group') {
             const gid = String(hit.groupId || '').trim()
             if (!gid || !isValidGroupId(gid)) return
-            onAssignTabToGroup(noteId, gid)
+            onAssignTabToGroup(tabKey, gid)
 
-            const tempByNoteId = { ...tabGroupByNoteId, [noteId]: gid }
-            const others = openNoteIds.filter(x => x !== noteId && String(tempByNoteId[x] || '').trim() === gid)
+            const tempByTabKey = { ...tabGroupByTabKey, [tabKey]: gid }
+            const others = openTabKeys.filter(x => x !== tabKey && String(tempByTabKey[x] || '').trim() === gid)
             const last = others[others.length - 1] || ''
-            if (last) onReorderOpenTabs(moveId(openNoteIds, noteId, last, 'after'))
+            if (last) onReorderOpenTabs(moveId(openTabKeys, tabKey, last, 'after'))
             return
           }
 
           if (hit.type === 'tab') {
-            const targetNoteId = hit.noteId
-            if (!targetNoteId || targetNoteId === noteId) return
+            const targetTabKey = hit.tabKey
+            if (!targetTabKey || targetTabKey === tabKey) return
             const pos = getDropPosFromY(clientY, hit.el)
-            onReorderOpenTabs(moveId(openNoteIds, noteId, targetNoteId, pos))
+            onReorderOpenTabs(moveId(openTabKeys, tabKey, targetTabKey, pos))
 
-            const targetMapped = String(tabGroupByNoteId[targetNoteId] || '').trim()
-            if (targetMapped && isValidGroupId(targetMapped)) onAssignTabToGroup(noteId, targetMapped)
-            else onUnassignTabFromGroup(noteId)
+            const targetMapped = String(tabGroupByTabKey[targetTabKey] || '').trim()
+            if (targetMapped && isValidGroupId(targetMapped)) onAssignTabToGroup(tabKey, targetMapped)
+            else onUnassignTabFromGroup(tabKey)
           }
           return
         }
 
         const movingGroupId = dragId
-        const movingHasTabs = openNoteIds.some(x => String(tabGroupByNoteId[x] || '').trim() === movingGroupId)
+        const movingHasTabs = openTabKeys.some(x => String(tabGroupByTabKey[x] || '').trim() === movingGroupId)
 
         if (hit.type === 'tab') {
           if (!movingHasTabs) return
           const pos = getDropPosFromY(clientY, hit.el)
-          onReorderOpenTabs(moveGroupBlock(openNoteIds, movingGroupId, { kind: 'tab', noteId: hit.noteId }, pos, tabGroupByNoteId))
+          onReorderOpenTabs(moveGroupBlock(openTabKeys, movingGroupId, { kind: 'tab', tabKey: hit.tabKey }, pos, tabGroupByTabKey))
           return
         }
 
@@ -192,10 +192,10 @@ export function useOpenTabsPointerDnd(opts: OpenTabsPointerDndOptions) {
         if (!targetGroupId || targetGroupId === movingGroupId) return
 
         const pos = getDropPosFromY(clientY, hit.el)
-        const targetHasTabs = openNoteIds.some(x => String(tabGroupByNoteId[x] || '').trim() === targetGroupId)
+        const targetHasTabs = openTabKeys.some(x => String(tabGroupByTabKey[x] || '').trim() === targetGroupId)
 
         if (movingHasTabs && targetHasTabs) {
-          onReorderOpenTabs(moveGroupBlock(openNoteIds, movingGroupId, { kind: 'group', groupId: targetGroupId }, pos, tabGroupByNoteId))
+          onReorderOpenTabs(moveGroupBlock(openTabKeys, movingGroupId, { kind: 'group', groupId: targetGroupId }, pos, tabGroupByTabKey))
           return
         }
 
@@ -206,8 +206,8 @@ export function useOpenTabsPointerDnd(opts: OpenTabsPointerDndOptions) {
         }
 
         if (movingHasTabs && !targetHasTabs) {
-          const block = openNoteIds.filter(x => String(tabGroupByNoteId[x] || '').trim() === movingGroupId)
-          const remaining = openNoteIds.filter(x => String(tabGroupByNoteId[x] || '').trim() !== movingGroupId)
+          const block = openTabKeys.filter(x => String(tabGroupByTabKey[x] || '').trim() === movingGroupId)
+          const remaining = openTabKeys.filter(x => String(tabGroupByTabKey[x] || '').trim() !== movingGroupId)
           onReorderOpenTabs([...remaining, ...block])
         }
       }
@@ -252,15 +252,15 @@ export function useOpenTabsPointerDnd(opts: OpenTabsPointerDndOptions) {
       window.addEventListener('pointerup', onUp, true)
       window.addEventListener('pointercancel', onUp, true)
     },
-    [cleanup, isValidGroupId, onAssignTabToGroup, onReorderOpenTabs, onReorderTabGroups, onUnassignTabFromGroup, openNoteIds, tabGroupByNoteId, tabGroups],
+    [cleanup, isValidGroupId, onAssignTabToGroup, onReorderOpenTabs, onReorderTabGroups, onUnassignTabFromGroup, openTabKeys, tabGroupByTabKey, tabGroups],
   )
 
   const containerProps = React.useMemo(() => ({ 'data-hc-dnd-container': '1' as const }), [])
 
   const getTabProps = React.useCallback(
-    (noteId: string) => ({
-      'data-hc-dnd-tab-id': noteId,
-      onPointerDown: (e: React.PointerEvent) => begin('tab', noteId, e),
+    (tabKey: string) => ({
+      'data-hc-dnd-tab-key': tabKey,
+      onPointerDown: (e: React.PointerEvent) => begin('tab', tabKey, e),
     }),
     [begin],
   )
@@ -275,4 +275,3 @@ export function useOpenTabsPointerDnd(opts: OpenTabsPointerDndOptions) {
 
   return { containerProps, getTabProps, getGroupProps, dragOverKey, draggingKey, suppressClickRef }
 }
-

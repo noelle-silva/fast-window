@@ -30,6 +30,7 @@ import type { HyperCortexTabGroupV1, NoteMeta } from '../core'
 import type { AssetEntry } from '../assetTypes'
 import { assetTabId } from '../assetTypes'
 import { pickAssetDisplayName } from '../assetDisplayName'
+import { noteIdFromTabKey, noteTabKey, tabKind } from '../tabKey'
 import { TAB_GROUP_PRESET_COLORS } from './tabGroups'
 import { useOpenTabsPointerDnd } from './useOpenTabsPointerDnd'
 
@@ -37,15 +38,15 @@ export type OpenTabsPanelProps = {
   panelWidth: number
   tabsMode: 'manual' | 'hover'
   tabsCollapsed: boolean
+  openTabKeys: string[]
+  activeTabKey?: string
   openNoteTabs: NoteMeta[]
-  activeNoteId?: string
   openAssetTabs?: AssetEntry[]
-  activeAssetTabKey?: string
   isNoteDirty?: (noteId: string) => boolean
   workspaces: { id: string; title: string }[]
   activeWorkspaceId: string
   tabGroups: HyperCortexTabGroupV1[]
-  tabGroupByNoteId: Record<string, string>
+  tabGroupByTabKey: Record<string, string>
   onToggleTabsCollapsed: () => void
   onToggleTabsMode: () => void
   onCreateDraftNote: () => void
@@ -59,14 +60,14 @@ export type OpenTabsPanelProps = {
   onCloseTab: (noteId: string) => void
   onOpenAssetTab?: (asset: AssetEntry) => void
   onCloseAssetTab?: (tabKey: string) => void
-  onAssignTabToGroup: (noteId: string, groupId: string) => void
-  onUnassignTabFromGroup: (noteId: string) => void
+  onAssignTabToGroup: (tabKey: string, groupId: string) => void
+  onUnassignTabFromGroup: (tabKey: string) => void
   onToggleGroupCollapsed: (groupId: string) => void
   onRenameGroup: (groupId: string, title: string) => void
   onSetGroupColor: (groupId: string, color: string) => void
   onDeleteGroupOnly: (groupId: string) => void
   onDeleteGroupAndCloseTabs: (groupId: string) => void
-  onReorderOpenTabs: (nextOpenNoteIds: string[]) => void
+  onReorderOpenTabs: (nextOpenTabKeys: string[]) => void
   onReorderTabGroups: (nextGroupIds: string[]) => void
 }
 
@@ -77,15 +78,15 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     panelWidth,
     tabsMode,
     tabsCollapsed,
+    openTabKeys,
+    activeTabKey,
     openNoteTabs,
-    activeNoteId,
     openAssetTabs,
-    activeAssetTabKey,
     isNoteDirty,
     workspaces,
     activeWorkspaceId,
     tabGroups,
-    tabGroupByNoteId,
+    tabGroupByTabKey,
     onToggleTabsCollapsed,
     onToggleTabsMode,
     onCreateDraftNote,
@@ -112,7 +113,24 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
 
   const showTitle = panelWidth > 52
   const disableTopTooltips = tabsMode === 'hover'
-  const openNoteIds = React.useMemo(() => openNoteTabs.map(t => t.id), [openNoteTabs])
+
+  const noteById = React.useMemo(() => {
+    const out: Record<string, NoteMeta> = {}
+    for (const n of openNoteTabs) out[n.id] = n
+    return out
+  }, [openNoteTabs])
+
+  const noteByTabKey = React.useMemo(() => {
+    const out: Record<string, NoteMeta> = {}
+    for (const n of openNoteTabs) out[noteTabKey(n.id)] = n
+    return out
+  }, [openNoteTabs])
+
+  const assetByTabKey = React.useMemo(() => {
+    const out: Record<string, AssetEntry> = {}
+    for (const a of openAssetTabs || []) out[assetTabId(a)] = a
+    return out
+  }, [openAssetTabs])
 
   const groupById = React.useMemo(() => {
     const out: Record<string, HyperCortexTabGroupV1> = {}
@@ -121,20 +139,20 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
   }, [tabGroups])
 
   const grouped = React.useMemo(() => {
-    const groupedTabs: Record<string, NoteMeta[]> = {}
-    for (const t of openNoteTabs) {
-      const gid = String(tabGroupByNoteId[t.id] || '').trim()
+    const groupedKeys: Record<string, string[]> = {}
+    for (const key of openTabKeys) {
+      const gid = String(tabGroupByTabKey[key] || '').trim()
       if (gid && groupById[gid]) {
-        ;(groupedTabs[gid] || (groupedTabs[gid] = [])).push(t)
+        ;(groupedKeys[gid] || (groupedKeys[gid] = [])).push(key)
       }
     }
-    return { groupedTabs }
-  }, [groupById, openNoteTabs, tabGroupByNoteId])
+    return { groupedKeys }
+  }, [groupById, openTabKeys, tabGroupByTabKey])
 
   const dnd = useOpenTabsPointerDnd({
-    openNoteIds,
+    openTabKeys,
     tabGroups,
-    tabGroupByNoteId,
+    tabGroupByTabKey,
     isValidGroupId: (groupId: string) => !!groupById[String(groupId || '').trim()],
     onAssignTabToGroup,
     onUnassignTabFromGroup,
@@ -169,17 +187,17 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     [groupById],
   )
 
-  const renderTabRow = React.useCallback(
-    (tab: NoteMeta) => {
-      const isActive = activeNoteId === tab.id
+  const renderNoteMetaRow = React.useCallback(
+    (tabKey: string, tab: NoteMeta) => {
+      const isActive = String(activeTabKey || '').trim() === tabKey
       const title = tab.title || '未命名'
       const dirty = !!isNoteDirty?.(tab.id)
-      const isDragOver = dnd.dragOverKey === `tab_${tab.id}`
-      const isDragging = dnd.draggingKey === `tab_${tab.id}`
+      const isDragOver = dnd.dragOverKey === `tab_${tabKey}`
+      const isDragging = dnd.draggingKey === `tab_${tabKey}`
       const disableTitleTooltip = tabsMode === 'hover'
       return (
         <Tooltip
-          key={tab.id}
+          key={tabKey}
           title={!showTitle && !disableTitleTooltip ? title : ''}
           placement="right"
           disableHoverListener={showTitle || disableTitleTooltip}
@@ -187,7 +205,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           disableTouchListener={disableTitleTooltip}
         >
           <Box
-            {...dnd.getTabProps(tab.id)}
+            {...dnd.getTabProps(tabKey)}
             role="button"
             tabIndex={0}
             data-tauri-drag-region="false"
@@ -274,16 +292,15 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         </Tooltip>
       )
     },
-    [activeNoteId, dnd, isNoteDirty, onCloseTab, onOpenTab, showTitle, tabsMode],
+    [activeTabKey, dnd, isNoteDirty, onCloseTab, onOpenTab, showTitle, tabsMode],
   )
 
-  const assetTabsList = openAssetTabs || []
-
-  const renderAssetTabRow = React.useCallback(
-    (asset: AssetEntry) => {
-      const tabKey = assetTabId(asset)
-      const isActive = String(activeAssetTabKey || '').trim() === tabKey
+  const renderAssetMetaRow = React.useCallback(
+    (tabKey: string, asset: AssetEntry) => {
+      const isActive = String(activeTabKey || '').trim() === tabKey
       const title = pickAssetDisplayName({ indexName: asset.displayName, ext: asset.ext }) || '附件'
+      const isDragOver = dnd.dragOverKey === `tab_${tabKey}`
+      const isDragging = dnd.draggingKey === `tab_${tabKey}`
       const disableTitleTooltip = tabsMode === 'hover'
       const iconEl =
         asset.kind === 'image' ? (
@@ -304,10 +321,14 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           disableTouchListener={disableTitleTooltip}
         >
           <Box
+            {...dnd.getTabProps(tabKey)}
             role="button"
             tabIndex={0}
             data-tauri-drag-region="false"
-            onClick={() => onOpenAssetTab?.(asset)}
+            onClick={() => {
+              if (dnd.suppressClickRef.current) return
+              onOpenAssetTab?.(asset)
+            }}
             onKeyDown={e => {
               if (e.key !== 'Enter' && e.key !== ' ') return
               e.preventDefault()
@@ -324,9 +345,10 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               userSelect: 'none',
               outline: 'none',
               WebkitAppRegion: 'no-drag',
-              cursor: 'pointer',
-              bgcolor: isActive ? 'rgba(25,118,210,.10)' : 'transparent',
-              '&:hover': { bgcolor: isActive ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
+              cursor: isDragging ? 'grabbing' : 'grab',
+              opacity: isDragging ? 0.72 : 1,
+              bgcolor: isDragOver ? 'rgba(25,118,210,.10)' : isActive ? 'rgba(25,118,210,.10)' : 'transparent',
+              '&:hover': { bgcolor: isDragOver ? 'rgba(25,118,210,.14)' : isActive ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
               '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
             }}
           >
@@ -369,23 +391,136 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         </Tooltip>
       )
     },
-    [activeAssetTabKey, onCloseAssetTab, onOpenAssetTab, showTitle, tabsMode],
+    [activeTabKey, dnd, onCloseAssetTab, onOpenAssetTab, showTitle, tabsMode],
+  )
+
+  const renderMissingRow = React.useCallback(
+    (tabKey: string, kind: 'note' | 'asset') => {
+      const isActive = String(activeTabKey || '').trim() === tabKey
+      const title = kind === 'note' ? '已丢失的笔记' : '已丢失的附件'
+      const isDragOver = dnd.dragOverKey === `tab_${tabKey}`
+      const isDragging = dnd.draggingKey === `tab_${tabKey}`
+      const disableTitleTooltip = tabsMode === 'hover'
+      const iconEl =
+        kind === 'note' ? (
+          <NotesRoundedIcon fontSize="small" sx={{ color: isActive ? '#1976d2' : 'rgba(0,0,0,.48)' }} />
+        ) : (
+          <InsertDriveFileRoundedIcon fontSize="small" sx={{ color: isActive ? '#546e7a' : 'rgba(0,0,0,.48)' }} />
+        )
+
+      return (
+        <Tooltip
+          key={tabKey}
+          title={!showTitle && !disableTitleTooltip ? title : ''}
+          placement="right"
+          disableHoverListener={showTitle || disableTitleTooltip}
+          disableFocusListener={disableTitleTooltip}
+          disableTouchListener={disableTitleTooltip}
+        >
+          <Box
+            {...dnd.getTabProps(tabKey)}
+            role="button"
+            tabIndex={0}
+            data-tauri-drag-region="false"
+            onClick={() => {
+              if (dnd.suppressClickRef.current) return
+              if (kind === 'note') return
+              return
+            }}
+            sx={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.75,
+              px: showTitle ? 1 : 0.75,
+              py: 0.6,
+              borderRadius: 2,
+              userSelect: 'none',
+              outline: 'none',
+              WebkitAppRegion: 'no-drag',
+              cursor: isDragging ? 'grabbing' : 'grab',
+              opacity: isDragging ? 0.72 : 0.86,
+              bgcolor: isDragOver ? 'rgba(25,118,210,.10)' : isActive ? 'rgba(25,118,210,.10)' : 'transparent',
+              '&:hover': { bgcolor: isDragOver ? 'rgba(25,118,210,.14)' : isActive ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
+              '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
+            }}
+          >
+            <Box sx={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>{iconEl}</Box>
+            {showTitle ? (
+              <Typography
+                noWrap
+                sx={{
+                  flex: 1,
+                  minWidth: 0,
+                  fontSize: 12,
+                  lineHeight: 1.2,
+                  fontWeight: isActive ? 900 : 600,
+                  color: 'rgba(0,0,0,.55)',
+                }}
+              >
+                {title}
+              </Typography>
+            ) : null}
+            {showTitle ? (
+              <Tooltip title="关闭" placement="left">
+                <IconButton
+                  size="small"
+                  aria-label={`关闭 ${title}`}
+                  data-hc-no-drag="1"
+                  onClick={e => {
+                    e.stopPropagation()
+                    if (kind === 'note') onCloseTab(noteIdFromTabKey(tabKey))
+                    else onCloseAssetTab?.(tabKey)
+                  }}
+                  sx={{
+                    color: 'rgba(0,0,0,.42)',
+                    '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                  }}
+                >
+                  <CloseRoundedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            ) : null}
+          </Box>
+        </Tooltip>
+      )
+    },
+    [activeTabKey, dnd, noteIdFromTabKey, onCloseAssetTab, onCloseTab, showTitle, tabsMode],
+  )
+
+  const renderTabKeyRow = React.useCallback(
+    (tabKey: string) => {
+      const kind = tabKind(tabKey)
+      if (kind === 'note') {
+        const nid = noteIdFromTabKey(tabKey)
+        const meta = (nid && noteById[nid]) || noteByTabKey[tabKey]
+        if (!meta) return renderMissingRow(tabKey, 'note')
+        return renderNoteMetaRow(tabKey, meta)
+      }
+      if (kind === 'asset') {
+        const asset = assetByTabKey[tabKey]
+        if (!asset) return renderMissingRow(tabKey, 'asset')
+        return renderAssetMetaRow(tabKey, asset)
+      }
+      return null
+    },
+    [assetByTabKey, noteById, noteByTabKey, renderAssetMetaRow, renderMissingRow, renderNoteMetaRow],
   )
 
   const mixedItems = React.useMemo(() => {
-    type Item = { type: 'tab'; tab: NoteMeta } | { type: 'group'; groupId: string } | { type: 'asset'; asset: AssetEntry }
+    type Item = { type: 'tab'; tabKey: string } | { type: 'group'; groupId: string }
     const out: Item[] = []
     const insertedGroups = new Set<string>()
 
-    for (const t of openNoteTabs) {
-      const gid = String(tabGroupByNoteId[t.id] || '').trim()
+    for (const key of openTabKeys) {
+      const gid = String(tabGroupByTabKey[key] || '').trim()
       if (gid && groupById[gid]) {
         if (insertedGroups.has(gid)) continue
         out.push({ type: 'group', groupId: gid })
         insertedGroups.add(gid)
         continue
       }
-      out.push({ type: 'tab', tab: t })
+      out.push({ type: 'tab', tabKey: key })
     }
 
     for (const g of tabGroups) {
@@ -394,10 +529,8 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       insertedGroups.add(g.id)
     }
 
-    for (const a of assetTabsList) out.push({ type: 'asset', asset: a })
-
     return out
-  }, [assetTabsList, groupById, openNoteTabs, tabGroupByNoteId, tabGroups])
+  }, [groupById, openTabKeys, tabGroupByTabKey, tabGroups])
 
   return (
     <>
@@ -575,17 +708,16 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           WebkitAppRegion: 'no-drag',
         }}
       >
-        {!openNoteTabs.length && !tabGroups.length && assetTabsList.length === 0 && showTitle ? (
-          <Typography sx={{ px: 0.75, py: 0.5, fontSize: 12, color: 'rgba(0,0,0,.42)' }}>还没有打开的笔记</Typography>
+        {!openTabKeys.length && !tabGroups.length && showTitle ? (
+          <Typography sx={{ px: 0.75, py: 0.5, fontSize: 12, color: 'rgba(0,0,0,.42)' }}>还没有打开的标签页</Typography>
         ) : null}
 
         {mixedItems.map(item => {
-          if (item.type === 'tab') return renderTabRow(item.tab)
-          if (item.type === 'asset') return renderAssetTabRow(item.asset)
+          if (item.type === 'tab') return renderTabKeyRow(item.tabKey)
           const g = groupById[item.groupId]
           if (!g) return null
           const isCollapsed = g.collapsed === true
-          const list = grouped.groupedTabs[g.id] || []
+          const list = grouped.groupedKeys[g.id] || []
           const isDragOver = dnd.dragOverKey === `group_${g.id}`
           const isDragging = dnd.draggingKey === `group_${g.id}`
           const groupTitle = g.title || '分组'
@@ -660,7 +792,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                     },
                   }}
                 >
-                  {list.map(renderTabRow)}
+                  {list.map(renderTabKeyRow)}
                 </Box>
               ) : null}
             </React.Fragment>
