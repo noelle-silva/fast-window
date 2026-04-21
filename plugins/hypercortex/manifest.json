@@ -2,7 +2,7 @@
   "id": "hypercortex",
   "name": "HyperCortex",
   "author": "fast-window",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "HTML 原子笔记：Notes/Assets + 索引库",
   "main": "index.js",
   "icon": "svg:icon.svg",
@@ -25,6 +25,7 @@
     "tauri:plugin_files_write_base64",
     "tauri:plugin_files_rename",
     "tauri:plugin_files_delete",
+    "tauri:plugin_files_delete_tree",
     "tauri:plugin_pick_images",
     "tauri:plugin:clipboard-manager|write_text"
   ]

@@ -36,6 +36,8 @@ import { NoteDetailSession, type NoteDetailSessionHandle, type NoteDetailSnapsho
 import { AssetDetailSession } from './AssetDetailSession'
 import { ErrorBoundary } from './ErrorBoundary'
 import { ShortcutSettingsPanel } from './ShortcutSettingsPanel'
+import { TrashSettingsPanel } from './TrashSettingsPanel'
+import { TrashPanel } from './TrashPanel'
 import { QuickSearchPopover } from './QuickSearchPopover'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
@@ -44,8 +46,9 @@ import { DEFAULT_SHORTCUT_BINDINGS, isEditableTarget, mainKeyFromChord, normaliz
 import type { AssetEntry } from '../assetTypes'
 import { assetTabId } from '../assetTypes'
 import { assetRefKeyFromTabKey, noteIdFromTabKey, noteTabKey, parseAssetRefKey, tabKind, type TabKey } from '../tabKey'
+import { maybeAutoCleanupTrash, moveNoteToTrash, permanentlyDeleteNoteDir } from '../trash'
 
-type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'asset-detail' | 'index' | 'settings'
+type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'asset-detail' | 'index' | 'settings' | 'trash'
 
 type AllNotesLayout = 'list' | 'grid' | 'icon'
 type TabsMode = 'manual' | 'hover'
@@ -60,6 +63,18 @@ function normalizeBoolean(value: unknown): boolean {
 
 function normalizeTabsMode(value: unknown): TabsMode {
   return value === 'hover' ? 'hover' : 'manual'
+}
+
+function normalizeTrashEnabled(value: unknown): boolean {
+  return value === false ? false : true
+}
+
+function normalizeTrashAutoDeleteDays(value: unknown): number {
+  const n = Math.floor(Number(value))
+  if (!Number.isFinite(n)) return 30
+  if (n < 0) return 0
+  if (n > 3650) return 3650
+  return n
 }
 
 function sortNotesByUpdatedAtDesc(list: NoteMeta[]): NoteMeta[] {
@@ -107,6 +122,8 @@ function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetada
   if ('openTabKeys' in next) (next as any).openTabKeys = stripDraftTabKeys((next as any).openTabKeys)
   if ('tabGroupByTabKey' in next) (next as any).tabGroupByTabKey = stripDraftTabKeyMap((next as any).tabGroupByTabKey)
   if ('shortcuts' in next) (next as any).shortcuts = normalizeShortcutBindings((next as any).shortcuts)
+  next.trashEnabled = normalizeTrashEnabled(next.trashEnabled)
+  next.trashAutoDeleteDays = normalizeTrashAutoDeleteDays(next.trashAutoDeleteDays)
 
   if (Array.isArray(next.workspaces)) {
     next.workspaces = next.workspaces.map(ws => {
@@ -230,6 +247,14 @@ export function HyperCortexApp() {
   React.useEffect(() => {
     shortcutBindingsRef.current = shortcutBindings
   }, [shortcutBindings])
+
+  // ---- 回收站设置（持久化在 metadata）
+  const [trashEnabled, setTrashEnabled] = React.useState(true)
+  const [trashAutoDeleteDays, setTrashAutoDeleteDays] = React.useState(30)
+  const trashAutoDeleteDaysRef = React.useRef(30)
+  React.useEffect(() => {
+    trashAutoDeleteDaysRef.current = trashAutoDeleteDays
+  }, [trashAutoDeleteDays])
 
   // ---- 全部笔记列表
   const [noteIndex, setNoteIndex] = React.useState<HyperCortexIndexV1 | null>(null)
@@ -997,6 +1022,10 @@ export function HyperCortexApp() {
         setAllNotesLayout(normalizeAllNotesLayout(meta.allNotesLayout))
         setTabsCollapsed(normalizeBoolean(meta.tabsCollapsed))
         setTabsMode(normalizeTabsMode(meta.tabsMode))
+        const normalizedTrashEnabled = normalizeTrashEnabled(meta.trashEnabled)
+        const normalizedTrashAutoDeleteDays = normalizeTrashAutoDeleteDays(meta.trashAutoDeleteDays)
+        setTrashEnabled(normalizedTrashEnabled)
+        setTrashAutoDeleteDays(normalizedTrashAutoDeleteDays)
         const activeKey = typeof meta.activeTabKey === 'string' ? meta.activeTabKey.trim() : ''
         restoreActiveTabKeyRef.current = activeKey
 
@@ -1038,8 +1067,19 @@ export function HyperCortexApp() {
         setActiveWorkspaceId(nextActiveWorkspaceId)
         if (activeWs) applyWorkspaceSidebarState(activeWs)
 
-        const shouldPersistNormalized = !Array.isArray(meta.workspaces) || meta.activeWorkspaceId !== nextActiveWorkspaceId || didMutateActiveWorkspace
-        if (shouldPersistNormalized) void persistMetadataPatch(buildWorkspacesMetadataSnapshot(nextWorkspaces, nextActiveWorkspaceId)).catch(() => {})
+        const shouldPersistNormalized =
+          !Array.isArray(meta.workspaces) ||
+          meta.activeWorkspaceId !== nextActiveWorkspaceId ||
+          didMutateActiveWorkspace ||
+          meta.trashEnabled !== normalizedTrashEnabled ||
+          meta.trashAutoDeleteDays !== normalizedTrashAutoDeleteDays
+        if (shouldPersistNormalized) {
+          void persistMetadataPatch({
+            ...buildWorkspacesMetadataSnapshot(nextWorkspaces, nextActiveWorkspaceId),
+            trashEnabled: normalizedTrashEnabled,
+            trashAutoDeleteDays: normalizedTrashAutoDeleteDays,
+          }).catch(() => {})
+        }
       } catch {
       } finally {
         setTabsInitReady(true)
@@ -1047,6 +1087,104 @@ export function HyperCortexApp() {
       }
     })()
   }, [api])
+
+  const autoCleanupRanForDaysRef = React.useRef<number | null>(null)
+  React.useEffect(() => {
+    if (!metaReady) return
+    const days = trashAutoDeleteDaysRef.current
+    if (!(days > 0)) return
+    if (autoCleanupRanForDaysRef.current === days) return
+    autoCleanupRanForDaysRef.current = days
+    void (async () => {
+      const result = await maybeAutoCleanupTrash(api, 'library', days).catch(() => null)
+      if (!result || !(result.deletedCount > 0)) return
+      void api.ui.showToast(`回收站已自动清理 ${result.deletedCount} 项`)
+    })()
+  }, [api, metaReady, trashAutoDeleteDays])
+
+  const handleTrashEnabledChange = React.useCallback(
+    (enabled: boolean) => {
+      const next = enabled === true
+      setTrashEnabled(next)
+      if (!metaReadyRef.current) return
+      void persistMetadataPatch({ trashEnabled: next }).catch(() => {})
+    },
+    [persistMetadataPatch],
+  )
+
+  const handleTrashAutoDeleteDaysChange = React.useCallback(
+    (days: number) => {
+      const next = normalizeTrashAutoDeleteDays(days)
+      setTrashAutoDeleteDays(next)
+      if (!metaReadyRef.current) return
+      void persistMetadataPatch({ trashAutoDeleteDays: next }).catch(() => {})
+    },
+    [persistMetadataPatch],
+  )
+
+  const handleOpenTrashPage = React.useCallback(() => navigatePage('trash'), [navigatePage])
+
+  const handleDeleteNote = React.useCallback(
+    async (payload: { note: NoteMeta; mode: 'trash' | 'permanent' }) => {
+      const note = payload.note
+      const nid = String(note?.id || '').trim()
+      if (!nid) return
+
+      if (isDraftNoteId(nid) || !String(note?.dir || '').trim()) {
+        closeTabKeysDirectRef.current([noteTabKey(nid)])
+        setAllNotes(prev => prev.filter(n => n.id !== nid))
+        setNoteIndex(prev => {
+          const current = prev || { version: 1, notes: {} }
+          const nextNotes = { ...(current.notes || {}) }
+          delete nextNotes[nid]
+          return { ...current, notes: nextNotes }
+        })
+        setRefIndex(prev => {
+          const next = { ...(prev || {}) }
+          delete next[nid]
+          return next
+        })
+        return
+      }
+
+      try {
+        if (payload.mode === 'trash') await moveNoteToTrash(api, 'library', note)
+        else await permanentlyDeleteNoteDir(api, 'library', nid, note.dir)
+
+        closeTabKeysDirectRef.current([noteTabKey(nid)])
+        setAllNotes(prev => prev.filter(n => n.id !== nid))
+        setNoteIndex(prev => {
+          const current = prev || { version: 1, notes: {} }
+          const nextNotes = { ...(current.notes || {}) }
+          delete nextNotes[nid]
+          return { ...current, notes: nextNotes }
+        })
+        setRefIndex(prev => {
+          const next = { ...(prev || {}) }
+          delete next[nid]
+          return next
+        })
+      } catch (e: any) {
+        void api.ui.showToast(String(e?.message || e || '删除失败'))
+      }
+    },
+    [api],
+  )
+
+  const handleTrashRestored = React.useCallback(
+    (meta: NoteMeta) => {
+      if (!meta?.id) return
+      setNoteIndex(prev => {
+        const current = prev || { version: 1, notes: {} }
+        const nextNotes = { ...(current.notes || {}) }
+        nextNotes[meta.id] = meta
+        return { ...current, notes: nextNotes }
+      })
+      setAllNotes(prev => sortNotesByUpdatedAtDesc([meta, ...prev.filter(n => n.id !== meta.id)]))
+      void api.ui.showToast('已恢复笔记')
+    },
+    [api],
+  )
 
   React.useEffect(() => {
     if (page !== 'all-notes') return
@@ -2018,6 +2156,8 @@ export function HyperCortexApp() {
                       onOpenNote={handleOpenNote}
                       onDirtyChange={handleNoteDirtyChange}
                       onSaved={handleNoteSessionSaved}
+                      trashEnabled={trashEnabled}
+                      onRequestDeleteNote={handleDeleteNote}
                     />
                   ))
                 )}
@@ -2040,12 +2180,43 @@ export function HyperCortexApp() {
                 )}
               </Box>
               {page === 'index' ? <Typography color="text.secondary">这是索引页面。</Typography> : null}
+              {page === 'trash' ? (
+                <TrashPanel
+                  api={api}
+                  scope="library"
+                  onRestored={handleTrashRestored}
+                  onPermanentlyDeleted={noteId => {
+                    const nid = String(noteId || '').trim()
+                    if (!nid) return
+                    closeTabKeysDirectRef.current([noteTabKey(nid)])
+                    setAllNotes(prev => prev.filter(n => n.id !== nid))
+                    setNoteIndex(prev => {
+                      const current = prev || { version: 1, notes: {} }
+                      const nextNotes = { ...(current.notes || {}) }
+                      delete nextNotes[nid]
+                      return { ...current, notes: nextNotes }
+                    })
+                    setRefIndex(prev => {
+                      const next = { ...(prev || {}) }
+                      delete next[nid]
+                      return next
+                    })
+                  }}
+                />
+              ) : null}
               {page === 'settings' ? (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, maxWidth: 760 }}>
                   <ShortcutSettingsPanel
                     bindings={shortcutBindings}
                     onChange={handleShortcutBindingsChange}
                     onRecordingChange={handleShortcutRecordingChange}
+                  />
+                  <TrashSettingsPanel
+                    enabled={trashEnabled}
+                    autoDeleteDays={trashAutoDeleteDays}
+                    onEnabledChange={handleTrashEnabledChange}
+                    onAutoDeleteDaysChange={handleTrashAutoDeleteDaysChange}
+                    onOpenTrash={handleOpenTrashPage}
                   />
                 </Box>
               ) : null}

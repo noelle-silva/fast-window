@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, IconButton, InputBase, Tooltip, Typography } from '@mui/material'
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, IconButton, InputBase, Menu, MenuItem, Tooltip, Typography } from '@mui/material'
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
@@ -8,12 +8,13 @@ import WysiwygRoundedIcon from '@mui/icons-material/WysiwygRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import InfoRoundedIcon from '@mui/icons-material/InfoRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
+import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 
 import { createMarkdownRenderEngine } from '../render/engine'
 import { HYPERCORTEX_NOTE_SCHEMA_VERSION } from '../noteSchema'
 import { renderNoteDisplayHtml } from '../noteRender'
 import { extractNoteRefs, getBacklinksFor, type NoteRefIndex } from '../noteRefs'
-import { loadHtmlFace, loadNotePackage, saveHtmlFace, saveNotePackage, type HyperCortexHtmlFaceDoc } from '../notePackage'
+import { deleteHtmlFace, loadHtmlFace, loadNotePackage, saveHtmlFace, saveNotePackage, type HyperCortexHtmlFaceDoc } from '../notePackage'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import type { Api, NoteMeta, VaultScope, HyperCortexNoteDoc } from '../core'
 import { isDraftNoteId } from '../drafts'
@@ -103,6 +104,8 @@ export type NoteDetailSessionProps = {
     snapshotForNewId?: NoteDetailSnapshotV1
     refsForIndex?: string[]
   }) => void
+  trashEnabled: boolean
+  onRequestDeleteNote: (payload: { note: NoteMeta; mode: 'trash' | 'permanent' }) => Promise<void> | void
 }
 
 export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteDetailSessionProps>(function NoteDetailSession(props, ref) {
@@ -119,6 +122,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     consumeInitSnapshot,
     onOpenNote,
     onSaved,
+    trashEnabled,
+    onRequestDeleteNote,
   } = props
 
   const noteId = String(note.id || '').trim()
@@ -153,6 +158,19 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const [addFaceSelectorVisible, setAddFaceSelectorVisible] = React.useState(false)
   const [pendingAddFace, setPendingAddFace] = React.useState<NoteFaceId | null>(null)
 
+  const [moreMenuAnchorEl, setMoreMenuAnchorEl] = React.useState<HTMLElement | null>(null)
+  const moreMenuOpen = !!moreMenuAnchorEl
+  const [deleteFaceMenuAnchorEl, setDeleteFaceMenuAnchorEl] = React.useState<HTMLElement | null>(null)
+  const deleteFaceMenuOpen = !!deleteFaceMenuAnchorEl
+  const closeMoreMenu = React.useCallback(() => {
+    setMoreMenuAnchorEl(null)
+    setDeleteFaceMenuAnchorEl(null)
+  }, [])
+
+  const [deleteNoteConfirmOpen, setDeleteNoteConfirmOpen] = React.useState(false)
+  const [deleteHtmlConfirmOpen, setDeleteHtmlConfirmOpen] = React.useState(false)
+  const [deleting, setDeleting] = React.useState<'note' | 'html' | ''>('')
+
   const [base, setBase] = React.useState<NoteContent>(
     init?.base ?? {
       title: note.title || '未命名',
@@ -181,12 +199,63 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   }, [editBody, editHtml, editTags, editTitle])
 
   const dirty = React.useMemo(() => !isNoteContentEqual(draftNowRef, base), [base, draftNowRef])
+  const noteTitleForPrompt = React.useMemo(() => {
+    const s = String(editTitle || doc?.title || note.title || '').trim()
+    return s || '未命名'
+  }, [doc?.title, editTitle, note.title])
+  const canDeleteHtml = faces.includes('html')
   const lastDirtyRef = React.useRef<boolean | null>(null)
   React.useEffect(() => {
     if (lastDirtyRef.current === dirty) return
     lastDirtyRef.current = dirty
     onDirtyChange?.({ noteId, dirty })
   }, [dirty, noteId, onDirtyChange])
+
+  const requestDeleteNote = React.useCallback(() => {
+    closeMoreMenu()
+    setDeleteNoteConfirmOpen(true)
+  }, [closeMoreMenu])
+
+  const confirmDeleteNote = React.useCallback(async () => {
+    if (deleting) return
+    setDeleting('note')
+    try {
+      const mode: 'trash' | 'permanent' = trashEnabled ? 'trash' : 'permanent'
+      await onRequestDeleteNote({ note, mode })
+      setDeleteNoteConfirmOpen(false)
+    } catch (e: any) {
+      void api.ui.showToast(String(e?.message || e || '删除失败'))
+    } finally {
+      setDeleting('')
+    }
+  }, [api, deleting, note, onRequestDeleteNote, trashEnabled])
+
+  const requestDeleteHtmlFace = React.useCallback(() => {
+    closeMoreMenu()
+    setDeleteHtmlConfirmOpen(true)
+  }, [closeMoreMenu])
+
+  const confirmDeleteHtmlFace = React.useCallback(async () => {
+    if (!String(note.dir || '').trim()) return
+    if (deleting) return
+    setDeleting('html')
+    try {
+      const next = await deleteHtmlFace(api, scope, note.dir)
+      setHtmlFace(next)
+      setFaces(prev => prev.filter(f => f !== 'html'))
+      setFace('text')
+      setEditHtml(next.html)
+      setBase(prev => ({ ...prev, html: next.html }))
+      setAddFaceSelectorVisible(false)
+      setPendingAddFace(null)
+      setDeleteHtmlConfirmOpen(false)
+      void api.ui.showToast('已删除 HTML 面')
+    } catch (e: any) {
+      void api.ui.showToast(String(e?.message || e || '删除 HTML 面失败'))
+    } finally {
+      setDeleting('')
+    }
+  }, [api, deleting, note.dir, scope])
 
   const ensureDraftDocIfNeeded = React.useCallback(() => {
     if (!isDraft) return
@@ -624,6 +693,56 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
         {!loading && !loadError && doc ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Tooltip title="更多操作" placement="bottom-end">
+              <IconButton
+                size="small"
+                aria-label="更多操作"
+                onClick={e => setMoreMenuAnchorEl(e.currentTarget)}
+                sx={{
+                  color: 'rgba(0,0,0,.58)',
+                  bgcolor: 'transparent',
+                  '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                }}
+              >
+                <MoreHorizRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+
+            <Menu
+              open={moreMenuOpen}
+              onClose={closeMoreMenu}
+              anchorEl={moreMenuAnchorEl}
+              PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}
+            >
+              <MenuItem
+                onClick={() => requestDeleteNote()}
+                sx={{ color: '#d32f2f' }}
+              >
+                删除当前整个笔记…
+              </MenuItem>
+              {canDeleteHtml ? (
+                <>
+                  <Divider />
+                  <MenuItem
+                    onClick={e => setDeleteFaceMenuAnchorEl(e.currentTarget as HTMLElement)}
+                  >
+                    删除当前笔记的其中面…
+                  </MenuItem>
+                </>
+              ) : null}
+            </Menu>
+
+            <Menu
+              open={deleteFaceMenuOpen}
+              onClose={() => setDeleteFaceMenuAnchorEl(null)}
+              anchorEl={deleteFaceMenuAnchorEl}
+              PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}
+            >
+              <MenuItem onClick={() => requestDeleteHtmlFace()} sx={{ color: '#d32f2f' }}>
+                HTML 面
+              </MenuItem>
+            </Menu>
+
             <Tooltip title="复制引用占位符" placement="bottom-end">
               <IconButton
                 size="small"
@@ -1031,6 +1150,50 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
           ) : null}
         </Box>
       ) : null}
+
+      <Dialog open={deleteNoteConfirmOpen} onClose={() => setDeleteNoteConfirmOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>{isDraft ? '删除草稿' : trashEnabled ? '移入回收站' : '永久删除'}</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.72)' }}>
+            {isDraft
+              ? `确定删除草稿「${noteTitleForPrompt}」吗？这会丢弃当前内容。`
+              : trashEnabled
+                ? `确定将笔记「${noteTitleForPrompt}」移入回收站吗？`
+                : `回收站当前未启用。确定永久删除笔记「${noteTitleForPrompt}」吗？此操作不可撤销。`}
+          </Typography>
+          {dirty ? (
+            <Typography sx={{ mt: 1, fontSize: 12, lineHeight: 1.6, color: 'rgba(0,0,0,.56)' }}>
+              提示：当前笔记有未保存改动。
+            </Typography>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteNoteConfirmOpen(false)} disabled={deleting === 'note'}>取消</Button>
+          <Button variant="contained" color="error" onClick={() => void confirmDeleteNote()} disabled={deleting === 'note'}>
+            {deleting === 'note' ? '处理中…' : isDraft ? '删除' : trashEnabled ? '移入回收站' : '永久删除'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteHtmlConfirmOpen} onClose={() => setDeleteHtmlConfirmOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>删除面</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.72)' }}>
+            确定删除当前笔记的 HTML 面吗？此操作不可撤销。
+          </Typography>
+          {dirty && face === 'html' ? (
+            <Typography sx={{ mt: 1, fontSize: 12, lineHeight: 1.6, color: 'rgba(0,0,0,.56)' }}>
+              提示：会丢弃 HTML 面的未保存改动。
+            </Typography>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteHtmlConfirmOpen(false)} disabled={deleting === 'html'}>取消</Button>
+          <Button variant="contained" color="error" onClick={() => void confirmDeleteHtmlFace()} disabled={deleting === 'html'}>
+            {deleting === 'html' ? '删除中…' : '删除'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <ImageDialog open={preview.modal === 'image'} controller={preview.controller} viewer={preview.imageViewer} />
       <MermaidDialog open={preview.modal === 'mermaid'} controller={preview.controller} mermaid={preview.mermaid} />

@@ -27,6 +27,7 @@ export type Api = {
     writeBase64: (req: { scope: VaultScope; path: string; dataUrlOrBase64: string; overwrite?: boolean | null }) => Promise<string>
     rename: (req: { scope: VaultScope; from: string; to: string; overwrite?: boolean | null }) => Promise<void>
     delete: (req: { scope: VaultScope; path: string }) => Promise<void>
+    deleteTree: (req: { scope: VaultScope; path: string }) => Promise<void>
     pickImages: (maxCount?: number | null) => Promise<{ name: string; dataUrl: string }[]>
   }
 }
@@ -79,6 +80,8 @@ export type HyperCortexMetadataV1 = {
   workspaces?: HyperCortexWorkspaceV1[]
   activeWorkspaceId?: string
   shortcuts?: HyperCortexShortcutBindingsV1
+  trashEnabled?: boolean
+  trashAutoDeleteDays?: number
 }
 
 type TauriLike = { invoke: (req: { command: string; payload?: any }) => Promise<any> }
@@ -198,6 +201,9 @@ export function createCompatApi(baseApi: any): Api {
       },
       delete: async (req: any) => {
         return tauri.invoke({ command: 'plugin_files_delete', payload: { pluginId: PLUGIN_ID, req } })
+      },
+      deleteTree: async (req: any) => {
+        return tauri.invoke({ command: 'plugin_files_delete_tree', payload: { pluginId: PLUGIN_ID, req } })
       },
       pickImages: async (maxCount?: number | null) => {
         return tauri.invoke({
