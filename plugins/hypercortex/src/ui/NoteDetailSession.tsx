@@ -20,6 +20,10 @@ import { NoteInfoSidebar } from './NoteInfoSidebar'
 import { AutoHeightHtmlIframe } from './AutoHeightHtmlIframe'
 import { CodeMirrorCodeEditor } from '../editor/CodeMirrorCodeEditor'
 import { HyperCodeMirrorEditor as BlockEditor } from '../editor/HyperCodeMirrorEditor'
+import { ImageDialog } from './preview/ImageDialog'
+import { MermaidDialog } from './preview/MermaidDialog'
+import { ensurePreviewClickHandlerOnce } from './preview/ensurePreviewClickHandlerOnce'
+import { usePreviewController } from './preview/usePreviewController'
 
 type NoteFaceId = 'text' | 'html'
 type TextEditorMode = 'source' | 'live'
@@ -162,6 +166,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   }, [noteIndexMap])
 
   const textRenderRef = React.useRef<HTMLDivElement>(null)
+  const sanitizeSvg = React.useCallback((svg: unknown) => renderEngineRef.current.sanitizeSvg(svg, 'baseline'), [])
+  const preview = usePreviewController({ api, sanitizeSvg })
 
   const draftNowRef = React.useMemo<NoteContent>(() => {
     return {
@@ -263,6 +269,14 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   }, [editBody, editing, face, noteIndexMap, visible])
 
   React.useEffect(() => {
+    if (!visible) return
+    if (face !== 'text' || editing) return
+    const el = textRenderRef.current
+    if (!el) return
+    ensurePreviewClickHandlerOnce(el, { controller: preview.controller, stopPropagation: true })
+  }, [editing, face, preview.controller, visible])
+
+  React.useEffect(() => {
     const el = textRenderRef.current
     if (!el) return
     const handler = (e: MouseEvent) => {
@@ -305,6 +319,12 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
   /** 编辑器覆盖层渲染完 block 后：等待异步媒体就绪，完成后请求重新布局 */
   const handleBlockRendered = React.useCallback((el: HTMLElement, requestUpdate: () => void) => {
+    ensurePreviewClickHandlerOnce(el, {
+      controller: preview.controller,
+      stopPropagation: false,
+      getRoot: (current) => current.closest('.cm-editor'),
+    })
+
     const pending: { el: HTMLElement; event: string }[] = []
     el.querySelectorAll('img').forEach(img => {
       if (!img.complete) pending.push({ el: img, event: 'load' })
@@ -320,7 +340,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       m.addEventListener(event, done, { once: true })
       m.addEventListener('error', done, { once: true })
     })
-  }, [])
+  }, [preview.controller])
 
   const handleToggleMode = React.useCallback(() => {
     if (!doc) return
@@ -998,6 +1018,9 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
           ) : null}
         </Box>
       ) : null}
+
+      <ImageDialog open={preview.modal === 'image'} controller={preview.controller} viewer={preview.imageViewer} />
+      <MermaidDialog open={preview.modal === 'mermaid'} controller={preview.controller} mermaid={preview.mermaid} />
     </Box>
   )
 })
