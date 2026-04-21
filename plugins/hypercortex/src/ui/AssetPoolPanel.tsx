@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, Button, CircularProgress, IconButton, Tooltip, Typography } from '@mui/material'
+import { Box, Button, CircularProgress, IconButton, Tab, Tabs, Tooltip, Typography } from '@mui/material'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
@@ -10,7 +10,6 @@ import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import { type Api, type VaultScope, acceptString, kindFromMime, mimeFromExt } from '../core'
 import { deleteAssetFromPool, importFilesToAssetPool, listAssetsInPool, readAssetAsDataUrl } from '../assetPool'
-import type { HyperCortexNoteResourceRef } from '../noteSchema'
 
 /* ------------------------------------------------------------------ */
 /*  类型                                                               */
@@ -25,6 +24,8 @@ type AssetEntry = {
   modifiedMs: number
   thumbnailUrl?: string
 }
+
+type AssetCategory = 'image' | 'video' | 'document'
 
 type Props = {
   api: Api
@@ -42,11 +43,11 @@ function parseAssetFileName(name: string): { assetId: string; ext: string } {
   return { assetId: s.slice(0, dotIdx), ext: s.slice(dotIdx + 1).toLowerCase() }
 }
 
-function kindIcon(kind: string) {
-  if (kind === 'image') return <ImageRoundedIcon fontSize="small" />
-  if (kind === 'audio') return <AudioFileRoundedIcon fontSize="small" />
-  if (kind === 'video') return <VideoFileRoundedIcon fontSize="small" />
-  return <InsertDriveFileRoundedIcon fontSize="small" />
+function kindIcon(kind: string, fontSize: 'small' | 'medium' = 'small') {
+  if (kind === 'image') return <ImageRoundedIcon fontSize={fontSize} />
+  if (kind === 'audio') return <AudioFileRoundedIcon fontSize={fontSize} />
+  if (kind === 'video') return <VideoFileRoundedIcon fontSize={fontSize} />
+  return <InsertDriveFileRoundedIcon fontSize={fontSize} />
 }
 
 function kindColor(kind: string): string {
@@ -54,6 +55,12 @@ function kindColor(kind: string): string {
   if (kind === 'audio') return '#e65100'
   if (kind === 'video') return '#7b1fa2'
   return '#546e7a'
+}
+
+function categoryFromKind(kind: string): AssetCategory {
+  if (kind === 'image') return 'image'
+  if (kind === 'video') return 'video'
+  return 'document'
 }
 
 function humanSize(bytes: number): string {
@@ -75,11 +82,182 @@ function readFileAsDataUrl(file: File): Promise<string> {
 /*  组件                                                               */
 /* ------------------------------------------------------------------ */
 
+function buildAssetMarker(asset: Pick<AssetEntry, 'assetId' | 'ext' | 'kind'>): string {
+  const ref = asset.ext ? `${asset.assetId}.${asset.ext}` : asset.assetId
+  const defaultWidth = asset.kind === 'image' ? 320 : asset.kind === 'video' ? 480 : 0
+  return defaultWidth ? `{{asset:${ref}||${defaultWidth}}}` : `{{asset:${ref}}}`
+}
+
+function AssetCard({
+  api,
+  asset,
+  onDelete,
+}: {
+  api: Api
+  asset: AssetEntry
+  onDelete: (asset: AssetEntry) => void
+}) {
+  const handleCopy = React.useCallback(() => {
+    const marker = buildAssetMarker(asset)
+    api.clipboard.writeText(marker).then(
+      () => api.ui.showToast('已复制'),
+      () => api.ui.showToast('复制失败'),
+    )
+  }, [api, asset])
+
+  return (
+    <Box
+      sx={{
+        position: 'relative',
+        minHeight: 180,
+        px: 1.5,
+        py: 1.5,
+        borderRadius: 3,
+        bgcolor: '#fff',
+        boxShadow: '0 1px 2px rgba(0,0,0,.04)',
+        transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
+        '&:hover': {
+          bgcolor: 'rgba(0,0,0,.02)',
+          boxShadow: '0 6px 16px rgba(0,0,0,.08)',
+          transform: 'translateY(-1px)',
+        },
+        '&:hover .hc-asset-card-actions': { opacity: 1 },
+      }}
+    >
+      <Box
+        className="hc-asset-card-actions"
+        sx={{
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          display: 'flex',
+          gap: 0.25,
+          opacity: 0,
+          transition: 'opacity .15s',
+          zIndex: 2,
+        }}
+      >
+        <Tooltip title="复制引用标记" placement="bottom">
+          <IconButton
+            size="small"
+            aria-label="复制引用标记"
+            onClick={e => {
+              e.stopPropagation()
+              handleCopy()
+            }}
+            sx={{
+              width: 28,
+              height: 28,
+              bgcolor: 'rgba(0,0,0,.05)',
+              color: 'rgba(0,0,0,.45)',
+              '&:hover': { bgcolor: 'rgba(0,0,0,.1)', color: '#1976d2' },
+            }}
+          >
+            <ContentCopyRoundedIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Tooltip>
+
+        <Tooltip title="删除" placement="bottom">
+          <IconButton
+            size="small"
+            aria-label="删除"
+            onClick={e => {
+              e.stopPropagation()
+              onDelete(asset)
+            }}
+            sx={{
+              width: 28,
+              height: 28,
+              bgcolor: 'rgba(0,0,0,.05)',
+              color: 'rgba(0,0,0,.45)',
+              '&:hover': { bgcolor: 'rgba(0,0,0,.1)', color: '#d32f2f' },
+            }}
+          >
+            <DeleteOutlineRoundedIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Tooltip>
+      </Box>
+
+      <Box
+        sx={{
+          height: 108,
+          borderRadius: 2,
+          overflow: 'hidden',
+          bgcolor: 'rgba(0,0,0,.04)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        {asset.kind === 'image' && asset.thumbnailUrl ? (
+          <Box
+            component="img"
+            src={asset.thumbnailUrl}
+            alt=""
+            sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+        ) : (
+          <Box
+            sx={{
+              width: 56,
+              height: 56,
+              borderRadius: 2,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              bgcolor: 'rgba(0,0,0,.03)',
+              color: kindColor(asset.kind),
+            }}
+          >
+            {kindIcon(asset.kind, 'medium')}
+          </Box>
+        )}
+      </Box>
+
+      <Box sx={{ mt: 1, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 1 }}>
+        <Typography
+          sx={{
+            fontSize: 13,
+            fontWeight: 700,
+            color: '#111',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            minWidth: 0,
+          }}
+          title={asset.ext ? `.${asset.ext}` : '文件'}
+        >
+          {asset.ext ? `.${asset.ext}` : '文件'}
+        </Typography>
+        <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.38)', flexShrink: 0 }}>
+          {humanSize(asset.size)}
+        </Typography>
+      </Box>
+
+      <Typography
+        sx={{
+          mt: 0.25,
+          fontSize: 11,
+          color: 'rgba(0,0,0,.42)',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          fontFamily: 'monospace',
+        }}
+        title={asset.assetId}
+      >
+        {asset.assetId.slice(0, 12)}…
+      </Typography>
+    </Box>
+  )
+}
+
 export function AssetPoolPanel({ api, scope }: Props) {
   const [assets, setAssets] = React.useState<AssetEntry[]>([])
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [importing, setImporting] = React.useState(false)
+  const [category, setCategory] = React.useState<AssetCategory>('image')
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
   /* ---- 加载资源列表 ---- */
@@ -164,22 +342,29 @@ export function AssetPoolPanel({ api, scope }: Props) {
 
   /* ---- 渲染 ---- */
 
-  const statsByKind = React.useMemo(() => {
-    const map: Record<string, number> = {}
+  const statsByCategory = React.useMemo(() => {
+    const counts: Record<AssetCategory, number> = { image: 0, video: 0, document: 0 }
+    const sizes: Record<AssetCategory, number> = { image: 0, video: 0, document: 0 }
     for (const a of assets) {
-      map[a.kind] = (map[a.kind] || 0) + 1
+      const c = categoryFromKind(a.kind)
+      counts[c] += 1
+      sizes[c] += a.size || 0
     }
-    return map
+    return { counts, sizes, totalSize: assets.reduce((s, a) => s + (a.size || 0), 0) }
   }, [assets])
+
+  const visibleAssets = React.useMemo(() => {
+    return assets.filter(a => categoryFromKind(a.kind) === category)
+  }, [assets, category])
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       {/* 标题栏 */}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
         <Typography sx={{ fontSize: 24, lineHeight: 1.25, fontWeight: 900, color: '#111' }}>
-          资源池
+          附件
         </Typography>
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
+        <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }}>
           <Tooltip title="刷新" placement="bottom">
             <IconButton
               size="small"
@@ -191,201 +376,104 @@ export function AssetPoolPanel({ api, scope }: Props) {
               <RefreshRoundedIcon fontSize="small" />
             </IconButton>
           </Tooltip>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept={acceptString()}
+            onChange={handleFileSelect}
+            style={{ display: 'none' }}
+          />
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={importing ? <CircularProgress size={16} /> : <AddRoundedIcon />}
+            disabled={importing}
+            onClick={() => fileInputRef.current?.click()}
+            sx={{
+              textTransform: 'none',
+              borderRadius: 2,
+              borderColor: 'rgba(0,0,0,.16)',
+              color: '#333',
+              '&:hover': { borderColor: 'rgba(0,0,0,.32)', bgcolor: 'rgba(0,0,0,.02)' },
+            }}
+          >
+            {importing ? '导入中...' : '添加文件'}
+          </Button>
         </Box>
       </Box>
 
-      {/* 统计 */}
-      {!loading && assets.length > 0 ? (
-        <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-          {Object.entries(statsByKind).map(([kind, count]) => (
-            <Box
-              key={kind}
-              sx={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 0.5,
-                px: 1,
-                py: 0.25,
-                borderRadius: 1,
-                bgcolor: 'rgba(0,0,0,.04)',
-                fontSize: 12,
-                color: kindColor(kind),
-              }}
-            >
-              {kindIcon(kind)}
-              <span>{kind} {count}</span>
-            </Box>
-          ))}
-          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.38)', alignSelf: 'center' }}>
-            共 {assets.length} 个资源，{humanSize(assets.reduce((s, a) => s + a.size, 0))}
-          </Typography>
-        </Box>
-      ) : null}
-
-      {/* 添加按钮 */}
-      <Box>
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept={acceptString()}
-          onChange={handleFileSelect}
-          style={{ display: 'none' }}
-        />
-        <Button
-          variant="outlined"
-          size="small"
-          startIcon={importing ? <CircularProgress size={16} /> : <AddRoundedIcon />}
-          disabled={importing}
-          onClick={() => fileInputRef.current?.click()}
-          sx={{
+      {/* 分类切换栏 */}
+      <Tabs
+        value={category}
+        onChange={(_, v) => setCategory(v as AssetCategory)}
+        aria-label="附件分类切换"
+        sx={{
+          minHeight: 36,
+          bgcolor: 'rgba(0,0,0,.04)',
+          borderRadius: 2,
+          px: 0.5,
+          '& .MuiTabs-indicator': { height: 0 },
+          '& .MuiTab-root': {
+            minHeight: 36,
             textTransform: 'none',
-            borderRadius: 2,
-            borderColor: 'rgba(0,0,0,.16)',
-            color: '#333',
-            '&:hover': { borderColor: 'rgba(0,0,0,.32)', bgcolor: 'rgba(0,0,0,.02)' },
-          }}
-        >
-          {importing ? '导入中...' : '添加文件'}
-        </Button>
-      </Box>
+            fontSize: 13,
+            fontWeight: 700,
+            color: 'rgba(0,0,0,.55)',
+            borderRadius: 1.5,
+            px: 2,
+          },
+          '& .MuiTab-root.Mui-selected': {
+            bgcolor: '#fff',
+            color: '#111',
+            boxShadow: '0 1px 2px rgba(0,0,0,.06)',
+          },
+        }}
+      >
+        <Tab value="image" label={`图片 (${statsByCategory.counts.image})`} />
+        <Tab value="video" label={`视频 (${statsByCategory.counts.video})`} />
+        <Tab value="document" label={`文档 (${statsByCategory.counts.document})`} />
+      </Tabs>
+
+      {/* 概览 */}
+      {!loading && assets.length > 0 ? (
+        <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.38)' }}>
+          当前分类 {visibleAssets.length} 个，共 {assets.length} 个，{humanSize(statsByCategory.totalSize)}
+        </Typography>
+      ) : null}
 
       {/* 状态提示 */}
-      {loading ? <Typography color="text.secondary">正在加载资源池...</Typography> : null}
+      {loading ? <Typography color="text.secondary">正在加载附件...</Typography> : null}
       {!loading && error ? <Typography color="error">{error}</Typography> : null}
-      {!loading && !error && assets.length === 0 ? (
-        <Typography color="text.secondary">资源池为空，点击「添加文件」导入第一个资源。</Typography>
-      ) : null}
+      {!loading && !error && assets.length === 0 ? <Typography color="text.secondary">还没有任何附件。</Typography> : null}
 
       {/* 资源列表 */}
       {!loading && !error && assets.length > 0 ? (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-          {assets.map(asset => (
-            <Box
-              key={asset.assetId}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1.5,
-                px: 1.5,
-                py: 1,
-                borderRadius: 2,
-                border: '1px solid rgba(0,0,0,.08)',
-                transition: 'border-color .16s ease, box-shadow .16s ease',
-                '&:hover': {
-                  borderColor: 'rgba(0,0,0,.18)',
-                  boxShadow: '0 1px 4px rgba(0,0,0,.06)',
-                },
-              }}
-            >
-              {/* 缩略图 or 图标 */}
-              {asset.kind === 'image' && asset.thumbnailUrl ? (
-                <Box
-                  component="img"
-                  src={asset.thumbnailUrl}
-                  alt=""
-                  sx={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 1,
-                    objectFit: 'cover',
-                    flexShrink: 0,
-                    bgcolor: 'rgba(0,0,0,.04)',
-                  }}
-                />
-              ) : (
-                <Box
-                  sx={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                    bgcolor: 'rgba(0,0,0,.04)',
-                    color: kindColor(asset.kind),
-                  }}
-                >
-                  {kindIcon(asset.kind)}
-                </Box>
-              )}
-
-              {/* 文件信息 */}
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography
-                  sx={{
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: '#222',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {asset.ext ? `.${asset.ext}` : '文件'}
-                </Typography>
-                <Typography
-                  sx={{
-                    fontSize: 11,
-                    color: 'rgba(0,0,0,.42)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    fontFamily: 'monospace',
-                  }}
-                >
-                  {asset.assetId.slice(0, 12)}…
-                </Typography>
-              </Box>
-
-              {/* 大小 */}
-              <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.38)', flexShrink: 0 }}>
-                {humanSize(asset.size)}
-              </Typography>
-
-              {/* 复制引用 */}
-              <Tooltip title="复制引用标记" placement="bottom">
-                <IconButton
-                  size="small"
-                  aria-label="复制引用标记"
-                  onClick={() => {
-                    const ref = asset.ext ? `${asset.assetId}.${asset.ext}` : asset.assetId
-                    const defaultWidth = asset.kind === 'image' ? 320 : asset.kind === 'video' ? 480 : 0
-                    const marker = defaultWidth
-                      ? `{{asset:${ref}||${defaultWidth}}}`
-                      : `{{asset:${ref}}}`
-                    api.clipboard.writeText(marker).then(
-                      () => api.ui.showToast('已复制'),
-                      () => api.ui.showToast('复制失败'),
-                    )
-                  }}
-                  sx={{
-                    color: 'rgba(0,0,0,.3)',
-                    '&:hover': { color: '#1976d2', bgcolor: 'rgba(25,118,210,.06)' },
-                  }}
-                >
-                  <ContentCopyRoundedIcon sx={{ fontSize: 18 }} />
-                </IconButton>
-              </Tooltip>
-
-              {/* 删除 */}
-              <Tooltip title="删除" placement="left">
-                <IconButton
-                  size="small"
-                  aria-label="删除"
-                  onClick={() => void handleDelete(asset)}
-                  sx={{
-                    color: 'rgba(0,0,0,.3)',
-                    '&:hover': { color: '#d32f2f', bgcolor: 'rgba(211,47,47,.06)' },
-                  }}
-                >
-                  <DeleteOutlineRoundedIcon sx={{ fontSize: 18 }} />
-                </IconButton>
-              </Tooltip>
-            </Box>
-          ))}
-        </Box>
+        visibleAssets.length > 0 ? (
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: {
+                xs: 'repeat(2, minmax(0, 1fr))',
+                sm: 'repeat(3, minmax(0, 1fr))',
+                md: 'repeat(4, minmax(0, 1fr))',
+              },
+              gap: 1,
+            }}
+          >
+            {visibleAssets.map(asset => (
+              <AssetCard
+                key={`${asset.assetId}.${asset.ext}`}
+                api={api}
+                asset={asset}
+                onDelete={a => void handleDelete(a)}
+              />
+            ))}
+          </Box>
+        ) : (
+          <Typography color="text.secondary">这个分类里还没有附件。</Typography>
+        )
       ) : null}
     </Box>
   )
