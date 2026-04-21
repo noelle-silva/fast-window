@@ -28,13 +28,16 @@ import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { AssetPoolPanel } from './AssetPoolPanel'
 import { OpenTabsPanel } from './OpenTabsPanel'
 import { NoteDetailSession, type NoteDetailSessionHandle, type NoteDetailSnapshotV1 } from './NoteDetailSession'
+import { AssetDetailSession } from './AssetDetailSession'
 import { ErrorBoundary } from './ErrorBoundary'
 import { ShortcutSettingsPanel } from './ShortcutSettingsPanel'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
 import { DEFAULT_SHORTCUT_BINDINGS, isEditableTarget, mainKeyFromChord, normalizeMainKey, normalizeShortcutBindings, shouldTriggerShortcut, type HyperCortexShortcutBindingsV1 } from '../shortcuts'
+import type { AssetEntry } from '../assetTypes'
+import { assetTabId } from '../assetTypes'
 
-type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'index' | 'settings'
+type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'asset-detail' | 'index' | 'settings'
 
 type AllNotesLayout = 'list' | 'grid' | 'icon'
 type TabsMode = 'manual' | 'hover'
@@ -211,6 +214,13 @@ export function HyperCortexApp() {
   React.useEffect(() => {
     activeNoteIdRef.current = activeNoteId
   }, [activeNoteId])
+
+  const [openAssetTabs, setOpenAssetTabs] = React.useState<AssetEntry[]>([])
+  const [activeAssetTabKey, setActiveAssetTabKey] = React.useState<string>('')
+  const activeAssetTabKeyRef = React.useRef('')
+  React.useEffect(() => {
+    activeAssetTabKeyRef.current = activeAssetTabKey
+  }, [activeAssetTabKey])
 
   const mainScrollElRef = React.useRef<HTMLDivElement | null>(null)
   const noteScrollTopByIdRef = React.useRef<Record<string, number>>({})
@@ -1105,6 +1115,54 @@ export function HyperCortexApp() {
     [commitActiveWorkspacePatch, metaReady, navigatePage, persistMetadataPatch, pushNavHistory],
   )
 
+  const handleOpenAssetTab = React.useCallback(
+    (asset: AssetEntry) => {
+      const sanitized: AssetEntry = { ...asset, thumbnailUrl: undefined }
+      const tabKey = assetTabId(sanitized)
+      setOpenAssetTabs(prev => {
+        const idx = prev.findIndex(a => assetTabId(a) === tabKey)
+        if (idx >= 0) {
+          const next = prev.slice()
+          next[idx] = sanitized
+          return next
+        }
+        return [...prev, sanitized]
+      })
+      setActiveAssetTabKey(tabKey)
+      navigatePage('asset-detail')
+    },
+    [navigatePage],
+  )
+
+  const handleCloseAssetTab = React.useCallback(
+    (tabKey: string) => {
+      const closingKey = String(tabKey || '').trim()
+      if (!closingKey) return
+
+      let nextActiveKey = ''
+      let didCloseActive = false
+      setOpenAssetTabs(prev => {
+        const currentActive = String(activeAssetTabKeyRef.current || '').trim()
+        didCloseActive = currentActive === closingKey
+
+        const idx = prev.findIndex(a => assetTabId(a) === closingKey)
+        if (idx < 0) return prev
+
+        const next = prev.filter(a => assetTabId(a) !== closingKey)
+        if (didCloseActive && next.length) {
+          const fallbackIdx = Math.min(idx, next.length - 1)
+          nextActiveKey = assetTabId(next[fallbackIdx])
+        }
+        return next
+      })
+
+      if (!didCloseActive) return
+      setActiveAssetTabKey(nextActiveKey)
+      if (!nextActiveKey && pageRef.current === 'asset-detail') navigatePage('attachments')
+    },
+    [navigatePage],
+  )
+
   React.useEffect(() => {
     if (!metaReady || !tabsInitReady) return
     const targetId = restoreActiveNoteIdRef.current
@@ -1428,6 +1486,8 @@ export function HyperCortexApp() {
                 tabsCollapsed={tabsCollapsed}
                 openNoteTabs={openNoteTabs}
                 activeNoteId={page === 'note-detail' ? activeNoteId : ''}
+                openAssetTabs={openAssetTabs}
+                activeAssetTabKey={page === 'asset-detail' ? activeAssetTabKey : ''}
                 isNoteDirty={isNoteDirtyById}
                 workspaces={workspaces.map(w => ({ id: w.id, title: w.title }))}
                 activeWorkspaceId={activeWorkspaceId}
@@ -1444,6 +1504,8 @@ export function HyperCortexApp() {
                 onCreateGroup={handleCreateTabGroup}
                 onOpenTab={tab => void handleOpenNote(tab)}
                 onCloseTab={handleCloseTab}
+                onOpenAssetTab={handleOpenAssetTab}
+                onCloseAssetTab={handleCloseAssetTab}
                 onAssignTabToGroup={handleAssignTabToGroup}
                 onUnassignTabFromGroup={handleUnassignTabFromGroup}
                 onToggleGroupCollapsed={handleToggleGroupCollapsed}
@@ -1457,19 +1519,19 @@ export function HyperCortexApp() {
             </Box>
           </Box>
 
-          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: page === 'note-detail' ? 'hidden' : 'auto' }}>
+          <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: page === 'note-detail' || page === 'asset-detail' ? 'hidden' : 'auto' }}>
             <Box
               sx={{
-                minHeight: page === 'note-detail' ? 0 : '100%',
-                height: page === 'note-detail' ? '100%' : 'auto',
-                p: page === 'note-detail' ? 0 : 2,
+                minHeight: page === 'note-detail' || page === 'asset-detail' ? 0 : '100%',
+                height: page === 'note-detail' || page === 'asset-detail' ? '100%' : 'auto',
+                p: page === 'note-detail' || page === 'asset-detail' ? 0 : 2,
                 boxSizing: 'border-box',
                 display: 'flex',
                 flexDirection: 'column',
               }}
             >
               {page === 'home' ? <Typography color="text.secondary">这是主页页面。</Typography> : null}
-              {page === 'attachments' ? <AssetPoolPanel api={api} scope="library" /> : null}
+              {page === 'attachments' ? <AssetPoolPanel api={api} scope="library" onOpenAsset={handleOpenAssetTab} /> : null}
               {page === 'all-notes' ? (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
@@ -1761,6 +1823,23 @@ export function HyperCortexApp() {
                       onOpenNote={handleOpenNote}
                       onDirtyChange={handleNoteDirtyChange}
                       onSaved={handleNoteSessionSaved}
+                    />
+                  ))
+                )}
+              </Box>
+              <Box sx={{ display: page === 'asset-detail' ? 'flex' : 'none', flex: 1, minHeight: 0, width: '100%', flexDirection: 'column' }}>
+                {!openAssetTabs.length ? (
+                  <Box sx={{ p: 2 }}>
+                    <Typography color="text.secondary">没有打开的附件。</Typography>
+                  </Box>
+                ) : (
+                  openAssetTabs.map(asset => (
+                    <AssetDetailSession
+                      key={assetTabId(asset)}
+                      api={api}
+                      scope="library"
+                      asset={asset}
+                      visible={page === 'asset-detail' && assetTabId(asset) === activeAssetTabKey}
                     />
                   ))
                 )}

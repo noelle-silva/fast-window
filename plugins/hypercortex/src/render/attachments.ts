@@ -1,46 +1,9 @@
 import { type Api, type VaultScope, kindFromMime, mimeFromExt } from '../core'
-import { readAssetAsDataUrl } from '../assetPool'
 import { ensureAssetsIndex } from '../assetStore'
 import { pickAssetDisplayName } from '../assetDisplayName'
+import { getAssetBlobUrl } from '../assetBlobUrl'
 
 type AssetRef = { assetId: string; ext: string; name: string; width?: number; refText: string }
-
-const blobUrlCache = new Map<string, string>()
-
-function cacheKey(assetId: string, ext: string): string {
-  return ext ? `${assetId}.${ext}` : assetId
-}
-
-function normalizeToDataUrl(raw: string, ext: string): string {
-  const s = String(raw || '')
-  if (s.startsWith('data:')) return s
-  const mime = mimeFromExt(ext) || 'application/octet-stream'
-  return `data:${mime};base64,${s}`
-}
-
-function dataUrlToBlob(dataUrl: string): Blob {
-  const parts = dataUrl.split(',', 2)
-  const header = parts[0] || ''
-  const b64 = parts[1] || ''
-  const mime = (header.match(/data:([^;]+)/) || [])[1] || 'application/octet-stream'
-  const binary = atob(b64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
-  return new Blob([bytes], { type: mime })
-}
-
-async function getBlobUrl(api: Api, scope: VaultScope, assetId: string, ext: string): Promise<string> {
-  const key = cacheKey(assetId, ext)
-  const cached = blobUrlCache.get(key)
-  if (cached) return cached
-
-  const dataUrlRaw = await readAssetAsDataUrl(api, scope, assetId, ext)
-  const dataUrl = normalizeToDataUrl(dataUrlRaw, ext)
-  const blob = dataUrlToBlob(dataUrl)
-  const url = URL.createObjectURL(blob)
-  blobUrlCache.set(key, url)
-  return url
-}
 
 function parseRef(refText: string, displayName: string, width?: number): AssetRef | null {
   const ref = String(refText || '').trim()
@@ -163,7 +126,7 @@ export async function resolveAssetsInElement(root: HTMLElement, api: Api, scope:
         return
       }
 
-      const blobUrl = await getBlobUrl(api, scope, ref.assetId, ref.ext)
+      const blobUrl = await getAssetBlobUrl(api, scope, ref.assetId, ref.ext)
 
       if (kind === 'image') {
         if (inlineMode) ph.replaceWith(buildChip(`🖼 ${ref.name}`, 'doc'))

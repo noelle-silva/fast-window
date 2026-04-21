@@ -11,28 +11,18 @@ import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import { PLUGIN_ID, type Api, type VaultScope, acceptString, kindFromMime, mimeFromExt } from '../core'
 import { deleteAssetFromPool, importFilesToAssetPool, listAssetsInPool, readAssetAsDataUrl } from '../assetPool'
 import { pickAssetDisplayName } from '../assetDisplayName'
+import type { AssetEntry } from '../assetTypes'
 
 /* ------------------------------------------------------------------ */
 /*  类型                                                               */
 /* ------------------------------------------------------------------ */
-
-type AssetEntry = {
-  relPath: string
-  fileName: string
-  displayName?: string
-  assetId: string
-  ext: string
-  kind: string
-  size: number
-  modifiedMs: number
-  thumbnailUrl?: string
-}
 
 type AssetCategory = 'image' | 'video' | 'document'
 
 type Props = {
   api: Api
   scope: VaultScope
+  onOpenAsset?: (asset: AssetEntry) => void
 }
 
 /* ------------------------------------------------------------------ */
@@ -95,12 +85,15 @@ function AssetCard({
   api,
   asset,
   onDelete,
+  onOpenAsset,
 }: {
   api: Api
   asset: AssetEntry
   onDelete: (asset: AssetEntry) => void
+  onOpenAsset?: (asset: AssetEntry) => void
 }) {
   const titleLabel = pickAssetDisplayName({ indexName: asset.displayName, ext: asset.ext })
+  const canOpenPreview = asset.kind === 'image' || asset.kind === 'video'
   const handleCopy = React.useCallback(() => {
     const marker = buildAssetMarker(asset)
     api.clipboard.writeText(marker).then(
@@ -111,6 +104,19 @@ function AssetCard({
 
   return (
     <Box
+      role={canOpenPreview ? 'button' : undefined}
+      tabIndex={canOpenPreview ? 0 : -1}
+      aria-label={canOpenPreview ? `打开附件：${titleLabel}` : undefined}
+      onClick={() => {
+        if (!canOpenPreview) return
+        onOpenAsset?.(asset)
+      }}
+      onKeyDown={e => {
+        if (!canOpenPreview) return
+        if (e.key !== 'Enter' && e.key !== ' ') return
+        e.preventDefault()
+        onOpenAsset?.(asset)
+      }}
       sx={{
         position: 'relative',
         minHeight: 180,
@@ -120,12 +126,15 @@ function AssetCard({
         bgcolor: '#fff',
         boxShadow: '0 1px 2px rgba(0,0,0,.04)',
         transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
+        outline: 'none',
         '&:hover': {
           bgcolor: 'rgba(0,0,0,.02)',
           boxShadow: '0 6px 16px rgba(0,0,0,.08)',
           transform: 'translateY(-1px)',
         },
+        '&:focus-visible': canOpenPreview ? { boxShadow: '0 0 0 2px rgba(25,118,210,.32), 0 6px 16px rgba(0,0,0,.08)' } : undefined,
         '&:hover .hc-asset-card-actions': { opacity: 1 },
+        cursor: canOpenPreview ? 'pointer' : 'default',
       }}
     >
       <Box
@@ -256,7 +265,7 @@ function AssetCard({
   )
 }
 
-export function AssetPoolPanel({ api, scope }: Props) {
+export function AssetPoolPanel({ api, scope, onOpenAsset }: Props) {
   const [assets, setAssets] = React.useState<AssetEntry[]>([])
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -526,6 +535,7 @@ export function AssetPoolPanel({ api, scope }: Props) {
                 api={api}
                 asset={asset}
                 onDelete={a => void handleDelete(a)}
+                onOpenAsset={onOpenAsset}
               />
             ))}
           </Box>

@@ -20,10 +20,16 @@ import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
+import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
+import VideoFileRoundedIcon from '@mui/icons-material/VideoFileRounded'
+import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded'
 import SyncAltRoundedIcon from '@mui/icons-material/SyncAltRounded'
 import WorkspacesRoundedIcon from '@mui/icons-material/WorkspacesRounded'
 import UnfoldLessRoundedIcon from '@mui/icons-material/UnfoldLessRounded'
 import type { HyperCortexTabGroupV1, NoteMeta } from '../core'
+import type { AssetEntry } from '../assetTypes'
+import { assetTabId } from '../assetTypes'
+import { pickAssetDisplayName } from '../assetDisplayName'
 import { TAB_GROUP_PRESET_COLORS } from './tabGroups'
 import { useOpenTabsPointerDnd } from './useOpenTabsPointerDnd'
 
@@ -33,6 +39,8 @@ export type OpenTabsPanelProps = {
   tabsCollapsed: boolean
   openNoteTabs: NoteMeta[]
   activeNoteId?: string
+  openAssetTabs?: AssetEntry[]
+  activeAssetTabKey?: string
   isNoteDirty?: (noteId: string) => boolean
   workspaces: { id: string; title: string }[]
   activeWorkspaceId: string
@@ -49,6 +57,8 @@ export type OpenTabsPanelProps = {
   onCreateGroup: () => void
   onOpenTab: (tab: NoteMeta) => void
   onCloseTab: (noteId: string) => void
+  onOpenAssetTab?: (asset: AssetEntry) => void
+  onCloseAssetTab?: (tabKey: string) => void
   onAssignTabToGroup: (noteId: string, groupId: string) => void
   onUnassignTabFromGroup: (noteId: string) => void
   onToggleGroupCollapsed: (groupId: string) => void
@@ -69,6 +79,8 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     tabsCollapsed,
     openNoteTabs,
     activeNoteId,
+    openAssetTabs,
+    activeAssetTabKey,
     isNoteDirty,
     workspaces,
     activeWorkspaceId,
@@ -85,6 +97,8 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     onCreateGroup,
     onOpenTab,
     onCloseTab,
+    onOpenAssetTab,
+    onCloseAssetTab,
     onAssignTabToGroup,
     onUnassignTabFromGroup,
     onToggleGroupCollapsed,
@@ -263,8 +277,103 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     [activeNoteId, dnd, isNoteDirty, onCloseTab, onOpenTab, showTitle, tabsMode],
   )
 
+  const assetTabsList = openAssetTabs || []
+
+  const renderAssetTabRow = React.useCallback(
+    (asset: AssetEntry) => {
+      const tabKey = assetTabId(asset)
+      const isActive = String(activeAssetTabKey || '').trim() === tabKey
+      const title = pickAssetDisplayName({ indexName: asset.displayName, ext: asset.ext }) || '附件'
+      const disableTitleTooltip = tabsMode === 'hover'
+      const iconEl =
+        asset.kind === 'image' ? (
+          <ImageRoundedIcon fontSize="small" sx={{ color: isActive ? '#1976d2' : 'rgba(0,0,0,.48)' }} />
+        ) : asset.kind === 'video' ? (
+          <VideoFileRoundedIcon fontSize="small" sx={{ color: isActive ? '#7b1fa2' : 'rgba(0,0,0,.48)' }} />
+        ) : (
+          <InsertDriveFileRoundedIcon fontSize="small" sx={{ color: isActive ? '#546e7a' : 'rgba(0,0,0,.48)' }} />
+        )
+
+      return (
+        <Tooltip
+          key={tabKey}
+          title={!showTitle && !disableTitleTooltip ? title : ''}
+          placement="right"
+          disableHoverListener={showTitle || disableTitleTooltip}
+          disableFocusListener={disableTitleTooltip}
+          disableTouchListener={disableTitleTooltip}
+        >
+          <Box
+            role="button"
+            tabIndex={0}
+            data-tauri-drag-region="false"
+            onClick={() => onOpenAssetTab?.(asset)}
+            onKeyDown={e => {
+              if (e.key !== 'Enter' && e.key !== ' ') return
+              e.preventDefault()
+              onOpenAssetTab?.(asset)
+            }}
+            sx={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.75,
+              px: showTitle ? 1 : 0.75,
+              py: 0.6,
+              borderRadius: 2,
+              userSelect: 'none',
+              outline: 'none',
+              WebkitAppRegion: 'no-drag',
+              cursor: 'pointer',
+              bgcolor: isActive ? 'rgba(25,118,210,.10)' : 'transparent',
+              '&:hover': { bgcolor: isActive ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
+              '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
+            }}
+          >
+            <Box sx={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>{iconEl}</Box>
+            {showTitle ? (
+              <Typography
+                noWrap
+                sx={{
+                  flex: 1,
+                  minWidth: 0,
+                  fontSize: 12,
+                  lineHeight: 1.2,
+                  fontWeight: isActive ? 900 : 600,
+                  color: isActive ? '#111' : 'rgba(0,0,0,.72)',
+                }}
+              >
+                {title}
+              </Typography>
+            ) : null}
+            {showTitle ? (
+              <Tooltip title="关闭" placement="left">
+                <IconButton
+                  size="small"
+                  aria-label={`关闭 ${title}`}
+                  data-hc-no-drag="1"
+                  onClick={e => {
+                    e.stopPropagation()
+                    onCloseAssetTab?.(tabKey)
+                  }}
+                  sx={{
+                    color: 'rgba(0,0,0,.42)',
+                    '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                  }}
+                >
+                  <CloseRoundedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            ) : null}
+          </Box>
+        </Tooltip>
+      )
+    },
+    [activeAssetTabKey, onCloseAssetTab, onOpenAssetTab, showTitle, tabsMode],
+  )
+
   const mixedItems = React.useMemo(() => {
-    type Item = { type: 'tab'; tab: NoteMeta } | { type: 'group'; groupId: string }
+    type Item = { type: 'tab'; tab: NoteMeta } | { type: 'group'; groupId: string } | { type: 'asset'; asset: AssetEntry }
     const out: Item[] = []
     const insertedGroups = new Set<string>()
 
@@ -285,8 +394,10 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       insertedGroups.add(g.id)
     }
 
+    for (const a of assetTabsList) out.push({ type: 'asset', asset: a })
+
     return out
-  }, [groupById, openNoteTabs, tabGroupByNoteId, tabGroups])
+  }, [assetTabsList, groupById, openNoteTabs, tabGroupByNoteId, tabGroups])
 
   return (
     <>
@@ -464,12 +575,13 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           WebkitAppRegion: 'no-drag',
         }}
       >
-        {!openNoteTabs.length && !tabGroups.length && showTitle ? (
+        {!openNoteTabs.length && !tabGroups.length && assetTabsList.length === 0 && showTitle ? (
           <Typography sx={{ px: 0.75, py: 0.5, fontSize: 12, color: 'rgba(0,0,0,.42)' }}>还没有打开的笔记</Typography>
         ) : null}
 
         {mixedItems.map(item => {
           if (item.type === 'tab') return renderTabRow(item.tab)
+          if (item.type === 'asset') return renderAssetTabRow(item.asset)
           const g = groupById[item.groupId]
           if (!g) return null
           const isCollapsed = g.collapsed === true
