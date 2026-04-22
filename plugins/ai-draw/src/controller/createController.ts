@@ -3,8 +3,10 @@ import {
   DEFAULT_REQUEST_TIMEOUT_SEC,
   UI_MODE_LOCAL_EDIT,
   UI_MODE_NORMAL,
+  defaultRefLibraryIndex,
   defaultPromptLibrary,
   defaultProvider,
+  normalizeRefLibraryIndex,
   normalizePromptLibrary,
   normalizePromptHistory,
   normalizePromptHistoryLimit,
@@ -17,6 +19,8 @@ import {
   type PromptLibraryFolder,
   type PromptLibraryPrompt,
   type PromptLibraryV1,
+  type RefLibraryFolder,
+  type RefLibraryIndexV1,
   type UiMode,
 } from '../core/schema'
 import { normalizeImageDataUrlOrBase64, inferImageMimeFromBase64 } from '../core/images'
@@ -36,6 +40,7 @@ import { formatAiDrawError } from '../core/errorFormat'
 
 const STORAGE_KEY = 'settings'
 const PROMPT_LIBRARY_KEY = 'promptLibrary'
+const REF_LIBRARY_INDEX_KEY = 'refLibraryIndex'
 const BG_SAVED_RESULTS_KEY = 'bgSavedResults'
 const BG_SAVE_REQUESTS_KEY = 'bgSaveRequests'
 const BG_SAVE_RESPONSES_KEY = 'bgSaveResponses'
@@ -71,6 +76,8 @@ export type AiDrawControllerState = {
     busy: boolean
     paths: string[]
     itemsByPath: Record<string, { dataUrl: string; loading: boolean; error: string }>
+    indexLoading: boolean
+    index: RefLibraryIndexV1 | null
   }
   data: AiDrawSettingsV1 | null
   outputDir: string
@@ -109,6 +116,12 @@ export type AiDrawController = {
   importRefLibraryFromPicker: () => Promise<void>
   deleteRefLibraryItem: (path: string) => Promise<void>
   addRefImageFromLibrary: (path: string) => Promise<void>
+  loadRefLibraryIndex: () => Promise<void>
+  setRefLibraryView: (view: { kind: 'all' | 'folder'; folderId?: string }) => Promise<void>
+  addRefFolder: (name?: string, parentId?: string | null) => Promise<void>
+  renameRefFolder: (folderId: string, name: string) => Promise<void>
+  deleteRefFolder: (folderId: string) => Promise<void>
+  setRefItemFolderIds: (path: string, folderIds: string[]) => Promise<void>
 
   pickEditImage: () => Promise<void>
   clearEditImage: () => void
@@ -191,7 +204,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     prompt: '',
     batchCount: '1',
     refImages: [],
-    refLibrary: { loading: false, busy: false, paths: [], itemsByPath: {} },
+    refLibrary: { loading: false, busy: false, paths: [], itemsByPath: {}, indexLoading: false, index: null },
     data: null,
     outputDir: '',
     savedPath: '',
@@ -217,10 +230,157 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     await api.storage.set(STORAGE_KEY, state.data)
   }
 
+  async function saveRefLibraryIndex() {
+    const d = state.refLibrary.index
+    if (!d) return
+    await api.storage.set(REF_LIBRARY_INDEX_KEY, d).catch((e: any) => {
+      api.ui.showToast(`参考图库收藏夹保存失败：${String(e?.message || e)}`)
+    })
+  }
+
   async function savePromptLibrary() {
     const d = state.promptLib.data
     if (!d) return
     await api.storage.set(PROMPT_LIBRARY_KEY, d).catch(() => {})
+  }
+
+  async function loadRefLibraryIndex() {
+    if (state.refLibrary.indexLoading) return
+    state.refLibrary.indexLoading = true
+    notify()
+    try {
+      const raw = await api.storage.get(REF_LIBRARY_INDEX_KEY).catch(() => null)
+      const loaded = normalizeRefLibraryIndex(raw)
+      const cur = state.refLibrary.index
+      const curHasData =
+        !!cur &&
+        ((Array.isArray(cur.folders) && cur.folders.length > 0) ||
+          (cur.folderIdsByPath && typeof cur.folderIdsByPath === 'object' && Object.keys(cur.folderIdsByPath).length > 0) ||
+          (cur.activeView && typeof cur.activeView === 'object' && String((cur.activeView as any).kind || '') === 'folder'))
+
+      // 避免竞态：UI 打开时触发 loadRefLibraryIndex，如果用户在加载完成前创建了收藏夹，
+      // 这里不应把“刚创建的内存态”覆盖回“磁盘上的旧态”。
+      if (!curHasData) {
+        state.refLibrary.index = loaded
+        await saveRefLibraryIndex().catch(() => {})
+      }
+    } finally {
+      state.refLibrary.indexLoading = false
+      notify()
+    }
+  }
+
+  function ensureRefLibraryIndexData() {
+    if (!state.refLibrary.index) state.refLibrary.index = defaultRefLibraryIndex()
+    const d = state.refLibrary.index
+    if (!Array.isArray(d.folders)) state.refLibrary.index = defaultRefLibraryIndex()
+    const d2 = state.refLibrary.index
+    if (!Array.isArray(d2.folders)) d2.folders = []
+    if (!d2.activeView || typeof d2.activeView !== 'object') d2.activeView = { kind: 'all', folderId: '' }
+    if (String((d2.activeView as any).kind || '') !== 'folder') d2.activeView = { kind: 'all', folderId: '' }
+    const activeFolderId = String((d2.activeView as any).folderId || '').trim()
+    if (d2.activeView.kind === 'folder' && activeFolderId && d2.folders.some((f) => f.id === activeFolderId)) {
+      d2.activeView.folderId = activeFolderId
+    } else {
+      d2.activeView = { kind: 'all', folderId: '' }
+    }
+    return d2
+  }
+
+  function computeFolderDescendants(folderId: string, folders: RefLibraryFolder[]) {
+    const childrenByParent = new Map<string, string[]>()
+    for (const f of folders) {
+      const pid = f.parentId || ''
+      const arr = childrenByParent.get(pid) || []
+      arr.push(f.id)
+      childrenByParent.set(pid, arr)
+    }
+    const out = new Set<string>()
+    const stack = [folderId]
+    while (stack.length) {
+      const cur = stack.pop() || ''
+      if (!cur) continue
+      const kids = childrenByParent.get(cur) || []
+      for (const k of kids) {
+        if (out.has(k)) continue
+        out.add(k)
+        stack.push(k)
+      }
+    }
+    return out
+  }
+
+  async function setRefLibraryView(view: { kind: 'all' | 'folder'; folderId?: string }) {
+    const d = ensureRefLibraryIndexData()
+    const kind = view.kind === 'folder' ? 'folder' : 'all'
+    const fidRaw = String(view.folderId || '').trim()
+    const fid = d.folders.some((f) => f.id === fidRaw) ? fidRaw : ''
+    d.activeView = kind === 'folder' && fid ? { kind: 'folder', folderId: fid } : { kind: 'all', folderId: '' }
+    notify()
+    void saveRefLibraryIndex().catch(() => {})
+  }
+
+  async function addRefFolder(name?: string, parentId?: string | null) {
+    const d = ensureRefLibraryIndexData()
+    const pidRaw = String(parentId ?? '').trim()
+    const pid = pidRaw && d.folders.some((f) => f.id === pidRaw) ? pidRaw : null
+    const f: RefLibraryFolder = { id: id('rlf'), name: String(name || '').trim() || '收藏夹', parentId: pid, at: Date.now() }
+    d.folders.unshift(f)
+    d.activeView = { kind: 'folder', folderId: f.id }
+    notify()
+    void saveRefLibraryIndex().catch(() => {})
+  }
+
+  async function renameRefFolder(folderId: string, name: string) {
+    const d = ensureRefLibraryIndexData()
+    const fid = String(folderId || '').trim()
+    const f = d.folders.find((x) => x.id === fid)
+    if (!f) return
+    f.name = String(name || '').trim() || '收藏夹'
+    notify()
+    void saveRefLibraryIndex().catch(() => {})
+  }
+
+  async function deleteRefFolder(folderId: string) {
+    const d = ensureRefLibraryIndexData()
+    const fid = String(folderId || '').trim()
+    if (!fid) return
+    const del = new Set<string>([fid])
+    for (const x of computeFolderDescendants(fid, d.folders)) del.add(x)
+
+    d.folders = d.folders.filter((x) => !del.has(x.id))
+    const nextMap: Record<string, string[]> = {}
+    for (const [p, ids] of Object.entries(d.folderIdsByPath || {})) {
+      const keep = (Array.isArray(ids) ? ids : []).filter((x) => !del.has(String(x || '').trim()))
+      if (keep.length) nextMap[p] = keep
+    }
+    d.folderIdsByPath = nextMap
+
+    if (d.activeView.kind === 'folder' && del.has(d.activeView.folderId)) {
+      d.activeView = { kind: 'all', folderId: '' }
+    }
+    notify()
+    void saveRefLibraryIndex().catch(() => {})
+  }
+
+  async function setRefItemFolderIds(path: string, folderIds: string[]) {
+    const d = ensureRefLibraryIndexData()
+    const p = String(path || '').trim()
+    if (!p) return
+    const valid = new Set(d.folders.map((x) => x.id))
+    const out: string[] = []
+    const raw = Array.isArray(folderIds) ? folderIds : []
+    for (const x of raw) {
+      const fid = String(x || '').trim()
+      if (!fid) continue
+      if (!valid.has(fid)) continue
+      if (!out.includes(fid)) out.push(fid)
+      if (out.length >= 50) break
+    }
+    if (out.length) d.folderIdsByPath[p] = out
+    else delete d.folderIdsByPath[p]
+    notify()
+    void saveRefLibraryIndex().catch(() => {})
   }
 
   function syncPromptHistoryToData(persist: boolean) {
@@ -1096,6 +1256,18 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
         next[p] = state.refLibrary.itemsByPath[p] || { dataUrl: '', loading: false, error: '' }
       }
       state.refLibrary.itemsByPath = next
+
+      const idx = state.refLibrary.index
+      if (idx && idx.folderIdsByPath && typeof idx.folderIdsByPath === 'object') {
+        let changed = false
+        for (const k of Object.keys(idx.folderIdsByPath)) {
+          if (!list.includes(k)) {
+            delete idx.folderIdsByPath[k]
+            changed = true
+          }
+        }
+        if (changed) void saveRefLibraryIndex().catch(() => {})
+      }
     } finally {
       state.refLibrary.loading = false
       notify()
@@ -1177,6 +1349,11 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     await api.files.images.delete({ scope: 'data', path: p }).catch((e: any) => {
       api.ui.showToast(`删除失败：${String(e?.message || e)}`)
     })
+    const idx = state.refLibrary.index
+    if (idx?.folderIdsByPath && Object.prototype.hasOwnProperty.call(idx.folderIdsByPath, p)) {
+      delete idx.folderIdsByPath[p]
+      void saveRefLibraryIndex().catch(() => {})
+    }
     await refreshRefLibrary()
   }
 
@@ -1514,6 +1691,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     notify()
     await refreshImageHistoryFromOutputDir()
     await loadPromptLibrary().catch(() => {})
+    await loadRefLibraryIndex().catch(() => {})
     if (getActiveTasks().length) void pollTasks()
   }
 
@@ -1558,6 +1736,12 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     importRefLibraryFromPicker,
     deleteRefLibraryItem,
     addRefImageFromLibrary,
+    loadRefLibraryIndex,
+    setRefLibraryView,
+    addRefFolder,
+    renameRefFolder,
+    deleteRefFolder,
+    setRefItemFolderIds,
 
     pickEditImage,
     clearEditImage,

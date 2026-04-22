@@ -2,6 +2,7 @@ import { id, trimSlash } from './utils'
 
 export const AI_DRAW_VERSION = 1
 export const PROMPT_LIBRARY_VERSION = 1
+export const REF_LIBRARY_INDEX_VERSION = 1
 export const DEFAULT_PROMPT_HISTORY_LIMIT = 50
 export const MAX_PROMPT_HISTORY_LIMIT = 200
 export const DEFAULT_REQUEST_TIMEOUT_SEC = 120
@@ -41,6 +42,14 @@ export type AiDrawSettingsV1 = {
 export type PromptLibraryPrompt = { id: string; text: string; at: number }
 export type PromptLibraryFolder = { id: string; name: string; prompts: PromptLibraryPrompt[] }
 export type PromptLibraryV1 = { version: number; activeFolderId: string; folders: PromptLibraryFolder[] }
+
+export type RefLibraryFolder = { id: string; name: string; parentId: string | null; at: number }
+export type RefLibraryIndexV1 = {
+  version: number
+  activeView: { kind: 'all' | 'folder'; folderId: string }
+  folders: RefLibraryFolder[]
+  folderIdsByPath: Record<string, string[]>
+}
 
 export function defaultProvider(): AiDrawProvider {
   return {
@@ -236,6 +245,86 @@ export function normalizePromptLibrary(raw: any): PromptLibraryV1 {
   if (!out.folders.length) out.folders = defaultPromptLibrary().folders
   const activeFolderId = String(v.activeFolderId || '').trim()
   out.activeFolderId = out.folders.some((f) => f.id === activeFolderId) ? activeFolderId : out.folders[0].id
+  return out
+}
+
+export function defaultRefLibraryIndex(): RefLibraryIndexV1 {
+  return { version: REF_LIBRARY_INDEX_VERSION, activeView: { kind: 'all', folderId: '' }, folders: [], folderIdsByPath: {} }
+}
+
+function ensureNoFolderCycle(folders: RefLibraryFolder[]) {
+  const byId = new Map(folders.map((x) => [x.id, x] as const))
+  for (const f of folders) {
+    const seen = new Set<string>()
+    let cur: RefLibraryFolder | undefined = f
+    while (cur && cur.parentId) {
+      if (seen.has(cur.parentId)) {
+        f.parentId = null
+        break
+      }
+      seen.add(cur.parentId)
+      cur = byId.get(cur.parentId)
+    }
+  }
+}
+
+export function normalizeRefLibraryIndex(raw: any): RefLibraryIndexV1 {
+  if (!raw || typeof raw !== 'object') return defaultRefLibraryIndex()
+  const v: any = raw
+  const out = defaultRefLibraryIndex()
+  out.version = REF_LIBRARY_INDEX_VERSION
+
+  const foldersRaw = Array.isArray(v.folders) ? v.folders : []
+  const folders: RefLibraryFolder[] = []
+  for (const it of foldersRaw) {
+    const fid = String(it?.id || '').trim() || id('rlf')
+    const name = String(it?.name || '').trim() || '未命名收藏夹'
+    const pid = String(it?.parentId ?? it?.parent_id ?? '').trim()
+    const atRaw = Number(it?.at)
+    const at = Number.isFinite(atRaw) && atRaw > 0 ? atRaw : Date.now()
+    folders.push({ id: fid, name, parentId: pid ? pid : null, at })
+  }
+
+  const byId = new Map<string, RefLibraryFolder>()
+  for (const f of folders) {
+    if (!f.id) continue
+    if (!byId.has(f.id)) byId.set(f.id, f)
+  }
+  const uniq = Array.from(byId.values())
+  for (const f of uniq) {
+    if (f.parentId && !byId.has(f.parentId)) f.parentId = null
+    if (f.parentId === f.id) f.parentId = null
+  }
+  ensureNoFolderCycle(uniq)
+  out.folders = uniq
+
+  const folderIdsByPathRaw = v.folderIdsByPath && typeof v.folderIdsByPath === 'object' ? v.folderIdsByPath : v.folder_ids_by_path
+  const rec = folderIdsByPathRaw && typeof folderIdsByPathRaw === 'object' ? folderIdsByPathRaw : {}
+  const validFolderIds = new Set(out.folders.map((x) => x.id))
+  const next: Record<string, string[]> = {}
+  for (const [k, val] of Object.entries(rec)) {
+    const path = String(k || '').trim()
+    if (!path) continue
+    const ids = Array.isArray(val) ? val : []
+    const dedup: string[] = []
+    for (const x of ids) {
+      const fid = String(x || '').trim()
+      if (!fid) continue
+      if (!validFolderIds.has(fid)) continue
+      if (!dedup.includes(fid)) dedup.push(fid)
+      if (dedup.length >= 50) break
+    }
+    if (dedup.length) next[path] = dedup
+  }
+  out.folderIdsByPath = next
+
+  const av = v.activeView && typeof v.activeView === 'object' ? v.activeView : {}
+  const kindRaw = String((av as any).kind || '').trim()
+  const kind = kindRaw === 'folder' ? 'folder' : 'all'
+  const folderIdRaw = String((av as any).folderId || '').trim()
+  const folderId = validFolderIds.has(folderIdRaw) ? folderIdRaw : ''
+  out.activeView = kind === 'folder' && folderId ? { kind: 'folder', folderId } : { kind: 'all', folderId: '' }
+
   return out
 }
 

@@ -7,14 +7,22 @@ import {
   Chip,
   CssBaseline,
   Badge,
+  Checkbox,
+  Collapse,
+  Divider,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   FormControl,
   FormControlLabel,
+  FormGroup,
   IconButton,
   InputLabel,
+  List,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
   MenuItem,
   Menu,
   Paper,
@@ -47,6 +55,9 @@ import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import KeyboardArrowUpRoundedIcon from '@mui/icons-material/KeyboardArrowUpRounded'
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded'
+import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded'
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
+import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import type { AiDrawFastWindowApi } from '../bridge/tauriCompat'
 import { createAiDrawController } from '../controller/createController'
 import { UI_MODE_LOCAL_EDIT, UI_MODE_NORMAL, type AiDrawProvider, type UiMode } from '../core/schema'
@@ -280,6 +291,22 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const [normalMoreAnchorEl, setNormalMoreAnchorEl] = React.useState<HTMLElement | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false)
   const [refLibraryItemMenu, setRefLibraryItemMenu] = React.useState<{ el: HTMLElement | null; path: string }>({ el: null, path: '' })
+  const [refFolderExpanded, setRefFolderExpanded] = React.useState<Record<string, boolean>>({})
+  const [refFolderMenu, setRefFolderMenu] = React.useState<{ folderId: string; x: number; y: number; name: string }>(
+    { folderId: '', x: 0, y: 0, name: '' },
+  )
+  const [addRefFolderDialog, setAddRefFolderDialog] = React.useState<{ open: boolean; parentId: string | null; name: string }>(
+    { open: false, parentId: null, name: '' },
+  )
+  const [renameRefFolderDialog, setRenameRefFolderDialog] = React.useState<{ open: boolean; folderId: string; name: string }>(
+    { open: false, folderId: '', name: '' },
+  )
+  const [deleteRefFolderConfirm, setDeleteRefFolderConfirm] = React.useState<{ open: boolean; folderId: string; name: string }>(
+    { open: false, folderId: '', name: '' },
+  )
+  const [assignRefFolderDialog, setAssignRefFolderDialog] = React.useState<{ open: boolean; path: string; folderIds: string[] }>(
+    { open: false, path: '', folderIds: [] },
+  )
 
   const [providerDeleteConfirm, setProviderDeleteConfirm] = React.useState<{ open: boolean; providerId: string; name: string }>({
     open: false,
@@ -341,15 +368,53 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   React.useEffect(() => {
     if (!refLibraryOpen) return
     setRefLibraryLimit(36)
+    void controller.loadRefLibraryIndex()
     void controller.refreshRefLibrary()
   }, [refLibraryOpen, controller])
 
+  const refIndex = state.refLibrary.index
+  const refFolders = Array.isArray(refIndex?.folders) ? refIndex!.folders : []
+  const refFolderIdsByPath = refIndex && typeof (refIndex as any).folderIdsByPath === 'object' ? (refIndex as any).folderIdsByPath : {}
+  const refActiveView = refIndex?.activeView || { kind: 'all' as const, folderId: refFolders[0]?.id || '' }
+
+  // 注意：controller 内部会“原地修改”数组/对象；这里不要用 useMemo 依赖引用做缓存，否则会出现“创建了但不显示”的假象。
+  const refFolderById = new Map<string, any>()
+  for (const f of refFolders) refFolderById.set(String((f as any)?.id || ''), f)
+
+  const refChildrenByParent = new Map<string, string[]>()
+  for (const f of refFolders) {
+    const pid = String((f as any)?.parentId || '')
+    const arr = refChildrenByParent.get(pid) || []
+    arr.push(String((f as any)?.id || ''))
+    refChildrenByParent.set(pid, arr)
+  }
+
+  const getRefItemFolderIds = (p: string) => {
+    const raw = (refFolderIdsByPath as any)?.[p]
+    return Array.isArray(raw) ? raw.map((x: any) => String(x || '').trim()).filter(Boolean) : []
+  }
+
+  const refVisiblePathsAll = (() => {
+    const paths = Array.isArray(state.refLibrary.paths) ? state.refLibrary.paths : []
+    if (refActiveView.kind === 'all') return paths
+    const fid = String(refActiveView.folderId || '').trim()
+    if (!fid) return paths
+    return paths.filter((p) => getRefItemFolderIds(p).includes(fid))
+  })()
+
+  const refFolderImageCountById = (() => {
+    const out: Record<string, number> = {}
+    for (const p of Array.isArray(state.refLibrary.paths) ? state.refLibrary.paths : []) {
+      for (const fid of getRefItemFolderIds(p)) out[fid] = (out[fid] || 0) + 1
+    }
+    return out
+  })()
+
   React.useEffect(() => {
     if (!refLibraryOpen) return
-    const paths = Array.isArray(state.refLibrary.paths) ? state.refLibrary.paths : []
-    const slice = paths.slice(0, Math.max(0, refLibraryLimit))
+    const slice = refVisiblePathsAll.slice(0, Math.max(0, refLibraryLimit))
     for (const p of slice) controller.ensureRefLibraryItemLoaded(p)
-  }, [refLibraryOpen, refLibraryLimit, state.refLibrary.paths, controller])
+  }, [refLibraryOpen, refLibraryLimit, refVisiblePathsAll, controller])
 
   const uiMode: UiMode = String(state.uiMode || UI_MODE_NORMAL) === UI_MODE_LOCAL_EDIT ? UI_MODE_LOCAL_EDIT : UI_MODE_NORMAL
   const autoSave = !!data?.autoSave
@@ -1577,9 +1642,15 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
         </Box>
       </Popover>
 
-      <Dialog open={refLibraryOpen} onClose={() => setRefLibraryOpen(false)} fullWidth maxWidth="md">
+      <Dialog
+        open={refLibraryOpen}
+        onClose={() => setRefLibraryOpen(false)}
+        fullWidth
+        maxWidth="md"
+        PaperProps={{ sx: { height: 680, maxHeight: '90vh' } }}
+      >
         <DialogTitle>参考图库</DialogTitle>
-        <DialogContent>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
             <Button size="small" variant="outlined" onClick={() => void controller.refreshRefLibrary()} disabled={state.refLibrary.loading}>
               刷新
@@ -1593,90 +1664,179 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               导入图片到参考库
             </Button>
             <Box sx={{ flex: 1 }} />
-            <Chip size="small" variant="outlined" label={`共 ${state.refLibrary.paths.length} 张`} />
+            <Chip
+              size="small"
+              variant="outlined"
+              label={
+                refActiveView.kind === 'all'
+                  ? `共 ${state.refLibrary.paths.length} 张`
+                  : `当前 ${refVisiblePathsAll.length} 张 / 共 ${state.refLibrary.paths.length} 张`
+              }
+            />
           </Stack>
 
-          {state.refLibrary.loading ? (
-            <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>加载中…</Typography>
-          ) : state.refLibrary.paths.length ? (
-            <Box
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-                gap: 1,
-              }}
-            >
-              {state.refLibrary.paths.slice(0, refLibraryLimit).map((p) => {
-                const slot = state.refLibrary.itemsByPath[p] || { dataUrl: '', loading: false, error: '' }
-                const name = p.split(/[\\/]/).pop() || p
-                return (
-                  <Paper key={p} variant="outlined" sx={{ p: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+            {state.refLibrary.loading ? (
+              <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>加载中…</Typography>
+            ) : (
+              <Box sx={{ display: 'flex', gap: 1, height: '100%', minHeight: 0 }}>
+                <Paper variant="outlined" sx={{ width: 260, flexShrink: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ px: 1, py: 0.75 }}>
+                    <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 1 }}>收藏夹</Typography>
+                    <IconButton
+                      size="small"
+                      onClick={() => setAddRefFolderDialog({ open: true, parentId: null, name: '' })}
+                      aria-label="新增收藏夹"
+                    >
+                      <CreateNewFolderRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </Stack>
+                  <Divider />
+
+                  <Box sx={{ flex: 1, overflow: 'auto' }}>
+                    <List dense disablePadding>
+                      <ListItemButton selected={refActiveView.kind === 'all'} onClick={() => void controller.setRefLibraryView({ kind: 'all' })}>
+                        <ListItemText primary="全部" secondary={state.refLibrary.paths.length ? `${state.refLibrary.paths.length} 张` : undefined} />
+                      </ListItemButton>
+                      <Divider sx={{ my: 0.5 }} />
+
+                      {(refChildrenByParent.get('') || []).map((fid) => {
+                        const renderNode = (id: string, depth: number): React.ReactNode => {
+                          const f: any = refFolderById.get(id)
+                          if (!f) return null
+                          const children = refChildrenByParent.get(id) || []
+                          const expanded = refFolderExpanded[id] !== false
+                          const selected = refActiveView.kind === 'folder' && String(refActiveView.folderId || '').trim() === id
+                          const count = refFolderImageCountById[id] || 0
+                          return (
+                            <React.Fragment key={id}>
+                              <ListItemButton
+                                selected={selected}
+                                sx={{ pl: 1 + depth * 2 }}
+                                onClick={() => void controller.setRefLibraryView({ kind: 'folder', folderId: id })}
+                                onContextMenu={(e) => {
+                                  e.preventDefault()
+                                  setRefFolderMenu({ folderId: id, x: e.clientX, y: e.clientY, name: String(f.name || '') })
+                                }}
+                              >
+                                <ListItemIcon sx={{ minWidth: 28 }}>
+                                  {children.length ? (
+                                    <IconButton
+                                      size="small"
+                                      onClick={(e) => {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                        setRefFolderExpanded((m) => ({ ...m, [id]: !(m[id] !== false) }))
+                                      }}
+                                      aria-label={expanded ? '收起' : '展开'}
+                                    >
+                                      {expanded ? <ExpandMoreRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
+                                    </IconButton>
+                                  ) : (
+                                    <FolderOpenRoundedIcon fontSize="small" />
+                                  )}
+                                </ListItemIcon>
+                                <ListItemText primary={String(f.name || '收藏夹')} secondary={count ? `${count} 张` : undefined} />
+                              </ListItemButton>
+                              {children.length ? (
+                                <Collapse in={expanded} timeout="auto" unmountOnExit>
+                                  {children.map((cid) => renderNode(cid, depth + 1))}
+                                </Collapse>
+                              ) : null}
+                            </React.Fragment>
+                          )
+                        }
+                        return renderNode(fid, 0)
+                      })}
+                    </List>
+                  </Box>
+                </Paper>
+
+                <Box sx={{ flex: 1, minWidth: 0, overflow: 'auto' }}>
+                  {refVisiblePathsAll.length ? (
                     <Box
                       sx={{
-                        position: 'relative',
-                        height: 96,
-                        borderRadius: 2,
-                        bgcolor: '#fff',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        overflow: 'hidden',
-                        cursor: slot.dataUrl ? 'pointer' : 'default',
-                      }}
-                      role={slot.dataUrl ? 'button' : undefined}
-                      tabIndex={slot.dataUrl ? 0 : undefined}
-                      onClick={() => {
-                        if (!slot.dataUrl) return
-                        void controller.addRefImageFromLibrary(p)
-                      }}
-                      onKeyDown={(e) => {
-                        if (!slot.dataUrl) return
-                        if (e.key !== 'Enter' && e.key !== ' ') return
-                        e.preventDefault()
-                        void controller.addRefImageFromLibrary(p)
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                        gap: 1,
                       }}
                     >
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          setRefLibraryItemMenu({ el: e.currentTarget, path: p })
-                        }}
-                        aria-label="更多操作"
-                        sx={{ position: 'absolute', right: 4, top: 4, bgcolor: 'rgba(250,249,245,0.92)' }}
-                      >
-                        <MoreHorizRoundedIcon fontSize="inherit" />
-                      </IconButton>
+                      {refVisiblePathsAll.slice(0, refLibraryLimit).map((p) => {
+                        const slot = state.refLibrary.itemsByPath[p] || { dataUrl: '', loading: false, error: '' }
+                        const name = p.split(/[\\/]/).pop() || p
+                        return (
+                          <Paper key={p} variant="outlined" sx={{ p: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                            <Box
+                              sx={{
+                                position: 'relative',
+                                height: 96,
+                                borderRadius: 2,
+                                bgcolor: '#fff',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                overflow: 'hidden',
+                                cursor: slot.dataUrl ? 'pointer' : 'default',
+                              }}
+                              role={slot.dataUrl ? 'button' : undefined}
+                              tabIndex={slot.dataUrl ? 0 : undefined}
+                              onClick={() => {
+                                if (!slot.dataUrl) return
+                                void controller.addRefImageFromLibrary(p)
+                              }}
+                              onKeyDown={(e) => {
+                                if (!slot.dataUrl) return
+                                if (e.key !== 'Enter' && e.key !== ' ') return
+                                e.preventDefault()
+                                void controller.addRefImageFromLibrary(p)
+                              }}
+                            >
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  setRefLibraryItemMenu({ el: e.currentTarget, path: p })
+                                }}
+                                aria-label="更多操作"
+                                sx={{ position: 'absolute', right: 4, top: 4, bgcolor: 'rgba(250,249,245,0.92)' }}
+                              >
+                                <MoreHorizRoundedIcon fontSize="inherit" />
+                              </IconButton>
 
-                      {slot.dataUrl ? (
-                        <Box
-                          component="img"
-                          src={slot.dataUrl}
-                          alt={name}
-                          sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                        />
-                      ) : slot.loading ? (
-                        <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>加载中…</Typography>
-                      ) : slot.error ? (
-                        <Typography sx={{ fontSize: 12, color: 'error.main' }}>加载失败</Typography>
-                      ) : (
-                        <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>未加载</Typography>
-                      )}
+                              {slot.dataUrl ? (
+                                <Box component="img" src={slot.dataUrl} alt={name} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              ) : slot.loading ? (
+                                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>加载中…</Typography>
+                              ) : slot.error ? (
+                                <Typography sx={{ fontSize: 12, color: 'error.main' }}>加载失败</Typography>
+                              ) : (
+                                <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>未加载</Typography>
+                              )}
+                            </Box>
+
+                            <Typography sx={{ fontSize: 12 }} noWrap title={name}>
+                              {name}
+                            </Typography>
+                          </Paper>
+                        )
+                      })}
                     </Box>
-
-                    <Typography sx={{ fontSize: 12 }} noWrap title={name}>
-                      {name}
+                  ) : (
+                    <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
+                      {state.refLibrary.paths.length
+                        ? refActiveView.kind === 'folder'
+                          ? '当前收藏夹为空。先点左侧“全部”，在图片菜单里把图片收藏进来。'
+                          : '暂无图片。'
+                        : '参考库为空。你可以点上面的“导入图片到参考库”。'}
                     </Typography>
-                  </Paper>
-                )
-              })}
-            </Box>
-          ) : (
-            <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>参考库为空。你可以点“导入图片到参考库”。</Typography>
-          )}
+                  )}
+                </Box>
+              </Box>
+            )}
+          </Box>
 
-          {state.refLibrary.paths.length > refLibraryLimit ? (
+          {refVisiblePathsAll.length > refLibraryLimit ? (
             <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center' }}>
               <Button size="small" variant="outlined" onClick={() => setRefLibraryLimit((n) => n + 36)}>
                 加载更多
@@ -1695,6 +1855,38 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               onClick={() => {
                 const p = refLibraryItemMenu.path
                 setRefLibraryItemMenu({ el: null, path: '' })
+                if (!p) return
+                setAssignRefFolderDialog({ open: true, path: p, folderIds: getRefItemFolderIds(p) })
+              }}
+            >
+              收藏到收藏夹…
+            </MenuItem>
+            {refActiveView.kind === 'folder' ? (
+              <MenuItem
+                onClick={() => {
+                  const p = refLibraryItemMenu.path
+                  const fid = String(refActiveView.folderId || '').trim()
+                  setRefLibraryItemMenu({ el: null, path: '' })
+                  if (!p || !fid) return
+                  const cur = getRefItemFolderIds(p)
+                  const has = cur.includes(fid)
+                  const next = has ? cur.filter((x) => x !== fid) : cur.concat([fid])
+                  void controller.setRefItemFolderIds(p, next)
+                }}
+              >
+                {(() => {
+                  const p = refLibraryItemMenu.path
+                  const fid = String(refActiveView.folderId || '').trim()
+                  const has = p && fid ? getRefItemFolderIds(p).includes(fid) : false
+                  return has ? '从当前收藏夹移除' : '添加到当前收藏夹'
+                })()}
+              </MenuItem>
+            ) : null}
+            <Divider />
+            <MenuItem
+              onClick={() => {
+                const p = refLibraryItemMenu.path
+                setRefLibraryItemMenu({ el: null, path: '' })
                 if (p) void controller.deleteRefLibraryItem(p)
               }}
               sx={{ color: 'error.main' }}
@@ -1702,6 +1894,196 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               删除
             </MenuItem>
           </Menu>
+
+          <Menu
+            open={!!refFolderMenu.folderId}
+            onClose={() => setRefFolderMenu({ folderId: '', x: 0, y: 0, name: '' })}
+            anchorReference="anchorPosition"
+            anchorPosition={refFolderMenu.folderId ? { top: refFolderMenu.y, left: refFolderMenu.x } : undefined}
+          >
+            <MenuItem
+              onClick={() => {
+                const fid = refFolderMenu.folderId
+                setRefFolderMenu({ folderId: '', x: 0, y: 0, name: '' })
+                setAddRefFolderDialog({ open: true, parentId: fid, name: '' })
+              }}
+            >
+              新建子收藏夹
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                const fid = refFolderMenu.folderId
+                const name = refFolderMenu.name
+                setRefFolderMenu({ folderId: '', x: 0, y: 0, name: '' })
+                setRenameRefFolderDialog({ open: true, folderId: fid, name })
+              }}
+            >
+              重命名
+            </MenuItem>
+            <Divider />
+            <MenuItem
+              onClick={() => {
+                const fid = refFolderMenu.folderId
+                const name = refFolderMenu.name
+                setRefFolderMenu({ folderId: '', x: 0, y: 0, name: '' })
+                setDeleteRefFolderConfirm({ open: true, folderId: fid, name })
+              }}
+              sx={{ color: 'error.main' }}
+            >
+              删除
+            </MenuItem>
+          </Menu>
+
+          <Dialog open={addRefFolderDialog.open} onClose={() => setAddRefFolderDialog({ open: false, parentId: null, name: '' })} fullWidth maxWidth="xs">
+            <DialogTitle>{addRefFolderDialog.parentId ? '新建子收藏夹' : '新建收藏夹'}</DialogTitle>
+            <DialogContent>
+              <TextField
+                autoFocus
+                label="名称"
+                value={addRefFolderDialog.name}
+                onChange={(e) => setAddRefFolderDialog((d) => ({ ...d, name: e.target.value }))}
+                fullWidth
+                sx={{ mt: 1 }}
+              />
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setAddRefFolderDialog({ open: false, parentId: null, name: '' })}>取消</Button>
+              <Button
+                variant="contained"
+                onClick={() => {
+                  const { name, parentId } = addRefFolderDialog
+                  setAddRefFolderDialog({ open: false, parentId: null, name: '' })
+                  void controller.addRefFolder(name, parentId)
+                }}
+              >
+                创建
+              </Button>
+            </DialogActions>
+          </Dialog>
+
+          <Dialog
+            open={renameRefFolderDialog.open}
+            onClose={() => setRenameRefFolderDialog({ open: false, folderId: '', name: '' })}
+            fullWidth
+            maxWidth="xs"
+          >
+            <DialogTitle>重命名收藏夹</DialogTitle>
+            <DialogContent>
+              <TextField
+                autoFocus
+                label="名称"
+                value={renameRefFolderDialog.name}
+                onChange={(e) => setRenameRefFolderDialog((d) => ({ ...d, name: e.target.value }))}
+                fullWidth
+                sx={{ mt: 1 }}
+              />
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setRenameRefFolderDialog({ open: false, folderId: '', name: '' })}>取消</Button>
+              <Button
+                variant="contained"
+                onClick={() => {
+                  const { folderId, name } = renameRefFolderDialog
+                  setRenameRefFolderDialog({ open: false, folderId: '', name: '' })
+                  void controller.renameRefFolder(folderId, name)
+                }}
+              >
+                保存
+              </Button>
+            </DialogActions>
+          </Dialog>
+
+          <Dialog
+            open={deleteRefFolderConfirm.open}
+            onClose={() => setDeleteRefFolderConfirm({ open: false, folderId: '', name: '' })}
+            fullWidth
+            maxWidth="xs"
+          >
+            <DialogTitle>删除收藏夹</DialogTitle>
+            <DialogContent>
+              <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 1 }}>
+                将删除“{deleteRefFolderConfirm.name || '收藏夹'}”以及它的所有子收藏夹；图片文件本身不会被删除，只会取消收藏关系。
+              </Typography>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setDeleteRefFolderConfirm({ open: false, folderId: '', name: '' })}>取消</Button>
+              <Button
+                color="error"
+                variant="contained"
+                onClick={() => {
+                  const fid = deleteRefFolderConfirm.folderId
+                  setDeleteRefFolderConfirm({ open: false, folderId: '', name: '' })
+                  if (fid) void controller.deleteRefFolder(fid)
+                }}
+              >
+                删除
+              </Button>
+            </DialogActions>
+          </Dialog>
+
+          <Dialog
+            open={assignRefFolderDialog.open}
+            onClose={() => setAssignRefFolderDialog({ open: false, path: '', folderIds: [] })}
+            fullWidth
+            maxWidth="sm"
+          >
+            <DialogTitle>收藏到收藏夹</DialogTitle>
+            <DialogContent>
+              <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5 }}>
+                同一张图片可以被多个收藏夹收藏。
+              </Typography>
+              <FormGroup sx={{ mt: 1 }}>
+                {(() => {
+                  const selected = new Set(assignRefFolderDialog.folderIds)
+                  const render = (parent: string, depth: number): React.ReactNode[] => {
+                    const ids = refChildrenByParent.get(parent) || []
+                    const out: React.ReactNode[] = []
+                    for (const id of ids) {
+                      const f: any = refFolderById.get(id)
+                      if (!f) continue
+                      out.push(
+                        <Box key={id} sx={{ pl: depth * 2 }}>
+                          <FormControlLabel
+                            control={
+                              <Checkbox
+                                checked={selected.has(id)}
+                                onChange={(e) => {
+                                  const checked = e.target.checked
+                                  setAssignRefFolderDialog((d) => {
+                                    const cur = Array.isArray(d.folderIds) ? d.folderIds : []
+                                    const has = cur.includes(id)
+                                    const next = checked ? (has ? cur : cur.concat([id])) : cur.filter((x) => x !== id)
+                                    return { ...d, folderIds: next }
+                                  })
+                                }}
+                              />
+                            }
+                            label={String(f.name || '收藏夹')}
+                          />
+                        </Box>,
+                      )
+                      out.push(...render(id, depth + 1))
+                    }
+                    return out
+                  }
+                  return render('', 0)
+                })()}
+              </FormGroup>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setAssignRefFolderDialog({ open: false, path: '', folderIds: [] })}>取消</Button>
+              <Button
+                variant="contained"
+                onClick={() => {
+                  const { path, folderIds } = assignRefFolderDialog
+                  setAssignRefFolderDialog({ open: false, path: '', folderIds: [] })
+                  if (path) void controller.setRefItemFolderIds(path, folderIds)
+                }}
+              >
+                保存
+              </Button>
+            </DialogActions>
+          </Dialog>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setRefLibraryOpen(false)}>关闭</Button>

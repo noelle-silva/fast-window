@@ -126,6 +126,7 @@ export function createAiDrawFastWindowApi(baseApi: any, pluginId: string): AiDra
     bgSaveRequests: `bgSaveRequests.json`,
     bgSaveResponses: `bgSaveResponses.json`,
     promptLibrary: `promptLibrary.json`,
+    refLibraryIndex: `refLibraryIndex.json`,
     refImages: `refImages.json`,
     refImageHistory: `refImageHistory.json`,
   }
