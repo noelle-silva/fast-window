@@ -125,6 +125,7 @@ export type AiDrawController = {
 
   copyImage: () => Promise<void>
   saveImage: () => Promise<void>
+  deleteCurrentOutputImage: () => Promise<void>
 
   setActiveProviderId: (providerId: string) => Promise<void>
   addProvider: () => Promise<void>
@@ -1213,6 +1214,40 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     api.ui.showToast('已保存图片')
   }
 
+  async function deleteCurrentOutputImage() {
+    const idx = Number(state.imageHistoryIndex)
+    const list = Array.isArray(state.imageHistory) ? state.imageHistory : []
+    const item = Number.isFinite(idx) && idx >= 0 ? list[idx] : null
+    const path = String(item?.savedPath || '').trim() || String(state.savedPath || '').trim()
+    if (!path) {
+      api.ui.showToast('暂无可删除的已保存图片')
+      return
+    }
+
+    // 删除后尽量停留在“邻近”的图片，而不是总是跳到最新。
+    let preferPath = ''
+    if (item && list.length) {
+      const next = idx < list.length - 1 ? String(list[idx + 1]?.savedPath || '') : ''
+      const prev = idx > 0 ? String(list[idx - 1]?.savedPath || '') : ''
+      preferPath = next || prev
+    }
+
+    await api.files.images.delete({ scope: 'output', path }).catch((e: any) => {
+      api.ui.showToast(`删除失败：${String(e?.message || e)}`)
+      throw e
+    })
+
+    if (state.savedPath === path) state.savedPath = ''
+    if (state.imageDataUrl && item) {
+      // UI 上显示的是从 imageHistory 读取的图片，删除后强制刷新。
+      state.imageDataUrl = ''
+    }
+
+    await refreshImageHistoryFromOutputDir(preferPath)
+    notify()
+    api.ui.showToast('已删除')
+  }
+
   async function cancelTask(taskId: string) {
     const tid = String(taskId || '').trim()
     if (!tid) return
@@ -1505,6 +1540,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
     copyImage,
     saveImage,
+    deleteCurrentOutputImage,
 
     setActiveProviderId,
     addProvider,

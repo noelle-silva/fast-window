@@ -17,6 +17,7 @@ import {
   IconButton,
   InputLabel,
   MenuItem,
+  Menu,
   Paper,
   Select,
   Stack,
@@ -44,6 +45,7 @@ import NavigateNextRoundedIcon from '@mui/icons-material/NavigateNextRounded'
 import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
 import PhotoLibraryRoundedIcon from '@mui/icons-material/PhotoLibraryRounded'
+import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 import type { AiDrawFastWindowApi } from '../bridge/tauriCompat'
 import { createAiDrawController } from '../controller/createController'
 import { UI_MODE_LOCAL_EDIT, UI_MODE_NORMAL, type AiDrawProvider, type UiMode } from '../core/schema'
@@ -276,6 +278,8 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const [refLibraryLimit, setRefLibraryLimit] = React.useState(36)
   const [taskAnchorEl, setTaskAnchorEl] = React.useState<HTMLElement | null>(null)
   const [imageDetailAnchorEl, setImageDetailAnchorEl] = React.useState<HTMLElement | null>(null)
+  const [normalMoreAnchorEl, setNormalMoreAnchorEl] = React.useState<HTMLElement | null>(null)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false)
 
   const [providerDraft, setProviderDraft] = React.useState<any>(null)
   const [pluginDraft, setPluginDraft] = React.useState<any>(null)
@@ -612,6 +616,41 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                   </span>
                 </Tooltip>
 
+                {uiMode === UI_MODE_NORMAL ? (
+                  <>
+                    <Tooltip title="更多">
+                      <span>
+                        <IconButton
+                          size="small"
+                          disabled={!state.savedPath}
+                          onClick={(e) => setNormalMoreAnchorEl(e.currentTarget)}
+                          aria-label="更多操作"
+                        >
+                          <MoreHorizRoundedIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+
+                    <Menu
+                      open={!!normalMoreAnchorEl}
+                      anchorEl={normalMoreAnchorEl}
+                      onClose={() => setNormalMoreAnchorEl(null)}
+                      anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                      transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                    >
+                      <MenuItem
+                        onClick={() => {
+                          setNormalMoreAnchorEl(null)
+                          setDeleteConfirmOpen(true)
+                        }}
+                        sx={{ color: 'error.main' }}
+                      >
+                        删除
+                      </MenuItem>
+                    </Menu>
+                  </>
+                ) : null}
+
                 <Tooltip title="详情">
                   <span>
                     <IconButton
@@ -795,6 +834,32 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
           </Paper>
         </Box>
       </Box>
+
+      <Dialog open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>确认删除？</DialogTitle>
+        <DialogContent dividers>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
+            将从输出目录删除当前图片文件，此操作不可撤销。
+          </Typography>
+          {state.savedPath ? (
+            <Typography sx={{ mt: 1, fontSize: 12, wordBreak: 'break-all' }}>{state.savedPath}</Typography>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteConfirmOpen(false)}>取消</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => {
+              setDeleteConfirmOpen(false)
+              void controller.deleteCurrentOutputImage()
+            }}
+            disabled={!state.savedPath}
+          >
+            删除
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={settingsOpen} onClose={() => setSettingsOpen(false)} fullWidth maxWidth="md">
         <DialogTitle>设置</DialogTitle>
