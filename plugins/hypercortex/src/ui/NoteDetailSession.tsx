@@ -345,9 +345,13 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     const el = textRenderRef.current
     if (!el) return
     ensurePreviewClickHandlerOnce(el, { controller: preview.controller, stopPropagation: true })
-  }, [editing, face, preview.controller, visible])
+    // 首次进入笔记页时，正文节点可能尚未挂载（doc 还没加载出来），
+    // 只依赖 visible/face/editing 会导致错过绑定，从而出现“切换页面回来才生效”。
+  }, [doc, editing, face, preview.controller, visible])
 
   React.useEffect(() => {
+    if (!visible) return
+    if (face !== 'text' || editing) return
     const el = textRenderRef.current
     if (!el) return
     const handler = (e: MouseEvent) => {
@@ -362,7 +366,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     }
     el.addEventListener('click', handler)
     return () => el.removeEventListener('click', handler)
-  }, [allNotesById, onOpenNote])
+  }, [allNotesById, doc, editing, face, onOpenNote, visible])
 
   const outgoingIds = React.useMemo(() => {
     if (!infoSidebarVisible) return []
