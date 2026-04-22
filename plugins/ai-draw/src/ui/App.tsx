@@ -80,7 +80,7 @@ function EditImageSelector(props: {
   const { dataUrl, sel, onSelChange } = props
   const hostRef = React.useRef<HTMLDivElement | null>(null)
   const imgRef = React.useRef<HTMLImageElement | null>(null)
-  const dragRef = React.useRef<{ pointerId: number; startX: number; startY: number } | null>(null)
+  const dragRef = React.useRef<{ pointerId: number; startX: number; startY: number; moved: boolean } | null>(null)
   const cleanupRef = React.useRef<(() => void) | null>(null)
 
   const [imgBox, setImgBox] = React.useState<{ left: number; top: number; width: number; height: number } | null>(null)
@@ -139,6 +139,32 @@ function EditImageSelector(props: {
     }
   }, [])
 
+  const minDragPx = 6
+
+  const handleMove = React.useCallback(
+    (clientX: number, clientY: number, pointerId: number) => {
+      const d = dragRef.current
+      if (!d || d.pointerId !== pointerId) return
+      const p = toRel(clientX, clientY)
+      if (!p) return
+
+      // 不要在按下时就生成“一个固定大小的方块”。
+      // 只有移动超过阈值后，才认为用户在框选。
+      const imgW = Math.max(1, imgBox?.width || imgRef.current?.getBoundingClientRect().width || 1)
+      const imgH = Math.max(1, imgBox?.height || imgRef.current?.getBoundingClientRect().height || 1)
+      const dx = Math.abs(p.x - d.startX) * imgW
+      const dy = Math.abs(p.y - d.startY) * imgH
+      if (!d.moved && Math.max(dx, dy) < minDragPx) {
+        // 仍处于“点击/微动”阶段：保持无选区。
+        return
+      }
+
+      if (!d.moved) d.moved = true
+      setFromPoints({ x: d.startX, y: d.startY }, p)
+    },
+    [imgBox, setFromPoints],
+  )
+
   return (
     <Box
       ref={hostRef}
@@ -169,20 +195,15 @@ function EditImageSelector(props: {
         e.preventDefault()
 
         stopDrag()
-        dragRef.current = { pointerId: e.pointerId, startX: p.x, startY: p.y }
+        dragRef.current = { pointerId: e.pointerId, startX: p.x, startY: p.y, moved: false }
         ;(e.currentTarget as any).setPointerCapture?.(e.pointerId)
 
-        // 先画一个极小矩形，确保开始拖拽时就有反馈。
-        const eps = 1 / 2048
-        setFromPoints({ x: p.x, y: p.y }, { x: Math.min(1, p.x + eps), y: Math.min(1, p.y + eps) })
+        // 开始一次新的交互：先清空旧选区，避免“点一下就冒出方块”。
+        onSelChange(null)
 
         // WebView 下 setPointerCapture 偶发不生效，这里加 window 级监听兜底。
         const onMove = (ev: PointerEvent) => {
-          const d = dragRef.current
-          if (!d || d.pointerId !== ev.pointerId) return
-          const p2 = toRel(ev.clientX, ev.clientY)
-          if (!p2) return
-          setFromPoints({ x: d.startX, y: d.startY }, p2)
+          handleMove(ev.clientX, ev.clientY, ev.pointerId)
         }
         const onUp = (ev: PointerEvent) => {
           const d = dragRef.current
@@ -199,11 +220,7 @@ function EditImageSelector(props: {
         }
       }}
       onPointerMove={(e) => {
-        const d = dragRef.current
-        if (!d || d.pointerId !== e.pointerId) return
-        const p = toRel(e.clientX, e.clientY)
-        if (!p) return
-        setFromPoints({ x: d.startX, y: d.startY }, p)
+        handleMove(e.clientX, e.clientY, e.pointerId)
       }}
       onPointerUp={(e) => {
         const d = dragRef.current
@@ -233,7 +250,7 @@ function EditImageSelector(props: {
             height: imgBox ? sel.h * imgBox.height : `${sel.h * 100}%`,
             border: '2px solid rgba(201,100,66,0.95)',
             boxSizing: 'border-box',
-            borderRadius: 2,
+            borderRadius: 0,
             background: 'rgba(201,100,66,0.10)',
             pointerEvents: 'none',
           }}
