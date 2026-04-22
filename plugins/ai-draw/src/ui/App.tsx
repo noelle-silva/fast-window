@@ -1704,7 +1704,15 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
         maxWidth="md"
         PaperProps={{ sx: { height: 680, maxHeight: '90vh' } }}
       >
-        <DialogTitle>参考图库</DialogTitle>
+        <DialogTitle sx={{ pr: 1 }}>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography sx={{ fontSize: 16, fontWeight: 700 }}>参考图库</Typography>
+            <Box sx={{ flex: 1 }} />
+            <IconButton size="small" onClick={() => setRefLibraryOpen(false)} aria-label="关闭参考图库">
+              <CloseRoundedIcon fontSize="small" />
+            </IconButton>
+          </Stack>
+        </DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
             <Button size="small" variant="outlined" onClick={() => void controller.refreshRefLibrary()} disabled={state.refLibrary.loading}>
@@ -1888,14 +1896,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                     )}
 
                     {refVisiblePathsAll.length > refLibraryLimit ? (
-                      <Box
-                        ref={refLibrarySentinelRef}
-                        sx={{ mt: 1.5, pb: 1, pt: 2, display: 'flex', justifyContent: 'center', alignItems: 'center' }}
-                      >
-                        <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
-                          继续下滑加载更多（{Math.min(refLibraryLimit, refVisiblePathsAll.length)}/{refVisiblePathsAll.length}）
-                        </Typography>
-                      </Box>
+                      <Box ref={refLibrarySentinelRef} aria-hidden sx={{ height: 1, width: '100%' }} />
                     ) : null}
                 </OverlayScrollArea>
               </Box>
@@ -2142,9 +2143,6 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
             </DialogActions>
           </Dialog>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setRefLibraryOpen(false)}>关闭</Button>
-        </DialogActions>
       </Dialog>
     </ThemeProvider>
   )
