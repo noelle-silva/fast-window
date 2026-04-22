@@ -338,6 +338,7 @@ export function HyperCortexApp() {
   const [closeTabPrompt, setCloseTabPrompt] = React.useState<{ noteId: string } | null>(null)
   const requestCloseTabRef = React.useRef<(noteId: string) => void>(() => {})
   const closeTabKeysDirectRef = React.useRef<(tabKeys: string[]) => void>(() => {})
+  const activateExistingTabKeyRef = React.useRef<(tabKey: string, opts?: { recordHistory?: boolean }) => boolean>(() => false)
 
   // ---- 侧边栏 / 工作区 / 分组
   const [tabsCollapsed, setTabsCollapsed] = React.useState(false)
@@ -353,6 +354,10 @@ export function HyperCortexApp() {
     groups: [],
     byTabKey: {},
   })
+  const tabGroupingRef = React.useRef(tabGrouping)
+  React.useEffect(() => {
+    tabGroupingRef.current = tabGrouping
+  }, [tabGrouping])
 
   const metaReadyRef = React.useRef(false)
   const activeWorkspaceIdRef = React.useRef('')
@@ -1397,6 +1402,106 @@ export function HyperCortexApp() {
   }, [commitActiveWorkspacePatch, navigatePage])
 
   React.useEffect(() => {
+    const clearTabSwitchHold = () => {
+      const win = window as any
+      if (win.__hcTabSwitchHoldTimer) clearTimeout(win.__hcTabSwitchHoldTimer)
+      if (win.__hcTabSwitchHoldInterval) clearInterval(win.__hcTabSwitchHoldInterval)
+      win.__hcTabSwitchHoldTimer = null
+      win.__hcTabSwitchHoldInterval = null
+      win.__hcTabSwitchHoldDir = null
+    }
+
+    const getVisibleSidebarTabKeys = (): string[] => {
+      // 以侧边栏“当前可见顺序”为准：
+      // 1. 未分组 tab：按 openTabKeys 原顺序
+      // 2. 分组：按 tabGroups 顺序
+      // 3. 分组内 tab：按 openTabKeys 原顺序（该 group 下的 tab）
+      // 4. 若分组 collapsed，则跳过该分组的 tab
+      // 5. 最后兜底去重
+      const all = (openTabKeysRef.current || []).map(s => String(s || '').trim()).filter(Boolean)
+      const byTabKey = tabGroupingRef.current.byTabKey || {}
+      const groups = Array.isArray(tabGroupingRef.current.groups) ? tabGroupingRef.current.groups : []
+      const groupById: Record<string, HyperCortexTabGroupV1> = {}
+      for (const g of groups) groupById[String(g?.id || '').trim()] = g
+
+      const out: string[] = []
+      const seen = new Set<string>()
+
+      // ungrouped first
+      for (const k of all) {
+        const gid = String(byTabKey[k] || '').trim()
+        if (gid && groupById[gid]) continue
+        if (seen.has(k)) continue
+        seen.add(k)
+        out.push(k)
+      }
+
+      // grouped by group order
+      for (const g of groups) {
+        const gid = String(g?.id || '').trim()
+        if (!gid) continue
+        if (g.collapsed === true) continue
+        for (const k of all) {
+          if (String(byTabKey[k] || '').trim() !== gid) continue
+          if (seen.has(k)) continue
+          seen.add(k)
+          out.push(k)
+        }
+      }
+
+      return out
+    }
+
+    const triggerSwitchTab = (direction: -1 | 1): boolean => {
+      if (pageRef.current !== 'note-detail' && pageRef.current !== 'asset-detail') {
+        clearTabSwitchHold()
+        return false
+      }
+      const keys = getVisibleSidebarTabKeys()
+      if (keys.length <= 1) {
+        clearTabSwitchHold()
+        return false
+      }
+      const cur = String(activeTabKeyRef.current || '').trim()
+      const idx = cur ? keys.indexOf(cur) : -1
+      if (idx < 0) {
+        // 状态异常：详情页却没有 active tab，直接停止。
+        clearTabSwitchHold()
+        return false
+      }
+
+      const nextIndex = idx + direction
+      if (nextIndex < 0 || nextIndex >= keys.length) {
+        // 到边界就停，不循环。
+        clearTabSwitchHold()
+        return false
+      }
+      const nextKey = String(keys[nextIndex] || '').trim()
+      if (!nextKey || nextKey === cur) return false
+      activateExistingTabKeyRef.current(nextKey, { recordHistory: false })
+      return true
+    }
+
+    const startTabSwitchHoldToRepeat = (direction: -1 | 1) => {
+      // 按住重复：首发一次，然后 260ms 后进入 55ms 连发。
+      const win = window as any
+      clearTabSwitchHold()
+      win.__hcTabSwitchHoldDir = direction
+
+      const didSwitch = triggerSwitchTab(direction)
+      if (!didSwitch) return
+
+      // 不满足“在标签页内且有至少 2 个标签页”时，不启动连发。
+      if (pageRef.current !== 'note-detail' && pageRef.current !== 'asset-detail') return
+      if (getVisibleSidebarTabKeys().length <= 1) return
+
+      win.__hcTabSwitchHoldTimer = setTimeout(() => {
+        win.__hcTabSwitchHoldInterval = setInterval(() => {
+          triggerSwitchTab(win.__hcTabSwitchHoldDir === -1 ? -1 : 1)
+        }, 55)
+      }, 260)
+    }
+
     const onKeyDown = (e: KeyboardEvent) => {
       if (shortcutRecordingRef.current) return
 
@@ -1409,6 +1514,21 @@ export function HyperCortexApp() {
 
       const bindings = shortcutBindingsRef.current
       if (!bindings) return
+
+      // 长按行为只在对应 mainKey 抬起时停止。
+      if (shouldTriggerShortcut(e, bindings.selectPrevTab)) {
+        e.preventDefault()
+        e.stopPropagation()
+        startTabSwitchHoldToRepeat(-1)
+        return
+      }
+
+      if (shouldTriggerShortcut(e, bindings.selectNextTab)) {
+        e.preventDefault()
+        e.stopPropagation()
+        startTabSwitchHoldToRepeat(1)
+        return
+      }
 
       if (shouldTriggerShortcut(e, bindings.toggleSidebar)) {
         e.preventDefault()
@@ -1488,9 +1608,21 @@ export function HyperCortexApp() {
 
     const onKeyUp = (e: KeyboardEvent) => {
       if (shortcutRecordingRef.current) return
+
+      // stop hold-to-repeat tab switching
+      const bindings = shortcutBindingsRef.current
+      if (bindings) {
+        const win = window as any
+        const holding = !!(win && (win.__hcTabSwitchHoldTimer || win.__hcTabSwitchHoldInterval))
+        if (holding) {
+          const upPrev = bindings.selectPrevTab && isKeyUpForChordMainKey(e, bindings.selectPrevTab)
+          const upNext = bindings.selectNextTab && isKeyUpForChordMainKey(e, bindings.selectNextTab)
+          if (upPrev || upNext) clearTabSwitchHold()
+        }
+      }
+
       if (tabsMode !== 'hover') return
       if (!sidebarShortcutHoldRef.current) return
-      const bindings = shortcutBindingsRef.current
       if (!bindings) return
       if (!bindings.toggleSidebar) return
       if (!isKeyUpForChordMainKey(e, bindings.toggleSidebar)) return
@@ -1501,9 +1633,12 @@ export function HyperCortexApp() {
 
     window.addEventListener('keydown', onKeyDown, true)
     window.addEventListener('keyup', onKeyUp, true)
+    window.addEventListener('blur', clearTabSwitchHold, true)
     return () => {
+      clearTabSwitchHold()
       window.removeEventListener('keydown', onKeyDown, true)
       window.removeEventListener('keyup', onKeyUp, true)
+      window.removeEventListener('blur', clearTabSwitchHold, true)
     }
   }, [goBackPage, handleCreateDraftNote, tabsMode, toggleTabsCollapsed])
 
@@ -1589,6 +1724,10 @@ export function HyperCortexApp() {
     },
     [commitActiveWorkspacePatch, navigatePage],
   )
+
+  React.useEffect(() => {
+    activateExistingTabKeyRef.current = activateExistingTabKey
+  }, [activateExistingTabKey])
 
   const closeTabKeysDirect = React.useCallback(
     (tabKeys: string[]) => {

@@ -6,6 +6,8 @@ export type HyperCortexShortcutId =
   | 'toggleSidebar'
   | 'goBackPage'
   | 'closeActiveTab'
+  | 'selectPrevTab'
+  | 'selectNextTab'
   | 'cycleFace'
 
 export type HyperCortexShortcutBindingsV1 = {
@@ -17,6 +19,8 @@ export type HyperCortexShortcutBindingsV1 = {
   toggleSidebar: string
   goBackPage: string
   closeActiveTab: string
+  selectPrevTab: string
+  selectNextTab: string
   cycleFace: string
 }
 
@@ -29,6 +33,8 @@ export const DEFAULT_SHORTCUT_BINDINGS: HyperCortexShortcutBindingsV1 = {
   toggleSidebar: '',
   goBackPage: '',
   closeActiveTab: '',
+  selectPrevTab: '',
+  selectNextTab: '',
   cycleFace: '',
 }
 
@@ -49,6 +55,8 @@ export function normalizeShortcutBindings(input: unknown): HyperCortexShortcutBi
     toggleSidebar: normChord(obj.toggleSidebar),
     goBackPage: normChord(obj.goBackPage),
     closeActiveTab: normChord(obj.closeActiveTab),
+    selectPrevTab: normChord(obj.selectPrevTab),
+    selectNextTab: normChord(obj.selectNextTab),
     cycleFace: normChord(obj.cycleFace),
   }
 }
