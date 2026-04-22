@@ -210,7 +210,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
   const drainImageThumbQueue = () => {
     while (imageThumbActive < IMAGE_THUMB_MAX_CONCURRENT && imageThumbQueue.length) {
-      const p = String(imageThumbQueue.shift() || '').trim()
+      const p = String(imageThumbQueue.pop() || '').trim()
       if (!p) continue
       imageThumbQueued.delete(p)
 
@@ -236,19 +236,18 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
       imageLoadByPath.set(p, job)
       void job.then((u) => {
-        if (!u) {
-          const it2 = state.imageHistory.find((x) => String(x?.savedPath || '').trim() === p)
-          if (it2) {
-            it2.loading = false
-            it2.error = '加载失败'
-            notify()
-          }
-          return
-        }
         const it = state.imageHistory.find((x) => String(x?.savedPath || '').trim() === p)
         if (!it) return
-        if (it.dataUrl) return
-        it.dataUrl = u
+
+        if (!u) {
+          it.loading = false
+          it.error = '加载失败'
+          notify()
+          return
+        }
+
+        // 其它链路可能已经把 dataUrl 写好了，这里只做补写与收敛状态。
+        if (!it.dataUrl) it.dataUrl = u
         it.loading = false
         it.error = ''
         notify()
@@ -680,18 +679,29 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
     if (item.dataUrl) {
       state.imageDataUrl = item.dataUrl
+      item.loading = false
+      item.error = ''
       notify()
       return
     }
 
     state.imageDataUrl = ''
+    item.loading = true
+    item.error = ''
     notify()
 
     const loaded = await api.files.images.read({ scope: 'output', path: state.savedPath }).catch(() => '')
-    if (!loaded) return
+    if (!loaded) {
+      item.loading = false
+      item.error = '加载失败'
+      notify()
+      return
+    }
     if (state.imageHistoryIndex !== idx) return
     item.dataUrl = String(loaded).trim()
     state.imageDataUrl = item.dataUrl
+    item.loading = false
+    item.error = ''
     notify()
   }
 
@@ -699,6 +709,10 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     const paths = await api.files.images.list({ scope: 'output' }).catch(() => [])
     const list = (Array.isArray(paths) ? paths : []).map((x) => String(x || '').trim()).filter(Boolean)
     state.imageHistory = list.reverse().map((savedPath) => ({ savedPath, dataUrl: '', loading: false, error: '' }))
+
+    // 列表刷新后，清空旧的排队任务，避免队列堆积与加载无效项。
+    imageThumbQueue.length = 0
+    imageThumbQueued.clear()
 
     if (!state.imageHistory.length) {
       state.imageHistoryIndex = -1
@@ -733,6 +747,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     // 去重入队，交给 drain 按并发上限执行。
     if (imageThumbQueued.has(p)) return
     imageThumbQueued.add(p)
+    // 最近请求优先，滚动时更贴近用户视线。
     imageThumbQueue.push(p)
     scheduleDrainImageThumbQueue()
   }

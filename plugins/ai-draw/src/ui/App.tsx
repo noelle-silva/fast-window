@@ -293,6 +293,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const [imageGalleryLimit, setImageGalleryLimit] = React.useState(36)
   const imageGalleryScrollRef = React.useRef<HTMLDivElement | null>(null)
   const imageGallerySentinelRef = React.useRef<HTMLDivElement | null>(null)
+  const imageGalleryLoadMoreCooldownRef = React.useRef(0)
   const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('provider')
   const [refLibraryLimit, setRefLibraryLimit] = React.useState(36)
   const refLibraryScrollRef = React.useRef<HTMLDivElement | null>(null)
@@ -549,6 +550,8 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
     return list.filter((it) => String(it?.savedPath || '').toLowerCase().includes(q))
   }, [imageHistoryListNewestFirst, imageGalleryQuery])
 
+  const imageGalleryShownCount = Math.min(Math.max(0, imageGalleryLimit), imageHistoryFiltered.length)
+
   React.useEffect(() => {
     if (!imageGalleryOpen) return
     // 搜索条件变化时，重置为首屏并滚到顶部。
@@ -604,7 +607,88 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
         observer.disconnect()
       } catch {}
     }
-  }, [imageGalleryOpen, imageGalleryLimit, imageHistoryFiltered.length])
+  }, [imageGalleryOpen, imageGalleryLimit, imageHistoryFiltered.length, imageHistoryFiltered])
+
+  React.useEffect(() => {
+    if (!imageGalleryOpen) return
+    let disposed = false
+    let timer: any = null
+    let poller: any = null
+    let el: HTMLDivElement | null = null
+
+    const attach = () => {
+      if (disposed) return
+      const next = imageGalleryScrollRef.current
+      if (!next) {
+        timer = setTimeout(attach, 50)
+        return
+      }
+
+      el = next
+
+      const onScroll = () => {
+        if (!el) return
+        const total = imageHistoryFiltered.length
+        const limit = Math.max(0, imageGalleryLimit)
+        if (limit >= total) return
+
+        // 兜底：有些 WebView/滚动容器上 IntersectionObserver 可能不触发。
+        const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 320
+        if (!nearBottom) return
+
+        const now = Date.now()
+        if (now - imageGalleryLoadMoreCooldownRef.current < 120) return
+        imageGalleryLoadMoreCooldownRef.current = now
+        setImageGalleryLimit((n) => Math.min(n + 36, total))
+      }
+
+      el.addEventListener('scroll', onScroll, { passive: true })
+
+      // 兜底：部分环境滚动事件可能不稳定，轮询判断是否接近底部。
+      poller = setInterval(() => {
+        try {
+          onScroll()
+        } catch {}
+      }, 200)
+
+      // 如果首屏内容不足以产生滚动条，也要自动补下一页。
+      try {
+        onScroll()
+      } catch {}
+
+      return () => {
+        el?.removeEventListener('scroll', onScroll)
+        if (poller) {
+          try {
+            clearInterval(poller)
+          } catch {}
+          poller = null
+        }
+      }
+    }
+
+    let detach: null | (() => void) = null
+    detach = attach() || null
+
+    return () => {
+      disposed = true
+      if (timer) {
+        try {
+          clearTimeout(timer)
+        } catch {}
+      }
+      if (poller) {
+        try {
+          clearInterval(poller)
+        } catch {}
+      }
+      if (detach) {
+        try {
+          detach()
+        } catch {}
+      }
+    }
+  }, [imageGalleryOpen, imageGalleryLimit, imageHistoryFiltered.length, imageHistoryFiltered])
 
   const nextMode: UiMode = uiMode === UI_MODE_LOCAL_EDIT ? UI_MODE_NORMAL : UI_MODE_LOCAL_EDIT
 
@@ -1538,6 +1622,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 <Button size="small" variant="contained" onClick={() => void controller.refreshImageHistory()}>
                   刷新
                 </Button>
+                <Chip size="small" variant="outlined" label={`${imageGalleryShownCount}/${imageHistoryFiltered.length}`} />
               </Stack>
 
               <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }} scrollRef={imageGalleryScrollRef}>
@@ -1553,9 +1638,12 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                     imageHistoryFiltered.slice(0, imageGalleryLimit).map((it, idx) => {
                       const savedPath = String(it?.savedPath || '').trim()
                       const dataUrl = String(it?.dataUrl || '').trim()
+                      const loading = !!(it as any)?.loading
+                      const error = String((it as any)?.error || '').trim()
+                      const key = savedPath || `idx:${idx}`
                       return (
                         <Box
-                          key={`${idx}-${savedPath}`}
+                          key={key}
                           sx={{
                             borderRadius: 2,
                             bgcolor: 'rgba(255,255,255,0.78)',
@@ -1563,6 +1651,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                             cursor: 'pointer',
                             overflow: 'hidden',
                           }}
+                          data-saved-path={savedPath}
                           onMouseEnter={() => controller.ensureImageHistoryItemLoaded(savedPath)}
                           onFocus={() => controller.ensureImageHistoryItemLoaded(savedPath)}
                           tabIndex={0}
@@ -1595,8 +1684,12 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                                 decoding="async"
                                 sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
                               />
-                            ) : (
+                            ) : error ? (
+                              <Typography sx={{ fontSize: 12, color: 'error.main' }}>加载失败</Typography>
+                            ) : loading ? (
                               <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>加载中…</Typography>
+                            ) : (
+                              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>未加载</Typography>
                             )}
                           </Box>
                           <Typography sx={{ mt: 0.75, fontSize: 11, color: 'text.secondary', wordBreak: 'break-all' }}>
