@@ -14,56 +14,59 @@ use tauri::ipc::Channel;
 use tauri::{Emitter, EventTarget, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
-mod migrations;
-mod wake_logic;
-mod browser_stack;
-mod windowing;
-mod http_api;
-mod plugins;
 mod app;
-mod config_store;
-mod tasks;
-mod wallpaper;
+mod browser_stack;
 mod clipboard;
-mod os_actions;
+mod config_store;
 mod core;
-mod thumbnails;
+mod http_api;
+mod migrations;
+mod os_actions;
 mod plugin_files_delete_tree;
+mod plugins;
+mod sqlite_gateway;
+mod tasks;
+mod thumbnails;
+mod wake_logic;
+mod wallpaper;
+mod windowing;
 
 #[cfg(target_os = "windows")]
 mod auto_start;
 
-use browser_stack::*;
-use windowing::*;
-use http_api::*;
 use crate::clipboard::{clipboard_read_image_data_url, clipboard_write_image_data_url};
+pub(crate) use crate::core::{
+    is_dir_writable, is_http_url, is_https_url, normalize_zip_name, now_ms, parse_sha256_hex_32,
+    portable_base_dir_from_env, rand_u32, to_hex_lower,
+};
+use crate::plugin_files_delete_tree::plugin_files_delete_tree;
 use crate::plugins::{
     get_data_dir, get_plugins_allow_overwrite_on_update, get_plugins_auto_update_enabled,
     get_plugins_dir, install_plugin_files, list_plugins, open_data_dir, open_data_root_dir,
     open_plugins_dir, plugin_store_install, read_plugin_file, read_plugin_file_base64,
     read_plugins_dir, set_plugin_allow_overwrite_on_update, set_plugin_auto_update_enabled,
 };
+use crate::sqlite_gateway::{
+    plugin_sqlite_batch, plugin_sqlite_close, plugin_sqlite_execute, plugin_sqlite_query,
+};
 use crate::tasks::{task_cancel, task_create, task_get, task_list};
 use crate::wallpaper::{
-    cycle_wallpaper, get_plugin_icon_overrides, get_wallpaper_settings, remove_plugin_icon_override,
-    remove_wallpaper, remove_wallpaper_item, set_active_wallpaper, set_plugin_icon_override,
-    set_wallpaper_image, set_wallpaper_settings, set_wallpaper_view,
+    cycle_wallpaper, get_plugin_icon_overrides, get_wallpaper_settings,
+    remove_plugin_icon_override, remove_wallpaper, remove_wallpaper_item, set_active_wallpaper,
+    set_plugin_icon_override, set_wallpaper_image, set_wallpaper_settings, set_wallpaper_view,
 };
-use crate::plugin_files_delete_tree::plugin_files_delete_tree;
-pub(crate) use plugins::{
-    is_safe_id, query_get_param, safe_relative_path,
-};
-pub(crate) use os_actions::{open_dir_in_file_manager, open_external_uri, open_external_url};
-pub(crate) use crate::core::{
-    is_dir_writable, is_http_url, is_https_url, normalize_zip_name, now_ms, parse_sha256_hex_32,
-    portable_base_dir_from_env, rand_u32, to_hex_lower,
-};
+use browser_stack::*;
 pub(crate) use config_store::{
-    app_config_path, plugin_default_library_dir, plugin_default_output_dir, plugin_default_ref_images_dir,
-    read_app_config_map, read_plugin_auto_update_prefs, read_plugin_library_dir_from_config,
-    read_plugin_output_dir_from_config, write_app_config_map, write_plugin_auto_update_prefs,
-    write_plugin_library_dir_to_config, write_plugin_output_dir_to_config,
+    app_config_path, plugin_default_library_dir, plugin_default_output_dir,
+    plugin_default_ref_images_dir, read_app_config_map, read_plugin_auto_update_prefs,
+    read_plugin_library_dir_from_config, read_plugin_output_dir_from_config, write_app_config_map,
+    write_plugin_auto_update_prefs, write_plugin_library_dir_to_config,
+    write_plugin_output_dir_to_config,
 };
+use http_api::*;
+pub(crate) use os_actions::{open_dir_in_file_manager, open_external_uri, open_external_url};
+pub(crate) use plugins::{is_safe_id, query_get_param, safe_relative_path};
+use windowing::*;
 
 const DEFAULT_WAKE_SHORTCUT: &str = "control+alt+Space";
 const APP_STORAGE_ID: &str = "__app";
@@ -544,7 +547,8 @@ fn migrate_legacy_plugin_store_files(app: &tauri::AppHandle) -> Result<(), Strin
         return Ok(());
     }
 
-    let entries = std::fs::read_dir(&legacy_dir).map_err(|e| format!("读取 legacy plugins 目录失败: {e}"))?;
+    let entries =
+        std::fs::read_dir(&legacy_dir).map_err(|e| format!("读取 legacy plugins 目录失败: {e}"))?;
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -557,7 +561,9 @@ fn migrate_legacy_plugin_store_files(app: &tauri::AppHandle) -> Result<(), Strin
         }
 
         let path = ent.path();
-        let Some(name_os) = path.file_name() else { continue };
+        let Some(name_os) = path.file_name() else {
+            continue;
+        };
         let name = name_os.to_string_lossy().to_string();
         if !name.to_ascii_lowercase().ends_with(".json") {
             continue;
@@ -589,7 +595,9 @@ fn migrate_legacy_plugin_store_files(app: &tauri::AppHandle) -> Result<(), Strin
         if target_looks_blank {
             // 进一步用 key 数量判断（小文件解析成本低）：少量 key 通常意味着“新初始化默认数据”。
             if let Ok(bytes) = std::fs::read(&target) {
-                if let Ok(map) = serde_json::from_slice::<std::collections::HashMap<String, Value>>(&bytes) {
+                if let Ok(map) =
+                    serde_json::from_slice::<std::collections::HashMap<String, Value>>(&bytes)
+                {
                     // 经验阈值：<= 10 个 key 基本就是空白/默认（例如仅 meta/index + 1 个 chat）。
                     if map.len() > 10 {
                         target_looks_blank = false;
@@ -1238,9 +1246,7 @@ fn plugin_pick_library_dir(
         guard.window = Some(w);
     }
 
-    let picked = rfd::FileDialog::new()
-        .set_title("选择库目录")
-        .pick_folder();
+    let picked = rfd::FileDialog::new().set_title("选择库目录").pick_folder();
 
     let Some(dir) = picked else {
         return Ok(None);
@@ -2826,10 +2832,7 @@ fn main_window_focus_mode_title(mode: MainWindowFocusMode) -> &'static str {
 
 fn apply_main_window_focus_mode(app: &tauri::AppHandle, mode: MainWindowFocusMode) {
     let state = app.state::<WindowState>();
-    let mut g = state
-        .focus_mode
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut g = state.focus_mode.lock().unwrap_or_else(|e| e.into_inner());
     *g = mode;
 
     if let Some(w) = app.get_webview_window("main") {
@@ -2839,7 +2842,10 @@ fn apply_main_window_focus_mode(app: &tauri::AppHandle, mode: MainWindowFocusMod
     }
 }
 
-fn persist_main_window_focus_mode(app: &tauri::AppHandle, mode: MainWindowFocusMode) -> Result<(), String> {
+fn persist_main_window_focus_mode(
+    app: &tauri::AppHandle,
+    mode: MainWindowFocusMode,
+) -> Result<(), String> {
     let mut map = read_app_config_map(app);
 
     // 清理 legacy（上一版 bool key）
@@ -2854,13 +2860,18 @@ fn persist_main_window_focus_mode(app: &tauri::AppHandle, mode: MainWindowFocusM
             MainWindowFocusMode::Normal => "normal",
             MainWindowFocusMode::AlwaysOnTop => "alwaysOnTop",
         };
-        map.insert(MAIN_WINDOW_FOCUS_MODE_KEY.to_string(), Value::String(v.to_string()));
+        map.insert(
+            MAIN_WINDOW_FOCUS_MODE_KEY.to_string(),
+            Value::String(v.to_string()),
+        );
     }
 
     write_app_config_map(app, &map)
 }
 
-fn cycle_main_window_focus_mode_internal(app: &tauri::AppHandle) -> Result<MainWindowFocusMode, String> {
+fn cycle_main_window_focus_mode_internal(
+    app: &tauri::AppHandle,
+) -> Result<MainWindowFocusMode, String> {
     let state = app.state::<WindowState>();
     let cur = state.focus_mode.lock().map(|g| *g).unwrap_or_default();
     let next = match cur {
@@ -2875,7 +2886,10 @@ fn cycle_main_window_focus_mode_internal(app: &tauri::AppHandle) -> Result<MainW
 
 pub(crate) fn handle_main_window_mode_shortcut(app: &tauri::AppHandle) {
     match cycle_main_window_focus_mode_internal(app) {
-        Ok(next) => emit_host_toast(app, format!("已切换到：{}", main_window_focus_mode_title(next))),
+        Ok(next) => emit_host_toast(
+            app,
+            format!("已切换到：{}", main_window_focus_mode_title(next)),
+        ),
         Err(e) => emit_host_toast(app, format!("切换模式失败：{e}")),
     }
 }
@@ -2887,7 +2901,10 @@ fn get_main_window_focus_mode(app: tauri::AppHandle) -> MainWindowFocusMode {
 }
 
 #[tauri::command]
-fn set_main_window_focus_mode(app: tauri::AppHandle, mode: MainWindowFocusMode) -> Result<MainWindowFocusMode, String> {
+fn set_main_window_focus_mode(
+    app: tauri::AppHandle,
+    mode: MainWindowFocusMode,
+) -> Result<MainWindowFocusMode, String> {
     persist_main_window_focus_mode(&app, mode)?;
     apply_main_window_focus_mode(&app, mode);
     Ok(mode)
@@ -2896,7 +2913,10 @@ fn set_main_window_focus_mode(app: tauri::AppHandle, mode: MainWindowFocusMode) 
 #[tauri::command]
 fn cycle_main_window_focus_mode(app: tauri::AppHandle) -> Result<MainWindowFocusMode, String> {
     let next = cycle_main_window_focus_mode_internal(&app)?;
-    emit_host_toast(&app, format!("已切换到：{}", main_window_focus_mode_title(next)));
+    emit_host_toast(
+        &app,
+        format!("已切换到：{}", main_window_focus_mode_title(next)),
+    );
     Ok(next)
 }
 
@@ -2912,7 +2932,10 @@ fn get_main_window_mode_shortcut(app: tauri::AppHandle) -> String {
 }
 
 #[tauri::command]
-fn set_main_window_mode_shortcut(app: tauri::AppHandle, shortcut: String) -> Result<String, String> {
+fn set_main_window_mode_shortcut(
+    app: tauri::AppHandle,
+    shortcut: String,
+) -> Result<String, String> {
     let raw = shortcut.trim();
 
     let state = app.state::<MainWindowModeShortcutState>();
@@ -3084,7 +3107,6 @@ fn set_auto_start(app: tauri::AppHandle, enabled: bool) -> Result<AutoStartStatu
     }
 }
 
-
 fn main() {
     let builder = app::builder_base().invoke_handler(tauri::generate_handler![
         get_plugins_dir,
@@ -3162,6 +3184,10 @@ fn main() {
         plugin_images_read,
         plugin_images_delete,
         plugin_pick_images,
+        plugin_sqlite_execute,
+        plugin_sqlite_query,
+        plugin_sqlite_batch,
+        plugin_sqlite_close,
         task_create,
         task_get,
         task_list,
@@ -3184,4 +3210,3 @@ fn main() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
-

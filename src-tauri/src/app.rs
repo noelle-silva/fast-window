@@ -8,20 +8,13 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-use crate::{
-    app_data_dir, apply_bottom_rounded_corners, handle_wake_shortcut, image_mime_by_ext,
-    handle_main_window_mode_shortcut, load_auto_start_pref, load_main_window_focus_mode_pref,
-    load_main_window_mode_shortcut, load_wake_shortcut, migrate_legacy_plugin_store_files,
-    query_get_param, safe_relative_path, browser_ui_set_mode, show_main_window, APP_STORAGE_ID,
-    AUTO_START_REG_VALUE, BROWSER_BAR_HEIGHT, BROWSER_BAR_WINDOW_LABEL, BROWSER_WINDOW_LABEL,
-    MainWindowModeShortcutState, WakeShortcutState,
-};
 use crate::browser_stack::{
     browser_stack_bar_height_px, browser_stack_hide, browser_stack_hide_to_main,
     browser_stack_is_closing, browser_stack_is_focused, browser_stack_is_pinned,
     browser_stack_should_suppress_hide,
 };
 use crate::http_api::HttpStreamManagerState;
+use crate::sqlite_gateway::SqliteConnManager;
 use crate::tasks::TaskManagerState;
 use crate::wallpaper::{read_wallpaper_config, resolve_wallpaper_item};
 use crate::windowing::{
@@ -29,6 +22,14 @@ use crate::windowing::{
     persist_main_window_bounds, restore_bounds_or_center, save_bounds_if_valid,
     save_browser_stack_bounds_if_valid, schedule_persist_browser_window_bounds,
     schedule_persist_main_window_bounds, BrowserWindowState, MainWindowFocusMode, WindowState,
+};
+use crate::{
+    app_data_dir, apply_bottom_rounded_corners, browser_ui_set_mode,
+    handle_main_window_mode_shortcut, handle_wake_shortcut, image_mime_by_ext,
+    load_auto_start_pref, load_main_window_focus_mode_pref, load_main_window_mode_shortcut,
+    load_wake_shortcut, migrate_legacy_plugin_store_files, query_get_param, safe_relative_path,
+    show_main_window, MainWindowModeShortcutState, WakeShortcutState, APP_STORAGE_ID,
+    AUTO_START_REG_VALUE, BROWSER_BAR_HEIGHT, BROWSER_BAR_WINDOW_LABEL, BROWSER_WINDOW_LABEL,
 };
 use crate::{migrations, wake_logic};
 
@@ -122,16 +123,14 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
             app.manage(WindowState::default());
             app.manage(Arc::new(TaskManagerState::default()));
             app.manage(Arc::new(HttpStreamManagerState::default()));
+            app.manage(Arc::new(SqliteConnManager::default()));
             app.manage(BrowserWindowState::default());
 
             // 主窗口行为：三档“焦点模式”（默认：失焦自动隐藏）。
             {
                 let pref = load_main_window_focus_mode_pref(app.handle());
                 let state = app.state::<WindowState>();
-                let mut g = state
-                    .focus_mode
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
+                let mut g = state.focus_mode.lock().unwrap_or_else(|e| e.into_inner());
                 *g = pref;
 
                 if let Some(w) = app.get_webview_window("main") {
@@ -283,8 +282,7 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
                             .map(|s| s.height)
                             .unwrap_or(BROWSER_BAR_HEIGHT.round().max(1.0) as u32);
                         if let Some(p) = bar_pos {
-                            let desired =
-                                tauri::PhysicalPosition::new(p.x, p.y + bar_h as i32);
+                            let desired = tauri::PhysicalPosition::new(p.x, p.y + bar_h as i32);
                             let cur = content.outer_position().ok();
                             if cur != Some(desired) {
                                 let _ = content.set_position(desired);
@@ -347,11 +345,7 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
                         app.get_webview_window(BROWSER_WINDOW_LABEL),
                     ) {
                         let bar_h = browser_stack_bar_height_px(&bar);
-                        let content_w = content
-                            .inner_size()
-                            .ok()
-                            .map(|s| s.width)
-                            .unwrap_or(0);
+                        let content_w = content.inner_size().ok().map(|s| s.width).unwrap_or(0);
                         if content_w > 0 {
                             let cur_w = bar.inner_size().ok().map(|s| s.width).unwrap_or(0);
                             if cur_w != content_w {

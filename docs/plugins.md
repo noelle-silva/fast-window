@@ -167,6 +167,79 @@ pnpm run plugins:publish:download -- --all
 
 - `plugin:shell|*` 这种通配会被宿主拒绝，必须精确到 `tauri:plugin:shell|execute`。
 
+常用网关命令（示例）：
+
+- 文件系统：`tauri:plugin_files_*` / `tauri:plugin_get_library_dir` / `tauri:plugin_get_output_dir`
+- SQLite（插件私有索引库，落盘到 `scope:data` / `data/<pluginId>/`）：
+  - `tauri:plugin_sqlite_execute`：执行单条写入/DDL（返回影响行数）
+  - `tauri:plugin_sqlite_batch`：批量执行（可选事务）
+  - `tauri:plugin_sqlite_query`：查询并返回行数据（带列名）
+  - `tauri:plugin_sqlite_close`：关闭连接（释放文件句柄，Windows 上很有用）
+
+最小调用示例（插件侧，通过 iframe 网关）：
+
+```js
+// 需要在 manifest.requires 声明：
+// - tauri:plugin_sqlite_execute
+// - tauri:plugin_sqlite_query
+// - tauri:plugin_sqlite_batch（可选）
+// - tauri:plugin_sqlite_close（可选）
+
+const dbName = 'hypercortex-index.sqlite';
+
+await fastWindow.tauri.invoke({
+  command: 'plugin_sqlite_execute',
+  payload: {
+    req: {
+      pluginId: 'hypercortex',
+      dbName,
+      sql: 'CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL)',
+      params: [],
+    },
+  },
+});
+
+await fastWindow.tauri.invoke({
+  command: 'plugin_sqlite_batch',
+  payload: {
+    req: {
+      pluginId: 'hypercortex',
+      dbName,
+      transaction: true,
+      statements: [
+        {
+          sql: 'INSERT INTO kv (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v=excluded.v',
+          params: [
+            { type: 'text', value: 'hello' },
+            { type: 'text', value: 'world' },
+          ],
+        },
+      ],
+    },
+  },
+});
+
+const r = await fastWindow.tauri.invoke({
+  command: 'plugin_sqlite_query',
+  payload: {
+    req: {
+      pluginId: 'hypercortex',
+      dbName,
+      sql: 'SELECT k, v FROM kv WHERE k=?',
+      params: [{ type: 'text', value: 'hello' }],
+      maxRows: 10,
+    },
+  },
+});
+
+// r = { columns: ['k','v'], rows: [[{type:'text',value:'hello'},{type:'text',value:'world'}]] }
+
+await fastWindow.tauri.invoke({
+  command: 'plugin_sqlite_close',
+  payload: { req: { pluginId: 'hypercortex', dbName } },
+});
+```
+
 ## Iframe 插件运行方式
 
 iframe 插件入口 `main` 目前按 **JS 文件**处理：宿主会把它注入 `srcdoc`，并在 iframe 内提供 `window.fastWindow`：
