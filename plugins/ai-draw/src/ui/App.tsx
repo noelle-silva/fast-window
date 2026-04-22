@@ -79,14 +79,42 @@ function EditImageSelector(props: {
 }) {
   const { dataUrl, sel, onSelChange } = props
   const hostRef = React.useRef<HTMLDivElement | null>(null)
+  const imgRef = React.useRef<HTMLImageElement | null>(null)
   const dragRef = React.useRef<{ pointerId: number; startX: number; startY: number } | null>(null)
+  const cleanupRef = React.useRef<(() => void) | null>(null)
+
+  const [imgBox, setImgBox] = React.useState<{ left: number; top: number; width: number; height: number } | null>(null)
 
   const clamp01 = (v: number) => Math.max(0, Math.min(1, v))
 
+  const recomputeImgBox = React.useCallback(() => {
+    const host = hostRef.current
+    const img = imgRef.current
+    if (!host || !img) return
+    const hr = host.getBoundingClientRect()
+    const ir = img.getBoundingClientRect()
+    const width = Math.max(0, ir.width)
+    const height = Math.max(0, ir.height)
+    // ir 相对 host 的偏移（用于绘制选区 overlay）。
+    setImgBox({ left: ir.left - hr.left, top: ir.top - hr.top, width, height })
+  }, [])
+
+  React.useLayoutEffect(() => {
+    recomputeImgBox()
+    const host = hostRef.current
+    const img = imgRef.current
+    if (!host || !img) return
+
+    const ro = new ResizeObserver(() => recomputeImgBox())
+    ro.observe(host)
+    ro.observe(img)
+    return () => ro.disconnect()
+  }, [recomputeImgBox, dataUrl])
+
   const toRel = (clientX: number, clientY: number) => {
-    const el = hostRef.current
-    if (!el) return null
-    const r = el.getBoundingClientRect()
+    const img = imgRef.current
+    if (!img) return null
+    const r = img.getBoundingClientRect()
     const x = clamp01((clientX - r.left) / Math.max(1, r.width))
     const y = clamp01((clientY - r.top) / Math.max(1, r.height))
     return { x, y }
@@ -103,12 +131,27 @@ function EditImageSelector(props: {
     else onSelChange({ x: x0, y: y0, w, h })
   }
 
+  const stopDrag = React.useCallback(() => {
+    dragRef.current = null
+    if (cleanupRef.current) {
+      cleanupRef.current()
+      cleanupRef.current = null
+    }
+  }, [])
+
   return (
     <Box
       ref={hostRef}
       sx={{
         position: 'relative',
         width: '100%',
+        // 底图区域固定高度：图片完整显示（contain），容器内部不再“自然撑高”。
+        height: 'min(540px, 67.5vh)',
+        minHeight: 360,
+        flexShrink: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
         borderRadius: 3,
         overflow: 'hidden',
         border: '1px solid',
@@ -121,9 +164,39 @@ function EditImageSelector(props: {
         if (!dataUrl) return
         const p = toRel(e.clientX, e.clientY)
         if (!p) return
+
+        // 避免在可滚动容器中拖拽时触发滚动/选中文本。
+        e.preventDefault()
+
+        stopDrag()
         dragRef.current = { pointerId: e.pointerId, startX: p.x, startY: p.y }
         ;(e.currentTarget as any).setPointerCapture?.(e.pointerId)
-        setFromPoints({ x: p.x, y: p.y }, { x: p.x, y: p.y })
+
+        // 先画一个极小矩形，确保开始拖拽时就有反馈。
+        const eps = 1 / 2048
+        setFromPoints({ x: p.x, y: p.y }, { x: Math.min(1, p.x + eps), y: Math.min(1, p.y + eps) })
+
+        // WebView 下 setPointerCapture 偶发不生效，这里加 window 级监听兜底。
+        const onMove = (ev: PointerEvent) => {
+          const d = dragRef.current
+          if (!d || d.pointerId !== ev.pointerId) return
+          const p2 = toRel(ev.clientX, ev.clientY)
+          if (!p2) return
+          setFromPoints({ x: d.startX, y: d.startY }, p2)
+        }
+        const onUp = (ev: PointerEvent) => {
+          const d = dragRef.current
+          if (!d || d.pointerId !== ev.pointerId) return
+          stopDrag()
+        }
+        window.addEventListener('pointermove', onMove)
+        window.addEventListener('pointerup', onUp)
+        window.addEventListener('pointercancel', onUp)
+        cleanupRef.current = () => {
+          window.removeEventListener('pointermove', onMove)
+          window.removeEventListener('pointerup', onUp)
+          window.removeEventListener('pointercancel', onUp)
+        }
       }}
       onPointerMove={(e) => {
         const d = dragRef.current
@@ -135,31 +208,34 @@ function EditImageSelector(props: {
       onPointerUp={(e) => {
         const d = dragRef.current
         if (!d || d.pointerId !== e.pointerId) return
-        dragRef.current = null
+        stopDrag()
         ;(e.currentTarget as any).releasePointerCapture?.(e.pointerId)
       }}
       onPointerCancel={() => {
-        dragRef.current = null
+        stopDrag()
       }}
     >
       <Box
         component="img"
+        ref={imgRef}
         src={dataUrl}
         alt="编辑底图"
-        sx={{ display: 'block', width: '100%', height: 'auto', background: '#fff' }}
+        onLoad={() => recomputeImgBox()}
+        sx={{ display: 'block', maxWidth: '100%', maxHeight: '100%', width: 'auto', height: 'auto', background: '#fff' }}
       />
       {sel ? (
         <Box
           sx={{
             position: 'absolute',
-            left: `${sel.x * 100}%`,
-            top: `${sel.y * 100}%`,
-            width: `${sel.w * 100}%`,
-            height: `${sel.h * 100}%`,
+            left: imgBox ? imgBox.left + sel.x * imgBox.width : `${sel.x * 100}%`,
+            top: imgBox ? imgBox.top + sel.y * imgBox.height : `${sel.y * 100}%`,
+            width: imgBox ? sel.w * imgBox.width : `${sel.w * 100}%`,
+            height: imgBox ? sel.h * imgBox.height : `${sel.h * 100}%`,
             border: '2px solid rgba(201,100,66,0.95)',
             boxSizing: 'border-box',
             borderRadius: 2,
             background: 'rgba(201,100,66,0.10)',
+            pointerEvents: 'none',
           }}
         />
       ) : null}
@@ -612,6 +688,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                     <Box
                       sx={{
                         minHeight: 260,
+                        flexShrink: 0,
                         borderRadius: 4,
                         border: '1px solid',
                         borderColor: 'divider',
@@ -628,30 +705,31 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                   <Divider />
 
                   <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>输出（在底部，不会替换底图与选区）</Typography>
-                  <Box
-                    sx={{
-                      minHeight: 220,
-                      borderRadius: 4,
-                      border: '1px solid',
-                      borderColor: 'divider',
-                      bgcolor: '#fff',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    {state.imageDataUrl ? (
-                      <Box
-                        component="img"
-                        src={state.imageDataUrl}
-                        alt="局部输出结果"
-                        sx={{ width: '100%', height: 'auto', objectFit: 'contain' }}
-                      />
-                    ) : (
-                      <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>暂无输出图片</Typography>
-                    )}
-                  </Box>
+                   <Box
+                     sx={{
+                       minHeight: 220,
+                       flexShrink: 0,
+                       borderRadius: 4,
+                       border: '1px solid',
+                       borderColor: 'divider',
+                       bgcolor: '#fff',
+                       display: 'flex',
+                       alignItems: 'center',
+                       justifyContent: 'center',
+                       overflow: 'hidden',
+                     }}
+                   >
+                     {state.imageDataUrl ? (
+                       <Box
+                         component="img"
+                         src={state.imageDataUrl}
+                         alt="局部输出结果"
+                         sx={{ display: 'block', width: '100%', height: 'auto' }}
+                       />
+                     ) : (
+                       <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>暂无输出图片</Typography>
+                     )}
+                   </Box>
                 </>
               ) : (
                 <Box
