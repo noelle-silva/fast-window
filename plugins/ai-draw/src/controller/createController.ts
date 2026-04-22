@@ -134,6 +134,7 @@ export type AiDrawController = {
 
   refreshImageHistory: (preferPath?: string) => Promise<void>
   switchImageHistory: (direction: -1 | 1) => Promise<void>
+  ensureImageHistoryItemLoaded: (savedPath: string) => void
 
   pickOutputDir: () => Promise<void>
   openOutputDir: () => Promise<void>
@@ -190,6 +191,7 @@ function requestTimeoutMs(data: AiDrawSettingsV1 | null) {
 export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawController {
   const listeners = new Set<Listener>()
   const localEditContextByTaskId = new Map<string, { baseDataUrl: string; selPx: { x: number; y: number; w: number; h: number } }>()
+  const imageLoadByPath = new Map<string, Promise<string>>()
 
   let revision = 0
   let taskPollTimer: any = null
@@ -652,6 +654,35 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       if (found >= 0) index = found
     }
     await applyImageHistoryIndex(index)
+  }
+
+  function ensureImageHistoryItemLoaded(savedPath: string) {
+    const p = String(savedPath || '').trim()
+    if (!p) return
+
+    const item = state.imageHistory.find((x) => String(x?.savedPath || '').trim() === p)
+    if (!item) return
+    if (item.dataUrl) return
+
+    if (imageLoadByPath.has(p)) return
+
+    const job = api.files.images
+      .read({ scope: 'output', path: p })
+      .then((u) => String(u || '').trim())
+      .catch(() => '')
+      .finally(() => {
+        imageLoadByPath.delete(p)
+      })
+
+    imageLoadByPath.set(p, job)
+    void job.then((u) => {
+      if (!u) return
+      const it = state.imageHistory.find((x) => String(x?.savedPath || '').trim() === p)
+      if (!it) return
+      if (it.dataUrl) return
+      it.dataUrl = u
+      notify()
+    })
   }
 
   async function switchImageHistory(direction: -1 | 1) {
@@ -1787,6 +1818,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
     refreshImageHistory: refreshImageHistoryFromOutputDir,
     switchImageHistory,
+    ensureImageHistoryItemLoaded,
 
     pickOutputDir,
     openOutputDir,

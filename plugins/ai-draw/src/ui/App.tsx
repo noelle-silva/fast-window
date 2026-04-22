@@ -55,6 +55,8 @@ import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import KeyboardArrowUpRoundedIcon from '@mui/icons-material/KeyboardArrowUpRounded'
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded'
+import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded'
+import CollectionsRoundedIcon from '@mui/icons-material/CollectionsRounded'
 import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
@@ -285,7 +287,9 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
 
   const [settingsOpen, setSettingsOpen] = React.useState(false)
   const [promptLibOpen, setPromptLibOpen] = React.useState(false)
+  const [promptHistoryOpen, setPromptHistoryOpen] = React.useState(false)
   const [refLibraryOpen, setRefLibraryOpen] = React.useState(false)
+  const [imageGalleryOpen, setImageGalleryOpen] = React.useState(false)
   const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('provider')
   const [refLibraryLimit, setRefLibraryLimit] = React.useState(36)
   const refLibraryScrollRef = React.useRef<HTMLDivElement | null>(null)
@@ -347,6 +351,9 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   })
 
   const [addPromptItemDialog, setAddPromptItemDialog] = React.useState<{ open: boolean; text: string }>({ open: false, text: '' })
+
+  const [promptHistoryQuery, setPromptHistoryQuery] = React.useState('')
+  const [imageGalleryQuery, setImageGalleryQuery] = React.useState('')
 
   const [providerDraft, setProviderDraft] = React.useState<any>(null)
   const [pluginDraft, setPluginDraft] = React.useState<any>(null)
@@ -507,6 +514,25 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
 
   const canImagePrev = state.imageHistory.length > 0 && (state.imageHistoryIndex === -1 || state.imageHistoryIndex > 0)
   const canImageNext = state.imageHistory.length > 0 && state.imageHistoryIndex >= 0 && state.imageHistoryIndex < state.imageHistory.length - 1
+
+  const promptHistoryListNewestFirst = React.useMemo(() => {
+    const list = Array.isArray(state.promptHistory) ? state.promptHistory : []
+    return list.slice().reverse()
+  }, [revision])
+
+  const promptHistoryFiltered = React.useMemo(() => {
+    const q = String(promptHistoryQuery || '').trim().toLowerCase()
+    const list = promptHistoryListNewestFirst
+    if (!q) return list
+    return list.filter((x) => String(x || '').toLowerCase().includes(q))
+  }, [promptHistoryListNewestFirst, promptHistoryQuery])
+
+  const imageHistoryFiltered = React.useMemo(() => {
+    const q = String(imageGalleryQuery || '').trim().toLowerCase()
+    const list = Array.isArray(state.imageHistory) ? state.imageHistory : []
+    if (!q) return list
+    return list.filter((it) => String(it?.savedPath || '').toLowerCase().includes(q))
+  }, [revision, imageGalleryQuery])
 
   const nextMode: UiMode = uiMode === UI_MODE_LOCAL_EDIT ? UI_MODE_NORMAL : UI_MODE_LOCAL_EDIT
 
@@ -702,6 +728,22 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               >
                 提示词收藏夹
               </Button>
+
+              <Tooltip title="提示词历史">
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={() => {
+                      setPromptHistoryQuery('')
+                      setPromptHistoryOpen(true)
+                    }}
+                    disabled={!state.promptHistory.length}
+                    aria-label="打开提示词历史"
+                  >
+                    <HistoryRoundedIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
               <Box sx={{ flex: 1 }} />
             </Stack>
 
@@ -784,6 +826,22 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 </Tooltip>
 
                 <Chip size="small" variant="outlined" label={imageIndexText} />
+
+                <Tooltip title="批量预览">
+                  <span>
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        setImageGalleryQuery('')
+                        setImageGalleryOpen(true)
+                      }}
+                      disabled={!state.imageHistory.length}
+                      aria-label="打开图片批量预览"
+                    >
+                      <CollectionsRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
 
                 <Box sx={{ flex: 1 }} />
 
@@ -1302,6 +1360,192 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
             保存
           </Button>
         </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={promptHistoryOpen}
+        onClose={() => setPromptHistoryOpen(false)}
+        maxWidth={false}
+        PaperProps={{
+          sx: {
+            width: 920,
+            maxWidth: 'calc(100vw - 24px)',
+            height: 'min(820px, calc(100vh - 24px))',
+            borderRadius: 3,
+            overflow: 'hidden',
+          },
+        }}
+      >
+        <DialogContent sx={{ p: 0, height: '100%' }}>
+          <Box sx={{ position: 'relative', height: '100%', p: 2, pt: 5 }}>
+            <IconButton
+              size="small"
+              onClick={() => setPromptHistoryOpen(false)}
+              aria-label="关闭提示词历史"
+              sx={{ position: 'absolute', right: 8, top: 8, bgcolor: 'rgba(250,249,245,0.92)' }}
+            >
+              <CloseRoundedIcon fontSize="small" />
+            </IconButton>
+
+            <Stack spacing={1.25} sx={{ height: '100%' }}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <TextField
+                  size="small"
+                  value={promptHistoryQuery}
+                  onChange={(e) => setPromptHistoryQuery(e.target.value)}
+                  placeholder="搜索历史提示词"
+                  fullWidth
+                />
+                <Button
+                  size="small"
+                  variant="contained"
+                  onClick={() => {
+                    void controller.clearPromptHistory()
+                    setPromptHistoryOpen(false)
+                  }}
+                  disabled={!state.promptHistory.length}
+                  color="error"
+                >
+                  清空
+                </Button>
+              </Stack>
+
+              <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }}>
+                <Stack spacing={1} sx={{ pr: 0.5 }}>
+                  {promptHistoryFiltered.length ? (
+                    promptHistoryFiltered.map((t, idx) => {
+                      const text = String(t || '')
+                      return (
+                        <Paper
+                          key={`${idx}-${text.slice(0, 24)}`}
+                          sx={{ p: 1, cursor: 'pointer', borderRadius: 2, bgcolor: 'rgba(255,255,255,0.78)' }}
+                          onClick={() => {
+                            controller.setPrompt(text)
+                            void api.clipboard
+                              .writeText(text)
+                              .then(() => api.ui.showToast('已复制并填入'))
+                              .catch((e: any) => api.ui.showToast(`复制失败：${String(e?.message || e)}`))
+                          }}
+                        >
+                          <Typography sx={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{text}</Typography>
+                        </Paper>
+                      )
+                    })
+                  ) : (
+                    <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>暂无历史提示词</Typography>
+                  )}
+                </Stack>
+              </OverlayScrollArea>
+            </Stack>
+          </Box>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={imageGalleryOpen}
+        onClose={() => setImageGalleryOpen(false)}
+        maxWidth={false}
+        PaperProps={{
+          sx: {
+            width: 980,
+            maxWidth: 'calc(100vw - 24px)',
+            height: 'min(860px, calc(100vh - 24px))',
+            borderRadius: 3,
+            overflow: 'hidden',
+          },
+        }}
+      >
+        <DialogContent sx={{ p: 0, height: '100%' }}>
+          <Box sx={{ position: 'relative', height: '100%', p: 2, pt: 5 }}>
+            <IconButton
+              size="small"
+              onClick={() => setImageGalleryOpen(false)}
+              aria-label="关闭图片批量预览"
+              sx={{ position: 'absolute', right: 8, top: 8, bgcolor: 'rgba(250,249,245,0.92)' }}
+            >
+              <CloseRoundedIcon fontSize="small" />
+            </IconButton>
+
+            <Stack spacing={1.25} sx={{ height: '100%' }}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <TextField
+                  size="small"
+                  value={imageGalleryQuery}
+                  onChange={(e) => setImageGalleryQuery(e.target.value)}
+                  placeholder="按文件名搜索（savedPath）"
+                  fullWidth
+                />
+                <Button size="small" variant="contained" onClick={() => void controller.refreshImageHistory()}>
+                  刷新
+                </Button>
+              </Stack>
+
+              <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }}>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))',
+                    gap: 1,
+                    pr: 0.5,
+                  }}
+                >
+                  {imageHistoryFiltered.length ? (
+                    imageHistoryFiltered.map((it, idx) => {
+                      const savedPath = String(it?.savedPath || '').trim()
+                      const dataUrl = String(it?.dataUrl || '').trim()
+                      return (
+                        <Box
+                          key={`${idx}-${savedPath}`}
+                          sx={{
+                            borderRadius: 2,
+                            bgcolor: 'rgba(255,255,255,0.78)',
+                            p: 1,
+                            cursor: 'pointer',
+                            overflow: 'hidden',
+                          }}
+                          onMouseEnter={() => controller.ensureImageHistoryItemLoaded(savedPath)}
+                          onFocus={() => controller.ensureImageHistoryItemLoaded(savedPath)}
+                          tabIndex={0}
+                          onClick={() => {
+                            const realIndex = state.imageHistory.findIndex((x) => String(x?.savedPath || '').trim() === savedPath)
+                            if (realIndex >= 0) {
+                              void controller.refreshImageHistory(savedPath).catch(() => {})
+                              // 直接跳到那张图（刷新后会 preferPath 命中）
+                            }
+                            setImageGalleryOpen(false)
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              height: 120,
+                              borderRadius: 2,
+                              bgcolor: '#fff',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            {dataUrl ? (
+                              <Box component="img" src={dataUrl} alt="输出缩略图" sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            ) : (
+                              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>加载中…</Typography>
+                            )}
+                          </Box>
+                          <Typography sx={{ mt: 0.75, fontSize: 11, color: 'text.secondary', wordBreak: 'break-all' }}>
+                            {savedPath || '未知路径'}
+                          </Typography>
+                        </Box>
+                      )
+                    })
+                  ) : (
+                    <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>暂无输出图片</Typography>
+                  )}
+                </Box>
+              </OverlayScrollArea>
+            </Stack>
+          </Box>
+        </DialogContent>
       </Dialog>
 
       <Dialog
