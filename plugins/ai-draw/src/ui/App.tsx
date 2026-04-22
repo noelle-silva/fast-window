@@ -62,6 +62,7 @@ import type { AiDrawFastWindowApi } from '../bridge/tauriCompat'
 import { createAiDrawController } from '../controller/createController'
 import { UI_MODE_LOCAL_EDIT, UI_MODE_NORMAL, type AiDrawProvider, type UiMode } from '../core/schema'
 import { createClaudeTheme } from './theme'
+import { OverlayScrollArea } from './components/OverlayScrollArea'
 
 type SettingsTab = 'provider' | 'plugin'
 
@@ -789,19 +790,15 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 </Tooltip>
               </Stack>
             </Box>
-            <Box
-              sx={{
-                flex: 1,
-                minHeight: 0,
+            <OverlayScrollArea
+              sx={{ flex: 1, minHeight: 0 }}
+              contentSx={{
                 p: 1.5,
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 1.5,
                 overflowY: 'auto',
                 overscrollBehavior: 'contain',
-                scrollbarWidth: 'none',
-                msOverflowStyle: 'none',
-                '&::-webkit-scrollbar': { display: 'none' },
               }}
             >
               {uiMode === UI_MODE_LOCAL_EDIT ? (
@@ -924,7 +921,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                   插件设置
                 </Button>
               </Stack>
-            </Box>
+            </OverlayScrollArea>
           </Paper>
         </Box>
       </Box>
@@ -1000,7 +997,8 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
         }}
       >
         <DialogTitle sx={{ flex: '0 0 auto' }}>设置</DialogTitle>
-        <DialogContent sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+        <DialogContent sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <OverlayScrollArea>
           <Tabs
             value={settingsTab}
             onChange={(_e, v) => setSettingsTab(v)}
@@ -1205,8 +1203,9 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                   清空提示词历史
                 </Button>
               </Stack>
-            </Stack>
-          ) : null}
+              </Stack>
+            ) : null}
+          </OverlayScrollArea>
         </DialogContent>
         <DialogActions sx={{ flex: '0 0 auto' }}>
           <Button onClick={() => setSettingsOpen(false)}>关闭</Button>
@@ -1267,24 +1266,25 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                       <AddRoundedIcon fontSize="small" />
                     </IconButton>
                   </Stack>
-                  <Stack spacing={0.5} sx={{ overflow: 'auto' }}>
-                    {(state.promptLib.data?.folders || []).map((f) => (
-                      <Button
-                        key={f.id}
-                        size="small"
-                        variant={f.id === state.promptLib.data?.activeFolderId ? 'contained' : 'text'}
-                        onClick={() => void controller.setActivePromptFolderId(f.id)}
-                        onContextMenu={(e) => {
-                          e.preventDefault()
-                          setPromptFolderMenu({ folderId: f.id, x: e.clientX, y: e.clientY, name: String(f.name || '') })
-                        }}
-                        sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
-                      >
-                        {f.name}
-                      </Button>
-                    ))}
-                  </Stack>
-                  <Box sx={{ flex: 1 }} />
+                  <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }}>
+                    <Stack spacing={0.5} sx={{ pr: 0.5 }}>
+                      {(state.promptLib.data?.folders || []).map((f) => (
+                        <Button
+                          key={f.id}
+                          size="small"
+                          variant={f.id === state.promptLib.data?.activeFolderId ? 'contained' : 'text'}
+                          onClick={() => void controller.setActivePromptFolderId(f.id)}
+                          onContextMenu={(e) => {
+                            e.preventDefault()
+                            setPromptFolderMenu({ folderId: f.id, x: e.clientX, y: e.clientY, name: String(f.name || '') })
+                          }}
+                          sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
+                        >
+                          {f.name}
+                        </Button>
+                      ))}
+                    </Stack>
+                  </OverlayScrollArea>
                 </Paper>
 
                 <Paper variant="outlined" sx={{ flex: 1, p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -1298,42 +1298,48 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                       <AddRoundedIcon fontSize="small" />
                     </IconButton>
                   </Stack>
-                  <Stack spacing={1} sx={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
-                  {(() => {
-                    const d = state.promptLib.data
-                    const fid = String(d?.activeFolderId || '')
-                    const folder = (d?.folders || []).find((x) => x.id === fid) || (d?.folders || [])[0]
-                    const prompts = folder?.prompts || []
-                      return prompts.map((p) => (
-                        <Paper
-                          key={p.id}
-                          variant="outlined"
-                          sx={{ p: 1, cursor: 'pointer', position: 'relative' }}
-                          onClick={() => {
-                            const text = String(p.text || '')
-                            void api.clipboard
-                              .writeText(text)
-                              .then(() => api.ui.showToast('已复制'))
-                              .catch((e: any) => api.ui.showToast(`复制失败：${String(e?.message || e)}`))
-                          }}
-                        >
-                          <IconButton
-                            size="small"
-                            onClick={(e) => {
-                              e.preventDefault()
-                              e.stopPropagation()
-                          setPromptItemMenu({ el: e.currentTarget, folderId: String(folder?.id || ''), promptId: p.id })
+                  <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }}>
+                    <Stack spacing={1} sx={{ pr: 0.5 }}>
+                      {(() => {
+                        const d = state.promptLib.data
+                        const fid = String(d?.activeFolderId || '')
+                        const folder = (d?.folders || []).find((x) => x.id === fid) || (d?.folders || [])[0]
+                        const prompts = folder?.prompts || []
+                        return prompts.map((p) => (
+                          <Paper
+                            key={p.id}
+                            variant="outlined"
+                            sx={{ p: 1, cursor: 'pointer', position: 'relative' }}
+                            onClick={() => {
+                              const text = String(p.text || '')
+                              void api.clipboard
+                                .writeText(text)
+                                .then(() => api.ui.showToast('已复制'))
+                                .catch((e: any) => api.ui.showToast(`复制失败：${String(e?.message || e)}`))
                             }}
-                            aria-label="更多操作"
-                            sx={{ position: 'absolute', right: 6, top: 6, bgcolor: 'rgba(250,249,245,0.92)' }}
                           >
-                            <MoreHorizRoundedIcon fontSize="inherit" />
-                          </IconButton>
-                          <Typography sx={{ fontSize: 13, whiteSpace: 'pre-wrap', pr: 4 }}>{p.text}</Typography>
-                        </Paper>
-                      ))
-                    })()}
-                  </Stack>
+                            <IconButton
+                              size="small"
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                setPromptItemMenu({
+                                  el: e.currentTarget,
+                                  folderId: String(folder?.id || ''),
+                                  promptId: p.id,
+                                })
+                              }}
+                              aria-label="更多操作"
+                              sx={{ position: 'absolute', right: 6, top: 6, bgcolor: 'rgba(250,249,245,0.92)' }}
+                            >
+                              <MoreHorizRoundedIcon fontSize="inherit" />
+                            </IconButton>
+                            <Typography sx={{ fontSize: 13, whiteSpace: 'pre-wrap', pr: 4 }}>{p.text}</Typography>
+                          </Paper>
+                        ))
+                      })()}
+                    </Stack>
+                  </OverlayScrollArea>
                 </Paper>
               </Box>
             )}
@@ -1543,31 +1549,33 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
             关闭
           </Button>
         </Box>
-        <Box sx={{ p: 1.5, maxHeight: 520, overflow: 'auto' }}>
-          {!state.tasks.length ? (
-            <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>暂无任务。</Typography>
-          ) : (
-            <Stack spacing={1}>
-              {state.tasks.map((t) => (
-                <Paper key={t.id} variant="outlined" sx={{ p: 1 }}>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 1, minWidth: 0 }} noWrap title={t.id}>
-                      {t.id}
-                    </Typography>
-                    <Chip size="small" variant="outlined" label={t.status} />
-                    <Button size="small" variant="text" color="error" onClick={() => void controller.cancelTask(t.id)}>
-                      取消
-                    </Button>
-                  </Stack>
-                  {t.prompt ? (
-                    <Typography sx={{ mt: 0.75, fontSize: 12, color: 'text.primary', whiteSpace: 'pre-wrap' }}>
-                      {t.prompt}
-                    </Typography>
-                  ) : null}
-                </Paper>
-              ))}
-            </Stack>
-          )}
+        <Box sx={{ maxHeight: 520, overflow: 'hidden' }}>
+          <OverlayScrollArea fill={false} contentSx={{ maxHeight: 520, p: 1.5 }}>
+            {!state.tasks.length ? (
+              <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>暂无任务。</Typography>
+            ) : (
+              <Stack spacing={1}>
+                {state.tasks.map((t) => (
+                  <Paper key={t.id} variant="outlined" sx={{ p: 1 }}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 1, minWidth: 0 }} noWrap title={t.id}>
+                        {t.id}
+                      </Typography>
+                      <Chip size="small" variant="outlined" label={t.status} />
+                      <Button size="small" variant="text" color="error" onClick={() => void controller.cancelTask(t.id)}>
+                        取消
+                      </Button>
+                    </Stack>
+                    {t.prompt ? (
+                      <Typography sx={{ mt: 0.75, fontSize: 12, color: 'text.primary', whiteSpace: 'pre-wrap' }}>
+                        {t.prompt}
+                      </Typography>
+                    ) : null}
+                  </Paper>
+                ))}
+              </Stack>
+            )}
+          </OverlayScrollArea>
         </Box>
       </Popover>
 
@@ -1699,7 +1707,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                   </Stack>
                   <Divider />
 
-                  <Box sx={{ flex: 1, overflow: 'auto' }}>
+                  <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }}>
                     <List dense disablePadding>
                       <ListItemButton selected={refActiveView.kind === 'all'} onClick={() => void controller.setRefLibraryView({ kind: 'all' })}>
                         <ListItemText primary="全部" secondary={state.refLibrary.paths.length ? `${state.refLibrary.paths.length} 张` : undefined} />
@@ -1755,10 +1763,10 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                         return renderNode(fid, 0)
                       })}
                     </List>
-                  </Box>
+                  </OverlayScrollArea>
                 </Paper>
 
-                <Box sx={{ flex: 1, minWidth: 0, overflow: 'auto' }}>
+                <OverlayScrollArea sx={{ flex: 1, minWidth: 0 }}>
                   {refVisiblePathsAll.length ? (
                     <Box
                       sx={{
@@ -1835,9 +1843,9 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                           ? '当前收藏夹为空。先点左侧“全部”，在图片菜单里把图片收藏进来。'
                           : '暂无图片。'
                         : '参考库为空。你可以点上面的“导入图片到参考库”。'}
-                    </Typography>
-                  )}
-                </Box>
+                      </Typography>
+                    )}
+                </OverlayScrollArea>
               </Box>
             )}
           </Box>
