@@ -32,6 +32,7 @@ import {
 import { formatBytes, id, isHttpBaseUrl, normalizeBatchCount, trimSlash } from '../core/utils'
 import { buildMultipartFormDataBytes, base64ToBytes, bytesToBase64, inferExtFromMime } from '../core/multipart'
 import { parseErrorBody, parseImageDataUrlFromHttpBodyText } from '../core/httpParse'
+import { formatAiDrawError } from '../core/errorFormat'
 
 const STORAGE_KEY = 'settings'
 const PROMPT_LIBRARY_KEY = 'promptLibrary'
@@ -613,7 +614,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
         return
       } catch (e: any) {
         const msg = String(e?.message || e || '生成失败')
-        state.error = msg
+        state.error = formatAiDrawError({ hint: '生成失败', stage: '处理任务结果', rawMessage: msg })
         notify()
         api.ui.showToast(`生成失败：${msg}`)
         return
@@ -622,15 +623,22 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
     if (status === 'failed') {
       const rr = task && task.result && typeof task.result === 'object' ? task.result : null
+      const taskErr = String((task as any)?.error || '').trim()
       const rawHttpStatus = rr ? Number(rr.status) : NaN
       const rawBodyText = rr && typeof rr.body === 'string' ? rr.body : ''
       const body = typeof rawBodyText === 'string' ? rawBodyText : ''
-      const httpText = Number.isFinite(rawHttpStatus) ? `HTTP ${rawHttpStatus}` : '请求失败'
       const err = body ? parseErrorBody(body) : ''
-      const msg = err ? `${httpText}：${err}` : httpText
+      const msg = formatAiDrawError({
+        hint: '生成失败',
+        stage: '后台任务执行',
+        httpStatus: Number.isFinite(rawHttpStatus) ? rawHttpStatus : null,
+        serverMessage: err,
+        taskError: taskErr,
+        rawMessage: taskErr || (!Number.isFinite(rawHttpStatus) ? '请求失败：无响应/无状态' : ''),
+      })
       state.error = msg
       notify()
-      api.ui.showToast(`生成失败：${msg}`)
+      api.ui.showToast(`生成失败：${String(err || taskErr || '请求失败')}`)
       return
     }
   }
@@ -816,9 +824,12 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       const results = await Promise.allSettled(Array.from({ length: batch }, () => api.net.request({ ...req })))
       const ids: string[] = []
       let failed = 0
+      const rejectReasons: string[] = []
       for (const r of results) {
         if (r.status !== 'fulfilled') {
           failed++
+          const reasonText = String((r as any)?.reason?.message ?? (r as any)?.reason ?? '').trim()
+          if (reasonText) rejectReasons.push(reasonText)
           continue
         }
         const taskId = String((r as any).value && (r as any).value.id ? (r as any).value.id : '').trim()
@@ -832,6 +843,16 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
       if (!ids.length) throw new Error('创建后台任务失败')
       if (failed) api.ui.showToast(`部分任务创建失败：${failed} 个`)
+      if (failed && rejectReasons.length) {
+        state.error = formatAiDrawError({
+          hint: `部分任务创建失败：${failed} 个`,
+          stage: '创建后台任务',
+          method: String(req?.method || ''),
+          url: String(req?.url || ''),
+          timeoutMs: typeof req?.timeoutMs === 'number' ? req.timeoutMs : null,
+          rawMessage: rejectReasons[0],
+        })
+      }
 
       if (state.data) {
         state.data.pendingTaskId = ids[ids.length - 1]
@@ -842,7 +863,14 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       void pollTasks()
     } catch (e: any) {
       state.submitting = false
-      state.error = String(e?.message || e)
+      state.error = formatAiDrawError({
+        hint: '生成失败',
+        stage: '创建后台任务',
+        method: String(req?.method || ''),
+        url: String(req?.url || ''),
+        timeoutMs: typeof req?.timeoutMs === 'number' ? req.timeoutMs : null,
+        rawMessage: String(e?.message || e || '请求失败'),
+      })
       notify()
     }
   }
@@ -971,7 +999,14 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       void pollTasks()
     } catch (e: any) {
       state.submitting = false
-      state.error = String(e?.message || e)
+      state.error = formatAiDrawError({
+        hint: '生成失败',
+        stage: '提交局部任务',
+        method: 'POST',
+        url: `${trimSlash(String(p?.baseUrl || ''))}/chat/completions`,
+        timeoutMs: requestTimeoutMs(state.data),
+        rawMessage: String(e?.message || e || '请求失败'),
+      })
       notify()
     }
   }

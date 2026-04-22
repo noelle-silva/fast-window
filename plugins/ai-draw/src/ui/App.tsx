@@ -455,8 +455,6 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>加载中…</Typography>
             ) : null}
 
-            {state.error ? <Alert severity="error">{state.error}</Alert> : null}
-
             <Stack direction="row" spacing={1} alignItems="center">
               <FormControl size="small" fullWidth>
                 <InputLabel id="ai-draw-provider-label">供应商</InputLabel>
@@ -614,6 +612,12 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
             >
               {state.submitting ? '提交中…' : uiMode === UI_MODE_LOCAL_EDIT ? '开始局部修改' : '生成'}
             </Button>
+
+            {state.error ? (
+              <Alert severity="error" sx={{ whiteSpace: 'pre-wrap' }}>
+                {state.error}
+              </Alert>
+            ) : null}
           </Paper>
 
           <Paper sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
