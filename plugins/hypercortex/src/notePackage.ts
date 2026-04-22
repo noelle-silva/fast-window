@@ -106,6 +106,14 @@ async function readNoteManifest(api: Api, scope: VaultScope, packageDir: string)
   })
 }
 
+export async function tryReadNoteManifest(api: Api, scope: VaultScope, packageDir: string): Promise<HyperCortexNoteManifestV1 | null> {
+  try {
+    return await readNoteManifest(api, scope, packageDir)
+  } catch {
+    return null
+  }
+}
+
 async function saveNoteFiles(
   api: Api,
   scope: VaultScope,
