@@ -13,6 +13,7 @@ type OverlayScrollAreaProps = {
   thumbInset?: number
   thumbColor?: string
   thumbHoverColor?: string
+  scrollRef?: React.Ref<HTMLDivElement>
 }
 
 export function OverlayScrollArea(props: OverlayScrollAreaProps) {
@@ -26,6 +27,7 @@ export function OverlayScrollArea(props: OverlayScrollAreaProps) {
     thumbInset = 2,
     thumbColor,
     thumbHoverColor,
+    scrollRef: externalScrollRef,
   } = props
 
   const theme = useTheme()
@@ -194,6 +196,16 @@ export function OverlayScrollArea(props: OverlayScrollAreaProps) {
       theme.palette.mode === 'dark' ? 0.42 : 0.34,
     )
 
+  const setScrollElRef = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      scrollRef.current = node
+      if (!externalScrollRef) return
+      if (typeof externalScrollRef === 'function') externalScrollRef(node)
+      else (externalScrollRef as any).current = node
+    },
+    [externalScrollRef],
+  )
+
   return (
     <Box
       sx={{
@@ -205,7 +217,7 @@ export function OverlayScrollArea(props: OverlayScrollAreaProps) {
       onPointerLeave={() => setActive(false)}
     >
       <Box
-        ref={scrollRef}
+        ref={setScrollElRef}
         sx={{
           overflow: 'auto',
           ...(fill ? { height: '100%', width: '100%' } : null),

@@ -288,6 +288,8 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const [refLibraryOpen, setRefLibraryOpen] = React.useState(false)
   const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('provider')
   const [refLibraryLimit, setRefLibraryLimit] = React.useState(36)
+  const refLibraryScrollRef = React.useRef<HTMLDivElement | null>(null)
+  const refLibrarySentinelRef = React.useRef<HTMLDivElement | null>(null)
   const [taskAnchorEl, setTaskAnchorEl] = React.useState<HTMLElement | null>(null)
   const [imageDetailAnchorEl, setImageDetailAnchorEl] = React.useState<HTMLElement | null>(null)
   const [normalMoreAnchorEl, setNormalMoreAnchorEl] = React.useState<HTMLElement | null>(null)
@@ -422,6 +424,45 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
     const slice = refVisiblePathsAll.slice(0, Math.max(0, refLibraryLimit))
     for (const p of slice) controller.ensureRefLibraryItemLoaded(p)
   }, [refLibraryOpen, refLibraryLimit, refVisiblePathsAll, controller])
+
+  React.useEffect(() => {
+    if (!refLibraryOpen) return
+    if (typeof IntersectionObserver === 'undefined') return
+    const total = refVisiblePathsAll.length
+    const limit = Math.max(0, refLibraryLimit)
+    if (limit >= total) return
+
+    const sentinel = refLibrarySentinelRef.current
+    if (!sentinel) return
+
+    const root = refLibraryScrollRef.current
+
+    let done = false
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const hit = entries && entries[0] && entries[0].isIntersecting
+        if (!hit) return
+        if (done) return
+        done = true
+        try {
+          observer.disconnect()
+        } catch {}
+        setRefLibraryLimit((n) => Math.min(n + 36, total))
+      },
+      { root: root || null, rootMargin: '240px 0px', threshold: 0 },
+    )
+
+    try {
+      observer.observe(sentinel)
+    } catch {}
+
+    return () => {
+      done = true
+      try {
+        observer.disconnect()
+      } catch {}
+    }
+  }, [refLibraryOpen, refLibraryLimit, refVisiblePathsAll.length])
 
   const uiMode: UiMode = String(state.uiMode || UI_MODE_NORMAL) === UI_MODE_LOCAL_EDIT ? UI_MODE_LOCAL_EDIT : UI_MODE_NORMAL
   const autoSave = !!data?.autoSave
@@ -1766,7 +1807,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                   </OverlayScrollArea>
                 </Paper>
 
-                <OverlayScrollArea sx={{ flex: 1, minWidth: 0 }}>
+                <OverlayScrollArea sx={{ flex: 1, minWidth: 0 }} scrollRef={refLibraryScrollRef}>
                   {refVisiblePathsAll.length ? (
                     <Box
                       sx={{
@@ -1845,19 +1886,21 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                         : '参考库为空。你可以点上面的“导入图片到参考库”。'}
                       </Typography>
                     )}
+
+                    {refVisiblePathsAll.length > refLibraryLimit ? (
+                      <Box
+                        ref={refLibrarySentinelRef}
+                        sx={{ mt: 1.5, pb: 1, pt: 2, display: 'flex', justifyContent: 'center', alignItems: 'center' }}
+                      >
+                        <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                          继续下滑加载更多（{Math.min(refLibraryLimit, refVisiblePathsAll.length)}/{refVisiblePathsAll.length}）
+                        </Typography>
+                      </Box>
+                    ) : null}
                 </OverlayScrollArea>
               </Box>
             )}
           </Box>
-
-          {refVisiblePathsAll.length > refLibraryLimit ? (
-            <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center' }}>
-              <Button size="small" variant="outlined" onClick={() => setRefLibraryLimit((n) => n + 36)}>
-                加载更多
-              </Button>
-            </Box>
-          ) : null}
-
           <Menu
             open={!!refLibraryItemMenu.el}
             anchorEl={refLibraryItemMenu.el}
