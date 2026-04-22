@@ -18,7 +18,35 @@ export function createClaudeTheme() {
       MuiPaper: {
         styleOverrides: {
           root: {
-            border: '1px solid #f0eee6',
+            border: 0,
+          },
+          outlined: {
+            border: 0,
+          },
+        },
+      },
+      MuiDivider: {
+        styleOverrides: {
+          root: {
+            display: 'none',
+          },
+        },
+      },
+      MuiChip: {
+        styleOverrides: {
+          root: {
+            border: 0,
+          },
+          outlined: {
+            border: 0,
+            backgroundColor: '#f0eee6',
+          },
+        },
+      },
+      MuiAlert: {
+        styleOverrides: {
+          outlined: {
+            border: 0,
           },
         },
       },

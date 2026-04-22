@@ -11,7 +11,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  Divider,
   FormControl,
   FormControlLabel,
   IconButton,
@@ -184,8 +183,6 @@ function EditImageSelector(props: {
         justifyContent: 'center',
         borderRadius: 3,
         overflow: 'hidden',
-        border: '1px solid',
-        borderColor: 'divider',
         bgcolor: 'background.paper',
         touchAction: 'none',
         userSelect: 'none',
@@ -387,7 +384,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
       <CssBaseline />
 
       <Box sx={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column' }}>
-        <AppBar position="static" color="transparent" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider' }}>
+        <AppBar position="static" color="transparent" elevation={0}>
           <Box onPointerDown={onTopbarPointerDown} sx={{ height: 52, px: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
             <Tooltip title="返回主页">
               <IconButton
@@ -565,8 +562,6 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               <Box sx={{ flex: 1 }} />
             </Stack>
 
-            <Divider />
-
             <Stack spacing={1}>
               <Stack direction="row" spacing={1} alignItems="center">
                 <Button size="small" variant="outlined" onClick={() => void controller.pickRefImages()}>
@@ -595,12 +590,12 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                         component="img"
                         src={img.dataUrl}
                         alt={img.name || '参考图'}
-                        sx={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 2, border: '1px solid', borderColor: 'divider' }}
+                        sx={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 2 }}
                       />
                       <IconButton
                         size="small"
                         onClick={() => controller.removeRefImage(img.id)}
-                        sx={{ position: 'absolute', right: 2, top: 2, bgcolor: 'rgba(250,249,245,0.92)', border: '1px solid #f0eee6' }}
+                        sx={{ position: 'absolute', right: 2, top: 2, bgcolor: 'rgba(250,249,245,0.92)' }}
                         aria-label="移除参考图"
                       >
                         <DeleteRoundedIcon fontSize="inherit" />
@@ -720,8 +715,6 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 </Tooltip>
               </Stack>
             </Box>
-            <Divider />
-
             <Box
               sx={{
                 flex: 1,
@@ -781,8 +774,6 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                         minHeight: 260,
                         flexShrink: 0,
                         borderRadius: 4,
-                        border: '1px solid',
-                        borderColor: 'divider',
                         bgcolor: '#fff',
                         display: 'flex',
                         alignItems: 'center',
@@ -793,20 +784,16 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                     </Box>
                   )}
 
-                  <Divider />
-
                   <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>输出（在底部，不会替换底图与选区）</Typography>
                    <Box
-                     sx={{
-                       minHeight: 220,
-                       flexShrink: 0,
-                       borderRadius: 4,
-                       border: '1px solid',
-                       borderColor: 'divider',
-                       bgcolor: '#fff',
-                       display: 'flex',
-                       alignItems: 'center',
-                       justifyContent: 'center',
+                      sx={{
+                        minHeight: 220,
+                        flexShrink: 0,
+                        borderRadius: 4,
+                        bgcolor: '#fff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                        overflow: 'hidden',
                      }}
                    >
@@ -828,8 +815,6 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                     flex: 1,
                     minHeight: 420,
                     borderRadius: 4,
-                    border: '1px solid',
-                    borderColor: 'divider',
                     bgcolor: '#fff',
                     display: 'flex',
                     alignItems: 'center',
@@ -872,7 +857,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
 
       <Dialog open={deleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)} fullWidth maxWidth="xs">
         <DialogTitle>确认删除？</DialogTitle>
-        <DialogContent dividers>
+        <DialogContent>
           <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
             将从输出目录删除当前图片文件，此操作不可撤销。
           </Typography>
@@ -903,7 +888,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
         maxWidth="xs"
       >
         <DialogTitle>确认删除供应商？</DialogTitle>
-        <DialogContent dividers>
+        <DialogContent>
           <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>将删除该供应商配置，此操作不可撤销。</Typography>
           <Typography sx={{ mt: 1, fontSize: 12 }}>{providerDeleteConfirm.name || '供应商'}</Typography>
         </DialogContent>
@@ -941,11 +926,11 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
         }}
       >
         <DialogTitle sx={{ flex: '0 0 auto' }}>设置</DialogTitle>
-        <DialogContent dividers sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+        <DialogContent sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           <Tabs
             value={settingsTab}
             onChange={(_e, v) => setSettingsTab(v)}
-            sx={{ mb: 2, borderBottom: 1, borderColor: 'divider' }}
+            sx={{ mb: 2 }}
           >
             <Tab value="provider" label="供应商" />
             <Tab value="plugin" label="插件" />
@@ -1192,7 +1177,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               size="small"
               onClick={() => setPromptLibOpen(false)}
               aria-label="关闭提示词收藏夹"
-              sx={{ position: 'absolute', right: 8, top: 8, bgcolor: 'rgba(250,249,245,0.92)', border: '1px solid #f0eee6' }}
+              sx={{ position: 'absolute', right: 8, top: 8, bgcolor: 'rgba(250,249,245,0.92)' }}
             >
               <CloseRoundedIcon fontSize="small" />
             </IconButton>
@@ -1208,7 +1193,6 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                       <AddRoundedIcon fontSize="small" />
                     </IconButton>
                   </Stack>
-                  <Divider />
                   <Stack spacing={0.5} sx={{ overflow: 'auto' }}>
                     {(state.promptLib.data?.folders || []).map((f) => (
                       <Button
@@ -1240,7 +1224,6 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                       <AddRoundedIcon fontSize="small" />
                     </IconButton>
                   </Stack>
-                  <Divider />
                   <Stack spacing={1} sx={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
                   {(() => {
                     const d = state.promptLib.data
@@ -1266,9 +1249,9 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                               e.preventDefault()
                               e.stopPropagation()
                           setPromptItemMenu({ el: e.currentTarget, folderId: String(folder?.id || ''), promptId: p.id })
-                        }}
+                            }}
                             aria-label="更多操作"
-                            sx={{ position: 'absolute', right: 6, top: 6, bgcolor: 'rgba(250,249,245,0.92)', border: '1px solid #f0eee6' }}
+                            sx={{ position: 'absolute', right: 6, top: 6, bgcolor: 'rgba(250,249,245,0.92)' }}
                           >
                             <MoreHorizRoundedIcon fontSize="inherit" />
                           </IconButton>
@@ -1320,7 +1303,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
         maxWidth="xs"
       >
         <DialogTitle>重命名收藏夹</DialogTitle>
-        <DialogContent dividers>
+        <DialogContent>
           <TextField
             size="small"
             label="名称"
@@ -1355,7 +1338,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
         maxWidth="xs"
       >
         <DialogTitle>确认删除收藏夹？</DialogTitle>
-        <DialogContent dividers>
+        <DialogContent>
           <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>将删除收藏夹及其中所有条目，此操作不可撤销。</Typography>
           <Typography sx={{ mt: 1, fontSize: 12 }}>{deletePromptFolderConfirm.name || '收藏夹'}</Typography>
         </DialogContent>
@@ -1404,7 +1387,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
         maxWidth="xs"
       >
         <DialogTitle>确认删除条目？</DialogTitle>
-        <DialogContent dividers>
+        <DialogContent>
           <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>此操作不可撤销。</Typography>
         </DialogContent>
         <DialogActions>
@@ -1432,7 +1415,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
         maxWidth="sm"
       >
         <DialogTitle>新增条目</DialogTitle>
-        <DialogContent dividers>
+        <DialogContent>
           <TextField
             autoFocus
             fullWidth
@@ -1486,7 +1469,6 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
             关闭
           </Button>
         </Box>
-        <Divider />
         <Box sx={{ p: 1.5, maxHeight: 520, overflow: 'auto' }}>
           {!state.tasks.length ? (
             <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>暂无任务。</Typography>
@@ -1530,7 +1512,6 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
             关闭
           </Button>
         </Box>
-        <Divider />
         <Box sx={{ p: 1.5, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
           {state.savedPath ? (
             <Alert
@@ -1595,7 +1576,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
 
       <Dialog open={refLibraryOpen} onClose={() => setRefLibraryOpen(false)} fullWidth maxWidth="md">
         <DialogTitle>参考图库</DialogTitle>
-        <DialogContent dividers>
+        <DialogContent>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
             <Button size="small" variant="outlined" onClick={() => void controller.refreshRefLibrary()} disabled={state.refLibrary.loading}>
               刷新
@@ -1632,8 +1613,6 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                         position: 'relative',
                         height: 96,
                         borderRadius: 2,
-                        border: '1px solid',
-                        borderColor: 'divider',
                         bgcolor: '#fff',
                         display: 'flex',
                         alignItems: 'center',
@@ -1662,7 +1641,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                           setRefLibraryItemMenu({ el: e.currentTarget, path: p })
                         }}
                         aria-label="更多操作"
-                        sx={{ position: 'absolute', right: 4, top: 4, bgcolor: 'rgba(250,249,245,0.92)', border: '1px solid #f0eee6' }}
+                        sx={{ position: 'absolute', right: 4, top: 4, bgcolor: 'rgba(250,249,245,0.92)' }}
                       >
                         <MoreHorizRoundedIcon fontSize="inherit" />
                       </IconButton>
