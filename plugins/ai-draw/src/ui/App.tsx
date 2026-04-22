@@ -45,6 +45,7 @@ import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
 import PhotoLibraryRoundedIcon from '@mui/icons-material/PhotoLibraryRounded'
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
+import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import type { AiDrawFastWindowApi } from '../bridge/tauriCompat'
 import { createAiDrawController } from '../controller/createController'
 import { UI_MODE_LOCAL_EDIT, UI_MODE_NORMAL, type AiDrawProvider, type UiMode } from '../core/schema'
@@ -279,6 +280,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const [imageDetailAnchorEl, setImageDetailAnchorEl] = React.useState<HTMLElement | null>(null)
   const [normalMoreAnchorEl, setNormalMoreAnchorEl] = React.useState<HTMLElement | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false)
+  const [refLibraryItemMenu, setRefLibraryItemMenu] = React.useState<{ el: HTMLElement | null; path: string }>({ el: null, path: '' })
 
   const [providerDraft, setProviderDraft] = React.useState<any>(null)
   const [pluginDraft, setPluginDraft] = React.useState<any>(null)
@@ -334,13 +336,21 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
 
   const nextMode: UiMode = uiMode === UI_MODE_LOCAL_EDIT ? UI_MODE_NORMAL : UI_MODE_LOCAL_EDIT
 
+  const onTopbarPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return
+    const t = e.target as any
+    if (!t || typeof t.closest !== 'function') return
+    if (t.closest('button, a, input, textarea, select, [role="button"]')) return
+    void api.ui.startDragging()
+  }
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
 
       <Box sx={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column' }}>
         <AppBar position="static" color="transparent" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider' }}>
-          <Box sx={{ height: 52, px: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box onPointerDown={onTopbarPointerDown} sx={{ height: 52, px: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
             <Tooltip title="返回主页">
               <IconButton
                 size="small"
@@ -857,9 +867,24 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={settingsOpen} onClose={() => setSettingsOpen(false)} fullWidth maxWidth="md">
-        <DialogTitle>设置</DialogTitle>
-        <DialogContent dividers>
+      <Dialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        maxWidth={false}
+        PaperProps={{
+          sx: {
+            width: 860,
+            maxWidth: 'calc(100vw - 24px)',
+            height: 660,
+            maxHeight: 'calc(100vh - 24px)',
+            borderRadius: 3,
+            display: 'flex',
+            flexDirection: 'column',
+          },
+        }}
+      >
+        <DialogTitle sx={{ flex: '0 0 auto' }}>设置</DialogTitle>
+        <DialogContent dividers sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           <Tabs
             value={settingsTab}
             onChange={(_e, v) => setSettingsTab(v)}
@@ -1059,7 +1084,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
             </Stack>
           ) : null}
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ flex: '0 0 auto' }}>
           <Button onClick={() => setSettingsOpen(false)}>关闭</Button>
           <Button
             variant="contained"
@@ -1082,13 +1107,35 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={promptLibOpen} onClose={() => setPromptLibOpen(false)} fullWidth maxWidth="md">
-        <DialogTitle>提示词收藏夹</DialogTitle>
-        <DialogContent dividers>
-          {state.promptLib.loading ? (
-            <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>加载中…</Typography>
-          ) : (
-            <Box sx={{ display: 'flex', gap: 2, minHeight: 360 }}>
+      <Dialog
+        open={promptLibOpen}
+        onClose={() => setPromptLibOpen(false)}
+        maxWidth={false}
+        PaperProps={{
+          sx: {
+            width: 920,
+            maxWidth: 'calc(100vw - 24px)',
+            height: 'min(820px, calc(100vh - 24px))',
+            borderRadius: 3,
+            overflow: 'hidden',
+          },
+        }}
+      >
+        <DialogContent sx={{ p: 0, height: '100%' }}>
+          <Box sx={{ position: 'relative', height: '100%', p: 2 }}>
+            <IconButton
+              size="small"
+              onClick={() => setPromptLibOpen(false)}
+              aria-label="关闭提示词收藏夹"
+              sx={{ position: 'absolute', right: 8, top: 8, bgcolor: 'rgba(250,249,245,0.92)', border: '1px solid #f0eee6' }}
+            >
+              <CloseRoundedIcon fontSize="small" />
+            </IconButton>
+
+            {state.promptLib.loading ? (
+              <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>加载中…</Typography>
+            ) : (
+              <Box sx={{ display: 'flex', gap: 2, height: '100%', minHeight: 420, pt: 1 }}>
               <Paper variant="outlined" sx={{ width: 240, p: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
                 <Stack direction="row" spacing={1} alignItems="center">
                   <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 1 }}>收藏夹</Typography>
@@ -1131,7 +1178,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                   <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 1 }}>提示词</Typography>
                   <Button
                     size="small"
-                    variant="outlined"
+                    variant="contained"
                     onClick={() => void controller.addPromptToActiveFolder(state.prompt)}
                     disabled={!String(state.prompt || '').trim()}
                   >
@@ -1154,14 +1201,13 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                             variant="contained"
                             onClick={() => {
                               controller.usePromptText(p.text)
-                              setPromptLibOpen(false)
                             }}
                           >
                             使用
                           </Button>
                           <Button
                             size="small"
-                            variant="outlined"
+                            variant="contained"
                             color="error"
                             onClick={() => {
                               const fid2 = folder?.id || ''
@@ -1176,12 +1222,10 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                   })()}
                 </Stack>
               </Paper>
-            </Box>
-          )}
+              </Box>
+            )}
+          </Box>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPromptLibOpen(false)}>关闭</Button>
-        </DialogActions>
       </Dialog>
 
       <Popover
@@ -1352,6 +1396,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                   <Paper key={p} variant="outlined" sx={{ p: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
                     <Box
                       sx={{
+                        position: 'relative',
                         height: 96,
                         borderRadius: 2,
                         border: '1px solid',
@@ -1361,8 +1406,34 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                         alignItems: 'center',
                         justifyContent: 'center',
                         overflow: 'hidden',
+                        cursor: slot.dataUrl ? 'pointer' : 'default',
+                      }}
+                      role={slot.dataUrl ? 'button' : undefined}
+                      tabIndex={slot.dataUrl ? 0 : undefined}
+                      onClick={() => {
+                        if (!slot.dataUrl) return
+                        void controller.addRefImageFromLibrary(p)
+                      }}
+                      onKeyDown={(e) => {
+                        if (!slot.dataUrl) return
+                        if (e.key !== 'Enter' && e.key !== ' ') return
+                        e.preventDefault()
+                        void controller.addRefImageFromLibrary(p)
                       }}
                     >
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setRefLibraryItemMenu({ el: e.currentTarget, path: p })
+                        }}
+                        aria-label="更多操作"
+                        sx={{ position: 'absolute', right: 4, top: 4, bgcolor: 'rgba(250,249,245,0.92)', border: '1px solid #f0eee6' }}
+                      >
+                        <MoreHorizRoundedIcon fontSize="inherit" />
+                      </IconButton>
+
                       {slot.dataUrl ? (
                         <Box
                           component="img"
@@ -1379,18 +1450,9 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                       )}
                     </Box>
 
-                    <Typography sx={{ fontSize: 12 }} noWrap title={p}>
+                    <Typography sx={{ fontSize: 12 }} noWrap title={name}>
                       {name}
                     </Typography>
-
-                    <Stack direction="row" spacing={1}>
-                      <Button size="small" variant="contained" onClick={() => void controller.addRefImageFromLibrary(p)}>
-                        用作参考
-                      </Button>
-                      <Button size="small" variant="outlined" color="error" onClick={() => void controller.deleteRefLibraryItem(p)}>
-                        删除
-                      </Button>
-                    </Stack>
                   </Paper>
                 )
               })}
@@ -1406,6 +1468,25 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               </Button>
             </Box>
           ) : null}
+
+          <Menu
+            open={!!refLibraryItemMenu.el}
+            anchorEl={refLibraryItemMenu.el}
+            onClose={() => setRefLibraryItemMenu({ el: null, path: '' })}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+          >
+            <MenuItem
+              onClick={() => {
+                const p = refLibraryItemMenu.path
+                setRefLibraryItemMenu({ el: null, path: '' })
+                if (p) void controller.deleteRefLibraryItem(p)
+              }}
+              sx={{ color: 'error.main' }}
+            >
+              删除
+            </MenuItem>
+          </Menu>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setRefLibraryOpen(false)}>关闭</Button>
