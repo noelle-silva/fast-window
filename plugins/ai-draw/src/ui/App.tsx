@@ -527,12 +527,17 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
     return list.filter((x) => String(x || '').toLowerCase().includes(q))
   }, [promptHistoryListNewestFirst, promptHistoryQuery])
 
+  const imageHistoryListNewestFirst = React.useMemo(() => {
+    const list = Array.isArray(state.imageHistory) ? state.imageHistory : []
+    return list.slice().reverse()
+  }, [revision])
+
   const imageHistoryFiltered = React.useMemo(() => {
     const q = String(imageGalleryQuery || '').trim().toLowerCase()
-    const list = Array.isArray(state.imageHistory) ? state.imageHistory : []
+    const list = imageHistoryListNewestFirst
     if (!q) return list
     return list.filter((it) => String(it?.savedPath || '').toLowerCase().includes(q))
-  }, [revision, imageGalleryQuery])
+  }, [imageHistoryListNewestFirst, imageGalleryQuery])
 
   const nextMode: UiMode = uiMode === UI_MODE_LOCAL_EDIT ? UI_MODE_NORMAL : UI_MODE_LOCAL_EDIT
 
@@ -1396,18 +1401,6 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                   placeholder="搜索历史提示词"
                   fullWidth
                 />
-                <Button
-                  size="small"
-                  variant="contained"
-                  onClick={() => {
-                    void controller.clearPromptHistory()
-                    setPromptHistoryOpen(false)
-                  }}
-                  disabled={!state.promptHistory.length}
-                  color="error"
-                >
-                  清空
-                </Button>
               </Stack>
 
               <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }}>
