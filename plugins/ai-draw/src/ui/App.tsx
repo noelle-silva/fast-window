@@ -236,6 +236,8 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const canImagePrev = state.imageHistory.length > 0 && (state.imageHistoryIndex === -1 || state.imageHistoryIndex > 0)
   const canImageNext = state.imageHistory.length > 0 && state.imageHistoryIndex >= 0 && state.imageHistoryIndex < state.imageHistory.length - 1
 
+  const nextMode: UiMode = uiMode === UI_MODE_LOCAL_EDIT ? UI_MODE_NORMAL : UI_MODE_LOCAL_EDIT
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -262,6 +264,15 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
             </Tooltip>
 
             <Typography sx={{ fontWeight: 800, fontSize: 14, flexShrink: 0 }}>AI 绘图</Typography>
+
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => void controller.setUiMode(nextMode)}
+              sx={{ borderRadius: 999, px: 1.25 }}
+            >
+              {uiMode === UI_MODE_LOCAL_EDIT ? '模式：局部' : '模式：普通'}
+            </Button>
 
             <Chip
               size="small"
@@ -420,46 +431,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 下一条 →
               </Button>
               <Box sx={{ flex: 1 }} />
-              <FormControlLabel
-                control={
-                  <Switch
-                    size="small"
-                    checked={uiMode === UI_MODE_LOCAL_EDIT}
-                    onChange={(e) => void controller.setUiMode(e.target.checked ? UI_MODE_LOCAL_EDIT : UI_MODE_NORMAL)}
-                  />
-                }
-                label={<Typography sx={{ fontSize: 12, color: 'text.secondary' }}>局部模式</Typography>}
-              />
             </Stack>
-
-            {uiMode === UI_MODE_LOCAL_EDIT ? (
-              <Stack spacing={1}>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    startIcon={<ImageRoundedIcon fontSize="small" />}
-                    onClick={() => void controller.pickEditImage()}
-                  >
-                    选择底图
-                  </Button>
-                  <Button size="small" variant="outlined" startIcon={<RestartAltRoundedIcon />} onClick={() => controller.clearEditImage()}>
-                    清空
-                  </Button>
-                  <Chip
-                    size="small"
-                    variant="outlined"
-                    label={state.edit.baseDataUrl ? `已选：${state.edit.baseName} (${state.edit.baseW}x${state.edit.baseH})` : '未选择图片'}
-                    sx={{ maxWidth: 260, '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } }}
-                    title={state.edit.baseName}
-                  />
-                </Stack>
-
-                {state.edit.baseDataUrl ? (
-                  <EditImageSelector dataUrl={state.edit.baseDataUrl} sel={state.edit.sel} onSelChange={controller.setEditSelection} />
-                ) : null}
-              </Stack>
-            ) : null}
 
             <Divider />
 
@@ -517,110 +489,214 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
             </Button>
           </Paper>
 
-          <Paper sx={{ flex: 1, minWidth: 0, p: 1.5, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Tooltip title="上一张">
-                <span>
-                  <IconButton size="small" disabled={!canImagePrev} onClick={() => void controller.switchImageHistory(-1)}>
-                    <NavigateBeforeRoundedIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
-              <Tooltip title="下一张">
-                <span>
-                  <IconButton size="small" disabled={!canImageNext} onClick={() => void controller.switchImageHistory(1)}>
-                    <NavigateNextRoundedIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
+          <Paper sx={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <Box sx={{ p: 1.5 }}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Tooltip title="上一张">
+                  <span>
+                    <IconButton size="small" disabled={!canImagePrev} onClick={() => void controller.switchImageHistory(-1)}>
+                      <NavigateBeforeRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="下一张">
+                  <span>
+                    <IconButton size="small" disabled={!canImageNext} onClick={() => void controller.switchImageHistory(1)}>
+                      <NavigateNextRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
 
-              <Chip size="small" variant="outlined" label={imageIndexText} />
+                <Chip size="small" variant="outlined" label={imageIndexText} />
 
-              <Box sx={{ flex: 1 }} />
+                <Box sx={{ flex: 1 }} />
 
-              <Tooltip title="复制图片">
-                <span>
-                  <IconButton size="small" disabled={!state.imageDataUrl} onClick={() => void controller.copyImage()}>
-                    <ContentCopyRoundedIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
+                <Tooltip title="复制图片">
+                  <span>
+                    <IconButton size="small" disabled={!state.imageDataUrl} onClick={() => void controller.copyImage()}>
+                      <ContentCopyRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
 
-              <Tooltip title="详情">
-                <span>
-                  <IconButton
-                    size="small"
-                    disabled={!state.imageDataUrl && !state.savedPath}
-                    onClick={(e) => setImageDetailAnchorEl(e.currentTarget)}
-                    aria-label="打开详情"
-                  >
-                    <Badge
-                      color="primary"
-                      variant="dot"
-                      invisible={!(state.savedPath || (autoSave && state.imageDataUrl))}
+                <Tooltip title="详情">
+                  <span>
+                    <IconButton
+                      size="small"
+                      disabled={!state.imageDataUrl && !state.savedPath}
+                      onClick={(e) => setImageDetailAnchorEl(e.currentTarget)}
+                      aria-label="打开详情"
                     >
-                      <InfoRoundedIcon fontSize="small" />
-                    </Badge>
-                  </IconButton>
-                </span>
-              </Tooltip>
+                      <Badge
+                        color="primary"
+                        variant="dot"
+                        invisible={!(state.savedPath || (autoSave && state.imageDataUrl))}
+                      >
+                        <InfoRoundedIcon fontSize="small" />
+                      </Badge>
+                    </IconButton>
+                  </span>
+                </Tooltip>
 
-              <Tooltip title={autoSave ? '自动保存已开启（手动保存可关闭自动保存）' : '保存图片'}>
-                <span>
-                  <IconButton size="small" disabled={!state.imageDataUrl || autoSave} onClick={() => void controller.saveImage()}>
-                    <SaveRoundedIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
+                <Tooltip title={autoSave ? '自动保存已开启（手动保存可关闭自动保存）' : '保存图片'}>
+                  <span>
+                    <IconButton size="small" disabled={!state.imageDataUrl || autoSave} onClick={() => void controller.saveImage()}>
+                      <SaveRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
 
-              <Tooltip title="打开输出目录">
-                <IconButton size="small" onClick={() => void controller.openOutputDir()}>
-                  <FolderOpenRoundedIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </Stack>
+                <Tooltip title="打开输出目录">
+                  <IconButton size="small" onClick={() => void controller.openOutputDir()}>
+                    <FolderOpenRoundedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+            </Box>
+            <Divider />
 
             <Box
               sx={{
                 flex: 1,
                 minHeight: 0,
-                borderRadius: 4,
-                border: '1px solid',
-                borderColor: 'divider',
-                bgcolor: '#fff',
+                p: 1.5,
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                overflow: 'hidden',
+                flexDirection: 'column',
+                gap: 1.5,
+                overflowY: 'auto',
+                overscrollBehavior: 'contain',
+                scrollbarWidth: 'none',
+                msOverflowStyle: 'none',
+                '&::-webkit-scrollbar': { display: 'none' },
               }}
             >
-              {state.imageDataUrl ? (
-                <Box
-                  component="img"
-                  src={state.imageDataUrl}
-                  alt="生成结果"
-                  sx={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
-                />
-              ) : (
-                <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>暂无图片</Typography>
-              )}
-            </Box>
+              {uiMode === UI_MODE_LOCAL_EDIT ? (
+                <>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>底图（框选区域在这里）</Typography>
+                    <Box sx={{ flex: 1 }} />
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<ImageRoundedIcon fontSize="small" />}
+                      onClick={() => void controller.pickEditImage()}
+                    >
+                      选择底图
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<RestartAltRoundedIcon />}
+                      onClick={() => controller.clearEditImage()}
+                      disabled={!state.edit.baseDataUrl}
+                    >
+                      清空
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => controller.setEditSelection(null)}
+                      disabled={!state.edit.sel}
+                    >
+                      清空选区
+                    </Button>
+                  </Stack>
 
-            <Stack direction="row" spacing={1}>
-              <Button size="small" variant="outlined" onClick={() => void controller.refreshImageHistory()}>
-                刷新输出
-              </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                onClick={() => {
-                  setSettingsTab('plugin')
-                  setSettingsOpen(true)
-                }}
-              >
-                插件设置
-              </Button>
-            </Stack>
+                  {state.edit.baseDataUrl ? (
+                    <EditImageSelector
+                      dataUrl={state.edit.baseDataUrl}
+                      sel={state.edit.sel}
+                      onSelChange={controller.setEditSelection}
+                    />
+                  ) : (
+                    <Box
+                      sx={{
+                        minHeight: 260,
+                        borderRadius: 4,
+                        border: '1px solid',
+                        borderColor: 'divider',
+                        bgcolor: '#fff',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>请选择一张底图，然后拖拽框选区域。</Typography>
+                    </Box>
+                  )}
+
+                  <Divider />
+
+                  <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>输出（在底部，不会替换底图与选区）</Typography>
+                  <Box
+                    sx={{
+                      minHeight: 220,
+                      borderRadius: 4,
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      bgcolor: '#fff',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    {state.imageDataUrl ? (
+                      <Box
+                        component="img"
+                        src={state.imageDataUrl}
+                        alt="局部输出结果"
+                        sx={{ width: '100%', height: 'auto', objectFit: 'contain' }}
+                      />
+                    ) : (
+                      <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>暂无输出图片</Typography>
+                    )}
+                  </Box>
+                </>
+              ) : (
+                <Box
+                  sx={{
+                    flex: 1,
+                    minHeight: 420,
+                    borderRadius: 4,
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    bgcolor: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {state.imageDataUrl ? (
+                    <Box
+                      component="img"
+                      src={state.imageDataUrl}
+                      alt="生成结果"
+                      sx={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                    />
+                  ) : (
+                    <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>暂无图片</Typography>
+                  )}
+                </Box>
+              )}
+
+              <Stack direction="row" spacing={1}>
+                <Button size="small" variant="outlined" onClick={() => void controller.refreshImageHistory()}>
+                  刷新输出
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => {
+                    setSettingsTab('plugin')
+                    setSettingsOpen(true)
+                  }}
+                >
+                  插件设置
+                </Button>
+              </Stack>
+            </Box>
           </Paper>
         </Box>
       </Box>

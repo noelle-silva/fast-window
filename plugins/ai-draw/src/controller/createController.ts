@@ -533,10 +533,11 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
           const finalDataUrl = await compositePatchToBase(localCtx.baseDataUrl, patch, localCtx.selPx)
           if (!finalDataUrl) throw new Error('合成失败：无法把结果贴回原图')
 
+          // 局部模式：输出图与底图分离展示。
+          // - 不替换底图（state.edit.baseDataUrl）
+          // - 不清空选区（state.edit.sel）
           state.imageDataUrl = finalDataUrl
           state.savedPath = ''
-          state.edit.baseDataUrl = finalDataUrl
-          state.edit.sel = null
           notify()
 
           if (state.data && state.data.autoSave) {
