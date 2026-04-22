@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { AppBar, Box, Button, CssBaseline, Dialog, DialogActions, DialogContent, DialogTitle, GlobalStyles, IconButton, InputBase, Menu, MenuItem, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
+import { AppBar, Box, Button, CssBaseline, Dialog, DialogActions, DialogContent, DialogTitle, Divider, GlobalStyles, IconButton, InputBase, Menu, MenuItem, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
@@ -11,7 +11,6 @@ import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
-import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 import {
   ensureMetadata,
   getApi,
@@ -44,6 +43,7 @@ import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from '
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
 import { applyActiveWorkspacePatch, buildWorkspacesMetadataSnapshot, normalizeOpenTabKeys } from './workspaceModel'
 import { DEFAULT_SHORTCUT_BINDINGS, isEditableTarget, mainKeyFromChord, normalizeMainKey, normalizeShortcutBindings, shouldTriggerShortcut, type HyperCortexShortcutBindingsV1 } from '../shortcuts'
+import { AllNotesGridNoteCard, AllNotesIconNoteCard, AllNotesListNoteRow, type NoteCardInfo } from './AllNotesNoteCard'
 import type { AssetEntry } from '../assetTypes'
 import { assetTabId } from '../assetTypes'
 import { assetRefKeyFromTabKey, noteIdFromTabKey, noteTabKey, parseAssetRefKey, tabKind, type TabKey } from '../tabKey'
@@ -53,22 +53,6 @@ type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'asset-deta
 
 type AllNotesLayout = 'list' | 'grid' | 'icon'
 type TabsMode = 'manual' | 'hover'
-
-type NoteCardInfo = {
-  tags: string[]
-  hasTextFace: boolean
-  hasHtmlFace: boolean
-}
-
-function noteContainsLabel(info: NoteCardInfo | null | undefined): string {
-  if (!info) return ''
-  const hasText = info.hasTextFace
-  const hasHtml = info.hasHtmlFace
-  if (hasText && hasHtml) return '文本 · HTML'
-  if (hasText) return '文本'
-  if (hasHtml) return 'HTML'
-  return ''
-}
 
 function normalizeAllNotesLayout(value: unknown): AllNotesLayout {
   return value === 'grid' || value === 'icon' ? value : 'list'
@@ -1269,6 +1253,87 @@ export function HyperCortexApp() {
     await handleDeleteNote({ note: target, mode })
   }, [closeNoteCardMenu, handleDeleteNote, noteCardDeleteTarget, trashEnabled])
 
+  const resolveNoteAbsoluteDir = React.useCallback(
+    async (note: NoteMeta): Promise<string> => {
+      const rawDir = String(note?.dir || '').trim()
+      if (!rawDir) throw new Error('笔记目录为空')
+
+      const detectStyle = (p: string): 'windows' | 'posix' | 'unknown' => {
+        const s = String(p || '').trim()
+        if (/^[a-zA-Z]:[\\/]/.test(s) || s.startsWith('\\\\') || s.startsWith('//')) return 'windows'
+        if (s.startsWith('/')) return 'posix'
+        return 'unknown'
+      }
+
+      const normalizeWindowsAbs = (p: string): string => {
+        const s = String(p || '').trim()
+        if (!s) return ''
+        // 统一用反斜杠，让 explorer 行为更可控；同时支持 //server/share 的 UNC 写法。
+        if (s.startsWith('//')) return `\\\\${s.slice(2).replace(/\//g, '\\')}`
+        return s.replace(/\//g, '\\')
+      }
+
+      const normalizePosixAbs = (p: string): string => {
+        const s = String(p || '').trim()
+        if (!s) return ''
+        return s.replace(/\\/g, '/')
+      }
+
+      const joinWindows = (base: string, rel: string): string => {
+        const b = normalizeWindowsAbs(base).replace(/[\\\/]+$/g, '')
+        const r = String(rel || '').trim().replace(/^[\\\/]+/g, '').replace(/\//g, '\\')
+        return `${b}\\${r}`
+      }
+
+      const joinPosix = (base: string, rel: string): string => {
+        const b = normalizePosixAbs(base).replace(/[\\\/]+$/g, '')
+        const r = String(rel || '').trim().replace(/^[\\\/]+/g, '').replace(/\\/g, '/')
+        return `${b}/${r}`
+      }
+
+      const style = detectStyle(rawDir)
+      if (style === 'windows') return normalizeWindowsAbs(rawDir)
+      if (style === 'posix') return normalizePosixAbs(rawDir)
+
+      const libDir = String(await api.files.getLibraryDir()).trim()
+      const libStyle = detectStyle(libDir)
+      if (libStyle === 'windows') return joinWindows(libDir, rawDir)
+      if (libStyle === 'posix') return joinPosix(libDir, rawDir)
+
+      throw new Error('库目录不是绝对路径')
+    },
+    [api],
+  )
+
+  const requestCopyTitleFromCardMenu = React.useCallback(async () => {
+    const note = noteCardMenu?.note
+    if (!note) return
+    closeNoteCardMenu()
+    const title = String(note.title || '').trim() || '未命名'
+    try {
+      await api.clipboard.writeText(title)
+      void api.ui.showToast('已复制标题')
+    } catch (e: any) {
+      void api.ui.showToast(String(e?.message || e || '复制失败'))
+    }
+  }, [api, closeNoteCardMenu, noteCardMenu])
+
+  const requestOpenDirFromCardMenu = React.useCallback(async () => {
+    const note = noteCardMenu?.note
+    if (!note) return
+    closeNoteCardMenu()
+    if (isDraftNoteId(note.id) || !String(note.dir || '').trim()) {
+      void api.ui.showToast('草稿暂无所在目录（请先保存）')
+      return
+    }
+    try {
+      const abs = await resolveNoteAbsoluteDir(note)
+      await api.files.openDir(abs)
+    } catch (e: any) {
+      void api.ui.showToast(String(e?.message || e || '打开目录失败'))
+    }
+  }, [api, closeNoteCardMenu, noteCardMenu, resolveNoteAbsoluteDir])
+
   const handleTrashRestored = React.useCallback(
     (meta: NoteMeta) => {
       if (!meta?.id) return
@@ -2009,173 +2074,19 @@ export function HyperCortexApp() {
                         gap: 1,
                       }}
                     >
-                      {allNotes.map(note => {
-                        const info = noteCardInfoById[note.id]
-                        const tags = info?.tags || []
-                        const containsText = info ? (noteContainsLabel(info) || '—') : '…'
-                        const showContains = !isDraftNoteId(note.id) && !!String(note.dir || '').trim()
-                        return (
-                          <Box
-                            key={note.id}
-                            onClick={() => void handleOpenNote(note)}
-                            role="button"
-                            tabIndex={0}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault()
-                                void handleOpenNote(note)
-                              }
-                            }}
-                            sx={{
-                              position: 'relative',
-                              minHeight: 144,
-                              px: 1.5,
-                              py: 1.5,
-                              borderRadius: 3,
-                              bgcolor: '#fff',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'stretch',
-                              boxShadow: '0 1px 2px rgba(0,0,0,.04)',
-                              cursor: 'pointer',
-                              transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
-                              '&:hover': {
-                                bgcolor: 'rgba(0,0,0,.02)',
-                                boxShadow: '0 6px 16px rgba(0,0,0,.08)',
-                                transform: 'translateY(-1px)',
-                              },
-                              '&:hover .hc-note-card-actions': { opacity: 1 },
-                            }}
-                          >
-                            <Box
-                              className="hc-note-card-actions"
-                              sx={{
-                                position: 'absolute',
-                                top: 6,
-                                right: 6,
-                                display: 'flex',
-                                gap: 0.5,
-                                opacity: 0,
-                                transition: 'opacity .15s',
-                              }}
-                            >
-                              <Box
-                                component="button"
-                                onClick={(e: React.MouseEvent) => {
-                                  e.stopPropagation()
-                                  void api.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
-                                  void api.ui.showToast('已复制引用占位符')
-                                }}
-                                sx={{
-                                  border: 'none',
-                                  background: 'rgba(0,0,0,.05)',
-                                  borderRadius: 1.5,
-                                  width: 24,
-                                  height: 24,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  cursor: 'pointer',
-                                  fontSize: 13,
-                                  color: 'rgba(0,0,0,.45)',
-                                  '&:hover': { background: 'rgba(0,0,0,.1)' },
-                                }}
-                                aria-label="复制引用占位符"
-                                title="复制引用占位符"
-                              >
-                                🔗
-                              </Box>
-                              <Box
-                                component="button"
-                                onClick={(e: React.MouseEvent) => openNoteCardMenu(e, note)}
-                                sx={{
-                                  border: 'none',
-                                  background: 'rgba(0,0,0,.05)',
-                                  borderRadius: 1.5,
-                                  width: 24,
-                                  height: 24,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  cursor: 'pointer',
-                                  color: 'rgba(0,0,0,.45)',
-                                  '&:hover': { background: 'rgba(0,0,0,.1)' },
-                                }}
-                                aria-label="更多操作"
-                                title="更多操作"
-                              >
-                                <MoreHorizRoundedIcon sx={{ fontSize: 16 }} />
-                              </Box>
-                            </Box>
-
-                            <Typography
-                              sx={{
-                                fontSize: 14,
-                                lineHeight: 1.5,
-                                fontWeight: 600,
-                                color: '#111',
-                                display: '-webkit-box',
-                                WebkitLineClamp: 2,
-                                WebkitBoxOrient: 'vertical',
-                                overflow: 'hidden',
-                                pr: 7,
-                              }}
-                            >
-                              {note.title || '未命名'}
-                            </Typography>
-
-                            {tags.length ? (
-                              <Box sx={{ mt: 0.75, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                                {tags.slice(0, 3).map(t => (
-                                  <Box
-                                    key={t}
-                                    component="span"
-                                    sx={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      px: 0.9,
-                                      py: 0.25,
-                                      borderRadius: 999,
-                                      fontSize: 11,
-                                      color: 'rgba(0,0,0,.62)',
-                                      bgcolor: 'rgba(0,0,0,.05)',
-                                      maxWidth: '100%',
-                                      whiteSpace: 'nowrap',
-                                      overflow: 'hidden',
-                                      textOverflow: 'ellipsis',
-                                    }}
-                                  >
-                                    {t}
-                                  </Box>
-                                ))}
-                                {tags.length > 3 ? (
-                                  <Box
-                                    component="span"
-                                    sx={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      px: 0.9,
-                                      py: 0.25,
-                                      borderRadius: 999,
-                                      fontSize: 11,
-                                      color: 'rgba(0,0,0,.52)',
-                                      bgcolor: 'rgba(0,0,0,.04)',
-                                    }}
-                                  >
-                                    +{tags.length - 3}
-                                  </Box>
-                                ) : null}
-                              </Box>
-                            ) : null}
-
-                            {showContains ? (
-                              <Typography sx={{ mt: 'auto', fontSize: 12, lineHeight: 1.6, color: 'rgba(0,0,0,.42)' }}>
-                                包含：{containsText}
-                              </Typography>
-                            ) : null}
-                          </Box>
-                        )
-                      })}
+                      {allNotes.map(note => (
+                        <AllNotesGridNoteCard
+                          key={note.id}
+                          note={note}
+                          info={noteCardInfoById[note.id]}
+                          onOpen={note => void handleOpenNote(note)}
+                          onCopyRef={note => {
+                            void api.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
+                            void api.ui.showToast('已复制引用占位符')
+                          }}
+                          onMore={openNoteCardMenu}
+                        />
+                      ))}
                     </Box>
                   ) : null}
 
@@ -2187,340 +2098,37 @@ export function HyperCortexApp() {
                         gap: 1,
                       }}
                     >
-                      {allNotes.map(note => {
-                        const info = noteCardInfoById[note.id]
-                        const tags = info?.tags || []
-                        const containsText = info ? (noteContainsLabel(info) || '—') : '…'
-                        const showContains = !isDraftNoteId(note.id) && !!String(note.dir || '').trim()
-                        return (
-                          <Box
-                            key={note.id}
-                            onClick={() => void handleOpenNote(note)}
-                            role="button"
-                            tabIndex={0}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault()
-                                void handleOpenNote(note)
-                              }
-                            }}
-                            sx={{
-                              position: 'relative',
-                              minHeight: 84,
-                              px: 1.25,
-                              py: 1.25,
-                              borderRadius: 3,
-                              bgcolor: '#fff',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              alignItems: 'center',
-                              textAlign: 'center',
-                              boxShadow: '0 1px 2px rgba(0,0,0,.04)',
-                              cursor: 'pointer',
-                              transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
-                              '&:hover': {
-                                bgcolor: 'rgba(0,0,0,.02)',
-                                boxShadow: '0 6px 16px rgba(0,0,0,.08)',
-                                transform: 'translateY(-1px)',
-                              },
-                              '&:hover .hc-note-card-actions': { opacity: 1 },
-                            }}
-                          >
-                            <Box
-                              className="hc-note-card-actions"
-                              sx={{
-                                position: 'absolute',
-                                top: 4,
-                                right: 4,
-                                display: 'flex',
-                                gap: 0.5,
-                                opacity: 0,
-                                transition: 'opacity .15s',
-                              }}
-                            >
-                              <Box
-                                component="button"
-                                onClick={(e: React.MouseEvent) => {
-                                  e.stopPropagation()
-                                  void api.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
-                                  void api.ui.showToast('已复制引用占位符')
-                                }}
-                                sx={{
-                                  border: 'none',
-                                  background: 'rgba(0,0,0,.05)',
-                                  borderRadius: 1.5,
-                                  width: 22,
-                                  height: 22,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  cursor: 'pointer',
-                                  fontSize: 11,
-                                  color: 'rgba(0,0,0,.45)',
-                                  '&:hover': { background: 'rgba(0,0,0,.1)' },
-                                }}
-                                aria-label="复制引用占位符"
-                                title="复制引用占位符"
-                              >
-                                🔗
-                              </Box>
-                              <Box
-                                component="button"
-                                onClick={(e: React.MouseEvent) => openNoteCardMenu(e, note)}
-                                sx={{
-                                  border: 'none',
-                                  background: 'rgba(0,0,0,.05)',
-                                  borderRadius: 1.5,
-                                  width: 22,
-                                  height: 22,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  cursor: 'pointer',
-                                  color: 'rgba(0,0,0,.45)',
-                                  '&:hover': { background: 'rgba(0,0,0,.1)' },
-                                }}
-                                aria-label="更多操作"
-                                title="更多操作"
-                              >
-                                <MoreHorizRoundedIcon sx={{ fontSize: 15 }} />
-                              </Box>
-                            </Box>
-
-                            <Typography
-                              sx={{
-                                fontSize: 13,
-                                lineHeight: 1.45,
-                                fontWeight: 600,
-                                color: '#111',
-                                display: '-webkit-box',
-                                WebkitLineClamp: 2,
-                                WebkitBoxOrient: 'vertical',
-                                overflow: 'hidden',
-                                px: 0.5,
-                                pt: 0.25,
-                              }}
-                            >
-                              {note.title || '未命名'}
-                            </Typography>
-
-                            {tags.length ? (
-                              <Box sx={{ mt: 0.5, display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 0.5 }}>
-                                {tags.slice(0, 2).map(t => (
-                                  <Box
-                                    key={t}
-                                    component="span"
-                                    sx={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      px: 0.8,
-                                      py: 0.2,
-                                      borderRadius: 999,
-                                      fontSize: 10.5,
-                                      color: 'rgba(0,0,0,.6)',
-                                      bgcolor: 'rgba(0,0,0,.05)',
-                                      maxWidth: '100%',
-                                      whiteSpace: 'nowrap',
-                                      overflow: 'hidden',
-                                      textOverflow: 'ellipsis',
-                                    }}
-                                  >
-                                    {t}
-                                  </Box>
-                                ))}
-                                {tags.length > 2 ? (
-                                  <Box
-                                    component="span"
-                                    sx={{
-                                      display: 'inline-flex',
-                                      alignItems: 'center',
-                                      px: 0.8,
-                                      py: 0.2,
-                                      borderRadius: 999,
-                                      fontSize: 10.5,
-                                      color: 'rgba(0,0,0,.52)',
-                                      bgcolor: 'rgba(0,0,0,.04)',
-                                    }}
-                                  >
-                                    +{tags.length - 2}
-                                  </Box>
-                                ) : null}
-                              </Box>
-                            ) : null}
-
-                            {showContains ? (
-                              <Typography sx={{ mt: 'auto', fontSize: 11.5, lineHeight: 1.6, color: 'rgba(0,0,0,.42)' }}>
-                                {containsText}
-                              </Typography>
-                            ) : null}
-                          </Box>
-                        )
-                      })}
+                      {allNotes.map(note => (
+                        <AllNotesIconNoteCard
+                          key={note.id}
+                          note={note}
+                          info={noteCardInfoById[note.id]}
+                          onOpen={note => void handleOpenNote(note)}
+                          onCopyRef={note => {
+                            void api.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
+                            void api.ui.showToast('已复制引用占位符')
+                          }}
+                          onMore={openNoteCardMenu}
+                        />
+                      ))}
                     </Box>
                   ) : null}
 
                   {!allNotesLoading && !allNotesLoadError && allNotes.length > 0 && allNotesLayout === 'list' ? (
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-                      {allNotes.map(note => {
-                        const info = noteCardInfoById[note.id]
-                        const tags = info?.tags || []
-                        const containsText = info ? (noteContainsLabel(info) || '—') : '…'
-                        const showContains = !isDraftNoteId(note.id) && !!String(note.dir || '').trim()
-                        const showMetaLine = tags.length > 0 || showContains
-                        return (
-                          <Box
-                            key={note.id}
-                            onClick={() => void handleOpenNote(note)}
-                            role="button"
-                            tabIndex={0}
-                            onKeyDown={e => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault()
-                                void handleOpenNote(note)
-                              }
-                            }}
-                            sx={{
-                              position: 'relative',
-                              px: 1.5,
-                              py: 1.15,
-                              borderRadius: 3,
-                              bgcolor: '#fff',
-                              boxShadow: '0 1px 2px rgba(0,0,0,.04)',
-                              cursor: 'pointer',
-                              transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
-                              '&:hover': {
-                                bgcolor: 'rgba(0,0,0,.02)',
-                                boxShadow: '0 6px 16px rgba(0,0,0,.08)',
-                                transform: 'translateY(-1px)',
-                              },
-                              '&:hover .hc-note-card-actions': { opacity: 1 },
-                            }}
-                          >
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-                              <Box
-                                className="hc-note-card-actions"
-                                sx={{ display: 'flex', gap: 0.5, opacity: 0, transition: 'opacity .15s', flexShrink: 0 }}
-                              >
-                                <Box
-                                  component="button"
-                                  onClick={(e: React.MouseEvent) => {
-                                    e.stopPropagation()
-                                    void api.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
-                                    void api.ui.showToast('已复制引用占位符')
-                                  }}
-                                  sx={{
-                                    border: 'none',
-                                    background: 'rgba(0,0,0,.05)',
-                                    borderRadius: 1.5,
-                                    width: 24,
-                                    height: 24,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    cursor: 'pointer',
-                                    fontSize: 13,
-                                    color: 'rgba(0,0,0,.45)',
-                                    flexShrink: 0,
-                                    '&:hover': { background: 'rgba(0,0,0,.1)' },
-                                  }}
-                                  aria-label="复制引用占位符"
-                                  title="复制引用占位符"
-                                >
-                                  🔗
-                                </Box>
-                                <Box
-                                  component="button"
-                                  onClick={(e: React.MouseEvent) => openNoteCardMenu(e, note)}
-                                  sx={{
-                                    border: 'none',
-                                    background: 'rgba(0,0,0,.05)',
-                                    borderRadius: 1.5,
-                                    width: 24,
-                                    height: 24,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    cursor: 'pointer',
-                                    color: 'rgba(0,0,0,.45)',
-                                    flexShrink: 0,
-                                    '&:hover': { background: 'rgba(0,0,0,.1)' },
-                                  }}
-                                  aria-label="更多操作"
-                                  title="更多操作"
-                                >
-                                  <MoreHorizRoundedIcon sx={{ fontSize: 16 }} />
-                                </Box>
-                              </Box>
-
-                              <Typography
-                                sx={{
-                                  fontSize: 14,
-                                  lineHeight: 1.5,
-                                  fontWeight: 600,
-                                  color: '#111',
-                                  whiteSpace: 'nowrap',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                }}
-                              >
-                                {note.title || '未命名'}
-                              </Typography>
-                            </Box>
-
-                            {showMetaLine ? (
-                              <Box sx={{ mt: 0.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-                                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, minWidth: 0, flex: 1 }}>
-                                  {tags.slice(0, 6).map(t => (
-                                    <Box
-                                      key={t}
-                                      component="span"
-                                      sx={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        px: 0.9,
-                                        py: 0.2,
-                                        borderRadius: 999,
-                                        fontSize: 11,
-                                        color: 'rgba(0,0,0,.6)',
-                                        bgcolor: 'rgba(0,0,0,.05)',
-                                        maxWidth: '100%',
-                                        whiteSpace: 'nowrap',
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                      }}
-                                    >
-                                      {t}
-                                    </Box>
-                                  ))}
-                                  {tags.length > 6 ? (
-                                    <Box
-                                      component="span"
-                                      sx={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        px: 0.9,
-                                        py: 0.2,
-                                        borderRadius: 999,
-                                        fontSize: 11,
-                                        color: 'rgba(0,0,0,.52)',
-                                        bgcolor: 'rgba(0,0,0,.04)',
-                                      }}
-                                    >
-                                      +{tags.length - 6}
-                                    </Box>
-                                  ) : null}
-                                </Box>
-
-                                {showContains ? (
-                                  <Typography sx={{ fontSize: 12, lineHeight: 1.6, color: 'rgba(0,0,0,.42)', flexShrink: 0 }}>
-                                    包含：{containsText}
-                                  </Typography>
-                                ) : null}
-                              </Box>
-                            ) : null}
-                          </Box>
-                        )
-                      })}
+                      {allNotes.map(note => (
+                        <AllNotesListNoteRow
+                          key={note.id}
+                          note={note}
+                          info={noteCardInfoById[note.id]}
+                          onOpen={note => void handleOpenNote(note)}
+                          onCopyRef={note => {
+                            void api.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
+                            void api.ui.showToast('已复制引用占位符')
+                          }}
+                          onMore={openNoteCardMenu}
+                        />
+                      ))}
                     </Box>
                   ) : null}
                 </Box>
@@ -2623,6 +2231,16 @@ export function HyperCortexApp() {
         anchorEl={noteCardMenu?.anchorEl}
         PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}
       >
+        <MenuItem onClick={() => void requestCopyTitleFromCardMenu()}>
+          复制标题
+        </MenuItem>
+        <MenuItem
+          onClick={() => void requestOpenDirFromCardMenu()}
+          disabled={!noteCardMenu?.note || isDraftNoteId(noteCardMenu.note.id) || !String(noteCardMenu.note.dir || '').trim()}
+        >
+          打开所在目录
+        </MenuItem>
+        <Divider />
         <MenuItem
           onClick={() => {
             const target = noteCardMenu?.note
