@@ -35,6 +35,7 @@ import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import TaskAltRoundedIcon from '@mui/icons-material/TaskAltRounded'
+import InfoRoundedIcon from '@mui/icons-material/InfoRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded'
@@ -181,6 +182,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('provider')
   const [refLibraryLimit, setRefLibraryLimit] = React.useState(36)
   const [taskAnchorEl, setTaskAnchorEl] = React.useState<HTMLElement | null>(null)
+  const [imageDetailAnchorEl, setImageDetailAnchorEl] = React.useState<HTMLElement | null>(null)
 
   const [providerDraft, setProviderDraft] = React.useState<any>(null)
   const [pluginDraft, setPluginDraft] = React.useState<any>(null)
@@ -544,6 +546,25 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 </span>
               </Tooltip>
 
+              <Tooltip title="详情">
+                <span>
+                  <IconButton
+                    size="small"
+                    disabled={!state.imageDataUrl && !state.savedPath}
+                    onClick={(e) => setImageDetailAnchorEl(e.currentTarget)}
+                    aria-label="打开详情"
+                  >
+                    <Badge
+                      color="primary"
+                      variant="dot"
+                      invisible={!(state.savedPath || (autoSave && state.imageDataUrl))}
+                    >
+                      <InfoRoundedIcon fontSize="small" />
+                    </Badge>
+                  </IconButton>
+                </span>
+              </Tooltip>
+
               <Tooltip title={autoSave ? '自动保存已开启（手动保存可关闭自动保存）' : '保存图片'}>
                 <span>
                   <IconButton size="small" disabled={!state.imageDataUrl || autoSave} onClick={() => void controller.saveImage()}>
@@ -558,16 +579,6 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 </IconButton>
               </Tooltip>
             </Stack>
-
-            {state.savedPath ? (
-              <Alert severity="success" variant="outlined">
-                已保存：{state.savedPath}
-              </Alert>
-            ) : autoSave && state.imageDataUrl ? (
-              <Alert severity="info" variant="outlined">
-                自动保存已开启：后台保存完成后会自动更新“已保存路径”。
-              </Alert>
-            ) : null}
 
             <Box
               sx={{
@@ -992,6 +1003,84 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               ))}
             </Stack>
           )}
+        </Box>
+      </Popover>
+
+      <Popover
+        open={!!imageDetailAnchorEl}
+        anchorEl={imageDetailAnchorEl}
+        onClose={() => setImageDetailAnchorEl(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        PaperProps={{ sx: { width: 520, maxWidth: 'calc(100vw - 24px)', borderRadius: 3 } }}
+      >
+        <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography sx={{ fontWeight: 800, fontSize: 13 }}>详情</Typography>
+          <Box sx={{ flex: 1 }} />
+          <Button size="small" variant="outlined" onClick={() => setImageDetailAnchorEl(null)}>
+            关闭
+          </Button>
+        </Box>
+        <Divider />
+        <Box sx={{ p: 1.5, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+          {state.savedPath ? (
+            <Alert
+              severity="success"
+              variant="outlined"
+              action={
+                <Button
+                  size="small"
+                  onClick={() => {
+                    void api.clipboard
+                      .writeText(state.savedPath)
+                      .then(() => api.ui.showToast('已复制保存路径'))
+                      .catch((e: any) => api.ui.showToast(`复制失败：${String(e?.message || e)}`))
+                  }}
+                >
+                  复制路径
+                </Button>
+              }
+            >
+              已保存：{state.savedPath}
+            </Alert>
+          ) : autoSave && state.imageDataUrl ? (
+            <Alert severity="info" variant="outlined">
+              自动保存已开启：后台保存完成后会自动更新“已保存路径”。
+            </Alert>
+          ) : (
+            <Alert severity="warning" variant="outlined">
+              暂无保存信息。
+            </Alert>
+          )}
+
+          <Paper variant="outlined" sx={{ p: 1.25 }}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>输出目录</Typography>
+              <Box sx={{ flex: 1 }} />
+              <Button size="small" variant="outlined" onClick={() => void controller.openOutputDir()}>
+                打开
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => {
+                  const text = String(state.outputDir || '').trim()
+                  if (!text) return api.ui.showToast('输出目录为空')
+                  void api.clipboard
+                    .writeText(text)
+                    .then(() => api.ui.showToast('已复制输出目录'))
+                    .catch((e: any) => api.ui.showToast(`复制失败：${String(e?.message || e)}`))
+                }}
+              >
+                复制
+              </Button>
+            </Stack>
+            <Typography
+              sx={{ mt: 0.75, fontSize: 12, color: 'text.primary', wordBreak: 'break-all' }}
+            >
+              {state.outputDir || '未设置'}
+            </Typography>
+          </Paper>
         </Box>
       </Popover>
 
