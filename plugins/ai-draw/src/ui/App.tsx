@@ -6,6 +6,7 @@ import {
   Button,
   Chip,
   CssBaseline,
+  Badge,
   Dialog,
   DialogActions,
   DialogContent,
@@ -24,6 +25,7 @@ import {
   Tabs,
   TextField,
   ThemeProvider,
+  Popover,
   Tooltip,
   Typography,
 } from '@mui/material'
@@ -32,6 +34,7 @@ import BookmarksRoundedIcon from '@mui/icons-material/BookmarksRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
+import TaskAltRoundedIcon from '@mui/icons-material/TaskAltRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded'
@@ -177,6 +180,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const [refLibraryOpen, setRefLibraryOpen] = React.useState(false)
   const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('provider')
   const [refLibraryLimit, setRefLibraryLimit] = React.useState(36)
+  const [taskAnchorEl, setTaskAnchorEl] = React.useState<HTMLElement | null>(null)
 
   const [providerDraft, setProviderDraft] = React.useState<any>(null)
   const [pluginDraft, setPluginDraft] = React.useState<any>(null)
@@ -266,6 +270,22 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
             />
 
             <Box sx={{ flex: 1 }} />
+
+            <Tooltip title="任务列表">
+              <IconButton
+                size="small"
+                onClick={(e) => setTaskAnchorEl(e.currentTarget)}
+                aria-label="打开任务列表"
+              >
+                <Badge
+                  color="primary"
+                  badgeContent={state.tasks.length ? state.tasks.length : 0}
+                  invisible={!state.tasks.length}
+                >
+                  <TaskAltRoundedIcon fontSize="small" />
+                </Badge>
+              </IconButton>
+            </Tooltip>
 
             <Tooltip title="提示词收藏夹">
               <IconButton size="small" onClick={() => setPromptLibOpen(true)} aria-label="打开提示词收藏夹">
@@ -461,8 +481,8 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 <Chip size="small" variant="outlined" label={`${state.refImages.length}/8`} />
               </Stack>
 
-              {state.refImages.length ? (
-                <Stack direction="row" spacing={1} sx={{ overflowX: 'auto', pb: 0.5 }}>
+            {state.refImages.length ? (
+              <Stack direction="row" spacing={1} sx={{ overflowX: 'auto', pb: 0.5 }}>
                   {state.refImages.map((img) => (
                     <Box key={img.id} sx={{ position: 'relative', width: 72, height: 72, flex: '0 0 auto' }}>
                       <Box
@@ -493,32 +513,6 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
             >
               {state.submitting ? '提交中…' : uiMode === UI_MODE_LOCAL_EDIT ? '开始局部修改' : '生成'}
             </Button>
-
-            {state.tasks.length ? (
-              <Paper variant="outlined" sx={{ p: 1, bgcolor: 'background.paper' }}>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>任务</Typography>
-                  <Chip size="small" label={String(state.tasks.length)} />
-                  <Box sx={{ flex: 1 }} />
-                  <Button size="small" variant="outlined" color="error" onClick={() => void controller.cancelAllTasks()}>
-                    取消全部
-                  </Button>
-                </Stack>
-                <Stack spacing={0.5} sx={{ mt: 1 }}>
-                  {state.tasks.slice(0, 8).map((t) => (
-                    <Stack key={t.id} direction="row" spacing={1} alignItems="center">
-                      <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 1, minWidth: 0 }} noWrap title={t.id}>
-                        {t.id}
-                      </Typography>
-                      <Chip size="small" variant="outlined" label={t.status} />
-                      <Button size="small" variant="text" color="error" onClick={() => void controller.cancelTask(t.id)}>
-                        取消
-                      </Button>
-                    </Stack>
-                  ))}
-                </Stack>
-              </Paper>
-            ) : null}
           </Paper>
 
           <Paper sx={{ flex: 1, minWidth: 0, p: 1.5, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
@@ -946,6 +940,60 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
           <Button onClick={() => setPromptLibOpen(false)}>关闭</Button>
         </DialogActions>
       </Dialog>
+
+      <Popover
+        open={!!taskAnchorEl}
+        anchorEl={taskAnchorEl}
+        onClose={() => setTaskAnchorEl(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        PaperProps={{ sx: { width: 480, maxWidth: 'calc(100vw - 24px)', borderRadius: 3 } }}
+      >
+        <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography sx={{ fontWeight: 800, fontSize: 13 }}>任务</Typography>
+          <Chip size="small" variant="outlined" label={String(state.tasks.length)} />
+          <Box sx={{ flex: 1 }} />
+          <Button
+            size="small"
+            variant="outlined"
+            color="error"
+            disabled={!state.tasks.length}
+            onClick={() => void controller.cancelAllTasks()}
+          >
+            取消全部
+          </Button>
+          <Button size="small" variant="outlined" onClick={() => setTaskAnchorEl(null)}>
+            关闭
+          </Button>
+        </Box>
+        <Divider />
+        <Box sx={{ p: 1.5, maxHeight: 520, overflow: 'auto' }}>
+          {!state.tasks.length ? (
+            <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>暂无任务。</Typography>
+          ) : (
+            <Stack spacing={1}>
+              {state.tasks.map((t) => (
+                <Paper key={t.id} variant="outlined" sx={{ p: 1 }}>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 1, minWidth: 0 }} noWrap title={t.id}>
+                      {t.id}
+                    </Typography>
+                    <Chip size="small" variant="outlined" label={t.status} />
+                    <Button size="small" variant="text" color="error" onClick={() => void controller.cancelTask(t.id)}>
+                      取消
+                    </Button>
+                  </Stack>
+                  {t.prompt ? (
+                    <Typography sx={{ mt: 0.75, fontSize: 12, color: 'text.primary', whiteSpace: 'pre-wrap' }}>
+                      {t.prompt}
+                    </Typography>
+                  ) : null}
+                </Paper>
+              ))}
+            </Stack>
+          )}
+        </Box>
+      </Popover>
 
       <Dialog open={refLibraryOpen} onClose={() => setRefLibraryOpen(false)} fullWidth maxWidth="md">
         <DialogTitle>参考图库</DialogTitle>
