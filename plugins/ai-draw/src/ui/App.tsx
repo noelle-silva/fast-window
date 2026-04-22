@@ -293,8 +293,6 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const [imageGalleryLimit, setImageGalleryLimit] = React.useState(36)
   const imageGalleryScrollRef = React.useRef<HTMLDivElement | null>(null)
   const imageGallerySentinelRef = React.useRef<HTMLDivElement | null>(null)
-  const imageGalleryPrevLimitRef = React.useRef(0)
-  const imageGalleryAdvanceCooldownRef = React.useRef(0)
   const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('provider')
   const [refLibraryLimit, setRefLibraryLimit] = React.useState(36)
   const refLibraryScrollRef = React.useRef<HTMLDivElement | null>(null)
@@ -400,7 +398,6 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   React.useEffect(() => {
     if (!imageGalleryOpen) return
     setImageGalleryLimit(36)
-    imageGalleryPrevLimitRef.current = 0
     const root = imageGalleryScrollRef.current
     if (root) root.scrollTop = 0
   }, [imageGalleryOpen])
@@ -556,20 +553,15 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
     if (!imageGalleryOpen) return
     // 搜索条件变化时，重置为首屏并滚到顶部。
     setImageGalleryLimit(36)
-    imageGalleryPrevLimitRef.current = 0
     const root = imageGalleryScrollRef.current
     if (root) root.scrollTop = 0
   }, [imageGalleryOpen, imageGalleryQuery])
 
   React.useEffect(() => {
     if (!imageGalleryOpen) return
-    // 批量预览：首屏先加载，不依赖 hover。
-    const nextLimit = Math.max(0, imageGalleryLimit)
-    const prevLimit = Math.max(0, imageGalleryPrevLimitRef.current || 0)
-    imageGalleryPrevLimitRef.current = nextLimit
-
-    // 只触发“新增页”的加载，避免每次 limit 增长都重复遍历前面的数据。
-    const slice = imageHistoryFiltered.slice(Math.min(prevLimit, nextLimit), nextLimit)
+    // 参考图库同款机制：对当前 slice(0, limit) 做 ensure。
+    // controller 内部有并发限流与重试节流，避免一次性并发太多导致卡顿。
+    const slice = imageHistoryFiltered.slice(0, Math.max(0, imageGalleryLimit))
     for (const it of slice) {
       const savedPath = String(it?.savedPath || '').trim()
       if (savedPath) controller.ensureImageHistoryItemLoaded(savedPath)
@@ -587,20 +579,19 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
     if (!sentinel) return
     const root = imageGalleryScrollRef.current
 
+    let done = false
     const observer = new IntersectionObserver(
       (entries) => {
         const hit = entries && entries[0] && entries[0].isIntersecting
         if (!hit) return
-
-        const now = Date.now()
-        // IntersectionObserver 在 sentinel 停留在视区时，可能会重复回调。
-        // 用一个很短的 cooldown 防止一次滚动触发多次分页。
-        if (now - imageGalleryAdvanceCooldownRef.current < 120) return
-        imageGalleryAdvanceCooldownRef.current = now
-
-        setImageGalleryLimit((n) => (n >= total ? n : Math.min(n + 36, total)))
+        if (done) return
+        done = true
+        try {
+          observer.disconnect()
+        } catch {}
+        setImageGalleryLimit((n) => Math.min(n + 36, total))
       },
-      { root: root || null, rootMargin: '320px 0px', threshold: 0 },
+      { root: root || null, rootMargin: '240px 0px', threshold: 0 },
     )
 
     try {
@@ -608,35 +599,11 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
     } catch {}
 
     return () => {
+      done = true
       try {
         observer.disconnect()
       } catch {}
     }
-  }, [imageGalleryOpen, imageGalleryLimit, imageHistoryFiltered.length])
-
-  React.useEffect(() => {
-    if (!imageGalleryOpen) return
-    const el = imageGalleryScrollRef.current
-    if (!el) return
-
-    const onScroll = () => {
-      const total = imageHistoryFiltered.length
-      const limit = Math.max(0, imageGalleryLimit)
-      if (limit >= total) return
-
-      // 兜底：某些环境下 IntersectionObserver 对自定义滚动容器不稳定。
-      // 用 scroll 事件检测接近底部时推进分页。
-      const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 320
-      if (!nearBottom) return
-
-      const now = Date.now()
-      if (now - imageGalleryAdvanceCooldownRef.current < 120) return
-      imageGalleryAdvanceCooldownRef.current = now
-      setImageGalleryLimit((n) => (n >= total ? n : Math.min(n + 36, total)))
-    }
-
-    el.addEventListener('scroll', onScroll, { passive: true })
-    return () => el.removeEventListener('scroll', onScroll)
   }, [imageGalleryOpen, imageGalleryLimit, imageHistoryFiltered.length])
 
   const nextMode: UiMode = uiMode === UI_MODE_LOCAL_EDIT ? UI_MODE_NORMAL : UI_MODE_LOCAL_EDIT

@@ -54,7 +54,7 @@ const REF_SHRINK_MAX_DIMENSION = 960
 const REF_SHRINK_IF_OVER_BYTES = 900 * 1024
 
 export type AiDrawTaskItem = { id: string; status: string; prompt: string; at: number }
-export type AiDrawImageHistoryItem = { savedPath: string; dataUrl: string }
+export type AiDrawImageHistoryItem = { savedPath: string; dataUrl: string; loading?: boolean; error?: string }
 
 export type AiDrawEditState = {
   baseName: string
@@ -219,6 +219,10 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       if (item.dataUrl) continue
       if (imageLoadByPath.has(p)) continue
 
+      item.loading = true
+      item.error = ''
+      notify()
+
       imageThumbActive++
       const job = api.files.images
         .read({ scope: 'output', path: p })
@@ -232,11 +236,21 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
       imageLoadByPath.set(p, job)
       void job.then((u) => {
-        if (!u) return
+        if (!u) {
+          const it2 = state.imageHistory.find((x) => String(x?.savedPath || '').trim() === p)
+          if (it2) {
+            it2.loading = false
+            it2.error = '加载失败'
+            notify()
+          }
+          return
+        }
         const it = state.imageHistory.find((x) => String(x?.savedPath || '').trim() === p)
         if (!it) return
         if (it.dataUrl) return
         it.dataUrl = u
+        it.loading = false
+        it.error = ''
         notify()
       })
     }
@@ -684,7 +698,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
   async function refreshImageHistoryFromOutputDir(preferPath = '') {
     const paths = await api.files.images.list({ scope: 'output' }).catch(() => [])
     const list = (Array.isArray(paths) ? paths : []).map((x) => String(x || '').trim()).filter(Boolean)
-    state.imageHistory = list.reverse().map((savedPath) => ({ savedPath, dataUrl: '' }))
+    state.imageHistory = list.reverse().map((savedPath) => ({ savedPath, dataUrl: '', loading: false, error: '' }))
 
     if (!state.imageHistory.length) {
       state.imageHistoryIndex = -1
@@ -712,6 +726,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     const item = state.imageHistory.find((x) => String(x?.savedPath || '').trim() === p)
     if (!item) return
     if (item.dataUrl) return
+    if (item.loading) return
 
     if (imageLoadByPath.has(p)) return
 
