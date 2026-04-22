@@ -46,6 +46,8 @@ import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
 import PhotoLibraryRoundedIcon from '@mui/icons-material/PhotoLibraryRounded'
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
+import KeyboardArrowUpRoundedIcon from '@mui/icons-material/KeyboardArrowUpRounded'
+import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded'
 import type { AiDrawFastWindowApi } from '../bridge/tauriCompat'
 import { createAiDrawController } from '../controller/createController'
 import { UI_MODE_LOCAL_EDIT, UI_MODE_NORMAL, type AiDrawProvider, type UiMode } from '../core/schema'
@@ -282,6 +284,35 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false)
   const [refLibraryItemMenu, setRefLibraryItemMenu] = React.useState<{ el: HTMLElement | null; path: string }>({ el: null, path: '' })
 
+  const [providerDeleteConfirm, setProviderDeleteConfirm] = React.useState<{ open: boolean; providerId: string; name: string }>({
+    open: false,
+    providerId: '',
+    name: '',
+  })
+
+  const [promptFolderMenu, setPromptFolderMenu] = React.useState<{ folderId: string; x: number; y: number; name: string }>(
+    { folderId: '', x: 0, y: 0, name: '' },
+  )
+  const [renamePromptFolderDialog, setRenamePromptFolderDialog] = React.useState<{ open: boolean; folderId: string; name: string }>(
+    { open: false, folderId: '', name: '' },
+  )
+  const [deletePromptFolderConfirm, setDeletePromptFolderConfirm] = React.useState<{ open: boolean; folderId: string; name: string }>(
+    { open: false, folderId: '', name: '' },
+  )
+
+  const [promptItemMenu, setPromptItemMenu] = React.useState<{ el: HTMLElement | null; folderId: string; promptId: string }>({
+    el: null,
+    folderId: '',
+    promptId: '',
+  })
+  const [deletePromptConfirm, setDeletePromptConfirm] = React.useState<{ open: boolean; folderId: string; promptId: string }>({
+    open: false,
+    folderId: '',
+    promptId: '',
+  })
+
+  const [addPromptItemDialog, setAddPromptItemDialog] = React.useState<{ open: boolean; text: string }>({ open: false, text: '' })
+
   const [providerDraft, setProviderDraft] = React.useState<any>(null)
   const [pluginDraft, setPluginDraft] = React.useState<any>(null)
 
@@ -342,6 +373,13 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
     if (!t || typeof t.closest !== 'function') return
     if (t.closest('button, a, input, textarea, select, [role="button"]')) return
     void api.ui.startDragging()
+  }
+
+  const clampBatch = (n: number) => Math.max(1, Math.min(20, Math.floor(n)))
+  const nudgeBatch = (delta: number) => {
+    const cur = Number.parseInt(String(state.batchCount || '').trim(), 10)
+    const base = Number.isFinite(cur) && cur > 0 ? cur : 1
+    controller.setBatchCount(String(clampBatch(base + delta)))
   }
 
   return (
@@ -438,25 +476,6 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                   ))}
                 </Select>
               </FormControl>
-
-              <Tooltip title="新增供应商">
-                <IconButton size="small" onClick={() => void controller.addProvider()} aria-label="新增供应商">
-                  <AddRoundedIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-
-              <Tooltip title="删除当前供应商">
-                <span>
-                  <IconButton
-                    size="small"
-                    disabled={providers.length <= 1}
-                    onClick={() => (provider ? void controller.deleteProvider(provider.id) : undefined)}
-                    aria-label="删除供应商"
-                  >
-                    <DeleteRoundedIcon fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
             </Stack>
 
             <Stack direction="row" spacing={1}>
@@ -477,14 +496,24 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 </Select>
               </FormControl>
 
-              <TextField
-                size="small"
-                label="批量"
-                value={state.batchCount}
-                onChange={(e) => controller.setBatchCount(e.target.value)}
-                sx={{ width: 96 }}
-                inputProps={{ inputMode: 'numeric' }}
-              />
+              <Box sx={{ display: 'flex', alignItems: 'stretch', gap: 0.75 }}>
+                <TextField
+                  size="small"
+                  label="批量"
+                  value={state.batchCount}
+                  onChange={(e) => controller.setBatchCount(e.target.value)}
+                  sx={{ width: 72 }}
+                  inputProps={{ inputMode: 'numeric' }}
+                />
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                  <IconButton size="small" onClick={() => nudgeBatch(1)} aria-label="批量加一" sx={{ p: 0.5 }}>
+                    <KeyboardArrowUpRoundedIcon fontSize="small" />
+                  </IconButton>
+                  <IconButton size="small" onClick={() => nudgeBatch(-1)} aria-label="批量减一" sx={{ p: 0.5 }}>
+                    <KeyboardArrowDownRoundedIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              </Box>
             </Stack>
 
             {String((provider as any)?.model || '') === '__custom__' ? (
@@ -868,6 +897,34 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
       </Dialog>
 
       <Dialog
+        open={providerDeleteConfirm.open}
+        onClose={() => setProviderDeleteConfirm({ open: false, providerId: '', name: '' })}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>确认删除供应商？</DialogTitle>
+        <DialogContent dividers>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>将删除该供应商配置，此操作不可撤销。</Typography>
+          <Typography sx={{ mt: 1, fontSize: 12 }}>{providerDeleteConfirm.name || '供应商'}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setProviderDeleteConfirm({ open: false, providerId: '', name: '' })}>取消</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => {
+              const pid = providerDeleteConfirm.providerId
+              setProviderDeleteConfirm({ open: false, providerId: '', name: '' })
+              if (!pid) return
+              void controller.deleteProvider(pid)
+            }}
+          >
+            删除
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         maxWidth={false}
@@ -910,21 +967,29 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                         {p.name || '供应商'}
                       </MenuItem>
                     ))}
-                  </Select>
-                </FormControl>
-                <Button startIcon={<AddRoundedIcon />} onClick={() => void controller.addProvider()} variant="outlined">
-                  新增
-                </Button>
-                <Button
-                  startIcon={<DeleteRoundedIcon />}
-                  color="error"
-                  onClick={() => (provider ? void controller.deleteProvider(provider.id) : undefined)}
-                  variant="outlined"
-                  disabled={providers.length <= 1}
-                >
-                  删除
-                </Button>
-              </Stack>
+                </Select>
+              </FormControl>
+
+              <Button startIcon={<AddRoundedIcon />} onClick={() => void controller.addProvider()} variant="outlined">
+                新增
+              </Button>
+
+              <Button
+                startIcon={<DeleteRoundedIcon />}
+                color="error"
+                onClick={() =>
+                  setProviderDeleteConfirm({
+                    open: true,
+                    providerId: String(provider?.id || ''),
+                    name: String((provider as any)?.name || ''),
+                  })
+                }
+                variant="outlined"
+                disabled={!provider || providers.length <= 1}
+              >
+                删除
+              </Button>
+            </Stack>
 
               <Stack direction="row" spacing={2}>
                 <TextField
@@ -1122,7 +1187,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
         }}
       >
         <DialogContent sx={{ p: 0, height: '100%' }}>
-          <Box sx={{ position: 'relative', height: '100%', p: 2 }}>
+          <Box sx={{ position: 'relative', height: '100%', p: 2, pt: 5 }}>
             <IconButton
               size="small"
               onClick={() => setPromptLibOpen(false)}
@@ -1136,96 +1201,264 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>加载中…</Typography>
             ) : (
               <Box sx={{ display: 'flex', gap: 2, height: '100%', minHeight: 420, pt: 1 }}>
-              <Paper variant="outlined" sx={{ width: 240, p: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 1 }}>收藏夹</Typography>
-                  <IconButton size="small" onClick={() => void controller.addPromptFolder('新收藏夹')}>
-                    <AddRoundedIcon fontSize="small" />
-                  </IconButton>
-                </Stack>
-                <Divider />
-                <Stack spacing={0.5} sx={{ overflow: 'auto' }}>
-                  {(state.promptLib.data?.folders || []).map((f) => (
-                    <Button
-                      key={f.id}
-                      size="small"
-                      variant={f.id === state.promptLib.data?.activeFolderId ? 'contained' : 'text'}
-                      onClick={() => void controller.setActivePromptFolderId(f.id)}
-                      sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
-                    >
-                      {f.name}
-                    </Button>
-                  ))}
-                </Stack>
-                <Box sx={{ flex: 1 }} />
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="error"
-                  startIcon={<DeleteRoundedIcon fontSize="small" />}
-                  onClick={() => {
-                    const fid = state.promptLib.data?.activeFolderId || ''
-                    if (fid) void controller.deletePromptFolder(fid)
-                  }}
-                  disabled={(state.promptLib.data?.folders || []).length <= 1}
-                >
-                  删除收藏夹
-                </Button>
-              </Paper>
+                <Paper variant="outlined" sx={{ width: 240, p: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 1 }}>收藏夹</Typography>
+                    <IconButton size="small" onClick={() => void controller.addPromptFolder('新收藏夹')} aria-label="新增收藏夹">
+                      <AddRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </Stack>
+                  <Divider />
+                  <Stack spacing={0.5} sx={{ overflow: 'auto' }}>
+                    {(state.promptLib.data?.folders || []).map((f) => (
+                      <Button
+                        key={f.id}
+                        size="small"
+                        variant={f.id === state.promptLib.data?.activeFolderId ? 'contained' : 'text'}
+                        onClick={() => void controller.setActivePromptFolderId(f.id)}
+                        onContextMenu={(e) => {
+                          e.preventDefault()
+                          setPromptFolderMenu({ folderId: f.id, x: e.clientX, y: e.clientY, name: String(f.name || '') })
+                        }}
+                        sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
+                      >
+                        {f.name}
+                      </Button>
+                    ))}
+                  </Stack>
+                  <Box sx={{ flex: 1 }} />
+                </Paper>
 
-              <Paper variant="outlined" sx={{ flex: 1, p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 1 }}>提示词</Typography>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    onClick={() => void controller.addPromptToActiveFolder(state.prompt)}
-                    disabled={!String(state.prompt || '').trim()}
-                  >
-                    把当前输入加入收藏
-                  </Button>
-                </Stack>
-                <Divider />
-                <Stack spacing={1} sx={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
+                <Paper variant="outlined" sx={{ flex: 1, p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 1 }}>提示词</Typography>
+                    <IconButton
+                      size="small"
+                      onClick={() => setAddPromptItemDialog({ open: true, text: String(state.prompt || '') })}
+                      aria-label="添加到当前收藏夹"
+                    >
+                      <AddRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </Stack>
+                  <Divider />
+                  <Stack spacing={1} sx={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
                   {(() => {
                     const d = state.promptLib.data
                     const fid = String(d?.activeFolderId || '')
                     const folder = (d?.folders || []).find((x) => x.id === fid) || (d?.folders || [])[0]
                     const prompts = folder?.prompts || []
-                    return prompts.map((p) => (
-                      <Paper key={p.id} variant="outlined" sx={{ p: 1 }}>
-                        <Typography sx={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{p.text}</Typography>
-                        <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-                          <Button
+                      return prompts.map((p) => (
+                        <Paper
+                          key={p.id}
+                          variant="outlined"
+                          sx={{ p: 1, cursor: 'pointer', position: 'relative' }}
+                          onClick={() => {
+                            const text = String(p.text || '')
+                            void api.clipboard
+                              .writeText(text)
+                              .then(() => api.ui.showToast('已复制'))
+                              .catch((e: any) => api.ui.showToast(`复制失败：${String(e?.message || e)}`))
+                          }}
+                        >
+                          <IconButton
                             size="small"
-                            variant="contained"
-                            onClick={() => {
-                              controller.usePromptText(p.text)
-                            }}
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                          setPromptItemMenu({ el: e.currentTarget, folderId: String(folder?.id || ''), promptId: p.id })
+                        }}
+                            aria-label="更多操作"
+                            sx={{ position: 'absolute', right: 6, top: 6, bgcolor: 'rgba(250,249,245,0.92)', border: '1px solid #f0eee6' }}
                           >
-                            使用
-                          </Button>
-                          <Button
-                            size="small"
-                            variant="contained"
-                            color="error"
-                            onClick={() => {
-                              const fid2 = folder?.id || ''
-                              if (fid2) void controller.deletePrompt(fid2, p.id)
-                            }}
-                          >
-                            删除
-                          </Button>
-                        </Stack>
-                      </Paper>
-                    ))
-                  })()}
-                </Stack>
-              </Paper>
+                            <MoreHorizRoundedIcon fontSize="inherit" />
+                          </IconButton>
+                          <Typography sx={{ fontSize: 13, whiteSpace: 'pre-wrap', pr: 4 }}>{p.text}</Typography>
+                        </Paper>
+                      ))
+                    })()}
+                  </Stack>
+                </Paper>
               </Box>
             )}
           </Box>
         </DialogContent>
+      </Dialog>
+
+      <Menu
+        open={!!promptFolderMenu.folderId}
+        onClose={() => setPromptFolderMenu({ folderId: '', x: 0, y: 0, name: '' })}
+        anchorReference="anchorPosition"
+        anchorPosition={promptFolderMenu.folderId ? { top: promptFolderMenu.y, left: promptFolderMenu.x } : undefined}
+      >
+        <MenuItem
+          onClick={() => {
+            const fid = promptFolderMenu.folderId
+            const name = promptFolderMenu.name
+            setPromptFolderMenu({ folderId: '', x: 0, y: 0, name: '' })
+            setRenamePromptFolderDialog({ open: true, folderId: fid, name })
+          }}
+        >
+          重命名
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            const fid = promptFolderMenu.folderId
+            const name = promptFolderMenu.name
+            setPromptFolderMenu({ folderId: '', x: 0, y: 0, name: '' })
+            setDeletePromptFolderConfirm({ open: true, folderId: fid, name })
+          }}
+          sx={{ color: 'error.main' }}
+        >
+          删除
+        </MenuItem>
+      </Menu>
+
+      <Dialog
+        open={renamePromptFolderDialog.open}
+        onClose={() => setRenamePromptFolderDialog({ open: false, folderId: '', name: '' })}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>重命名收藏夹</DialogTitle>
+        <DialogContent dividers>
+          <TextField
+            size="small"
+            label="名称"
+            value={renamePromptFolderDialog.name}
+            onChange={(e) => setRenamePromptFolderDialog((s) => ({ ...s, name: e.target.value }))}
+            autoFocus
+            fullWidth
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRenamePromptFolderDialog({ open: false, folderId: '', name: '' })}>取消</Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              const fid = renamePromptFolderDialog.folderId
+              const name = String(renamePromptFolderDialog.name || '').trim()
+              setRenamePromptFolderDialog({ open: false, folderId: '', name: '' })
+              if (!fid) return
+              void controller.renamePromptFolder(fid, name)
+            }}
+            disabled={!String(renamePromptFolderDialog.name || '').trim()}
+          >
+            保存
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={deletePromptFolderConfirm.open}
+        onClose={() => setDeletePromptFolderConfirm({ open: false, folderId: '', name: '' })}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>确认删除收藏夹？</DialogTitle>
+        <DialogContent dividers>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>将删除收藏夹及其中所有条目，此操作不可撤销。</Typography>
+          <Typography sx={{ mt: 1, fontSize: 12 }}>{deletePromptFolderConfirm.name || '收藏夹'}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeletePromptFolderConfirm({ open: false, folderId: '', name: '' })}>取消</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => {
+              const fid = deletePromptFolderConfirm.folderId
+              setDeletePromptFolderConfirm({ open: false, folderId: '', name: '' })
+              if (!fid) return
+              void controller.deletePromptFolder(fid)
+            }}
+          >
+            删除
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Menu
+        open={!!promptItemMenu.el}
+        anchorEl={promptItemMenu.el}
+        onClose={() => setPromptItemMenu({ el: null, folderId: '', promptId: '' })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <MenuItem
+          onClick={() => {
+            const folderId = promptItemMenu.folderId
+            const promptId = promptItemMenu.promptId
+            setPromptItemMenu({ el: null, folderId: '', promptId: '' })
+            if (!folderId || !promptId) return
+            setDeletePromptConfirm({ open: true, folderId, promptId })
+          }}
+          sx={{ color: 'error.main' }}
+        >
+          删除
+        </MenuItem>
+      </Menu>
+
+      <Dialog
+        open={deletePromptConfirm.open}
+        onClose={() => setDeletePromptConfirm({ open: false, folderId: '', promptId: '' })}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>确认删除条目？</DialogTitle>
+        <DialogContent dividers>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>此操作不可撤销。</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeletePromptConfirm({ open: false, folderId: '', promptId: '' })}>取消</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => {
+              const fid = deletePromptConfirm.folderId
+              const pid = deletePromptConfirm.promptId
+              setDeletePromptConfirm({ open: false, folderId: '', promptId: '' })
+              if (!fid || !pid) return
+              void controller.deletePrompt(fid, pid)
+            }}
+          >
+            删除
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={addPromptItemDialog.open}
+        onClose={() => setAddPromptItemDialog({ open: false, text: '' })}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>新增条目</DialogTitle>
+        <DialogContent dividers>
+          <TextField
+            autoFocus
+            fullWidth
+            multiline
+            minRows={5}
+            label="内容"
+            value={addPromptItemDialog.text}
+            onChange={(e) => setAddPromptItemDialog((s) => ({ ...s, text: e.target.value }))}
+            placeholder="输入要收藏的提示词…"
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddPromptItemDialog({ open: false, text: '' })}>取消</Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              const text = String(addPromptItemDialog.text || '').trim()
+              setAddPromptItemDialog({ open: false, text: '' })
+              if (!text) return
+              void controller.addPromptToActiveFolder(text)
+            }}
+            disabled={!String(addPromptItemDialog.text || '').trim()}
+          >
+            添加
+          </Button>
+        </DialogActions>
       </Dialog>
 
       <Popover
@@ -1391,7 +1624,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
             >
               {state.refLibrary.paths.slice(0, refLibraryLimit).map((p) => {
                 const slot = state.refLibrary.itemsByPath[p] || { dataUrl: '', loading: false, error: '' }
-                const name = p.split('/').pop() || p
+                const name = p.split(/[\\/]/).pop() || p
                 return (
                   <Paper key={p} variant="outlined" sx={{ p: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
                     <Box
