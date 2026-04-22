@@ -75,8 +75,9 @@ function useAiDrawController(api: AiDrawFastWindowApi) {
   // 注意：controller 内部是“原地修改 state 对象”，所以 getSnapshot 不能直接返回同一个引用。
   // 用 revision 作为快照触发重渲染，然后在 render 时读取最新 state。
   React.useSyncExternalStore(controller.subscribe, controller.getRevision, controller.getRevision)
+  const revision = controller.getRevision()
   const state = controller.getState()
-  return { controller, state }
+  return { controller, state, revision }
 }
 
 function activeProviderFromState(data: any): AiDrawProvider | null {
@@ -275,7 +276,7 @@ function EditImageSelector(props: {
 export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const { api } = props
   const theme = React.useMemo(() => createClaudeTheme(), [])
-  const { controller, state } = useAiDrawController(api)
+  const { controller, state, revision } = useAiDrawController(api)
 
   const data = state.data
   const provider = activeProviderFromState(data)
@@ -377,38 +378,43 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const refFolderIdsByPath = refIndex && typeof (refIndex as any).folderIdsByPath === 'object' ? (refIndex as any).folderIdsByPath : {}
   const refActiveView = refIndex?.activeView || { kind: 'all' as const, folderId: refFolders[0]?.id || '' }
 
-  // 注意：controller 内部会“原地修改”数组/对象；这里不要用 useMemo 依赖引用做缓存，否则会出现“创建了但不显示”的假象。
-  const refFolderById = new Map<string, any>()
-  for (const f of refFolders) refFolderById.set(String((f as any)?.id || ''), f)
+  const refFolderById = React.useMemo(() => {
+    const m = new Map<string, any>()
+    for (const f of refFolders) m.set(String((f as any)?.id || ''), f)
+    return m
+  }, [revision])
 
-  const refChildrenByParent = new Map<string, string[]>()
-  for (const f of refFolders) {
-    const pid = String((f as any)?.parentId || '')
-    const arr = refChildrenByParent.get(pid) || []
-    arr.push(String((f as any)?.id || ''))
-    refChildrenByParent.set(pid, arr)
-  }
+  const refChildrenByParent = React.useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const f of refFolders) {
+      const pid = String((f as any)?.parentId || '')
+      const arr = map.get(pid) || []
+      arr.push(String((f as any)?.id || ''))
+      map.set(pid, arr)
+    }
+    return map
+  }, [revision])
 
-  const getRefItemFolderIds = (p: string) => {
+  const getRefItemFolderIds = React.useCallback((p: string) => {
     const raw = (refFolderIdsByPath as any)?.[p]
     return Array.isArray(raw) ? raw.map((x: any) => String(x || '').trim()).filter(Boolean) : []
-  }
+  }, [revision])
 
-  const refVisiblePathsAll = (() => {
+  const refVisiblePathsAll = React.useMemo(() => {
     const paths = Array.isArray(state.refLibrary.paths) ? state.refLibrary.paths : []
     if (refActiveView.kind === 'all') return paths
     const fid = String(refActiveView.folderId || '').trim()
     if (!fid) return paths
     return paths.filter((p) => getRefItemFolderIds(p).includes(fid))
-  })()
+  }, [revision])
 
-  const refFolderImageCountById = (() => {
+  const refFolderImageCountById = React.useMemo(() => {
     const out: Record<string, number> = {}
     for (const p of Array.isArray(state.refLibrary.paths) ? state.refLibrary.paths : []) {
       for (const fid of getRefItemFolderIds(p)) out[fid] = (out[fid] || 0) + 1
     }
     return out
-  })()
+  }, [revision])
 
   React.useEffect(() => {
     if (!refLibraryOpen) return

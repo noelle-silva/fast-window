@@ -251,19 +251,17 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     try {
       const raw = await api.storage.get(REF_LIBRARY_INDEX_KEY).catch(() => null)
       const loaded = normalizeRefLibraryIndex(raw)
-      const cur = state.refLibrary.index
-      const curHasData =
-        !!cur &&
-        ((Array.isArray(cur.folders) && cur.folders.length > 0) ||
-          (cur.folderIdsByPath && typeof cur.folderIdsByPath === 'object' && Object.keys(cur.folderIdsByPath).length > 0) ||
-          (cur.activeView && typeof cur.activeView === 'object' && String((cur.activeView as any).kind || '') === 'folder'))
+      const cur = ensureRefLibraryIndexData()
 
-      // 避免竞态：UI 打开时触发 loadRefLibraryIndex，如果用户在加载完成前创建了收藏夹，
-      // 这里不应把“刚创建的内存态”覆盖回“磁盘上的旧态”。
-      if (!curHasData) {
-        state.refLibrary.index = loaded
-        await saveRefLibraryIndex().catch(() => {})
+      // 只在“当前内存态为空”时，从磁盘补齐，避免加载晚到覆盖用户刚创建的数据。
+      if (!cur.folders.length && loaded.folders.length) cur.folders = loaded.folders
+      if (!Object.keys(cur.folderIdsByPath || {}).length && Object.keys(loaded.folderIdsByPath || {}).length) {
+        cur.folderIdsByPath = loaded.folderIdsByPath
       }
+      if (cur.activeView.kind === 'all' && loaded.activeView.kind === 'folder') {
+        cur.activeView = loaded.activeView
+      }
+      await saveRefLibraryIndex().catch(() => {})
     } finally {
       state.refLibrary.indexLoading = false
       notify()
