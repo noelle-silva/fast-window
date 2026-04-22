@@ -115,6 +115,7 @@ export type AiDrawController = {
   ensureRefLibraryItemLoaded: (path: string) => void
   importRefLibraryFromPicker: () => Promise<void>
   deleteRefLibraryItem: (path: string) => Promise<void>
+  deleteRefLibraryItems: (paths: string[]) => Promise<void>
   addRefImageFromLibrary: (path: string) => Promise<void>
   loadRefLibraryIndex: () => Promise<void>
   setRefLibraryView: (view: { kind: 'all' | 'folder'; folderId?: string }) => Promise<void>
@@ -1342,16 +1343,50 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
   }
 
   async function deleteRefLibraryItem(path: string) {
-    const p = String(path || '').trim()
-    if (!p) return
-    await api.files.images.delete({ scope: 'data', path: p }).catch((e: any) => {
-      api.ui.showToast(`删除失败：${String(e?.message || e)}`)
-    })
-    const idx = state.refLibrary.index
-    if (idx?.folderIdsByPath && Object.prototype.hasOwnProperty.call(idx.folderIdsByPath, p)) {
-      delete idx.folderIdsByPath[p]
-      void saveRefLibraryIndex().catch(() => {})
+    await deleteRefLibraryItems([path])
+  }
+
+  async function deleteRefLibraryItems(paths: string[]) {
+    const raw = Array.isArray(paths) ? paths : []
+    const uniq: string[] = []
+    for (const x of raw) {
+      const p = String(x || '').trim()
+      if (!p) continue
+      if (!uniq.includes(p)) uniq.push(p)
+      if (uniq.length >= 5000) break
     }
+    if (!uniq.length) return
+
+    let ok = 0
+    let failed = 0
+    let firstError = ''
+
+    for (const p of uniq) {
+      let success = true
+      await api.files.images.delete({ scope: 'data', path: p }).catch((e: any) => {
+        success = false
+        failed++
+        if (!firstError) firstError = String(e?.message || e || 'unknown')
+      })
+      if (success) ok++
+    }
+
+    const idx = state.refLibrary.index
+    let changed = false
+    if (idx?.folderIdsByPath) {
+      for (const p of uniq) {
+        if (!Object.prototype.hasOwnProperty.call(idx.folderIdsByPath, p)) continue
+        delete idx.folderIdsByPath[p]
+        changed = true
+      }
+    }
+    if (changed) void saveRefLibraryIndex().catch(() => {})
+
+    const batch = uniq.length > 1
+    if (ok && failed) api.ui.showToast(`已删除 ${ok} 张，失败 ${failed} 张${firstError ? `：${firstError}` : ''}`)
+    else if (ok && batch) api.ui.showToast(`已删除 ${ok} 张`)
+    else if (failed) api.ui.showToast(`删除失败：${firstError || '请稍后重试'}`)
+
     await refreshRefLibrary()
   }
 
@@ -1733,6 +1768,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     ensureRefLibraryItemLoaded,
     importRefLibraryFromPicker,
     deleteRefLibraryItem,
+    deleteRefLibraryItems,
     addRefImageFromLibrary,
     loadRefLibraryIndex,
     setRefLibraryView,

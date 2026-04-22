@@ -85,7 +85,7 @@ function activeProviderFromState(data: any): AiDrawProvider | null {
   if (!data) return null
   const pid = String(data.activeProviderId || '')
   const ps = Array.isArray(data.providers) ? data.providers : []
-  return ps.find((p) => p && p.id === pid) || ps[0] || null
+  return ps.find((p: any) => p && p.id === pid) || ps[0] || null
 }
 
 function EditImageSelector(props: {
@@ -308,9 +308,16 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const [deleteRefFolderConfirm, setDeleteRefFolderConfirm] = React.useState<{ open: boolean; folderId: string; name: string }>(
     { open: false, folderId: '', name: '' },
   )
-  const [assignRefFolderDialog, setAssignRefFolderDialog] = React.useState<{ open: boolean; path: string; folderIds: string[] }>(
-    { open: false, path: '', folderIds: [] },
-  )
+  const [assignRefFolderDialog, setAssignRefFolderDialog] = React.useState<{
+    open: boolean
+    mode: 'set' | 'add'
+    paths: string[]
+    folderIds: string[]
+  }>({ open: false, mode: 'set', paths: [], folderIds: [] })
+  const [refMultiMode, setRefMultiMode] = React.useState(false)
+  const [refSelectedPaths, setRefSelectedPaths] = React.useState<string[]>([])
+  const [refMultiBusy, setRefMultiBusy] = React.useState(false)
+  const [refMultiDeleteConfirm, setRefMultiDeleteConfirm] = React.useState<{ open: boolean; paths: string[] }>({ open: false, paths: [] })
 
   const [providerDeleteConfirm, setProviderDeleteConfirm] = React.useState<{ open: boolean; providerId: string; name: string }>({
     open: false,
@@ -372,6 +379,8 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   React.useEffect(() => {
     if (!refLibraryOpen) return
     setRefLibraryLimit(36)
+    setRefMultiMode(false)
+    setRefSelectedPaths([])
     void controller.loadRefLibraryIndex()
     void controller.refreshRefLibrary()
   }, [refLibraryOpen, controller])
@@ -410,6 +419,15 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
     if (!fid) return paths
     return paths.filter((p) => getRefItemFolderIds(p).includes(fid))
   }, [revision])
+
+  const refActiveViewKey = refActiveView.kind === 'all' ? 'all' : `folder:${String(refActiveView.folderId || '').trim()}`
+  const refSelectedSet = React.useMemo(() => new Set(refSelectedPaths), [refSelectedPaths])
+  const refSelectedCount = refSelectedSet.size
+
+  React.useEffect(() => {
+    if (!refLibraryOpen) return
+    setRefSelectedPaths([])
+  }, [refLibraryOpen, refActiveViewKey])
 
   const refFolderImageCountById = React.useMemo(() => {
     const out: Record<string, number> = {}
@@ -463,6 +481,21 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
       } catch {}
     }
   }, [refLibraryOpen, refLibraryLimit, refVisiblePathsAll.length])
+
+  const toggleRefSelected = React.useCallback((path: string) => {
+    const p = String(path || '').trim()
+    if (!p) return
+    setRefSelectedPaths((prev) => {
+      const set = new Set(prev)
+      if (set.has(p)) set.delete(p)
+      else set.add(p)
+      return Array.from(set)
+    })
+  }, [])
+
+  const clearRefSelection = React.useCallback(() => {
+    setRefSelectedPaths([])
+  }, [])
 
   const uiMode: UiMode = String(state.uiMode || UI_MODE_NORMAL) === UI_MODE_LOCAL_EDIT ? UI_MODE_LOCAL_EDIT : UI_MODE_NORMAL
   const autoSave = !!data?.autoSave
@@ -1727,6 +1760,53 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               导入图片到参考库
             </Button>
             <Box sx={{ flex: 1 }} />
+            <Button
+              size="small"
+              variant={refMultiMode ? 'contained' : 'outlined'}
+              startIcon={<TaskAltRoundedIcon fontSize="small" />}
+              disabled={state.refLibrary.loading || refMultiBusy}
+              onClick={() => {
+                setRefMultiMode((v) => {
+                  const next = !v
+                  if (!next) clearRefSelection()
+                  return next
+                })
+              }}
+            >
+              {refMultiMode ? '完成' : '多选'}
+            </Button>
+            {refMultiMode ? (
+              <>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<FolderOpenRoundedIcon fontSize="small" />}
+                  disabled={!refSelectedCount || refMultiBusy}
+                  onClick={() => {
+                    const paths = refSelectedPaths.slice()
+                    if (!paths.length) return
+                    setAssignRefFolderDialog({ open: true, mode: 'add', paths, folderIds: [] })
+                  }}
+                >
+                  收藏到收藏夹
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="error"
+                  startIcon={<DeleteRoundedIcon fontSize="small" />}
+                  disabled={!refSelectedCount || refMultiBusy}
+                  onClick={() => {
+                    const paths = refSelectedPaths.slice()
+                    if (!paths.length) return
+                    setRefMultiDeleteConfirm({ open: true, paths })
+                  }}
+                >
+                  删除
+                </Button>
+                <Chip size="small" variant="outlined" color="primary" label={`已选 ${refSelectedCount} 张`} />
+              </>
+            ) : null}
             <Chip
               size="small"
               variant="outlined"
@@ -1827,8 +1907,19 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                       {refVisiblePathsAll.slice(0, refLibraryLimit).map((p) => {
                         const slot = state.refLibrary.itemsByPath[p] || { dataUrl: '', loading: false, error: '' }
                         const name = p.split(/[\\/]/).pop() || p
+                        const selected = refMultiMode && refSelectedSet.has(p)
                         return (
-                          <Paper key={p} variant="outlined" sx={{ p: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                          <Paper
+                            key={p}
+                            variant="outlined"
+                            sx={{
+                              p: 1,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 1,
+                              ...(selected ? { borderColor: 'primary.main' } : null),
+                            }}
+                          >
                             <Box
                               sx={{
                                 position: 'relative',
@@ -1839,21 +1930,36 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 overflow: 'hidden',
-                                cursor: slot.dataUrl ? 'pointer' : 'default',
+                                cursor: refMultiMode || slot.dataUrl ? 'pointer' : 'default',
                               }}
-                              role={slot.dataUrl ? 'button' : undefined}
-                              tabIndex={slot.dataUrl ? 0 : undefined}
+                              role={refMultiMode || slot.dataUrl ? 'button' : undefined}
+                              tabIndex={refMultiMode || slot.dataUrl ? 0 : undefined}
                               onClick={() => {
+                                if (refMultiMode) return toggleRefSelected(p)
                                 if (!slot.dataUrl) return
                                 void controller.addRefImageFromLibrary(p)
                               }}
                               onKeyDown={(e) => {
-                                if (!slot.dataUrl) return
                                 if (e.key !== 'Enter' && e.key !== ' ') return
                                 e.preventDefault()
+                                if (refMultiMode) return toggleRefSelected(p)
+                                if (!slot.dataUrl) return
                                 void controller.addRefImageFromLibrary(p)
                               }}
                             >
+                              {refMultiMode ? (
+                                <Checkbox
+                                  size="small"
+                                  checked={refSelectedSet.has(p)}
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                  }}
+                                  onChange={() => toggleRefSelected(p)}
+                                  inputProps={{ 'aria-label': `选择 ${name}` }}
+                                  sx={{ position: 'absolute', left: 2, top: 2, bgcolor: 'rgba(250,249,245,0.92)' }}
+                                />
+                              ) : null}
                               <IconButton
                                 size="small"
                                 onClick={(e) => {
@@ -1914,7 +2020,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 const p = refLibraryItemMenu.path
                 setRefLibraryItemMenu({ el: null, path: '' })
                 if (!p) return
-                setAssignRefFolderDialog({ open: true, path: p, folderIds: getRefItemFolderIds(p) })
+                setAssignRefFolderDialog({ open: true, mode: 'set', paths: [p], folderIds: getRefItemFolderIds(p) })
               }}
             >
               收藏到收藏夹…
@@ -2081,14 +2187,20 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
 
           <Dialog
             open={assignRefFolderDialog.open}
-            onClose={() => setAssignRefFolderDialog({ open: false, path: '', folderIds: [] })}
+            onClose={() => setAssignRefFolderDialog({ open: false, mode: 'set', paths: [], folderIds: [] })}
             fullWidth
             maxWidth="sm"
           >
-            <DialogTitle>收藏到收藏夹</DialogTitle>
+            <DialogTitle>
+              {assignRefFolderDialog.mode === 'add' && assignRefFolderDialog.paths.length > 1
+                ? `批量收藏到收藏夹（${assignRefFolderDialog.paths.length} 张）`
+                : '收藏到收藏夹'}
+            </DialogTitle>
             <DialogContent>
               <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.5 }}>
-                同一张图片可以被多个收藏夹收藏。
+                {assignRefFolderDialog.mode === 'add'
+                  ? '将把选中的图片添加到勾选的收藏夹（不会移除原有收藏）。'
+                  : '同一张图片可以被多个收藏夹收藏。'}
               </Typography>
               <FormGroup sx={{ mt: 1 }}>
                 {(() => {
@@ -2129,16 +2241,89 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               </FormGroup>
             </DialogContent>
             <DialogActions>
-              <Button onClick={() => setAssignRefFolderDialog({ open: false, path: '', folderIds: [] })}>取消</Button>
+              <Button
+                disabled={refMultiBusy}
+                onClick={() => setAssignRefFolderDialog({ open: false, mode: 'set', paths: [], folderIds: [] })}
+              >
+                取消
+              </Button>
               <Button
                 variant="contained"
+                disabled={refMultiBusy}
                 onClick={() => {
-                  const { path, folderIds } = assignRefFolderDialog
-                  setAssignRefFolderDialog({ open: false, path: '', folderIds: [] })
-                  if (path) void controller.setRefItemFolderIds(path, folderIds)
+                  const d = assignRefFolderDialog
+                  setAssignRefFolderDialog({ open: false, mode: 'set', paths: [], folderIds: [] })
+
+                  const uniq: string[] = []
+                  for (const x of Array.isArray(d.paths) ? d.paths : []) {
+                    const p = String(x || '').trim()
+                    if (!p) continue
+                    if (!uniq.includes(p)) uniq.push(p)
+                    if (uniq.length >= 5000) break
+                  }
+                  if (!uniq.length) return
+
+                  setRefMultiBusy(true)
+                  void (async () => {
+                    try {
+                      if (d.mode === 'set') {
+                        await controller.setRefItemFolderIds(uniq[0], d.folderIds)
+                        return
+                      }
+                      for (const p of uniq) {
+                        const cur = getRefItemFolderIds(p)
+                        const next = Array.from(new Set(cur.concat(d.folderIds))).filter(Boolean)
+                        await controller.setRefItemFolderIds(p, next)
+                      }
+                      clearRefSelection()
+                      api.ui.showToast(`已批量收藏 ${uniq.length} 张`)
+                    } finally {
+                      setRefMultiBusy(false)
+                    }
+                  })()
                 }}
               >
                 保存
+              </Button>
+            </DialogActions>
+          </Dialog>
+
+          <Dialog
+            open={refMultiDeleteConfirm.open}
+            onClose={() => setRefMultiDeleteConfirm({ open: false, paths: [] })}
+            fullWidth
+            maxWidth="xs"
+          >
+            <DialogTitle>删除选中图片？</DialogTitle>
+            <DialogContent>
+              <Typography sx={{ fontSize: 13, color: 'text.secondary', mt: 0.5 }}>
+                将删除 {refMultiDeleteConfirm.paths.length} 张图片（无法恢复）。
+              </Typography>
+            </DialogContent>
+            <DialogActions>
+              <Button disabled={refMultiBusy} onClick={() => setRefMultiDeleteConfirm({ open: false, paths: [] })}>
+                取消
+              </Button>
+              <Button
+                color="error"
+                variant="contained"
+                disabled={refMultiBusy || !refMultiDeleteConfirm.paths.length}
+                onClick={() => {
+                  const paths = refMultiDeleteConfirm.paths.slice()
+                  setRefMultiDeleteConfirm({ open: false, paths: [] })
+                  if (!paths.length) return
+                  setRefMultiBusy(true)
+                  void (async () => {
+                    try {
+                      await controller.deleteRefLibraryItems(paths)
+                      clearRefSelection()
+                    } finally {
+                      setRefMultiBusy(false)
+                    }
+                  })()
+                }}
+              >
+                删除
               </Button>
             </DialogActions>
           </Dialog>
