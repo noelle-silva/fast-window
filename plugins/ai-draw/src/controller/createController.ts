@@ -193,6 +193,55 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
   const localEditContextByTaskId = new Map<string, { baseDataUrl: string; selPx: { x: number; y: number; w: number; h: number } }>()
   const imageLoadByPath = new Map<string, Promise<string>>()
 
+  // 批量预览缩略图读取：并发限流，避免一次性 read 太多导致卡顿。
+  const imageThumbQueue: string[] = []
+  const imageThumbQueued = new Set<string>()
+  let imageThumbActive = 0
+  let imageThumbDrainTimer: any = null
+  const IMAGE_THUMB_MAX_CONCURRENT = 4
+
+  const scheduleDrainImageThumbQueue = () => {
+    if (imageThumbDrainTimer) return
+    imageThumbDrainTimer = setTimeout(() => {
+      imageThumbDrainTimer = null
+      drainImageThumbQueue()
+    }, 0)
+  }
+
+  const drainImageThumbQueue = () => {
+    while (imageThumbActive < IMAGE_THUMB_MAX_CONCURRENT && imageThumbQueue.length) {
+      const p = String(imageThumbQueue.shift() || '').trim()
+      if (!p) continue
+      imageThumbQueued.delete(p)
+
+      const item = state.imageHistory.find((x) => String(x?.savedPath || '').trim() === p)
+      if (!item) continue
+      if (item.dataUrl) continue
+      if (imageLoadByPath.has(p)) continue
+
+      imageThumbActive++
+      const job = api.files.images
+        .read({ scope: 'output', path: p })
+        .then((u) => String(u || '').trim())
+        .catch(() => '')
+        .finally(() => {
+          imageLoadByPath.delete(p)
+          imageThumbActive = Math.max(0, imageThumbActive - 1)
+          scheduleDrainImageThumbQueue()
+        })
+
+      imageLoadByPath.set(p, job)
+      void job.then((u) => {
+        if (!u) return
+        const it = state.imageHistory.find((x) => String(x?.savedPath || '').trim() === p)
+        if (!it) return
+        if (it.dataUrl) return
+        it.dataUrl = u
+        notify()
+      })
+    }
+  }
+
   let revision = 0
   let taskPollTimer: any = null
   let taskPolling = false
@@ -666,23 +715,11 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
     if (imageLoadByPath.has(p)) return
 
-    const job = api.files.images
-      .read({ scope: 'output', path: p })
-      .then((u) => String(u || '').trim())
-      .catch(() => '')
-      .finally(() => {
-        imageLoadByPath.delete(p)
-      })
-
-    imageLoadByPath.set(p, job)
-    void job.then((u) => {
-      if (!u) return
-      const it = state.imageHistory.find((x) => String(x?.savedPath || '').trim() === p)
-      if (!it) return
-      if (it.dataUrl) return
-      it.dataUrl = u
-      notify()
-    })
+    // 去重入队，交给 drain 按并发上限执行。
+    if (imageThumbQueued.has(p)) return
+    imageThumbQueued.add(p)
+    imageThumbQueue.push(p)
+    scheduleDrainImageThumbQueue()
   }
 
   async function switchImageHistory(direction: -1 | 1) {

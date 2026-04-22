@@ -290,6 +290,11 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const [promptHistoryOpen, setPromptHistoryOpen] = React.useState(false)
   const [refLibraryOpen, setRefLibraryOpen] = React.useState(false)
   const [imageGalleryOpen, setImageGalleryOpen] = React.useState(false)
+  const [imageGalleryLimit, setImageGalleryLimit] = React.useState(36)
+  const imageGalleryScrollRef = React.useRef<HTMLDivElement | null>(null)
+  const imageGallerySentinelRef = React.useRef<HTMLDivElement | null>(null)
+  const imageGalleryPrevLimitRef = React.useRef(0)
+  const imageGalleryAdvanceCooldownRef = React.useRef(0)
   const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('provider')
   const [refLibraryLimit, setRefLibraryLimit] = React.useState(36)
   const refLibraryScrollRef = React.useRef<HTMLDivElement | null>(null)
@@ -391,6 +396,14 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
     void controller.loadRefLibraryIndex()
     void controller.refreshRefLibrary()
   }, [refLibraryOpen, controller])
+
+  React.useEffect(() => {
+    if (!imageGalleryOpen) return
+    setImageGalleryLimit(36)
+    imageGalleryPrevLimitRef.current = 0
+    const root = imageGalleryScrollRef.current
+    if (root) root.scrollTop = 0
+  }, [imageGalleryOpen])
 
   const refIndex = state.refLibrary.index
   const refFolders = Array.isArray(refIndex?.folders) ? refIndex!.folders : []
@@ -538,6 +551,93 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
     if (!q) return list
     return list.filter((it) => String(it?.savedPath || '').toLowerCase().includes(q))
   }, [imageHistoryListNewestFirst, imageGalleryQuery])
+
+  React.useEffect(() => {
+    if (!imageGalleryOpen) return
+    // 搜索条件变化时，重置为首屏并滚到顶部。
+    setImageGalleryLimit(36)
+    imageGalleryPrevLimitRef.current = 0
+    const root = imageGalleryScrollRef.current
+    if (root) root.scrollTop = 0
+  }, [imageGalleryOpen, imageGalleryQuery])
+
+  React.useEffect(() => {
+    if (!imageGalleryOpen) return
+    // 批量预览：首屏先加载，不依赖 hover。
+    const nextLimit = Math.max(0, imageGalleryLimit)
+    const prevLimit = Math.max(0, imageGalleryPrevLimitRef.current || 0)
+    imageGalleryPrevLimitRef.current = nextLimit
+
+    // 只触发“新增页”的加载，避免每次 limit 增长都重复遍历前面的数据。
+    const slice = imageHistoryFiltered.slice(Math.min(prevLimit, nextLimit), nextLimit)
+    for (const it of slice) {
+      const savedPath = String(it?.savedPath || '').trim()
+      if (savedPath) controller.ensureImageHistoryItemLoaded(savedPath)
+    }
+  }, [imageGalleryOpen, imageGalleryLimit, imageHistoryFiltered, controller])
+
+  React.useEffect(() => {
+    if (!imageGalleryOpen) return
+    if (typeof IntersectionObserver === 'undefined') return
+    const total = imageHistoryFiltered.length
+    const limit = Math.max(0, imageGalleryLimit)
+    if (limit >= total) return
+
+    const sentinel = imageGallerySentinelRef.current
+    if (!sentinel) return
+    const root = imageGalleryScrollRef.current
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const hit = entries && entries[0] && entries[0].isIntersecting
+        if (!hit) return
+
+        const now = Date.now()
+        // IntersectionObserver 在 sentinel 停留在视区时，可能会重复回调。
+        // 用一个很短的 cooldown 防止一次滚动触发多次分页。
+        if (now - imageGalleryAdvanceCooldownRef.current < 120) return
+        imageGalleryAdvanceCooldownRef.current = now
+
+        setImageGalleryLimit((n) => (n >= total ? n : Math.min(n + 36, total)))
+      },
+      { root: root || null, rootMargin: '320px 0px', threshold: 0 },
+    )
+
+    try {
+      observer.observe(sentinel)
+    } catch {}
+
+    return () => {
+      try {
+        observer.disconnect()
+      } catch {}
+    }
+  }, [imageGalleryOpen, imageGalleryLimit, imageHistoryFiltered.length])
+
+  React.useEffect(() => {
+    if (!imageGalleryOpen) return
+    const el = imageGalleryScrollRef.current
+    if (!el) return
+
+    const onScroll = () => {
+      const total = imageHistoryFiltered.length
+      const limit = Math.max(0, imageGalleryLimit)
+      if (limit >= total) return
+
+      // 兜底：某些环境下 IntersectionObserver 对自定义滚动容器不稳定。
+      // 用 scroll 事件检测接近底部时推进分页。
+      const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 320
+      if (!nearBottom) return
+
+      const now = Date.now()
+      if (now - imageGalleryAdvanceCooldownRef.current < 120) return
+      imageGalleryAdvanceCooldownRef.current = now
+      setImageGalleryLimit((n) => (n >= total ? n : Math.min(n + 36, total)))
+    }
+
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [imageGalleryOpen, imageGalleryLimit, imageHistoryFiltered.length])
 
   const nextMode: UiMode = uiMode === UI_MODE_LOCAL_EDIT ? UI_MODE_NORMAL : UI_MODE_LOCAL_EDIT
 
@@ -1473,7 +1573,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 </Button>
               </Stack>
 
-              <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }}>
+              <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }} scrollRef={imageGalleryScrollRef}>
                 <Box
                   sx={{
                     display: 'grid',
@@ -1483,7 +1583,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                   }}
                 >
                   {imageHistoryFiltered.length ? (
-                    imageHistoryFiltered.map((it, idx) => {
+                    imageHistoryFiltered.slice(0, imageGalleryLimit).map((it, idx) => {
                       const savedPath = String(it?.savedPath || '').trim()
                       const dataUrl = String(it?.dataUrl || '').trim()
                       return (
@@ -1520,7 +1620,14 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                             }}
                           >
                             {dataUrl ? (
-                              <Box component="img" src={dataUrl} alt="输出缩略图" sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              <Box
+                                component="img"
+                                src={dataUrl}
+                                alt="输出缩略图"
+                                loading="lazy"
+                                decoding="async"
+                                sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                              />
                             ) : (
                               <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>加载中…</Typography>
                             )}
@@ -1535,6 +1642,10 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                     <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>暂无输出图片</Typography>
                   )}
                 </Box>
+
+                {imageHistoryFiltered.length > imageGalleryLimit ? (
+                  <Box ref={imageGallerySentinelRef} aria-hidden sx={{ height: 1, width: '100%' }} />
+                ) : null}
               </OverlayScrollArea>
             </Stack>
           </Box>
