@@ -3,7 +3,6 @@ import {
   Box,
   CircularProgress,
   ClickAwayListener,
-  Divider,
   InputBase,
   List,
   ListItemButton,
@@ -240,8 +239,8 @@ export function QuickSearchPopover(props: Props) {
           <Paper
             elevation={10}
             sx={{
-              width: 420,
-              maxWidth: 'min(520px, calc(100vw - 24px))',
+              width: 630,
+              maxWidth: 'min(780px, calc(100vw - 24px))',
               borderRadius: 3,
               overflow: 'hidden',
               border: '1px solid rgba(0,0,0,.08)',
@@ -274,8 +273,6 @@ export function QuickSearchPopover(props: Props) {
               <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.38)' }}>{query.trim() ? 'Enter 打开第一条' : ''}</Typography>
             </Box>
 
-            <Divider />
-
             <Tabs
               value={mode}
               onChange={(_, v) => setMode(v as Mode)}
@@ -285,8 +282,6 @@ export function QuickSearchPopover(props: Props) {
               <Tab icon={<DescriptionRoundedIcon sx={{ fontSize: 16 }} />} iconPosition="start" label="笔记" value="notes" />
               <Tab icon={<AttachFileRoundedIcon sx={{ fontSize: 16 }} />} iconPosition="start" label="附件" value="assets" />
             </Tabs>
-
-            <Divider />
 
             <Box sx={{ maxHeight: 360, overflowY: 'auto' }}>
               {showEmptyHint ? (
