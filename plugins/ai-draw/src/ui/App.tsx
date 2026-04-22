@@ -31,7 +31,6 @@ import {
   Typography,
 } from '@mui/material'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
-import BookmarksRoundedIcon from '@mui/icons-material/BookmarksRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
@@ -364,20 +363,12 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
 
             <Button
               size="small"
-              variant="outlined"
+              variant="contained"
               onClick={() => void controller.setUiMode(nextMode)}
               sx={{ borderRadius: 999, px: 1.25 }}
             >
               {uiMode === UI_MODE_LOCAL_EDIT ? '模式：局部' : '模式：普通'}
             </Button>
-
-            <Chip
-              size="small"
-              variant="outlined"
-              label={state.outputDir ? `输出：${state.outputDir}` : '输出：未设置'}
-              sx={{ maxWidth: 560, '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } }}
-              title={state.outputDir || ''}
-            />
 
             <Box sx={{ flex: 1 }} />
 
@@ -397,11 +388,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               </IconButton>
             </Tooltip>
 
-            <Tooltip title="提示词收藏夹">
-              <IconButton size="small" onClick={() => setPromptLibOpen(true)} aria-label="打开提示词收藏夹">
-                <BookmarksRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+            {/* 提示词收藏夹入口移动到输入区“上一条/下一条”右侧 */}
             <Tooltip title="设置">
               <IconButton
                 size="small"
@@ -513,7 +500,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
             <Stack direction="row" spacing={1} alignItems="center">
               <Button
                 size="small"
-                variant="outlined"
+                variant="contained"
                 onClick={() => controller.switchPromptHistory(-1)}
                 disabled={!state.promptHistory.length}
               >
@@ -521,11 +508,20 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               </Button>
               <Button
                 size="small"
-                variant="outlined"
+                variant="contained"
                 onClick={() => controller.switchPromptHistory(1)}
                 disabled={!state.promptHistory.length}
               >
                 下一条 →
+              </Button>
+
+              <Button
+                size="small"
+                variant="contained"
+                onClick={() => setPromptLibOpen(true)}
+                aria-label="打开提示词收藏夹"
+              >
+                提示词收藏夹
               </Button>
               <Box sx={{ flex: 1 }} />
             </Stack>
