@@ -526,8 +526,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               value={state.prompt}
               onChange={(e) => controller.setPrompt(e.target.value)}
               multiline
-              minRows={6}
-              maxRows={12}
+              rows={9}
               placeholder={uiMode === UI_MODE_LOCAL_EDIT ? '例如：把选区改成落日油画风，保持结构不变…' : '例如：一只橘猫坐在书桌前，暖色调，插画风…'}
             />
 
