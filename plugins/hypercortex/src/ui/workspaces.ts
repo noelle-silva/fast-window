@@ -1,6 +1,7 @@
-import type { HyperCortexTabGroupV1, HyperCortexWorkspaceV1 } from '../core'
+import type { HyperCortexSidebarItemV1, HyperCortexTabGroupV1, HyperCortexWorkspaceV1 } from '../core'
 import { normalizeTabGroupByTabKey, normalizeTabGroups } from './tabGroups'
 import { normalizeOpenTabKeys } from './workspaceModel'
+import { buildSidebarItemsFromLegacy, deriveSidebarFields, normalizeSidebarItems } from './sidebarModel'
 
 export function createWorkspaceId(): string {
   const anyCrypto = globalThis.crypto as any
@@ -19,7 +20,7 @@ export function pickNextWorkspaceTitle(workspaces: { title: string }[]): string 
 
 export function normalizeWorkspaces(
   value: unknown,
-  fallback?: { openTabKeys?: unknown; activeTabKey?: unknown; tabGroups?: unknown; tabGroupByTabKey?: unknown },
+  fallback?: { sidebarItems?: unknown; openTabKeys?: unknown; activeTabKey?: unknown; tabGroups?: unknown; tabGroupByTabKey?: unknown },
 ): HyperCortexWorkspaceV1[] {
   if (Array.isArray(value)) {
     const out: HyperCortexWorkspaceV1[] = []
@@ -30,17 +31,23 @@ export function normalizeWorkspaces(
       const id = typeof raw.id === 'string' ? raw.id.trim() : ''
       if (!id || seen.has(id)) continue
       const title = typeof raw.title === 'string' ? raw.title.trim() : ''
-      const openTabKeys = normalizeOpenTabKeys(raw.openTabKeys)
-      const tabGroups = normalizeTabGroups(raw.tabGroups)
-      const tabGroupByTabKey = normalizeTabGroupByTabKey(raw.tabGroupByTabKey)
+      const sidebarItems = normalizeSidebarItems(raw.sidebarItems as HyperCortexSidebarItemV1[])
+      const legacyOpenTabKeys = normalizeOpenTabKeys(raw.openTabKeys)
+      const legacyTabGroups = normalizeTabGroups(raw.tabGroups)
+      const legacyTabGroupByTabKey = normalizeTabGroupByTabKey(raw.tabGroupByTabKey)
+      const ensuredSidebarItems = sidebarItems.length
+        ? sidebarItems
+        : buildSidebarItemsFromLegacy({ openTabKeys: legacyOpenTabKeys, tabGroups: legacyTabGroups, tabGroupByTabKey: legacyTabGroupByTabKey })
+      const derived = deriveSidebarFields(ensuredSidebarItems)
       const activeTabKey = typeof raw.activeTabKey === 'string' ? raw.activeTabKey.trim() : ''
 
       out.push({
         id,
         title: title || '工作区',
-        tabGroups,
-        openTabKeys,
-        tabGroupByTabKey,
+        sidebarItems: ensuredSidebarItems,
+        tabGroups: derived.tabGroups,
+        openTabKeys: derived.openTabKeys,
+        tabGroupByTabKey: derived.tabGroupByTabKey,
         activeTabKey,
       })
       seen.add(id)
@@ -49,17 +56,23 @@ export function normalizeWorkspaces(
   }
 
   const id = createWorkspaceId()
-  const openTabKeys = normalizeOpenTabKeys(fallback?.openTabKeys)
-  const tabGroups = normalizeTabGroups(fallback?.tabGroups)
-  const tabGroupByTabKey = normalizeTabGroupByTabKey(fallback?.tabGroupByTabKey)
+  const sidebarItems = normalizeSidebarItems(fallback?.sidebarItems as HyperCortexSidebarItemV1[])
+  const legacyOpenTabKeys = normalizeOpenTabKeys(fallback?.openTabKeys)
+  const legacyTabGroups = normalizeTabGroups(fallback?.tabGroups)
+  const legacyTabGroupByTabKey = normalizeTabGroupByTabKey(fallback?.tabGroupByTabKey)
+  const ensuredSidebarItems = sidebarItems.length
+    ? sidebarItems
+    : buildSidebarItemsFromLegacy({ openTabKeys: legacyOpenTabKeys, tabGroups: legacyTabGroups, tabGroupByTabKey: legacyTabGroupByTabKey })
+  const derived = deriveSidebarFields(ensuredSidebarItems)
   const activeTabKey = typeof fallback?.activeTabKey === 'string' ? String(fallback.activeTabKey || '').trim() : ''
   return [
     {
       id,
       title: '默认工作区',
-      tabGroups,
-      openTabKeys,
-      tabGroupByTabKey,
+      sidebarItems: ensuredSidebarItems,
+      tabGroups: derived.tabGroups,
+      openTabKeys: derived.openTabKeys,
+      tabGroupByTabKey: derived.tabGroupByTabKey,
       activeTabKey,
     },
   ]
@@ -90,9 +103,14 @@ export function updateWorkspaceById(
 export function ensureWorkspaceShape(ws: HyperCortexWorkspaceV1): HyperCortexWorkspaceV1 {
   const id = String(ws.id || '').trim() || createWorkspaceId()
   const title = String(ws.title || '').trim() || '工作区'
-  const openTabKeys = normalizeOpenTabKeys((ws as any).openTabKeys)
-  const tabGroups: HyperCortexTabGroupV1[] = normalizeTabGroups(ws.tabGroups)
-  const tabGroupByTabKey = normalizeTabGroupByTabKey((ws as any).tabGroupByTabKey)
+  const sidebarItems = normalizeSidebarItems((ws as any).sidebarItems as HyperCortexSidebarItemV1[])
+  const legacyOpenTabKeys = normalizeOpenTabKeys((ws as any).openTabKeys)
+  const legacyTabGroups: HyperCortexTabGroupV1[] = normalizeTabGroups(ws.tabGroups)
+  const legacyTabGroupByTabKey = normalizeTabGroupByTabKey((ws as any).tabGroupByTabKey)
+  const ensuredSidebarItems = sidebarItems.length
+    ? sidebarItems
+    : buildSidebarItemsFromLegacy({ openTabKeys: legacyOpenTabKeys, tabGroups: legacyTabGroups, tabGroupByTabKey: legacyTabGroupByTabKey })
+  const derived = deriveSidebarFields(ensuredSidebarItems)
   const activeTabKey = String((ws as any).activeTabKey || '').trim()
-  return { id, title, tabGroups, openTabKeys, tabGroupByTabKey, activeTabKey }
+  return { id, title, sidebarItems: ensuredSidebarItems, tabGroups: derived.tabGroups, openTabKeys: derived.openTabKeys, tabGroupByTabKey: derived.tabGroupByTabKey, activeTabKey }
 }

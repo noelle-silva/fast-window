@@ -42,6 +42,21 @@ import { QuickSearchPopover } from './QuickSearchPopover'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
 import { applyActiveWorkspacePatch, buildWorkspacesMetadataSnapshot, normalizeOpenTabKeys } from './workspaceModel'
+import {
+  applySidebarItemsToWorkspace,
+  closeTabsInSidebar,
+  createGroupInSidebar,
+  deleteGroupFromSidebar,
+  deriveSidebarFields,
+  ensureSidebarItems,
+  insertTabAsUngrouped,
+  moveGroupToIndex,
+  moveTabBetweenGroups,
+  moveTabToGroupIndex,
+  renameTabKeyInSidebar,
+  type SidebarItem,
+  updateSidebarGroup,
+} from './sidebarModel'
 import { DEFAULT_SHORTCUT_BINDINGS, isEditableTarget, mainKeyFromChord, normalizeMainKey, normalizeShortcutBindings, shouldTriggerShortcut, type HyperCortexShortcutBindingsV1 } from '../shortcuts'
 import { AllNotesGridNoteCard, AllNotesIconNoteCard, AllNotesListNoteRow } from './AllNotesNoteCard'
 import type { NoteCardInfo } from './noteCardInfo'
@@ -122,6 +137,14 @@ function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetada
     const k = String((next as any).activeTabKey || '').trim()
     if (k && tabKind(k) === 'note' && isDraftNoteId(noteIdFromTabKey(k))) (next as any).activeTabKey = ''
   }
+  if (Array.isArray((next as any).sidebarItems)) {
+    ;(next as any).sidebarItems = ensureSidebarItems({
+      sidebarItems: (next as any).sidebarItems,
+      openTabKeys: stripDraftTabKeys((next as any).openTabKeys),
+      tabGroups: Array.isArray((next as any).tabGroups) ? (next as any).tabGroups : [],
+      tabGroupByTabKey: stripDraftTabKeyMap((next as any).tabGroupByTabKey),
+    })
+  }
   if ('openTabKeys' in next) (next as any).openTabKeys = stripDraftTabKeys((next as any).openTabKeys)
   if ('tabGroupByTabKey' in next) (next as any).tabGroupByTabKey = stripDraftTabKeyMap((next as any).tabGroupByTabKey)
   if ('shortcuts' in next) (next as any).shortcuts = normalizeShortcutBindings((next as any).shortcuts)
@@ -132,6 +155,13 @@ function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetada
     next.workspaces = next.workspaces.map(ws => {
       const openTabKeys = stripDraftTabKeys((ws as any).openTabKeys)
       const tabGroupByTabKey = stripDraftTabKeyMap((ws as any).tabGroupByTabKey)
+      const sidebarItems = ensureSidebarItems({
+        sidebarItems: (ws as any).sidebarItems,
+        openTabKeys,
+        tabGroups: Array.isArray((ws as any).tabGroups) ? ((ws as any).tabGroups as any) : [],
+        tabGroupByTabKey,
+      })
+      const derived = deriveSidebarFields(sidebarItems)
       let activeTabKey = String((ws as any).activeTabKey || '').trim()
       if (activeTabKey && tabKind(activeTabKey) === 'note' && isDraftNoteId(noteIdFromTabKey(activeTabKey))) activeTabKey = ''
       const id = String((ws as any).id || '').trim() || createWorkspaceId()
@@ -139,9 +169,10 @@ function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetada
       return {
         id,
         title,
-        tabGroups: Array.isArray((ws as any).tabGroups) ? ((ws as any).tabGroups as any) : [],
-        openTabKeys,
-        tabGroupByTabKey,
+        sidebarItems,
+        tabGroups: derived.tabGroups,
+        openTabKeys: derived.openTabKeys,
+        tabGroupByTabKey: derived.tabGroupByTabKey,
         activeTabKey,
       }
     })
@@ -352,6 +383,11 @@ export function HyperCortexApp() {
   const [tabsHoverOpen, setTabsHoverOpen] = React.useState(false)
   const sidebarHoverRef = React.useRef(false)
   const sidebarShortcutHoldRef = React.useRef(false)
+  const [sidebarItems, setSidebarItems] = React.useState<SidebarItem[]>([])
+  const sidebarItemsRef = React.useRef<SidebarItem[]>([])
+  React.useEffect(() => {
+    sidebarItemsRef.current = sidebarItems
+  }, [sidebarItems])
   const [tabGrouping, setTabGrouping] = React.useState<{ groups: HyperCortexTabGroupV1[]; byTabKey: Record<string, string> }>({
     groups: [],
     byTabKey: {},
@@ -572,7 +608,7 @@ export function HyperCortexApp() {
   )
 
   const commitActiveWorkspacePatch = React.useCallback(
-    (patch: Partial<Pick<HyperCortexWorkspaceV1, 'title' | 'openTabKeys' | 'activeTabKey' | 'tabGroups' | 'tabGroupByTabKey'>>) => {
+    (patch: Partial<Pick<HyperCortexWorkspaceV1, 'title' | 'sidebarItems' | 'openTabKeys' | 'activeTabKey' | 'tabGroups' | 'tabGroupByTabKey'>>) => {
       setWorkspaces(prev => {
         const wid = activeWorkspaceIdRef.current
         if (!wid) return prev
@@ -592,6 +628,66 @@ export function HyperCortexApp() {
       })
     },
     [persistMetadataPatch],
+  )
+
+  const applySidebarState = React.useCallback(
+    (nextSidebarItems: SidebarItem[], patch?: Partial<Pick<HyperCortexWorkspaceV1, 'activeTabKey' | 'title'>>) => {
+      const normalizedSidebarItems = ensureSidebarItems({
+        sidebarItems: nextSidebarItems,
+        openTabKeys: [],
+        tabGroups: [],
+        tabGroupByTabKey: {},
+      })
+      const derived = deriveSidebarFields(normalizedSidebarItems)
+      setSidebarItems(normalizedSidebarItems)
+      setTabGrouping({ groups: derived.tabGroups, byTabKey: derived.tabGroupByTabKey })
+      setOpenTabKeys(derived.openTabKeys as any)
+      commitActiveWorkspacePatch({
+        sidebarItems: normalizedSidebarItems,
+        openTabKeys: derived.openTabKeys,
+        tabGroups: derived.tabGroups,
+        tabGroupByTabKey: derived.tabGroupByTabKey,
+        ...(patch || {}),
+      })
+      return { sidebarItems: normalizedSidebarItems, ...derived }
+    },
+    [commitActiveWorkspacePatch],
+  )
+
+  const updateSidebarItems = React.useCallback(
+    (updater: (prev: SidebarItem[]) => SidebarItem[], patch?: Partial<Pick<HyperCortexWorkspaceV1, 'activeTabKey' | 'title'>>) => {
+      const nextSidebarItems = updater(sidebarItemsRef.current)
+      return applySidebarState(nextSidebarItems, patch)
+    },
+    [applySidebarState],
+  )
+
+  const handleMoveTabToUngroupedIndex = React.useCallback(
+    (tabKey: string, index: number) => {
+      const normalizedTabKey = String(tabKey || '').trim()
+      if (!normalizedTabKey) return
+      updateSidebarItems(prev => insertTabAsUngrouped(prev, normalizedTabKey, index))
+    },
+    [updateSidebarItems],
+  )
+
+  const handleMoveTabToGroupIndex = React.useCallback(
+    (tabKey: string, groupId: string, index: number) => {
+      const normalizedTabKey = String(tabKey || '').trim()
+      const gid = String(groupId || '').trim()
+      if (!normalizedTabKey || !gid) return
+      updateSidebarItems(prev => moveTabToGroupIndex(prev, normalizedTabKey, gid, index))
+    },
+    [updateSidebarItems],
+  )
+
+  const handleMoveGroupToIndex = React.useCallback(
+    (groupId: string, index: number) => {
+      const gid = String(groupId || '').trim()
+      if (!gid) return
+      updateSidebarItems(prev => moveGroupToIndex(prev, gid, index))
+    },
+    [updateSidebarItems],
   )
 
   const updateTabGrouping = React.useCallback(
@@ -746,8 +842,11 @@ export function HyperCortexApp() {
 
   const applyWorkspaceSidebarState = React.useCallback(
     (ws: HyperCortexWorkspaceV1) => {
-      const nextOpenTabKeys = normalizeOpenTabKeys(ws.openTabKeys)
-      setTabGrouping({ groups: ws.tabGroups, byTabKey: ws.tabGroupByTabKey || {} })
+      const nextSidebarItems = ensureSidebarItems(ws)
+      const derived = deriveSidebarFields(nextSidebarItems)
+      const nextOpenTabKeys = normalizeOpenTabKeys(derived.openTabKeys)
+      setSidebarItems(nextSidebarItems)
+      setTabGrouping({ groups: derived.tabGroups, byTabKey: derived.tabGroupByTabKey || {} })
       setOpenTabKeys(nextOpenTabKeys as any)
 
       const preferredActiveKey = String(ws.activeTabKey || '').trim()
@@ -852,6 +951,7 @@ export function HyperCortexApp() {
       const nextWs: HyperCortexWorkspaceV1 = {
         id: createWorkspaceId(),
         title: nextTitle,
+        sidebarItems: [],
         tabGroups: [],
         openTabKeys: [],
         tabGroupByTabKey: {},
@@ -907,124 +1007,45 @@ export function HyperCortexApp() {
   )
 
   const handleCreateTabGroup = React.useCallback(() => {
-    updateTabGrouping(prev => {
-      const nextGroup: HyperCortexTabGroupV1 = {
-        id: createTabGroupId(),
-        title: pickNextTabGroupTitle(prev.groups),
-        color: pickNextTabGroupColor(prev.groups),
-        collapsed: false,
-      }
-      return { ...prev, groups: [...prev.groups, nextGroup] }
-    })
-  }, [updateTabGrouping])
+    const nextGroup: HyperCortexTabGroupV1 = {
+      id: createTabGroupId(),
+      title: pickNextTabGroupTitle(tabGroupingRef.current.groups),
+      color: pickNextTabGroupColor(tabGroupingRef.current.groups),
+      collapsed: false,
+    }
+    updateSidebarItems(prev => createGroupInSidebar(prev, nextGroup))
+  }, [updateSidebarItems])
 
   const handleCollapseAllGroups = React.useCallback(() => {
-    updateTabGrouping(prev => {
-      if (!prev.groups.length) return prev
-      if (prev.groups.every(g => g.collapsed === true)) return prev
-      return { ...prev, groups: prev.groups.map(g => (g.collapsed === true ? g : { ...g, collapsed: true })) }
-    })
-  }, [updateTabGrouping])
+    updateSidebarItems(prev => prev.map(item => (item.type === 'group' && item.collapsed !== true ? { ...item, collapsed: true } : item)))
+  }, [updateSidebarItems])
 
   const handleAssignTabToGroup = React.useCallback(
     (tabKey: string, groupId: string) => {
-      const nid = String(tabKey || '').trim()
+      const normalizedTabKey = String(tabKey || '').trim()
       const gid = String(groupId || '').trim()
-      if (!nid || !gid) return
-      updateTabGrouping(prev => {
-        if (!prev.groups.some(g => g.id === gid)) return prev
-        return { ...prev, byTabKey: { ...prev.byTabKey, [nid]: gid } }
-      })
+      if (!normalizedTabKey || !gid) return
+      updateSidebarItems(prev => moveTabBetweenGroups({ sidebarItems: prev, tabKey: normalizedTabKey, targetGroupId: gid }))
     },
-    [updateTabGrouping],
+    [updateSidebarItems],
   )
 
   const handleUnassignTabFromGroup = React.useCallback(
     (tabKey: string) => {
-      const nid = String(tabKey || '').trim()
-      if (!nid) return
-      updateTabGrouping(prev => {
-        if (!prev.byTabKey[nid]) return prev
-        const nextByTabKey = { ...prev.byTabKey }
-        delete nextByTabKey[nid]
-        return { ...prev, byTabKey: nextByTabKey }
-      })
+      const normalizedTabKey = String(tabKey || '').trim()
+      if (!normalizedTabKey) return
+      updateSidebarItems(prev => insertTabAsUngrouped(prev, normalizedTabKey, prev.length))
     },
-    [updateTabGrouping],
-  )
-
-  const handleReorderOpenTabs = React.useCallback(
-    (nextOpenTabKeys: string[]) => {
-      const ids = Array.isArray(nextOpenTabKeys) ? nextOpenTabKeys : []
-      setOpenTabKeys(prev => {
-        if (prev.length <= 1) return prev
-        const existed = new Set(prev)
-        const seen = new Set<string>()
-        const next: string[] = []
-
-        for (const raw of ids) {
-          const key = typeof raw === 'string' ? raw.trim() : ''
-          if (!key || seen.has(key)) continue
-          if (!existed.has(key)) continue
-          seen.add(key)
-          next.push(key)
-        }
-
-        for (const key of prev) {
-          if (seen.has(key)) continue
-          seen.add(key)
-          next.push(key)
-        }
-
-        if (next.length === prev.length && next.every((k, i) => k === prev[i])) return prev
-        commitActiveWorkspacePatch({ openTabKeys: next })
-        return next
-      })
-    },
-    [commitActiveWorkspacePatch],
-  )
-
-  const handleReorderTabGroups = React.useCallback(
-    (nextGroupIds: string[]) => {
-      const ids = Array.isArray(nextGroupIds) ? nextGroupIds : []
-      updateTabGrouping(prev => {
-        if (prev.groups.length <= 1) return prev
-        const byId: Record<string, HyperCortexTabGroupV1> = {}
-        for (const g of prev.groups) byId[g.id] = g
-        const seen = new Set<string>()
-        const nextGroups: HyperCortexTabGroupV1[] = []
-
-        for (const raw of ids) {
-          const id = typeof raw === 'string' ? raw.trim() : ''
-          if (!id || seen.has(id)) continue
-          const g = byId[id]
-          if (!g) continue
-          seen.add(id)
-          nextGroups.push(g)
-        }
-        for (const g of prev.groups) {
-          if (seen.has(g.id)) continue
-          seen.add(g.id)
-          nextGroups.push(g)
-        }
-
-        if (nextGroups.length === prev.groups.length && nextGroups.every((g, i) => g.id === prev.groups[i]?.id)) return prev
-        return { ...prev, groups: nextGroups }
-      })
-    },
-    [updateTabGrouping],
+    [updateSidebarItems],
   )
 
   const handleToggleGroupCollapsed = React.useCallback(
     (groupId: string) => {
       const gid = String(groupId || '').trim()
       if (!gid) return
-      updateTabGrouping(prev => {
-        const nextGroups = prev.groups.map(g => (g.id === gid ? { ...g, collapsed: !g.collapsed } : g))
-        return { ...prev, groups: nextGroups }
-      })
+      updateSidebarItems(prev => prev.map(item => (item.type === 'group' && item.id === gid ? { ...item, collapsed: !item.collapsed } : item)))
     },
-    [updateTabGrouping],
+    [updateSidebarItems],
   )
 
   const handleRenameGroup = React.useCallback(
@@ -1032,12 +1053,9 @@ export function HyperCortexApp() {
       const gid = String(groupId || '').trim()
       const nextTitle = String(title || '').trim()
       if (!gid || !nextTitle) return
-      updateTabGrouping(prev => {
-        const nextGroups = prev.groups.map(g => (g.id === gid ? { ...g, title: nextTitle } : g))
-        return { ...prev, groups: nextGroups }
-      })
+      updateSidebarItems(prev => updateSidebarGroup(prev, gid, { title: nextTitle }))
     },
-    [updateTabGrouping],
+    [updateSidebarItems],
   )
 
   const handleSetGroupColor = React.useCallback(
@@ -1045,29 +1063,18 @@ export function HyperCortexApp() {
       const gid = String(groupId || '').trim()
       const nextColor = String(color || '').trim()
       if (!gid || !nextColor) return
-      updateTabGrouping(prev => {
-        const nextGroups = prev.groups.map(g => (g.id === gid ? { ...g, color: nextColor } : g))
-        return { ...prev, groups: nextGroups }
-      })
+      updateSidebarItems(prev => updateSidebarGroup(prev, gid, { color: nextColor }))
     },
-    [updateTabGrouping],
+    [updateSidebarItems],
   )
 
   const handleDeleteGroupOnly = React.useCallback(
     (groupId: string) => {
       const gid = String(groupId || '').trim()
       if (!gid) return
-      updateTabGrouping(prev => {
-        const nextGroups = prev.groups.filter(g => g.id !== gid)
-        const nextByTabKey: Record<string, string> = {}
-        for (const [tabKey, mapped] of Object.entries(prev.byTabKey)) {
-          if (mapped === gid) continue
-          nextByTabKey[tabKey] = mapped
-        }
-        return { groups: nextGroups, byTabKey: nextByTabKey }
-      })
+      updateSidebarItems(prev => deleteGroupFromSidebar(prev, gid))
     },
-    [updateTabGrouping],
+    [updateSidebarItems],
   )
 
   const loadAllNotes = React.useCallback(async () => {
@@ -1114,6 +1121,7 @@ export function HyperCortexApp() {
         }
 
         let nextWorkspaces = normalizeWorkspaces(meta.workspaces, {
+          sidebarItems: meta.sidebarItems,
           openTabKeys: meta.openTabKeys,
           activeTabKey: meta.activeTabKey,
           tabGroups: meta.tabGroups,
@@ -1126,9 +1134,10 @@ export function HyperCortexApp() {
         if (activeWs && activeKey) {
           const openKeys = activeWs.openTabKeys
           if (!openKeys.includes(activeKey)) {
-            const nextOpenKeys = [...openKeys, activeKey]
-            nextWorkspaces = updateWorkspaceById(nextWorkspaces, nextActiveWorkspaceId, ws => ({ ...ws, openTabKeys: nextOpenKeys, activeTabKey: activeKey }))
-            activeWs = { ...activeWs, openTabKeys: nextOpenKeys, activeTabKey: activeKey }
+            const nextSidebarItems = insertTabAsUngrouped(ensureSidebarItems(activeWs), activeKey, ensureSidebarItems(activeWs).length)
+            const nextWs = applySidebarItemsToWorkspace({ ...activeWs, activeTabKey: activeKey }, nextSidebarItems)
+            nextWorkspaces = updateWorkspaceById(nextWorkspaces, nextActiveWorkspaceId, () => nextWs)
+            activeWs = nextWs
             didMutateActiveWorkspace = true
           }
         }
@@ -1386,13 +1395,9 @@ export function HyperCortexApp() {
 
     setActiveNoteId(draftId)
     setActiveTabKey(draftKey)
-    setOpenTabKeys(prev => {
-      const next = [...prev, draftKey]
-      commitActiveWorkspacePatch({ openTabKeys: next, activeTabKey: draftKey })
-      return next
-    })
+    updateSidebarItems(prev => insertTabAsUngrouped(prev, draftKey, prev.length), { activeTabKey: draftKey })
     navigatePage('note-detail')
-  }, [commitActiveWorkspacePatch, navigatePage])
+  }, [navigatePage, updateSidebarItems])
 
   React.useEffect(() => {
     const clearTabSwitchHold = () => {
@@ -1649,14 +1654,10 @@ export function HyperCortexApp() {
       })
       setActiveNoteId(nid)
       setActiveTabKey(nextKey)
-      setOpenTabKeys(prev => {
-        const next = prev.includes(nextKey) ? prev : [...prev, nextKey]
-        commitActiveWorkspacePatch({ openTabKeys: next, activeTabKey: nextKey })
-        return next
-      })
+      updateSidebarItems(prev => (deriveSidebarFields(prev).openTabKeys.includes(nextKey) ? prev : insertTabAsUngrouped(prev, nextKey, prev.length)), { activeTabKey: nextKey })
       navigatePage('note-detail')
     },
-    [commitActiveWorkspacePatch, navigatePage, pushNavHistory],
+    [navigatePage, pushNavHistory, updateSidebarItems],
   )
 
   const handleOpenAssetTab = React.useCallback(
@@ -1678,14 +1679,10 @@ export function HyperCortexApp() {
       })
       setActiveTabKey(tabKey)
       setActiveNoteId('')
-      setOpenTabKeys(prev => {
-        const next = prev.includes(tabKey) ? prev : [...prev, tabKey]
-        commitActiveWorkspacePatch({ openTabKeys: next, activeTabKey: tabKey })
-        return next
-      })
+      updateSidebarItems(prev => (deriveSidebarFields(prev).openTabKeys.includes(tabKey) ? prev : insertTabAsUngrouped(prev, tabKey, prev.length)), { activeTabKey: tabKey })
       navigatePage('asset-detail')
     },
-    [commitActiveWorkspacePatch, navigatePage, pushNavHistory],
+    [navigatePage, pushNavHistory, updateSidebarItems],
   )
 
   const activateExistingTabKey = React.useCallback(
@@ -1751,8 +1748,7 @@ export function HyperCortexApp() {
         nextActive = nextKeys[prevIdx] || nextKeys[prevIdx - 1] || ''
       }
 
-      setOpenTabKeys(nextKeys as any)
-      commitActiveWorkspacePatch({ openTabKeys: nextKeys, activeTabKey: nextActive })
+      updateSidebarItems(prev => closeTabsInSidebar(prev, Array.from(closing)), { activeTabKey: nextActive })
 
       setOpenNoteTabs(prev => prev.filter(n => !closing.has(noteTabKey(n.id))))
       setOpenAssetTabs(prev => prev.filter(a => !closing.has(assetTabId(a))))
@@ -1771,7 +1767,7 @@ export function HyperCortexApp() {
 
       activateExistingTabKey(nextActive, { recordHistory: false })
     },
-    [activateExistingTabKey, commitActiveWorkspacePatch, metaReady, navigatePage, persistMetadataPatch],
+    [activateExistingTabKey, metaReady, navigatePage, persistMetadataPatch, updateSidebarItems],
   )
 
   React.useEffect(() => {
@@ -1823,11 +1819,12 @@ export function HyperCortexApp() {
     (groupId: string) => {
       const gid = String(groupId || '').trim()
       if (!gid) return
-      const keysToClose = (openTabKeysRef.current || []).filter(k => tabGrouping.byTabKey[k] === gid)
+      const group = sidebarItemsRef.current.find(item => item.type === 'group' && item.id === gid)
+      const keysToClose = group && group.type === 'group' ? group.tabKeys.slice() : []
       handleDeleteGroupOnly(gid)
       if (keysToClose.length) closeTabKeysDirect(keysToClose)
     },
-    [closeTabKeysDirect, handleDeleteGroupOnly, tabGrouping.byTabKey],
+    [closeTabKeysDirect, handleDeleteGroupOnly],
   )
 
   const handleNoteSessionSaved = React.useCallback((payload: {
@@ -1852,30 +1849,12 @@ export function HyperCortexApp() {
         noteScrollTopByIdRef.current[meta.id] = noteScrollTopByIdRef.current[originalId]
         delete noteScrollTopByIdRef.current[originalId]
       }
-      updateTabGrouping(prev => {
-        const gid = prev.byTabKey[oldKey]
-        if (!gid) return prev
-        const byTabKey = { ...prev.byTabKey }
-        byTabKey[newKey] = gid
-        delete byTabKey[oldKey]
-        return { ...prev, byTabKey }
-      })
+      updateSidebarItems(prev => renameTabKeyInSidebar(prev, oldKey, newKey))
       setCloseTabPrompt(p => (p?.noteId === originalId ? { noteId: meta.id } : p))
 
-      setOpenTabKeys(prev => {
-        const next = prev.map(k => (k === oldKey ? newKey : k))
-        const deduped: string[] = []
-        for (const k of next) {
-          const s = String(k || '').trim()
-          if (!s) continue
-          if (deduped.includes(s)) continue
-          deduped.push(s)
-        }
-        const nextActive = String(activeTabKeyRef.current || '').trim() === oldKey ? newKey : String(activeTabKeyRef.current || '').trim()
-        commitActiveWorkspacePatch({ openTabKeys: deduped, activeTabKey: nextActive })
-        if (String(activeTabKeyRef.current || '').trim() === oldKey) setActiveTabKey(newKey)
-        return deduped as any
-      })
+      const nextActive = String(activeTabKeyRef.current || '').trim() === oldKey ? newKey : String(activeTabKeyRef.current || '').trim()
+      updateSidebarItems(prev => renameTabKeyInSidebar(prev, oldKey, newKey), { activeTabKey: nextActive })
+      if (String(activeTabKeyRef.current || '').trim() === oldKey) setActiveTabKey(newKey)
     }
 
     setNoteIndex(prev => {
@@ -1917,7 +1896,7 @@ export function HyperCortexApp() {
     })
 
     if (activeNoteId === originalId) setActiveNoteId(meta.id)
-  }, [activeNoteId, commitActiveWorkspacePatch, refreshNoteCardInfo, updateTabGrouping])
+  }, [activeNoteId, refreshNoteCardInfo, updateSidebarItems])
 
   const closeTabPromptTargetSaving = !!closeTabPrompt && isNoteSavingById(closeTabPrompt.noteId)
 
@@ -2117,6 +2096,7 @@ export function HyperCortexApp() {
                 panelWidth={sidebarPanelWidth}
                 tabsMode={tabsMode}
                 tabsCollapsed={tabsCollapsed}
+                sidebarItems={sidebarItems}
                 openTabKeys={openTabKeys}
                 activeTabKey={activeTabKey}
                 openNoteTabs={openNoteTabs}
@@ -2146,8 +2126,9 @@ export function HyperCortexApp() {
                 onSetGroupColor={handleSetGroupColor}
                 onDeleteGroupOnly={handleDeleteGroupOnly}
                 onDeleteGroupAndCloseTabs={handleDeleteGroupAndCloseTabs}
-                onReorderOpenTabs={handleReorderOpenTabs}
-                onReorderTabGroups={handleReorderTabGroups}
+                onMoveTabToUngroupedIndex={handleMoveTabToUngroupedIndex}
+                onMoveTabToGroupIndex={handleMoveTabToGroupIndex}
+                onMoveGroupToIndex={handleMoveGroupToIndex}
               />
             </Box>
           </Box>

@@ -1,5 +1,6 @@
-import type { HyperCortexMetadataV1, HyperCortexTabGroupV1, HyperCortexWorkspaceV1 } from '../core'
+import type { HyperCortexMetadataV1, HyperCortexSidebarItemV1, HyperCortexTabGroupV1, HyperCortexWorkspaceV1 } from '../core'
 import { normalizeTabGroupByTabKey } from './tabGroups'
+import { deriveSidebarFields, normalizeSidebarItems } from './sidebarModel'
 
 function normalizeTitle(current: string, patch: unknown): string {
   if (typeof patch !== 'string') return current
@@ -19,17 +20,20 @@ export function normalizeOpenTabKeys(value: unknown): string[] {
   return out
 }
 
-export type ActiveWorkspacePatch = Partial<Pick<HyperCortexWorkspaceV1, 'title' | 'openTabKeys' | 'activeTabKey' | 'tabGroups' | 'tabGroupByTabKey'>>
+export type ActiveWorkspacePatch = Partial<Pick<HyperCortexWorkspaceV1, 'title' | 'sidebarItems' | 'openTabKeys' | 'activeTabKey' | 'tabGroups' | 'tabGroupByTabKey'>>
 
 export function applyActiveWorkspacePatch(current: HyperCortexWorkspaceV1, patch: ActiveWorkspacePatch): HyperCortexWorkspaceV1 {
   const nextTitle = normalizeTitle(current.title, patch.title)
-  const openTabKeys = 'openTabKeys' in patch ? normalizeOpenTabKeys(patch.openTabKeys) : current.openTabKeys
-  const tabGroups = 'tabGroups' in patch && Array.isArray(patch.tabGroups) ? (patch.tabGroups as HyperCortexTabGroupV1[]) : current.tabGroups
-  const tabGroupByTabKey = 'tabGroupByTabKey' in patch ? normalizeTabGroupByTabKey(patch.tabGroupByTabKey) : current.tabGroupByTabKey
+  const sidebarItems = 'sidebarItems' in patch ? normalizeSidebarItems(patch.sidebarItems as HyperCortexSidebarItemV1[]) : current.sidebarItems
+  const derivedFromSidebar = deriveSidebarFields(sidebarItems)
+  const openTabKeys = 'openTabKeys' in patch ? normalizeOpenTabKeys(patch.openTabKeys) : derivedFromSidebar.openTabKeys
+  const tabGroups = 'tabGroups' in patch && Array.isArray(patch.tabGroups) ? (patch.tabGroups as HyperCortexTabGroupV1[]) : derivedFromSidebar.tabGroups
+  const tabGroupByTabKey = 'tabGroupByTabKey' in patch ? normalizeTabGroupByTabKey(patch.tabGroupByTabKey) : derivedFromSidebar.tabGroupByTabKey
   const activeTabKey = 'activeTabKey' in patch && typeof patch.activeTabKey === 'string' ? patch.activeTabKey.trim() : current.activeTabKey
 
   if (
     nextTitle === current.title &&
+    sidebarItems === current.sidebarItems &&
     openTabKeys === current.openTabKeys &&
     tabGroups === current.tabGroups &&
     tabGroupByTabKey === current.tabGroupByTabKey &&
@@ -38,7 +42,7 @@ export function applyActiveWorkspacePatch(current: HyperCortexWorkspaceV1, patch
     return current
   }
 
-  return { ...current, ...patch, title: nextTitle, openTabKeys, tabGroups, tabGroupByTabKey, activeTabKey }
+  return { ...current, ...patch, title: nextTitle, sidebarItems, openTabKeys, tabGroups, tabGroupByTabKey, activeTabKey }
 }
 
 export function buildWorkspacesMetadataSnapshot(workspaces: HyperCortexWorkspaceV1[], activeWorkspaceId: string): Partial<HyperCortexMetadataV1> {
@@ -48,6 +52,7 @@ export function buildWorkspacesMetadataSnapshot(workspaces: HyperCortexWorkspace
   return {
     workspaces,
     activeWorkspaceId: wid || activeWs.id,
+    sidebarItems: activeWs.sidebarItems,
     openTabKeys: activeWs.openTabKeys,
     activeTabKey: activeWs.activeTabKey,
     tabGroups: activeWs.tabGroups,

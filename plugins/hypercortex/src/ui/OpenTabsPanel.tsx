@@ -31,6 +31,7 @@ import type { AssetEntry } from '../assetTypes'
 import { assetTabId } from '../assetTypes'
 import { pickAssetDisplayName } from '../assetDisplayName'
 import { noteIdFromTabKey, noteTabKey, tabKind } from '../tabKey'
+import type { SidebarItem } from './sidebarModel'
 import { TAB_GROUP_PRESET_COLORS } from './tabGroups'
 import { useOpenTabsPointerDnd } from './useOpenTabsPointerDnd'
 
@@ -57,10 +58,75 @@ function DndInsertCursor(props: { pos: 'before' | 'after'; color?: string }) {
   )
 }
 
+function TopLevelDropSlot(props: { index: number; active: boolean }) {
+  const { index, active } = props
+  return (
+    <Box
+      data-hc-dnd-top-slot-index={index}
+      aria-hidden
+      sx={{
+        position: 'relative',
+        height: 3,
+        mx: 0.5,
+        borderRadius: 999,
+        bgcolor: active ? 'rgba(25,118,210,.08)' : 'transparent',
+        transition: 'background-color 120ms ease',
+        '&::before': active
+          ? {
+              content: '""',
+              position: 'absolute',
+              left: 8,
+              right: 8,
+              top: 0.5,
+              height: 2,
+              borderRadius: 999,
+              bgcolor: '#1976d2',
+              boxShadow: '0 0 0 2px rgba(255,255,255,.92)',
+            }
+          : undefined,
+      }}
+    />
+  )
+}
+
+function GroupDropSlot(props: { groupId: string; index: number; active: boolean; showTitle: boolean }) {
+  const { groupId, index, active, showTitle } = props
+  return (
+    <Box
+      data-hc-dnd-group-slot-id={groupId}
+      data-hc-dnd-group-slot-index={index}
+      aria-hidden
+      sx={{
+        position: 'relative',
+        height: 3,
+        ml: showTitle ? 1.5 : 1,
+        mr: 0.5,
+        borderRadius: 999,
+        bgcolor: active ? 'rgba(25,118,210,.08)' : 'transparent',
+        transition: 'background-color 120ms ease',
+        '&::before': active
+          ? {
+              content: '""',
+              position: 'absolute',
+              left: 8,
+              right: 8,
+              top: 0.5,
+              height: 2,
+              borderRadius: 999,
+              bgcolor: '#1976d2',
+              boxShadow: '0 0 0 2px rgba(255,255,255,.92)',
+            }
+          : undefined,
+      }}
+    />
+  )
+}
+
 export type OpenTabsPanelProps = {
   panelWidth: number
   tabsMode: 'manual' | 'hover'
   tabsCollapsed: boolean
+  sidebarItems: SidebarItem[]
   openTabKeys: string[]
   activeTabKey?: string
   openNoteTabs: NoteMeta[]
@@ -90,8 +156,9 @@ export type OpenTabsPanelProps = {
   onSetGroupColor: (groupId: string, color: string) => void
   onDeleteGroupOnly: (groupId: string) => void
   onDeleteGroupAndCloseTabs: (groupId: string) => void
-  onReorderOpenTabs: (nextOpenTabKeys: string[]) => void
-  onReorderTabGroups: (nextGroupIds: string[]) => void
+  onMoveTabToUngroupedIndex: (tabKey: string, index: number) => void
+  onMoveTabToGroupIndex: (tabKey: string, groupId: string, index: number) => void
+  onMoveGroupToIndex: (groupId: string, index: number) => void
 }
 
 type GroupMenuState = { mouseX: number; mouseY: number; groupId: string } | null
@@ -101,6 +168,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     panelWidth,
     tabsMode,
     tabsCollapsed,
+    sidebarItems,
     openTabKeys,
     activeTabKey,
     openNoteTabs,
@@ -130,8 +198,9 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     onSetGroupColor,
     onDeleteGroupOnly,
     onDeleteGroupAndCloseTabs,
-    onReorderOpenTabs,
-    onReorderTabGroups,
+    onMoveTabToUngroupedIndex,
+    onMoveTabToGroupIndex,
+    onMoveGroupToIndex,
   } = props
 
   const showTitle = panelWidth > 52
@@ -161,26 +230,11 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     return out
   }, [tabGroups])
 
-  const grouped = React.useMemo(() => {
-    const groupedKeys: Record<string, string[]> = {}
-    for (const key of openTabKeys) {
-      const gid = String(tabGroupByTabKey[key] || '').trim()
-      if (gid && groupById[gid]) {
-        ;(groupedKeys[gid] || (groupedKeys[gid] = [])).push(key)
-      }
-    }
-    return { groupedKeys }
-  }, [groupById, openTabKeys, tabGroupByTabKey])
-
   const dnd = useOpenTabsPointerDnd({
-    openTabKeys,
-    tabGroups,
-    tabGroupByTabKey,
-    isValidGroupId: (groupId: string) => !!groupById[String(groupId || '').trim()],
-    onAssignTabToGroup,
-    onUnassignTabFromGroup,
-    onReorderOpenTabs,
-    onReorderTabGroups,
+    sidebarItems,
+    onMoveTabToUngroupedIndex,
+    onMoveTabToGroupIndex,
+    onMoveGroupToIndex,
   })
 
   const [groupMenu, setGroupMenu] = React.useState<GroupMenuState>(null)
@@ -211,13 +265,12 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
   )
 
   const renderNoteMetaRow = React.useCallback(
-    (tabKey: string, tab: NoteMeta) => {
+    (tabKey: string, tab: NoteMeta, opts?: { topIndex?: number; parentGroupId?: string; groupTabIndex?: number }) => {
       const isActive = String(activeTabKey || '').trim() === tabKey
       const title = tab.title || '未命名'
       const dirty = !!isNoteDirty?.(tab.id)
       const isDragOver = dnd.dragOverKey === `tab_${tabKey}`
       const isDragging = dnd.draggingKey === `tab_${tabKey}`
-      const showInsertCursor = dnd.dropIndicator.kind === 'tab' && dnd.dropIndicator.tabKey === tabKey
       const disableTitleTooltip = tabsMode === 'hover'
       return (
         <Tooltip
@@ -230,6 +283,9 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         >
           <Box
             {...dnd.getTabProps(tabKey)}
+            data-hc-dnd-top-index={typeof opts?.topIndex === 'number' ? opts.topIndex : undefined}
+            data-hc-dnd-parent-group-id={opts?.parentGroupId || undefined}
+            data-hc-dnd-group-tab-index={typeof opts?.groupTabIndex === 'number' ? opts.groupTabIndex : undefined}
             role="button"
             tabIndex={0}
             data-tauri-drag-region="false"
@@ -261,7 +317,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
             }}
           >
-            {showInsertCursor ? <DndInsertCursor pos={dnd.dropIndicator.pos} /> : null}
             <Box sx={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>
               <NotesRoundedIcon fontSize="small" sx={{ color: isActive ? '#1976d2' : 'rgba(0,0,0,.48)' }} />
               {dirty ? (
@@ -322,12 +377,11 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
   )
 
   const renderAssetMetaRow = React.useCallback(
-    (tabKey: string, asset: AssetEntry) => {
+    (tabKey: string, asset: AssetEntry, opts?: { topIndex?: number; parentGroupId?: string; groupTabIndex?: number }) => {
       const isActive = String(activeTabKey || '').trim() === tabKey
       const title = pickAssetDisplayName({ indexName: asset.displayName, ext: asset.ext }) || '附件'
       const isDragOver = dnd.dragOverKey === `tab_${tabKey}`
       const isDragging = dnd.draggingKey === `tab_${tabKey}`
-      const showInsertCursor = dnd.dropIndicator.kind === 'tab' && dnd.dropIndicator.tabKey === tabKey
       const disableTitleTooltip = tabsMode === 'hover'
       const iconEl =
         asset.kind === 'image' ? (
@@ -349,6 +403,9 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         >
           <Box
             {...dnd.getTabProps(tabKey)}
+            data-hc-dnd-top-index={typeof opts?.topIndex === 'number' ? opts.topIndex : undefined}
+            data-hc-dnd-parent-group-id={opts?.parentGroupId || undefined}
+            data-hc-dnd-group-tab-index={typeof opts?.groupTabIndex === 'number' ? opts.groupTabIndex : undefined}
             role="button"
             tabIndex={0}
             data-tauri-drag-region="false"
@@ -380,7 +437,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
             }}
           >
-            {showInsertCursor ? <DndInsertCursor pos={dnd.dropIndicator.pos} /> : null}
             <Box sx={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>{iconEl}</Box>
             {showTitle ? (
               <Typography
@@ -424,12 +480,11 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
   )
 
   const renderMissingRow = React.useCallback(
-    (tabKey: string, kind: 'note' | 'asset') => {
+    (tabKey: string, kind: 'note' | 'asset', opts?: { topIndex?: number; parentGroupId?: string; groupTabIndex?: number }) => {
       const isActive = String(activeTabKey || '').trim() === tabKey
       const title = kind === 'note' ? '已丢失的笔记' : '已丢失的附件'
       const isDragOver = dnd.dragOverKey === `tab_${tabKey}`
       const isDragging = dnd.draggingKey === `tab_${tabKey}`
-      const showInsertCursor = dnd.dropIndicator.kind === 'tab' && dnd.dropIndicator.tabKey === tabKey
       const disableTitleTooltip = tabsMode === 'hover'
       const iconEl =
         kind === 'note' ? (
@@ -449,6 +504,9 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         >
           <Box
             {...dnd.getTabProps(tabKey)}
+            data-hc-dnd-top-index={typeof opts?.topIndex === 'number' ? opts.topIndex : undefined}
+            data-hc-dnd-parent-group-id={opts?.parentGroupId || undefined}
+            data-hc-dnd-group-tab-index={typeof opts?.groupTabIndex === 'number' ? opts.groupTabIndex : undefined}
             role="button"
             tabIndex={0}
             data-tauri-drag-region="false"
@@ -476,7 +534,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
             }}
           >
-            {showInsertCursor ? <DndInsertCursor pos={dnd.dropIndicator.pos} /> : null}
             <Box sx={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>{iconEl}</Box>
             {showTitle ? (
               <Typography
@@ -521,48 +578,23 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
   )
 
   const renderTabKeyRow = React.useCallback(
-    (tabKey: string) => {
+    (tabKey: string, opts?: { topIndex?: number; parentGroupId?: string; groupTabIndex?: number }) => {
       const kind = tabKind(tabKey)
       if (kind === 'note') {
         const nid = noteIdFromTabKey(tabKey)
         const meta = (nid && noteById[nid]) || noteByTabKey[tabKey]
-        if (!meta) return renderMissingRow(tabKey, 'note')
-        return renderNoteMetaRow(tabKey, meta)
+        if (!meta) return renderMissingRow(tabKey, 'note', opts)
+        return renderNoteMetaRow(tabKey, meta, opts)
       }
       if (kind === 'asset') {
         const asset = assetByTabKey[tabKey]
-        if (!asset) return renderMissingRow(tabKey, 'asset')
-        return renderAssetMetaRow(tabKey, asset)
+        if (!asset) return renderMissingRow(tabKey, 'asset', opts)
+        return renderAssetMetaRow(tabKey, asset, opts)
       }
       return null
     },
     [assetByTabKey, noteById, noteByTabKey, renderAssetMetaRow, renderMissingRow, renderNoteMetaRow],
   )
-
-  const mixedItems = React.useMemo(() => {
-    type Item = { type: 'tab'; tabKey: string } | { type: 'group'; groupId: string }
-    const out: Item[] = []
-    const insertedGroups = new Set<string>()
-
-    for (const key of openTabKeys) {
-      const gid = String(tabGroupByTabKey[key] || '').trim()
-      if (gid && groupById[gid]) {
-        if (insertedGroups.has(gid)) continue
-        out.push({ type: 'group', groupId: gid })
-        insertedGroups.add(gid)
-        continue
-      }
-      out.push({ type: 'tab', tabKey: key })
-    }
-
-    for (const g of tabGroups) {
-      if (insertedGroups.has(g.id)) continue
-      out.push({ type: 'group', groupId: g.id })
-      insertedGroups.add(g.id)
-    }
-
-    return out
-  }, [groupById, openTabKeys, tabGroupByTabKey, tabGroups])
 
   return (
     <>
@@ -744,20 +776,30 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           <Typography sx={{ px: 0.75, py: 0.5, fontSize: 12, color: 'rgba(0,0,0,.42)' }}>还没有打开的标签页</Typography>
         ) : null}
 
-        {mixedItems.map(item => {
-          if (item.type === 'tab') return renderTabKeyRow(item.tabKey)
-          const g = groupById[item.groupId]
+        <TopLevelDropSlot index={0} active={dnd.dropIndicator.kind === 'top-slot' && dnd.dropIndicator.index === 0} />
+
+        {sidebarItems.map((item, itemIndex) => {
+          if (item.type === 'tab') {
+            return (
+              <React.Fragment key={`tab_${item.tabKey}`}>
+                {renderTabKeyRow(item.tabKey, { topIndex: itemIndex })}
+                <TopLevelDropSlot index={itemIndex + 1} active={dnd.dropIndicator.kind === 'top-slot' && dnd.dropIndicator.index === itemIndex + 1} />
+              </React.Fragment>
+            )
+          }
+          const g = groupById[item.id]
           if (!g) return null
           const isCollapsed = g.collapsed === true
-          const list = grouped.groupedKeys[g.id] || []
+          const list = item.tabKeys || []
           const isDragOver = dnd.dragOverKey === `group_${g.id}`
           const isDragging = dnd.draggingKey === `group_${g.id}`
-          const showInsertCursor = dnd.dropIndicator.kind === 'group' && dnd.dropIndicator.groupId === g.id
           const groupTitle = g.title || '分组'
           return (
             <React.Fragment key={`group_${g.id}`}>
               <Box
                 {...dnd.getGroupProps(g.id)}
+                data-hc-dnd-group-index={itemIndex}
+                data-hc-dnd-group-section-index={itemIndex}
                 role="button"
                 tabIndex={0}
                 data-tauri-drag-region="false"
@@ -794,7 +836,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                   '&:focus-visible': { backgroundImage: 'linear-gradient(0deg, rgba(25,118,210,.14), rgba(25,118,210,.14))' },
                 }}
               >
-                {showInsertCursor ? <DndInsertCursor pos={dnd.dropIndicator.pos} color={g.color || undefined} /> : null}
                 <ChevronRightRoundedIcon
                   fontSize="small"
                   sx={{ color: 'rgba(0,0,0,.42)', transform: isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)', transition: 'transform 120ms ease' }}
@@ -827,9 +868,23 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                     },
                   }}
                 >
-                  {list.map(renderTabKeyRow)}
+                  <GroupDropSlot groupId={g.id} index={0} active={dnd.dropIndicator.kind === 'group-slot' && dnd.dropIndicator.groupId === g.id && dnd.dropIndicator.index === 0} showTitle={showTitle} />
+                  {list.map((tabKey, groupTabIndex) => (
+                    <React.Fragment key={`${g.id}_${tabKey}`}>
+                      {renderTabKeyRow(tabKey, { topIndex: itemIndex, parentGroupId: g.id, groupTabIndex })}
+                      <GroupDropSlot
+                        groupId={g.id}
+                        index={groupTabIndex + 1}
+                        active={dnd.dropIndicator.kind === 'group-slot' && dnd.dropIndicator.groupId === g.id && dnd.dropIndicator.index === groupTabIndex + 1}
+                        showTitle={showTitle}
+                      />
+                    </React.Fragment>
+                  ))}
                 </Box>
-              ) : null}
+              ) : (
+                <GroupDropSlot groupId={g.id} index={0} active={dnd.dropIndicator.kind === 'group-slot' && dnd.dropIndicator.groupId === g.id && dnd.dropIndicator.index === 0} showTitle={showTitle} />
+              )}
+              <TopLevelDropSlot index={itemIndex + 1} active={dnd.dropIndicator.kind === 'top-slot' && dnd.dropIndicator.index === itemIndex + 1} />
             </React.Fragment>
           )
         })}

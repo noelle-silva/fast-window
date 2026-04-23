@@ -59,9 +59,21 @@ export type HyperCortexTabGroupV1 = {
   collapsed?: boolean
 }
 
+export type HyperCortexSidebarItemV1 =
+  | { type: 'tab'; tabKey: string }
+  | {
+      type: 'group'
+      id: string
+      title: string
+      color: string
+      collapsed?: boolean
+      tabKeys: string[]
+    }
+
 export type HyperCortexWorkspaceV1 = {
   id: string
   title: string
+  sidebarItems: HyperCortexSidebarItemV1[]
   tabGroups: HyperCortexTabGroupV1[]
   openTabKeys: string[]
   tabGroupByTabKey: Record<string, string>
@@ -71,6 +83,7 @@ export type HyperCortexWorkspaceV1 = {
 export type HyperCortexMetadataV1 = {
   version: 1
   allNotesLayout?: 'list' | 'grid' | 'icon'
+  sidebarItems?: HyperCortexSidebarItemV1[]
   openTabKeys?: string[]
   tabGroupByTabKey?: Record<string, string>
   activeTabKey?: string
