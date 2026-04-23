@@ -20,7 +20,11 @@ export type HyperCortexNoteManifestV1 = {
   updatedAtMs: number
   faces: {
     text?: { file: string }
-    htmlView?: { file: string }
+    htmlView?: {
+      file: string
+      /** 笔记级固定视口缩放比例（0.25~2），优先于全局默认值 */
+      fixedScale?: number
+    }
   }
   resources: HyperCortexNoteResourceRef[]
 }
@@ -79,7 +83,11 @@ function normalizeFaces(faces?: HyperCortexNoteManifestV1['faces']): HyperCortex
   const textFile = String(faces?.text?.file || '').trim()
   const htmlViewFile = String(faces?.htmlView?.file || '').trim()
   if (textFile) next.text = { file: textFile }
-  if (htmlViewFile) next.htmlView = { file: htmlViewFile }
+  if (htmlViewFile) {
+    const rawScale = faces?.htmlView?.fixedScale
+    const fixedScale = Number.isFinite(rawScale) && typeof rawScale === 'number' ? rawScale : undefined
+    next.htmlView = fixedScale !== undefined ? { file: htmlViewFile, fixedScale } : { file: htmlViewFile }
+  }
   return next
 }
 

@@ -107,6 +107,18 @@ function normalizeTrashAutoDeleteDays(value: unknown): number {
   return n
 }
 
+export const HTML_FACE_FIXED_SCALE_DEFAULT = 0.95
+const HTML_FACE_FIXED_SCALE_MIN = 0.25
+const HTML_FACE_FIXED_SCALE_MAX = 2
+
+function normalizeHtmlFaceFixedScaleDefault(value: unknown): number {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return HTML_FACE_FIXED_SCALE_DEFAULT
+  if (n < HTML_FACE_FIXED_SCALE_MIN) return HTML_FACE_FIXED_SCALE_MIN
+  if (n > HTML_FACE_FIXED_SCALE_MAX) return HTML_FACE_FIXED_SCALE_MAX
+  return n
+}
+
 function sortNotesByUpdatedAtDesc(list: NoteMeta[]): NoteMeta[] {
   return (Array.isArray(list) ? list : []).slice().sort((a, b) => (b.updatedAtMs || 0) - (a.updatedAtMs || 0))
 }
@@ -340,6 +352,7 @@ export function HyperCortexApp() {
   const [trashEnabled, setTrashEnabled] = React.useState(true)
   const [trashAutoDeleteDays, setTrashAutoDeleteDays] = React.useState(30)
   const [htmlFaceDisplayMode, setHtmlFaceDisplayMode] = React.useState<HyperCortexHtmlFaceDisplayModeV1>('natural')
+  const [htmlFaceFixedScaleDefault, setHtmlFaceFixedScaleDefault] = React.useState(HTML_FACE_FIXED_SCALE_DEFAULT)
   const trashAutoDeleteDaysRef = React.useRef(30)
   React.useEffect(() => {
     trashAutoDeleteDaysRef.current = trashAutoDeleteDays
@@ -1177,6 +1190,7 @@ export function HyperCortexApp() {
         setTrashEnabled(normalizedTrashEnabled)
         setTrashAutoDeleteDays(normalizedTrashAutoDeleteDays)
         setHtmlFaceDisplayMode(normalizeHtmlFaceDisplayMode(meta.htmlFaceDisplayMode))
+        setHtmlFaceFixedScaleDefault(normalizeHtmlFaceFixedScaleDefault(meta.htmlFaceFixedScaleDefault))
         const activeKey = typeof meta.activeTabKey === 'string' ? meta.activeTabKey.trim() : ''
         restoreActiveTabKeyRef.current = activeKey
 
@@ -1283,6 +1297,16 @@ export function HyperCortexApp() {
       setHtmlFaceDisplayMode(next)
       if (!metaReadyRef.current) return
       void persistMetadataPatch({ htmlFaceDisplayMode: next }).catch(() => {})
+    },
+    [persistMetadataPatch],
+  )
+
+  const handleHtmlFaceFixedScaleDefaultChange = React.useCallback(
+    (scale: number) => {
+      const next = normalizeHtmlFaceFixedScaleDefault(scale)
+      setHtmlFaceFixedScaleDefault(next)
+      if (!metaReadyRef.current) return
+      void persistMetadataPatch({ htmlFaceFixedScaleDefault: next }).catch(() => {})
     },
     [persistMetadataPatch],
   )
@@ -2472,6 +2496,7 @@ export function HyperCortexApp() {
                       trashEnabled={trashEnabled}
                       onRequestDeleteNote={handleDeleteNote}
                       htmlFaceDisplayMode={htmlFaceDisplayMode}
+                      htmlFaceGlobalDefaultScale={htmlFaceFixedScaleDefault}
                     />
                   ))
                 )}
@@ -2546,6 +2571,8 @@ export function HyperCortexApp() {
                   <HtmlFaceDisplaySettingsPanel
                     mode={htmlFaceDisplayMode}
                     onChange={handleHtmlFaceDisplayModeChange}
+                    fixedScaleDefault={htmlFaceFixedScaleDefault}
+                    onFixedScaleDefaultChange={handleHtmlFaceFixedScaleDefaultChange}
                   />
                 </Box>
               ) : null}

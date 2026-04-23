@@ -15,7 +15,7 @@ import { createMarkdownRenderEngine } from '../render/engine'
 import { HYPERCORTEX_NOTE_SCHEMA_VERSION } from '../noteSchema'
 import { renderNoteDisplayHtml } from '../noteRender'
 import { extractNoteRefs, getBacklinksFor, type NoteRefIndex } from '../noteRefs'
-import { deleteHtmlFace, loadHtmlFace, loadNotePackage, saveHtmlFace, saveNotePackage, type HyperCortexHtmlFaceDoc } from '../notePackage'
+import { deleteHtmlFace, loadHtmlFace, loadNotePackage, saveHtmlFace, saveHtmlFaceFixedScale, saveNotePackage, type HyperCortexHtmlFaceDoc } from '../notePackage'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import type { Api, NoteMeta, VaultScope, HyperCortexNoteDoc, HyperCortexHtmlFaceDisplayModeV1 } from '../core'
 import { isDraftNoteId } from '../drafts'
@@ -110,6 +110,7 @@ export type NoteDetailSessionProps = {
   trashEnabled: boolean
   onRequestDeleteNote: (payload: { note: NoteMeta; mode: 'trash' | 'permanent' }) => Promise<void> | void
   htmlFaceDisplayMode?: HyperCortexHtmlFaceDisplayModeV1
+  htmlFaceGlobalDefaultScale?: number
 }
 
 export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteDetailSessionProps>(function NoteDetailSession(props, ref) {
@@ -129,6 +130,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     trashEnabled,
     onRequestDeleteNote,
     htmlFaceDisplayMode = 'natural',
+    htmlFaceGlobalDefaultScale = 0.95,
   } = props
 
   const noteId = String(note.id || '').trim()
@@ -140,6 +142,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
   const [doc, setDoc] = React.useState<HyperCortexNoteDoc | null>(init?.doc ?? null)
   const [htmlFace, setHtmlFace] = React.useState<HyperCortexHtmlFaceDoc | null>(init?.htmlFace ?? null)
+  const [htmlFaceScaleSaving, setHtmlFaceScaleSaving] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
@@ -262,6 +265,21 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       setDeleting('')
     }
   }, [api, deleting, note.dir, scope])
+
+  const handleSaveNoteFixedScale = React.useCallback(async (scale: number | null) => {
+    const dir = String(note.dir || '').trim()
+    if (!dir || htmlFaceScaleSaving) return
+    setHtmlFaceScaleSaving(true)
+    try {
+      await saveHtmlFaceFixedScale(api, scope, dir, scale)
+      setHtmlFace(prev => prev ? { ...prev, fixedScale: scale ?? undefined } : prev)
+      void api.ui.showToast('已保存笔记缩放比例')
+    } catch (e: any) {
+      void api.ui.showToast(String(e?.message || e || '保存缩放比例失败'))
+    } finally {
+      setHtmlFaceScaleSaving(false)
+    }
+  }, [api, htmlFaceScaleSaving, note.dir, scope])
 
   const ensureDraftDocIfNeeded = React.useCallback(() => {
     if (!isDraft) return
@@ -1092,7 +1110,14 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                 mode="html"
               />
             ) : (
-              <HtmlFaceIframe html={editHtml} mode={htmlFaceDisplayMode} minHeightPx={240} />
+              <HtmlFaceIframe
+                html={editHtml}
+                mode={htmlFaceDisplayMode}
+                minHeightPx={240}
+                globalDefaultScale={htmlFaceGlobalDefaultScale}
+                noteFixedScale={htmlFace?.fixedScale ?? null}
+                onSaveNoteFixedScale={String(note.dir || '').trim() ? handleSaveNoteFixedScale : undefined}
+              />
             ) : editing ? textEditorMode === 'live' ? (
               <BlockEditor value={editBody} onChange={setEditBody} placeholder="开始编辑正文..." minHeight={400} onBlockRendered={handleBlockRendered} active={visible} refreshToken={noteIndexMap} />
             ) : (

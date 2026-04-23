@@ -98,6 +98,7 @@ export type HyperCortexMetadataV1 = {
   // When enabled, a "?" button appears in the top bar to show configured shortcuts.
   shortcutHintsEnabled?: boolean
   htmlFaceDisplayMode?: HyperCortexHtmlFaceDisplayModeV1
+  htmlFaceFixedScaleDefault?: number
   trashEnabled?: boolean
   trashAutoDeleteDays?: number
 }

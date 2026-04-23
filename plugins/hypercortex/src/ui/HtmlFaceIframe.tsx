@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, IconButton, Slider, Tooltip, Typography } from '@mui/material'
+import { Box, Button, IconButton, Slider, Tooltip, Typography } from '@mui/material'
+import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import RemoveRoundedIcon from '@mui/icons-material/RemoveRounded'
 import FitScreenRoundedIcon from '@mui/icons-material/FitScreenRounded'
@@ -10,6 +11,9 @@ type Props = {
   html: string
   mode: HyperCortexHtmlFaceDisplayModeV1
   minHeightPx?: number
+  globalDefaultScale?: number
+  noteFixedScale?: number | null
+  onSaveNoteFixedScale?: (scale: number | null) => Promise<void> | void
 }
 
 const FIXED_VIEWPORT_WIDTH = 1280
@@ -17,6 +21,7 @@ const FIXED_VIEWPORT_HEIGHT = 900
 const FIXED_FIT_SCALE_MIN = 0.25
 const FIXED_FIT_SCALE_MAX = 2
 const FIXED_FIT_SCALE_STEP = 0.01
+const FALLBACK_FIXED_SCALE_DEFAULT = 0.95
 
 function createToken(): string {
   try {
@@ -39,6 +44,12 @@ function clampNum(value: number, min: number, max: number): number {
   if (value < min) return min
   if (value > max) return max
   return value
+}
+
+function normalizeScale(value: unknown, fallback: number): number {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return clampNum(fallback, FIXED_FIT_SCALE_MIN, FIXED_FIT_SCALE_MAX)
+  return clampNum(n, FIXED_FIT_SCALE_MIN, FIXED_FIT_SCALE_MAX)
 }
 
 function useElementSize<T extends HTMLElement>() {
@@ -93,14 +104,27 @@ function FitWindowHtmlIframe(props: { html: string; minHeightPx: number }) {
   )
 }
 
-function FixedFitHtmlIframe(props: { html: string; minHeightPx: number }) {
-  const { html, minHeightPx } = props
+function FixedFitHtmlIframe(props: {
+  html: string
+  minHeightPx: number
+  globalDefaultScale: number
+  noteFixedScale?: number | null
+  onSaveNoteFixedScale?: (scale: number | null) => Promise<void> | void
+}) {
+  const { html, minHeightPx, globalDefaultScale, noteFixedScale, onSaveNoteFixedScale } = props
   const tokenRef = React.useRef('')
   if (!tokenRef.current) tokenRef.current = createToken()
 
   const srcDoc = React.useMemo(() => normalizeHtmlDocument(html), [html])
   const { ref: stageRef, size: stageSize } = useElementSize<HTMLDivElement>()
-  const [scale, setScale] = React.useState(1)
+  const preferredScale = noteFixedScale ?? globalDefaultScale
+  const normalizedPreferredScale = normalizeScale(preferredScale, FALLBACK_FIXED_SCALE_DEFAULT)
+  const [scale, setScale] = React.useState(normalizedPreferredScale)
+  const [saving, setSaving] = React.useState(false)
+
+  React.useEffect(() => {
+    setScale(normalizedPreferredScale)
+  }, [html, normalizedPreferredScale])
 
   const fitScale = React.useMemo(() => {
     const sw = stageSize.width
@@ -109,13 +133,21 @@ function FixedFitHtmlIframe(props: { html: string; minHeightPx: number }) {
     return Math.min(sw / FIXED_VIEWPORT_WIDTH, sh / FIXED_VIEWPORT_HEIGHT)
   }, [stageSize.height, stageSize.width])
 
-  React.useEffect(() => {
-    setScale(1)
-  }, [html])
-
   const effectiveScale = clampNum(fitScale * scale, FIXED_FIT_SCALE_MIN, FIXED_FIT_SCALE_MAX)
   const renderedWidth = FIXED_VIEWPORT_WIDTH * effectiveScale
   const renderedHeight = FIXED_VIEWPORT_HEIGHT * effectiveScale
+  const isDirty = Math.abs(scale - normalizedPreferredScale) > 0.0001
+  const hasNoteOverride = noteFixedScale != null && Number.isFinite(noteFixedScale)
+
+  const handleSave = async () => {
+    if (!onSaveNoteFixedScale || saving) return
+    setSaving(true)
+    try {
+      await onSaveNoteFixedScale(scale)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -141,8 +173,8 @@ function FixedFitHtmlIframe(props: { html: string; minHeightPx: number }) {
             max={FIXED_FIT_SCALE_MAX}
             step={FIXED_FIT_SCALE_STEP}
             value={scale}
-            onChange={(_, next) => setScale(Array.isArray(next) ? next[0] : next)}
-            aria-label="HTML 面视图比例"
+            onChange={(_, next) => setScale(normalizeScale(Array.isArray(next) ? next[0] : next, normalizedPreferredScale))}
+            aria-label="HTML 面缩放比例"
           />
         </Box>
         <Typography sx={{ minWidth: 56, fontSize: 12, color: 'rgba(0,0,0,.62)', textAlign: 'right' }}>
@@ -162,13 +194,30 @@ function FixedFitHtmlIframe(props: { html: string; minHeightPx: number }) {
             </IconButton>
           </span>
         </Tooltip>
-        <Tooltip title="恢复适配比例">
+        <Tooltip title="恢复为当前初始比例">
           <span>
-            <IconButton size="small" aria-label="恢复适配比例" onClick={() => setScale(1)}>
+            <IconButton size="small" aria-label="恢复为当前初始比例" onClick={() => setScale(normalizedPreferredScale)}>
               <FitScreenRoundedIcon fontSize="small" />
             </IconButton>
           </span>
         </Tooltip>
+        {onSaveNoteFixedScale ? (
+          <Button
+            size="small"
+            variant={isDirty ? 'contained' : 'outlined'}
+            startIcon={<SaveRoundedIcon fontSize="small" />}
+            disabled={!isDirty || saving}
+            onClick={() => void handleSave()}
+          >
+            {saving ? '保存中…' : '保存到笔记'}
+          </Button>
+        ) : null}
+      </Box>
+
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 0.25 }}>
+        <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)' }}>
+          当前初始来源：{hasNoteOverride ? '笔记级' : '全局默认'}（{Math.round(normalizedPreferredScale * 100)}%）
+        </Typography>
       </Box>
 
       <Box
@@ -223,14 +272,29 @@ function FixedFitHtmlIframe(props: { html: string; minHeightPx: number }) {
 }
 
 export function HtmlFaceIframe(props: Props) {
-  const { html, mode, minHeightPx = 240 } = props
+  const {
+    html,
+    mode,
+    minHeightPx = 240,
+    globalDefaultScale = FALLBACK_FIXED_SCALE_DEFAULT,
+    noteFixedScale,
+    onSaveNoteFixedScale,
+  } = props
 
   if (mode === 'fit-window') {
     return <FitWindowHtmlIframe html={html} minHeightPx={minHeightPx} />
   }
 
   if (mode === 'fixed-fit') {
-    return <FixedFitHtmlIframe html={html} minHeightPx={minHeightPx} />
+    return (
+      <FixedFitHtmlIframe
+        html={html}
+        minHeightPx={minHeightPx}
+        globalDefaultScale={globalDefaultScale}
+        noteFixedScale={noteFixedScale}
+        onSaveNoteFixedScale={onSaveNoteFixedScale}
+      />
+    )
   }
 
   return <AutoHeightHtmlIframe html={html} minHeightPx={minHeightPx} />

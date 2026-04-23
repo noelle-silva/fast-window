@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, Typography } from '@mui/material'
+import { Box, Slider, Typography } from '@mui/material'
 import type { HyperCortexHtmlFaceDisplayModeV1 } from '../core'
 
 // 三种模式的元数据：集中管理，避免在多处重复写
@@ -28,8 +28,10 @@ const HTML_FACE_DISPLAY_MODES: {
 export function HtmlFaceDisplaySettingsPanel(props: {
   mode: HyperCortexHtmlFaceDisplayModeV1
   onChange: (mode: HyperCortexHtmlFaceDisplayModeV1) => void
+  fixedScaleDefault: number
+  onFixedScaleDefaultChange: (scale: number) => void
 }) {
-  const { mode, onChange } = props
+  const { mode, onChange, fixedScaleDefault, onFixedScaleDefaultChange } = props
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
@@ -116,6 +118,31 @@ export function HtmlFaceDisplaySettingsPanel(props: {
             </Box>
           )
         })}
+      </Box>
+
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, px: 1.25, py: 1, borderRadius: 2, bgcolor: 'rgba(0,0,0,.02)' }}>
+        <Typography sx={{ fontSize: 14, fontWeight: 700, color: '#111' }}>
+          全局默认缩放比例
+        </Typography>
+        <Typography sx={{ fontSize: 12, lineHeight: 1.5, color: 'rgba(0,0,0,.55)' }}>
+          仅用于“固定视口缩放”模式。默认值为 {Math.round(fixedScaleDefault * 100)}%；如果某篇笔记保存了自己的缩放比例，则优先使用笔记自己的值。
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Box sx={{ flex: 1, minWidth: 160, maxWidth: 320, px: 0.5 }}>
+            <Slider
+              size="small"
+              min={0.25}
+              max={2}
+              step={0.01}
+              value={fixedScaleDefault}
+              onChange={(_, next) => onFixedScaleDefaultChange(Array.isArray(next) ? next[0] : next)}
+              aria-label="HTML 面全局默认缩放比例"
+            />
+          </Box>
+          <Typography sx={{ minWidth: 56, fontSize: 12, color: 'rgba(0,0,0,.62)', textAlign: 'right' }}>
+            {Math.round(fixedScaleDefault * 100)}%
+          </Typography>
+        </Box>
       </Box>
     </Box>
   )

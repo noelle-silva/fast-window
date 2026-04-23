@@ -36,6 +36,7 @@ export type HyperCortexHtmlFaceDoc = {
   createdAtMs: number
   updatedAtMs: number
   schemaVersion: number
+  fixedScale?: number
 }
 
 function notePackageFolderNameForTitleAndId(title: string, id: string): string {
@@ -72,12 +73,15 @@ function noteDocWithDisplay(doc: HyperCortexNoteDocData): HyperCortexNoteDoc {
 }
 
 function htmlFaceDocFromManifest(manifest: HyperCortexNoteManifestV1, packageDir: string, html: string, exists: boolean): HyperCortexHtmlFaceDoc {
+  const rawScale = manifest.faces?.htmlView?.fixedScale
+  const fixedScale = Number.isFinite(rawScale) && typeof rawScale === 'number' ? rawScale : undefined
   return {
     id: manifest.id,
     packageDir,
     title: manifest.title,
     html,
     exists,
+    fixedScale,
     createdAtMs: manifest.createdAtMs,
     updatedAtMs: manifest.updatedAtMs,
     schemaVersion: manifest.schemaVersion,
@@ -121,6 +125,7 @@ async function saveNoteFiles(
   options?: {
     saveTextFace?: boolean
     htmlViewContent?: string | null
+    htmlViewFixedScale?: number | null
   },
 ): Promise<HyperCortexNoteManifestV1> {
   const existingManifest = await readNoteManifest(api, scope, doc.packageDir).catch(() => null)
@@ -145,7 +150,9 @@ async function saveNoteFiles(
       text: normalizeHtmlViewContent(options.htmlViewContent),
       overwrite: true,
     })
-    faces.htmlView = { file: NOTE_HTML_VIEW_FILE }
+    const rawScale = options?.htmlViewFixedScale
+    const fixedScale = Number.isFinite(rawScale) && typeof rawScale === 'number' ? rawScale : undefined
+    faces.htmlView = fixedScale !== undefined ? { file: NOTE_HTML_VIEW_FILE, fixedScale } : { file: NOTE_HTML_VIEW_FILE }
   } else if (options?.htmlViewContent === null) {
     await deleteNoteFileIfExists(api, scope, doc.packageDir, NOTE_HTML_VIEW_FILE)
     delete faces.htmlView
@@ -369,4 +376,33 @@ export async function loadNoteIndex(api: Api, scope: VaultScope): Promise<HyperC
     idx = await rebuildNoteIndexFromFs(api, scope, idx)
   }
   return idx
+}
+
+/**
+ * 仅更新 manifest 里 htmlView.fixedScale，不改动 HTML 文件内容。
+ * fixedScale 传 null 则清除笔记级设置（回退到全局默认）。
+ */
+export async function saveHtmlFaceFixedScale(
+  api: Api,
+  scope: VaultScope,
+  packageDir: string,
+  fixedScale: number | null,
+): Promise<void> {
+  const manifest = await readNoteManifest(api, scope, packageDir)
+  if (!manifest.faces.htmlView) return
+  const next = createNoteManifest({
+    ...manifest,
+    faces: {
+      ...manifest.faces,
+      htmlView: fixedScale !== null && Number.isFinite(fixedScale)
+        ? { ...manifest.faces.htmlView, fixedScale }
+        : { file: manifest.faces.htmlView.file },
+    },
+  })
+  await api.files.writeText({
+    scope,
+    path: notePathInPackage(packageDir, NOTE_MANIFEST_FILE),
+    text: JSON.stringify(next, null, 2),
+    overwrite: true,
+  })
 }

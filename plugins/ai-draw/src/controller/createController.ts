@@ -321,7 +321,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       updatedAt: Date.now(),
       response: {
         status: rr && Number.isFinite(Number(rr.status)) ? Number(rr.status) : null,
-        bodyText: rr && typeof rr.body === 'string' ? rr.body : '',
+        bodyText: rr && typeof rr.body === 'string' ? rr.body : String(task?.error || ''),
         errorText: String(task?.error || ''),
       },
     }
