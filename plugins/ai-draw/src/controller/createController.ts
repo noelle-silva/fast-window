@@ -160,6 +160,9 @@ export type AiDrawController = {
 
   savePluginSettings: (patch: Partial<Pick<AiDrawSettingsV1, 'autoSave' | 'shrinkRefImages' | 'promptHistoryLimit' | 'requestTimeoutSec'>>) => Promise<void>
   clearPromptHistory: () => Promise<void>
+
+  deletePromptHistoryItem: (text: string) => Promise<void>
+  deletePromptHistoryItems: (texts: string[]) => Promise<void>
 }
 
 function isTaskDone(status: string) {
@@ -481,6 +484,29 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     }
 
     syncPromptHistoryToData(true)
+  }
+
+  async function deletePromptHistoryItems(texts: string[]) {
+    const raw = Array.isArray(texts) ? texts : []
+    const del = new Set<string>()
+    for (const t of raw) {
+      const s = String(t || '').trim()
+      if (s) del.add(s)
+      if (del.size >= 500) break
+    }
+    if (!del.size) return
+
+    state.promptHistory = state.promptHistory.filter((x) => !del.has(String(x || '').trim()))
+    state.promptHistoryIndex = -1
+    state.promptHistoryDraft = ''
+    syncPromptHistoryToData(true)
+    notify()
+  }
+
+  async function deletePromptHistoryItem(text: string) {
+    const s = String(text || '').trim()
+    if (!s) return
+    await deletePromptHistoryItems([s])
   }
 
   function canSwitchPromptPrev() {
@@ -1950,5 +1976,8 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
     savePluginSettings,
     clearPromptHistory,
+
+    deletePromptHistoryItem,
+    deletePromptHistoryItems,
   }
 }

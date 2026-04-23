@@ -288,6 +288,12 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const [settingsOpen, setSettingsOpen] = React.useState(false)
   const [promptLibOpen, setPromptLibOpen] = React.useState(false)
   const [promptHistoryOpen, setPromptHistoryOpen] = React.useState(false)
+  const [promptHistoryMultiMode, setPromptHistoryMultiMode] = React.useState(false)
+  const [promptHistorySelectedTexts, setPromptHistorySelectedTexts] = React.useState<string[]>([])
+  const [promptHistoryDeleteConfirm, setPromptHistoryDeleteConfirm] = React.useState<{ open: boolean; texts: string[] }>({ open: false, texts: [] })
+  const [promptHistoryItemMenu, setPromptHistoryItemMenu] = React.useState<{ open: boolean; x: number; y: number; text: string }>(
+    { open: false, x: 0, y: 0, text: '' },
+  )
   const [refLibraryOpen, setRefLibraryOpen] = React.useState(false)
   const [imageGalleryOpen, setImageGalleryOpen] = React.useState(false)
   const [imageGalleryLimit, setImageGalleryLimit] = React.useState(36)
@@ -537,6 +543,35 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
     if (!q) return list
     return list.filter((x) => String(x || '').toLowerCase().includes(q))
   }, [promptHistoryListNewestFirst, promptHistoryQuery])
+
+  const togglePromptHistorySelected = React.useCallback((text: string) => {
+    const t = String(text || '').trim()
+    if (!t) return
+    setPromptHistorySelectedTexts((prev) => {
+      const set = new Set(prev.map((x) => String(x || '').trim()).filter(Boolean))
+      if (set.has(t)) set.delete(t)
+      else set.add(t)
+      return Array.from(set)
+    })
+  }, [])
+
+  const clearPromptHistorySelection = React.useCallback(() => {
+    setPromptHistorySelectedTexts([])
+  }, [])
+
+  const promptHistorySelectedSet = React.useMemo(
+    () => new Set(promptHistorySelectedTexts.map((x) => String(x || '').trim()).filter(Boolean)),
+    [promptHistorySelectedTexts],
+  )
+
+  const promptHistorySelectedCount = promptHistorySelectedSet.size
+
+  React.useEffect(() => {
+    if (!promptHistoryOpen) return
+    // 打开弹窗时不强行切换模式，但清空上次选中，避免误删。
+    clearPromptHistorySelection()
+    setPromptHistoryItemMenu({ open: false, x: 0, y: 0, text: '' })
+  }, [promptHistoryOpen, clearPromptHistorySelection])
 
   const imageHistoryListNewestFirst = React.useMemo(() => {
     const list = Array.isArray(state.imageHistory) ? state.imageHistory : []
@@ -1569,6 +1604,40 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                   placeholder="搜索历史提示词"
                   fullWidth
                 />
+
+                <Button
+                  size="small"
+                  variant={promptHistoryMultiMode ? 'contained' : 'outlined'}
+                  onClick={() => {
+                    setPromptHistoryMultiMode((m) => {
+                      const next = !m
+                      if (!next) clearPromptHistorySelection()
+                      return next
+                    })
+                  }}
+                >
+                  {promptHistoryMultiMode ? '完成' : '多选'}
+                </Button>
+
+                {promptHistoryMultiMode ? (
+                  <>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="error"
+                      startIcon={<DeleteRoundedIcon fontSize="small" />}
+                      disabled={!promptHistorySelectedCount}
+                      onClick={() => {
+                        const texts = Array.from(promptHistorySelectedSet)
+                        if (!texts.length) return
+                        setPromptHistoryDeleteConfirm({ open: true, texts })
+                      }}
+                    >
+                      删除
+                    </Button>
+                    <Chip size="small" variant="outlined" color="primary" label={`已选 ${promptHistorySelectedCount} 条`} />
+                  </>
+                ) : null}
               </Stack>
 
               <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }}>
@@ -1576,18 +1645,46 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                   {promptHistoryFiltered.length ? (
                     promptHistoryFiltered.map((t, idx) => {
                       const text = String(t || '')
+                      const selected = promptHistoryMultiMode && promptHistorySelectedSet.has(String(text || '').trim())
                       return (
                         <Paper
                           key={`${idx}-${text.slice(0, 24)}`}
-                          sx={{ p: 1, cursor: 'pointer', borderRadius: 2, bgcolor: 'rgba(255,255,255,0.78)' }}
+                          sx={{
+                            p: 1,
+                            cursor: 'pointer',
+                            borderRadius: 2,
+                            bgcolor: 'rgba(255,255,255,0.78)',
+                            ...(selected ? { border: '1px solid', borderColor: 'primary.main' } : null),
+                          }}
                           onClick={() => {
+                            if (promptHistoryMultiMode) return togglePromptHistorySelected(text)
                             controller.setPrompt(text)
                             void api.clipboard
                               .writeText(text)
                               .then(() => api.ui.showToast('已复制并填入'))
                               .catch((e: any) => api.ui.showToast(`复制失败：${String(e?.message || e)}`))
                           }}
+                          onContextMenu={(e) => {
+                            e.preventDefault()
+                            if (promptHistoryMultiMode) return
+                            const s = String(text || '').trim()
+                            if (!s) return
+                            setPromptHistoryItemMenu({ open: true, x: e.clientX, y: e.clientY, text: s })
+                          }}
                         >
+                          {promptHistoryMultiMode ? (
+                            <Checkbox
+                              size="small"
+                              checked={promptHistorySelectedSet.has(String(text || '').trim())}
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                              }}
+                              onChange={() => togglePromptHistorySelected(text)}
+                              inputProps={{ 'aria-label': '选择提示词' }}
+                              sx={{ p: 0, mr: 1, mt: -0.25 }}
+                            />
+                          ) : null}
                           <Typography sx={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>{text}</Typography>
                         </Paper>
                       )
@@ -1600,6 +1697,76 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
             </Stack>
           </Box>
         </DialogContent>
+      </Dialog>
+
+      <Menu
+        open={promptHistoryItemMenu.open}
+        onClose={() => setPromptHistoryItemMenu({ open: false, x: 0, y: 0, text: '' })}
+        anchorReference="anchorPosition"
+        anchorPosition={promptHistoryItemMenu.open ? { top: promptHistoryItemMenu.y, left: promptHistoryItemMenu.x } : undefined}
+      >
+        <MenuItem
+          onClick={() => {
+            const text = promptHistoryItemMenu.text
+            setPromptHistoryItemMenu({ open: false, x: 0, y: 0, text: '' })
+            if (!text) return
+            controller.setPrompt(text)
+            void api.clipboard
+              .writeText(text)
+              .then(() => api.ui.showToast('已复制并填入'))
+              .catch((e: any) => api.ui.showToast(`复制失败：${String(e?.message || e)}`))
+          }}
+        >
+          使用
+        </MenuItem>
+        <MenuItem
+          sx={{ color: 'error.main' }}
+          onClick={() => {
+            const text = promptHistoryItemMenu.text
+            setPromptHistoryItemMenu({ open: false, x: 0, y: 0, text: '' })
+            if (!text) return
+            setPromptHistoryDeleteConfirm({ open: true, texts: [text] })
+          }}
+        >
+          删除
+        </MenuItem>
+      </Menu>
+
+      <Dialog
+        open={promptHistoryDeleteConfirm.open}
+        onClose={() => setPromptHistoryDeleteConfirm({ open: false, texts: [] })}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>确认删除提示词？</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
+            将删除 {promptHistoryDeleteConfirm.texts.length} 条历史提示词（无法恢复）。
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPromptHistoryDeleteConfirm({ open: false, texts: [] })}>取消</Button>
+          <Button
+            color="error"
+            variant="contained"
+            disabled={!promptHistoryDeleteConfirm.texts.length}
+            onClick={() => {
+              const texts = promptHistoryDeleteConfirm.texts.slice()
+              setPromptHistoryDeleteConfirm({ open: false, texts: [] })
+              if (!texts.length) return
+              void controller.deletePromptHistoryItems(texts).then(
+                () => {
+                  // 删除后保持在多选模式下，但清掉已选。
+                  clearPromptHistorySelection()
+                  api.ui.showToast('已删除')
+                },
+                (e: any) => api.ui.showToast(`删除失败：${String(e?.message || e)}`),
+              )
+            }}
+          >
+            删除
+          </Button>
+        </DialogActions>
       </Dialog>
 
       <Dialog
