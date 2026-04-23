@@ -73,6 +73,7 @@ export type AiDrawFastWindowApi = {
     writeText: (req: any) => Promise<any>
     delete: (req: any) => Promise<any>
     pickImages: (maxCount?: any) => Promise<any>
+    thumbnail: (req: { scope: string; path: string; width?: number; height?: number }) => Promise<string>
     images: {
       writeBase64: (req: any) => Promise<any>
       read: (req: any) => Promise<any>
@@ -375,6 +376,17 @@ export function createAiDrawFastWindowApi(baseApi: any, pluginId: string): AiDra
           command: 'plugin_pick_images',
           payload: { pluginId: PLUGIN_ID, maxCount: mc },
           timeoutMs: UI_PICKER_TIMEOUT_MS,
+        })
+      },
+      thumbnail: async (req: { scope: string; path: string; width?: number; height?: number }) => {
+        const scope = String(req?.scope || '').trim()
+        const path = String(req?.path || '').trim()
+        const width = typeof req?.width === 'number' ? req.width : undefined
+        const height = typeof req?.height === 'number' ? req.height : undefined
+        return tauri.invoke({
+          command: 'plugin_files_thumbnail',
+          payload: { pluginId: PLUGIN_ID, req: { scope, path, width, height } },
+          timeoutMs: IMAGE_IO_TIMEOUT_MS,
         })
       },
       images: {

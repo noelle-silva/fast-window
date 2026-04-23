@@ -32,6 +32,7 @@
     "tauri:plugin_images_read",
     "tauri:plugin_images_list",
     "tauri:plugin_images_delete",
+    "tauri:plugin_files_thumbnail",
     "tauri:plugin:window|start_dragging",
     "tauri:plugin:clipboard-manager|write_text",
     "tauri:clipboard_write_image_data_url"

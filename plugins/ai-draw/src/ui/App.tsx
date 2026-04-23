@@ -688,7 +688,9 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
     // 参考图库同款机制：对当前 slice(0, limit) 做 ensure。
     // controller 内部有并发限流与重试节流，避免一次性并发太多导致卡顿。
     const slice = imageHistoryFiltered.slice(0, Math.max(0, imageGalleryLimit))
-    for (const it of slice) {
+    // controller uses a LIFO queue; enqueue in reverse so the first visible items start first.
+    for (let i = slice.length - 1; i >= 0; i--) {
+      const it = slice[i]
       const savedPath = String(it?.savedPath || '').trim()
       if (savedPath) controller.ensureImageHistoryItemLoaded(savedPath)
     }
@@ -1821,9 +1823,10 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                   {imageHistoryFiltered.length ? (
                     imageHistoryFiltered.slice(0, imageGalleryLimit).map((it, idx) => {
                       const savedPath = String(it?.savedPath || '').trim()
-                      const dataUrl = String(it?.dataUrl || '').trim()
-                      const loading = !!(it as any)?.loading
-                      const error = String((it as any)?.error || '').trim()
+                      const slot = savedPath ? (state.outputThumbsByPath as any)?.[savedPath] : null
+                      const dataUrl = String(slot?.dataUrl || '').trim()
+                      const loading = !!slot?.loading
+                      const error = String(slot?.error || '').trim()
                       const key = savedPath || `idx:${idx}`
                       return (
                         <Box

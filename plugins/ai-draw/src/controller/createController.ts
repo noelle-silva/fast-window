@@ -37,6 +37,7 @@ import { formatBytes, id, isHttpBaseUrl, normalizeBatchCount, trimSlash } from '
 import { buildMultipartFormDataBytes, base64ToBytes, bytesToBase64, inferExtFromMime } from '../core/multipart'
 import { parseErrorBody, parseImageDataUrlFromHttpBodyText } from '../core/httpParse'
 import { formatAiDrawError } from '../core/errorFormat'
+import { LruCache } from '../core/lru'
 
 const STORAGE_KEY = 'settings'
 const PROMPT_LIBRARY_KEY = 'promptLibrary'
@@ -54,7 +55,13 @@ const REF_SHRINK_MAX_DIMENSION = 960
 const REF_SHRINK_IF_OVER_BYTES = 900 * 1024
 
 export type AiDrawTaskItem = { id: string; status: string; prompt: string; at: number }
-export type AiDrawImageHistoryItem = { savedPath: string; dataUrl: string; loading?: boolean; error?: string }
+export type AiDrawImageHistoryItem = {
+  savedPath: string
+  // Full image data URL (for the main output view).
+  dataUrl: string
+  loading?: boolean
+  error?: string
+}
 
 export type AiDrawEditState = {
   baseName: string
@@ -84,6 +91,8 @@ export type AiDrawControllerState = {
   savedPath: string
   imageDataUrl: string
   imageHistory: AiDrawImageHistoryItem[]
+  // Batch preview thumbnails for output images.
+  outputThumbsByPath: Record<string, { dataUrl: string; loading: boolean; error: string }>
   imageHistoryIndex: number
   tasks: AiDrawTaskItem[]
   promptHistory: string[]
@@ -197,6 +206,11 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
   const localEditContextByTaskId = new Map<string, { baseDataUrl: string; selPx: { x: number; y: number; w: number; h: number } }>()
   const imageLoadByPath = new Map<string, Promise<string>>()
 
+  // Output gallery thumbnails (do NOT mix with full images).
+  type ThumbSlot = { dataUrl: string; loading: boolean; error: string }
+  const outputThumbSlotByPath: Record<string, ThumbSlot> = {}
+  const outputThumbCache = new LruCache<string, string>({ maxEntries: 400 })
+
   function readFileAsDataUrl(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
       if (!(file instanceof File)) return reject(new Error('file 无效'))
@@ -212,7 +226,39 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
   const imageThumbQueued = new Set<string>()
   let imageThumbActive = 0
   let imageThumbDrainTimer: any = null
-  const IMAGE_THUMB_MAX_CONCURRENT = 4
+  const IMAGE_THUMB_MAX_CONCURRENT = 8
+
+  const OUTPUT_THUMB_SIZE = 256
+
+  const ensureOutputThumbSlot = (savedPath: string): ThumbSlot => {
+    const p = String(savedPath || '').trim()
+    if (!p) return { dataUrl: '', loading: false, error: 'bad path' }
+    const cur = outputThumbSlotByPath[p]
+    if (cur) return cur
+    const next: ThumbSlot = { dataUrl: '', loading: false, error: '' }
+    outputThumbSlotByPath[p] = next
+    return next
+  }
+
+  async function readOutputThumbDataUrl(savedPath: string): Promise<string> {
+    const p = String(savedPath || '').trim()
+    if (!p) return ''
+
+    const cached = outputThumbCache.get(p)
+    if (typeof cached === 'string' && cached.startsWith('data:image/')) return cached
+
+    // Use host-generated thumbnail.
+    const u = await api.files
+      .thumbnail({ scope: 'output', path: p, width: OUTPUT_THUMB_SIZE, height: OUTPUT_THUMB_SIZE })
+      .then((x) => String(x || '').trim())
+      .catch(() => '')
+    if (u.startsWith('data:image/')) {
+      outputThumbCache.set(p, u)
+      return u
+    }
+
+    return ''
+  }
 
   const scheduleDrainImageThumbQueue = () => {
     if (imageThumbDrainTimer) return
@@ -228,42 +274,35 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       if (!p) continue
       imageThumbQueued.delete(p)
 
-      const item = state.imageHistory.find((x) => String(x?.savedPath || '').trim() === p)
-      if (!item) continue
-      if (item.dataUrl) continue
-      if (imageLoadByPath.has(p)) continue
+      const slot = ensureOutputThumbSlot(p)
+      if (slot.dataUrl) continue
+      if (slot.loading) continue
+      if (imageLoadByPath.has(`thumb:${p}`)) continue
 
-      item.loading = true
-      item.error = ''
+      slot.loading = true
+      slot.error = ''
       notify()
 
       imageThumbActive++
-      const job = api.files.images
-        .read({ scope: 'output', path: p })
-        .then((u) => String(u || '').trim())
-        .catch(() => '')
+      const job = readOutputThumbDataUrl(p)
         .finally(() => {
-          imageLoadByPath.delete(p)
+          imageLoadByPath.delete(`thumb:${p}`)
           imageThumbActive = Math.max(0, imageThumbActive - 1)
           scheduleDrainImageThumbQueue()
         })
 
-      imageLoadByPath.set(p, job)
+      imageLoadByPath.set(`thumb:${p}`, job)
       void job.then((u) => {
-        const it = state.imageHistory.find((x) => String(x?.savedPath || '').trim() === p)
-        if (!it) return
-
         if (!u) {
-          it.loading = false
-          it.error = '加载失败'
+          slot.loading = false
+          slot.error = '加载失败'
           notify()
           return
         }
 
-        // 其它链路可能已经把 dataUrl 写好了，这里只做补写与收敛状态。
-        if (!it.dataUrl) it.dataUrl = u
-        it.loading = false
-        it.error = ''
+        slot.dataUrl = u
+        slot.loading = false
+        slot.error = ''
         notify()
       })
     }
@@ -289,6 +328,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     savedPath: '',
     imageDataUrl: '',
     imageHistory: [],
+    outputThumbsByPath: outputThumbSlotByPath,
     imageHistoryIndex: -1,
     tasks: [],
     promptHistory: [],
@@ -747,6 +787,12 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     const list = (Array.isArray(paths) ? paths : []).map((x) => String(x || '').trim()).filter(Boolean)
     state.imageHistory = list.reverse().map((savedPath) => ({ savedPath, dataUrl: '', loading: false, error: '' }))
 
+    // Keep thumbnail cache & slots across openings; just prune stale slots.
+    const alive = new Set(state.imageHistory.map((x) => String(x?.savedPath || '').trim()).filter(Boolean))
+    for (const k of Object.keys(outputThumbSlotByPath)) {
+      if (!alive.has(k)) delete outputThumbSlotByPath[k]
+    }
+
     // 列表刷新后，清空旧的排队任务，避免队列堆积与加载无效项。
     imageThumbQueue.length = 0
     imageThumbQueued.clear()
@@ -774,12 +820,11 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     const p = String(savedPath || '').trim()
     if (!p) return
 
-    const item = state.imageHistory.find((x) => String(x?.savedPath || '').trim() === p)
-    if (!item) return
-    if (item.dataUrl) return
-    if (item.loading) return
-
-    if (imageLoadByPath.has(p)) return
+    // Ensure thumbnail for batch preview. Full image loading remains in applyImageHistoryIndex.
+    const slot = ensureOutputThumbSlot(p)
+    if (slot.dataUrl) return
+    if (slot.loading) return
+    if (imageLoadByPath.has(`thumb:${p}`)) return
 
     // 去重入队，交给 drain 按并发上限执行。
     if (imageThumbQueued.has(p)) return
