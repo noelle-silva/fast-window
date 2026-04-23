@@ -8,6 +8,12 @@ type OverlayScrollAreaProps = {
   sx?: SxProps<Theme>
   contentSx?: SxProps<Theme>
   fill?: boolean
+  /**
+   * Scroll axis.
+   * - 'y': vertical (default)
+   * - 'x': horizontal
+   */
+  axis?: 'y' | 'x'
   thumbWidth?: number
   thumbMinHeight?: number
   thumbInset?: number
@@ -22,6 +28,7 @@ export function OverlayScrollArea(props: OverlayScrollAreaProps) {
     sx,
     contentSx,
     fill = true,
+    axis = 'y',
     thumbWidth = 6,
     thumbMinHeight = 18,
     thumbInset = 2,
@@ -35,15 +42,15 @@ export function OverlayScrollArea(props: OverlayScrollAreaProps) {
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const dragRef = React.useRef<{
     pointerId: number
-    startY: number
-    startScrollTop: number
+    startClient: number
+    startScroll: number
     ratio: number
   } | null>(null)
 
-  const [thumb, setThumb] = React.useState<{ needed: boolean; top: number; height: number }>({
+  const [thumb, setThumb] = React.useState<{ needed: boolean; pos: number; size: number }>({
     needed: false,
-    top: 0,
-    height: 0,
+    pos: 0,
+    size: 0,
   })
   const [active, setActive] = React.useState(false)
   const activeTimerRef = React.useRef<number | null>(null)
@@ -59,32 +66,32 @@ export function OverlayScrollArea(props: OverlayScrollAreaProps) {
     const el = scrollRef.current
     if (!el) return
 
-    const clientHeight = el.clientHeight
-    const scrollHeight = el.scrollHeight
-    const scrollTop = el.scrollTop
-    const needed = scrollHeight > clientHeight + 1
+    const client = axis === 'x' ? el.clientWidth : el.clientHeight
+    const scroll = axis === 'x' ? el.scrollWidth : el.scrollHeight
+    const scrollPos = axis === 'x' ? el.scrollLeft : el.scrollTop
+    const needed = scroll > client + 1
 
     if (!needed) {
-      setThumb((t) => (t.needed ? { needed: false, top: 0, height: 0 } : t))
+      setThumb((t) => (t.needed ? { needed: false, pos: 0, size: 0 } : t))
       return
     }
 
-    const trackHeight = clientHeight
-    const rawHeight = (clientHeight * clientHeight) / Math.max(1, scrollHeight)
-    const height = Math.max(thumbMinHeight, Math.min(trackHeight, rawHeight))
+    const track = client
+    const rawSize = (client * client) / Math.max(1, scroll)
+    const size = Math.max(thumbMinHeight, Math.min(track, rawSize))
 
-    const maxScrollTop = Math.max(1, scrollHeight - clientHeight)
-    const maxThumbTop = Math.max(0, trackHeight - height)
-    const top = (scrollTop / maxScrollTop) * maxThumbTop
+    const maxScroll = Math.max(1, scroll - client)
+    const maxThumb = Math.max(0, track - size)
+    const pos = (scrollPos / maxScroll) * maxThumb
 
     setThumb((prev) => {
       const same =
         prev.needed === needed &&
-        Math.abs(prev.top - top) < 0.5 &&
-        Math.abs(prev.height - height) < 0.5
-      return same ? prev : { needed, top, height }
+        Math.abs(prev.pos - pos) < 0.5 &&
+        Math.abs(prev.size - size) < 0.5
+      return same ? prev : { needed, pos, size }
     })
-  }, [thumbMinHeight])
+  }, [axis, thumbMinHeight])
 
   const scheduleRecompute = React.useCallback(() => {
     if (rafRef.current) return
@@ -134,18 +141,18 @@ export function OverlayScrollArea(props: OverlayScrollAreaProps) {
       if (!el) return
       if (!thumb.needed) return
 
-      const clientHeight = el.clientHeight
-      const scrollHeight = el.scrollHeight
-      const trackHeight = clientHeight
-      const height = thumb.height || Math.max(thumbMinHeight, (clientHeight * clientHeight) / Math.max(1, scrollHeight))
-      const maxThumbTop = Math.max(1, trackHeight - height)
-      const maxScrollTop = Math.max(1, scrollHeight - clientHeight)
-      const ratio = maxScrollTop / maxThumbTop
+      const client = axis === 'x' ? el.clientWidth : el.clientHeight
+      const scroll = axis === 'x' ? el.scrollWidth : el.scrollHeight
+      const track = client
+      const size = thumb.size || Math.max(thumbMinHeight, (client * client) / Math.max(1, scroll))
+      const maxThumb = Math.max(1, track - size)
+      const maxScroll = Math.max(1, scroll - client)
+      const ratio = maxScroll / maxThumb
 
       dragRef.current = {
         pointerId: e.pointerId,
-        startY: e.clientY,
-        startScrollTop: el.scrollTop,
+        startClient: axis === 'x' ? e.clientX : e.clientY,
+        startScroll: axis === 'x' ? el.scrollLeft : el.scrollTop,
         ratio,
       }
 
@@ -163,12 +170,15 @@ export function OverlayScrollArea(props: OverlayScrollAreaProps) {
       const drag = dragRef.current
       if (!el || !drag) return
       if (e.pointerId !== drag.pointerId) return
-      const dy = e.clientY - drag.startY
-      el.scrollTop = drag.startScrollTop + dy * drag.ratio
+
+      const dClient = (axis === 'x' ? e.clientX : e.clientY) - drag.startClient
+      const next = drag.startScroll + dClient * drag.ratio
+      if (axis === 'x') el.scrollLeft = next
+      else el.scrollTop = next
       scheduleRecompute()
       e.preventDefault()
     },
-    [scheduleRecompute],
+    [axis, scheduleRecompute],
   )
 
   const onThumbPointerUpOrCancel = React.useCallback(
@@ -220,6 +230,7 @@ export function OverlayScrollArea(props: OverlayScrollAreaProps) {
         ref={setScrollElRef}
         sx={{
           overflow: 'auto',
+          ...(axis === 'x' ? { overflowY: 'hidden' } : null),
           ...(fill ? { height: '100%', width: '100%' } : null),
           overscrollBehavior: 'contain',
           scrollbarWidth: 'none',
@@ -238,10 +249,19 @@ export function OverlayScrollArea(props: OverlayScrollAreaProps) {
         onPointerCancel={onThumbPointerUpOrCancel}
         sx={{
           position: 'absolute',
-          top: thumbInset + thumb.top,
-          right: thumbInset,
-          width: thumbWidth,
-          height: Math.max(0, thumb.height - thumbInset * 2),
+          ...(axis === 'x'
+            ? {
+                left: thumbInset + thumb.pos,
+                bottom: thumbInset,
+                height: thumbWidth,
+                width: Math.max(0, thumb.size - thumbInset * 2),
+              }
+            : {
+                top: thumbInset + thumb.pos,
+                right: thumbInset,
+                width: thumbWidth,
+                height: Math.max(0, thumb.size - thumbInset * 2),
+              }),
           borderRadius: 999,
           bgcolor: baseThumbColor,
           opacity: thumb.needed && active ? 1 : 0,

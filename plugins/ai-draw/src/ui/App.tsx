@@ -954,36 +954,48 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               </Stack>
 
               {state.refImages.length ? (
-                <Stack direction="row" spacing={1} sx={{ overflowX: 'auto', pb: 0.5 }}>
-                  {state.refImages.map((img) => (
-                    <Box key={img.id} sx={{ position: 'relative', width: 72, height: 72, flex: '0 0 auto' }}>
-                      <Box
-                        component="img"
-                        src={img.dataUrl}
-                        alt={img.name || '参考图'}
-                        onClick={(e) => {
-                          if (!e.ctrlKey) return
-                          e.preventDefault()
-                          e.stopPropagation()
-                          openRefImagesLightbox(String((img as any)?.id || ''))
-                        }}
-                        sx={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 2, cursor: 'pointer' }}
-                      />
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          controller.removeRefImage(img.id)
-                        }}
-                        sx={{ position: 'absolute', right: 2, top: 2, bgcolor: 'rgba(250,249,245,0.92)' }}
-                        aria-label="移除参考图"
-                      >
-                        <DeleteRoundedIcon fontSize="inherit" />
-                      </IconButton>
-                    </Box>
-                  ))}
-                </Stack>
+                <OverlayScrollArea
+                  axis="x"
+                  fill={false}
+                  // Give the scroll area a stable height so the overlay thumb has room
+                  // and avoid native scrollbar stealing vertical space.
+                  sx={{ width: '100%', height: 84 }}
+                  // Keep some bottom padding so the overlay thumb doesn't cover the thumbnails.
+                  contentSx={{ pb: 1 }}
+                  thumbWidth={6}
+                  thumbMinHeight={18}
+                >
+                  <Stack direction="row" spacing={1} sx={{ width: 'max-content', pr: 1 }}>
+                    {state.refImages.map((img) => (
+                      <Box key={img.id} sx={{ position: 'relative', width: 72, height: 72, flex: '0 0 auto' }}>
+                        <Box
+                          component="img"
+                          src={img.dataUrl}
+                          alt={img.name || '参考图'}
+                          onClick={(e) => {
+                            if (!e.ctrlKey) return
+                            e.preventDefault()
+                            e.stopPropagation()
+                            openRefImagesLightbox(String((img as any)?.id || ''))
+                          }}
+                          sx={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 2, cursor: 'pointer' }}
+                        />
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            controller.removeRefImage(img.id)
+                          }}
+                          sx={{ position: 'absolute', right: 2, top: 2, bgcolor: 'rgba(250,249,245,0.92)' }}
+                          aria-label="移除参考图"
+                        >
+                          <DeleteRoundedIcon fontSize="inherit" />
+                        </IconButton>
+                      </Box>
+                    ))}
+                  </Stack>
+                </OverlayScrollArea>
               ) : null}
             </Stack>
 
