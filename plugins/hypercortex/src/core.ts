@@ -93,6 +93,8 @@ export type HyperCortexMetadataV1 = {
   workspaces?: HyperCortexWorkspaceV1[]
   activeWorkspaceId?: string
   shortcuts?: HyperCortexShortcutBindingsV1
+  // When enabled, a "?" button appears in the top bar to show configured shortcuts.
+  shortcutHintsEnabled?: boolean
   trashEnabled?: boolean
   trashAutoDeleteDays?: number
 }

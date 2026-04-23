@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { AppBar, Box, Button, CssBaseline, Dialog, DialogActions, DialogContent, DialogTitle, Divider, GlobalStyles, IconButton, InputBase, Menu, MenuItem, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
+import { AppBar, Box, Button, ClickAwayListener, CssBaseline, Dialog, DialogActions, DialogContent, DialogTitle, Divider, GlobalStyles, IconButton, InputBase, Menu, MenuItem, Paper, Popper, Switch, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
@@ -11,6 +11,7 @@ import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
 import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
 import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
+import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded'
 import {
   ensureMetadata,
   getApi,
@@ -57,7 +58,7 @@ import {
   type SidebarItem,
   updateSidebarGroup,
 } from './sidebarModel'
-import { DEFAULT_SHORTCUT_BINDINGS, isEditableTarget, mainKeyFromChord, normalizeMainKey, normalizeShortcutBindings, shouldTriggerShortcut, type HyperCortexShortcutBindingsV1 } from '../shortcuts'
+import { DEFAULT_SHORTCUT_BINDINGS, formatChordForDisplay, isEditableTarget, mainKeyFromChord, normalizeMainKey, normalizeShortcutBindings, shouldTriggerShortcut, type HyperCortexShortcutBindingsV1, type HyperCortexShortcutId } from '../shortcuts'
 import { AllNotesGridNoteCard, AllNotesIconNoteCard, AllNotesListNoteRow } from './AllNotesNoteCard'
 import type { NoteCardInfo } from './noteCardInfo'
 import { loadNoteCardInfo, startPrefetchNoteCardInfo } from './noteCardInfoLoader'
@@ -85,6 +86,10 @@ function normalizeTabsMode(value: unknown): TabsMode {
 
 function normalizeTrashEnabled(value: unknown): boolean {
   return value === false ? false : true
+}
+
+function normalizeShortcutHintsEnabled(value: unknown): boolean {
+  return value === true
 }
 
 function normalizeTrashAutoDeleteDays(value: unknown): number {
@@ -148,6 +153,7 @@ function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetada
   if ('openTabKeys' in next) (next as any).openTabKeys = stripDraftTabKeys((next as any).openTabKeys)
   if ('tabGroupByTabKey' in next) (next as any).tabGroupByTabKey = stripDraftTabKeyMap((next as any).tabGroupByTabKey)
   if ('shortcuts' in next) (next as any).shortcuts = normalizeShortcutBindings((next as any).shortcuts)
+  next.shortcutHintsEnabled = normalizeShortcutHintsEnabled((next as any).shortcutHintsEnabled)
   next.trashEnabled = normalizeTrashEnabled(next.trashEnabled)
   next.trashAutoDeleteDays = normalizeTrashAutoDeleteDays(next.trashAutoDeleteDays)
 
@@ -232,6 +238,47 @@ function NavIconButton(props: {
   )
 }
 
+const SHORTCUT_HINT_ITEMS: { id: HyperCortexShortcutId; title: string }[] = [
+  { id: 'goBackPage', title: '返回上一个页面' },
+  { id: 'closeActiveTab', title: '关闭当前标签页' },
+  { id: 'selectPrevTab', title: '切换到上一个标签页（向上）' },
+  { id: 'selectNextTab', title: '切换到下一个标签页（向下）' },
+  { id: 'newNote', title: '新建笔记' },
+  { id: 'saveNote', title: '保存笔记' },
+  { id: 'toggleQuickSearch', title: '快速搜索（显示/隐藏）' },
+  { id: 'toggleMode', title: '切换阅读/编辑' },
+  { id: 'cycleFace', title: '切换笔记面（文本/HTML）' },
+  { id: 'toggleSidebar', title: '侧边栏展开/收起' },
+]
+
+function getShortcutChord(bindings: HyperCortexShortcutBindingsV1, id: HyperCortexShortcutId): string {
+  const next = bindings || DEFAULT_SHORTCUT_BINDINGS
+  switch (id) {
+    case 'goBackPage':
+      return next.goBackPage
+    case 'closeActiveTab':
+      return next.closeActiveTab
+    case 'selectPrevTab':
+      return next.selectPrevTab
+    case 'selectNextTab':
+      return next.selectNextTab
+    case 'newNote':
+      return next.newNote
+    case 'saveNote':
+      return next.saveNote
+    case 'toggleQuickSearch':
+      return next.toggleQuickSearch
+    case 'toggleMode':
+      return next.toggleMode
+    case 'cycleFace':
+      return next.cycleFace
+    case 'toggleSidebar':
+      return next.toggleSidebar
+    default:
+      return ''
+  }
+}
+
 export function HyperCortexApp() {
   const api = React.useMemo(() => getApi(), [])
 
@@ -289,6 +336,10 @@ export function HyperCortexApp() {
   React.useEffect(() => {
     trashAutoDeleteDaysRef.current = trashAutoDeleteDays
   }, [trashAutoDeleteDays])
+
+  const [shortcutHintsEnabled, setShortcutHintsEnabled] = React.useState(false)
+  const [shortcutHintsOpen, setShortcutHintsOpen] = React.useState(false)
+  const shortcutHintsAnchorRef = React.useRef<HTMLButtonElement | null>(null)
 
   // ---- 全部笔记列表
   const [noteIndex, setNoteIndex] = React.useState<HyperCortexIndexV1 | null>(null)
@@ -603,6 +654,17 @@ export function HyperCortexApp() {
       setShortcutBindings(normalized)
       if (!metaReadyRef.current) return
       void persistMetadataPatch({ shortcuts: normalized }).catch(() => {})
+    },
+    [persistMetadataPatch],
+  )
+
+  const handleShortcutHintsEnabledChange = React.useCallback(
+    (enabled: boolean) => {
+      const next = enabled === true
+      setShortcutHintsEnabled(next)
+      if (!next) setShortcutHintsOpen(false)
+      if (!metaReadyRef.current) return
+      void persistMetadataPatch({ shortcutHintsEnabled: next }).catch(() => {})
     },
     [persistMetadataPatch],
   )
@@ -1097,6 +1159,8 @@ export function HyperCortexApp() {
         const meta = (await tryLoadMetadata(api)) || (await ensureMetadata(api))
         metaRef.current = meta
         setShortcutBindings(normalizeShortcutBindings(meta.shortcuts))
+        const normalizedShortcutHintsEnabled = normalizeShortcutHintsEnabled((meta as any).shortcutHintsEnabled)
+        setShortcutHintsEnabled(normalizedShortcutHintsEnabled)
         setAllNotesLayout(normalizeAllNotesLayout(meta.allNotesLayout))
         setTabsCollapsed(normalizeBoolean(meta.tabsCollapsed))
         setTabsMode(normalizeTabsMode(meta.tabsMode))
@@ -1151,11 +1215,13 @@ export function HyperCortexApp() {
           !Array.isArray(meta.workspaces) ||
           meta.activeWorkspaceId !== nextActiveWorkspaceId ||
           didMutateActiveWorkspace ||
+          (meta as any).shortcutHintsEnabled !== normalizedShortcutHintsEnabled ||
           meta.trashEnabled !== normalizedTrashEnabled ||
           meta.trashAutoDeleteDays !== normalizedTrashAutoDeleteDays
         if (shouldPersistNormalized) {
           void persistMetadataPatch({
             ...buildWorkspacesMetadataSnapshot(nextWorkspaces, nextActiveWorkspaceId),
+            shortcutHintsEnabled: normalizedShortcutHintsEnabled,
             trashEnabled: normalizedTrashEnabled,
             trashAutoDeleteDays: normalizedTrashAutoDeleteDays,
           }).catch(() => {})
@@ -1503,6 +1569,13 @@ export function HyperCortexApp() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (shortcutRecordingRef.current) return
 
+      if (e.key === 'Escape' && shortcutHintsOpen) {
+        e.preventDefault()
+        e.stopPropagation()
+        setShortcutHintsOpen(false)
+        return
+      }
+
       // 禁用 Tab 的默认“焦点切换/选中游走”，但不影响编辑器/输入框内的 Tab（例如缩进）。
       if (e.key === 'Tab' && !isEditableTarget(e.target)) {
         e.preventDefault()
@@ -1557,6 +1630,7 @@ export function HyperCortexApp() {
       if (shouldTriggerShortcut(e, bindings.toggleQuickSearch)) {
         e.preventDefault()
         e.stopPropagation()
+        setShortcutHintsOpen(false)
         setQuickSearchOpen(prev => !prev)
         return
       }
@@ -1638,7 +1712,7 @@ export function HyperCortexApp() {
       window.removeEventListener('keyup', onKeyUp, true)
       window.removeEventListener('blur', clearTabSwitchHold, true)
     }
-  }, [goBackPage, handleCreateDraftNote, tabsMode, toggleTabsCollapsed])
+  }, [goBackPage, handleCreateDraftNote, shortcutHintsOpen, tabsMode, toggleTabsCollapsed])
 
   const handleOpenNote = React.useCallback(
     (note: NoteMeta) => {
@@ -2034,6 +2108,28 @@ export function HyperCortexApp() {
             </Box>
 
             <Box sx={{ display: 'flex', alignItems: 'center', pr: 1, gap: 0.25 }}>
+              {shortcutHintsEnabled ? (
+                <Tooltip title={shortcutHintsOpen ? '关闭快捷键提示' : '快捷键提示'} placement="bottom">
+                  <IconButton
+                    ref={shortcutHintsAnchorRef}
+                    size="small"
+                    aria-label="快捷键提示"
+                    data-tauri-drag-region="false"
+                    onClick={() => {
+                      setQuickSearchOpen(false)
+                      setShortcutHintsOpen(prev => !prev)
+                    }}
+                    sx={{
+                      WebkitAppRegion: 'no-drag',
+                      borderRadius: 2,
+                      bgcolor: shortcutHintsOpen ? 'rgba(25,118,210,.10)' : 'transparent',
+                      '&:hover': { bgcolor: shortcutHintsOpen ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
+                    }}
+                  >
+                    <HelpOutlineRoundedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              ) : null}
               <NavIconButton title="设置" ariaLabel="设置" active={page === 'settings'} onClick={() => navigatePage('settings')}>
                 <SettingsRoundedIcon fontSize="small" />
               </NavIconButton>
@@ -2061,6 +2157,88 @@ export function HyperCortexApp() {
               handleOpenAssetTab(asset)
             }}
           />
+
+          <Popper open={shortcutHintsOpen} anchorEl={shortcutHintsAnchorRef.current} placement="bottom-end" disablePortal={false} sx={{ zIndex: 2000 }}>
+            <Box sx={{ pt: 0.75, WebkitAppRegion: 'no-drag' }}>
+              <ClickAwayListener
+                onClickAway={(e: any) => {
+                  const anchor = shortcutHintsAnchorRef.current
+                  if (anchor && e?.target && (anchor === e.target || anchor.contains(e.target))) return
+                  setShortcutHintsOpen(false)
+                }}
+              >
+                <Paper
+                  elevation={10}
+                  sx={{
+                    width: 360,
+                    maxWidth: 'min(440px, calc(100vw - 24px))',
+                    borderRadius: 3,
+                    overflow: 'hidden',
+                    boxShadow: '0 18px 48px rgba(0,0,0,.20)',
+                  }}
+                >
+                  <Box sx={{ px: 1.25, py: 1, display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+                    <Typography sx={{ fontSize: 12, fontWeight: 900, color: '#111' }}>已设置的快捷键</Typography>
+                    <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.42)' }}>
+                      只展示你已设置的快捷键
+                    </Typography>
+                  </Box>
+
+                  <Box sx={{ px: 0.75, pb: 0.75, display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+                    {(() => {
+                      const rows = SHORTCUT_HINT_ITEMS.map(item => ({
+                        id: item.id,
+                        title: item.title,
+                        chord: getShortcutChord(shortcutBindings, item.id),
+                      })).filter(item => !!String(item.chord || '').trim())
+
+                      if (!rows.length) {
+                        return (
+                          <Box sx={{ px: 1, py: 1.25 }}>
+                            <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)', fontWeight: 900 }}>还没有已设置的快捷键</Typography>
+                            <Typography sx={{ mt: 0.25, fontSize: 11, color: 'rgba(0,0,0,.42)' }}>
+                              去设置页录制后，这里会自动显示
+                            </Typography>
+                          </Box>
+                        )
+                      }
+
+                      return rows.map(item => (
+                        <Box
+                          key={item.id}
+                          sx={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr auto',
+                            alignItems: 'center',
+                            gap: 1,
+                            px: 1,
+                            py: 0.75,
+                            borderRadius: 2,
+                            bgcolor: 'rgba(0,0,0,.02)',
+                          }}
+                        >
+                          <Typography sx={{ fontSize: 12.5, fontWeight: 900, color: '#111' }} noWrap>
+                            {item.title}
+                          </Typography>
+                          <Typography
+                            sx={{
+                              fontSize: 12,
+                              color: 'rgba(0,0,0,.72)',
+                              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                              whiteSpace: 'nowrap',
+                            }}
+                            title={formatChordForDisplay(item.chord)}
+                          >
+                            {formatChordForDisplay(item.chord)}
+                          </Typography>
+                        </Box>
+                      ))
+                    })()}
+                  </Box>
+                </Paper>
+              </ClickAwayListener>
+            </Box>
+          </Popper>
 
         <Box sx={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'stretch', position: 'relative' }}>
           <Box
@@ -2322,6 +2500,17 @@ export function HyperCortexApp() {
               ) : null}
               {page === 'settings' ? (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, maxWidth: 760 }}>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+                    <Typography sx={{ fontSize: 18, lineHeight: 1.25, fontWeight: 900, color: '#111' }}>快捷键提示</Typography>
+                    <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.62)' }}>
+                      启用后，顶部栏会出现一个问号按钮，点击即可查看当前已设置的快捷键。
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1, py: 0.75, borderRadius: 2, bgcolor: 'rgba(0,0,0,.02)' }}>
+                      <Typography sx={{ fontSize: 13, fontWeight: 700, color: '#111' }}>显示顶部栏问号</Typography>
+                      <Switch checked={shortcutHintsEnabled} onChange={(_, checked) => handleShortcutHintsEnabledChange(checked)} />
+                    </Box>
+                  </Box>
+
                   <ShortcutSettingsPanel
                     bindings={shortcutBindings}
                     onChange={handleShortcutBindingsChange}
