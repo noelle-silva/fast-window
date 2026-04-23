@@ -135,6 +135,33 @@ export function OverlayScrollArea(props: OverlayScrollAreaProps) {
     }
   }, [])
 
+  const onWheel = React.useCallback(
+    (e: React.WheelEvent) => {
+      // Horizontal mode: map vertical wheel to horizontal scroll.
+      // This makes the strip usable without requiring Shift+wheel.
+      if (axis !== 'x') return
+      if (e.ctrlKey) return
+
+      const el = scrollRef.current
+      if (!el) return
+      if (!(el.scrollWidth > el.clientWidth + 1)) return
+
+      const dx = e.deltaX
+      const dy = e.deltaY
+      if (Math.abs(dx) > 0.01) return
+      if (Math.abs(dy) < 0.01) return
+
+      const prev = el.scrollLeft
+      el.scrollLeft = prev + dy
+      if (el.scrollLeft !== prev) {
+        scheduleRecompute()
+        setActiveWithTimeout()
+        e.preventDefault()
+      }
+    },
+    [axis, scheduleRecompute, setActiveWithTimeout],
+  )
+
   const onThumbPointerDown = React.useCallback(
     (e: React.PointerEvent) => {
       const el = scrollRef.current
@@ -228,6 +255,7 @@ export function OverlayScrollArea(props: OverlayScrollAreaProps) {
     >
       <Box
         ref={setScrollElRef}
+        onWheel={onWheel}
         sx={{
           overflow: 'auto',
           ...(axis === 'x' ? { overflowY: 'hidden' } : null),
