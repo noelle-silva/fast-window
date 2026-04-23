@@ -1,6 +1,5 @@
 import * as React from 'react'
 import { Box, Dialog, IconButton, Typography } from '@mui/material'
-import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import NavigateBeforeRoundedIcon from '@mui/icons-material/NavigateBeforeRounded'
 import NavigateNextRoundedIcon from '@mui/icons-material/NavigateNextRounded'
 
@@ -49,6 +48,7 @@ export function ImageLightboxDialog(props: ImageLightboxDialogProps) {
       }}
     >
       <Box
+        onClick={onClose}
         sx={{
           position: 'relative',
           width: 'min(92vw, 1180px)',
@@ -63,23 +63,11 @@ export function ImageLightboxDialog(props: ImageLightboxDialogProps) {
       >
         <IconButton
           size="small"
-          onClick={onClose}
-          aria-label="关闭预览"
-          sx={{
-            position: 'absolute',
-            right: 10,
-            top: 10,
-            bgcolor: 'rgba(255,255,255,0.16)',
-            color: 'rgba(255,255,255,0.88)',
-            '&:hover': { bgcolor: 'rgba(255,255,255,0.24)' },
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onPrev()
           }}
-        >
-          <CloseRoundedIcon fontSize="small" />
-        </IconButton>
-
-        <IconButton
-          size="small"
-          onClick={onPrev}
           disabled={!canPrev}
           aria-label="上一张"
           sx={{
@@ -97,7 +85,11 @@ export function ImageLightboxDialog(props: ImageLightboxDialogProps) {
 
         <IconButton
           size="small"
-          onClick={onNext}
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onNext()
+          }}
           disabled={!canNext}
           aria-label="下一张"
           sx={{
@@ -115,6 +107,10 @@ export function ImageLightboxDialog(props: ImageLightboxDialogProps) {
 
         {label ? (
           <Typography
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+            }}
             sx={{
               position: 'absolute',
               left: '50%',
@@ -140,6 +136,10 @@ export function ImageLightboxDialog(props: ImageLightboxDialogProps) {
             src={src}
             alt="图片预览"
             decoding="async"
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+            }}
             sx={{
               display: 'block',
               maxWidth: '100%',
@@ -148,11 +148,35 @@ export function ImageLightboxDialog(props: ImageLightboxDialogProps) {
             }}
           />
         ) : error ? (
-          <Typography sx={{ fontSize: 13, color: 'rgba(255,120,120,0.92)' }}>{error || '加载失败'}</Typography>
+          <Typography
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+            }}
+            sx={{ fontSize: 13, color: 'rgba(255,120,120,0.92)' }}
+          >
+            {error || '加载失败'}
+          </Typography>
         ) : loading ? (
-          <Typography sx={{ fontSize: 13, color: 'rgba(255,255,255,0.72)' }}>加载中…</Typography>
+          <Typography
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+            }}
+            sx={{ fontSize: 13, color: 'rgba(255,255,255,0.72)' }}
+          >
+            加载中…
+          </Typography>
         ) : (
-          <Typography sx={{ fontSize: 13, color: 'rgba(255,255,255,0.72)' }}>暂无图片</Typography>
+          <Typography
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+            }}
+            sx={{ fontSize: 13, color: 'rgba(255,255,255,0.72)' }}
+          >
+            暂无图片
+          </Typography>
         )}
       </Box>
     </Dialog>
