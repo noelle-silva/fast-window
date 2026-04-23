@@ -34,6 +34,29 @@ import { noteIdFromTabKey, noteTabKey, tabKind } from '../tabKey'
 import { TAB_GROUP_PRESET_COLORS } from './tabGroups'
 import { useOpenTabsPointerDnd } from './useOpenTabsPointerDnd'
 
+function DndInsertCursor(props: { pos: 'before' | 'after'; color?: string }) {
+  const { pos, color } = props
+  const top = pos === 'before' ? 0 : 'auto'
+  const bottom = pos === 'after' ? 0 : 'auto'
+  return (
+    <Box
+      aria-hidden
+      sx={{
+        position: 'absolute',
+        left: 10,
+        right: 8,
+        top,
+        bottom,
+        height: 2,
+        borderRadius: 999,
+        bgcolor: color || '#1976d2',
+        boxShadow: '0 0 0 2px rgba(255,255,255,.92)',
+        pointerEvents: 'none',
+      }}
+    />
+  )
+}
+
 export type OpenTabsPanelProps = {
   panelWidth: number
   tabsMode: 'manual' | 'hover'
@@ -194,6 +217,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       const dirty = !!isNoteDirty?.(tab.id)
       const isDragOver = dnd.dragOverKey === `tab_${tabKey}`
       const isDragging = dnd.draggingKey === `tab_${tabKey}`
+      const showInsertCursor = dnd.dropIndicator.kind === 'tab' && dnd.dropIndicator.tabKey === tabKey
       const disableTitleTooltip = tabsMode === 'hover'
       return (
         <Tooltip
@@ -219,6 +243,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               onOpenTab(tab)
             }}
             sx={{
+              position: 'relative',
               width: '100%',
               display: 'flex',
               alignItems: 'center',
@@ -236,6 +261,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
             }}
           >
+            {showInsertCursor ? <DndInsertCursor pos={dnd.dropIndicator.pos} /> : null}
             <Box sx={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>
               <NotesRoundedIcon fontSize="small" sx={{ color: isActive ? '#1976d2' : 'rgba(0,0,0,.48)' }} />
               {dirty ? (
@@ -301,6 +327,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       const title = pickAssetDisplayName({ indexName: asset.displayName, ext: asset.ext }) || '附件'
       const isDragOver = dnd.dragOverKey === `tab_${tabKey}`
       const isDragging = dnd.draggingKey === `tab_${tabKey}`
+      const showInsertCursor = dnd.dropIndicator.kind === 'tab' && dnd.dropIndicator.tabKey === tabKey
       const disableTitleTooltip = tabsMode === 'hover'
       const iconEl =
         asset.kind === 'image' ? (
@@ -335,6 +362,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               onOpenAssetTab?.(asset)
             }}
             sx={{
+              position: 'relative',
               width: '100%',
               display: 'flex',
               alignItems: 'center',
@@ -352,6 +380,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
             }}
           >
+            {showInsertCursor ? <DndInsertCursor pos={dnd.dropIndicator.pos} /> : null}
             <Box sx={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>{iconEl}</Box>
             {showTitle ? (
               <Typography
@@ -400,6 +429,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       const title = kind === 'note' ? '已丢失的笔记' : '已丢失的附件'
       const isDragOver = dnd.dragOverKey === `tab_${tabKey}`
       const isDragging = dnd.draggingKey === `tab_${tabKey}`
+      const showInsertCursor = dnd.dropIndicator.kind === 'tab' && dnd.dropIndicator.tabKey === tabKey
       const disableTitleTooltip = tabsMode === 'hover'
       const iconEl =
         kind === 'note' ? (
@@ -428,6 +458,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               return
             }}
             sx={{
+              position: 'relative',
               width: '100%',
               display: 'flex',
               alignItems: 'center',
@@ -445,6 +476,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
             }}
           >
+            {showInsertCursor ? <DndInsertCursor pos={dnd.dropIndicator.pos} /> : null}
             <Box sx={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}>{iconEl}</Box>
             {showTitle ? (
               <Typography
@@ -720,6 +752,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           const list = grouped.groupedKeys[g.id] || []
           const isDragOver = dnd.dragOverKey === `group_${g.id}`
           const isDragging = dnd.draggingKey === `group_${g.id}`
+          const showInsertCursor = dnd.dropIndicator.kind === 'group' && dnd.dropIndicator.groupId === g.id
           const groupTitle = g.title || '分组'
           return (
             <React.Fragment key={`group_${g.id}`}>
@@ -742,6 +775,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                   setGroupMenu({ mouseX: e.clientX, mouseY: e.clientY, groupId: g.id })
                 }}
                 sx={{
+                  position: 'relative',
                   width: '100%',
                   display: 'flex',
                   alignItems: 'center',
@@ -760,6 +794,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                   '&:focus-visible': { backgroundImage: 'linear-gradient(0deg, rgba(25,118,210,.14), rgba(25,118,210,.14))' },
                 }}
               >
+                {showInsertCursor ? <DndInsertCursor pos={dnd.dropIndicator.pos} color={g.color || undefined} /> : null}
                 <ChevronRightRoundedIcon
                   fontSize="small"
                   sx={{ color: 'rgba(0,0,0,.42)', transform: isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)', transition: 'transform 120ms ease' }}

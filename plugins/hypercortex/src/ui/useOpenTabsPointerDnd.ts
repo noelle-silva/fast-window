@@ -3,6 +3,11 @@ import type { HyperCortexTabGroupV1 } from '../core'
 
 type DropPos = 'before' | 'after'
 
+export type DropIndicator =
+  | { kind: 'none' }
+  | { kind: 'tab'; tabKey: string; pos: DropPos }
+  | { kind: 'group'; groupId: string; pos: DropPos }
+
 type DndHit =
   | { type: 'container'; el: HTMLElement }
   | { type: 'tab'; el: HTMLElement; tabKey: string }
@@ -79,6 +84,28 @@ function isNoDragTarget(t: EventTarget | null): boolean {
   return false
 }
 
+function toDropIndicator(kind: 'tab' | 'group', draggingId: string, hit: DndHit | null, clientY: number): DropIndicator {
+  const did = String(draggingId || '').trim()
+  if (!did || !hit) return { kind: 'none' }
+
+  // Only show a between-items insertion cursor for reorder-like drops.
+  // For tab -> group (assign), the group row highlight is sufficient.
+  if (hit.type === 'tab') {
+    const tabKey = String(hit.tabKey || '').trim()
+    if (!tabKey) return { kind: 'none' }
+    if (kind === 'tab' && tabKey === did) return { kind: 'none' }
+    return { kind: 'tab', tabKey, pos: getDropPosFromY(clientY, hit.el) }
+  }
+
+  if (kind === 'group' && hit.type === 'group') {
+    const gid = String(hit.groupId || '').trim()
+    if (!gid || gid === did) return { kind: 'none' }
+    return { kind: 'group', groupId: gid, pos: getDropPosFromY(clientY, hit.el) }
+  }
+
+  return { kind: 'none' }
+}
+
 export type OpenTabsPointerDndOptions = {
   openTabKeys: string[]
   tabGroups: HyperCortexTabGroupV1[]
@@ -104,6 +131,7 @@ export function useOpenTabsPointerDnd(opts: OpenTabsPointerDndOptions) {
 
   const [dragOverKey, setDragOverKey] = React.useState<string>('')
   const [draggingKey, setDraggingKey] = React.useState<string>('')
+  const [dropIndicator, setDropIndicator] = React.useState<DropIndicator>({ kind: 'none' })
   const suppressClickRef = React.useRef(false)
   const cleanupRef = React.useRef<(() => void) | null>(null)
 
@@ -226,6 +254,7 @@ export function useOpenTabsPointerDnd(opts: OpenTabsPointerDndOptions) {
         }
         const hit = pickDndHit(document.elementFromPoint(ev.clientX, ev.clientY))
         setOverFromHit(hit)
+        setDropIndicator(toDropIndicator(kind, dragId, hit, ev.clientY))
       }
 
       const onUp = (ev: PointerEvent) => {
@@ -242,6 +271,7 @@ export function useOpenTabsPointerDnd(opts: OpenTabsPointerDndOptions) {
         if (started) document.body.style.userSelect = prevUserSelect
         setDraggingKey('')
         setDragOverKey('')
+        setDropIndicator({ kind: 'none' })
         setTimeout(() => {
           suppressClickRef.current = false
         }, 0)
@@ -273,5 +303,5 @@ export function useOpenTabsPointerDnd(opts: OpenTabsPointerDndOptions) {
     [begin],
   )
 
-  return { containerProps, getTabProps, getGroupProps, dragOverKey, draggingKey, suppressClickRef }
+  return { containerProps, getTabProps, getGroupProps, dragOverKey, draggingKey, dropIndicator, suppressClickRef }
 }
