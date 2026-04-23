@@ -17,10 +17,10 @@ import { renderNoteDisplayHtml } from '../noteRender'
 import { extractNoteRefs, getBacklinksFor, type NoteRefIndex } from '../noteRefs'
 import { deleteHtmlFace, loadHtmlFace, loadNotePackage, saveHtmlFace, saveNotePackage, type HyperCortexHtmlFaceDoc } from '../notePackage'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
-import type { Api, NoteMeta, VaultScope, HyperCortexNoteDoc } from '../core'
+import type { Api, NoteMeta, VaultScope, HyperCortexNoteDoc, HyperCortexHtmlFaceDisplayModeV1 } from '../core'
 import { isDraftNoteId } from '../drafts'
 import { NoteInfoSidebar } from './NoteInfoSidebar'
-import { AutoHeightHtmlIframe } from './AutoHeightHtmlIframe'
+import { HtmlFaceIframe } from './HtmlFaceIframe'
 import { CodeMirrorCodeEditor } from '../editor/CodeMirrorCodeEditor'
 import { HyperCodeMirrorEditor as BlockEditor } from '../editor/HyperCodeMirrorEditor'
 import { ImageDialog } from './preview/ImageDialog'
@@ -109,6 +109,7 @@ export type NoteDetailSessionProps = {
   }) => void
   trashEnabled: boolean
   onRequestDeleteNote: (payload: { note: NoteMeta; mode: 'trash' | 'permanent' }) => Promise<void> | void
+  htmlFaceDisplayMode?: HyperCortexHtmlFaceDisplayModeV1
 }
 
 export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteDetailSessionProps>(function NoteDetailSession(props, ref) {
@@ -127,6 +128,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     onSaved,
     trashEnabled,
     onRequestDeleteNote,
+    htmlFaceDisplayMode = 'natural',
   } = props
 
   const noteId = String(note.id || '').trim()
@@ -1090,7 +1092,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                 mode="html"
               />
             ) : (
-              <AutoHeightHtmlIframe html={editHtml} minHeightPx={240} />
+              <HtmlFaceIframe html={editHtml} mode={htmlFaceDisplayMode} minHeightPx={240} />
             ) : editing ? textEditorMode === 'live' ? (
               <BlockEditor value={editBody} onChange={setEditBody} placeholder="开始编辑正文..." minHeight={400} onBlockRendered={handleBlockRendered} active={visible} refreshToken={noteIndexMap} />
             ) : (

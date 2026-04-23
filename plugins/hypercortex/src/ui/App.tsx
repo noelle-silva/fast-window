@@ -19,6 +19,7 @@ import {
   mimeFromExt,
   saveMetadata,
   tryLoadMetadata,
+  type HyperCortexHtmlFaceDisplayModeV1,
   type HyperCortexIndexV1,
   type HyperCortexMetadataV1,
   type HyperCortexTabGroupV1,
@@ -38,6 +39,7 @@ import { AssetDetailSession } from './AssetDetailSession'
 import { ErrorBoundary } from './ErrorBoundary'
 import { ShortcutSettingsPanel } from './ShortcutSettingsPanel'
 import { TrashSettingsPanel } from './TrashSettingsPanel'
+import { HtmlFaceDisplaySettingsPanel } from './HtmlFaceDisplaySettingsPanel'
 import { TrashPanel } from './TrashPanel'
 import { QuickSearchPopover } from './QuickSearchPopover'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
@@ -90,6 +92,11 @@ function normalizeTrashEnabled(value: unknown): boolean {
 
 function normalizeShortcutHintsEnabled(value: unknown): boolean {
   return value === true
+}
+
+function normalizeHtmlFaceDisplayMode(value: unknown): HyperCortexHtmlFaceDisplayModeV1 {
+  if (value === 'fit-window' || value === 'fixed-fit') return value
+  return 'natural'
 }
 
 function normalizeTrashAutoDeleteDays(value: unknown): number {
@@ -332,6 +339,7 @@ export function HyperCortexApp() {
   // ---- 回收站设置（持久化在 metadata）
   const [trashEnabled, setTrashEnabled] = React.useState(true)
   const [trashAutoDeleteDays, setTrashAutoDeleteDays] = React.useState(30)
+  const [htmlFaceDisplayMode, setHtmlFaceDisplayMode] = React.useState<HyperCortexHtmlFaceDisplayModeV1>('natural')
   const trashAutoDeleteDaysRef = React.useRef(30)
   React.useEffect(() => {
     trashAutoDeleteDaysRef.current = trashAutoDeleteDays
@@ -1168,6 +1176,7 @@ export function HyperCortexApp() {
         const normalizedTrashAutoDeleteDays = normalizeTrashAutoDeleteDays(meta.trashAutoDeleteDays)
         setTrashEnabled(normalizedTrashEnabled)
         setTrashAutoDeleteDays(normalizedTrashAutoDeleteDays)
+        setHtmlFaceDisplayMode(normalizeHtmlFaceDisplayMode(meta.htmlFaceDisplayMode))
         const activeKey = typeof meta.activeTabKey === 'string' ? meta.activeTabKey.trim() : ''
         restoreActiveTabKeyRef.current = activeKey
 
@@ -1264,6 +1273,16 @@ export function HyperCortexApp() {
       setTrashAutoDeleteDays(next)
       if (!metaReadyRef.current) return
       void persistMetadataPatch({ trashAutoDeleteDays: next }).catch(() => {})
+    },
+    [persistMetadataPatch],
+  )
+
+  const handleHtmlFaceDisplayModeChange = React.useCallback(
+    (mode: HyperCortexHtmlFaceDisplayModeV1) => {
+      const next = normalizeHtmlFaceDisplayMode(mode)
+      setHtmlFaceDisplayMode(next)
+      if (!metaReadyRef.current) return
+      void persistMetadataPatch({ htmlFaceDisplayMode: next }).catch(() => {})
     },
     [persistMetadataPatch],
   )
@@ -2452,6 +2471,7 @@ export function HyperCortexApp() {
                       onSaved={handleNoteSessionSaved}
                       trashEnabled={trashEnabled}
                       onRequestDeleteNote={handleDeleteNote}
+                      htmlFaceDisplayMode={htmlFaceDisplayMode}
                     />
                   ))
                 )}
@@ -2522,6 +2542,10 @@ export function HyperCortexApp() {
                     onEnabledChange={handleTrashEnabledChange}
                     onAutoDeleteDaysChange={handleTrashAutoDeleteDaysChange}
                     onOpenTrash={handleOpenTrashPage}
+                  />
+                  <HtmlFaceDisplaySettingsPanel
+                    mode={htmlFaceDisplayMode}
+                    onChange={handleHtmlFaceDisplayModeChange}
                   />
                 </Box>
               ) : null}

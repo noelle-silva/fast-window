@@ -80,6 +80,8 @@ export type HyperCortexWorkspaceV1 = {
   activeTabKey: string
 }
 
+export type HyperCortexHtmlFaceDisplayModeV1 = 'natural' | 'fit-window' | 'fixed-fit'
+
 export type HyperCortexMetadataV1 = {
   version: 1
   allNotesLayout?: 'list' | 'grid' | 'icon'
@@ -95,6 +97,7 @@ export type HyperCortexMetadataV1 = {
   shortcuts?: HyperCortexShortcutBindingsV1
   // When enabled, a "?" button appears in the top bar to show configured shortcuts.
   shortcutHintsEnabled?: boolean
+  htmlFaceDisplayMode?: HyperCortexHtmlFaceDisplayModeV1
   trashEnabled?: boolean
   trashAutoDeleteDays?: number
 }
