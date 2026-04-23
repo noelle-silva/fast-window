@@ -304,6 +304,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const [refLibraryLimit, setRefLibraryLimit] = React.useState(36)
   const refLibraryScrollRef = React.useRef<HTMLDivElement | null>(null)
   const refLibrarySentinelRef = React.useRef<HTMLDivElement | null>(null)
+  const refLibraryLoadMoreCooldownRef = React.useRef(0)
   const [taskAnchorEl, setTaskAnchorEl] = React.useState<HTMLElement | null>(null)
   const [imageDetailAnchorEl, setImageDetailAnchorEl] = React.useState<HTMLElement | null>(null)
   const [normalMoreAnchorEl, setNormalMoreAnchorEl] = React.useState<HTMLElement | null>(null)
@@ -398,6 +399,8 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
     setRefLibraryLimit(36)
     setRefMultiMode(false)
     setRefSelectedPaths([])
+    const root = refLibraryScrollRef.current
+    if (root) root.scrollTop = 0
     void controller.loadRefLibraryIndex()
     void controller.refreshRefLibrary()
   }, [refLibraryOpen, controller])
@@ -505,6 +508,87 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
       } catch {}
     }
   }, [refLibraryOpen, refLibraryLimit, refVisiblePathsAll.length])
+
+  React.useEffect(() => {
+    if (!refLibraryOpen) return
+    let disposed = false
+    let timer: any = null
+    let poller: any = null
+    let el: HTMLDivElement | null = null
+
+    const attach = () => {
+      if (disposed) return
+      const next = refLibraryScrollRef.current
+      if (!next) {
+        timer = setTimeout(attach, 50)
+        return
+      }
+
+      el = next
+
+      const onScroll = () => {
+        if (!el) return
+        const total = refVisiblePathsAll.length
+        const limit = Math.max(0, refLibraryLimit)
+        if (limit >= total) return
+
+        // 兜底：有些 WebView/滚动容器上 IntersectionObserver 可能不触发。
+        const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 320
+        if (!nearBottom) return
+
+        const now = Date.now()
+        if (now - refLibraryLoadMoreCooldownRef.current < 120) return
+        refLibraryLoadMoreCooldownRef.current = now
+        setRefLibraryLimit((n) => Math.min(n + 36, total))
+      }
+
+      el.addEventListener('scroll', onScroll, { passive: true })
+
+      // 兜底：部分环境滚动事件可能不稳定，轮询判断是否接近底部。
+      poller = setInterval(() => {
+        try {
+          onScroll()
+        } catch {}
+      }, 200)
+
+      // 如果首屏内容不足以产生滚动条，也要自动补下一页。
+      try {
+        onScroll()
+      } catch {}
+
+      return () => {
+        el?.removeEventListener('scroll', onScroll)
+        if (poller) {
+          try {
+            clearInterval(poller)
+          } catch {}
+          poller = null
+        }
+      }
+    }
+
+    let detach: null | (() => void) = null
+    detach = attach() || null
+
+    return () => {
+      disposed = true
+      if (timer) {
+        try {
+          clearTimeout(timer)
+        } catch {}
+      }
+      if (poller) {
+        try {
+          clearInterval(poller)
+        } catch {}
+      }
+      if (detach) {
+        try {
+          detach()
+        } catch {}
+      }
+    }
+  }, [refLibraryOpen, refLibraryLimit, refVisiblePathsAll.length, refVisiblePathsAll])
 
   const toggleRefSelected = React.useCallback((path: string) => {
     const p = String(path || '').trim()
