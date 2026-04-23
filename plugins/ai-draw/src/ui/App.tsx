@@ -65,6 +65,7 @@ import { createAiDrawController } from '../controller/createController'
 import { UI_MODE_LOCAL_EDIT, UI_MODE_NORMAL, type AiDrawProvider, type UiMode } from '../core/schema'
 import { createClaudeTheme } from './theme'
 import { OverlayScrollArea } from './components/OverlayScrollArea'
+import { useLazyListLimit } from './hooks/useLazyListLimit'
 
 type SettingsTab = 'provider' | 'plugin'
 
@@ -299,12 +300,10 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const [imageGalleryLimit, setImageGalleryLimit] = React.useState(36)
   const imageGalleryScrollRef = React.useRef<HTMLDivElement | null>(null)
   const imageGallerySentinelRef = React.useRef<HTMLDivElement | null>(null)
-  const imageGalleryLoadMoreCooldownRef = React.useRef(0)
   const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('provider')
   const [refLibraryLimit, setRefLibraryLimit] = React.useState(36)
   const refLibraryScrollRef = React.useRef<HTMLDivElement | null>(null)
   const refLibrarySentinelRef = React.useRef<HTMLDivElement | null>(null)
-  const refLibraryLoadMoreCooldownRef = React.useRef(0)
   const [taskAnchorEl, setTaskAnchorEl] = React.useState<HTMLElement | null>(null)
   const [imageDetailAnchorEl, setImageDetailAnchorEl] = React.useState<HTMLElement | null>(null)
   const [normalMoreAnchorEl, setNormalMoreAnchorEl] = React.useState<HTMLElement | null>(null)
@@ -470,125 +469,14 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
     for (const p of slice) controller.ensureRefLibraryItemLoaded(p)
   }, [refLibraryOpen, refLibraryLimit, refVisiblePathsAll, controller])
 
-  React.useEffect(() => {
-    if (!refLibraryOpen) return
-    if (typeof IntersectionObserver === 'undefined') return
-    const total = refVisiblePathsAll.length
-    const limit = Math.max(0, refLibraryLimit)
-    if (limit >= total) return
-
-    const sentinel = refLibrarySentinelRef.current
-    if (!sentinel) return
-
-    const root = refLibraryScrollRef.current
-
-    let done = false
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const hit = entries && entries[0] && entries[0].isIntersecting
-        if (!hit) return
-        if (done) return
-        done = true
-        try {
-          observer.disconnect()
-        } catch {}
-        setRefLibraryLimit((n) => Math.min(n + 36, total))
-      },
-      { root: root || null, rootMargin: '240px 0px', threshold: 0 },
-    )
-
-    try {
-      observer.observe(sentinel)
-    } catch {}
-
-    return () => {
-      done = true
-      try {
-        observer.disconnect()
-      } catch {}
-    }
-  }, [refLibraryOpen, refLibraryLimit, refVisiblePathsAll.length])
-
-  React.useEffect(() => {
-    if (!refLibraryOpen) return
-    let disposed = false
-    let timer: any = null
-    let poller: any = null
-    let el: HTMLDivElement | null = null
-
-    const attach = () => {
-      if (disposed) return
-      const next = refLibraryScrollRef.current
-      if (!next) {
-        timer = setTimeout(attach, 50)
-        return
-      }
-
-      el = next
-
-      const onScroll = () => {
-        if (!el) return
-        const total = refVisiblePathsAll.length
-        const limit = Math.max(0, refLibraryLimit)
-        if (limit >= total) return
-
-        // 兜底：有些 WebView/滚动容器上 IntersectionObserver 可能不触发。
-        const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 320
-        if (!nearBottom) return
-
-        const now = Date.now()
-        if (now - refLibraryLoadMoreCooldownRef.current < 120) return
-        refLibraryLoadMoreCooldownRef.current = now
-        setRefLibraryLimit((n) => Math.min(n + 36, total))
-      }
-
-      el.addEventListener('scroll', onScroll, { passive: true })
-
-      // 兜底：部分环境滚动事件可能不稳定，轮询判断是否接近底部。
-      poller = setInterval(() => {
-        try {
-          onScroll()
-        } catch {}
-      }, 200)
-
-      // 如果首屏内容不足以产生滚动条，也要自动补下一页。
-      try {
-        onScroll()
-      } catch {}
-
-      return () => {
-        el?.removeEventListener('scroll', onScroll)
-        if (poller) {
-          try {
-            clearInterval(poller)
-          } catch {}
-          poller = null
-        }
-      }
-    }
-
-    let detach: null | (() => void) = null
-    detach = attach() || null
-
-    return () => {
-      disposed = true
-      if (timer) {
-        try {
-          clearTimeout(timer)
-        } catch {}
-      }
-      if (poller) {
-        try {
-          clearInterval(poller)
-        } catch {}
-      }
-      if (detach) {
-        try {
-          detach()
-        } catch {}
-      }
-    }
-  }, [refLibraryOpen, refLibraryLimit, refVisiblePathsAll.length, refVisiblePathsAll])
+  useLazyListLimit({
+    enabled: refLibraryOpen,
+    total: refVisiblePathsAll.length,
+    limit: refLibraryLimit,
+    setLimit: setRefLibraryLimit,
+    rootRef: refLibraryScrollRef,
+    sentinelRef: refLibrarySentinelRef,
+  })
 
   const toggleRefSelected = React.useCallback((path: string) => {
     const p = String(path || '').trim()
@@ -690,124 +578,14 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
     }
   }, [imageGalleryOpen, imageGalleryLimit, imageHistoryFiltered, controller])
 
-  React.useEffect(() => {
-    if (!imageGalleryOpen) return
-    if (typeof IntersectionObserver === 'undefined') return
-    const total = imageHistoryFiltered.length
-    const limit = Math.max(0, imageGalleryLimit)
-    if (limit >= total) return
-
-    const sentinel = imageGallerySentinelRef.current
-    if (!sentinel) return
-    const root = imageGalleryScrollRef.current
-
-    let done = false
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const hit = entries && entries[0] && entries[0].isIntersecting
-        if (!hit) return
-        if (done) return
-        done = true
-        try {
-          observer.disconnect()
-        } catch {}
-        setImageGalleryLimit((n) => Math.min(n + 36, total))
-      },
-      { root: root || null, rootMargin: '240px 0px', threshold: 0 },
-    )
-
-    try {
-      observer.observe(sentinel)
-    } catch {}
-
-    return () => {
-      done = true
-      try {
-        observer.disconnect()
-      } catch {}
-    }
-  }, [imageGalleryOpen, imageGalleryLimit, imageHistoryFiltered.length, imageHistoryFiltered])
-
-  React.useEffect(() => {
-    if (!imageGalleryOpen) return
-    let disposed = false
-    let timer: any = null
-    let poller: any = null
-    let el: HTMLDivElement | null = null
-
-    const attach = () => {
-      if (disposed) return
-      const next = imageGalleryScrollRef.current
-      if (!next) {
-        timer = setTimeout(attach, 50)
-        return
-      }
-
-      el = next
-
-      const onScroll = () => {
-        if (!el) return
-        const total = imageHistoryFiltered.length
-        const limit = Math.max(0, imageGalleryLimit)
-        if (limit >= total) return
-
-        // 兜底：有些 WebView/滚动容器上 IntersectionObserver 可能不触发。
-        const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 320
-        if (!nearBottom) return
-
-        const now = Date.now()
-        if (now - imageGalleryLoadMoreCooldownRef.current < 120) return
-        imageGalleryLoadMoreCooldownRef.current = now
-        setImageGalleryLimit((n) => Math.min(n + 36, total))
-      }
-
-      el.addEventListener('scroll', onScroll, { passive: true })
-
-      // 兜底：部分环境滚动事件可能不稳定，轮询判断是否接近底部。
-      poller = setInterval(() => {
-        try {
-          onScroll()
-        } catch {}
-      }, 200)
-
-      // 如果首屏内容不足以产生滚动条，也要自动补下一页。
-      try {
-        onScroll()
-      } catch {}
-
-      return () => {
-        el?.removeEventListener('scroll', onScroll)
-        if (poller) {
-          try {
-            clearInterval(poller)
-          } catch {}
-          poller = null
-        }
-      }
-    }
-
-    let detach: null | (() => void) = null
-    detach = attach() || null
-
-    return () => {
-      disposed = true
-      if (timer) {
-        try {
-          clearTimeout(timer)
-        } catch {}
-      }
-      if (poller) {
-        try {
-          clearInterval(poller)
-        } catch {}
-      }
-      if (detach) {
-        try {
-          detach()
-        } catch {}
-      }
-    }
-  }, [imageGalleryOpen, imageGalleryLimit, imageHistoryFiltered.length, imageHistoryFiltered])
+  useLazyListLimit({
+    enabled: imageGalleryOpen,
+    total: imageHistoryFiltered.length,
+    limit: imageGalleryLimit,
+    setLimit: setImageGalleryLimit,
+    rootRef: imageGalleryScrollRef,
+    sentinelRef: imageGallerySentinelRef,
+  })
 
   const nextMode: UiMode = uiMode === UI_MODE_LOCAL_EDIT ? UI_MODE_NORMAL : UI_MODE_LOCAL_EDIT
 
