@@ -3,6 +3,7 @@ import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
+import FullscreenRoundedIcon from '@mui/icons-material/FullscreenRounded'
 import CodeRoundedIcon from '@mui/icons-material/CodeRounded'
 import WysiwygRoundedIcon from '@mui/icons-material/WysiwygRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
@@ -24,6 +25,7 @@ import { CodeMirrorCodeEditor } from '../editor/CodeMirrorCodeEditor'
 import { HyperCodeMirrorEditor as BlockEditor } from '../editor/HyperCodeMirrorEditor'
 import { ImageDialog } from './preview/ImageDialog'
 import { MermaidDialog } from './preview/MermaidDialog'
+import { HtmlFaceFullscreenDialog } from './preview/HtmlFaceFullscreenDialog'
 import { ensurePreviewClickHandlerOnce } from './preview/ensurePreviewClickHandlerOnce'
 import { ensureLiveEditorPreviewButton } from './preview/ensureLiveEditorPreviewButton'
 import { usePreviewController } from './preview/usePreviewController'
@@ -170,6 +172,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
   const [deleteNoteConfirmOpen, setDeleteNoteConfirmOpen] = React.useState(false)
   const [deleteHtmlConfirmOpen, setDeleteHtmlConfirmOpen] = React.useState(false)
+  const [htmlFullscreenOpen, setHtmlFullscreenOpen] = React.useState(false)
   const [deleting, setDeleting] = React.useState<'note' | 'html' | ''>('')
 
   const [base, setBase] = React.useState<NoteContent>(
@@ -652,6 +655,26 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                 }}
               >
                 <CloseRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          ) : null}
+
+          {!loading && !loadError && doc && face === 'html' && !editing ? (
+            <Tooltip title="全屏预览" placement="bottom-start">
+              <IconButton
+                size="small"
+                aria-label="全屏预览 HTML 面"
+                onClick={() => setHtmlFullscreenOpen(true)}
+                sx={{
+                  color: 'rgba(0,0,0,.58)',
+                  bgcolor: 'transparent',
+                  boxShadow: 'none',
+                  border: 0,
+                  flex: '0 0 auto',
+                  '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                }}
+              >
+                <FullscreenRoundedIcon fontSize="small" />
               </IconButton>
             </Tooltip>
           ) : null}
@@ -1202,6 +1225,11 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
       <ImageDialog open={preview.modal === 'image'} controller={preview.controller} viewer={preview.imageViewer} />
       <MermaidDialog open={preview.modal === 'mermaid'} controller={preview.controller} mermaid={preview.mermaid} />
+      <HtmlFaceFullscreenDialog
+        open={htmlFullscreenOpen}
+        html={editHtml}
+        onClose={() => setHtmlFullscreenOpen(false)}
+      />
     </Box>
   )
 })
