@@ -70,6 +70,26 @@ export type AiDrawEditState = {
   sel: { x: number; y: number; w: number; h: number } | null
 }
 
+export type AiDrawDebugRecord = {
+  taskId: string
+  mode: 'normal' | 'local-edit'
+  status: 'pending' | 'succeeded' | 'failed' | 'canceled' | 'canceling' | 'unknown'
+  createdAt: number
+  updatedAt: number
+  request: {
+    method: string
+    url: string
+    headers: Record<string, string>
+    bodyText: string
+    timeoutMs: number | null
+  }
+  response: {
+    status: number | null
+    bodyText: string
+    errorText: string
+  }
+}
+
 export type AiDrawControllerState = {
   loading: boolean
   submitting: boolean
@@ -98,6 +118,7 @@ export type AiDrawControllerState = {
   promptLib: { loading: boolean; data: PromptLibraryV1 | null }
   uiMode: UiMode
   edit: AiDrawEditState
+  lastDebugRecord: AiDrawDebugRecord | null
 }
 
 type Listener = () => void
@@ -164,7 +185,7 @@ export type AiDrawController = {
   deletePrompt: (folderId: string, promptId: string) => Promise<void>
   usePromptText: (text: string) => void
 
-  savePluginSettings: (patch: Partial<Pick<AiDrawSettingsV1, 'autoSave' | 'shrinkRefImages' | 'promptHistoryLimit' | 'requestTimeoutSec'>>) => Promise<void>
+  savePluginSettings: (patch: Partial<Pick<AiDrawSettingsV1, 'autoSave' | 'shrinkRefImages' | 'debugMode' | 'promptHistoryLimit' | 'requestTimeoutSec'>>) => Promise<void>
   clearPromptHistory: () => Promise<void>
 
   deletePromptHistoryItem: (text: string) => Promise<void>
@@ -219,6 +240,93 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
   let imageThumbActive = 0
   let imageThumbDrainTimer: any = null
   const IMAGE_THUMB_MAX_CONCURRENT = 8
+
+  function maskHeaders(headers: any): Record<string, string> {
+    const src = headers && typeof headers === 'object' ? headers : {}
+    const out: Record<string, string> = {}
+    for (const [rawKey, rawValue] of Object.entries(src)) {
+      const key = String(rawKey || '').trim()
+      if (!key) continue
+      const lower = key.toLowerCase()
+      if (lower === 'authorization') {
+        out[key] = '[REDACTED]'
+        continue
+      }
+      out[key] = String(rawValue ?? '')
+    }
+    return out
+  }
+
+  function readTaskResult(task: any) {
+    return task && task.result && typeof task.result === 'object' ? task.result : null
+  }
+
+  function buildDebugRecordFromRequest(input: {
+    taskId?: string
+    mode: 'normal' | 'local-edit'
+    status?: AiDrawDebugRecord['status']
+    request: any
+    bodyText: string
+  }): AiDrawDebugRecord {
+    const req = input.request && typeof input.request === 'object' ? input.request : {}
+    return {
+      taskId: String(input.taskId || '').trim(),
+      mode: input.mode,
+      status: input.status || 'pending',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      request: {
+        method: String(req.method || ''),
+        url: String(req.url || ''),
+        headers: maskHeaders(req.headers),
+        bodyText: String(input.bodyText || ''),
+        timeoutMs: typeof req.timeoutMs === 'number' ? req.timeoutMs : null,
+      },
+      response: {
+        status: null,
+        bodyText: '',
+        errorText: '',
+      },
+    }
+  }
+
+  function setLastDebugRecord(record: AiDrawDebugRecord | null) {
+    state.lastDebugRecord = record
+    notify()
+  }
+
+  function attachDebugTaskId(taskId: string, status: AiDrawDebugRecord['status']) {
+    if (!state.lastDebugRecord) return
+    state.lastDebugRecord = {
+      ...state.lastDebugRecord,
+      taskId: String(taskId || '').trim(),
+      status,
+      updatedAt: Date.now(),
+    }
+    notify()
+  }
+
+  function updateDebugRecordFromTask(task: any, fallbackStatus?: AiDrawDebugRecord['status']) {
+    const taskId = String(task?.id || '').trim()
+    if (!taskId || !state.lastDebugRecord || state.lastDebugRecord.taskId !== taskId) return
+    const rr = readTaskResult(task)
+    const taskStatusRaw = String(task?.status || '').trim()
+    const nextStatus: AiDrawDebugRecord['status'] =
+      taskStatusRaw === 'pending' || taskStatusRaw === 'succeeded' || taskStatusRaw === 'failed' || taskStatusRaw === 'canceled' || taskStatusRaw === 'canceling'
+        ? taskStatusRaw
+        : fallbackStatus || 'unknown'
+    state.lastDebugRecord = {
+      ...state.lastDebugRecord,
+      status: nextStatus,
+      updatedAt: Date.now(),
+      response: {
+        status: rr && Number.isFinite(Number(rr.status)) ? Number(rr.status) : null,
+        bodyText: rr && typeof rr.body === 'string' ? rr.body : '',
+        errorText: String(task?.error || ''),
+      },
+    }
+    notify()
+  }
 
   const scheduleDrainImageThumbQueue = () => {
     if (imageThumbDrainTimer) return
@@ -307,6 +415,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     promptLib: { loading: false, data: null },
     uiMode: UI_MODE_NORMAL,
     edit: { baseName: '', baseDataUrl: '', baseW: 0, baseH: 0, sel: null },
+    lastDebugRecord: null,
   }
 
   function notify() {
@@ -973,6 +1082,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
         const st = String(info.status || '')
         if (upsertTask({ id: tid, status: st })) changed = true
         if (isTaskDone(st)) {
+          updateDebugRecordFromTask(info)
           await applyTaskCompletion(info)
           removeTask(tid)
           changed = true
@@ -1132,6 +1242,11 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     }
 
     try {
+      // 调试模式：记录请求信息（debug record 跟最后一个被追踪的任务 taskId 绑定）
+      if (state.data?.debugMode) {
+        setLastDebugRecord(buildDebugRecordFromRequest({ mode: 'normal', request: req, bodyText: debugBodyText }))
+      }
+
       const results = await Promise.allSettled(Array.from({ length: batch }, () => api.net.request({ ...req })))
       const ids: string[] = []
       let failed = 0
@@ -1163,6 +1278,12 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
           timeoutMs: typeof req?.timeoutMs === 'number' ? req.timeoutMs : null,
           rawMessage: rejectReasons[0],
         })
+      }
+
+      // 调试模式：把最后一个任务 ID 绑定到 debug record（轮询完成后会回填 response）
+      const trackedTaskId = ids[ids.length - 1]
+      if (state.data?.debugMode && state.lastDebugRecord) {
+        attachDebugTaskId(trackedTaskId, 'pending')
       }
 
       if (state.data) {
@@ -1288,20 +1409,32 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
         throw new Error(`请求体过大（约 ${formatBytes(body.length)}）。请缩小选区/减少参考图/换更小图片。`)
       }
 
+      const localEditPayload = {
+        method: 'POST',
+        url: `${base}/chat/completions`,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body,
+        timeoutMs: requestTimeoutMs(state.data),
+      }
+
+      // 调试模式：记录请求信息
+      if (state.data?.debugMode) {
+        setLastDebugRecord(buildDebugRecordFromRequest({ mode: 'local-edit', request: localEditPayload, bodyText: body }))
+      }
+
       const created = await api.task.create({
         kind: TASK_KIND_HTTP_REQUEST,
         meta: { tags: ['no-autosave', 'local-edit'] },
-        payload: {
-          method: 'POST',
-          url: `${base}/chat/completions`,
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-          body,
-          timeoutMs: requestTimeoutMs(state.data),
-        },
+        payload: localEditPayload,
       })
 
       const taskId = String(created && (created as any).id ? (created as any).id : '').trim()
       if (!taskId) throw new Error('创建后台任务失败')
+
+      // 调试模式：绑定 taskId
+      if (state.data?.debugMode && state.lastDebugRecord) {
+        attachDebugTaskId(taskId, 'pending')
+      }
 
       localEditContextByTaskId.set(taskId, { baseDataUrl: baseUrl, selPx })
       upsertTask({ id: taskId, status: 'pending', prompt, at: Date.now() })
@@ -1701,10 +1834,11 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     notify()
   }
 
-  async function savePluginSettings(patch: Partial<Pick<AiDrawSettingsV1, 'autoSave' | 'shrinkRefImages' | 'promptHistoryLimit' | 'requestTimeoutSec'>>) {
+  async function savePluginSettings(patch: Partial<Pick<AiDrawSettingsV1, 'autoSave' | 'shrinkRefImages' | 'debugMode' | 'promptHistoryLimit' | 'requestTimeoutSec'>>) {
     if (!state.data) return
     if (typeof patch.autoSave === 'boolean') state.data.autoSave = patch.autoSave
     if (typeof patch.shrinkRefImages === 'boolean') state.data.shrinkRefImages = patch.shrinkRefImages
+    if (typeof patch.debugMode === 'boolean') state.data.debugMode = patch.debugMode
     if (patch.promptHistoryLimit != null) state.data.promptHistoryLimit = normalizePromptHistoryLimit(patch.promptHistoryLimit)
     if (patch.requestTimeoutSec != null) state.data.requestTimeoutSec = normalizeRequestTimeoutSec(patch.requestTimeoutSec)
     state.promptHistory = normalizePromptHistory(state.data.promptHistory, state.data.promptHistoryLimit)

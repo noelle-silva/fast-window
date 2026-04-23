@@ -30,6 +30,7 @@ export type AiDrawSettingsV1 = {
   version: number
   autoSave: boolean
   shrinkRefImages: boolean
+  debugMode: boolean
   uiMode: UiMode
   promptHistoryLimit: number
   requestTimeoutSec: number
@@ -72,6 +73,7 @@ export function defaultSettings(): AiDrawSettingsV1 {
     version: AI_DRAW_VERSION,
     autoSave: true,
     shrinkRefImages: true,
+    debugMode: false,
     uiMode: UI_MODE_NORMAL,
     promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
     requestTimeoutSec: DEFAULT_REQUEST_TIMEOUT_SEC,
@@ -179,6 +181,7 @@ function migrateLegacySettingsToSettingsV1(s: any): AiDrawSettingsV1 {
   out.activeProviderId = p.id
   out.autoSave = typeof s?.autoSave === 'boolean' ? s.autoSave : true
   out.shrinkRefImages = true
+  out.debugMode = false
   out.uiMode = UI_MODE_NORMAL
   out.promptHistoryLimit = normalizePromptHistoryLimit(s?.promptHistoryLimit)
   out.requestTimeoutSec = normalizeRequestTimeoutSec(s?.requestTimeoutSec)
@@ -198,6 +201,7 @@ export function normalizeSettings(raw: any): AiDrawSettingsV1 {
   out.version = AI_DRAW_VERSION
   out.autoSave = typeof d.autoSave === 'boolean' ? d.autoSave : true
   out.shrinkRefImages = typeof d.shrinkRefImages === 'boolean' ? d.shrinkRefImages : true
+  out.debugMode = typeof d.debugMode === 'boolean' ? d.debugMode : false
   out.uiMode = normalizeUiMode(d.uiMode)
   out.promptHistoryLimit = normalizePromptHistoryLimit(d.promptHistoryLimit)
   out.requestTimeoutSec = normalizeRequestTimeoutSec(d.requestTimeoutSec)

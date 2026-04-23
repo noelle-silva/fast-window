@@ -60,6 +60,7 @@ import CollectionsRoundedIcon from '@mui/icons-material/CollectionsRounded'
 import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
+import BugReportRoundedIcon from '@mui/icons-material/BugReportRounded'
 import type { AiDrawFastWindowApi } from '../bridge/tauriCompat'
 import { createAiDrawController } from '../controller/createController'
 import { UI_MODE_LOCAL_EDIT, UI_MODE_NORMAL, type AiDrawProvider, type UiMode } from '../core/schema'
@@ -374,6 +375,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
 
   const [providerDraft, setProviderDraft] = React.useState<any>(null)
   const [pluginDraft, setPluginDraft] = React.useState<any>(null)
+  const [debugDialogOpen, setDebugDialogOpen] = React.useState(false)
 
   const [lightbox, setLightbox] = React.useState<LightboxState>({ open: false })
 
@@ -396,6 +398,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
       setPluginDraft({
         autoSave: !!data.autoSave,
         shrinkRefImages: data.shrinkRefImages !== false,
+        debugMode: !!data.debugMode,
         promptHistoryLimit: String(data.promptHistoryLimit ?? ''),
         requestTimeoutSec: String(data.requestTimeoutSec ?? ''),
       })
@@ -791,6 +794,19 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 </Badge>
               </IconButton>
             </Tooltip>
+
+            {data?.debugMode ? (
+              <Tooltip title="调试信息">
+                <IconButton
+                  size="small"
+                  onClick={() => setDebugDialogOpen(true)}
+                  aria-label="查看调试信息"
+                  color={state.lastDebugRecord ? 'primary' : 'default'}
+                >
+                  <BugReportRoundedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            ) : null}
 
             {/* 提示词收藏夹入口移动到输入区“上一条/下一条”右侧 */}
             <Tooltip title="设置">
@@ -1514,6 +1530,15 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 }
                 label="参考图自动压缩（更稳/更省流量）"
               />
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={!!pluginDraft?.debugMode}
+                    onChange={(e) => setPluginDraft((d: any) => ({ ...(d || {}), debugMode: e.target.checked }))}
+                  />
+                }
+                label="调试模式（顶部显示请求/响应查看按钮）"
+              />
               <Stack direction="row" spacing={2}>
                 <TextField
                   size="small"
@@ -1560,6 +1585,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 void controller.savePluginSettings({
                   autoSave: !!pluginDraft?.autoSave,
                   shrinkRefImages: !!pluginDraft?.shrinkRefImages,
+                  debugMode: !!pluginDraft?.debugMode,
                   promptHistoryLimit: Number(pluginDraft?.promptHistoryLimit),
                   requestTimeoutSec: Number(pluginDraft?.requestTimeoutSec),
                 })
@@ -2936,6 +2962,75 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
             </DialogActions>
           </Dialog>
         </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={debugDialogOpen}
+        onClose={() => setDebugDialogOpen(false)}
+        fullWidth
+        maxWidth="md"
+      >
+        <DialogTitle>调试信息</DialogTitle>
+        <DialogContent dividers>
+          {state.lastDebugRecord ? (
+            <Stack spacing={2} sx={{ pt: 0.5 }}>
+              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                <Chip size="small" label={`模式：${state.lastDebugRecord.mode === 'local-edit' ? '局部' : '普通'}`} />
+                <Chip size="small" color={state.lastDebugRecord.status === 'failed' ? 'error' : state.lastDebugRecord.status === 'succeeded' ? 'success' : 'default'} label={`状态：${state.lastDebugRecord.status}`} />
+                {state.lastDebugRecord.response.status != null ? <Chip size="small" variant="outlined" label={`HTTP ${state.lastDebugRecord.response.status}`} /> : null}
+              </Stack>
+
+              <TextField size="small" label="请求 URL" value={state.lastDebugRecord.request.url} fullWidth InputProps={{ readOnly: true }} />
+              <TextField size="small" label="请求方法" value={state.lastDebugRecord.request.method} fullWidth InputProps={{ readOnly: true }} />
+              <TextField
+                size="small"
+                label="请求头"
+                value={JSON.stringify(state.lastDebugRecord.request.headers || {}, null, 2)}
+                fullWidth
+                multiline
+                minRows={4}
+                InputProps={{ readOnly: true }}
+              />
+              <TextField
+                size="small"
+                label="请求体"
+                value={state.lastDebugRecord.request.bodyText || ''}
+                fullWidth
+                multiline
+                minRows={8}
+                maxRows={18}
+                InputProps={{ readOnly: true }}
+              />
+              <TextField
+                size="small"
+                label="响应体"
+                value={state.lastDebugRecord.response.bodyText || state.lastDebugRecord.response.errorText || ''}
+                fullWidth
+                multiline
+                minRows={8}
+                maxRows={18}
+                InputProps={{ readOnly: true }}
+              />
+            </Stack>
+          ) : (
+            <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>暂无调试记录。开启调试模式后，发起一次生成请求即可在这里查看本次实际请求与响应。</Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              const record = state.lastDebugRecord
+              if (!record) return
+              const text = JSON.stringify(record, null, 2)
+              void api.clipboard.writeText(text).then(() => api.ui.showToast('调试信息已复制')).catch(() => api.ui.showToast('复制失败'))
+            }}
+            disabled={!state.lastDebugRecord}
+            startIcon={<ContentCopyRoundedIcon />}
+          >
+            复制
+          </Button>
+          <Button onClick={() => setDebugDialogOpen(false)}>关闭</Button>
+        </DialogActions>
       </Dialog>
 
       <ImageLightboxDialog
