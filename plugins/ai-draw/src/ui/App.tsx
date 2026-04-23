@@ -1823,10 +1823,9 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                   {imageHistoryFiltered.length ? (
                     imageHistoryFiltered.slice(0, imageGalleryLimit).map((it, idx) => {
                       const savedPath = String(it?.savedPath || '').trim()
-                      const slot = savedPath ? (state.outputThumbsByPath as any)?.[savedPath] : null
-                      const dataUrl = String(slot?.dataUrl || '').trim()
-                      const loading = !!slot?.loading
-                      const error = String(slot?.error || '').trim()
+                      const dataUrl = String(it?.dataUrl || '').trim()
+                      const loading = !!it?.loading
+                      const error = String(it?.error || '').trim()
                       const key = savedPath || `idx:${idx}`
                       return (
                         <Box
