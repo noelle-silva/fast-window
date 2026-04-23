@@ -131,10 +131,8 @@ export function QuickSearchPopover(props: Props) {
 
   React.useEffect(() => {
     if (!open) return
-    setMode('notes')
-    setQuery('')
-    setAssetsLoading(false)
-    setAssetsError(null)
+    // Keep session state (query/mode/scroll) across open/close.
+    // When opening, just focus the input to keep the interaction snappy.
     const raf = requestAnimationFrame(() => inputRef.current?.focus())
     return () => cancelAnimationFrame(raf)
   }, [open])
@@ -257,10 +255,20 @@ export function QuickSearchPopover(props: Props) {
   const showNoMatch = !!query.trim() && ((mode === 'notes' && !noteMatches.length) || (mode === 'assets' && !assetMatches.length))
 
   return (
-    <Popper open={open} anchorEl={viewportAnchor as any} placement="bottom" disablePortal={false} sx={{ zIndex: 2000 }}>
+    <Popper
+      open={open}
+      keepMounted
+      anchorEl={viewportAnchor as any}
+      placement="bottom"
+      disablePortal={false}
+      sx={{ zIndex: 2000 }}
+    >
       <Box ref={popperRootRef} sx={{ pt: 0.75, WebkitAppRegion: 'no-drag' }}>
         <ClickAwayListener
           onClickAway={(e: any) => {
+            // When `keepMounted` is enabled, ClickAwayListener remains active even while hidden.
+            // Ignore click-away events unless the popover is actually open.
+            if (!open) return
             const anchor = triggerEl
             if (anchor && e?.target && (anchor === e.target || anchor.contains(e.target))) return
             onClose()
