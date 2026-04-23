@@ -25,6 +25,7 @@ import { HyperCodeMirrorEditor as BlockEditor } from '../editor/HyperCodeMirrorE
 import { ImageDialog } from './preview/ImageDialog'
 import { MermaidDialog } from './preview/MermaidDialog'
 import { ensurePreviewClickHandlerOnce } from './preview/ensurePreviewClickHandlerOnce'
+import { ensureLiveEditorPreviewButton } from './preview/ensureLiveEditorPreviewButton'
 import { usePreviewController } from './preview/usePreviewController'
 
 type NoteFaceId = 'text' | 'html'
@@ -394,9 +395,9 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
   /** 编辑器覆盖层渲染完 block 后：等待异步媒体就绪，完成后请求重新布局 */
   const handleBlockRendered = React.useCallback((el: HTMLElement, requestUpdate: () => void) => {
-    ensurePreviewClickHandlerOnce(el, {
+    // Live 编辑态：点击预览内容本体用于“回到源码编辑”，预览弹窗改为右上角按钮触发。
+    ensureLiveEditorPreviewButton(el, {
       controller: preview.controller,
-      stopPropagation: false,
       getRoot: (current) => current.closest('.cm-editor'),
     })
 

@@ -63,6 +63,7 @@ const CM6_CSS = `
 
 /* Live Preview 小组件（自然融入正文） */
 .hc-cm6-preview{
+  position:relative;
   /* 说明：不要用 margin 来制造上下间距（CM6 的高度测量不会把 margin 计入 heightMap）
      否则在折叠/预览块之后，gutter 行号可能开始与内容“错位漂移”。 */
   display:flow-root;
@@ -71,6 +72,39 @@ const CM6_CSS = `
   box-shadow:none;
   margin:0;
   padding:4px 0;
+}
+
+/* Live Preview 右上角动作按钮（仅用于“弹预览”，避免与点击回源码冲突） */
+.hc-cm6-preview-actions{
+  position:absolute;
+  top:6px;
+  right:6px;
+  z-index:2;
+  display:flex;
+  gap:6px;
+}
+.hc-cm6-preview-action-btn{
+  height:22px;
+  padding:0 8px;
+  border-radius:999px;
+  border:1px solid rgba(0,0,0,0.10);
+  background:rgba(255,255,255,0.85);
+  color:rgba(0,0,0,0.62);
+  font-size:12px;
+  line-height:1;
+  font-weight:700;
+  cursor:pointer;
+  user-select:none;
+  -webkit-user-select:none;
+  backdrop-filter:blur(6px);
+  -webkit-backdrop-filter:blur(6px);
+}
+.hc-cm6-preview-action-btn:hover{
+  background:rgba(255,255,255,0.95);
+  color:rgba(0,0,0,0.78);
+}
+.hc-cm6-preview-action-btn:active{
+  transform:translateY(1px);
 }
 .hc-cm6-preview .hc-render table{display:table;}
 .hc-cm6-preview .hc-render > *:first-child{margin-top:0;}
