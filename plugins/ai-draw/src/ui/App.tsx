@@ -707,6 +707,22 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
     controller.setBatchCount(String(clampBatch(base + delta)))
   }
 
+  const onPaste = (e: React.ClipboardEvent) => {
+    if (state.loading || state.submitting) return
+    const items = e.clipboardData?.items ? Array.from(e.clipboardData.items) : []
+    const files: File[] = []
+    for (const it of items) {
+      if (!it || it.kind !== 'file') continue
+      const type = String(it.type || '')
+      if (!type.startsWith('image/')) continue
+      const f = it.getAsFile?.()
+      if (f) files.push(f)
+    }
+    if (!files.length) return
+    e.preventDefault()
+    void controller.addRefImagesFromFiles(files)
+  }
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -853,6 +869,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               label={uiMode === UI_MODE_LOCAL_EDIT ? '修改要求' : '提示词'}
               value={state.prompt}
               onChange={(e) => controller.setPrompt(e.target.value)}
+              onPaste={onPaste}
               multiline
               rows={9}
               placeholder={uiMode === UI_MODE_LOCAL_EDIT ? '例如：把选区改成落日油画风，保持结构不变…' : '例如：一只橘猫坐在书桌前，暖色调，插画风…'}

@@ -109,6 +109,7 @@ export type AiDrawController = {
   setUiMode: (mode: UiMode) => Promise<void>
 
   pickRefImages: () => Promise<void>
+  addRefImagesFromFiles: (files: File[]) => Promise<void>
   removeRefImage: (refId: string) => void
   clearRefImages: () => void
   refreshRefLibrary: () => Promise<void>
@@ -192,6 +193,16 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
   const listeners = new Set<Listener>()
   const localEditContextByTaskId = new Map<string, { baseDataUrl: string; selPx: { x: number; y: number; w: number; h: number } }>()
   const imageLoadByPath = new Map<string, Promise<string>>()
+
+  function readFileAsDataUrl(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      if (!(file instanceof File)) return reject(new Error('file 无效'))
+      const r = new FileReader()
+      r.onload = () => resolve(String(r.result || ''))
+      r.onerror = () => reject(new Error('读取图片失败'))
+      r.readAsDataURL(file)
+    })
+  }
 
   // 批量预览缩略图读取：并发限流，避免一次性 read 太多导致卡顿。
   const imageThumbQueue: string[] = []
@@ -1312,6 +1323,34 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     notify()
   }
 
+  async function addRefImagesFromFiles(files: File[]) {
+    const list = Array.isArray(files) ? files : []
+    const remaining = MAX_REF_IMAGES - (Array.isArray(state.refImages) ? state.refImages.length : 0)
+    if (remaining <= 0) {
+      api.ui.showToast(`参考图最多 ${MAX_REF_IMAGES} 张`)
+      return
+    }
+
+    const out: PickedImage[] = []
+    for (const f of list.slice(0, remaining)) {
+      try {
+        const dataUrl = await readFileAsDataUrl(f)
+        const u = normalizeImageDataUrlOrBase64(dataUrl)
+        if (!u.startsWith('data:image/')) continue
+        out.push({ id: id('ref'), name: String(f?.name || '图片'), dataUrl: u })
+      } catch (_) {}
+    }
+    if (!out.length) {
+      api.ui.showToast('未识别到图片')
+      return
+    }
+
+    const merged = state.refImages.concat(out).slice(0, MAX_REF_IMAGES)
+    if (merged.length < state.refImages.length + out.length) api.ui.showToast(`参考图最多 ${MAX_REF_IMAGES} 张`)
+    state.refImages = merged
+    notify()
+  }
+
   async function pickEditImage() {
     const picked = await api.files.pickImages(1).catch((e: any) => {
       api.ui.showToast(`选择图片失败：${String(e?.message || e)}`)
@@ -1852,6 +1891,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     setUiMode,
 
     pickRefImages,
+    addRefImagesFromFiles,
     removeRefImage: (refId: string) => {
       const rid = String(refId || '').trim()
       if (!rid) return
