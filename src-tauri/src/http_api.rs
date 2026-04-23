@@ -63,7 +63,8 @@ pub(crate) enum HttpStreamEvent {
 #[tauri::command]
 pub(crate) async fn http_request(req: HttpRequest) -> Result<HttpResponse, String> {
     let (status, headers, bytes) = http_request_raw(req).await?;
-    let body = String::from_utf8(bytes).map_err(|_| "响应不是 UTF-8 文本".to_string())?;
+    // 用 lossy 解码：非 UTF-8 字节用 U+FFFD 替换，确保响应体始终可读（调试/错误分析友好）
+    let body = String::from_utf8_lossy(&bytes).into_owned();
     Ok(HttpResponse {
         status,
         headers,
