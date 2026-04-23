@@ -10,6 +10,7 @@ import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import InfoRoundedIcon from '@mui/icons-material/InfoRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
+import TuneRoundedIcon from '@mui/icons-material/TuneRounded'
 
 import { createMarkdownRenderEngine } from '../render/engine'
 import { HYPERCORTEX_NOTE_SCHEMA_VERSION } from '../noteSchema'
@@ -168,6 +169,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
   const [moreMenuAnchorEl, setMoreMenuAnchorEl] = React.useState<HTMLElement | null>(null)
   const moreMenuOpen = !!moreMenuAnchorEl
+  const [htmlScaleControlsVisible, setHtmlScaleControlsVisible] = React.useState(false)
   const [deleteFaceMenuAnchorEl, setDeleteFaceMenuAnchorEl] = React.useState<HTMLElement | null>(null)
   const deleteFaceMenuOpen = !!deleteFaceMenuAnchorEl
   const closeMoreMenu = React.useCallback(() => {
@@ -741,6 +743,23 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
         {!loading && !loadError && doc ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {!loading && !loadError && doc && face === 'html' && !editing && htmlFaceDisplayMode === 'fixed-fit' ? (
+              <Tooltip title={htmlScaleControlsVisible ? '收起缩放调节' : '展开缩放调节'} placement="bottom-end">
+                <IconButton
+                  size="small"
+                  aria-label={htmlScaleControlsVisible ? '收起缩放调节' : '展开缩放调节'}
+                  onClick={() => setHtmlScaleControlsVisible(prev => !prev)}
+                  sx={{
+                    color: htmlScaleControlsVisible ? '#1976d2' : 'rgba(0,0,0,.58)',
+                    bgcolor: 'transparent',
+                    '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                  }}
+                >
+                  <TuneRoundedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            ) : null}
+
             <Tooltip title="更多操作" placement="bottom-end">
               <IconButton
                 size="small"
@@ -1117,6 +1136,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                 globalDefaultScale={htmlFaceGlobalDefaultScale}
                 noteFixedScale={htmlFace?.fixedScale ?? null}
                 onSaveNoteFixedScale={String(note.dir || '').trim() ? handleSaveNoteFixedScale : undefined}
+                scaleControlsVisible={htmlScaleControlsVisible}
               />
             ) : editing ? textEditorMode === 'live' ? (
               <BlockEditor value={editBody} onChange={setEditBody} placeholder="开始编辑正文..." minHeight={400} onBlockRendered={handleBlockRendered} active={visible} refreshToken={noteIndexMap} />

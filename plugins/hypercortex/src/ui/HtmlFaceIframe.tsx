@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, Button, IconButton, Slider, Tooltip, Typography } from '@mui/material'
+import { Box, Button, Collapse, IconButton, Slider, Tooltip, Typography } from '@mui/material'
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import RemoveRoundedIcon from '@mui/icons-material/RemoveRounded'
@@ -14,6 +14,7 @@ type Props = {
   globalDefaultScale?: number
   noteFixedScale?: number | null
   onSaveNoteFixedScale?: (scale: number | null) => Promise<void> | void
+  scaleControlsVisible?: boolean
 }
 
 const FIXED_VIEWPORT_WIDTH = 1280
@@ -110,8 +111,9 @@ function FixedFitHtmlIframe(props: {
   globalDefaultScale: number
   noteFixedScale?: number | null
   onSaveNoteFixedScale?: (scale: number | null) => Promise<void> | void
+  scaleControlsVisible?: boolean
 }) {
-  const { html, minHeightPx, globalDefaultScale, noteFixedScale, onSaveNoteFixedScale } = props
+  const { html, minHeightPx, globalDefaultScale, noteFixedScale, onSaveNoteFixedScale, scaleControlsVisible } = props
   const tokenRef = React.useRef('')
   if (!tokenRef.current) tokenRef.current = createToken()
 
@@ -151,74 +153,71 @@ function FixedFitHtmlIframe(props: {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-      <Box
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1,
-          flexWrap: 'wrap',
-          px: 1.25,
-          py: 0.9,
-          borderRadius: 2,
-          bgcolor: 'rgba(0,0,0,.03)',
-        }}
-      >
-        <Typography sx={{ fontSize: 12, fontWeight: 700, color: '#111', whiteSpace: 'nowrap' }}>
-          固定视口 {FIXED_VIEWPORT_WIDTH} × {FIXED_VIEWPORT_HEIGHT}
-        </Typography>
-        <Box sx={{ flex: 1, minWidth: 160, maxWidth: 280, px: 0.5 }}>
-          <Slider
-            size="small"
-            min={FIXED_FIT_SCALE_MIN}
-            max={FIXED_FIT_SCALE_MAX}
-            step={FIXED_FIT_SCALE_STEP}
-            value={scale}
-            onChange={(_, next) => setScale(normalizeScale(Array.isArray(next) ? next[0] : next, normalizedPreferredScale))}
-            aria-label="HTML 面缩放比例"
-          />
+      {/* 可折叠的缩放控制区：由外部 scaleControlsVisible 控制 */}
+      <Collapse in={!!scaleControlsVisible} unmountOnExit={false}>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            flexWrap: 'wrap',
+            px: 1.25,
+            py: 0.75,
+            borderRadius: 2,
+            border: '1px solid rgba(0,0,0,.07)',
+            bgcolor: '#fff',
+          }}
+        >
+          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)', whiteSpace: 'nowrap' }}>
+            {Math.round(scale * 100)}%
+            {hasNoteOverride ? ' · 笔记级' : ' · 全局默认'}
+          </Typography>
+          <Box sx={{ flex: 1, minWidth: 160, maxWidth: 280, px: 0.5 }}>
+            <Slider
+              size="small"
+              min={FIXED_FIT_SCALE_MIN}
+              max={FIXED_FIT_SCALE_MAX}
+              step={FIXED_FIT_SCALE_STEP}
+              value={scale}
+              onChange={(_, next) => setScale(normalizeScale(Array.isArray(next) ? next[0] : next, normalizedPreferredScale))}
+              aria-label="HTML 面缩放比例"
+            />
+          </Box>
+          <Tooltip title="缩小比例">
+            <span>
+              <IconButton size="small" aria-label="缩小比例" onClick={() => setScale(prev => clampNum(prev / 1.1, FIXED_FIT_SCALE_MIN, FIXED_FIT_SCALE_MAX))}>
+                <RemoveRoundedIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="放大比例">
+            <span>
+              <IconButton size="small" aria-label="放大比例" onClick={() => setScale(prev => clampNum(prev * 1.1, FIXED_FIT_SCALE_MIN, FIXED_FIT_SCALE_MAX))}>
+                <AddRoundedIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="恢复为初始比例">
+            <span>
+              <IconButton size="small" aria-label="恢复为初始比例" onClick={() => setScale(normalizedPreferredScale)}>
+                <FitScreenRoundedIcon fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+          {isDirty && onSaveNoteFixedScale ? (
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<SaveRoundedIcon fontSize="small" />}
+              disabled={saving}
+              onClick={() => void handleSave()}
+              sx={{ flexShrink: 0 }}
+            >
+              {saving ? '保存中…' : '保存到笔记'}
+            </Button>
+          ) : null}
         </Box>
-        <Typography sx={{ minWidth: 56, fontSize: 12, color: 'rgba(0,0,0,.62)', textAlign: 'right' }}>
-          {Math.round(scale * 100)}%
-        </Typography>
-        <Tooltip title="缩小比例">
-          <span>
-            <IconButton size="small" aria-label="缩小比例" onClick={() => setScale(prev => clampNum(prev / 1.1, FIXED_FIT_SCALE_MIN, FIXED_FIT_SCALE_MAX))}>
-              <RemoveRoundedIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title="放大比例">
-          <span>
-            <IconButton size="small" aria-label="放大比例" onClick={() => setScale(prev => clampNum(prev * 1.1, FIXED_FIT_SCALE_MIN, FIXED_FIT_SCALE_MAX))}>
-              <AddRoundedIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title="恢复为当前初始比例">
-          <span>
-            <IconButton size="small" aria-label="恢复为当前初始比例" onClick={() => setScale(normalizedPreferredScale)}>
-              <FitScreenRoundedIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-        {onSaveNoteFixedScale ? (
-          <Button
-            size="small"
-            variant={isDirty ? 'contained' : 'outlined'}
-            startIcon={<SaveRoundedIcon fontSize="small" />}
-            disabled={!isDirty || saving}
-            onClick={() => void handleSave()}
-          >
-            {saving ? '保存中…' : '保存到笔记'}
-          </Button>
-        ) : null}
-      </Box>
-
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 0.25 }}>
-        <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)' }}>
-          当前初始来源：{hasNoteOverride ? '笔记级' : '全局默认'}（{Math.round(normalizedPreferredScale * 100)}%）
-        </Typography>
-      </Box>
+      </Collapse>
 
       <Box
         ref={stageRef}
@@ -279,6 +278,7 @@ export function HtmlFaceIframe(props: Props) {
     globalDefaultScale = FALLBACK_FIXED_SCALE_DEFAULT,
     noteFixedScale,
     onSaveNoteFixedScale,
+    scaleControlsVisible,
   } = props
 
   if (mode === 'fit-window') {
@@ -293,6 +293,7 @@ export function HtmlFaceIframe(props: Props) {
         globalDefaultScale={globalDefaultScale}
         noteFixedScale={noteFixedScale}
         onSaveNoteFixedScale={onSaveNoteFixedScale}
+        scaleControlsVisible={scaleControlsVisible}
       />
     )
   }
