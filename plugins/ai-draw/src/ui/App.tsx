@@ -66,6 +66,13 @@ import { UI_MODE_LOCAL_EDIT, UI_MODE_NORMAL, type AiDrawProvider, type UiMode } 
 import { createClaudeTheme } from './theme'
 import { OverlayScrollArea } from './components/OverlayScrollArea'
 import { useLazyListLimit } from './hooks/useLazyListLimit'
+import { ImageLightboxDialog } from './components/ImageLightboxDialog'
+
+type LightboxState =
+  | { open: false }
+  | { open: true; kind: 'refImages'; ids: string[]; index: number }
+  | { open: true; kind: 'refLibrary'; paths: string[]; index: number }
+  | { open: true; kind: 'outputGallery'; paths: string[]; index: number }
 
 type SettingsTab = 'provider' | 'plugin'
 
@@ -368,6 +375,8 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const [providerDraft, setProviderDraft] = React.useState<any>(null)
   const [pluginDraft, setPluginDraft] = React.useState<any>(null)
 
+  const [lightbox, setLightbox] = React.useState<LightboxState>({ open: false })
+
   React.useEffect(() => {
     if (!settingsOpen) return
     if (provider) {
@@ -558,6 +567,113 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   }, [imageHistoryListNewestFirst, imageGalleryQuery])
 
   const imageGalleryShownCount = Math.min(Math.max(0, imageGalleryLimit), imageHistoryFiltered.length)
+
+  const openRefImagesLightbox = React.useCallback(
+    (refId: string) => {
+      const id0 = String(refId || '').trim()
+      if (!id0) return
+      const ids = (Array.isArray(state.refImages) ? state.refImages : []).map((x) => String((x as any)?.id || '').trim()).filter(Boolean)
+      const index = ids.indexOf(id0)
+      if (index < 0) return
+      setLightbox({ open: true, kind: 'refImages', ids, index })
+    },
+    [revision],
+  )
+
+  const openRefLibraryLightbox = React.useCallback(
+    (path: string) => {
+      const p = String(path || '').trim()
+      if (!p) return
+      const paths = refVisiblePathsAll.slice()
+      const index = paths.indexOf(p)
+      if (index < 0) return
+      controller.ensureRefLibraryItemLoaded(p)
+      setLightbox({ open: true, kind: 'refLibrary', paths, index })
+    },
+    [controller, refVisiblePathsAll],
+  )
+
+  const openOutputGalleryLightbox = React.useCallback(
+    (savedPath: string) => {
+      const p = String(savedPath || '').trim()
+      if (!p) return
+      const paths = imageHistoryFiltered
+        .map((it) => String(it?.savedPath || '').trim())
+        .filter(Boolean)
+      const index = paths.indexOf(p)
+      if (index < 0) return
+      controller.ensureImageHistoryItemLoaded(p)
+      setLightbox({ open: true, kind: 'outputGallery', paths, index })
+    },
+    [controller, imageHistoryFiltered],
+  )
+
+  // 灯箱打开后：随着 index 切换，按需触发对应图片的 lazy load。
+  React.useEffect(() => {
+    if (!lightbox.open) return
+    if (lightbox.kind === 'refLibrary') {
+      const p = String(lightbox.paths[lightbox.index] || '').trim()
+      if (p) controller.ensureRefLibraryItemLoaded(p)
+      return
+    }
+    if (lightbox.kind === 'outputGallery') {
+      const p = String(lightbox.paths[lightbox.index] || '').trim()
+      if (p) controller.ensureImageHistoryItemLoaded(p)
+    }
+  }, [lightbox, controller])
+
+  const lightboxClose = React.useCallback(() => setLightbox({ open: false }), [])
+  const lightboxPrev = React.useCallback(() => {
+    setLightbox((s) => {
+      if (!s.open) return s
+      const next = Math.max(0, Math.floor(Number((s as any).index) || 0) - 1)
+      return (s as any).index === next ? s : ({ ...(s as any), index: next } as any)
+    })
+  }, [])
+  const lightboxNext = React.useCallback(() => {
+    setLightbox((s) => {
+      if (!s.open) return s
+      const list = (s as any).ids || (s as any).paths || []
+      const max = Math.max(0, (Array.isArray(list) ? list.length : 0) - 1)
+      const next = Math.min(max, Math.floor(Number((s as any).index) || 0) + 1)
+      return (s as any).index === next ? s : ({ ...(s as any), index: next } as any)
+    })
+  }, [])
+
+  const lightboxView = React.useMemo(() => {
+    if (!lightbox.open) {
+      return { open: false as const, src: '', loading: false, error: '', index: 0, count: 0, canPrev: false, canNext: false }
+    }
+
+    const index = Math.max(0, Math.floor(Number(lightbox.index) || 0))
+    const list = lightbox.kind === 'refImages' ? lightbox.ids : lightbox.paths
+    const count = Array.isArray(list) ? list.length : 0
+    const canPrev = index > 0
+    const canNext = index >= 0 && index < count - 1
+    let src = ''
+    let loading = false
+    let error = ''
+
+    if (lightbox.kind === 'refImages') {
+      const id0 = String(lightbox.ids[index] || '').trim()
+      const it = (Array.isArray(state.refImages) ? state.refImages : []).find((x) => String((x as any)?.id || '').trim() === id0) as any
+      src = String(it?.dataUrl || '').trim()
+    } else if (lightbox.kind === 'refLibrary') {
+      const p = String(lightbox.paths[index] || '').trim()
+      const slot = (state.refLibrary.itemsByPath as any)?.[p] || { dataUrl: '', loading: false, error: '' }
+      src = String(slot?.dataUrl || '').trim()
+      loading = !!slot?.loading
+      error = String(slot?.error || '').trim()
+    } else {
+      const p = String(lightbox.paths[index] || '').trim()
+      const it = (Array.isArray(state.imageHistory) ? state.imageHistory : []).find((x) => String((x as any)?.savedPath || '').trim() === p) as any
+      src = String(it?.dataUrl || '').trim()
+      loading = !!it?.loading
+      error = String(it?.error || '').trim()
+    }
+
+    return { open: true as const, src, loading, error, index, count, canPrev, canNext }
+  }, [lightbox, revision])
 
   React.useEffect(() => {
     if (!imageGalleryOpen) return
@@ -837,19 +953,29 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 <Chip size="small" variant="outlined" label={`${state.refImages.length}/8`} />
               </Stack>
 
-            {state.refImages.length ? (
-              <Stack direction="row" spacing={1} sx={{ overflowX: 'auto', pb: 0.5 }}>
+              {state.refImages.length ? (
+                <Stack direction="row" spacing={1} sx={{ overflowX: 'auto', pb: 0.5 }}>
                   {state.refImages.map((img) => (
                     <Box key={img.id} sx={{ position: 'relative', width: 72, height: 72, flex: '0 0 auto' }}>
                       <Box
                         component="img"
                         src={img.dataUrl}
                         alt={img.name || '参考图'}
-                        sx={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 2 }}
+                        onClick={(e) => {
+                          if (!e.ctrlKey) return
+                          e.preventDefault()
+                          e.stopPropagation()
+                          openRefImagesLightbox(String((img as any)?.id || ''))
+                        }}
+                        sx={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 2, cursor: 'pointer' }}
                       />
                       <IconButton
                         size="small"
-                        onClick={() => controller.removeRefImage(img.id)}
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          controller.removeRefImage(img.id)
+                        }}
                         sx={{ position: 'absolute', right: 2, top: 2, bgcolor: 'rgba(250,249,245,0.92)' }}
                         aria-label="移除参考图"
                       >
@@ -1701,7 +1827,14 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                           onMouseEnter={() => controller.ensureImageHistoryItemLoaded(savedPath)}
                           onFocus={() => controller.ensureImageHistoryItemLoaded(savedPath)}
                           tabIndex={0}
-                          onClick={() => {
+                          onClick={(e) => {
+                            // Ctrl + 点击：打开无栏居中预览，不关闭批量预览窗口。
+                            if (e.ctrlKey && savedPath) {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              openOutputGalleryLightbox(savedPath)
+                              return
+                            }
                             const realIndex = state.imageHistory.findIndex((x) => String(x?.savedPath || '').trim() === savedPath)
                             if (realIndex >= 0) {
                               void controller.refreshImageHistory(savedPath).catch(() => {})
@@ -2388,7 +2521,14 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                               }}
                               role={refMultiMode || slot.dataUrl ? 'button' : undefined}
                               tabIndex={refMultiMode || slot.dataUrl ? 0 : undefined}
-                              onClick={() => {
+                              onClick={(e) => {
+                                // Ctrl + 点击：预览（不添加到参考图），允许未加载时进入预览。
+                                if (e.ctrlKey) {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  openRefLibraryLightbox(p)
+                                  return
+                                }
                                 if (refMultiMode) return toggleRefSelected(p)
                                 if (!slot.dataUrl) return
                                 void controller.addRefImageFromLibrary(p)
@@ -2579,7 +2719,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
             </DialogActions>
           </Dialog>
 
-          <Dialog
+      <Dialog
             open={renameRefFolderDialog.open}
             onClose={() => setRenameRefFolderDialog({ open: false, folderId: '', name: '' })}
             fullWidth
@@ -2783,6 +2923,20 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
           </Dialog>
         </DialogContent>
       </Dialog>
+
+      <ImageLightboxDialog
+        open={lightboxView.open}
+        src={lightboxView.src}
+        loading={lightboxView.loading}
+        error={lightboxView.error}
+        index={lightboxView.index}
+        count={lightboxView.count}
+        canPrev={lightboxView.canPrev}
+        canNext={lightboxView.canNext}
+        onPrev={lightboxPrev}
+        onNext={lightboxNext}
+        onClose={lightboxClose}
+      />
     </ThemeProvider>
   )
 }
