@@ -2,23 +2,10 @@ import * as React from 'react'
 import { Box, Typography } from '@mui/material'
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 import type { NoteMeta } from '../core'
-import { isDraftNoteId } from '../drafts'
 
-export type NoteCardInfo = {
-  tags: string[]
-  hasTextFace: boolean
-  hasHtmlFace: boolean
-}
+import type { NoteCardInfo } from './noteCardInfo'
+import { noteContainsLabel, shouldShowNoteContains } from './noteCardInfo'
 
-export function noteContainsLabel(info: NoteCardInfo | null | undefined): string {
-  if (!info) return ''
-  const hasText = info.hasTextFace
-  const hasHtml = info.hasHtmlFace
-  if (hasText && hasHtml) return '文本 · HTML'
-  if (hasText) return '文本'
-  if (hasHtml) return 'HTML'
-  return ''
-}
 
 function normalizeTags(tags: unknown): string[] {
   if (!Array.isArray(tags)) return []
@@ -85,61 +72,67 @@ function Actions(props: {
   size: number
   fontSize: number
   note: NoteMeta
-  onCopyRef: (note: NoteMeta) => void
-  onMore: (e: React.MouseEvent, note: NoteMeta) => void
+  onCopyRef?: (note: NoteMeta) => void
+  onMore?: (e: React.MouseEvent, note: NoteMeta) => void
 }): React.ReactNode {
   const { size, fontSize, note, onCopyRef, onMore } = props
+  if (!onCopyRef && !onMore) return null
   return (
     <Box className="hc-note-card-actions" sx={{ display: 'flex', gap: 0.5, opacity: 0, transition: 'opacity .15s' }}>
-      <Box
-        component="button"
-        onClick={(e: React.MouseEvent) => {
-          e.stopPropagation()
-          onCopyRef(note)
-        }}
-        sx={{
-          border: 'none',
-          background: 'rgba(0,0,0,.05)',
-          borderRadius: 1.5,
-          width: size,
-          height: size,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          fontSize,
-          color: 'rgba(0,0,0,.45)',
-          '&:hover': { background: 'rgba(0,0,0,.1)' },
-        }}
-        aria-label="复制引用占位符"
-        title="复制引用占位符"
-      >
-        🔗
-      </Box>
-      <Box
-        component="button"
-        onClick={(e: React.MouseEvent) => {
-          e.stopPropagation()
-          onMore(e, note)
-        }}
-        sx={{
-          border: 'none',
-          background: 'rgba(0,0,0,.05)',
-          borderRadius: 1.5,
-          width: size,
-          height: size,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          cursor: 'pointer',
-          color: 'rgba(0,0,0,.45)',
-          '&:hover': { background: 'rgba(0,0,0,.1)' },
-        }}
-        aria-label="更多操作"
-        title="更多操作"
-      >
-        <MoreHorizRoundedIcon sx={{ fontSize: Math.max(12, Math.floor(size * 0.68)) }} />
-      </Box>
+      {onCopyRef ? (
+        <Box
+          component="button"
+          onClick={(e: React.MouseEvent) => {
+            e.stopPropagation()
+            onCopyRef(note)
+          }}
+          sx={{
+            border: 'none',
+            background: 'rgba(0,0,0,.05)',
+            borderRadius: 1.5,
+            width: size,
+            height: size,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            fontSize,
+            color: 'rgba(0,0,0,.45)',
+            '&:hover': { background: 'rgba(0,0,0,.1)' },
+          }}
+          aria-label="复制引用占位符"
+          title="复制引用占位符"
+        >
+          🔗
+        </Box>
+      ) : null}
+
+      {onMore ? (
+        <Box
+          component="button"
+          onClick={(e: React.MouseEvent) => {
+            e.stopPropagation()
+            onMore(e, note)
+          }}
+          sx={{
+            border: 'none',
+            background: 'rgba(0,0,0,.05)',
+            borderRadius: 1.5,
+            width: size,
+            height: size,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            color: 'rgba(0,0,0,.45)',
+            '&:hover': { background: 'rgba(0,0,0,.1)' },
+          }}
+          aria-label="更多操作"
+          title="更多操作"
+        >
+          <MoreHorizRoundedIcon sx={{ fontSize: Math.max(12, Math.floor(size * 0.68)) }} />
+        </Box>
+      ) : null}
     </Box>
   )
 }
@@ -149,15 +142,15 @@ function containsTextFor(info: NoteCardInfo | null | undefined): string {
 }
 
 function showContainsForNote(note: NoteMeta): boolean {
-  return !isDraftNoteId(note.id) && !!String(note.dir || '').trim()
+  return shouldShowNoteContains(note)
 }
 
 export function AllNotesGridNoteCard(props: {
   note: NoteMeta
   info?: NoteCardInfo
   onOpen: (note: NoteMeta) => void
-  onCopyRef: (note: NoteMeta) => void
-  onMore: (e: React.MouseEvent, note: NoteMeta) => void
+  onCopyRef?: (note: NoteMeta) => void
+  onMore?: (e: React.MouseEvent, note: NoteMeta) => void
 }): React.ReactNode {
   const { note, info, onOpen, onCopyRef, onMore } = props
   const tags = normalizeTags(info?.tags)
@@ -196,9 +189,11 @@ export function AllNotesGridNoteCard(props: {
         '&:hover .hc-note-card-actions': { opacity: 1 },
       }}
     >
-      <Box sx={{ position: 'absolute', top: 6, right: 6 }}>
-        <Actions size={24} fontSize={13} note={note} onCopyRef={onCopyRef} onMore={onMore} />
-      </Box>
+      {onCopyRef || onMore ? (
+        <Box sx={{ position: 'absolute', top: 6, right: 6 }}>
+          <Actions size={24} fontSize={13} note={note} onCopyRef={onCopyRef} onMore={onMore} />
+        </Box>
+      ) : null}
 
       <Typography
         sx={{
@@ -235,8 +230,8 @@ export function AllNotesIconNoteCard(props: {
   note: NoteMeta
   info?: NoteCardInfo
   onOpen: (note: NoteMeta) => void
-  onCopyRef: (note: NoteMeta) => void
-  onMore: (e: React.MouseEvent, note: NoteMeta) => void
+  onCopyRef?: (note: NoteMeta) => void
+  onMore?: (e: React.MouseEvent, note: NoteMeta) => void
 }): React.ReactNode {
   const { note, info, onOpen, onCopyRef, onMore } = props
   const tags = normalizeTags(info?.tags)
@@ -276,9 +271,11 @@ export function AllNotesIconNoteCard(props: {
         '&:hover .hc-note-card-actions': { opacity: 1 },
       }}
     >
-      <Box sx={{ position: 'absolute', top: 4, right: 4 }}>
-        <Actions size={22} fontSize={11} note={note} onCopyRef={onCopyRef} onMore={onMore} />
-      </Box>
+      {onCopyRef || onMore ? (
+        <Box sx={{ position: 'absolute', top: 4, right: 4 }}>
+          <Actions size={22} fontSize={11} note={note} onCopyRef={onCopyRef} onMore={onMore} />
+        </Box>
+      ) : null}
 
       <Typography
         sx={{
@@ -316,8 +313,8 @@ export function AllNotesListNoteRow(props: {
   note: NoteMeta
   info?: NoteCardInfo
   onOpen: (note: NoteMeta) => void
-  onCopyRef: (note: NoteMeta) => void
-  onMore: (e: React.MouseEvent, note: NoteMeta) => void
+  onCopyRef?: (note: NoteMeta) => void
+  onMore?: (e: React.MouseEvent, note: NoteMeta) => void
 }): React.ReactNode {
   const { note, info, onOpen, onCopyRef, onMore } = props
   const tags = normalizeTags(info?.tags)
@@ -354,9 +351,11 @@ export function AllNotesListNoteRow(props: {
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-        <Box sx={{ flexShrink: 0 }}>
-          <Actions size={24} fontSize={13} note={note} onCopyRef={onCopyRef} onMore={onMore} />
-        </Box>
+        {onCopyRef || onMore ? (
+          <Box sx={{ flexShrink: 0 }}>
+            <Actions size={24} fontSize={13} note={note} onCopyRef={onCopyRef} onMore={onMore} />
+          </Box>
+        ) : null}
 
         <Typography
           sx={{

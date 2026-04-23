@@ -24,7 +24,7 @@ import {
   type HyperCortexWorkspaceV1,
   type NoteMeta,
 } from '../core'
-import { loadNoteIndex, tryReadNoteManifest } from '../notePackage'
+import { loadNoteIndex } from '../notePackage'
 import { loadRefIndex, type NoteRefIndex } from '../noteRefs'
 import { createMarkdownRenderEngine } from '../render/engine'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
@@ -43,7 +43,9 @@ import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from '
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
 import { applyActiveWorkspacePatch, buildWorkspacesMetadataSnapshot, normalizeOpenTabKeys } from './workspaceModel'
 import { DEFAULT_SHORTCUT_BINDINGS, isEditableTarget, mainKeyFromChord, normalizeMainKey, normalizeShortcutBindings, shouldTriggerShortcut, type HyperCortexShortcutBindingsV1 } from '../shortcuts'
-import { AllNotesGridNoteCard, AllNotesIconNoteCard, AllNotesListNoteRow, type NoteCardInfo } from './AllNotesNoteCard'
+import { AllNotesGridNoteCard, AllNotesIconNoteCard, AllNotesListNoteRow } from './AllNotesNoteCard'
+import type { NoteCardInfo } from './noteCardInfo'
+import { loadNoteCardInfo, startPrefetchNoteCardInfo } from './noteCardInfoLoader'
 import type { AssetEntry } from '../assetTypes'
 import { assetTabId } from '../assetTypes'
 import { assetRefKeyFromTabKey, noteIdFromTabKey, noteTabKey, parseAssetRefKey, tabKind, type TabKey } from '../tabKey'
@@ -501,61 +503,52 @@ export function HyperCortexApp() {
     noteCardInfoByIdRef.current = noteCardInfoById
   }, [noteCardInfoById])
 
+  const upsertNoteCardInfo = React.useCallback((noteId: string, nextInfo: NoteCardInfo) => {
+    const nid = String(noteId || '').trim()
+    if (!nid) return
+    setNoteCardInfoById(prev => {
+      const existed = prev[nid]
+      if (
+        existed &&
+        existed.hasTextFace === nextInfo.hasTextFace &&
+        existed.hasHtmlFace === nextInfo.hasHtmlFace &&
+        existed.tags.join('\n') === nextInfo.tags.join('\n')
+      ) return prev
+      return { ...prev, [nid]: nextInfo }
+    })
+  }, [])
+
   const refreshNoteCardInfo = React.useCallback(
     async (meta: NoteMeta) => {
       const nid = String(meta?.id || '').trim()
       if (!nid) return
-      if (isDraftNoteId(nid) || !String(meta?.dir || '').trim()) return
-      const manifest = await tryReadNoteManifest(api, 'library', meta.dir)
-      if (!manifest) return
-      const nextInfo: NoteCardInfo = {
-        tags: Array.isArray(manifest.tags) ? manifest.tags.map(v => String(v || '').trim()).filter(Boolean) : [],
-        hasTextFace: !!manifest.faces?.text?.file,
-        hasHtmlFace: !!manifest.faces?.htmlView?.file,
-      }
-      setNoteCardInfoById(prev => {
-        const existed = prev[nid]
-        if (
-          existed &&
-          existed.hasTextFace === nextInfo.hasTextFace &&
-          existed.hasHtmlFace === nextInfo.hasHtmlFace &&
-          existed.tags.join('\n') === nextInfo.tags.join('\n')
-        ) return prev
-        return { ...prev, [nid]: nextInfo }
-      })
+      const info = await loadNoteCardInfo(api, 'library', meta).catch(() => null)
+      if (!info) return
+      upsertNoteCardInfo(nid, info)
     },
-    [api],
+    [api, upsertNoteCardInfo],
   )
 
-  const noteCardInfoLoadSeqRef = React.useRef(0)
+  const ensureNoteCardInfoLoaded = React.useCallback(
+    async (meta: NoteMeta) => {
+      const nid = String(meta?.id || '').trim()
+      if (!nid) return
+      if (noteCardInfoByIdRef.current[nid]) return
+      await refreshNoteCardInfo(meta)
+    },
+    [refreshNoteCardInfo],
+  )
+
   React.useEffect(() => {
     if (page !== 'all-notes') return
-    const seq = ++noteCardInfoLoadSeqRef.current
-    const list = Array.isArray(allNotes) ? allNotes.slice() : []
-    const queue = list.filter(n => {
-      const nid = String(n?.id || '').trim()
-      if (!nid) return false
-      if (isDraftNoteId(nid) || !String(n?.dir || '').trim()) return false
-      return !noteCardInfoByIdRef.current[nid]
+    const ctl = startPrefetchNoteCardInfo({
+      notes: allNotes,
+      getInfoById: id => noteCardInfoByIdRef.current[id],
+      refresh: ensureNoteCardInfoLoaded,
+      maxWorkers: 6,
     })
-    if (!queue.length) return
-
-    let cursor = 0
-    const workers = Math.min(6, queue.length)
-    void (async () => {
-      const runOne = async () => {
-        while (cursor < queue.length && noteCardInfoLoadSeqRef.current === seq) {
-          const note = queue[cursor++]
-          await refreshNoteCardInfo(note).catch(() => {})
-        }
-      }
-      await Promise.all(Array.from({ length: workers }, runOne))
-    })()
-
-    return () => {
-      if (noteCardInfoLoadSeqRef.current === seq) noteCardInfoLoadSeqRef.current++
-    }
-  }, [allNotes, page, refreshNoteCardInfo])
+    return () => ctl.cancel()
+  }, [allNotes, ensureNoteCardInfoLoaded, page])
 
   const persistMetadataPatch = React.useCallback(
     async (patch: Partial<HyperCortexMetadataV1>) => {
@@ -2075,6 +2068,10 @@ export function HyperCortexApp() {
             open={quickSearchOpen}
             triggerEl={quickSearchAnchorRef.current}
             notes={notesForQuickSearch}
+            allNotesLayout={allNotesLayout}
+            onToggleAllNotesLayout={toggleAllNotesLayout}
+            noteCardInfoById={noteCardInfoById}
+            onEnsureNoteCardInfoLoaded={ensureNoteCardInfoLoaded}
             onClose={() => setQuickSearchOpen(false)}
             onOpenNote={note => {
               setQuickSearchOpen(false)

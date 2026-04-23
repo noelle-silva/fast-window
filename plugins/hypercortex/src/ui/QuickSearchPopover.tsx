@@ -4,9 +4,6 @@ import {
   CircularProgress,
   ClickAwayListener,
   InputBase,
-  List,
-  ListItemButton,
-  ListItemText,
   Paper,
   Popper,
   Tab,
@@ -20,6 +17,9 @@ import { kindFromMime, mimeFromExt, type Api, type NoteMeta, type VaultScope } f
 import { listAssetsInPool } from '../assetPool'
 import { pickAssetDisplayName } from '../assetDisplayName'
 import type { AssetEntry } from '../assetTypes'
+import { buildNotePlaceholderForCopy } from '../notePlaceholder'
+import { AllNotesGridNoteCard, AllNotesIconNoteCard, AllNotesListNoteRow } from './AllNotesNoteCard'
+import { startPrefetchNoteCardInfo } from './noteCardInfoLoader'
 
 type Mode = 'notes' | 'assets'
 
@@ -29,6 +29,10 @@ type Props = {
   open: boolean
   triggerEl: HTMLElement | null
   notes: NoteMeta[]
+  allNotesLayout: 'list' | 'grid' | 'icon'
+  onToggleAllNotesLayout: () => void
+  noteCardInfoById: Record<string, import('./noteCardInfo').NoteCardInfo>
+  onEnsureNoteCardInfoLoaded: (note: NoteMeta) => Promise<void>
   onClose: () => void
   onOpenNote: (note: NoteMeta) => void
   onOpenAsset: (asset: AssetEntry) => void
@@ -81,7 +85,20 @@ function buildAssetEntries(items: { relPath: string; name: string; displayName?:
 }
 
 export function QuickSearchPopover(props: Props) {
-  const { api, scope, open, triggerEl, notes, onClose, onOpenNote, onOpenAsset } = props
+  const {
+    api,
+    scope,
+    open,
+    triggerEl,
+    notes,
+    allNotesLayout,
+    onToggleAllNotesLayout,
+    noteCardInfoById,
+    onEnsureNoteCardInfoLoaded,
+    onClose,
+    onOpenNote,
+    onOpenAsset,
+  } = props
 
   const inputRef = React.useRef<HTMLInputElement | null>(null)
   const popperRootRef = React.useRef<HTMLDivElement | null>(null)
@@ -206,6 +223,19 @@ export function QuickSearchPopover(props: Props) {
     return ranked.map(x => x.note)
   }, [notes, query])
 
+  React.useEffect(() => {
+    if (!open) return
+    if (mode !== 'notes') return
+    if (!noteMatches.length) return
+    const ctl = startPrefetchNoteCardInfo({
+      notes: noteMatches,
+      getInfoById: id => noteCardInfoById[id],
+      refresh: onEnsureNoteCardInfoLoaded,
+      maxWorkers: 6,
+    })
+    return () => ctl.cancel()
+  }, [mode, noteCardInfoById, noteMatches, onEnsureNoteCardInfoLoaded, open])
+
   const assetMatches = React.useMemo(() => {
     const tokens = normalizeQuery(query)
     if (!tokens.length) return []
@@ -270,6 +300,28 @@ export function QuickSearchPopover(props: Props) {
                 }}
                 sx={{ flex: 1, fontSize: 13 }}
               />
+              {mode === 'notes' ? (
+                <Box
+                  component="button"
+                  onClick={onToggleAllNotesLayout}
+                  aria-label={allNotesLayout === 'list' ? '切换到网格' : allNotesLayout === 'grid' ? '切换到紧凑' : '切换到列表'}
+                  title={allNotesLayout === 'list' ? '切换到网格' : allNotesLayout === 'grid' ? '切换到紧凑' : '切换到列表'}
+                  sx={{
+                    border: 0,
+                    bgcolor: 'rgba(0,0,0,.04)',
+                    px: 1,
+                    py: 0.6,
+                    borderRadius: 2,
+                    cursor: 'pointer',
+                    color: 'rgba(0,0,0,.62)',
+                    fontSize: 11,
+                    fontWeight: 900,
+                    '&:hover': { bgcolor: 'rgba(0,0,0,.08)', color: '#111' },
+                  }}
+                >
+                  {allNotesLayout === 'list' ? '网格' : allNotesLayout === 'grid' ? '紧凑' : '列表'}
+                </Box>
+              ) : null}
               <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.38)' }}>{query.trim() ? 'Enter 打开第一条' : ''}</Typography>
             </Box>
 
@@ -313,63 +365,105 @@ export function QuickSearchPopover(props: Props) {
               ) : null}
 
               {mode === 'notes' && noteMatches.length ? (
-                <List dense disablePadding>
-                  {noteMatches.map(n => (
-                    <ListItemButton
-                      key={n.id}
-                      onClick={() => {
-                        onOpenNote(n)
-                        onClose()
-                      }}
-                      sx={{ px: 1.25, py: 0.75 }}
-                    >
-                      <ListItemText
-                        primary={
-                          <Typography sx={{ fontSize: 12.5, fontWeight: 900, color: '#111' }} noWrap title={n.title}>
-                            {n.title || '未命名'}
-                          </Typography>
-                        }
-                        secondary={
-                          <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.42)', fontFamily: 'monospace' }} noWrap title={n.id}>
-                            {n.id}
-                          </Typography>
-                        }
+                allNotesLayout === 'grid' ? (
+                  <Box sx={{ p: 1, display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 1 }}>
+                    {noteMatches.map(n => (
+                      <AllNotesGridNoteCard
+                        key={n.id}
+                        note={n}
+                        info={noteCardInfoById[n.id]}
+                        onOpen={note => {
+                          onOpenNote(note)
+                          onClose()
+                        }}
+                        onCopyRef={note => {
+                          void api.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
+                          void api.ui.showToast('已复制引用占位符')
+                        }}
+                        onMore={undefined}
                       />
-                    </ListItemButton>
-                  ))}
-                </List>
+                    ))}
+                  </Box>
+                ) : allNotesLayout === 'icon' ? (
+                  <Box sx={{ p: 1, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(112px, 1fr))', gap: 1 }}>
+                    {noteMatches.map(n => (
+                      <AllNotesIconNoteCard
+                        key={n.id}
+                        note={n}
+                        info={noteCardInfoById[n.id]}
+                        onOpen={note => {
+                          onOpenNote(note)
+                          onClose()
+                        }}
+                        onCopyRef={note => {
+                          void api.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
+                          void api.ui.showToast('已复制引用占位符')
+                        }}
+                        onMore={undefined}
+                      />
+                    ))}
+                  </Box>
+                ) : (
+                  <Box sx={{ p: 1, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                    {noteMatches.map(n => (
+                      <AllNotesListNoteRow
+                        key={n.id}
+                        note={n}
+                        info={noteCardInfoById[n.id]}
+                        onOpen={note => {
+                          onOpenNote(note)
+                          onClose()
+                        }}
+                        onCopyRef={note => {
+                          void api.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
+                          void api.ui.showToast('已复制引用占位符')
+                        }}
+                        onMore={undefined}
+                      />
+                    ))}
+                  </Box>
+                )
               ) : null}
 
               {mode === 'assets' && !assetsLoading && assetMatches.length ? (
-                <List dense disablePadding>
+                <Box component="ul" sx={{ listStyle: 'none', p: 0, m: 0 }}>
                   {assetMatches.map(a => {
                     const title = pickAssetDisplayName({ explicitName: a.displayName, ext: a.ext })
                     const extLabel = a.ext ? `.${a.ext}` : ''
                     return (
-                      <ListItemButton
+                      <Box
+                        component="li"
                         key={`${a.assetId}.${a.ext}`}
                         onClick={() => {
                           onOpenAsset(a)
                           onClose()
                         }}
-                        sx={{ px: 1.25, py: 0.75 }}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            onOpenAsset(a)
+                            onClose()
+                          }
+                        }}
+                        sx={{
+                          px: 1.25,
+                          py: 0.85,
+                          cursor: 'pointer',
+                          '&:hover': { bgcolor: 'rgba(0,0,0,.03)' },
+                        }}
                       >
-                        <ListItemText
-                          primary={
-                            <Typography sx={{ fontSize: 12.5, fontWeight: 900, color: '#111' }} noWrap title={title}>
-                              {title}
-                            </Typography>
-                          }
-                          secondary={
-                            <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.42)', fontFamily: 'monospace' }} noWrap>
-                              {extLabel} {a.assetId.slice(0, 12)}…
-                            </Typography>
-                          }
-                        />
-                      </ListItemButton>
+                        <Typography sx={{ fontSize: 12.5, fontWeight: 900, color: '#111' }} noWrap title={title}>
+                          {title}
+                        </Typography>
+                        <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.42)', fontFamily: 'monospace' }} noWrap>
+                          {extLabel} {a.assetId.slice(0, 12)}…
+                        </Typography>
+                      </Box>
                     )
                   })}
-                </List>
+                </Box>
               ) : null}
             </Box>
           </Paper>
