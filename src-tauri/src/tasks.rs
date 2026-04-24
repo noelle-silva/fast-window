@@ -1,4 +1,4 @@
-use crate::http_api::{http_request, HttpErrorKind, HttpRequest};
+use crate::http_api::{http_request_for_task, HttpRequest};
 use crate::plugins::is_safe_id;
 use crate::{ensure_writable_dir, resolve_plugin_output_dir};
 
@@ -424,6 +424,7 @@ struct HttpRequestTaskResult {
     status: u16,
     headers: HashMap<String, String>,
     body: String,
+    attempt_count: u32,
 }
 
 async fn run_http_request_task(payload: HttpRequestTaskPayload) -> Result<Value, String> {
@@ -442,18 +443,19 @@ async fn run_http_request_task(payload: HttpRequestTaskPayload) -> Result<Value,
             body_base64: payload.body_base64.clone(),
             timeout_ms: payload.timeout_ms,
         };
-        match http_request(req).await {
+        match http_request_for_task(req).await {
             Ok(resp) => {
                 return serde_json::to_value(HttpRequestTaskResult {
                     status: resp.status,
                     headers: resp.headers,
                     body: resp.body,
+                    attempt_count: attempt + 1,
                 })
                 .map_err(|e| format!("任务结果序列化失败: {e}"));
             }
             Err(e) => {
-                last_err = e;
-                let retryable = HttpErrorKind::from_err_str(&last_err).is_retryable();
+                last_err = e.message.clone();
+                let retryable = e.kind.is_retryable();
                 if attempt < MAX_RETRIES && retryable {
                     tokio::time::sleep(tokio::time::Duration::from_millis(
                         RETRY_DELAYS_MS[attempt as usize],

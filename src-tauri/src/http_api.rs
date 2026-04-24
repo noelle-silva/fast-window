@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use url::Url;
 
 use base64::engine::general_purpose;
 use base64::Engine as _;
@@ -30,30 +31,34 @@ struct HttpClientPolicy {
 }
 
 impl HttpClientPolicy {
-    /// 根据请求 URL 自动选择兼容策略。
-    /// 目前对所有 HTTPS AI 接口使用保守策略；
-    /// 后续如有已知行为正常的 host，可在此添加白名单降低限制。
-    fn for_url(url: &str) -> Self {
-        // 判断是否是 AI 类接口：包含常见路径特征
-        let is_ai_api = url.contains("/v1/")
-            || url.contains("/images/")
-            || url.contains("/chat/")
-            || url.contains("/completions");
+    fn default() -> Self {
+        HttpClientPolicy {
+            force_http1: false,
+            no_idle_pool: false,
+            no_decompress: false,
+        }
+    }
 
-        if is_ai_api {
-            // AI 接口：使用保守兼容策略
-            HttpClientPolicy {
-                force_http1: true,
-                no_idle_pool: true,
-                no_decompress: true,
-            }
-        } else {
-            // 普通接口：使用默认策略，保留 HTTP/2 和压缩支持
-            HttpClientPolicy {
-                force_http1: false,
-                no_idle_pool: false,
-                no_decompress: false,
-            }
+    fn aggressive_ai_compat() -> Self {
+        HttpClientPolicy {
+            force_http1: true,
+            no_idle_pool: true,
+            no_decompress: true,
+        }
+    }
+
+    /// 根据请求 URL 自动选择兼容策略。
+    /// 现在改为 host 级策略表，避免仅靠 path 特征做模糊判断。
+    fn for_url(url: &str) -> Self {
+        let host = Url::parse(url)
+            .ok()
+            .and_then(|u| u.host_str().map(|s| s.to_ascii_lowercase()))
+            .unwrap_or_default();
+
+        match host.as_str() {
+            // PackyAPI：已验证存在 HTTP/2 / keep-alive / 自动解压兼容问题，使用保守策略
+            "www.packyapi.com" | "packyapi.com" => HttpClientPolicy::aggressive_ai_compat(),
+            _ => HttpClientPolicy::default(),
         }
     }
 }
@@ -76,29 +81,21 @@ pub(crate) enum HttpErrorKind {
 }
 
 impl HttpErrorKind {
-    /// 从格式化后的错误字符串中推断 kind。
-    /// 因为 reqwest::Error 已经在 format_reqwest_error 里序列化成字符串，
-    /// tasks.rs 拿到的是 String，所以这里从字符串特征反推。
-    pub(crate) fn from_err_str(s: &str) -> Self {
-        if s.contains("超时") || s.contains("Timeout") || s.contains("timed out") {
+    /// 从 reqwest::Error 直接推断 kind，不依赖字符串解析。
+    fn from_reqwest(err: &reqwest::Error) -> Self {
+        if err.is_timeout() {
             return HttpErrorKind::Timeout;
         }
-        if s.contains("connection closed before message completed")
-            || s.contains("SendRequest")
-            || s.contains("connection reset")
-        {
-            return HttpErrorKind::SendClosed;
-        }
-        if s.contains("连接失败")
-            || s.contains("Connect)")
-            || s.contains("tcp connect error")
-            || s.contains("os error 10060")
-            || s.contains("connection refused")
-        {
+        if err.is_connect() {
             return HttpErrorKind::Connect;
         }
-        if s.contains("读取响应失败") || s.contains("响应解码失败") || s.contains("body") {
+        if err.is_body() || err.is_decode() {
             return HttpErrorKind::BodyDecode;
+        }
+        if err.is_request() {
+            // is_request() 在 reqwest 里表示请求构建/发送层失败，
+            // 对应 SendRequest / connection closed 等场景
+            return HttpErrorKind::SendClosed;
         }
         HttpErrorKind::Other
     }
@@ -106,6 +103,29 @@ impl HttpErrorKind {
     /// 发送阶段失败（服务端未处理请求），可以安全重试。
     pub(crate) fn is_retryable(&self) -> bool {
         matches!(self, HttpErrorKind::Connect | HttpErrorKind::SendClosed)
+    }
+}
+
+/// http_request_send / http_request_raw 内部使用的结构化错误，
+/// 携带 kind 供任务层直接判断，避免字符串反推。
+pub(crate) struct HttpGatewayError {
+    pub(crate) kind: HttpErrorKind,
+    pub(crate) message: String,
+}
+
+impl HttpGatewayError {
+    fn from_reqwest(prefix: &str, err: &reqwest::Error) -> Self {
+        HttpGatewayError {
+            kind: HttpErrorKind::from_reqwest(err),
+            message: format_reqwest_error(prefix, err),
+        }
+    }
+
+    fn other(message: impl Into<String>) -> Self {
+        HttpGatewayError {
+            kind: HttpErrorKind::Other,
+            message: message.into(),
+        }
     }
 }
 
@@ -205,8 +225,22 @@ pub(crate) enum HttpStreamEvent {
 
 #[tauri::command]
 pub(crate) async fn http_request(req: HttpRequest) -> Result<HttpResponse, String> {
-    let (status, headers, bytes) = http_request_raw(req).await?;
+    let (status, headers, bytes) = http_request_raw(req).await.map_err(|e| e.message)?;
     // 用 lossy 解码：非 UTF-8 字节用 U+FFFD 替换，确保响应体始终可读（调试/错误分析友好）
+    let body = String::from_utf8_lossy(&bytes).into_owned();
+    Ok(HttpResponse {
+        status,
+        headers,
+        body,
+    })
+}
+
+/// tasks.rs 专用：同时返回结构化 HttpGatewayError，
+/// 让任务层直接从 kind 判断是否重试，无需字符串反推。
+pub(crate) async fn http_request_for_task(
+    req: HttpRequest,
+) -> Result<HttpResponse, HttpGatewayError> {
+    let (status, headers, bytes) = http_request_raw(req).await?;
     let body = String::from_utf8_lossy(&bytes).into_owned();
     Ok(HttpResponse {
         status,
@@ -217,7 +251,7 @@ pub(crate) async fn http_request(req: HttpRequest) -> Result<HttpResponse, Strin
 
 #[tauri::command]
 pub(crate) async fn http_request_base64(req: HttpRequest) -> Result<HttpResponseBase64, String> {
-    let (status, headers, bytes) = http_request_raw(req).await?;
+    let (status, headers, bytes) = http_request_raw(req).await.map_err(|e| e.message)?;
     let body_base64 = general_purpose::STANDARD.encode(bytes);
     Ok(HttpResponseBase64 {
         status,
@@ -268,7 +302,7 @@ pub(crate) async fn http_request_stream(
         let (status, headers, mut resp) = match http_request_send(req, MAX_TIMEOUT_MS).await {
             Ok(v) => v,
             Err(e) => {
-                let _ = channel.send(HttpStreamEvent::Error { message: e });
+                let _ = channel.send(HttpStreamEvent::Error { message: e.message });
                 let _ = channel.send(HttpStreamEvent::End { canceled: false });
                 return;
             }
@@ -416,13 +450,13 @@ pub(crate) async fn gateway_test_channel(
 async fn http_request_send(
     req: HttpRequest,
     timeout_cap_ms: u64,
-) -> Result<(u16, HashMap<String, String>, reqwest::Response), String> {
+) -> Result<(u16, HashMap<String, String>, reqwest::Response), HttpGatewayError> {
     let method = req.method.trim().to_uppercase();
     if method.is_empty() {
-        return Err("method 不能为空".to_string());
+        return Err(HttpGatewayError::other("method 不能为空"));
     }
     if !is_http_url(&req.url) {
-        return Err("url 必须以 http(s):// 开头".to_string());
+        return Err(HttpGatewayError::other("url 必须以 http(s):// 开头"));
     }
 
     let timeout = Duration::from_millis(
@@ -446,26 +480,26 @@ async fn http_request_send(
 
     let client = client_builder
         .build()
-        .map_err(|e| format!("创建 http client 失败: {e}"))?;
+        .map_err(|e| HttpGatewayError::other(format!("创建 http client 失败: {e}")))?;
 
     let m = reqwest::Method::from_bytes(method.as_bytes())
-        .map_err(|_| "不支持的 method".to_string())?;
+        .map_err(|_| HttpGatewayError::other("不支持的 method"))?;
     let mut rb = client.request(m, req.url);
 
     if let Some(h) = req.headers {
         if h.len() > 64 {
-            return Err("headers 过多".to_string());
+            return Err(HttpGatewayError::other("headers 过多"));
         }
         for (k, v) in h {
             if k.len() > 128 || v.len() > 4096 {
-                return Err("header 太长".to_string());
+                return Err(HttpGatewayError::other("header 太长"));
             }
             rb = rb.header(k, v);
         }
     }
 
     // JSON 里内嵌 data:image/... base64（例如多模态 chat）会非常大。
-    // 这里给 body 做一个更现实的上限；否则参考图一上来就会“秒失败”。
+    // 这里给 body 做一个更现实的上限；否则参考图一上来就会"秒失败"。
     const MAX_HTTP_REQUEST_BODY_BYTES: usize = 12 * 1024 * 1024; // 12MB
 
     if let Some(body_base64) = req.body_base64 {
@@ -473,7 +507,7 @@ async fn http_request_send(
         // 控制大小：解码后最多 6MB，防止滥用
         let raw = body_base64.trim();
         if raw.len() > 12 * 1024 * 1024 {
-            return Err("bodyBase64 过大".to_string());
+            return Err(HttpGatewayError::other("bodyBase64 过大"));
         }
 
         let pure = if raw.starts_with("data:") {
@@ -487,23 +521,26 @@ async fn http_request_send(
 
         let bytes = general_purpose::STANDARD
             .decode(pure.trim())
-            .map_err(|e| format!("bodyBase64 解码失败: {e}"))?;
+            .map_err(|e| HttpGatewayError::other(format!("bodyBase64 解码失败: {e}")))?;
         if bytes.len() > 6 * 1024 * 1024 {
-            return Err("bodyBase64 解码后数据过大".to_string());
+            return Err(HttpGatewayError::other("bodyBase64 解码后数据过大"));
         }
         rb = rb.body(bytes);
     } else if let Some(body) = req.body {
         if body.len() > MAX_HTTP_REQUEST_BODY_BYTES {
-            return Err(format!(
+            return Err(HttpGatewayError::other(format!(
                 "body 过大（{} > {}）",
                 body.len(),
                 MAX_HTTP_REQUEST_BODY_BYTES
-            ));
+            )));
         }
         rb = rb.body(body);
     }
 
-    let resp = rb.send().await.map_err(|e| format_reqwest_error("请求失败", &e))?;
+    let resp = rb
+        .send()
+        .await
+        .map_err(|e| HttpGatewayError::from_reqwest("请求失败", &e))?;
     let status = resp.status().as_u16();
 
     let mut headers: HashMap<String, String> = HashMap::new();
@@ -518,7 +555,7 @@ async fn http_request_send(
 
 async fn http_request_raw(
     req: HttpRequest,
-) -> Result<(u16, HashMap<String, String>, Vec<u8>), String> {
+) -> Result<(u16, HashMap<String, String>, Vec<u8>), HttpGatewayError> {
     let (status, headers, resp) = http_request_send(req, 120_000).await?;
 
     // 图片相关的 JSON/base64 响应可能很大（尤其是 chat/completions 返回 b64）。
@@ -528,13 +565,13 @@ async fn http_request_raw(
     let bytes = resp
         .bytes()
         .await
-        .map_err(|e| format_reqwest_error("读取响应失败", &e))?;
+        .map_err(|e| HttpGatewayError::from_reqwest("读取响应失败", &e))?;
     if bytes.len() > MAX_HTTP_RESPONSE_BYTES {
-        return Err(format!(
+        return Err(HttpGatewayError::other(format!(
             "响应过大（{} > {}）",
             bytes.len(),
             MAX_HTTP_RESPONSE_BYTES
-        ));
+        )));
     }
     Ok((status, headers, bytes.to_vec()))
 }
