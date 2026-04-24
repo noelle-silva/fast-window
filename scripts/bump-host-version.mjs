@@ -73,7 +73,8 @@ function bumpSemver(version, bump) {
 
 function preserveNewline(text, updatedText) {
   const newline = text.includes('\r\n') ? '\r\n' : '\n'
-  return updatedText.replace(/\n/g, newline)
+  const normalized = updatedText.replace(/\r\n?/g, '\n')
+  return normalized.replace(/\n/g, newline)
 }
 
 function updateJsonTopLevelVersion(text, newVersion, fileLabel) {
