@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -9,6 +10,148 @@ use tauri::Manager;
 
 use crate::Channel;
 use crate::{is_http_url, make_http_stream_id};
+
+// ── HTTP 客户端策略 ──────────────────────────────────────────────────────────
+//
+// 部分 AI 服务网关在 HTTP/2、自动解压、连接复用上存在兼容问题。
+// 这里统一按 URL 特征决定客户端行为，避免在业务层散落各种魔法配置。
+
+/// 描述单次请求应使用的 HTTP 客户端行为。
+struct HttpClientPolicy {
+    /// 是否强制 HTTP/1.1（禁用 HTTP/2 协商）。
+    /// 适用于 HTTP/2 支持不稳定的 AI 网关。
+    force_http1: bool,
+    /// 是否禁用 idle 连接复用。
+    /// 适用于服务端不发送 TLS close_notify、复用死连接概率较高的场景。
+    no_idle_pool: bool,
+    /// 是否禁用自动内容解压（gzip/brotli/deflate）。
+    /// 适用于服务端声明了 Content-Encoding 但实际内容已解压的情况。
+    no_decompress: bool,
+}
+
+impl HttpClientPolicy {
+    /// 根据请求 URL 自动选择兼容策略。
+    /// 目前对所有 HTTPS AI 接口使用保守策略；
+    /// 后续如有已知行为正常的 host，可在此添加白名单降低限制。
+    fn for_url(url: &str) -> Self {
+        // 判断是否是 AI 类接口：包含常见路径特征
+        let is_ai_api = url.contains("/v1/")
+            || url.contains("/images/")
+            || url.contains("/chat/")
+            || url.contains("/completions");
+
+        if is_ai_api {
+            // AI 接口：使用保守兼容策略
+            HttpClientPolicy {
+                force_http1: true,
+                no_idle_pool: true,
+                no_decompress: true,
+            }
+        } else {
+            // 普通接口：使用默认策略，保留 HTTP/2 和压缩支持
+            HttpClientPolicy {
+                force_http1: false,
+                no_idle_pool: false,
+                no_decompress: false,
+            }
+        }
+    }
+}
+
+// ── 结构化 HTTP 错误类型 ─────────────────────────────────────────────────────
+
+/// 对 reqwest 错误的结构化分类，用于调用方判断是否可安全重试。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum HttpErrorKind {
+    /// TCP 连接建立失败（DNS / 连接超时 / 连接被拒绝）
+    Connect,
+    /// 请求发送中途连接被关闭（死连接复用 / 服务端提前断开）
+    SendClosed,
+    /// 请求超时
+    Timeout,
+    /// 响应体读取失败（解压失败 / 连接截断）
+    BodyDecode,
+    /// 其他不可重试的错误（4xx/5xx / 请求构建失败 / 重定向失败）
+    Other,
+}
+
+impl HttpErrorKind {
+    /// 从格式化后的错误字符串中推断 kind。
+    /// 因为 reqwest::Error 已经在 format_reqwest_error 里序列化成字符串，
+    /// tasks.rs 拿到的是 String，所以这里从字符串特征反推。
+    pub(crate) fn from_err_str(s: &str) -> Self {
+        if s.contains("超时") || s.contains("Timeout") || s.contains("timed out") {
+            return HttpErrorKind::Timeout;
+        }
+        if s.contains("connection closed before message completed")
+            || s.contains("SendRequest")
+            || s.contains("connection reset")
+        {
+            return HttpErrorKind::SendClosed;
+        }
+        if s.contains("连接失败")
+            || s.contains("Connect)")
+            || s.contains("tcp connect error")
+            || s.contains("os error 10060")
+            || s.contains("connection refused")
+        {
+            return HttpErrorKind::Connect;
+        }
+        if s.contains("读取响应失败") || s.contains("响应解码失败") || s.contains("body") {
+            return HttpErrorKind::BodyDecode;
+        }
+        HttpErrorKind::Other
+    }
+
+    /// 发送阶段失败（服务端未处理请求），可以安全重试。
+    pub(crate) fn is_retryable(&self) -> bool {
+        matches!(self, HttpErrorKind::Connect | HttpErrorKind::SendClosed)
+    }
+}
+
+// ── 错误格式化 ────────────────────────────────────────────────────────────────
+
+fn format_reqwest_error(prefix: &str, err: &reqwest::Error) -> String {
+    let kind = if err.is_timeout() {
+        "超时"
+    } else if err.is_connect() {
+        "连接失败"
+    } else if err.is_body() {
+        "请求体/响应体处理失败"
+    } else if err.is_decode() {
+        "响应解码失败"
+    } else if err.is_request() {
+        "请求构建失败"
+    } else if err.is_redirect() {
+        "重定向失败"
+    } else if err.is_status() {
+        "HTTP 状态异常"
+    } else {
+        "网络请求失败"
+    };
+
+    let mut parts: Vec<String> = Vec::new();
+    parts.push(format!("{prefix}: {kind}"));
+
+    if let Some(url) = err.url() {
+        parts.push(format!("url={url}"));
+    }
+
+    parts.push(format!("detail={err}"));
+
+    let mut cur = err.source();
+    let mut depth = 0usize;
+    while let Some(src) = cur {
+        depth += 1;
+        parts.push(format!("cause{depth}={src}"));
+        cur = src.source();
+        if depth >= 8 {
+            break;
+        }
+    }
+
+    parts.join(" | ")
+}
 
 #[derive(Deserialize)]
 pub(crate) struct HttpRequest {
@@ -287,8 +430,21 @@ async fn http_request_send(
             .unwrap_or(20_000)
             .min(timeout_cap_ms.max(10_000)),
     );
-    let client = reqwest::Client::builder()
-        .timeout(timeout)
+    let policy = HttpClientPolicy::for_url(&req.url);
+
+    let mut client_builder = reqwest::Client::builder().timeout(timeout);
+
+    if policy.force_http1 {
+        client_builder = client_builder.http1_only();
+    }
+    if policy.no_idle_pool {
+        client_builder = client_builder.pool_max_idle_per_host(0);
+    }
+    if policy.no_decompress {
+        client_builder = client_builder.no_gzip().no_brotli().no_deflate();
+    }
+
+    let client = client_builder
         .build()
         .map_err(|e| format!("创建 http client 失败: {e}"))?;
 
@@ -347,7 +503,7 @@ async fn http_request_send(
         rb = rb.body(body);
     }
 
-    let resp = rb.send().await.map_err(|e| format!("请求失败: {e}"))?;
+    let resp = rb.send().await.map_err(|e| format_reqwest_error("请求失败", &e))?;
     let status = resp.status().as_u16();
 
     let mut headers: HashMap<String, String> = HashMap::new();
@@ -372,7 +528,7 @@ async fn http_request_raw(
     let bytes = resp
         .bytes()
         .await
-        .map_err(|e| format!("读取响应失败: {e}"))?;
+        .map_err(|e| format_reqwest_error("读取响应失败", &e))?;
     if bytes.len() > MAX_HTTP_RESPONSE_BYTES {
         return Err(format!(
             "响应过大（{} > {}）",

@@ -1,4 +1,4 @@
-use crate::http_api::{http_request, HttpRequest};
+use crate::http_api::{http_request, HttpErrorKind, HttpRequest};
 use crate::plugins::is_safe_id;
 use crate::{ensure_writable_dir, resolve_plugin_output_dir};
 
@@ -427,21 +427,45 @@ struct HttpRequestTaskResult {
 }
 
 async fn run_http_request_task(payload: HttpRequestTaskPayload) -> Result<Value, String> {
-    let req = HttpRequest {
-        method: payload.method,
-        url: payload.url,
-        headers: payload.headers,
-        body: payload.body,
-        body_base64: payload.body_base64,
-        timeout_ms: payload.timeout_ms,
-    };
-    let resp = http_request(req).await?;
-    serde_json::to_value(HttpRequestTaskResult {
-        status: resp.status,
-        headers: resp.headers,
-        body: resp.body,
-    })
-    .map_err(|e| format!("任务结果序列化失败: {e}"))
+    // 对发送阶段失败（服务端未处理请求）的错误自动重试，重试完全安全。
+    // 最多重试 2 次（共 3 次尝试），退避间隔 400ms / 900ms。
+    const MAX_RETRIES: u32 = 2;
+    const RETRY_DELAYS_MS: [u64; 2] = [400, 900];
+
+    let mut last_err = String::new();
+    for attempt in 0..=MAX_RETRIES {
+        let req = HttpRequest {
+            method: payload.method.clone(),
+            url: payload.url.clone(),
+            headers: payload.headers.clone(),
+            body: payload.body.clone(),
+            body_base64: payload.body_base64.clone(),
+            timeout_ms: payload.timeout_ms,
+        };
+        match http_request(req).await {
+            Ok(resp) => {
+                return serde_json::to_value(HttpRequestTaskResult {
+                    status: resp.status,
+                    headers: resp.headers,
+                    body: resp.body,
+                })
+                .map_err(|e| format!("任务结果序列化失败: {e}"));
+            }
+            Err(e) => {
+                last_err = e;
+                let retryable = HttpErrorKind::from_err_str(&last_err).is_retryable();
+                if attempt < MAX_RETRIES && retryable {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(
+                        RETRY_DELAYS_MS[attempt as usize],
+                    ))
+                    .await;
+                    continue;
+                }
+                break;
+            }
+        }
+    }
+    Err(last_err)
 }
 
 async fn execute_task(app: tauri::AppHandle, manager: Arc<TaskManagerState>, task_id: String) {
