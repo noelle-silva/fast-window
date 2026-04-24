@@ -608,13 +608,13 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         minHeight: 0,
         display: visible ? 'flex' : 'none',
         flexDirection: 'column',
-        gap: 2.5,
         p: 2,
         boxSizing: 'border-box',
+        position: 'relative',
       }}
     >
-      <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flex: '0 0 auto' }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+      <Box sx={{ position: 'absolute', top: 16, left: 16, right: 16, zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, bgcolor: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(8px)', borderRadius: 999, px: 0.5 }}>
           {!loading && !loadError && doc ? (
             <Tooltip title={editing ? '切到阅读模式' : '切到编辑模式'} placement="bottom-start">
               <IconButton
@@ -742,8 +742,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         </Box>
 
         {!loading && !loadError && doc ? (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {!loading && !loadError && doc && face === 'html' && !editing && htmlFaceDisplayMode === 'fixed-fit' ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(8px)', borderRadius: 999, px: 0.5 }}>
+            {face === 'html' && !editing && htmlFaceDisplayMode === 'fixed-fit' ? (
               <Tooltip title={htmlScaleControlsVisible ? '收起缩放调节' : '展开缩放调节'} placement="bottom-end">
                 <IconButton
                   size="small"
@@ -970,12 +970,12 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         ) : null}
       </Box>
 
-      {loading ? <Typography color="text.secondary">正在加载笔记...</Typography> : null}
-      {!loading && loadError ? <Typography color="error">{loadError}</Typography> : null}
+      {loading ? <Typography sx={{ pt: 7 }} color="text.secondary">正在加载笔记...</Typography> : null}
+      {!loading && loadError ? <Typography sx={{ pt: 7 }} color="error">{loadError}</Typography> : null}
 
       {!loading && !loadError && doc ? (
         <Box sx={{ width: '100%', flex: 1, minHeight: 0, display: 'flex', minWidth: 0, gap: 2, alignItems: 'stretch' }}>
-          <Box ref={bodyScrollRef} sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', overscrollBehavior: 'contain' }}>
+          <Box ref={bodyScrollRef} sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', overscrollBehavior: 'contain', pt: 7 }}>
             <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
             {editing ? (
               <Box
