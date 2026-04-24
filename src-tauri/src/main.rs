@@ -1619,11 +1619,7 @@ fn plugin_files_read_base64(
         return Err("文件不存在".to_string());
     }
 
-    const MAX_BYTES: usize = 50 * 1024 * 1024;
     let bytes = std::fs::read(&full_c).map_err(|e| format!("读取文件失败: {e}"))?;
-    if bytes.len() > MAX_BYTES {
-        return Err("文件过大".to_string());
-    }
     let mime = file_mime_by_ext(&full_c);
     let b64 = general_purpose::STANDARD.encode(bytes);
     Ok(format!("data:{mime};base64,{b64}"))
@@ -1680,8 +1676,7 @@ fn plugin_files_write_base64(
     let overwrite = req.overwrite.unwrap_or(false);
     let (_root_c, full) = resolve_write_path_in_scope(&app, &plugin_id, &scope, &req.path)?;
 
-    const MAX_BYTES: usize = 50 * 1024 * 1024;
-    let bytes = decode_base64_payload(&req.data_url_or_base64, MAX_BYTES)?;
+    let bytes = decode_base64_payload(&req.data_url_or_base64, usize::MAX)?;
     if full.exists() && !overwrite {
         return Err("文件已存在（overwrite=false）".to_string());
     }

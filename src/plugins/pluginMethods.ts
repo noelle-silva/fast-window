@@ -38,7 +38,6 @@ const MAX_TAURI_INVOKE_JSON_BYTES_HIGH_RISK = 256 * 1024
 const DEFAULT_TAURI_INVOKE_TIMEOUT_MS = 8000
 const MAX_TAURI_INVOKE_TIMEOUT_MS = 5 * 60 * 1000
 const LONG_TAURI_INVOKE_TIMEOUT_MS = 15 * 60 * 1000
-
 const MAX_TAURI_STREAMS_TOTAL = 128
 const MAX_TAURI_STREAMS_PER_PLUGIN = 32
 
@@ -73,6 +72,17 @@ function isHighRiskTauriCommand(command: string): boolean {
   // 高危：shell 直接执行外部命令/程序。
   // 规则：对高危 command，网关拒绝通配，必须精确命中 tauri:<command>。
   return command.startsWith('plugin:shell|')
+}
+
+// 文件读写 base64 通道：携带大文件原始内容，不设 payload 大小限制。
+const UNLIMITED_PAYLOAD_COMMANDS: ReadonlySet<string> = new Set([
+  'plugin_files_write_base64',
+  'plugin_files_read_base64',
+])
+
+function resolveTauriPayloadMaxBytes(command: string): number | null {
+  if (UNLIMITED_PAYLOAD_COMMANDS.has(command)) return null
+  return isHighRiskTauriCommand(command) ? MAX_TAURI_INVOKE_JSON_BYTES_HIGH_RISK : MAX_TAURI_INVOKE_JSON_BYTES
 }
 
 function safeStringCommand(command: string) {
@@ -299,10 +309,12 @@ const methods: Record<PluginMethodName, MethodDef> = {
       const payload0 =
         command === STORE_LOAD_COMMAND ? await rewriteStoreLoadPayload(ctx.id, spec?.payload) : (spec?.payload ?? {})
 
-      const size = approxJsonBytes(payload0 ?? null)
-      const maxBytes = isHighRiskTauriCommand(command) ? MAX_TAURI_INVOKE_JSON_BYTES_HIGH_RISK : MAX_TAURI_INVOKE_JSON_BYTES
-      if (size > maxBytes) {
-        throw new PluginBridgeError('BAD_REQUEST', 'payload too large', { maxBytes })
+      const maxBytes = resolveTauriPayloadMaxBytes(command)
+      if (maxBytes != null) {
+        const size = approxJsonBytes(payload0 ?? null)
+        if (size > maxBytes) {
+          throw new PluginBridgeError('BAD_REQUEST', 'payload too large', { maxBytes })
+        }
       }
 
       const timeoutMs = resolveTauriInvokeTimeoutMs(command, spec?.timeoutMs)
@@ -379,10 +391,12 @@ const methods: Record<PluginMethodName, MethodDef> = {
       }
 
       // Channel 流：创建 Channel，把事件回推到 iframe
-      const size = approxJsonBytes(spec?.payload ?? null)
-      const maxBytes = isHighRiskTauriCommand(command) ? MAX_TAURI_INVOKE_JSON_BYTES_HIGH_RISK : MAX_TAURI_INVOKE_JSON_BYTES
-      if (size > maxBytes) {
-        throw new PluginBridgeError('BAD_REQUEST', 'payload too large', { maxBytes })
+      const maxBytes = resolveTauriPayloadMaxBytes(command)
+      if (maxBytes != null) {
+        const size = approxJsonBytes(spec?.payload ?? null)
+        if (size > maxBytes) {
+          throw new PluginBridgeError('BAD_REQUEST', 'payload too large', { maxBytes })
+        }
       }
 
       const channelKey = String(spec?.channelKey ?? 'channel').trim() || 'channel'
