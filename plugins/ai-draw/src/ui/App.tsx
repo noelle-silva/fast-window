@@ -2977,6 +2977,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                 <Chip size="small" label={`模式：${state.lastDebugRecord.mode === 'local-edit' ? '局部' : '普通'}`} />
                 <Chip size="small" color={state.lastDebugRecord.status === 'failed' ? 'error' : state.lastDebugRecord.status === 'succeeded' ? 'success' : 'default'} label={`状态：${state.lastDebugRecord.status}`} />
+                <Chip size="small" variant="outlined" label={`尝试 ${Math.max(1, Number(state.lastDebugRecord.attemptCount || 0))} 次`} />
                 {state.lastDebugRecord.response.status != null ? <Chip size="small" variant="outlined" label={`HTTP ${state.lastDebugRecord.response.status}`} /> : null}
               </Stack>
 

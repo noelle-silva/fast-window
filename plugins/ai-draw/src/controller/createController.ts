@@ -76,6 +76,7 @@ export type AiDrawDebugRecord = {
   status: 'pending' | 'succeeded' | 'failed' | 'canceled' | 'canceling' | 'unknown'
   createdAt: number
   updatedAt: number
+  attemptCount: number
   request: {
     method: string
     url: string
@@ -275,6 +276,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       status: input.status || 'pending',
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      attemptCount: 0,
       request: {
         method: String(req.method || ''),
         url: String(req.url || ''),
@@ -319,6 +321,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       ...state.lastDebugRecord,
       status: nextStatus,
       updatedAt: Date.now(),
+      attemptCount: rr && Number.isFinite(Number((rr as any).attemptCount)) ? Number((rr as any).attemptCount) : state.lastDebugRecord.attemptCount,
       response: {
         status: rr && Number.isFinite(Number(rr.status)) ? Number(rr.status) : null,
         bodyText: rr && typeof rr.body === 'string' ? rr.body : String(task?.error || ''),
