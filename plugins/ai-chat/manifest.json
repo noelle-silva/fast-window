@@ -13,7 +13,8 @@
     "keepAlive": true
   },
   "background": {
-    "autoStart": true
+    "autoStart": true,
+    "lifecycle": "resident"
   },
   "requires": [
     "tauri:plugin_files_list_dir",

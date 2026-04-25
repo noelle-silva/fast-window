@@ -2,11 +2,12 @@
   "id": "ai-draw",
   "name": "AI 绘图",
   "author": "fast-window",
-  "version": "1.4.7",
+  "version": "1.4.8",
   "description": "左侧输入提示词，右侧出图；一次请求一次返回（无上下文）；默认保存到 data/ai-draw/output（兼容旧目录 output-images），可通过资源管理器选择输出目录",
   "main": "index.js",
   "background": {
-    "autoStart": true
+    "autoStart": true,
+    "lifecycle": "resident"
   },
   "icon": "svg:icon.svg",
   "keyword": "ai",

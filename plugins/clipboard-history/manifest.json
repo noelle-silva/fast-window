@@ -6,7 +6,8 @@
   "description": "查看和管理剪贴板历史记录",
   "main": "index.js",
   "background": {
-    "autoStart": true
+    "autoStart": true,
+    "lifecycle": "resident"
   },
   "icon": "svg:icon.svg",
   "keyword": "cb",
