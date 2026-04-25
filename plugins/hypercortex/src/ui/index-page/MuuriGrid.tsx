@@ -108,6 +108,35 @@ function syncMuuriItemsWithRenderedElements(grid: Muuri, containerNode: HTMLDivE
   if (addedElements.length) grid.add(addedElements, { layout: false })
 }
 
+function findScrollableParent(el: HTMLElement): HTMLElement | null {
+  let current = el.parentElement
+  while (current) {
+    const style = window.getComputedStyle(current)
+    if (/(auto|scroll)/.test(style.overflowY)) return current
+    current = current.parentElement
+  }
+  return null
+}
+
+function autoScrollDuringDrag(containerNode: HTMLDivElement, clientY: number): void {
+  const scrollEl = findScrollableParent(containerNode)
+  if (!scrollEl) return
+
+  const rect = scrollEl.getBoundingClientRect()
+  const edgeSize = Math.min(120, Math.max(64, rect.height * 0.18))
+  const maxStep = 34
+  let delta = 0
+
+  if (clientY > rect.bottom - edgeSize) {
+    delta = ((clientY - (rect.bottom - edgeSize)) / edgeSize) * maxStep
+  } else if (clientY < rect.top + edgeSize) {
+    delta = -(((rect.top + edgeSize) - clientY) / edgeSize) * maxStep
+  }
+
+  if (!delta) return
+  scrollEl.scrollTop += Math.trunc(delta)
+}
+
 export function MuuriGrid(props: Props): React.ReactNode {
   const { refs, editMode, gridRef, getLayout, draggingRefId, dropIndicatorLayout, onPreviewDragLayout, onCommitDrag, onCancelPreview, onDragStateChange, renderItem } = props
   const [containerNode, setContainerNode] = React.useState<HTMLDivElement | null>(null)
@@ -238,6 +267,7 @@ export function MuuriGrid(props: Props): React.ReactNode {
     const handleDragMove = (_item: MuuriItem, event: DraggerMoveEvent) => {
       const dragSession = dragSessionRef.current
       if (!dragSession || !containerNode) return
+      autoScrollDuringDrag(containerNode, event.clientY)
       const { refs: currentRefs, getLayout: currentGetLayout, containerWidth: currentContainerWidth } = liveStateRef.current
       const activeRef = currentRefs.find(ref => ref.id === dragSession.refId)
       if (!activeRef) return
