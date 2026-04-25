@@ -43,6 +43,7 @@ function noteMetaFromManifest(manifest: HyperCortexNoteManifestV1, packageDir: s
   return {
     id: manifest.id,
     title: manifest.title,
+    description: manifest.description,
     dir: packageDir,
     createdAtMs: Number(manifest.createdAtMs) || Date.now(),
     updatedAtMs: Number(manifest.updatedAtMs) || Date.now(),
@@ -59,6 +60,7 @@ async function readNoteManifest(api: Api, scope: VaultScope, packageDir: string)
   return createNoteManifest({
     id,
     title: (parsed as any).title,
+    description: (parsed as any).description,
     tags: Array.isArray((parsed as any).tags) ? (parsed as any).tags : [],
     createdAtMs: Number((parsed as any).createdAtMs),
     updatedAtMs: Number((parsed as any).updatedAtMs),

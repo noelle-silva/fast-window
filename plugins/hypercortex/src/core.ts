@@ -35,6 +35,7 @@ export type Api = {
 export type NoteMeta = {
   id: string
   title: string
+  description: string
   dir: string
   createdAtMs: number
   updatedAtMs: number
@@ -417,6 +418,7 @@ function normalizeManifest(input: any): HyperCortexNoteManifestV1 {
   return createNoteManifest({
     id,
     title: input?.title,
+    description: input?.description,
     tags: Array.isArray(input?.tags) ? input.tags : [],
     createdAtMs: Number(input?.createdAtMs),
     updatedAtMs: Number(input?.updatedAtMs),
@@ -464,6 +466,7 @@ export async function tryLoadIndex(api: Api, scope: VaultScope): Promise<HyperCo
             {
               id: String(note?.id || id).trim(),
               title: String(note?.title || '').trim() || '未命名',
+              description: String(note?.description ?? '').trim(),
               dir,
               createdAtMs: Number(note?.createdAtMs) > 0 ? Number(note.createdAtMs) : 0,
               updatedAtMs: Number(note?.updatedAtMs) > 0 ? Number(note.updatedAtMs) : 0,
@@ -533,6 +536,7 @@ export async function rebuildIndexFromFs(api: Api, scope: VaultScope, idx: Hyper
         nextNotes[manifest.id] = {
           id: manifest.id,
           title: manifest.title,
+          description: manifest.description,
           dir: packageDir,
           createdAtMs: Number(manifest.createdAtMs) > 0 ? Number(manifest.createdAtMs) : packageEntry.modifiedMs || Date.now(),
           updatedAtMs: Number(manifest.updatedAtMs) > 0 ? Number(manifest.updatedAtMs) : packageEntry.modifiedMs || Date.now(),

@@ -31,6 +31,7 @@ export type HyperCortexHtmlFaceDoc = {
   id: string
   packageDir: string
   title: string
+  description: string
   html: string
   exists: boolean
   createdAtMs: number
@@ -59,6 +60,7 @@ function noteMetaFromDoc(doc: HyperCortexNoteDocData): NoteMeta {
   return {
     id: doc.id,
     title: doc.title,
+    description: doc.description,
     dir: doc.packageDir,
     createdAtMs: doc.createdAtMs,
     updatedAtMs: doc.updatedAtMs,
@@ -79,6 +81,7 @@ function htmlFaceDocFromManifest(manifest: HyperCortexNoteManifestV1, packageDir
     id: manifest.id,
     packageDir,
     title: manifest.title,
+    description: manifest.description,
     html,
     exists,
     fixedScale,
@@ -101,6 +104,7 @@ async function readNoteManifest(api: Api, scope: VaultScope, packageDir: string)
   return createNoteManifest({
     id,
     title: (parsed as any).title,
+    description: (parsed as any).description,
     tags: Array.isArray((parsed as any).tags) ? (parsed as any).tags : [],
     createdAtMs: Number((parsed as any).createdAtMs),
     updatedAtMs: Number((parsed as any).updatedAtMs),
@@ -189,6 +193,7 @@ export async function saveNotePackage(
     id?: string
     packageDir?: string
     title?: string
+    description?: string
     body?: string
     tags?: string[]
     createdAtMs?: number
@@ -200,6 +205,7 @@ export async function saveNotePackage(
   await ensureVaultDirs(api, scope)
   const id = String(input.id || '').trim() || nowId()
   const title = String(input.title ?? '').trim() || '未命名'
+  const description = String(input.description ?? '').trim()
   const desiredDir = notePackageDirForId(id, title)
   const currentDir = String(input.packageDir || '').trim()
 
@@ -212,6 +218,7 @@ export async function saveNotePackage(
     id,
     packageDir,
     title,
+    description,
     body: input.body,
     tags: input.tags,
     createdAtMs: input.createdAtMs ?? nowMs,
@@ -237,6 +244,7 @@ export async function loadNotePackage(api: Api, scope: VaultScope, packageDir: s
     id: manifest.id,
     packageDir,
     title: manifest.title,
+    description: manifest.description,
     body,
     tags: manifest.tags,
     createdAtMs: manifest.createdAtMs,
@@ -268,6 +276,7 @@ export async function saveHtmlFace(
     id?: string
     packageDir?: string
     title?: string
+    description?: string
     body?: string
     tags?: string[]
     createdAtMs?: number
@@ -286,11 +295,13 @@ export async function saveHtmlFace(
   }
   const packageDir = desiredDir
   const manifest = await readNoteManifest(api, scope, packageDir).catch(() => null)
+  const description = String(input.description ?? manifest?.description ?? '').trim()
   const nowMs = Date.now()
   const docData = createNoteDocData({
     id,
     packageDir,
     title,
+    description,
     body: input.body,
     tags: input.tags ?? manifest?.tags,
     createdAtMs: input.createdAtMs ?? manifest?.createdAtMs ?? nowMs,
@@ -318,6 +329,7 @@ export async function deleteHtmlFace(api: Api, scope: VaultScope, packageDir: st
     id: manifest.id,
     packageDir,
     title: manifest.title,
+    description: manifest.description,
     body,
     tags: manifest.tags,
     createdAtMs: manifest.createdAtMs,
@@ -355,6 +367,7 @@ export async function rebuildNoteIndexFromFs(api: Api, scope: VaultScope, idx: H
         nextNotes[manifest.id] = {
           id: manifest.id,
           title: manifest.title,
+          description: manifest.description,
           dir: packageDir,
           createdAtMs: Number(manifest.createdAtMs) > 0 ? Number(manifest.createdAtMs) : entry.modifiedMs || Date.now(),
           updatedAtMs: Number(manifest.updatedAtMs) > 0 ? Number(manifest.updatedAtMs) : entry.modifiedMs || Date.now(),

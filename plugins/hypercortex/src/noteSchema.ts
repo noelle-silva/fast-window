@@ -15,6 +15,7 @@ export type HyperCortexNoteManifestV1 = {
   schemaVersion: number
   id: string
   title: string
+  description: string
   tags: string[]
   createdAtMs: number
   updatedAtMs: number
@@ -33,6 +34,7 @@ export type HyperCortexNoteDocData = {
   id: string
   packageDir: string
   title: string
+  description: string
   body: string
   tags: string[]
   createdAtMs: number
@@ -49,6 +51,7 @@ export type HyperCortexNoteDocInput = Partial<Omit<HyperCortexNoteDocData, 'id' 
   id: string
   packageDir: string
   title?: string
+  description?: string
   body?: string
   tags?: string[]
 }
@@ -98,6 +101,7 @@ export function createNoteDocData(input: HyperCortexNoteDocInput): HyperCortexNo
     id: String(input.id || '').trim(),
     packageDir: String(input.packageDir || '').trim(),
     title: String(input.title || '').trim() || '未命名',
+    description: String(input.description ?? '').trim(),
     body: normalizeText(String(input.body || '')),
     tags: Array.from(new Set((input.tags || []).map(normalizeTag).filter(Boolean))),
     createdAtMs,
@@ -110,6 +114,7 @@ export function createNoteDocData(input: HyperCortexNoteDocInput): HyperCortexNo
 export function createNoteManifest(input: {
   id: string
   title?: string
+  description?: string
   tags?: string[]
   createdAtMs?: number
   updatedAtMs?: number
@@ -123,6 +128,7 @@ export function createNoteManifest(input: {
     schemaVersion: Number(input.schemaVersion) > 0 ? Number(input.schemaVersion) : HYPERCORTEX_NOTE_SCHEMA_VERSION,
     id: String(input.id || '').trim(),
     title: String(input.title || '').trim() || '未命名',
+    description: String(input.description ?? '').trim(),
     tags: Array.from(new Set((input.tags || []).map(normalizeTag).filter(Boolean))),
     createdAtMs,
     updatedAtMs,

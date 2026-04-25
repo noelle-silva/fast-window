@@ -1560,6 +1560,7 @@ export function HyperCortexApp() {
     const meta: NoteMeta = {
       id: draftId,
       title: '未命名',
+      description: '',
       dir: '',
       createdAtMs: now,
       updatedAtMs: now,
@@ -1569,7 +1570,7 @@ export function HyperCortexApp() {
     noteInitSnapshotsRef.current[draftId] = {
       doc: null,
       htmlFace: null,
-      base: { title: '未命名', body: '', tags: [], html: '' },
+      base: { title: '未命名', description: '', body: '', tags: [], html: '' },
       editing: true,
       textEditorMode: 'live',
       face: 'text',

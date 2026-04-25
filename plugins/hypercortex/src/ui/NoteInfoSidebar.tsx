@@ -1,4 +1,4 @@
-import { Box, Typography } from '@mui/material'
+import { Box, TextField, Typography } from '@mui/material'
 
 function formatDateTime(ms: number): string {
   if (!Number.isFinite(ms) || ms <= 0) return '—'
@@ -85,10 +85,13 @@ function NoteRefSection(props: {
 
 export function NoteInfoSidebar(props: {
   noteId: string
+  description: string
+  editing: boolean
   createdAtMs: number
   updatedAtMs: number
   outgoingIds: string[]
   backlinkIds: string[]
+  onDescriptionChange: (value: string) => void
   resolveTitle: (id: string) => string | undefined
   canOpenId: (id: string) => boolean
   onOpenId: (id: string) => void
@@ -112,6 +115,24 @@ export function NoteInfoSidebar(props: {
       </Typography>
 
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <Box>
+          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.42)', mb: 0.5 }}>描述</Typography>
+          {props.editing ? (
+            <TextField
+              fullWidth
+              multiline
+              minRows={3}
+              value={props.description}
+              onChange={e => props.onDescriptionChange(e.target.value)}
+              placeholder="给这条笔记写一句描述"
+              inputProps={{ 'aria-label': '编辑笔记描述' }}
+            />
+          ) : (
+            <Typography sx={{ fontSize: 13, color: '#111', lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              {String(props.description || '').trim() || '—'}
+            </Typography>
+          )}
+        </Box>
         <Box>
           <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.42)' }}>创建时间</Typography>
           <Typography sx={{ fontSize: 13, color: '#111', fontWeight: 700 }}>{formatDateTime(props.createdAtMs)}</Typography>

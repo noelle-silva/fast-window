@@ -36,6 +36,7 @@ type TextEditorMode = 'source' | 'live'
 
 type NoteContent = {
   title: string
+  description: string
   body: string
   tags: string[]
   html: string
@@ -62,7 +63,7 @@ function areStringListsEqual(a: string[], b: string[]): boolean {
 }
 
 function isNoteContentEqual(a: NoteContent, b: NoteContent): boolean {
-  return a.title === b.title && a.body === b.body && a.html === b.html && areStringListsEqual(a.tags, b.tags)
+  return a.title === b.title && a.description === b.description && a.body === b.body && a.html === b.html && areStringListsEqual(a.tags, b.tags)
 }
 
 export type NoteDetailSnapshotV1 = {
@@ -74,6 +75,7 @@ export type NoteDetailSnapshotV1 = {
   face: NoteFaceId
   faces: NoteFaceId[]
   editTitle: string
+  editDescription: string
   editBody: string
   editTags: string[]
   editHtml: string
@@ -159,6 +161,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   }, [faces])
 
   const [editTitle, setEditTitle] = React.useState(init?.editTitle ?? (note.title || ''))
+  const [editDescription, setEditDescription] = React.useState(init?.editDescription ?? (note.description || ''))
   const [editBody, setEditBody] = React.useState(init?.editBody ?? '')
   const [editTags, setEditTags] = React.useState<string[]>(init?.editTags ?? [])
   const [tagInput, setTagInput] = React.useState('')
@@ -185,6 +188,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const [base, setBase] = React.useState<NoteContent>(
     init?.base ?? {
       title: note.title || '未命名',
+      description: note.description || '',
       body: '',
       tags: [],
       html: '',
@@ -203,11 +207,12 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const draftNowRef = React.useMemo<NoteContent>(() => {
     return {
       title: editTitle,
+      description: editDescription,
       body: editBody,
       tags: editTags,
       html: editHtml,
     }
-  }, [editBody, editHtml, editTags, editTitle])
+  }, [editBody, editDescription, editHtml, editTags, editTitle])
 
   const dirty = React.useMemo(() => !isNoteContentEqual(draftNowRef, base), [base, draftNowRef])
   const noteTitleForPrompt = React.useMemo(() => {
@@ -288,21 +293,23 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     if (doc) return
     const now = Date.now()
     const title = String(editTitle || '').trim() || note.title || '未命名'
+    const description = String(editDescription || '').trim()
     const tags = editTags.slice()
     const body = editBody || ''
     setDoc({
       id: noteId,
       packageDir: '',
       title,
+      description,
       body,
       tags,
       createdAtMs: Number(note.createdAtMs) > 0 ? Number(note.createdAtMs) : now,
       updatedAtMs: Number(note.updatedAtMs) > 0 ? Number(note.updatedAtMs) : now,
       schemaVersion: HYPERCORTEX_NOTE_SCHEMA_VERSION,
       resources: [],
-      displayHtml: renderNoteDisplayHtml({ title, body, tags }),
+      displayHtml: renderNoteDisplayHtml({ title, description, body, tags }),
     })
-  }, [doc, editBody, editTags, editTitle, isDraft, note.createdAtMs, note.title, note.updatedAtMs, noteId])
+  }, [doc, editBody, editDescription, editTags, editTitle, isDraft, note.createdAtMs, note.title, note.updatedAtMs, noteId])
 
   const hasEverActivatedRef = React.useRef(false)
   React.useEffect(() => {
@@ -331,6 +338,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
       const nextBase: NoteContent = {
         title: loadedDoc.title || note.title || '未命名',
+        description: loadedDoc.description || note.description || '',
         body: loadedDoc.body || '',
         tags: (loadedDoc.tags || []).slice(),
         html: loadedHtml?.html || '',
@@ -338,6 +346,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       setBase(nextBase)
 
       setEditTitle(nextBase.title)
+      setEditDescription(nextBase.description)
       setEditBody(nextBase.body)
       setEditTags(nextBase.tags.slice())
       setEditHtml(nextBase.html)
@@ -347,7 +356,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     } finally {
       setLoading(false)
     }
-  }, [api, doc, ensureDraftDocIfNeeded, isDraft, note.dir, note.title, noteId, scope])
+  }, [api, doc, ensureDraftDocIfNeeded, isDraft, note.description, note.dir, note.title, noteId, scope])
 
   React.useEffect(() => {
     if (!hasEverActivatedRef.current) return
@@ -451,6 +460,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const handleDiscard = React.useCallback(() => {
     if (saving) return
     setEditTitle(base.title)
+    setEditDescription(base.description)
     setEditBody(base.body)
     setEditTags(base.tags.slice())
     setEditHtml(base.html)
@@ -468,6 +478,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     try {
       const originalId = noteId
       const title = String(editTitle || '').trim() || '未命名'
+      const description = String(editDescription || '').trim()
       const body = String(editBody || '').replace(/\r\n/g, '\n')
       const tags = editTags.map(normalizeTagText).filter(Boolean)
 
@@ -481,6 +492,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
           id: isDraft ? undefined : originalId,
           packageDir: isDraft ? undefined : note.dir,
           title,
+          description,
           body: doc?.body || '',
           tags,
           createdAtMs: note.createdAtMs,
@@ -492,7 +504,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         setHtmlFace(nextHtmlFace)
         setFaces(prev => (prev.includes('html') ? prev : [...prev, 'html']))
         if (nextDoc) {
-          nextDoc = { ...nextDoc, id: nextMeta.id, packageDir: nextMeta.dir, title, tags, updatedAtMs: nextMeta.updatedAtMs }
+          nextDoc = { ...nextDoc, id: nextMeta.id, packageDir: nextMeta.dir, title, description, tags, updatedAtMs: nextMeta.updatedAtMs }
           setDoc(nextDoc)
         }
         toastMsg = 'HTML 面已保存'
@@ -501,6 +513,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
           id: isDraft ? undefined : originalId,
           packageDir: isDraft ? undefined : note.dir,
           title,
+          description,
           body,
           tags,
           createdAtMs: note.createdAtMs,
@@ -516,6 +529,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
 
       const nextBase: NoteContent = {
         title,
+        description,
         body: base.body,
         tags: tags.slice(),
         html: base.html,
@@ -534,6 +548,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         face,
         faces: (faces.includes('html') || face === 'html') ? (faces.includes('html') ? faces : [...faces, 'html']) : faces,
         editTitle: title,
+        editDescription: description,
         editBody: face === 'text' ? body : editBody,
         editTags: tags.slice(),
         editHtml,
@@ -553,7 +568,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     } finally {
       setSaving(false)
     }
-  }, [api, allNotesById, base.body, base.html, doc, editBody, editHtml, editTags, editTitle, editing, face, faces, htmlFace, infoSidebarVisible, isDraft, note.createdAtMs, note.dir, noteId, onSaved, saving, scope, textEditorMode])
+  }, [api, allNotesById, base.body, base.html, doc, editBody, editDescription, editHtml, editTags, editTitle, editing, face, faces, htmlFace, infoSidebarVisible, isDraft, note.createdAtMs, note.dir, noteId, onSaved, saving, scope, textEditorMode])
 
   const handleCycleFace = React.useCallback(() => {
     setFace(prev => {
@@ -1210,10 +1225,13 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
             <Box sx={{ flex: '0 0 280px', width: 280, minWidth: 280, minHeight: 0, overflow: 'auto', overscrollBehavior: 'contain' }}>
               <NoteInfoSidebar
                 noteId={doc.id}
+                description={editDescription}
+                editing={editing}
                 createdAtMs={doc.createdAtMs}
                 updatedAtMs={doc.updatedAtMs}
                 outgoingIds={outgoingIds}
                 backlinkIds={backlinkIds}
+                onDescriptionChange={setEditDescription}
                 resolveTitle={id => allNotesById[id]?.title}
                 canOpenId={id => !!allNotesById[id]}
                 onOpenId={id => {

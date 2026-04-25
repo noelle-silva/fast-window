@@ -14,7 +14,8 @@ type Props = {
 
 export function NoteCard(props: Props): React.ReactNode {
   const { note, disabled, compact = false, onClick } = props
-  const subtitle = note.dir ? `目录：${note.dir}` : '没有目录信息'
+  const description = String(note.description || '').trim()
+  const subtitle = description ? `描述：${description}` : '描述：暂无'
 
   return (
     <CardFrame
