@@ -1,23 +1,31 @@
 import * as React from 'react'
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Menu, MenuItem, TextField, Tooltip, Typography } from '@mui/material'
-import AddRoundedIcon from '@mui/icons-material/AddRounded'
-import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
+import { Box, Menu, MenuItem, Typography } from '@mui/material'
 
 import type { AssetEntry } from '../assetTypes'
 import type { Api, NoteMeta, VaultScope } from '../core'
 import {
   addRef,
   createFolder,
+  deleteFolder,
   getFolderById,
   getRefsByFolderId,
   removeRef,
+  type FavoriteFolder,
   type FavoriteItemRef,
   type HyperCortexFavoritesDocV1,
 } from '../favorites'
+import { getFolderRefIssue } from '../favoritesGraph'
 import { AssetCard } from './index-cards/AssetCard'
 import { FolderCard } from './index-cards/FolderCard'
 import { NoteCard } from './index-cards/NoteCard'
 import { StaleRefCard } from './index-cards/StaleRefCard'
+import { IndexCardShell } from './index-page/IndexCardShell'
+import { INDEX_GRID_COLUMNS, INDEX_GRID_GAP_PX, INDEX_GRID_ROW_PX } from './index-page/constants'
+import { folderTitle, getRefGridSpan } from './index-page/helpers'
+import { IndexPageDialogs } from './index-page/IndexPageDialogs'
+import { IndexPageToolbar } from './index-page/IndexPageToolbar'
+import type { AddKind, DeleteEntityTarget } from './index-page/types'
+import { useIndexLayoutEditor } from './index-page/useIndexLayoutEditor'
 
 type Props = {
   api: Api
@@ -32,47 +40,9 @@ type Props = {
   onOpenAsset: (asset: AssetEntry) => void
   onDocChange: (doc: HyperCortexFavoritesDocV1) => void
   onEditModeChange: (editMode: boolean) => void
-}
-
-type AddKind = 'folder' | 'note' | 'asset'
-
-function folderTitle(doc: HyperCortexFavoritesDocV1, folderId: string): string {
-  const id = String(folderId || '').trim() || 'root'
-  if (id === 'root') return '收藏夹'
-  return getFolderById(doc, id)?.title || '未命名文件夹'
-}
-
-function overlayCard(content: React.ReactNode, options: { showRemove: boolean; onRemove?: () => void }): React.ReactNode {
-  const { showRemove, onRemove } = options
-
-  return (
-    <Box sx={{ position: 'relative', minHeight: 100, display: 'flex' }}>
-      <Box sx={{ flex: 1, minWidth: 0 }}>{content}</Box>
-      {showRemove ? (
-        <Tooltip title="移除">
-          <IconButton
-            size="small"
-            aria-label="移除"
-            onClick={e => {
-              e.stopPropagation()
-              onRemove?.()
-            }}
-            sx={{
-              position: 'absolute',
-              right: 6,
-              bottom: 6,
-              bgcolor: 'rgba(255,255,255,.92)',
-              boxShadow: '0 1px 2px rgba(0,0,0,.10)',
-              color: 'rgba(0,0,0,.55)',
-              '&:hover': { bgcolor: 'rgba(211,47,47,.10)', color: '#d32f2f' },
-            }}
-          >
-            <DeleteOutlineRoundedIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-      ) : null}
-    </Box>
-  )
+  onDeleteFolderEntity?: (folderId: string) => void
+  onDeleteNoteEntity?: (note: NoteMeta) => void
+  onDeleteAssetEntity?: (asset: AssetEntry) => void
 }
 
 function buildAssetLookup(assetIndex?: Record<string, any>): {
@@ -99,6 +69,7 @@ function buildAssetLookup(assetIndex?: Record<string, any>): {
 
 export function IndexPage(props: Props): React.ReactNode {
   const {
+    api,
     doc,
     currentFolderId,
     editMode,
@@ -109,6 +80,9 @@ export function IndexPage(props: Props): React.ReactNode {
     onOpenAsset,
     onDocChange,
     onEditModeChange,
+    onDeleteFolderEntity,
+    onDeleteNoteEntity,
+    onDeleteAssetEntity,
   } = props
 
   const [breadcrumb, setBreadcrumb] = React.useState<string[]>(['root'])
@@ -119,10 +93,20 @@ export function IndexPage(props: Props): React.ReactNode {
   const [assetIdDraft, setAssetIdDraft] = React.useState('')
   const [noteSearch, setNoteSearch] = React.useState('')
   const [assetSearch, setAssetSearch] = React.useState('')
+  const [deleteFolderConfirmId, setDeleteFolderConfirmId] = React.useState('')
+  const [deleteEntityTarget, setDeleteEntityTarget] = React.useState<DeleteEntityTarget | null>(null)
 
   const refs = React.useMemo(() => getRefsByFolderId(doc, currentFolderId), [doc, currentFolderId])
   const currentTitle = React.useMemo(() => folderTitle(doc, currentFolderId), [doc, currentFolderId])
   const assetLookup = React.useMemo(() => buildAssetLookup(assetIndex), [assetIndex])
+  const canGoBack = breadcrumb.length > 1
+
+  const { gridRef, getPreviewLayout, beginDrag, beginResize, isDraggingRef, isResizingRef } = useIndexLayoutEditor({
+    refs,
+    doc,
+    editMode,
+    onDocChange,
+  })
 
   React.useEffect(() => {
     const nextId = String(currentFolderId || '').trim() || 'root'
@@ -152,50 +136,95 @@ export function IndexPage(props: Props): React.ReactNode {
 
   const closeAddDialog = () => setAddKind(null)
 
-  const removeOneRef = (refId: string) => {
-    const next = removeRef(doc, refId)
-    if (next !== doc) onDocChange(next)
-  }
+  const removeOneRef = React.useCallback(
+    (refId: string) => {
+      const next = removeRef(doc, refId)
+      if (next !== doc) onDocChange(next)
+    },
+    [doc, onDocChange],
+  )
 
-  const confirmAddFolder = () => {
+  const confirmAddFolder = React.useCallback(() => {
     const created = createFolder(doc, folderTitleDraft)
     const added = addRef(created.doc, currentFolderId, 'folder', created.folder.id)
     onDocChange(added?.doc || created.doc)
     closeAddDialog()
-  }
+  }, [currentFolderId, doc, folderTitleDraft, onDocChange])
 
-  const confirmAddNote = (id?: string) => {
-    const targetId = String(id ?? noteIdDraft ?? '').trim()
-    if (!targetId) return
-    const added = addRef(doc, currentFolderId, 'note', targetId)
-    if (added) onDocChange(added.doc)
-    closeAddDialog()
-  }
+  const addExistingFolder = React.useCallback(
+    (folderId: string) => {
+      const issue = getFolderRefIssue(doc, currentFolderId, folderId)
+      if (issue === 'self-reference') {
+        void api.ui.showToast('不能把当前收藏夹再次引用到自己页面里')
+        return
+      }
+      if (issue === 'cycle') {
+        void api.ui.showToast('这次添加会形成收藏夹循环引用，已阻止')
+        return
+      }
+      const added = addRef(doc, currentFolderId, 'folder', folderId)
+      if (!added) {
+        void api.ui.showToast('这个收藏夹已经在当前页面里了，或无法添加')
+        return
+      }
+      onDocChange(added.doc)
+      closeAddDialog()
+    },
+    [api.ui, currentFolderId, doc, onDocChange],
+  )
 
-  const confirmAddAsset = (id?: string) => {
-    const targetId = String(id ?? assetIdDraft ?? '').trim()
-    if (!targetId) return
-    const added = addRef(doc, currentFolderId, 'asset', targetId)
-    if (added) onDocChange(added.doc)
-    closeAddDialog()
-  }
+  const confirmAddNote = React.useCallback(
+    (id?: string) => {
+      const targetId = String(id ?? noteIdDraft ?? '').trim()
+      if (!targetId) return
+      const added = addRef(doc, currentFolderId, 'note', targetId)
+      if (!added) {
+        void api.ui.showToast('这条笔记已经在当前页面里了，或无法添加')
+        return
+      }
+      onDocChange(added.doc)
+      closeAddDialog()
+    },
+    [api.ui, currentFolderId, doc, noteIdDraft, onDocChange],
+  )
+
+  const confirmAddAsset = React.useCallback(
+    (id?: string) => {
+      const targetId = String(id ?? assetIdDraft ?? '').trim()
+      if (!targetId) return
+      const added = addRef(doc, currentFolderId, 'asset', targetId)
+      if (!added) {
+        void api.ui.showToast('这个附件已经在当前页面里了，或无法添加')
+        return
+      }
+      onDocChange(added.doc)
+      closeAddDialog()
+    },
+    [api.ui, assetIdDraft, currentFolderId, doc, onDocChange],
+  )
 
   const folderSuggestions = React.useMemo(() => {
-    // 仅用于显示“已有文件夹可引用”；创建新文件夹则走 confirmAddFolder
-    // （避免首版做“移动/归属”概念，保持 YAGNI）
     const all = Object.values(doc.folders || {})
-      .filter(f => f && f.id && f.id !== 'root')
+      .filter(f => f && f.id && f.id !== 'root' && f.id !== currentFolderId)
       .sort((a, b) => (b.updatedAtMs || 0) - (a.updatedAtMs || 0))
     return all.slice(0, 12)
-  }, [doc])
+  }, [doc, currentFolderId])
+
+  const folderDisabledReasonById = React.useMemo(() => {
+    const out: Record<string, string> = {}
+    for (const folder of folderSuggestions) {
+      const issue = getFolderRefIssue(doc, currentFolderId, folder.id)
+      if (issue === 'cycle') out[folder.id] = '会形成循环引用，不能添加'
+      else if (issue === 'self-reference') out[folder.id] = '不能引用自己'
+    }
+    return out
+  }, [currentFolderId, doc, folderSuggestions])
 
   const noteSuggestions = React.useMemo(() => {
     if (!noteIndex) return []
     const q = String(noteSearch || '').trim().toLowerCase()
     const all = Object.values(noteIndex || {}).sort((a, b) => (b.updatedAtMs || 0) - (a.updatedAtMs || 0))
-    const filtered = q
-      ? all.filter(n => String(n.title || '').toLowerCase().includes(q) || String(n.id || '').toLowerCase().includes(q))
-      : all
+    const filtered = q ? all.filter(n => String(n.title || '').toLowerCase().includes(q) || String(n.id || '').toLowerCase().includes(q)) : all
     return filtered.slice(0, 20)
   }, [noteIndex, noteSearch])
 
@@ -221,334 +250,234 @@ export function IndexPage(props: Props): React.ReactNode {
     return filtered.slice(0, 20)
   }, [assetLookup, assetSearch])
 
-  const renderRef = (ref: FavoriteItemRef): React.ReactNode => {
-    if (ref.kind === 'folder') {
-      const folder = getFolderById(doc, ref.targetId)
-      if (!folder) return overlayCard(<StaleRefCard ref={ref} onClickRemove={removeOneRef} />, { showRemove: false })
+  const handleGoBack = React.useCallback(() => {
+    if (!canGoBack) {
+      void api.ui.showToast('没有上一层索引路径了')
+      return
+    }
+    const prevId = breadcrumb[breadcrumb.length - 2] || 'root'
+    onNavigateFolder(prevId)
+  }, [api.ui, breadcrumb, canGoBack, onNavigateFolder])
+
+  const openDeleteCurrentFolderConfirm = React.useCallback(() => {
+    if (currentFolderId === 'root') {
+      void api.ui.showToast('根收藏夹不能删除')
+      return
+    }
+    setDeleteFolderConfirmId(currentFolderId)
+  }, [api.ui, currentFolderId])
+
+  const confirmDeleteCurrentFolder = React.useCallback(() => {
+    const targetId = String(deleteFolderConfirmId || '').trim()
+    if (!targetId) return
+    const nextDoc = deleteFolder(doc, targetId)
+    if (!nextDoc) {
+      void api.ui.showToast('删除收藏夹失败')
+      return
+    }
+    onDocChange(nextDoc)
+    setDeleteFolderConfirmId('')
+    onNavigateFolder('root')
+    onDeleteFolderEntity?.(targetId)
+  }, [api.ui, deleteFolderConfirmId, doc, onDeleteFolderEntity, onDocChange, onNavigateFolder])
+
+  const confirmDeleteEntity = React.useCallback(() => {
+    const target = deleteEntityTarget
+    if (!target) return
+    setDeleteEntityTarget(null)
+    if (target.kind === 'folder') {
+      const nextDoc = deleteFolder(doc, target.folderId)
+      if (!nextDoc) {
+        void api.ui.showToast('删除收藏夹失败')
+        return
+      }
+      onDocChange(nextDoc)
+      onDeleteFolderEntity?.(target.folderId)
+      if (target.folderId === currentFolderId) onNavigateFolder('root')
+      return
+    }
+    if (target.kind === 'note') {
+      onDeleteNoteEntity?.(target.note)
+      return
+    }
+    onDeleteAssetEntity?.(target.asset)
+  }, [api.ui, currentFolderId, deleteEntityTarget, doc, onDeleteAssetEntity, onDeleteFolderEntity, onDeleteNoteEntity, onDocChange, onNavigateFolder])
+
+  const breadcrumbItems = React.useMemo(
+    () => breadcrumb.map(id => ({ id, title: folderTitle(doc, id) })),
+    [breadcrumb, doc],
+  )
+
+  const renderFolderSuggestionCard = React.useCallback(
+    (folder: FavoriteFolder) => {
       const refCount = getRefsByFolderId(doc, folder.id).length
-      return overlayCard(
-        <FolderCard
-          folderId={folder.id}
-          title={folder.title}
-          refCount={refCount}
-          onClick={fid => onNavigateFolder(fid)}
-        />,
-        { showRemove: editMode, onRemove: () => removeOneRef(ref.id) },
-      )
-    }
+      return <FolderCard folderId={folder.id} title={folder.title} refCount={refCount} onClick={() => {}} />
+    },
+    [doc],
+  )
 
-    if (ref.kind === 'note') {
-      const note = noteIndex?.[ref.targetId]
-      if (!note) return overlayCard(<StaleRefCard ref={ref} onClickRemove={removeOneRef} />, { showRemove: false })
-      return overlayCard(<NoteCard ref={ref} note={note} onClick={onOpenNote} />, { showRemove: editMode, onRemove: () => removeOneRef(ref.id) })
-    }
+  const renderRef = React.useCallback(
+    (ref: FavoriteItemRef): React.ReactNode => {
+      const previewRef: FavoriteItemRef = { ...ref, layout: getPreviewLayout(ref) }
+      const onStartDrag = editMode ? (e: React.PointerEvent) => beginDrag(ref, e) : undefined
+      const onStartResize = editMode ? (e: React.PointerEvent) => beginResize(ref, e) : undefined
 
-    if (ref.kind === 'asset') {
-      const asset = assetLookup.byKey[ref.targetId] || assetLookup.byAssetId[ref.targetId]
-      if (!asset) return overlayCard(<StaleRefCard ref={ref} onClickRemove={removeOneRef} />, { showRemove: false })
-      return overlayCard(<AssetCard ref={ref} asset={asset} onClick={onOpenAsset} />, { showRemove: editMode, onRemove: () => removeOneRef(ref.id) })
-    }
+      if (ref.kind === 'folder') {
+        const folder = getFolderById(doc, ref.targetId)
+        if (!folder) return <StaleRefCard ref={ref} onClickRemove={removeOneRef} />
+        const refCount = getRefsByFolderId(doc, folder.id).length
+        return (
+          <IndexCardShell
+            editMode={editMode}
+            dragging={isDraggingRef(ref.id)}
+            resizing={isResizingRef(ref.id)}
+            onStartDrag={onStartDrag}
+            onRemove={() => removeOneRef(ref.id)}
+            onDeleteEntity={() => setDeleteEntityTarget({ kind: 'folder', title: folder.title || '未命名收藏夹', folderId: folder.id })}
+            onStartResize={onStartResize}
+          >
+            <FolderCard folderId={folder.id} title={folder.title} refCount={refCount} onClick={fid => onNavigateFolder(fid)} />
+          </IndexCardShell>
+        )
+      }
 
-    return overlayCard(<StaleRefCard ref={ref} onClickRemove={removeOneRef} />, { showRemove: false })
-  }
+      if (ref.kind === 'note') {
+        const note = noteIndex?.[ref.targetId]
+        if (!note) return <StaleRefCard ref={ref} onClickRemove={removeOneRef} />
+        return (
+          <IndexCardShell
+            editMode={editMode}
+            dragging={isDraggingRef(ref.id)}
+            resizing={isResizingRef(ref.id)}
+            onStartDrag={onStartDrag}
+            onRemove={() => removeOneRef(ref.id)}
+            onDeleteEntity={() => setDeleteEntityTarget({ kind: 'note', title: note.title || '未命名笔记', note })}
+            onStartResize={onStartResize}
+          >
+            <NoteCard ref={previewRef} note={note} onClick={onOpenNote} />
+          </IndexCardShell>
+        )
+      }
+
+      if (ref.kind === 'asset') {
+        const asset = assetLookup.byKey[ref.targetId] || assetLookup.byAssetId[ref.targetId]
+        if (!asset) return <StaleRefCard ref={ref} onClickRemove={removeOneRef} />
+        return (
+          <IndexCardShell
+            editMode={editMode}
+            dragging={isDraggingRef(ref.id)}
+            resizing={isResizingRef(ref.id)}
+            onStartDrag={onStartDrag}
+            onRemove={() => removeOneRef(ref.id)}
+            onDeleteEntity={() => setDeleteEntityTarget({ kind: 'asset', title: String(asset.displayName || asset.fileName || asset.assetId), asset })}
+            onStartResize={onStartResize}
+          >
+            <AssetCard ref={previewRef} asset={asset} onClick={onOpenAsset} />
+          </IndexCardShell>
+        )
+      }
+
+      return <StaleRefCard ref={ref} onClickRemove={removeOneRef} />
+    },
+    [
+      assetLookup.byAssetId,
+      assetLookup.byKey,
+      beginDrag,
+      beginResize,
+      doc,
+      editMode,
+      getPreviewLayout,
+      isDraggingRef,
+      isResizingRef,
+      noteIndex,
+      onNavigateFolder,
+      onOpenAsset,
+      onOpenNote,
+      removeOneRef,
+    ],
+  )
 
   return (
     <Box sx={{ px: 1.5, py: 1.5 }}>
-      {/* 面包屑 */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', pb: 1.25 }}>
-        {breadcrumb.map((id, idx) => {
-          const isLast = idx === breadcrumb.length - 1
-          const title = folderTitle(doc, id)
-          return (
-            <React.Fragment key={`${id}_${idx}`}>
-              <Box
-                onClick={() => {
-                  if (isLast) return
-                  onNavigateFolder(id)
-                }}
-                role={isLast ? undefined : 'button'}
-                tabIndex={isLast ? -1 : 0}
-                onKeyDown={e => {
-                  if (isLast) return
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    onNavigateFolder(id)
-                  }
-                }}
-                sx={{
-                  cursor: isLast ? 'default' : 'pointer',
-                  userSelect: 'none',
-                  px: 0.75,
-                  py: 0.25,
-                  borderRadius: 2,
-                  '&:hover': isLast ? undefined : { bgcolor: 'rgba(0,0,0,.03)' },
-                }}
-              >
-                <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.70)', fontWeight: isLast ? 800 : 700 }}>
-                  {title}
-                </Typography>
-              </Box>
-              {!isLast ? <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.38)' }}>›</Typography> : null}
-            </React.Fragment>
-          )
-        })}
-      </Box>
+      <IndexPageToolbar
+        breadcrumb={breadcrumbItems}
+        canGoBack={canGoBack}
+        currentTitle={currentTitle}
+        refsCount={refs.length}
+        editMode={editMode}
+        currentFolderId={currentFolderId}
+        onGoBack={handleGoBack}
+        onNavigateFolder={onNavigateFolder}
+        onOpenAddMenu={openAddMenu}
+        onToggleEditMode={() => onEditModeChange(!editMode)}
+        onDeleteCurrentFolder={openDeleteCurrentFolderConfirm}
+      />
 
-      {/* 标题栏 */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, pb: 1.25 }}>
-        <Box sx={{ minWidth: 0 }}>
-          <Typography sx={{ fontSize: 18, fontWeight: 900, color: '#111', lineHeight: 1.2 }}>
-            {currentTitle}
-          </Typography>
-          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.50)', pt: 0.25 }}>
-            {refs.length} 条
-          </Typography>
-        </Box>
-
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          {editMode ? (
-            <Button
-              variant="contained"
-              startIcon={<AddRoundedIcon />}
-              onClick={e => openAddMenu(e.currentTarget)}
-              sx={{ borderRadius: 999 }}
-            >
-              添加
-            </Button>
-          ) : null}
-
-          <Button
-            variant={editMode ? 'outlined' : 'contained'}
-            onClick={() => onEditModeChange(!editMode)}
-            sx={{ borderRadius: 999, whiteSpace: 'nowrap' }}
-          >
-            {editMode ? '完成' : '编辑'}
-          </Button>
-        </Box>
-      </Box>
-
-      {/* 内容区 */}
       {refs.length === 0 ? (
         <Box sx={{ px: 1, py: 4, borderRadius: 4, bgcolor: 'rgba(0,0,0,.02)', textAlign: 'center' }}>
-          <Typography sx={{ fontSize: 14, fontWeight: 800, color: 'rgba(0,0,0,.70)' }}>
-            这个收藏夹还是空的
-          </Typography>
-          {editMode ? (
-            <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.45)', pt: 0.75 }}>
-              点击右上角添加卡片
-            </Typography>
-          ) : null}
+          <Typography sx={{ fontSize: 14, fontWeight: 800, color: 'rgba(0,0,0,.70)' }}>这个收藏夹还是空的</Typography>
+          {editMode ? <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.45)', pt: 0.75 }}>点击右上角添加卡片</Typography> : null}
         </Box>
       ) : (
         <Box
+          ref={gridRef}
           sx={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-            gap: 1,
+            gridTemplateColumns: `repeat(${INDEX_GRID_COLUMNS}, minmax(0, 1fr))`,
+            gridAutoRows: `${INDEX_GRID_ROW_PX}px`,
+            gap: `${INDEX_GRID_GAP_PX}px`,
           }}
         >
-          {refs.map(ref => (
-            <Box key={ref.id}>{renderRef(ref)}</Box>
-          ))}
+          {refs.map(ref => {
+            const previewRef = { ...ref, layout: getPreviewLayout(ref) }
+            return (
+              <Box key={ref.id} sx={{ ...getRefGridSpan(previewRef), minWidth: 0 }}>
+                {renderRef(ref)}
+              </Box>
+            )
+          })}
         </Box>
       )}
 
-      {/* 添加菜单 */}
-      <Menu
-        open={!!addAnchorEl}
-        onClose={closeAddMenu}
-        anchorEl={addAnchorEl}
-        PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}
-      >
+      <Menu open={!!addAnchorEl} onClose={closeAddMenu} anchorEl={addAnchorEl} PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}>
         <MenuItem onClick={() => openAddDialog('folder')}>收藏夹</MenuItem>
         <MenuItem onClick={() => openAddDialog('note')}>笔记</MenuItem>
         <MenuItem onClick={() => openAddDialog('asset')}>附件</MenuItem>
       </Menu>
 
-      {/* 添加：收藏夹 */}
-      <Dialog open={addKind === 'folder'} onClose={closeAddDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>添加收藏夹</DialogTitle>
-        <DialogContent>
-          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)', pb: 1 }}>
-            会先创建一个新收藏夹，再把它放进当前收藏夹里（像“抽屉里放一个小抽屉”）。
-          </Typography>
-          <TextField
-            fullWidth
-            autoFocus
-            label="收藏夹标题"
-            value={folderTitleDraft}
-            onChange={e => setFolderTitleDraft(e.target.value)}
-            placeholder="例如：项目灵感 / 临时收纳"
-          />
-
-          {folderSuggestions.length ? (
-            <Box sx={{ pt: 2 }}>
-              <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'rgba(0,0,0,.55)', pb: 1 }}>
-                最近的收藏夹（可直接引用）
-              </Typography>
-              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 1 }}>
-                {folderSuggestions.map(f => {
-                  const cnt = getRefsByFolderId(doc, f.id).length
-                  const addThis = () => {
-                    const added = addRef(doc, currentFolderId, 'folder', f.id)
-                    if (added) onDocChange(added.doc)
-                    closeAddDialog()
-                  }
-                  return (
-                    <Box key={f.id}>
-                      {overlayCard(
-                        <FolderCard folderId={f.id} title={f.title} refCount={cnt} onClick={addThis} />,
-                        {
-                          showRemove: false,
-                        },
-                      )}
-                    </Box>
-                  )
-                })}
-              </Box>
-            </Box>
-          ) : null}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeAddDialog}>取消</Button>
-          <Button variant="contained" onClick={confirmAddFolder}>
-            创建并添加
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* 添加：笔记 */}
-      <Dialog open={addKind === 'note'} onClose={closeAddDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>添加笔记</DialogTitle>
-        <DialogContent>
-          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)', pb: 1 }}>
-            你可以输入笔记 ID；如果已经传入笔记索引，也可以在下面搜索并点选。
-          </Typography>
-          <TextField
-            fullWidth
-            autoFocus
-            label="笔记 ID"
-            value={noteIdDraft}
-            onChange={e => setNoteIdDraft(e.target.value)}
-            placeholder="例如：n_abc123..."
-            onKeyDown={e => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                confirmAddNote()
-              }
-            }}
-          />
-
-          {noteIndex ? (
-            <Box sx={{ pt: 2 }}>
-              <TextField
-                fullWidth
-                label="搜索笔记"
-                value={noteSearch}
-                onChange={e => setNoteSearch(e.target.value)}
-                placeholder="按标题或 ID"
-              />
-              <Box sx={{ pt: 1.5 }}>
-                {noteSuggestions.map(n => (
-                  <Box key={n.id} sx={{ pb: 1 }}>
-                    <Button
-                      fullWidth
-                      variant="outlined"
-                      sx={{ justifyContent: 'space-between', borderRadius: 4, textTransform: 'none' }}
-                      onClick={() => confirmAddNote(n.id)}
-                    >
-                      <Box sx={{ minWidth: 0, textAlign: 'left' }}>
-                        <Typography sx={{ fontSize: 13, fontWeight: 800, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {n.title || '未命名'}
-                        </Typography>
-                        <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.45)' }}>
-                          {n.id}
-                        </Typography>
-                      </Box>
-                      <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'rgba(0,0,0,.45)' }}>添加</Typography>
-                    </Button>
-                  </Box>
-                ))}
-              </Box>
-            </Box>
-          ) : null}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeAddDialog}>取消</Button>
-          <Button variant="contained" onClick={() => confirmAddNote()}>
-            添加
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* 添加：附件 */}
-      <Dialog open={addKind === 'asset'} onClose={closeAddDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>添加附件</DialogTitle>
-        <DialogContent>
-          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)', pb: 1 }}>
-            你可以输入资源 key（例如：assetId 或 assetId.ext）；如果已经传入附件索引，也可以在下面搜索并点选。
-          </Typography>
-          <TextField
-            fullWidth
-            autoFocus
-            label="附件 key"
-            value={assetIdDraft}
-            onChange={e => setAssetIdDraft(e.target.value)}
-            placeholder="例如：a_abc123.png"
-            onKeyDown={e => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                confirmAddAsset()
-              }
-            }}
-          />
-
-          {Object.keys(assetLookup.byKey).length ? (
-            <Box sx={{ pt: 2 }}>
-              <TextField
-                fullWidth
-                label="搜索附件"
-                value={assetSearch}
-                onChange={e => setAssetSearch(e.target.value)}
-                placeholder="按文件名或 key"
-              />
-              <Box sx={{ pt: 1.25 }}>
-                {assetSuggestions.map(a => {
-                  const key = a.ext ? `${a.assetId}.${a.ext}` : a.assetId
-                  const title = String(a.displayName || a.fileName || key)
-                  return (
-                    <Box key={key} sx={{ pb: 1 }}>
-                      <Button
-                        fullWidth
-                        variant="outlined"
-                        sx={{ justifyContent: 'space-between', borderRadius: 4, textTransform: 'none' }}
-                        onClick={() => confirmAddAsset(key)}
-                      >
-                        <Box sx={{ minWidth: 0, textAlign: 'left' }}>
-                          <Typography sx={{ fontSize: 13, fontWeight: 800, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {title}
-                          </Typography>
-                          <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.45)' }}>
-                            {key}
-                          </Typography>
-                        </Box>
-                        <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'rgba(0,0,0,.45)' }}>添加</Typography>
-                      </Button>
-                    </Box>
-                  )
-                })}
-              </Box>
-            </Box>
-          ) : null}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeAddDialog}>取消</Button>
-          <Button variant="contained" onClick={() => confirmAddAsset()}>
-            添加
-          </Button>
-        </DialogActions>
-      </Dialog>
-
+      <IndexPageDialogs
+        doc={doc}
+        currentFolderId={currentFolderId}
+        addKind={addKind}
+        folderTitleDraft={folderTitleDraft}
+        noteIdDraft={noteIdDraft}
+        assetIdDraft={assetIdDraft}
+        noteSearch={noteSearch}
+        assetSearch={assetSearch}
+        noteIndex={noteIndex}
+        folderSuggestions={folderSuggestions}
+        folderDisabledReasonById={folderDisabledReasonById}
+        noteSuggestions={noteSuggestions}
+        assetSuggestions={assetSuggestions}
+        assetLookupKeyCount={Object.keys(assetLookup.byKey).length}
+        deleteFolderConfirmId={deleteFolderConfirmId}
+        deleteEntityTarget={deleteEntityTarget}
+        onCloseAddDialog={closeAddDialog}
+        onFolderTitleDraftChange={setFolderTitleDraft}
+        onNoteIdDraftChange={setNoteIdDraft}
+        onAssetIdDraftChange={setAssetIdDraft}
+        onNoteSearchChange={setNoteSearch}
+        onAssetSearchChange={setAssetSearch}
+        onConfirmAddFolder={confirmAddFolder}
+        onAddExistingFolder={addExistingFolder}
+        onConfirmAddNote={confirmAddNote}
+        onConfirmAddAsset={confirmAddAsset}
+        renderFolderSuggestionCard={renderFolderSuggestionCard}
+        onCloseDeleteFolder={() => setDeleteFolderConfirmId('')}
+        onConfirmDeleteFolder={confirmDeleteCurrentFolder}
+        onCloseDeleteEntity={() => setDeleteEntityTarget(null)}
+        onConfirmDeleteEntity={confirmDeleteEntity}
+      />
     </Box>
   )
 }

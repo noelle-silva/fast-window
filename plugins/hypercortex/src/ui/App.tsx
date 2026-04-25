@@ -31,6 +31,7 @@ import { loadRefIndex, type NoteRefIndex } from '../noteRefs'
 import { createMarkdownRenderEngine } from '../render/engine'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { ensureAssetsIndex } from '../assetStore'
+import { deleteAssetFromPool } from '../assetPool'
 import { isDraftNoteId } from '../drafts'
 import { ensureFavorites, saveFavorites, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { AssetPoolPanel } from './AssetPoolPanel'
@@ -1408,6 +1409,40 @@ export function HyperCortexApp() {
     [api],
   )
 
+  const handleDeleteAssetEntity = React.useCallback(
+    async (asset: AssetEntry) => {
+      const assetId = String(asset?.assetId || '').trim()
+      if (!assetId) return
+      try {
+        await deleteAssetFromPool(api, 'library', assetId, asset.ext)
+        const tabKey = assetTabId(asset)
+        closeTabKeysDirectRef.current([tabKey])
+        setAssetPoolIndex(prev => {
+          if (!prev || typeof prev !== 'object') return prev
+          const assets = { ...((prev as any).assets || {}) }
+          delete assets[asset.ext ? `${assetId}.${asset.ext}` : assetId]
+          return { ...(prev as any), assets }
+        })
+        void api.ui.showToast('已删除附件实体')
+      } catch (e: any) {
+        void api.ui.showToast(String(e?.message || e || '删除附件失败'))
+      }
+    },
+    [api],
+  )
+
+  const handleDeleteFolderEntity = React.useCallback(
+    (folderId: string) => {
+      const id = String(folderId || '').trim()
+      if (!id) return
+      if (currentFolderId === id) {
+        setCurrentFolderId('root')
+        if (metaReadyRef.current) void persistMetadataPatch({ currentFolderId: 'root' }).catch(() => {})
+      }
+    },
+    [currentFolderId, persistMetadataPatch],
+  )
+
   const confirmDeleteNoteFromCard = React.useCallback(async () => {
     const target = noteCardDeleteTarget
     if (!target) return
@@ -2580,6 +2615,9 @@ export function HyperCortexApp() {
                   onOpenAsset={handleOpenAssetTab}
                   onDocChange={handleFavoritesDocChange}
                   onEditModeChange={handleIndexEditModeChange}
+                  onDeleteFolderEntity={handleDeleteFolderEntity}
+                  onDeleteNoteEntity={note => void handleDeleteNote({ note, mode: trashEnabled ? 'trash' : 'permanent' })}
+                  onDeleteAssetEntity={asset => void handleDeleteAssetEntity(asset)}
                 />
               ) : null}
               {page === 'trash' ? (

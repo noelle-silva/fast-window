@@ -1,77 +1,59 @@
-import { type HyperCortexFavoritesDocV1, type FavoriteItemRef } from './favorites'
+import type { HyperCortexFavoritesDocV1 } from './favorites'
 
-export type FolderRefEdge = {
-  from: string
-  to: string
+export type FolderRefIssue = 'missing-source' | 'missing-target' | 'self-reference' | 'cycle'
+
+function normalizeFolderId(folderId: string): string {
+  return String(folderId || '').trim()
 }
 
-function isFolderRef(ref: FavoriteItemRef): ref is FavoriteItemRef & { kind: 'folder' } {
-  return ref.kind === 'folder'
-}
-
-function buildAdjacency(edges: FolderRefEdge[]): Map<string, string[]> {
-  const adj = new Map<string, string[]>()
-
-  for (const edge of edges) {
-    const list = adj.get(edge.from)
-    if (list) list.push(edge.to)
-    else adj.set(edge.from, [edge.to])
+function getReferencedFolderIds(doc: HyperCortexFavoritesDocV1, folderId: string): string[] {
+  const fid = normalizeFolderId(folderId)
+  if (!fid) return []
+  const refs = Array.isArray(doc.refsByFolderId?.[fid]) ? doc.refsByFolderId[fid] : []
+  const out: string[] = []
+  for (const ref of refs) {
+    if (!ref || ref.kind !== 'folder') continue
+    const targetId = normalizeFolderId(ref.targetId)
+    if (!targetId) continue
+    out.push(targetId)
   }
-
-  return adj
+  return out
 }
 
-function isReachableInAdj(adjacency: Map<string, string[]>, fromId: string, toId: string): boolean {
-  if (fromId === toId) return true
+export function canReachFolder(doc: HyperCortexFavoritesDocV1, fromFolderId: string, targetFolderId: string): boolean {
+  const fromId = normalizeFolderId(fromFolderId)
+  const targetId = normalizeFolderId(targetFolderId)
+  if (!fromId || !targetId) return false
+  if (fromId === targetId) return true
 
+  const queue = [fromId]
   const visited = new Set<string>()
-  const stack: string[] = [fromId]
 
-  while (stack.length > 0) {
-    const current = stack.pop()!
-    if (current === toId) return true
-    if (visited.has(current)) continue
+  while (queue.length) {
+    const current = queue.shift() || ''
+    if (!current || visited.has(current)) continue
     visited.add(current)
 
-    const nexts = adjacency.get(current)
-    if (!nexts) continue
-    for (const next of nexts) {
-      if (!visited.has(next)) stack.push(next)
+    for (const nextId of getReferencedFolderIds(doc, current)) {
+      if (nextId === targetId) return true
+      if (!visited.has(nextId)) queue.push(nextId)
     }
   }
 
   return false
 }
 
-export function collectFolderRefEdges(doc: HyperCortexFavoritesDocV1): FolderRefEdge[] {
-  const edges: FolderRefEdge[] = []
-
-  for (const [folderId, refs] of Object.entries(doc.refsByFolderId)) {
-    for (const ref of refs) {
-      if (!isFolderRef(ref)) continue
-      const from = ref.folderId ?? folderId
-      const to = ref.targetId
-      if (!from || !to) continue
-      edges.push({ from, to })
-    }
-  }
-
-  return edges
+export function getFolderRefIssue(doc: HyperCortexFavoritesDocV1, sourceFolderId: string, targetFolderId: string): FolderRefIssue | null {
+  const sourceId = normalizeFolderId(sourceFolderId)
+  const targetId = normalizeFolderId(targetFolderId)
+  if (!sourceId || !doc.folders[sourceId]) return 'missing-source'
+  if (!targetId || !doc.folders[targetId]) return 'missing-target'
+  if (sourceId === targetId) return 'self-reference'
+  if (canReachFolder(doc, targetId, sourceId)) return 'cycle'
+  return null
 }
 
-export function detectCycle(edges: FolderRefEdge[], fromId: string, toId: string): boolean {
-  if (fromId === toId) return true
-
-  const adjacency = buildAdjacency(edges)
-  const list = adjacency.get(fromId)
-  if (list) list.push(toId)
-  else adjacency.set(fromId, [toId])
-
-  return isReachableInAdj(adjacency, toId, fromId)
+export function wouldCreateFolderReferenceCycle(doc: HyperCortexFavoritesDocV1, sourceFolderId: string, targetFolderId: string): boolean {
+  const issue = getFolderRefIssue(doc, sourceFolderId, targetFolderId)
+  return issue === 'self-reference' || issue === 'cycle'
 }
-
-export function isReachable(edges: FolderRefEdge[], fromId: string, toId: string): boolean {
-  const adjacency = buildAdjacency(edges)
-  return isReachableInAdj(adjacency, fromId, toId)
-}
-
