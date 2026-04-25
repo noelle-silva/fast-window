@@ -92,6 +92,22 @@ function createMuuriLayout(): LayoutFunction {
   }
 }
 
+function getRenderedMuuriElements(containerNode: HTMLDivElement): HTMLElement[] {
+  return Array.from(containerNode.children).filter((child): child is HTMLElement => child instanceof HTMLElement && child.classList.contains('hc-index-muuri-item'))
+}
+
+function syncMuuriItemsWithRenderedElements(grid: Muuri, containerNode: HTMLDivElement): void {
+  const renderedElements = getRenderedMuuriElements(containerNode)
+  const renderedElementSet = new Set(renderedElements)
+
+  const staleItems = grid.getItems().filter(item => !renderedElementSet.has(item.getElement()))
+  if (staleItems.length) grid.remove(staleItems, { removeElements: false, layout: false })
+
+  const knownElements = new Set(grid.getItems().map(item => item.getElement()))
+  const addedElements = renderedElements.filter(el => !knownElements.has(el))
+  if (addedElements.length) grid.add(addedElements, { layout: false })
+}
+
 export function MuuriGrid(props: Props): React.ReactNode {
   const { refs, editMode, gridRef, getLayout, draggingRefId, dropIndicatorLayout, onPreviewDragLayout, onCommitDrag, onCancelPreview, onDragStateChange, renderItem } = props
   const [containerNode, setContainerNode] = React.useState<HTMLDivElement | null>(null)
@@ -287,10 +303,12 @@ export function MuuriGrid(props: Props): React.ReactNode {
   React.useLayoutEffect(() => {
     const grid = gridInstanceRef.current
     if (!grid) return
+    if (!containerNode) return
     if (draggingRefId) return
+    syncMuuriItemsWithRenderedElements(grid, containerNode)
     grid.synchronize()
     grid.refreshItems().layout()
-  }, [refs, draggingRefId])
+  }, [containerNode, refs, draggingRefId])
 
   React.useLayoutEffect(() => {
     const grid = gridInstanceRef.current
