@@ -44,8 +44,30 @@ export function IndexPageToolbar(props: Props): React.ReactNode {
   const modeText = modeLabel(editMode)
 
   return (
-    <>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', pb: 1.25 }}>
+    <Box
+      sx={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 8,
+        pt: 0.25,
+        pb: 1.25,
+        pointerEvents: 'none',
+      }}
+    >
+      <Box
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.75,
+          flexWrap: 'wrap',
+          mx: -1.5,
+          px: 1.5,
+          py: 0.75,
+          bgcolor: '#fff',
+          boxShadow: '0 10px 18px rgba(255,255,255,.92)',
+          pointerEvents: 'auto',
+        }}
+      >
         <Tooltip title={canGoBack ? '返回上一级' : '没有上一层'}>
           <span>
             <IconButton size="small" onClick={onGoBack} disabled={!canGoBack} aria-label="返回上一级索引路径">
@@ -88,7 +110,7 @@ export function IndexPageToolbar(props: Props): React.ReactNode {
         })}
       </Box>
 
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, pb: 1.25 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, pt: 1.25, pointerEvents: 'none' }}>
         <Box sx={{ minWidth: 0 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flexWrap: 'wrap' }}>
             <Typography sx={{ fontSize: 18, fontWeight: 900, color: '#111', lineHeight: 1.2 }}>{currentTitle}</Typography>
@@ -111,7 +133,7 @@ export function IndexPageToolbar(props: Props): React.ReactNode {
           <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.50)', pt: 0.25 }}>{refsCount} 条</Typography>
         </Box>
 
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end', pointerEvents: 'auto' }}>
           {editMode && currentFolderId !== 'root' ? (
             <Button variant="outlined" color="error" onClick={onDeleteCurrentFolder} sx={{ borderRadius: 999, whiteSpace: 'nowrap' }}>
               删除当前收藏夹实体
@@ -134,6 +156,6 @@ export function IndexPageToolbar(props: Props): React.ReactNode {
           </Button>
         </Box>
       </Box>
-    </>
+    </Box>
   )
 }
