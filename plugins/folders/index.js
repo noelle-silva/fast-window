@@ -1,11 +1,5 @@
 // folders (iframe sandbox) (entry: index.js)
 ;(function () {
-  const PLUGIN_ID = 'folders'
-
-  function isPlainObject(v) {
-    return !!v && typeof v === 'object' && !Array.isArray(v)
-  }
-
   function createToast() {
     let el = null
     let timer = 0
@@ -50,29 +44,11 @@
 
   function createCompatApi(baseApi) {
     const base = baseApi || {}
-    const tauri = base && base.tauri ? base.tauri : null
-    if (!tauri || typeof tauri.invoke !== 'function') {
-      throw new Error('tauri.invoke 不可用（请更新宿主网关）')
+    if (!base || Number(base.__meta?.apiVersion || 0) < 3) {
+      throw new Error('文件夹收藏需要 v3 插件宿主 API')
     }
 
     const toast = createToast()
-
-    const STORAGE_SCHEMA_VERSION = 1
-    const STORAGE_META_PATH = '_meta.json'
-
-    function nowId() {
-      const d = new Date()
-      const pad = (n, w) => String(n).padStart(w, '0')
-      return (
-        pad(d.getFullYear(), 4) +
-        pad(d.getMonth() + 1, 2) +
-        pad(d.getDate(), 2) +
-        '-' +
-        pad(d.getHours(), 2) +
-        pad(d.getMinutes(), 2) +
-        pad(d.getSeconds(), 2)
-      )
-    }
 
     function safeStorageKey(raw) {
       const k = String(raw || '').trim()
@@ -88,29 +64,24 @@
       return `${k}.json`
     }
 
-    async function filesListDir(dir) {
-      return tauri.invoke({ command: 'plugin_files_list_dir', payload: { pluginId: PLUGIN_ID, req: { scope: 'data', dir } } })
+    function nowId() {
+      const d = new Date()
+      const pad = (n, w) => String(n).padStart(w, '0')
+      return `${pad(d.getFullYear(), 4)}${pad(d.getMonth() + 1, 2)}${pad(d.getDate(), 2)}-${pad(d.getHours(), 2)}${pad(d.getMinutes(), 2)}${pad(d.getSeconds(), 2)}`
     }
 
-    async function filesReadText(path) {
-      return tauri.invoke({ command: 'plugin_files_read_text', payload: { pluginId: PLUGIN_ID, req: { scope: 'data', path } } })
-    }
-
-    async function filesWriteText(path, text) {
-      return tauri.invoke({
-        command: 'plugin_files_write_text',
-        payload: { pluginId: PLUGIN_ID, req: { scope: 'data', path, text: String(text ?? ''), overwrite: true } },
-      })
-    }
-
-    async function filesDelete(path) {
-      return tauri.invoke({ command: 'plugin_files_delete', payload: { pluginId: PLUGIN_ID, req: { scope: 'data', path } } })
+    function getWorkspaceFs() {
+      const fs = base.workspace?.fs
+      if (!fs || typeof fs.readText !== 'function' || typeof fs.writeText !== 'function' || typeof fs.remove !== 'function') {
+        throw new Error('workspace.fs 不可用')
+      }
+      return fs
     }
 
     async function readJson(path) {
       let text = ''
       try {
-        text = await filesReadText(path)
+        text = await getWorkspaceFs().readText({ scope: 'data', path })
       } catch (e) {
         const msg = String(e?.message || e || '')
         if (msg.includes('文件不存在')) return null
@@ -127,7 +98,15 @@
 
     async function writeJson(path, value) {
       const text = JSON.stringify(value ?? null, null, 2) + '\n'
-      await filesWriteText(path, text)
+      await getWorkspaceFs().writeText({ scope: 'data', path, text, overwrite: true })
+    }
+
+    async function removeJson(path) {
+      await getWorkspaceFs().remove({ scope: 'data', path }).catch((e) => {
+        const msg = String(e?.message || e || '')
+        if (msg.includes('文件不存在')) return
+        throw e
+      })
     }
 
     let storageReady = false
@@ -139,39 +118,16 @@
 
       storageReadyPromise = Promise.resolve()
         .then(async () => {
-          await filesListDir(null)
-          const meta = await readJson(STORAGE_META_PATH).catch(() => null)
-          if (meta && typeof meta === 'object' && Number(meta.schemaVersion || 0) >= STORAGE_SCHEMA_VERSION) {
+          if ((await readJson(keyToPath('data')).catch(() => null)) != null) {
             storageReady = true
             return
           }
 
-          const shardPath = keyToPath('data')
-          const entries = await filesListDir(null).catch(() => [])
-          const names = new Set(Array.isArray(entries) ? entries.filter((e) => e && e.isFile).map((e) => String(e.name || '')) : [])
-          if (names.has(shardPath)) {
-            await writeJson(STORAGE_META_PATH, { schemaVersion: STORAGE_SCHEMA_VERSION, migratedAt: Date.now(), reason: 'shards-existed' })
-            storageReady = true
-            return
+          const legacy = await readJson('folders.json').catch(() => null)
+          if (legacy && typeof legacy === 'object' && legacy.data != null) {
+            await writeJson(`_backup-migrate-${nowId()}.json`, { data: legacy.data }).catch(() => {})
+            await writeJson(keyToPath('data'), legacy.data)
           }
-
-          const source = { from: `${PLUGIN_ID}.json` }
-          const obj0 = await readJson(`${PLUGIN_ID}.json`).catch(() => null)
-          const obj = obj0 && typeof obj0 === 'object' ? obj0 : null
-          const snapshot = {}
-          if (obj && obj.data != null) snapshot.data = obj.data
-          if (Object.keys(snapshot).length) {
-            await writeJson(`_backup-migrate-${nowId()}.json`, snapshot).catch(() => {})
-            await writeJson(shardPath, snapshot.data)
-            await writeJson(STORAGE_META_PATH, { schemaVersion: STORAGE_SCHEMA_VERSION, migratedAt: Date.now(), source })
-            storageReady = true
-            return
-          }
-          if (!obj) source.fileReadable = false
-
-          await writeJson(STORAGE_META_PATH, { schemaVersion: STORAGE_SCHEMA_VERSION, createdAt: Date.now(), freshInstall: true, source }).catch(
-            () => {},
-          )
           storageReady = true
         })
         .finally(() => {
@@ -183,16 +139,11 @@
 
     return {
       ...base,
-      tauri,
       ui: {
         ...(base.ui || {}),
-        showToast: (message) => toast(message),
-        startDragging: async () => {
-          try {
-            await tauri.invoke({ command: 'plugin:window|start_dragging', payload: {} })
-          } catch (e) {
-            toast(String((e && e.message) || e || '无法拖拽'))
-          }
+        showToast: (message) => {
+          const text = String(message || '').trim()
+          toast(text)
         },
       },
       storage: {
@@ -210,20 +161,18 @@
         remove: async (key) => {
           await ensureStorageReady()
           const p = keyToPath(key)
-          await filesDelete(p).catch((e) => {
-            const msg = String(e?.message || e || '')
-            if (msg.includes('文件不存在')) return
-            throw e
-          })
+          await removeJson(p)
         },
       },
       files: {
         ...(base.files || {}),
         pickDir: async () => {
-          return tauri.invoke({ command: 'plugin_pick_dir', payload: { pluginId: PLUGIN_ID } })
+          if (!base.dialog || typeof base.dialog.pickDir !== 'function') throw new Error('dialog.pickDir 不可用')
+          return base.dialog.pickDir()
         },
         openDir: async (dir) => {
-          return tauri.invoke({ command: 'plugin_open_dir', payload: { pluginId: PLUGIN_ID, dir: String(dir || '') } })
+          if (!base.workspace || typeof base.workspace.openDir !== 'function') throw new Error('workspace.openDir 不可用')
+          return base.workspace.openDir(String(dir || ''))
         },
       },
     }
@@ -813,18 +762,6 @@
         </div>
       </div>
     `
-
-    const topbar = root.querySelector('.topbar')
-    if (topbar) {
-      topbar.addEventListener('pointerdown', (e) => {
-        if (!(e instanceof PointerEvent)) return
-        if (e.button !== 0) return
-        const t = e.target
-        if (!(t instanceof HTMLElement)) return
-        if (t.closest('button, a, input, textarea, select, [role="button"]')) return
-        api.ui?.startDragging?.()
-      })
-    }
 
     root.addEventListener('click', (e) => {
       const t = e.target

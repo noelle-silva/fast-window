@@ -2,22 +2,20 @@
   "id": "folders",
   "name": "文件夹收藏",
   "author": "fast-window",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "收藏常用本地文件夹，点击即可在文件管理器打开",
   "main": "index.js",
   "icon": "svg:icon.svg",
   "keyword": "fd",
-  "apiVersion": 2,
+  "apiVersion": 3,
   "ui": {
     "type": "iframe"
   },
   "requires": [
-    "tauri:plugin_files_list_dir",
-    "tauri:plugin_files_read_text",
-    "tauri:plugin_files_write_text",
-    "tauri:plugin_files_delete",
-    "tauri:plugin_pick_dir",
-    "tauri:plugin_open_dir",
-    "tauri:plugin:window|start_dragging"
+    "cap:dialog.pickDir",
+    "cap:workspace.openDir",
+    "cap:workspace.fs.readText",
+    "cap:workspace.fs.writeText",
+    "cap:workspace.fs.remove"
   ]
 }
