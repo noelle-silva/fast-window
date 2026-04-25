@@ -32,7 +32,9 @@ import { createMarkdownRenderEngine } from '../render/engine'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { ensureAssetsIndex } from '../assetStore'
 import { isDraftNoteId } from '../drafts'
+import { ensureFavorites, saveFavorites, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { AssetPoolPanel } from './AssetPoolPanel'
+import { IndexPage } from './IndexPage'
 import { OpenTabsPanel } from './OpenTabsPanel'
 import { NoteDetailSession, type NoteDetailSessionHandle, type NoteDetailSnapshotV1 } from './NoteDetailSession'
 import { AssetDetailSession } from './AssetDetailSession'
@@ -79,6 +81,10 @@ function normalizeAllNotesLayout(value: unknown): AllNotesLayout {
 }
 
 function normalizeBoolean(value: unknown): boolean {
+  return value === true
+}
+
+function normalizeIndexEditMode(value: unknown): boolean {
   return value === true
 }
 
@@ -151,7 +157,8 @@ function stripDraftTabKeyMap(value: any): Record<string, string> {
 }
 
 function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetadataV1 {
-  const next: HyperCortexMetadataV1 = { ...meta, version: 1 }
+  type NextMeta = HyperCortexMetadataV1 & { indexEditMode?: boolean; currentFolderId?: string }
+  const next: NextMeta = { ...meta, version: 1 }
 
   delete (next as any).openNoteIds
   delete (next as any).activeNoteId
@@ -175,6 +182,8 @@ function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetada
   next.shortcutHintsEnabled = normalizeShortcutHintsEnabled((next as any).shortcutHintsEnabled)
   next.trashEnabled = normalizeTrashEnabled(next.trashEnabled)
   next.trashAutoDeleteDays = normalizeTrashAutoDeleteDays(next.trashAutoDeleteDays)
+  next.indexEditMode = normalizeIndexEditMode((next as any).indexEditMode)
+  next.currentFolderId = String((next as any).currentFolderId || '').trim() || 'root'
 
   if (Array.isArray(next.workspaces)) {
     next.workspaces = next.workspaces.map(ws => {
@@ -300,6 +309,7 @@ function getShortcutChord(bindings: HyperCortexShortcutBindingsV1, id: HyperCort
 
 export function HyperCortexApp() {
   const api = React.useMemo(() => getApi(), [])
+  type MetadataPatch = Partial<HyperCortexMetadataV1> & { indexEditMode?: boolean; currentFolderId?: string }
 
   // ---- 核心 UI 状态
   const [page, setPageState] = React.useState<PageId>('home')
@@ -364,6 +374,10 @@ export function HyperCortexApp() {
 
   // ---- 全部笔记列表
   const [noteIndex, setNoteIndex] = React.useState<HyperCortexIndexV1 | null>(null)
+  const [favoritesDoc, setFavoritesDoc] = React.useState<HyperCortexFavoritesDocV1 | null>(null)
+  const [currentFolderId, setCurrentFolderId] = React.useState<string>('root')
+  const [indexEditMode, setIndexEditMode] = React.useState(false)
+  const [assetPoolIndex, setAssetPoolIndex] = React.useState<Record<string, any> | null>(null)
   const [allNotesLayout, setAllNotesLayout] = React.useState<AllNotesLayout>('list')
   const [allNotes, setAllNotes] = React.useState<NoteMeta[]>([])
   const [allNotesLoading, setAllNotesLoading] = React.useState(false)
@@ -659,7 +673,7 @@ export function HyperCortexApp() {
   }, [allNotes, ensureNoteCardInfoLoaded, page])
 
   const persistMetadataPatch = React.useCallback(
-    async (patch: Partial<HyperCortexMetadataV1>) => {
+    async (patch: MetadataPatch) => {
       const current = metaRef.current || { version: 1 }
       const next: HyperCortexMetadataV1 = { ...current, ...patch, version: 1 }
       const sanitized = sanitizeMetadataForSave(next)
@@ -1191,8 +1205,17 @@ export function HyperCortexApp() {
         setTrashAutoDeleteDays(normalizedTrashAutoDeleteDays)
         setHtmlFaceDisplayMode(normalizeHtmlFaceDisplayMode(meta.htmlFaceDisplayMode))
         setHtmlFaceFixedScaleDefault(normalizeHtmlFaceFixedScaleDefault(meta.htmlFaceFixedScaleDefault))
+        setIndexEditMode(normalizeIndexEditMode((meta as any).indexEditMode))
+        setCurrentFolderId(String((meta as any).currentFolderId || '').trim() || 'root')
         const activeKey = typeof meta.activeTabKey === 'string' ? meta.activeTabKey.trim() : ''
         restoreActiveTabKeyRef.current = activeKey
+
+        const [nextFavoritesDoc, nextAssetPoolIndex] = await Promise.all([
+          ensureFavorites(api),
+          ensureAssetsIndex(api, 'library'),
+        ])
+        setFavoritesDoc(nextFavoritesDoc)
+        setAssetPoolIndex(nextAssetPoolIndex as any)
 
         const legacyTabsDetected =
           Array.isArray((meta as any).openNoteIds) ||
@@ -1299,6 +1322,31 @@ export function HyperCortexApp() {
       void persistMetadataPatch({ htmlFaceDisplayMode: next }).catch(() => {})
     },
     [persistMetadataPatch],
+  )
+
+  const handleIndexEditModeChange = React.useCallback(
+    (next: boolean) => {
+      setIndexEditMode(next)
+      if (!metaReadyRef.current) return
+      void persistMetadataPatch({ indexEditMode: next ?? false }).catch(() => {})
+    },
+    [persistMetadataPatch],
+  )
+
+  const handleNavigateFolder = React.useCallback(
+    (folderId: string) => {
+      setCurrentFolderId(folderId)
+      if (metaReadyRef.current) void persistMetadataPatch({ currentFolderId: folderId }).catch(() => {})
+    },
+    [persistMetadataPatch],
+  )
+
+  const handleFavoritesDocChange = React.useCallback(
+    (nextDoc: HyperCortexFavoritesDocV1) => {
+      setFavoritesDoc(nextDoc)
+      void saveFavorites(api, nextDoc).catch(() => {})
+    },
+    [api],
   )
 
   const handleHtmlFaceFixedScaleDefaultChange = React.useCallback(
@@ -2518,7 +2566,22 @@ export function HyperCortexApp() {
                   ))
                 )}
               </Box>
-              {page === 'index' ? <Typography color="text.secondary">这是索引页面。</Typography> : null}
+              {page === 'index' && favoritesDoc ? (
+                <IndexPage
+                  api={api}
+                  scope="library"
+                  doc={favoritesDoc}
+                  currentFolderId={currentFolderId}
+                  editMode={indexEditMode}
+                  noteIndex={noteIndex?.notes}
+                  assetIndex={assetPoolIndex?.assets}
+                  onNavigateFolder={handleNavigateFolder}
+                  onOpenNote={handleOpenNote}
+                  onOpenAsset={handleOpenAssetTab}
+                  onDocChange={handleFavoritesDocChange}
+                  onEditModeChange={handleIndexEditModeChange}
+                />
+              ) : null}
               {page === 'trash' ? (
                 <TrashPanel
                   api={api}
