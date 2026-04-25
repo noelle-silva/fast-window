@@ -609,23 +609,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       >
         {panelWidth <= 52 ? (
           <Box sx={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Tooltip
-              title="工作区"
-              placement="right"
-              disableHoverListener={disableTopTooltips}
-              disableFocusListener={disableTopTooltips}
-              disableTouchListener={disableTopTooltips}
-            >
-              <IconButton
-                size="small"
-                aria-label="选择工作区"
-                onClick={e => setWorkspaceMenuAnchorEl(e.currentTarget)}
-                sx={{ width: 30, height: 30, borderRadius: 999, color: 'rgba(0,0,0,.58)' }}
-              >
-                <WorkspacesRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-
             {tabsMode === 'manual' ? (
               <Tooltip
                 title={tabsCollapsed ? '展开已打开笔记' : '收起已打开笔记'}
