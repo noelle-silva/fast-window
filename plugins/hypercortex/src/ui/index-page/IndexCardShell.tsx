@@ -1,7 +1,8 @@
 import * as React from 'react'
-import { Box, Button, IconButton, Tooltip } from '@mui/material'
+import { Box, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Tooltip } from '@mui/material'
 import DeleteForeverRoundedIcon from '@mui/icons-material/DeleteForeverRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
+import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 
 type Props = {
   editMode: boolean
@@ -16,11 +17,16 @@ type Props = {
 
 export function IndexCardShell(props: Props): React.ReactNode {
   const { editMode, dragging, resizing, onStartDrag, onRemove, onDeleteEntity, onStartResize, children } = props
+  const [menuAnchorEl, setMenuAnchorEl] = React.useState<HTMLElement | null>(null)
+  const menuOpen = Boolean(menuAnchorEl)
+
+  const closeMenu = React.useCallback(() => setMenuAnchorEl(null), [])
 
   return (
     <Box
       sx={{
-        minHeight: '100%',
+        height: '100%',
+        minHeight: 0,
         display: 'flex',
         flexDirection: 'column',
         position: 'relative',
@@ -33,83 +39,107 @@ export function IndexCardShell(props: Props): React.ReactNode {
         onPointerDown={editMode ? onStartDrag : undefined}
         sx={{
           position: 'relative',
-          minHeight: 100,
+          height: '100%',
+          minHeight: 0,
           flex: 1,
           cursor: editMode ? 'grab' : 'default',
           '&:active': editMode ? { cursor: 'grabbing' } : undefined,
         }}
       >
-        <Box sx={{ height: '100%' }}>{children}</Box>
-        {editMode && onRemove ? (
-          <Tooltip title="移除引用">
-            <IconButton
-              size="small"
-              aria-label="移除引用"
-              data-hc-no-drag="1"
-              onPointerDown={e => e.stopPropagation()}
+        <Box sx={{ height: '100%', minHeight: 0 }}>{children}</Box>
+        {editMode ? (
+          <Box sx={{ position: 'absolute', top: 8, right: 8, display: 'flex', alignItems: 'center', gap: 0.75 }}>
+            {onRemove || onDeleteEntity ? (
+              <Tooltip title="更多操作">
+                <IconButton
+                  size="small"
+                  aria-label="更多操作"
+                  data-hc-no-drag="1"
+                  onPointerDown={e => e.stopPropagation()}
+                  onClick={e => {
+                    e.stopPropagation()
+                    setMenuAnchorEl(e.currentTarget)
+                  }}
+                  sx={{
+                    bgcolor: 'rgba(255,255,255,.95)',
+                    border: '1px solid rgba(15,23,42,.10)',
+                    boxShadow: '0 8px 18px rgba(15,23,42,.08)',
+                    color: 'rgba(15,23,42,.66)',
+                  }}
+                >
+                  <MoreHorizRoundedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            ) : null}
+            {onStartResize ? (
+              <Box
+                onPointerDown={e => {
+                  e.stopPropagation()
+                  onStartResize(e)
+                }}
+                data-hc-no-drag="1"
+                sx={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: 999,
+                  border: '1px solid rgba(15,23,42,.12)',
+                  bgcolor: 'rgba(255,255,255,.96)',
+                  cursor: 'nwse-resize',
+                  boxShadow: '0 8px 18px rgba(15,23,42,.08)',
+                  position: 'relative',
+                  '&::before': {
+                    content: '""',
+                    position: 'absolute',
+                    inset: 6,
+                    borderRight: '2px solid rgba(15,23,42,.42)',
+                    borderBottom: '2px solid rgba(15,23,42,.42)',
+                  },
+                }}
+              />
+            ) : null}
+          </Box>
+        ) : null}
+        <Menu
+          open={menuOpen}
+          anchorEl={menuAnchorEl}
+          onClose={closeMenu}
+          PaperProps={{ sx: { borderRadius: 3, minWidth: 190 } }}
+          MenuListProps={{
+            'aria-label': '卡片更多操作',
+            onPointerDown: e => e.stopPropagation(),
+          }}
+        >
+          {onRemove ? (
+            <MenuItem
               onClick={e => {
                 e.stopPropagation()
+                closeMenu()
                 onRemove()
               }}
-              sx={{
-                position: 'absolute',
-                right: 6,
-                bottom: 6,
-                bgcolor: 'rgba(255,255,255,.92)',
-                boxShadow: '0 1px 2px rgba(0,0,0,.10)',
-                color: 'rgba(0,0,0,.55)',
-                '&:hover': { bgcolor: 'rgba(211,47,47,.10)', color: '#d32f2f' },
-              }}
             >
-              <DeleteOutlineRoundedIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-        ) : null}
-        {editMode && onStartResize ? (
-          <Box
-            onPointerDown={e => {
-              e.stopPropagation()
-              onStartResize(e)
-            }}
-            data-hc-no-drag="1"
-            sx={{
-              position: 'absolute',
-              right: 6,
-              top: 6,
-              width: 18,
-              height: 18,
-              borderRadius: 999,
-              border: '1px solid rgba(0,0,0,.18)',
-              bgcolor: 'rgba(255,255,255,.95)',
-              cursor: 'nwse-resize',
-              boxShadow: '0 1px 2px rgba(0,0,0,.10)',
-              '&::before': {
-                content: '""',
-                position: 'absolute',
-                inset: 4,
-                borderRight: '2px solid rgba(0,0,0,.35)',
-                borderBottom: '2px solid rgba(0,0,0,.35)',
-              },
-            }}
-          />
-        ) : null}
+              <ListItemIcon>
+                <DeleteOutlineRoundedIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="从当前页移除引用" />
+            </MenuItem>
+          ) : null}
+          {onDeleteEntity ? (
+            <MenuItem
+              onClick={e => {
+                e.stopPropagation()
+                closeMenu()
+                onDeleteEntity()
+              }}
+              sx={{ color: '#d32f2f' }}
+            >
+              <ListItemIcon sx={{ color: 'inherit' }}>
+                <DeleteForeverRoundedIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="删除实体" />
+            </MenuItem>
+          ) : null}
+        </Menu>
       </Box>
-      {editMode && onDeleteEntity ? (
-        <Button
-          size="small"
-          color="error"
-          startIcon={<DeleteForeverRoundedIcon fontSize="small" />}
-          data-hc-no-drag="1"
-          onPointerDown={e => e.stopPropagation()}
-          onClick={e => {
-            e.stopPropagation()
-            onDeleteEntity()
-          }}
-          sx={{ mt: 0.75, alignSelf: 'flex-end', borderRadius: 999, textTransform: 'none' }}
-        >
-          删除实体
-        </Button>
-      ) : null}
     </Box>
   )
 }

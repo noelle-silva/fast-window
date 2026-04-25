@@ -1,11 +1,15 @@
 import * as React from 'react'
 import { Box, Typography } from '@mui/material'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
+import { CardFrame } from './CardFrame'
+import { formatCountLabel, formatTimeAgo } from './cardMeta'
 
 type Props = {
   folderId: string
   title: string
   refCount: number
+  updatedAtMs?: number
+  disabled?: boolean
   onClick: (folderId: string) => void
 }
 
@@ -29,72 +33,24 @@ function folderTint(folderId: string): { bg: string; fg: string } {
 }
 
 export function FolderCard(props: Props): React.ReactNode {
-  const { folderId, title, refCount, onClick } = props
+  const { folderId, title, refCount, updatedAtMs, disabled, onClick } = props
   const tint = folderTint(folderId)
 
   return (
-    <Box
-      onClick={() => onClick(folderId)}
-      role="button"
-      tabIndex={0}
-      onKeyDown={e => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onClick(folderId)
-        }
-      }}
-      sx={{
-        px: 1.5,
-        py: 1.4,
-        borderRadius: 3,
-        bgcolor: '#fff',
-        boxShadow: '0 1px 2px rgba(0,0,0,.04)',
-        cursor: 'pointer',
-        transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
-        '&:hover': {
-          bgcolor: 'rgba(0,0,0,.02)',
-          boxShadow: '0 6px 16px rgba(0,0,0,.08)',
-          transform: 'translateY(-1px)',
-        },
-      }}
+    <CardFrame
+      accent={tint.fg}
+      accentSoft={tint.bg}
+      icon={<FolderRoundedIcon fontSize="small" />}
+      title={title || '未命名收藏夹'}
+      subtitle={updatedAtMs ? `最近更新：${formatTimeAgo(updatedAtMs)}` : '可继续整理内容'}
+      meta="收藏夹"
+      onClick={disabled ? undefined : () => onClick(folderId)}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.1, minWidth: 0 }}>
-        <Box
-          sx={{
-            width: 38,
-            height: 38,
-            borderRadius: 2.5,
-            bgcolor: tint.bg,
-            color: tint.fg,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-          }}
-        >
-          <FolderRoundedIcon fontSize="small" />
-        </Box>
-
-        <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography
-            sx={{
-              fontSize: 14,
-              lineHeight: 1.5,
-              fontWeight: 700,
-              color: '#111',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {title || '未命名文件夹'}
-          </Typography>
-          <Typography sx={{ fontSize: 12, lineHeight: 1.6, color: 'rgba(0,0,0,.45)' }}>
-            {refCount} 条
-          </Typography>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+        <Box sx={{ px: 1, py: 0.55, borderRadius: 2.5, bgcolor: `${tint.bg}` }}>
+          <Typography sx={{ fontSize: 12, lineHeight: 1.2, fontWeight: 700, color: tint.fg }}>{formatCountLabel(refCount, '项目')}</Typography>
         </Box>
       </Box>
-    </Box>
+    </CardFrame>
   )
 }
-

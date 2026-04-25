@@ -311,7 +311,7 @@ export function IndexPage(props: Props): React.ReactNode {
   const renderFolderSuggestionCard = React.useCallback(
     (folder: FavoriteFolder) => {
       const refCount = getRefsByFolderId(doc, folder.id).length
-      return <FolderCard folderId={folder.id} title={folder.title} refCount={refCount} onClick={() => {}} />
+      return <FolderCard folderId={folder.id} title={folder.title} refCount={refCount} updatedAtMs={folder.updatedAtMs} disabled onClick={() => {}} />
     },
     [doc],
   )
@@ -324,7 +324,20 @@ export function IndexPage(props: Props): React.ReactNode {
 
       if (ref.kind === 'folder') {
         const folder = getFolderById(doc, ref.targetId)
-        if (!folder) return <StaleRefCard ref={ref} onClickRemove={removeOneRef} />
+        if (!folder) {
+          return (
+            <IndexCardShell
+              editMode={editMode}
+              dragging={isDraggingRef(ref.id)}
+              resizing={isResizingRef(ref.id)}
+              onStartDrag={onStartDrag}
+              onRemove={() => removeOneRef(ref.id)}
+              onStartResize={onStartResize}
+            >
+              <StaleRefCard ref={ref} disabled={editMode} onClickRemove={removeOneRef} />
+            </IndexCardShell>
+          )
+        }
         const refCount = getRefsByFolderId(doc, folder.id).length
         return (
           <IndexCardShell
@@ -336,14 +349,27 @@ export function IndexPage(props: Props): React.ReactNode {
             onDeleteEntity={() => setDeleteEntityTarget({ kind: 'folder', title: folder.title || '未命名收藏夹', folderId: folder.id })}
             onStartResize={onStartResize}
           >
-            <FolderCard folderId={folder.id} title={folder.title} refCount={refCount} onClick={fid => onNavigateFolder(fid)} />
+            <FolderCard folderId={folder.id} title={folder.title} refCount={refCount} updatedAtMs={folder.updatedAtMs} disabled={editMode} onClick={fid => onNavigateFolder(fid)} />
           </IndexCardShell>
         )
       }
 
       if (ref.kind === 'note') {
         const note = noteIndex?.[ref.targetId]
-        if (!note) return <StaleRefCard ref={ref} onClickRemove={removeOneRef} />
+        if (!note) {
+          return (
+            <IndexCardShell
+              editMode={editMode}
+              dragging={isDraggingRef(ref.id)}
+              resizing={isResizingRef(ref.id)}
+              onStartDrag={onStartDrag}
+              onRemove={() => removeOneRef(ref.id)}
+              onStartResize={onStartResize}
+            >
+              <StaleRefCard ref={ref} disabled={editMode} onClickRemove={removeOneRef} />
+            </IndexCardShell>
+          )
+        }
         return (
           <IndexCardShell
             editMode={editMode}
@@ -354,14 +380,27 @@ export function IndexPage(props: Props): React.ReactNode {
             onDeleteEntity={() => setDeleteEntityTarget({ kind: 'note', title: note.title || '未命名笔记', note })}
             onStartResize={onStartResize}
           >
-            <NoteCard ref={previewRef} note={note} onClick={onOpenNote} />
+            <NoteCard note={note} disabled={editMode} onClick={onOpenNote} />
           </IndexCardShell>
         )
       }
 
       if (ref.kind === 'asset') {
         const asset = assetLookup.byKey[ref.targetId] || assetLookup.byAssetId[ref.targetId]
-        if (!asset) return <StaleRefCard ref={ref} onClickRemove={removeOneRef} />
+        if (!asset) {
+          return (
+            <IndexCardShell
+              editMode={editMode}
+              dragging={isDraggingRef(ref.id)}
+              resizing={isResizingRef(ref.id)}
+              onStartDrag={onStartDrag}
+              onRemove={() => removeOneRef(ref.id)}
+              onStartResize={onStartResize}
+            >
+              <StaleRefCard ref={ref} disabled={editMode} onClickRemove={removeOneRef} />
+            </IndexCardShell>
+          )
+        }
         return (
           <IndexCardShell
             editMode={editMode}
@@ -372,12 +411,23 @@ export function IndexPage(props: Props): React.ReactNode {
             onDeleteEntity={() => setDeleteEntityTarget({ kind: 'asset', title: String(asset.displayName || asset.fileName || asset.assetId), asset })}
             onStartResize={onStartResize}
           >
-            <AssetCard ref={previewRef} asset={asset} onClick={onOpenAsset} />
+            <AssetCard asset={asset} disabled={editMode} onClick={onOpenAsset} />
           </IndexCardShell>
         )
       }
 
-      return <StaleRefCard ref={ref} onClickRemove={removeOneRef} />
+      return (
+        <IndexCardShell
+          editMode={editMode}
+          dragging={isDraggingRef(ref.id)}
+          resizing={isResizingRef(ref.id)}
+          onStartDrag={onStartDrag}
+          onRemove={() => removeOneRef(ref.id)}
+          onStartResize={onStartResize}
+        >
+          <StaleRefCard ref={ref} disabled={editMode} onClickRemove={removeOneRef} />
+        </IndexCardShell>
+      )
     },
     [
       assetLookup.byAssetId,
@@ -431,7 +481,7 @@ export function IndexPage(props: Props): React.ReactNode {
           {refs.map(ref => {
             const previewRef = { ...ref, layout: getPreviewLayout(ref) }
             return (
-              <Box key={ref.id} sx={{ ...getRefGridSpan(previewRef), minWidth: 0 }}>
+              <Box key={ref.id} sx={{ ...getRefGridSpan(previewRef), minWidth: 0, height: '100%', minHeight: 0 }}>
                 {renderRef(ref)}
               </Box>
             )
