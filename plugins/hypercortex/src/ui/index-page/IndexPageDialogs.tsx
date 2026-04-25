@@ -237,7 +237,7 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
       <Dialog open={!!editFolderTarget} onClose={onCloseEditFolder} maxWidth="sm" fullWidth>
         <DialogTitle>编辑收藏夹信息</DialogTitle>
         <DialogContent>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 0.5 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 3 }}>
             <TextField
               fullWidth
               autoFocus
