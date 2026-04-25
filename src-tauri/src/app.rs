@@ -15,6 +15,7 @@ use crate::browser_stack::{
 };
 use crate::http_api::HttpStreamManagerState;
 use crate::process_runtime::ProcessManagerState;
+use crate::plugin_backend_runtime::PluginBackendManagerState;
 use crate::sqlite_gateway::SqliteConnManager;
 use crate::clipboard_watch::ClipboardWatchManagerState;
 use crate::tasks::TaskManagerState;
@@ -128,6 +129,7 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
             app.manage(Arc::new(HttpStreamManagerState::default()));
             app.manage(Arc::new(SqliteConnManager::default()));
             app.manage(Arc::new(ProcessManagerState::default()));
+            app.manage(Arc::new(PluginBackendManagerState::default()));
             app.manage(BrowserWindowState::default());
 
             // 主窗口行为：三档“焦点模式”（默认：失焦自动隐藏）。

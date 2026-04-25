@@ -346,6 +346,9 @@ export function buildPluginSdkCode(opts: {
       getWatch: (watchId) => call(${JSON.stringify(v3.clipboard.getWatch)}, [watchId]),
       unwatch: (watchId) => call(${JSON.stringify(v3.clipboard.unwatch)}, [watchId]),
     };
+    fastWindow.background = {
+      invoke: (method, params, options) => call(${JSON.stringify(v3.background.invoke)}, [{ method, params: params === undefined ? null : params, timeoutMs: options && options.timeoutMs }]),
+    };
   } else {
     fastWindow.host = {
       back: () => call('host.back', []),

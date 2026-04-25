@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import BackgroundPluginHost from '../BackgroundPluginHost'
 import type { PluginCapability, PluginManifest } from '../pluginContract'
 import { resolveBackendLifecycle } from './backendLifecycle'
@@ -32,6 +33,14 @@ function uniqStable(list: string[]) {
   return out
 }
 
+function isV3ProcessBackend(p: BackendSupervisorPlugin) {
+  return Number(p.manifest?.apiVersion ?? 2) >= 3 && !!String(p.manifest?.background?.main || '').trim()
+}
+
+function isLegacyIframeBackend(p: BackendSupervisorPlugin) {
+  return Number(p.manifest?.apiVersion ?? 2) < 3 && !!p.backgroundCode && !!p.manifest?.background
+}
+
 export function usePluginBackendSupervisor(params: {
   plugins: BackendSupervisorPlugin[]
   activePluginId?: string | null
@@ -44,6 +53,7 @@ export function usePluginBackendSupervisor(params: {
 
   const [runningIds, setRunningIds] = useState<string[]>([])
   const runningSetRef = useRef<Set<string>>(new Set())
+  const processRunningRef = useRef<Set<string>>(new Set())
 
   const forcedRunningRef = useRef<Set<string>>(new Set())
   const forcedStoppedRef = useRef<Set<string>>(new Set())
@@ -64,6 +74,10 @@ export function usePluginBackendSupervisor(params: {
   const stopNow = useCallback(
     (pluginId: string, reason: string) => {
       clearStopTimer(pluginId)
+      if (processRunningRef.current.has(pluginId)) {
+        processRunningRef.current.delete(pluginId)
+        void invoke('plugin_backend_stop', { pluginId }).catch(e => console.error(`[backend-supervisor] stop process backend failed "${pluginId}" (${reason})`, e))
+      }
       setRunningIds(prev => {
         if (!prev.includes(pluginId)) return prev
         const next = prev.filter(id => id !== pluginId)
@@ -77,6 +91,23 @@ export function usePluginBackendSupervisor(params: {
 
   const ensureRunning = useCallback((pluginId: string, reason: string) => {
     clearStopTimer(pluginId)
+    const p = pluginsById.get(pluginId)
+    if (p && isV3ProcessBackend(p)) {
+      if (!processRunningRef.current.has(pluginId)) {
+        processRunningRef.current.add(pluginId)
+        void invoke('plugin_backend_start', {
+          req: {
+            pluginId,
+            main: String(p.manifest?.background?.main || ''),
+          },
+        }).catch(e => {
+          processRunningRef.current.delete(pluginId)
+          console.error(`[backend-supervisor] start process backend failed "${pluginId}" (${reason})`, e)
+        })
+        console.log(`[backend-supervisor] start process backend "${pluginId}" (${reason})`)
+      }
+      return
+    }
     setRunningIds(prev => {
       if (prev.includes(pluginId)) return prev
       const next = uniqStable(prev.concat(pluginId))
@@ -84,7 +115,7 @@ export function usePluginBackendSupervisor(params: {
       console.log(`[backend-supervisor] start "${pluginId}" (${reason})`)
       return next
     })
-  }, [clearStopTimer])
+  }, [clearStopTimer, pluginsById])
 
   const scheduleStop = useCallback(
     (pluginId: string, delayMs: number, reason: string) => {
@@ -108,11 +139,13 @@ export function usePluginBackendSupervisor(params: {
     // 先把“已经不存在的/被禁用/无后端代码”的运行实例关掉（快速失败，别留幽灵进程）
     for (const id of Array.from(runningSetRef.current)) {
       const p = pluginsById.get(id)
-      const shouldKeep =
-        !!p &&
-        !p.disabled &&
-        !!p.backgroundCode &&
-        !!p.manifest?.background
+      const shouldKeep = !!p && !p.disabled && (isLegacyIframeBackend(p) || isV3ProcessBackend(p))
+      if (!shouldKeep) stopNow(id, 'plugin-unavailable')
+    }
+
+    for (const id of Array.from(processRunningRef.current)) {
+      const p = pluginsById.get(id)
+      const shouldKeep = !!p && !p.disabled && isV3ProcessBackend(p)
       if (!shouldKeep) stopNow(id, 'plugin-unavailable')
     }
 
@@ -122,7 +155,7 @@ export function usePluginBackendSupervisor(params: {
         if (runningSetRef.current.has(p.id)) stopNow(p.id, 'disabled')
         continue
       }
-      if (!p.backgroundCode || !p.manifest?.background) continue
+      if (!isLegacyIframeBackend(p) && !isV3ProcessBackend(p)) continue
 
       const resolved = resolveBackendLifecycle(p.manifest)
       if (!resolved) continue
@@ -143,7 +176,7 @@ export function usePluginBackendSupervisor(params: {
       if (resolved.lifecycle === 'on_demand') {
         if (isForcedRunning || isActive) {
           ensureRunning(p.id, isForcedRunning ? 'forced-running' : 'active')
-        } else if (runningSetRef.current.has(p.id)) {
+        } else if (runningSetRef.current.has(p.id) || processRunningRef.current.has(p.id)) {
           scheduleStop(p.id, onDemandIdleMs, 'on_demand-idle')
         }
         continue
@@ -153,7 +186,7 @@ export function usePluginBackendSupervisor(params: {
       if (resolved.lifecycle === 'short_lived') {
         if (isForcedRunning || isActive) {
           ensureRunning(p.id, isForcedRunning ? 'forced-running' : 'active')
-        } else if (runningSetRef.current.has(p.id)) {
+        } else if (runningSetRef.current.has(p.id) || processRunningRef.current.has(p.id)) {
           scheduleStop(p.id, shortLivedGraceMs, 'short_lived-exit')
         }
         continue
@@ -187,6 +220,10 @@ export function usePluginBackendSupervisor(params: {
     return () => {
       for (const t of stopTimerRef.current.values()) window.clearTimeout(t)
       stopTimerRef.current.clear()
+      for (const id of Array.from(processRunningRef.current)) {
+        void invoke('plugin_backend_stop', { pluginId: id }).catch(() => {})
+      }
+      processRunningRef.current.clear()
     }
   }, [])
 
@@ -208,13 +245,13 @@ export function usePluginBackendSupervisor(params: {
     reconcileRef.current()
   }, [])
 
-  const isRunning = useCallback((pluginId: string) => runningSetRef.current.has(pluginId), [])
+  const isRunning = useCallback((pluginId: string) => runningSetRef.current.has(pluginId) || processRunningRef.current.has(pluginId), [])
 
   const runningPlugins = useMemo(() => {
     const out: BackendSupervisorPlugin[] = []
     for (const id of runningIds) {
       const p = pluginsById.get(id)
-      if (p) out.push(p)
+      if (p && isLegacyIframeBackend(p)) out.push(p)
     }
     return out
   }, [pluginsById, runningIds])

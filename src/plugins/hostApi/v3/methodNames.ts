@@ -58,4 +58,7 @@ export const V3_METHOD = {
     getWatch: 'clipboard.getWatch',
     unwatch: 'clipboard.unwatch',
   },
+  background: {
+    invoke: 'background.invoke',
+  },
 } as const

@@ -26,6 +26,8 @@ mod host_primitives;
 mod migrations;
 mod os_actions;
 mod process_commands;
+mod plugin_backend_commands;
+mod plugin_backend_runtime;
 mod plugin_files;
 mod process_runtime;
 mod plugin_files_delete_tree;
@@ -2565,6 +2567,10 @@ fn main() {
         process_commands::process_spawn,
         process_commands::process_kill,
         process_commands::process_wait,
+        plugin_backend_commands::plugin_backend_start,
+        plugin_backend_commands::plugin_backend_stop,
+        plugin_backend_commands::plugin_backend_status,
+        plugin_backend_commands::plugin_backend_invoke,
         open_external_url,
         open_external_uri,
         open_browser_window,

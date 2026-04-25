@@ -101,7 +101,7 @@ export async function loadPluginById(pluginId: string): Promise<{ plugin: Loaded
     const code = await invoke<string>('read_plugin_file', { pluginId, path: manifest.main })
 
     let backgroundCode = ''
-    if (manifest.background) {
+    if (manifest.background && apiVersion < 3) {
       const bgMain = String(manifest.background.main || '').trim()
       if (bgMain) {
         backgroundCode = await invoke<string>('read_plugin_file', { pluginId, path: bgMain }).catch(() => '')

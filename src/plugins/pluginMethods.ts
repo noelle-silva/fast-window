@@ -2,6 +2,7 @@ import type { PluginContext } from './pluginApi'
 import { PluginBridgeError } from './pluginBridge'
 import { clipboardMethods } from './hostApi/clipboard'
 import { clipboardWatchMethods } from './hostApi/clipboardWatch'
+import { backgroundMethods } from './hostApi/background'
 import { dialogMethods } from './hostApi/dialog'
 import { hostMethods } from './hostApi/host'
 import { processMethods } from './hostApi/process'
@@ -18,6 +19,7 @@ const coreMethods: PluginMethodRegistry = {
   ...dialogMethods,
   ...clipboardMethods,
   ...clipboardWatchMethods,
+  ...backgroundMethods,
 }
 
 /**

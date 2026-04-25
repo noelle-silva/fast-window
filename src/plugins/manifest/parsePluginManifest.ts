@@ -76,6 +76,10 @@ export function parsePluginManifest(pluginId: string, manifestContent: string): 
       if (autoStart !== undefined) {
         return { ok: false, reason: 'apiVersion=3 does not allow background.autoStart; use background.lifecycle' }
       }
+      const bgMain = normalizeText(bg?.main)
+      if (!bgMain) {
+        return { ok: false, reason: 'apiVersion=3 requires background.main for system backend process' }
+      }
       if (!BACKEND_LIFECYCLES.has(lc)) {
         return { ok: false, reason: 'apiVersion=3 requires background.lifecycle: on_demand | resident | short_lived' }
       }
