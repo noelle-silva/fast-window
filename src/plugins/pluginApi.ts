@@ -1,16 +1,19 @@
-import { PLUGIN_API_VERSION, type PluginCapability } from './pluginContract'
+import type { PluginCapability, PluginApiVersion } from './pluginContract'
 
 export type PluginContext = {
-  apiVersion: number
+  apiVersion: PluginApiVersion
   id: string
   requires: PluginCapability[]
 }
 
-export function createPluginContext(pluginId: string, requires: PluginCapability[]): PluginContext {
+export function createPluginContext(
+  pluginId: string,
+  apiVersion: PluginApiVersion,
+  requires: PluginCapability[],
+): PluginContext {
   return {
-    apiVersion: PLUGIN_API_VERSION,
+    apiVersion,
     id: pluginId,
     requires,
   }
 }
-

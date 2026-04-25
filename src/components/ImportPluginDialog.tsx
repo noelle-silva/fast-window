@@ -13,7 +13,10 @@ import {
   LinearProgress,
   Typography,
 } from '@mui/material'
-import { isValidPluginCapability, PLUGIN_API_VERSION, PluginManifest } from '../plugins/pluginContract'
+import {
+  PluginManifest,
+} from '../plugins/pluginContract'
+import { parsePluginManifest } from '../plugins/manifest/parsePluginManifest'
 
 type Props = {
   open: boolean
@@ -25,10 +28,6 @@ type SelectedPlugin = {
   manifest: PluginManifest
   rootDirName: string
   files: File[]
-}
-
-function isSafeId(id: string): boolean {
-  return /^[a-zA-Z0-9_-]+$/.test(id)
 }
 
 function isSafeRelPath(path: string): boolean {
@@ -129,24 +128,14 @@ export default function ImportPluginDialog(props: Props) {
       if (!manifestFile) throw new Error('插件缺少 manifest.json')
 
       const raw = await readTextFile(manifestFile)
-      const manifest = JSON.parse(raw) as PluginManifest
+      // 先轻量取 ID（parsePluginManifest 需要用它来校验 manifest.id 与“插件目录名”一致）
+      let pre: any = null
+      try { pre = JSON.parse(raw) } catch {}
+      const preId = typeof pre?.id === 'string' ? pre.id.trim() : ''
 
-      if (!manifest || typeof manifest !== 'object') throw new Error('manifest.json 内容不合法')
-      if (typeof manifest.id !== 'string' || !isSafeId(manifest.id)) throw new Error('manifest.id 不合法（仅允许字母/数字/_/-）')
-      if (typeof manifest.name !== 'string' || !manifest.name.trim()) throw new Error('manifest.name 不能为空')
-      if (typeof manifest.version !== 'string' || !manifest.version.trim()) throw new Error('manifest.version 不能为空')
-      if (typeof manifest.description !== 'string') throw new Error('manifest.description 必须是字符串')
-      if (typeof manifest.main !== 'string' || !manifest.main.trim()) throw new Error('manifest.main 不能为空')
-      if (manifest.ui?.type !== 'iframe') throw new Error('manifest.ui.type 必须为 "iframe"')
-
-      if (manifest.apiVersion !== PLUGIN_API_VERSION) {
-        throw new Error(`插件需要 apiVersion=${manifest.apiVersion}，当前宿主版本=${PLUGIN_API_VERSION}`)
-      }
-
-      if (!Array.isArray(manifest.requires)) throw new Error('manifest.requires 必须是数组（即使为空）')
-      for (const item of manifest.requires) {
-        if (!isValidPluginCapability(item)) throw new Error(`manifest.requires 存在未知能力：${String(item)}`)
-      }
+      const parsedManifest = parsePluginManifest(preId, raw)
+      if (!parsedManifest.ok) throw new Error(parsedManifest.reason)
+      const manifest = parsedManifest.manifest
 
       if (!isSafeRelPath(manifest.main)) throw new Error('manifest.main 路径不合法（不允许绝对路径或 ..）')
       if (!relMap.has(manifest.main)) throw new Error(`入口文件不存在：${manifest.main}`)

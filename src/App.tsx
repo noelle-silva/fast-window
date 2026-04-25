@@ -4,8 +4,8 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { loadAllPluginsReport, loadPluginById, type PluginLoadRejection } from './plugins/pluginLoader'
-import BackgroundPluginHost from './plugins/BackgroundPluginHost'
 import { PluginCapability, type PluginManifest } from './plugins/pluginContract'
+import { resolveBackendLifecycle, usePluginBackendSupervisor } from './plugins/backendSupervisor'
 import { pluginStoreInstall } from './plugins/pluginStore'
 import {
   Alert,
@@ -59,7 +59,6 @@ interface Plugin {
   keyword?: string
   requires?: PluginCapability[]
   backgroundCode?: string
-  backgroundAutoStart?: boolean
   manifest?: PluginManifest
   disabled: boolean
   component: ComponentType<{ onBack: () => void }>
@@ -560,7 +559,6 @@ function App() {
         keyword: p.manifest.keyword,
         requires: p.manifest.requires,
         backgroundCode: p.backgroundCode,
-        backgroundAutoStart: !!(p.manifest.background && p.manifest.background.autoStart !== false),
         manifest: p.manifest,
         disabled: disabledSet.has(p.manifest.id),
         component: p.component,
@@ -787,7 +785,6 @@ function App() {
           keyword: loaded.manifest.keyword,
           requires: loaded.manifest.requires,
           backgroundCode: loaded.backgroundCode,
-          backgroundAutoStart: !!(loaded.manifest.background && loaded.manifest.background.autoStart !== false),
           manifest: loaded.manifest,
           disabled: disabledSet.has(plugin.id),
           component: loaded.component,
@@ -821,16 +818,10 @@ function App() {
     setPluginDetail(plugin)
   }, [])
 
-  const backgroundHosts = allPlugins
-    .filter(p => !p.disabled && p.backgroundAutoStart && p.backgroundCode)
-    .map(p => (
-      <BackgroundPluginHost
-        key={`bg-${p.id}`}
-        pluginId={p.id}
-        pluginCode={p.backgroundCode || ''}
-        requires={p.requires}
-      />
-    ))
+  const { backgroundHosts } = usePluginBackendSupervisor({
+    plugins: allPlugins,
+    activePluginId: activePlugin?.id ?? null,
+  })
 
   // 初次加载插件
   useEffect(() => {
@@ -914,6 +905,13 @@ function App() {
       }
     }
 
+    const onDomActivate = (event: Event) => {
+      const custom = event as CustomEvent<{ pluginId?: unknown }>
+      activateById(String(custom.detail?.pluginId ?? ''))
+    }
+
+    window.addEventListener('fast-window:activate-plugin', onDomActivate as any)
+
     void (async () => {
       unlisten = await listen<{ pluginId: string }>('fast-window:activate-plugin', event => {
         activateById((event as any)?.payload?.pluginId)
@@ -921,6 +919,9 @@ function App() {
     })()
 
     return () => {
+      try {
+        window.removeEventListener('fast-window:activate-plugin', onDomActivate as any)
+      } catch {}
       if (unlisten) unlisten()
     }
   }, [])
@@ -1236,6 +1237,7 @@ function App() {
           const requires = Array.isArray(m?.requires) ? m!.requires : pluginDetail.requires
           const hasBackground = !!m?.background
           const backgroundAutoStart = hasBackground ? (m!.background!.autoStart !== false) : undefined
+          const resolvedBg = resolveBackendLifecycle(m)
           const backgroundMain = hasBackground ? ((m!.background!.main || '').trim() || main || '(未指定)') : undefined
           const pluginPath = pluginsDir && id ? `${pluginsDir}\\${id}` : ''
 
@@ -1297,7 +1299,15 @@ function App() {
               <Box sx={fieldRowSx}>
                 <Typography sx={labelSx}>后台</Typography>
                 <Typography sx={valueSx}>
-                  {hasBackground ? `启用（autoStart=${backgroundAutoStart ? 'true' : 'false'}，main=${backgroundMain}）` : '未启用'}
+                  {hasBackground
+                    ? (() => {
+                        const lc = resolvedBg?.lifecycle
+                        const src = resolvedBg?.source
+                        const lcText = lc ? `${lc}${src ? `(${src})` : ''}` : '(未知)'
+                        const legacyText = src === 'legacy' ? `，autoStart=${backgroundAutoStart ? 'true' : 'false'}` : ''
+                        return `启用（lifecycle=${lcText}${legacyText}，main=${backgroundMain}）`
+                      })()
+                    : '未启用'}
                 </Typography>
               </Box>
 

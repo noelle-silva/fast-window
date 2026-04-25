@@ -83,6 +83,22 @@ fn replace_dir_from_tmp(dst: &Path, tmp: &Path, tag: &str) -> Result<(), String>
     Ok(())
 }
 
+fn is_valid_manifest_capability(cap: &str) -> bool {
+    let s = cap.trim();
+    if s.is_empty() || s.len() > 256 || s.contains('\n') || s.contains('\r') {
+        return false;
+    }
+    if s.starts_with("tauri:") {
+        return true;
+    }
+    if !s.starts_with("cap:") {
+        return false;
+    }
+    s["cap:".len()..]
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '*' | '|' | '-'))
+}
+
 #[cfg(debug_assertions)]
 fn is_dir_empty(dir: &Path) -> bool {
     match std::fs::read_dir(dir) {
@@ -617,7 +633,7 @@ pub(crate) async fn plugin_store_install(
         if s.is_empty() {
             continue;
         }
-        if !s.starts_with("tauri:") || s.len() > 256 || s.contains('\n') || s.contains('\r') {
+        if !is_valid_manifest_capability(&s) {
             return Err("expectedRequires 存在不合法能力声明".to_string());
         }
         expected_requires_set.insert(s);
@@ -804,8 +820,8 @@ pub(crate) async fn plugin_store_install(
                 .get("apiVersion")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
-            if api_version != 2 {
-                return Err("manifest.apiVersion 必须为 2".to_string());
+            if api_version != 2 && api_version != 3 {
+                return Err("manifest.apiVersion 必须为 2 或 3".to_string());
             }
 
             let ui_type = manifest
@@ -825,12 +841,7 @@ pub(crate) async fn plugin_store_install(
             let mut actual_requires_set = BTreeSet::<String>::new();
             for item in requires {
                 let cap = item.as_str().unwrap_or("").trim();
-                if cap.is_empty()
-                    || !cap.starts_with("tauri:")
-                    || cap.len() > 256
-                    || cap.contains('\n')
-                    || cap.contains('\r')
-                {
+                if !is_valid_manifest_capability(cap) {
                     return Err("manifest.requires 存在不合法能力声明".to_string());
                 }
                 actual_requires_set.insert(cap.to_string());
@@ -992,12 +1003,7 @@ pub(crate) async fn plugin_store_install(
             let mut extracted_requires_set = BTreeSet::<String>::new();
             for item in extracted_requires {
                 let cap = item.as_str().unwrap_or("").trim();
-                if cap.is_empty()
-                    || !cap.starts_with("tauri:")
-                    || cap.len() > 256
-                    || cap.contains('\n')
-                    || cap.contains('\r')
-                {
+                if !is_valid_manifest_capability(cap) {
                     let _ = std::fs::remove_dir_all(&tmp_dir);
                     return Err("解压后的 manifest.requires 存在不合法能力声明".to_string());
                 }

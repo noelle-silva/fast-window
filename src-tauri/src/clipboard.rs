@@ -1,62 +1,29 @@
 use base64::engine::general_purpose;
 use base64::Engine as _;
-use image::codecs::png::PngEncoder;
-use image::{ColorType, ImageEncoder};
-use tauri::AppHandle;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 use crate::decode_base64_image_payload;
+use crate::clipboard_snapshot::read_clipboard_snapshot;
 
-fn encode_rgba_to_png_bytes(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
-    if width == 0 || height == 0 {
-        return Err("图片尺寸无效".to_string());
-    }
-    let expect = width as usize * height as usize * 4;
-    if rgba.len() != expect {
-        return Err("图片数据长度无效".to_string());
-    }
-    let mut png = Vec::<u8>::new();
-    let encoder = PngEncoder::new(&mut png);
-    encoder
-        .write_image(rgba, width, height, ColorType::Rgba8.into())
-        .map_err(|e| format!("PNG 编码失败: {e}"))?;
-    Ok(png)
+#[tauri::command]
+pub(crate) async fn clipboard_read_text(app: tauri::AppHandle) -> Result<String, String> {
+    let app2 = app.clone();
+    tauri::async_runtime::spawn_blocking(move || Ok::<String, String>(app2.clipboard().read_text().unwrap_or_default()))
+        .await
+        .map_err(|e| format!("读取文本剪贴板失败: {e}"))?
 }
 
-struct ClipboardImageSnapshot {
-    png: Vec<u8>,
-}
-
-async fn read_clipboard_snapshot(
-    app: &AppHandle,
-) -> Result<(String, Option<ClipboardImageSnapshot>), String> {
-    let app_text = app.clone();
-    let text = tauri::async_runtime::spawn_blocking(move || {
-        app_text.clipboard().read_text().unwrap_or_default()
+#[tauri::command]
+pub(crate) async fn clipboard_write_text(app: tauri::AppHandle, text: String) -> Result<(), String> {
+    let app2 = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        app2.clipboard()
+            .write_text(text)
+            .map_err(|e| format!("写入文本剪贴板失败: {e}"))?;
+        Ok::<(), String>(())
     })
     .await
-    .map_err(|e| format!("读取文本剪贴板失败: {e}"))?;
-
-    let app_image = app.clone();
-    let image = tauri::async_runtime::spawn_blocking(move || {
-        let image = app_image.clipboard().read_image().ok();
-        match image {
-            Some(img) => {
-                let rgba = img.rgba();
-                let png = encode_rgba_to_png_bytes(rgba, img.width(), img.height()).unwrap_or_default();
-                if png.is_empty() {
-                    None
-                } else {
-                    Some(ClipboardImageSnapshot { png })
-                }
-            }
-            None => None,
-        }
-    })
-    .await
-    .map_err(|e| format!("读取图片剪贴板失败: {e}"))?;
-
-    Ok((text, image))
+    .map_err(|e| format!("写入文本剪贴板失败: {e}"))?
 }
 
 #[tauri::command]

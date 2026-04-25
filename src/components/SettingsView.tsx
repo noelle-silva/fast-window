@@ -36,6 +36,7 @@ import {
   type WallpaperSettings,
 } from '../wallpaper'
 import WallpaperViewEditorDialog from './WallpaperViewEditorDialog'
+import { hostToast } from '../host/hostPrimitives'
 
 const DEFAULT_WAKE_SHORTCUT = 'control+alt+Space'
 const MAX_VIDEO_RATE = 16
@@ -51,7 +52,7 @@ const TAB_WEBVIEW = 5
 const TAB_ABOUT = 6
 
 function toast(message: string) {
-  window.dispatchEvent(new CustomEvent('fast-window:toast', { detail: { message } }))
+  void hostToast(message)
 }
 
 function normalizeStringList(value: unknown): string[] {

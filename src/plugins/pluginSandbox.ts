@@ -1,4 +1,5 @@
-import { PLUGIN_API_VERSION } from './pluginContract'
+import type { PluginApiVersion } from './pluginContract'
+import { V3_METHOD } from './hostApi/v3/methodNames'
 
 export type PluginRuntime = 'ui' | 'background'
 
@@ -6,8 +7,10 @@ export function buildPluginSdkCode(opts: {
   pluginId: string
   token: string
   runtime: PluginRuntime
+  apiVersion: PluginApiVersion
 }) {
-  const { pluginId, token, runtime } = opts
+  const { pluginId, token, runtime, apiVersion } = opts
+  const v3 = V3_METHOD
 
   const sendExpr = `(() => {
   const p = globalThis.__fastWindowPort;
@@ -28,7 +31,7 @@ export function buildPluginSdkCode(opts: {
   return `
 (() => {
   const pluginId = ${JSON.stringify(pluginId)};
-  const apiVersion = ${PLUGIN_API_VERSION};
+  const apiVersion = ${JSON.stringify(apiVersion)};
   const token = ${JSON.stringify(token)};
   const runtime = ${JSON.stringify(runtime)};
 
@@ -156,6 +159,10 @@ export function buildPluginSdkCode(opts: {
         if (command.startsWith('plugin:dialog|')) return LONG_TIMEOUT_MS;
         if (command.startsWith('plugin:store|')) return 30 * 1000;
       }
+      if (method.startsWith('dialog.')) return UI_PICKER_TIMEOUT_MS;
+      if (method.startsWith('workspace.')) return LONG_TIMEOUT_MS;
+      if (method.startsWith('process.')) return LONG_TIMEOUT_MS;
+      if (method.startsWith('task.')) return 30 * 1000;
     } catch {}
     return DEFAULT_TIMEOUT_MS;
   }
@@ -245,12 +252,58 @@ export function buildPluginSdkCode(opts: {
 
   ${listenExpr};
 
-  window.fastWindow = {
+  const fastWindow = {
     __meta: { pluginId, apiVersion, runtime },
-    host: {
+  };
+
+  if (apiVersion >= 3) {
+    fastWindow.host = {
+      back: () => call(${JSON.stringify(v3.host.back)}, []),
+      getInfo: () => call(${JSON.stringify(v3.host.getInfo)}, []),
+      toast: (message) => call(${JSON.stringify(v3.host.toast)}, [message]),
+      activatePlugin: (targetPluginId) => call(${JSON.stringify(v3.host.activatePlugin)}, [targetPluginId]),
+    };
+    fastWindow.process = {
+      openExternalUrl: (req) => call(${JSON.stringify(v3.process.openExternalUrl)}, [req || {}]),
+      openExternalUri: (req) => call(${JSON.stringify(v3.process.openExternalUri)}, [req || {}]),
+      openBrowserWindow: (req) => call(${JSON.stringify(v3.process.openBrowserWindow)}, [req || {}]),
+      run: (req) => call(${JSON.stringify(v3.process.run)}, [req || {}]),
+      spawn: (req) => call(${JSON.stringify(v3.process.spawn)}, [req || {}]),
+      kill: (req) => call(${JSON.stringify(v3.process.kill)}, [req || {}]),
+      wait: (req) => call(${JSON.stringify(v3.process.wait)}, [req || {}]),
+    };
+    fastWindow.task = {
+      create: (req) => call(${JSON.stringify(v3.task.create)}, [req || {}]),
+      get: (taskId) => call(${JSON.stringify(v3.task.get)}, [taskId]),
+      list: (req) => call(${JSON.stringify(v3.task.list)}, [req || {}]),
+      cancel: (taskId) => call(${JSON.stringify(v3.task.cancel)}, [taskId]),
+    };
+    fastWindow.workspace = {
+      getPaths: () => call(${JSON.stringify(v3.workspace.getPaths)}, []),
+      openOutputDir: () => call(${JSON.stringify(v3.workspace.openOutputDir)}, []),
+      openDir: (dir) => call(${JSON.stringify(v3.workspace.openDir)}, [dir]),
+    };
+    fastWindow.dialog = {
+      pickDir: () => call(${JSON.stringify(v3.dialog.pickDir)}, []),
+      pickOutputDir: () => call(${JSON.stringify(v3.dialog.pickOutputDir)}, []),
+      pickLibraryDir: () => call(${JSON.stringify(v3.dialog.pickLibraryDir)}, []),
+      pickImages: (req) => call(${JSON.stringify(v3.dialog.pickImages)}, [req || {}]),
+      confirm: (req) => call(${JSON.stringify(v3.dialog.confirm)}, [req || {}]),
+    };
+    fastWindow.clipboard = {
+      readText: () => call(${JSON.stringify(v3.clipboard.readText)}, []),
+      writeText: (text) => call(${JSON.stringify(v3.clipboard.writeText)}, [text]),
+      readImageDataUrl: () => call(${JSON.stringify(v3.clipboard.readImageDataUrl)}, []),
+      writeImageDataUrl: (dataUrl) => call(${JSON.stringify(v3.clipboard.writeImageDataUrl)}, [dataUrl]),
+      watch: (req) => call(${JSON.stringify(v3.clipboard.watch)}, [req || {}]),
+      getWatch: (watchId) => call(${JSON.stringify(v3.clipboard.getWatch)}, [watchId]),
+      unwatch: (watchId) => call(${JSON.stringify(v3.clipboard.unwatch)}, [watchId]),
+    };
+  } else {
+    fastWindow.host = {
       back: () => call('host.back', []),
-    },
-    tauri: {
+    };
+    fastWindow.tauri = {
       invoke: (spec) => call('tauri.invoke', [ensureSpecTimeoutMs(spec)]),
       streamOpen: (spec) => call('tauri.streamOpen', [ensureSpecTimeoutMs(spec)]),
       streamCancel: (streamId) => call('tauri.streamCancel', [streamId]),
@@ -259,8 +312,10 @@ export function buildPluginSdkCode(opts: {
         const streamId = r && r.streamId ? String(r.streamId) : '';
         return createStream(streamId, 'tauri.streamCancel');
       },
-    },
-  };
+    };
+  }
+
+  window.fastWindow = fastWindow;
 })();`
 }
 

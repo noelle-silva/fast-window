@@ -1,7 +1,11 @@
 import React, { ComponentType } from 'react'
 import { invoke } from '@tauri-apps/api/core'
-import { PLUGIN_API_VERSION, PluginManifest, PluginCapability, isValidPluginCapability } from './pluginContract'
+import {
+  type PluginApiVersion,
+  PluginManifest,
+} from './pluginContract'
 import IframePluginView from './IframePluginView'
+import { parsePluginManifest } from './manifest/parsePluginManifest'
 
 export interface LoadedPlugin {
   manifest: PluginManifest
@@ -77,72 +81,28 @@ export async function loadPluginById(pluginId: string): Promise<{ plugin: Loaded
   try {
     // 读取 manifest
     const manifestContent = await invoke<string>('read_plugin_file', { pluginId, path: 'manifest.json' })
-    const rawManifest: PluginManifest = JSON.parse(manifestContent)
-
-    const isSafeId = (id: string) => /^[A-Za-z0-9_-]+$/.test(id)
-
-    const manifestId = String(rawManifest?.id || '').trim()
-    if (!manifestId || !isSafeId(manifestId)) {
-      const reason = 'invalid manifest.id'
-      console.error(`[plugin] rejected: ${reason} for "${pluginId}"`)
-      return { plugin: null, rejection: { pluginId, reason } }
-    }
-    if (manifestId !== pluginId) {
-      const reason = `manifest.id "${manifestId}" must match directory "${pluginId}"`
-      console.error(`[plugin] rejected: ${reason}`)
+    const parsed = parsePluginManifest(pluginId, manifestContent)
+    if (!parsed.ok) {
+      const reason = parsed.reason
+      console.error(`[plugin] "${pluginId}" rejected: ${reason}.`)
       return { plugin: null, rejection: { pluginId, reason } }
     }
 
-    if (rawManifest.apiVersion !== PLUGIN_API_VERSION) {
-      const reason = `apiVersion mismatch: plugin=${rawManifest.apiVersion}, host=${PLUGIN_API_VERSION}`
-      console.error(`插件 ${manifestId} 需要 apiVersion=${rawManifest.apiVersion}，当前宿主版本=${PLUGIN_API_VERSION}，已跳过加载`)
-      return { plugin: null, rejection: { pluginId, reason } }
-    }
+    for (const w of parsed.warnings) console.warn(`[plugin] "${pluginId}" manifest warning: ${w}`)
 
-    const uiType = rawManifest.ui?.type
-    if (uiType !== 'iframe') {
-      const reason = 'ui.type must be "iframe"'
-      console.error(`[plugin] "${manifestId}" rejected: ${reason}.`)
-      return { plugin: null, rejection: { pluginId, reason } }
-    }
-
-    const requires = rawManifest.requires
-    if (!Array.isArray(requires)) {
-      const reason = 'manifest.requires must be an array'
-      console.error(`[plugin] "${manifestId}" rejected: ${reason}.`)
-      return { plugin: null, rejection: { pluginId, reason } }
-    }
-    const normalizedRequires: PluginCapability[] = []
-    for (const item of requires) {
-      if (!isValidPluginCapability(item)) {
-        const reason = `unknown capability "${String(item)}"`
-        console.error(`[plugin] "${manifestId}" rejected: ${reason}.`)
-        return { plugin: null, rejection: { pluginId, reason } }
-      }
-      normalizedRequires.push(String(item).trim() as PluginCapability)
-    }
-
-    const main = String(rawManifest.main || '').trim()
-    if (!main) {
-      const reason = 'manifest.main is required'
-      console.error(`[plugin] "${manifestId}" rejected: ${reason}.`)
-      return { plugin: null, rejection: { pluginId, reason } }
-    }
+    const apiVersion = parsed.manifest.apiVersion as PluginApiVersion
 
     const manifest: PluginManifest = {
-      ...rawManifest,
-      id: manifestId,
-      main,
-      requires: normalizedRequires,
-      icon: await resolvePluginIcon(manifestId, rawManifest.icon),
+      ...parsed.manifest,
+      icon: await resolvePluginIcon(parsed.manifest.id, parsed.manifest.icon),
     }
 
     // 读取插件代码
     const code = await invoke<string>('read_plugin_file', { pluginId, path: manifest.main })
 
     let backgroundCode = ''
-    if (rawManifest.background) {
-      const bgMain = String(rawManifest.background.main || '').trim()
+    if (manifest.background) {
+      const bgMain = String(manifest.background.main || '').trim()
       if (bgMain) {
         backgroundCode = await invoke<string>('read_plugin_file', { pluginId, path: bgMain }).catch(() => '')
       } else {
@@ -154,6 +114,7 @@ export async function loadPluginById(pluginId: string): Promise<{ plugin: Loaded
       React.createElement(IframePluginView, {
         pluginId: manifest.id,
         pluginCode: code,
+        apiVersion,
         requires: manifest.requires,
         onBack,
       })

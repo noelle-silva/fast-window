@@ -5,7 +5,7 @@ use crate::windowing::{
     persist_browser_window_bounds, save_browser_stack_bounds_if_valid, BrowserWindowState,
 };
 use crate::{
-    apply_bottom_rounded_corners, browser_ui_set_mode, emit_activate_plugin_if_any, hide_main_window,
+    apply_bottom_rounded_corners, browser_ui_set_mode, hide_main_window, host_primitives,
     now_ms, show_main_window, BROWSER_BAR_HEIGHT, BROWSER_BAR_WINDOW_LABEL,
     BROWSER_STACK_TOTAL_HEIGHT, BROWSER_WINDOW_LABEL,
 };
@@ -192,7 +192,7 @@ pub(crate) fn browser_stack_hide(app: &tauri::AppHandle) {
 pub(crate) fn browser_stack_hide_to_main(app: &tauri::AppHandle) {
     // “隐藏”只做 UI 切换：保留浏览栈窗口与 session 状态，方便再次唤起继续用。
     browser_stack_hide(app);
-    emit_activate_plugin_if_any(app);
+    host_primitives::emit_activate_plugin_if_any(app);
     show_main_window(app);
 }
 
@@ -208,7 +208,7 @@ pub(crate) fn browser_stack_end_session(app: &tauri::AppHandle) {
     if let Ok(mut g) = state.restore_bounds.lock() {
         *g = None;
     }
-    emit_activate_plugin_if_any(app);
+    host_primitives::emit_activate_plugin_if_any(app);
     show_main_window(app);
 }
 

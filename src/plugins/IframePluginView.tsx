@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { createPluginContext } from './pluginApi'
-import { PluginCapability } from './pluginContract'
+import { PluginApiVersion, PluginCapability } from './pluginContract'
 import { buildPluginSdkCode, buildPluginShellSrcDoc } from './pluginSandbox'
 import { dispatchPluginMethod } from './pluginMethods'
 import { toBridgeError } from './pluginBridge'
@@ -8,14 +8,15 @@ import { toBridgeError } from './pluginBridge'
 type Props = {
   pluginId: string
   pluginCode: string
+  apiVersion: PluginApiVersion
   requires?: PluginCapability[]
   onBack: () => void
 }
 
 export default function IframePluginView(props: Props) {
-  const { pluginId, pluginCode, requires, onBack } = props
+  const { pluginId, pluginCode, apiVersion, requires, onBack } = props
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
-  const ctx = useMemo(() => createPluginContext(pluginId, requires ?? []), [pluginId, requires])
+  const ctx = useMemo(() => createPluginContext(pluginId, apiVersion, requires ?? []), [apiVersion, pluginId, requires])
   const portRef = useRef<MessagePort | null>(null)
   const bootTimerRef = useRef<number | null>(null)
 
@@ -33,7 +34,7 @@ export default function IframePluginView(props: Props) {
   const srcDoc = useMemo(() => buildPluginShellSrcDoc(), [])
 
   useEffect(() => {
-    // v2-only：宿主不再处理 window.postMessage RPC（只走 MessagePort 专线）。
+    // 宿主不再处理 window.postMessage RPC（只走 MessagePort 专线）。
     return
   }, [ctx, onBack, pluginId])
 
@@ -66,7 +67,7 @@ export default function IframePluginView(props: Props) {
 
     if (bootTimerRef.current) window.clearTimeout(bootTimerRef.current)
     bootTimerRef.current = window.setTimeout(() => {
-      console.error(`[plugin-shell] boot timeout for "${pluginId}" (v2-only)`)
+      console.error(`[plugin-shell] boot timeout for "${pluginId}"`)
     }, 4000)
 
     port.onmessage = (event: MessageEvent) => {
@@ -102,10 +103,10 @@ export default function IframePluginView(props: Props) {
           return
         }
         if (msg.type === 'boot-error') {
-          console.error(`[plugin-shell] boot-error for "${pluginId}" (v2-only):`, msg.message)
+          console.error(`[plugin-shell] boot-error for "${pluginId}":`, msg.message)
           if (bootTimerRef.current) window.clearTimeout(bootTimerRef.current)
           bootTimerRef.current = null
-          // v2-only：不回退到 v1，让你更快发现 v2 壳/通道问题。
+          // 不回退到旧壳，让你更快发现壳/通道问题。
         }
         return
       }
@@ -117,7 +118,7 @@ export default function IframePluginView(props: Props) {
       [ch.port2],
     )
 
-    const sdkCode = buildPluginSdkCode({ pluginId, token: tokenRef.current, runtime: 'ui' })
+    const sdkCode = buildPluginSdkCode({ pluginId, token: tokenRef.current, runtime: 'ui', apiVersion })
     port.postMessage({ __fastWindowBoot: true, token: tokenRef.current, sdkCode, pluginCode })
   }
 
@@ -128,7 +129,7 @@ export default function IframePluginView(props: Props) {
       sandbox="allow-scripts"
       srcDoc={srcDoc}
       onLoad={onLoad}
-      key={`${pluginId}-v2-${pluginCode.length}`}
+      key={`${pluginId}-v${apiVersion}-${pluginCode.length}`}
       style={{ display: 'block', width: '100%', height: '100%', border: '0' }}
     />
   )

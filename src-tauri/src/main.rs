@@ -17,16 +17,23 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 mod app;
 mod browser_stack;
 mod clipboard;
+mod clipboard_snapshot;
+mod clipboard_watch;
 mod config_store;
 mod core;
 mod http_api;
+mod host_dialog;
+mod host_primitives;
 mod migrations;
 mod os_actions;
+mod process_commands;
+mod process_runtime;
 mod plugin_files_delete_tree;
 mod plugins;
 mod sqlite_gateway;
 mod tasks;
 mod thumbnails;
+mod workspace;
 mod wake_logic;
 mod wallpaper;
 mod windowing;
@@ -34,7 +41,11 @@ mod windowing;
 #[cfg(target_os = "windows")]
 mod auto_start;
 
-use crate::clipboard::{clipboard_read_image_data_url, clipboard_write_image_data_url};
+use crate::clipboard::{
+    clipboard_read_image_data_url, clipboard_read_text, clipboard_write_image_data_url,
+    clipboard_write_text,
+};
+use crate::clipboard_watch::{clipboard_watch_get, clipboard_watch_start, clipboard_watch_stop};
 pub(crate) use crate::core::{
     is_dir_writable, is_http_url, is_https_url, normalize_zip_name, now_ms, parse_sha256_hex_32,
     portable_base_dir_from_env, rand_u32, to_hex_lower,
@@ -57,15 +68,19 @@ use crate::wallpaper::{
 };
 use browser_stack::*;
 pub(crate) use config_store::{
-    app_config_path, plugin_default_library_dir, plugin_default_output_dir,
-    plugin_default_ref_images_dir, read_app_config_map, read_plugin_auto_update_prefs,
-    read_plugin_library_dir_from_config, read_plugin_output_dir_from_config, write_app_config_map,
-    write_plugin_auto_update_prefs, write_plugin_library_dir_to_config,
-    write_plugin_output_dir_to_config,
+    app_config_path, plugin_default_ref_images_dir, read_app_config_map,
+    read_plugin_auto_update_prefs, write_app_config_map, write_plugin_auto_update_prefs,
+    write_plugin_library_dir_to_config, write_plugin_output_dir_to_config,
 };
 use http_api::*;
 pub(crate) use os_actions::{open_dir_in_file_manager, open_external_uri, open_external_url};
 pub(crate) use plugins::{is_safe_id, query_get_param, safe_relative_path};
+pub(crate) use workspace::{
+    app_data_dir, app_local_base_dir, app_plugins_dir, ensure_writable_dir,
+    resolve_existing_file_in_scope, resolve_plugin_files_root, resolve_plugin_library_dir,
+    resolve_plugin_output_dir, resolve_write_path_in_scope,
+};
+use host_primitives::emit_toast;
 use windowing::*;
 
 const DEFAULT_WAKE_SHORTCUT: &str = "control+alt+Space";
@@ -94,7 +109,6 @@ const AUTO_START_REG_VALUE: &str = "Fast Window";
 const DATA_DIR_ENV: &str = "FAST_WINDOW_DATA_DIR";
 const BROWSER_WINDOW_LABEL: &str = "browser";
 const BROWSER_BAR_WINDOW_LABEL: &str = "browser_bar";
-const ACTIVATE_PLUGIN_EVENT: &str = "fast-window:activate-plugin";
 const WEBVIEW_SETTINGS_UPDATED_EVENT: &str = "fast-window:webview-settings-updated";
 const BROWSER_BAR_HEIGHT: f64 = 40.0;
 const BROWSER_STACK_TOTAL_HEIGHT: f64 = 605.0;
@@ -175,8 +189,7 @@ fn make_http_stream_id() -> String {
     format!("httpstream-{stamp}-{seq:08x}-{rnd}")
 }
 
-#[tauri::command]
-async fn open_browser_window(
+pub(crate) async fn open_browser_window_impl(
     app: tauri::AppHandle,
     url: String,
     plugin_id: String,
@@ -513,33 +526,6 @@ async fn browser_stack_toggle_pinned(app: tauri::AppHandle) -> Result<bool, Stri
     Ok(next)
 }
 
-fn app_local_base_dir(app: &tauri::AppHandle) -> PathBuf {
-    if let Some(p) = portable_base_dir_from_env() {
-        return p;
-    }
-
-    // 便携优先：exe 同目录（比 cwd 稳定）。但 MSI 默认装在 Program Files，不可写时退回到 AppData。
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            if is_dir_writable(dir) {
-                return dir.to_path_buf();
-            }
-        }
-    }
-
-    app.path()
-        .app_data_dir()
-        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default())
-}
-
-fn app_data_dir(app: &tauri::AppHandle) -> PathBuf {
-    app_local_base_dir(app).join("data")
-}
-
-fn app_plugins_dir(app: &tauri::AppHandle) -> PathBuf {
-    app_local_base_dir(app).join("plugins")
-}
-
 fn migrate_legacy_plugin_store_files(app: &tauri::AppHandle) -> Result<(), String> {
     let data_root = app_data_dir(app);
     let legacy_dir = data_root.join("plugins");
@@ -615,37 +601,6 @@ fn migrate_legacy_plugin_store_files(app: &tauri::AppHandle) -> Result<(), Strin
     }
 
     Ok(())
-}
-
-fn ensure_writable_dir(dir: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(dir).map_err(|e| format!("创建目录失败: {e}"))?;
-    if !dir.is_dir() {
-        return Err("输出路径不是目录".to_string());
-    }
-    if !is_dir_writable(dir) {
-        return Err("目录不可写（权限不足或被占用）".to_string());
-    }
-    Ok(())
-}
-
-fn resolve_plugin_output_dir(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf {
-    // 配置优先；若不可用则回退到默认目录（避免破坏用户空间）
-    if let Some(p) = read_plugin_output_dir_from_config(app, plugin_id) {
-        if ensure_writable_dir(&p).is_ok() {
-            return p;
-        }
-    }
-    plugin_default_output_dir(app, plugin_id)
-}
-
-fn resolve_plugin_library_dir(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf {
-    // 配置优先；若不可用则回退到默认目录（避免破坏用户空间）
-    if let Some(p) = read_plugin_library_dir_from_config(app, plugin_id) {
-        if ensure_writable_dir(&p).is_ok() {
-            return p;
-        }
-    }
-    plugin_default_library_dir(app, plugin_id)
 }
 
 fn write_json_map(path: &Path, map: &Map<String, Value>) -> Result<(), String> {
@@ -1192,25 +1147,7 @@ fn plugin_pick_output_dir(
         return Err("pluginId 不合法".to_string());
     }
 
-    struct AlwaysOnTopGuard {
-        window: Option<tauri::WebviewWindow>,
-    }
-    impl Drop for AlwaysOnTopGuard {
-        fn drop(&mut self) {
-            if let Some(w) = self.window.take() {
-                let _ = w.set_always_on_top(true);
-            }
-        }
-    }
-    let mut guard = AlwaysOnTopGuard { window: None };
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.set_always_on_top(false);
-        guard.window = Some(w);
-    }
-
-    let picked = rfd::FileDialog::new()
-        .set_title("选择输出目录")
-        .pick_folder();
+    let picked = host_dialog::pick_folder(&app, "选择输出目录");
 
     let Some(dir) = picked else {
         return Ok(None);
@@ -1230,23 +1167,7 @@ fn plugin_pick_library_dir(
         return Err("pluginId 不合法".to_string());
     }
 
-    struct AlwaysOnTopGuard {
-        window: Option<tauri::WebviewWindow>,
-    }
-    impl Drop for AlwaysOnTopGuard {
-        fn drop(&mut self) {
-            if let Some(w) = self.window.take() {
-                let _ = w.set_always_on_top(true);
-            }
-        }
-    }
-    let mut guard = AlwaysOnTopGuard { window: None };
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.set_always_on_top(false);
-        guard.window = Some(w);
-    }
-
-    let picked = rfd::FileDialog::new().set_title("选择库目录").pick_folder();
+    let picked = host_dialog::pick_folder(&app, "选择库目录");
 
     let Some(dir) = picked else {
         return Ok(None);
@@ -1263,23 +1184,7 @@ fn plugin_pick_dir(app: tauri::AppHandle, plugin_id: String) -> Result<Option<St
         return Err("pluginId 不合法".to_string());
     }
 
-    struct AlwaysOnTopGuard {
-        window: Option<tauri::WebviewWindow>,
-    }
-    impl Drop for AlwaysOnTopGuard {
-        fn drop(&mut self) {
-            if let Some(w) = self.window.take() {
-                let _ = w.set_always_on_top(true);
-            }
-        }
-    }
-    let mut guard = AlwaysOnTopGuard { window: None };
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.set_always_on_top(false);
-        guard.window = Some(w);
-    }
-
-    let picked = rfd::FileDialog::new().set_title("选择文件夹").pick_folder();
+    let picked = host_dialog::pick_folder(&app, "选择文件夹");
     let Some(dir) = picked else {
         return Ok(None);
     };
@@ -1287,12 +1192,42 @@ fn plugin_pick_dir(app: tauri::AppHandle, plugin_id: String) -> Result<Option<St
 }
 
 #[tauri::command]
+async fn open_browser_window(
+    app: tauri::AppHandle,
+    url: String,
+    plugin_id: String,
+) -> Result<(), String> {
+    open_browser_window_impl(app, url, plugin_id).await
+}
+
+#[tauri::command]
+fn host_dialog_pick_output_dir(
+    app: tauri::AppHandle,
+    plugin_id: String,
+) -> Result<Option<String>, String> {
+    // v3 稳定宿主原语：不再依赖 plugin_pick_* 的 command 名
+    plugin_pick_output_dir(app, plugin_id)
+}
+
+#[tauri::command]
+fn host_dialog_pick_library_dir(
+    app: tauri::AppHandle,
+    plugin_id: String,
+) -> Result<Option<String>, String> {
+    plugin_pick_library_dir(app, plugin_id)
+}
+
+#[tauri::command]
+fn host_dialog_pick_dir(app: tauri::AppHandle, plugin_id: String) -> Result<Option<String>, String> {
+    plugin_pick_dir(app, plugin_id)
+}
+
+#[tauri::command]
 fn plugin_open_output_dir(app: tauri::AppHandle, plugin_id: String) -> Result<(), String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
-    let dir = resolve_plugin_output_dir(&app, &plugin_id);
-    open_dir_in_file_manager(&dir)
+    crate::workspace::open_plugin_output_dir(&app, &plugin_id)
 }
 
 #[tauri::command]
@@ -1307,94 +1242,7 @@ fn plugin_open_dir(_app: tauri::AppHandle, plugin_id: String, dir: String) -> Re
     }
 
     let p = PathBuf::from(s);
-    if !p.is_absolute() {
-        return Err("dir 必须是绝对路径".to_string());
-    }
-    if !p.exists() {
-        return Err("目录不存在".to_string());
-    }
-    if !p.is_dir() {
-        return Err("路径不是目录".to_string());
-    }
-
-    open_dir_in_file_manager(&p)
-}
-
-fn resolve_plugin_files_root(
-    app: &tauri::AppHandle,
-    plugin_id: &str,
-    scope: &str,
-) -> Result<PathBuf, String> {
-    match scope {
-        // 插件私有数据：data/<pluginId>（插件可在其目录内自由组织文件结构）
-        "data" => Ok(app_data_dir(app).join(plugin_id)),
-        // 用户输出目录：可配置（新默认 data/<pluginId>/output；兼容旧目录 output-images，避免破坏用户空间）
-        "output" => Ok(resolve_plugin_output_dir(app, plugin_id)),
-        // 用户库目录：可配置（默认 data/<pluginId>/library）
-        "library" => Ok(resolve_plugin_library_dir(app, plugin_id)),
-        _ => Err("scope 不支持（仅支持 data/output/library）".to_string()),
-    }
-}
-
-fn resolve_existing_file_in_scope(
-    app: &tauri::AppHandle,
-    plugin_id: &str,
-    scope: &str,
-    path: &str,
-) -> Result<(PathBuf, PathBuf), String> {
-    let root = resolve_plugin_files_root(app, plugin_id, scope)?;
-    ensure_writable_dir(&root)?;
-    let root_c = std::fs::canonicalize(&root).map_err(|e| format!("文件根目录不可用: {e}"))?;
-
-    let raw = path.trim();
-    if raw.is_empty() {
-        return Err("path 不能为空".to_string());
-    }
-
-    let input = PathBuf::from(raw);
-    let full = if input.is_absolute() {
-        input
-    } else {
-        let rel = safe_relative_path(raw)?;
-        root.join(rel)
-    };
-    if !full.exists() {
-        return Err("文件不存在".to_string());
-    }
-    let full_c = std::fs::canonicalize(&full).map_err(|e| format!("文件路径无效: {e}"))?;
-    if !full_c.starts_with(&root_c) {
-        return Err("文件路径越界".to_string());
-    }
-    Ok((root_c, full_c))
-}
-
-fn resolve_write_path_in_scope(
-    app: &tauri::AppHandle,
-    plugin_id: &str,
-    scope: &str,
-    rel_path: &str,
-) -> Result<(PathBuf, PathBuf), String> {
-    let root = resolve_plugin_files_root(app, plugin_id, scope)?;
-    ensure_writable_dir(&root)?;
-    let root_c = std::fs::canonicalize(&root).map_err(|e| format!("文件根目录不可用: {e}"))?;
-
-    let rp = rel_path.trim();
-    if rp.is_empty() {
-        return Err("path 不能为空".to_string());
-    }
-    let rel = safe_relative_path(rp)?;
-    let full = root.join(rel);
-
-    let parent = full
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| root.clone());
-    std::fs::create_dir_all(&parent).map_err(|e| format!("创建目录失败: {e}"))?;
-    let parent_c = std::fs::canonicalize(&parent).map_err(|e| format!("目录路径无效: {e}"))?;
-    if !parent_c.starts_with(&root_c) {
-        return Err("文件路径越界".to_string());
-    }
-    Ok((root_c, full))
+    crate::workspace::open_absolute_existing_dir(&p)
 }
 
 fn file_mime_by_ext(path: &Path) -> &'static str {
@@ -2077,69 +1925,42 @@ fn plugin_images_delete(
     Ok(())
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PluginPickedImage {
-    name: String,
-    data_url: String,
-}
-
 #[tauri::command]
 fn plugin_pick_images(
     app: tauri::AppHandle,
     plugin_id: String,
     max_count: Option<usize>,
-) -> Result<Vec<PluginPickedImage>, String> {
+) -> Result<Vec<host_dialog::PickedImage>, String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
 
-    let max = max_count.unwrap_or(8).clamp(1, 20);
-    struct AlwaysOnTopGuard {
-        window: Option<tauri::WebviewWindow>,
-    }
-    impl Drop for AlwaysOnTopGuard {
-        fn drop(&mut self) {
-            if let Some(w) = self.window.take() {
-                let _ = w.set_always_on_top(true);
-            }
-        }
-    }
-    let mut guard = AlwaysOnTopGuard { window: None };
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.set_always_on_top(false);
-        guard.window = Some(w);
-    }
-    let picked = rfd::FileDialog::new()
-        .set_title("选择图片")
-        .add_filter("Image", &["png", "jpg", "jpeg", "webp", "gif"])
-        .pick_files();
+    let max = max_count.unwrap_or(8);
+    let picked = host_dialog::pick_image_files(&app, "选择图片");
+    let Some(files) = picked else { return Ok(vec![]); };
 
-    let Some(files) = picked else {
-        return Ok(vec![]);
-    };
+    host_dialog::images_to_data_urls(files, max, |p| path_has_image_ext(p), |p| image_mime_by_ext(p))
+}
 
-    const MAX_BYTES: usize = 10 * 1024 * 1024; // 10MB
-    let mut out: Vec<PluginPickedImage> = Vec::new();
-    for path in files.into_iter().take(max) {
-        if !path.is_file() || !path_has_image_ext(&path) {
-            continue;
-        }
-        let bytes = std::fs::read(&path).map_err(|e| format!("读取图片失败: {e}"))?;
-        if bytes.len() > MAX_BYTES {
-            return Err("图片过大（> 10MB）".to_string());
-        }
-        let mime = image_mime_by_ext(&path);
-        let b64 = general_purpose::STANDARD.encode(bytes);
-        let data_url = format!("data:{mime};base64,{b64}");
-        let name = path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("image")
-            .to_string();
-        out.push(PluginPickedImage { name, data_url });
+#[tauri::command]
+fn host_dialog_pick_images(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    max_count: Option<usize>,
+) -> Result<Vec<host_dialog::PickedImage>, String> {
+    plugin_pick_images(app, plugin_id, max_count)
+}
+
+#[tauri::command]
+fn host_dialog_confirm(app: tauri::AppHandle, plugin_id: String, message: String) -> Result<bool, String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
     }
-    Ok(out)
+    let msg = message.trim();
+    if msg.is_empty() {
+        return Err("message 不能为空".to_string());
+    }
+    Ok(host_dialog::confirm(&app, "确认", msg))
 }
 
 #[cfg(debug_assertions)]
@@ -2341,22 +2162,6 @@ fn handle_wake_shortcut(app: &tauri::AppHandle) {
     }
 
     browser_ui_set_mode(app, next_mode);
-}
-
-fn emit_activate_plugin_if_any(app: &tauri::AppHandle) {
-    let state = app.state::<BrowserWindowState>();
-    let pid = state
-        .return_to_plugin_id
-        .lock()
-        .ok()
-        .and_then(|g| g.clone());
-    if let Some(plugin_id) = pid {
-        let _ = app.emit_to(
-            EventTarget::webview_window("main"),
-            ACTIVATE_PLUGIN_EVENT,
-            ActivatePluginPayload { plugin_id },
-        );
-    }
 }
 
 fn storage_file_path(app: &tauri::AppHandle, plugin_id: &str) -> Result<PathBuf, String> {
@@ -2802,21 +2607,6 @@ fn resume_wake_shortcut(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-#[derive(Clone, Serialize)]
-struct ToastPayload {
-    message: String,
-}
-
-fn emit_host_toast(app: &tauri::AppHandle, message: impl Into<String>) {
-    let _ = app.emit_to(
-        EventTarget::webview_window("main"),
-        "fast-window:toast",
-        ToastPayload {
-            message: message.into(),
-        },
-    );
-}
-
 fn main_window_focus_mode_title(mode: MainWindowFocusMode) -> &'static str {
     match mode {
         MainWindowFocusMode::AutoHide => "默认模式",
@@ -2881,11 +2671,11 @@ fn cycle_main_window_focus_mode_internal(
 
 pub(crate) fn handle_main_window_mode_shortcut(app: &tauri::AppHandle) {
     match cycle_main_window_focus_mode_internal(app) {
-        Ok(next) => emit_host_toast(
+        Ok(next) => emit_toast(
             app,
             format!("已切换到：{}", main_window_focus_mode_title(next)),
         ),
-        Err(e) => emit_host_toast(app, format!("切换模式失败：{e}")),
+        Err(e) => emit_toast(app, format!("切换模式失败：{e}")),
     }
 }
 
@@ -2908,7 +2698,7 @@ fn set_main_window_focus_mode(
 #[tauri::command]
 fn cycle_main_window_focus_mode(app: tauri::AppHandle) -> Result<MainWindowFocusMode, String> {
     let next = cycle_main_window_focus_mode_internal(&app)?;
-    emit_host_toast(
+    emit_toast(
         &app,
         format!("已切换到：{}", main_window_focus_mode_title(next)),
     );
@@ -3127,6 +2917,14 @@ fn main() {
         read_plugins_dir,
         install_plugin_files,
         plugin_store_install,
+        // v3 稳定 process 命令入口（v2 旧命令仍保留在后面）
+        process_commands::process_open_external_url,
+        process_commands::process_open_external_uri,
+        process_commands::process_open_browser_window,
+        process_commands::process_run,
+        process_commands::process_spawn,
+        process_commands::process_kill,
+        process_commands::process_wait,
         open_external_url,
         open_external_uri,
         open_browser_window,
@@ -3147,8 +2945,13 @@ fn main() {
         http_request_stream,
         http_request_stream_cancel,
         gateway_test_channel,
+        clipboard_read_text,
+        clipboard_write_text,
         clipboard_write_image_data_url,
         clipboard_read_image_data_url,
+        clipboard_watch_start,
+        clipboard_watch_get,
+        clipboard_watch_stop,
         storage_get,
         storage_set,
         storage_remove,
@@ -3163,6 +2966,9 @@ fn main() {
         plugin_pick_output_dir,
         plugin_pick_library_dir,
         plugin_pick_dir,
+        host_dialog_pick_output_dir,
+        host_dialog_pick_library_dir,
+        host_dialog_pick_dir,
         plugin_open_output_dir,
         plugin_open_dir,
         plugin_files_list_dir,
@@ -3179,6 +2985,8 @@ fn main() {
         plugin_images_read,
         plugin_images_delete,
         plugin_pick_images,
+        host_dialog_pick_images,
+        host_dialog_confirm,
         plugin_sqlite_execute,
         plugin_sqlite_query,
         plugin_sqlite_batch,
@@ -3199,7 +3007,10 @@ fn main() {
         pause_main_window_mode_shortcut,
         resume_main_window_mode_shortcut,
         get_auto_start,
-        set_auto_start
+        set_auto_start,
+        // v3 host 原语（稳定入口）
+        host_primitives::host_toast,
+        host_primitives::host_activate_plugin
     ]);
     app::builder_tail(builder)
         .run(tauri::generate_context!())

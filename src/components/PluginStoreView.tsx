@@ -24,6 +24,7 @@ import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import { pluginStoreInstall } from '../plugins/pluginStore'
 import { getWallpaperSettings, type WallpaperSettings } from '../wallpaper'
+import { hostToast } from '../host/hostPrimitives'
 
 type Props = {
   onBack: () => void
@@ -69,7 +70,7 @@ function cmpSemver(a: Semver, b: Semver): number {
 }
 
 function toast(message: string) {
-  window.dispatchEvent(new CustomEvent('fast-window:toast', { detail: { message } }))
+  void hostToast(message)
 }
 
 function isDataImageUrl(value: string): boolean {
