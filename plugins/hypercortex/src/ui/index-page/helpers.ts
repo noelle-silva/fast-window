@@ -6,7 +6,7 @@ import { INDEX_GRID_COLUMNS, INDEX_GRID_GAP_PX, INDEX_GRID_ROW_PX } from './cons
 
 export function folderTitle(doc: HyperCortexFavoritesDocV1, folderId: string): string {
   const id = String(folderId || '').trim() || 'root'
-  if (id === 'root') return '收藏夹'
+  if (id === 'root') return '根目录'
   return getFolderById(doc, id)?.title || '未命名文件夹'
 }
 
@@ -42,7 +42,7 @@ export function getRefPixelRect(layout: GridLayout, gridWidth: number): { left: 
 }
 
 export function folderDeleteHelperText(folderId: string): string {
-  if (folderId === 'root') return '根收藏夹是系统入口，不能删除。'
+  if (folderId === 'root') return '根目录是系统入口，不能删除。'
   return '这是 delete entity，会删除收藏夹本体，并清理所有页面里对它的引用。'
 }
 

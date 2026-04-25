@@ -62,7 +62,7 @@ function nextAutoLayout(doc: HyperCortexFavoritesDocV1, folderId: string): GridL
 function createFreshFavoritesDocV1(nowMs: number): HyperCortexFavoritesDocV1 {
   const root: FavoriteFolder = {
     id: 'root',
-    title: '收藏夹',
+    title: '根目录',
     description: '',
     createdAtMs: nowMs,
     updatedAtMs: nowMs,
@@ -143,12 +143,12 @@ function normalizeFavoritesDocV1(nowMs: number, rawDoc: any): { doc: HyperCortex
 
   // root 强制存在，且 rootFolderId 强制为 'root'
   if (!nextFolders.root) {
-    nextFolders.root = normalizeFolder(nowMs, 'root', { title: '收藏夹', createdAtMs: nowMs, updatedAtMs: nowMs })
+    nextFolders.root = normalizeFolder(nowMs, 'root', { title: '根目录', createdAtMs: nowMs, updatedAtMs: nowMs })
     changed = true
   } else {
     // root 标题若缺失，补上
     if (!String(nextFolders.root.title ?? '').trim()) {
-      nextFolders.root = { ...nextFolders.root, title: '收藏夹', updatedAtMs: Math.max(nowMs, nextFolders.root.updatedAtMs || 0) }
+      nextFolders.root = { ...nextFolders.root, title: '根目录', updatedAtMs: Math.max(nowMs, nextFolders.root.updatedAtMs || 0) }
       changed = true
     }
   }
