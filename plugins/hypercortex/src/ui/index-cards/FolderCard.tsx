@@ -10,6 +10,7 @@ type Props = {
   refCount: number
   updatedAtMs?: number
   disabled?: boolean
+  compact?: boolean
   onClick: (folderId: string) => void
 }
 
@@ -33,7 +34,7 @@ function folderTint(folderId: string): { bg: string; fg: string } {
 }
 
 export function FolderCard(props: Props): React.ReactNode {
-  const { folderId, title, refCount, updatedAtMs, disabled, onClick } = props
+  const { folderId, title, refCount, updatedAtMs, disabled, compact = false, onClick } = props
   const tint = folderTint(folderId)
 
   return (
@@ -46,11 +47,13 @@ export function FolderCard(props: Props): React.ReactNode {
       meta="收藏夹"
       onClick={disabled ? undefined : () => onClick(folderId)}
     >
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-        <Box sx={{ px: 1, py: 0.55, borderRadius: 2.5, bgcolor: `${tint.bg}` }}>
-          <Typography sx={{ fontSize: 12, lineHeight: 1.2, fontWeight: 700, color: tint.fg }}>{formatCountLabel(refCount, '项目')}</Typography>
+      {compact ? null : (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+          <Box sx={{ px: 1, py: 0.55, borderRadius: 2.5, bgcolor: `${tint.bg}` }}>
+            <Typography sx={{ fontSize: 12, lineHeight: 1.2, fontWeight: 700, color: tint.fg }}>{formatCountLabel(refCount, '项目')}</Typography>
+          </Box>
         </Box>
-      </Box>
+      )}
     </CardFrame>
   )
 }

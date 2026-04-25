@@ -12,6 +12,7 @@ import { formatFileSize, formatTimeAgo } from './cardMeta'
 type Props = {
   asset: AssetEntry
   disabled?: boolean
+  compact?: boolean
   onClick: (asset: AssetEntry) => void
 }
 
@@ -23,7 +24,7 @@ function kindIcon(kind: string): React.ReactNode {
 }
 
 export function AssetCard(props: Props): React.ReactNode {
-  const { asset, disabled, onClick } = props
+  const { asset, disabled, compact = false, onClick } = props
   const name = pickAssetDisplayName({ explicitName: asset.displayName, indexName: asset.fileName, ext: asset.ext })
   const showThumb = Boolean(asset.thumbnailUrl)
   const icon = showThumb ? (
@@ -42,14 +43,16 @@ export function AssetCard(props: Props): React.ReactNode {
       meta={asset.ext ? `.${asset.ext}` : asset.kind || '文件'}
       onClick={disabled ? undefined : () => onClick(asset)}
     >
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-        <Box sx={{ px: 1, py: 0.55, borderRadius: 2.5, bgcolor: 'rgba(15,118,110,.10)' }}>
-          <Typography sx={{ fontSize: 12, lineHeight: 1.2, fontWeight: 700, color: '#0f766e' }}>{formatFileSize(asset.size)}</Typography>
+      {compact ? null : (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+          <Box sx={{ px: 1, py: 0.55, borderRadius: 2.5, bgcolor: 'rgba(15,118,110,.10)' }}>
+            <Typography sx={{ fontSize: 12, lineHeight: 1.2, fontWeight: 700, color: '#0f766e' }}>{formatFileSize(asset.size)}</Typography>
+          </Box>
+          <Box sx={{ px: 1, py: 0.55, borderRadius: 2.5, bgcolor: 'rgba(15,23,42,.05)' }}>
+            <Typography sx={{ fontSize: 12, lineHeight: 1.2, fontWeight: 700, color: 'rgba(15,23,42,.68)' }}>{formatTimeAgo(asset.modifiedMs)}</Typography>
+          </Box>
         </Box>
-        <Box sx={{ px: 1, py: 0.55, borderRadius: 2.5, bgcolor: 'rgba(15,23,42,.05)' }}>
-          <Typography sx={{ fontSize: 12, lineHeight: 1.2, fontWeight: 700, color: 'rgba(15,23,42,.68)' }}>{formatTimeAgo(asset.modifiedMs)}</Typography>
-        </Box>
-      </Box>
+      )}
     </CardFrame>
   )
 }

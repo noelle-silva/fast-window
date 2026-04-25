@@ -8,11 +8,12 @@ import { formatTimeAgo } from './cardMeta'
 type Props = {
   note: NoteMeta
   disabled?: boolean
+  compact?: boolean
   onClick: (note: NoteMeta) => void
 }
 
 export function NoteCard(props: Props): React.ReactNode {
-  const { note, disabled, onClick } = props
+  const { note, disabled, compact = false, onClick } = props
   const subtitle = note.dir ? `目录：${note.dir}` : '没有目录信息'
 
   return (
@@ -25,11 +26,13 @@ export function NoteCard(props: Props): React.ReactNode {
       meta="笔记"
       onClick={disabled ? undefined : () => onClick(note)}
     >
-      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-        <Box sx={{ px: 1, py: 0.55, borderRadius: 2.5, bgcolor: 'rgba(124,58,237,.08)' }}>
-          <Typography sx={{ fontSize: 12, lineHeight: 1.2, fontWeight: 700, color: '#6d28d9' }}>{formatTimeAgo(note.updatedAtMs)}</Typography>
+      {compact ? null : (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+          <Box sx={{ px: 1, py: 0.55, borderRadius: 2.5, bgcolor: 'rgba(124,58,237,.08)' }}>
+            <Typography sx={{ fontSize: 12, lineHeight: 1.2, fontWeight: 700, color: '#6d28d9' }}>{formatTimeAgo(note.updatedAtMs)}</Typography>
+          </Box>
         </Box>
-      </Box>
+      )}
     </CardFrame>
   )
 }

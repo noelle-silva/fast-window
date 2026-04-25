@@ -7,11 +7,12 @@ import { CardFrame } from './CardFrame'
 type Props = {
   ref: FavoriteItemRef
   disabled?: boolean
+  compact?: boolean
   onClickRemove: (refId: string) => void
 }
 
 export function StaleRefCard(props: Props): React.ReactNode {
-  const { ref, disabled, onClickRemove } = props
+  const { ref, disabled, compact = false, onClickRemove } = props
 
   return (
     <CardFrame
@@ -23,9 +24,11 @@ export function StaleRefCard(props: Props): React.ReactNode {
       meta="失效"
       onClick={disabled ? undefined : () => onClickRemove(ref.id)}
     >
-      <Box sx={{ px: 1, py: 0.7, borderRadius: 2.5, bgcolor: 'rgba(211,47,47,.08)' }}>
-        <Typography sx={{ fontSize: 12, lineHeight: 1.5, fontWeight: 700, color: '#b71c1c' }}>点击卡片即可从当前收藏夹中移除这条引用。</Typography>
-      </Box>
+      {compact ? null : (
+        <Box sx={{ px: 1, py: 0.7, borderRadius: 2.5, bgcolor: 'rgba(211,47,47,.08)' }}>
+          <Typography sx={{ fontSize: 12, lineHeight: 1.5, fontWeight: 700, color: '#b71c1c' }}>点击卡片即可从当前收藏夹中移除这条引用。</Typography>
+        </Box>
+      )}
     </CardFrame>
   )
 }
