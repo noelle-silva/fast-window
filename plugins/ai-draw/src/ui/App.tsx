@@ -1520,40 +1520,42 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
         }}
       >
         <DialogTitle sx={{ flex: '0 0 auto' }}>设置</DialogTitle>
-        <DialogContent sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-          <OverlayScrollArea>
+        <DialogContent sx={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
           <Tabs
             value={settingsTab}
             onChange={(_e, v) => setSettingsTab(v)}
-            sx={{ mb: 2 }}
+            sx={{ mb: 2, flex: '0 0 auto' }}
           >
             <Tab value="provider" label="供应商" />
             <Tab value="plugin" label="插件" />
           </Tabs>
 
           {settingsTab === 'provider' ? (
-            <ProviderSettingsPanel
-              providers={providers}
-              activeProviderId={String(data?.activeProviderId || '')}
-              draft={providerDraft}
-              sortMode={providerSortMode}
-              onSortModeChange={setProviderSortMode}
-              onSelectProvider={(providerId) => void controller.setActiveProviderId(providerId)}
-              onMoveProvider={handleProviderMove}
-              onAddProvider={() => void controller.addProvider()}
-              onDeleteProvider={(targetProvider) =>
-                setProviderDeleteConfirm({
-                  open: true,
-                  providerId: String(targetProvider?.id || ''),
-                  name: String(targetProvider?.name || ''),
-                })
-              }
-              deleteDisabled={!provider || providers.length <= 1}
-              onDraftChange={setProviderDraft}
-            />
+            <Box sx={{ flex: 1, minHeight: 0 }}>
+              <ProviderSettingsPanel
+                providers={providers}
+                activeProviderId={String(data?.activeProviderId || '')}
+                draft={providerDraft}
+                sortMode={providerSortMode}
+                onSortModeChange={setProviderSortMode}
+                onSelectProvider={(providerId) => void controller.setActiveProviderId(providerId)}
+                onMoveProvider={handleProviderMove}
+                onAddProvider={() => void controller.addProvider()}
+                onDeleteProvider={(targetProvider) =>
+                  setProviderDeleteConfirm({
+                    open: true,
+                    providerId: String(targetProvider?.id || ''),
+                    name: String(targetProvider?.name || ''),
+                  })
+                }
+                deleteDisabled={!provider || providers.length <= 1}
+                onDraftChange={setProviderDraft}
+              />
+            </Box>
           ) : null}
 
           {settingsTab === 'plugin' ? (
+            <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }} contentSx={{ pr: 0.5 }}>
             <Stack spacing={2}>
               <FormControlLabel
                 control={
@@ -1622,8 +1624,8 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 </Button>
               </Stack>
               </Stack>
-            ) : null}
-          </OverlayScrollArea>
+            </OverlayScrollArea>
+          ) : null}
         </DialogContent>
         <DialogActions sx={{ flex: '0 0 auto' }}>
           <Button onClick={() => setSettingsOpen(false)}>关闭</Button>
