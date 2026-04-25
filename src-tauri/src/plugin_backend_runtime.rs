@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{oneshot, Mutex as AsyncMutex};
@@ -260,12 +260,42 @@ fn sanitize_env(env: Option<HashMap<String, String>>) -> Result<HashMap<String, 
     Ok(out)
 }
 
-fn command_for_main(main: &Path) -> (String, Vec<String>) {
+fn runtime_exe_name(name: &str) -> String {
+    if cfg!(target_os = "windows") {
+        format!("{name}.exe")
+    } else {
+        name.to_string()
+    }
+}
+
+fn bundled_node_runtime(app: &AppHandle) -> Result<PathBuf, String> {
+    let node_exe = runtime_exe_name("node");
+    let candidates = [
+        app.path().resource_dir().ok().map(|p| p.join("runtimes").join("node").join(&node_exe)),
+        std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.join("runtimes").join("node").join(&node_exe))),
+        Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("runtimes").join("node").join(&node_exe)),
+    ];
+
+    for candidate in candidates.into_iter().flatten() {
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+
+    Err(format!(
+        "宿主内置 Node runtime 不存在：请随宿主分发 runtimes/node/{node_exe}；不会回退到系统 Node"
+    ))
+}
+
+fn command_for_main(app: &AppHandle, main: &Path) -> Result<(String, Vec<String>), String> {
     let ext = main.extension().and_then(|x| x.to_str()).unwrap_or("").to_ascii_lowercase();
     if ext == "js" || ext == "mjs" || ext == "cjs" {
-        return ("node".to_string(), vec![main.to_string_lossy().to_string()]);
+        let node = bundled_node_runtime(app)?;
+        return Ok((node.to_string_lossy().to_string(), vec![main.to_string_lossy().to_string()]));
     }
-    (main.to_string_lossy().to_string(), Vec::new())
+    Ok((main.to_string_lossy().to_string(), Vec::new()))
 }
 
 async fn read_to_log(mut reader: impl tokio::io::AsyncRead + Unpin, buf: Arc<Mutex<LogBuf>>) {
@@ -349,7 +379,7 @@ pub(crate) fn plugin_backend_start(
     let cwd = resolve_backend_cwd(app, &plugin_id, req.cwd)?;
     let extra_args = sanitize_args(req.args)?;
     let extra_env = sanitize_env(req.env)?;
-    let (command, mut args) = command_for_main(&main);
+    let (command, mut args) = command_for_main(app, &main)?;
     args.extend(extra_args);
 
     let output_dir = resolve_plugin_output_dir(app, &plugin_id);

@@ -5,7 +5,9 @@
   "identifier": "com.fastwindow.app",
   "bundle": {
     "active": true,
-    "resources": [],
+    "resources": [
+      "runtimes/**/*"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/64x64.png",
