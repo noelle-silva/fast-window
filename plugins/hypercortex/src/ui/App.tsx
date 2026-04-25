@@ -1777,6 +1777,17 @@ export function HyperCortexApp() {
         return
       }
 
+      if (shouldTriggerShortcut(e, bindings.toggleMode) && pageRef.current === 'index') {
+        e.preventDefault()
+        e.stopPropagation()
+        setIndexEditMode(prev => {
+          const next = !prev
+          if (metaReadyRef.current) void persistMetadataPatch({ indexEditMode: next }).catch(() => {})
+          return next
+        })
+        return
+      }
+
       if (pageRef.current !== 'note-detail') return
       const nid = String(activeNoteIdRef.current || '').trim()
       if (!nid) return
@@ -1838,7 +1849,7 @@ export function HyperCortexApp() {
       window.removeEventListener('keyup', onKeyUp, true)
       window.removeEventListener('blur', clearTabSwitchHold, true)
     }
-  }, [goBackPage, handleCreateDraftNote, shortcutHintsOpen, tabsMode, toggleTabsCollapsed])
+  }, [goBackPage, handleCreateDraftNote, persistMetadataPatch, shortcutHintsOpen, tabsMode, toggleTabsCollapsed])
 
   const handleOpenNote = React.useCallback(
     (note: NoteMeta) => {
