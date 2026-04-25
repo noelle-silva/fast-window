@@ -50,6 +50,7 @@ export type RefLibraryIndexV1 = {
   activeView: { kind: 'all' | 'folder'; folderId: string }
   folders: RefLibraryFolder[]
   folderIdsByPath: Record<string, string[]>
+  folderItemOrderByFolderId: Record<string, string[]>
 }
 
 export function defaultProvider(): AiDrawProvider {
@@ -253,7 +254,13 @@ export function normalizePromptLibrary(raw: any): PromptLibraryV1 {
 }
 
 export function defaultRefLibraryIndex(): RefLibraryIndexV1 {
-  return { version: REF_LIBRARY_INDEX_VERSION, activeView: { kind: 'all', folderId: '' }, folders: [], folderIdsByPath: {} }
+  return {
+    version: REF_LIBRARY_INDEX_VERSION,
+    activeView: { kind: 'all', folderId: '' },
+    folders: [],
+    folderIdsByPath: {},
+    folderItemOrderByFolderId: {},
+  }
 }
 
 function ensureNoFolderCycle(folders: RefLibraryFolder[]) {
@@ -321,6 +328,27 @@ export function normalizeRefLibraryIndex(raw: any): RefLibraryIndexV1 {
     if (dedup.length) next[path] = dedup
   }
   out.folderIdsByPath = next
+
+  const folderItemOrderByFolderIdRaw =
+    v.folderItemOrderByFolderId && typeof v.folderItemOrderByFolderId === 'object'
+      ? v.folderItemOrderByFolderId
+      : v.folder_item_order_by_folder_id
+  const orderRec = folderItemOrderByFolderIdRaw && typeof folderItemOrderByFolderIdRaw === 'object' ? folderItemOrderByFolderIdRaw : {}
+  const nextOrder: Record<string, string[]> = {}
+  for (const [folderIdRaw, val] of Object.entries(orderRec)) {
+    const folderId = String(folderIdRaw || '').trim()
+    if (!folderId || !validFolderIds.has(folderId)) continue
+    const list = Array.isArray(val) ? val : []
+    const dedup: string[] = []
+    for (const item of list) {
+      const path = String(item || '').trim()
+      if (!path) continue
+      if (!dedup.includes(path)) dedup.push(path)
+      if (dedup.length >= 5000) break
+    }
+    if (dedup.length) nextOrder[folderId] = dedup
+  }
+  out.folderItemOrderByFolderId = nextOrder
 
   const av = v.activeView && typeof v.activeView === 'object' ? v.activeView : {}
   const kindRaw = String((av as any).kind || '').trim()

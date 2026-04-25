@@ -123,6 +123,7 @@ export type AiDrawControllerState = {
 }
 
 type Listener = () => void
+type SortDropPosition = 'before' | 'after'
 
 export type AiDrawController = {
   getState: () => AiDrawControllerState
@@ -151,7 +152,9 @@ export type AiDrawController = {
   addRefFolder: (name?: string, parentId?: string | null) => Promise<void>
   renameRefFolder: (folderId: string, name: string) => Promise<void>
   deleteRefFolder: (folderId: string) => Promise<void>
+  moveRefFolder: (folderId: string, targetFolderId: string, position: SortDropPosition) => Promise<void>
   setRefItemFolderIds: (path: string, folderIds: string[]) => Promise<void>
+  moveRefLibraryItemInFolder: (folderId: string, path: string, targetPath: string, position: SortDropPosition) => Promise<void>
 
   pickEditImage: () => Promise<void>
   clearEditImage: () => void
@@ -182,8 +185,10 @@ export type AiDrawController = {
   addPromptFolder: (name?: string) => Promise<void>
   renamePromptFolder: (folderId: string, name: string) => Promise<void>
   deletePromptFolder: (folderId: string) => Promise<void>
+  movePromptFolder: (folderId: string, targetFolderId: string, position: SortDropPosition) => Promise<void>
   addPromptToActiveFolder: (text: string) => Promise<void>
   deletePrompt: (folderId: string, promptId: string) => Promise<void>
+  movePrompt: (folderId: string, promptId: string, targetPromptId: string, position: SortDropPosition) => Promise<void>
   usePromptText: (text: string) => void
 
   savePluginSettings: (patch: Partial<Pick<AiDrawSettingsV1, 'autoSave' | 'shrinkRefImages' | 'debugMode' | 'promptHistoryLimit' | 'requestTimeoutSec'>>) => Promise<void>
@@ -208,11 +213,31 @@ function parseModelsText(text: any) {
   return out
 }
 
+function moveArrayItemRelative<T>(items: T[], getKey: (item: T) => string, activeKey: string, overKey: string, position: SortDropPosition) {
+  if (!activeKey || !overKey || activeKey === overKey) return items
+  const fromIndex = items.findIndex((item) => getKey(item) === activeKey)
+  const overIndex = items.findIndex((item) => getKey(item) === overKey)
+  if (fromIndex < 0 || overIndex < 0) return items
+  const next = items.slice()
+  const [moved] = next.splice(fromIndex, 1)
+  if (!moved) return items
+  let insertIndex = next.findIndex((item) => getKey(item) === overKey)
+  if (insertIndex < 0) return items
+  if (position === 'after') insertIndex += 1
+  next.splice(insertIndex, 0, moved)
+  return next
+}
+
 function activeProvider(data: AiDrawSettingsV1 | null): AiDrawProvider | null {
   if (!data) return null
   const pid = String(data.activeProviderId || '')
   const ps = Array.isArray(data.providers) ? data.providers : []
   return ps.find((p) => p && p.id === pid) || ps[0] || null
+}
+
+function getRefItemFolderIdsFromIndex(index: RefLibraryIndexV1, path: string) {
+  const raw = index.folderIdsByPath?.[path]
+  return Array.isArray(raw) ? raw.map((x) => String(x || '').trim()).filter(Boolean) : []
 }
 
 function requestTimeoutMs(data: AiDrawSettingsV1 | null) {
@@ -459,6 +484,9 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       if (!Object.keys(cur.folderIdsByPath || {}).length && Object.keys(loaded.folderIdsByPath || {}).length) {
         cur.folderIdsByPath = loaded.folderIdsByPath
       }
+      if (!Object.keys(cur.folderItemOrderByFolderId || {}).length && Object.keys(loaded.folderItemOrderByFolderId || {}).length) {
+        cur.folderItemOrderByFolderId = loaded.folderItemOrderByFolderId
+      }
       if (cur.activeView.kind === 'all' && loaded.activeView.kind === 'folder') {
         cur.activeView = loaded.activeView
       }
@@ -475,6 +503,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     if (!Array.isArray(d.folders)) state.refLibrary.index = defaultRefLibraryIndex()
     const d2 = state.refLibrary.index
     if (!Array.isArray(d2.folders)) d2.folders = []
+    if (!d2.folderItemOrderByFolderId || typeof d2.folderItemOrderByFolderId !== 'object') d2.folderItemOrderByFolderId = {}
     if (!d2.activeView || typeof d2.activeView !== 'object') d2.activeView = { kind: 'all', folderId: '' }
     if (String((d2.activeView as any).kind || '') !== 'folder') d2.activeView = { kind: 'all', folderId: '' }
     const activeFolderId = String((d2.activeView as any).folderId || '').trim()
@@ -484,6 +513,47 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       d2.activeView = { kind: 'all', folderId: '' }
     }
     return d2
+  }
+
+  function getOrderedRefFolderPaths(d: RefLibraryIndexV1, folderId: string, allPaths?: string[]) {
+    const fid = String(folderId || '').trim()
+    if (!fid) return []
+    const paths = Array.isArray(allPaths) ? allPaths : state.refLibrary.paths
+    const members = paths.filter((p) => getRefItemFolderIdsFromIndex(d, p).includes(fid))
+    if (!members.length) return []
+    const memberSet = new Set(members)
+    const rawOrder = Array.isArray(d.folderItemOrderByFolderId?.[fid]) ? d.folderItemOrderByFolderId[fid] : []
+    const ordered: string[] = []
+    for (const item of rawOrder) {
+      const path = String(item || '').trim()
+      if (!path || !memberSet.has(path) || ordered.includes(path)) continue
+      ordered.push(path)
+    }
+    for (const path of members) {
+      if (!ordered.includes(path)) ordered.push(path)
+    }
+    return ordered
+  }
+
+  function syncRefFolderItemOrder(d: RefLibraryIndexV1, folderId: string, allPaths?: string[]) {
+    const fid = String(folderId || '').trim()
+    if (!fid) return
+    const ordered = getOrderedRefFolderPaths(d, fid, allPaths)
+    if (ordered.length) d.folderItemOrderByFolderId[fid] = ordered
+    else delete d.folderItemOrderByFolderId[fid]
+  }
+
+  function cleanupRefFolderItemOrder(d: RefLibraryIndexV1, allPaths?: string[]) {
+    const paths = Array.isArray(allPaths) ? allPaths : state.refLibrary.paths
+    const validFolderIds = new Set(d.folders.map((f) => f.id))
+    const raw = d.folderItemOrderByFolderId && typeof d.folderItemOrderByFolderId === 'object' ? d.folderItemOrderByFolderId : {}
+    const next: Record<string, string[]> = {}
+    for (const folderId of Object.keys(raw)) {
+      if (!validFolderIds.has(folderId)) continue
+      const ordered = getOrderedRefFolderPaths(d, folderId, paths)
+      if (ordered.length) next[folderId] = ordered
+    }
+    d.folderItemOrderByFolderId = next
   }
 
   function computeFolderDescendants(folderId: string, folders: RefLibraryFolder[]) {
@@ -554,6 +624,8 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       if (keep.length) nextMap[p] = keep
     }
     d.folderIdsByPath = nextMap
+    for (const folderId2 of del) delete d.folderItemOrderByFolderId[folderId2]
+    cleanupRefFolderItemOrder(d)
 
     if (d.activeView.kind === 'folder' && del.has(d.activeView.folderId)) {
       d.activeView = { kind: 'all', folderId: '' }
@@ -562,10 +634,27 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     void saveRefLibraryIndex().catch(() => {})
   }
 
+  async function moveRefFolder(folderId: string, targetFolderId: string, position: SortDropPosition) {
+    const d = ensureRefLibraryIndexData()
+    const fid = String(folderId || '').trim()
+    const targetId = String(targetFolderId || '').trim()
+    if (!fid || !targetId || fid === targetId) return
+    const source = d.folders.find((x) => x.id === fid)
+    const target = d.folders.find((x) => x.id === targetId)
+    if (!source || !target) return
+    if (String(source.parentId || '') !== String(target.parentId || '')) return
+    const next = moveArrayItemRelative(d.folders, (item) => item.id, fid, targetId, position)
+    if (next === d.folders) return
+    d.folders = next
+    notify()
+    void saveRefLibraryIndex().catch(() => {})
+  }
+
   async function setRefItemFolderIds(path: string, folderIds: string[]) {
     const d = ensureRefLibraryIndexData()
     const p = String(path || '').trim()
     if (!p) return
+    const prevFolderIds = getRefItemFolderIdsFromIndex(d, p)
     const valid = new Set(d.folders.map((x) => x.id))
     const out: string[] = []
     const raw = Array.isArray(folderIds) ? folderIds : []
@@ -578,6 +667,22 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     }
     if (out.length) d.folderIdsByPath[p] = out
     else delete d.folderIdsByPath[p]
+    const affected = new Set<string>([...prevFolderIds, ...out])
+    for (const folderId2 of affected) syncRefFolderItemOrder(d, folderId2)
+    notify()
+    void saveRefLibraryIndex().catch(() => {})
+  }
+
+  async function moveRefLibraryItemInFolder(folderId: string, path: string, targetPath: string, position: SortDropPosition) {
+    const d = ensureRefLibraryIndexData()
+    const fid = String(folderId || '').trim()
+    const activePath = String(path || '').trim()
+    const overPath = String(targetPath || '').trim()
+    if (!fid || !activePath || !overPath || activePath === overPath) return
+    const ordered = getOrderedRefFolderPaths(d, fid)
+    const next = moveArrayItemRelative(ordered, (item) => item, activePath, overPath, position)
+    if (next === ordered) return
+    d.folderItemOrderByFolderId[fid] = next
     notify()
     void saveRefLibraryIndex().catch(() => {})
   }
@@ -1581,6 +1686,9 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
             changed = true
           }
         }
+        const before = JSON.stringify(idx.folderItemOrderByFolderId || {})
+        cleanupRefFolderItemOrder(idx, list)
+        if (before !== JSON.stringify(idx.folderItemOrderByFolderId || {})) changed = true
         if (changed) void saveRefLibraryIndex().catch(() => {})
       }
     } finally {
@@ -1695,6 +1803,11 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
         delete idx.folderIdsByPath[p]
         changed = true
       }
+    }
+    if (idx) {
+      const before = JSON.stringify(idx.folderItemOrderByFolderId || {})
+      cleanupRefFolderItemOrder(idx)
+      if (before !== JSON.stringify(idx.folderItemOrderByFolderId || {})) changed = true
     }
     if (changed) void saveRefLibraryIndex().catch(() => {})
 
@@ -1989,6 +2102,18 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     notify()
   }
 
+  async function movePromptFolder(folderId: string, targetFolderId: string, position: SortDropPosition) {
+    const d = ensurePromptLibraryData()
+    const fid = String(folderId || '').trim()
+    const targetId = String(targetFolderId || '').trim()
+    if (!fid || !targetId || fid === targetId) return
+    const next = moveArrayItemRelative(d.folders, (item) => item.id, fid, targetId, position)
+    if (next === d.folders) return
+    d.folders = next
+    await savePromptLibrary().catch(() => {})
+    notify()
+  }
+
   async function addPromptToActiveFolder(text: string) {
     const d = ensurePromptLibraryData()
     const raw = String(text || '').trim()
@@ -2010,6 +2135,21 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     const f = d.folders.find((x) => x.id === fid)
     if (!f) return
     f.prompts = f.prompts.filter((p) => p.id !== pid)
+    await savePromptLibrary().catch(() => {})
+    notify()
+  }
+
+  async function movePrompt(folderId: string, promptId: string, targetPromptId: string, position: SortDropPosition) {
+    const d = ensurePromptLibraryData()
+    const fid = String(folderId || '').trim()
+    const pid = String(promptId || '').trim()
+    const targetId = String(targetPromptId || '').trim()
+    if (!fid || !pid || !targetId || pid === targetId) return
+    const f = d.folders.find((x) => x.id === fid)
+    if (!f) return
+    const next = moveArrayItemRelative(f.prompts, (item) => item.id, pid, targetId, position)
+    if (next === f.prompts) return
+    f.prompts = next
     await savePromptLibrary().catch(() => {})
     notify()
   }
@@ -2107,7 +2247,9 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     addRefFolder,
     renameRefFolder,
     deleteRefFolder,
+    moveRefFolder,
     setRefItemFolderIds,
+    moveRefLibraryItemInFolder,
 
     pickEditImage,
     clearEditImage,
@@ -2138,8 +2280,10 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     addPromptFolder,
     renamePromptFolder,
     deletePromptFolder,
+    movePromptFolder,
     addPromptToActiveFolder,
     deletePrompt,
+    movePrompt,
     usePromptText,
 
     savePluginSettings,

@@ -68,6 +68,14 @@ import { createClaudeTheme } from './theme'
 import { OverlayScrollArea } from './components/OverlayScrollArea'
 import { useLazyListLimit } from './hooks/useLazyListLimit'
 import { ImageLightboxDialog } from './components/ImageLightboxDialog'
+import { SortHandleButton, SortModeButton } from './components/SortControls'
+import {
+  SortableItem,
+  SortableRoot,
+  SortableSection,
+  rectSortingStrategy,
+  resolveSortMovePosition,
+} from './components/SortableDnd'
 
 type LightboxState =
   | { open: false }
@@ -316,6 +324,10 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const [imageDetailAnchorEl, setImageDetailAnchorEl] = React.useState<HTMLElement | null>(null)
   const [normalMoreAnchorEl, setNormalMoreAnchorEl] = React.useState<HTMLElement | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false)
+  const [promptFolderSortMode, setPromptFolderSortMode] = React.useState(false)
+  const [promptItemSortMode, setPromptItemSortMode] = React.useState(false)
+  const [refFolderSortMode, setRefFolderSortMode] = React.useState(false)
+  const [refItemSortMode, setRefItemSortMode] = React.useState(false)
   const [refLibraryItemMenu, setRefLibraryItemMenu] = React.useState<{ el: HTMLElement | null; path: string }>({ el: null, path: '' })
   const [refFolderExpanded, setRefFolderExpanded] = React.useState<Record<string, boolean>>({})
   const [refFolderMenu, setRefFolderMenu] = React.useState<{ folderId: string; x: number; y: number; name: string }>(
@@ -426,6 +438,8 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const refIndex = state.refLibrary.index
   const refFolders = Array.isArray(refIndex?.folders) ? refIndex!.folders : []
   const refFolderIdsByPath = refIndex && typeof (refIndex as any).folderIdsByPath === 'object' ? (refIndex as any).folderIdsByPath : {}
+  const refFolderItemOrderByFolderId =
+    refIndex && typeof (refIndex as any).folderItemOrderByFolderId === 'object' ? (refIndex as any).folderItemOrderByFolderId : {}
   const refActiveView = refIndex?.activeView || { kind: 'all' as const, folderId: refFolders[0]?.id || '' }
 
   const refFolderById = React.useMemo(() => {
@@ -455,8 +469,28 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
     if (refActiveView.kind === 'all') return paths
     const fid = String(refActiveView.folderId || '').trim()
     if (!fid) return paths
-    return paths.filter((p) => getRefItemFolderIds(p).includes(fid))
+    const members = paths.filter((p) => getRefItemFolderIds(p).includes(fid))
+    const memberSet = new Set(members)
+    const rawOrder = Array.isArray((refFolderItemOrderByFolderId as any)?.[fid]) ? (refFolderItemOrderByFolderId as any)[fid] : []
+    const ordered: string[] = []
+    for (const item of rawOrder) {
+      const path = String(item || '').trim()
+      if (!path || !memberSet.has(path) || ordered.includes(path)) continue
+      ordered.push(path)
+    }
+    for (const path of members) {
+      if (!ordered.includes(path)) ordered.push(path)
+    }
+    return ordered
   }, [revision])
+
+  const promptFolders = Array.isArray(state.promptLib.data?.folders) ? state.promptLib.data!.folders : []
+  const activePromptFolderId = String(state.promptLib.data?.activeFolderId || '')
+  const activePromptFolder = promptFolders.find((x) => x.id === activePromptFolderId) || promptFolders[0] || null
+  const activePrompts = activePromptFolder?.prompts || []
+  const promptFolderIds = React.useMemo(() => promptFolders.map((f) => f.id), [promptFolders])
+  const activePromptIds = React.useMemo(() => activePrompts.map((p) => p.id), [activePrompts])
+  const refRootFolderIds = React.useMemo(() => refChildrenByParent.get('') || [], [refChildrenByParent])
 
   const refActiveViewKey = refActiveView.kind === 'all' ? 'all' : `folder:${String(refActiveView.folderId || '').trim()}`
   const refSelectedSet = React.useMemo(() => new Set(refSelectedPaths), [refSelectedPaths])
@@ -475,6 +509,26 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
     if (!refLibraryOpen) return
     setRefSelectedPaths([])
   }, [refLibraryOpen, refActiveViewKey])
+
+  React.useEffect(() => {
+    if (promptLibOpen) return
+    setPromptFolderSortMode(false)
+    setPromptItemSortMode(false)
+  }, [promptLibOpen])
+
+  React.useEffect(() => {
+    if (refLibraryOpen) return
+    setRefFolderSortMode(false)
+    setRefItemSortMode(false)
+  }, [refLibraryOpen])
+
+  React.useEffect(() => {
+    setPromptItemSortMode(false)
+  }, [activePromptFolder?.id])
+
+  React.useEffect(() => {
+    setRefItemSortMode(false)
+  }, [refActiveViewKey])
 
   const refFolderImageCountById = React.useMemo(() => {
     const out: Record<string, number> = {}
@@ -513,6 +567,52 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const clearRefSelection = React.useCallback(() => {
     setRefSelectedPaths([])
   }, [])
+
+  const handlePromptFolderMove = React.useCallback(
+    (activeId: string, overId: string) => {
+      const position = resolveSortMovePosition(promptFolderIds, activeId, overId)
+      if (!position) return
+      void controller.movePromptFolder(activeId, overId, position)
+    },
+    [controller, promptFolderIds],
+  )
+
+  const handlePromptItemMove = React.useCallback(
+    (activeId: string, overId: string) => {
+      const folderId = String(activePromptFolder?.id || '')
+      if (!folderId) return
+      const position = resolveSortMovePosition(activePromptIds, activeId, overId)
+      if (!position) return
+      void controller.movePrompt(folderId, activeId, overId, position)
+    },
+    [activePromptFolder?.id, activePromptIds, controller],
+  )
+
+  const handleRefFolderMove = React.useCallback(
+    (activeId: string, overId: string) => {
+      const active = refFolderById.get(activeId)
+      const over = refFolderById.get(overId)
+      if (!active || !over) return
+      if (String(active.parentId || '') !== String(over.parentId || '')) return
+      const siblings = refChildrenByParent.get(String(active.parentId || '')) || []
+      const position = resolveSortMovePosition(siblings, activeId, overId)
+      if (!position) return
+      void controller.moveRefFolder(activeId, overId, position)
+    },
+    [controller, refChildrenByParent, refFolderById],
+  )
+
+  const handleRefItemMove = React.useCallback(
+    (activeId: string, overId: string) => {
+      if (refActiveView.kind !== 'folder') return
+      const folderId = String(refActiveView.folderId || '')
+      if (!folderId) return
+      const position = resolveSortMovePosition(refVisiblePathsAll, activeId, overId)
+      if (!position) return
+      void controller.moveRefLibraryItemInFolder(folderId, activeId, overId, position)
+    },
+    [controller, refActiveView, refVisiblePathsAll],
+  )
 
   const uiMode: UiMode = String(state.uiMode || UI_MODE_NORMAL) === UI_MODE_LOCAL_EDIT ? UI_MODE_LOCAL_EDIT : UI_MODE_NORMAL
   const autoSave = !!data?.autoSave
@@ -1972,34 +2072,62 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 <Paper variant="outlined" sx={{ width: 240, p: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
                   <Stack direction="row" spacing={1} alignItems="center">
                     <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 1 }}>收藏夹</Typography>
+                    <SortModeButton enabled={promptFolderSortMode} onClick={() => setPromptFolderSortMode((v) => !v)} />
                     <IconButton size="small" onClick={() => void controller.addPromptFolder('新收藏夹')} aria-label="新增收藏夹">
                       <AddRoundedIcon fontSize="small" />
                     </IconButton>
                   </Stack>
                   <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }}>
-                    <Stack spacing={0.5} sx={{ pr: 0.5 }}>
-                      {(state.promptLib.data?.folders || []).map((f) => (
-                        <Button
-                          key={f.id}
-                          size="small"
-                          variant={f.id === state.promptLib.data?.activeFolderId ? 'contained' : 'text'}
-                          onClick={() => void controller.setActivePromptFolderId(f.id)}
-                          onContextMenu={(e) => {
-                            e.preventDefault()
-                            setPromptFolderMenu({ folderId: f.id, x: e.clientX, y: e.clientY, name: String(f.name || '') })
-                          }}
-                          sx={{ justifyContent: 'flex-start', textTransform: 'none' }}
-                        >
-                          {f.name}
-                        </Button>
-                      ))}
-                    </Stack>
+                    <SortableRoot onMove={handlePromptFolderMove}>
+                      <SortableSection items={promptFolderIds}>
+                        <Stack spacing={0.5} sx={{ pr: 0.5 }}>
+                          {promptFolders.map((f) => (
+                            <SortableItem key={f.id} id={f.id} disabled={!promptFolderSortMode}>
+                              {({ setNodeRef, setHandleRef, handleProps, isDragging, style }) => (
+                                <Button
+                                  ref={setNodeRef}
+                                  size="small"
+                                  variant={f.id === activePromptFolderId ? 'contained' : 'text'}
+                                  onClick={() => void controller.setActivePromptFolderId(f.id)}
+                                  onContextMenu={(e) => {
+                                    e.preventDefault()
+                                    setPromptFolderMenu({ folderId: f.id, x: e.clientX, y: e.clientY, name: String(f.name || '') })
+                                  }}
+                                  sx={{
+                                    justifyContent: 'flex-start',
+                                    textTransform: 'none',
+                                    width: '100%',
+                                    opacity: isDragging ? 0.5 : 1,
+                                  }}
+                                  style={style}
+                                >
+                                  <SortHandleButton
+                                    enabled={promptFolderSortMode}
+                                    label={`拖拽排序 ${String(f.name || '收藏夹')}`}
+                                    handleRef={setHandleRef}
+                                    handleProps={handleProps}
+                                    isDragging={isDragging}
+                                    sx={{ mr: 0.5 }}
+                                  />
+                                  <Box sx={{ minWidth: 0, flex: 1, textAlign: 'left' }}>{f.name}</Box>
+                                </Button>
+                              )}
+                            </SortableItem>
+                          ))}
+                        </Stack>
+                      </SortableSection>
+                    </SortableRoot>
                   </OverlayScrollArea>
                 </Paper>
 
                 <Paper variant="outlined" sx={{ flex: 1, p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
                   <Stack direction="row" spacing={1} alignItems="center">
                     <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 1 }}>提示词</Typography>
+                    <SortModeButton
+                      enabled={promptItemSortMode}
+                      onClick={() => setPromptItemSortMode((v) => !v)}
+                      disabled={!activePrompts.length}
+                    />
                     <IconButton
                       size="small"
                       onClick={() => setAddPromptItemDialog({ open: true, text: String(state.prompt || '') })}
@@ -2009,46 +2137,59 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                     </IconButton>
                   </Stack>
                   <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }}>
-                    <Stack spacing={1} sx={{ pr: 0.5 }}>
-                      {(() => {
-                        const d = state.promptLib.data
-                        const fid = String(d?.activeFolderId || '')
-                        const folder = (d?.folders || []).find((x) => x.id === fid) || (d?.folders || [])[0]
-                        const prompts = folder?.prompts || []
-                        return prompts.map((p) => (
-                          <Paper
-                            key={p.id}
-                            variant="outlined"
-                            sx={{ p: 1, cursor: 'pointer', position: 'relative' }}
-                            onClick={() => {
-                              const text = String(p.text || '')
-                              void api.clipboard
-                                .writeText(text)
-                                .then(() => api.ui.showToast('已复制'))
-                                .catch((e: any) => api.ui.showToast(`复制失败：${String(e?.message || e)}`))
-                            }}
-                          >
-                            <IconButton
-                              size="small"
-                              onClick={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                                setPromptItemMenu({
-                                  el: e.currentTarget,
-                                  folderId: String(folder?.id || ''),
-                                  promptId: p.id,
-                                })
-                              }}
-                              aria-label="更多操作"
-                              sx={{ position: 'absolute', right: 6, top: 6, bgcolor: 'rgba(250,249,245,0.92)' }}
-                            >
-                              <MoreHorizRoundedIcon fontSize="inherit" />
-                            </IconButton>
-                            <Typography sx={{ fontSize: 13, whiteSpace: 'pre-wrap', pr: 4 }}>{p.text}</Typography>
-                          </Paper>
-                        ))
-                      })()}
-                    </Stack>
+                    <SortableRoot onMove={handlePromptItemMove}>
+                      <SortableSection items={activePromptIds}>
+                        <Stack spacing={1} sx={{ pr: 0.5 }}>
+                          {activePrompts.map((p) => (
+                            <SortableItem key={p.id} id={p.id} disabled={!promptItemSortMode}>
+                              {({ setNodeRef, setHandleRef, handleProps, isDragging, style }) => (
+                                <Paper
+                                  ref={setNodeRef}
+                                  variant="outlined"
+                                  sx={{ p: 1, cursor: 'pointer', position: 'relative', opacity: isDragging ? 0.5 : 1 }}
+                                  style={style}
+                                  onClick={() => {
+                                    const text = String(p.text || '')
+                                    void api.clipboard
+                                      .writeText(text)
+                                      .then(() => api.ui.showToast('已复制'))
+                                      .catch((e: any) => api.ui.showToast(`复制失败：${String(e?.message || e)}`))
+                                  }}
+                                >
+                                  <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.5, pr: 4 }}>
+                                    <SortHandleButton
+                                      enabled={promptItemSortMode}
+                                      label="拖拽排序提示词"
+                                      handleRef={setHandleRef}
+                                      handleProps={handleProps}
+                                      isDragging={isDragging}
+                                      sx={{ mt: -0.25, ml: -0.5 }}
+                                    />
+                                    <Typography sx={{ fontSize: 13, whiteSpace: 'pre-wrap', flex: 1 }}>{p.text}</Typography>
+                                  </Box>
+                                  <IconButton
+                                    size="small"
+                                    onClick={(e) => {
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                      setPromptItemMenu({
+                                        el: e.currentTarget,
+                                        folderId: String(activePromptFolder?.id || ''),
+                                        promptId: p.id,
+                                      })
+                                    }}
+                                    aria-label="更多操作"
+                                    sx={{ position: 'absolute', right: 6, top: 6, bgcolor: 'rgba(250,249,245,0.92)' }}
+                                  >
+                                    <MoreHorizRoundedIcon fontSize="inherit" />
+                                  </IconButton>
+                                </Paper>
+                              )}
+                            </SortableItem>
+                          ))}
+                        </Stack>
+                      </SortableSection>
+                    </SortableRoot>
                   </OverlayScrollArea>
                 </Paper>
               </Box>
@@ -2462,6 +2603,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 <Paper variant="outlined" sx={{ width: 260, flexShrink: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
                   <Stack direction="row" spacing={1} alignItems="center" sx={{ px: 1, py: 0.75 }}>
                     <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 1 }}>收藏夹</Typography>
+                    <SortModeButton enabled={refFolderSortMode} onClick={() => setRefFolderSortMode((v) => !v)} />
                     <IconButton
                       size="small"
                       onClick={() => setAddRefFolderDialog({ open: true, parentId: null, name: '' })}
@@ -2478,124 +2620,168 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                         <ListItemText primary="全部" secondary={state.refLibrary.paths.length ? `${state.refLibrary.paths.length} 张` : undefined} />
                       </ListItemButton>
                       <Divider sx={{ my: 0.5 }} />
-
-                      {(refChildrenByParent.get('') || []).map((fid) => {
-                        const renderNode = (id: string, depth: number): React.ReactNode => {
-                          const f: any = refFolderById.get(id)
-                          if (!f) return null
-                          const children = refChildrenByParent.get(id) || []
-                          const expanded = refFolderExpanded[id] !== false
-                          const selected = refActiveView.kind === 'folder' && String(refActiveView.folderId || '').trim() === id
-                          const count = refFolderImageCountById[id] || 0
-                          return (
-                            <React.Fragment key={id}>
-                              <ListItemButton
-                                selected={selected}
-                                sx={{ pl: 1 + depth * 2 }}
-                                onClick={() => void controller.setRefLibraryView({ kind: 'folder', folderId: id })}
-                                onContextMenu={(e) => {
-                                  e.preventDefault()
-                                  setRefFolderMenu({ folderId: id, x: e.clientX, y: e.clientY, name: String(f.name || '') })
-                                }}
-                              >
-                                <ListItemIcon sx={{ minWidth: 28 }}>
+                      <SortableRoot onMove={handleRefFolderMove}>
+                        <SortableSection items={refRootFolderIds}>
+                          {refRootFolderIds.map((fid) => {
+                            const renderNode = (id: string, depth: number): React.ReactNode => {
+                              const f: any = refFolderById.get(id)
+                              if (!f) return null
+                              const children = refChildrenByParent.get(id) || []
+                              const expanded = refFolderExpanded[id] !== false
+                              const selected = refActiveView.kind === 'folder' && String(refActiveView.folderId || '').trim() === id
+                              const count = refFolderImageCountById[id] || 0
+                              const siblingIds = refChildrenByParent.get(String(f.parentId || '')) || []
+                              return (
+                                <React.Fragment key={id}>
+                                  <SortableSection items={siblingIds}>
+                                    <SortableItem id={id} disabled={!refFolderSortMode}>
+                                      {({ setNodeRef, setHandleRef, handleProps, isDragging, style }) => (
+                                        <ListItemButton
+                                          ref={setNodeRef}
+                                          selected={selected}
+                                          sx={{ pl: 1 + depth * 2, opacity: isDragging ? 0.5 : 1 }}
+                                          style={style}
+                                          onClick={() => void controller.setRefLibraryView({ kind: 'folder', folderId: id })}
+                                          onContextMenu={(e) => {
+                                            e.preventDefault()
+                                            setRefFolderMenu({ folderId: id, x: e.clientX, y: e.clientY, name: String(f.name || '') })
+                                          }}
+                                        >
+                                          <ListItemIcon sx={{ minWidth: 28 }}>
+                                            {children.length ? (
+                                              <IconButton
+                                                size="small"
+                                                onClick={(e) => {
+                                                  e.preventDefault()
+                                                  e.stopPropagation()
+                                                  setRefFolderExpanded((m) => ({ ...m, [id]: !(m[id] !== false) }))
+                                                }}
+                                                aria-label={expanded ? '收起' : '展开'}
+                                              >
+                                                {expanded ? <ExpandMoreRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
+                                              </IconButton>
+                                            ) : (
+                                              <FolderOpenRoundedIcon fontSize="small" />
+                                            )}
+                                          </ListItemIcon>
+                                          <ListItemText primary={String(f.name || '收藏夹')} secondary={count ? `${count} 张` : undefined} />
+                                          <SortHandleButton
+                                            enabled={refFolderSortMode}
+                                            label="拖拽排序收藏夹"
+                                            handleRef={setHandleRef}
+                                            handleProps={handleProps}
+                                            isDragging={isDragging}
+                                          />
+                                        </ListItemButton>
+                                      )}
+                                    </SortableItem>
+                                  </SortableSection>
                                   {children.length ? (
-                                    <IconButton
-                                      size="small"
-                                      onClick={(e) => {
-                                        e.preventDefault()
-                                        e.stopPropagation()
-                                        setRefFolderExpanded((m) => ({ ...m, [id]: !(m[id] !== false) }))
-                                      }}
-                                      aria-label={expanded ? '收起' : '展开'}
-                                    >
-                                      {expanded ? <ExpandMoreRoundedIcon fontSize="small" /> : <ChevronRightRoundedIcon fontSize="small" />}
-                                    </IconButton>
-                                  ) : (
-                                    <FolderOpenRoundedIcon fontSize="small" />
-                                  )}
-                                </ListItemIcon>
-                                <ListItemText primary={String(f.name || '收藏夹')} secondary={count ? `${count} 张` : undefined} />
-                              </ListItemButton>
-                              {children.length ? (
-                                <Collapse in={expanded} timeout="auto" unmountOnExit>
-                                  {children.map((cid) => renderNode(cid, depth + 1))}
-                                </Collapse>
-                              ) : null}
-                            </React.Fragment>
-                          )
-                        }
-                        return renderNode(fid, 0)
-                      })}
+                                    <Collapse in={expanded} timeout="auto" unmountOnExit>
+                                      {children.map((cid) => renderNode(cid, depth + 1))}
+                                    </Collapse>
+                                  ) : null}
+                                </React.Fragment>
+                              )
+                            }
+                            return renderNode(fid, 0)
+                          })}
+                        </SortableSection>
+                      </SortableRoot>
                     </List>
                   </OverlayScrollArea>
                 </Paper>
 
                 <OverlayScrollArea sx={{ flex: 1, minWidth: 0 }} scrollRef={refLibraryScrollRef}>
+                  {refActiveView.kind === 'folder' ? (
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                      <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 1 }}>当前收藏夹条目</Typography>
+                      <SortModeButton
+                        enabled={refItemSortMode}
+                        onClick={() => setRefItemSortMode((v) => !v)}
+                        disabled={!refVisiblePathsAll.length}
+                      />
+                    </Stack>
+                  ) : null}
                   {refVisiblePathsAll.length ? (
-                    <Box
-                      sx={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-                        gap: 1,
-                      }}
-                    >
-                      {refVisiblePathsAll.slice(0, refLibraryLimit).map((p) => {
+                    <SortableRoot onMove={handleRefItemMove}>
+                      <SortableSection items={refVisiblePathsAll.slice(0, refLibraryLimit)} strategy={rectSortingStrategy}>
+                        <Box
+                          sx={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                            gap: 1,
+                          }}
+                        >
+                          {refVisiblePathsAll.slice(0, refLibraryLimit).map((p) => {
                         const slot = state.refLibrary.itemsByPath[p] || { dataUrl: '', loading: false, error: '' }
                         const name = p.split(/[\\/]/).pop() || p
                         const selected = refMultiMode ? refSelectedSet.has(p) : refLibrarySelectedPathSet.has(p)
                         const interactive = refMultiMode || selected || !!slot.dataUrl
+                        const allowItemReorder = refActiveView.kind === 'folder' && refItemSortMode
                         return (
-                          <Paper
-                            key={p}
-                            variant="outlined"
-                            sx={{
-                              p: 1,
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: 1,
-                              ...(selected
-                                ? {
-                                    borderColor: 'primary.main',
-                                    boxShadow: '0 0 0 1px rgba(60,120,200,0.16) inset',
-                                  }
-                                : null),
-                            }}
-                          >
-                            <Box
+                          <SortableItem key={p} id={p} disabled={!allowItemReorder}>
+                            {({ setNodeRef, setHandleRef, handleProps, isDragging, style }) => (
+                            <Paper
+                              ref={setNodeRef}
+                              variant="outlined"
                               sx={{
-                                position: 'relative',
-                                height: 96,
-                                borderRadius: 2,
-                                bgcolor: '#fff',
+                                p: 1,
                                 display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                overflow: 'hidden',
-                                cursor: interactive ? 'pointer' : 'default',
+                                flexDirection: 'column',
+                                gap: 1,
+                                opacity: isDragging ? 0.5 : 1,
+                                ...(selected
+                                  ? {
+                                      borderColor: 'primary.main',
+                                      boxShadow: '0 0 0 1px rgba(60,120,200,0.16) inset',
+                                    }
+                                  : null),
                               }}
-                              role={interactive ? 'button' : undefined}
-                              tabIndex={interactive ? 0 : undefined}
-                              onClick={(e) => {
-                                // Ctrl + 点击：预览（不添加到参考图），允许未加载时进入预览。
-                                if (e.ctrlKey) {
-                                  e.preventDefault()
-                                  e.stopPropagation()
-                                  openRefLibraryLightbox(p)
-                                  return
-                                }
-                                if (refMultiMode) return toggleRefSelected(p)
-                                if (!selected && !slot.dataUrl) return
-                                void controller.addRefImageFromLibrary(p)
-                              }}
-                              onKeyDown={(e) => {
-                                if (e.key !== 'Enter' && e.key !== ' ') return
-                                e.preventDefault()
-                                if (refMultiMode) return toggleRefSelected(p)
-                                if (!selected && !slot.dataUrl) return
-                                void controller.addRefImageFromLibrary(p)
-                              }}
+                              style={style}
                             >
+                              <Box
+                                sx={{
+                                  position: 'relative',
+                                  height: 96,
+                                  borderRadius: 2,
+                                  bgcolor: '#fff',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  overflow: 'hidden',
+                                  cursor: interactive ? 'pointer' : 'default',
+                                }}
+                                role={interactive ? 'button' : undefined}
+                                tabIndex={interactive ? 0 : undefined}
+                                onClick={(e) => {
+                                  // Ctrl + 点击：预览（不添加到参考图），允许未加载时进入预览。
+                                  if (e.ctrlKey) {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                    openRefLibraryLightbox(p)
+                                    return
+                                  }
+                                  if (refMultiMode) return toggleRefSelected(p)
+                                  if (!selected && !slot.dataUrl) return
+                                  void controller.addRefImageFromLibrary(p)
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key !== 'Enter' && e.key !== ' ') return
+                                  e.preventDefault()
+                                  if (refMultiMode) return toggleRefSelected(p)
+                                  if (!selected && !slot.dataUrl) return
+                                  void controller.addRefImageFromLibrary(p)
+                                }}
+                              >
+                              <SortHandleButton
+                                enabled={allowItemReorder}
+                                label="拖拽排序图片"
+                                handleRef={setHandleRef}
+                                handleProps={handleProps}
+                                isDragging={isDragging}
+                                sx={{ position: 'absolute', left: refMultiMode ? 28 : 2, top: 2, zIndex: 2, bgcolor: 'rgba(250,249,245,0.92)' }}
+                              />
                               {refMultiMode ? (
                                 <Checkbox
                                   size="small"
@@ -2651,13 +2837,17 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                               )}
                             </Box>
 
-                            <Typography sx={{ fontSize: 12 }} noWrap title={name}>
-                              {name}
-                            </Typography>
-                          </Paper>
+                              <Typography sx={{ fontSize: 12 }} noWrap title={name}>
+                                {name}
+                              </Typography>
+                            </Paper>
+                            )}
+                          </SortableItem>
                         )
-                      })}
-                    </Box>
+                          })}
+                        </Box>
+                      </SortableSection>
+                    </SortableRoot>
                   ) : (
                     <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
                       {state.refLibrary.paths.length
