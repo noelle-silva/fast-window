@@ -1555,7 +1555,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
           ) : null}
 
           {settingsTab === 'plugin' ? (
-            <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }} contentSx={{ pr: 0.5 }}>
+            <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }} contentSx={{ pr: 1.5, pb: 0.5, boxSizing: 'border-box' }}>
             <Stack spacing={2}>
               <FormControlLabel
                 control={

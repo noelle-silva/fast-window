@@ -126,7 +126,7 @@ export function ProviderSettingsPanel(props: ProviderSettingsPanelProps) {
           <SortModeButton enabled={sortMode} onClick={() => onSortModeChange(!sortMode)} disabled={providerIds.length <= 1} />
         </Stack>
 
-        <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }}>
+        <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }} contentSx={{ pr: 1.5, pb: 0.5, boxSizing: 'border-box' }}>
           <SortableRoot onMove={handleProviderMove}>
             <SortableSection items={providerIds}>
               <Stack spacing={0.5} sx={{ pr: 0.5 }}>
@@ -221,8 +221,8 @@ export function ProviderSettingsPanel(props: ProviderSettingsPanelProps) {
         </Menu>
       </Paper>
 
-      <Paper variant="outlined" sx={{ flex: 1, minWidth: 0, p: 1.5, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
-        <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }} contentSx={{ pr: 0.5 }}>
+      <Paper variant="outlined" sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+        <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }} contentSx={{ p: 1.5, pr: 2.5, pb: 1, boxSizing: 'border-box' }}>
           {!draft ? (
             <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>请选择一个供应商。</Typography>
           ) : (
