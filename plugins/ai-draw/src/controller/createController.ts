@@ -179,6 +179,7 @@ export type AiDrawController = {
   setActiveProviderId: (providerId: string) => Promise<void>
   addProvider: () => Promise<void>
   deleteProvider: (providerId: string) => Promise<void>
+  moveProvider: (providerId: string, targetProviderId: string, position: SortDropPosition) => Promise<void>
   saveProvider: (providerId: string, next: Partial<AiDrawProvider> & { modelsText?: string }) => Promise<void>
 
   loadPromptLibrary: () => Promise<void>
@@ -2086,6 +2087,18 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     notify()
   }
 
+  async function moveProvider(providerId: string, targetProviderId: string, position: SortDropPosition) {
+    if (!state.data) return
+    const pid = String(providerId || '').trim()
+    const targetId = String(targetProviderId || '').trim()
+    if (!pid || !targetId || pid === targetId) return
+    const next = moveArrayItemRelative(state.data.providers, (item) => item.id, pid, targetId, position)
+    if (next === state.data.providers) return
+    state.data.providers = next
+    await saveSettings().catch(() => {})
+    notify()
+  }
+
   async function saveProvider(providerId: string, next: Partial<AiDrawProvider> & { modelsText?: string }) {
     if (!state.data) return
     const pid = String(providerId || '').trim()
@@ -2338,6 +2351,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     setActiveProviderId,
     addProvider,
     deleteProvider,
+    moveProvider,
     saveProvider,
 
     loadPromptLibrary,

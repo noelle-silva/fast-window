@@ -68,6 +68,7 @@ import { createClaudeTheme } from './theme'
 import { OverlayScrollArea } from './components/OverlayScrollArea'
 import { useLazyListLimit } from './hooks/useLazyListLimit'
 import { ImageLightboxDialog } from './components/ImageLightboxDialog'
+import { ProviderSettingsPanel, createProviderDraft, type ProviderDraft } from './components/ProviderSettingsPanel'
 import { SortHandleButton, SortModeButton } from './components/SortControls'
 import {
   SortableItem,
@@ -327,6 +328,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const [imageDetailAnchorEl, setImageDetailAnchorEl] = React.useState<HTMLElement | null>(null)
   const [normalMoreAnchorEl, setNormalMoreAnchorEl] = React.useState<HTMLElement | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false)
+  const [providerSortMode, setProviderSortMode] = React.useState(false)
   const [promptFolderSortMode, setPromptFolderSortMode] = React.useState(false)
   const [promptItemSortMode, setPromptItemSortMode] = React.useState(false)
   const [refFolderSortMode, setRefFolderSortMode] = React.useState(false)
@@ -388,7 +390,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const [promptHistoryQuery, setPromptHistoryQuery] = React.useState('')
   const [imageGalleryQuery, setImageGalleryQuery] = React.useState('')
 
-  const [providerDraft, setProviderDraft] = React.useState<any>(null)
+  const [providerDraft, setProviderDraft] = React.useState<ProviderDraft | null>(null)
   const [pluginDraft, setPluginDraft] = React.useState<any>(null)
   const [debugDialogOpen, setDebugDialogOpen] = React.useState(false)
 
@@ -396,19 +398,11 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
 
   React.useEffect(() => {
     if (!settingsOpen) return
-    if (provider) {
-      setProviderDraft({
-        name: String(provider.name || ''),
-        baseUrl: String(provider.baseUrl || ''),
-        apiKey: String(provider.apiKey || ''),
-        protocol: String(provider.protocol || 'images') === 'chat' ? 'chat' : 'images',
-        modelsText: Array.isArray(provider.models) ? provider.models.join('\n') : '',
-        model: String(provider.model || ''),
-        customModel: String((provider as any).customModel || ''),
-        size: String(provider.size || '1024x1024'),
-        chatSystemPrompt: String((provider as any).chatSystemPrompt || ''),
-      })
-    }
+    setProviderDraft(createProviderDraft(provider))
+  }, [settingsOpen, provider?.id])
+
+  React.useEffect(() => {
+    if (!settingsOpen) return
     if (data) {
       setPluginDraft({
         autoSave: !!data.autoSave,
@@ -418,7 +412,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
         requestTimeoutSec: String(data.requestTimeoutSec ?? ''),
       })
     }
-  }, [settingsOpen, provider?.id, data?.version])
+  }, [settingsOpen, data?.autoSave, data?.shrinkRefImages, data?.debugMode, data?.promptHistoryLimit, data?.requestTimeoutSec])
 
   React.useEffect(() => {
     if (!refLibraryOpen) return
@@ -528,6 +522,11 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   }, [refLibraryOpen])
 
   React.useEffect(() => {
+    if (settingsOpen && settingsTab === 'provider') return
+    setProviderSortMode(false)
+  }, [settingsOpen, settingsTab])
+
+  React.useEffect(() => {
     setPromptItemSortMode(false)
   }, [activePromptFolder?.id])
 
@@ -617,6 +616,13 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
       void controller.moveRefLibraryItemInFolder(folderId, activeId, overId, position)
     },
     [controller, refActiveView, refVisiblePathsAll],
+  )
+
+  const handleProviderMove = React.useCallback(
+    (activeId: string, overId: string, position: 'before' | 'after') => {
+      void controller.moveProvider(activeId, overId, position)
+    },
+    [controller],
   )
 
   const uiMode: UiMode = String(state.uiMode || UI_MODE_NORMAL) === UI_MODE_LOCAL_EDIT ? UI_MODE_LOCAL_EDIT : UI_MODE_NORMAL
@@ -1506,147 +1512,25 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
           </Tabs>
 
           {settingsTab === 'provider' ? (
-            <Stack spacing={2}>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <FormControl size="small" sx={{ minWidth: 220 }}>
-                  <InputLabel id="ai-draw-provider2-label">当前供应商</InputLabel>
-                  <Select
-                    labelId="ai-draw-provider2-label"
-                    label="当前供应商"
-                    value={String(data?.activeProviderId || '')}
-                    onChange={(e) => void controller.setActiveProviderId(String(e.target.value || ''))}
-                  >
-                    {providers.map((p) => (
-                      <MenuItem key={p.id} value={p.id}>
-                        {p.name || '供应商'}
-                      </MenuItem>
-                    ))}
-                </Select>
-              </FormControl>
-
-              <Button startIcon={<AddRoundedIcon />} onClick={() => void controller.addProvider()} variant="outlined">
-                新增
-              </Button>
-
-              <Button
-                startIcon={<DeleteRoundedIcon />}
-                color="error"
-                onClick={() =>
-                  setProviderDeleteConfirm({
-                    open: true,
-                    providerId: String(provider?.id || ''),
-                    name: String((provider as any)?.name || ''),
-                  })
-                }
-                variant="outlined"
-                disabled={!provider || providers.length <= 1}
-              >
-                删除
-              </Button>
-            </Stack>
-
-              <Stack direction="row" spacing={2}>
-                <TextField
-                  fullWidth
-                  size="small"
-                  label="名称"
-                  value={providerDraft?.name ?? ''}
-                  onChange={(e) => setProviderDraft((d: any) => ({ ...(d || {}), name: e.target.value }))}
-                />
-                <FormControl size="small" sx={{ width: 200 }}>
-                  <InputLabel id="ai-draw-protocol-label">协议</InputLabel>
-                  <Select
-                    labelId="ai-draw-protocol-label"
-                    label="协议"
-                    value={providerDraft?.protocol ?? 'images'}
-                    onChange={(e) => setProviderDraft((d: any) => ({ ...(d || {}), protocol: String(e.target.value || 'images') }))}
-                  >
-                    <MenuItem value="images">images</MenuItem>
-                    <MenuItem value="chat">chat</MenuItem>
-                  </Select>
-                </FormControl>
-              </Stack>
-
-              <TextField
-                size="small"
-                label="Base URL"
-                value={providerDraft?.baseUrl ?? ''}
-                onChange={(e) => setProviderDraft((d: any) => ({ ...(d || {}), baseUrl: e.target.value }))}
-                placeholder="https://api.openai.com/v1"
-              />
-              <TextField
-                size="small"
-                label="API Key"
-                value={providerDraft?.apiKey ?? ''}
-                onChange={(e) => setProviderDraft((d: any) => ({ ...(d || {}), apiKey: e.target.value }))}
-                type="password"
-              />
-
-              <Stack direction="row" spacing={2}>
-                <TextField
-                  size="small"
-                  label="尺寸"
-                  select
-                  value={providerDraft?.size ?? '1024x1024'}
-                  onChange={(e) => setProviderDraft((d: any) => ({ ...(d || {}), size: String(e.target.value || '1024x1024') }))}
-                  sx={{ width: 220 }}
-                >
-                  {['1024x1024', '1024x1536', '1536x1024', '512x512'].map((x) => (
-                    <MenuItem key={x} value={x}>
-                      {x}
-                    </MenuItem>
-                  ))}
-                </TextField>
-
-                <TextField
-                  size="small"
-                  label="自定义模型名（当选择自定义时生效）"
-                  value={providerDraft?.customModel ?? ''}
-                  onChange={(e) => setProviderDraft((d: any) => ({ ...(d || {}), customModel: e.target.value }))}
-                  sx={{ flex: 1 }}
-                />
-              </Stack>
-
-              <TextField
-                size="small"
-                label="模型列表（每行一个）"
-                value={providerDraft?.modelsText ?? ''}
-                onChange={(e) => setProviderDraft((d: any) => ({ ...(d || {}), modelsText: e.target.value }))}
-                multiline
-                minRows={4}
-                placeholder={'例如：\n' + 'gpt-image-1\n' + 'dall-e-3'}
-              />
-
-              <FormControl size="small">
-                <InputLabel id="ai-draw-provider-model2-label">当前模型</InputLabel>
-                <Select
-                  labelId="ai-draw-provider-model2-label"
-                  label="当前模型"
-                  value={providerDraft?.model ?? ''}
-                  onChange={(e) => setProviderDraft((d: any) => ({ ...(d || {}), model: String(e.target.value || '') }))}
-                >
-                  {String(providerDraft?.modelsText || '')
-                    .split(/\r?\n/g)
-                    .map((x: any) => String(x || '').trim())
-                    .filter(Boolean)
-                    .map((m: string) => (
-                      <MenuItem key={m} value={m}>
-                        {m}
-                      </MenuItem>
-                    ))}
-                  <MenuItem value="__custom__">自定义…</MenuItem>
-                </Select>
-              </FormControl>
-
-              <TextField
-                size="small"
-                label="Chat System Prompt（可选）"
-                value={providerDraft?.chatSystemPrompt ?? ''}
-                onChange={(e) => setProviderDraft((d: any) => ({ ...(d || {}), chatSystemPrompt: e.target.value }))}
-                multiline
-                minRows={2}
-              />
-            </Stack>
+            <ProviderSettingsPanel
+              providers={providers}
+              activeProviderId={String(data?.activeProviderId || '')}
+              draft={providerDraft}
+              sortMode={providerSortMode}
+              onSortModeChange={setProviderSortMode}
+              onSelectProvider={(providerId) => void controller.setActiveProviderId(providerId)}
+              onMoveProvider={handleProviderMove}
+              onAddProvider={() => void controller.addProvider()}
+              onDeleteProvider={() =>
+                setProviderDeleteConfirm({
+                  open: true,
+                  providerId: String(provider?.id || ''),
+                  name: String(provider?.name || ''),
+                })
+              }
+              deleteDisabled={!provider || providers.length <= 1}
+              onDraftChange={setProviderDraft}
+            />
           ) : null}
 
           {settingsTab === 'plugin' ? (
