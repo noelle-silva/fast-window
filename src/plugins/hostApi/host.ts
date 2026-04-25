@@ -2,6 +2,7 @@ import { PluginBridgeError } from '../pluginBridge'
 import type { PluginMethodRegistry } from './types'
 import { requireAnyCapability } from './capability'
 import { hostActivatePlugin, hostToast } from '../../host/hostPrimitives'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 
 export const hostMethods: PluginMethodRegistry = {
   'host.back': {
@@ -36,6 +37,14 @@ export const hostMethods: PluginMethodRegistry = {
       const pluginId = String(args?.[0] ?? '').trim()
       if (!pluginId) throw new PluginBridgeError('BAD_REQUEST', 'pluginId is required')
       await hostActivatePlugin(pluginId)
+      return null
+    },
+  },
+  'host.startDragging': {
+    handler: async (ctx, _args, extra) => {
+      if (extra.runtime !== 'ui') throw new PluginBridgeError('BAD_REQUEST', 'host.startDragging is only available in UI runtime')
+      requireAnyCapability(ctx, ['cap:host.startDragging', 'cap:host.*'])
+      await getCurrentWindow().startDragging()
       return null
     },
   },

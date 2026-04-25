@@ -4,6 +4,7 @@ export const V3_METHOD = {
     getInfo: 'host.getInfo',
     toast: 'host.toast',
     activatePlugin: 'host.activatePlugin',
+    startDragging: 'host.startDragging',
   },
   process: {
     openExternalUrl: 'process.openExternalUrl',

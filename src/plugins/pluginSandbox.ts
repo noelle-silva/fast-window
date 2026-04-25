@@ -293,6 +293,7 @@ export function buildPluginSdkCode(opts: {
       getInfo: () => call(${JSON.stringify(v3.host.getInfo)}, []),
       toast: (message) => call(${JSON.stringify(v3.host.toast)}, [message]),
       activatePlugin: (targetPluginId) => call(${JSON.stringify(v3.host.activatePlugin)}, [targetPluginId]),
+      startDragging: () => call(${JSON.stringify(v3.host.startDragging)}, []),
     };
     fastWindow.process = {
       openExternalUrl: (req) => call(${JSON.stringify(v3.process.openExternalUrl)}, [req || {}]),
