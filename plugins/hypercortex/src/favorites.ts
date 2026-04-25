@@ -13,6 +13,7 @@ export type GridLayout = {
 export type FavoriteFolder = {
   id: string
   title: string
+  description: string
   createdAtMs: number
   updatedAtMs: number
 }
@@ -62,6 +63,7 @@ function createFreshFavoritesDocV1(nowMs: number): HyperCortexFavoritesDocV1 {
   const root: FavoriteFolder = {
     id: 'root',
     title: '收藏夹',
+    description: '',
     createdAtMs: nowMs,
     updatedAtMs: nowMs,
   }
@@ -87,9 +89,10 @@ function normalizeLayout(raw: any): GridLayout {
 
 function normalizeFolder(nowMs: number, id: string, raw: any): FavoriteFolder {
   const title = String(raw?.title ?? '').trim() || '未命名收藏夹'
+  const description = String(raw?.description ?? '').trim()
   const createdAtMs = Number.isFinite(raw?.createdAtMs) ? Math.max(0, Math.floor(raw.createdAtMs)) : nowMs
   const updatedAtMs = Number.isFinite(raw?.updatedAtMs) ? Math.max(0, Math.floor(raw.updatedAtMs)) : createdAtMs
-  return { id, title, createdAtMs, updatedAtMs }
+  return { id, title, description, createdAtMs, updatedAtMs }
 }
 
 function normalizeKind(raw: any): FavoriteItemRef['kind'] | null {
@@ -135,6 +138,7 @@ function normalizeFavoritesDocV1(nowMs: number, rawDoc: any): { doc: HyperCortex
     }
     nextFolders[id] = normalizeFolder(nowMs, id, value)
     if (value?.id !== id) changed = true
+    if (typeof value?.description !== 'string') changed = true
   }
 
   // root 强制存在，且 rootFolderId 强制为 'root'
@@ -300,12 +304,14 @@ export function getFolderRefs(doc: HyperCortexFavoritesDocV1, folderId: string):
 export function createFolder(
   doc: HyperCortexFavoritesDocV1,
   title?: string,
+  description?: string,
 ): { doc: HyperCortexFavoritesDocV1; folder: FavoriteFolder } {
   const nowMs = Date.now()
   const id = nowId()
   const folder: FavoriteFolder = {
     id,
     title: String(title ?? '').trim() || '新收藏夹',
+    description: String(description ?? '').trim(),
     createdAtMs: nowMs,
     updatedAtMs: nowMs,
   }
@@ -318,16 +324,26 @@ export function createFolder(
 }
 
 export function renameFolder(doc: HyperCortexFavoritesDocV1, folderId: string, title: string): HyperCortexFavoritesDocV1 | null {
+  return updateFolderInfo(doc, folderId, { title })
+}
+
+export function updateFolderInfo(
+  doc: HyperCortexFavoritesDocV1,
+  folderId: string,
+  patch: { title: string; description?: string },
+): HyperCortexFavoritesDocV1 | null {
   const existing = doc.folders[folderId]
   if (!existing) return null
-  const nextTitle = String(title ?? '').trim()
+  const nextTitle = String(patch.title ?? '').trim()
   if (!nextTitle) return null
+  const nextDescription = String(patch.description ?? existing.description ?? '').trim()
+  if (existing.title === nextTitle && (existing.description || '') === nextDescription) return doc
   const nowMs = Date.now()
   return {
     ...doc,
     folders: {
       ...doc.folders,
-      [folderId]: { ...existing, title: nextTitle, updatedAtMs: nowMs },
+      [folderId]: { ...existing, title: nextTitle, description: nextDescription, updatedAtMs: nowMs },
     },
   }
 }

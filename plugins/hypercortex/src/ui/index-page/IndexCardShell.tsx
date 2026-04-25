@@ -2,6 +2,7 @@ import * as React from 'react'
 import { Box, IconButton, ListItemIcon, ListItemText, Menu, MenuItem, Tooltip } from '@mui/material'
 import DeleteForeverRoundedIcon from '@mui/icons-material/DeleteForeverRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
+import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 
 type Props = {
@@ -10,12 +11,13 @@ type Props = {
   resizing?: boolean
   onRemove?: () => void
   onDeleteEntity?: () => void
+  onEditEntity?: () => void
   onStartResize?: (e: React.PointerEvent) => void
   children: React.ReactNode
 }
 
 export function IndexCardShell(props: Props): React.ReactNode {
-  const { editMode, dragging, resizing, onRemove, onDeleteEntity, onStartResize, children } = props
+  const { editMode, dragging, resizing, onRemove, onDeleteEntity, onEditEntity, onStartResize, children } = props
   const [menuAnchorEl, setMenuAnchorEl] = React.useState<HTMLElement | null>(null)
   const menuOpen = Boolean(menuAnchorEl)
 
@@ -64,7 +66,7 @@ export function IndexCardShell(props: Props): React.ReactNode {
               zIndex: 4,
             }}
           >
-            {onRemove || onDeleteEntity ? (
+            {onRemove || onDeleteEntity || onEditEntity ? (
               <Tooltip title="更多操作">
                 <IconButton
                   size="small"
@@ -161,6 +163,20 @@ export function IndexCardShell(props: Props): React.ReactNode {
             onPointerDown: e => e.stopPropagation(),
           }}
         >
+          {onEditEntity ? (
+            <MenuItem
+              onClick={e => {
+                e.stopPropagation()
+                closeMenu()
+                onEditEntity()
+              }}
+            >
+              <ListItemIcon>
+                <EditRoundedIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText primary="编辑信息" />
+            </MenuItem>
+          ) : null}
           {onRemove ? (
             <MenuItem
               onClick={e => {

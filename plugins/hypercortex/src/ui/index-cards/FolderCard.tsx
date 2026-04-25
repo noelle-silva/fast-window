@@ -2,13 +2,13 @@ import * as React from 'react'
 import { Box, Typography } from '@mui/material'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
 import { CardFrame } from './CardFrame'
-import { formatCountLabel, formatTimeAgo } from './cardMeta'
+import { formatCountLabel } from './cardMeta'
 
 type Props = {
   folderId: string
   title: string
+  description?: string
   refCount: number
-  updatedAtMs?: number
   disabled?: boolean
   compact?: boolean
   onClick: (folderId: string) => void
@@ -34,8 +34,9 @@ function folderTint(folderId: string): { bg: string; fg: string } {
 }
 
 export function FolderCard(props: Props): React.ReactNode {
-  const { folderId, title, refCount, updatedAtMs, disabled, compact = false, onClick } = props
+  const { folderId, title, description, refCount, disabled, compact = false, onClick } = props
   const tint = folderTint(folderId)
+  const desc = String(description || '').trim()
 
   return (
     <CardFrame
@@ -43,7 +44,7 @@ export function FolderCard(props: Props): React.ReactNode {
       accentSoft={tint.bg}
       icon={<FolderRoundedIcon fontSize="small" />}
       title={title || '未命名收藏夹'}
-      subtitle={updatedAtMs ? `最近更新：${formatTimeAgo(updatedAtMs)}` : '可继续整理内容'}
+      subtitle={desc || '收藏夹说明'}
       meta="收藏夹"
       onClick={disabled ? undefined : () => onClick(folderId)}
     >

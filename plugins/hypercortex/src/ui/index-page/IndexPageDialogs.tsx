@@ -3,7 +3,7 @@ import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, TextFie
 import type { AssetEntry } from '../../assetTypes'
 import type { NoteMeta } from '../../core'
 import type { FavoriteFolder, HyperCortexFavoritesDocV1 } from '../../favorites'
-import type { AddKind, DeleteEntityTarget } from './types'
+import type { AddKind, DeleteEntityTarget, EditFolderTarget } from './types'
 import { entityDeleteHelperText, folderDeleteHelperText, folderTitle } from './helpers'
 
 type Props = {
@@ -23,6 +23,9 @@ type Props = {
   assetLookupKeyCount: number
   deleteFolderConfirmId: string
   deleteEntityTarget: DeleteEntityTarget | null
+  editFolderTarget: EditFolderTarget | null
+  editFolderTitleDraft: string
+  editFolderDescriptionDraft: string
   onCloseAddDialog: () => void
   onFolderTitleDraftChange: (value: string) => void
   onNoteIdDraftChange: (value: string) => void
@@ -38,6 +41,10 @@ type Props = {
   onConfirmDeleteFolder: () => void
   onCloseDeleteEntity: () => void
   onConfirmDeleteEntity: () => void
+  onCloseEditFolder: () => void
+  onEditFolderTitleDraftChange: (value: string) => void
+  onEditFolderDescriptionDraftChange: (value: string) => void
+  onConfirmEditFolder: () => void
 }
 
 export function IndexPageDialogs(props: Props): React.ReactNode {
@@ -58,6 +65,9 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
     assetLookupKeyCount,
     deleteFolderConfirmId,
     deleteEntityTarget,
+    editFolderTarget,
+    editFolderTitleDraft,
+    editFolderDescriptionDraft,
     onCloseAddDialog,
     onFolderTitleDraftChange,
     onNoteIdDraftChange,
@@ -73,6 +83,10 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
     onConfirmDeleteFolder,
     onCloseDeleteEntity,
     onConfirmDeleteEntity,
+    onCloseEditFolder,
+    onEditFolderTitleDraftChange,
+    onEditFolderDescriptionDraftChange,
+    onConfirmEditFolder,
   } = props
 
   return (
@@ -217,6 +231,40 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
         <DialogActions>
           <Button onClick={onCloseDeleteFolder}>取消</Button>
           <Button color="error" variant="contained" onClick={onConfirmDeleteFolder}>删除实体</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!editFolderTarget} onClose={onCloseEditFolder} maxWidth="sm" fullWidth>
+        <DialogTitle>编辑收藏夹信息</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 0.5 }}>
+            <TextField
+              fullWidth
+              autoFocus
+              label="收藏夹标题"
+              value={editFolderTitleDraft}
+              onChange={e => onEditFolderTitleDraftChange(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  onConfirmEditFolder()
+                }
+              }}
+            />
+            <TextField
+              fullWidth
+              multiline
+              minRows={3}
+              label="收藏夹说明"
+              value={editFolderDescriptionDraft}
+              onChange={e => onEditFolderDescriptionDraftChange(e.target.value)}
+              placeholder="写一点这个收藏夹用来收纳什么"
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={onCloseEditFolder}>取消</Button>
+          <Button variant="contained" onClick={onConfirmEditFolder}>保存</Button>
         </DialogActions>
       </Dialog>
 

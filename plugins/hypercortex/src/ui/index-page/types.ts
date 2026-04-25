@@ -8,6 +8,12 @@ export type DeleteEntityTarget =
   | { kind: 'note'; title: string; note: NoteMeta }
   | { kind: 'asset'; title: string; asset: AssetEntry }
 
+export type EditFolderTarget = {
+  folderId: string
+  title: string
+  description: string
+}
+
 export type ResizeDraft = {
   refId: string
   w: number

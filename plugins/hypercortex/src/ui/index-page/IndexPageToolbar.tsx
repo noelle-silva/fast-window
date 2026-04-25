@@ -134,25 +134,6 @@ export function IndexPageToolbar(props: Props): React.ReactNode {
           </Button>
         </Box>
       </Box>
-
-      {editMode ? (
-        <Box
-          sx={{
-            mb: 1.25,
-            px: 1.25,
-            py: 0.9,
-            borderRadius: 3,
-            border: '1px solid rgba(25,118,210,.18)',
-            bgcolor: 'rgba(25,118,210,.06)',
-          }}
-        >
-          <Typography sx={{ fontSize: 12.5, fontWeight: 800, color: 'rgba(0,0,0,.72)' }}>布局编辑提示</Typography>
-          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)', pt: 0.35, lineHeight: 1.55 }}>
-            可拖拽卡片调整位置；拖拽右上角圆点可调整尺寸。卡片右下角“移除引用”只会从当前页面移除这张卡片，不删除目标本体；
-            “删除实体”会删除目标本体，可能影响其它页面中的引用。
-          </Typography>
-        </Box>
-      ) : null}
     </>
   )
 }
