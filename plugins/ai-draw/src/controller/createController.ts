@@ -37,8 +37,16 @@ import { formatBytes, id, isHttpBaseUrl, normalizeBatchCount, trimSlash } from '
 import { buildMultipartFormDataBytes, base64ToBytes, bytesToBase64, inferExtFromMime } from '../core/multipart'
 import { parseErrorBody, parseImageDataUrlFromHttpBodyText } from '../core/httpParse'
 import { formatAiDrawError } from '../core/errorFormat'
+import {
+  normalizeTaskHistory,
+  normalizeTaskHistoryLimit,
+  normalizeTaskHistoryStatus,
+  taskHistorySuccessFromStatus,
+  type AiDrawTaskHistoryItem,
+} from '../core/taskHistory'
 
 const STORAGE_KEY = 'settings'
+const TASK_HISTORY_KEY = 'taskHistory'
 const PROMPT_LIBRARY_KEY = 'promptLibrary'
 const REF_LIBRARY_INDEX_KEY = 'refLibraryIndex'
 const BG_SAVED_RESULTS_KEY = 'bgSavedResults'
@@ -113,6 +121,7 @@ export type AiDrawControllerState = {
   imageHistory: AiDrawImageHistoryItem[]
   imageHistoryIndex: number
   tasks: AiDrawTaskItem[]
+  taskHistory: AiDrawTaskHistoryItem[]
   promptHistory: string[]
   promptHistoryIndex: number
   promptHistoryDraft: string
@@ -163,6 +172,7 @@ export type AiDrawController = {
   generate: () => Promise<void>
   cancelTask: (taskId: string) => Promise<void>
   cancelAllTasks: () => Promise<void>
+  clearTaskHistory: () => Promise<void>
 
   refreshImageHistory: (preferPath?: string) => Promise<void>
   switchImageHistory: (direction: -1 | 1) => Promise<void>
@@ -193,7 +203,7 @@ export type AiDrawController = {
   movePrompt: (folderId: string, promptId: string, targetPromptId: string, position: SortDropPosition) => Promise<void>
   usePromptText: (text: string) => void
 
-  savePluginSettings: (patch: Partial<Pick<AiDrawSettingsV1, 'autoSave' | 'shrinkRefImages' | 'debugMode' | 'promptHistoryLimit' | 'requestTimeoutSec'>>) => Promise<void>
+  savePluginSettings: (patch: Partial<Pick<AiDrawSettingsV1, 'autoSave' | 'shrinkRefImages' | 'debugMode' | 'promptHistoryLimit' | 'taskHistoryLimit' | 'requestTimeoutSec'>>) => Promise<void>
   clearPromptHistory: () => Promise<void>
 
   deletePromptHistoryItem: (text: string) => Promise<void>
@@ -287,6 +297,128 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
   function readTaskResult(task: any) {
     return task && task.result && typeof task.result === 'object' ? task.result : null
+  }
+
+  function activeProviderSnapshot() {
+    const provider = activeProvider(state.data)
+    return {
+      providerId: String(provider?.id || '').trim(),
+      providerName: String(provider?.name || '').trim(),
+      model: resolveModel(provider),
+    }
+  }
+
+  async function saveTaskHistory() {
+    const limit = state.data?.taskHistoryLimit
+    state.taskHistory = normalizeTaskHistory(state.taskHistory, limit)
+    await api.storage.set(TASK_HISTORY_KEY, state.taskHistory)
+  }
+
+  function updateTaskHistoryInMemory(next: AiDrawTaskHistoryItem) {
+    const id = String(next.id || '').trim()
+    if (!id) return false
+    const normalized = normalizeTaskHistory([next], state.data?.taskHistoryLimit)[0]
+    if (!normalized) return false
+    const list = Array.isArray(state.taskHistory) ? state.taskHistory.slice() : []
+    const idx = list.findIndex((item) => String(item?.id || '').trim() === id)
+    const prev = idx >= 0 ? list[idx] : null
+    const changed = JSON.stringify(prev || null) !== JSON.stringify(normalized)
+    if (idx >= 0) list[idx] = normalized
+    else list.unshift(normalized)
+    state.taskHistory = normalizeTaskHistory(list, state.data?.taskHistoryLimit)
+    return changed
+  }
+
+  async function upsertTaskHistory(next: AiDrawTaskHistoryItem) {
+    const changed = updateTaskHistoryInMemory(next)
+    await saveTaskHistory().catch(() => {})
+    if (changed) notify()
+  }
+
+  async function recordTaskCreationFailure(input: {
+    id: string
+    prompt: string
+    mode: 'normal' | 'local-edit'
+    requestAt?: number
+    providerId?: string
+    providerName?: string
+    model?: string
+    failureReason: string
+  }) {
+    const itemId = String(input.id || '').trim()
+    if (!itemId) return
+    const snap = activeProviderSnapshot()
+    await upsertTaskHistory({
+      id: itemId,
+      taskId: '',
+      mode: input.mode,
+      requestAt: Number.isFinite(Number(input.requestAt)) ? Number(input.requestAt) : Date.now(),
+      updatedAt: Date.now(),
+      providerId: String(input.providerId || snap.providerId || '').trim(),
+      providerName: String(input.providerName || snap.providerName || '').trim(),
+      model: String(input.model || snap.model || '').trim(),
+      prompt: String(input.prompt || ''),
+      status: 'failed',
+      success: false,
+      failureReason: String(input.failureReason || '创建后台任务失败'),
+    })
+  }
+
+  function getTaskHistoryItemByTaskId(taskId: string) {
+    const tid = String(taskId || '').trim()
+    if (!tid) return null
+    return state.taskHistory.find((item) => String(item?.taskId || '').trim() === tid) || null
+  }
+
+  async function recordTaskHistoryStart(input: {
+    taskId: string
+    prompt: string
+    mode: 'normal' | 'local-edit'
+    requestAt?: number
+    providerId?: string
+    providerName?: string
+    model?: string
+  }) {
+    const taskId = String(input.taskId || '').trim()
+    if (!taskId) return
+    const snap = activeProviderSnapshot()
+    await upsertTaskHistory({
+      id: taskId,
+      taskId,
+      mode: input.mode,
+      requestAt: Number.isFinite(Number(input.requestAt)) ? Number(input.requestAt) : Date.now(),
+      updatedAt: Date.now(),
+      providerId: String(input.providerId || snap.providerId || '').trim(),
+      providerName: String(input.providerName || snap.providerName || '').trim(),
+      model: String(input.model || snap.model || '').trim(),
+      prompt: String(input.prompt || ''),
+      status: 'pending',
+      success: null,
+      failureReason: '',
+    })
+  }
+
+  async function recordTaskHistoryStatus(task: any, patch?: { prompt?: string; failureReason?: string }) {
+    const taskId = String(task?.id || '').trim()
+    if (!taskId) return
+    const prev = getTaskHistoryItemByTaskId(taskId)
+    const snap = activeProviderSnapshot()
+    const status = normalizeTaskHistoryStatus(task?.status)
+    const failureReason = typeof patch?.failureReason === 'string' ? patch.failureReason : String(prev?.failureReason || '')
+    await upsertTaskHistory({
+      id: prev?.id || taskId,
+      taskId,
+      mode: prev?.mode || 'normal',
+      requestAt: Number(prev?.requestAt || Date.now()),
+      updatedAt: Date.now(),
+      providerId: String(prev?.providerId || snap.providerId || '').trim(),
+      providerName: String(prev?.providerName || snap.providerName || '').trim(),
+      model: String(prev?.model || snap.model || '').trim(),
+      prompt: typeof patch?.prompt === 'string' ? patch.prompt : String(prev?.prompt || ''),
+      status,
+      success: taskHistorySuccessFromStatus(status),
+      failureReason: status === 'failed' ? failureReason : '',
+    })
   }
 
   function buildDebugRecordFromRequest(input: {
@@ -439,6 +571,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     imageHistory: [],
     imageHistoryIndex: -1,
     tasks: [],
+    taskHistory: [],
     promptHistory: [],
     promptHistoryIndex: -1,
     promptHistoryDraft: '',
@@ -470,6 +603,12 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     const d = state.promptLib.data
     if (!d) return
     await api.storage.set(PROMPT_LIBRARY_KEY, d).catch(() => {})
+  }
+
+  async function clearTaskHistory() {
+    state.taskHistory = []
+    await api.storage.set(TASK_HISTORY_KEY, []).catch(() => {})
+    notify()
   }
 
   async function loadRefLibraryIndex() {
@@ -1082,8 +1221,10 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
               await refreshImageHistoryFromOutputDir(state.savedPath)
               api.ui.showToast('已生成并保存')
             }
+            await recordTaskHistoryStatus(task)
           } else {
             api.ui.showToast('已生成（已贴回选区）')
+            await recordTaskHistoryStatus(task)
           }
           return
         }
@@ -1098,6 +1239,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
           await refreshImageHistoryFromOutputDir(state.savedPath)
           stopBackgroundSavedPathWatcher()
           api.ui.showToast('已生成并保存')
+          await recordTaskHistoryStatus(task)
           return
         }
 
@@ -1129,11 +1271,13 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
             await refreshImageHistoryFromOutputDir(state.savedPath)
             stopBackgroundSavedPathWatcher()
             api.ui.showToast('已生成并保存')
+            await recordTaskHistoryStatus(task)
             return
           }
 
           startBackgroundSavedPathWatcher(taskId)
           api.ui.showToast('已生成（等待后台保存…）')
+          await recordTaskHistoryStatus(task)
           return
         }
 
@@ -1141,10 +1285,12 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
         state.savedPath = ''
         notify()
         api.ui.showToast('已生成')
+        await recordTaskHistoryStatus(task)
         return
       } catch (e: any) {
         const msg = String(e?.message || e || '生成失败')
         state.error = formatAiDrawError({ hint: '生成失败', stage: '处理任务结果', rawMessage: msg })
+        await recordTaskHistoryStatus({ ...task, status: 'failed' }, { failureReason: msg })
         notify()
         api.ui.showToast(`生成失败：${msg}`)
         return
@@ -1167,9 +1313,14 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
         rawMessage: taskErr || (!Number.isFinite(rawHttpStatus) ? '请求失败：无响应/无状态' : ''),
       })
       state.error = msg
+      await recordTaskHistoryStatus(task, { failureReason: String(err || taskErr || '请求失败') })
       notify()
       api.ui.showToast(`生成失败：${String(err || taskErr || '请求失败')}`)
       return
+    }
+
+    if (status === 'canceled' || status === 'canceling') {
+      await recordTaskHistoryStatus(task)
     }
   }
 
@@ -1361,20 +1512,54 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       const ids: string[] = []
       let failed = 0
       const rejectReasons: string[] = []
+      const requestAt = Date.now()
+      const providerSnapshot = activeProviderSnapshot()
+      let failedHistoryCount = 0
       for (const r of results) {
         if (r.status !== 'fulfilled') {
           failed++
           const reasonText = String((r as any)?.reason?.message ?? (r as any)?.reason ?? '').trim()
           if (reasonText) rejectReasons.push(reasonText)
+          failedHistoryCount++
+          await recordTaskCreationFailure({
+            id: `create-failed-${requestAt}-${failedHistoryCount}`,
+            prompt,
+            mode: 'normal',
+            requestAt,
+            providerId: providerSnapshot.providerId,
+            providerName: providerSnapshot.providerName,
+            model: providerSnapshot.model,
+            failureReason: reasonText || '创建后台任务失败',
+          })
           continue
         }
         const taskId = String((r as any).value && (r as any).value.id ? (r as any).value.id : '').trim()
         if (!taskId) {
           failed++
+          failedHistoryCount++
+          await recordTaskCreationFailure({
+            id: `create-failed-${requestAt}-${failedHistoryCount}`,
+            prompt,
+            mode: 'normal',
+            requestAt,
+            providerId: providerSnapshot.providerId,
+            providerName: providerSnapshot.providerName,
+            model: providerSnapshot.model,
+            failureReason: '创建后台任务失败：未返回任务 ID',
+          })
           continue
         }
         ids.push(taskId)
         upsertTask({ id: taskId, status: 'pending', prompt, at: Date.now() })
+        await recordTaskHistoryStart({
+          taskId,
+          prompt,
+          mode: 'normal',
+          requestAt,
+          providerId: providerSnapshot.providerId,
+          providerName: providerSnapshot.providerName,
+          model: providerSnapshot.model,
+        })
       }
 
       if (!ids.length) throw new Error('创建后台任务失败')
@@ -1404,6 +1589,17 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       notify()
       void pollTasks()
     } catch (e: any) {
+      const providerSnapshot = activeProviderSnapshot()
+      await recordTaskCreationFailure({
+        id: `submit-failed-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        prompt,
+        mode: 'normal',
+        requestAt: Date.now(),
+        providerId: providerSnapshot.providerId,
+        providerName: providerSnapshot.providerName,
+        model: providerSnapshot.model,
+        failureReason: String(e?.message || e || '请求失败'),
+      })
       state.submitting = false
       state.error = formatAiDrawError({
         hint: '生成失败',
@@ -1548,10 +1744,31 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
       localEditContextByTaskId.set(taskId, { baseDataUrl: baseUrl, selPx })
       upsertTask({ id: taskId, status: 'pending', prompt, at: Date.now() })
+      const providerSnapshot = activeProviderSnapshot()
+      await recordTaskHistoryStart({
+        taskId,
+        prompt,
+        mode: 'local-edit',
+        requestAt: Date.now(),
+        providerId: providerSnapshot.providerId,
+        providerName: providerSnapshot.providerName,
+        model: providerSnapshot.model,
+      })
       state.submitting = false
       notify()
       void pollTasks()
     } catch (e: any) {
+      const providerSnapshot = activeProviderSnapshot()
+      await recordTaskCreationFailure({
+        id: `submit-failed-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        prompt,
+        mode: 'local-edit',
+        requestAt: Date.now(),
+        providerId: providerSnapshot.providerId,
+        providerName: providerSnapshot.providerName,
+        model: providerSnapshot.model,
+        failureReason: String(e?.message || e || '请求失败'),
+      })
       state.submitting = false
       state.error = formatAiDrawError({
         hint: '生成失败',
@@ -2005,6 +2222,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     const tid = String(taskId || '').trim()
     if (!tid) return
     upsertTask({ id: tid, status: 'canceling' })
+    await recordTaskHistoryStatus({ id: tid, status: 'canceling' })
     notify()
     await api.task.cancel(tid).catch(() => {})
     void pollTasks()
@@ -2015,6 +2233,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     if (!active.length) return
     for (const t of active) {
       upsertTask({ id: t.id, status: 'canceling' })
+      await recordTaskHistoryStatus({ id: t.id, status: 'canceling' }, { prompt: String(t.prompt || '') })
     }
     notify()
     await Promise.allSettled(active.map((t) => api.task.cancel(t.id)))
@@ -2029,17 +2248,20 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     notify()
   }
 
-  async function savePluginSettings(patch: Partial<Pick<AiDrawSettingsV1, 'autoSave' | 'shrinkRefImages' | 'debugMode' | 'promptHistoryLimit' | 'requestTimeoutSec'>>) {
+  async function savePluginSettings(patch: Partial<Pick<AiDrawSettingsV1, 'autoSave' | 'shrinkRefImages' | 'debugMode' | 'promptHistoryLimit' | 'taskHistoryLimit' | 'requestTimeoutSec'>>) {
     if (!state.data) return
     if (typeof patch.autoSave === 'boolean') state.data.autoSave = patch.autoSave
     if (typeof patch.shrinkRefImages === 'boolean') state.data.shrinkRefImages = patch.shrinkRefImages
     if (typeof patch.debugMode === 'boolean') state.data.debugMode = patch.debugMode
     if (patch.promptHistoryLimit != null) state.data.promptHistoryLimit = normalizePromptHistoryLimit(patch.promptHistoryLimit)
+    if (patch.taskHistoryLimit != null) state.data.taskHistoryLimit = normalizeTaskHistoryLimit(patch.taskHistoryLimit)
     if (patch.requestTimeoutSec != null) state.data.requestTimeoutSec = normalizeRequestTimeoutSec(patch.requestTimeoutSec)
     state.promptHistory = normalizePromptHistory(state.data.promptHistory, state.data.promptHistoryLimit)
+    state.taskHistory = normalizeTaskHistory(state.taskHistory, state.data.taskHistoryLimit)
     state.promptHistoryIndex = -1
     state.promptHistoryDraft = ''
     await saveSettings().catch(() => {})
+    await saveTaskHistory().catch(() => {})
     notify()
   }
 
@@ -2243,6 +2465,8 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
     const saved = await api.storage.get(STORAGE_KEY).catch(() => null)
     state.data = normalizeSettings(saved)
+    const taskHistorySaved = await api.storage.get(TASK_HISTORY_KEY).catch(() => null)
+    state.taskHistory = normalizeTaskHistory(taskHistorySaved, state.data.taskHistoryLimit)
     state.uiMode = normalizeUiMode(state.data.uiMode)
     state.promptHistory = normalizePromptHistory(state.data.promptHistory, state.data.promptHistoryLimit)
     state.promptHistoryIndex = -1
@@ -2335,6 +2559,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     generate,
     cancelTask,
     cancelAllTasks,
+    clearTaskHistory,
 
     refreshImageHistory: refreshImageHistoryFromOutputDir,
     switchImageHistory,

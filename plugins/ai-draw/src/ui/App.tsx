@@ -64,6 +64,7 @@ import BugReportRoundedIcon from '@mui/icons-material/BugReportRounded'
 import type { AiDrawFastWindowApi } from '../bridge/tauriCompat'
 import { createAiDrawController } from '../controller/createController'
 import { UI_MODE_LOCAL_EDIT, UI_MODE_NORMAL, type AiDrawProvider, type UiMode } from '../core/schema'
+import type { AiDrawTaskHistoryItem } from '../core/taskHistory'
 import { createClaudeTheme } from './theme'
 import { OverlayScrollArea } from './components/OverlayScrollArea'
 import { useLazyListLimit } from './hooks/useLazyListLimit'
@@ -106,6 +107,21 @@ function activeProviderFromState(data: any): AiDrawProvider | null {
   const pid = String(data.activeProviderId || '')
   const ps = Array.isArray(data.providers) ? data.providers : []
   return ps.find((p: any) => p && p.id === pid) || ps[0] || null
+}
+
+function formatDateTime(ts: number) {
+  if (!Number.isFinite(ts) || ts <= 0) return '-'
+  const d = new Date(ts)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+function taskHistoryStatusLabel(item: AiDrawTaskHistoryItem) {
+  if (item.success === true) return '成功'
+  if (item.status === 'failed') return '失败'
+  if (item.status === 'canceled') return '已取消'
+  if (item.status === 'canceling') return '取消中'
+  return '进行中'
 }
 
 function EditImageSelector(props: {
@@ -325,6 +341,9 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const refLibraryScrollRef = React.useRef<HTMLDivElement | null>(null)
   const refLibrarySentinelRef = React.useRef<HTMLDivElement | null>(null)
   const [taskAnchorEl, setTaskAnchorEl] = React.useState<HTMLElement | null>(null)
+  const [taskHistoryOpen, setTaskHistoryOpen] = React.useState(false)
+  const [taskHistoryMenuAnchorEl, setTaskHistoryMenuAnchorEl] = React.useState<HTMLElement | null>(null)
+  const [taskHistoryClearConfirmOpen, setTaskHistoryClearConfirmOpen] = React.useState(false)
   const [imageDetailAnchorEl, setImageDetailAnchorEl] = React.useState<HTMLElement | null>(null)
   const [normalMoreAnchorEl, setNormalMoreAnchorEl] = React.useState<HTMLElement | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = React.useState(false)
@@ -404,15 +423,16 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   React.useEffect(() => {
     if (!settingsOpen) return
     if (data) {
-      setPluginDraft({
-        autoSave: !!data.autoSave,
-        shrinkRefImages: data.shrinkRefImages !== false,
-        debugMode: !!data.debugMode,
-        promptHistoryLimit: String(data.promptHistoryLimit ?? ''),
-        requestTimeoutSec: String(data.requestTimeoutSec ?? ''),
-      })
-    }
-  }, [settingsOpen, data?.autoSave, data?.shrinkRefImages, data?.debugMode, data?.promptHistoryLimit, data?.requestTimeoutSec])
+        setPluginDraft({
+          autoSave: !!data.autoSave,
+          shrinkRefImages: data.shrinkRefImages !== false,
+          debugMode: !!data.debugMode,
+          promptHistoryLimit: String(data.promptHistoryLimit ?? ''),
+          taskHistoryLimit: String(data.taskHistoryLimit ?? ''),
+          requestTimeoutSec: String(data.requestTimeoutSec ?? ''),
+        })
+      }
+  }, [settingsOpen, data?.autoSave, data?.shrinkRefImages, data?.debugMode, data?.promptHistoryLimit, data?.taskHistoryLimit, data?.requestTimeoutSec])
 
   React.useEffect(() => {
     if (!refLibraryOpen) return
@@ -1573,6 +1593,14 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 />
                 <TextField
                   size="small"
+                  label="任务记录上限"
+                  value={pluginDraft?.taskHistoryLimit ?? ''}
+                  onChange={(e) => setPluginDraft((d: any) => ({ ...(d || {}), taskHistoryLimit: e.target.value }))}
+                  sx={{ width: 220 }}
+                  inputProps={{ inputMode: 'numeric' }}
+                />
+                <TextField
+                  size="small"
                   label="请求超时（秒）"
                   value={pluginDraft?.requestTimeoutSec ?? ''}
                   onChange={(e) => setPluginDraft((d: any) => ({ ...(d || {}), requestTimeoutSec: e.target.value }))}
@@ -1610,6 +1638,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                   shrinkRefImages: !!pluginDraft?.shrinkRefImages,
                   debugMode: !!pluginDraft?.debugMode,
                   promptHistoryLimit: Number(pluginDraft?.promptHistoryLimit),
+                  taskHistoryLimit: Number(pluginDraft?.taskHistoryLimit),
                   requestTimeoutSec: Number(pluginDraft?.requestTimeoutSec),
                 })
               }
@@ -2411,6 +2440,14 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
           <Button
             size="small"
             variant="outlined"
+            onClick={() => setTaskHistoryOpen(true)}
+            disabled={!state.taskHistory.length}
+          >
+            任务历史
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
             color="error"
             disabled={!state.tasks.length}
             onClick={() => void controller.cancelAllTasks()}
@@ -2450,6 +2487,156 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
           </OverlayScrollArea>
         </Box>
       </Popover>
+
+      <Dialog
+        open={taskHistoryOpen}
+        onClose={() => setTaskHistoryOpen(false)}
+        maxWidth={false}
+        PaperProps={{
+          sx: {
+            width: 920,
+            maxWidth: 'calc(100vw - 24px)',
+            height: 'min(820px, calc(100vh - 24px))',
+            borderRadius: 3,
+            overflow: 'hidden',
+          },
+        }}
+      >
+        <DialogContent sx={{ p: 0, height: '100%' }}>
+          <Box sx={{ position: 'relative', height: '100%', p: 2, pt: 5 }}>
+            <IconButton
+              size="small"
+              onClick={() => setTaskHistoryOpen(false)}
+              aria-label="关闭任务历史"
+              sx={{ position: 'absolute', right: 8, top: 8, bgcolor: 'rgba(250,249,245,0.92)' }}
+            >
+              <CloseRoundedIcon fontSize="small" />
+            </IconButton>
+
+            <Stack spacing={1.25} sx={{ height: '100%' }}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography sx={{ fontSize: 16, fontWeight: 700 }}>任务历史记录</Typography>
+                <Chip size="small" variant="outlined" label={`${state.taskHistory.length} 条`} />
+                <Box sx={{ flex: 1 }} />
+                <IconButton
+                  size="small"
+                  aria-label="任务历史更多操作"
+                  onClick={(e) => setTaskHistoryMenuAnchorEl(e.currentTarget)}
+                  disabled={!state.taskHistory.length}
+                >
+                  <MoreHorizRoundedIcon fontSize="small" />
+                </IconButton>
+              </Stack>
+
+              <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }}>
+                <Stack spacing={1} sx={{ pr: 0.5 }}>
+                  {!state.taskHistory.length ? (
+                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                      <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>暂无任务历史记录。</Typography>
+                    </Paper>
+                  ) : (
+                    state.taskHistory.map((item) => {
+                      const statusLabel = taskHistoryStatusLabel(item)
+                      const failureReason = String(item.failureReason || '').trim()
+                      return (
+                        <Paper key={item.id} variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>
+                          <Stack spacing={0.9}>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <Chip
+                                size="small"
+                                color={item.success === true ? 'success' : item.status === 'failed' ? 'error' : 'default'}
+                                variant={item.success === true ? 'filled' : 'outlined'}
+                                label={statusLabel}
+                              />
+                              <Chip size="small" variant="outlined" label={item.mode === 'local-edit' ? '局部修改' : '普通生成'} />
+                              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                                请求时间：{formatDateTime(item.requestAt)}
+                              </Typography>
+                              <Box sx={{ flex: 1 }} />
+                              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                                更新时间：{formatDateTime(item.updatedAt)}
+                              </Typography>
+                            </Stack>
+
+                            <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap">
+                              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                                供应商：<Box component="span" sx={{ color: 'text.primary' }}>{item.providerName || item.providerId || '-'}</Box>
+                              </Typography>
+                              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                                模型：<Box component="span" sx={{ color: 'text.primary' }}>{item.model || '-'}</Box>
+                              </Typography>
+                              <Typography sx={{ fontSize: 12, color: 'text.secondary' }}>
+                                任务 ID：<Box component="span" sx={{ color: 'text.primary', wordBreak: 'break-all' }}>{item.taskId || '-'}</Box>
+                              </Typography>
+                            </Stack>
+
+                            <Paper variant="outlined" sx={{ p: 1, bgcolor: 'rgba(255,255,255,0.72)' }}>
+                              <Typography sx={{ fontSize: 12, color: 'text.secondary', mb: 0.5 }}>提示词</Typography>
+                              <Typography sx={{ fontSize: 13, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                {item.prompt || '-'}
+                              </Typography>
+                            </Paper>
+
+                            {failureReason ? (
+                              <Alert severity="error" variant="outlined">
+                                失败原因：{failureReason}
+                              </Alert>
+                            ) : null}
+                          </Stack>
+                        </Paper>
+                      )
+                    })
+                  )}
+                </Stack>
+              </OverlayScrollArea>
+            </Stack>
+          </Box>
+        </DialogContent>
+      </Dialog>
+
+      <Menu
+        open={!!taskHistoryMenuAnchorEl}
+        anchorEl={taskHistoryMenuAnchorEl}
+        onClose={() => setTaskHistoryMenuAnchorEl(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <MenuItem
+          onClick={() => {
+            setTaskHistoryMenuAnchorEl(null)
+            setTaskHistoryClearConfirmOpen(true)
+          }}
+        >
+          清空记录
+        </MenuItem>
+      </Menu>
+
+      <Dialog
+        open={taskHistoryClearConfirmOpen}
+        onClose={() => setTaskHistoryClearConfirmOpen(false)}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>确认清空任务历史</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
+            清空后将删除全部任务历史记录，且无法恢复。确认继续吗？
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTaskHistoryClearConfirmOpen(false)}>取消</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => {
+              setTaskHistoryClearConfirmOpen(false)
+              void controller.clearTaskHistory()
+            }}
+          >
+            确认清空
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Popover
         open={!!imageDetailAnchorEl}

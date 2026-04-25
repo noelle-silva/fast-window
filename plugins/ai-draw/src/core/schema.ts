@@ -1,4 +1,5 @@
 import { id, trimSlash } from './utils'
+import { DEFAULT_TASK_HISTORY_LIMIT, normalizeTaskHistoryLimit } from './taskHistory'
 
 export const AI_DRAW_VERSION = 1
 export const PROMPT_LIBRARY_VERSION = 1
@@ -33,6 +34,7 @@ export type AiDrawSettingsV1 = {
   debugMode: boolean
   uiMode: UiMode
   promptHistoryLimit: number
+  taskHistoryLimit: number
   requestTimeoutSec: number
   promptHistory: string[]
   pendingTaskId: string
@@ -77,6 +79,7 @@ export function defaultSettings(): AiDrawSettingsV1 {
     debugMode: false,
     uiMode: UI_MODE_NORMAL,
     promptHistoryLimit: DEFAULT_PROMPT_HISTORY_LIMIT,
+    taskHistoryLimit: DEFAULT_TASK_HISTORY_LIMIT,
     requestTimeoutSec: DEFAULT_REQUEST_TIMEOUT_SEC,
     promptHistory: [],
     pendingTaskId: '',
@@ -185,6 +188,7 @@ function migrateLegacySettingsToSettingsV1(s: any): AiDrawSettingsV1 {
   out.debugMode = false
   out.uiMode = UI_MODE_NORMAL
   out.promptHistoryLimit = normalizePromptHistoryLimit(s?.promptHistoryLimit)
+  out.taskHistoryLimit = normalizeTaskHistoryLimit(s?.taskHistoryLimit)
   out.requestTimeoutSec = normalizeRequestTimeoutSec(s?.requestTimeoutSec)
   out.promptHistory = normalizePromptHistory(s?.promptHistory, out.promptHistoryLimit)
   return out
@@ -205,6 +209,7 @@ export function normalizeSettings(raw: any): AiDrawSettingsV1 {
   out.debugMode = typeof d.debugMode === 'boolean' ? d.debugMode : false
   out.uiMode = normalizeUiMode(d.uiMode)
   out.promptHistoryLimit = normalizePromptHistoryLimit(d.promptHistoryLimit)
+  out.taskHistoryLimit = normalizeTaskHistoryLimit(d.taskHistoryLimit)
   out.requestTimeoutSec = normalizeRequestTimeoutSec(d.requestTimeoutSec)
   out.promptHistory = normalizePromptHistory(d.promptHistory, out.promptHistoryLimit)
   out.pendingTaskId = String(d.pendingTaskId || '').trim()

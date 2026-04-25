@@ -123,6 +123,7 @@ export function createAiDrawFastWindowApi(baseApi: any, pluginId: string): AiDra
   const SHARD_META_PATH = `_meta.json`
   const SHARD_KEY_TO_FILE: Record<string, string> = {
     settings: `settings.json`,
+    taskHistory: `taskHistory.json`,
     bgSavedResults: `bgSavedResults.json`,
     bgSaveRequests: `bgSaveRequests.json`,
     bgSaveResponses: `bgSaveResponses.json`,
