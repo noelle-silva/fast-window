@@ -41,11 +41,29 @@ export function IndexCardShell(props: Props): React.ReactNode {
           flex: 1,
           cursor: editMode ? 'grab' : 'default',
           '&:active': editMode ? { cursor: 'grabbing' } : undefined,
+          '&:hover .hc-index-card-actions, &:focus-within .hc-index-card-actions': {
+            opacity: 1,
+            pointerEvents: 'auto',
+          },
         }}
       >
         <Box sx={{ height: '100%', minHeight: 0 }}>{children}</Box>
         {editMode ? (
-          <Box sx={{ position: 'absolute', top: 8, right: 8, display: 'flex', alignItems: 'center', gap: 0.75 }}>
+          <Box
+            className="hc-index-card-actions"
+            sx={{
+              position: 'absolute',
+              top: 8,
+              right: 8,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.75,
+              opacity: menuOpen ? 1 : 0,
+              pointerEvents: menuOpen ? 'auto' : 'none',
+              transition: 'opacity .12s ease',
+              zIndex: 4,
+            }}
+          >
             {onRemove || onDeleteEntity ? (
               <Tooltip title="更多操作">
                 <IconButton
