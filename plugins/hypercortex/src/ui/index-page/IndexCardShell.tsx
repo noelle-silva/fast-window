@@ -8,7 +8,8 @@ type Props = {
   editMode: boolean
   dragging?: boolean
   resizing?: boolean
-  onStartDrag?: (e: React.PointerEvent) => void
+  dragHandleProps?: Record<string, any>
+  setDragHandleRef?: (node: HTMLElement | null) => void
   onRemove?: () => void
   onDeleteEntity?: () => void
   onStartResize?: (e: React.PointerEvent) => void
@@ -16,7 +17,7 @@ type Props = {
 }
 
 export function IndexCardShell(props: Props): React.ReactNode {
-  const { editMode, dragging, resizing, onStartDrag, onRemove, onDeleteEntity, onStartResize, children } = props
+  const { editMode, dragging, resizing, dragHandleProps, setDragHandleRef, onRemove, onDeleteEntity, onStartResize, children } = props
   const [menuAnchorEl, setMenuAnchorEl] = React.useState<HTMLElement | null>(null)
   const menuOpen = Boolean(menuAnchorEl)
 
@@ -36,7 +37,6 @@ export function IndexCardShell(props: Props): React.ReactNode {
       }}
     >
       <Box
-        onPointerDown={editMode ? onStartDrag : undefined}
         sx={{
           position: 'relative',
           height: '100%',
@@ -49,6 +49,29 @@ export function IndexCardShell(props: Props): React.ReactNode {
         <Box sx={{ height: '100%', minHeight: 0 }}>{children}</Box>
         {editMode ? (
           <Box sx={{ position: 'absolute', top: 8, right: 8, display: 'flex', alignItems: 'center', gap: 0.75 }}>
+            <Tooltip title="拖拽排序">
+              <IconButton
+                size="small"
+                aria-label="拖拽排序"
+                data-hc-no-drag="1"
+                ref={setDragHandleRef}
+                {...(dragHandleProps || {})}
+                onPointerDown={e => {
+                  e.stopPropagation()
+                  dragHandleProps?.onPointerDown?.(e)
+                }}
+                sx={{
+                  bgcolor: 'rgba(255,255,255,.95)',
+                  border: '1px solid rgba(15,23,42,.10)',
+                  boxShadow: '0 8px 18px rgba(15,23,42,.08)',
+                  color: 'rgba(15,23,42,.66)',
+                  cursor: 'grab',
+                  '&:active': { cursor: 'grabbing' },
+                }}
+              >
+                <MoreHorizRoundedIcon fontSize="small" sx={{ transform: 'rotate(90deg)' }} />
+              </IconButton>
+            </Tooltip>
             {onRemove || onDeleteEntity ? (
               <Tooltip title="更多操作">
                 <IconButton

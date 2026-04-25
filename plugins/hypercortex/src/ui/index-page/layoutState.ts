@@ -61,3 +61,40 @@ export function applyLayoutMapToDoc(doc: HyperCortexFavoritesDocV1, refs: Favori
 export function buildBaseLayoutMap(refs: FavoriteItemRef[]): Map<string, GridLayout> {
   return toLayoutMap(refs)
 }
+
+export function buildSortedLayoutMap(refs: FavoriteItemRef[], activeId: string, overId: string): Map<string, GridLayout> {
+  const fromIndex = refs.findIndex(ref => ref.id === activeId)
+  const toIndex = refs.findIndex(ref => ref.id === overId)
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return buildBaseLayoutMap(refs)
+
+  const nextRefs = refs.slice()
+  const [moved] = nextRefs.splice(fromIndex, 1)
+  if (!moved) return buildBaseLayoutMap(refs)
+  nextRefs.splice(toIndex, 0, moved)
+
+  const out = new Map<string, GridLayout>()
+  let cursorX = 0
+  let cursorY = 0
+  let rowHeight = 0
+
+  for (const ref of nextRefs) {
+    const layout = clampResize(ref.layout)
+    if (cursorX + layout.w > INDEX_GRID_COLUMNS) {
+      cursorX = 0
+      cursorY += rowHeight
+      rowHeight = 0
+    }
+
+    out.set(ref.id, {
+      x: cursorX,
+      y: cursorY,
+      w: layout.w,
+      h: layout.h,
+    })
+
+    cursorX += layout.w
+    rowHeight = Math.max(rowHeight, layout.h)
+  }
+
+  return out
+}

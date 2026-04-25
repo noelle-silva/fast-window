@@ -478,3 +478,31 @@ export function updateRefLayout(doc: HyperCortexFavoritesDocV1, refId: string, l
   return { ...doc, folders: nextFolders, refsByFolderId: nextRefsByFolderId }
 }
 
+export function reorderRefsInFolder(doc: HyperCortexFavoritesDocV1, folderId: string, orderedRefIds: string[]): HyperCortexFavoritesDocV1 {
+  const fid = String(folderId || '').trim()
+  if (!fid) return doc
+  const refs = getRefsByFolderId(doc, fid)
+  if (refs.length <= 1) return doc
+
+  const idOrder = orderedRefIds.map(id => String(id || '').trim()).filter(Boolean)
+  if (idOrder.length !== refs.length) return doc
+
+  const byId = new Map(refs.map(ref => [ref.id, ref] as const))
+  const nextRefs = idOrder.map(id => byId.get(id)).filter((ref): ref is FavoriteItemRef => Boolean(ref))
+  if (nextRefs.length !== refs.length) return doc
+
+  const unchanged = refs.every((ref, index) => nextRefs[index]?.id === ref.id)
+  if (unchanged) return doc
+
+  const nowMs = Date.now()
+  const folder = doc.folders[fid]
+  return {
+    ...doc,
+    folders: folder ? { ...doc.folders, [fid]: { ...folder, updatedAtMs: nowMs } } : doc.folders,
+    refsByFolderId: {
+      ...doc.refsByFolderId,
+      [fid]: nextRefs,
+    },
+  }
+}
+

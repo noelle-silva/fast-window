@@ -8,12 +8,6 @@ export type DeleteEntityTarget =
   | { kind: 'note'; title: string; note: NoteMeta }
   | { kind: 'asset'; title: string; asset: AssetEntry }
 
-export type DragDraft = {
-  refId: string
-  x: number
-  y: number
-}
-
 export type ResizeDraft = {
   refId: string
   w: number
