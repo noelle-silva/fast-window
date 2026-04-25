@@ -1706,13 +1706,27 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     await refreshRefLibrary()
   }
 
+  function removeRefImagesBySourcePath(path: string) {
+    const p = String(path || '').trim()
+    if (!p) return false
+    const next = state.refImages.filter((x) => String((x as any)?.sourcePath || '').trim() !== p)
+    if (next.length === state.refImages.length) return false
+    state.refImages = next
+    return true
+  }
+
   async function addRefImageFromLibrary(path: string) {
     const p = String(path || '').trim()
     if (!p) return
+    if (removeRefImagesBySourcePath(p)) {
+      notify()
+      return
+    }
     if (state.refImages.length >= MAX_REF_IMAGES) return api.ui.showToast(`参考图最多 ${MAX_REF_IMAGES} 张`)
+    const name = p.split(/[\\/]/).pop() || p
     const slot = state.refLibrary.itemsByPath[p]
     if (slot && slot.dataUrl) {
-      state.refImages = state.refImages.concat([{ id: id('ref'), name: p.split('/').pop() || p, dataUrl: slot.dataUrl }]).slice(0, MAX_REF_IMAGES)
+      state.refImages = state.refImages.concat([{ id: id('ref'), name, dataUrl: slot.dataUrl, sourcePath: p }]).slice(0, MAX_REF_IMAGES)
       notify()
       return
     }
@@ -1720,7 +1734,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     const u = normalizeImageDataUrlOrBase64(dataUrl)
     if (!u.startsWith('data:image/')) return api.ui.showToast('图片数据无效')
     state.refLibrary.itemsByPath[p] = { dataUrl: u, loading: false, error: '' }
-    state.refImages = state.refImages.concat([{ id: id('ref'), name: p.split('/').pop() || p, dataUrl: u }]).slice(0, MAX_REF_IMAGES)
+    state.refImages = state.refImages.concat([{ id: id('ref'), name, dataUrl: u, sourcePath: p }]).slice(0, MAX_REF_IMAGES)
     notify()
   }
 

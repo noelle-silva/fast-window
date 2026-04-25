@@ -174,20 +174,20 @@ export async function compositePatchToBase(baseDataUrl: any, patchDataUrl: any, 
   return canvas.toDataURL('image/png')
 }
 
-export type PickedImage = { id: string; name: string; dataUrl: string }
+export type PickedImage = { id: string; name: string; dataUrl: string; sourcePath?: string }
 
 export function normalizePickedImages(raw: any, maxCount: number): PickedImage[] {
   const list = Array.isArray(raw) ? raw : []
   const out: PickedImage[] = []
   for (const it of list) {
     const name = typeof (it as any)?.name === 'string' ? (it as any).name : ''
+    const sourcePath = typeof (it as any)?.sourcePath === 'string' ? String((it as any).sourcePath || '').trim() : ''
     const dataUrl =
       typeof (it as any)?.dataUrl === 'string' ? (it as any).dataUrl : typeof (it as any)?.data_url === 'string' ? (it as any).data_url : ''
     const u = String(dataUrl || '').trim()
     if (!u.startsWith('data:image/')) continue
-    out.push({ id: id('ref'), name: String(name || ''), dataUrl: u })
+    out.push({ id: id('ref'), name: String(name || ''), dataUrl: u, ...(sourcePath ? { sourcePath } : null) })
     if (out.length >= maxCount) break
   }
   return out
 }
-

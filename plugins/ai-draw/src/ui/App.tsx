@@ -461,6 +461,15 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   const refActiveViewKey = refActiveView.kind === 'all' ? 'all' : `folder:${String(refActiveView.folderId || '').trim()}`
   const refSelectedSet = React.useMemo(() => new Set(refSelectedPaths), [refSelectedPaths])
   const refSelectedCount = refSelectedSet.size
+  const refLibrarySelectedPathSet = React.useMemo(
+    () =>
+      new Set(
+        (Array.isArray(state.refImages) ? state.refImages : [])
+          .map((img) => String((img as any)?.sourcePath || '').trim())
+          .filter(Boolean),
+      ),
+    [revision],
+  )
 
   React.useEffect(() => {
     if (!refLibraryOpen) return
@@ -2534,7 +2543,8 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                       {refVisiblePathsAll.slice(0, refLibraryLimit).map((p) => {
                         const slot = state.refLibrary.itemsByPath[p] || { dataUrl: '', loading: false, error: '' }
                         const name = p.split(/[\\/]/).pop() || p
-                        const selected = refMultiMode && refSelectedSet.has(p)
+                        const selected = refMultiMode ? refSelectedSet.has(p) : refLibrarySelectedPathSet.has(p)
+                        const interactive = refMultiMode || selected || !!slot.dataUrl
                         return (
                           <Paper
                             key={p}
@@ -2544,7 +2554,12 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                               display: 'flex',
                               flexDirection: 'column',
                               gap: 1,
-                              ...(selected ? { borderColor: 'primary.main' } : null),
+                              ...(selected
+                                ? {
+                                    borderColor: 'primary.main',
+                                    boxShadow: '0 0 0 1px rgba(60,120,200,0.16) inset',
+                                  }
+                                : null),
                             }}
                           >
                             <Box
@@ -2557,10 +2572,10 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 overflow: 'hidden',
-                                cursor: refMultiMode || slot.dataUrl ? 'pointer' : 'default',
+                                cursor: interactive ? 'pointer' : 'default',
                               }}
-                              role={refMultiMode || slot.dataUrl ? 'button' : undefined}
-                              tabIndex={refMultiMode || slot.dataUrl ? 0 : undefined}
+                              role={interactive ? 'button' : undefined}
+                              tabIndex={interactive ? 0 : undefined}
                               onClick={(e) => {
                                 // Ctrl + 点击：预览（不添加到参考图），允许未加载时进入预览。
                                 if (e.ctrlKey) {
@@ -2570,14 +2585,14 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                                   return
                                 }
                                 if (refMultiMode) return toggleRefSelected(p)
-                                if (!slot.dataUrl) return
+                                if (!selected && !slot.dataUrl) return
                                 void controller.addRefImageFromLibrary(p)
                               }}
                               onKeyDown={(e) => {
                                 if (e.key !== 'Enter' && e.key !== ' ') return
                                 e.preventDefault()
                                 if (refMultiMode) return toggleRefSelected(p)
-                                if (!slot.dataUrl) return
+                                if (!selected && !slot.dataUrl) return
                                 void controller.addRefImageFromLibrary(p)
                               }}
                             >
@@ -2593,6 +2608,24 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                                   inputProps={{ 'aria-label': `选择 ${name}` }}
                                   sx={{ position: 'absolute', left: 2, top: 2, bgcolor: 'rgba(250,249,245,0.92)' }}
                                 />
+                              ) : selected ? (
+                                <Box
+                                  sx={{
+                                    position: 'absolute',
+                                    left: 6,
+                                    top: 6,
+                                    width: 24,
+                                    height: 24,
+                                    borderRadius: 999,
+                                    bgcolor: 'rgba(250,249,245,0.92)',
+                                    color: 'primary.main',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                  }}
+                                >
+                                  <TaskAltRoundedIcon fontSize="small" />
+                                </Box>
                               ) : null}
                               <IconButton
                                 size="small"
