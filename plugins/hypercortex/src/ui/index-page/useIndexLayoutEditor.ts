@@ -2,7 +2,7 @@ import * as React from 'react'
 import { type FavoriteItemRef, type GridLayout, type HyperCortexFavoritesDocV1 } from '../../favorites'
 import { INDEX_GRID_COLUMNS, INDEX_GRID_GAP_PX, INDEX_GRID_MAX_H, INDEX_GRID_MIN_H, INDEX_GRID_MIN_W, INDEX_GRID_ROW_PX } from './constants'
 import { applyLayoutMapToDoc, buildBaseLayoutMap, buildResolvedLayoutMap } from './layoutState'
-import type { ResizeDraft } from './types'
+import type { ResizeDraft, ResizeHandleDirection } from './types'
 
 type Options = {
   refs: FavoriteItemRef[]
@@ -14,6 +14,26 @@ type Options = {
 
 function pointerDistance(ax: number, ay: number, bx: number, by: number): number {
   return Math.hypot(ax - bx, ay - by)
+}
+
+function buildResizePatch(layout: GridLayout, direction: ResizeHandleDirection, deltaCols: number, deltaRows: number): GridLayout {
+  const resizingWest = direction.includes('w')
+  const resizingNorth = direction.includes('n')
+
+  const minWidthDelta = INDEX_GRID_MIN_W - layout.w
+  const maxWidthDelta = INDEX_GRID_COLUMNS - (resizingWest ? layout.x : layout.x + layout.w)
+  const widthDelta = Math.max(minWidthDelta, Math.min(maxWidthDelta, resizingWest ? -deltaCols : deltaCols))
+
+  const minHeightDelta = INDEX_GRID_MIN_H - layout.h
+  const maxHeightDelta = INDEX_GRID_MAX_H - layout.h
+  const heightDelta = Math.max(minHeightDelta, Math.min(maxHeightDelta, resizingNorth ? -deltaRows : deltaRows))
+
+  return {
+    x: resizingWest ? layout.x - widthDelta : layout.x,
+    y: resizingNorth ? layout.y - heightDelta : layout.y,
+    w: layout.w + widthDelta,
+    h: layout.h + heightDelta,
+  }
 }
 
 export function useIndexLayoutEditor(opts: Options) {
@@ -50,7 +70,7 @@ export function useIndexLayoutEditor(opts: Options) {
   )
 
   const beginResize = React.useCallback(
-    (ref: FavoriteItemRef, e: React.PointerEvent) => {
+    (ref: FavoriteItemRef, direction: ResizeHandleDirection, e: React.PointerEvent) => {
       if (!editMode || e.button !== 0) return
       e.stopPropagation()
       const el = gridRef.current
@@ -74,10 +94,9 @@ export function useIndexLayoutEditor(opts: Options) {
         }
         const deltaCols = Math.round((ev.clientX - startX) / (colWidth + INDEX_GRID_GAP_PX))
         const deltaRows = Math.round((ev.clientY - startY) / (INDEX_GRID_ROW_PX + INDEX_GRID_GAP_PX))
-        const nextW = Math.max(INDEX_GRID_MIN_W, ref.layout.w + deltaCols)
-        const nextH = Math.min(INDEX_GRID_MAX_H, Math.max(INDEX_GRID_MIN_H, ref.layout.h + deltaRows))
-        lastPreview = buildResolvedLayoutMap(refs, ref.id, { w: nextW, h: nextH })
-        setResizeDraft({ refId: ref.id, w: nextW, h: nextH })
+        const nextLayout = buildResizePatch(ref.layout, direction, deltaCols, deltaRows)
+        lastPreview = buildResolvedLayoutMap(refs, ref.id, nextLayout)
+        setResizeDraft({ refId: ref.id, w: nextLayout.w, h: nextLayout.h })
         setLayoutPreview(lastPreview)
       }
 

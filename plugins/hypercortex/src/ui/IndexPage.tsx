@@ -25,7 +25,7 @@ import { folderTitle } from './index-page/helpers'
 import { IndexPageDialogs } from './index-page/IndexPageDialogs'
 import { MuuriGrid } from './index-page/MuuriGrid'
 import { IndexPageToolbar } from './index-page/IndexPageToolbar'
-import type { AddKind, DeleteEntityTarget, EditFolderTarget } from './index-page/types'
+import type { AddKind, DeleteEntityTarget, EditFolderTarget, ResizeHandleDirection } from './index-page/types'
 import { useIndexLayoutEditor } from './index-page/useIndexLayoutEditor'
 
 type Props = {
@@ -358,7 +358,7 @@ export function IndexPage(props: Props): React.ReactNode {
       ref: FavoriteItemRef,
       options?: { dragging: boolean },
     ): React.ReactNode => {
-      const onStartResize = editMode ? (e: React.PointerEvent) => beginResize(ref, e) : undefined
+      const onStartResize = editMode ? (direction: ResizeHandleDirection, e: React.PointerEvent) => beginResize(ref, direction, e) : undefined
 
       if (ref.kind === 'folder') {
         const folder = getFolderById(doc, ref.targetId)

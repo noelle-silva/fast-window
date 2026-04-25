@@ -4,6 +4,7 @@ import DeleteForeverRoundedIcon from '@mui/icons-material/DeleteForeverRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
+import type { ResizeHandleDirection } from './types'
 
 type Props = {
   editMode: boolean
@@ -12,9 +13,16 @@ type Props = {
   onRemove?: () => void
   onDeleteEntity?: () => void
   onEditEntity?: () => void
-  onStartResize?: (e: React.PointerEvent) => void
+  onStartResize?: (direction: ResizeHandleDirection, e: React.PointerEvent) => void
   children: React.ReactNode
 }
+
+const resizeHandles: { direction: ResizeHandleDirection; cursor: string; sx: Record<string, any> }[] = [
+  { direction: 'nw', cursor: 'nwse-resize', sx: { left: 0, top: 0 } },
+  { direction: 'ne', cursor: 'nesw-resize', sx: { right: 0, top: 0 } },
+  { direction: 'sw', cursor: 'nesw-resize', sx: { left: 0, bottom: 0 } },
+  { direction: 'se', cursor: 'nwse-resize', sx: { right: 0, bottom: 0 } },
+]
 
 export function IndexCardShell(props: Props): React.ReactNode {
   const { editMode, dragging, resizing, onRemove, onDeleteEntity, onEditEntity, onStartResize, children } = props
@@ -92,65 +100,24 @@ export function IndexCardShell(props: Props): React.ReactNode {
         ) : null}
         {editMode && onStartResize ? (
           <>
-            <Box
-              data-hc-no-drag="1"
-              onPointerDown={e => {
-                e.stopPropagation()
-                onStartResize(e)
-              }}
-              sx={{
-                position: 'absolute',
-                top: 0,
-                right: 0,
-                width: 14,
-                height: '100%',
-                cursor: 'ew-resize',
-                zIndex: 2,
-              }}
-            />
-            <Box
-              data-hc-no-drag="1"
-              onPointerDown={e => {
-                e.stopPropagation()
-                onStartResize(e)
-              }}
-              sx={{
-                position: 'absolute',
-                left: 0,
-                bottom: 0,
-                width: '100%',
-                height: 14,
-                cursor: 'ns-resize',
-                zIndex: 2,
-              }}
-            />
-            <Box
-              data-hc-no-drag="1"
-              onPointerDown={e => {
-                e.stopPropagation()
-                onStartResize(e)
-              }}
-              sx={{
-                position: 'absolute',
-                right: 0,
-                bottom: 0,
-                width: 18,
-                height: 18,
-                cursor: 'nwse-resize',
-                zIndex: 3,
-                '&::before': {
-                  content: '""',
+            {resizeHandles.map(handle => (
+              <Box
+                key={handle.direction}
+                data-hc-no-drag="1"
+                onPointerDown={e => {
+                  e.stopPropagation()
+                  onStartResize(handle.direction, e)
+                }}
+                sx={{
                   position: 'absolute',
-                  right: 3,
-                  bottom: 3,
-                  width: 10,
-                  height: 10,
-                  borderRight: '2px solid rgba(15,23,42,.32)',
-                  borderBottom: '2px solid rgba(15,23,42,.32)',
-                  borderBottomRightRadius: 2,
-                },
-              }}
-            />
+                  width: 18,
+                  height: 18,
+                  cursor: handle.cursor,
+                  zIndex: 3,
+                  ...handle.sx,
+                }}
+              />
+            ))}
           </>
         ) : null}
         <Menu

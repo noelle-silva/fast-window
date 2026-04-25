@@ -19,3 +19,5 @@ export type ResizeDraft = {
   w: number
   h: number
 }
+
+export type ResizeHandleDirection = 'nw' | 'ne' | 'sw' | 'se'
