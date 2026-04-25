@@ -13,6 +13,7 @@
   },
   "requires": [
     "cap:dialog.pickDir",
+    "cap:host.startDragging",
     "cap:workspace.openDir",
     "cap:workspace.fs.readText",
     "cap:workspace.fs.writeText",
