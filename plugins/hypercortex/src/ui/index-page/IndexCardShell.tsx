@@ -8,8 +8,6 @@ type Props = {
   editMode: boolean
   dragging?: boolean
   resizing?: boolean
-  dragHandleProps?: Record<string, any>
-  setDragHandleRef?: (node: HTMLElement | null) => void
   onRemove?: () => void
   onDeleteEntity?: () => void
   onStartResize?: (e: React.PointerEvent) => void
@@ -17,7 +15,7 @@ type Props = {
 }
 
 export function IndexCardShell(props: Props): React.ReactNode {
-  const { editMode, dragging, resizing, dragHandleProps, setDragHandleRef, onRemove, onDeleteEntity, onStartResize, children } = props
+  const { editMode, dragging, resizing, onRemove, onDeleteEntity, onStartResize, children } = props
   const [menuAnchorEl, setMenuAnchorEl] = React.useState<HTMLElement | null>(null)
   const menuOpen = Boolean(menuAnchorEl)
 
@@ -52,13 +50,9 @@ export function IndexCardShell(props: Props): React.ReactNode {
               <IconButton
                 size="small"
                 aria-label="拖拽排序"
+                className="hc-index-drag-handle"
                 data-hc-no-drag="1"
-                ref={setDragHandleRef}
-                {...(dragHandleProps || {})}
-                onPointerDown={e => {
-                  e.stopPropagation()
-                  dragHandleProps?.onPointerDown?.(e)
-                }}
+                onPointerDown={e => e.stopPropagation()}
                 sx={{
                   bgcolor: 'rgba(255,255,255,.95)',
                   border: '1px solid rgba(15,23,42,.10)',

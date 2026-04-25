@@ -62,15 +62,13 @@ export function buildBaseLayoutMap(refs: FavoriteItemRef[]): Map<string, GridLay
   return toLayoutMap(refs)
 }
 
-export function buildSortedLayoutMap(refs: FavoriteItemRef[], activeId: string, overId: string): Map<string, GridLayout> {
-  const fromIndex = refs.findIndex(ref => ref.id === activeId)
-  const toIndex = refs.findIndex(ref => ref.id === overId)
-  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return buildBaseLayoutMap(refs)
+export function buildOrderedLayoutMap(refs: FavoriteItemRef[], orderedRefIds: string[]): Map<string, GridLayout> {
+  const idOrder = orderedRefIds.map(id => String(id || '').trim()).filter(Boolean)
+  if (idOrder.length !== refs.length) return buildBaseLayoutMap(refs)
 
-  const nextRefs = refs.slice()
-  const [moved] = nextRefs.splice(fromIndex, 1)
-  if (!moved) return buildBaseLayoutMap(refs)
-  nextRefs.splice(toIndex, 0, moved)
+  const byId = new Map(refs.map(ref => [ref.id, ref] as const))
+  const nextRefs = idOrder.map(id => byId.get(id)).filter((ref): ref is FavoriteItemRef => Boolean(ref))
+  if (nextRefs.length !== refs.length) return buildBaseLayoutMap(refs)
 
   const out = new Map<string, GridLayout>()
   let cursorX = 0
@@ -97,4 +95,16 @@ export function buildSortedLayoutMap(refs: FavoriteItemRef[], activeId: string, 
   }
 
   return out
+}
+
+export function buildSortedLayoutMap(refs: FavoriteItemRef[], activeId: string, overId: string): Map<string, GridLayout> {
+  const fromIndex = refs.findIndex(ref => ref.id === activeId)
+  const toIndex = refs.findIndex(ref => ref.id === overId)
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return buildBaseLayoutMap(refs)
+
+  const nextRefs = refs.slice()
+  const [moved] = nextRefs.splice(fromIndex, 1)
+  if (!moved) return buildBaseLayoutMap(refs)
+  nextRefs.splice(toIndex, 0, moved)
+  return buildOrderedLayoutMap(refs, nextRefs.map(ref => ref.id))
 }

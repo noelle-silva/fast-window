@@ -20,10 +20,9 @@ import { FolderCard } from './index-cards/FolderCard'
 import { NoteCard } from './index-cards/NoteCard'
 import { StaleRefCard } from './index-cards/StaleRefCard'
 import { IndexCardShell } from './index-page/IndexCardShell'
-import { INDEX_GRID_COLUMNS, INDEX_GRID_GAP_PX, INDEX_GRID_ROW_PX } from './index-page/constants'
-import { folderTitle, getRefGridSpan } from './index-page/helpers'
+import { folderTitle } from './index-page/helpers'
 import { IndexPageDialogs } from './index-page/IndexPageDialogs'
-import { SortableItem, SortableRoot, SortableSection } from './index-page/SortableDnd'
+import { MuuriGrid } from './index-page/MuuriGrid'
 import { IndexPageToolbar } from './index-page/IndexPageToolbar'
 import type { AddKind, DeleteEntityTarget } from './index-page/types'
 import { useIndexLayoutEditor } from './index-page/useIndexLayoutEditor'
@@ -102,7 +101,7 @@ export function IndexPage(props: Props): React.ReactNode {
   const assetLookup = React.useMemo(() => buildAssetLookup(assetIndex), [assetIndex])
   const canGoBack = breadcrumb.length > 1
 
-  const { gridRef, sortableIds, draggingRefId, getPreviewLayout, beginResize, handleSortMove, handleSortPreview, handleDragStateChange, isResizingRef } = useIndexLayoutEditor({
+  const { gridRef, draggingRefId, dropIndicatorLayout, getPreviewLayout, beginResize, previewDragLayout, commitDragPreview, cancelDragPreview, handleDragStateChange, isResizingRef } = useIndexLayoutEditor({
     refs,
     doc,
     currentFolderId,
@@ -321,7 +320,7 @@ export function IndexPage(props: Props): React.ReactNode {
   const renderRef = React.useCallback(
     (
       ref: FavoriteItemRef,
-      sortable?: { setDragHandleRef: (node: HTMLElement | null) => void; dragHandleProps: Record<string, any>; dragging: boolean },
+      options?: { dragging: boolean },
     ): React.ReactNode => {
       const onStartResize = editMode ? (e: React.PointerEvent) => beginResize(ref, e) : undefined
 
@@ -331,10 +330,8 @@ export function IndexPage(props: Props): React.ReactNode {
           return (
             <IndexCardShell
               editMode={editMode}
-              dragging={sortable?.dragging}
+              dragging={options?.dragging}
               resizing={isResizingRef(ref.id)}
-              dragHandleProps={sortable?.dragHandleProps}
-              setDragHandleRef={sortable?.setDragHandleRef}
               onRemove={() => removeOneRef(ref.id)}
               onStartResize={onStartResize}
             >
@@ -346,10 +343,8 @@ export function IndexPage(props: Props): React.ReactNode {
         return (
           <IndexCardShell
             editMode={editMode}
-            dragging={sortable?.dragging}
+            dragging={options?.dragging}
             resizing={isResizingRef(ref.id)}
-            dragHandleProps={sortable?.dragHandleProps}
-            setDragHandleRef={sortable?.setDragHandleRef}
             onRemove={() => removeOneRef(ref.id)}
             onDeleteEntity={() => setDeleteEntityTarget({ kind: 'folder', title: folder.title || '未命名收藏夹', folderId: folder.id })}
             onStartResize={onStartResize}
@@ -365,10 +360,8 @@ export function IndexPage(props: Props): React.ReactNode {
           return (
             <IndexCardShell
               editMode={editMode}
-              dragging={sortable?.dragging}
+              dragging={options?.dragging}
               resizing={isResizingRef(ref.id)}
-              dragHandleProps={sortable?.dragHandleProps}
-              setDragHandleRef={sortable?.setDragHandleRef}
               onRemove={() => removeOneRef(ref.id)}
               onStartResize={onStartResize}
             >
@@ -379,10 +372,8 @@ export function IndexPage(props: Props): React.ReactNode {
         return (
           <IndexCardShell
             editMode={editMode}
-            dragging={sortable?.dragging}
+            dragging={options?.dragging}
             resizing={isResizingRef(ref.id)}
-            dragHandleProps={sortable?.dragHandleProps}
-            setDragHandleRef={sortable?.setDragHandleRef}
             onRemove={() => removeOneRef(ref.id)}
             onDeleteEntity={() => setDeleteEntityTarget({ kind: 'note', title: note.title || '未命名笔记', note })}
             onStartResize={onStartResize}
@@ -398,10 +389,8 @@ export function IndexPage(props: Props): React.ReactNode {
           return (
             <IndexCardShell
               editMode={editMode}
-              dragging={sortable?.dragging}
+              dragging={options?.dragging}
               resizing={isResizingRef(ref.id)}
-              dragHandleProps={sortable?.dragHandleProps}
-              setDragHandleRef={sortable?.setDragHandleRef}
               onRemove={() => removeOneRef(ref.id)}
               onStartResize={onStartResize}
             >
@@ -412,10 +401,8 @@ export function IndexPage(props: Props): React.ReactNode {
         return (
           <IndexCardShell
             editMode={editMode}
-            dragging={sortable?.dragging}
+            dragging={options?.dragging}
             resizing={isResizingRef(ref.id)}
-            dragHandleProps={sortable?.dragHandleProps}
-            setDragHandleRef={sortable?.setDragHandleRef}
             onRemove={() => removeOneRef(ref.id)}
             onDeleteEntity={() => setDeleteEntityTarget({ kind: 'asset', title: String(asset.displayName || asset.fileName || asset.assetId), asset })}
             onStartResize={onStartResize}
@@ -428,10 +415,8 @@ export function IndexPage(props: Props): React.ReactNode {
       return (
         <IndexCardShell
           editMode={editMode}
-          dragging={sortable?.dragging}
+          dragging={options?.dragging}
           resizing={isResizingRef(ref.id)}
-          dragHandleProps={sortable?.dragHandleProps}
-          setDragHandleRef={sortable?.setDragHandleRef}
           onRemove={() => removeOneRef(ref.id)}
           onStartResize={onStartResize}
         >
@@ -453,26 +438,6 @@ export function IndexPage(props: Props): React.ReactNode {
       onOpenNote,
       removeOneRef,
     ],
-  )
-
-  const renderDragOverlay = React.useCallback(
-    (activeId: string, rect: { width: number; height: number } | null): React.ReactNode => {
-      const activeRef = refs.find(ref => ref.id === activeId)
-      if (!activeRef) return null
-      return (
-        <Box
-          sx={{
-            width: rect?.width || 240,
-            height: rect?.height || 'auto',
-            minHeight: rect?.height || undefined,
-            pointerEvents: 'none',
-          }}
-        >
-          {renderRef(activeRef, { setDragHandleRef: () => {}, dragHandleProps: {}, dragging: true })}
-        </Box>
-      )
-    },
-    [refs, renderRef],
   )
 
   return (
@@ -497,40 +462,19 @@ export function IndexPage(props: Props): React.ReactNode {
           {editMode ? <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.45)', pt: 0.75 }}>点击右上角添加卡片</Typography> : null}
         </Box>
       ) : (
-        <SortableRoot onMove={handleSortMove} onPreviewMove={handleSortPreview} onDragStateChange={handleDragStateChange} renderOverlay={renderDragOverlay}>
-          <SortableSection items={sortableIds}>
-            <Box
-              ref={gridRef}
-              sx={{
-                display: 'grid',
-                gridTemplateColumns: `repeat(${INDEX_GRID_COLUMNS}, minmax(0, 1fr))`,
-                gridAutoRows: `${INDEX_GRID_ROW_PX}px`,
-                gap: `${INDEX_GRID_GAP_PX}px`,
-              }}
-            >
-              {refs.map(ref => {
-                const layoutRef = draggingRefId === ref.id ? ref : { ...ref, layout: getPreviewLayout(ref) }
-                return (
-                  <SortableItem key={ref.id} id={ref.id} disabled={!editMode}>
-                    {({ setNodeRef, setHandleRef, handleProps, isDragging, style }) => (
-                      <Box
-                        ref={setNodeRef}
-                        style={
-                          isDragging
-                            ? { ...style, transform: undefined, transition: undefined, opacity: 0, pointerEvents: 'none' }
-                            : style
-                        }
-                        sx={{ ...getRefGridSpan(layoutRef), minWidth: 0, height: '100%', minHeight: 0 }}
-                      >
-                        {renderRef(ref, { setDragHandleRef: setHandleRef, dragHandleProps: handleProps, dragging: isDragging })}
-                      </Box>
-                    )}
-                  </SortableItem>
-                )
-              })}
-            </Box>
-          </SortableSection>
-        </SortableRoot>
+        <MuuriGrid
+          refs={refs}
+          editMode={editMode}
+          gridRef={gridRef}
+          getLayout={getPreviewLayout}
+          draggingRefId={draggingRefId}
+          dropIndicatorLayout={dropIndicatorLayout}
+          onPreviewDragLayout={previewDragLayout}
+          onCommitDrag={commitDragPreview}
+          onCancelPreview={cancelDragPreview}
+          onDragStateChange={handleDragStateChange}
+          renderItem={(ref, isDragging) => renderRef(ref, { dragging: isDragging })}
+        />
       )}
 
       <Menu open={!!addAnchorEl} onClose={closeAddMenu} anchorEl={addAnchorEl} PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}>

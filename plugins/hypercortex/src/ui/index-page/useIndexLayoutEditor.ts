@@ -1,7 +1,7 @@
 import * as React from 'react'
-import { reorderRefsInFolder, type FavoriteItemRef, type GridLayout, type HyperCortexFavoritesDocV1 } from '../../favorites'
+import { type FavoriteItemRef, type GridLayout, type HyperCortexFavoritesDocV1 } from '../../favorites'
 import { INDEX_GRID_COLUMNS, INDEX_GRID_GAP_PX, INDEX_GRID_MAX_H, INDEX_GRID_MIN_H, INDEX_GRID_MIN_W, INDEX_GRID_ROW_PX } from './constants'
-import { applyLayoutMapToDoc, buildBaseLayoutMap, buildResolvedLayoutMap, buildSortedLayoutMap } from './layoutState'
+import { applyLayoutMapToDoc, buildBaseLayoutMap, buildResolvedLayoutMap } from './layoutState'
 import type { ResizeDraft } from './types'
 
 type Options = {
@@ -22,10 +22,14 @@ export function useIndexLayoutEditor(opts: Options) {
   const [draggingRefId, setDraggingRefId] = React.useState<string | null>(null)
   const [resizeDraft, setResizeDraft] = React.useState<ResizeDraft | null>(null)
   const [layoutPreview, setLayoutPreview] = React.useState<Map<string, GridLayout>>(new Map())
+  const [dropIndicatorLayout, setDropIndicatorLayout] = React.useState<GridLayout | null>(null)
   const cleanupRef = React.useRef<null | (() => void)>(null)
+  const dragPreviewRef = React.useRef<Map<string, GridLayout> | null>(null)
 
   React.useEffect(() => {
+    dragPreviewRef.current = null
     setLayoutPreview(buildBaseLayoutMap(refs))
+    setDropIndicatorLayout(null)
   }, [refs])
 
   React.useEffect(() => {
@@ -100,37 +104,32 @@ export function useIndexLayoutEditor(opts: Options) {
     [commitPreview, editMode, refs],
   )
 
-  const handleSortMove = React.useCallback(
-    (activeId: string, overId: string) => {
+  const previewDragLayout = React.useCallback(
+    (refId: string, patch: Partial<GridLayout>) => {
       if (!editMode) return
-      const nextPreview = buildSortedLayoutMap(refs, activeId, overId)
+      const nextPreview = buildResolvedLayoutMap(refs, refId, patch)
+      dragPreviewRef.current = nextPreview
       setLayoutPreview(nextPreview)
-      const nextOrder = refs
-        .slice()
-        .sort((a, b) => {
-          const aa = nextPreview.get(a.id)
-          const bb = nextPreview.get(b.id)
-          if (!aa || !bb) return 0
-          return aa.y - bb.y || aa.x - bb.x
-        })
-        .map(ref => ref.id)
-      const nextDoc = reorderRefsInFolder(applyLayoutMapToDoc(doc, refs, nextPreview), currentFolderId, nextOrder)
-      if (nextDoc !== doc) onDocChange(nextDoc)
-    },
-    [currentFolderId, doc, editMode, onDocChange, refs],
-  )
-
-  const handleSortPreview = React.useCallback(
-    (activeId: string, overId: string | null) => {
-      if (!editMode) return
-      if (!activeId || !overId || activeId === overId) {
-        setLayoutPreview(buildBaseLayoutMap(refs))
-        return
-      }
-      setLayoutPreview(buildSortedLayoutMap(refs, activeId, overId))
+      setDropIndicatorLayout(nextPreview.get(refId) || null)
     },
     [editMode, refs],
   )
+
+  const commitDragPreview = React.useCallback(() => {
+    if (!editMode) return
+    const nextPreview = dragPreviewRef.current
+    dragPreviewRef.current = null
+    setDropIndicatorLayout(null)
+    if (!nextPreview) return
+    const nextDoc = applyLayoutMapToDoc(doc, refs, nextPreview)
+    if (nextDoc !== doc) onDocChange(nextDoc)
+  }, [doc, editMode, onDocChange, refs])
+
+  const cancelDragPreview = React.useCallback(() => {
+    dragPreviewRef.current = null
+    setLayoutPreview(buildBaseLayoutMap(refs))
+    setDropIndicatorLayout(null)
+  }, [refs])
 
   const handleDragStateChange = React.useCallback(
     (activeId: string | null) => {
@@ -147,17 +146,17 @@ export function useIndexLayoutEditor(opts: Options) {
     [layoutPreview],
   )
 
-  const sortableIds = React.useMemo(() => refs.map(ref => ref.id), [refs])
   const isResizingRef = React.useCallback((refId: string) => resizeDraft?.refId === refId, [resizeDraft])
 
   return {
     gridRef,
-    sortableIds,
     draggingRefId,
+    dropIndicatorLayout,
     getPreviewLayout,
     beginResize,
-    handleSortMove,
-    handleSortPreview,
+    previewDragLayout,
+    commitDragPreview,
+    cancelDragPreview,
     handleDragStateChange,
     isResizingRef,
   }
