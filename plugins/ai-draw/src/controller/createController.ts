@@ -188,6 +188,7 @@ export type AiDrawController = {
 
   setActiveProviderId: (providerId: string) => Promise<void>
   addProvider: () => Promise<void>
+  duplicateProvider: (providerId: string, next?: Partial<AiDrawProvider> & { modelsText?: string }) => Promise<void>
   deleteProvider: (providerId: string) => Promise<void>
   moveProvider: (providerId: string, targetProviderId: string, position: SortDropPosition) => Promise<void>
   saveProvider: (providerId: string, next: Partial<AiDrawProvider> & { modelsText?: string }) => Promise<void>
@@ -245,6 +246,16 @@ function activeProvider(data: AiDrawSettingsV1 | null): AiDrawProvider | null {
   const pid = String(data.activeProviderId || '')
   const ps = Array.isArray(data.providers) ? data.providers : []
   return ps.find((p) => p && p.id === pid) || ps[0] || null
+}
+
+function createDuplicateProviderName(existingProviders: AiDrawProvider[], sourceName: string) {
+  const baseName = String(sourceName || '').trim() || '供应商'
+  const names = new Set(existingProviders.map((provider) => String(provider.name || '').trim()).filter(Boolean))
+  const firstName = `${baseName} 副本`
+  if (!names.has(firstName)) return firstName
+  let index = 2
+  while (names.has(`${baseName} 副本 ${index}`)) index += 1
+  return `${baseName} 副本 ${index}`
 }
 
 function getRefItemFolderIdsFromIndex(index: RefLibraryIndexV1, path: string) {
@@ -2292,6 +2303,42 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     notify()
   }
 
+  async function duplicateProvider(providerId: string, next?: Partial<AiDrawProvider> & { modelsText?: string }) {
+    if (!state.data) return
+    const pid = String(providerId || '').trim()
+    if (!pid) return
+    const sourceIndex = state.data.providers.findIndex((x) => x.id === pid)
+    if (sourceIndex < 0) return
+    const source = state.data.providers[sourceIndex]
+    if (!source) return
+
+    const patch: any = { ...(next || {}) }
+    if (typeof patch.modelsText === 'string') {
+      patch.models = parseModelsText(patch.modelsText)
+      delete patch.modelsText
+    }
+
+    const duplicate = {
+      ...source,
+      ...patch,
+      id: defaultProvider().id,
+      name: createDuplicateProviderName(state.data.providers, String((patch as any).name || source.name || '供应商')),
+    }
+    const normalizedDuplicate = normalizeSettings({
+      ...state.data,
+      providers: [duplicate],
+      activeProviderId: duplicate.id,
+    }).providers[0]
+    if (!normalizedDuplicate) return
+
+    const nextProviders = state.data.providers.slice()
+    nextProviders.splice(sourceIndex + 1, 0, normalizedDuplicate)
+    state.data.providers = nextProviders
+    state.data.activeProviderId = normalizedDuplicate.id
+    await saveSettings().catch(() => {})
+    notify()
+  }
+
   async function deleteProvider(providerId: string) {
     if (!state.data) return
     if (state.data.providers.length <= 1) {
@@ -2575,6 +2622,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
     setActiveProviderId,
     addProvider,
+    duplicateProvider,
     deleteProvider,
     moveProvider,
     saveProvider,

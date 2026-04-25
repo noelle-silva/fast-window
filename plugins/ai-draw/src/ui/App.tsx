@@ -1541,6 +1541,12 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 onSelectProvider={(providerId) => void controller.setActiveProviderId(providerId)}
                 onMoveProvider={handleProviderMove}
                 onAddProvider={() => void controller.addProvider()}
+                onDuplicateProvider={(targetProvider) =>
+                  void controller.duplicateProvider(
+                    String(targetProvider?.id || ''),
+                    provider && targetProvider?.id === provider.id ? (providerDraft || {}) : undefined,
+                  )
+                }
                 onDeleteProvider={(targetProvider) =>
                   setProviderDeleteConfirm({
                     open: true,
@@ -1632,10 +1638,11 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
           <Button
             variant="contained"
             onClick={() => {
+              let task: Promise<void> | null = null
               if (settingsTab === 'provider' && provider) {
-                void controller.saveProvider(provider.id, providerDraft || {})
+                task = controller.saveProvider(provider.id, providerDraft || {})
               } else if (settingsTab === 'plugin') {
-                void controller.savePluginSettings({
+                task = controller.savePluginSettings({
                   autoSave: !!pluginDraft?.autoSave,
                   shrinkRefImages: !!pluginDraft?.shrinkRefImages,
                   debugMode: !!pluginDraft?.debugMode,
@@ -1644,7 +1651,8 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                   requestTimeoutSec: Number(pluginDraft?.requestTimeoutSec),
                 })
               }
-              setSettingsOpen(false)
+              if (!task) return
+              void task.then(() => api.ui.showToast('保存成功'))
             }}
           >
             保存

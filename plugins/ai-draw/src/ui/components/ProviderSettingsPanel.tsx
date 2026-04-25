@@ -1,6 +1,8 @@
 import * as React from 'react'
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
-import { Box, Button, ButtonBase, FormControl, IconButton, InputLabel, Menu, MenuItem, Paper, Select, Stack, TextField, Typography } from '@mui/material'
+import VisibilityOffRoundedIcon from '@mui/icons-material/VisibilityOffRounded'
+import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded'
+import { Box, Button, ButtonBase, FormControl, IconButton, InputAdornment, InputLabel, Menu, MenuItem, Paper, Select, Stack, TextField, Typography } from '@mui/material'
 import type { AiDrawProvider } from '../../core/schema'
 import { OverlayScrollArea } from './OverlayScrollArea'
 import { SortHandleButton, SortModeButton } from './SortControls'
@@ -27,6 +29,7 @@ type ProviderSettingsPanelProps = {
   onSelectProvider: (providerId: string) => void
   onMoveProvider: (providerId: string, targetProviderId: string, position: SortMovePosition) => void
   onAddProvider: () => void
+  onDuplicateProvider: (provider: AiDrawProvider) => void
   onDeleteProvider: (provider: AiDrawProvider) => void
   deleteDisabled?: boolean
   onDraftChange: (next: ProviderDraft) => void
@@ -59,6 +62,7 @@ export function ProviderSettingsPanel(props: ProviderSettingsPanelProps) {
     onSelectProvider,
     onMoveProvider,
     onAddProvider,
+    onDuplicateProvider,
     onDeleteProvider,
     deleteDisabled = false,
     onDraftChange,
@@ -82,6 +86,7 @@ export function ProviderSettingsPanel(props: ProviderSettingsPanelProps) {
     anchorEl: null,
     providerId: '',
   })
+  const [apiKeyVisible, setApiKeyVisible] = React.useState(false)
 
   const menuProvider = React.useMemo(
     () => providers.find((provider) => String(provider.id || '') === providerMenu.providerId) || null,
@@ -209,6 +214,16 @@ export function ProviderSettingsPanel(props: ProviderSettingsPanelProps) {
 
         <Menu anchorEl={providerMenu.anchorEl} open={!!providerMenu.anchorEl} onClose={closeProviderMenu}>
           <MenuItem
+            disabled={!menuProvider}
+            onClick={() => {
+              if (!menuProvider) return
+              closeProviderMenu()
+              onDuplicateProvider(menuProvider)
+            }}
+          >
+            复制
+          </MenuItem>
+          <MenuItem
             disabled={!menuProvider || deleteDisabled}
             onClick={() => {
               if (!menuProvider || deleteDisabled) return
@@ -262,7 +277,22 @@ export function ProviderSettingsPanel(props: ProviderSettingsPanelProps) {
                 label="API Key"
                 value={draft.apiKey}
                 onChange={(event) => updateDraft({ apiKey: event.target.value })}
-                type="password"
+                type={apiKeyVisible ? 'text' : 'password'}
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        edge="end"
+                        size="small"
+                        aria-label={apiKeyVisible ? '隐藏 API Key' : '显示 API Key'}
+                        onClick={() => setApiKeyVisible((visible) => !visible)}
+                        onMouseDown={(event) => event.preventDefault()}
+                      >
+                        {apiKeyVisible ? <VisibilityOffRoundedIcon fontSize="small" /> : <VisibilityRoundedIcon fontSize="small" />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
               />
 
               <Stack direction="row" spacing={2}>
