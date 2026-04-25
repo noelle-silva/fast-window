@@ -174,6 +174,7 @@ export type AiDrawController = {
   copyImage: () => Promise<void>
   saveImage: () => Promise<void>
   deleteCurrentOutputImage: () => Promise<void>
+  deleteOutputImages: (paths: string[]) => Promise<void>
 
   setActiveProviderId: (providerId: string) => Promise<void>
   addProvider: () => Promise<void>
@@ -1936,6 +1937,69 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     api.ui.showToast('已删除')
   }
 
+  async function deleteOutputImages(paths: string[]) {
+    const raw = Array.isArray(paths) ? paths : []
+    const uniq: string[] = []
+    for (const x of raw) {
+      const p = String(x || '').trim()
+      if (!p) continue
+      if (!uniq.includes(p)) uniq.push(p)
+      if (uniq.length >= 5000) break
+    }
+    if (!uniq.length) return
+
+    const currentPath = String(state.savedPath || '').trim()
+    const currentIndex = Number(state.imageHistoryIndex)
+    const currentItem = Number.isFinite(currentIndex) && currentIndex >= 0 ? state.imageHistory[currentIndex] : null
+    const currentVisiblePath = String(currentItem?.savedPath || '').trim()
+    const deletingCurrent = uniq.includes(currentVisiblePath || currentPath)
+
+    let preferPath = ''
+    if (deletingCurrent && currentItem && state.imageHistory.length) {
+      for (let i = currentIndex + 1; i < state.imageHistory.length; i++) {
+        const p = String(state.imageHistory[i]?.savedPath || '').trim()
+        if (p && !uniq.includes(p)) {
+          preferPath = p
+          break
+        }
+      }
+      if (!preferPath) {
+        for (let i = currentIndex - 1; i >= 0; i--) {
+          const p = String(state.imageHistory[i]?.savedPath || '').trim()
+          if (p && !uniq.includes(p)) {
+            preferPath = p
+            break
+          }
+        }
+      }
+    }
+
+    let ok = 0
+    let failed = 0
+    let firstError = ''
+
+    for (const p of uniq) {
+      let success = true
+      await api.files.images.delete({ scope: 'output', path: p }).catch((e: any) => {
+        success = false
+        failed++
+        if (!firstError) firstError = String(e?.message || e || 'unknown')
+      })
+      if (success) ok++
+    }
+
+    if (ok && uniq.includes(currentPath)) state.savedPath = ''
+    if (ok && deletingCurrent) state.imageDataUrl = ''
+
+    const batch = uniq.length > 1
+    if (ok && failed) api.ui.showToast(`已删除 ${ok} 张，失败 ${failed} 张${firstError ? `：${firstError}` : ''}`)
+    else if (ok && batch) api.ui.showToast(`已删除 ${ok} 张`)
+    else if (failed) api.ui.showToast(`删除失败：${firstError || '请稍后重试'}`)
+
+    await refreshImageHistoryFromOutputDir(preferPath)
+    notify()
+  }
+
   async function cancelTask(taskId: string) {
     const tid = String(taskId || '').trim()
     if (!tid) return
@@ -2269,6 +2333,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     copyImage,
     saveImage,
     deleteCurrentOutputImage,
+    deleteOutputImages,
 
     setActiveProviderId,
     addProvider,

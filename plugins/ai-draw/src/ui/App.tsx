@@ -313,6 +313,9 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   )
   const [refLibraryOpen, setRefLibraryOpen] = React.useState(false)
   const [imageGalleryOpen, setImageGalleryOpen] = React.useState(false)
+  const [imageGalleryMultiMode, setImageGalleryMultiMode] = React.useState(false)
+  const [imageGallerySelectedPaths, setImageGallerySelectedPaths] = React.useState<string[]>([])
+  const [imageGalleryDeleteConfirm, setImageGalleryDeleteConfirm] = React.useState<{ open: boolean; paths: string[] }>({ open: false, paths: [] })
   const [imageGalleryLimit, setImageGalleryLimit] = React.useState(36)
   const imageGalleryScrollRef = React.useRef<HTMLDivElement | null>(null)
   const imageGallerySentinelRef = React.useRef<HTMLDivElement | null>(null)
@@ -431,6 +434,8 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
   React.useEffect(() => {
     if (!imageGalleryOpen) return
     setImageGalleryLimit(36)
+    setImageGalleryMultiMode(false)
+    setImageGallerySelectedPaths([])
     const root = imageGalleryScrollRef.current
     if (root) root.scrollTop = 0
   }, [imageGalleryOpen])
@@ -678,7 +683,32 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
     return list.filter((it) => String(it?.savedPath || '').toLowerCase().includes(q))
   }, [imageHistoryListNewestFirst, imageGalleryQuery])
 
+  const imageGallerySelectedSet = React.useMemo(
+    () => new Set(imageGallerySelectedPaths.map((x) => String(x || '').trim()).filter(Boolean)),
+    [imageGallerySelectedPaths],
+  )
+  const imageGallerySelectedCount = imageGallerySelectedSet.size
   const imageGalleryShownCount = Math.min(Math.max(0, imageGalleryLimit), imageHistoryFiltered.length)
+
+  const toggleImageGallerySelected = React.useCallback((savedPath: string) => {
+    const p = String(savedPath || '').trim()
+    if (!p) return
+    setImageGallerySelectedPaths((prev) => {
+      const set = new Set(prev.map((x) => String(x || '').trim()).filter(Boolean))
+      if (set.has(p)) set.delete(p)
+      else set.add(p)
+      return Array.from(set)
+    })
+  }, [])
+
+  const clearImageGallerySelection = React.useCallback(() => {
+    setImageGallerySelectedPaths([])
+  }, [])
+
+  React.useEffect(() => {
+    if (!imageGalleryOpen) return
+    clearImageGallerySelection()
+  }, [imageGalleryOpen, imageGalleryQuery, clearImageGallerySelection])
 
   const openRefImagesLightbox = React.useCallback(
     (refId: string) => {
@@ -1908,7 +1938,11 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
 
       <Dialog
         open={imageGalleryOpen}
-        onClose={() => setImageGalleryOpen(false)}
+        onClose={() => {
+          setImageGalleryOpen(false)
+          setImageGalleryMultiMode(false)
+          clearImageGallerySelection()
+        }}
         maxWidth={false}
         PaperProps={{
           sx: {
@@ -1924,7 +1958,11 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
           <Box sx={{ position: 'relative', height: '100%', p: 2, pt: 5 }}>
             <IconButton
               size="small"
-              onClick={() => setImageGalleryOpen(false)}
+              onClick={() => {
+                setImageGalleryOpen(false)
+                setImageGalleryMultiMode(false)
+                clearImageGallerySelection()
+              }}
               aria-label="关闭图片批量预览"
               sx={{ position: 'absolute', right: 8, top: 8, bgcolor: 'rgba(250,249,245,0.92)' }}
             >
@@ -1940,6 +1978,38 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                   placeholder="按文件名搜索（savedPath）"
                   fullWidth
                 />
+                <Button
+                  size="small"
+                  variant={imageGalleryMultiMode ? 'contained' : 'outlined'}
+                  onClick={() => {
+                    setImageGalleryMultiMode((m) => {
+                      const next = !m
+                      if (!next) clearImageGallerySelection()
+                      return next
+                    })
+                  }}
+                >
+                  {imageGalleryMultiMode ? '完成' : '多选'}
+                </Button>
+                {imageGalleryMultiMode ? (
+                  <>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="error"
+                      startIcon={<DeleteRoundedIcon fontSize="small" />}
+                      disabled={!imageGallerySelectedCount}
+                      onClick={() => {
+                        const paths = Array.from(imageGallerySelectedSet)
+                        if (!paths.length) return
+                        setImageGalleryDeleteConfirm({ open: true, paths })
+                      }}
+                    >
+                      删除
+                    </Button>
+                    <Chip size="small" variant="outlined" color="primary" label={`已选 ${imageGallerySelectedCount} 张`} />
+                  </>
+                ) : null}
                 <Button size="small" variant="contained" onClick={() => void controller.refreshImageHistory()}>
                   刷新
                 </Button>
@@ -1962,6 +2032,8 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                       const loading = !!it?.loading
                       const error = String(it?.error || '').trim()
                       const key = savedPath || `idx:${idx}`
+                      const name = savedPath.split(/[\\/]/).pop() || savedPath || '输出图片'
+                      const selected = imageGalleryMultiMode && imageGallerySelectedSet.has(savedPath)
                       return (
                         <Box
                           key={key}
@@ -1971,6 +2043,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                             p: 1,
                             cursor: 'pointer',
                             overflow: 'hidden',
+                            ...(selected ? { border: '1px solid', borderColor: 'primary.main' } : null),
                           }}
                           data-saved-path={savedPath}
                           onMouseEnter={() => controller.ensureImageHistoryItemLoaded(savedPath)}
@@ -1984,16 +2057,32 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                               openOutputGalleryLightbox(savedPath)
                               return
                             }
+                            if (imageGalleryMultiMode) return toggleImageGallerySelected(savedPath)
                             const realIndex = state.imageHistory.findIndex((x) => String(x?.savedPath || '').trim() === savedPath)
                             if (realIndex >= 0) {
                               void controller.refreshImageHistory(savedPath).catch(() => {})
                               // 直接跳到那张图（刷新后会 preferPath 命中）
                             }
                             setImageGalleryOpen(false)
+                            setImageGalleryMultiMode(false)
+                            clearImageGallerySelection()
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key !== 'Enter' && e.key !== ' ') return
+                            e.preventDefault()
+                            if (imageGalleryMultiMode) return toggleImageGallerySelected(savedPath)
+                            const realIndex = state.imageHistory.findIndex((x) => String(x?.savedPath || '').trim() === savedPath)
+                            if (realIndex >= 0) {
+                              void controller.refreshImageHistory(savedPath).catch(() => {})
+                            }
+                            setImageGalleryOpen(false)
+                            setImageGalleryMultiMode(false)
+                            clearImageGallerySelection()
                           }}
                         >
                           <Box
                             sx={{
+                              position: 'relative',
                               height: 120,
                               borderRadius: 2,
                               bgcolor: '#fff',
@@ -2003,6 +2092,19 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                               overflow: 'hidden',
                             }}
                           >
+                            {imageGalleryMultiMode ? (
+                              <Checkbox
+                                size="small"
+                                checked={imageGallerySelectedSet.has(savedPath)}
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                }}
+                                onChange={() => toggleImageGallerySelected(savedPath)}
+                                inputProps={{ 'aria-label': `选择 ${name}` }}
+                                sx={{ position: 'absolute', left: 4, top: 4, zIndex: 1, bgcolor: 'rgba(250,249,245,0.92)' }}
+                              />
+                            ) : null}
                             {dataUrl ? (
                               <Box
                                 component="img"
@@ -2038,6 +2140,41 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
             </Stack>
           </Box>
         </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={imageGalleryDeleteConfirm.open}
+        onClose={() => setImageGalleryDeleteConfirm({ open: false, paths: [] })}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>确认删除？</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 13, color: 'text.secondary' }}>
+            将删除 {imageGalleryDeleteConfirm.paths.length} 张输出图片，此操作不可撤销。
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setImageGalleryDeleteConfirm({ open: false, paths: [] })}>取消</Button>
+          <Button
+            color="error"
+            variant="contained"
+            disabled={!imageGalleryDeleteConfirm.paths.length}
+            onClick={() => {
+              const paths = imageGalleryDeleteConfirm.paths.slice()
+              setImageGalleryDeleteConfirm({ open: false, paths: [] })
+              if (!paths.length) return
+              void controller.deleteOutputImages(paths).then(
+                () => {
+                  clearImageGallerySelection()
+                },
+                (e: any) => api.ui.showToast(`删除失败：${String(e?.message || e)}`),
+              )
+            }}
+          >
+            删除
+          </Button>
+        </DialogActions>
       </Dialog>
 
       <Dialog
