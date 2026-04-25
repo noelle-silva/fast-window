@@ -18,6 +18,10 @@ type Props = {
 }
 
 const resizeHandles: { direction: ResizeHandleDirection; cursor: string; sx: Record<string, any> }[] = [
+  { direction: 'n', cursor: 'ns-resize', sx: { left: 18, right: 18, top: 0, width: 'auto', height: 12 } },
+  { direction: 'e', cursor: 'ew-resize', sx: { right: 0, top: 18, bottom: 18, width: 12, height: 'auto' } },
+  { direction: 's', cursor: 'ns-resize', sx: { left: 18, right: 18, bottom: 0, width: 'auto', height: 12 } },
+  { direction: 'w', cursor: 'ew-resize', sx: { left: 0, top: 18, bottom: 18, width: 12, height: 'auto' } },
   { direction: 'nw', cursor: 'nwse-resize', sx: { left: 0, top: 0 } },
   { direction: 'ne', cursor: 'nesw-resize', sx: { right: 0, top: 0 } },
   { direction: 'sw', cursor: 'nesw-resize', sx: { left: 0, bottom: 0 } },

@@ -20,4 +20,4 @@ export type ResizeDraft = {
   h: number
 }
 
-export type ResizeHandleDirection = 'nw' | 'ne' | 'sw' | 'se'
+export type ResizeHandleDirection = 'n' | 'e' | 's' | 'w' | 'nw' | 'ne' | 'sw' | 'se'

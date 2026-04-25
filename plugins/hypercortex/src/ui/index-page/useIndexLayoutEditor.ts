@@ -19,14 +19,18 @@ function pointerDistance(ax: number, ay: number, bx: number, by: number): number
 function buildResizePatch(layout: GridLayout, direction: ResizeHandleDirection, deltaCols: number, deltaRows: number): GridLayout {
   const resizingWest = direction.includes('w')
   const resizingNorth = direction.includes('n')
+  const resizingHorizontal = direction.includes('w') || direction.includes('e')
+  const resizingVertical = direction.includes('n') || direction.includes('s')
 
   const minWidthDelta = INDEX_GRID_MIN_W - layout.w
   const maxWidthDelta = INDEX_GRID_COLUMNS - (resizingWest ? layout.x : layout.x + layout.w)
-  const widthDelta = Math.max(minWidthDelta, Math.min(maxWidthDelta, resizingWest ? -deltaCols : deltaCols))
+  const rawWidthDelta = resizingHorizontal ? (resizingWest ? -deltaCols : deltaCols) : 0
+  const widthDelta = Math.max(minWidthDelta, Math.min(maxWidthDelta, rawWidthDelta))
 
   const minHeightDelta = INDEX_GRID_MIN_H - layout.h
   const maxHeightDelta = INDEX_GRID_MAX_H - layout.h
-  const heightDelta = Math.max(minHeightDelta, Math.min(maxHeightDelta, resizingNorth ? -deltaRows : deltaRows))
+  const rawHeightDelta = resizingVertical ? (resizingNorth ? -deltaRows : deltaRows) : 0
+  const heightDelta = Math.max(minHeightDelta, Math.min(maxHeightDelta, rawHeightDelta))
 
   return {
     x: resizingWest ? layout.x - widthDelta : layout.x,
