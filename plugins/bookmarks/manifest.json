@@ -2,26 +2,28 @@
   "id": "bookmarks",
   "name": "网站收藏",
   "author": "fast-window",
-  "version": "1.0.2",
-  "description": "收藏、分组管理常用网站，点击即可用浏览器打开",
+  "version": "1.1.0",
+  "description": "v3 网站收藏：前端负责展示，自治后端负责收藏数据、分组与持久化",
   "main": "index.js",
+  "background": {
+    "main": "backend.js",
+    "lifecycle": "on_demand"
+  },
   "icon": "svg:icon.svg",
   "keyword": "bm",
-  "apiVersion": 2,
+  "apiVersion": 3,
   "ui": {
     "type": "iframe"
   },
   "requires": [
-    "tauri:plugin_files_list_dir",
-    "tauri:plugin_files_read_text",
-    "tauri:plugin_files_write_text",
-    "tauri:plugin_files_delete",
-    "tauri:http_request",
-    "tauri:http_request_base64",
-    "tauri:plugin_images_write_base64",
-    "tauri:plugin_images_read",
-    "tauri:plugin_images_delete",
-    "tauri:open_external_url",
-    "tauri:plugin:window|start_dragging"
+    "cap:host.back",
+    "cap:host.toast",
+    "cap:host.startDragging",
+    "cap:process.openExternalUrl",
+    "cap:workspace.fs.readText",
+    "cap:workspace.fs.writeText",
+    "cap:workspace.fs.listDir",
+    "cap:workspace.fs.mkdir",
+    "cap:workspace.fs.remove"
   ]
 }
