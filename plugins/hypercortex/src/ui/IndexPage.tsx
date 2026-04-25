@@ -102,7 +102,7 @@ export function IndexPage(props: Props): React.ReactNode {
   const assetLookup = React.useMemo(() => buildAssetLookup(assetIndex), [assetIndex])
   const canGoBack = breadcrumb.length > 1
 
-  const { gridRef, sortableIds, getPreviewLayout, beginResize, handleSortMove, isResizingRef } = useIndexLayoutEditor({
+  const { gridRef, sortableIds, draggingRefId, getPreviewLayout, beginResize, handleSortMove, handleSortPreview, handleDragStateChange, isResizingRef } = useIndexLayoutEditor({
     refs,
     doc,
     currentFolderId,
@@ -323,7 +323,6 @@ export function IndexPage(props: Props): React.ReactNode {
       ref: FavoriteItemRef,
       sortable?: { setDragHandleRef: (node: HTMLElement | null) => void; dragHandleProps: Record<string, any>; dragging: boolean },
     ): React.ReactNode => {
-      const previewRef: FavoriteItemRef = { ...ref, layout: getPreviewLayout(ref) }
       const onStartResize = editMode ? (e: React.PointerEvent) => beginResize(ref, e) : undefined
 
       if (ref.kind === 'folder') {
@@ -456,6 +455,26 @@ export function IndexPage(props: Props): React.ReactNode {
     ],
   )
 
+  const renderDragOverlay = React.useCallback(
+    (activeId: string, rect: { width: number; height: number } | null): React.ReactNode => {
+      const activeRef = refs.find(ref => ref.id === activeId)
+      if (!activeRef) return null
+      return (
+        <Box
+          sx={{
+            width: rect?.width || 240,
+            height: rect?.height || 'auto',
+            minHeight: rect?.height || undefined,
+            pointerEvents: 'none',
+          }}
+        >
+          {renderRef(activeRef, { setDragHandleRef: () => {}, dragHandleProps: {}, dragging: true })}
+        </Box>
+      )
+    },
+    [refs, renderRef],
+  )
+
   return (
     <Box sx={{ px: 1.5, py: 1.5 }}>
       <IndexPageToolbar
@@ -478,7 +497,7 @@ export function IndexPage(props: Props): React.ReactNode {
           {editMode ? <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.45)', pt: 0.75 }}>点击右上角添加卡片</Typography> : null}
         </Box>
       ) : (
-        <SortableRoot onMove={handleSortMove}>
+        <SortableRoot onMove={handleSortMove} onPreviewMove={handleSortPreview} onDragStateChange={handleDragStateChange} renderOverlay={renderDragOverlay}>
           <SortableSection items={sortableIds}>
             <Box
               ref={gridRef}
@@ -490,11 +509,19 @@ export function IndexPage(props: Props): React.ReactNode {
               }}
             >
               {refs.map(ref => {
-                const previewRef = { ...ref, layout: getPreviewLayout(ref) }
+                const layoutRef = draggingRefId === ref.id ? ref : { ...ref, layout: getPreviewLayout(ref) }
                 return (
                   <SortableItem key={ref.id} id={ref.id} disabled={!editMode}>
                     {({ setNodeRef, setHandleRef, handleProps, isDragging, style }) => (
-                      <Box ref={setNodeRef} style={style} sx={{ ...getRefGridSpan(previewRef), minWidth: 0, height: '100%', minHeight: 0 }}>
+                      <Box
+                        ref={setNodeRef}
+                        style={
+                          isDragging
+                            ? { ...style, transform: undefined, transition: undefined, opacity: 0, pointerEvents: 'none' }
+                            : style
+                        }
+                        sx={{ ...getRefGridSpan(layoutRef), minWidth: 0, height: '100%', minHeight: 0 }}
+                      >
                         {renderRef(ref, { setDragHandleRef: setHandleRef, dragHandleProps: handleProps, dragging: isDragging })}
                       </Box>
                     )}

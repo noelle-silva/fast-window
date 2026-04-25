@@ -32,8 +32,7 @@ export function IndexCardShell(props: Props): React.ReactNode {
         flexDirection: 'column',
         position: 'relative',
         opacity: dragging ? 0.78 : 1,
-        transform: dragging ? 'scale(1.01)' : 'none',
-        transition: resizing ? 'none' : 'transform .12s ease, opacity .12s ease, box-shadow .12s ease',
+        transition: resizing ? 'none' : 'opacity .12s ease, box-shadow .12s ease',
       }}
     >
       <Box

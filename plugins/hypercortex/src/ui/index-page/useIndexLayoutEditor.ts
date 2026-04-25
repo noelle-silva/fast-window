@@ -19,6 +19,7 @@ function pointerDistance(ax: number, ay: number, bx: number, by: number): number
 export function useIndexLayoutEditor(opts: Options) {
   const { refs, doc, currentFolderId, editMode, onDocChange } = opts
   const gridRef = React.useRef<HTMLDivElement | null>(null)
+  const [draggingRefId, setDraggingRefId] = React.useState<string | null>(null)
   const [resizeDraft, setResizeDraft] = React.useState<ResizeDraft | null>(null)
   const [layoutPreview, setLayoutPreview] = React.useState<Map<string, GridLayout>>(new Map())
   const cleanupRef = React.useRef<null | (() => void)>(null)
@@ -119,6 +120,25 @@ export function useIndexLayoutEditor(opts: Options) {
     [currentFolderId, doc, editMode, onDocChange, refs],
   )
 
+  const handleSortPreview = React.useCallback(
+    (activeId: string, overId: string | null) => {
+      if (!editMode) return
+      if (!activeId || !overId || activeId === overId) {
+        setLayoutPreview(buildBaseLayoutMap(refs))
+        return
+      }
+      setLayoutPreview(buildSortedLayoutMap(refs, activeId, overId))
+    },
+    [editMode, refs],
+  )
+
+  const handleDragStateChange = React.useCallback(
+    (activeId: string | null) => {
+      setDraggingRefId(activeId)
+    },
+    [],
+  )
+
   const getPreviewLayout = React.useCallback(
     (ref: FavoriteItemRef): GridLayout => {
       const preview = layoutPreview.get(ref.id)
@@ -133,9 +153,12 @@ export function useIndexLayoutEditor(opts: Options) {
   return {
     gridRef,
     sortableIds,
+    draggingRefId,
     getPreviewLayout,
     beginResize,
     handleSortMove,
+    handleSortPreview,
+    handleDragStateChange,
     isResizingRef,
   }
 }

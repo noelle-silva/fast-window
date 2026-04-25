@@ -1,6 +1,10 @@
 import * as React from 'react'
 import {
   DndContext,
+  DragOverlay,
+  type DragCancelEvent,
+  type DragOverEvent,
+  type DragStartEvent,
   KeyboardSensor,
   PointerSensor,
   closestCenter,
@@ -29,6 +33,9 @@ export type SortableItemRenderArgs = {
 type SortableRootProps = {
   children: React.ReactNode
   onMove: (activeId: string, overId: string) => void
+  onPreviewMove?: (activeId: string, overId: string | null) => void
+  onDragStateChange?: (activeId: string | null) => void
+  renderOverlay?: (activeId: string, rect: { width: number; height: number } | null) => React.ReactNode
   collisionDetection?: CollisionDetection
 }
 
@@ -45,25 +52,73 @@ type SortableItemProps = {
 }
 
 export function SortableRoot(props: SortableRootProps) {
-  const { children, onMove, collisionDetection = closestCenter } = props
+  const { children, onMove, onPreviewMove, onDragStateChange, renderOverlay, collisionDetection = closestCenter } = props
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
+  const [overlayState, setOverlayState] = React.useState<{ activeId: string; rect: { width: number; height: number } | null } | null>(null)
+
+  const handleDragStart = React.useCallback(
+    (event: DragStartEvent) => {
+      const activeId = String(event.active.id || '').trim()
+      const rect = event.active.rect.current.initial
+      setOverlayState(
+        activeId
+          ? {
+              activeId,
+              rect: rect ? { width: rect.width, height: rect.height } : null,
+            }
+          : null,
+      )
+      onDragStateChange?.(activeId || null)
+    },
+    [onDragStateChange],
+  )
+
+  const handleDragOver = React.useCallback(
+    (event: DragOverEvent) => {
+      const activeId = String(event.active.id || '').trim()
+      const overId = String(event.over?.id || '').trim()
+      if (!activeId) return
+      onPreviewMove?.(activeId, overId || null)
+    },
+    [onPreviewMove],
   )
 
   const handleDragEnd = React.useCallback(
     (event: DragEndEvent) => {
       const activeId = String(event.active.id || '').trim()
       const overId = String(event.over?.id || '').trim()
-      if (!activeId || !overId || activeId === overId) return
-      onMove(activeId, overId)
+      if (activeId && overId && activeId !== overId) onMove(activeId, overId)
+      setOverlayState(null)
+      onDragStateChange?.(null)
     },
-    [onMove],
+    [onDragStateChange, onMove],
+  )
+
+  const handleDragCancel = React.useCallback(
+    (_event: DragCancelEvent) => {
+      setOverlayState(null)
+      onDragStateChange?.(null)
+      onPreviewMove?.('', null)
+    },
+    [onDragStateChange, onPreviewMove],
   )
 
   return (
-    <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragEnd={handleDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={collisionDetection}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
+    >
       {children}
+      <DragOverlay>
+        {overlayState?.activeId ? renderOverlay?.(overlayState.activeId, overlayState.rect) ?? null : null}
+      </DragOverlay>
     </DndContext>
   )
 }
@@ -78,11 +133,21 @@ export function SortableItem(props: SortableItemProps) {
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id, disabled })
 
   const style = React.useMemo<React.CSSProperties>(
-    () => ({
-      transform: CSS.Transform.toString(transform),
-      transition,
-      zIndex: isDragging ? 3 : undefined,
-    }),
+    () => {
+      const translateOnly = transform
+        ? {
+            x: transform.x,
+            y: transform.y,
+            scaleX: 1,
+            scaleY: 1,
+          }
+        : null
+      return {
+        transform: CSS.Transform.toString(translateOnly),
+        transition,
+        zIndex: isDragging ? 3 : undefined,
+      }
+    },
     [isDragging, transform, transition],
   )
 
