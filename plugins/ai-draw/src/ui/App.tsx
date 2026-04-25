@@ -1521,11 +1521,11 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               onSelectProvider={(providerId) => void controller.setActiveProviderId(providerId)}
               onMoveProvider={handleProviderMove}
               onAddProvider={() => void controller.addProvider()}
-              onDeleteProvider={() =>
+              onDeleteProvider={(targetProvider) =>
                 setProviderDeleteConfirm({
                   open: true,
-                  providerId: String(provider?.id || ''),
-                  name: String(provider?.name || ''),
+                  providerId: String(targetProvider?.id || ''),
+                  name: String(targetProvider?.name || ''),
                 })
               }
               deleteDisabled={!provider || providers.length <= 1}

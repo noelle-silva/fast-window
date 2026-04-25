@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, Button, FormControl, InputLabel, MenuItem, Paper, Select, Stack, TextField, Typography } from '@mui/material'
+import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
+import { Box, Button, ButtonBase, FormControl, IconButton, InputLabel, Menu, MenuItem, Paper, Select, Stack, TextField, Typography } from '@mui/material'
 import type { AiDrawProvider } from '../../core/schema'
 import { OverlayScrollArea } from './OverlayScrollArea'
 import { SortHandleButton, SortModeButton } from './SortControls'
@@ -26,7 +27,7 @@ type ProviderSettingsPanelProps = {
   onSelectProvider: (providerId: string) => void
   onMoveProvider: (providerId: string, targetProviderId: string, position: SortMovePosition) => void
   onAddProvider: () => void
-  onDeleteProvider: () => void
+  onDeleteProvider: (provider: AiDrawProvider) => void
   deleteDisabled?: boolean
   onDraftChange: (next: ProviderDraft) => void
 }
@@ -77,6 +78,16 @@ export function ProviderSettingsPanel(props: ProviderSettingsPanelProps) {
     [draft?.modelsText],
   )
 
+  const [providerMenu, setProviderMenu] = React.useState<{ anchorEl: HTMLElement | null; providerId: string }>({
+    anchorEl: null,
+    providerId: '',
+  })
+
+  const menuProvider = React.useMemo(
+    () => providers.find((provider) => String(provider.id || '') === providerMenu.providerId) || null,
+    [providerMenu.providerId, providers],
+  )
+
   const handleProviderMove = React.useCallback(
     (activeId: string, overId: string) => {
       const position = resolveSortMovePosition(providerIds, activeId, overId)
@@ -94,21 +105,22 @@ export function ProviderSettingsPanel(props: ProviderSettingsPanelProps) {
     [draft, onDraftChange],
   )
 
+  const closeProviderMenu = React.useCallback(() => {
+    setProviderMenu({ anchorEl: null, providerId: '' })
+  }, [])
+
   return (
     <Box sx={{ display: 'flex', gap: 2, minHeight: 460 }}>
       <Paper variant="outlined" sx={{ width: 272, p: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
         <Stack direction="row" spacing={1} alignItems="center">
           <Typography sx={{ fontSize: 12, color: 'text.secondary', flex: 1 }}>供应商</Typography>
-          <SortModeButton enabled={sortMode} onClick={() => onSortModeChange(!sortMode)} disabled={providerIds.length <= 1} />
         </Stack>
 
         <Stack direction="row" spacing={1}>
           <Button size="small" variant="outlined" onClick={onAddProvider} sx={{ flex: 1 }}>
             新增
           </Button>
-          <Button size="small" variant="outlined" color="error" onClick={onDeleteProvider} disabled={deleteDisabled} sx={{ flex: 1 }}>
-            删除
-          </Button>
+          <SortModeButton enabled={sortMode} onClick={() => onSortModeChange(!sortMode)} disabled={providerIds.length <= 1} />
         </Stack>
 
         <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }}>
@@ -122,39 +134,67 @@ export function ProviderSettingsPanel(props: ProviderSettingsPanelProps) {
                   return (
                     <SortableItem key={providerId} id={providerId} disabled={!sortMode}>
                       {({ setNodeRef, setHandleRef, handleProps, isDragging, style }) => (
-                        <Button
+                        <Paper
                           ref={setNodeRef}
-                          size="small"
-                          variant={active ? 'contained' : 'text'}
-                          onClick={() => onSelectProvider(providerId)}
+                          variant={active ? 'elevation' : 'outlined'}
+                          elevation={active ? 1 : 0}
                           sx={{
-                            justifyContent: 'flex-start',
-                            alignItems: 'flex-start',
-                            textTransform: 'none',
                             width: '100%',
                             minHeight: 56,
-                            py: 0.75,
                             opacity: isDragging ? 0.5 : 1,
+                            bgcolor: active ? 'action.selected' : 'background.paper',
+                            borderColor: active ? 'primary.main' : 'divider',
+                            overflow: 'hidden',
                           }}
                           style={style}
                         >
-                          <SortHandleButton
-                            enabled={sortMode}
-                            label={`拖拽排序 ${String(provider.name || '供应商')}`}
-                            handleRef={setHandleRef}
-                            handleProps={handleProps}
-                            isDragging={isDragging}
-                            sx={{ mr: 0.5, mt: 0.125 }}
-                          />
-                          <Box sx={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
-                            <Typography noWrap sx={{ fontSize: 13, fontWeight: active ? 700 : 600 }}>
-                              {provider.name || '供应商'}
-                            </Typography>
-                            <Typography noWrap sx={{ fontSize: 11, color: active ? 'inherit' : 'text.secondary', opacity: active ? 0.82 : 1 }}>
-                              {protocolLabel}
-                            </Typography>
-                          </Box>
-                        </Button>
+                          <Stack direction="row" spacing={0.5} alignItems="stretch">
+                            <ButtonBase
+                              onClick={() => onSelectProvider(providerId)}
+                              sx={{
+                                flex: 1,
+                                minWidth: 0,
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                justifyContent: 'flex-start',
+                                textAlign: 'left',
+                                px: 0.75,
+                                py: 0.75,
+                              }}
+                            >
+                              <SortHandleButton
+                                enabled={sortMode}
+                                label={`拖拽排序 ${String(provider.name || '供应商')}`}
+                                handleRef={setHandleRef}
+                                handleProps={handleProps}
+                                isDragging={isDragging}
+                                sx={{ mr: 0.5, mt: 0.125 }}
+                              />
+                              <Box sx={{ minWidth: 0, flex: 1, textAlign: 'left' }}>
+                                <Typography noWrap sx={{ fontSize: 13, fontWeight: active ? 700 : 600 }}>
+                                  {provider.name || '供应商'}
+                                </Typography>
+                                <Typography noWrap sx={{ fontSize: 11, color: active ? 'inherit' : 'text.secondary', opacity: active ? 0.82 : 1 }}>
+                                  {protocolLabel}
+                                </Typography>
+                              </Box>
+                            </ButtonBase>
+
+                            <Box sx={{ display: 'flex', alignItems: 'center', pr: 0.25 }}>
+                              <IconButton
+                                size="small"
+                                aria-label={`打开 ${String(provider.name || '供应商')} 操作菜单`}
+                                onClick={(event) => {
+                                  event.preventDefault()
+                                  event.stopPropagation()
+                                  setProviderMenu({ anchorEl: event.currentTarget, providerId })
+                                }}
+                              >
+                                <MoreHorizRoundedIcon fontSize="small" />
+                              </IconButton>
+                            </Box>
+                          </Stack>
+                        </Paper>
                       )}
                     </SortableItem>
                   )
@@ -163,6 +203,19 @@ export function ProviderSettingsPanel(props: ProviderSettingsPanelProps) {
             </SortableSection>
           </SortableRoot>
         </OverlayScrollArea>
+
+        <Menu anchorEl={providerMenu.anchorEl} open={!!providerMenu.anchorEl} onClose={closeProviderMenu}>
+          <MenuItem
+            disabled={!menuProvider || deleteDisabled}
+            onClick={() => {
+              if (!menuProvider || deleteDisabled) return
+              closeProviderMenu()
+              onDeleteProvider(menuProvider)
+            }}
+          >
+            删除
+          </MenuItem>
+        </Menu>
       </Paper>
 
       <Paper variant="outlined" sx={{ flex: 1, p: 1.5, display: 'flex', flexDirection: 'column', gap: 2 }}>
