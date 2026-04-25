@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Box } from '@mui/material'
-import Muuri, { type DraggerEvent, type DraggerMoveEvent, type Item as MuuriItem, type LayoutFunction } from 'muuri'
+import Muuri, { type DraggerCancelEvent, type DraggerEndEvent, type DraggerEvent, type DraggerMoveEvent, type Item as MuuriItem, type LayoutFunction } from 'muuri'
 
 import type { FavoriteItemRef, GridLayout } from '../../favorites'
 import { INDEX_GRID_COLUMNS, INDEX_GRID_GAP_PX, INDEX_GRID_ROW_PX } from './constants'
@@ -139,6 +139,16 @@ export function MuuriGrid(props: Props): React.ReactNode {
     [renderedItems],
   )
 
+  const positionSignature = React.useMemo(
+    () => renderedItems.map(({ ref, layout }) => `${ref.id}:${layout.x},${layout.y}`).join('|'),
+    [renderedItems],
+  )
+
+  const sizeSignature = React.useMemo(
+    () => renderedItems.map(({ ref, frame }) => `${ref.id}:${Math.round(frame.width)}x${Math.round(frame.height)}`).join('|'),
+    [renderedItems],
+  )
+
   const flushPreview = React.useCallback(() => {
     previewFrameRef.current = null
     const pending = pendingPreviewRef.current
@@ -194,7 +204,6 @@ export function MuuriGrid(props: Props): React.ReactNode {
         easing: 'ease',
         useDragContainer: true,
       },
-      dragContainer: document.body,
     })
 
     const handleDragStart = (item: MuuriItem, event: DraggerMoveEvent) => {
@@ -249,15 +258,20 @@ export function MuuriGrid(props: Props): React.ReactNode {
       liveStateRef.current.onDragStateChange(null)
     }
 
+    const handleDragEndEvent = (_item: MuuriItem, ev: DraggerEndEvent | DraggerCancelEvent) => {
+      if (ev.type === 'cancel') handleDragCancel()
+      else handleDragEnd()
+    }
+
     grid.on('dragStart', handleDragStart)
     grid.on('dragMove', handleDragMove)
-    grid.on('dragEnd', handleDragEnd)
+    grid.on('dragEnd', handleDragEndEvent)
     gridInstanceRef.current = grid
 
     return () => {
       grid.off('dragStart', handleDragStart)
       grid.off('dragMove', handleDragMove)
-      grid.off('dragEnd', handleDragEnd)
+      grid.off('dragEnd', handleDragEndEvent)
       if (previewFrameRef.current != null) {
         window.cancelAnimationFrame(previewFrameRef.current)
         previewFrameRef.current = null
@@ -273,9 +287,26 @@ export function MuuriGrid(props: Props): React.ReactNode {
   React.useLayoutEffect(() => {
     const grid = gridInstanceRef.current
     if (!grid) return
+    if (draggingRefId) return
     grid.synchronize()
     grid.refreshItems().layout()
-  }, [layoutSignature, refs])
+  }, [refs, draggingRefId])
+
+  React.useLayoutEffect(() => {
+    const grid = gridInstanceRef.current
+    if (!grid) return
+    // During drag we intentionally avoid synchronize/refreshItems because Muuri may temporarily
+    // move items in the DOM. Only re-run layout to reflect preview x/y changes.
+    grid.layout()
+  }, [positionSignature, draggingRefId])
+
+  React.useLayoutEffect(() => {
+    const grid = gridInstanceRef.current
+    if (!grid) return
+    if (draggingRefId) return
+    // Width/height changes need a refresh.
+    grid.refreshItems().layout()
+  }, [sizeSignature, draggingRefId])
 
   const setGridNode = React.useCallback(
     (node: HTMLDivElement | null) => {

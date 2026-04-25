@@ -46,25 +46,6 @@ export function IndexCardShell(props: Props): React.ReactNode {
         <Box sx={{ height: '100%', minHeight: 0 }}>{children}</Box>
         {editMode ? (
           <Box sx={{ position: 'absolute', top: 8, right: 8, display: 'flex', alignItems: 'center', gap: 0.75 }}>
-            <Tooltip title="拖拽排序">
-              <IconButton
-                size="small"
-                aria-label="拖拽排序"
-                className="hc-index-drag-handle"
-                data-hc-no-drag="1"
-                onPointerDown={e => e.stopPropagation()}
-                sx={{
-                  bgcolor: 'rgba(255,255,255,.95)',
-                  border: '1px solid rgba(15,23,42,.10)',
-                  boxShadow: '0 8px 18px rgba(15,23,42,.08)',
-                  color: 'rgba(15,23,42,.66)',
-                  cursor: 'grab',
-                  '&:active': { cursor: 'grabbing' },
-                }}
-              >
-                <MoreHorizRoundedIcon fontSize="small" sx={{ transform: 'rotate(90deg)' }} />
-              </IconButton>
-            </Tooltip>
             {onRemove || onDeleteEntity ? (
               <Tooltip title="更多操作">
                 <IconButton
@@ -87,33 +68,70 @@ export function IndexCardShell(props: Props): React.ReactNode {
                 </IconButton>
               </Tooltip>
             ) : null}
-            {onStartResize ? (
-              <Box
-                onPointerDown={e => {
-                  e.stopPropagation()
-                  onStartResize(e)
-                }}
-                data-hc-no-drag="1"
-                sx={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: 999,
-                  border: '1px solid rgba(15,23,42,.12)',
-                  bgcolor: 'rgba(255,255,255,.96)',
-                  cursor: 'nwse-resize',
-                  boxShadow: '0 8px 18px rgba(15,23,42,.08)',
-                  position: 'relative',
-                  '&::before': {
-                    content: '""',
-                    position: 'absolute',
-                    inset: 6,
-                    borderRight: '2px solid rgba(15,23,42,.42)',
-                    borderBottom: '2px solid rgba(15,23,42,.42)',
-                  },
-                }}
-              />
-            ) : null}
           </Box>
+        ) : null}
+        {editMode && onStartResize ? (
+          <>
+            <Box
+              data-hc-no-drag="1"
+              onPointerDown={e => {
+                e.stopPropagation()
+                onStartResize(e)
+              }}
+              sx={{
+                position: 'absolute',
+                top: 0,
+                right: 0,
+                width: 14,
+                height: '100%',
+                cursor: 'ew-resize',
+                zIndex: 2,
+              }}
+            />
+            <Box
+              data-hc-no-drag="1"
+              onPointerDown={e => {
+                e.stopPropagation()
+                onStartResize(e)
+              }}
+              sx={{
+                position: 'absolute',
+                left: 0,
+                bottom: 0,
+                width: '100%',
+                height: 14,
+                cursor: 'ns-resize',
+                zIndex: 2,
+              }}
+            />
+            <Box
+              data-hc-no-drag="1"
+              onPointerDown={e => {
+                e.stopPropagation()
+                onStartResize(e)
+              }}
+              sx={{
+                position: 'absolute',
+                right: 0,
+                bottom: 0,
+                width: 18,
+                height: 18,
+                cursor: 'nwse-resize',
+                zIndex: 3,
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  right: 3,
+                  bottom: 3,
+                  width: 10,
+                  height: 10,
+                  borderRight: '2px solid rgba(15,23,42,.32)',
+                  borderBottom: '2px solid rgba(15,23,42,.32)',
+                  borderBottomRightRadius: 2,
+                },
+              }}
+            />
+          </>
         ) : null}
         <Menu
           open={menuOpen}
