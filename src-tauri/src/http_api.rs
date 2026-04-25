@@ -7,9 +7,9 @@ use url::Url;
 use base64::engine::general_purpose;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
+use tauri::ipc::Channel;
 use tauri::Manager;
 
-use crate::Channel;
 use crate::{is_http_url, make_http_stream_id};
 
 // ── HTTP 客户端策略 ──────────────────────────────────────────────────────────

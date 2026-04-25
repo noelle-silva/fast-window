@@ -121,6 +121,37 @@ export function buildPluginSdkCode(opts: {
     return st;
   }
 
+  function normalizeBytes(value) {
+    if (value instanceof Uint8Array) return value;
+    if (value instanceof ArrayBuffer) return new Uint8Array(value);
+    if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    if (Array.isArray(value)) return new Uint8Array(value);
+    throw new Error('bytes must be Uint8Array, ArrayBuffer, or number[]');
+  }
+
+  async function writeByteStream(openReq, source) {
+    const opened = await call(${JSON.stringify(v3.workspace.fs.writeBytes)}, [openReq || {}]);
+    const writeId = String((opened && (opened.writeId || opened.write_id)) || '');
+    if (!writeId) throw new Error('writeId is required');
+    try {
+      if (source && typeof source[Symbol.asyncIterator] === 'function') {
+        for await (const chunk of source) {
+          await call(${JSON.stringify(v3.workspace.fs.writeBytesChunk)}, [{ writeId, bytes: Array.from(normalizeBytes(chunk)) }]);
+        }
+      } else if (source && typeof source[Symbol.iterator] === 'function' && !(source instanceof Uint8Array) && !(source instanceof ArrayBuffer) && !ArrayBuffer.isView(source)) {
+        for (const chunk of source) {
+          await call(${JSON.stringify(v3.workspace.fs.writeBytesChunk)}, [{ writeId, bytes: Array.from(normalizeBytes(chunk)) }]);
+        }
+      } else {
+        await call(${JSON.stringify(v3.workspace.fs.writeBytesChunk)}, [{ writeId, bytes: Array.from(normalizeBytes(source)) }]);
+      }
+      await call(${JSON.stringify(v3.workspace.fs.writeBytesClose)}, [writeId]);
+    } catch (err) {
+      await call(${JSON.stringify(v3.workspace.fs.writeBytesCancel)}, [writeId]).catch(() => {});
+      throw err;
+    }
+  }
+
   function resolveTimeoutMs(method, args) {
     try {
       if (method === 'tauri.invoke' || method === 'tauri.streamOpen') {
@@ -282,6 +313,21 @@ export function buildPluginSdkCode(opts: {
       getPaths: () => call(${JSON.stringify(v3.workspace.getPaths)}, []),
       openOutputDir: () => call(${JSON.stringify(v3.workspace.openOutputDir)}, []),
       openDir: (dir) => call(${JSON.stringify(v3.workspace.openDir)}, [dir]),
+      fs: {
+        readText: (req) => call(${JSON.stringify(v3.workspace.fs.readText)}, [req || {}]),
+        writeText: (req) => call(${JSON.stringify(v3.workspace.fs.writeText)}, [req || {}]),
+        readBytes: async (req) => {
+          const r = await call(${JSON.stringify(v3.workspace.fs.readBytes)}, [req || {}]);
+          return createStream(String((r && r.streamId) || ''), ${JSON.stringify(v3.workspace.fs.readBytesCancel)});
+        },
+        writeBytes: (req, source) => writeByteStream(req || {}, source),
+        listDir: (req) => call(${JSON.stringify(v3.workspace.fs.listDir)}, [req || {}]),
+        mkdir: (req) => call(${JSON.stringify(v3.workspace.fs.mkdir)}, [req || {}]),
+        remove: (req) => call(${JSON.stringify(v3.workspace.fs.remove)}, [req || {}]),
+        stat: (req) => call(${JSON.stringify(v3.workspace.fs.stat)}, [req || {}]),
+        rename: (req) => call(${JSON.stringify(v3.workspace.fs.rename)}, [req || {}]),
+        copy: (req) => call(${JSON.stringify(v3.workspace.fs.copy)}, [req || {}]),
+      },
     };
     fastWindow.dialog = {
       pickDir: () => call(${JSON.stringify(v3.dialog.pickDir)}, []),

@@ -10,7 +10,6 @@ use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
-use tauri::ipc::Channel;
 use tauri::{Emitter, EventTarget, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
@@ -27,6 +26,7 @@ mod host_primitives;
 mod migrations;
 mod os_actions;
 mod process_commands;
+mod plugin_files;
 mod process_runtime;
 mod plugin_files_delete_tree;
 mod plugins;
@@ -49,6 +49,13 @@ use crate::clipboard_watch::{clipboard_watch_get, clipboard_watch_start, clipboa
 pub(crate) use crate::core::{
     is_dir_writable, is_http_url, is_https_url, normalize_zip_name, now_ms, parse_sha256_hex_32,
     portable_base_dir_from_env, rand_u32, to_hex_lower,
+};
+use crate::plugin_files::{
+    plugin_files_copy, plugin_files_delete, plugin_files_list_dir, plugin_files_mkdir,
+    plugin_files_read_base64, plugin_files_read_stream, plugin_files_read_stream_cancel,
+    plugin_files_read_text, plugin_files_rename, plugin_files_stat, plugin_files_thumbnail,
+    plugin_files_write_base64, plugin_files_write_stream_cancel, plugin_files_write_stream_chunk,
+    plugin_files_write_stream_close, plugin_files_write_stream_open, plugin_files_write_text,
 };
 use crate::plugin_files_delete_tree::plugin_files_delete_tree;
 use crate::plugins::{
@@ -1243,373 +1250,6 @@ fn plugin_open_dir(_app: tauri::AppHandle, plugin_id: String, dir: String) -> Re
 
     let p = PathBuf::from(s);
     crate::workspace::open_absolute_existing_dir(&p)
-}
-
-fn file_mime_by_ext(path: &Path) -> &'static str {
-    let ext = path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase();
-    match ext.as_str() {
-        "html" | "htm" => "text/html",
-        "txt" => "text/plain",
-        "json" => "application/json",
-        "css" => "text/css",
-        "js" => "text/javascript",
-        "svg" => "image/svg+xml",
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "webp" => "image/webp",
-        "gif" => "image/gif",
-        "mp3" => "audio/mpeg",
-        "wav" => "audio/wav",
-        "ogg" => "audio/ogg",
-        _ => "application/octet-stream",
-    }
-}
-
-fn decode_base64_payload(data: &str, max_bytes: usize) -> Result<Vec<u8>, String> {
-    let s = data.trim();
-    if s.is_empty() {
-        return Err("数据为空".to_string());
-    }
-
-    let b64 = if s.starts_with("data:") {
-        // data:<mime>;base64,<payload>
-        let Some((_meta, payload)) = s.split_once(',') else {
-            return Err("data URL 格式不合法".to_string());
-        };
-        if !s.contains(";base64,") {
-            return Err("仅支持 base64 data URL".to_string());
-        }
-        payload.trim()
-    } else {
-        s
-    };
-
-    if b64.len() > 120 * 1024 * 1024 {
-        return Err("base64 数据过大".to_string());
-    }
-    let bytes = general_purpose::STANDARD
-        .decode(b64)
-        .map_err(|e| format!("base64 解码失败: {e}"))?;
-    if bytes.len() > max_bytes {
-        return Err("文件过大".to_string());
-    }
-    Ok(bytes)
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PluginFsEntry {
-    name: String,
-    #[serde(rename = "isDirectory")]
-    is_directory: bool,
-    #[serde(rename = "isFile")]
-    is_file: bool,
-    size: u64,
-    modified_ms: u64,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PluginFilesListDirReq {
-    scope: String,
-    dir: Option<String>,
-}
-
-#[tauri::command]
-fn plugin_files_list_dir(
-    app: tauri::AppHandle,
-    plugin_id: String,
-    req: PluginFilesListDirReq,
-) -> Result<Vec<PluginFsEntry>, String> {
-    if !is_safe_id(&plugin_id) {
-        return Err("pluginId 不合法".to_string());
-    }
-    let scope = req.scope.trim().to_string();
-
-    let root = resolve_plugin_files_root(&app, &plugin_id, &scope)?;
-    ensure_writable_dir(&root)?;
-    let root_c = std::fs::canonicalize(&root).map_err(|e| format!("文件根目录不可用: {e}"))?;
-
-    let dir_rel = req
-        .dir
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    let dir = if let Some(dr) = dir_rel {
-        let rel = safe_relative_path(&dr)?;
-        let full = root.join(rel);
-        std::fs::create_dir_all(&full).map_err(|e| format!("创建目录失败: {e}"))?;
-        let full_c = std::fs::canonicalize(&full).map_err(|e| format!("目录路径无效: {e}"))?;
-        if !full_c.starts_with(&root_c) {
-            return Err("目录路径越界".to_string());
-        }
-        full_c
-    } else {
-        root_c.clone()
-    };
-
-    let mut out: Vec<PluginFsEntry> = Vec::new();
-    let rd = std::fs::read_dir(&dir).map_err(|e| format!("读取目录失败: {e}"))?;
-    for entry in rd {
-        let entry = entry.map_err(|e| format!("读取目录项失败: {e}"))?;
-        let name = entry.file_name().to_string_lossy().to_string();
-        let meta = entry
-            .metadata()
-            .map_err(|e| format!("读取目录项元信息失败: {e}"))?;
-        let modified = meta.modified().unwrap_or(UNIX_EPOCH);
-        let modified_ms = modified
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_else(|_| Duration::from_millis(0))
-            .as_millis() as u64;
-        out.push(PluginFsEntry {
-            name,
-            is_directory: meta.is_dir(),
-            is_file: meta.is_file(),
-            size: meta.len(),
-            modified_ms,
-        });
-    }
-
-    out.sort_by(|a, b| {
-        a.name
-            .to_ascii_lowercase()
-            .cmp(&b.name.to_ascii_lowercase())
-    });
-    Ok(out)
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PluginFilesReadTextReq {
-    scope: String,
-    path: String,
-}
-
-#[tauri::command]
-fn plugin_files_read_text(
-    app: tauri::AppHandle,
-    plugin_id: String,
-    req: PluginFilesReadTextReq,
-) -> Result<String, String> {
-    if !is_safe_id(&plugin_id) {
-        return Err("pluginId 不合法".to_string());
-    }
-    let scope = req.scope.trim().to_string();
-    let (_root_c, full_c) = resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
-    if !full_c.is_file() {
-        return Err("文件不存在".to_string());
-    }
-
-    const MAX_TEXT_BYTES: usize = 10 * 1024 * 1024;
-    let bytes = std::fs::read(&full_c).map_err(|e| format!("读取文件失败: {e}"))?;
-    if bytes.len() > MAX_TEXT_BYTES {
-        return Err("文本文件过大".to_string());
-    }
-    String::from_utf8(bytes).map_err(|_| "文本不是 UTF-8 编码".to_string())
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PluginFilesWriteTextReq {
-    scope: String,
-    path: String,
-    text: String,
-    overwrite: Option<bool>,
-}
-
-#[tauri::command]
-fn plugin_files_write_text(
-    app: tauri::AppHandle,
-    plugin_id: String,
-    req: PluginFilesWriteTextReq,
-) -> Result<String, String> {
-    if !is_safe_id(&plugin_id) {
-        return Err("pluginId 不合法".to_string());
-    }
-    let scope = req.scope.trim().to_string();
-    let overwrite = req.overwrite.unwrap_or(false);
-    let (_root_c, full) = resolve_write_path_in_scope(&app, &plugin_id, &scope, &req.path)?;
-
-    const MAX_TEXT_BYTES: usize = 10 * 1024 * 1024;
-    if req.text.as_bytes().len() > MAX_TEXT_BYTES {
-        return Err("文本过大".to_string());
-    }
-
-    if full.exists() && !overwrite {
-        return Err("文件已存在（overwrite=false）".to_string());
-    }
-    std::fs::write(&full, req.text.as_bytes()).map_err(|e| format!("写入文件失败: {e}"))?;
-    Ok(full.to_string_lossy().to_string())
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PluginFilesReadBase64Req {
-    scope: String,
-    path: String,
-}
-
-#[tauri::command]
-fn plugin_files_read_base64(
-    app: tauri::AppHandle,
-    plugin_id: String,
-    req: PluginFilesReadBase64Req,
-) -> Result<String, String> {
-    if !is_safe_id(&plugin_id) {
-        return Err("pluginId 不合法".to_string());
-    }
-    let scope = req.scope.trim().to_string();
-    let (_root_c, full_c) = resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
-    if !full_c.is_file() {
-        return Err("文件不存在".to_string());
-    }
-
-    let bytes = std::fs::read(&full_c).map_err(|e| format!("读取文件失败: {e}"))?;
-    let mime = file_mime_by_ext(&full_c);
-    let b64 = general_purpose::STANDARD.encode(bytes);
-    Ok(format!("data:{mime};base64,{b64}"))
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PluginFilesThumbnailReq {
-    scope: String,
-    path: String,
-    width: Option<u32>,
-    height: Option<u32>,
-}
-
-#[tauri::command]
-fn plugin_files_thumbnail(
-    app: tauri::AppHandle,
-    plugin_id: String,
-    req: PluginFilesThumbnailReq,
-) -> Result<String, String> {
-    if !is_safe_id(&plugin_id) {
-        return Err("pluginId 不合法".to_string());
-    }
-    let scope = req.scope.trim().to_string();
-    let (_root_c, full_c) = resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
-    if !full_c.is_file() {
-        return Err("文件不存在".to_string());
-    }
-
-    let w = req.width.unwrap_or(320).max(16).min(1024);
-    let h = req.height.unwrap_or(180).max(16).min(1024);
-    thumbnails::file_thumbnail_png_data_url(&full_c, w, h)
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PluginFilesWriteBase64Req {
-    scope: String,
-    path: String,
-    data_url_or_base64: String,
-    overwrite: Option<bool>,
-}
-
-#[tauri::command]
-fn plugin_files_write_base64(
-    app: tauri::AppHandle,
-    plugin_id: String,
-    req: PluginFilesWriteBase64Req,
-) -> Result<String, String> {
-    if !is_safe_id(&plugin_id) {
-        return Err("pluginId 不合法".to_string());
-    }
-    let scope = req.scope.trim().to_string();
-    let overwrite = req.overwrite.unwrap_or(false);
-    let (_root_c, full) = resolve_write_path_in_scope(&app, &plugin_id, &scope, &req.path)?;
-
-    let bytes = decode_base64_payload(&req.data_url_or_base64, usize::MAX)?;
-    if full.exists() && !overwrite {
-        return Err("文件已存在（overwrite=false）".to_string());
-    }
-    std::fs::write(&full, bytes).map_err(|e| format!("写入文件失败: {e}"))?;
-    Ok(full.to_string_lossy().to_string())
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PluginFilesRenameReq {
-    scope: String,
-    from: String,
-    to: String,
-    overwrite: Option<bool>,
-}
-
-#[tauri::command]
-fn plugin_files_rename(
-    app: tauri::AppHandle,
-    plugin_id: String,
-    req: PluginFilesRenameReq,
-) -> Result<(), String> {
-    if !is_safe_id(&plugin_id) {
-        return Err("pluginId 不合法".to_string());
-    }
-    let scope = req.scope.trim().to_string();
-    let overwrite = req.overwrite.unwrap_or(false);
-
-    let (_root_c, from_c) = resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.from)?;
-    let from_is_file = from_c.is_file();
-    let from_is_dir = from_c.is_dir();
-    if !(from_is_file || from_is_dir) {
-        return Err("源文件不存在".to_string());
-    }
-
-    let (_root_c2, to) = resolve_write_path_in_scope(&app, &plugin_id, &scope, &req.to)?;
-    if to.exists() && !overwrite {
-        return Err("目标已存在（overwrite=false）".to_string());
-    }
-    std::fs::rename(&from_c, &to).map_err(|e| format!("重命名失败: {e}"))?;
-    Ok(())
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PluginFilesDeleteReq {
-    scope: String,
-    path: String,
-}
-
-#[tauri::command]
-fn plugin_files_delete(
-    app: tauri::AppHandle,
-    plugin_id: String,
-    req: PluginFilesDeleteReq,
-) -> Result<(), String> {
-    if !is_safe_id(&plugin_id) {
-        return Err("pluginId 不合法".to_string());
-    }
-    let scope = req.scope.trim().to_string();
-    let (root_c, full_c) = resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
-    if !full_c.is_file() {
-        return Err("文件不存在".to_string());
-    }
-    std::fs::remove_file(&full_c).map_err(|e| format!("删除文件失败: {e}"))?;
-
-    // 仅清理 plugin 私有 data scope 产生的空目录；output scope 不做清理（避免误删用户目录结构）。
-    if scope == "data" {
-        let mut cur = full_c.parent().map(|p| p.to_path_buf());
-        while let Some(dir) = cur {
-            if dir == root_c {
-                break;
-            }
-            let Ok(mut rd) = std::fs::read_dir(&dir) else {
-                break;
-            };
-            if rd.next().is_some() {
-                break;
-            }
-            let _ = std::fs::remove_dir(&dir);
-            cur = dir.parent().map(|p| p.to_path_buf());
-        }
-    }
-
-    Ok(())
 }
 
 #[tauri::command]
@@ -2972,12 +2612,21 @@ fn main() {
         plugin_open_output_dir,
         plugin_open_dir,
         plugin_files_list_dir,
+        plugin_files_stat,
+        plugin_files_mkdir,
         plugin_files_read_text,
         plugin_files_write_text,
         plugin_files_read_base64,
+        plugin_files_read_stream,
+        plugin_files_read_stream_cancel,
         plugin_files_thumbnail,
         plugin_files_write_base64,
+        plugin_files_write_stream_open,
+        plugin_files_write_stream_chunk,
+        plugin_files_write_stream_close,
+        plugin_files_write_stream_cancel,
         plugin_files_rename,
+        plugin_files_copy,
         plugin_files_delete,
         plugin_files_delete_tree,
         plugin_images_write_base64,
