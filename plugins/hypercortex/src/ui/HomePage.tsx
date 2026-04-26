@@ -7,7 +7,7 @@ import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import type { NoteMeta } from '../core'
-import { HomeNetworkWaveBackground } from './HomeNetworkWaveBackground'
+import { HomeNetworkOrbBackground } from './HomeNetworkOrbBackground'
 
 type HomePageStats = {
   noteCount: number
@@ -145,7 +145,7 @@ export function HomePage(props: HomePageProps): React.ReactNode {
           boxShadow: '0 24px 70px rgba(4,10,24,.28)',
         }}
       >
-        <HomeNetworkWaveBackground />
+        <HomeNetworkOrbBackground />
         <Box sx={{ position: 'relative', zIndex: 1, display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1.35fr) minmax(320px, .65fr)' }, gap: 2.5, alignItems: 'end' }}>
           <Box sx={{ minWidth: 0 }}>
             <Typography sx={{ fontSize: 12, letterSpacing: '.08em', textTransform: 'uppercase', fontWeight: 950, color: 'rgba(213,236,255,.62)' }}>HyperCortex Workspace</Typography>
