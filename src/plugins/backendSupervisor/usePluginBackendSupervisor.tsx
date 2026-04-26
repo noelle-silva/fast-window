@@ -99,6 +99,7 @@ export function usePluginBackendSupervisor(params: {
           req: {
             pluginId,
             main: String(p.manifest?.background?.main || ''),
+            apiVersion: Number(p.manifest?.apiVersion ?? 2),
             runtime: p.manifest?.background?.runtime,
           },
         }).catch(e => {

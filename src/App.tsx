@@ -5,7 +5,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { loadAllPluginsReport, loadPluginById, type PluginLoadRejection } from './plugins/pluginLoader'
 import { PluginCapability, type PluginManifest } from './plugins/pluginContract'
-import { resolveBackendLifecycle, usePluginBackendSupervisor } from './plugins/backendSupervisor'
+import { BackendStatusPanel, resolveBackendLifecycle, usePluginBackendStatuses, usePluginBackendSupervisor } from './plugins/backendSupervisor'
 import { pluginStoreInstall } from './plugins/pluginStore'
 import {
   Alert,
@@ -822,6 +822,7 @@ function App() {
     plugins: allPlugins,
     activePluginId: activePlugin?.id ?? null,
   })
+  const backendStatusById = usePluginBackendStatuses(allPlugins)
 
   // 初次加载插件
   useEffect(() => {
@@ -1239,6 +1240,7 @@ function App() {
           const backgroundAutoStart = hasBackground ? (m!.background!.autoStart !== false) : undefined
           const resolvedBg = resolveBackendLifecycle(m)
           const backgroundMain = hasBackground ? ((m!.background!.main || '').trim() || main || '(未指定)') : undefined
+          const backendStatus = id ? backendStatusById[id] : undefined
           const pluginPath = pluginsDir && id ? `${pluginsDir}\\${id}` : ''
 
           const fieldRowSx = {
@@ -1310,6 +1312,7 @@ function App() {
                     : '未启用'}
                 </Typography>
               </Box>
+              {hasBackground ? <BackendStatusPanel status={backendStatus} labelSx={labelSx} valueSx={valueSx} fieldRowSx={fieldRowSx} /> : null}
 
               <Box sx={{ mt: 1 }}>
                 <Typography sx={{ color: 'text.secondary', fontSize: 13, mb: 0.5 }}>描述</Typography>

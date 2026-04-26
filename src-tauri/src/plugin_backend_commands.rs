@@ -29,12 +29,27 @@ pub(crate) async fn plugin_backend_stop(
 pub(crate) fn plugin_backend_status(
     app: AppHandle,
     plugin_id: String,
-) -> Result<crate::plugin_backend_runtime::PluginBackendStatusRes, String> {
+) -> Result<crate::plugin_backend_state::PluginBackendStatusRes, String> {
     let manager = app
         .state::<Arc<crate::plugin_backend_runtime::PluginBackendManagerState>>()
         .inner()
         .clone();
     crate::plugin_backend_runtime::plugin_backend_status(manager, plugin_id)
+}
+
+#[tauri::command]
+pub(crate) fn plugin_backend_status_many(
+    app: AppHandle,
+    plugin_ids: Vec<String>,
+) -> Result<
+    std::collections::HashMap<String, crate::plugin_backend_state::PluginBackendStatusRes>,
+    String,
+> {
+    let manager = app
+        .state::<Arc<crate::plugin_backend_runtime::PluginBackendManagerState>>()
+        .inner()
+        .clone();
+    crate::plugin_backend_runtime::plugin_backend_status_many(manager, plugin_ids)
 }
 
 #[tauri::command]
