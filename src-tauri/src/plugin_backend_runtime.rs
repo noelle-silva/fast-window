@@ -6,8 +6,8 @@ use crate::plugin_backend_runtimes::command_for_backend_main;
 use crate::plugin_backend_state::{BackendLogBuf, PluginBackendStatusRes};
 use crate::plugins::is_safe_id;
 use crate::{
-    app_data_dir, app_plugins_dir, ensure_writable_dir, resolve_plugin_library_dir,
-    resolve_plugin_output_dir, safe_relative_path,
+    app_data_dir, app_plugins_dir, ensure_writable_dir, resolve_plugin_files_root,
+    resolve_plugin_library_dir, resolve_plugin_output_dir, safe_relative_path,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -367,7 +367,9 @@ pub(crate) fn plugin_backend_start(
     let output_dir = resolve_plugin_output_dir(app, &plugin_id);
     let library_dir = resolve_plugin_library_dir(app, &plugin_id);
     let data_dir = app_data_dir(app).join(&plugin_id);
+    let files_data_dir = resolve_plugin_files_root(app, &plugin_id, "data")?;
     let _ = ensure_writable_dir(&data_dir);
+    let _ = ensure_writable_dir(&files_data_dir);
     let _ = ensure_writable_dir(&output_dir);
     let _ = ensure_writable_dir(&library_dir);
 
@@ -377,6 +379,7 @@ pub(crate) fn plugin_backend_start(
     cmd.env("FAST_WINDOW_PLUGIN_ID", &plugin_id);
     cmd.env("FAST_WINDOW_PLUGIN_DIR", plugin_dir(app, &plugin_id));
     cmd.env("FAST_WINDOW_PLUGIN_DATA_DIR", data_dir);
+    cmd.env("FAST_WINDOW_PLUGIN_FILES_DATA_DIR", files_data_dir);
     cmd.env("FAST_WINDOW_PLUGIN_OUTPUT_DIR", output_dir);
     cmd.env("FAST_WINDOW_PLUGIN_LIBRARY_DIR", library_dir);
     if !extra_env.is_empty() {
