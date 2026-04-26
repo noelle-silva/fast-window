@@ -12,6 +12,7 @@ import { PLUGIN_ID, type Api, type VaultScope, acceptString, kindFromMime, mimeF
 import { deleteAssetFromPool, importFilesToAssetPool, listAssetsInPool, readAssetAsDataUrl } from '../assetPool'
 import { pickAssetDisplayName } from '../assetDisplayName'
 import type { AssetEntry } from '../assetTypes'
+import { readFileAsDataUrl } from './fileDataUrl'
 
 /* ------------------------------------------------------------------ */
 /*  类型                                                               */
@@ -60,15 +61,6 @@ function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(file)
-  })
 }
 
 /* ------------------------------------------------------------------ */

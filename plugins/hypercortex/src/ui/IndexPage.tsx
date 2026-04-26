@@ -2,7 +2,7 @@ import * as React from 'react'
 import { Box, Menu, MenuItem, Typography } from '@mui/material'
 
 import type { AssetEntry } from '../assetTypes'
-import type { Api, NoteMeta, VaultScope } from '../core'
+import { kindFromMime, mimeFromExt, type Api, type NoteMeta } from '../core'
 import {
   addRef,
   createFolder,
@@ -25,12 +25,11 @@ import { folderTitle } from './index-page/helpers'
 import { IndexPageDialogs } from './index-page/IndexPageDialogs'
 import { MuuriGrid } from './index-page/MuuriGrid'
 import { IndexPageToolbar } from './index-page/IndexPageToolbar'
-import type { AddKind, DeleteEntityTarget, EditFolderTarget, ResizeHandleDirection } from './index-page/types'
+import type { AddKind, AddMode, DeleteEntityTarget, EditFolderTarget, ResizeHandleDirection } from './index-page/types'
 import { useIndexLayoutEditor } from './index-page/useIndexLayoutEditor'
 
 type Props = {
   api: Api
-  scope: VaultScope
   doc: HyperCortexFavoritesDocV1
   currentFolderId: string
   editMode: boolean
@@ -41,6 +40,8 @@ type Props = {
   onOpenAsset: (asset: AssetEntry) => void
   onDocChange: (doc: HyperCortexFavoritesDocV1) => void
   onEditModeChange: (editMode: boolean) => void
+  onCreateNoteInIndex?: (folderId: string) => Promise<void> | void
+  onImportAssetsInIndex?: (folderId: string) => Promise<void> | void
   onDeleteFolderEntity?: (folderId: string) => void
   onDeleteNoteEntity?: (note: NoteMeta) => void
   onDeleteAssetEntity?: (asset: AssetEntry) => void
@@ -55,15 +56,30 @@ function buildAssetLookup(assetIndex?: Record<string, any>): {
   if (!assetIndex) return { byKey, byAssetId }
 
   for (const [k, v] of Object.entries(assetIndex)) {
-    const asset = v as AssetEntry
-    if (!asset || typeof asset !== 'object') continue
-    if (typeof (asset as any).relPath !== 'string') continue
-    if (typeof (asset as any).assetId !== 'string') continue
-    if (typeof (asset as any).ext !== 'string') continue
-    byKey[String(k)] = asset
-    byAssetId[String(asset.assetId)] = asset
-    const key2 = asset.ext ? `${asset.assetId}.${asset.ext}` : asset.assetId
-    byKey[key2] = asset
+    if (!v || typeof v !== 'object') continue
+    const raw = v as any
+    const key = String(k || '').trim()
+    const dotIdx = key.lastIndexOf('.')
+    const assetId = String(raw.assetId || (dotIdx > 0 ? key.slice(0, dotIdx) : key)).trim()
+    const ext = String(raw.ext || (dotIdx > 0 ? key.slice(dotIdx + 1) : '')).trim().toLowerCase()
+    const relPath = String(raw.relPath || raw.path || '').trim()
+    if (!assetId || !relPath) continue
+    const mime = mimeFromExt(ext)
+    const kind = String(raw.kind || '').trim() || (mime ? kindFromMime(mime) : 'document')
+    const asset: AssetEntry = {
+      relPath,
+      fileName: String(raw.fileName || key || (ext ? `${assetId}.${ext}` : assetId)),
+      displayName: String(raw.displayName || '').trim() || undefined,
+      assetId,
+      ext,
+      kind: kind || 'document',
+      size: Number(raw.size || 0) || 0,
+      modifiedMs: Number(raw.modifiedMs || 0) || 0,
+    }
+    const refKey = ext ? `${assetId}.${ext}` : assetId
+    byKey[key || refKey] = asset
+    byKey[refKey] = asset
+    byAssetId[assetId] = asset
   }
   return { byKey, byAssetId }
 }
@@ -81,15 +97,20 @@ export function IndexPage(props: Props): React.ReactNode {
     onOpenAsset,
     onDocChange,
     onEditModeChange,
+    onCreateNoteInIndex,
+    onImportAssetsInIndex,
     onDeleteFolderEntity,
     onDeleteNoteEntity,
     onDeleteAssetEntity,
   } = props
 
   const [breadcrumb, setBreadcrumb] = React.useState<string[]>(['root'])
-  const [addAnchorEl, setAddAnchorEl] = React.useState<HTMLElement | null>(null)
+  const [addExistingAnchorEl, setAddExistingAnchorEl] = React.useState<HTMLElement | null>(null)
+  const [createNewAnchorEl, setCreateNewAnchorEl] = React.useState<HTMLElement | null>(null)
+  const [addMode, setAddMode] = React.useState<AddMode | null>(null)
   const [addKind, setAddKind] = React.useState<AddKind | null>(null)
   const [folderTitleDraft, setFolderTitleDraft] = React.useState('')
+  const [folderDescriptionDraft, setFolderDescriptionDraft] = React.useState('')
   const [noteIdDraft, setNoteIdDraft] = React.useState('')
   const [assetIdDraft, setAssetIdDraft] = React.useState('')
   const [noteSearch, setNoteSearch] = React.useState('')
@@ -126,20 +147,39 @@ export function IndexPage(props: Props): React.ReactNode {
     })
   }, [currentFolderId])
 
-  const closeAddMenu = () => setAddAnchorEl(null)
-  const openAddMenu = (el: HTMLElement) => setAddAnchorEl(el)
+  const closeAddMenus = () => {
+    setAddExistingAnchorEl(null)
+    setCreateNewAnchorEl(null)
+  }
+  const openAddExistingMenu = (el: HTMLElement) => setAddExistingAnchorEl(el)
+  const openCreateNewMenu = (el: HTMLElement) => setCreateNewAnchorEl(el)
 
-  const openAddDialog = (kind: AddKind) => {
-    closeAddMenu()
+  const openAddDialog = (mode: AddMode, kind: AddKind) => {
+    closeAddMenus()
+    setAddMode(mode)
     setAddKind(kind)
     setFolderTitleDraft('')
+    setFolderDescriptionDraft('')
     setNoteIdDraft('')
     setAssetIdDraft('')
     setNoteSearch('')
     setAssetSearch('')
   }
 
-  const closeAddDialog = () => setAddKind(null)
+  const closeAddDialog = () => {
+    setAddMode(null)
+    setAddKind(null)
+  }
+
+  const createNewNote = React.useCallback(() => {
+    closeAddMenus()
+    void onCreateNoteInIndex?.(currentFolderId)
+  }, [currentFolderId, onCreateNoteInIndex])
+
+  const importNewAssets = React.useCallback(() => {
+    closeAddMenus()
+    void onImportAssetsInIndex?.(currentFolderId)
+  }, [currentFolderId, onImportAssetsInIndex])
 
   const removeOneRef = React.useCallback(
     (refId: string) => {
@@ -150,11 +190,11 @@ export function IndexPage(props: Props): React.ReactNode {
   )
 
   const confirmAddFolder = React.useCallback(() => {
-    const created = createFolder(doc, folderTitleDraft)
+    const created = createFolder(doc, folderTitleDraft, folderDescriptionDraft)
     const added = addRef(created.doc, currentFolderId, 'folder', created.folder.id)
     onDocChange(added?.doc || created.doc)
     closeAddDialog()
-  }, [currentFolderId, doc, folderTitleDraft, onDocChange])
+  }, [currentFolderId, doc, folderDescriptionDraft, folderTitleDraft, onDocChange])
 
   const addExistingFolder = React.useCallback(
     (folderId: string) => {
@@ -495,7 +535,8 @@ export function IndexPage(props: Props): React.ReactNode {
         currentFolderId={currentFolderId}
         onGoBack={handleGoBack}
         onNavigateFolder={onNavigateFolder}
-        onOpenAddMenu={openAddMenu}
+        onOpenAddExistingMenu={openAddExistingMenu}
+        onOpenCreateNewMenu={openCreateNewMenu}
         onToggleEditMode={() => onEditModeChange(!editMode)}
         onDeleteCurrentFolder={openDeleteCurrentFolderConfirm}
       />
@@ -521,17 +562,25 @@ export function IndexPage(props: Props): React.ReactNode {
         />
       )}
 
-      <Menu open={!!addAnchorEl} onClose={closeAddMenu} anchorEl={addAnchorEl} PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}>
-        <MenuItem onClick={() => openAddDialog('folder')}>收藏夹</MenuItem>
-        <MenuItem onClick={() => openAddDialog('note')}>笔记</MenuItem>
-        <MenuItem onClick={() => openAddDialog('asset')}>附件</MenuItem>
+      <Menu open={!!addExistingAnchorEl} onClose={closeAddMenus} anchorEl={addExistingAnchorEl} PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}>
+        <MenuItem onClick={() => openAddDialog('existing', 'folder')}>已有收藏夹</MenuItem>
+        <MenuItem onClick={() => openAddDialog('existing', 'note')}>已有笔记</MenuItem>
+        <MenuItem onClick={() => openAddDialog('existing', 'asset')}>已有附件</MenuItem>
+      </Menu>
+
+      <Menu open={!!createNewAnchorEl} onClose={closeAddMenus} anchorEl={createNewAnchorEl} PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}>
+        <MenuItem onClick={() => openAddDialog('create', 'folder')}>新收藏夹</MenuItem>
+        <MenuItem onClick={createNewNote}>新笔记</MenuItem>
+        <MenuItem onClick={importNewAssets}>上传附件</MenuItem>
       </Menu>
 
       <IndexPageDialogs
         doc={doc}
         currentFolderId={currentFolderId}
+        addMode={addMode}
         addKind={addKind}
         folderTitleDraft={folderTitleDraft}
+        folderDescriptionDraft={folderDescriptionDraft}
         noteIdDraft={noteIdDraft}
         assetIdDraft={assetIdDraft}
         noteSearch={noteSearch}
@@ -549,6 +598,7 @@ export function IndexPage(props: Props): React.ReactNode {
         editFolderDescriptionDraft={editFolderDescriptionDraft}
         onCloseAddDialog={closeAddDialog}
         onFolderTitleDraftChange={setFolderTitleDraft}
+        onFolderDescriptionDraftChange={setFolderDescriptionDraft}
         onNoteIdDraftChange={setNoteIdDraft}
         onAssetIdDraftChange={setAssetIdDraft}
         onNoteSearchChange={setNoteSearch}

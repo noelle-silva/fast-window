@@ -13,6 +13,7 @@ import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded'
 import {
+  acceptString,
   ensureMetadata,
   getApi,
   kindFromMime,
@@ -27,14 +28,14 @@ import {
   type HyperCortexWorkspaceV1,
   type NoteMeta,
 } from '../core'
-import { loadNoteIndex } from '../notePackage'
+import { loadNoteIndex, saveNotePackage } from '../notePackage'
 import { loadRefIndex, type NoteRefIndex } from '../noteRefs'
 import { createMarkdownRenderEngine } from '../render/engine'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { ensureAssetsIndex } from '../assetStore'
-import { deleteAssetFromPool } from '../assetPool'
+import { deleteAssetFromPool, importFilesToAssetPool } from '../assetPool'
 import { isDraftNoteId } from '../drafts'
-import { ensureFavorites, saveFavorites, type HyperCortexFavoritesDocV1 } from '../favorites'
+import { addRef, ensureFavorites, saveFavorites, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { AssetPoolPanel } from './AssetPoolPanel'
 import { IndexPage } from './IndexPage'
 import { OpenTabsPanel } from './OpenTabsPanel'
@@ -47,6 +48,7 @@ import { HtmlFaceDisplaySettingsPanel } from './HtmlFaceDisplaySettingsPanel'
 import { SidebarSortSettingsPanel } from './SidebarSortSettingsPanel'
 import { TrashPanel } from './TrashPanel'
 import { QuickSearchPopover } from './QuickSearchPopover'
+import { readFileAsDataUrl } from './fileDataUrl'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
 import { applyActiveWorkspacePatch, buildWorkspacesMetadataSnapshot, normalizeOpenTabKeys } from './workspaceModel'
@@ -134,6 +136,12 @@ function normalizeHtmlFaceFixedScaleDefault(value: unknown): number {
 
 function sortNotesByUpdatedAtDesc(list: NoteMeta[]): NoteMeta[] {
   return (Array.isArray(list) ? list : []).slice().sort((a, b) => (b.updatedAtMs || 0) - (a.updatedAtMs || 0))
+}
+
+function assetKeyFromResource(resource: { assetId?: string; ext?: string }): string {
+  const assetId = String(resource?.assetId || '').trim()
+  const ext = String(resource?.ext || '').trim().toLowerCase().replace(/^\./, '')
+  return assetId ? (ext ? `${assetId}.${ext}` : assetId) : ''
 }
 
 function stripDraftTabKeys(value: unknown): string[] {
@@ -385,6 +393,8 @@ export function HyperCortexApp() {
   const [currentFolderId, setCurrentFolderId] = React.useState<string>('root')
   const [indexEditMode, setIndexEditMode] = React.useState(false)
   const [assetPoolIndex, setAssetPoolIndex] = React.useState<Record<string, any> | null>(null)
+  const indexAssetInputRef = React.useRef<HTMLInputElement | null>(null)
+  const indexAssetTargetFolderIdRef = React.useRef('root')
   const [allNotesLayout, setAllNotesLayout] = React.useState<AllNotesLayout>('list')
   const [allNotes, setAllNotes] = React.useState<NoteMeta[]>([])
   const [allNotesLoading, setAllNotesLoading] = React.useState(false)
@@ -1374,6 +1384,51 @@ export function HyperCortexApp() {
     [api],
   )
 
+  const handleImportAssetsIntoIndex = React.useCallback((folderId: string) => {
+    indexAssetTargetFolderIdRef.current = String(folderId || '').trim() || 'root'
+    indexAssetInputRef.current?.click()
+  }, [])
+
+  const handleIndexAssetFileSelect = React.useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files
+      if (!files || !files.length) return
+      const fid = indexAssetTargetFolderIdRef.current || 'root'
+      const baseDoc = favoritesDoc
+      if (!baseDoc) return
+
+      try {
+        const inputs: { name?: string; dataUrl: string }[] = []
+        for (let i = 0; i < files.length; i++) {
+          const f = files[i]
+          inputs.push({ name: f.name, dataUrl: await readFileAsDataUrl(f) })
+        }
+
+        const imported = await importFilesToAssetPool(api, 'library', inputs)
+        let nextDoc = baseDoc
+        let addedCount = 0
+        for (const resource of imported) {
+          const key = assetKeyFromResource(resource)
+          if (!key) continue
+          const added = addRef(nextDoc, fid, 'asset', key)
+          if (!added) continue
+          nextDoc = added.doc
+          addedCount += 1
+        }
+
+        if (nextDoc !== baseDoc) handleFavoritesDocChange(nextDoc)
+        const nextAssetIndex = await ensureAssetsIndex(api, 'library').catch(() => null)
+        if (nextAssetIndex) setAssetPoolIndex(nextAssetIndex as any)
+        void api.ui.showToast(addedCount > 0 ? `已上传并添加 ${addedCount} 个附件` : '附件已上传，但没有新增索引卡片')
+      } catch (err: any) {
+        void api.ui.showToast(`上传附件失败：${String(err?.message || err || '未知错误')}`)
+      } finally {
+        if (indexAssetInputRef.current) indexAssetInputRef.current.value = ''
+      }
+    },
+    [api, favoritesDoc, handleFavoritesDocChange],
+  )
+
   const handleHtmlFaceFixedScaleDefaultChange = React.useCallback(
     (scale: number) => {
       const next = normalizeHtmlFaceFixedScaleDefault(scale)
@@ -1896,6 +1951,57 @@ export function HyperCortexApp() {
     [navigatePage, pushNavHistory, updateSidebarItems],
   )
 
+  const handleCreateNoteInIndex = React.useCallback(
+    async (folderId: string) => {
+      const fid = String(folderId || '').trim() || 'root'
+      const baseDoc = favoritesDoc
+      if (!baseDoc) return
+
+      try {
+        const result = await saveNotePackage(api, 'library', {
+          title: '未命名',
+          description: '',
+          body: '',
+          tags: [],
+          saveTextFace: true,
+        })
+        const meta = result.meta
+        const added = addRef(baseDoc, fid, 'note', meta.id)
+        if (!added) {
+          void api.ui.showToast('笔记已创建，但无法添加到当前索引页')
+          return
+        }
+
+        handleFavoritesDocChange(added.doc)
+        setNoteIndex(prev => {
+          const current = prev || { version: 1, notes: {} }
+          return { ...current, notes: { ...(current.notes || {}), [meta.id]: meta } }
+        })
+        setAllNotes(prev => sortNotesByUpdatedAtDesc([meta, ...prev.filter(n => n.id !== meta.id)]))
+        noteInitSnapshotsRef.current[meta.id] = {
+          doc: result.doc,
+          htmlFace: null,
+          base: { title: meta.title || '未命名', description: meta.description || '', body: '', tags: [], html: '' },
+          editing: true,
+          textEditorMode: 'live',
+          face: 'text',
+          faces: ['text'],
+          editTitle: meta.title || '未命名',
+          editDescription: meta.description || '',
+          editBody: '',
+          editTags: [],
+          editHtml: '',
+          infoSidebarVisible: false,
+        }
+        handleOpenNote(meta)
+        void api.ui.showToast('已创建空白笔记并添加到索引页')
+      } catch (e: any) {
+        void api.ui.showToast(String(e?.message || e || '创建笔记失败'))
+      }
+    },
+    [api, favoritesDoc, handleFavoritesDocChange, handleOpenNote],
+  )
+
   const handleOpenAssetTab = React.useCallback(
     (asset: AssetEntry) => {
       const sanitized: AssetEntry = { ...asset, thumbnailUrl: undefined }
@@ -2167,6 +2273,14 @@ export function HyperCortexApp() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
+      <input
+        ref={indexAssetInputRef}
+        type="file"
+        multiple
+        accept={acceptString()}
+        onChange={handleIndexAssetFileSelect}
+        style={{ display: 'none' }}
+      />
       <GlobalStyles
         styles={{
           html: { height: '100%' },
@@ -2642,7 +2756,6 @@ export function HyperCortexApp() {
               {page === 'index' && favoritesDoc ? (
                 <IndexPage
                   api={api}
-                  scope="library"
                   doc={favoritesDoc}
                   currentFolderId={currentFolderId}
                   editMode={indexEditMode}
@@ -2653,6 +2766,8 @@ export function HyperCortexApp() {
                   onOpenAsset={handleOpenAssetTab}
                   onDocChange={handleFavoritesDocChange}
                   onEditModeChange={handleIndexEditModeChange}
+                  onCreateNoteInIndex={handleCreateNoteInIndex}
+                  onImportAssetsInIndex={handleImportAssetsIntoIndex}
                   onDeleteFolderEntity={handleDeleteFolderEntity}
                   onDeleteNoteEntity={note => void handleDeleteNote({ note, mode: trashEnabled ? 'trash' : 'permanent' })}
                   onDeleteAssetEntity={asset => void handleDeleteAssetEntity(asset)}

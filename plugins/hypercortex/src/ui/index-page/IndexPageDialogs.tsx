@@ -3,14 +3,16 @@ import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, TextFie
 import type { AssetEntry } from '../../assetTypes'
 import type { NoteMeta } from '../../core'
 import type { FavoriteFolder, HyperCortexFavoritesDocV1 } from '../../favorites'
-import type { AddKind, DeleteEntityTarget, EditFolderTarget } from './types'
+import type { AddKind, AddMode, DeleteEntityTarget, EditFolderTarget } from './types'
 import { entityDeleteHelperText, folderDeleteHelperText, folderTitle } from './helpers'
 
 type Props = {
   doc: HyperCortexFavoritesDocV1
   currentFolderId: string
+  addMode: AddMode | null
   addKind: AddKind | null
   folderTitleDraft: string
+  folderDescriptionDraft: string
   noteIdDraft: string
   assetIdDraft: string
   noteSearch: string
@@ -28,6 +30,7 @@ type Props = {
   editFolderDescriptionDraft: string
   onCloseAddDialog: () => void
   onFolderTitleDraftChange: (value: string) => void
+  onFolderDescriptionDraftChange: (value: string) => void
   onNoteIdDraftChange: (value: string) => void
   onAssetIdDraftChange: (value: string) => void
   onNoteSearchChange: (value: string) => void
@@ -51,8 +54,10 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
   const {
     doc,
     currentFolderId,
+    addMode,
     addKind,
     folderTitleDraft,
+    folderDescriptionDraft,
     noteIdDraft,
     assetIdDraft,
     noteSearch,
@@ -70,6 +75,7 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
     editFolderDescriptionDraft,
     onCloseAddDialog,
     onFolderTitleDraftChange,
+    onFolderDescriptionDraftChange,
     onNoteIdDraftChange,
     onAssetIdDraftChange,
     onNoteSearchChange,
@@ -91,32 +97,22 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
 
   return (
     <>
-      <Dialog open={addKind === 'folder'} onClose={onCloseAddDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>添加收藏夹</DialogTitle>
+      <Dialog open={addMode === 'create' && addKind === 'folder'} onClose={onCloseAddDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>创建新收藏夹</DialogTitle>
         <DialogContent>
-          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)', pb: 1 }}>
-            会先创建一个新收藏夹，再把它放进当前收藏夹里。已有收藏夹只会被引用，不代表真实父子归属。
-          </Typography>
-          <TextField fullWidth autoFocus label="收藏夹标题" value={folderTitleDraft} onChange={e => onFolderTitleDraftChange(e.target.value)} placeholder="例如：项目灵感 / 临时收纳" />
-
-          {folderSuggestions.length ? (
-            <Box sx={{ pt: 2 }}>
-              <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'rgba(0,0,0,.55)', pb: 1 }}>最近的收藏夹（可直接引用）</Typography>
-              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 1 }}>
-                {folderSuggestions.map(folder => {
-                  const reason = folderDisabledReasonById[folder.id] || ''
-                  return (
-                    <Box key={folder.id} sx={{ opacity: reason ? 0.5 : 1 }}>
-                      <Box onClick={() => (!reason ? onAddExistingFolder(folder.id) : undefined)} sx={{ cursor: reason ? 'not-allowed' : 'pointer' }}>
-                        {renderFolderSuggestionCard(folder)}
-                      </Box>
-                      {reason ? <Typography sx={{ fontSize: 11, color: '#d32f2f', pt: 0.5 }}>{reason}</Typography> : null}
-                    </Box>
-                  )
-                })}
-              </Box>
-            </Box>
-          ) : null}
+          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)', pb: 1 }}>会先创建一个真实收藏夹，再把它作为卡片放进当前索引页。</Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            <TextField fullWidth autoFocus label="收藏夹标题" value={folderTitleDraft} onChange={e => onFolderTitleDraftChange(e.target.value)} placeholder="例如：项目灵感 / 临时收纳" />
+            <TextField
+              fullWidth
+              multiline
+              minRows={3}
+              label="收藏夹说明"
+              value={folderDescriptionDraft}
+              onChange={e => onFolderDescriptionDraftChange(e.target.value)}
+              placeholder="写一点这个收藏夹用来收纳什么"
+            />
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={onCloseAddDialog}>取消</Button>
@@ -124,8 +120,35 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={addKind === 'note'} onClose={onCloseAddDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>添加笔记</DialogTitle>
+      <Dialog open={addMode === 'existing' && addKind === 'folder'} onClose={onCloseAddDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>添加已有收藏夹</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)', pb: 1 }}>这里只会引用已有收藏夹，不代表真实父子归属。</Typography>
+          {folderSuggestions.length ? (
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 1 }}>
+              {folderSuggestions.map(folder => {
+                const reason = folderDisabledReasonById[folder.id] || ''
+                return (
+                  <Box key={folder.id} sx={{ opacity: reason ? 0.5 : 1 }}>
+                    <Box onClick={() => (!reason ? onAddExistingFolder(folder.id) : undefined)} sx={{ cursor: reason ? 'not-allowed' : 'pointer' }}>
+                      {renderFolderSuggestionCard(folder)}
+                    </Box>
+                    {reason ? <Typography sx={{ fontSize: 11, color: '#d32f2f', pt: 0.5 }}>{reason}</Typography> : null}
+                  </Box>
+                )
+              })}
+            </Box>
+          ) : (
+            <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.55)' }}>还没有可添加的已有收藏夹。</Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={onCloseAddDialog}>关闭</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={addMode === 'existing' && addKind === 'note'} onClose={onCloseAddDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>添加已有笔记</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)', pb: 1 }}>你可以输入笔记 ID；如果已经传入笔记索引，也可以在下面搜索并点选。</Typography>
           <TextField
@@ -170,8 +193,8 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={addKind === 'asset'} onClose={onCloseAddDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>添加附件</DialogTitle>
+      <Dialog open={addMode === 'existing' && addKind === 'asset'} onClose={onCloseAddDialog} maxWidth="sm" fullWidth>
+        <DialogTitle>添加已有附件</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)', pb: 1 }}>
             你可以输入资源 key（例如：assetId 或 assetId.ext）；如果已经传入附件索引，也可以在下面搜索并点选。

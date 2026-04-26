@@ -3,6 +3,8 @@ import type { NoteMeta } from '../../core'
 
 export type AddKind = 'folder' | 'note' | 'asset'
 
+export type AddMode = 'existing' | 'create'
+
 export type DeleteEntityTarget =
   | { kind: 'folder'; title: string; folderId: string }
   | { kind: 'note'; title: string; note: NoteMeta }

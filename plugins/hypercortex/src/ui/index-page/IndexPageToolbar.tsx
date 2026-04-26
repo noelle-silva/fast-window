@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Box, Button, IconButton, Tooltip, Typography } from '@mui/material'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
+import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 
 type BreadcrumbItem = {
@@ -21,7 +22,8 @@ type Props = {
   currentFolderId: string
   onGoBack: () => void
   onNavigateFolder: (folderId: string) => void
-  onOpenAddMenu: (el: HTMLElement) => void
+  onOpenAddExistingMenu: (el: HTMLElement) => void
+  onOpenCreateNewMenu: (el: HTMLElement) => void
   onToggleEditMode: () => void
   onDeleteCurrentFolder: () => void
 }
@@ -36,7 +38,8 @@ export function IndexPageToolbar(props: Props): React.ReactNode {
     currentFolderId,
     onGoBack,
     onNavigateFolder,
-    onOpenAddMenu,
+    onOpenAddExistingMenu,
+    onOpenCreateNewMenu,
     onToggleEditMode,
     onDeleteCurrentFolder,
   } = props
@@ -141,8 +144,14 @@ export function IndexPageToolbar(props: Props): React.ReactNode {
           ) : null}
 
           {editMode ? (
-            <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={e => onOpenAddMenu(e.currentTarget)} sx={{ borderRadius: 999 }}>
-              添加
+            <Button variant="outlined" startIcon={<AddRoundedIcon />} onClick={e => onOpenAddExistingMenu(e.currentTarget)} sx={{ borderRadius: 999, whiteSpace: 'nowrap' }}>
+              添加已有
+            </Button>
+          ) : null}
+
+          {editMode ? (
+            <Button variant="contained" startIcon={<CreateNewFolderRoundedIcon />} onClick={e => onOpenCreateNewMenu(e.currentTarget)} sx={{ borderRadius: 999, whiteSpace: 'nowrap' }}>
+              创建新的
             </Button>
           ) : null}
 
