@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::engine::general_purpose;
@@ -7,8 +8,10 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use tauri::Manager;
 use tokio::io::AsyncWriteExt;
 
+use crate::plugin_backend_runtime::PluginBackendManagerState;
 use crate::plugin_backend_runtimes::{
     is_supported_backend_runtime, supported_backend_runtime_label,
 };
@@ -84,6 +87,22 @@ fn replace_dir_from_tmp(dst: &Path, tmp: &Path, tag: &str) -> Result<(), String>
         let _ = std::fs::remove_dir_all(&bak);
     }
     Ok(())
+}
+
+async fn stop_plugin_backend_before_replace(
+    app: &tauri::AppHandle,
+    plugin_id: &str,
+) -> Result<(), String> {
+    let manager = app
+        .try_state::<Arc<PluginBackendManagerState>>()
+        .map(|state| state.inner().clone());
+    let Some(manager) = manager else {
+        return Ok(());
+    };
+
+    crate::plugin_backend_runtime::plugin_backend_stop_and_wait(manager, plugin_id.to_string())
+        .await
+        .map_err(|e| format!("停止插件后台失败，无法更新插件: {e}"))
 }
 
 fn is_valid_manifest_capability(cap: &str) -> bool {
@@ -900,7 +919,7 @@ pub(crate) struct PluginWriteFile {
 }
 
 #[tauri::command]
-pub(crate) fn install_plugin_files(
+pub(crate) async fn install_plugin_files(
     app: tauri::AppHandle,
     plugin_id: String,
     overwrite: bool,
@@ -966,6 +985,8 @@ pub(crate) fn install_plugin_files(
         let _ = std::fs::remove_dir_all(&tmp_dir);
         return Err(e);
     }
+
+    stop_plugin_backend_before_replace(&app, &plugin_id).await?;
 
     if let Err(e) = replace_dir_from_tmp(&plugin_dir, &tmp_dir, &format!("install-{plugin_id}")) {
         return Err(format!("安装插件失败: {e}"));
@@ -1102,6 +1123,8 @@ pub(crate) async fn plugin_store_install(
             to_hex_lower(actual.as_slice())
         ));
     }
+
+    stop_plugin_backend_before_replace(&app, &expected_id).await?;
 
     let plugins_dir2 = plugins_dir.clone();
     let zip_path2 = tmp_zip.clone();

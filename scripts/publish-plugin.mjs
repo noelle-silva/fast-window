@@ -18,7 +18,7 @@ function isSafeId(id) {
 }
 
 function normalizeRel(p) {
-  return String(p || '').trim().replaceAll('\\', '/')
+  return String(p || '').replaceAll('\\', '/').replace(/^\.\//, '').trim()
 }
 
 function assertSafeRel(rel, what) {
@@ -133,6 +133,60 @@ function collectReferencedFiles(manifest) {
   }
 
   return Array.from(out)
+}
+
+function releaseBackgroundConfig(pkg) {
+  const fw = pkg && typeof pkg.fastWindowPlugin === 'object' ? pkg.fastWindowPlugin : null
+  const bg = fw && typeof fw.background === 'object' ? fw.background : null
+  const release = bg && typeof bg.release === 'object' ? bg.release : null
+  if (!release) return null
+  const main = typeof release.main === 'string' ? release.main.trim() : ''
+  if (!main) return null
+  return {
+    main: assertSafeRel(main, 'fastWindowPlugin.background.release.main'),
+    runtime: typeof release.runtime === 'string' ? release.runtime.trim() : '',
+  }
+}
+
+function releaseManifest(manifest, pkg) {
+  const release = releaseBackgroundConfig(pkg)
+  if (!release) return manifest
+  const next = structuredClone(manifest)
+  const background = next.background && typeof next.background === 'object' && !Array.isArray(next.background) ? { ...next.background } : {}
+  background.main = release.main
+  if (release.runtime) background.runtime = release.runtime
+  next.background = background
+  return next
+}
+
+function collectPackageFiles(manifest, pluginDir) {
+  const out = []
+  const ignore = new Set(['src', 'node_modules', '.git', '.cache'])
+  const stack = ['']
+
+  while (stack.length) {
+    const relDir = stack.pop()
+    const absDir = path.join(pluginDir, relDir)
+    for (const entry of fssync.readdirSync(absDir, { withFileTypes: true })) {
+      const name = entry.name
+      if (ignore.has(name)) continue
+      const rel = relDir ? normalizeRel(path.join(relDir, name)) : normalizeRel(name)
+      if (entry.isDirectory()) {
+        stack.push(rel)
+        continue
+      }
+      if (!entry.isFile()) continue
+      if (rel === 'package.json') continue
+      out.push(rel)
+    }
+  }
+
+  const mustHave = collectReferencedFiles(manifest)
+  for (const rel of mustHave) {
+    if (!out.includes(rel)) out.push(rel)
+  }
+  out.sort()
+  return out
 }
 
 function parseArgs(argv) {
@@ -270,8 +324,10 @@ async function main() {
     if (code !== 0) process.exit(code)
   }
 
-  const manifest = await readJson(manifestPath)
-  const files = collectReferencedFiles(manifest)
+  const pkgPath = path.join(pluginDir, 'package.json')
+  const pkg = await exists(pkgPath) ? await readJson(pkgPath) : null
+  const manifest = releaseManifest(await readJson(manifestPath), pkg)
+  const files = collectPackageFiles(manifest, pluginDir)
 
   const name = String(manifest?.name || '').trim() || pluginId
   const version = String(manifest?.version || '').trim()
@@ -302,6 +358,7 @@ async function main() {
     await fs.mkdir(path.dirname(dst), { recursive: true })
     await fs.copyFile(src, dst)
   }
+  await fs.writeFile(path.join(stagingPlugin, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8')
 
   const zipName = `${pluginId}-${version}.zip`
   const zipPath = path.join(outDir, zipName)

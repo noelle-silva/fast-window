@@ -26,6 +26,7 @@ const BACKEND_ARG_LEN_LIMIT: usize = 2048;
 const BACKEND_INVOKE_TIMEOUT_MS: u64 = 30_000;
 const BACKEND_PENDING_LIMIT: usize = 128;
 const TRUSTED_LOCAL_APP_PLUGIN_API_VERSION: u64 = 4;
+const BACKEND_STOP_WAIT_MS: u64 = 5_000;
 
 static BACKEND_RPC_SEQ: AtomicU32 = AtomicU32::new(0);
 
@@ -527,6 +528,65 @@ pub(crate) async fn plugin_backend_stop(
         requested,
         already_stopped: false,
     })
+}
+
+pub(crate) async fn plugin_backend_stop_and_wait(
+    manager: Arc<PluginBackendManagerState>,
+    plugin_id: String,
+) -> Result<(), String> {
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+
+    let entry = manager
+        .entries
+        .lock()
+        .map_err(|_| "后端状态锁定失败".to_string())?
+        .get(&plugin_id)
+        .cloned();
+    let Some(entry) = entry else {
+        return Ok(());
+    };
+
+    if entry.exit_code.lock().ok().and_then(|g| *g).is_some() {
+        manager
+            .entries
+            .lock()
+            .map_err(|_| "后端状态锁定失败".to_string())?
+            .remove(&plugin_id);
+        return Ok(());
+    }
+
+    {
+        let mut g = entry.child.lock().await;
+        if let Some(child) = g.as_mut() {
+            child
+                .start_kill()
+                .map_err(|e| format!("停止插件后端失败: {e}"))?;
+            match tokio::time::timeout(Duration::from_millis(BACKEND_STOP_WAIT_MS), child.wait())
+                .await
+            {
+                Ok(Ok(status)) => {
+                    if let Ok(mut g) = entry.exit_code.lock() {
+                        *g = status.code();
+                    }
+                }
+                Ok(Err(e)) => return Err(format!("等待插件后端退出失败: {e}")),
+                Err(_) => {
+                    return Err("等待插件后端退出超时，请关闭插件或重启宿主后重试".to_string())
+                }
+            }
+            let _ = g.take();
+        }
+    }
+
+    manager
+        .entries
+        .lock()
+        .map_err(|_| "后端状态锁定失败".to_string())?
+        .remove(&plugin_id);
+    fail_pending(&entry, "插件后端已停止，插件正在更新".to_string());
+    Ok(())
 }
 
 pub(crate) fn plugin_backend_status(
