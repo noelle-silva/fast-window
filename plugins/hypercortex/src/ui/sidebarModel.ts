@@ -151,6 +151,12 @@ function removeTabFromGroups(sidebarItems: SidebarItem[], tabKey: string): void 
   }
 }
 
+function removeTabEverywhere(sidebarItems: SidebarItem[], tabKey: string): void {
+  const topIdx = sidebarItems.findIndex(item => item.type === 'tab' && item.tabKey === tabKey)
+  if (topIdx >= 0) sidebarItems.splice(topIdx, 1)
+  removeTabFromGroups(sidebarItems, tabKey)
+}
+
 export function insertTabAsUngrouped(sidebarItems: SidebarItem[], tabKey: string, index: number): SidebarItem[] {
   const next = cloneItems(sidebarItems)
   const normalizedTabKey = String(tabKey || '').trim()
@@ -212,6 +218,50 @@ export function moveGroupBlock(sidebarItems: SidebarItem[], movingGroupId: strin
   const anchorIdx = next.findIndex(item => item.type === 'group' && item.id === tid)
   if (!moving || anchorIdx < 0) return sidebarItems
   next.splice(pos === 'after' ? anchorIdx + 1 : anchorIdx, 0, moving)
+  return next
+}
+
+export function moveTopLevelItemRelative(sidebarItems: SidebarItem[], movingKey: string, targetKey: string, pos: 'before' | 'after'): SidebarItem[] {
+  const next = cloneItems(sidebarItems)
+  const mid = String(movingKey || '').trim()
+  const tid = String(targetKey || '').trim()
+  if (!mid || !tid || mid === tid) return next
+
+  const targetIdx = next.findIndex(item => (item.type === 'tab' ? item.tabKey : item.id) === tid)
+  if (targetIdx < 0) return next
+
+  const movingIdx = next.findIndex(item => (item.type === 'tab' ? item.tabKey : item.id) === mid)
+
+  let moving: SidebarItem | undefined
+  if (movingIdx >= 0) {
+    ;[moving] = next.splice(movingIdx, 1)
+  } else {
+    const grouped = next.some(item => item.type === 'group' && item.tabKeys.includes(mid))
+    if (!grouped) return next
+    removeTabFromGroups(next, mid)
+    moving = { type: 'tab', tabKey: mid }
+  }
+
+  const anchorIdx = next.findIndex(item => (item.type === 'tab' ? item.tabKey : item.id) === tid)
+  if (!moving || anchorIdx < 0) return sidebarItems
+  next.splice(pos === 'after' ? anchorIdx + 1 : anchorIdx, 0, moving)
+  return next
+}
+
+export function moveTabInGroupRelative(sidebarItems: SidebarItem[], groupId: string, tabKey: string, targetTabKey: string, pos: 'before' | 'after'): SidebarItem[] {
+  const next = cloneItems(sidebarItems)
+  const gid = String(groupId || '').trim()
+  const movingKey = String(tabKey || '').trim()
+  const targetKey = String(targetTabKey || '').trim()
+  if (!gid || !movingKey || !targetKey || movingKey === targetKey) return next
+
+  removeTabEverywhere(next, movingKey)
+  const group = next.find(item => item.type === 'group' && item.id === gid)
+  if (!group || group.type !== 'group') return next
+  const targetIdx = group.tabKeys.indexOf(targetKey)
+  if (targetIdx < 0) return next
+
+  group.tabKeys.splice(pos === 'after' ? targetIdx + 1 : targetIdx, 0, movingKey)
   return next
 }
 

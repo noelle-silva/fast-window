@@ -82,6 +82,7 @@ export type HyperCortexWorkspaceV1 = {
 }
 
 export type HyperCortexHtmlFaceDisplayModeV1 = 'natural' | 'fit-window' | 'fixed-fit'
+export type HyperCortexSidebarSortModeV1 = 'precision' | 'sortable'
 
 export type HyperCortexMetadataV1 = {
   version: 1
@@ -92,6 +93,7 @@ export type HyperCortexMetadataV1 = {
   activeTabKey?: string
   tabsCollapsed?: boolean
   tabsMode?: 'manual' | 'hover'
+  sidebarSortMode?: HyperCortexSidebarSortModeV1
   tabGroups?: HyperCortexTabGroupV1[]
   workspaces?: HyperCortexWorkspaceV1[]
   activeWorkspaceId?: string

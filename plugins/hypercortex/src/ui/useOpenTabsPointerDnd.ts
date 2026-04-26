@@ -11,6 +11,7 @@ type DraggingState =
   | { kind: 'group'; groupId: string }
 
 export type OpenTabsPointerDndOptions = {
+  enabled?: boolean
   onMoveTabToUngroupedIndex: (tabKey: string, index: number) => void
   onMoveTabToGroupIndex: (tabKey: string, groupId: string, index: number) => void
   onMoveGroupToIndex: (groupId: string, index: number) => void
@@ -91,7 +92,7 @@ function pickDropIndicatorFromPoint(clientX: number, clientY: number, dragging: 
 }
 
 export function useOpenTabsPointerDnd(opts: OpenTabsPointerDndOptions) {
-  const { onMoveTabToUngroupedIndex, onMoveTabToGroupIndex, onMoveGroupToIndex } = opts
+  const { enabled = true, onMoveTabToUngroupedIndex, onMoveTabToGroupIndex, onMoveGroupToIndex } = opts
 
   const [dragOverKey, setDragOverKey] = React.useState('')
   const [draggingKey, setDraggingKey] = React.useState('')
@@ -112,6 +113,7 @@ export function useOpenTabsPointerDnd(opts: OpenTabsPointerDndOptions) {
 
   const begin = React.useCallback(
     (dragging: DraggingState, e: React.PointerEvent) => {
+      if (!enabled) return
       if (e.button !== 0) return
       if (dragging.kind === 'none') return
       if (isNoDragTarget(e.target)) return
@@ -173,10 +175,10 @@ export function useOpenTabsPointerDnd(opts: OpenTabsPointerDndOptions) {
       window.addEventListener('pointerup', onUp, true)
       window.addEventListener('pointercancel', onUp, true)
     },
-    [cleanup, onMoveGroupToIndex, onMoveTabToGroupIndex, onMoveTabToUngroupedIndex],
+    [cleanup, enabled, onMoveGroupToIndex, onMoveTabToGroupIndex, onMoveTabToUngroupedIndex],
   )
 
-  const containerProps = React.useMemo(() => ({ 'data-hc-dnd-container': '1' as const }), [])
+  const containerProps = React.useMemo(() => (enabled ? { 'data-hc-dnd-container': '1' as const } : {}), [enabled])
 
   const getTabProps = React.useCallback(
     (tabKey: string) => ({

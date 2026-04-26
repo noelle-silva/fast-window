@@ -22,6 +22,7 @@ import {
   type HyperCortexHtmlFaceDisplayModeV1,
   type HyperCortexIndexV1,
   type HyperCortexMetadataV1,
+  type HyperCortexSidebarSortModeV1,
   type HyperCortexTabGroupV1,
   type HyperCortexWorkspaceV1,
   type NoteMeta,
@@ -43,6 +44,7 @@ import { ErrorBoundary } from './ErrorBoundary'
 import { ShortcutSettingsPanel } from './ShortcutSettingsPanel'
 import { TrashSettingsPanel } from './TrashSettingsPanel'
 import { HtmlFaceDisplaySettingsPanel } from './HtmlFaceDisplaySettingsPanel'
+import { SidebarSortSettingsPanel } from './SidebarSortSettingsPanel'
 import { TrashPanel } from './TrashPanel'
 import { QuickSearchPopover } from './QuickSearchPopover'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
@@ -91,6 +93,10 @@ function normalizeIndexEditMode(value: unknown): boolean {
 
 function normalizeTabsMode(value: unknown): TabsMode {
   return value === 'hover' ? 'hover' : 'manual'
+}
+
+function normalizeSidebarSortMode(value: unknown): HyperCortexSidebarSortModeV1 {
+  return value === 'sortable' ? 'sortable' : 'precision'
 }
 
 function normalizeTrashEnabled(value: unknown): boolean {
@@ -467,6 +473,7 @@ export function HyperCortexApp() {
   const [openNoteTabs, setOpenNoteTabs] = React.useState<NoteMeta[]>([])
   const [tabsInitReady, setTabsInitReady] = React.useState(false)
   const [tabsMode, setTabsMode] = React.useState<TabsMode>('manual')
+  const [sidebarSortMode, setSidebarSortMode] = React.useState<HyperCortexSidebarSortModeV1>('precision')
   const [tabsHoverOpen, setTabsHoverOpen] = React.useState(false)
   const sidebarHoverRef = React.useRef(false)
   const sidebarShortcutHoldRef = React.useRef(false)
@@ -788,6 +795,13 @@ export function HyperCortexApp() {
     [updateSidebarItems],
   )
 
+  const handleCommitSidebarItems = React.useCallback(
+    (nextSidebarItems: SidebarItem[]) => {
+      applySidebarState(nextSidebarItems)
+    },
+    [applySidebarState],
+  )
+
   const updateTabGrouping = React.useCallback(
     (updater: (prev: { groups: HyperCortexTabGroupV1[]; byTabKey: Record<string, string> }) => { groups: HyperCortexTabGroupV1[]; byTabKey: Record<string, string> }) => {
       setTabGrouping(prev => {
@@ -929,6 +943,15 @@ export function HyperCortexApp() {
       return next
     })
   }, [metaReady, persistMetadataPatch])
+
+  const handleSidebarSortModeChange = React.useCallback(
+    (mode: HyperCortexSidebarSortModeV1) => {
+      const next = normalizeSidebarSortMode(mode)
+      setSidebarSortMode(next)
+      if (metaReadyRef.current) void persistMetadataPatch({ sidebarSortMode: next }).catch(() => {})
+    },
+    [persistMetadataPatch],
+  )
 
   const persistWorkspacesSnapshot = React.useCallback(
     (nextWorkspaces: HyperCortexWorkspaceV1[], nextActiveWorkspaceId: string) => {
@@ -1200,6 +1223,7 @@ export function HyperCortexApp() {
         setAllNotesLayout(normalizeAllNotesLayout(meta.allNotesLayout))
         setTabsCollapsed(normalizeBoolean(meta.tabsCollapsed))
         setTabsMode(normalizeTabsMode(meta.tabsMode))
+        setSidebarSortMode(normalizeSidebarSortMode(meta.sidebarSortMode))
         const normalizedTrashEnabled = normalizeTrashEnabled(meta.trashEnabled)
         const normalizedTrashAutoDeleteDays = normalizeTrashAutoDeleteDays(meta.trashAutoDeleteDays)
         setTrashEnabled(normalizedTrashEnabled)
@@ -2411,6 +2435,7 @@ export function HyperCortexApp() {
               <OpenTabsPanel
                 panelWidth={sidebarPanelWidth}
                 tabsMode={tabsMode}
+                sidebarSortMode={sidebarSortMode}
                 tabsCollapsed={tabsCollapsed}
                 sidebarItems={sidebarItems}
                 openTabKeys={openTabKeys}
@@ -2442,6 +2467,7 @@ export function HyperCortexApp() {
                 onSetGroupColor={handleSetGroupColor}
                 onDeleteGroupOnly={handleDeleteGroupOnly}
                 onDeleteGroupAndCloseTabs={handleDeleteGroupAndCloseTabs}
+                onCommitSidebarItems={handleCommitSidebarItems}
                 onMoveTabToUngroupedIndex={handleMoveTabToUngroupedIndex}
                 onMoveTabToGroupIndex={handleMoveTabToGroupIndex}
                 onMoveGroupToIndex={handleMoveGroupToIndex}
@@ -2673,6 +2699,10 @@ export function HyperCortexApp() {
                     bindings={shortcutBindings}
                     onChange={handleShortcutBindingsChange}
                     onRecordingChange={handleShortcutRecordingChange}
+                  />
+                  <SidebarSortSettingsPanel
+                    mode={sidebarSortMode}
+                    onChange={handleSidebarSortModeChange}
                   />
                   <TrashSettingsPanel
                     enabled={trashEnabled}
