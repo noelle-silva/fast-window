@@ -3,8 +3,10 @@ import {
   DndContext,
   DragOverlay,
   KeyboardSensor,
+  MeasuringStrategy,
   PointerSensor,
   closestCenter,
+  useDroppable,
   useSensor,
   useSensors,
   type CollisionDetection,
@@ -31,6 +33,13 @@ export type SortableItemRenderArgs = {
   style: React.CSSProperties
 }
 
+export type SortableDropSlotRenderArgs = {
+  setNodeRef: (node: HTMLElement | null) => void
+  isOver: boolean
+}
+
+const SORTABLE_MEASURING = { droppable: { strategy: MeasuringStrategy.Always } }
+
 type SortableRootProps = {
   children: React.ReactNode
   overlay?: React.ReactNode
@@ -52,6 +61,12 @@ type SortableItemProps = {
   disabled?: boolean
   disableTransform?: boolean
   children: (args: SortableItemRenderArgs) => React.ReactNode
+}
+
+type SortableDropSlotProps = {
+  id: string
+  disabled?: boolean
+  children: (args: SortableDropSlotRenderArgs) => React.ReactNode
 }
 
 export function resolveSortMovePosition(items: string[], activeId: string, overId: string): SortMovePosition | null {
@@ -104,6 +119,7 @@ export function SortableRoot(props: SortableRootProps) {
     <DndContext
       sensors={sensors}
       collisionDetection={collisionDetection}
+      measuring={SORTABLE_MEASURING}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
@@ -138,6 +154,12 @@ export function SortableItem(props: SortableItemProps) {
   )
 
   return <>{children({ setNodeRef, setHandleRef: setActivatorNodeRef, handleProps: disabled ? {} : { ...attributes, ...listeners }, isDragging, style })}</>
+}
+
+export function SortableDropSlot(props: SortableDropSlotProps) {
+  const { id, disabled = false, children } = props
+  const { isOver, setNodeRef } = useDroppable({ id, disabled })
+  return <>{children({ setNodeRef, isOver })}</>
 }
 
 export { verticalListSortingStrategy }

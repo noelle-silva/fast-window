@@ -33,9 +33,9 @@ import { pickAssetDisplayName } from '../assetDisplayName'
 import { noteIdFromTabKey, noteTabKey, tabKind } from '../tabKey'
 import type { SidebarItem } from './sidebarModel'
 import { TAB_GROUP_PRESET_COLORS } from './tabGroups'
-import { SortableItem, SortableRoot, SortableSection, type SortableItemRenderArgs } from './SortableDnd'
+import { SortableDropSlot, SortableItem, SortableRoot, SortableSection, type SortableItemRenderArgs } from './SortableDnd'
 import { useOpenTabsPointerDnd } from './useOpenTabsPointerDnd'
-import { sortableGroupId, sortableTabId } from './openTabsSortableModel'
+import { parseSortableId, sortableGroupId, sortableGroupSlotId, sortableTabId, sortableTopSlotId } from './openTabsSortableModel'
 import { useOpenTabsSortableDnd } from './useOpenTabsSortableDnd'
 import { useOpenTabsSortableOverlay } from './OpenTabsSortableOverlay'
 
@@ -123,6 +123,46 @@ function GroupDropSlot(props: { groupId: string; index: number; active: boolean;
           : undefined,
       }}
     />
+  )
+}
+
+function SortableInsertionSlot(props: { id: string; enabled: boolean; indent?: boolean; showTitle: boolean }) {
+  const { id, enabled, indent = false, showTitle } = props
+  return (
+    <SortableDropSlot id={id} disabled={!enabled}>
+      {slot => {
+        const active = enabled && slot.isOver
+        return (
+          <Box
+            ref={slot.setNodeRef}
+            aria-hidden
+            sx={{
+              position: 'relative',
+              height: active ? 12 : 4,
+              ml: indent ? (showTitle ? 1.5 : 1) : 0.5,
+              mr: 0.5,
+              borderRadius: 999,
+              bgcolor: active ? 'rgba(25,118,210,.08)' : 'transparent',
+              transition: 'background-color 120ms ease, height 120ms ease',
+              '&::before': active
+                ? {
+                    content: '""',
+                    position: 'absolute',
+                    left: 8,
+                    right: 8,
+                    top: '50%',
+                    height: 2,
+                    borderRadius: 999,
+                    bgcolor: '#1976d2',
+                    boxShadow: '0 0 0 2px rgba(255,255,255,.92)',
+                    transform: 'translateY(-50%)',
+                  }
+                : undefined,
+            }}
+          />
+        )
+      }}
+    </SortableDropSlot>
   )
 }
 
@@ -678,6 +718,10 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
 
   const sortableOverlay = useOpenTabsSortableOverlay({ activeId: sortableActiveId, assetByTabKey, groupById, noteById, noteByTabKey })
 
+  const sortableActive = React.useMemo(() => parseSortableId(sortableActiveId), [sortableActiveId])
+  const canDropSortableTab = sortableActive?.kind === 'tab'
+  const canDropSortableGroup = sortableActive?.kind === 'group'
+
   const renderGroupSection = React.useCallback(
     (params: { group: HyperCortexTabGroupV1; itemIndex: number; list: string[]; isCollapsed: boolean; sortable?: SortableItemRenderArgs; sortableTabs: boolean }) => {
       const { group: g, itemIndex, list, isCollapsed, sortable, sortableTabs } = params
@@ -686,7 +730,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       const isSortablePlaceholder = !!sortable && sortableActiveId === sortableGroupId(g.id)
       const groupTitle = g.title || '分组'
 
-      const tabList = isCollapsed ? null : list.length ? (
+      const tabList = isCollapsed ? null : list.length || sortableTabs ? (
         <Box
           sx={{
             position: 'relative',
@@ -710,7 +754,13 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           {sortableTabs ? null : <GroupDropSlot groupId={g.id} index={0} active={dnd.dropIndicator.kind === 'group-slot' && dnd.dropIndicator.groupId === g.id && dnd.dropIndicator.index === 0} showTitle={showTitle} />}
           {sortableTabs ? (
             <SortableSection items={list.map(sortableTabId)}>
-              {list.map((tabKey, groupTabIndex) => renderSortableTabKeyRow(tabKey, { topIndex: itemIndex, parentGroupId: g.id, groupTabIndex, itemKey: `${g.id}_${tabKey}` }))}
+              <SortableInsertionSlot id={sortableGroupSlotId(g.id, 0)} enabled={canDropSortableTab} indent showTitle={showTitle} />
+              {list.map((tabKey, groupTabIndex) => (
+                <React.Fragment key={`${g.id}_${tabKey}`}>
+                  {renderSortableTabKeyRow(tabKey, { topIndex: itemIndex, parentGroupId: g.id, groupTabIndex, itemKey: `${g.id}_${tabKey}` })}
+                  <SortableInsertionSlot id={sortableGroupSlotId(g.id, groupTabIndex + 1)} enabled={canDropSortableTab} indent showTitle={showTitle} />
+                </React.Fragment>
+              ))}
             </SortableSection>
           ) : (
             list.map((tabKey, groupTabIndex) => (
@@ -792,7 +842,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         </Box>
       )
     },
-    [dnd, onToggleGroupCollapsed, renderSortableTabKeyRow, renderTabKeyRow, showTitle, sortableActiveId],
+    [canDropSortableTab, dnd, onToggleGroupCollapsed, renderSortableTabKeyRow, renderTabKeyRow, showTitle, sortableActiveId],
   )
 
   const renderPrecisionSidebarItems = React.useCallback(
@@ -832,23 +882,34 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           onDragCancel={sortableDnd.handleDragCancel}
         >
           <SortableSection items={topLevelIds}>
+            <SortableInsertionSlot id={sortableTopSlotId(0)} enabled={!!sortableActiveId} showTitle={showTitle} />
             {effectiveSidebarItems.map((item, itemIndex) => {
-              if (item.type === 'tab') return renderSortableTabKeyRow(item.tabKey, { topIndex: itemIndex })
+              if (item.type === 'tab') {
+                return (
+                  <React.Fragment key={`top_${item.tabKey}`}>
+                    {renderSortableTabKeyRow(item.tabKey, { topIndex: itemIndex })}
+                    <SortableInsertionSlot id={sortableTopSlotId(itemIndex + 1)} enabled={!!sortableActiveId} showTitle={showTitle} />
+                  </React.Fragment>
+                )
+              }
               const g = groupById[item.id]
               if (!g) return null
               const list = item.tabKeys || []
               const groupSortableId = sortableGroupId(g.id)
               return (
-                <SortableItem key={g.id} id={groupSortableId} disableTransform={sortableDnd.shouldDisableItemTransform(groupSortableId)}>
-                  {sortable => renderGroupSection({ group: g, itemIndex, list, isCollapsed: g.collapsed === true, sortable, sortableTabs: true })}
-                </SortableItem>
+                <React.Fragment key={`group_${g.id}`}>
+                  <SortableItem id={groupSortableId} disableTransform={sortableDnd.shouldDisableItemTransform(groupSortableId)}>
+                    {sortable => renderGroupSection({ group: g, itemIndex, list, isCollapsed: g.collapsed === true, sortable, sortableTabs: true })}
+                  </SortableItem>
+                  <SortableInsertionSlot id={sortableTopSlotId(itemIndex + 1)} enabled={!!sortableActiveId} showTitle={showTitle} />
+                </React.Fragment>
               )
             })}
           </SortableSection>
         </SortableRoot>
       )
     },
-    [effectiveSidebarItems, groupById, renderGroupSection, renderSortableTabKeyRow, sortableDnd, sortableOverlay],
+    [effectiveSidebarItems, groupById, renderGroupSection, renderSortableTabKeyRow, showTitle, sortableActiveId, sortableDnd, sortableOverlay],
   )
 
   return (
