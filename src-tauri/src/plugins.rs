@@ -99,6 +99,189 @@ fn is_valid_manifest_capability(cap: &str) -> bool {
         .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '*' | '|' | '-'))
 }
 
+const LEGACY_PLUGIN_API_VERSION: u64 = 2;
+const SYSTEM_BACKEND_PLUGIN_API_VERSION: u64 = 3;
+const TRUSTED_LOCAL_APP_PLUGIN_API_VERSION: u64 = 4;
+const SUPPORTED_PLUGIN_API_VERSIONS: [u64; 3] = [
+    LEGACY_PLUGIN_API_VERSION,
+    SYSTEM_BACKEND_PLUGIN_API_VERSION,
+    TRUSTED_LOCAL_APP_PLUGIN_API_VERSION,
+];
+
+struct PluginManifestPolicy {
+    require_description: bool,
+    require_requires: bool,
+    require_ui_type: bool,
+}
+
+struct StoreManifestSummary {
+    plugin_id: String,
+    version: String,
+    main: String,
+    background_main: Option<String>,
+    svg_icon: Option<String>,
+}
+
+fn resolve_manifest_policy(api_version: u64) -> PluginManifestPolicy {
+    PluginManifestPolicy {
+        require_description: api_version < TRUSTED_LOCAL_APP_PLUGIN_API_VERSION,
+        require_requires: api_version < TRUSTED_LOCAL_APP_PLUGIN_API_VERSION,
+        require_ui_type: api_version < TRUSTED_LOCAL_APP_PLUGIN_API_VERSION,
+    }
+}
+
+fn manifest_string(manifest: &Value, field: &str) -> String {
+    manifest
+        .get(field)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string()
+}
+
+fn manifest_api_version(manifest: &Value) -> Result<u64, String> {
+    let api_version = manifest
+        .get("apiVersion")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    if SUPPORTED_PLUGIN_API_VERSIONS.contains(&api_version) {
+        Ok(api_version)
+    } else {
+        Err("manifest.apiVersion 必须为 2、3 或 4".to_string())
+    }
+}
+
+fn validate_manifest_optional_string(manifest: &Value, field: &str, required: bool) -> Result<(), String> {
+    match manifest.get(field) {
+        Some(Value::String(_)) => Ok(()),
+        Some(_) => Err(format!("{field} 必须是字符串")),
+        None if required => Err(format!("{field} 必须是字符串")),
+        None => Ok(()),
+    }
+}
+
+fn validate_manifest_ui_type(manifest: &Value, required: bool) -> Result<(), String> {
+    let ui_type = manifest
+        .get("ui")
+        .and_then(|v| v.as_object())
+        .and_then(|obj| obj.get("type"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if ui_type == "iframe" || (!required && ui_type.is_empty()) {
+        Ok(())
+    } else if required {
+        Err("manifest.ui.type 必须为 \"iframe\"".to_string())
+    } else {
+        Err("manifest.ui.type 如提供则必须为 \"iframe\"".to_string())
+    }
+}
+
+fn parse_manifest_requires(manifest: &Value, required: bool, label: &str) -> Result<BTreeSet<String>, String> {
+    let mut out = BTreeSet::<String>::new();
+    match manifest.get("requires") {
+        Some(Value::Array(requires)) => {
+            for item in requires {
+                let cap = item.as_str().unwrap_or("").trim();
+                if !is_valid_manifest_capability(cap) {
+                    return Err(format!("{label}.requires 存在不合法能力声明"));
+                }
+                out.insert(cap.to_string());
+            }
+            Ok(out)
+        }
+        Some(_) => Err(format!("{label}.requires 必须是数组")),
+        None if required => Err(format!("{label}.requires 必须是数组（即使为空）")),
+        None => Ok(out),
+    }
+}
+
+fn validate_manifest_requires_match(
+    actual: &BTreeSet<String>,
+    expected: &BTreeSet<String>,
+    label: &str,
+) -> Result<(), String> {
+    if actual == expected {
+        return Ok(());
+    }
+
+    let expected_list = expected.iter().cloned().collect::<Vec<_>>();
+    let actual_list = actual.iter().cloned().collect::<Vec<_>>();
+    Err(format!(
+        "{label}.requires 不匹配：expected={:?}, got={:?}",
+        expected_list, actual_list
+    ))
+}
+
+fn validate_store_manifest(
+    manifest: &Value,
+    expected_id: &str,
+    expected_version: &str,
+    expected_requires: &BTreeSet<String>,
+    label: &str,
+) -> Result<StoreManifestSummary, String> {
+    let plugin_id = manifest_string(manifest, "id");
+    if !is_safe_id(&plugin_id) {
+        return Err(format!("{label}.id 不合法（仅允许字母/数字/_/-）"));
+    }
+    if plugin_id != expected_id {
+        return Err(format!("{label}.id 不匹配：expected={}, got={}", expected_id, plugin_id));
+    }
+
+    let name = manifest_string(manifest, "name");
+    if name.is_empty() {
+        return Err(format!("{label}.name 不能为空"));
+    }
+
+    let version = manifest_string(manifest, "version");
+    if version.is_empty() {
+        return Err(format!("{label}.version 不能为空"));
+    }
+    if version != expected_version {
+        return Err(format!("{label}.version 不匹配：expected={}, got={}", expected_version, version));
+    }
+
+    let api_version = manifest_api_version(manifest)?;
+    let policy = resolve_manifest_policy(api_version);
+    validate_manifest_optional_string(manifest, &format!("{label}.description"), policy.require_description)?;
+    validate_manifest_ui_type(manifest, policy.require_ui_type)?;
+
+    let requires = parse_manifest_requires(manifest, policy.require_requires, label)?;
+    if policy.require_requires {
+        validate_manifest_requires_match(&requires, expected_requires, label)?;
+    }
+
+    let main = manifest_string(manifest, "main");
+    if main.is_empty() {
+        return Err(format!("{label}.main 不能为空"));
+    }
+
+    let bg_main = manifest
+        .get("background")
+        .and_then(|v| v.as_object())
+        .and_then(|obj| obj.get("main"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let background_main = if !bg_main.is_empty() && bg_main != main { Some(bg_main) } else { None };
+
+    let icon = manifest_string(manifest, "icon");
+    let svg_icon = if icon.starts_with("svg:") {
+        let rel = icon["svg:".len()..].trim().to_string();
+        if rel.is_empty() { None } else { Some(rel) }
+    } else {
+        None
+    };
+
+    Ok(StoreManifestSummary {
+        plugin_id,
+        version,
+        main,
+        background_main,
+        svg_icon,
+    })
+}
+
 #[cfg(debug_assertions)]
 fn is_dir_empty(dir: &Path) -> bool {
     match std::fs::read_dir(dir) {
@@ -769,133 +952,26 @@ pub(crate) async fn plugin_store_install(
             let manifest: Value = serde_json::from_str(&manifest_text)
                 .map_err(|e| format!("manifest.json 解析失败: {e}"))?;
 
-            let plugin_id = manifest
-                .get("id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            if !is_safe_id(&plugin_id) {
-                return Err("manifest.id 不合法（仅允许字母/数字/_/-）".to_string());
-            }
-            if plugin_id != expected_id2 {
-                return Err(format!(
-                    "manifest.id 不匹配：expected={}, got={}",
-                    expected_id2, plugin_id
-                ));
-            }
-
-            let name = manifest
-                .get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            if name.is_empty() {
-                return Err("manifest.name 不能为空".to_string());
-            }
-
-            let version = manifest
-                .get("version")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            if version.is_empty() {
-                return Err("manifest.version 不能为空".to_string());
-            }
-            if version != expected_version2 {
-                return Err(format!(
-                    "manifest.version 不匹配：expected={}, got={}",
-                    expected_version2, version
-                ));
-            }
-
-            let _description = manifest
-                .get("description")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| "manifest.description 必须是字符串".to_string())?;
-
-            let api_version = manifest
-                .get("apiVersion")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-            if api_version != 2 && api_version != 3 {
-                return Err("manifest.apiVersion 必须为 2 或 3".to_string());
-            }
-
-            let ui_type = manifest
-                .get("ui")
-                .and_then(|v| v.as_object())
-                .and_then(|obj| obj.get("type"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            if ui_type != "iframe" {
-                return Err("manifest.ui.type 必须为 \"iframe\"".to_string());
-            }
-
-            let requires = manifest
-                .get("requires")
-                .and_then(|v| v.as_array())
-                .ok_or_else(|| "manifest.requires 必须是数组（即使为空）".to_string())?;
-            let mut actual_requires_set = BTreeSet::<String>::new();
-            for item in requires {
-                let cap = item.as_str().unwrap_or("").trim();
-                if !is_valid_manifest_capability(cap) {
-                    return Err("manifest.requires 存在不合法能力声明".to_string());
-                }
-                actual_requires_set.insert(cap.to_string());
-            }
-            if actual_requires_set != expected_requires2 {
-                let expected_list = expected_requires2.iter().cloned().collect::<Vec<_>>();
-                let actual_list = actual_requires_set.iter().cloned().collect::<Vec<_>>();
-                return Err(format!(
-                    "manifest.requires 不匹配：expected={:?}, got={:?}",
-                    expected_list, actual_list
-                ));
-            }
-
-            let main = manifest
-                .get("main")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            if main.is_empty() {
-                return Err("manifest.main 不能为空".to_string());
-            }
-            let main_rel = safe_relative_path_no_curdir(&main)?;
-
-            let bg_main = manifest
-                .get("background")
-                .and_then(|v| v.as_object())
-                .and_then(|obj| obj.get("main"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            let bg_rel = if !bg_main.is_empty() && bg_main != main {
-                Some(safe_relative_path_no_curdir(&bg_main)?)
-            } else {
-                None
-            };
-
-            let icon = manifest
-                .get("icon")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            let icon_rel = if icon.starts_with("svg:") {
-                let rel = icon["svg:".len()..].trim().to_string();
-                if rel.is_empty() {
-                    None
-                } else {
-                    Some(safe_relative_path_no_curdir(&rel)?)
-                }
-            } else {
-                None
-            };
+            let manifest_summary = validate_store_manifest(
+                &manifest,
+                &expected_id2,
+                &expected_version2,
+                &expected_requires2,
+                "manifest",
+            )?;
+            let plugin_id = manifest_summary.plugin_id.clone();
+            let version = manifest_summary.version.clone();
+            let main_rel = safe_relative_path_no_curdir(&manifest_summary.main)?;
+            let bg_rel = manifest_summary
+                .background_main
+                .as_deref()
+                .map(safe_relative_path_no_curdir)
+                .transpose()?;
+            let icon_rel = manifest_summary
+                .svg_icon
+                .as_deref()
+                .map(safe_relative_path_no_curdir)
+                .transpose()?;
 
             let tmp_dir = plugins_dir2.join(format!(".tmp-install-{plugin_id}-{stamp}"));
             if tmp_dir.exists() {
@@ -984,54 +1060,15 @@ pub(crate) async fn plugin_store_install(
             let extracted_manifest: Value = serde_json::from_str(&extracted_manifest_text)
                 .map_err(|e| format!("解压后的 manifest.json 解析失败: {e}"))?;
 
-            let extracted_id = extracted_manifest
-                .get("id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            let extracted_version = extracted_manifest
-                .get("version")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            let extracted_requires = extracted_manifest
-                .get("requires")
-                .and_then(|v| v.as_array())
-                .ok_or_else(|| "解压后的 manifest.requires 必须是数组（即使为空）".to_string())?;
-            let mut extracted_requires_set = BTreeSet::<String>::new();
-            for item in extracted_requires {
-                let cap = item.as_str().unwrap_or("").trim();
-                if !is_valid_manifest_capability(cap) {
-                    let _ = std::fs::remove_dir_all(&tmp_dir);
-                    return Err("解压后的 manifest.requires 存在不合法能力声明".to_string());
-                }
-                extracted_requires_set.insert(cap.to_string());
-            }
-
-            if extracted_id != expected_id2 {
+            if let Err(e) = validate_store_manifest(
+                &extracted_manifest,
+                &expected_id2,
+                &expected_version2,
+                &expected_requires2,
+                "解压后的 manifest",
+            ) {
                 let _ = std::fs::remove_dir_all(&tmp_dir);
-                return Err(format!(
-                    "解压后的 manifest.id 不匹配：expected={}, got={}",
-                    expected_id2, extracted_id
-                ));
-            }
-            if extracted_version != expected_version2 {
-                let _ = std::fs::remove_dir_all(&tmp_dir);
-                return Err(format!(
-                    "解压后的 manifest.version 不匹配：expected={}, got={}",
-                    expected_version2, extracted_version
-                ));
-            }
-            if extracted_requires_set != expected_requires2 {
-                let _ = std::fs::remove_dir_all(&tmp_dir);
-                let expected_list = expected_requires2.iter().cloned().collect::<Vec<_>>();
-                let actual_list = extracted_requires_set.iter().cloned().collect::<Vec<_>>();
-                return Err(format!(
-                    "解压后的 manifest.requires 不匹配：expected={:?}, got={:?}",
-                    expected_list, actual_list
-                ));
+                return Err(e);
             }
 
             let dst = plugins_dir2.join(&plugin_id);

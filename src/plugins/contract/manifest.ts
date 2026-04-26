@@ -24,7 +24,7 @@ export interface PluginManifest {
     main?: string
     /**
      * legacy（v2）：历史“自启动”开关。
-     * - apiVersion=3 起不再接受该字段：请使用 lifecycle 表达清晰的生命周期档位。
+     * - 系统级后台插件不再接受该字段：请使用 lifecycle 表达清晰的生命周期档位。
      */
     autoStart?: boolean
     lifecycle?: PluginBackgroundLifecycle

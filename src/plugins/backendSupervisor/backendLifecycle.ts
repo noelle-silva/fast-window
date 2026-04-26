@@ -21,9 +21,9 @@ export function resolveBackendLifecycle(manifest?: PluginManifest | null): Resol
     return { lifecycle: lc, source: 'manifest' }
   }
 
-  // v3：不再使用 autoStart 这种细碎开关，必须用生命周期档位表达意图。
+  // 系统级后台不再使用 autoStart 这种细碎开关，必须用生命周期档位表达意图。
   if (apiVersion >= 3) {
-    console.warn(`[backend-lifecycle] invalid v3 manifest: background.lifecycle is missing or unknown (plugin="${String(manifest?.id || '')}")`)
+    console.warn(`[backend-lifecycle] invalid system backend manifest: background.lifecycle is missing or unknown (plugin="${String(manifest?.id || '')}")`)
     return { lifecycle: 'on_demand', source: 'manifest' }
   }
 
