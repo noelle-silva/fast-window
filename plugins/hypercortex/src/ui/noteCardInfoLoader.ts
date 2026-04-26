@@ -1,6 +1,7 @@
 import type { Api, NoteMeta, VaultScope } from '../core'
 import { isDraftNoteId } from '../drafts'
 import { tryReadNoteManifest } from '../notePackage'
+import { labelForFaceKind } from '../noteFaces'
 import type { NoteCardInfo } from './noteCardInfo'
 
 export async function loadNoteCardInfo(api: Api, scope: VaultScope, meta: NoteMeta): Promise<NoteCardInfo | null> {
@@ -13,8 +14,10 @@ export async function loadNoteCardInfo(api: Api, scope: VaultScope, meta: NoteMe
 
   return {
     tags: Array.isArray(manifest.tags) ? manifest.tags.map(v => String(v || '').trim()).filter(Boolean) : [],
-    hasTextFace: !!manifest.faces?.text?.file,
-    hasHtmlFace: !!manifest.faces?.htmlView?.file,
+    faceLabels: (manifest.faceOrder || Object.keys(manifest.faces || {}))
+      .map(faceId => manifest.faces?.[faceId])
+      .filter(Boolean)
+      .map(face => String(face.title || '').trim() || labelForFaceKind(face.kind)),
   }
 }
 

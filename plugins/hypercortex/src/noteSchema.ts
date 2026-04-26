@@ -1,7 +1,12 @@
-export const HYPERCORTEX_NOTE_SCHEMA_VERSION = 1
-export const NOTE_MANIFEST_FILE = 'manifest.json'
-export const NOTE_TEXT_FILE = 'text.md'
-export const NOTE_HTML_VIEW_FILE = 'html-view.html'
+import { HYPERCORTEX_NOTE_FACE_SCHEMA_VERSION } from './noteFaces'
+import {
+  createDefaultNoteFaces,
+  createNoteManifest as createNoteManifestV2,
+  type HyperCortexNoteManifestV2,
+} from './noteManifest'
+
+export const HYPERCORTEX_NOTE_SCHEMA_VERSION = HYPERCORTEX_NOTE_FACE_SCHEMA_VERSION
+export { NOTE_MANIFEST_FILE } from './noteManifest'
 
 export type HyperCortexNoteResourceRef = {
   assetId: string
@@ -11,24 +16,7 @@ export type HyperCortexNoteResourceRef = {
   name?: string
 }
 
-export type HyperCortexNoteManifestV1 = {
-  schemaVersion: number
-  id: string
-  title: string
-  description: string
-  tags: string[]
-  createdAtMs: number
-  updatedAtMs: number
-  faces: {
-    text?: { file: string }
-    htmlView?: {
-      file: string
-      /** 笔记级固定视口缩放比例（0.25~2），优先于全局默认值 */
-      fixedScale?: number
-    }
-  }
-  resources: HyperCortexNoteResourceRef[]
-}
+export type HyperCortexNoteManifestV1 = HyperCortexNoteManifestV2
 
 export type HyperCortexNoteDocData = {
   id: string
@@ -81,19 +69,6 @@ function normalizeResources(list?: HyperCortexNoteResourceRef[]): HyperCortexNot
   )
 }
 
-function normalizeFaces(faces?: HyperCortexNoteManifestV1['faces']): HyperCortexNoteManifestV1['faces'] {
-  const next: HyperCortexNoteManifestV1['faces'] = {}
-  const textFile = String(faces?.text?.file || '').trim()
-  const htmlViewFile = String(faces?.htmlView?.file || '').trim()
-  if (textFile) next.text = { file: textFile }
-  if (htmlViewFile) {
-    const rawScale = faces?.htmlView?.fixedScale
-    const fixedScale = Number.isFinite(rawScale) && typeof rawScale === 'number' ? rawScale : undefined
-    next.htmlView = fixedScale !== undefined ? { file: htmlViewFile, fixedScale } : { file: htmlViewFile }
-  }
-  return next
-}
-
 export function createNoteDocData(input: HyperCortexNoteDocInput): HyperCortexNoteDocData {
   const createdAtMs = Number(input.createdAtMs) > 0 ? Number(input.createdAtMs) : Date.now()
   const updatedAtMs = Number(input.updatedAtMs) > 0 ? Number(input.updatedAtMs) : createdAtMs
@@ -122,17 +97,8 @@ export function createNoteManifest(input: {
   resources?: HyperCortexNoteResourceRef[]
   faces?: HyperCortexNoteManifestV1['faces']
 }): HyperCortexNoteManifestV1 {
-  const createdAtMs = Number(input.createdAtMs) > 0 ? Number(input.createdAtMs) : Date.now()
-  const updatedAtMs = Number(input.updatedAtMs) > 0 ? Number(input.updatedAtMs) : createdAtMs
-  return {
-    schemaVersion: Number(input.schemaVersion) > 0 ? Number(input.schemaVersion) : HYPERCORTEX_NOTE_SCHEMA_VERSION,
-    id: String(input.id || '').trim(),
-    title: String(input.title || '').trim() || '未命名',
-    description: String(input.description ?? '').trim(),
-    tags: Array.from(new Set((input.tags || []).map(normalizeTag).filter(Boolean))),
-    createdAtMs,
-    updatedAtMs,
-    faces: normalizeFaces(input.faces),
-    resources: normalizeResources(input.resources),
-  }
+  return createNoteManifestV2({
+    ...input,
+    faces: input.faces || createDefaultNoteFaces(),
+  })
 }

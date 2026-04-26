@@ -3,18 +3,12 @@ import { isDraftNoteId } from '../drafts'
 
 export type NoteCardInfo = {
   tags: string[]
-  hasTextFace: boolean
-  hasHtmlFace: boolean
+  faceLabels: string[]
 }
 
 export function noteContainsLabel(info: NoteCardInfo | null | undefined): string {
   if (!info) return ''
-  const hasText = info.hasTextFace
-  const hasHtml = info.hasHtmlFace
-  if (hasText && hasHtml) return '文本 · HTML'
-  if (hasText) return '文本'
-  if (hasHtml) return 'HTML'
-  return ''
+  return Array.from(new Set((info.faceLabels || []).map(v => String(v || '').trim()).filter(Boolean))).join(' · ')
 }
 
 export function shouldShowNoteContains(meta: NoteMeta): boolean {

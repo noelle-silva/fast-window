@@ -432,6 +432,9 @@ function normalizeManifest(input: any): HyperCortexNoteManifestV1 {
     updatedAtMs: Number(input?.updatedAtMs),
     schemaVersion: Number(input?.schemaVersion),
     resources: Array.isArray(input?.resources) ? input.resources : [],
+    faces: input?.faces,
+    primaryFaceId: input?.primaryFaceId,
+    faceOrder: Array.isArray(input?.faceOrder) ? input.faceOrder : [],
   })
 }
 

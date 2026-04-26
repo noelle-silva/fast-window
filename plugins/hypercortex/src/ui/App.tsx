@@ -651,8 +651,7 @@ export function HyperCortexApp() {
       const existed = prev[nid]
       if (
         existed &&
-        existed.hasTextFace === nextInfo.hasTextFace &&
-        existed.hasHtmlFace === nextInfo.hasHtmlFace &&
+        existed.faceLabels.join('\n') === nextInfo.faceLabels.join('\n') &&
         existed.tags.join('\n') === nextInfo.tags.join('\n')
       ) return prev
       return { ...prev, [nid]: nextInfo }
@@ -1226,24 +1225,24 @@ export function HyperCortexApp() {
   React.useEffect(() => {
     void (async () => {
       try {
-        const meta = (await tryLoadMetadata(api)) || (await ensureMetadata(api))
-        metaRef.current = meta
-        setShortcutBindings(normalizeShortcutBindings(meta.shortcuts))
-        const normalizedShortcutHintsEnabled = normalizeShortcutHintsEnabled((meta as any).shortcutHintsEnabled)
+        const normalizedMeta = (await tryLoadMetadata(api)) || (await ensureMetadata(api))
+        metaRef.current = normalizedMeta
+        setShortcutBindings(normalizeShortcutBindings(normalizedMeta.shortcuts))
+        const normalizedShortcutHintsEnabled = normalizeShortcutHintsEnabled((normalizedMeta as any).shortcutHintsEnabled)
         setShortcutHintsEnabled(normalizedShortcutHintsEnabled)
-        setAllNotesLayout(normalizeAllNotesLayout(meta.allNotesLayout))
-        setTabsCollapsed(normalizeBoolean(meta.tabsCollapsed))
-        setTabsMode(normalizeTabsMode(meta.tabsMode))
-        setSidebarSortMode(normalizeSidebarSortMode(meta.sidebarSortMode))
-        const normalizedTrashEnabled = normalizeTrashEnabled(meta.trashEnabled)
-        const normalizedTrashAutoDeleteDays = normalizeTrashAutoDeleteDays(meta.trashAutoDeleteDays)
+        setAllNotesLayout(normalizeAllNotesLayout(normalizedMeta.allNotesLayout))
+        setTabsCollapsed(normalizeBoolean(normalizedMeta.tabsCollapsed))
+        setTabsMode(normalizeTabsMode(normalizedMeta.tabsMode))
+        setSidebarSortMode(normalizeSidebarSortMode(normalizedMeta.sidebarSortMode))
+        const normalizedTrashEnabled = normalizeTrashEnabled(normalizedMeta.trashEnabled)
+        const normalizedTrashAutoDeleteDays = normalizeTrashAutoDeleteDays(normalizedMeta.trashAutoDeleteDays)
         setTrashEnabled(normalizedTrashEnabled)
         setTrashAutoDeleteDays(normalizedTrashAutoDeleteDays)
-        setHtmlFaceDisplayMode(normalizeHtmlFaceDisplayMode(meta.htmlFaceDisplayMode))
-        setHtmlFaceFixedScaleDefault(normalizeHtmlFaceFixedScaleDefault(meta.htmlFaceFixedScaleDefault))
-        setIndexEditMode(normalizeIndexEditMode((meta as any).indexEditMode))
-        setCurrentFolderId(String((meta as any).currentFolderId || '').trim() || 'root')
-        const activeKey = typeof meta.activeTabKey === 'string' ? meta.activeTabKey.trim() : ''
+        setHtmlFaceDisplayMode(normalizeHtmlFaceDisplayMode(normalizedMeta.htmlFaceDisplayMode))
+        setHtmlFaceFixedScaleDefault(normalizeHtmlFaceFixedScaleDefault(normalizedMeta.htmlFaceFixedScaleDefault))
+        setIndexEditMode(normalizeIndexEditMode((normalizedMeta as any).indexEditMode))
+        setCurrentFolderId(String((normalizedMeta as any).currentFolderId || '').trim() || 'root')
+        const activeKey = typeof normalizedMeta.activeTabKey === 'string' ? normalizedMeta.activeTabKey.trim() : ''
         restoreActiveTabKeyRef.current = activeKey
 
         const [nextFavoritesDoc, nextAssetPoolIndex] = await Promise.all([
@@ -1254,26 +1253,26 @@ export function HyperCortexApp() {
         setAssetPoolIndex(nextAssetPoolIndex as any)
 
         const legacyTabsDetected =
-          Array.isArray((meta as any).openNoteIds) ||
-          typeof (meta as any).activeNoteId === 'string' ||
-          ((meta as any).tabGroupByNoteId && typeof (meta as any).tabGroupByNoteId === 'object')
+          Array.isArray((normalizedMeta as any).openNoteIds) ||
+          typeof (normalizedMeta as any).activeNoteId === 'string' ||
+          ((normalizedMeta as any).tabGroupByNoteId && typeof (normalizedMeta as any).tabGroupByNoteId === 'object')
         const v2TabsDetected =
-          Array.isArray((meta as any).openTabKeys) ||
-          typeof (meta as any).activeTabKey === 'string' ||
-          ((meta as any).tabGroupByTabKey && typeof (meta as any).tabGroupByTabKey === 'object') ||
-          Array.isArray(meta.workspaces)
+          Array.isArray((normalizedMeta as any).openTabKeys) ||
+          typeof (normalizedMeta as any).activeTabKey === 'string' ||
+          ((normalizedMeta as any).tabGroupByTabKey && typeof (normalizedMeta as any).tabGroupByTabKey === 'object') ||
+          Array.isArray(normalizedMeta.workspaces)
         if (legacyTabsDetected && !v2TabsDetected) {
           void api.ui.showToast('检测到旧版标签页数据：当前开发版本已移除迁移逻辑，请重置 HyperCortex 数据后再试')
         }
 
-        let nextWorkspaces = normalizeWorkspaces(meta.workspaces, {
-          sidebarItems: meta.sidebarItems,
-          openTabKeys: meta.openTabKeys,
-          activeTabKey: meta.activeTabKey,
-          tabGroups: meta.tabGroups,
-          tabGroupByTabKey: meta.tabGroupByTabKey,
+        let nextWorkspaces = normalizeWorkspaces(normalizedMeta.workspaces, {
+          sidebarItems: normalizedMeta.sidebarItems,
+          openTabKeys: normalizedMeta.openTabKeys,
+          activeTabKey: normalizedMeta.activeTabKey,
+          tabGroups: normalizedMeta.tabGroups,
+          tabGroupByTabKey: normalizedMeta.tabGroupByTabKey,
         })
-        const nextActiveWorkspaceId = normalizeActiveWorkspaceId(meta.activeWorkspaceId, nextWorkspaces)
+        const nextActiveWorkspaceId = normalizeActiveWorkspaceId(normalizedMeta.activeWorkspaceId, nextWorkspaces)
         let activeWs = nextWorkspaces.find(w => w.id === nextActiveWorkspaceId) || nextWorkspaces[0]
 
         let didMutateActiveWorkspace = false
@@ -1294,12 +1293,12 @@ export function HyperCortexApp() {
         if (activeWs) applyWorkspaceSidebarState(activeWs)
 
         const shouldPersistNormalized =
-          !Array.isArray(meta.workspaces) ||
-          meta.activeWorkspaceId !== nextActiveWorkspaceId ||
+          !Array.isArray(normalizedMeta.workspaces) ||
+          normalizedMeta.activeWorkspaceId !== nextActiveWorkspaceId ||
           didMutateActiveWorkspace ||
-          (meta as any).shortcutHintsEnabled !== normalizedShortcutHintsEnabled ||
-          meta.trashEnabled !== normalizedTrashEnabled ||
-          meta.trashAutoDeleteDays !== normalizedTrashAutoDeleteDays
+          (normalizedMeta as any).shortcutHintsEnabled !== normalizedShortcutHintsEnabled ||
+          normalizedMeta.trashEnabled !== normalizedTrashEnabled ||
+          normalizedMeta.trashAutoDeleteDays !== normalizedTrashAutoDeleteDays
         if (shouldPersistNormalized) {
           void persistMetadataPatch({
             ...buildWorkspacesMetadataSnapshot(nextWorkspaces, nextActiveWorkspaceId),
