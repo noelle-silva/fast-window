@@ -108,6 +108,88 @@ function buildSdkSurfaceCode(profile: PluginSdkProfile) {
   return `${buildHostInteractionSdkCode()}${primitiveCode}${buildBackgroundInvokeSdkCode()}`
 }
 
+function buildV4PluginSdkCode(opts: {
+  pluginId: string
+  token: string
+  runtime: PluginRuntime
+  apiVersion: PluginApiVersion
+}) {
+  const { pluginId, token, runtime, apiVersion } = opts
+  const v3 = V3_METHOD
+  return `
+(() => {
+  const pluginId = ${JSON.stringify(pluginId)};
+  const apiVersion = ${JSON.stringify(apiVersion)};
+  const token = ${JSON.stringify(token)};
+  const runtime = ${JSON.stringify(runtime)};
+
+  let seq = 0;
+  const pending = new Map();
+  const MAX_PENDING = 128;
+  const DEFAULT_TIMEOUT_MS = 8000;
+  const BACKGROUND_TIMEOUT_MS = 15 * 60 * 1000;
+
+  const port = globalThis.__fastWindowPort;
+  if (!port || typeof port.postMessage !== 'function') throw new Error('fastWindow MessagePort is not ready');
+
+  function resolveTimeoutMs(method, args) {
+    if (method !== ${JSON.stringify(v3.background.invoke)}) return DEFAULT_TIMEOUT_MS;
+    const req = args && args[0] && typeof args[0] === 'object' ? args[0] : null;
+    const requested = req && typeof req.timeoutMs === 'number' ? req.timeoutMs : 0;
+    if (requested > 0) return Math.max(DEFAULT_TIMEOUT_MS, Math.min(requested, BACKGROUND_TIMEOUT_MS));
+    return BACKGROUND_TIMEOUT_MS;
+  }
+
+  function call(method, args) {
+    const id = ++seq;
+    return new Promise((resolve, reject) => {
+      if (pending.size >= MAX_PENDING) {
+        reject(new Error('Too many in-flight requests'));
+        return;
+      }
+
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        reject(new Error('Request timeout'));
+      }, resolveTimeoutMs(method, args));
+
+      pending.set(id, { resolve, reject, timer });
+      port.postMessage({ __fastWindowRequest: true, pluginId, apiVersion, token, id, method, args });
+    });
+  }
+
+  port.onmessage = (e) => {
+    const msg = e && e.data;
+    if (!msg || msg.__fastWindowResponse !== true) return;
+    if (msg.pluginId !== pluginId) return;
+    if (msg.token !== token) return;
+    const entry = pending.get(msg.id);
+    if (!entry) return;
+    pending.delete(msg.id);
+    clearTimeout(entry.timer);
+    if (msg.ok) entry.resolve(msg.result);
+    else {
+      const err = new Error(msg.error || 'Unknown error');
+      if (msg.code) err.code = msg.code;
+      if (msg.data !== undefined) err.data = msg.data;
+      entry.reject(err);
+    }
+  };
+
+  window.fastWindow = {
+    host: {
+      back: () => call(${JSON.stringify(v3.host.back)}, []),
+      toast: (message) => call(${JSON.stringify(v3.host.toast)}, [message]),
+      activatePlugin: (targetPluginId) => call(${JSON.stringify(v3.host.activatePlugin)}, [targetPluginId]),
+      startDragging: () => call(${JSON.stringify(v3.host.startDragging)}, []),
+    },
+    background: {
+      invoke: (method, params, options) => call(${JSON.stringify(v3.background.invoke)}, [{ method, params: params === undefined ? null : params, timeoutMs: options && options.timeoutMs }]),
+    },
+  };
+})();`
+}
+
 export function buildPluginSdkCode(opts: {
   pluginId: string
   token: string
@@ -118,7 +200,9 @@ export function buildPluginSdkCode(opts: {
 }) {
   const { pluginId, token, runtime, apiVersion } = opts
   const sdkProfile = opts.sdkProfile ?? resolveLegacyPluginSdkProfile(apiVersion)
-  const exposeMeta = opts.exposeMeta ?? sdkProfile !== 'v4'
+  if (sdkProfile === 'v4') return buildV4PluginSdkCode({ pluginId, token, runtime, apiVersion })
+
+  const exposeMeta = opts.exposeMeta ?? true
   const metaSdkCode = exposeMeta ? `__meta: { pluginId, apiVersion, runtime },` : ''
   const sdkSurfaceCode = buildSdkSurfaceCode(sdkProfile)
 
@@ -403,11 +487,13 @@ export function buildPluginSdkCode(opts: {
 })();`
 }
 
-export function buildPluginShellSrcDoc() {
+export function buildPluginShellSrcDoc(assetBaseUrl?: string) {
+  const baseTag = assetBaseUrl ? `<base href="${escapeHtmlAttribute(assetBaseUrl)}" />` : ''
   return `<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
+    ${baseTag}
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
       html, body { height: 100%; }
@@ -488,4 +574,12 @@ export function buildPluginShellSrcDoc() {
     </script>
   </body>
 </html>`
+}
+
+function escapeHtmlAttribute(value: string) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
 }

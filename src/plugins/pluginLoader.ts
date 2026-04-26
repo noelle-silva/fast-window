@@ -8,6 +8,7 @@ import IframePluginView from './IframePluginView'
 import TrustedPluginView from './TrustedPluginView'
 import { parsePluginManifest } from './manifest/parsePluginManifest'
 import { isTrustedLocalApp, usesSystemBackend } from './pluginProfiles'
+import { getPluginAssetMime, isDataImageUrl, resolveLocalPluginIconPath } from './pluginIcon'
 
 export interface LoadedPlugin {
   manifest: PluginManifest
@@ -20,52 +21,14 @@ export type PluginLoadRejection = {
   reason: string
 }
 
-function isDataImageUrl(value: string): boolean {
-  return value.startsWith('data:image/')
-}
-
 async function resolvePluginIcon(pluginId: string, icon: unknown): Promise<string | undefined> {
   const raw = typeof icon === 'string' ? icon.trim() : ''
   if (!raw) return undefined
   if (isDataImageUrl(raw)) return raw
 
-  if (raw.startsWith('svg:')) {
-    const path = raw.slice('svg:'.length).trim()
-    if (!path) return undefined
-    if (!path.toLowerCase().endsWith('.svg')) {
-      console.warn(`[plugin] "${pluginId}" icon ignored: svg: must point to a .svg file.`)
-      return undefined
-    }
-
-    try {
-      const svg = await invoke<string>('read_plugin_file', { pluginId, path })
-      const encoded = encodeURIComponent(svg)
-      return `data:image/svg+xml;utf8,${encoded}`
-    } catch (e) {
-      console.warn(`[plugin] "${pluginId}" icon ignored: failed to read svg icon "${path}".`, e)
-      return undefined
-    }
-  }
-
-  if (raw.startsWith('file:')) {
-    const path = raw.slice('file:'.length).trim()
-    if (!path) return undefined
-    const lower = path.toLowerCase()
-
-    const mime =
-      lower.endsWith('.png') ? 'image/png'
-      : (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) ? 'image/jpeg'
-      : lower.endsWith('.webp') ? 'image/webp'
-      : lower.endsWith('.gif') ? 'image/gif'
-      : lower.endsWith('.ico') ? 'image/x-icon'
-      : lower.endsWith('.svg') ? 'image/svg+xml'
-      : ''
-
-    if (!mime) {
-      console.warn(`[plugin] "${pluginId}" icon ignored: unsupported file type "${path}".`)
-      return undefined
-    }
-
+  const path = resolveLocalPluginIconPath(raw)
+  const mime = path ? getPluginAssetMime(path) : ''
+  if (mime) {
     try {
       const b64 = await invoke<string>('read_plugin_file_base64', { pluginId, path })
       return `data:${mime};base64,${b64}`
@@ -117,6 +80,7 @@ export async function loadPluginById(pluginId: string): Promise<{ plugin: Loaded
       React.createElement(View, {
         pluginId: manifest.id,
         pluginCode: code,
+        pluginMain: manifest.main,
         apiVersion,
         requires: manifest.requires,
         onBack,

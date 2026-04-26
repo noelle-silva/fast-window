@@ -37,6 +37,7 @@ import {
 } from '../wallpaper'
 import WallpaperViewEditorDialog from './WallpaperViewEditorDialog'
 import { hostToast } from '../host/hostPrimitives'
+import { getPluginAssetMime, isDataImageUrl, resolveLocalPluginIconPath } from '../plugins/pluginIcon'
 
 const DEFAULT_WAKE_SHORTCUT = 'control+alt+Space'
 const MAX_VIDEO_RATE = 16
@@ -64,52 +65,14 @@ function normalizeStringList(value: unknown): string[] {
   return list
 }
 
-function isDataImageUrl(value: string): boolean {
-  return value.startsWith('data:image/')
-}
-
 async function resolvePluginIcon(pluginId: string, icon: unknown): Promise<string | undefined> {
   const raw = typeof icon === 'string' ? icon.trim() : ''
   if (!raw) return undefined
   if (isDataImageUrl(raw)) return raw
 
-  if (raw.startsWith('svg:')) {
-    const path = raw.slice('svg:'.length).trim()
-    if (!path) return undefined
-    if (!path.toLowerCase().endsWith('.svg')) {
-      console.warn(`[plugin-manage] "${pluginId}" icon ignored: svg: must point to a .svg file.`)
-      return undefined
-    }
-
-    try {
-      const svg = await invoke<string>('read_plugin_file', { pluginId, path })
-      const encoded = encodeURIComponent(svg)
-      return `data:image/svg+xml;utf8,${encoded}`
-    } catch (e) {
-      console.warn(`[plugin-manage] "${pluginId}" icon ignored: failed to read svg icon "${path}".`, e)
-      return undefined
-    }
-  }
-
-  if (raw.startsWith('file:')) {
-    const path = raw.slice('file:'.length).trim()
-    if (!path) return undefined
-    const lower = path.toLowerCase()
-
-    const mime =
-      lower.endsWith('.png') ? 'image/png'
-      : (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) ? 'image/jpeg'
-      : lower.endsWith('.webp') ? 'image/webp'
-      : lower.endsWith('.gif') ? 'image/gif'
-      : lower.endsWith('.ico') ? 'image/x-icon'
-      : lower.endsWith('.svg') ? 'image/svg+xml'
-      : ''
-
-    if (!mime) {
-      console.warn(`[plugin-manage] "${pluginId}" icon ignored: unsupported file type "${path}".`)
-      return undefined
-    }
-
+  const path = resolveLocalPluginIconPath(raw)
+  const mime = path ? getPluginAssetMime(path) : ''
+  if (mime) {
     try {
       const b64 = await invoke<string>('read_plugin_file_base64', { pluginId, path })
       return `data:${mime};base64,${b64}`
@@ -1249,7 +1212,7 @@ export default function SettingsView(props: { onBack: () => void }) {
                 const disabled = pluginManageDisabledIds.includes(p.id)
                 const busy = pluginManageSavingId === p.id
                 const icon = typeof p.icon === 'string' ? p.icon.trim() : ''
-                const safeIcon = icon && (icon.startsWith('file:') || icon.startsWith('svg:')) ? '' : icon
+                const safeIcon = icon && !icon.includes(':') ? '' : icon
 
                 return (
                   <Box

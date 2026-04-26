@@ -28,6 +28,7 @@ mod os_actions;
 mod process_commands;
 mod plugin_backend_commands;
 mod plugin_backend_runtime;
+mod plugin_assets;
 mod plugin_files;
 mod process_runtime;
 mod plugin_files_delete_tree;

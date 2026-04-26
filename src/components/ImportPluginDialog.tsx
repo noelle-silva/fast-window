@@ -17,6 +17,7 @@ import {
   PluginManifest,
 } from '../plugins/pluginContract'
 import { parsePluginManifest } from '../plugins/manifest/parsePluginManifest'
+import { resolveLocalPluginIconPath } from '../plugins/pluginIcon'
 
 type Props = {
   open: boolean
@@ -29,6 +30,9 @@ type SelectedPlugin = {
   rootDirName: string
   files: File[]
 }
+
+const MAX_PLUGIN_FILES = 512
+const MAX_PLUGIN_BYTES = 120 * 1024 * 1024
 
 function isSafeRelPath(path: string): boolean {
   if (!path) return false
@@ -140,6 +144,18 @@ export default function ImportPluginDialog(props: Props) {
       if (!isSafeRelPath(manifest.main)) throw new Error('manifest.main 路径不合法（不允许绝对路径或 ..）')
       if (!relMap.has(manifest.main)) throw new Error(`入口文件不存在：${manifest.main}`)
 
+      const backgroundMain = String(manifest.background?.main || '').trim()
+      if (backgroundMain) {
+        if (!isSafeRelPath(backgroundMain)) throw new Error('background.main 路径不合法（不允许绝对路径或 ..）')
+        if (!relMap.has(backgroundMain)) throw new Error(`后台入口文件不存在：${backgroundMain}`)
+      }
+
+      const iconPath = resolveLocalPluginIconPath(manifest.icon)
+      if (iconPath) {
+        if (!isSafeRelPath(iconPath)) throw new Error('manifest.icon 路径不合法（不允许绝对路径或 ..）')
+        if (!relMap.has(iconPath)) throw new Error(`图标文件不存在：${iconPath}`)
+      }
+
       for (const rel of relMap.keys()) {
         if (!isSafeRelPath(rel)) throw new Error(`文件路径不合法：${rel}`)
       }
@@ -166,7 +182,7 @@ export default function ImportPluginDialog(props: Props) {
       }
 
       const relPaths = Array.from(relMap.keys())
-      if (relPaths.length > 128) throw new Error('文件数量过多（>128），拒绝导入')
+      if (relPaths.length > MAX_PLUGIN_FILES) throw new Error(`文件数量过多（>${MAX_PLUGIN_FILES}），拒绝导入`)
 
       const filesPayload = []
       let totalBytes = 0
@@ -174,7 +190,7 @@ export default function ImportPluginDialog(props: Props) {
         const f = relMap.get(rel)!
         const bytes = await readBytes(f)
         totalBytes += bytes.length
-        if (totalBytes > 10 * 1024 * 1024) throw new Error('插件体积过大（>10MB），拒绝导入')
+        if (totalBytes > MAX_PLUGIN_BYTES) throw new Error('插件体积过大（>120MB），拒绝导入')
         filesPayload.push({ path: rel, bytes })
       }
 

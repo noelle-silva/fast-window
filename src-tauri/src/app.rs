@@ -34,6 +34,7 @@ use crate::{
     show_main_window, MainWindowModeShortcutState, WakeShortcutState, APP_STORAGE_ID,
     AUTO_START_REG_VALUE, BROWSER_BAR_HEIGHT, BROWSER_BAR_WINDOW_LABEL, BROWSER_WINDOW_LABEL,
 };
+use crate::plugin_assets::plugin_asset_protocol_response;
 use crate::{migrations, wake_logic};
 
 #[cfg(target_os = "windows")]
@@ -41,6 +42,9 @@ use crate::auto_start;
 
 pub(crate) fn builder_base() -> tauri::Builder<tauri::Wry> {
     tauri::Builder::default()
+        .register_uri_scheme_protocol("plugin", |ctx, request| {
+            plugin_asset_protocol_response(ctx.app_handle(), request.uri())
+        })
         .register_uri_scheme_protocol("wallpaper", |ctx, request| {
             let app = ctx.app_handle();
             let cfg = match read_wallpaper_config(app) {

@@ -102,6 +102,9 @@ fn is_valid_manifest_capability(cap: &str) -> bool {
 const LEGACY_PLUGIN_API_VERSION: u64 = 2;
 const SYSTEM_BACKEND_PLUGIN_API_VERSION: u64 = 3;
 const TRUSTED_LOCAL_APP_PLUGIN_API_VERSION: u64 = 4;
+const PLUGIN_PACKAGE_MAX_FILES: usize = 512;
+const PLUGIN_PACKAGE_MAX_BYTES: usize = 120 * 1024 * 1024;
+
 const SUPPORTED_PLUGIN_API_VERSIONS: [u64; 3] = [
     LEGACY_PLUGIN_API_VERSION,
     SYSTEM_BACKEND_PLUGIN_API_VERSION,
@@ -119,7 +122,7 @@ struct StoreManifestSummary {
     version: String,
     main: String,
     background_main: Option<String>,
-    svg_icon: Option<String>,
+    local_icon: Option<PathBuf>,
 }
 
 fn resolve_manifest_policy(api_version: u64) -> PluginManifestPolicy {
@@ -137,6 +140,96 @@ fn manifest_string(manifest: &Value, field: &str) -> String {
         .unwrap_or("")
         .trim()
         .to_string()
+}
+
+fn is_trusted_local_app_manifest(manifest: &Value) -> bool {
+    manifest
+        .get("apiVersion")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(LEGACY_PLUGIN_API_VERSION)
+        >= TRUSTED_LOCAL_APP_PLUGIN_API_VERSION
+}
+
+fn is_supported_icon_file_path(rel: &str) -> bool {
+    let lower = rel.to_ascii_lowercase();
+    lower.ends_with(".svg")
+        || lower.ends_with(".png")
+        || lower.ends_with(".jpg")
+        || lower.ends_with(".jpeg")
+        || lower.ends_with(".webp")
+        || lower.ends_with(".gif")
+        || lower.ends_with(".ico")
+}
+
+fn manifest_local_icon_path(icon: &str) -> Result<Option<PathBuf>, String> {
+    let raw = icon.trim();
+    if raw.is_empty() || raw.starts_with("data:image/") {
+        return Ok(None);
+    }
+
+    let rel = if raw.starts_with("svg:") {
+        raw["svg:".len()..].trim()
+    } else if raw.starts_with("file:") {
+        raw["file:".len()..].trim()
+    } else if raw.contains(':') {
+        return Ok(None);
+    } else {
+        raw
+    };
+
+    if rel.is_empty() || !is_supported_icon_file_path(rel) {
+        return Ok(None);
+    }
+
+    safe_relative_path_no_curdir(rel).map(Some)
+}
+
+fn validate_plugin_package_files(root: &Path, summary: &StoreManifestSummary) -> Result<(), String> {
+    let main = safe_relative_path_no_curdir(&summary.main)?;
+    if !root.join(&main).is_file() {
+        return Err("插件入口文件不存在（manifest.main）".to_string());
+    }
+
+    if let Some(bg) = summary.background_main.as_deref() {
+        let bg = safe_relative_path_no_curdir(bg)?;
+        if !root.join(bg).is_file() {
+            return Err("后台入口文件不存在（manifest.background.main）".to_string());
+        }
+    }
+
+    if let Some(icon) = summary.local_icon.as_ref() {
+        if !root.join(icon).is_file() {
+            return Err("插件图标文件不存在（manifest.icon）".to_string());
+        }
+    }
+
+    Ok(())
+}
+
+fn read_package_manifest(root: &Path) -> Result<Value, String> {
+    let text = std::fs::read_to_string(root.join("manifest.json"))
+        .map_err(|e| format!("读取 manifest.json 失败: {e}"))?;
+    serde_json::from_str(&text).map_err(|e| format!("manifest.json 解析失败: {e}"))
+}
+
+fn validate_installed_package(
+    root: &Path,
+    expected_id: &str,
+    expected_version: Option<&str>,
+    expected_requires: Option<&BTreeSet<String>>,
+    label: &str,
+) -> Result<StoreManifestSummary, String> {
+    if !root.join("manifest.json").is_file() {
+        return Err(format!("{label} 缺少 manifest.json"));
+    }
+
+    let manifest = read_package_manifest(root)?;
+    let version = expected_version
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| manifest_string(&manifest, "version"));
+    let summary = validate_store_manifest(&manifest, expected_id, &version, expected_requires, label)?;
+    validate_plugin_package_files(root, &summary)?;
+    Ok(summary)
 }
 
 fn manifest_api_version(manifest: &Value) -> Result<u64, String> {
@@ -216,7 +309,7 @@ fn validate_store_manifest(
     manifest: &Value,
     expected_id: &str,
     expected_version: &str,
-    expected_requires: &BTreeSet<String>,
+    expected_requires: Option<&BTreeSet<String>>,
     label: &str,
 ) -> Result<StoreManifestSummary, String> {
     let plugin_id = manifest_string(manifest, "id");
@@ -246,7 +339,8 @@ fn validate_store_manifest(
     validate_manifest_ui_type(manifest, policy.require_ui_type)?;
 
     let requires = parse_manifest_requires(manifest, policy.require_requires, label)?;
-    if policy.require_requires {
+    if policy.require_requires && expected_requires.is_some() {
+        let expected_requires = expected_requires.expect("checked is_some");
         validate_manifest_requires_match(&requires, expected_requires, label)?;
     }
 
@@ -266,19 +360,14 @@ fn validate_store_manifest(
     let background_main = if !bg_main.is_empty() && bg_main != main { Some(bg_main) } else { None };
 
     let icon = manifest_string(manifest, "icon");
-    let svg_icon = if icon.starts_with("svg:") {
-        let rel = icon["svg:".len()..].trim().to_string();
-        if rel.is_empty() { None } else { Some(rel) }
-    } else {
-        None
-    };
+    let local_icon = manifest_local_icon_path(&icon)?;
 
     Ok(StoreManifestSummary {
         plugin_id,
         version,
         main,
         background_main,
-        svg_icon,
+        local_icon,
     })
 }
 
@@ -330,24 +419,34 @@ pub(crate) fn get_plugins_dir(app: tauri::AppHandle) -> String {
                 out.push(bg_main);
             }
 
-            let icon = manifest
-                .get("icon")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            if icon.starts_with("svg:") {
-                let rel = icon["svg:".len()..].trim().to_string();
-                if !rel.is_empty() && rel.to_ascii_lowercase().ends_with(".svg") {
-                    let _ = safe_relative_path(&rel)?;
-                    out.push(rel);
-                }
+            let icon = manifest_string(manifest, "icon");
+            if let Some(rel) = manifest_local_icon_path(&icon)? {
+                out.push(rel.to_string_lossy().to_string());
             }
 
             // 去重（保持稳定顺序）
             let mut seen = std::collections::HashSet::<String>::new();
             out.retain(|p| seen.insert(p.clone()));
             Ok(out)
+        }
+
+        fn sync_complete_plugin_dir(src: &Path, dst: &Path, plugin_id: &str) -> Result<(), String> {
+            let Some(parent) = dst.parent() else {
+                return Err("目标插件目录没有父目录".to_string());
+            };
+            std::fs::create_dir_all(parent).map_err(|e| format!("创建插件目录失败: {e}"))?;
+
+            let stamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_else(|_| Duration::from_millis(0))
+                .as_millis();
+            let tmp = parent.join(format!(".tmp-dev-sync-{plugin_id}-{stamp}"));
+            if tmp.exists() {
+                let _ = std::fs::remove_dir_all(&tmp);
+            }
+
+            copy_dir_all(src, &tmp).map_err(|e| format!("复制完整插件目录失败: {e}"))?;
+            replace_dir_from_tmp(dst, &tmp, &format!("dev-sync-{plugin_id}"))
         }
 
         fn sync_repo_plugins_into(repo_plugins: &Path, plugins_dir: &Path) -> Result<(), String> {
@@ -380,21 +479,26 @@ pub(crate) fn get_plugins_dir(app: tauri::AppHandle) -> String {
                     Err(_) => continue,
                 };
 
-                let files = match collect_referenced_seed_files(&manifest) {
-                    Ok(v) => v,
-                    Err(_) => vec!["manifest.json".to_string()],
-                };
-
                 let dst = plugins_dir.join(&plugin_id);
-                let _ = std::fs::create_dir_all(&dst);
-                for rel in files {
-                    let from = src.join(&rel);
-                    let to = dst.join(&rel);
-                    if let Some(parent) = to.parent() {
-                        let _ = std::fs::create_dir_all(parent);
+                if is_trusted_local_app_manifest(&manifest) {
+                    // v4 开发同步以完整本地应用包为单位，避免 ui/assets、backend/assets、shared 等目录丢失。
+                    let _ = sync_complete_plugin_dir(&src, &dst, &plugin_id);
+                } else {
+                    let files = match collect_referenced_seed_files(&manifest) {
+                        Ok(v) => v,
+                        Err(_) => vec!["manifest.json".to_string()],
+                    };
+
+                    let _ = std::fs::create_dir_all(&dst);
+                    for rel in files {
+                        let from = src.join(&rel);
+                        let to = dst.join(&rel);
+                        if let Some(parent) = to.parent() {
+                            let _ = std::fs::create_dir_all(parent);
+                        }
+                        // dev 同步：尽力覆盖写入；失败不阻断其它插件（不破坏用户空间）
+                        let _ = std::fs::copy(&from, &to);
                     }
-                    // dev 同步：尽力覆盖写入；失败不阻断其它插件（不破坏用户空间）
-                    let _ = std::fs::copy(&from, &to);
                 }
             }
 
@@ -407,8 +511,7 @@ pub(crate) fn get_plugins_dir(app: tauri::AppHandle) -> String {
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         let repo_plugins = workspace_root.join("plugins");
         if repo_plugins.is_dir() && !crate::same_path(&repo_plugins, &plugins_dir) {
-            // 每次都覆盖同步：以仓库为真源。
-            // 只同步运行时需要的最小集合（manifest/main/bg/icon），避免 node_modules 等大目录拖慢/失败。
+            // 开发同步：v4 以完整插件包为单位；旧插件保留最小运行时文件同步，避免 node_modules 等大目录拖慢/失败。
             let _ = sync_repo_plugins_into(&repo_plugins, &plugins_dir);
         }
     }
@@ -717,12 +820,12 @@ pub(crate) fn install_plugin_files(
     if files.is_empty() {
         return Err("没有可安装的文件".to_string());
     }
-    if files.len() > 256 {
+    if files.len() > PLUGIN_PACKAGE_MAX_FILES {
         return Err("文件数量过多".to_string());
     }
 
     let total: usize = files.iter().map(|f| f.bytes.len()).sum();
-    if total > 10 * 1024 * 1024 {
+    if total > PLUGIN_PACKAGE_MAX_BYTES {
         return Err("插件体积过大".to_string());
     }
 
@@ -747,7 +850,7 @@ pub(crate) fn install_plugin_files(
     }
 
     for f in &files {
-        let rel = match safe_relative_path(&f.path) {
+        let rel = match safe_relative_path_no_curdir(&f.path) {
             Ok(p) => p,
             Err(e) => {
                 let _ = std::fs::remove_dir_all(&tmp_dir);
@@ -765,6 +868,11 @@ pub(crate) fn install_plugin_files(
             let _ = std::fs::remove_dir_all(&tmp_dir);
             return Err(format!("写入插件文件失败: {e}"));
         }
+    }
+
+    if let Err(e) = validate_installed_package(&tmp_dir, &plugin_id, None, None, "导入插件") {
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        return Err(e);
     }
 
     if let Err(e) = replace_dir_from_tmp(&plugin_dir, &tmp_dir, &format!("install-{plugin_id}")) {
@@ -956,22 +1064,11 @@ pub(crate) async fn plugin_store_install(
                 &manifest,
                 &expected_id2,
                 &expected_version2,
-                &expected_requires2,
+                Some(&expected_requires2),
                 "manifest",
             )?;
             let plugin_id = manifest_summary.plugin_id.clone();
             let version = manifest_summary.version.clone();
-            let main_rel = safe_relative_path_no_curdir(&manifest_summary.main)?;
-            let bg_rel = manifest_summary
-                .background_main
-                .as_deref()
-                .map(safe_relative_path_no_curdir)
-                .transpose()?;
-            let icon_rel = manifest_summary
-                .svg_icon
-                .as_deref()
-                .map(safe_relative_path_no_curdir)
-                .transpose()?;
 
             let tmp_dir = plugins_dir2.join(format!(".tmp-install-{plugin_id}-{stamp}"));
             if tmp_dir.exists() {
@@ -1004,7 +1101,7 @@ pub(crate) async fn plugin_store_install(
                     }
 
                     extracted_files += 1;
-                    if extracted_files > 512 {
+                    if extracted_files > PLUGIN_PACKAGE_MAX_FILES {
                         return Err("文件数量过多（>512）".to_string());
                     }
 
@@ -1033,38 +1130,11 @@ pub(crate) async fn plugin_store_install(
                 return Err(e);
             }
 
-            if !tmp_dir.join("manifest.json").is_file() {
-                let _ = std::fs::remove_dir_all(&tmp_dir);
-                return Err("解压结果缺少 manifest.json".to_string());
-            }
-            if !tmp_dir.join(&main_rel).is_file() {
-                let _ = std::fs::remove_dir_all(&tmp_dir);
-                return Err("插件入口文件不存在（manifest.main）".to_string());
-            }
-            if let Some(bg) = bg_rel.as_ref() {
-                if !tmp_dir.join(bg).is_file() {
-                    let _ = std::fs::remove_dir_all(&tmp_dir);
-                    return Err("后台入口文件不存在（manifest.background.main）".to_string());
-                }
-            }
-            if let Some(svg) = icon_rel.as_ref() {
-                if !tmp_dir.join(svg).is_file() {
-                    let _ = std::fs::remove_dir_all(&tmp_dir);
-                    return Err("插件图标文件不存在（manifest.icon=svg:...）".to_string());
-                }
-            }
-
-            // 二次校验：以“解压后的 manifest.json”为准，防止前端展示与实际安装不一致。
-            let extracted_manifest_text = std::fs::read_to_string(tmp_dir.join("manifest.json"))
-                .map_err(|e| format!("读取解压后的 manifest.json 失败: {e}"))?;
-            let extracted_manifest: Value = serde_json::from_str(&extracted_manifest_text)
-                .map_err(|e| format!("解压后的 manifest.json 解析失败: {e}"))?;
-
-            if let Err(e) = validate_store_manifest(
-                &extracted_manifest,
+            if let Err(e) = validate_installed_package(
+                &tmp_dir,
                 &expected_id2,
-                &expected_version2,
-                &expected_requires2,
+                Some(&expected_version2),
+                Some(&expected_requires2),
                 "解压后的 manifest",
             ) {
                 let _ = std::fs::remove_dir_all(&tmp_dir);

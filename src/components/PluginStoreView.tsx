@@ -23,6 +23,7 @@ import {
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import { pluginStoreInstall } from '../plugins/pluginStore'
+import { getPluginAssetMime, isDataImageUrl, resolveLocalPluginIconPath } from '../plugins/pluginIcon'
 import { getWallpaperSettings, type WallpaperSettings } from '../wallpaper'
 import { hostToast } from '../host/hostPrimitives'
 
@@ -73,10 +74,6 @@ function toast(message: string) {
   void hostToast(message)
 }
 
-function isDataImageUrl(value: string): boolean {
-  return value.startsWith('data:image/')
-}
-
 function isHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value)
 }
@@ -106,33 +103,9 @@ async function resolveLocalPluginIcon(pluginId: string, icon: unknown): Promise<
   if (!raw) return ''
   if (isDataImageUrl(raw) || isHttpUrl(raw)) return raw
 
-  if (raw.startsWith('svg:')) {
-    const path = raw.slice('svg:'.length).trim()
-    if (!isSafeRelPath(path) || !path.toLowerCase().endsWith('.svg')) return ''
-    try {
-      const svg = await invoke<string>('read_plugin_file', { pluginId, path })
-      const encoded = encodeURIComponent(svg)
-      return `data:image/svg+xml;utf8,${encoded}`
-    } catch {
-      return ''
-    }
-  }
-
-  if (raw.startsWith('file:')) {
-    const path = raw.slice('file:'.length).trim()
-    if (!isSafeRelPath(path)) return ''
-    const lower = path.toLowerCase()
-
-    const mime =
-      lower.endsWith('.png') ? 'image/png'
-      : (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) ? 'image/jpeg'
-      : lower.endsWith('.webp') ? 'image/webp'
-      : lower.endsWith('.gif') ? 'image/gif'
-      : lower.endsWith('.ico') ? 'image/x-icon'
-      : lower.endsWith('.svg') ? 'image/svg+xml'
-      : ''
-
-    if (!mime) return ''
+  const path = resolveLocalPluginIconPath(raw)
+  const mime = path && isSafeRelPath(path) ? getPluginAssetMime(path) : ''
+  if (mime) {
     try {
       const b64 = await invoke<string>('read_plugin_file_base64', { pluginId, path })
       return `data:${mime};base64,${b64}`

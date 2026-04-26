@@ -14,6 +14,7 @@ export type PluginFrameViewProps = {
   runtime: 'ui' | 'background'
   runtimeProfile: PluginRuntimeProfile
   buildSdkCode: (token: string) => string
+  assetBaseUrl?: string
   onBack?: () => void
   title?: string
   hidden?: boolean
@@ -42,7 +43,7 @@ function hashPluginCode(code: string) {
 }
 
 export default function PluginFrameView(props: PluginFrameViewProps) {
-  const { pluginId, pluginCode, apiVersion, requires, runtime, runtimeProfile, buildSdkCode, onBack, title, hidden } = props
+  const { pluginId, pluginCode, apiVersion, requires, runtime, runtimeProfile, buildSdkCode, assetBaseUrl, onBack, title, hidden } = props
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const ctx = useMemo(() => createPluginContext(pluginId, apiVersion, requires ?? []), [apiVersion, pluginId, requires])
   const portRef = useRef<MessagePort | null>(null)
@@ -51,7 +52,7 @@ export default function PluginFrameView(props: PluginFrameViewProps) {
 
   if (!tokenRef.current) tokenRef.current = createFrameToken()
 
-  const srcDoc = useMemo(() => buildPluginShellSrcDoc(), [])
+  const srcDoc = useMemo(() => buildPluginShellSrcDoc(assetBaseUrl), [assetBaseUrl])
 
   useEffect(() => {
     return () => {
