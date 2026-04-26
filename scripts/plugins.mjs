@@ -126,6 +126,15 @@ function normalizeRel(p) {
   return String(p || '').replaceAll('\\', '/')
 }
 
+function resolveBackgroundBuildConfig(cfg) {
+  const bg = cfg && typeof cfg.background === 'object' ? cfg.background : null
+  const dev = bg && typeof bg.dev === 'object' ? bg.dev : null
+  const entry = typeof dev?.entry === 'string' ? dev.entry.trim() : typeof cfg.backgroundEntry === 'string' ? cfg.backgroundEntry.trim() : ''
+  const main = typeof dev?.main === 'string' ? dev.main.trim() : ''
+  const runtime = typeof dev?.runtime === 'string' ? dev.runtime.trim() : 'node'
+  return { entry, main, runtime }
+}
+
 async function resolvePluginBuildPlan(pluginId) {
   const pluginDir = path.join(pluginsDir, pluginId)
   const manifestPath = path.join(pluginDir, 'manifest.json')
@@ -166,10 +175,11 @@ async function resolvePluginBuildPlan(pluginId) {
   }
 
   let background = null
-  const bgMain = manifest.background && typeof manifest.background === 'object' ? String(manifest.background.main || '').trim() : ''
+  const bgCfg = resolveBackgroundBuildConfig(cfg)
+  const bgMain = bgCfg.main || (manifest.background && typeof manifest.background === 'object' ? String(manifest.background.main || '').trim() : '')
   if (bgMain && bgMain !== manifest.main) {
     const bgOutfile = safeResolveWithin(pluginDir, bgMain)
-    const bgEntryRel = typeof cfg.backgroundEntry === 'string' ? cfg.backgroundEntry.trim() : ''
+    const bgEntryRel = bgCfg.entry
     const bgEntryAbs = bgEntryRel ? safeResolveWithin(pluginDir, bgEntryRel) : ''
     const bgDefaultCandidates = [
       path.join(pluginDir, 'src', 'background.ts'),
@@ -184,7 +194,7 @@ async function resolvePluginBuildPlan(pluginId) {
         return ''
       })()) ||
       uiEntry
-    background = { entry: bgEntry, outfile: bgOutfile }
+    background = { entry: bgEntry, outfile: bgOutfile, runtime: bgCfg.runtime }
   }
 
   return {
@@ -369,7 +379,7 @@ async function buildOne(plan, mode) {
         outfile: plan.background.outfile,
         minify,
         sourcemap,
-        runtime: plan.manifest.background && typeof plan.manifest.background === 'object' ? plan.manifest.background.runtime || 'node' : 'node',
+        runtime: plan.background.runtime,
       })
       await esbuild.build(bgOpts)
     }
@@ -410,7 +420,7 @@ async function buildOne(plan, mode) {
       outfile: plan.background.outfile,
       minify,
       sourcemap,
-      runtime: plan.manifest.background && typeof plan.manifest.background === 'object' ? plan.manifest.background.runtime || 'node' : 'node',
+      runtime: plan.background.runtime,
     })
     bgCtx = await esbuild.context(bgOpts)
     contexts.push(bgCtx)

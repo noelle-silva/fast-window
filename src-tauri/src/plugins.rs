@@ -492,6 +492,48 @@ pub(crate) fn get_plugins_dir(app: tauri::AppHandle) -> String {
             replace_dir_from_tmp(dst, &tmp, &format!("dev-sync-{plugin_id}"))
         }
 
+        fn dev_background_manifest_override(src: &Path, manifest: &Value) -> Option<Value> {
+            let pkg_path = src.join("package.json");
+            let raw = std::fs::read_to_string(pkg_path).ok()?;
+            let pkg: Value = serde_json::from_str(&raw).ok()?;
+            let dev = pkg
+                .get("fastWindowPlugin")?
+                .get("background")?
+                .get("dev")?
+                .as_object()?;
+
+            let main = dev.get("main")?.as_str()?.trim();
+            if main.is_empty() || safe_relative_path_no_curdir(main).is_err() {
+                return None;
+            }
+
+            let mut out = manifest.clone();
+            let Some(obj) = out.as_object_mut() else {
+                return None;
+            };
+            let mut background = obj
+                .get("background")
+                .and_then(|v| v.as_object())
+                .cloned()
+                .unwrap_or_default();
+            background.insert("main".to_string(), Value::String(main.to_string()));
+            if let Some(runtime) = dev.get("runtime").and_then(|v| v.as_str()) {
+                let runtime = runtime.trim();
+                if !runtime.is_empty() {
+                    background.insert("runtime".to_string(), Value::String(runtime.to_string()));
+                }
+            }
+            obj.insert("background".to_string(), Value::Object(background));
+            Some(out)
+        }
+
+        fn write_dev_manifest_override(dst: &Path, manifest: &Value) -> Result<(), String> {
+            let text = serde_json::to_string_pretty(manifest)
+                .map_err(|e| format!("序列化 dev manifest 失败: {e}"))?;
+            std::fs::write(dst.join("manifest.json"), format!("{text}\n"))
+                .map_err(|e| format!("写入 dev manifest 失败: {e}"))
+        }
+
         fn sync_repo_plugins_into(repo_plugins: &Path, plugins_dir: &Path) -> Result<(), String> {
             let Ok(entries) = std::fs::read_dir(repo_plugins) else {
                 return Ok(());
@@ -525,7 +567,14 @@ pub(crate) fn get_plugins_dir(app: tauri::AppHandle) -> String {
                 let dst = plugins_dir.join(&plugin_id);
                 if is_trusted_local_app_manifest(&manifest) {
                     // v4 开发同步以完整本地应用包为单位，避免 ui/assets、backend/assets、shared 等目录丢失。
-                    let _ = sync_complete_plugin_dir(&src, &dst, &plugin_id);
+                    let _ = sync_complete_plugin_dir(&src, &dst, &plugin_id).and_then(|_| {
+                        if let Some(dev_manifest) =
+                            dev_background_manifest_override(&src, &manifest)
+                        {
+                            write_dev_manifest_override(&dst, &dev_manifest)?;
+                        }
+                        Ok(())
+                    });
                 } else {
                     let files = match collect_referenced_seed_files(&manifest) {
                         Ok(v) => v,
