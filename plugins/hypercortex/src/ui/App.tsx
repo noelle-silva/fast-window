@@ -427,6 +427,7 @@ export function HyperCortexApp() {
   React.useEffect(() => {
     activeTabKeyRef.current = activeTabKey
   }, [activeTabKey])
+  const [activeTabScrollSignal, setActiveTabScrollSignal] = React.useState(0)
 
   const [openAssetTabs, setOpenAssetTabs] = React.useState<AssetEntry[]>([])
 
@@ -1732,8 +1733,9 @@ export function HyperCortexApp() {
       }
       const nextKey = String(keys[nextIndex] || '').trim()
       if (!nextKey || nextKey === cur) return false
-      activateExistingTabKeyRef.current(nextKey, { recordHistory: false })
-      return true
+      const activated = activateExistingTabKeyRef.current(nextKey, { recordHistory: false })
+      if (activated) setActiveTabScrollSignal(signal => signal + 1)
+      return activated
     }
 
     const startTabSwitchHoldToRepeat = (direction: -1 | 1) => {
@@ -2538,6 +2540,7 @@ export function HyperCortexApp() {
                 sidebarItems={sidebarItems}
                 openTabKeys={openTabKeys}
                 activeTabKey={activeTabKey}
+                activeTabScrollSignal={activeTabScrollSignal}
                 openNoteTabs={openNoteTabs}
                 openAssetTabs={openAssetTabs}
                 isNoteDirty={isNoteDirtyById}

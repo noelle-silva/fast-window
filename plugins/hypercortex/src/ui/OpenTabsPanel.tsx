@@ -189,6 +189,7 @@ export type OpenTabsPanelProps = {
   sidebarItems: SidebarItem[]
   openTabKeys: string[]
   activeTabKey?: string
+  activeTabScrollSignal?: number
   openNoteTabs: NoteMeta[]
   openAssetTabs?: AssetEntry[]
   isNoteDirty?: (noteId: string) => boolean
@@ -272,6 +273,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     sidebarItems,
     openTabKeys,
     activeTabKey,
+    activeTabScrollSignal = 0,
     openNoteTabs,
     openAssetTabs,
     isNoteDirty,
@@ -352,11 +354,12 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
   const activeTabRowRef = React.useRef<HTMLElement | null>(null)
 
   React.useLayoutEffect(() => {
+    if (activeTabScrollSignal <= 0) return
     const container = scrollContainerRef.current
     const row = activeTabRowRef.current
     if (!container || !row) return
     scrollActiveTabIntoView(container, row)
-  }, [activeTabKey, sidebarItems, tabsCollapsed])
+  }, [activeTabScrollSignal])
 
   const activeWorkspaceTitle = React.useMemo(() => {
     return workspaces.find(w => w.id === activeWorkspaceId)?.title || workspaces[0]?.title || '工作区'
