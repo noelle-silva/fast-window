@@ -1,0 +1,13 @@
+{
+  "id": "v4-contract-demo",
+  "name": "v4 Contract Demo",
+  "author": "fast-window",
+  "version": "1.0.0",
+  "apiVersion": 4,
+  "main": "ui/index.js",
+  "icon": "assets/icon.svg",
+  "background": {
+    "main": "backend/index.js",
+    "lifecycle": "on_demand"
+  }
+}
