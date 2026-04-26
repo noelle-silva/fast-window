@@ -2,28 +2,14 @@
   "id": "bookmarks",
   "name": "网站收藏",
   "author": "fast-window",
-  "version": "1.1.0",
-  "description": "v3 网站收藏：前端负责展示，自治后端负责收藏数据、分组与持久化",
-  "main": "index.js",
+  "version": "2.0.0",
+  "description": "v4 网站收藏：UI 负责体验，系统后台负责收藏数据、图标缓存与持久化",
+  "main": "ui/index.js",
   "background": {
-    "main": "backend.js",
+    "main": "backend/index.js",
     "lifecycle": "on_demand"
   },
-  "icon": "svg:icon.svg",
+  "icon": "assets/icon.svg",
   "keyword": "bm",
-  "apiVersion": 3,
-  "ui": {
-    "type": "iframe"
-  },
-  "requires": [
-    "cap:host.back",
-    "cap:host.toast",
-    "cap:host.startDragging",
-    "cap:process.openExternalUrl",
-    "cap:workspace.fs.readText",
-    "cap:workspace.fs.writeText",
-    "cap:workspace.fs.listDir",
-    "cap:workspace.fs.mkdir",
-    "cap:workspace.fs.remove"
-  ]
+  "apiVersion": 4
 }

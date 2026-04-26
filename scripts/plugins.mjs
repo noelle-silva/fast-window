@@ -198,13 +198,14 @@ async function resolvePluginBuildPlan(pluginId) {
 }
 
 function createBuildOptions(opts) {
-  const { pluginId, pluginDir, entry, outfile, minify, sourcemap } = opts
+  const { pluginId, pluginDir, entry, outfile, minify, sourcemap, runtime } = opts
   const outBase = path.basename(outfile)
+  const isNodeRuntime = runtime === 'node'
   return {
     entryPoints: [entry],
     bundle: true,
-    format: 'iife',
-    platform: 'browser',
+    format: isNodeRuntime ? 'cjs' : 'iife',
+    platform: isNodeRuntime ? 'node' : 'browser',
     target: ['es2019'],
     outfile,
     minify: Boolean(minify),
@@ -224,7 +225,7 @@ function createBuildOptions(opts) {
     legalComments: 'none',
     charset: 'utf8',
     footer: {
-      js: `\n//# sourceURL=fast-window-plugin:${pluginId}/${outBase}\n`,
+      js: isNodeRuntime ? '' : `\n//# sourceURL=fast-window-plugin:${pluginId}/${outBase}\n`,
     },
   }
 }
@@ -368,6 +369,7 @@ async function buildOne(plan, mode) {
         outfile: plan.background.outfile,
         minify,
         sourcemap,
+        runtime: plan.manifest.background && typeof plan.manifest.background === 'object' ? plan.manifest.background.runtime || 'node' : 'node',
       })
       await esbuild.build(bgOpts)
     }
@@ -408,6 +410,7 @@ async function buildOne(plan, mode) {
       outfile: plan.background.outfile,
       minify,
       sourcemap,
+      runtime: plan.manifest.background && typeof plan.manifest.background === 'object' ? plan.manifest.background.runtime || 'node' : 'node',
     })
     bgCtx = await esbuild.context(bgOpts)
     contexts.push(bgCtx)

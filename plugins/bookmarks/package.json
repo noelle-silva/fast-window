@@ -1,0 +1,9 @@
+{
+  "name": "@fast-window/plugin-bookmarks",
+  "private": true,
+  "version": "2.0.0",
+  "fastWindowPlugin": {
+    "entry": "src/ui/index.ts",
+    "backgroundEntry": "src/backend/index.ts"
+  }
+}
