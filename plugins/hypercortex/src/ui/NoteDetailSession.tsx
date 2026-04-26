@@ -1178,46 +1178,6 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
               <Box ref={textRenderRef} className="hc-render" sx={{ width: '100%', minHeight: 120 }} />
             )}
 
-            {!infoSidebarVisible && !editing && note && (() => {
-              const bl = backlinkIds
-              const entries = bl
-                .map(bid => ({ bid, meta: allNotesById[bid] }))
-                .filter(item => !!item.meta)
-              if (!entries.length) return null
-              return (
-                <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid rgba(0,0,0,.08)' }}>
-                  <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.42)', mb: 1 }}>
-                    被以下笔记引用
-                  </Typography>
-                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-                    {entries.map(({ bid, meta }) => {
-                      return (
-                        <Box
-                          key={bid}
-                          component="span"
-                          onClick={() => onOpenNote(meta as NoteMeta)}
-                          sx={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            px: 1.25,
-                            py: 0.5,
-                            borderRadius: 999,
-                            fontSize: 12,
-                            color: '#1976d2',
-                            bgcolor: 'rgba(25,118,210,.06)',
-                            cursor: 'pointer',
-                            transition: 'background 120ms',
-                            '&:hover': { bgcolor: 'rgba(25,118,210,.12)' },
-                          }}
-                        >
-                          {(meta as NoteMeta).title || bid.slice(0, 12) + '…'}
-                        </Box>
-                      )
-                    })}
-                  </Box>
-                </Box>
-              )
-            })()}
             </Box>
           </Box>
 
