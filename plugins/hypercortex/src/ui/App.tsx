@@ -96,7 +96,7 @@ function normalizeTabsMode(value: unknown): TabsMode {
 }
 
 function normalizeSidebarSortMode(value: unknown): HyperCortexSidebarSortModeV1 {
-  return value === 'sortable' ? 'sortable' : 'precision'
+  return value === 'precision' ? 'precision' : 'sortable'
 }
 
 function normalizeTrashEnabled(value: unknown): boolean {
@@ -473,7 +473,7 @@ export function HyperCortexApp() {
   const [openNoteTabs, setOpenNoteTabs] = React.useState<NoteMeta[]>([])
   const [tabsInitReady, setTabsInitReady] = React.useState(false)
   const [tabsMode, setTabsMode] = React.useState<TabsMode>('manual')
-  const [sidebarSortMode, setSidebarSortMode] = React.useState<HyperCortexSidebarSortModeV1>('precision')
+  const [sidebarSortMode, setSidebarSortMode] = React.useState<HyperCortexSidebarSortModeV1>('sortable')
   const [tabsHoverOpen, setTabsHoverOpen] = React.useState(false)
   const sidebarHoverRef = React.useRef(false)
   const sidebarShortcutHoldRef = React.useRef(false)
