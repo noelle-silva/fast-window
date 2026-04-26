@@ -1682,41 +1682,25 @@ export function HyperCortexApp() {
     }
 
     const getVisibleSidebarTabKeys = (): string[] => {
-      // 以侧边栏“当前可见顺序”为准：
-      // 1. 未分组 tab：按 openTabKeys 原顺序
-      // 2. 分组：按 tabGroups 顺序
-      // 3. 分组内 tab：按 openTabKeys 原顺序（该 group 下的 tab）
-      // 4. 若分组 collapsed，则跳过该分组的 tab
-      // 5. 最后兜底去重
-      const all = (openTabKeysRef.current || []).map(s => String(s || '').trim()).filter(Boolean)
-      const byTabKey = tabGroupingRef.current.byTabKey || {}
-      const groups = Array.isArray(tabGroupingRef.current.groups) ? tabGroupingRef.current.groups : []
-      const groupById: Record<string, HyperCortexTabGroupV1> = {}
-      for (const g of groups) groupById[String(g?.id || '').trim()] = g
-
+      const openKeys = new Set((openTabKeysRef.current || []).map(s => String(s || '').trim()).filter(Boolean))
       const out: string[] = []
       const seen = new Set<string>()
 
-      // ungrouped first
-      for (const k of all) {
-        const gid = String(byTabKey[k] || '').trim()
-        if (gid && groupById[gid]) continue
-        if (seen.has(k)) continue
-        seen.add(k)
-        out.push(k)
+      const pushTabKey = (rawTabKey: unknown) => {
+        const tabKey = String(rawTabKey || '').trim()
+        if (!tabKey || !openKeys.has(tabKey) || seen.has(tabKey)) return
+        seen.add(tabKey)
+        out.push(tabKey)
       }
 
-      // grouped by group order
-      for (const g of groups) {
-        const gid = String(g?.id || '').trim()
-        if (!gid) continue
-        if (g.collapsed === true) continue
-        for (const k of all) {
-          if (String(byTabKey[k] || '').trim() !== gid) continue
-          if (seen.has(k)) continue
-          seen.add(k)
-          out.push(k)
+      // 快捷键切换必须跟侧边栏渲染使用同一份线性模型，否则根标签会被误排到所有分组前面。
+      for (const item of sidebarItemsRef.current || []) {
+        if (item.type === 'tab') {
+          pushTabKey(item.tabKey)
+          continue
         }
+        if (item.collapsed === true) continue
+        for (const tabKey of item.tabKeys) pushTabKey(tabKey)
       }
 
       return out
