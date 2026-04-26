@@ -37,6 +37,7 @@ import { deleteAssetFromPool, importFilesToAssetPool } from '../assetPool'
 import { isDraftNoteId } from '../drafts'
 import { addRef, ensureFavorites, saveFavorites, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { AssetPoolPanel } from './AssetPoolPanel'
+import { HomePage, type HomePageStats } from './HomePage'
 import { IndexPage } from './IndexPage'
 import { OpenTabsPanel } from './OpenTabsPanel'
 import { NoteDetailSession, type NoteDetailSessionHandle, type NoteDetailSnapshotV1 } from './NoteDetailSession'
@@ -603,6 +604,18 @@ export function HyperCortexApp() {
     const list = noteIndex ? Object.values(noteIndex.notes || {}) : allNotes
     return sortNotesByUpdatedAtDesc(list)
   }, [allNotes, noteIndex])
+
+  const homeRecentNotes = React.useMemo(() => notesForQuickSearch.slice(0, 6), [notesForQuickSearch])
+  const homeStats = React.useMemo<HomePageStats>(() => ({
+    noteCount: noteIndex ? Object.keys(noteIndex.notes || {}).length : allNotes.length,
+    assetCount: assetPoolIndex ? Object.keys(assetPoolIndex.assets || {}).length : 0,
+    openTabCount: openTabKeys.length,
+    workspaceCount: workspaces.length || 1,
+  }), [allNotes.length, assetPoolIndex, noteIndex, openTabKeys.length, workspaces.length])
+  const activeWorkspaceTitle = React.useMemo(() => {
+    const wid = String(activeWorkspaceId || '').trim()
+    return workspaces.find(w => w.id === wid)?.title || workspaces[0]?.title || ''
+  }, [activeWorkspaceId, workspaces])
 
   const noteIndexRef = React.useRef<HyperCortexIndexV1 | null>(null)
   React.useEffect(() => {
@@ -2586,7 +2599,19 @@ export function HyperCortexApp() {
                 flexDirection: 'column',
               }}
             >
-              {page === 'home' ? <Typography color="text.secondary">这是主页页面。</Typography> : null}
+              {page === 'home' ? (
+                <HomePage
+                  stats={homeStats}
+                  recentNotes={homeRecentNotes}
+                  activeWorkspaceTitle={activeWorkspaceTitle}
+                  onCreateNote={handleCreateDraftNote}
+                  onOpenIndex={() => navigatePage('index')}
+                  onOpenAttachments={() => navigatePage('attachments')}
+                  onOpenAllNotes={() => navigatePage('all-notes')}
+                  onOpenSearch={() => setQuickSearchOpen(true)}
+                  onOpenNote={note => void handleOpenNote(note)}
+                />
+              ) : null}
               {page === 'attachments' ? <AssetPoolPanel api={api} scope="library" onOpenAsset={handleOpenAssetTab} /> : null}
               {page === 'all-notes' ? (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
