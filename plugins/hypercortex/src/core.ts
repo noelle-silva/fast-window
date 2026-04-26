@@ -316,8 +316,10 @@ export function extFromMime(mime: string): string {
   if (m === 'audio/mp4') return 'm4a'
 
   if (m === 'video/mp4') return 'mp4'
+  if (m === 'video/x-m4v') return 'm4v'
   if (m === 'video/webm') return 'webm'
   if (m === 'video/quicktime') return 'mov'
+  if (m === 'video/ogg') return 'ogv'
 
   if (m === 'application/pdf') return 'pdf'
   if (m === 'text/plain') return 'txt'
@@ -349,8 +351,10 @@ export function mimeFromExt(ext: string): string {
   if (e === 'm4a') return 'audio/mp4'
 
   if (e === 'mp4') return 'video/mp4'
+  if (e === 'm4v') return 'video/x-m4v'
   if (e === 'webm') return 'video/webm'
   if (e === 'mov') return 'video/quicktime'
+  if (e === 'ogv') return 'video/ogg'
 
   if (e === 'pdf') return 'application/pdf'
   if (e === 'txt') return 'text/plain'
@@ -384,8 +388,10 @@ export const ACCEPTED_FILE_EXTENSIONS = [
   'aac',
   'm4a',
   'mp4',
+  'm4v',
   'webm',
   'mov',
+  'ogv',
   'pdf',
   'txt',
   'csv',

@@ -2,6 +2,7 @@ import { type Api, type VaultScope, kindFromMime, mimeFromExt } from '../core'
 import { ensureAssetsIndex } from '../assetStore'
 import { pickAssetDisplayName } from '../assetDisplayName'
 import { getAssetBlobUrl } from '../assetBlobUrl'
+import { buildVideoPlayer } from '../videoPlayer'
 
 type AssetRef = { assetId: string; ext: string; name: string; width?: number; refText: string }
 
@@ -48,19 +49,6 @@ function buildAudio(blobUrl: string) {
   audio.style.width = 'min(520px, 100%)'
   audio.style.margin = '0 auto'
   return audio
-}
-
-function buildVideo(blobUrl: string, width?: number) {
-  const video = document.createElement('video')
-  video.src = blobUrl
-  video.controls = true
-  video.preload = 'metadata'
-  video.style.display = 'block'
-  video.style.maxWidth = '100%'
-  video.style.margin = '0 auto'
-  video.style.borderRadius = '8px'
-  if (width && width > 0) video.style.width = `${width}px`
-  return video
 }
 
 function wrapBlock(name: string, body: HTMLElement) {
@@ -145,7 +133,7 @@ export async function resolveAssetsInElement(root: HTMLElement, api: Api, scope:
         if (inlineMode) {
           ph.replaceWith(buildChip(`🎞 ${ref.name}`, 'doc'))
         } else {
-          ph.replaceWith(wrapBlock(ref.name, buildVideo(blobUrl, ref.width)))
+          ph.replaceWith(wrapBlock(ref.name, buildVideoPlayer(blobUrl, ref.name, ref.width)))
         }
         return
       }

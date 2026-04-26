@@ -8,6 +8,7 @@ import { pickAssetDisplayName } from '../assetDisplayName'
 import type { AssetEntry } from '../assetTypes'
 import { assetRefKey } from '../assetTypes'
 import { getAssetBlobUrl } from '../assetBlobUrl'
+import { enhanceVideoElement } from '../videoPlayer'
 
 export function AssetDetailSession({
   api,
@@ -26,6 +27,7 @@ export function AssetDetailSession({
   const [blobUrl, setBlobUrl] = React.useState('')
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const videoRef = React.useRef<HTMLVideoElement | null>(null)
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -44,6 +46,13 @@ export function AssetDetailSession({
     if (!visible) return
     void load()
   }, [load, visible])
+
+  React.useEffect(() => {
+    if (asset.kind !== 'video' || !blobUrl) return
+    const video = videoRef.current
+    if (!video) return
+    return enhanceVideoElement(video)
+  }, [asset.kind, blobUrl])
 
   const iconEl = asset.kind === 'image' ? (
     <ImageRoundedIcon fontSize="small" />
@@ -106,7 +115,9 @@ export function AssetDetailSession({
         ) : asset.kind === 'image' && blobUrl ? (
           <Box component="img" src={blobUrl} alt={title} sx={{ width: '100%', height: '100%', objectFit: 'contain', bgcolor: '#000' }} />
         ) : asset.kind === 'video' && blobUrl ? (
-          <Box component="video" src={blobUrl} controls sx={{ width: '100%', height: '100%', bgcolor: '#000' }} />
+          <Box className="hc-video-player" sx={{ width: '100%', maxWidth: 1100 }}>
+            <video key={blobUrl} ref={videoRef} src={blobUrl} controls preload="metadata" playsInline aria-label={title} />
+          </Box>
         ) : (
           <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.55)' }}>暂不支持预览该类型附件。</Typography>
         )}
