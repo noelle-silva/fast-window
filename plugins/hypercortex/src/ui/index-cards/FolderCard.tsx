@@ -44,7 +44,7 @@ export function FolderCard(props: Props): React.ReactNode {
       accentSoft={tint.bg}
       icon={<FolderRoundedIcon fontSize="small" />}
       title={title || '未命名收藏夹'}
-      subtitle={desc || '收藏夹说明'}
+      subtitle={desc || undefined}
       meta="收藏夹"
       onClick={disabled ? undefined : () => onClick(folderId)}
     >
