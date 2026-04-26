@@ -2,10 +2,6 @@ import * as React from 'react'
 import { Box, Button, CircularProgress, IconButton, Tab, Tabs, Tooltip, Typography } from '@mui/material'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
-import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
-import AudioFileRoundedIcon from '@mui/icons-material/AudioFileRounded'
-import VideoFileRoundedIcon from '@mui/icons-material/VideoFileRounded'
-import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import { PLUGIN_ID, type Api, type VaultScope, acceptString, kindFromMime, mimeFromExt } from '../core'
@@ -13,6 +9,7 @@ import { deleteAssetFromPool, importFilesToAssetPool, listAssetsInPool, readAsse
 import { pickAssetDisplayName } from '../assetDisplayName'
 import type { AssetEntry } from '../assetTypes'
 import { readFileAsDataUrl } from './fileDataUrl'
+import { getAssetPreviewDescriptor, isAssetOpenableInTab } from './assetPreview/registry'
 
 /* ------------------------------------------------------------------ */
 /*  类型                                                               */
@@ -35,20 +32,6 @@ function parseAssetFileName(name: string): { assetId: string; ext: string } {
   const dotIdx = s.lastIndexOf('.')
   if (dotIdx <= 0) return { assetId: s, ext: '' }
   return { assetId: s.slice(0, dotIdx), ext: s.slice(dotIdx + 1).toLowerCase() }
-}
-
-function kindIcon(kind: string, fontSize: 'small' | 'medium' = 'small') {
-  if (kind === 'image') return <ImageRoundedIcon fontSize={fontSize} />
-  if (kind === 'audio') return <AudioFileRoundedIcon fontSize={fontSize} />
-  if (kind === 'video') return <VideoFileRoundedIcon fontSize={fontSize} />
-  return <InsertDriveFileRoundedIcon fontSize={fontSize} />
-}
-
-function kindColor(kind: string): string {
-  if (kind === 'image') return '#1976d2'
-  if (kind === 'audio') return '#e65100'
-  if (kind === 'video') return '#7b1fa2'
-  return '#546e7a'
 }
 
 function categoryFromKind(kind: string): AssetCategory {
@@ -85,7 +68,9 @@ function AssetCard({
   onOpenAsset?: (asset: AssetEntry) => void
 }) {
   const titleLabel = pickAssetDisplayName({ indexName: asset.displayName, ext: asset.ext })
-  const canOpenPreview = asset.kind === 'image' || asset.kind === 'video'
+  const preview = React.useMemo(() => getAssetPreviewDescriptor(asset), [asset])
+  const canOpenPreview = isAssetOpenableInTab(asset)
+  const Icon = preview.icon
   const handleCopy = React.useCallback(() => {
     const marker = buildAssetMarker(asset)
     api.clipboard.writeText(marker).then(
@@ -211,10 +196,10 @@ function AssetCard({
               alignItems: 'center',
               justifyContent: 'center',
               bgcolor: 'rgba(0,0,0,.03)',
-              color: kindColor(asset.kind),
+              color: preview.color,
             }}
           >
-            {kindIcon(asset.kind, 'medium')}
+            <Icon fontSize="medium" />
           </Box>
         )}
       </Box>
