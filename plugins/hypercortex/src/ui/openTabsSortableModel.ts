@@ -87,8 +87,9 @@ export function buildSortableMoveIntent(sidebarItems: SidebarItem[], activeRawId
   if (!from) return { kind: 'none' }
 
   if (over.kind === 'group') {
-    const groupIndex = sidebarItems.findIndex(item => item.type === 'group' && item.id === over.groupId)
-    if (groupIndex < 0) return { kind: 'none' }
+    const group = sidebarItems.find(item => item.type === 'group' && item.id === over.groupId)
+    if (!group || group.type !== 'group') return { kind: 'none' }
+    if (group.collapsed !== true && group.tabKeys.length > 0) return { kind: 'none' }
     return { kind: 'tab-to-group-start', tabKey: active.tabKey, groupId: over.groupId }
   }
 
