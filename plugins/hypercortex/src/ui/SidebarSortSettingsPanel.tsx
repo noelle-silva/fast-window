@@ -15,8 +15,8 @@ const OPTIONS: { value: HyperCortexSidebarSortModeV1; title: string; description
   },
   {
     value: 'sortable',
-    title: 'AI Draw 同款排序',
-    description: '使用和 ai-draw 一致的拖拽手柄排序体验，适合快速调整相邻顺序。',
+    title: '@dnd-kit/sortable',
+    description: '使用 @dnd-kit/sortable 的拖拽排序体验，适合快速调整相邻顺序。',
   },
 ]
 
