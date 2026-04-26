@@ -102,7 +102,11 @@ fn win_hbitmap_to_png_data_url(
 }
 
 #[cfg(target_os = "windows")]
-pub fn file_thumbnail_png_data_url(full_path: &Path, width: u32, height: u32) -> Result<String, String> {
+pub fn file_thumbnail_png_data_url(
+    full_path: &Path,
+    width: u32,
+    height: u32,
+) -> Result<String, String> {
     // Shell 缩略图接口偏爱 STA；Tauri command 线程可能在 MTA/线程池里。
     // 为稳定起见：在专用 STA 线程中生成缩略图。
     let path = full_path.to_path_buf();
@@ -112,9 +116,12 @@ pub fn file_thumbnail_png_data_url(full_path: &Path, width: u32, height: u32) ->
         use windows::core::PCWSTR;
         use windows::Win32::Foundation::SIZE;
         use windows::Win32::Graphics::Gdi::DeleteObject;
-        use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+        use windows::Win32::System::Com::{
+            CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED,
+        };
         use windows::Win32::UI::Shell::{
-            IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_BIGGERSIZEOK, SIIGBF_RESIZETOFIT,
+            IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF_BIGGERSIZEOK,
+            SIIGBF_RESIZETOFIT,
         };
 
         unsafe {
@@ -133,7 +140,10 @@ pub fn file_thumbnail_png_data_url(full_path: &Path, width: u32, height: u32) ->
                 SHCreateItemFromParsingName(PCWSTR::from_raw(wide.as_ptr()), None)
                     .map_err(|e| win_err("获取缩略图失败（SHCreateItemFromParsingName）", e))?;
 
-            let size = SIZE { cx: width as i32, cy: height as i32 };
+            let size = SIZE {
+                cx: width as i32,
+                cy: height as i32,
+            };
             let hbmp = factory
                 .GetImage(size, SIIGBF_RESIZETOFIT | SIIGBF_BIGGERSIZEOK)
                 .map_err(|e| win_err("获取缩略图失败（GetImage）", e))?;
@@ -149,6 +159,10 @@ pub fn file_thumbnail_png_data_url(full_path: &Path, width: u32, height: u32) ->
 }
 
 #[cfg(not(target_os = "windows"))]
-pub fn file_thumbnail_png_data_url(_full_path: &Path, _width: u32, _height: u32) -> Result<String, String> {
+pub fn file_thumbnail_png_data_url(
+    _full_path: &Path,
+    _width: u32,
+    _height: u32,
+) -> Result<String, String> {
     Err("当前系统不支持生成缩略图".to_string())
 }

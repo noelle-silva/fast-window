@@ -2,19 +2,24 @@ use base64::engine::general_purpose;
 use base64::Engine as _;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
-use crate::decode_base64_image_payload;
 use crate::clipboard_snapshot::read_clipboard_snapshot;
+use crate::decode_base64_image_payload;
 
 #[tauri::command]
 pub(crate) async fn clipboard_read_text(app: tauri::AppHandle) -> Result<String, String> {
     let app2 = app.clone();
-    tauri::async_runtime::spawn_blocking(move || Ok::<String, String>(app2.clipboard().read_text().unwrap_or_default()))
-        .await
-        .map_err(|e| format!("读取文本剪贴板失败: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok::<String, String>(app2.clipboard().read_text().unwrap_or_default())
+    })
+    .await
+    .map_err(|e| format!("读取文本剪贴板失败: {e}"))?
 }
 
 #[tauri::command]
-pub(crate) async fn clipboard_write_text(app: tauri::AppHandle, text: String) -> Result<(), String> {
+pub(crate) async fn clipboard_write_text(
+    app: tauri::AppHandle,
+    text: String,
+) -> Result<(), String> {
     let app2 = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         app2.clipboard()

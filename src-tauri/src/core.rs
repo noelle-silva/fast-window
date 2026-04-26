@@ -32,8 +32,7 @@ pub(crate) fn parse_sha256_hex_32(raw: &str) -> Result<[u8; 32], String> {
     let mut i = 0usize;
     while i < 64 {
         let hi = hex_val(bytes[i]).ok_or_else(|| "sha256 存在非十六进制字符".to_string())?;
-        let lo =
-            hex_val(bytes[i + 1]).ok_or_else(|| "sha256 存在非十六进制字符".to_string())?;
+        let lo = hex_val(bytes[i + 1]).ok_or_else(|| "sha256 存在非十六进制字符".to_string())?;
         out[i / 2] = (hi << 4) | lo;
         i += 2;
     }
@@ -100,4 +99,3 @@ pub(crate) fn is_dir_writable(dir: &Path) -> bool {
         Err(_) => false,
     }
 }
-

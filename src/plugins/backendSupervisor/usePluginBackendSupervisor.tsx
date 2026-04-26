@@ -99,6 +99,7 @@ export function usePluginBackendSupervisor(params: {
           req: {
             pluginId,
             main: String(p.manifest?.background?.main || ''),
+            runtime: p.manifest?.background?.runtime,
           },
         }).catch(e => {
           processRunningRef.current.delete(pluginId)

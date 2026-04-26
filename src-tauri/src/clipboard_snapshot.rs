@@ -20,7 +20,11 @@ pub(crate) fn hash32_sampled_bytes(bytes: &[u8]) -> u32 {
     h
 }
 
-pub(crate) fn encode_rgba_to_png_bytes(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
+pub(crate) fn encode_rgba_to_png_bytes(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+) -> Result<Vec<u8>, String> {
     if width == 0 || height == 0 {
         return Err("图片尺寸无效".to_string());
     }
@@ -58,7 +62,8 @@ pub(crate) async fn read_clipboard_snapshot(
             Some(img) => {
                 let rgba = img.rgba();
                 let hash = hash32_sampled_bytes(rgba);
-                let png = encode_rgba_to_png_bytes(rgba, img.width(), img.height()).unwrap_or_default();
+                let png =
+                    encode_rgba_to_png_bytes(rgba, img.width(), img.height()).unwrap_or_default();
                 if png.is_empty() {
                     None
                 } else {
@@ -73,4 +78,3 @@ pub(crate) async fn read_clipboard_snapshot(
 
     Ok((text, image))
 }
-

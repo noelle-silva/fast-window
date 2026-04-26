@@ -13,11 +13,12 @@ use crate::browser_stack::{
     browser_stack_is_closing, browser_stack_is_focused, browser_stack_is_pinned,
     browser_stack_should_suppress_hide,
 };
-use crate::http_api::HttpStreamManagerState;
-use crate::process_runtime::ProcessManagerState;
-use crate::plugin_backend_runtime::PluginBackendManagerState;
-use crate::sqlite_gateway::SqliteConnManager;
 use crate::clipboard_watch::ClipboardWatchManagerState;
+use crate::http_api::HttpStreamManagerState;
+use crate::plugin_assets::plugin_asset_protocol_response;
+use crate::plugin_backend_runtime::PluginBackendManagerState;
+use crate::process_runtime::ProcessManagerState;
+use crate::sqlite_gateway::SqliteConnManager;
 use crate::tasks::TaskManagerState;
 use crate::wallpaper::{read_wallpaper_config, resolve_wallpaper_item};
 use crate::windowing::{
@@ -34,7 +35,6 @@ use crate::{
     show_main_window, MainWindowModeShortcutState, WakeShortcutState, APP_STORAGE_ID,
     AUTO_START_REG_VALUE, BROWSER_BAR_HEIGHT, BROWSER_BAR_WINDOW_LABEL, BROWSER_WINDOW_LABEL,
 };
-use crate::plugin_assets::plugin_asset_protocol_response;
 use crate::{migrations, wake_logic};
 
 #[cfg(target_os = "windows")]

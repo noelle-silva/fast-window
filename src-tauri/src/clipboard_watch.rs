@@ -80,7 +80,10 @@ fn normalize_req(req: ClipboardWatchStartReq) -> (u64, usize) {
     (interval_ms, max_history)
 }
 
-fn trim_plugin_watches(map: &mut HashMap<String, ClipboardWatchRecord>, plugin_id: &str) -> Vec<String> {
+fn trim_plugin_watches(
+    map: &mut HashMap<String, ClipboardWatchRecord>,
+    plugin_id: &str,
+) -> Vec<String> {
     // 快速失败：限制每个插件同时最多 8 个 watch，避免“后台无限开监听”拖垮宿主。
     const MAX_WATCHES_PER_PLUGIN: usize = 8;
     let mut list: Vec<(String, u64)> = map

@@ -1,5 +1,9 @@
+use crate::plugin_backend_runtimes::command_for_backend_main;
 use crate::plugins::is_safe_id;
-use crate::{app_plugins_dir, ensure_writable_dir, resolve_plugin_library_dir, resolve_plugin_output_dir, safe_relative_path};
+use crate::{
+    app_plugins_dir, ensure_writable_dir, resolve_plugin_library_dir, resolve_plugin_output_dir,
+    safe_relative_path,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -7,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{oneshot, Mutex as AsyncMutex};
@@ -49,7 +53,10 @@ struct LogBuf {
 
 impl LogBuf {
     fn new() -> Self {
-        Self { bytes: Vec::new(), truncated: false }
+        Self {
+            bytes: Vec::new(),
+            truncated: false,
+        }
     }
 
     fn push(&mut self, chunk: &[u8]) {
@@ -92,6 +99,8 @@ type BackendRpcResult = Result<Value, String>;
 pub(crate) struct PluginBackendStartReq {
     pub(crate) plugin_id: String,
     pub(crate) main: String,
+    #[serde(default)]
+    pub(crate) runtime: Option<String>,
     #[serde(default)]
     pub(crate) args: Option<Vec<String>>,
     #[serde(default)]
@@ -198,7 +207,11 @@ fn resolve_backend_main(app: &AppHandle, plugin_id: &str, main: &str) -> Result<
     Ok(full)
 }
 
-fn resolve_backend_cwd(app: &AppHandle, plugin_id: &str, cwd: Option<String>) -> Result<PathBuf, String> {
+fn resolve_backend_cwd(
+    app: &AppHandle,
+    plugin_id: &str,
+    cwd: Option<String>,
+) -> Result<PathBuf, String> {
     let plugin_root = plugin_dir(app, plugin_id);
     let raw = cwd.unwrap_or_default();
     let s = raw.trim();
@@ -215,7 +228,10 @@ fn resolve_backend_cwd(app: &AppHandle, plugin_id: &str, cwd: Option<String>) ->
         let plugin_root = canonicalize_or_same(&plugin_root);
         let output = canonicalize_or_same(&resolve_plugin_output_dir(app, plugin_id));
         let library = canonicalize_or_same(&resolve_plugin_library_dir(app, plugin_id));
-        if path_is_within(&target, &plugin_root) || path_is_within(&target, &output) || path_is_within(&target, &library) {
+        if path_is_within(&target, &plugin_root)
+            || path_is_within(&target, &output)
+            || path_is_within(&target, &library)
+        {
             return Ok(target);
         }
         return Err("background.cwd 不允许超出插件目录/output/library".to_string());
@@ -249,7 +265,13 @@ fn sanitize_env(env: Option<HashMap<String, String>>) -> Result<HashMap<String, 
     let mut out = HashMap::new();
     for (k, v) in env.unwrap_or_default() {
         let key = k.trim().to_string();
-        if key.is_empty() || key.len() > 128 || key.contains('\n') || key.contains('\r') || key.contains('\0') || key.contains('=') {
+        if key.is_empty()
+            || key.len() > 128
+            || key.contains('\n')
+            || key.contains('\r')
+            || key.contains('\0')
+            || key.contains('=')
+        {
             return Err("background.env key 不合法".to_string());
         }
         if v.len() > 4096 || v.contains('\0') {
@@ -258,44 +280,6 @@ fn sanitize_env(env: Option<HashMap<String, String>>) -> Result<HashMap<String, 
         out.insert(key, v);
     }
     Ok(out)
-}
-
-fn runtime_exe_name(name: &str) -> String {
-    if cfg!(target_os = "windows") {
-        format!("{name}.exe")
-    } else {
-        name.to_string()
-    }
-}
-
-fn bundled_node_runtime(app: &AppHandle) -> Result<PathBuf, String> {
-    let node_exe = runtime_exe_name("node");
-    let candidates = [
-        app.path().resource_dir().ok().map(|p| p.join("runtimes").join("node").join(&node_exe)),
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|d| d.join("runtimes").join("node").join(&node_exe))),
-        Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("runtimes").join("node").join(&node_exe)),
-    ];
-
-    for candidate in candidates.into_iter().flatten() {
-        if candidate.is_file() {
-            return Ok(candidate);
-        }
-    }
-
-    Err(format!(
-        "宿主内置 Node runtime 不存在：请随宿主分发 runtimes/node/{node_exe}；不会回退到系统 Node"
-    ))
-}
-
-fn command_for_main(app: &AppHandle, main: &Path) -> Result<(String, Vec<String>), String> {
-    let ext = main.extension().and_then(|x| x.to_str()).unwrap_or("").to_ascii_lowercase();
-    if ext == "js" || ext == "mjs" || ext == "cjs" {
-        let node = bundled_node_runtime(app)?;
-        return Ok((node.to_string_lossy().to_string(), vec![main.to_string_lossy().to_string()]));
-    }
-    Ok((main.to_string_lossy().to_string(), Vec::new()))
 }
 
 async fn read_to_log(mut reader: impl tokio::io::AsyncRead + Unpin, buf: Arc<Mutex<LogBuf>>) {
@@ -368,10 +352,19 @@ pub(crate) fn plugin_backend_start(
         return Err("pluginId 不合法".to_string());
     }
 
-    if let Some(existing) = manager.entries.lock().map_err(|_| "后端状态锁定失败".to_string())?.get(&plugin_id).cloned() {
+    if let Some(existing) = manager
+        .entries
+        .lock()
+        .map_err(|_| "后端状态锁定失败".to_string())?
+        .get(&plugin_id)
+        .cloned()
+    {
         let exited = existing.exit_code.lock().ok().and_then(|g| *g).is_some();
         if !exited {
-            return Ok(PluginBackendStartRes { started: false, pid: existing.pid });
+            return Ok(PluginBackendStartRes {
+                started: false,
+                pid: existing.pid,
+            });
         }
     }
 
@@ -379,16 +372,16 @@ pub(crate) fn plugin_backend_start(
     let cwd = resolve_backend_cwd(app, &plugin_id, req.cwd)?;
     let extra_args = sanitize_args(req.args)?;
     let extra_env = sanitize_env(req.env)?;
-    let (command, mut args) = command_for_main(app, &main)?;
-    args.extend(extra_args);
+    let mut command_spec = command_for_backend_main(app, &main, req.runtime.as_deref())?;
+    command_spec.args.extend(extra_args);
 
     let output_dir = resolve_plugin_output_dir(app, &plugin_id);
     let library_dir = resolve_plugin_library_dir(app, &plugin_id);
     let _ = ensure_writable_dir(&output_dir);
     let _ = ensure_writable_dir(&library_dir);
 
-    let mut cmd = Command::new(command);
-    cmd.args(args);
+    let mut cmd = Command::new(command_spec.command);
+    cmd.args(command_spec.args);
     cmd.current_dir(cwd);
     cmd.env("FAST_WINDOW_PLUGIN_ID", &plugin_id);
     cmd.env("FAST_WINDOW_PLUGIN_DIR", plugin_dir(app, &plugin_id));
@@ -409,7 +402,8 @@ pub(crate) fn plugin_backend_start(
 
     let stdout_buf = Arc::new(Mutex::new(LogBuf::new()));
     let stderr_buf = Arc::new(Mutex::new(LogBuf::new()));
-    let pending: Arc<Mutex<HashMap<String, oneshot::Sender<BackendRpcResult>>>> = Arc::new(Mutex::new(HashMap::new()));
+    let pending: Arc<Mutex<HashMap<String, oneshot::Sender<BackendRpcResult>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
     if let Some(out) = stdout {
         let buf = stdout_buf.clone();
         let pending = pending.clone();
@@ -430,7 +424,6 @@ pub(crate) fn plugin_backend_start(
         stdout: stdout_buf,
         stderr: stderr_buf,
     });
-
 
     {
         let entry_reap = entry.clone();
@@ -459,7 +452,11 @@ pub(crate) fn plugin_backend_start(
         });
     }
 
-    manager.entries.lock().map_err(|_| "后端状态锁定失败".to_string())?.insert(plugin_id, entry);
+    manager
+        .entries
+        .lock()
+        .map_err(|_| "后端状态锁定失败".to_string())?
+        .insert(plugin_id, entry);
     Ok(PluginBackendStartRes { started: true, pid })
 }
 
@@ -470,14 +467,29 @@ pub(crate) async fn plugin_backend_stop(
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
-    let entry = manager.entries.lock().map_err(|_| "后端状态锁定失败".to_string())?.get(&plugin_id).cloned();
+    let entry = manager
+        .entries
+        .lock()
+        .map_err(|_| "后端状态锁定失败".to_string())?
+        .get(&plugin_id)
+        .cloned();
     let Some(entry) = entry else {
-        return Ok(PluginBackendStopRes { requested: false, already_stopped: true });
+        return Ok(PluginBackendStopRes {
+            requested: false,
+            already_stopped: true,
+        });
     };
 
     if entry.exit_code.lock().ok().and_then(|g| *g).is_some() {
-        manager.entries.lock().map_err(|_| "后端状态锁定失败".to_string())?.remove(&plugin_id);
-        return Ok(PluginBackendStopRes { requested: false, already_stopped: true });
+        manager
+            .entries
+            .lock()
+            .map_err(|_| "后端状态锁定失败".to_string())?
+            .remove(&plugin_id);
+        return Ok(PluginBackendStopRes {
+            requested: false,
+            already_stopped: true,
+        });
     }
 
     let mut requested = false;
@@ -489,8 +501,15 @@ pub(crate) async fn plugin_backend_stop(
             }
         }
     }
-    manager.entries.lock().map_err(|_| "后端状态锁定失败".to_string())?.remove(&plugin_id);
-    Ok(PluginBackendStopRes { requested, already_stopped: false })
+    manager
+        .entries
+        .lock()
+        .map_err(|_| "后端状态锁定失败".to_string())?
+        .remove(&plugin_id);
+    Ok(PluginBackendStopRes {
+        requested,
+        already_stopped: false,
+    })
 }
 
 pub(crate) fn plugin_backend_status(
@@ -500,7 +519,12 @@ pub(crate) fn plugin_backend_status(
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
-    let entry = manager.entries.lock().map_err(|_| "后端状态锁定失败".to_string())?.get(&plugin_id).cloned();
+    let entry = manager
+        .entries
+        .lock()
+        .map_err(|_| "后端状态锁定失败".to_string())?
+        .get(&plugin_id)
+        .cloned();
     let Some(entry) = entry else {
         return Ok(PluginBackendStatusRes {
             running: false,
@@ -514,8 +538,16 @@ pub(crate) fn plugin_backend_status(
         });
     };
     let exit_code = entry.exit_code.lock().ok().and_then(|g| *g);
-    let (stdout, stdout_truncated) = entry.stdout.lock().map(|g| (g.text(), g.truncated)).unwrap_or_default();
-    let (stderr, stderr_truncated) = entry.stderr.lock().map(|g| (g.text(), g.truncated)).unwrap_or_default();
+    let (stdout, stdout_truncated) = entry
+        .stdout
+        .lock()
+        .map(|g| (g.text(), g.truncated))
+        .unwrap_or_default();
+    let (stderr, stderr_truncated) = entry
+        .stderr
+        .lock()
+        .map(|g| (g.text(), g.truncated))
+        .unwrap_or_default();
     Ok(PluginBackendStatusRes {
         running: exit_code.is_none(),
         pid: entry.pid,
@@ -552,10 +584,17 @@ pub(crate) async fn plugin_backend_invoke(
         return Err("插件后端已退出".to_string());
     }
 
-    let id = format!("rpc-{}-{}", now_ms(), BACKEND_RPC_SEQ.fetch_add(1, Ordering::Relaxed));
+    let id = format!(
+        "rpc-{}-{}",
+        now_ms(),
+        BACKEND_RPC_SEQ.fetch_add(1, Ordering::Relaxed)
+    );
     let (tx, rx) = oneshot::channel::<BackendRpcResult>();
     {
-        let mut pending = entry.pending.lock().map_err(|_| "后端请求状态锁定失败".to_string())?;
+        let mut pending = entry
+            .pending
+            .lock()
+            .map_err(|_| "后端请求状态锁定失败".to_string())?;
         if pending.len() >= BACKEND_PENDING_LIMIT {
             return Err("插件后端待处理请求过多".to_string());
         }
@@ -589,7 +628,10 @@ pub(crate) async fn plugin_backend_invoke(
         return Err(format!("写入插件后端请求失败: {e}"));
     }
 
-    let timeout_ms = req.timeout_ms.unwrap_or(BACKEND_INVOKE_TIMEOUT_MS).clamp(1_000, 15 * 60 * 1000);
+    let timeout_ms = req
+        .timeout_ms
+        .unwrap_or(BACKEND_INVOKE_TIMEOUT_MS)
+        .clamp(1_000, 15 * 60 * 1000);
     match tokio::time::timeout(Duration::from_millis(timeout_ms), rx).await {
         Ok(Ok(Ok(result))) => Ok(PluginBackendInvokeRes { result }),
         Ok(Ok(Err(error))) => Err(error),

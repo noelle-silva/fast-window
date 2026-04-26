@@ -445,10 +445,8 @@ pub(crate) fn restore_browser_stack_bounds_or_center(
         if let Some(wa) = intersected {
             let max_w = wa.size.width.max(1);
             let max_h = wa.size.height.max(1);
-            next_total = tauri::PhysicalSize::new(
-                next_total.width.min(max_w),
-                next_total.height.min(max_h),
-            );
+            next_total =
+                tauri::PhysicalSize::new(next_total.width.min(max_w), next_total.height.min(max_h));
 
             let min_x = wa.position.x;
             let min_y = wa.position.y;

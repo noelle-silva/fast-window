@@ -35,12 +35,11 @@ pub fn decide(snapshot: Snapshot, event: WakeEvent) -> (UiMode, WakeAction) {
 }
 
 fn decide_wake_key(snapshot: Snapshot) -> (UiMode, WakeAction) {
-    let browser_should_own_wake =
-        snapshot.browser_active && snapshot.browser_exists
-            || (snapshot.browser_exists
-                && (snapshot.browser_visible
-                    || snapshot.browser_focused
-                    || snapshot.mode == UiMode::BrowserVisible));
+    let browser_should_own_wake = snapshot.browser_active && snapshot.browser_exists
+        || (snapshot.browser_exists
+            && (snapshot.browser_visible
+                || snapshot.browser_focused
+                || snapshot.mode == UiMode::BrowserVisible));
 
     if browser_should_own_wake {
         if snapshot.browser_visible {

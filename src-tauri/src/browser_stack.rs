@@ -5,9 +5,9 @@ use crate::windowing::{
     persist_browser_window_bounds, save_browser_stack_bounds_if_valid, BrowserWindowState,
 };
 use crate::{
-    apply_bottom_rounded_corners, browser_ui_set_mode, hide_main_window, host_primitives,
-    now_ms, show_main_window, BROWSER_BAR_HEIGHT, BROWSER_BAR_WINDOW_LABEL,
-    BROWSER_STACK_TOTAL_HEIGHT, BROWSER_WINDOW_LABEL,
+    apply_bottom_rounded_corners, browser_ui_set_mode, hide_main_window, host_primitives, now_ms,
+    show_main_window, BROWSER_BAR_HEIGHT, BROWSER_BAR_WINDOW_LABEL, BROWSER_STACK_TOTAL_HEIGHT,
+    BROWSER_WINDOW_LABEL,
 };
 
 pub(crate) fn browser_stack_set_always_on_top(app: &tauri::AppHandle, enable: bool) {
@@ -237,7 +237,10 @@ pub(crate) fn browser_stack_close(app: &tauri::AppHandle) {
     }
 }
 
-pub(crate) fn browser_stack_apply_fullscreen(app: &tauri::AppHandle, enable: bool) -> Result<(), String> {
+pub(crate) fn browser_stack_apply_fullscreen(
+    app: &tauri::AppHandle,
+    enable: bool,
+) -> Result<(), String> {
     let bar = app
         .get_webview_window(BROWSER_BAR_WINDOW_LABEL)
         .ok_or_else(|| "顶部栏窗口不存在".to_string())?;

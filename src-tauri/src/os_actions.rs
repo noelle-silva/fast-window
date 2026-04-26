@@ -84,4 +84,3 @@ pub(crate) fn open_dir_in_file_manager(dir: &Path) -> Result<(), String> {
     #[allow(unreachable_code)]
     Err("当前平台不支持打开文件管理器".to_string())
 }
-

@@ -3,6 +3,7 @@ import type { PluginCapability, SupportedPluginApiVersion } from './capabilities
 export type PluginUiType = 'iframe'
 
 export type PluginBackgroundLifecycle = 'on_demand' | 'resident' | 'short_lived'
+export type PluginBackgroundRuntime = 'node' | 'python' | 'deno' | 'bun' | 'direct'
 
 export interface PluginManifest {
   id: string
@@ -28,5 +29,6 @@ export interface PluginManifest {
      */
     autoStart?: boolean
     lifecycle?: PluginBackgroundLifecycle
+    runtime?: PluginBackgroundRuntime
   }
 }

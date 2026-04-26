@@ -2,8 +2,8 @@ use std::path::{Component, Path, PathBuf};
 
 use tauri::http::{header, Response, StatusCode, Uri};
 
-use crate::{app_plugins_dir, is_safe_id};
 use crate::plugins::safe_relative_path_no_curdir;
+use crate::{app_plugins_dir, is_safe_id};
 
 fn text_response(status: StatusCode, message: &str) -> Response<Vec<u8>> {
     Response::builder()
@@ -113,10 +113,9 @@ fn resolve_plugin_asset_file(
 
     let plugin_dir = app_plugins_dir(app).join(plugin_id);
     let full = plugin_dir.join(rel);
-    let plugin_root = std::fs::canonicalize(&plugin_dir)
-        .map_err(|e| format!("插件目录不可用: {e}"))?;
-    let full = std::fs::canonicalize(&full)
-        .map_err(|e| format!("插件资源不存在: {e}"))?;
+    let plugin_root =
+        std::fs::canonicalize(&plugin_dir).map_err(|e| format!("插件目录不可用: {e}"))?;
+    let full = std::fs::canonicalize(&full).map_err(|e| format!("插件资源不存在: {e}"))?;
     if !full.starts_with(&plugin_root) {
         return Err("插件资源路径越界".to_string());
     }
@@ -140,7 +139,10 @@ pub(crate) fn plugin_asset_protocol_response(
         Err(_) => return text_response(StatusCode::NOT_FOUND, "plugin asset not found"),
     };
     let Ok(bytes) = std::fs::read(&full) else {
-        return text_response(StatusCode::INTERNAL_SERVER_ERROR, "failed to read plugin asset");
+        return text_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "failed to read plugin asset",
+        );
     };
 
     Response::builder()

@@ -419,7 +419,9 @@ fn wallpaper_settings_out(app: &tauri::AppHandle, cfg: &WallpaperConfig) -> Wall
 }
 
 #[tauri::command]
-pub(crate) fn get_wallpaper_settings(app: tauri::AppHandle) -> Result<WallpaperSettingsOut, String> {
+pub(crate) fn get_wallpaper_settings(
+    app: tauri::AppHandle,
+) -> Result<WallpaperSettingsOut, String> {
     let cfg = read_wallpaper_config(&app)?;
     Ok(wallpaper_settings_out(&app, &cfg))
 }
@@ -654,7 +656,9 @@ pub(crate) fn cycle_wallpaper(
 }
 
 #[tauri::command]
-pub(crate) fn get_plugin_icon_overrides(app: tauri::AppHandle) -> Result<HashMap<String, String>, String> {
+pub(crate) fn get_plugin_icon_overrides(
+    app: tauri::AppHandle,
+) -> Result<HashMap<String, String>, String> {
     let vp = storage_value_path(&app, "__app", APP_ICON_OVERRIDES_KEY)?;
     let overrides = if vp.is_file() {
         match read_json_value(&vp)? {

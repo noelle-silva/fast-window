@@ -16,6 +16,7 @@ export type {
 
 export type {
   PluginBackgroundLifecycle,
+  PluginBackgroundRuntime,
   PluginManifest,
   PluginUiType,
 } from './contract/manifest'

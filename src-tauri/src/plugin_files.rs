@@ -170,7 +170,8 @@ pub(crate) fn plugin_files_stat(
         return Err("pluginId 不合法".to_string());
     }
     let scope = req.scope.trim().to_string();
-    let (_root_c, full_c) = crate::resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
+    let (_root_c, full_c) =
+        crate::resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
     plugin_fs_entry_from_path(&full_c)
 }
 
@@ -202,7 +203,8 @@ pub(crate) fn plugin_files_read_text(
         return Err("pluginId 不合法".to_string());
     }
     let scope = req.scope.trim().to_string();
-    let (_root_c, full_c) = crate::resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
+    let (_root_c, full_c) =
+        crate::resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
     if !full_c.is_file() {
         return Err("文件不存在".to_string());
     }
@@ -257,7 +259,8 @@ pub(crate) fn plugin_files_read_base64(
         return Err("pluginId 不合法".to_string());
     }
     let scope = req.scope.trim().to_string();
-    let (_root_c, full_c) = crate::resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
+    let (_root_c, full_c) =
+        crate::resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
     if !full_c.is_file() {
         return Err("文件不存在".to_string());
     }
@@ -287,7 +290,8 @@ pub(crate) fn plugin_files_thumbnail(
         return Err("pluginId 不合法".to_string());
     }
     let scope = req.scope.trim().to_string();
-    let (_root_c, full_c) = crate::resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
+    let (_root_c, full_c) =
+        crate::resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
     if !full_c.is_file() {
         return Err("文件不存在".to_string());
     }
@@ -348,7 +352,8 @@ pub(crate) fn plugin_files_rename(
     let scope = req.scope.trim().to_string();
     let overwrite = req.overwrite.unwrap_or(false);
 
-    let (_root_c, from_c) = crate::resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.from)?;
+    let (_root_c, from_c) =
+        crate::resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.from)?;
     if !(from_c.is_file() || from_c.is_dir()) {
         return Err("源文件不存在".to_string());
     }
@@ -401,7 +406,8 @@ fn copy_dir_recursive(from: &Path, to: &Path, overwrite: bool) -> Result<(), Str
                 return Err("复制目标已存在（overwrite=false）".to_string());
             }
             if let Some(parent) = dst.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| format!("创建复制目标目录失败: {e}"))?;
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("创建复制目标目录失败: {e}"))?;
             }
             std::fs::copy(&src, &dst).map_err(|e| format!("复制文件失败: {e}"))?;
         }
@@ -421,7 +427,8 @@ pub(crate) fn plugin_files_copy(
     let scope = req.scope.trim().to_string();
     let overwrite = req.overwrite.unwrap_or(false);
 
-    let (_root_c, from_c) = crate::resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.from)?;
+    let (_root_c, from_c) =
+        crate::resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.from)?;
     let (_root_c2, to) = crate::resolve_write_path_in_scope(&app, &plugin_id, &scope, &req.to)?;
     if from_c.is_file() {
         if to.exists() && !overwrite {
@@ -453,7 +460,8 @@ pub(crate) fn plugin_files_delete(
         return Err("pluginId 不合法".to_string());
     }
     let scope = req.scope.trim().to_string();
-    let (root_c, full_c) = crate::resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
+    let (root_c, full_c) =
+        crate::resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
     if !full_c.is_file() {
         return Err("文件不存在".to_string());
     }
@@ -491,7 +499,8 @@ pub(crate) enum PluginFileReadStreamEvent {
 }
 
 fn read_cancels() -> &'static Mutex<HashMap<String, tokio::sync::oneshot::Sender<()>>> {
-    static READ_CANCELS: OnceLock<Mutex<HashMap<String, tokio::sync::oneshot::Sender<()>>>> = OnceLock::new();
+    static READ_CANCELS: OnceLock<Mutex<HashMap<String, tokio::sync::oneshot::Sender<()>>>> =
+        OnceLock::new();
     READ_CANCELS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -502,7 +511,10 @@ fn write_sessions() -> &'static Mutex<HashMap<String, WriteStreamSession>> {
 
 fn make_file_stream_id(plugin_id: &str) -> String {
     let stamp = crate::now_ms();
-    format!("filestream-{plugin_id}-{stamp}-{:08x}", crate::rand_u32(stamp))
+    format!(
+        "filestream-{plugin_id}-{stamp}-{:08x}",
+        crate::rand_u32(stamp)
+    )
 }
 
 #[tauri::command]
@@ -521,14 +533,20 @@ pub(crate) fn plugin_files_read_stream(
         return Err("streamId 不能为空".to_string());
     }
     let scope = req.scope.trim().to_string();
-    let (_root_c, full_c) = crate::resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
+    let (_root_c, full_c) =
+        crate::resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
     if !full_c.is_file() {
         return Err("文件不存在".to_string());
     }
-    let size = full_c.metadata().map_err(|e| format!("读取文件元信息失败: {e}"))?.len();
+    let size = full_c
+        .metadata()
+        .map_err(|e| format!("读取文件元信息失败: {e}"))?
+        .len();
     let (tx, mut rx) = tokio::sync::oneshot::channel::<()>();
     {
-        let mut map = read_cancels().lock().map_err(|_| "读流状态锁定失败".to_string())?;
+        let mut map = read_cancels()
+            .lock()
+            .map_err(|_| "读流状态锁定失败".to_string())?;
         map.insert(sid.clone(), tx);
     }
 
@@ -618,7 +636,8 @@ pub(crate) fn plugin_files_write_stream_open(
     }
     let scope = req.scope.trim().to_string();
     let overwrite = req.overwrite.unwrap_or(false);
-    let (_root_c, target_path) = crate::resolve_write_path_in_scope(&app, &plugin_id, &scope, &req.path)?;
+    let (_root_c, target_path) =
+        crate::resolve_write_path_in_scope(&app, &plugin_id, &scope, &req.path)?;
     if target_path.exists() && !overwrite {
         return Err("文件已存在（overwrite=false）".to_string());
     }
@@ -637,7 +656,9 @@ pub(crate) fn plugin_files_write_stream_open(
         temp_path,
         overwrite,
     };
-    let mut map = write_sessions().lock().map_err(|_| "写流状态锁定失败".to_string())?;
+    let mut map = write_sessions()
+        .lock()
+        .map_err(|_| "写流状态锁定失败".to_string())?;
     map.insert(write_id.clone(), session);
     Ok(PluginFilesWriteStreamOpenRes { write_id })
 }
@@ -661,7 +682,9 @@ pub(crate) fn plugin_files_write_stream_chunk(
         return Err("写入分片过大".to_string());
     }
     let session = {
-        let map = write_sessions().lock().map_err(|_| "写流状态锁定失败".to_string())?;
+        let map = write_sessions()
+            .lock()
+            .map_err(|_| "写流状态锁定失败".to_string())?;
         map.get(req.write_id.trim())
             .cloned()
             .ok_or_else(|| "写流不存在".to_string())?
@@ -679,12 +702,17 @@ pub(crate) fn plugin_files_write_stream_chunk(
 }
 
 #[tauri::command]
-pub(crate) fn plugin_files_write_stream_close(plugin_id: String, write_id: String) -> Result<(), String> {
+pub(crate) fn plugin_files_write_stream_close(
+    plugin_id: String,
+    write_id: String,
+) -> Result<(), String> {
     if !crate::is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
     let session = {
-        let mut map = write_sessions().lock().map_err(|_| "写流状态锁定失败".to_string())?;
+        let mut map = write_sessions()
+            .lock()
+            .map_err(|_| "写流状态锁定失败".to_string())?;
         map.remove(write_id.trim())
             .ok_or_else(|| "写流不存在".to_string())?
     };
@@ -698,22 +726,29 @@ pub(crate) fn plugin_files_write_stream_close(plugin_id: String, write_id: Strin
             return Err("文件已存在（overwrite=false）".to_string());
         }
         if session.target_path.is_file() {
-            std::fs::remove_file(&session.target_path).map_err(|e| format!("覆盖旧文件失败: {e}"))?;
+            std::fs::remove_file(&session.target_path)
+                .map_err(|e| format!("覆盖旧文件失败: {e}"))?;
         } else {
             let _ = std::fs::remove_file(&session.temp_path);
             return Err("目标已存在且不是文件".to_string());
         }
     }
-    std::fs::rename(&session.temp_path, &session.target_path).map_err(|e| format!("提交写入失败: {e}"))
+    std::fs::rename(&session.temp_path, &session.target_path)
+        .map_err(|e| format!("提交写入失败: {e}"))
 }
 
 #[tauri::command]
-pub(crate) fn plugin_files_write_stream_cancel(plugin_id: String, write_id: String) -> Result<(), String> {
+pub(crate) fn plugin_files_write_stream_cancel(
+    plugin_id: String,
+    write_id: String,
+) -> Result<(), String> {
     if !crate::is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
     let session = {
-        let mut map = write_sessions().lock().map_err(|_| "写流状态锁定失败".to_string())?;
+        let mut map = write_sessions()
+            .lock()
+            .map_err(|_| "写流状态锁定失败".to_string())?;
         map.remove(write_id.trim())
     };
     if let Some(session) = session {

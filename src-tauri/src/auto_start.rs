@@ -8,7 +8,11 @@ const RUN_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 
 fn open_run_key(read_only: bool) -> Result<RegKey, String> {
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let flags = if read_only { KEY_READ } else { KEY_READ | KEY_WRITE };
+    let flags = if read_only {
+        KEY_READ
+    } else {
+        KEY_READ | KEY_WRITE
+    };
     hkcu.open_subkey_with_flags(RUN_KEY, flags)
         .map_err(|e| format!("打开注册表失败: {e}"))
 }
@@ -106,4 +110,3 @@ pub fn set_enabled(value_name: &str, enabled: bool) -> Result<bool, String> {
 
     Ok(is_enabled(value_name))
 }
-

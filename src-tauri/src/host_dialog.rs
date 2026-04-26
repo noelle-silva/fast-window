@@ -40,7 +40,9 @@ pub(crate) fn with_main_window_dialog_focus<T>(app: &tauri::AppHandle, f: impl F
 }
 
 pub(crate) fn pick_folder(app: &tauri::AppHandle, title: &str) -> Option<PathBuf> {
-    with_main_window_dialog_focus(app, || rfd::FileDialog::new().set_title(title).pick_folder())
+    with_main_window_dialog_focus(app, || {
+        rfd::FileDialog::new().set_title(title).pick_folder()
+    })
 }
 
 pub(crate) fn pick_image_files(app: &tauri::AppHandle, title: &str) -> Option<Vec<PathBuf>> {
@@ -60,7 +62,10 @@ pub(crate) fn confirm(app: &tauri::AppHandle, title: &str, message: &str) -> boo
             .set_buttons(rfd::MessageButtons::OkCancel)
             .show()
     });
-    matches!(result, rfd::MessageDialogResult::Ok | rfd::MessageDialogResult::Yes)
+    matches!(
+        result,
+        rfd::MessageDialogResult::Ok | rfd::MessageDialogResult::Yes
+    )
 }
 
 pub(crate) fn images_to_data_urls(

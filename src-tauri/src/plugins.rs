@@ -9,6 +9,9 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncWriteExt;
 
+use crate::plugin_backend_runtimes::{
+    is_supported_backend_runtime, supported_backend_runtime_label,
+};
 use crate::{
     app_data_dir, app_local_base_dir, app_plugins_dir, is_https_url, normalize_zip_name, now_ms,
     open_dir_in_file_manager, parse_sha256_hex_32, rand_u32, read_plugin_auto_update_prefs,
@@ -184,7 +187,10 @@ fn manifest_local_icon_path(icon: &str) -> Result<Option<PathBuf>, String> {
     safe_relative_path_no_curdir(rel).map(Some)
 }
 
-fn validate_plugin_package_files(root: &Path, summary: &StoreManifestSummary) -> Result<(), String> {
+fn validate_plugin_package_files(
+    root: &Path,
+    summary: &StoreManifestSummary,
+) -> Result<(), String> {
     let main = safe_relative_path_no_curdir(&summary.main)?;
     if !root.join(&main).is_file() {
         return Err("插件入口文件不存在（manifest.main）".to_string());
@@ -227,7 +233,8 @@ fn validate_installed_package(
     let version = expected_version
         .map(|s| s.to_string())
         .unwrap_or_else(|| manifest_string(&manifest, "version"));
-    let summary = validate_store_manifest(&manifest, expected_id, &version, expected_requires, label)?;
+    let summary =
+        validate_store_manifest(&manifest, expected_id, &version, expected_requires, label)?;
     validate_plugin_package_files(root, &summary)?;
     Ok(summary)
 }
@@ -244,7 +251,11 @@ fn manifest_api_version(manifest: &Value) -> Result<u64, String> {
     }
 }
 
-fn validate_manifest_optional_string(manifest: &Value, field: &str, required: bool) -> Result<(), String> {
+fn validate_manifest_optional_string(
+    manifest: &Value,
+    field: &str,
+    required: bool,
+) -> Result<(), String> {
     match manifest.get(field) {
         Some(Value::String(_)) => Ok(()),
         Some(_) => Err(format!("{field} 必须是字符串")),
@@ -269,7 +280,11 @@ fn validate_manifest_ui_type(manifest: &Value, required: bool) -> Result<(), Str
     }
 }
 
-fn parse_manifest_requires(manifest: &Value, required: bool, label: &str) -> Result<BTreeSet<String>, String> {
+fn parse_manifest_requires(
+    manifest: &Value,
+    required: bool,
+    label: &str,
+) -> Result<BTreeSet<String>, String> {
     let mut out = BTreeSet::<String>::new();
     match manifest.get("requires") {
         Some(Value::Array(requires)) => {
@@ -317,7 +332,10 @@ fn validate_store_manifest(
         return Err(format!("{label}.id 不合法（仅允许字母/数字/_/-）"));
     }
     if plugin_id != expected_id {
-        return Err(format!("{label}.id 不匹配：expected={}, got={}", expected_id, plugin_id));
+        return Err(format!(
+            "{label}.id 不匹配：expected={}, got={}",
+            expected_id, plugin_id
+        ));
     }
 
     let name = manifest_string(manifest, "name");
@@ -330,12 +348,19 @@ fn validate_store_manifest(
         return Err(format!("{label}.version 不能为空"));
     }
     if version != expected_version {
-        return Err(format!("{label}.version 不匹配：expected={}, got={}", expected_version, version));
+        return Err(format!(
+            "{label}.version 不匹配：expected={}, got={}",
+            expected_version, version
+        ));
     }
 
     let api_version = manifest_api_version(manifest)?;
     let policy = resolve_manifest_policy(api_version);
-    validate_manifest_optional_string(manifest, &format!("{label}.description"), policy.require_description)?;
+    validate_manifest_optional_string(
+        manifest,
+        &format!("{label}.description"),
+        policy.require_description,
+    )?;
     validate_manifest_ui_type(manifest, policy.require_ui_type)?;
 
     let requires = parse_manifest_requires(manifest, policy.require_requires, label)?;
@@ -357,7 +382,25 @@ fn validate_store_manifest(
         .unwrap_or("")
         .trim()
         .to_string();
-    let background_main = if !bg_main.is_empty() && bg_main != main { Some(bg_main) } else { None };
+    let background_main = if !bg_main.is_empty() && bg_main != main {
+        Some(bg_main)
+    } else {
+        None
+    };
+
+    if let Some(runtime) = manifest
+        .get("background")
+        .and_then(|v| v.as_object())
+        .and_then(|obj| obj.get("runtime"))
+    {
+        let runtime = runtime.as_str().unwrap_or("").trim();
+        if !is_supported_backend_runtime(runtime) {
+            return Err(format!(
+                "{label}.background.runtime 必须为 {}",
+                supported_backend_runtime_label()
+            ));
+        }
+    }
 
     let icon = manifest_string(manifest, "icon");
     let local_icon = manifest_local_icon_path(&icon)?;
@@ -1158,5 +1201,3 @@ pub(crate) async fn plugin_store_install(
     let _ = tokio::fs::remove_file(&tmp_zip).await;
     install_result
 }
-
-

@@ -13,4 +13,3 @@ pub(crate) use v2_files::{
     resolve_existing_file_in_scope, resolve_plugin_files_root, resolve_write_path_in_scope,
 };
 pub(crate) use writable::ensure_writable_dir;
-

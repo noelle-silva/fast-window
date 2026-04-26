@@ -1,5 +1,5 @@
-use crate::tasks::state::TaskManagerState;
 use crate::clipboard_snapshot::read_clipboard_snapshot;
+use crate::tasks::state::TaskManagerState;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;

@@ -123,4 +123,3 @@ pub(crate) fn is_task_finished(status: TaskStatus) -> bool {
         TaskStatus::Succeeded | TaskStatus::Failed | TaskStatus::Canceled
     )
 }
-

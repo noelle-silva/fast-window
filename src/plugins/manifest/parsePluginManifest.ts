@@ -14,6 +14,8 @@ export type ManifestParseResult =
   | { ok: false; reason: string }
 
 const BACKEND_LIFECYCLES = new Set(['on_demand', 'resident', 'short_lived'] as const)
+const BACKEND_RUNTIMES = ['node', 'python', 'deno', 'bun', 'direct'] as const
+const BACKEND_RUNTIME_SET = new Set<string>(BACKEND_RUNTIMES)
 
 type ManifestVersionPolicy = {
   requireDescription: boolean
@@ -121,6 +123,10 @@ export function parsePluginManifest(pluginId: string, manifestContent: string): 
       }
       if (!BACKEND_LIFECYCLES.has(lc)) {
         return { ok: false, reason: `apiVersion=${apiVersion} requires background.lifecycle: on_demand | resident | short_lived` }
+      }
+      const runtime = bg?.runtime
+      if (runtime !== undefined && !BACKEND_RUNTIME_SET.has(runtime)) {
+        return { ok: false, reason: `background.runtime must be one of: ${BACKEND_RUNTIMES.join(' | ')}` }
       }
     } else {
       // v2：允许 lifecycle（便于前向迁移），但它与 autoStart 同时存在时，以 lifecycle 为准。

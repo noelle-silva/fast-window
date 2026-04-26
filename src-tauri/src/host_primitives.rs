@@ -63,10 +63,7 @@ pub(crate) fn host_toast(app: tauri::AppHandle, message: String) -> Result<(), S
 }
 
 #[tauri::command]
-pub(crate) fn host_activate_plugin(
-    app: tauri::AppHandle,
-    plugin_id: String,
-) -> Result<(), String> {
+pub(crate) fn host_activate_plugin(app: tauri::AppHandle, plugin_id: String) -> Result<(), String> {
     let pid = plugin_id.trim().to_string();
     if pid.is_empty() {
         return Err("pluginId 不能为空".to_string());

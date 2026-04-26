@@ -18,7 +18,8 @@ pub(crate) fn plugin_files_delete_tree(
     }
 
     let scope = req.scope.trim().to_string();
-    let (root_c, full_c) = crate::resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
+    let (root_c, full_c) =
+        crate::resolve_existing_file_in_scope(&app, &plugin_id, &scope, &req.path)?;
     if full_c == root_c {
         return Err("禁止删除根目录".to_string());
     }
@@ -53,4 +54,3 @@ pub(crate) fn plugin_files_delete_tree(
 
     Ok(())
 }
-

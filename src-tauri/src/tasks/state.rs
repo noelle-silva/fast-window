@@ -64,4 +64,3 @@ pub(crate) fn trim_plugin_task_records(tasks: &mut HashMap<String, TaskRecord>, 
         tasks.remove(&id);
     }
 }
-

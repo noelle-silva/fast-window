@@ -20,26 +20,27 @@ mod clipboard_snapshot;
 mod clipboard_watch;
 mod config_store;
 mod core;
-mod http_api;
 mod host_dialog;
 mod host_primitives;
+mod http_api;
 mod migrations;
 mod os_actions;
-mod process_commands;
+mod plugin_assets;
 mod plugin_backend_commands;
 mod plugin_backend_runtime;
-mod plugin_assets;
+mod plugin_backend_runtimes;
 mod plugin_files;
-mod process_runtime;
 mod plugin_files_delete_tree;
 mod plugins;
+mod process_commands;
+mod process_runtime;
 mod sqlite_gateway;
 mod tasks;
 mod thumbnails;
-mod workspace;
 mod wake_logic;
 mod wallpaper;
 mod windowing;
+mod workspace;
 
 #[cfg(target_os = "windows")]
 mod auto_start;
@@ -82,16 +83,16 @@ pub(crate) use config_store::{
     read_plugin_auto_update_prefs, write_app_config_map, write_plugin_auto_update_prefs,
     write_plugin_library_dir_to_config, write_plugin_output_dir_to_config,
 };
+use host_primitives::emit_toast;
 use http_api::*;
 pub(crate) use os_actions::{open_dir_in_file_manager, open_external_uri, open_external_url};
 pub(crate) use plugins::{is_safe_id, query_get_param, safe_relative_path};
+use windowing::*;
 pub(crate) use workspace::{
     app_data_dir, app_local_base_dir, app_plugins_dir, ensure_writable_dir,
     resolve_existing_file_in_scope, resolve_plugin_files_root, resolve_plugin_library_dir,
     resolve_plugin_output_dir, resolve_write_path_in_scope,
 };
-use host_primitives::emit_toast;
-use windowing::*;
 
 const DEFAULT_WAKE_SHORTCUT: &str = "control+alt+Space";
 const APP_STORAGE_ID: &str = "__app";
@@ -1228,7 +1229,10 @@ fn host_dialog_pick_library_dir(
 }
 
 #[tauri::command]
-fn host_dialog_pick_dir(app: tauri::AppHandle, plugin_id: String) -> Result<Option<String>, String> {
+fn host_dialog_pick_dir(
+    app: tauri::AppHandle,
+    plugin_id: String,
+) -> Result<Option<String>, String> {
     plugin_pick_dir(app, plugin_id)
 }
 
@@ -1580,9 +1584,16 @@ fn plugin_pick_images(
 
     let max = max_count.unwrap_or(8);
     let picked = host_dialog::pick_image_files(&app, "选择图片");
-    let Some(files) = picked else { return Ok(vec![]); };
+    let Some(files) = picked else {
+        return Ok(vec![]);
+    };
 
-    host_dialog::images_to_data_urls(files, max, |p| path_has_image_ext(p), |p| image_mime_by_ext(p))
+    host_dialog::images_to_data_urls(
+        files,
+        max,
+        |p| path_has_image_ext(p),
+        |p| image_mime_by_ext(p),
+    )
 }
 
 #[tauri::command]
@@ -1595,7 +1606,11 @@ fn host_dialog_pick_images(
 }
 
 #[tauri::command]
-fn host_dialog_confirm(app: tauri::AppHandle, plugin_id: String, message: String) -> Result<bool, String> {
+fn host_dialog_confirm(
+    app: tauri::AppHandle,
+    plugin_id: String,
+    message: String,
+) -> Result<bool, String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }

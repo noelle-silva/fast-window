@@ -1,5 +1,7 @@
 use crate::plugins::is_safe_id;
-use crate::{ensure_writable_dir, resolve_plugin_library_dir, resolve_plugin_output_dir, safe_relative_path};
+use crate::{
+    ensure_writable_dir, resolve_plugin_library_dir, resolve_plugin_output_dir, safe_relative_path,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -268,7 +270,11 @@ fn canonicalize_or_same(p: &Path) -> PathBuf {
     std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
-fn resolve_process_cwd(app: &AppHandle, plugin_id: &str, cwd: Option<String>) -> Result<PathBuf, String> {
+fn resolve_process_cwd(
+    app: &AppHandle,
+    plugin_id: &str,
+    cwd: Option<String>,
+) -> Result<PathBuf, String> {
     // 默认：插件 outputDir（更安全 + 可写）
     let base = resolve_plugin_output_dir(app, plugin_id);
     ensure_writable_dir(&base)?;
@@ -349,7 +355,10 @@ fn trim_records(map: &mut HashMap<String, Arc<ProcessEntry>>) {
     }
     // 还超限：继续按最旧删
     while map.len() > PROCESSES_TOTAL_LIMIT {
-        if let Some((_, id)) = map.values().map(|e| (e.created_at_ms, e.id.clone())).min_by(|a, b| a.0.cmp(&b.0))
+        if let Some((_, id)) = map
+            .values()
+            .map(|e| (e.created_at_ms, e.id.clone()))
+            .min_by(|a, b| a.0.cmp(&b.0))
         {
             map.remove(&id);
         } else {
@@ -424,7 +433,13 @@ pub(crate) fn process_spawn(
         let entry_reap = entry.clone();
         tauri::async_runtime::spawn(async move {
             loop {
-                if entry_reap.exit.lock().ok().map(|x| x.is_some()).unwrap_or(false) {
+                if entry_reap
+                    .exit
+                    .lock()
+                    .ok()
+                    .map(|x| x.is_some())
+                    .unwrap_or(false)
+                {
                     return;
                 }
                 let mut found: Option<ExitInfo> = None;
@@ -432,7 +447,9 @@ pub(crate) fn process_spawn(
                     let mut g = entry_reap.child.lock().await;
                     if let Some(ch) = g.as_mut() {
                         if let Ok(Some(st)) = ch.try_wait() {
-                            found = Some(ExitInfo { exit_code: st.code() });
+                            found = Some(ExitInfo {
+                                exit_code: st.code(),
+                            });
                             let _ = g.take();
                         }
                     }
@@ -628,7 +645,11 @@ pub(crate) async fn process_wait(
     }
 }
 
-pub(crate) async fn process_run(app: &AppHandle, plugin_id: String, req: ProcessRunReq) -> Result<ProcessRunRes, String> {
+pub(crate) async fn process_run(
+    app: &AppHandle,
+    plugin_id: String,
+    req: ProcessRunReq,
+) -> Result<ProcessRunRes, String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
     }
@@ -679,7 +700,11 @@ pub(crate) async fn process_run(app: &AppHandle, plugin_id: String, req: Process
             }
         }
     } else {
-        child.wait().await.map_err(|e| format!("等待进程退出失败: {e}"))?.code()
+        child
+            .wait()
+            .await
+            .map_err(|e| format!("等待进程退出失败: {e}"))?
+            .code()
     };
 
     if let Some(h) = out_task {
