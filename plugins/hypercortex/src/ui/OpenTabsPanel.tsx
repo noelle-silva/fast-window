@@ -168,23 +168,38 @@ export type OpenTabsPanelProps = {
 }
 
 type GroupMenuState = { mouseX: number; mouseY: number; groupId: string } | null
-function SortableIconSlot(props: { args?: SortableItemRenderArgs; label: string; children: React.ReactNode }) {
-  const { args, label, children } = props
-  const handleProps = args ? args.handleProps : {}
+
+function getSortableTabRowProps(args?: SortableItemRenderArgs, label?: string) {
+  if (!args) return {}
+  return {
+    ref: (node: HTMLElement | null) => {
+      args.setNodeRef(node)
+      args.setHandleRef(node)
+    },
+    'aria-label': label,
+    ...args.handleProps,
+  }
+}
+
+function getSortableRowHandleProps(args?: SortableItemRenderArgs, label?: string) {
+  if (!args) return {}
+  return {
+    ref: args.setHandleRef as any,
+    'aria-label': label,
+    ...args.handleProps,
+  }
+}
+
+function SortableIconSlot(props: { children: React.ReactNode }) {
+  const { children } = props
   return (
     <Box
-      ref={args?.setHandleRef as any}
-      aria-label={args ? label : undefined}
-      {...handleProps}
-      data-hc-no-drag={args ? '1' : undefined}
       sx={{
         position: 'relative',
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
         flex: '0 0 auto',
-        cursor: args ? (args.isDragging ? 'grabbing' : 'grab') : undefined,
-        touchAction: args ? 'none' : undefined,
       }}
     >
       {children}
@@ -316,10 +331,10 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           disableHoverListener={showTitle || disableTitleTooltip}
           disableFocusListener={disableTitleTooltip}
           disableTouchListener={disableTitleTooltip}
-          >
+            >
             <Box
-              ref={opts?.sortable?.setNodeRef as any}
               {...dnd.getTabProps(tabKey)}
+              {...getSortableTabRowProps(opts?.sortable, `拖拽排序 ${title}`)}
             data-hc-dnd-top-index={typeof opts?.topIndex === 'number' ? opts.topIndex : undefined}
             data-hc-dnd-parent-group-id={opts?.parentGroupId || undefined}
             data-hc-dnd-group-tab-index={typeof opts?.groupTabIndex === 'number' ? opts.groupTabIndex : undefined}
@@ -348,7 +363,8 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               userSelect: 'none',
               outline: 'none',
               WebkitAppRegion: 'no-drag',
-              cursor: isDragging ? 'grabbing' : 'pointer',
+              cursor: isDragging ? 'grabbing' : opts?.sortable ? 'grab' : 'pointer',
+              touchAction: opts?.sortable ? 'none' : undefined,
               opacity: isSortablePlaceholder ? 0.44 : isDragging ? 0.72 : 1,
               border: isSortablePlaceholder ? '1px dashed rgba(25,118,210,.46)' : '1px solid transparent',
               bgcolor: isSortablePlaceholder ? 'rgba(25,118,210,.08)' : isDragOver ? 'rgba(25,118,210,.10)' : isActive ? 'rgba(25,118,210,.10)' : 'transparent',
@@ -356,7 +372,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
             }}
           >
-            <SortableIconSlot args={opts?.sortable} label={`拖拽排序 ${title}`}>
+            <SortableIconSlot>
               <NotesRoundedIcon fontSize="small" sx={{ color: isActive ? '#1976d2' : 'rgba(0,0,0,.48)' }} />
               {dirty ? (
                 <Box
@@ -395,6 +411,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                   size="small"
                   aria-label={`关闭 ${title}`}
                   data-hc-no-drag="1"
+                  onPointerDown={e => e.stopPropagation()}
                   onClick={e => {
                     e.stopPropagation()
                     onCloseTab(tab.id)
@@ -440,10 +457,10 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           disableHoverListener={showTitle || disableTitleTooltip}
           disableFocusListener={disableTitleTooltip}
           disableTouchListener={disableTitleTooltip}
-          >
+            >
             <Box
-              ref={opts?.sortable?.setNodeRef as any}
               {...dnd.getTabProps(tabKey)}
+              {...getSortableTabRowProps(opts?.sortable, `拖拽排序 ${title}`)}
             data-hc-dnd-top-index={typeof opts?.topIndex === 'number' ? opts.topIndex : undefined}
             data-hc-dnd-parent-group-id={opts?.parentGroupId || undefined}
             data-hc-dnd-group-tab-index={typeof opts?.groupTabIndex === 'number' ? opts.groupTabIndex : undefined}
@@ -472,7 +489,8 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               userSelect: 'none',
               outline: 'none',
               WebkitAppRegion: 'no-drag',
-              cursor: isDragging ? 'grabbing' : 'pointer',
+              cursor: isDragging ? 'grabbing' : opts?.sortable ? 'grab' : 'pointer',
+              touchAction: opts?.sortable ? 'none' : undefined,
               opacity: isSortablePlaceholder ? 0.44 : isDragging ? 0.72 : 1,
               border: isSortablePlaceholder ? '1px dashed rgba(25,118,210,.46)' : '1px solid transparent',
               bgcolor: isSortablePlaceholder ? 'rgba(25,118,210,.08)' : isDragOver ? 'rgba(25,118,210,.10)' : isActive ? 'rgba(25,118,210,.10)' : 'transparent',
@@ -480,7 +498,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
             }}
           >
-            <SortableIconSlot args={opts?.sortable} label={`拖拽排序 ${title}`}>{iconEl}</SortableIconSlot>
+            <SortableIconSlot>{iconEl}</SortableIconSlot>
             {showTitle ? (
               <Typography
                 noWrap
@@ -502,6 +520,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                   size="small"
                   aria-label={`关闭 ${title}`}
                   data-hc-no-drag="1"
+                  onPointerDown={e => e.stopPropagation()}
                   onClick={e => {
                     e.stopPropagation()
                     onCloseAssetTab?.(tabKey)
@@ -545,10 +564,10 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           disableHoverListener={showTitle || disableTitleTooltip}
           disableFocusListener={disableTitleTooltip}
           disableTouchListener={disableTitleTooltip}
-          >
+            >
             <Box
-              ref={opts?.sortable?.setNodeRef as any}
               {...dnd.getTabProps(tabKey)}
+              {...getSortableTabRowProps(opts?.sortable, `拖拽排序 ${title}`)}
             data-hc-dnd-top-index={typeof opts?.topIndex === 'number' ? opts.topIndex : undefined}
             data-hc-dnd-parent-group-id={opts?.parentGroupId || undefined}
             data-hc-dnd-group-tab-index={typeof opts?.groupTabIndex === 'number' ? opts.groupTabIndex : undefined}
@@ -573,7 +592,8 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               userSelect: 'none',
               outline: 'none',
               WebkitAppRegion: 'no-drag',
-              cursor: isDragging ? 'grabbing' : 'pointer',
+              cursor: isDragging ? 'grabbing' : opts?.sortable ? 'grab' : 'pointer',
+              touchAction: opts?.sortable ? 'none' : undefined,
               opacity: isSortablePlaceholder ? 0.44 : isDragging ? 0.72 : 0.86,
               border: isSortablePlaceholder ? '1px dashed rgba(25,118,210,.46)' : '1px solid transparent',
               bgcolor: isSortablePlaceholder ? 'rgba(25,118,210,.08)' : isDragOver ? 'rgba(25,118,210,.10)' : isActive ? 'rgba(25,118,210,.10)' : 'transparent',
@@ -581,7 +601,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
             }}
           >
-            <SortableIconSlot args={opts?.sortable} label={`拖拽排序 ${title}`}>{iconEl}</SortableIconSlot>
+            <SortableIconSlot>{iconEl}</SortableIconSlot>
             {showTitle ? (
               <Typography
                 noWrap
@@ -603,6 +623,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                   size="small"
                   aria-label={`关闭 ${title}`}
                   data-hc-no-drag="1"
+                  onPointerDown={e => e.stopPropagation()}
                   onClick={e => {
                     e.stopPropagation()
                     if (kind === 'note') onCloseTab(noteIdFromTabKey(tabKey))
@@ -713,6 +734,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         <Box ref={sortable?.setNodeRef as any} style={sortable?.style} sx={{ position: 'relative' }}>
           <Box
             {...dnd.getGroupProps(g.id)}
+            {...getSortableRowHandleProps(sortable, `拖拽排序分组 ${groupTitle}`)}
             data-hc-dnd-group-index={itemIndex}
             data-hc-dnd-group-section-index={itemIndex}
             role="button"
@@ -743,7 +765,8 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               userSelect: 'none',
               outline: 'none',
               WebkitAppRegion: 'no-drag',
-              cursor: isDragging ? 'grabbing' : 'pointer',
+              cursor: isDragging ? 'grabbing' : sortable ? 'grab' : 'pointer',
+              touchAction: sortable ? 'none' : undefined,
               opacity: isSortablePlaceholder ? 0.5 : isDragging ? 0.78 : 1,
               border: isSortablePlaceholder ? '1px dashed rgba(25,118,210,.50)' : '1px solid transparent',
               bgcolor: g.color,
@@ -752,7 +775,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               '&:focus-visible': { backgroundImage: 'linear-gradient(0deg, rgba(25,118,210,.14), rgba(25,118,210,.14))' },
             }}
           >
-            <SortableIconSlot args={sortable} label={`拖拽排序分组 ${groupTitle}`}>
+            <SortableIconSlot>
               <ChevronRightRoundedIcon
                 fontSize="small"
                 sx={{ color: 'rgba(0,0,0,.42)', transform: isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)', transition: 'transform 120ms ease' }}
