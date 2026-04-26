@@ -1,9 +1,7 @@
-import { useEffect, useMemo, useRef } from 'react'
-import { createPluginContext } from './pluginApi'
-import { PluginApiVersion, PluginCapability } from './pluginContract'
-import { buildPluginSdkCode, buildPluginShellSrcDoc } from './pluginSandbox'
-import { dispatchPluginMethod } from './pluginMethods'
-import { toBridgeError } from './pluginBridge'
+import PluginFrameView from './PluginFrameView'
+import type { PluginApiVersion, PluginCapability } from './pluginContract'
+import { resolveLegacyPluginRuntimeProfile } from './pluginProfiles'
+import { buildPluginSdkCode } from './pluginSandbox'
 
 type Props = {
   pluginId: string
@@ -14,123 +12,14 @@ type Props = {
 }
 
 export default function IframePluginView(props: Props) {
-  const { pluginId, pluginCode, apiVersion, requires, onBack } = props
-  const iframeRef = useRef<HTMLIFrameElement | null>(null)
-  const ctx = useMemo(() => createPluginContext(pluginId, apiVersion, requires ?? []), [apiVersion, pluginId, requires])
-  const portRef = useRef<MessagePort | null>(null)
-  const bootTimerRef = useRef<number | null>(null)
-
-  const tokenRef = useRef<string>('')
-  if (!tokenRef.current) {
-    try {
-      const a = new Uint32Array(4)
-      crypto.getRandomValues(a)
-      tokenRef.current = Array.from(a).join('-')
-    } catch {
-      tokenRef.current = `${Date.now()}-${Math.random().toString(16).slice(2)}`
-    }
-  }
-
-  const srcDoc = useMemo(() => buildPluginShellSrcDoc(), [])
-
-  useEffect(() => {
-    // 宿主不再处理 window.postMessage RPC（只走 MessagePort 专线）。
-    return
-  }, [ctx, onBack, pluginId])
-
-  useEffect(() => {
-    return () => {
-      try {
-        portRef.current?.close()
-      } catch {}
-      portRef.current = null
-
-      if (bootTimerRef.current) {
-        window.clearTimeout(bootTimerRef.current)
-        bootTimerRef.current = null
-      }
-    }
-  }, [])
-
-  const onLoad = () => {
-    const iframeWin = iframeRef.current?.contentWindow
-    if (!iframeWin) return
-
-    try {
-      portRef.current?.close()
-    } catch {}
-    portRef.current = null
-
-    const ch = new MessageChannel()
-    const port = ch.port1
-    portRef.current = port
-
-    if (bootTimerRef.current) window.clearTimeout(bootTimerRef.current)
-    bootTimerRef.current = window.setTimeout(() => {
-      console.error(`[plugin-shell] boot timeout for "${pluginId}"`)
-    }, 4000)
-
-    port.onmessage = (event: MessageEvent) => {
-      const msg: any = (event as any).data
-      if (!msg) return
-
-      if (msg.__fastWindowRequest === true) {
-        if (msg.pluginId !== pluginId) return
-        if (msg.token !== tokenRef.current) return
-
-        const { id, method, args } = msg
-        const reply = (payload: any) => {
-          port.postMessage({ __fastWindowResponse: true, pluginId, token: tokenRef.current, id, ...payload })
-        }
-        const postStream = (payload: any) => {
-          port.postMessage({ __fastWindowStream: true, pluginId, token: tokenRef.current, ...payload })
-        }
-
-        Promise.resolve()
-          .then(() => dispatchPluginMethod(ctx, String(method), args, { runtime: 'ui', onBack, postStream }))
-          .then(result => reply({ ok: true, result }))
-          .catch(err => {
-            const e = toBridgeError(err)
-            reply({ ok: false, error: e.message, code: e.code, data: e.data })
-          })
-        return
-      }
-
-      if (msg.__fastWindowShell === true) {
-        if (msg.type === 'boot-ok') {
-          if (bootTimerRef.current) window.clearTimeout(bootTimerRef.current)
-          bootTimerRef.current = null
-          return
-        }
-        if (msg.type === 'boot-error') {
-          console.error(`[plugin-shell] boot-error for "${pluginId}":`, msg.message)
-          if (bootTimerRef.current) window.clearTimeout(bootTimerRef.current)
-          bootTimerRef.current = null
-          // 不回退到旧壳，让你更快发现壳/通道问题。
-        }
-        return
-      }
-    }
-
-    iframeWin.postMessage(
-      { __fastWindowInitPort: true, pluginId, runtime: 'ui', token: tokenRef.current },
-      '*',
-      [ch.port2],
-    )
-
-    const sdkCode = buildPluginSdkCode({ pluginId, token: tokenRef.current, runtime: 'ui', apiVersion })
-    port.postMessage({ __fastWindowBoot: true, token: tokenRef.current, sdkCode, pluginCode })
-  }
-
+  const { pluginId, apiVersion } = props
+  const runtimeProfile = resolveLegacyPluginRuntimeProfile(apiVersion)
   return (
-    <iframe
-      ref={iframeRef}
-      title={pluginId}
-      sandbox="allow-scripts"
-      srcDoc={srcDoc}
-      onLoad={onLoad}
-      key={`${pluginId}-v${apiVersion}-${pluginCode.length}`}
-      style={{ display: 'block', width: '100%', height: '100%', border: '0' }}
+    <PluginFrameView
+      {...props}
+      runtime="ui"
+      runtimeProfile={runtimeProfile}
+      buildSdkCode={token => buildPluginSdkCode({ pluginId, token, runtime: 'ui', apiVersion, sdkProfile: runtimeProfile.sdkProfile, exposeMeta: runtimeProfile.exposeMeta })}
     />
   )
 }

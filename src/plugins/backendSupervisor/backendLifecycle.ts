@@ -1,4 +1,5 @@
 import type { PluginManifest, PluginBackgroundLifecycle } from '../pluginContract'
+import { usesSystemBackend } from '../pluginProfiles'
 
 export type ResolvedBackendLifecycle = {
   lifecycle: PluginBackgroundLifecycle
@@ -22,7 +23,7 @@ export function resolveBackendLifecycle(manifest?: PluginManifest | null): Resol
   }
 
   // 系统级后台不再使用 autoStart 这种细碎开关，必须用生命周期档位表达意图。
-  if (apiVersion >= 3) {
+  if (usesSystemBackend(apiVersion)) {
     console.warn(`[backend-lifecycle] invalid system backend manifest: background.lifecycle is missing or unknown (plugin="${String(manifest?.id || '')}")`)
     return { lifecycle: 'on_demand', source: 'manifest' }
   }

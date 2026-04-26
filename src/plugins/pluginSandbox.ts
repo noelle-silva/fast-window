@@ -1,16 +1,126 @@
 import type { PluginApiVersion } from './pluginContract'
 import { V3_METHOD } from './hostApi/v3/methodNames'
+import type { PluginSdkProfile } from './pluginProfiles'
+import { resolveLegacyPluginSdkProfile } from './pluginProfiles'
 
 export type PluginRuntime = 'ui' | 'background'
+
+function buildLegacyTauriSdkCode() {
+  return `
+    fastWindow.host = {
+      back: () => call(${JSON.stringify(V3_METHOD.host.back)}, []),
+    };
+    fastWindow.tauri = {
+      invoke: (spec) => call('tauri.invoke', [ensureSpecTimeoutMs(spec)]),
+      streamOpen: (spec) => call('tauri.streamOpen', [ensureSpecTimeoutMs(spec)]),
+      streamCancel: (streamId) => call('tauri.streamCancel', [streamId]),
+      stream: async (spec) => {
+        const r = await call('tauri.streamOpen', [ensureSpecTimeoutMs(spec)]);
+        const streamId = r && r.streamId ? String(r.streamId) : '';
+        return createStream(streamId, 'tauri.streamCancel');
+      },
+    };
+  `
+}
+
+function buildHostInteractionSdkCode() {
+  const v3 = V3_METHOD
+  return `
+    fastWindow.host = {
+      back: () => call(${JSON.stringify(v3.host.back)}, []),
+      toast: (message) => call(${JSON.stringify(v3.host.toast)}, [message]),
+      activatePlugin: (targetPluginId) => call(${JSON.stringify(v3.host.activatePlugin)}, [targetPluginId]),
+      startDragging: () => call(${JSON.stringify(v3.host.startDragging)}, []),
+    };
+  `
+}
+
+function buildV3PrimitiveSdkCode() {
+  const v3 = V3_METHOD
+  return `
+    fastWindow.host.getInfo = () => call(${JSON.stringify(v3.host.getInfo)}, []);
+    fastWindow.process = {
+      openExternalUrl: (req) => call(${JSON.stringify(v3.process.openExternalUrl)}, [req || {}]),
+      openExternalUri: (req) => call(${JSON.stringify(v3.process.openExternalUri)}, [req || {}]),
+      openBrowserWindow: (req) => call(${JSON.stringify(v3.process.openBrowserWindow)}, [req || {}]),
+      run: (req) => call(${JSON.stringify(v3.process.run)}, [req || {}]),
+      spawn: (req) => call(${JSON.stringify(v3.process.spawn)}, [req || {}]),
+      kill: (req) => call(${JSON.stringify(v3.process.kill)}, [req || {}]),
+      wait: (req) => call(${JSON.stringify(v3.process.wait)}, [req || {}]),
+    };
+    fastWindow.task = {
+      create: (req) => call(${JSON.stringify(v3.task.create)}, [req || {}]),
+      get: (taskId) => call(${JSON.stringify(v3.task.get)}, [taskId]),
+      list: (req) => call(${JSON.stringify(v3.task.list)}, [req || {}]),
+      cancel: (taskId) => call(${JSON.stringify(v3.task.cancel)}, [taskId]),
+    };
+    fastWindow.workspace = {
+      getPaths: () => call(${JSON.stringify(v3.workspace.getPaths)}, []),
+      openOutputDir: () => call(${JSON.stringify(v3.workspace.openOutputDir)}, []),
+      openDir: (dir) => call(${JSON.stringify(v3.workspace.openDir)}, [dir]),
+      fs: {
+        readText: (req) => call(${JSON.stringify(v3.workspace.fs.readText)}, [req || {}]),
+        writeText: (req) => call(${JSON.stringify(v3.workspace.fs.writeText)}, [req || {}]),
+        readBytes: async (req) => {
+          const r = await call(${JSON.stringify(v3.workspace.fs.readBytes)}, [req || {}]);
+          return createStream(String((r && r.streamId) || ''), ${JSON.stringify(v3.workspace.fs.readBytesCancel)});
+        },
+        writeBytes: (req, source) => writeByteStream(req || {}, source),
+        listDir: (req) => call(${JSON.stringify(v3.workspace.fs.listDir)}, [req || {}]),
+        mkdir: (req) => call(${JSON.stringify(v3.workspace.fs.mkdir)}, [req || {}]),
+        remove: (req) => call(${JSON.stringify(v3.workspace.fs.remove)}, [req || {}]),
+        stat: (req) => call(${JSON.stringify(v3.workspace.fs.stat)}, [req || {}]),
+        rename: (req) => call(${JSON.stringify(v3.workspace.fs.rename)}, [req || {}]),
+        copy: (req) => call(${JSON.stringify(v3.workspace.fs.copy)}, [req || {}]),
+      },
+    };
+    fastWindow.dialog = {
+      pickDir: () => call(${JSON.stringify(v3.dialog.pickDir)}, []),
+      pickOutputDir: () => call(${JSON.stringify(v3.dialog.pickOutputDir)}, []),
+      pickLibraryDir: () => call(${JSON.stringify(v3.dialog.pickLibraryDir)}, []),
+      pickImages: (req) => call(${JSON.stringify(v3.dialog.pickImages)}, [req || {}]),
+      confirm: (req) => call(${JSON.stringify(v3.dialog.confirm)}, [req || {}]),
+    };
+    fastWindow.clipboard = {
+      readText: () => call(${JSON.stringify(v3.clipboard.readText)}, []),
+      writeText: (text) => call(${JSON.stringify(v3.clipboard.writeText)}, [text]),
+      readImageDataUrl: () => call(${JSON.stringify(v3.clipboard.readImageDataUrl)}, []),
+      writeImageDataUrl: (dataUrl) => call(${JSON.stringify(v3.clipboard.writeImageDataUrl)}, [dataUrl]),
+      watch: (req) => call(${JSON.stringify(v3.clipboard.watch)}, [req || {}]),
+      getWatch: (watchId) => call(${JSON.stringify(v3.clipboard.getWatch)}, [watchId]),
+      unwatch: (watchId) => call(${JSON.stringify(v3.clipboard.unwatch)}, [watchId]),
+    };
+  `
+}
+
+function buildBackgroundInvokeSdkCode() {
+  const v3 = V3_METHOD
+  return `
+    fastWindow.background = {
+      invoke: (method, params, options) => call(${JSON.stringify(v3.background.invoke)}, [{ method, params: params === undefined ? null : params, timeoutMs: options && options.timeoutMs }]),
+    };
+  `
+}
+
+function buildSdkSurfaceCode(profile: PluginSdkProfile) {
+  if (profile === 'legacy') return buildLegacyTauriSdkCode()
+  const primitiveCode = profile === 'v3' ? buildV3PrimitiveSdkCode() : ''
+  return `${buildHostInteractionSdkCode()}${primitiveCode}${buildBackgroundInvokeSdkCode()}`
+}
 
 export function buildPluginSdkCode(opts: {
   pluginId: string
   token: string
   runtime: PluginRuntime
   apiVersion: PluginApiVersion
+  sdkProfile?: PluginSdkProfile
+  exposeMeta?: boolean
 }) {
   const { pluginId, token, runtime, apiVersion } = opts
-  const v3 = V3_METHOD
+  const sdkProfile = opts.sdkProfile ?? resolveLegacyPluginSdkProfile(apiVersion)
+  const exposeMeta = opts.exposeMeta ?? sdkProfile !== 'v4'
+  const metaSdkCode = exposeMeta ? `__meta: { pluginId, apiVersion, runtime },` : ''
+  const sdkSurfaceCode = buildSdkSurfaceCode(sdkProfile)
 
   const sendExpr = `(() => {
   const p = globalThis.__fastWindowPort;
@@ -130,24 +240,24 @@ export function buildPluginSdkCode(opts: {
   }
 
   async function writeByteStream(openReq, source) {
-    const opened = await call(${JSON.stringify(v3.workspace.fs.writeBytes)}, [openReq || {}]);
+    const opened = await call(${JSON.stringify(V3_METHOD.workspace.fs.writeBytes)}, [openReq || {}]);
     const writeId = String((opened && (opened.writeId || opened.write_id)) || '');
     if (!writeId) throw new Error('writeId is required');
     try {
       if (source && typeof source[Symbol.asyncIterator] === 'function') {
         for await (const chunk of source) {
-          await call(${JSON.stringify(v3.workspace.fs.writeBytesChunk)}, [{ writeId, bytes: Array.from(normalizeBytes(chunk)) }]);
+          await call(${JSON.stringify(V3_METHOD.workspace.fs.writeBytesChunk)}, [{ writeId, bytes: Array.from(normalizeBytes(chunk)) }]);
         }
       } else if (source && typeof source[Symbol.iterator] === 'function' && !(source instanceof Uint8Array) && !(source instanceof ArrayBuffer) && !ArrayBuffer.isView(source)) {
         for (const chunk of source) {
-          await call(${JSON.stringify(v3.workspace.fs.writeBytesChunk)}, [{ writeId, bytes: Array.from(normalizeBytes(chunk)) }]);
+          await call(${JSON.stringify(V3_METHOD.workspace.fs.writeBytesChunk)}, [{ writeId, bytes: Array.from(normalizeBytes(chunk)) }]);
         }
       } else {
-        await call(${JSON.stringify(v3.workspace.fs.writeBytesChunk)}, [{ writeId, bytes: Array.from(normalizeBytes(source)) }]);
+        await call(${JSON.stringify(V3_METHOD.workspace.fs.writeBytesChunk)}, [{ writeId, bytes: Array.from(normalizeBytes(source)) }]);
       }
-      await call(${JSON.stringify(v3.workspace.fs.writeBytesClose)}, [writeId]);
+      await call(${JSON.stringify(V3_METHOD.workspace.fs.writeBytesClose)}, [writeId]);
     } catch (err) {
-      await call(${JSON.stringify(v3.workspace.fs.writeBytesCancel)}, [writeId]).catch(() => {});
+      await call(${JSON.stringify(V3_METHOD.workspace.fs.writeBytesCancel)}, [writeId]).catch(() => {});
       throw err;
     }
   }
@@ -284,86 +394,10 @@ export function buildPluginSdkCode(opts: {
   ${listenExpr};
 
   const fastWindow = {
-    __meta: { pluginId, apiVersion, runtime },
+    ${metaSdkCode}
   };
 
-  if (apiVersion >= 3) {
-    fastWindow.host = {
-      back: () => call(${JSON.stringify(v3.host.back)}, []),
-      getInfo: () => call(${JSON.stringify(v3.host.getInfo)}, []),
-      toast: (message) => call(${JSON.stringify(v3.host.toast)}, [message]),
-      activatePlugin: (targetPluginId) => call(${JSON.stringify(v3.host.activatePlugin)}, [targetPluginId]),
-      startDragging: () => call(${JSON.stringify(v3.host.startDragging)}, []),
-    };
-    fastWindow.process = {
-      openExternalUrl: (req) => call(${JSON.stringify(v3.process.openExternalUrl)}, [req || {}]),
-      openExternalUri: (req) => call(${JSON.stringify(v3.process.openExternalUri)}, [req || {}]),
-      openBrowserWindow: (req) => call(${JSON.stringify(v3.process.openBrowserWindow)}, [req || {}]),
-      run: (req) => call(${JSON.stringify(v3.process.run)}, [req || {}]),
-      spawn: (req) => call(${JSON.stringify(v3.process.spawn)}, [req || {}]),
-      kill: (req) => call(${JSON.stringify(v3.process.kill)}, [req || {}]),
-      wait: (req) => call(${JSON.stringify(v3.process.wait)}, [req || {}]),
-    };
-    fastWindow.task = {
-      create: (req) => call(${JSON.stringify(v3.task.create)}, [req || {}]),
-      get: (taskId) => call(${JSON.stringify(v3.task.get)}, [taskId]),
-      list: (req) => call(${JSON.stringify(v3.task.list)}, [req || {}]),
-      cancel: (taskId) => call(${JSON.stringify(v3.task.cancel)}, [taskId]),
-    };
-    fastWindow.workspace = {
-      getPaths: () => call(${JSON.stringify(v3.workspace.getPaths)}, []),
-      openOutputDir: () => call(${JSON.stringify(v3.workspace.openOutputDir)}, []),
-      openDir: (dir) => call(${JSON.stringify(v3.workspace.openDir)}, [dir]),
-      fs: {
-        readText: (req) => call(${JSON.stringify(v3.workspace.fs.readText)}, [req || {}]),
-        writeText: (req) => call(${JSON.stringify(v3.workspace.fs.writeText)}, [req || {}]),
-        readBytes: async (req) => {
-          const r = await call(${JSON.stringify(v3.workspace.fs.readBytes)}, [req || {}]);
-          return createStream(String((r && r.streamId) || ''), ${JSON.stringify(v3.workspace.fs.readBytesCancel)});
-        },
-        writeBytes: (req, source) => writeByteStream(req || {}, source),
-        listDir: (req) => call(${JSON.stringify(v3.workspace.fs.listDir)}, [req || {}]),
-        mkdir: (req) => call(${JSON.stringify(v3.workspace.fs.mkdir)}, [req || {}]),
-        remove: (req) => call(${JSON.stringify(v3.workspace.fs.remove)}, [req || {}]),
-        stat: (req) => call(${JSON.stringify(v3.workspace.fs.stat)}, [req || {}]),
-        rename: (req) => call(${JSON.stringify(v3.workspace.fs.rename)}, [req || {}]),
-        copy: (req) => call(${JSON.stringify(v3.workspace.fs.copy)}, [req || {}]),
-      },
-    };
-    fastWindow.dialog = {
-      pickDir: () => call(${JSON.stringify(v3.dialog.pickDir)}, []),
-      pickOutputDir: () => call(${JSON.stringify(v3.dialog.pickOutputDir)}, []),
-      pickLibraryDir: () => call(${JSON.stringify(v3.dialog.pickLibraryDir)}, []),
-      pickImages: (req) => call(${JSON.stringify(v3.dialog.pickImages)}, [req || {}]),
-      confirm: (req) => call(${JSON.stringify(v3.dialog.confirm)}, [req || {}]),
-    };
-    fastWindow.clipboard = {
-      readText: () => call(${JSON.stringify(v3.clipboard.readText)}, []),
-      writeText: (text) => call(${JSON.stringify(v3.clipboard.writeText)}, [text]),
-      readImageDataUrl: () => call(${JSON.stringify(v3.clipboard.readImageDataUrl)}, []),
-      writeImageDataUrl: (dataUrl) => call(${JSON.stringify(v3.clipboard.writeImageDataUrl)}, [dataUrl]),
-      watch: (req) => call(${JSON.stringify(v3.clipboard.watch)}, [req || {}]),
-      getWatch: (watchId) => call(${JSON.stringify(v3.clipboard.getWatch)}, [watchId]),
-      unwatch: (watchId) => call(${JSON.stringify(v3.clipboard.unwatch)}, [watchId]),
-    };
-    fastWindow.background = {
-      invoke: (method, params, options) => call(${JSON.stringify(v3.background.invoke)}, [{ method, params: params === undefined ? null : params, timeoutMs: options && options.timeoutMs }]),
-    };
-  } else {
-    fastWindow.host = {
-      back: () => call('host.back', []),
-    };
-    fastWindow.tauri = {
-      invoke: (spec) => call('tauri.invoke', [ensureSpecTimeoutMs(spec)]),
-      streamOpen: (spec) => call('tauri.streamOpen', [ensureSpecTimeoutMs(spec)]),
-      streamCancel: (streamId) => call('tauri.streamCancel', [streamId]),
-      stream: async (spec) => {
-        const r = await call('tauri.streamOpen', [ensureSpecTimeoutMs(spec)]);
-        const streamId = r && r.streamId ? String(r.streamId) : '';
-        return createStream(streamId, 'tauri.streamCancel');
-      },
-    };
-  }
+  ${sdkSurfaceCode}
 
   window.fastWindow = fastWindow;
 })();`
@@ -429,8 +463,6 @@ export function buildPluginShellSrcDoc() {
           globalThis.__fastWindowPort = port;
           try {
             if (!globalThis.fastWindow) globalThis.fastWindow = {};
-            const m = (globalThis.fastWindow.__meta && typeof globalThis.fastWindow.__meta === 'object') ? globalThis.fastWindow.__meta : {};
-            globalThis.fastWindow.__meta = { ...m, pluginId: expected.pluginId, runtime: expected.runtime };
           } catch {}
 
           port.onmessage = async (e) => {

@@ -9,7 +9,9 @@ import { processMethods } from './hostApi/process'
 import { tauriGatewayMethods } from './hostApi/tauriGateway'
 import { taskMethods } from './hostApi/task'
 import type { PluginMethodRegistry } from './hostApi/types'
+import { V3_METHOD } from './hostApi/v3/methodNames'
 import { workspaceMethods } from './hostApi/workspace'
+import type { PluginRpcProfile } from './pluginProfiles'
 
 const coreMethods: PluginMethodRegistry = {
   ...hostMethods,
@@ -40,8 +42,30 @@ const v3Methods: PluginMethodRegistry = {
   ...coreMethods,
 }
 
-function resolveMethodRegistry(ctx: PluginContext): PluginMethodRegistry {
-  return ctx.apiVersion >= 3 ? v3Methods : v2Methods
+function pickMethods(source: PluginMethodRegistry, names: readonly string[]): PluginMethodRegistry {
+  const out: PluginMethodRegistry = {}
+  for (const name of names) out[name] = source[name]
+  return out
+}
+
+const v4Methods = pickMethods(
+  {
+    ...hostMethods,
+    ...backgroundMethods,
+  },
+  [
+    V3_METHOD.host.back,
+    V3_METHOD.host.toast,
+    V3_METHOD.host.activatePlugin,
+    V3_METHOD.host.startDragging,
+    V3_METHOD.background.invoke,
+  ],
+)
+
+function resolveMethodRegistry(profile: PluginRpcProfile): PluginMethodRegistry {
+  if (profile === 'v4') return v4Methods
+  if (profile === 'v3') return v3Methods
+  return v2Methods
 }
 
 export async function dispatchPluginMethod(
@@ -50,11 +74,12 @@ export async function dispatchPluginMethod(
   args: unknown,
   extra: {
     runtime: 'ui' | 'background'
+    rpcProfile: PluginRpcProfile
     onBack?: () => void
     postStream?: (payload: { streamId: string; event: any }) => void
   },
 ) {
-  const def = resolveMethodRegistry(ctx)[String(method)]
+  const def = resolveMethodRegistry(extra.rpcProfile)[String(method)]
   if (!def) throw new PluginBridgeError('UNKNOWN_METHOD', `Unknown method: ${String(method)}`)
 
   const list = Array.isArray(args) ? (args as unknown[]) : []

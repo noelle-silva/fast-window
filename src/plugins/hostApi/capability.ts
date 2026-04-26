@@ -1,6 +1,6 @@
 import type { PluginContext } from '../pluginApi'
 import { PluginBridgeError } from '../pluginBridge'
-import { TRUSTED_LOCAL_APP_PLUGIN_API_VERSION } from '../pluginContract'
+import { isTrustedLocalApp, usesSystemBackend } from '../pluginProfiles'
 
 export function isCapabilityAllowed(requires: readonly string[] | undefined, needed: string): boolean {
   if (!requires || requires.length === 0) return false
@@ -46,8 +46,8 @@ export function isTauriCommandAllowed(requires: readonly string[] | undefined, c
 }
 
 export function requireAnyCapability(ctx: PluginContext, needed: string[], message?: string) {
-  if (ctx.apiVersion < 3) return
-  if (ctx.apiVersion >= TRUSTED_LOCAL_APP_PLUGIN_API_VERSION && needed.some(cap => cap.startsWith('cap:background.'))) return
+  if (!usesSystemBackend(ctx.apiVersion)) return
+  if (isTrustedLocalApp(ctx.apiVersion) && needed.some(cap => cap.startsWith('cap:background.') || cap.startsWith('cap:host.'))) return
   if (needed.some(cap => isCapabilityAllowed(ctx.requires, cap))) return
 
   throw new PluginBridgeError(
