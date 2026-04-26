@@ -39,6 +39,21 @@ import { parseSortableId, sortableGroupId, sortableGroupSlotId, sortableTabId, s
 import { useOpenTabsSortableDnd } from './useOpenTabsSortableDnd'
 import { useOpenTabsSortableOverlay } from './OpenTabsSortableOverlay'
 
+const ACTIVE_TAB_SCROLL_PADDING = 16
+
+function scrollActiveTabIntoView(container: HTMLElement, row: HTMLElement) {
+  const containerRect = container.getBoundingClientRect()
+  const rowRect = row.getBoundingClientRect()
+  const upperOverflow = rowRect.top - containerRect.top - ACTIVE_TAB_SCROLL_PADDING
+  const lowerOverflow = rowRect.bottom - containerRect.bottom + ACTIVE_TAB_SCROLL_PADDING
+
+  if (upperOverflow < 0) {
+    container.scrollTo({ top: Math.max(0, container.scrollTop + upperOverflow), behavior: 'smooth' })
+    return
+  }
+  if (lowerOverflow > 0) container.scrollTo({ top: container.scrollTop + lowerOverflow, behavior: 'smooth' })
+}
+
 function DndInsertCursor(props: { pos: 'before' | 'after'; color?: string }) {
   const { pos, color } = props
   const top = pos === 'before' ? 0 : 'auto'
@@ -209,10 +224,11 @@ export type OpenTabsPanelProps = {
 
 type GroupMenuState = { mouseX: number; mouseY: number; groupId: string } | null
 
-function getSortableTabRowProps(args?: SortableItemRenderArgs, label?: string) {
+function getSortableTabRowProps(args?: SortableItemRenderArgs, label?: string, activeRef?: React.MutableRefObject<HTMLElement | null>) {
   if (!args) return {}
   return {
     ref: (node: HTMLElement | null) => {
+      if (activeRef) activeRef.current = node
       args.setNodeRef(node)
       args.setHandleRef(node)
     },
@@ -332,6 +348,15 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
   const [workspaceMenuAnchorEl, setWorkspaceMenuAnchorEl] = React.useState<HTMLElement | null>(null)
   const [workspaceEditor, setWorkspaceEditor] = React.useState<{ mode: 'create' | 'rename'; title: string } | null>(null)
   const [workspaceDeleteTarget, setWorkspaceDeleteTarget] = React.useState<{ id: string; title: string } | null>(null)
+  const scrollContainerRef = React.useRef<HTMLDivElement | null>(null)
+  const activeTabRowRef = React.useRef<HTMLElement | null>(null)
+
+  React.useLayoutEffect(() => {
+    const container = scrollContainerRef.current
+    const row = activeTabRowRef.current
+    if (!container || !row) return
+    scrollActiveTabIntoView(container, row)
+  }, [activeTabKey, sidebarItems, tabsCollapsed])
 
   const activeWorkspaceTitle = React.useMemo(() => {
     return workspaces.find(w => w.id === activeWorkspaceId)?.title || workspaces[0]?.title || '工作区'
@@ -373,8 +398,9 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           disableTouchListener={disableTitleTooltip}
             >
             <Box
+              ref={isActive ? activeTabRowRef : undefined}
               {...dnd.getTabProps(tabKey)}
-              {...getSortableTabRowProps(opts?.sortable, `拖拽排序 ${title}`)}
+              {...getSortableTabRowProps(opts?.sortable, `拖拽排序 ${title}`, isActive ? activeTabRowRef : undefined)}
             data-hc-dnd-top-index={typeof opts?.topIndex === 'number' ? opts.topIndex : undefined}
             data-hc-dnd-parent-group-id={opts?.parentGroupId || undefined}
             data-hc-dnd-group-tab-index={typeof opts?.groupTabIndex === 'number' ? opts.groupTabIndex : undefined}
@@ -499,8 +525,9 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           disableTouchListener={disableTitleTooltip}
             >
             <Box
+              ref={isActive ? activeTabRowRef : undefined}
               {...dnd.getTabProps(tabKey)}
-              {...getSortableTabRowProps(opts?.sortable, `拖拽排序 ${title}`)}
+              {...getSortableTabRowProps(opts?.sortable, `拖拽排序 ${title}`, isActive ? activeTabRowRef : undefined)}
             data-hc-dnd-top-index={typeof opts?.topIndex === 'number' ? opts.topIndex : undefined}
             data-hc-dnd-parent-group-id={opts?.parentGroupId || undefined}
             data-hc-dnd-group-tab-index={typeof opts?.groupTabIndex === 'number' ? opts.groupTabIndex : undefined}
@@ -606,8 +633,9 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           disableTouchListener={disableTitleTooltip}
             >
             <Box
+              ref={isActive ? activeTabRowRef : undefined}
               {...dnd.getTabProps(tabKey)}
-              {...getSortableTabRowProps(opts?.sortable, `拖拽排序 ${title}`)}
+              {...getSortableTabRowProps(opts?.sortable, `拖拽排序 ${title}`, isActive ? activeTabRowRef : undefined)}
             data-hc-dnd-top-index={typeof opts?.topIndex === 'number' ? opts.topIndex : undefined}
             data-hc-dnd-parent-group-id={opts?.parentGroupId || undefined}
             data-hc-dnd-group-tab-index={typeof opts?.groupTabIndex === 'number' ? opts.groupTabIndex : undefined}
@@ -1052,6 +1080,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       </Box>
 
       <Box
+        ref={scrollContainerRef}
         {...dnd.containerProps}
         data-tauri-drag-region="false"
         sx={{
