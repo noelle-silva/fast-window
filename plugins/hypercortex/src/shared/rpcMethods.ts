@@ -1,0 +1,53 @@
+export const HyperCortexRpc = {
+  notes: {
+    loadIndex: 'hypercortex.notes.loadIndex',
+    rebuildIndex: 'hypercortex.notes.rebuildIndex',
+    create: 'hypercortex.notes.create',
+    savePackage: 'hypercortex.notes.savePackage',
+    loadPackage: 'hypercortex.notes.loadPackage',
+    loadManifest: 'hypercortex.notes.loadManifest',
+    tryReadManifest: 'hypercortex.notes.tryReadManifest',
+    loadFace: 'hypercortex.notes.loadFace',
+    saveFace: 'hypercortex.notes.saveFace',
+    deleteFace: 'hypercortex.notes.deleteFace',
+    loadHtmlFace: 'hypercortex.notes.loadHtmlFace',
+    saveHtmlFace: 'hypercortex.notes.saveHtmlFace',
+    deleteHtmlFace: 'hypercortex.notes.deleteHtmlFace',
+    saveHtmlFaceFixedScale: 'hypercortex.notes.saveHtmlFaceFixedScale',
+  },
+  assets: {
+    ensureIndex: 'hypercortex.assets.ensureIndex',
+    list: 'hypercortex.assets.list',
+    importFiles: 'hypercortex.assets.importFiles',
+    readDataUrl: 'hypercortex.assets.readDataUrl',
+    delete: 'hypercortex.assets.delete',
+    getVideoThumbnail: 'hypercortex.assets.getVideoThumbnail',
+  },
+  refs: {
+    loadIndex: 'hypercortex.refs.loadIndex',
+    saveIndex: 'hypercortex.refs.saveIndex',
+    updateForNote: 'hypercortex.refs.updateForNote',
+    removeNote: 'hypercortex.refs.removeNote',
+  },
+  metadata: {
+    tryLoad: 'hypercortex.metadata.tryLoad',
+    ensure: 'hypercortex.metadata.ensure',
+    save: 'hypercortex.metadata.save',
+  },
+  favorites: {
+    tryLoad: 'hypercortex.favorites.tryLoad',
+    ensure: 'hypercortex.favorites.ensure',
+    save: 'hypercortex.favorites.save',
+  },
+  trash: {
+    list: 'hypercortex.trash.list',
+    moveNote: 'hypercortex.trash.moveNote',
+    permanentlyDeleteNoteDir: 'hypercortex.trash.permanentlyDeleteNoteDir',
+    restore: 'hypercortex.trash.restore',
+    maybeAutoCleanup: 'hypercortex.trash.maybeAutoCleanup',
+  },
+  host: {
+    getLibraryDir: 'hypercortex.host.getLibraryDir',
+    openDir: 'hypercortex.host.openDir',
+  },
+} as const

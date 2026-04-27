@@ -1,18 +1,10 @@
-import { PLUGIN_ID } from '../core'
+import { HyperCortexRpc } from '../shared/rpcMethods'
+import type { BackgroundClient } from './backgroundClient'
 import { createToast } from './toast'
 import type { HostGateway } from './types'
 
-type TauriLike = { invoke: (req: { command: string; payload?: any }) => Promise<any> }
-
-export function requireTauri(baseApi: any): TauriLike {
-  const tauri: TauriLike | null = baseApi?.tauri || null
-  if (!tauri || typeof tauri.invoke !== 'function') throw new Error('tauri.invoke 不可用（请更新宿主网关）')
-  return tauri
-}
-
-export function createHostGateway(baseApi: any): HostGateway {
+export function createHostGateway(baseApi: any, background: BackgroundClient): HostGateway {
   const base = baseApi || {}
-  const tauri = requireTauri(base)
   const baseToast = base?.ui && typeof base.ui.showToast === 'function' ? ((message: string) => base.ui.showToast(message)) : null
   const toast = createToast()
 
@@ -29,24 +21,17 @@ export function createHostGateway(baseApi: any): HostGateway {
       throw new Error('无法返回')
     },
     async startDragging() {
-      try {
-        await tauri.invoke({ command: 'plugin:window|start_dragging', payload: {} })
-      } catch (e: any) {
-        const msg = String(e?.message || e || '无法拖拽')
-        if (baseToast) return baseToast(msg)
-        console.log(`[HyperCortex] ${msg}`)
-      }
+      if (typeof base?.ui?.startDragging === 'function') return base.ui.startDragging()
+      if (typeof base?.host?.startDragging === 'function') return base.host.startDragging()
+      throw new Error('v4 宿主未提供 startDragging')
     },
     async getLibraryDir() {
-      return tauri.invoke({ command: 'plugin_get_library_dir', payload: { pluginId: PLUGIN_ID } })
-    },
-    async pickLibraryDir() {
-      return tauri.invoke({ command: 'plugin_pick_library_dir', payload: { pluginId: PLUGIN_ID } })
+      return background.invoke(HyperCortexRpc.host.getLibraryDir, {})
     },
     async openDir(dir: string) {
       const s = String(dir || '').trim()
       if (!s) throw new Error('dir 不能为空')
-      return tauri.invoke({ command: 'plugin_open_dir', payload: { pluginId: PLUGIN_ID, dir: s } })
+      return background.invoke(HyperCortexRpc.host.openDir, { dir: s })
     },
   }
 }

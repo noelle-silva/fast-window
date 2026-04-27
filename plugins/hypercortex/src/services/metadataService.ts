@@ -1,11 +1,11 @@
-import type { Api } from '../core'
-import { ensureMetadata, saveMetadata, tryLoadMetadata } from '../core'
+import type { BackgroundClient } from '../gateway/backgroundClient'
 import type { MetadataService } from '../gateway/types'
+import { HyperCortexRpc } from '../shared/rpcMethods'
 
-export function createMetadataService(api: Api): MetadataService {
+export function createMetadataService(background: BackgroundClient): MetadataService {
   return {
-    tryLoadMetadata: () => tryLoadMetadata(api),
-    ensureMetadata: () => ensureMetadata(api),
-    saveMetadata: meta => saveMetadata(api, meta),
+    tryLoadMetadata: () => background.invoke(HyperCortexRpc.metadata.tryLoad, {}),
+    ensureMetadata: () => background.invoke(HyperCortexRpc.metadata.ensure, {}),
+    saveMetadata: meta => background.invoke(HyperCortexRpc.metadata.save, { meta }),
   }
 }

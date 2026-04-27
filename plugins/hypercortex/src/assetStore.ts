@@ -228,7 +228,7 @@ export async function scanAssetPool(api: Api, scope: VaultScope): Promise<AssetP
     }
   }
 
-  // 顺手把扫描结果补到 index（开发期：简单粗暴就够用了）
+  // 扫描结果回填索引，保证旧数据和缺失索引可恢复。
   let changed = false
   const nextAssets = { ...idx.assets }
   for (const it of items) {

@@ -2,31 +2,14 @@
   "id": "hypercortex",
   "name": "HyperCortex",
   "author": "fast-window",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "HTML 原子笔记：Notes/Assets + 索引库",
-  "main": "index.js",
-  "icon": "svg:icon.svg",
-  "keyword": "note",
-  "apiVersion": 2,
-  "ui": {
-    "type": "iframe",
-    "keepAlive": true
+  "main": "ui/index.js",
+  "background": {
+    "main": "backend/index.js",
+    "lifecycle": "on_demand"
   },
-  "requires": [
-    "tauri:plugin:window|start_dragging",
-    "tauri:plugin_get_library_dir",
-    "tauri:plugin_pick_library_dir",
-    "tauri:plugin_open_dir",
-    "tauri:plugin_files_list_dir",
-    "tauri:plugin_files_read_text",
-    "tauri:plugin_files_write_text",
-    "tauri:plugin_files_read_base64",
-    "tauri:plugin_files_thumbnail",
-    "tauri:plugin_files_write_base64",
-    "tauri:plugin_files_rename",
-    "tauri:plugin_files_delete",
-    "tauri:plugin_files_delete_tree",
-    "tauri:plugin_pick_images",
-    "tauri:plugin:clipboard-manager|write_text"
-  ]
+  "icon": "assets/icon.svg",
+  "keyword": "note",
+  "apiVersion": 4
 }

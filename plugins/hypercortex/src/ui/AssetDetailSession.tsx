@@ -5,6 +5,7 @@ import { pickAssetDisplayName } from '../assetDisplayName'
 import type { AssetEntry } from '../assetTypes'
 import { assetRefKey } from '../assetTypes'
 import type { HyperCortexGateway } from '../gateway'
+import { revokeAssetBlobUrl } from '../assetBlobUrl'
 import { AssetPreviewSurface } from './assetPreview/AssetPreviewSurface'
 import { getAssetPreviewDescriptor } from './assetPreview/registry'
 
@@ -44,6 +45,10 @@ export function AssetDetailSession({
     if (!visible) return
     void load()
   }, [load, visible])
+
+  React.useEffect(() => {
+    return () => revokeAssetBlobUrl(asset.assetId, asset.ext)
+  }, [asset.assetId, asset.ext])
 
   const Icon = preview.icon
 

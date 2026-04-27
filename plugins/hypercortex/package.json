@@ -26,6 +26,20 @@
     "react-dom": "^18.2.0"
   },
   "fastWindowPlugin": {
-    "entry": "src/index.tsx"
+    "entry": "src/ui/index.tsx",
+    "background": {
+      "dev": {
+        "kind": "node-bundle",
+        "entry": "src/backend/index.ts",
+        "main": "backend/index.js",
+        "runtime": "node"
+      },
+      "release": {
+        "kind": "node-bundle",
+        "entry": "src/backend/index.ts",
+        "main": "backend/index.js",
+        "runtime": "node"
+      }
+    }
   }
 }

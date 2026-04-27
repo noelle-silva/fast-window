@@ -1,4 +1,5 @@
-import { type Api, ensureVaultDirs, extFromMime, kindFromMime, mimeFromDataUrl, sha256Hex, type VaultScope } from './core'
+import { type Api, ensureVaultDirs, type VaultScope } from './core'
+import { extFromMime, kindFromMime, mimeFromDataUrl } from './assetFileTypes'
 import type { HyperCortexNoteResourceRef } from './noteSchema'
 import { deleteAssetById, getAssetWriteRelPath, recordAssetWritten, resolveAssetRelPath, scanAssetPool } from './assetStore'
 
@@ -12,7 +13,7 @@ export async function importImageToAssetPool(
   await ensureVaultDirs(api, scope)
   const dataUrl = String(input.dataUrl || '').trim()
   if (!dataUrl) throw new Error('图片数据为空')
-  const assetId = await sha256Hex(dataUrl)
+  const assetId = await getSha256Hex(dataUrl)
   const mime = mimeFromDataUrl(dataUrl)
   const ext = extFromMime(mime)
   const path = await getAssetWriteRelPath(api, scope, assetId, ext, 'image')
@@ -54,7 +55,7 @@ export async function importFileToAssetPool(
   await ensureVaultDirs(api, scope)
   const dataUrl = String(input.dataUrl || '').trim()
   if (!dataUrl) throw new Error('文件数据为空')
-  const assetId = await sha256Hex(dataUrl)
+  const assetId = await getSha256Hex(dataUrl)
   const mime = mimeFromDataUrl(dataUrl)
   const ext = extFromMime(mime)
   const kind = kindFromMime(mime)
@@ -100,4 +101,10 @@ export async function readAssetAsDataUrl(api: Api, scope: VaultScope, assetId: s
 export async function deleteAssetFromPool(api: Api, scope: VaultScope, assetId: string, ext?: string): Promise<void> {
   await ensureVaultDirs(api, scope)
   await deleteAssetById(api, scope, assetId, ext)
+}
+
+async function getSha256Hex(dataUrlOrBase64: string): Promise<string> {
+  const hasher = (globalThis as any).__hypercortexSha256Hex
+  if (typeof hasher !== 'function') throw new Error('HyperCortex sha256 hasher 未初始化')
+  return hasher(dataUrlOrBase64)
 }

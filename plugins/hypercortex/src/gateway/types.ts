@@ -1,4 +1,4 @@
-import type { Api, VaultScope } from '../core'
+import type { VaultScope } from '../core'
 import type { AssetPoolItem, HyperCortexAssetsIndexV1 } from '../assetStore'
 import type { HyperCortexFavoritesDocV1 } from '../favorites'
 import type { NoteRefIndex } from '../noteRefs'
@@ -10,41 +10,30 @@ import type { HyperCortexNoteManifestV1, HyperCortexNoteResourceRef } from '../n
 import type { HyperCortexIndexV1, HyperCortexMetadataV1, HyperCortexNoteDoc, NoteMeta } from '../core'
 import type { HyperCortexTrashItem } from '../trash'
 
-export type FileGateway = Api['files'] & {
-  getThumbnail: (req: { scope: VaultScope; path: string; width?: number | null; height?: number | null }) => Promise<string>
-}
-
 export type HostGateway = {
   toast: (message: string) => Promise<void>
   back: () => Promise<void>
   startDragging: () => Promise<void>
   getLibraryDir: () => Promise<string>
-  pickLibraryDir: () => Promise<string | null>
   openDir: (dir: string) => Promise<void>
 }
 
-export type ClipboardGateway = Api['clipboard']
-
-export type LowLevelGateway = {
-  host: HostGateway
-  files: FileGateway
-  clipboard: ClipboardGateway
+export type ClipboardGateway = {
+  writeText: (text: string) => Promise<void>
 }
 
-type WithoutApi<F> = F extends (api: Api, ...args: infer P) => infer R ? (...args: P) => R : never
-
 export type NotesService = {
-  saveNotePackage: WithoutApi<typeof import('../notePackage').saveNotePackage>
-  loadNotePackage: WithoutApi<typeof import('../notePackage').loadNotePackage>
-  loadNoteManifest: WithoutApi<typeof import('../notePackage').loadNoteManifest>
-  tryReadNoteManifest: WithoutApi<typeof import('../notePackage').tryReadNoteManifest>
-  loadNoteFace: WithoutApi<typeof import('../notePackage').loadNoteFace>
-  saveNoteFace: WithoutApi<typeof import('../notePackage').saveNoteFace>
-  deleteNoteFace: WithoutApi<typeof import('../notePackage').deleteNoteFace>
-  loadHtmlFace: WithoutApi<typeof import('../notePackage').loadHtmlFace>
-  saveHtmlFace: WithoutApi<typeof import('../notePackage').saveHtmlFace>
-  deleteHtmlFace: WithoutApi<typeof import('../notePackage').deleteHtmlFace>
-  saveHtmlFaceFixedScale: WithoutApi<typeof import('../notePackage').saveHtmlFaceFixedScale>
+  saveNotePackage: (scope: VaultScope, input: Parameters<typeof import('../notePackage').saveNotePackage>[2]) => Promise<{ meta: NoteMeta; doc: HyperCortexNoteDoc }>
+  loadNotePackage: (scope: VaultScope, packageDir: string) => Promise<HyperCortexNoteDoc>
+  loadNoteManifest: (scope: VaultScope, packageDir: string) => Promise<HyperCortexNoteManifestV1>
+  tryReadNoteManifest: (scope: VaultScope, packageDir: string) => Promise<HyperCortexNoteManifestV1 | null>
+  loadNoteFace: (scope: VaultScope, packageDir: string, faceId: string) => Promise<HyperCortexNoteFaceDoc>
+  saveNoteFace: (scope: VaultScope, input: Parameters<typeof import('../notePackage').saveNoteFace>[2]) => Promise<{ meta: NoteMeta; faceDoc: HyperCortexNoteFaceDoc; manifest: HyperCortexNoteManifestV1 }>
+  deleteNoteFace: (scope: VaultScope, packageDir: string, faceId: string) => Promise<HyperCortexNoteManifestV1>
+  loadHtmlFace: (scope: VaultScope, packageDir: string) => Promise<HyperCortexHtmlFaceDoc>
+  saveHtmlFace: (scope: VaultScope, input: Parameters<typeof import('../notePackage').saveHtmlFace>[2]) => Promise<{ meta: NoteMeta; htmlFace: HyperCortexHtmlFaceDoc }>
+  deleteHtmlFace: (scope: VaultScope, packageDir: string) => Promise<HyperCortexHtmlFaceDoc>
+  saveHtmlFaceFixedScale: (scope: VaultScope, packageDir: string, fixedScale: number | null) => Promise<void>
   loadNoteIndex: (scope: VaultScope) => Promise<HyperCortexIndexV1>
   rebuildNoteIndexFromFs: (scope: VaultScope, idx: HyperCortexIndexV1) => Promise<HyperCortexIndexV1>
   createEmptyNote: (scope: VaultScope, input: Parameters<typeof import('../notePackage').saveNotePackage>[2]) => Promise<{ meta: NoteMeta; doc: HyperCortexNoteDoc }>
@@ -87,7 +76,9 @@ export type MetadataService = {
   saveMetadata: (meta: HyperCortexMetadataV1) => Promise<void>
 }
 
-export type HyperCortexGateway = LowLevelGateway & {
+export type HyperCortexGateway = {
+  host: HostGateway
+  clipboard: ClipboardGateway
   notes: NotesService
   assets: AssetsService
   favorites: FavoritesService

@@ -1,11 +1,11 @@
-import type { Api } from '../core'
-import { ensureFavorites, saveFavorites, tryLoadFavorites } from '../favorites'
+import type { BackgroundClient } from '../gateway/backgroundClient'
 import type { FavoritesService } from '../gateway/types'
+import { HyperCortexRpc } from '../shared/rpcMethods'
 
-export function createFavoritesService(api: Api): FavoritesService {
+export function createFavoritesService(background: BackgroundClient): FavoritesService {
   return {
-    ensureFavorites: () => ensureFavorites(api),
-    tryLoadFavorites: () => tryLoadFavorites(api),
-    saveFavorites: doc => saveFavorites(api, doc),
+    ensureFavorites: () => background.invoke(HyperCortexRpc.favorites.ensure, {}),
+    tryLoadFavorites: () => background.invoke(HyperCortexRpc.favorites.tryLoad, {}),
+    saveFavorites: doc => background.invoke(HyperCortexRpc.favorites.save, { doc }),
   }
 }

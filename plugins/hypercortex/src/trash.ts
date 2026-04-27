@@ -2,7 +2,7 @@ import { ASSETS_DIR, NOTES_DIR, ensureIndex, saveIndex, type Api, type NoteMeta,
 import { removeNoteFromRefIndex } from './noteRefs'
 import { NOTE_MANIFEST_FILE, createNoteManifest, type HyperCortexNoteManifestV1 } from './noteSchema'
 
-const TRASH_DIR = 'Trash'
+export const TRASH_DIR = 'Trash'
 const TRASH_META_FILE = 'trash-meta.json'
 
 type TrashMetaV1 = {

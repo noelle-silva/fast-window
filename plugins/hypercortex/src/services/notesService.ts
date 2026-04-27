@@ -1,36 +1,22 @@
-import type { Api, VaultScope } from '../core'
-import {
-  deleteHtmlFace,
-  deleteNoteFace,
-  loadHtmlFace,
-  loadNoteFace,
-  loadNoteIndex as loadNoteIndexWithApi,
-  loadNoteManifest,
-  loadNotePackage,
-  rebuildNoteIndexFromFs,
-  saveHtmlFace,
-  saveHtmlFaceFixedScale,
-  saveNoteFace,
-  saveNotePackage,
-  tryReadNoteManifest,
-} from '../notePackage'
 import type { NotesService } from '../gateway/types'
+import type { BackgroundClient } from '../gateway/backgroundClient'
+import { HyperCortexRpc } from '../shared/rpcMethods'
 
-export function createNotesService(api: Api): NotesService {
+export function createNotesService(background: BackgroundClient): NotesService {
   return {
-    saveNotePackage: (scope, input) => saveNotePackage(api, scope, input),
-    loadNotePackage: (scope, packageDir) => loadNotePackage(api, scope, packageDir),
-    loadNoteManifest: (scope, packageDir) => loadNoteManifest(api, scope, packageDir),
-    tryReadNoteManifest: (scope, packageDir) => tryReadNoteManifest(api, scope, packageDir),
-    loadNoteFace: (scope, packageDir, faceId) => loadNoteFace(api, scope, packageDir, faceId),
-    saveNoteFace: (scope, input) => saveNoteFace(api, scope, input),
-    deleteNoteFace: (scope, packageDir, faceId) => deleteNoteFace(api, scope, packageDir, faceId),
-    loadHtmlFace: (scope, packageDir) => loadHtmlFace(api, scope, packageDir),
-    saveHtmlFace: (scope, input) => saveHtmlFace(api, scope, input),
-    deleteHtmlFace: (scope, packageDir) => deleteHtmlFace(api, scope, packageDir),
-    saveHtmlFaceFixedScale: (scope, packageDir, fixedScale) => saveHtmlFaceFixedScale(api, scope, packageDir, fixedScale),
-    loadNoteIndex: (scope: VaultScope) => loadNoteIndexWithApi(api, scope),
-    rebuildNoteIndexFromFs: (scope, idx) => rebuildNoteIndexFromFs(api, scope, idx),
-    createEmptyNote: (scope, input) => saveNotePackage(api, scope, input),
+    saveNotePackage: (scope, input) => background.invoke(HyperCortexRpc.notes.savePackage, { scope, input }),
+    loadNotePackage: (scope, packageDir) => background.invoke(HyperCortexRpc.notes.loadPackage, { scope, packageDir }),
+    loadNoteManifest: (scope, packageDir) => background.invoke(HyperCortexRpc.notes.loadManifest, { scope, packageDir }),
+    tryReadNoteManifest: (scope, packageDir) => background.invoke(HyperCortexRpc.notes.tryReadManifest, { scope, packageDir }),
+    loadNoteFace: (scope, packageDir, faceId) => background.invoke(HyperCortexRpc.notes.loadFace, { scope, packageDir, faceId }),
+    saveNoteFace: (scope, input) => background.invoke(HyperCortexRpc.notes.saveFace, { scope, input }),
+    deleteNoteFace: (scope, packageDir, faceId) => background.invoke(HyperCortexRpc.notes.deleteFace, { scope, packageDir, faceId }),
+    loadHtmlFace: (scope, packageDir) => background.invoke(HyperCortexRpc.notes.loadHtmlFace, { scope, packageDir }),
+    saveHtmlFace: (scope, input) => background.invoke(HyperCortexRpc.notes.saveHtmlFace, { scope, input }),
+    deleteHtmlFace: (scope, packageDir) => background.invoke(HyperCortexRpc.notes.deleteHtmlFace, { scope, packageDir }),
+    saveHtmlFaceFixedScale: (scope, packageDir, fixedScale) => background.invoke(HyperCortexRpc.notes.saveHtmlFaceFixedScale, { scope, packageDir, fixedScale }),
+    loadNoteIndex: scope => background.invoke(HyperCortexRpc.notes.loadIndex, { scope }),
+    rebuildNoteIndexFromFs: (scope, idx) => background.invoke(HyperCortexRpc.notes.rebuildIndex, { scope, idx }),
+    createEmptyNote: (scope, input) => background.invoke(HyperCortexRpc.notes.create, { scope, input }),
   }
 }

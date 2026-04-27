@@ -1,5 +1,5 @@
 import type { VaultScope } from './core'
-import { mimeFromExt } from './core'
+import { mimeFromExt } from './assetFileTypes'
 import type { AssetsService } from './gateway/types'
 
 const blobUrlCache = new Map<string, string>()
@@ -41,5 +41,18 @@ export async function getAssetBlobUrl(assets: Pick<AssetsService, 'readAssetData
   const url = URL.createObjectURL(blob)
   blobUrlCache.set(key, url)
   return url
+}
+
+export function revokeAssetBlobUrl(assetId: string, ext: string): void {
+  const key = cacheKey(String(assetId || '').trim(), String(ext || '').trim().toLowerCase())
+  const url = blobUrlCache.get(key)
+  if (!url) return
+  URL.revokeObjectURL(url)
+  blobUrlCache.delete(key)
+}
+
+export function revokeAllAssetBlobUrls(): void {
+  for (const url of blobUrlCache.values()) URL.revokeObjectURL(url)
+  blobUrlCache.clear()
 }
 

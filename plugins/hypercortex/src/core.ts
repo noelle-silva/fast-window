@@ -1,5 +1,5 @@
-import { NOTE_MANIFEST_FILE, createNoteManifest, type HyperCortexNoteManifestV1 } from './noteSchema'
 import type { HyperCortexShortcutBindingsV1 } from './shortcuts'
+export { acceptString, extFromMime, kindFromMime, mimeFromDataUrl, mimeFromExt } from './assetFileTypes'
 
 export type VaultScope = 'library' | 'data'
 
@@ -143,127 +143,6 @@ export function noteMonthFolderFromIdOrNow(id: string): string {
 export { escapeHtml } from './html'
 export type { HyperCortexNoteDoc } from './noteSchema'
 
-export async function sha256Hex(dataUrlOrBase64: string): Promise<string> {
-  const s = String(dataUrlOrBase64 || '').trim()
-  const b64 = s.startsWith('data:') ? s.split(',', 2)[1] || '' : s
-  const bin = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
-  const hash = await crypto.subtle.digest('SHA-256', bin)
-  const out = Array.from(new Uint8Array(hash))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('')
-  return out
-}
-
-export function mimeFromDataUrl(dataUrl: string): string {
-  const m = /^data:([^;]+);base64,/.exec(String(dataUrl || '').trim())
-  return m ? String(m[1] || '').toLowerCase() : ''
-}
-
-export function extFromMime(mime: string): string {
-  const m = String(mime || '').toLowerCase()
-  if (m === 'image/jpeg') return 'jpg'
-  if (m === 'image/png') return 'png'
-  if (m === 'image/webp') return 'webp'
-  if (m === 'image/gif') return 'gif'
-  if (m === 'image/svg+xml') return 'svg'
-
-  if (m === 'audio/mpeg') return 'mp3'
-  if (m === 'audio/wav') return 'wav'
-  if (m === 'audio/ogg') return 'ogg'
-  if (m === 'audio/flac') return 'flac'
-  if (m === 'audio/aac') return 'aac'
-  if (m === 'audio/mp4') return 'm4a'
-
-  if (m === 'video/mp4') return 'mp4'
-  if (m === 'video/x-m4v') return 'm4v'
-  if (m === 'video/webm') return 'webm'
-  if (m === 'video/quicktime') return 'mov'
-  if (m === 'video/ogg') return 'ogv'
-
-  if (m === 'application/pdf') return 'pdf'
-  if (m === 'text/plain') return 'txt'
-  if (m === 'text/csv') return 'csv'
-  if (m === 'application/zip') return 'zip'
-  if (m === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'docx'
-  if (m === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') return 'xlsx'
-  if (m === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') return 'pptx'
-  return ''
-}
-
-export function mimeFromExt(ext: string): string {
-  const e = String(ext || '')
-    .toLowerCase()
-    .replace(/^\./, '')
-    .trim()
-
-  if (e === 'jpg') return 'image/jpeg'
-  if (e === 'png') return 'image/png'
-  if (e === 'webp') return 'image/webp'
-  if (e === 'gif') return 'image/gif'
-  if (e === 'svg') return 'image/svg+xml'
-
-  if (e === 'mp3') return 'audio/mpeg'
-  if (e === 'wav') return 'audio/wav'
-  if (e === 'ogg') return 'audio/ogg'
-  if (e === 'flac') return 'audio/flac'
-  if (e === 'aac') return 'audio/aac'
-  if (e === 'm4a') return 'audio/mp4'
-
-  if (e === 'mp4') return 'video/mp4'
-  if (e === 'm4v') return 'video/x-m4v'
-  if (e === 'webm') return 'video/webm'
-  if (e === 'mov') return 'video/quicktime'
-  if (e === 'ogv') return 'video/ogg'
-
-  if (e === 'pdf') return 'application/pdf'
-  if (e === 'txt') return 'text/plain'
-  if (e === 'csv') return 'text/csv'
-  if (e === 'zip') return 'application/zip'
-  if (e === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-  if (e === 'xlsx') return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-  if (e === 'pptx') return 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-
-  return ''
-}
-
-export function kindFromMime(mime: string): string {
-  const m = String(mime || '').toLowerCase().trim()
-  if (m.startsWith('image/')) return 'image'
-  if (m.startsWith('audio/')) return 'audio'
-  if (m.startsWith('video/')) return 'video'
-  return 'document'
-}
-
-export const ACCEPTED_FILE_EXTENSIONS = [
-  'jpg',
-  'png',
-  'webp',
-  'gif',
-  'svg',
-  'mp3',
-  'wav',
-  'ogg',
-  'flac',
-  'aac',
-  'm4a',
-  'mp4',
-  'm4v',
-  'webm',
-  'mov',
-  'ogv',
-  'pdf',
-  'txt',
-  'csv',
-  'zip',
-  'docx',
-  'xlsx',
-  'pptx',
-] as const
-
-export function acceptString(): string {
-  return ACCEPTED_FILE_EXTENSIONS.map(ext => `.${ext}`).join(',')
-}
-
 export function monthFolder(now = new Date()): string {
   const y = now.getFullYear()
   const m = String(now.getMonth() + 1).padStart(2, '0')
@@ -277,24 +156,6 @@ export async function ensureVaultDirs(api: Api, scope: VaultScope): Promise<void
   await api.files.listDir({ scope, dir: `${ASSETS_DIR}/images` }).catch(() => {})
   await api.files.listDir({ scope, dir: `${ASSETS_DIR}/videos` }).catch(() => {})
   await api.files.listDir({ scope, dir: `${ASSETS_DIR}/docs` }).catch(() => {})
-}
-
-function normalizeManifest(input: any): HyperCortexNoteManifestV1 {
-  const id = String(input?.id || '').trim()
-  if (!id) throw new Error('笔记 manifest 缺少 id')
-  return createNoteManifest({
-    id,
-    title: input?.title,
-    description: input?.description,
-    tags: Array.isArray(input?.tags) ? input.tags : [],
-    createdAtMs: Number(input?.createdAtMs),
-    updatedAtMs: Number(input?.updatedAtMs),
-    schemaVersion: Number(input?.schemaVersion),
-    resources: Array.isArray(input?.resources) ? input.resources : [],
-    faces: input?.faces,
-    primaryFaceId: input?.primaryFaceId,
-    faceOrder: Array.isArray(input?.faceOrder) ? input.faceOrder : [],
-  })
 }
 
 export async function probeHasVault(api: Api, scope: VaultScope): Promise<boolean> {
@@ -389,34 +250,3 @@ export async function saveMetadata(api: Api, meta: HyperCortexMetadataV1): Promi
   await api.files.writeText({ scope: 'data', path: METADATA_FILE, text: JSON.stringify(meta, null, 2), overwrite: true })
 }
 
-export async function rebuildIndexFromFs(api: Api, scope: VaultScope, idx: HyperCortexIndexV1): Promise<HyperCortexIndexV1> {
-  await ensureVaultDirs(api, scope)
-  const monthDirs = await api.files.listDir({ scope, dir: NOTES_DIR }).catch(() => [])
-  const nextNotes: Record<string, NoteMeta> = {}
-
-  for (const monthDir of monthDirs) {
-    if (!monthDir.isDirectory) continue
-    const packageDirs = await api.files.listDir({ scope, dir: `${NOTES_DIR}/${monthDir.name}` }).catch(() => [])
-    for (const packageEntry of packageDirs) {
-      if (!packageEntry.isDirectory) continue
-      const packageDir = `${NOTES_DIR}/${monthDir.name}/${packageEntry.name}`
-      try {
-        const raw = await api.files.readText({ scope, path: `${packageDir}/${NOTE_MANIFEST_FILE}` })
-        const manifest = normalizeManifest(JSON.parse(raw || 'null'))
-        nextNotes[manifest.id] = {
-          id: manifest.id,
-          title: manifest.title,
-          description: manifest.description,
-          dir: packageDir,
-          createdAtMs: Number(manifest.createdAtMs) > 0 ? Number(manifest.createdAtMs) : packageEntry.modifiedMs || Date.now(),
-          updatedAtMs: Number(manifest.updatedAtMs) > 0 ? Number(manifest.updatedAtMs) : packageEntry.modifiedMs || Date.now(),
-        }
-      } catch {
-      }
-    }
-  }
-
-  const next: HyperCortexIndexV1 = { ...idx, notes: nextNotes }
-  await saveIndex(api, scope, next).catch(() => {})
-  return next
-}
