@@ -30,7 +30,8 @@ function withDevSyncDisabledEnv() {
 async function main() {
   const rawArgs = process.argv.slice(2)
   const skipPluginWatch = process.env.FAST_WINDOW_SKIP_PLUGIN_WATCH === '1' || rawArgs.includes('--no-plugin-watch')
-  const args = rawArgs.filter(arg => arg !== '--no-plugin-watch')
+  const skipPluginDevSync = process.env.FAST_WINDOW_SKIP_PLUGIN_DEV_SYNC === '1' || rawArgs.includes('--no-plugin-dev-sync')
+  const args = rawArgs.filter(arg => arg !== '--no-plugin-watch' && arg !== '--no-plugin-dev-sync')
   const sub = (args[0] || '').trim()
   const isDev = sub === 'dev'
   const isBuild = sub === 'build'
@@ -40,13 +41,14 @@ async function main() {
 
   if (isDev) {
     if (skipPluginWatch) {
-      const code = await waitExit(runTauri(args, { env: withDevSyncDisabledEnv() }))
+      const opts = skipPluginDevSync ? { env: withDevSyncDisabledEnv() } : {}
+      const code = await waitExit(runTauri(args, opts))
       process.exit(code)
       return
     }
 
     const watch = run('pnpm', pluginFilter ? ['run', 'plugins:watch', '--', '--plugin', pluginFilter] : ['run', 'plugins:watch'])
-    const tauri = runTauri(args)
+    const tauri = runTauri(args, skipPluginDevSync ? { env: withDevSyncDisabledEnv() } : {})
     const procs = [watch, tauri]
 
     const shutdown = (code) => {

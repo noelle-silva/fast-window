@@ -42,6 +42,45 @@ fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+#[cfg(debug_assertions)]
+fn copy_dir_entries(src: &Path, dst: &Path, entries: &[&str]) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for name in entries {
+        let from = src.join(name);
+        if !from.exists() {
+            continue;
+        }
+        let to = dst.join(name);
+        if from.is_dir() {
+            copy_dir_all(&from, &to)?;
+        } else if from.is_file() {
+            if let Some(parent) = to.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            std::fs::copy(&from, &to)?;
+        }
+    }
+    Ok(())
+}
+
+#[cfg(debug_assertions)]
+fn cleanup_stale_dev_sync_dirs(parent: &Path, plugin_id: &str) {
+    let prefix = format!(".tmp-dev-sync-{plugin_id}-");
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(ty) = entry.file_type() else { continue };
+        if !ty.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with(&prefix) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
 fn replace_dir_from_tmp(dst: &Path, tmp: &Path, tag: &str) -> Result<(), String> {
     let Some(parent) = dst.parent() else {
         let _ = std::fs::remove_dir_all(tmp);
@@ -499,11 +538,12 @@ pub(crate) fn get_plugins_dir(app: tauri::AppHandle) -> String {
             Ok(out)
         }
 
-        fn sync_complete_plugin_dir(src: &Path, dst: &Path, plugin_id: &str) -> Result<(), String> {
+        fn sync_v4_runtime_plugin_dir(src: &Path, dst: &Path, plugin_id: &str) -> Result<(), String> {
             let Some(parent) = dst.parent() else {
                 return Err("目标插件目录没有父目录".to_string());
             };
             std::fs::create_dir_all(parent).map_err(|e| format!("创建插件目录失败: {e}"))?;
+            cleanup_stale_dev_sync_dirs(parent, plugin_id);
 
             let stamp = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -514,7 +554,8 @@ pub(crate) fn get_plugins_dir(app: tauri::AppHandle) -> String {
                 let _ = std::fs::remove_dir_all(&tmp);
             }
 
-            copy_dir_all(src, &tmp).map_err(|e| format!("复制完整插件目录失败: {e}"))?;
+            copy_dir_entries(src, &tmp, &["manifest.json", "assets", "ui", "backend", "shared"])
+                .map_err(|e| format!("复制 v4 插件运行目录失败: {e}"))?;
             replace_dir_from_tmp(dst, &tmp, &format!("dev-sync-{plugin_id}"))
         }
 
@@ -592,8 +633,8 @@ pub(crate) fn get_plugins_dir(app: tauri::AppHandle) -> String {
 
                 let dst = plugins_dir.join(&plugin_id);
                 if is_trusted_local_app_manifest(&manifest) {
-                    // v4 开发同步以完整本地应用包为单位，避免 ui/assets、backend/assets、shared 等目录丢失。
-                    let _ = sync_complete_plugin_dir(&src, &dst, &plugin_id).and_then(|_| {
+                    // v4 开发同步只复制运行产物目录，避免 node_modules/src/dev-docs 等开发目录拖慢宿主启动。
+                    let _ = sync_v4_runtime_plugin_dir(&src, &dst, &plugin_id).and_then(|_| {
                         if let Some(dev_manifest) =
                             dev_background_manifest_override(&src, &manifest)
                         {
