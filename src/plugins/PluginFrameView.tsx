@@ -139,7 +139,6 @@ export default function PluginFrameView(props: PluginFrameViewProps) {
     <iframe
       ref={iframeRef}
       title={title ?? pluginId}
-      sandbox="allow-scripts"
       srcDoc={srcDoc}
       onLoad={onLoad}
       key={`${pluginId}-${runtime}-v${apiVersion}-${hashPluginCode(pluginCode)}`}
