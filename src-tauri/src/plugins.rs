@@ -554,7 +554,7 @@ pub(crate) fn get_plugins_dir(app: tauri::AppHandle) -> String {
                 let _ = std::fs::remove_dir_all(&tmp);
             }
 
-            copy_dir_entries(src, &tmp, &["manifest.json", "assets", "ui", "backend", "shared"])
+            copy_dir_entries(src, &tmp, &["manifest.json", "package.json", "assets", "ui", "backend", "shared"])
                 .map_err(|e| format!("复制 v4 插件运行目录失败: {e}"))?;
             replace_dir_from_tmp(dst, &tmp, &format!("dev-sync-{plugin_id}"))
         }
