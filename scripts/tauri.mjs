@@ -1,5 +1,11 @@
 import { spawn } from 'node:child_process'
+import path from 'node:path'
 import process from 'node:process'
+import { fileURLToPath } from 'node:url'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const rootDir = path.resolve(__dirname, '..')
 
 function run(cmd, args, opts = {}) {
   return spawn(cmd, args, { stdio: 'inherit', shell: true, ...opts })
@@ -27,6 +33,14 @@ function withDevSyncDisabledEnv() {
   }
 }
 
+function devPluginSyncEnv() {
+  return {
+    ...process.env,
+    FAST_WINDOW_PLUGIN_DEV_SYNC: '1',
+    FAST_WINDOW_PLUGIN_DEV_SYNC_DIR: process.env.FAST_WINDOW_PLUGIN_DEV_SYNC_DIR || path.join(rootDir, 'src-tauri', 'target', 'debug', 'plugins'),
+  }
+}
+
 async function main() {
   const rawArgs = process.argv.slice(2)
   const skipPluginWatch = process.env.FAST_WINDOW_SKIP_PLUGIN_WATCH === '1' || rawArgs.includes('--no-plugin-watch')
@@ -47,7 +61,15 @@ async function main() {
       return
     }
 
-    const watch = run('pnpm', pluginFilter ? ['run', 'plugins:watch', '--', '--plugin', pluginFilter] : ['run', 'plugins:watch'])
+    const pluginEnv = devPluginSyncEnv()
+    const build = run('pnpm', pluginFilter ? ['run', 'plugins:build', '--', '--plugin', pluginFilter] : ['run', 'plugins:build'], { env: pluginEnv })
+    const buildCode = await waitExit(build)
+    if (buildCode !== 0) {
+      process.exit(buildCode)
+      return
+    }
+
+    const watch = run('pnpm', pluginFilter ? ['run', 'plugins:watch', '--', '--plugin', pluginFilter] : ['run', 'plugins:watch'], { env: pluginEnv })
     const tauri = runTauri(args, skipPluginDevSync ? { env: withDevSyncDisabledEnv() } : {})
     const procs = [watch, tauri]
 

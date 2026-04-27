@@ -11,6 +11,8 @@ const __dirname = path.dirname(__filename)
 const rootDir = path.resolve(__dirname, '..')
 const pluginsDir = path.join(rootDir, 'plugins')
 const rootLockPath = path.join(rootDir, 'pnpm-lock.yaml')
+const devPluginSyncEnabled = process.env.FAST_WINDOW_PLUGIN_DEV_SYNC === '1'
+const devPluginSyncDir = resolveDevPluginSyncDir()
 const require = createRequire(import.meta.url)
 
 function rawTextQueryPlugin() {
@@ -66,6 +68,16 @@ async function exists(p) {
 async function readJson(filePath) {
   const raw = await fs.readFile(filePath, 'utf8')
   return JSON.parse(raw)
+}
+
+function resolveDevPluginSyncDir() {
+  const explicit = String(process.env.FAST_WINDOW_PLUGIN_DEV_SYNC_DIR || '').trim()
+  if (explicit) return path.resolve(explicit)
+
+  const dataDir = String(process.env.FAST_WINDOW_DATA_DIR || '').trim()
+  if (dataDir) return path.resolve(dataDir, 'plugins')
+
+  return path.join(rootDir, 'src-tauri', 'target', 'debug', 'plugins')
 }
 
 function safeResolveWithin(dir, relPath) {
@@ -124,6 +136,32 @@ async function maxMtimeMsInDir(dir, ignoreNames) {
 
 function normalizeRel(p) {
   return String(p || '').replaceAll('\\', '/')
+}
+
+async function copyRuntimeEntry(pluginDir, pluginId, entryName) {
+  const from = path.join(pluginDir, entryName)
+  if (!(await exists(from))) return false
+
+  const to = path.join(devPluginSyncDir, pluginId, entryName)
+  await fs.rm(to, { recursive: true, force: true }).catch(() => {})
+  await fs.mkdir(path.dirname(to), { recursive: true })
+  await fs.cp(from, to, { recursive: true, force: true })
+  return true
+}
+
+async function syncDevRuntimePlugin(plan) {
+  if (!devPluginSyncEnabled) return
+
+  const manifestPath = path.join(plan.pluginDir, 'manifest.json')
+  if (!(await exists(manifestPath))) return
+
+  await fs.mkdir(path.join(devPluginSyncDir, plan.pluginId), { recursive: true })
+  const entries = ['manifest.json', 'package.json', 'assets', 'ui', 'backend', 'shared']
+  let copied = 0
+  for (const entry of entries) {
+    if (await copyRuntimeEntry(plan.pluginDir, plan.pluginId, entry)) copied += 1
+  }
+  if (copied > 0) pluginInfo(`${plan.pluginId}: synced dev runtime -> ${devPluginSyncDir}`)
 }
 
 function resolveBackgroundBuildConfig(cfg) {
@@ -355,9 +393,10 @@ async function buildOne(plan, mode) {
   const minify = mode === 'build'
   const sourcemap = mode !== 'build'
 
-  if (mode === 'build') {
+    if (mode === 'build') {
     if (await isUpToDate(plan, { sourcemap })) {
       pluginInfo(`${plan.pluginId}: up-to-date`)
+      await syncDevRuntimePlugin(plan)
       return { contexts: [], watchers: [], triggerRebuild: null }
     }
 
@@ -394,6 +433,7 @@ async function buildOne(plan, mode) {
     }
 
     pluginInfo(`${plan.pluginId}: built`)
+    await syncDevRuntimePlugin(plan)
     return { contexts: [], watchers: [], triggerRebuild: null }
   }
 
@@ -430,6 +470,7 @@ async function buildOne(plan, mode) {
     try {
       await Promise.all(contexts.map(c => c.rebuild()))
       pluginInfo(`${plan.pluginId}: rebuilt`)
+      await syncDevRuntimePlugin(plan)
     } catch (e) {
       const msg = e && e.errors ? e.errors.map(x => x.text).join('\n') : String(e?.message || e)
       pluginError(`${plan.pluginId}: rebuild failed\n${msg}`)
@@ -440,12 +481,14 @@ async function buildOne(plan, mode) {
     try {
       await Promise.all(contexts.map(c => c.rebuild()))
       pluginInfo(`${plan.pluginId}: built (startup)`)
+      await syncDevRuntimePlugin(plan)
     } catch (e) {
       const msg = e && e.errors ? e.errors.map(x => x.text).join('\n') : String(e?.message || e)
       pluginError(`${plan.pluginId}: build failed (startup)\n${msg}`)
     }
   } else {
     pluginInfo(`${plan.pluginId}: up-to-date (startup)`)
+    await syncDevRuntimePlugin(plan)
   }
 
   const ignoreRel = createIgnoreRelSet(plan)
