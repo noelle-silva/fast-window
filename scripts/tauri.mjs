@@ -21,7 +21,9 @@ function waitExit(p) {
 }
 
 async function main() {
-  const args = process.argv.slice(2)
+  const rawArgs = process.argv.slice(2)
+  const skipPluginWatch = process.env.FAST_WINDOW_SKIP_PLUGIN_WATCH === '1' || rawArgs.includes('--no-plugin-watch')
+  const args = rawArgs.filter(arg => arg !== '--no-plugin-watch')
   const sub = (args[0] || '').trim()
   const isDev = sub === 'dev'
   const isBuild = sub === 'build'
@@ -30,6 +32,12 @@ async function main() {
   const pluginFilter = String(process.env.FAST_WINDOW_PLUGIN || '').trim()
 
   if (isDev) {
+    if (skipPluginWatch) {
+      const code = await waitExit(runTauri(args))
+      process.exit(code)
+      return
+    }
+
     const watch = run('pnpm', pluginFilter ? ['run', 'plugins:watch', '--', '--plugin', pluginFilter] : ['run', 'plugins:watch'])
     const tauri = runTauri(args)
     const procs = [watch, tauri]

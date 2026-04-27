@@ -13,6 +13,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "node scripts/tauri.mjs",
+    "tauri:dev:no-plugin-watch": "node scripts/tauri.mjs dev --no-plugin-watch",
     "host:bump": "node scripts/bump-host-version.mjs",
     "host:bump:dry": "node scripts/bump-host-version.mjs --dry-run"
   },
