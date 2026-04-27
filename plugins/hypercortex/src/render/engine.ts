@@ -7,10 +7,11 @@
  */
 
 import './vendor'
-import { type Api, type VaultScope } from '../core'
+import { type VaultScope } from '../core'
 import { parseNotePlaceholderBody } from '../notePlaceholder'
 import { resolveAssetsInElement } from './attachments'
 import { pickAssetDisplayName } from '../assetDisplayName'
+import type { AssetsService, ClipboardGateway, HostGateway } from '../gateway/types'
 
 type RenderSafetyPolicy = 'original' | 'baseline' | 'unsafe'
 
@@ -118,13 +119,13 @@ function ensureEngineCss() {
 /*  工厂函数                                                           */
 /* ------------------------------------------------------------------ */
 
-export function createMarkdownRenderEngine(init?: { api?: Api; scope?: VaultScope }): MarkdownRenderEngine {
+export function createMarkdownRenderEngine(init?: { clipboard?: ClipboardGateway; host?: Pick<HostGateway, 'toast'>; assets?: AssetsService; scope?: VaultScope }): MarkdownRenderEngine {
   let rendererPromise: Promise<void> | null = null
   let domPurifyHooked = false
   let mermaidInited = false
   let markedConfigured = false
   const mermaidSvgCache = new Map<string, string>()
-  const defaultApi = init?.api
+  const defaultAssets = init?.assets
   const defaultScope: VaultScope = init?.scope || 'library'
 
   const ICON_COPY =
@@ -161,8 +162,7 @@ export function createMarkdownRenderEngine(init?: { api?: Api; scope?: VaultScop
     const t = String(text || '')
     if (!t) return false
     try {
-      const w = window as any
-      const writeText = w?.fastWindow?.clipboard?.writeText
+      const writeText = init?.clipboard?.writeText
       if (typeof writeText === 'function') { await writeText(t); return true }
       if (navigator?.clipboard?.writeText) { await navigator.clipboard.writeText(t); return true }
     } catch (_) {}
@@ -612,7 +612,7 @@ export function createMarkdownRenderEngine(init?: { api?: Api; scope?: VaultScop
 
         copyTextToClipboard(copyText)
           .then(() => {
-            try { (window as any)?.fastWindow?.ui?.showToast?.('已复制公式') } catch (_) {}
+            try { void init?.host?.toast?.('已复制公式') } catch (_) {}
           })
           .catch(() => {})
       } catch (_) {}
@@ -788,9 +788,9 @@ export function createMarkdownRenderEngine(init?: { api?: Api; scope?: VaultScop
     )
 
     // 附件/资源渲染（MVP：作为统一后处理链路的一环）
-    if (defaultApi) {
+    if (defaultAssets) {
       tasks.push(
-        resolveAssetsInElement(el, defaultApi, defaultScope, { inline: assetInline })
+        resolveAssetsInElement(el, defaultAssets, defaultScope, { inline: assetInline })
           .catch(() => {})
           .finally(() => { if (onAsyncLayout) { try { onAsyncLayout() } catch (_) {} } }),
       )

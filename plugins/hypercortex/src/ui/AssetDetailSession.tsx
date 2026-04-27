@@ -1,20 +1,20 @@
 import * as React from 'react'
 import { Box, Button, CircularProgress, Typography } from '@mui/material'
-import type { Api, VaultScope } from '../core'
+import type { VaultScope } from '../core'
 import { pickAssetDisplayName } from '../assetDisplayName'
 import type { AssetEntry } from '../assetTypes'
 import { assetRefKey } from '../assetTypes'
-import { getAssetBlobUrl } from '../assetBlobUrl'
+import type { HyperCortexGateway } from '../gateway'
 import { AssetPreviewSurface } from './assetPreview/AssetPreviewSurface'
 import { getAssetPreviewDescriptor } from './assetPreview/registry'
 
 export function AssetDetailSession({
-  api,
+  gateway,
   scope,
   asset,
   visible,
 }: {
-  api: Api
+  gateway: HyperCortexGateway
   scope: VaultScope
   asset: AssetEntry
   visible: boolean
@@ -31,14 +31,14 @@ export function AssetDetailSession({
     setLoading(true)
     setError(null)
     try {
-      const url = await getAssetBlobUrl(api, scope, asset.assetId, asset.ext)
+      const url = await gateway.assets.getAssetBlobUrl(scope, asset.assetId, asset.ext)
       setBlobUrl(url)
     } catch (e: any) {
       setError(String(e?.message || e || '加载失败'))
     } finally {
       setLoading(false)
     }
-  }, [api, asset.assetId, asset.ext, scope])
+  }, [gateway, asset.assetId, asset.ext, scope])
 
   React.useEffect(() => {
     if (!visible) return
@@ -98,7 +98,7 @@ export function AssetDetailSession({
         ) : loading && !blobUrl ? (
           <CircularProgress size={20} />
         ) : preview.canOpenInTab && blobUrl ? (
-          <AssetPreviewSurface api={api} scope={scope} asset={asset} blobUrl={blobUrl} title={title} />
+          <AssetPreviewSurface asset={asset} blobUrl={blobUrl} title={title} />
         ) : (
           <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.55)' }}>暂不支持预览该类型附件。</Typography>
         )}

@@ -16,9 +16,9 @@ import { createMarkdownRenderEngine } from '../render/engine'
 import { HYPERCORTEX_NOTE_SCHEMA_VERSION } from '../noteSchema'
 import { renderNoteDisplayHtml } from '../noteRender'
 import { extractNoteRefs, getBacklinksFor, type NoteRefIndex } from '../noteRefs'
-import { deleteHtmlFace, loadHtmlFace, loadNoteManifest, loadNotePackage, saveHtmlFace, saveHtmlFaceFixedScale, saveNotePackage, type HyperCortexHtmlFaceDoc } from '../notePackage'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
-import type { Api, NoteMeta, VaultScope, HyperCortexNoteDoc, HyperCortexHtmlFaceDisplayModeV1 } from '../core'
+import type { NoteMeta, VaultScope, HyperCortexNoteDoc, HyperCortexHtmlFaceDisplayModeV1 } from '../core'
+import type { HyperCortexGateway, HyperCortexHtmlFaceDoc } from '../gateway'
 import { HTML_FACE_KIND, createDefaultFaceManifest, isHtmlFace, labelForFaceKind, type HyperCortexNoteFaceManifestV2 } from '../noteFaces'
 import { isDraftNoteId } from '../drafts'
 import { NoteInfoSidebar } from './NoteInfoSidebar'
@@ -123,7 +123,7 @@ export type NoteDetailSessionHandle = {
 }
 
 export type NoteDetailSessionProps = {
-  api: Api
+  gateway: HyperCortexGateway
   scope: VaultScope
   note: NoteMeta
   visible: boolean
@@ -148,7 +148,7 @@ export type NoteDetailSessionProps = {
 
 export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteDetailSessionProps>(function NoteDetailSession(props, ref) {
   const {
-    api,
+    gateway,
     scope,
     note,
     visible,
@@ -226,14 +226,14 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     },
   )
 
-  const renderEngineRef = React.useRef(createMarkdownRenderEngine({ api, scope }))
+  const renderEngineRef = React.useRef(createMarkdownRenderEngine({ clipboard: gateway.clipboard, host: gateway.host, assets: gateway.assets, scope }))
   React.useEffect(() => {
     renderEngineRef.current.noteIndex = noteIndexMap
   }, [noteIndexMap])
 
   const textRenderRef = React.useRef<HTMLDivElement>(null)
   const sanitizeSvg = React.useCallback((svg: unknown) => renderEngineRef.current.sanitizeSvg(svg, 'baseline'), [])
-  const preview = usePreviewController({ api, sanitizeSvg })
+  const preview = usePreviewController({ toast: gateway.host.toast, sanitizeSvg })
 
   const draftNowRef = React.useMemo<NoteContent>(() => {
     return {
@@ -272,11 +272,11 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       await onRequestDeleteNote({ note, mode })
       setDeleteNoteConfirmOpen(false)
     } catch (e: any) {
-      void api.ui.showToast(String(e?.message || e || '删除失败'))
+      void gateway.host.toast(String(e?.message || e || '删除失败'))
     } finally {
       setDeleting('')
     }
-  }, [api, deleting, note, onRequestDeleteNote, trashEnabled])
+  }, [deleting, gateway, note, onRequestDeleteNote, trashEnabled])
 
   const requestDeleteHtmlFace = React.useCallback(() => {
     closeMoreMenu()
@@ -290,7 +290,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     if (!canDeleteCurrentFace || !isHtmlFaceId(deletingFaceId, faceManifests)) return
     setDeleting('html')
     try {
-      const next = await deleteHtmlFace(api, scope, note.dir)
+      const next = await gateway.notes.deleteHtmlFace(scope, note.dir)
       setHtmlFace(next)
       setFaces(prev => prev.filter(f => f !== deletingFaceId))
       setFaceManifests(prev => {
@@ -304,20 +304,20 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       setAddFaceSelectorVisible(false)
       setPendingAddFace(null)
       setDeleteHtmlConfirmOpen(false)
-      void api.ui.showToast('已删除 HTML 面')
+      void gateway.host.toast('已删除 HTML 面')
     } catch (e: any) {
-      void api.ui.showToast(String(e?.message || e || '删除 HTML 面失败'))
+      void gateway.host.toast(String(e?.message || e || '删除 HTML 面失败'))
     } finally {
       setDeleting('')
     }
-  }, [api, canDeleteCurrentFace, deleting, face, faceManifests, note.dir, scope])
+  }, [canDeleteCurrentFace, deleting, face, faceManifests, gateway, note.dir, scope])
 
   const handleSaveNoteFixedScale = React.useCallback(async (scale: number | null) => {
     const dir = String(note.dir || '').trim()
     if (!dir || htmlFaceScaleSaving) return
     setHtmlFaceScaleSaving(true)
     try {
-      await saveHtmlFaceFixedScale(api, scope, dir, scale)
+      await gateway.notes.saveHtmlFaceFixedScale(scope, dir, scale)
       setHtmlFace(prev => prev ? { ...prev, fixedScale: scale ?? undefined } : prev)
       setFaceManifests(prev => {
       const htmlId = Object.keys(prev).find(id => isHtmlFace(prev[id])) || 'html'
@@ -331,13 +331,13 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
           },
         }
       })
-      void api.ui.showToast('已保存笔记缩放比例')
+      void gateway.host.toast('已保存笔记缩放比例')
     } catch (e: any) {
-      void api.ui.showToast(String(e?.message || e || '保存缩放比例失败'))
+      void gateway.host.toast(String(e?.message || e || '保存缩放比例失败'))
     } finally {
       setHtmlFaceScaleSaving(false)
     }
-  }, [api, htmlFaceScaleSaving, note.dir, scope])
+  }, [gateway, htmlFaceScaleSaving, note.dir, scope])
 
   const ensureDraftDocIfNeeded = React.useCallback(() => {
     if (!isDraft) return
@@ -379,10 +379,10 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     setLoadError(null)
     try {
       const [loadedDoc, loadedHtml] = await Promise.all([
-        loadNotePackage(api, scope, note.dir),
-        loadHtmlFace(api, scope, note.dir).catch(() => null),
+        gateway.notes.loadNotePackage(scope, note.dir),
+        gateway.notes.loadHtmlFace(scope, note.dir).catch(() => null),
       ])
-      const manifest = await loadNoteManifest(api, scope, note.dir)
+      const manifest = await gateway.notes.loadNoteManifest(scope, note.dir)
       setDoc(loadedDoc)
       setHtmlFace(loadedHtml)
       setFaceManifests(manifest.faces)
@@ -410,7 +410,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     } finally {
       setLoading(false)
     }
-  }, [api, doc, ensureDraftDocIfNeeded, isDraft, note.description, note.dir, note.title, noteId, scope])
+  }, [doc, ensureDraftDocIfNeeded, gateway, isDraft, note.description, note.dir, note.title, noteId, scope])
 
   React.useEffect(() => {
     if (!hasEverActivatedRef.current) return
@@ -542,7 +542,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       let toastMsg: string
 
       if (isHtmlFaceId(face, faceManifests)) {
-        const result = await saveHtmlFace(api, scope, {
+        const result = await gateway.notes.saveHtmlFace(scope, {
           id: isDraft ? undefined : originalId,
           packageDir: isDraft ? undefined : note.dir,
           title,
@@ -556,7 +556,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         nextMeta = result.meta
         nextHtmlFace = result.htmlFace
         setHtmlFace(nextHtmlFace)
-        const savedManifest = await loadNoteManifest(api, scope, result.meta.dir)
+        const savedManifest = await gateway.notes.loadNoteManifest(scope, result.meta.dir)
         setFaceManifests(savedManifest.faces)
         setFaces(normalizeFaceOrder(savedManifest.faceOrder, savedManifest.faces))
         if (nextDoc) {
@@ -565,7 +565,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
         }
         toastMsg = 'HTML 面已保存'
       } else {
-        const result = await saveNotePackage(api, scope, {
+        const result = await gateway.notes.saveNotePackage(scope, {
           id: isDraft ? undefined : originalId,
           packageDir: isDraft ? undefined : note.dir,
           title,
@@ -619,13 +619,13 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       // 侧边栏未保存黄点：保存成功后应立即消失（不依赖上层重新渲染时机）。
       onDirtyChange?.({ noteId: originalId, dirty: false })
       if (nextMeta.id && nextMeta.id !== originalId) onDirtyChange?.({ noteId: nextMeta.id, dirty: false })
-      await api.ui.showToast(toastMsg)
+      await gateway.host.toast(toastMsg)
     } catch (e: any) {
-      await api.ui.showToast(String(e?.message || e || '保存失败'))
+      await gateway.host.toast(String(e?.message || e || '保存失败'))
     } finally {
       setSaving(false)
     }
-  }, [api, allNotesById, base.body, base.html, doc, editBody, editDescription, editHtml, editTags, editTitle, editing, face, faceManifests, faces, htmlFace, infoSidebarVisible, isDraft, note.createdAtMs, note.dir, noteId, onSaved, saving, scope, textEditorMode])
+  }, [allNotesById, base.body, base.html, doc, editBody, editDescription, editHtml, editTags, editTitle, editing, face, faceManifests, faces, gateway, htmlFace, infoSidebarVisible, isDraft, note.createdAtMs, note.dir, noteId, onSaved, saving, scope, textEditorMode])
 
   const handleCycleFace = React.useCallback(() => {
     setFace(prev => {
@@ -656,7 +656,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       let nextHtml = ''
       if (!isDraft && String(note.dir || '').trim()) {
         try {
-          const loaded = await loadHtmlFace(api, scope, note.dir)
+          const loaded = await gateway.notes.loadHtmlFace(scope, note.dir)
           nextHtml = loaded.html || ''
           setHtmlFace(loaded)
         } catch {
@@ -671,7 +671,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     }
     setAddFaceSelectorVisible(false)
     setPendingAddFace(null)
-  }, [api, doc, faceManifests, isDraft, note.dir, pendingAddFace, scope])
+  }, [doc, faceManifests, gateway, isDraft, note.dir, pendingAddFace, scope])
 
   if (!noteId) return null
 
@@ -890,8 +890,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                 size="small"
                 aria-label="复制引用占位符"
                 onClick={() => {
-                  void api.clipboard.writeText(buildNotePlaceholderForCopy(doc.id, editTitle || doc.title || note.title || ''))
-                  void api.ui.showToast('已复制引用占位符')
+                  void gateway.clipboard.writeText(buildNotePlaceholderForCopy(doc.id, editTitle || doc.title || note.title || ''))
+                  void gateway.host.toast('已复制引用占位符')
                 }}
                 sx={{
                   color: 'rgba(0,0,0,.58)',
@@ -1214,7 +1214,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                 scaleControlsVisible={htmlScaleControlsVisible}
               />
             ) : editing ? textEditorMode === 'live' ? (
-              <BlockEditor value={editBody} onChange={setEditBody} placeholder="开始编辑正文..." minHeight={400} onBlockRendered={handleBlockRendered} active={visible} refreshToken={noteIndexMap} />
+              <BlockEditor value={editBody} onChange={setEditBody} placeholder="开始编辑正文..." minHeight={400} onBlockRendered={handleBlockRendered} active={visible} refreshToken={noteIndexMap} writeClipboardText={gateway.clipboard.writeText} showToast={gateway.host.toast} />
             ) : (
               <InputBase
                 value={editBody}

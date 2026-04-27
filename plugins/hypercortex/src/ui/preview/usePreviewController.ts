@@ -1,5 +1,4 @@
 import * as React from 'react'
-import type { Api } from '../../core'
 import { useEvent } from './useEvent'
 
 type PreviewModal = '' | 'image' | 'mermaid'
@@ -17,7 +16,7 @@ export type MermaidViewerState = {
 }
 
 export type PreviewController = {
-  api: Api
+  toast: (message: string) => Promise<void> | void
   actions: {
     closeModal: () => void
     openImageViewer: (rootEl: unknown, srcEl: unknown) => void
@@ -52,14 +51,14 @@ function listPreviewMermaids(root: Element): HTMLElement[] {
   return blocks.filter((x): x is HTMLElement => x instanceof HTMLElement)
 }
 
-export function usePreviewController(opts: { api: Api; sanitizeSvg?: (svg: unknown) => string }): {
+export function usePreviewController(opts: { toast: (message: string) => Promise<void> | void; sanitizeSvg?: (svg: unknown) => string }): {
   modal: PreviewModal
   imageViewer: ImageViewerState
   mermaid: MermaidViewerState
   controller: PreviewController
 } {
-  const apiRef = React.useRef(opts.api)
-  apiRef.current = opts.api
+  const toastRef = React.useRef(opts.toast)
+  toastRef.current = opts.toast
 
   const sanitizeSvgRef = React.useRef(opts.sanitizeSvg)
   sanitizeSvgRef.current = opts.sanitizeSvg
@@ -167,9 +166,7 @@ export function usePreviewController(opts: { api: Api; sanitizeSvg?: (svg: unkno
 
   const controller: PreviewController = React.useMemo(() => {
     return {
-      get api() {
-        return apiRef.current
-      },
+      toast: (message: string) => toastRef.current(message),
       actions: {
         closeModal,
         openImageViewer,

@@ -1,15 +1,15 @@
-import type { Api, NoteMeta, VaultScope } from '../core'
+import type { NoteMeta, VaultScope } from '../core'
 import { isDraftNoteId } from '../drafts'
-import { tryReadNoteManifest } from '../notePackage'
+import type { NotesService } from '../gateway/types'
 import { labelForFaceKind } from '../noteFaces'
 import type { NoteCardInfo } from './noteCardInfo'
 
-export async function loadNoteCardInfo(api: Api, scope: VaultScope, meta: NoteMeta): Promise<NoteCardInfo | null> {
+export async function loadNoteCardInfo(notes: NotesService, scope: VaultScope, meta: NoteMeta): Promise<NoteCardInfo | null> {
   const nid = String(meta?.id || '').trim()
   if (!nid) return null
   if (isDraftNoteId(nid) || !String(meta?.dir || '').trim()) return null
 
-  const manifest = await tryReadNoteManifest(api, scope, meta.dir)
+  const manifest = await notes.tryReadNoteManifest(scope, meta.dir)
   if (!manifest) return null
 
   return {

@@ -1,8 +1,7 @@
-import { type Api, type VaultScope, kindFromMime, mimeFromExt } from '../core'
-import { ensureAssetsIndex } from '../assetStore'
+import { type VaultScope, kindFromMime, mimeFromExt } from '../core'
 import { pickAssetDisplayName } from '../assetDisplayName'
-import { getAssetBlobUrl } from '../assetBlobUrl'
 import { buildVideoPlayer } from '../videoPlayer'
+import type { AssetsService } from '../gateway/types'
 
 type AssetRef = { assetId: string; ext: string; name: string; width?: number; refText: string }
 
@@ -72,12 +71,12 @@ export function setAssetPlaceholderState(el: HTMLElement, state: 'loading' | 'er
   el.appendChild(buildChip(state === 'loading' ? `📎 ${name}（加载中…）` : `⚠️ ${name}（加载失败）`, state === 'loading' ? 'loading' : 'error'))
 }
 
-export async function resolveAssetsInElement(root: HTMLElement, api: Api, scope: VaultScope, opts?: { inline?: boolean }): Promise<void> {
+export async function resolveAssetsInElement(root: HTMLElement, assets: AssetsService, scope: VaultScope, opts?: { inline?: boolean }): Promise<void> {
   const placeholders = Array.from(root.querySelectorAll<HTMLElement>('.hc-asset[data-hc-asset-ref]'))
   if (!placeholders.length) return
 
   const inlineMode = !!opts?.inline
-  const indexPromise = ensureAssetsIndex(api, scope).catch(() => null)
+  const indexPromise = assets.ensureAssetsIndex(scope).catch(() => null)
 
   const tasks = placeholders.map(async (ph) => {
     if (ph.getAttribute('data-hc-asset-done') === '1') return
@@ -114,7 +113,7 @@ export async function resolveAssetsInElement(root: HTMLElement, api: Api, scope:
         return
       }
 
-      const blobUrl = await getAssetBlobUrl(api, scope, ref.assetId, ref.ext)
+      const blobUrl = await assets.getAssetBlobUrl(scope, ref.assetId, ref.ext)
 
       if (kind === 'image') {
         if (inlineMode) ph.replaceWith(buildChip(`🖼 ${ref.name}`, 'doc'))

@@ -1,6 +1,5 @@
 import * as React from 'react'
 import { Box, Typography } from '@mui/material'
-import type { Api, VaultScope } from '../../core'
 import type { AssetEntry } from '../../assetTypes'
 import { enhanceVideoElement } from '../../videoPlayer'
 import { getAssetPreviewDescriptor } from './registry'
@@ -24,14 +23,10 @@ function VideoAssetReader({ blobUrl, title }: { blobUrl: string; title: string }
 }
 
 export function AssetPreviewSurface({
-  api,
-  scope,
   asset,
   blobUrl,
   title,
 }: {
-  api: Api
-  scope: VaultScope
   asset: AssetEntry
   blobUrl: string
   title: string
@@ -39,12 +34,12 @@ export function AssetPreviewSurface({
   const descriptor = getAssetPreviewDescriptor(asset)
 
   if (descriptor.kind === 'video') return <VideoAssetReader blobUrl={blobUrl} title={title} />
-  if (descriptor.kind === 'pdf') return <PdfAssetReader api={api} scope={scope} asset={asset} blobUrl={blobUrl} title={title} />
-  if (descriptor.kind === 'word') return <WordAssetReader api={api} scope={scope} asset={asset} blobUrl={blobUrl} title={title} />
+  if (descriptor.kind === 'pdf') return <PdfAssetReader asset={asset} blobUrl={blobUrl} title={title} />
+  if (descriptor.kind === 'word') return <WordAssetReader asset={asset} blobUrl={blobUrl} title={title} />
 
   if (descriptor.Reader) {
     const Reader = descriptor.Reader
-    return <Reader api={api} scope={scope} asset={asset} blobUrl={blobUrl} title={title} />
+    return <Reader asset={asset} blobUrl={blobUrl} title={title} />
   }
 
   return <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.55)' }}>暂不支持预览该类型附件。</Typography>

@@ -2,7 +2,8 @@ import * as React from 'react'
 import { Box, Menu, MenuItem, Typography } from '@mui/material'
 
 import type { AssetEntry } from '../assetTypes'
-import { kindFromMime, mimeFromExt, type Api, type NoteMeta } from '../core'
+import { kindFromMime, mimeFromExt, type NoteMeta } from '../core'
+import type { HyperCortexGateway } from '../gateway'
 import {
   addRef,
   createFolder,
@@ -29,7 +30,7 @@ import type { AddKind, AddMode, DeleteEntityTarget, EditFolderTarget, ResizeHand
 import { useIndexLayoutEditor } from './index-page/useIndexLayoutEditor'
 
 type Props = {
-  api: Api
+  gateway: HyperCortexGateway
   doc: HyperCortexFavoritesDocV1
   currentFolderId: string
   editMode: boolean
@@ -86,7 +87,7 @@ function buildAssetLookup(assetIndex?: Record<string, any>): {
 
 export function IndexPage(props: Props): React.ReactNode {
   const {
-    api,
+    gateway,
     doc,
     currentFolderId,
     editMode,
@@ -200,22 +201,22 @@ export function IndexPage(props: Props): React.ReactNode {
     (folderId: string) => {
       const issue = getFolderRefIssue(doc, currentFolderId, folderId)
       if (issue === 'self-reference') {
-        void api.ui.showToast('不能把当前收藏夹再次引用到自己页面里')
+        void gateway.host.toast('不能把当前收藏夹再次引用到自己页面里')
         return
       }
       if (issue === 'cycle') {
-        void api.ui.showToast('这次添加会形成收藏夹循环引用，已阻止')
+        void gateway.host.toast('这次添加会形成收藏夹循环引用，已阻止')
         return
       }
       const added = addRef(doc, currentFolderId, 'folder', folderId)
       if (!added) {
-        void api.ui.showToast('这个收藏夹已经在当前页面里了，或无法添加')
+        void gateway.host.toast('这个收藏夹已经在当前页面里了，或无法添加')
         return
       }
       onDocChange(added.doc)
       closeAddDialog()
     },
-    [api.ui, currentFolderId, doc, onDocChange],
+    [currentFolderId, doc, gateway, onDocChange],
   )
 
   const confirmAddNote = React.useCallback(
@@ -224,13 +225,13 @@ export function IndexPage(props: Props): React.ReactNode {
       if (!targetId) return
       const added = addRef(doc, currentFolderId, 'note', targetId)
       if (!added) {
-        void api.ui.showToast('这条笔记已经在当前页面里了，或无法添加')
+        void gateway.host.toast('这条笔记已经在当前页面里了，或无法添加')
         return
       }
       onDocChange(added.doc)
       closeAddDialog()
     },
-    [api.ui, currentFolderId, doc, noteIdDraft, onDocChange],
+    [currentFolderId, doc, gateway, noteIdDraft, onDocChange],
   )
 
   const confirmAddAsset = React.useCallback(
@@ -239,13 +240,13 @@ export function IndexPage(props: Props): React.ReactNode {
       if (!targetId) return
       const added = addRef(doc, currentFolderId, 'asset', targetId)
       if (!added) {
-        void api.ui.showToast('这个附件已经在当前页面里了，或无法添加')
+        void gateway.host.toast('这个附件已经在当前页面里了，或无法添加')
         return
       }
       onDocChange(added.doc)
       closeAddDialog()
     },
-    [api.ui, assetIdDraft, currentFolderId, doc, onDocChange],
+    [assetIdDraft, currentFolderId, doc, gateway, onDocChange],
   )
 
   const folderSuggestions = React.useMemo(() => {
@@ -297,34 +298,34 @@ export function IndexPage(props: Props): React.ReactNode {
 
   const handleGoBack = React.useCallback(() => {
     if (!canGoBack) {
-      void api.ui.showToast('没有上一层索引路径了')
+      void gateway.host.toast('没有上一层索引路径了')
       return
     }
     const prevId = breadcrumb[breadcrumb.length - 2] || 'root'
     onNavigateFolder(prevId)
-  }, [api.ui, breadcrumb, canGoBack, onNavigateFolder])
+  }, [breadcrumb, canGoBack, gateway, onNavigateFolder])
 
   const openDeleteCurrentFolderConfirm = React.useCallback(() => {
     if (currentFolderId === 'root') {
-      void api.ui.showToast('根收藏夹不能删除')
+      void gateway.host.toast('根收藏夹不能删除')
       return
     }
     setDeleteFolderConfirmId(currentFolderId)
-  }, [api.ui, currentFolderId])
+  }, [currentFolderId, gateway])
 
   const confirmDeleteCurrentFolder = React.useCallback(() => {
     const targetId = String(deleteFolderConfirmId || '').trim()
     if (!targetId) return
     const nextDoc = deleteFolder(doc, targetId)
     if (!nextDoc) {
-      void api.ui.showToast('删除收藏夹失败')
+      void gateway.host.toast('删除收藏夹失败')
       return
     }
     onDocChange(nextDoc)
     setDeleteFolderConfirmId('')
     onNavigateFolder('root')
     onDeleteFolderEntity?.(targetId)
-  }, [api.ui, deleteFolderConfirmId, doc, onDeleteFolderEntity, onDocChange, onNavigateFolder])
+  }, [deleteFolderConfirmId, doc, gateway, onDeleteFolderEntity, onDocChange, onNavigateFolder])
 
   const confirmDeleteEntity = React.useCallback(() => {
     const target = deleteEntityTarget
@@ -333,7 +334,7 @@ export function IndexPage(props: Props): React.ReactNode {
     if (target.kind === 'folder') {
       const nextDoc = deleteFolder(doc, target.folderId)
       if (!nextDoc) {
-        void api.ui.showToast('删除收藏夹失败')
+        void gateway.host.toast('删除收藏夹失败')
         return
       }
       onDocChange(nextDoc)
@@ -346,7 +347,7 @@ export function IndexPage(props: Props): React.ReactNode {
       return
     }
     onDeleteAssetEntity?.(target.asset)
-  }, [api.ui, currentFolderId, deleteEntityTarget, doc, onDeleteAssetEntity, onDeleteFolderEntity, onDeleteNoteEntity, onDocChange, onNavigateFolder])
+  }, [currentFolderId, deleteEntityTarget, doc, gateway, onDeleteAssetEntity, onDeleteFolderEntity, onDeleteNoteEntity, onDocChange, onNavigateFolder])
 
   const openEditFolderDialog = React.useCallback((folder: FavoriteFolder) => {
     const target = {
@@ -373,12 +374,12 @@ export function IndexPage(props: Props): React.ReactNode {
       description: editFolderDescriptionDraft,
     })
     if (!nextDoc) {
-      void api.ui.showToast('收藏夹标题不能为空')
+      void gateway.host.toast('收藏夹标题不能为空')
       return
     }
     if (nextDoc !== doc) onDocChange(nextDoc)
     closeEditFolderDialog()
-  }, [api.ui, closeEditFolderDialog, doc, editFolderDescriptionDraft, editFolderTarget, editFolderTitleDraft, onDocChange])
+  }, [closeEditFolderDialog, doc, editFolderDescriptionDraft, editFolderTarget, editFolderTitleDraft, gateway, onDocChange])
 
   const breadcrumbItems = React.useMemo(
     () => breadcrumb.map(id => ({ id, title: folderTitle(doc, id) })),

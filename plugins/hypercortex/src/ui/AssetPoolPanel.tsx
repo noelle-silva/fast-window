@@ -4,12 +4,12 @@ import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
-import { PLUGIN_ID, type Api, type VaultScope, acceptString, kindFromMime, mimeFromExt } from '../core'
-import { deleteAssetFromPool, importFilesToAssetPool, listAssetsInPool, readAssetAsDataUrl } from '../assetPool'
+import { type VaultScope, acceptString, kindFromMime, mimeFromExt } from '../core'
 import { pickAssetDisplayName } from '../assetDisplayName'
 import type { AssetEntry } from '../assetTypes'
 import { readFileAsDataUrl } from './fileDataUrl'
 import { getAssetPreviewDescriptor, isAssetOpenableInTab } from './assetPreview/registry'
+import type { HyperCortexGateway } from '../gateway'
 
 /* ------------------------------------------------------------------ */
 /*  类型                                                               */
@@ -18,7 +18,7 @@ import { getAssetPreviewDescriptor, isAssetOpenableInTab } from './assetPreview/
 type AssetCategory = 'image' | 'video' | 'document'
 
 type Props = {
-  api: Api
+  gateway: HyperCortexGateway
   scope: VaultScope
   onOpenAsset?: (asset: AssetEntry) => void
 }
@@ -57,12 +57,12 @@ function buildAssetMarker(asset: Pick<AssetEntry, 'assetId' | 'ext' | 'kind'>): 
 }
 
 function AssetCard({
-  api,
+  gateway,
   asset,
   onDelete,
   onOpenAsset,
 }: {
-  api: Api
+  gateway: HyperCortexGateway
   asset: AssetEntry
   onDelete: (asset: AssetEntry) => void
   onOpenAsset?: (asset: AssetEntry) => void
@@ -73,11 +73,11 @@ function AssetCard({
   const Icon = preview.icon
   const handleCopy = React.useCallback(() => {
     const marker = buildAssetMarker(asset)
-    api.clipboard.writeText(marker).then(
-      () => api.ui.showToast('已复制'),
-      () => api.ui.showToast('复制失败'),
+    gateway.clipboard.writeText(marker).then(
+      () => gateway.host.toast('已复制'),
+      () => gateway.host.toast('复制失败'),
     )
-  }, [api, asset])
+  }, [gateway, asset])
 
   return (
     <Box
@@ -242,7 +242,7 @@ function AssetCard({
   )
 }
 
-export function AssetPoolPanel({ api, scope, onOpenAsset }: Props) {
+export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   const [assets, setAssets] = React.useState<AssetEntry[]>([])
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -256,7 +256,7 @@ export function AssetPoolPanel({ api, scope, onOpenAsset }: Props) {
     setLoading(true)
     setError(null)
     try {
-      const items = await listAssetsInPool(api, scope)
+      const items = await gateway.assets.listAssets(scope)
       const entries: AssetEntry[] = items
         .map(item => {
           const { assetId, ext } = parseAssetFileName(item.name)
@@ -281,7 +281,7 @@ export function AssetPoolPanel({ api, scope, onOpenAsset }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [api, scope])
+  }, [gateway, scope])
 
   React.useEffect(() => { void loadAssets() }, [loadAssets])
 
@@ -294,7 +294,7 @@ export function AssetPoolPanel({ api, scope, onOpenAsset }: Props) {
       for (const asset of imageAssets) {
         if (cancelled) break
         try {
-          const dataUrl = await readAssetAsDataUrl(api, scope, asset.assetId, asset.ext)
+          const dataUrl = await gateway.assets.readAssetDataUrl(scope, asset.assetId, asset.ext)
           if (cancelled) break
           setAssets(prev =>
             prev.map(a => (a.assetId === asset.assetId ? { ...a, thumbnailUrl: dataUrl } : a)),
@@ -305,7 +305,7 @@ export function AssetPoolPanel({ api, scope, onOpenAsset }: Props) {
       }
     })()
     return () => { cancelled = true }
-  }, [api, scope, thumbLoadTick])
+  }, [gateway, scope, thumbLoadTick])
 
   /* ---- 加载视频缩略图（宿主生成；排障期输出详细错误） ---- */
   React.useEffect(() => {
@@ -314,20 +314,11 @@ export function AssetPoolPanel({ api, scope, onOpenAsset }: Props) {
     const candidates = assets.filter(a => a.kind === 'video' && !a.thumbnailUrl).slice(0, 8)
     if (!candidates.length) return
 
-    const tauriInvoke = (api as any)?.tauri?.invoke
-    if (typeof tauriInvoke !== 'function') return
-
     ;(async () => {
       for (const asset of candidates) {
         if (cancelled) break
         try {
-          const dataUrl = await tauriInvoke({
-            command: 'plugin_files_thumbnail',
-            payload: {
-              pluginId: PLUGIN_ID,
-              req: { scope, path: asset.relPath, width: 320, height: 180 },
-            },
-          })
+          const dataUrl = await gateway.assets.getVideoThumbnail(scope, asset.relPath, 320, 180)
           if (cancelled) break
           setAssets(prev =>
             prev.map(a =>
@@ -341,14 +332,14 @@ export function AssetPoolPanel({ api, scope, onOpenAsset }: Props) {
             relPath: asset.relPath,
             hostMsg,
           })
-          api.ui.showToast(`宿主生成缩略图失败：${hostMsg}`)
+          gateway.host.toast(`宿主生成缩略图失败：${hostMsg}`)
           break
         }
       }
     })()
 
     return () => { cancelled = true }
-  }, [api, scope, thumbLoadTick, category, assets.length])
+  }, [gateway, scope, thumbLoadTick, category, assets.length])
 
   /* ---- 文件选择 & 导入 ---- */
   const handleFileSelect = React.useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -362,27 +353,27 @@ export function AssetPoolPanel({ api, scope, onOpenAsset }: Props) {
         const dataUrl = await readFileAsDataUrl(f)
         inputs.push({ name: f.name, dataUrl })
       }
-      await importFilesToAssetPool(api, scope, inputs)
-      api.ui.showToast(`已导入 ${inputs.length} 个文件`)
+      await gateway.assets.importFiles(scope, inputs)
+      gateway.host.toast(`已导入 ${inputs.length} 个文件`)
       await loadAssets()
     } catch (err: any) {
-      api.ui.showToast(`导入失败：${String(err?.message || err || '未知错误')}`)
+      gateway.host.toast(`导入失败：${String(err?.message || err || '未知错误')}`)
     } finally {
       setImporting(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
-  }, [api, scope, loadAssets])
+  }, [gateway, scope, loadAssets])
 
   /* ---- 删除资源 ---- */
   const handleDelete = React.useCallback(async (asset: AssetEntry) => {
     try {
-      await deleteAssetFromPool(api, scope, asset.assetId, asset.ext)
-      api.ui.showToast('已删除')
+      await gateway.assets.deleteAsset(scope, asset.assetId, asset.ext)
+      gateway.host.toast('已删除')
       setAssets(prev => prev.filter(a => !(a.assetId === asset.assetId && a.ext === asset.ext)))
     } catch (err: any) {
-      api.ui.showToast(`删除失败：${String(err?.message || err || '未知错误')}`)
+      gateway.host.toast(`删除失败：${String(err?.message || err || '未知错误')}`)
     }
-  }, [api, scope])
+  }, [gateway, scope])
 
   /* ---- 渲染 ---- */
 
@@ -509,7 +500,7 @@ export function AssetPoolPanel({ api, scope, onOpenAsset }: Props) {
             {visibleAssets.map(asset => (
               <AssetCard
                 key={`${asset.assetId}.${asset.ext}`}
-                api={api}
+                gateway={gateway}
                 asset={asset}
                 onDelete={a => void handleDelete(a)}
                 onOpenAsset={onOpenAsset}

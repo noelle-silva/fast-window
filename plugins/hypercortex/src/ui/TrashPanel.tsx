@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Typography } from '@mui/material'
-import type { Api, NoteMeta, VaultScope } from '../core'
-import { listTrashItems, permanentlyDeleteNoteDir, restoreTrashItem, type HyperCortexTrashItem } from '../trash'
+import type { NoteMeta, VaultScope } from '../core'
+import type { HyperCortexGateway, HyperCortexTrashItem } from '../gateway'
 
 function formatDateTime(ms: number): string {
   if (!(Number(ms) > 0)) return ''
@@ -11,12 +11,12 @@ function formatDateTime(ms: number): string {
 }
 
 export function TrashPanel(props: {
-  api: Api
+  gateway: HyperCortexGateway
   scope: VaultScope
   onRestored?: (meta: NoteMeta) => void
   onPermanentlyDeleted?: (noteId: string) => void
 }) {
-  const { api, scope, onRestored, onPermanentlyDeleted } = props
+  const { gateway, scope, onRestored, onPermanentlyDeleted } = props
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [items, setItems] = React.useState<HyperCortexTrashItem[]>([])
@@ -29,14 +29,14 @@ export function TrashPanel(props: {
     setLoading(true)
     setError(null)
     try {
-      const list = await listTrashItems(api, scope)
+      const list = await gateway.trash.listTrashItems(scope)
       setItems(list)
     } catch (e: any) {
       setError(String(e?.message || e || '加载回收站失败'))
     } finally {
       setLoading(false)
     }
-  }, [api, scope])
+  }, [gateway, scope])
 
   React.useEffect(() => {
     void load()
@@ -48,7 +48,7 @@ export function TrashPanel(props: {
       if (restoringId) return
       setRestoringId(item.id)
       try {
-        const result = await restoreTrashItem(api, scope, item)
+        const result = await gateway.trash.restoreTrashItem(scope, item)
         onRestored?.(result.meta)
         setItems(prev => prev.filter(x => x.id !== item.id))
       } catch (e: any) {
@@ -57,7 +57,7 @@ export function TrashPanel(props: {
         setRestoringId('')
       }
     },
-    [api, onRestored, restoringId, scope],
+    [gateway, onRestored, restoringId, scope],
   )
 
   const confirmDelete = React.useCallback((item: HyperCortexTrashItem) => setDeleteTarget(item), [])
@@ -68,7 +68,7 @@ export function TrashPanel(props: {
     if (deleting) return
     setDeleting(true)
     try {
-      await permanentlyDeleteNoteDir(api, scope, target.id, target.dir)
+      await gateway.trash.permanentlyDeleteNoteDir(scope, target.id, target.dir)
       onPermanentlyDeleted?.(target.id)
       setItems(prev => prev.filter(x => x.id !== target.id))
       setDeleteTarget(null)
@@ -77,7 +77,7 @@ export function TrashPanel(props: {
     } finally {
       setDeleting(false)
     }
-  }, [api, deleteTarget, deleting, onPermanentlyDeleted, scope])
+  }, [gateway, deleteTarget, deleting, onPermanentlyDeleted, scope])
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, maxWidth: 860 }}>

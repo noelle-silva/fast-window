@@ -5,15 +5,12 @@ import PictureAsPdfRoundedIcon from '@mui/icons-material/PictureAsPdfRounded'
 import ArticleRoundedIcon from '@mui/icons-material/ArticleRounded'
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded'
 import type { SvgIconProps } from '@mui/material/SvgIcon'
-import type { Api, VaultScope } from '../../core'
 import { createMarkdownRenderEngine } from '../../render/engine'
 import type { AssetEntry } from '../../assetTypes'
 
 export type AssetPreviewKind = 'image' | 'video' | 'pdf' | 'word' | 'unsupported'
 
 export type AssetPreviewContext = {
-  api: Api
-  scope: VaultScope
   asset: AssetEntry
   blobUrl: string
   title: string

@@ -14,12 +14,8 @@ import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded'
 import {
   acceptString,
-  ensureMetadata,
-  getApi,
   kindFromMime,
   mimeFromExt,
-  saveMetadata,
-  tryLoadMetadata,
   type HyperCortexHtmlFaceDisplayModeV1,
   type HyperCortexIndexV1,
   type HyperCortexMetadataV1,
@@ -28,14 +24,11 @@ import {
   type HyperCortexWorkspaceV1,
   type NoteMeta,
 } from '../core'
-import { loadNoteIndex, saveNotePackage } from '../notePackage'
-import { loadRefIndex, type NoteRefIndex } from '../noteRefs'
+import { type NoteRefIndex } from '../noteRefs'
 import { createMarkdownRenderEngine } from '../render/engine'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
-import { ensureAssetsIndex } from '../assetStore'
-import { deleteAssetFromPool, importFilesToAssetPool } from '../assetPool'
 import { isDraftNoteId } from '../drafts'
-import { addRef, ensureFavorites, saveFavorites, type HyperCortexFavoritesDocV1 } from '../favorites'
+import { addRef, type HyperCortexFavoritesDocV1 } from '../favorites'
 import { AssetPoolPanel } from './AssetPoolPanel'
 import { HomePage, type HomePageStats } from './HomePage'
 import { IndexPage } from './IndexPage'
@@ -75,7 +68,7 @@ import { loadNoteCardInfo, startPrefetchNoteCardInfo } from './noteCardInfoLoade
 import type { AssetEntry } from '../assetTypes'
 import { assetTabId } from '../assetTypes'
 import { assetRefKeyFromTabKey, noteIdFromTabKey, noteTabKey, parseAssetRefKey, tabKind, type TabKey } from '../tabKey'
-import { maybeAutoCleanupTrash, moveNoteToTrash, permanentlyDeleteNoteDir } from '../trash'
+import { getHyperCortexGateway } from '../gateway'
 
 type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'asset-detail' | 'index' | 'settings' | 'trash'
 
@@ -324,7 +317,7 @@ function getShortcutChord(bindings: HyperCortexShortcutBindingsV1, id: HyperCort
 }
 
 export function HyperCortexApp() {
-  const api = React.useMemo(() => getApi(), [])
+  const gateway = React.useMemo(() => getHyperCortexGateway(), [])
   type MetadataPatch = Partial<HyperCortexMetadataV1> & { indexEditMode?: boolean; currentFolderId?: string }
 
   // ---- 核心 UI 状态
@@ -513,7 +506,7 @@ export function HyperCortexApp() {
     activeWorkspaceIdRef.current = activeWorkspaceId
   }, [activeWorkspaceId])
 
-  const renderEngineRef = React.useRef(createMarkdownRenderEngine({ api, scope: 'library' }))
+  const renderEngineRef = React.useRef(createMarkdownRenderEngine({ clipboard: gateway.clipboard, host: gateway.host, assets: gateway.assets, scope: 'library' }))
   ;(window as any).__hcRenderEngine = renderEngineRef.current
 
   const noteIndexMap = React.useMemo(() => {
@@ -625,11 +618,11 @@ export function HyperCortexApp() {
   const noteIndexLoadPromiseRef = React.useRef<Promise<HyperCortexIndexV1> | null>(null)
   const ensureNoteIndexLoaded = React.useCallback(async () => {
     if (noteIndexRef.current) return noteIndexRef.current
-    if (!noteIndexLoadPromiseRef.current) noteIndexLoadPromiseRef.current = loadNoteIndex(api, 'library')
+    if (!noteIndexLoadPromiseRef.current) noteIndexLoadPromiseRef.current = gateway.notes.loadNoteIndex('library')
     const idx = await noteIndexLoadPromiseRef.current
     setNoteIndex(idx)
     return idx
-  }, [api])
+  }, [gateway])
 
   const refIndexRef = React.useRef<NoteRefIndex>({})
   React.useEffect(() => {
@@ -639,11 +632,11 @@ export function HyperCortexApp() {
   const refIndexLoadPromiseRef = React.useRef<Promise<NoteRefIndex> | null>(null)
   const ensureRefIndexLoaded = React.useCallback(async () => {
     if (refIndexRef.current && Object.keys(refIndexRef.current).length) return refIndexRef.current
-    if (!refIndexLoadPromiseRef.current) refIndexLoadPromiseRef.current = loadRefIndex(api, 'library')
+    if (!refIndexLoadPromiseRef.current) refIndexLoadPromiseRef.current = gateway.refs.loadRefIndex('library')
     const idx = await refIndexLoadPromiseRef.current
     setRefIndex(idx)
     return idx
-  }, [api])
+  }, [gateway])
 
   React.useEffect(() => {
     void ensureNoteIndexLoaded().catch(() => {})
@@ -675,11 +668,11 @@ export function HyperCortexApp() {
     async (meta: NoteMeta) => {
       const nid = String(meta?.id || '').trim()
       if (!nid) return
-      const info = await loadNoteCardInfo(api, 'library', meta).catch(() => null)
+      const info = await loadNoteCardInfo(gateway.notes, 'library', meta).catch(() => null)
       if (!info) return
       upsertNoteCardInfo(nid, info)
     },
-    [api, upsertNoteCardInfo],
+    [gateway, upsertNoteCardInfo],
   )
 
   const ensureNoteCardInfoLoaded = React.useCallback(
@@ -709,9 +702,9 @@ export function HyperCortexApp() {
       const next: HyperCortexMetadataV1 = { ...current, ...patch, version: 1 }
       const sanitized = sanitizeMetadataForSave(next)
       metaRef.current = sanitized
-      await saveMetadata(api, sanitized)
+      await gateway.metadata.saveMetadata(sanitized)
     },
-    [api],
+    [gateway],
   )
 
   const handleShortcutBindingsChange = React.useCallback(
@@ -855,13 +848,11 @@ export function HyperCortexApp() {
 
   const backToHost = React.useCallback(() => {
     try {
-      if (typeof api.ui?.back === 'function') return void api.ui.back()
-      if (typeof api.host?.back === 'function') return void api.host.back()
-      return void api.ui?.showToast?.('无法返回')
+      return void gateway.host.back()
     } catch (e: any) {
-      api.ui?.showToast?.(String(e?.message || e))
+      gateway.host.toast(String(e?.message || e))
     }
-  }, [api])
+  }, [gateway])
 
   const goBackPage = React.useCallback(async () => {
     const stack = navHistoryRef.current
@@ -930,16 +921,16 @@ export function HyperCortexApp() {
       navigatePage(target, { recordHistory: false })
       return
     }
-    await api.ui.showToast('没有上一页了')
-  }, [api, commitActiveWorkspacePatch, navigatePage])
+    await gateway.host.toast('没有上一页了')
+  }, [gateway, commitActiveWorkspacePatch, navigatePage])
 
   const onTopbarPointerDown = React.useCallback(
     (e: React.PointerEvent) => {
       if (e.button !== 0) return
       if (isInteractiveTarget(e.target)) return
-      api.ui?.startDragging?.()
+      gateway.host.startDragging()
     },
-    [api],
+    [gateway],
   )
 
   const toggleAllNotesLayout = React.useCallback(() => {
@@ -1013,7 +1004,7 @@ export function HyperCortexApp() {
             const noteKeys = nextOpenTabKeys.filter(k => tabKind(k) === 'note')
             const assetKeys = nextOpenTabKeys.filter(k => tabKind(k) === 'asset')
 
-            const idx = await loadNoteIndex(api, 'library')
+            const idx = await gateway.notes.loadNoteIndex('library')
             const noteTabs = noteKeys
               .map(k => {
                 const noteId = noteIdFromTabKey(k)
@@ -1022,7 +1013,7 @@ export function HyperCortexApp() {
               })
               .filter(Boolean) as NoteMeta[]
 
-            const aidx = await ensureAssetsIndex(api, 'library').catch(() => ({ version: 1, assets: {} } as any))
+            const aidx = await gateway.assets.ensureAssetsIndex('library').catch(() => ({ version: 1, assets: {} } as any))
             const assetTabs = assetKeys
               .map(k => {
                 const refKey = assetRefKeyFromTabKey(k)
@@ -1068,7 +1059,7 @@ export function HyperCortexApp() {
         }
       }
     },
-    [api, navigatePage, page],
+    [gateway, navigatePage, page],
   )
 
   const handleSwitchWorkspace = React.useCallback(
@@ -1108,9 +1099,9 @@ export function HyperCortexApp() {
       setActiveWorkspaceId(nextWs.id)
       applyWorkspaceSidebarState(nextWs)
       persistWorkspacesSnapshot(nextWorkspaces, nextWs.id)
-      void api.ui.showToast(`已新建工作区：${nextTitle}`)
+      void gateway.host.toast(`已新建工作区：${nextTitle}`)
     },
-    [api.ui, applyWorkspaceSidebarState, persistWorkspacesSnapshot, workspaces],
+    [gateway, applyWorkspaceSidebarState, persistWorkspacesSnapshot, workspaces],
   )
 
   const handleRenameWorkspace = React.useCallback(
@@ -1130,7 +1121,7 @@ export function HyperCortexApp() {
     (workspaceId: string) => {
       const wid = String(workspaceId || '').trim()
       if (!wid) return
-      if (workspaces.length <= 1) return void api.ui.showToast('至少保留一个工作区')
+      if (workspaces.length <= 1) return void gateway.host.toast('至少保留一个工作区')
       const target = workspaces.find(w => w.id === wid)
       if (!target) return
 
@@ -1145,9 +1136,9 @@ export function HyperCortexApp() {
       setActiveWorkspaceId(nextActiveId)
       if (deletingActive) applyWorkspaceSidebarState(nextActiveWs)
       persistWorkspacesSnapshot(nextWorkspaces, nextActiveId)
-      void api.ui.showToast(`已删除工作区：${target.title}`)
+      void gateway.host.toast(`已删除工作区：${target.title}`)
     },
-    [api.ui, applyWorkspaceSidebarState, persistWorkspacesSnapshot, workspaces],
+    [gateway, applyWorkspaceSidebarState, persistWorkspacesSnapshot, workspaces],
   )
 
   const handleCreateTabGroup = React.useCallback(() => {
@@ -1233,12 +1224,12 @@ export function HyperCortexApp() {
     } finally {
       setAllNotesLoading(false)
     }
-  }, [api, ensureNoteIndexLoaded])
+  }, [ensureNoteIndexLoaded])
 
   React.useEffect(() => {
     void (async () => {
       try {
-        const normalizedMeta = (await tryLoadMetadata(api)) || (await ensureMetadata(api))
+        const normalizedMeta = (await gateway.metadata.tryLoadMetadata()) || (await gateway.metadata.ensureMetadata())
         metaRef.current = normalizedMeta
         setShortcutBindings(normalizeShortcutBindings(normalizedMeta.shortcuts))
         const normalizedShortcutHintsEnabled = normalizeShortcutHintsEnabled((normalizedMeta as any).shortcutHintsEnabled)
@@ -1259,8 +1250,8 @@ export function HyperCortexApp() {
         restoreActiveTabKeyRef.current = activeKey
 
         const [nextFavoritesDoc, nextAssetPoolIndex] = await Promise.all([
-          ensureFavorites(api),
-          ensureAssetsIndex(api, 'library'),
+          gateway.favorites.ensureFavorites(),
+          gateway.assets.ensureAssetsIndex('library'),
         ])
         setFavoritesDoc(nextFavoritesDoc)
         setAssetPoolIndex(nextAssetPoolIndex as any)
@@ -1275,7 +1266,7 @@ export function HyperCortexApp() {
           ((normalizedMeta as any).tabGroupByTabKey && typeof (normalizedMeta as any).tabGroupByTabKey === 'object') ||
           Array.isArray(normalizedMeta.workspaces)
         if (legacyTabsDetected && !v2TabsDetected) {
-          void api.ui.showToast('检测到旧版标签页数据：当前开发版本已移除迁移逻辑，请重置 HyperCortex 数据后再试')
+          void gateway.host.toast('检测到旧版标签页数据：当前开发版本已移除迁移逻辑，请重置 HyperCortex 数据后再试')
         }
 
         let nextWorkspaces = normalizeWorkspaces(normalizedMeta.workspaces, {
@@ -1326,7 +1317,7 @@ export function HyperCortexApp() {
         setMetaReady(true)
       }
     })()
-  }, [api])
+  }, [gateway, persistMetadataPatch, applyWorkspaceSidebarState])
 
   const autoCleanupRanForDaysRef = React.useRef<number | null>(null)
   React.useEffect(() => {
@@ -1336,11 +1327,11 @@ export function HyperCortexApp() {
     if (autoCleanupRanForDaysRef.current === days) return
     autoCleanupRanForDaysRef.current = days
     void (async () => {
-      const result = await maybeAutoCleanupTrash(api, 'library', days).catch(() => null)
+      const result = await gateway.trash.maybeAutoCleanupTrash('library', days).catch(() => null)
       if (!result || !(result.deletedCount > 0)) return
-      void api.ui.showToast(`回收站已自动清理 ${result.deletedCount} 项`)
+      void gateway.host.toast(`回收站已自动清理 ${result.deletedCount} 项`)
     })()
-  }, [api, metaReady, trashAutoDeleteDays])
+  }, [gateway, metaReady, trashAutoDeleteDays])
 
   const handleTrashEnabledChange = React.useCallback(
     (enabled: boolean) => {
@@ -1392,9 +1383,9 @@ export function HyperCortexApp() {
   const handleFavoritesDocChange = React.useCallback(
     (nextDoc: HyperCortexFavoritesDocV1) => {
       setFavoritesDoc(nextDoc)
-      void saveFavorites(api, nextDoc).catch(() => {})
+      void gateway.favorites.saveFavorites(nextDoc).catch(() => {})
     },
-    [api],
+    [gateway],
   )
 
   const handleImportAssetsIntoIndex = React.useCallback((folderId: string) => {
@@ -1417,7 +1408,7 @@ export function HyperCortexApp() {
           inputs.push({ name: f.name, dataUrl: await readFileAsDataUrl(f) })
         }
 
-        const imported = await importFilesToAssetPool(api, 'library', inputs)
+        const imported = await gateway.assets.importFiles('library', inputs)
         let nextDoc = baseDoc
         let addedCount = 0
         for (const resource of imported) {
@@ -1430,16 +1421,16 @@ export function HyperCortexApp() {
         }
 
         if (nextDoc !== baseDoc) handleFavoritesDocChange(nextDoc)
-        const nextAssetIndex = await ensureAssetsIndex(api, 'library').catch(() => null)
+        const nextAssetIndex = await gateway.assets.ensureAssetsIndex('library').catch(() => null)
         if (nextAssetIndex) setAssetPoolIndex(nextAssetIndex as any)
-        void api.ui.showToast(addedCount > 0 ? `已上传并添加 ${addedCount} 个附件` : '附件已上传，但没有新增索引卡片')
+        void gateway.host.toast(addedCount > 0 ? `已上传并添加 ${addedCount} 个附件` : '附件已上传，但没有新增索引卡片')
       } catch (err: any) {
-        void api.ui.showToast(`上传附件失败：${String(err?.message || err || '未知错误')}`)
+        void gateway.host.toast(`上传附件失败：${String(err?.message || err || '未知错误')}`)
       } finally {
         if (indexAssetInputRef.current) indexAssetInputRef.current.value = ''
       }
     },
-    [api, favoritesDoc, handleFavoritesDocChange],
+    [favoritesDoc, gateway, handleFavoritesDocChange],
   )
 
   const handleHtmlFaceFixedScaleDefaultChange = React.useCallback(
@@ -1478,8 +1469,8 @@ export function HyperCortexApp() {
       }
 
       try {
-        if (payload.mode === 'trash') await moveNoteToTrash(api, 'library', note)
-        else await permanentlyDeleteNoteDir(api, 'library', nid, note.dir)
+        if (payload.mode === 'trash') await gateway.trash.moveNoteToTrash('library', note)
+        else await gateway.trash.permanentlyDeleteNoteDir('library', nid, note.dir)
 
         closeTabKeysDirectRef.current([noteTabKey(nid)])
         setAllNotes(prev => prev.filter(n => n.id !== nid))
@@ -1495,10 +1486,10 @@ export function HyperCortexApp() {
           return next
         })
       } catch (e: any) {
-        void api.ui.showToast(String(e?.message || e || '删除失败'))
+        void gateway.host.toast(String(e?.message || e || '删除失败'))
       }
     },
-    [api],
+    [gateway],
   )
 
   const handleDeleteAssetEntity = React.useCallback(
@@ -1506,7 +1497,7 @@ export function HyperCortexApp() {
       const assetId = String(asset?.assetId || '').trim()
       if (!assetId) return
       try {
-        await deleteAssetFromPool(api, 'library', assetId, asset.ext)
+        await gateway.assets.deleteAsset('library', assetId, asset.ext)
         const tabKey = assetTabId(asset)
         closeTabKeysDirectRef.current([tabKey])
         setAssetPoolIndex(prev => {
@@ -1515,12 +1506,12 @@ export function HyperCortexApp() {
           delete assets[asset.ext ? `${assetId}.${asset.ext}` : assetId]
           return { ...(prev as any), assets }
         })
-        void api.ui.showToast('已删除附件实体')
+        void gateway.host.toast('已删除附件实体')
       } catch (e: any) {
-        void api.ui.showToast(String(e?.message || e || '删除附件失败'))
+        void gateway.host.toast(String(e?.message || e || '删除附件失败'))
       }
     },
-    [api],
+    [gateway],
   )
 
   const handleDeleteFolderEntity = React.useCallback(
@@ -1586,14 +1577,14 @@ export function HyperCortexApp() {
       if (style === 'windows') return normalizeWindowsAbs(rawDir)
       if (style === 'posix') return normalizePosixAbs(rawDir)
 
-      const libDir = String(await api.files.getLibraryDir()).trim()
+      const libDir = String(await gateway.host.getLibraryDir()).trim()
       const libStyle = detectStyle(libDir)
       if (libStyle === 'windows') return joinWindows(libDir, rawDir)
       if (libStyle === 'posix') return joinPosix(libDir, rawDir)
 
       throw new Error('库目录不是绝对路径')
     },
-    [api],
+    [gateway],
   )
 
   const requestCopyTitleFromCardMenu = React.useCallback(async () => {
@@ -1602,28 +1593,28 @@ export function HyperCortexApp() {
     closeNoteCardMenu()
     const title = String(note.title || '').trim() || '未命名'
     try {
-      await api.clipboard.writeText(title)
-      void api.ui.showToast('已复制标题')
+      await gateway.clipboard.writeText(title)
+      void gateway.host.toast('已复制标题')
     } catch (e: any) {
-      void api.ui.showToast(String(e?.message || e || '复制失败'))
+      void gateway.host.toast(String(e?.message || e || '复制失败'))
     }
-  }, [api, closeNoteCardMenu, noteCardMenu])
+  }, [gateway, closeNoteCardMenu, noteCardMenu])
 
   const requestOpenDirFromCardMenu = React.useCallback(async () => {
     const note = noteCardMenu?.note
     if (!note) return
     closeNoteCardMenu()
     if (isDraftNoteId(note.id) || !String(note.dir || '').trim()) {
-      void api.ui.showToast('草稿暂无所在目录（请先保存）')
+      void gateway.host.toast('草稿暂无所在目录（请先保存）')
       return
     }
     try {
       const abs = await resolveNoteAbsoluteDir(note)
-      await api.files.openDir(abs)
+      await gateway.host.openDir(abs)
     } catch (e: any) {
-      void api.ui.showToast(String(e?.message || e || '打开目录失败'))
+      void gateway.host.toast(String(e?.message || e || '打开目录失败'))
     }
-  }, [api, closeNoteCardMenu, noteCardMenu, resolveNoteAbsoluteDir])
+  }, [gateway, closeNoteCardMenu, noteCardMenu, resolveNoteAbsoluteDir])
 
   const handleTrashRestored = React.useCallback(
     (meta: NoteMeta) => {
@@ -1635,9 +1626,9 @@ export function HyperCortexApp() {
         return { ...current, notes: nextNotes }
       })
       setAllNotes(prev => sortNotesByUpdatedAtDesc([meta, ...prev.filter(n => n.id !== meta.id)]))
-      void api.ui.showToast('已恢复笔记')
+      void gateway.host.toast('已恢复笔记')
     },
-    [api],
+    [gateway],
   )
 
   React.useEffect(() => {
@@ -1956,7 +1947,7 @@ export function HyperCortexApp() {
       if (!baseDoc) return
 
       try {
-        const result = await saveNotePackage(api, 'library', {
+        const result = await gateway.notes.createEmptyNote('library', {
           title: '未命名',
           description: '',
           body: '',
@@ -1966,7 +1957,7 @@ export function HyperCortexApp() {
         const meta = result.meta
         const added = addRef(baseDoc, fid, 'note', meta.id)
         if (!added) {
-          void api.ui.showToast('笔记已创建，但无法添加到当前索引页')
+          void gateway.host.toast('笔记已创建，但无法添加到当前索引页')
           return
         }
 
@@ -1992,12 +1983,12 @@ export function HyperCortexApp() {
           infoSidebarVisible: false,
         }
         handleOpenNote(meta)
-        void api.ui.showToast('已创建空白笔记并添加到索引页')
+        void gateway.host.toast('已创建空白笔记并添加到索引页')
       } catch (e: any) {
-        void api.ui.showToast(String(e?.message || e || '创建笔记失败'))
+        void gateway.host.toast(String(e?.message || e || '创建笔记失败'))
       }
     },
-    [api, favoritesDoc, handleFavoritesDocChange, handleOpenNote],
+    [favoritesDoc, gateway, handleFavoritesDocChange, handleOpenNote],
   )
 
   const handleOpenAssetTab = React.useCallback(
@@ -2412,7 +2403,7 @@ export function HyperCortexApp() {
           </AppBar>
 
           <QuickSearchPopover
-            api={api}
+            gateway={gateway}
             scope="library"
             open={quickSearchOpen}
             triggerEl={quickSearchAnchorRef.current}
@@ -2612,7 +2603,7 @@ export function HyperCortexApp() {
                   onOpenNote={note => void handleOpenNote(note)}
                 />
               ) : null}
-              {page === 'attachments' ? <AssetPoolPanel api={api} scope="library" onOpenAsset={handleOpenAssetTab} /> : null}
+              {page === 'attachments' ? <AssetPoolPanel gateway={gateway} scope="library" onOpenAsset={handleOpenAssetTab} /> : null}
               {page === 'all-notes' ? (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
@@ -2665,8 +2656,8 @@ export function HyperCortexApp() {
                           info={noteCardInfoById[note.id]}
                           onOpen={note => void handleOpenNote(note)}
                           onCopyRef={note => {
-                            void api.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
-                            void api.ui.showToast('已复制引用占位符')
+                            void gateway.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
+                            void gateway.host.toast('已复制引用占位符')
                           }}
                           onMore={openNoteCardMenu}
                         />
@@ -2689,8 +2680,8 @@ export function HyperCortexApp() {
                           info={noteCardInfoById[note.id]}
                           onOpen={note => void handleOpenNote(note)}
                           onCopyRef={note => {
-                            void api.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
-                            void api.ui.showToast('已复制引用占位符')
+                            void gateway.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
+                            void gateway.host.toast('已复制引用占位符')
                           }}
                           onMore={openNoteCardMenu}
                         />
@@ -2707,8 +2698,8 @@ export function HyperCortexApp() {
                           info={noteCardInfoById[note.id]}
                           onOpen={note => void handleOpenNote(note)}
                           onCopyRef={note => {
-                            void api.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
-                            void api.ui.showToast('已复制引用占位符')
+                            void gateway.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
+                            void gateway.host.toast('已复制引用占位符')
                           }}
                           onMore={openNoteCardMenu}
                         />
@@ -2727,7 +2718,7 @@ export function HyperCortexApp() {
                     <NoteDetailSession
                       key={tab.id}
                       ref={getNoteSessionRefCallback(tab.id)}
-                      api={api}
+                      gateway={gateway}
                       scope="library"
                       note={tab}
                       visible={page === 'note-detail' && tab.id === activeNoteId}
@@ -2756,7 +2747,7 @@ export function HyperCortexApp() {
                   openAssetTabs.map(asset => (
                     <AssetDetailSession
                       key={assetTabId(asset)}
-                      api={api}
+                      gateway={gateway}
                       scope="library"
                       asset={asset}
                       visible={page === 'asset-detail' && assetTabId(asset) === activeTabKey}
@@ -2766,7 +2757,7 @@ export function HyperCortexApp() {
               </Box>
               {page === 'index' && favoritesDoc ? (
                 <IndexPage
-                  api={api}
+                  gateway={gateway}
                   doc={favoritesDoc}
                   currentFolderId={currentFolderId}
                   editMode={indexEditMode}
@@ -2786,7 +2777,7 @@ export function HyperCortexApp() {
               ) : null}
               {page === 'trash' ? (
                 <TrashPanel
-                  api={api}
+                  gateway={gateway}
                   scope="library"
                   onRestored={handleTrashRestored}
                   onPermanentlyDeleted={noteId => {

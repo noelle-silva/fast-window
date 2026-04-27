@@ -82,7 +82,7 @@ export function ensureLiveEditorPreviewButton(
     if (isMermaidBlock) {
       const block = pickFirstMermaidBlock(root) || pickFirstMermaidBlock(renderedEl)
       if (!block) {
-        try { void opts.controller.api.ui.showToast('Mermaid 还没渲染好，请稍后再试') } catch (_) {}
+        try { void opts.controller.toast('Mermaid 还没渲染好，请稍后再试') } catch (_) {}
         return
       }
       opts.controller.actions.openMermaidViewer(root, block)
@@ -94,7 +94,7 @@ export function ensureLiveEditorPreviewButton(
     if (isAssetBlock) {
       const img = pickFirstImage(renderedEl)
       if (!img) {
-        try { void opts.controller.api.ui.showToast('图片还在加载中，请稍后再试') } catch (_) {}
+        try { void opts.controller.toast('图片还在加载中，请稍后再试') } catch (_) {}
         return
       }
       opts.controller.actions.openImageViewer(root, img)
@@ -113,7 +113,7 @@ export function ensureLiveEditorPreviewButton(
       return
     }
 
-    try { void opts.controller.api.ui.showToast('没有可预览内容') } catch (_) {}
+    try { void opts.controller.toast('没有可预览内容') } catch (_) {}
   })
 
   actions.appendChild(btn)

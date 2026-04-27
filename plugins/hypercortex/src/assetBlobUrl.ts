@@ -1,6 +1,6 @@
-import type { Api, VaultScope } from './core'
-import { readAssetAsDataUrl } from './assetPool'
+import type { VaultScope } from './core'
 import { mimeFromExt } from './core'
+import type { AssetsService } from './gateway/types'
 
 const blobUrlCache = new Map<string, string>()
 
@@ -26,7 +26,7 @@ function dataUrlToBlob(dataUrl: string): Blob {
   return new Blob([bytes], { type: mime })
 }
 
-export async function getAssetBlobUrl(api: Api, scope: VaultScope, assetId: string, ext: string): Promise<string> {
+export async function getAssetBlobUrl(assets: Pick<AssetsService, 'readAssetDataUrl'>, scope: VaultScope, assetId: string, ext: string): Promise<string> {
   const aid = String(assetId || '').trim()
   const ex = String(ext || '').trim().toLowerCase()
   if (!aid) throw new Error('assetId 不能为空')
@@ -35,7 +35,7 @@ export async function getAssetBlobUrl(api: Api, scope: VaultScope, assetId: stri
   const cached = blobUrlCache.get(key)
   if (cached) return cached
 
-  const dataUrlRaw = await readAssetAsDataUrl(api, scope, aid, ex)
+  const dataUrlRaw = await assets.readAssetDataUrl(scope, aid, ex)
   const dataUrl = normalizeToDataUrl(dataUrlRaw, ex)
   const blob = dataUrlToBlob(dataUrl)
   const url = URL.createObjectURL(blob)

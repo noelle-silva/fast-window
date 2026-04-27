@@ -26,6 +26,8 @@ export interface UnifiedEditorProps {
   refreshToken?: unknown
   /** widget 渲染完成后的后处理钩子（如资源解析）。第二个参数 requestUpdate 用于异步内容就绪后请求重新布局。 */
   onBlockRendered?: (el: HTMLElement, requestUpdate: () => void) => void
+  writeClipboardText?: (text: string) => Promise<void>
+  showToast?: (message: string) => Promise<void> | void
 }
 
 type LiveBlockKind = 'latex' | 'mermaid' | 'code' | 'table'
@@ -33,6 +35,8 @@ type LiveBlock = { from: number; to: number; focusTo: number; kind: LiveBlockKin
 type AssetPlaceholder = { from: number; to: number; line: number; inline: boolean; source: string; ext: string }
 
 const refreshEffect = StateEffect.define<number>()
+let globalWriteClipboardText: UnifiedEditorProps['writeClipboardText'] | undefined
+let globalShowToast: UnifiedEditorProps['showToast'] | undefined
 
 function requestCmLayout(view: EditorView) {
   try {
@@ -280,13 +284,11 @@ class BulletWidget extends WidgetType {
   }
 }
 
-async function copyTextToClipboard(text: string) {
+async function copyTextToClipboard(text: string, writeClipboardText?: (text: string) => Promise<void>) {
   const t = String(text || '')
   if (!t) return false
   try {
-    const w = window as any
-    const writeText = w?.fastWindow?.clipboard?.writeText
-    if (typeof writeText === 'function') { await writeText(t); return true }
+    if (typeof writeClipboardText === 'function') { await writeClipboardText(t); return true }
     if (navigator?.clipboard?.writeText) { await navigator.clipboard.writeText(t); return true }
   } catch (_) {}
   try {
@@ -358,7 +360,11 @@ function findInlineCodeRanges(lineText: string) {
 }
 
 class InlineMathWidget extends WidgetType {
-  constructor(readonly tex: string) { super() }
+  constructor(
+    readonly tex: string,
+    readonly writeClipboardText: (() => UnifiedEditorProps['writeClipboardText']) | undefined,
+    readonly showToast: (() => UnifiedEditorProps['showToast']) | undefined,
+  ) { super() }
   eq(other: WidgetType) { return other instanceof InlineMathWidget && other.tex === this.tex }
   toDOM(view: EditorView) {
     const span = document.createElement('span')
@@ -376,8 +382,8 @@ class InlineMathWidget extends WidgetType {
     btn.addEventListener('click', (e) => {
       e.preventDefault()
       e.stopPropagation()
-      copyTextToClipboard(`$${this.tex}$`)
-        .then((ok) => { if (ok) { try { (window as any)?.fastWindow?.ui?.showToast?.('已复制公式') } catch (_) {} } })
+      copyTextToClipboard(`$${this.tex}$`, this.writeClipboardText?.())
+        .then((ok) => { if (ok) { try { void this.showToast?.()?.('已复制公式') } catch (_) {} } })
         .catch(() => {})
     })
     span.appendChild(inner)
@@ -623,7 +629,7 @@ const syntaxHighlightPlugin = ViewPlugin.fromClass(
           for (const r of mathRanges) {
             const from = base + r.from
             const to = base + r.to
-            decos.push(Decoration.replace({ widget: new InlineMathWidget(r.tex) }).range(from, to))
+            decos.push(Decoration.replace({ widget: new InlineMathWidget(r.tex, () => globalWriteClipboardText, () => globalShowToast) }).range(from, to))
           }
         }
 
@@ -833,6 +839,8 @@ export const HyperCodeMirrorEditor = React.memo(function HyperCodeMirrorEditor({
   active,
   refreshToken,
   onBlockRendered,
+  writeClipboardText,
+  showToast,
 }: UnifiedEditorProps) {
   const hostRef = React.useRef<HTMLDivElement | null>(null)
   const viewRef = React.useRef<EditorView | null>(null)
@@ -842,6 +850,8 @@ export const HyperCodeMirrorEditor = React.memo(function HyperCodeMirrorEditor({
 
   onChangeRef.current = onChange
   onBlockRenderedRef.current = onBlockRendered
+  globalWriteClipboardText = writeClipboardText
+  globalShowToast = showToast
 
   const liveExt = React.useMemo(() => {
     return livePreviewExtension({ getOnBlockRendered: () => onBlockRenderedRef.current })

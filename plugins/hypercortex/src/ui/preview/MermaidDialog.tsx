@@ -10,6 +10,7 @@ import ZoomOutIcon from '@mui/icons-material/ZoomOut'
 import { MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from './viewerZoom'
 import { useEvent } from './useEvent'
 import { clampOffset } from './clampOffset'
+import type { PreviewController } from './usePreviewController'
 
 function clampNum(n: number, min: number, max: number) {
   const x = Number(n)
@@ -108,13 +109,7 @@ async function rasterizeSvgToPngDataUrl(svgMarkup: string, width: number, height
   }
 }
 
-async function writeImageToClipboard(controller: any, dataUrl: string) {
-  const apiWrite = controller?.api?.clipboard?.writeImage
-  if (typeof apiWrite === 'function') {
-    await apiWrite(dataUrl)
-    return
-  }
-
+async function writeImageToClipboard(dataUrl: string) {
   const canWebWrite = typeof navigator !== 'undefined' && !!(navigator as any).clipboard && typeof (window as any).ClipboardItem !== 'undefined'
   if (!canWebWrite) throw new Error('当前环境不支持复制图片')
 
@@ -123,7 +118,7 @@ async function writeImageToClipboard(controller: any, dataUrl: string) {
   await (navigator as any).clipboard.write([item])
 }
 
-export function MermaidDialog(props: { open: boolean; controller: any; mermaid: any }) {
+export function MermaidDialog(props: { open: boolean; controller: PreviewController; mermaid: any }) {
   const { open, controller, mermaid } = props
   const items = Array.isArray(mermaid?.items) ? mermaid.items : []
   const len = items.length
@@ -330,10 +325,10 @@ export function MermaidDialog(props: { open: boolean; controller: any; mermaid: 
       const svgMarkup = normalizeSvgForExport(raw, baseW, baseH)
       const bitmap = getMermaidCopyBitmapSize(baseW, baseH)
       const dataUrl = await rasterizeSvgToPngDataUrl(svgMarkup, bitmap.width, bitmap.height)
-      await writeImageToClipboard(controller, dataUrl)
-      controller.api?.ui?.showToast?.('已复制图片到剪贴板')
+      await writeImageToClipboard(dataUrl)
+      controller.toast('已复制图片到剪贴板')
     } catch (e) {
-      controller.api?.ui?.showToast?.(`复制失败：${String((e as any)?.message || e || '未知错误')}`)
+      controller.toast(`复制失败：${String((e as any)?.message || e || '未知错误')}`)
     }
   })
 

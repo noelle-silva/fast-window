@@ -13,18 +13,18 @@ import {
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded'
 import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded'
-import { kindFromMime, mimeFromExt, type Api, type NoteMeta, type VaultScope } from '../core'
-import { listAssetsInPool } from '../assetPool'
+import { kindFromMime, mimeFromExt, type NoteMeta, type VaultScope } from '../core'
 import { pickAssetDisplayName } from '../assetDisplayName'
 import type { AssetEntry } from '../assetTypes'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { AllNotesGridNoteCard, AllNotesIconNoteCard, AllNotesListNoteRow } from './AllNotesNoteCard'
 import { startPrefetchNoteCardInfo } from './noteCardInfoLoader'
+import type { HyperCortexGateway } from '../gateway'
 
 type Mode = 'notes' | 'assets'
 
 type Props = {
-  api: Api
+  gateway: HyperCortexGateway
   scope: VaultScope
   open: boolean
   triggerEl: HTMLElement | null
@@ -86,7 +86,7 @@ function buildAssetEntries(items: { relPath: string; name: string; displayName?:
 
 export function QuickSearchPopover(props: Props) {
   const {
-    api,
+    gateway,
     scope,
     open,
     triggerEl,
@@ -147,7 +147,7 @@ export function QuickSearchPopover(props: Props) {
     setAssetsError(null)
     ;(async () => {
       try {
-        const items = await listAssetsInPool(api, scope)
+        const items = await gateway.assets.listAssets(scope)
         if (assetsLoadSeqRef.current !== seq) return
         const entries = buildAssetEntries(items)
         entries.sort((a, b) => (b.modifiedMs || 0) - (a.modifiedMs || 0))
@@ -164,7 +164,7 @@ export function QuickSearchPopover(props: Props) {
       if (assetsLoadSeqRef.current === seq) assetsLoadSeqRef.current++
       setAssetsLoading(false)
     }
-  }, [api, assets.length, mode, open, scope])
+  }, [gateway, assets.length, mode, open, scope])
 
   React.useEffect(() => {
     if (!open) return
@@ -385,8 +385,8 @@ export function QuickSearchPopover(props: Props) {
                           onClose()
                         }}
                         onCopyRef={note => {
-                          void api.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
-                          void api.ui.showToast('已复制引用占位符')
+                          void gateway.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
+                          void gateway.host.toast('已复制引用占位符')
                         }}
                         onMore={undefined}
                       />
@@ -404,8 +404,8 @@ export function QuickSearchPopover(props: Props) {
                           onClose()
                         }}
                         onCopyRef={note => {
-                          void api.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
-                          void api.ui.showToast('已复制引用占位符')
+                          void gateway.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
+                          void gateway.host.toast('已复制引用占位符')
                         }}
                         onMore={undefined}
                       />
@@ -423,8 +423,8 @@ export function QuickSearchPopover(props: Props) {
                           onClose()
                         }}
                         onCopyRef={note => {
-                          void api.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
-                          void api.ui.showToast('已复制引用占位符')
+                          void gateway.clipboard.writeText(buildNotePlaceholderForCopy(note.id, note.title))
+                          void gateway.host.toast('已复制引用占位符')
                         }}
                         onMore={undefined}
                       />
