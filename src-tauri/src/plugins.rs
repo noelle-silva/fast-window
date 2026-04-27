@@ -452,6 +452,13 @@ pub(crate) fn get_plugins_dir(app: tauri::AppHandle) -> String {
     // 开发模式：把仓库里的 plugins 同步到本地数据目录（方便开发，且配合 fs scope 收紧）
     #[cfg(debug_assertions)]
     {
+        let skip_dev_sync = std::env::var("FAST_WINDOW_SKIP_PLUGIN_DEV_SYNC")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        if skip_dev_sync {
+            return plugins_dir.to_string_lossy().to_string();
+        }
+
         fn collect_referenced_seed_files(manifest: &Value) -> Result<Vec<String>, String> {
             let mut out: Vec<String> = Vec::new();
             out.push("manifest.json".to_string());

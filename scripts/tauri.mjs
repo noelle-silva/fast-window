@@ -20,6 +20,13 @@ function waitExit(p) {
   return new Promise(resolve => p.on('exit', code => resolve(code ?? 0)))
 }
 
+function withDevSyncDisabledEnv() {
+  return {
+    ...process.env,
+    FAST_WINDOW_SKIP_PLUGIN_DEV_SYNC: process.env.FAST_WINDOW_SKIP_PLUGIN_DEV_SYNC || '1',
+  }
+}
+
 async function main() {
   const rawArgs = process.argv.slice(2)
   const skipPluginWatch = process.env.FAST_WINDOW_SKIP_PLUGIN_WATCH === '1' || rawArgs.includes('--no-plugin-watch')
@@ -28,12 +35,12 @@ async function main() {
   const isDev = sub === 'dev'
   const isBuild = sub === 'build'
 
-  const runTauri = (tauriArgs) => run('pnpm', ['exec', 'tauri', ...tauriArgs])
+  const runTauri = (tauriArgs, opts = {}) => run('pnpm', ['exec', 'tauri', ...tauriArgs], opts)
   const pluginFilter = String(process.env.FAST_WINDOW_PLUGIN || '').trim()
 
   if (isDev) {
     if (skipPluginWatch) {
-      const code = await waitExit(runTauri(args))
+      const code = await waitExit(runTauri(args, { env: withDevSyncDisabledEnv() }))
       process.exit(code)
       return
     }
