@@ -1,5 +1,7 @@
+import type { AiChatCapabilities } from '../gateway/capabilities'
+
 export type AiChatController = {
-  api: any
+  capabilities: AiChatCapabilities
   defaults: {
     mermaidFixSystemPrompt: string
     chatTitleNamingSystemPrompt: string

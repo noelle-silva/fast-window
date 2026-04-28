@@ -21,7 +21,8 @@ import { useEvent } from '../hooks/useEvent'
 
 export function ToolRequestPresetsDialog(props: { open: boolean; onClose: () => void; controller: any; loading: boolean; userPresets: any[] }) {
   const { open, onClose, controller, loading, userPresets } = props
-  const api = controller?.api
+  const capabilities = controller?.capabilities
+  const api = capabilities
   const toast = (s: string) => api?.ui?.showToast?.(s)
 
   const [editor, setEditor] = React.useState(() => ({ open: false, title: '', text: '' }))
@@ -39,7 +40,7 @@ export function ToolRequestPresetsDialog(props: { open: boolean; onClose: () => 
   const copyPresetJson = useEvent((preset: any) => {
     const text = stringifyToolRequestRenderPreset(preset)
     if (!text) return toast('复制失败（预设为空）')
-    controller.api?.clipboard?.writeText?.(text).then(
+    capabilities?.clipboard?.writeText?.(text).then(
       () => toast('已复制 JSON'),
       () => toast('复制失败'),
     )

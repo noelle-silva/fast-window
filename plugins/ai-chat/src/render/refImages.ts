@@ -1,3 +1,5 @@
+import type { AiChatCapabilities } from '../gateway/capabilities'
+
 export const REF_IMG_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
 
 export function markPreviewImages(root: unknown) {
@@ -15,12 +17,11 @@ export function markPreviewImages(root: unknown) {
   }
 }
 
-export function createRefImageHydrator(refImgCache: Map<string, string>, refImgPending: Set<string>) {
+export function createRefImageHydrator(refImgCache: Map<string, string>, refImgPending: Set<string>, capabilities: AiChatCapabilities) {
   function hydrateRefImages(root: unknown) {
     if (!(root instanceof HTMLElement)) return
 
-    const w = window as any
-    const read = w?.fastWindow?.files?.images?.read
+    const read = capabilities.files.images.read
     if (typeof read !== 'function') return
 
     const els = Array.from(root.querySelectorAll?.('img[data-ref-img]') || [])

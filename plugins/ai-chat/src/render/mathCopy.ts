@@ -1,4 +1,6 @@
-function ensureMathCopyHandlerOnce(root: unknown) {
+import type { AiChatCapabilities } from '../gateway/capabilities'
+
+function ensureMathCopyHandlerOnce(root: unknown, capabilities: AiChatCapabilities) {
   if (!(root instanceof HTMLElement)) return
   const ds: any = root.dataset as any
   if (ds.fwMathCopyBound === '1') return
@@ -21,16 +23,15 @@ function ensureMathCopyHandlerOnce(root: unknown) {
       e.preventDefault()
       e.stopPropagation()
 
-      const w = window as any
       const writeText =
-        w?.fastWindow?.clipboard?.writeText ||
+        capabilities.clipboard.writeText ||
         (navigator?.clipboard && typeof navigator.clipboard.writeText === 'function' ? navigator.clipboard.writeText.bind(navigator.clipboard) : null)
 
       Promise.resolve()
         .then(() => (writeText ? writeText(copyText) : null))
         .then(() => {
           try {
-            w?.fastWindow?.ui?.showToast?.('已复制公式')
+            capabilities.ui.showToast?.('已复制公式')
           } catch (_) {}
         })
         .catch(() => {})
@@ -38,7 +39,7 @@ function ensureMathCopyHandlerOnce(root: unknown) {
   })
 }
 
-export function enhanceMathCopyButtons(root: unknown) {
+export function enhanceMathCopyButtons(root: unknown, capabilities: AiChatCapabilities) {
   if (!(root instanceof HTMLElement)) return
 
   const nodes = Array.from(root.querySelectorAll?.('.math-block[data-tex], .math-inline[data-tex]') || [])
@@ -56,6 +57,6 @@ export function enhanceMathCopyButtons(root: unknown) {
     n.appendChild(btn)
   }
 
-  ensureMathCopyHandlerOnce(root)
+  ensureMathCopyHandlerOnce(root, capabilities)
 }
 

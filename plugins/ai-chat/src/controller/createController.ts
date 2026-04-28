@@ -22,17 +22,19 @@ import mammoth from 'mammoth/mammoth.browser'
 import { extractPptMarkdown } from '../core/ppt'
 import { createAiChatInternalGateway } from '../gateway/createAiChatInternalGateway'
 import type { AiChatInternalGateway } from '../gateway/types'
+import type { AiChatCapabilities } from '../gateway/capabilities'
 import { UI_CHAT_UPDATED_NOTICE_KEY } from '../runtime/runtimeKeys'
 import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from '../core/viewerZoom'
 import type { AiChatController } from './types'
 
-export function createAiChatController(deps: { api: any; runtime: string; runtimeStorage: any; aiGateway?: AiChatInternalGateway }): {
+export function createAiChatController(deps: { capabilities: AiChatCapabilities; aiGateway?: AiChatInternalGateway }): {
   controller: AiChatController
   init: () => Promise<void>
 } {
-  const api = deps.api
-  const runtime = String(deps.runtime || 'ui')
-  const runtimeStorage = deps.runtimeStorage
+  const capabilities = deps.capabilities
+  const api = capabilities
+  const runtime = capabilities.meta.runtime
+  const runtimeStorage = capabilities.runtimeStorage
 
   const VERSION = 2
   const SPLIT_SCHEMA_VERSION = 1
@@ -2220,7 +2222,7 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
     document.head.appendChild(link)
   }
 
-  const assistantRenderer = createDefaultAssistantRenderEngine()
+  const assistantRenderer = createDefaultAssistantRenderEngine(capabilities)
   const { ensureRenderer, renderAssistantInto: renderAssistantIntoRaw, sanitizeHtml, sanitizeSvg } = assistantRenderer
 
   function getStickerRelPath(category, name) {
@@ -7522,7 +7524,7 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
   }
 
   const controller: AiChatController = {
-    api,
+    capabilities,
     defaults: {
       mermaidFixSystemPrompt: DEFAULT_MERMAID_FIX_SYSTEM_PROMPT,
       chatTitleNamingSystemPrompt: DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT,

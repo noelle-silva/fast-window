@@ -11,6 +11,7 @@ import { hydrateStickerSizes } from './stickers'
 import { ensureToolReqCssOnce, ensureToolRequestToggleHandlerOnce, renderToolRequestHtml } from './toolRequestUi'
 import type { BoolRef } from './types'
 import { enhanceMathCopyButtons } from './mathCopy'
+import type { AiChatCapabilities } from '../gateway/capabilities'
 
 type RenderSafetyPolicy = 'original' | 'baseline' | 'unsafe'
 
@@ -30,7 +31,7 @@ export type AssistantRenderEngine = {
   ) => void
 }
 
-export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
+export function createDefaultAssistantRenderEngine(capabilities: AiChatCapabilities): AssistantRenderEngine {
   let rendererPromise: Promise<void> | null = null
   const domPurifyHooked: BoolRef = { value: false }
   const mermaidInited: BoolRef = { value: false }
@@ -43,8 +44,8 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
 
   const htmlSanitizer = createHtmlSanitizer(domPurifyHooked)
   const markdownRenderer = createMarkdownRenderer(markedConfigured)
-  const refImages = createRefImageHydrator(refImgCache, refImgPending)
-  const mermaidSupport = createMermaidSupport({ mermaidInited, mermaidSvgCache })
+  const refImages = createRefImageHydrator(refImgCache, refImgPending, capabilities)
+  const mermaidSupport = createMermaidSupport({ mermaidInited, mermaidSvgCache, capabilities })
 
   function ensureRenderer() {
     if (rendererPromise) return rendererPromise
@@ -153,7 +154,7 @@ export function createDefaultAssistantRenderEngine(): AssistantRenderEngine {
           katex.render(tex, s, { displayMode: false, throwOnError: false })
         } catch (_) {}
       }
-      enhanceMathCopyButtons(el)
+      enhanceMathCopyButtons(el, capabilities)
     }
 
     mermaidSupport.renderMermaidInto(el, renderSafetyPolicy).catch(() => {})

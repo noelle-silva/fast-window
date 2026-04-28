@@ -3,9 +3,10 @@ import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
 import { createAiChatFastWindowApi } from './bridge/tauriCompat'
 import { createAiChatController } from './controller/createController'
+import { createAiChatCapabilitiesFromHostApi } from './gateway/capabilities'
 ;(function () {
   const api = createAiChatFastWindowApi(window.fastWindow, 'ai-chat')
-  ;(window as any).fastWindow = api
+  const capabilities = createAiChatCapabilitiesFromHostApi(api, 'ai-chat')
 
   try {
     const g = (pdfjsLib as any)?.GlobalWorkerOptions
@@ -14,11 +15,7 @@ import { createAiChatController } from './controller/createController'
     }
   } catch (_) {}
 
-  const runtime = String(api?.__meta?.runtime || 'ui')
-  const runtimeStorage =
-    api && (api as any).runtimeStorage && typeof (api as any).runtimeStorage.get === 'function' ? (api as any).runtimeStorage : api.storage
-
-  const { controller, init } = createAiChatController({ api, runtime, runtimeStorage })
+  const { controller, init } = createAiChatController({ capabilities })
   ;(window as any).__fastWindowAiChat = controller
 
   init()

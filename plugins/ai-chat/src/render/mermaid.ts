@@ -3,9 +3,10 @@ import { ICON_AI, ICON_COPY, ICON_FAIL, ICON_OK } from './icons'
 import { copyTextToClipboard, setCopyBtnState } from './copy'
 import { sanitizeSvg } from './sanitize'
 import type { BoolRef, RenderSafetyPolicy } from './types'
+import type { AiChatCapabilities } from '../gateway/capabilities'
 
-export function createMermaidSupport(opts: { mermaidInited: BoolRef; mermaidSvgCache: Map<string, string> }) {
-  const { mermaidInited, mermaidSvgCache } = opts
+export function createMermaidSupport(opts: { mermaidInited: BoolRef; mermaidSvgCache: Map<string, string>; capabilities: AiChatCapabilities }) {
+  const { mermaidInited, mermaidSvgCache, capabilities } = opts
 
   function setMermaidFixBtnState(btn: HTMLButtonElement, state: 'ai' | 'loading' | 'ok' | 'fail') {
     if (state === 'loading') {
@@ -87,13 +88,12 @@ export function createMermaidSupport(opts: { mermaidInited: BoolRef; mermaidSvgC
       const midEl = btn.closest('[data-mid]')
       const messageId = midEl instanceof HTMLElement ? String(midEl.getAttribute('data-mid') || '') : ''
 
-      const w = window as any
-      const controller = w.__fastWindowAiChat
-      const fn = controller?.actions?.aiFixMermaid
-      if (typeof fn !== 'function') {
-        w.fastWindow?.ui?.showToast?.('未找到 aiFixMermaid 接口（请更新插件）')
-        return
-      }
+        const controller = (window as any).__fastWindowAiChat
+        const fn = controller?.actions?.aiFixMermaid
+        if (typeof fn !== 'function') {
+        capabilities.ui.showToast?.('未找到 aiFixMermaid 接口（请更新插件）')
+          return
+        }
 
       btn.disabled = true
       setMermaidFixBtnState(btn, 'loading')
@@ -109,7 +109,7 @@ export function createMermaidSupport(opts: { mermaidInited: BoolRef; mermaidSvgC
           } catch (_) {}
 
           setMermaidFixBtnState(btn, 'ok')
-          w.fastWindow?.ui?.showToast?.('Mermaid 已替换')
+          capabilities.ui.showToast?.('Mermaid 已替换')
 
           try {
             if (midEl instanceof HTMLElement && messageId) {
@@ -122,7 +122,7 @@ export function createMermaidSupport(opts: { mermaidInited: BoolRef; mermaidSvgC
         })
         .catch((err) => {
           setMermaidFixBtnState(btn, 'fail')
-          w.fastWindow?.ui?.showToast?.(String(err?.message || err || 'AI 修复失败'))
+          capabilities.ui.showToast?.(String(err?.message || err || 'AI 修复失败'))
         })
         .finally(() => {
           window.setTimeout(() => {

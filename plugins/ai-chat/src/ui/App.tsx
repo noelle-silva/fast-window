@@ -331,7 +331,7 @@ function RefImageThumb(props: { controller: any; path: string }) {
 
   React.useEffect(() => {
     let alive = true
-    const api = controller?.api
+    const api = controller?.capabilities
     if (!api?.files?.images?.read) return
     api.files.images
       .read({ scope: 'data', path })
@@ -382,7 +382,7 @@ function StickerInlineImage(props: { controller: any; path: string; label: strin
     }
 
     let alive = true
-    const api = controller?.api
+    const api = controller?.capabilities
     if (!api?.files?.images?.read) return
 
     api.files.images
@@ -1087,9 +1087,9 @@ export function AiChatApp(props: { controller: any }) {
   const closeAtPicker = useEvent(() => setAtPicker(null))
 
   const backToHost = useEvent(() => {
-    const host = (controller as any)?.api?.host
+    const host = (controller as any)?.capabilities?.host
     if (host?.back) host.back()
-    else controller?.api?.ui?.showToast?.('无法返回')
+    else controller?.capabilities?.ui?.showToast?.('无法返回')
   })
 
   const focusComposerSoon = useEvent(() => {
@@ -1118,7 +1118,7 @@ export function AiChatApp(props: { controller: any }) {
     const t = e.target as any
     if (!t || typeof t.closest !== 'function') return
     if (t.closest('button, a, input, textarea, select, [role="button"]')) return
-    controller?.api?.ui?.startDragging?.()
+    controller?.capabilities?.ui?.startDragging?.()
   })
 
   const onClickOpenImageViewer = useEvent((e: React.MouseEvent) => {
@@ -2203,7 +2203,7 @@ export function AiChatApp(props: { controller: any }) {
   })
 
   const onSend = useEvent(() => {
-    if (draftFilesPending) return controller?.api?.ui?.showToast?.('文件解析中，请稍候…')
+    if (draftFilesPending) return controller?.capabilities?.ui?.showToast?.('文件解析中，请稍候…')
     closeAtPicker()
     const warns = draftFiles
       .map((f: any) => {
@@ -2232,7 +2232,7 @@ export function AiChatApp(props: { controller: any }) {
   const closeTempModelPicker = useEvent(() => setTempModelPickerEl(null))
   const openTempModelPicker = useEvent((e: React.MouseEvent<HTMLElement>) => {
     if (!activeRole) return
-    if (!providers.length) return controller?.api?.ui?.showToast?.('暂无供应商')
+    if (!providers.length) return controller?.capabilities?.ui?.showToast?.('暂无供应商')
 
     const pid0 = effectiveProviderId || String((providers[0] as any)?.id || '')
     const mid0 = effectiveModelId || ''
@@ -2263,8 +2263,8 @@ export function AiChatApp(props: { controller: any }) {
     let mid = String(tempModelPick || '').trim()
     if (mid === '__custom__') mid = String(tempCustomModelId || '').trim()
 
-    if (!pid) return controller?.api?.ui?.showToast?.('请选择供应商')
-    if (!mid) return controller?.api?.ui?.showToast?.('请选择模型')
+    if (!pid) return controller?.capabilities?.ui?.showToast?.('请选择供应商')
+    if (!mid) return controller?.capabilities?.ui?.showToast?.('请选择模型')
 
     controller.actions.setChatModelOverride?.(pid, mid)
     closeTempModelPicker()
@@ -3715,9 +3715,9 @@ export function AiChatApp(props: { controller: any }) {
                                   size="small"
                                   onClick={() => {
                                     const text = String(m?.content || '')
-                                    controller.api?.clipboard?.writeText?.(text).then(
-                                      () => controller.api?.ui?.showToast?.('已复制'),
-                                      () => controller.api?.ui?.showToast?.('复制失败'),
+                                    controller.capabilities?.clipboard?.writeText?.(text).then(
+                                      () => controller.capabilities?.ui?.showToast?.('已复制'),
+                                      () => controller.capabilities?.ui?.showToast?.('复制失败'),
                                     )
                                   }}
                                 >
@@ -3759,12 +3759,12 @@ export function AiChatApp(props: { controller: any }) {
                          aria-label="复制附件文本"
                          onClick={() => {
                            const text = String(attachViewItem?.attachment?.text || '')
-                           const writeText = controller.api?.clipboard?.writeText
-                           if (typeof writeText !== 'function') return controller.api?.ui?.showToast?.('未授权：clipboard.writeText')
-                           Promise.resolve()
-                             .then(() => writeText(text))
-                             .then(() => controller.api?.ui?.showToast?.('已复制'))
-                             .catch(() => controller.api?.ui?.showToast?.('复制失败'))
+                            const writeText = controller.capabilities?.clipboard?.writeText
+                            if (typeof writeText !== 'function') return controller.capabilities?.ui?.showToast?.('未授权：clipboard.writeText')
+                            Promise.resolve()
+                              .then(() => writeText(text))
+                              .then(() => controller.capabilities?.ui?.showToast?.('已复制'))
+                              .catch(() => controller.capabilities?.ui?.showToast?.('复制失败'))
                          }}
                        >
                          <ContentCopyIcon fontSize="inherit" />
@@ -3810,9 +3810,9 @@ export function AiChatApp(props: { controller: any }) {
                         onClick={() => {
                           const text = msgMenuText
                           closeMsgMenu()
-                          controller.api?.clipboard?.writeText?.(text).then(
-                            () => controller.api?.ui?.showToast?.('已复制'),
-                            () => controller.api?.ui?.showToast?.('复制失败'),
+                           controller.capabilities?.clipboard?.writeText?.(text).then(
+                             () => controller.capabilities?.ui?.showToast?.('已复制'),
+                             () => controller.capabilities?.ui?.showToast?.('复制失败'),
                           )
                         }}
                         sx={{ gap: 1 }}
@@ -3915,9 +3915,9 @@ export function AiChatApp(props: { controller: any }) {
                         onClick={() => {
                           const text = msgMenuText
                           closeMsgMenu()
-                          controller.api?.clipboard?.writeText?.(text).then(
-                            () => controller.api?.ui?.showToast?.('已复制'),
-                            () => controller.api?.ui?.showToast?.('复制失败'),
+                           controller.capabilities?.clipboard?.writeText?.(text).then(
+                             () => controller.capabilities?.ui?.showToast?.('已复制'),
+                             () => controller.capabilities?.ui?.showToast?.('复制失败'),
                           )
                         }}
                         sx={{ gap: 1 }}
@@ -6222,7 +6222,7 @@ export function AiChatApp(props: { controller: any }) {
 
 function StickersSettingsPanel(props: { controller: any; loading: boolean; data: any }) {
   const { controller, loading, data } = props
-  const api = controller?.api
+  const api = controller?.capabilities
 
   const cfg = data?.settings?.stickers && typeof data.settings.stickers === 'object' ? data.settings.stickers : {}
   const enabled = !!cfg.enabled
@@ -6431,8 +6431,8 @@ function StickersSettingsPanel(props: { controller: any; loading: boolean; data:
                       <Button
                         size="small"
                         variant="outlined"
-                        onClick={() => controller.api?.clipboard?.writeText?.(token)}
-                        disabled={!controller.api?.clipboard?.writeText}
+                        onClick={() => controller.capabilities?.clipboard?.writeText?.(token)}
+                        disabled={!controller.capabilities?.clipboard?.writeText}
                       >
                         复制 token
                       </Button>
@@ -6599,7 +6599,7 @@ function PluginSettingsPage(props: {
 
   React.useEffect(() => {
     if (!treeHotkeyRecording) return
-    const toast = (s: string) => controller?.api?.ui?.showToast?.(s)
+    const toast = (s: string) => controller?.capabilities?.ui?.showToast?.(s)
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return
@@ -6637,7 +6637,7 @@ function PluginSettingsPage(props: {
   }, [treeHotkeyRecording, controller])
 
   const runToolServerTest = useEvent(async (baseUrlRaw: string, tokenRaw: string) => {
-    const api = controller?.api
+    const api = controller?.capabilities
     const toast = (s: string) => api?.ui?.showToast?.(s)
 
     const base = String(baseUrlRaw || '').trim().replace(/\/+$/g, '')
@@ -6710,7 +6710,7 @@ function PluginSettingsPage(props: {
   })
 
   const runToolServerFetchTools = useEvent(async (baseUrlRaw: string, tokenRaw: string) => {
-    const api = controller?.api
+    const api = controller?.capabilities
     const toast = (s: string) => api?.ui?.showToast?.(s)
 
     const base = String(baseUrlRaw || '').trim().replace(/\/+$/g, '')

@@ -315,10 +315,10 @@ export function MermaidDialog(props: { open: boolean; controller: any; mermaid: 
       const svgMarkup = normalizeSvgForExport(raw, baseW, baseH)
       const bitmap = getMermaidCopyBitmapSize(baseW, baseH)
       const dataUrl = await rasterizeSvgToPngDataUrl(svgMarkup, bitmap.width, bitmap.height)
-      await controller.api?.clipboard?.writeImage?.(dataUrl)
-      controller.api?.ui?.showToast?.('已复制图片到剪贴板')
+      await controller.capabilities?.clipboard?.writeImage?.(dataUrl)
+      controller.capabilities?.ui?.showToast?.('已复制图片到剪贴板')
     } catch (e) {
-      controller.api?.ui?.showToast?.(`复制失败：${String((e as any)?.message || e || '未知错误')}`)
+      controller.capabilities?.ui?.showToast?.(`复制失败：${String((e as any)?.message || e || '未知错误')}`)
     }
   })
 

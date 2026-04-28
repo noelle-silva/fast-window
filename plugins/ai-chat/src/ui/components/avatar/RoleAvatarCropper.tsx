@@ -12,7 +12,7 @@ function clampNum(n: number, min: number, max: number) {
 
 export function RoleAvatarCropper(props: { controller: any; src: string }) {
   const { controller, src } = props
-  const api = controller?.api
+  const api = controller?.capabilities
 
   const VIEW = 240
   const OUT = 96
