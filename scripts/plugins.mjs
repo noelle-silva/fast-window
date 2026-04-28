@@ -509,6 +509,7 @@ async function buildOne(plan, mode) {
 
   const contexts = []
   const watchers = []
+  let rebuildingPlan = false
 
   const uiOpts = createBuildOptions({
     pluginId: plan.pluginId,
@@ -538,6 +539,7 @@ async function buildOne(plan, mode) {
 
   const trigger = createDebounced(async () => {
     try {
+      if (rebuildingPlan) return
       await Promise.all(contexts.map(c => c.rebuild()))
       if (plan.background?.kind === 'rust-binary') await buildRustBackground(plan.background)
       pluginInfo(`${plan.pluginId}: rebuilt`)
@@ -545,6 +547,30 @@ async function buildOne(plan, mode) {
     } catch (e) {
       const msg = e && e.errors ? e.errors.map(x => x.text).join('\n') : String(e?.message || e)
       pluginError(`${plan.pluginId}: rebuild failed\n${msg}`)
+    }
+  }, 120)
+
+  const triggerPlanReload = createDebounced(async () => {
+    if (rebuildingPlan) return
+    rebuildingPlan = true
+    try {
+      for (const w of watchers.splice(0)) {
+        try {
+          w.close()
+        } catch {}
+      }
+      await Promise.allSettled(contexts.splice(0).map(c => c.dispose()))
+      const nextPlan = await resolvePluginBuildPlan(plan.pluginId, mode)
+      if (!nextPlan) return
+      const next = await buildOne(nextPlan, mode)
+      contexts.push(...next.contexts)
+      watchers.push(...next.watchers)
+      plan = nextPlan
+    } catch (e) {
+      const msg = e && e.errors ? e.errors.map(x => x.text).join('\n') : String(e?.message || e)
+      pluginError(`${plan.pluginId}: reload failed\n${msg}`)
+    } finally {
+      rebuildingPlan = false
     }
   }, 120)
 
@@ -580,13 +606,13 @@ async function buildOne(plan, mode) {
   }
 
   try {
-    const manifestWatcher = fssync.watch(path.join(plan.pluginDir, 'manifest.json'), () => trigger())
+    const manifestWatcher = fssync.watch(path.join(plan.pluginDir, 'manifest.json'), () => triggerPlanReload())
     watchers.push(manifestWatcher)
   } catch {}
   try {
     const pkgPath = path.join(plan.pluginDir, 'package.json')
     if (fssync.existsSync(pkgPath)) {
-      const pkgWatcher = fssync.watch(pkgPath, () => trigger())
+      const pkgWatcher = fssync.watch(pkgPath, () => triggerPlanReload())
       watchers.push(pkgWatcher)
     }
   } catch {}
@@ -647,16 +673,14 @@ async function main() {
     if (plan) plans.push(plan)
   }
 
-  const activeContexts = []
-  const activeWatchers = []
+  const activeBuilds = []
   const triggers = []
   let hadError = false
 
   for (const p of plans) {
     try {
       const r = await buildOne(p, mode)
-      for (const c of r.contexts) activeContexts.push(c)
-      for (const w of r.watchers) activeWatchers.push(w)
+      activeBuilds.push(r)
       if (r.triggerRebuild) triggers.push(r.triggerRebuild)
     } catch (e) {
       hadError = true
@@ -667,7 +691,7 @@ async function main() {
   }
 
   if (mode === 'watch') {
-    if (activeWatchers.length === 0) {
+    if (activeBuilds.every(r => r.watchers.length === 0)) {
       pluginInfo('no watchable plugins (all prebuilt or missing source entry)')
       return
     }
@@ -688,12 +712,14 @@ async function main() {
           lockWatcher.close()
         } catch {}
       }
-      for (const w of activeWatchers) {
-        try {
-          w.close()
-        } catch {}
+      for (const r of activeBuilds) {
+        for (const w of r.watchers) {
+          try {
+            w.close()
+          } catch {}
+        }
       }
-      await Promise.allSettled(activeContexts.map(c => c.dispose()))
+      await Promise.allSettled(activeBuilds.flatMap(r => r.contexts).map(c => c.dispose()))
     }
     process.on('SIGINT', () => void disposeAll().finally(() => process.exit(0)))
     process.on('SIGTERM', () => void disposeAll().finally(() => process.exit(0)))
