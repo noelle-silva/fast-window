@@ -901,19 +901,11 @@ import {
           return
         }
         state.clearArmedAt = 0
-        const toDelete = Array.isArray(state.history) ? state.history.slice() : []
-        const tasks = []
-        for (const it of toDelete) {
-          if (!it || it.type !== 'image') continue
-          tasks.push(tryDeleteManagedImageFile(it))
-        }
-        await Promise.allSettled(tasks)
-        state.history = []
+        applySnapshot(await gateway.state.clearHistory())
         state.clipboardExpanded = {}
         state.clipboardImageCache = {}
         state.clipboardImageLoading = {}
         state.clipboardLimit = CLIPBOARD_PAGE_SIZE
-        await persistClipboard()
         restartMonitor()
         void gateway.host.toast('已清空')
         render()
@@ -1059,13 +1051,10 @@ import {
           }
           state.deleteArmedId = ''
           state.deleteArmedAt = 0
-          markDeleted(item)
-          state.history = state.history.filter((h) => historyKey(h) !== key)
+          applySnapshot(await gateway.state.deleteHistoryItem(item))
           if (state.clipboardExpanded[key]) delete state.clipboardExpanded[key]
           if (state.clipboardImageCache[key]) delete state.clipboardImageCache[key]
           if (state.clipboardImageLoading[key]) delete state.clipboardImageLoading[key]
-          await tryDeleteManagedImageFile(item)
-          await persistClipboard()
           void gateway.host.toast('已删除')
           renderClipboardList()
           return
