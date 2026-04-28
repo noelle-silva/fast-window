@@ -2,8 +2,6 @@ import type {
   ClipboardHistoryItem,
   ClipboardHistorySettings,
   ClipboardHistorySnapshot,
-  ClipboardWatchPayload,
-  ClipboardWatchTask,
   CollectionsDoc,
   DeletedHistoryMap,
 } from '../shared/types'
@@ -15,8 +13,8 @@ export type HostGateway = {
 }
 
 export type ClipboardGateway = {
-  writeText(text: string): Promise<void>
-  writeImage(dataUrl: string): Promise<void>
+  writeText(text: string): Promise<ClipboardHistorySnapshot>
+  writeImage(dataUrlOrRequest: string | { dataUrl?: string; path?: string }): Promise<ClipboardHistorySnapshot>
 }
 
 export type ImageGateway = {
@@ -25,10 +23,21 @@ export type ImageGateway = {
 }
 
 export type ClipboardHistoryStateGateway = {
-  loadState(): Promise<ClipboardHistorySnapshot>
+  load(): Promise<ClipboardHistorySnapshot>
   saveSettings(settings: ClipboardHistorySettings): Promise<ClipboardHistorySnapshot>
   clearHistory(): Promise<ClipboardHistorySnapshot>
   deleteHistoryItem(item: ClipboardHistoryItem): Promise<ClipboardHistorySnapshot>
+}
+
+export type ClipboardHistoryCollectionsGateway = {
+  createFolder(parentId: string, name: string): Promise<ClipboardHistorySnapshot>
+  createItem(parentId: string, title: string, content: string): Promise<ClipboardHistorySnapshot>
+  updateFolder(folderId: string, name: string): Promise<ClipboardHistorySnapshot>
+  updateItem(itemId: string, title: string, content: string): Promise<ClipboardHistorySnapshot>
+  moveNode(movingId: string, toParentId: string, toIndex?: number): Promise<ClipboardHistorySnapshot>
+  copyItem(itemId: string, toParentId: string): Promise<ClipboardHistorySnapshot>
+  deleteNode(nodeId: string): Promise<ClipboardHistorySnapshot>
+  saveRecentFolder(folderId: string): Promise<ClipboardHistorySnapshot>
 }
 
 export type StorageGateway = {
@@ -45,17 +54,18 @@ export type StorageGateway = {
 }
 
 export type MonitorGateway = {
-  listRecentTasks(limit: number): Promise<ClipboardWatchTask[]>
-  startClipboardWatch(payload: ClipboardWatchPayload): Promise<ClipboardWatchTask | null>
-  getTask(taskId: string): Promise<ClipboardWatchTask | null>
+  startClipboardWatch(payload: { intervalMs: number; maxHistory: number }): Promise<{ id: string } | null>
+  getTask(taskId: string): Promise<{ id: string; status: string; result?: unknown } | null>
   cancelTask(taskId: string): Promise<void>
 }
 
 export type ClipboardHistoryGateway = {
   host: HostGateway
+  state: ClipboardHistoryStateGateway
+  collections: ClipboardHistoryCollectionsGateway
   clipboard: ClipboardGateway
   images: ImageGateway
   storage: StorageGateway
   monitor: MonitorGateway
-  state?: ClipboardHistoryStateGateway
+  close(): void
 }

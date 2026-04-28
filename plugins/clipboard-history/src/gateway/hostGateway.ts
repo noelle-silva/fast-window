@@ -1,10 +1,9 @@
 import type { HostGateway } from './types'
-import type { V2HostAdapter } from './v2HostAdapter'
 
-export function createHostGateway(adapter: V2HostAdapter): HostGateway {
+export function createHostGateway(baseApi: any): HostGateway {
   return {
-    toast: (message) => adapter.host.toast(message),
-    back: () => adapter.host.back(),
-    startDragging: () => adapter.host.startDragging(),
+    toast: async (message) => baseApi?.host?.toast?.(String(message || '')),
+    back: async () => baseApi?.host?.back?.(),
+    startDragging: async () => baseApi?.host?.startDragging?.(),
   }
 }

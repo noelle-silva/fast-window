@@ -1,6 +1,5 @@
-import { startLegacyBackground } from './background/legacyBackground'
 import { createClipboardHistoryGateway } from './gateway'
-import { CLIPBOARD_PAGE_SIZE, TASK_KIND_CLIPBOARD_WATCH, TASK_QUERY_INTERVAL } from './shared/constants'
+import { CLIPBOARD_PAGE_SIZE, TASK_QUERY_INTERVAL } from './shared/constants'
 import { createClipboardHistoryUiState } from './ui/state'
 import { styles } from './ui/styles'
 import {
@@ -47,16 +46,10 @@ import {
   pickImagePath as domainPickImagePath,
 } from './shared/imagePaths'
 
-;(function () {
+;(async function () {
   const baseFastWindow = (window as any).fastWindow
-  const gateway = createClipboardHistoryGateway(baseFastWindow)
+  const gateway = await createClipboardHistoryGateway(baseFastWindow)
   ;(window as any).fastWindow = baseFastWindow
-  const runtime = gateway.runtime
-
-  if (runtime === 'background') {
-    startLegacyBackground(gateway)
-    return
-  }
 
   const state = createClipboardHistoryUiState()
 
@@ -1876,18 +1869,8 @@ import {
     mount()
     render()
 
-    const recentTasks = await gateway.monitor.listRecentTasks(20).catch(() => [])
-    const runningTask = Array.isArray(recentTasks)
-      ? recentTasks.find((t) => {
-          const status = String(t && t.status ? t.status : '')
-          const kind = String(t && t.kind ? t.kind : '')
-          return (status === 'queued' || status === 'running') && kind === TASK_KIND_CLIPBOARD_WATCH
-        })
-      : null
-    state.monitorTaskId = runningTask && runningTask.id ? String(runningTask.id) : ''
-
     await ensureMonitorTaskRunning(false)
   }
 
-  init()
+  await init()
 })()

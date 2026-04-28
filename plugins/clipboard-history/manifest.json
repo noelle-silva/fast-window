@@ -4,30 +4,12 @@
   "author": "fast-window",
   "version": "1.0.2",
   "description": "查看和管理剪贴板历史记录",
-  "main": "index.js",
+  "main": "ui/index.js",
   "background": {
-    "autoStart": true,
+    "main": "backend/index.js",
     "lifecycle": "resident"
   },
-  "icon": "svg:icon.svg",
+  "icon": "assets/icon.svg",
   "keyword": "cb",
-  "apiVersion": 2,
-  "ui": {
-    "type": "iframe"
-  },
-  "requires": [
-    "tauri:plugin_files_list_dir",
-    "tauri:plugin_files_read_text",
-    "tauri:plugin_files_write_text",
-    "tauri:plugin_files_delete",
-    "tauri:task_create",
-    "tauri:task_get",
-    "tauri:task_list",
-    "tauri:task_cancel",
-    "tauri:plugin_images_read",
-    "tauri:plugin_images_delete",
-    "tauri:plugin:window|start_dragging",
-    "tauri:plugin:clipboard-manager|write_text",
-    "tauri:clipboard_write_image_data_url"
-  ]
+  "apiVersion": 4
 }
