@@ -818,7 +818,7 @@ function App() {
     setPluginDetail(plugin)
   }, [])
 
-  const { backgroundHosts } = usePluginBackendSupervisor({
+  const { backgroundHosts, controller: backendController } = usePluginBackendSupervisor({
     plugins: allPlugins,
     activePluginId: activePlugin?.id ?? null,
   })
@@ -1437,6 +1437,13 @@ function App() {
   const activePluginId = activePlugin?.id || ''
   const activePluginKeepAlive = activePlugin?.manifest?.ui?.keepAlive === true
   const ActivePluginComponent = activePlugin ? activePlugin.component : null
+  const activeBackendLifecycle = activePlugin ? resolveBackendLifecycle(activePlugin.manifest) : null
+  const activePluginNeedsProcessBackend = Boolean(
+    activePlugin &&
+    Number(activePlugin.manifest?.apiVersion ?? 2) >= 3 &&
+    String(activePlugin.manifest?.background?.main || '').trim(),
+  )
+  const activePluginBackendReady = !activePluginNeedsProcessBackend || backendController.isReady(activePluginId)
   const onBackFromPlugin = () => setActivePlugin(null)
   const renderKeepAliveUiPluginIds =
     activePluginKeepAlive && activePluginId && !keepAliveUiPluginIds.includes(activePluginId)
@@ -1494,9 +1501,19 @@ function App() {
                 )
               })}
 
-              {showPluginView && ActivePluginComponent && !activePluginKeepAlive ? (
+              {showPluginView && ActivePluginComponent && !activePluginKeepAlive && activePluginBackendReady ? (
                 <Box sx={{ height: '100%', overflow: 'hidden' }}>
                   <ActivePluginComponent onBack={onBackFromPlugin} />
+                </Box>
+              ) : null}
+              {showPluginView && ActivePluginComponent && !activePluginKeepAlive && !activePluginBackendReady ? (
+                <Box sx={{ height: '100%', display: 'grid', placeItems: 'center', p: 3 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, color: 'text.secondary' }}>
+                    <CircularProgress size={18} />
+                    <Typography variant="body2">
+                      正在启动插件后台{activeBackendLifecycle ? `（${activeBackendLifecycle.lifecycle}）` : ''}...
+                    </Typography>
+                  </Box>
                 </Box>
               ) : null}
             </Box>

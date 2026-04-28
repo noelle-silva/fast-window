@@ -17,6 +17,7 @@ export type BackendSupervisorController = {
   stopBackend: (pluginId: string, reason?: string) => void
   reconcileNow: () => void
   isRunning: (pluginId: string) => boolean
+  isReady: (pluginId: string) => boolean
 }
 
 const DEFAULT_ON_DEMAND_IDLE_MS = 2 * 60 * 1000
@@ -52,8 +53,11 @@ export function usePluginBackendSupervisor(params: {
   const shortLivedGraceMs = params.shortLivedGraceMs ?? DEFAULT_SHORT_LIVED_GRACE_MS
 
   const [runningIds, setRunningIds] = useState<string[]>([])
+  const [processReadyIds, setProcessReadyIds] = useState<string[]>([])
   const runningSetRef = useRef<Set<string>>(new Set())
   const processRunningRef = useRef<Set<string>>(new Set())
+  const processReadyRef = useRef<Set<string>>(new Set())
+  const processReadyWaitingRef = useRef<Set<string>>(new Set())
 
   const forcedRunningRef = useRef<Set<string>>(new Set())
   const forcedStoppedRef = useRef<Set<string>>(new Set())
@@ -71,11 +75,39 @@ export function usePluginBackendSupervisor(params: {
     stopTimerRef.current.delete(pluginId)
   }, [])
 
+  const setProcessReady = useCallback((pluginId: string, ready: boolean) => {
+    const next = new Set(processReadyRef.current)
+    if (ready) next.add(pluginId)
+    else next.delete(pluginId)
+    processReadyRef.current = next
+    setProcessReadyIds(Array.from(next))
+  }, [])
+
+  const waitProcessReady = useCallback((pluginId: string, reason: string) => {
+    if (processReadyRef.current.has(pluginId)) return
+    if (processReadyWaitingRef.current.has(pluginId)) return
+    processReadyWaitingRef.current.add(pluginId)
+    void invoke('plugin_backend_endpoint', { pluginId })
+      .then(() => {
+        setProcessReady(pluginId, true)
+        console.log(`[backend-supervisor] ready process backend "${pluginId}" (${reason})`)
+      })
+      .catch(e => {
+        setProcessReady(pluginId, false)
+        console.error(`[backend-supervisor] wait process backend ready failed "${pluginId}" (${reason})`, e)
+      })
+      .finally(() => {
+        processReadyWaitingRef.current.delete(pluginId)
+      })
+  }, [setProcessReady])
+
   const stopNow = useCallback(
     (pluginId: string, reason: string) => {
       clearStopTimer(pluginId)
       if (processRunningRef.current.has(pluginId)) {
         processRunningRef.current.delete(pluginId)
+        processReadyWaitingRef.current.delete(pluginId)
+        setProcessReady(pluginId, false)
         void invoke('plugin_backend_stop', { pluginId }).catch(e => console.error(`[backend-supervisor] stop process backend failed "${pluginId}" (${reason})`, e))
       }
       setRunningIds(prev => {
@@ -86,15 +118,20 @@ export function usePluginBackendSupervisor(params: {
         return next
       })
     },
-    [clearStopTimer],
+    [clearStopTimer, setProcessReady],
   )
 
   const ensureRunning = useCallback((pluginId: string, reason: string) => {
     clearStopTimer(pluginId)
     const p = pluginsById.get(pluginId)
     if (p && isV3ProcessBackend(p)) {
+      if (processRunningRef.current.has(pluginId)) {
+        waitProcessReady(pluginId, reason)
+        return
+      }
       if (!processRunningRef.current.has(pluginId)) {
         processRunningRef.current.add(pluginId)
+        setProcessReady(pluginId, false)
         void invoke('plugin_backend_start', {
           req: {
             pluginId,
@@ -102,10 +139,13 @@ export function usePluginBackendSupervisor(params: {
             apiVersion: Number(p.manifest?.apiVersion ?? 2),
             runtime: p.manifest?.background?.runtime,
           },
-        }).catch(e => {
-          processRunningRef.current.delete(pluginId)
-          console.error(`[backend-supervisor] start process backend failed "${pluginId}" (${reason})`, e)
         })
+          .then(() => waitProcessReady(pluginId, reason))
+          .catch(e => {
+            processRunningRef.current.delete(pluginId)
+            setProcessReady(pluginId, false)
+            console.error(`[backend-supervisor] start process backend failed "${pluginId}" (${reason})`, e)
+          })
         console.log(`[backend-supervisor] start process backend "${pluginId}" (${reason})`)
       }
       return
@@ -117,7 +157,7 @@ export function usePluginBackendSupervisor(params: {
       console.log(`[backend-supervisor] start "${pluginId}" (${reason})`)
       return next
     })
-  }, [clearStopTimer, pluginsById])
+  }, [clearStopTimer, pluginsById, setProcessReady, waitProcessReady])
 
   const scheduleStop = useCallback(
     (pluginId: string, delayMs: number, reason: string) => {
@@ -223,11 +263,13 @@ export function usePluginBackendSupervisor(params: {
       for (const t of stopTimerRef.current.values()) window.clearTimeout(t)
       stopTimerRef.current.clear()
       for (const id of Array.from(processRunningRef.current)) {
+        processReadyWaitingRef.current.delete(id)
+        setProcessReady(id, false)
         void invoke('plugin_backend_stop', { pluginId: id }).catch(() => {})
       }
       processRunningRef.current.clear()
     }
-  }, [])
+  }, [setProcessReady])
 
   const startBackend = useCallback((pluginId: string, reason?: string) => {
     forcedStoppedRef.current.delete(pluginId)
@@ -248,6 +290,7 @@ export function usePluginBackendSupervisor(params: {
   }, [])
 
   const isRunning = useCallback((pluginId: string) => runningSetRef.current.has(pluginId) || processRunningRef.current.has(pluginId), [])
+  const isReady = useCallback((pluginId: string) => runningSetRef.current.has(pluginId) || processReadyRef.current.has(pluginId), [processReadyIds])
 
   const runningPlugins = useMemo(() => {
     const out: BackendSupervisorPlugin[] = []
@@ -271,8 +314,8 @@ export function usePluginBackendSupervisor(params: {
   }, [runningPlugins])
 
   const controller: BackendSupervisorController = useMemo(
-    () => ({ startBackend, stopBackend, reconcileNow, isRunning }),
-    [isRunning, reconcileNow, startBackend, stopBackend],
+    () => ({ startBackend, stopBackend, reconcileNow, isRunning, isReady }),
+    [isRunning, isReady, reconcileNow, startBackend, stopBackend],
   )
 
   return { backgroundHosts, controller }
