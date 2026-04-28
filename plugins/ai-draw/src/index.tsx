@@ -1,16 +1,11 @@
-import { createV2AiDrawGateway } from './gateway/createV2AiDrawGateway'
-import { runAiDrawBackground } from './background/runBackground'
+import { createV45AiDrawGateway } from './gateway/createV45AiDrawGateway'
 import { mountAiDrawUi } from './ui/mount'
 
-;(function bootstrap() {
+;(async function bootstrap() {
   const baseApi = (window as unknown as { fastWindow?: unknown }).fastWindow
-  const gateway = createV2AiDrawGateway(baseApi, 'ai-draw')
-
-  if (gateway.runtime === 'background') {
-    runAiDrawBackground(gateway)
-    return
-  }
-
+  const gateway = await createV45AiDrawGateway(baseApi)
   mountAiDrawUi(gateway)
-})()
-
+})().catch((error) => {
+  console.error('[ai-draw] bootstrap failed', error)
+  document.body.textContent = `AI 绘图启动失败：${String(error?.message || error)}`
+})

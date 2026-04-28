@@ -33,6 +33,7 @@ export function normalizeTaskHistoryStatus(raw: any): AiDrawTaskHistoryStatus {
   if (value === 'failed') return 'failed'
   if (value === 'canceled') return 'canceled'
   if (value === 'canceling') return 'canceling'
+  if (value === 'running') return 'pending'
   return 'pending'
 }
 

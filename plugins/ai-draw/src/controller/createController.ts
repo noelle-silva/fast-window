@@ -23,7 +23,7 @@ import {
   type RefLibraryIndexV1,
   type UiMode,
 } from '../core/schema'
-import { normalizeImageDataUrlOrBase64, inferImageMimeFromBase64 } from '../core/images'
+import { normalizeImageDataUrlOrBase64 } from '../core/images'
 import {
   cropDataUrlByPixels,
   loadImageFromDataUrl,
@@ -33,10 +33,9 @@ import {
   compositePatchToBase,
   type PickedImage,
 } from '../core/imageCanvas'
-import { formatBytes, id, isHttpBaseUrl, normalizeBatchCount, trimSlash } from '../core/utils'
-import { buildMultipartFormDataBytes, base64ToBytes, bytesToBase64, inferExtFromMime } from '../core/multipart'
-import { parseErrorBody, parseImageDataUrlFromHttpBodyText } from '../core/httpParse'
+import { id, isHttpBaseUrl, normalizeBatchCount, trimSlash } from '../core/utils'
 import { formatAiDrawError } from '../core/errorFormat'
+import type { AiDrawGenerationDebugRecord, AiDrawGenerationTask } from '../shared/domain'
 import {
   normalizeTaskHistory,
   normalizeTaskHistoryLimit,
@@ -47,9 +46,6 @@ import {
 
 const MAX_BATCH_COUNT = 20
 const MAX_REF_IMAGES = 8
-const TASK_POLL_INTERVAL = 1200
-const TASK_KIND_HTTP_REQUEST = 'http.request'
-const MAX_TASK_JSON_BODY_CHARS = 10 * 1024 * 1024
 const REF_SHRINK_MAX_DIMENSION = 960
 const REF_SHRINK_IF_OVER_BYTES = 900 * 1024
 
@@ -70,26 +66,7 @@ export type AiDrawEditState = {
   sel: { x: number; y: number; w: number; h: number } | null
 }
 
-export type AiDrawDebugRecord = {
-  taskId: string
-  mode: 'normal' | 'local-edit'
-  status: 'pending' | 'succeeded' | 'failed' | 'canceled' | 'canceling' | 'unknown'
-  createdAt: number
-  updatedAt: number
-  attemptCount: number
-  request: {
-    method: string
-    url: string
-    headers: Record<string, string>
-    bodyText: string
-    timeoutMs: number | null
-  }
-  response: {
-    status: number | null
-    bodyText: string
-    errorText: string
-  }
-}
+export type AiDrawDebugRecord = AiDrawGenerationDebugRecord & { status?: string }
 
 export type AiDrawControllerState = {
   loading: boolean
@@ -255,11 +232,6 @@ function getRefItemFolderIdsFromIndex(index: RefLibraryIndexV1, path: string) {
   return Array.isArray(raw) ? raw.map((x) => String(x || '').trim()).filter(Boolean) : []
 }
 
-function requestTimeoutMs(data: AiDrawSettingsV1 | null) {
-  const sec = normalizeRequestTimeoutSec(data?.requestTimeoutSec ?? DEFAULT_REQUEST_TIMEOUT_SEC)
-  return sec * 1000
-}
-
 export function createAiDrawController(gateway: AiDrawGateway): AiDrawController {
   const {
     host,
@@ -268,10 +240,9 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     taskHistoryStore,
     promptLibraryStore,
     referenceLibraryIndexStore,
-    backgroundSaveQueue,
     outputImages,
     referenceImages,
-    generationTasks,
+    generation,
   } = gateway
   const listeners = new Set<Listener>()
   const localEditContextByTaskId = new Map<string, { baseDataUrl: string; selPx: { x: number; y: number; w: number; h: number } }>()
@@ -293,26 +264,6 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
   let imageThumbActive = 0
   let imageThumbDrainTimer: any = null
   const IMAGE_THUMB_MAX_CONCURRENT = 8
-
-  function maskHeaders(headers: any): Record<string, string> {
-    const src = headers && typeof headers === 'object' ? headers : {}
-    const out: Record<string, string> = {}
-    for (const [rawKey, rawValue] of Object.entries(src)) {
-      const key = String(rawKey || '').trim()
-      if (!key) continue
-      const lower = key.toLowerCase()
-      if (lower === 'authorization') {
-        out[key] = '[REDACTED]'
-        continue
-      }
-      out[key] = String(rawValue ?? '')
-    }
-    return out
-  }
-
-  function readTaskResult(task: any) {
-    return task && task.result && typeof task.result === 'object' ? task.result : null
-  }
 
   function activeProviderSnapshot() {
     const provider = activeProvider(state.data)
@@ -436,71 +387,16 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     })
   }
 
-  function buildDebugRecordFromRequest(input: {
-    taskId?: string
-    mode: 'normal' | 'local-edit'
-    status?: AiDrawDebugRecord['status']
-    request: any
-    bodyText: string
-  }): AiDrawDebugRecord {
-    const req = input.request && typeof input.request === 'object' ? input.request : {}
-    return {
-      taskId: String(input.taskId || '').trim(),
-      mode: input.mode,
-      status: input.status || 'pending',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      attemptCount: 0,
-      request: {
-        method: String(req.method || ''),
-        url: String(req.url || ''),
-        headers: maskHeaders(req.headers),
-        bodyText: String(input.bodyText || ''),
-        timeoutMs: typeof req.timeoutMs === 'number' ? req.timeoutMs : null,
-      },
-      response: {
-        status: null,
-        bodyText: '',
-        errorText: '',
-      },
-    }
-  }
-
-  function setLastDebugRecord(record: AiDrawDebugRecord | null) {
-    state.lastDebugRecord = record
-    notify()
-  }
-
-  function attachDebugTaskId(taskId: string, status: AiDrawDebugRecord['status']) {
-    if (!state.lastDebugRecord) return
-    state.lastDebugRecord = {
-      ...state.lastDebugRecord,
-      taskId: String(taskId || '').trim(),
-      status,
-      updatedAt: Date.now(),
-    }
-    notify()
-  }
-
   function updateDebugRecordFromTask(task: any, fallbackStatus?: AiDrawDebugRecord['status']) {
     const taskId = String(task?.id || '').trim()
-    if (!taskId || !state.lastDebugRecord || state.lastDebugRecord.taskId !== taskId) return
-    const rr = readTaskResult(task)
+    if (!taskId || !task?.debug) return
     const taskStatusRaw = String(task?.status || '').trim()
     const nextStatus: AiDrawDebugRecord['status'] =
-      taskStatusRaw === 'pending' || taskStatusRaw === 'succeeded' || taskStatusRaw === 'failed' || taskStatusRaw === 'canceled' || taskStatusRaw === 'canceling'
+      taskStatusRaw === 'pending' || taskStatusRaw === 'running' || taskStatusRaw === 'succeeded' || taskStatusRaw === 'failed' || taskStatusRaw === 'canceled' || taskStatusRaw === 'canceling'
         ? taskStatusRaw
         : fallbackStatus || 'unknown'
-    state.lastDebugRecord = {
-      ...state.lastDebugRecord,
+    state.lastDebugRecord = { ...task.debug,
       status: nextStatus,
-      updatedAt: Date.now(),
-      attemptCount: rr && Number.isFinite(Number((rr as any).attemptCount)) ? Number((rr as any).attemptCount) : state.lastDebugRecord.attemptCount,
-      response: {
-        status: rr && Number.isFinite(Number(rr.status)) ? Number(rr.status) : null,
-        bodyText: rr && typeof rr.body === 'string' ? rr.body : String(task?.error || ''),
-        errorText: String(task?.error || ''),
-      },
     }
     notify()
   }
@@ -565,11 +461,8 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
   }
 
   let revision = 0
-  let taskPollTimer: any = null
   let taskPolling = false
-  let bgSaveWatchTimer: any = null
-  let bgSaveWatchTaskId = ''
-  let bgSaveWatchStartedAt = 0
+  let unsubscribeGeneration: (() => void) | null = null
 
   const state: AiDrawControllerState = {
     loading: true,
@@ -943,14 +836,6 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     notify()
   }
 
-  function stopTaskPolling() {
-    if (taskPollTimer) {
-      clearTimeout(taskPollTimer)
-      taskPollTimer = null
-    }
-    taskPolling = false
-  }
-
   function upsertTask(item: Partial<AiDrawTaskItem> & { id: string }) {
     const tid = String(item.id || '').trim()
     if (!tid) return false
@@ -985,108 +870,6 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
   function getActiveTasks() {
     const list = Array.isArray(state.tasks) ? state.tasks : []
     return list.filter((t) => t && !isTaskDone(String(t.status || '')))
-  }
-
-  async function getBackgroundSavedPath(taskId: string) {
-    const tid = String(taskId || '').trim()
-    if (!tid) return ''
-    const raw = await backgroundSaveQueue.readSavedResults().catch(() => null)
-    const map = raw && typeof raw === 'object' ? { ...(raw as any) } : {}
-    const hit = (map as any)[tid]
-    const path = hit && typeof hit.savedPath === 'string' ? String(hit.savedPath).trim() : ''
-    return path || ''
-  }
-
-  function sleepMs(ms: any) {
-    const t = Number(ms)
-    const safe = Number.isFinite(t) && t > 0 ? t : 0
-    return new Promise((resolve) => setTimeout(resolve, safe))
-  }
-
-  async function waitBackgroundSavedPath(taskId: string, timeoutMs = 4500, intervalMs = 250) {
-    const tid = String(taskId || '').trim()
-    if (!tid) return ''
-    const startedAt = Date.now()
-    const timeout = Number(timeoutMs)
-    const interval = Number(intervalMs)
-    while (Date.now() - startedAt < (Number.isFinite(timeout) && timeout > 0 ? timeout : 0)) {
-      const hit = await getBackgroundSavedPath(tid)
-      if (hit) return hit
-      await sleepMs(Number.isFinite(interval) && interval > 0 ? interval : 250)
-    }
-    return ''
-  }
-
-  async function waitBackgroundSaveResponse(reqId: string, timeoutMs = 6000, intervalMs = 250) {
-    const rid = String(reqId || '').trim()
-    if (!rid) return ''
-    const startedAt = Date.now()
-    const timeout = Number(timeoutMs)
-    const interval = Number(intervalMs)
-    while (Date.now() - startedAt < (Number.isFinite(timeout) && timeout > 0 ? timeout : 0)) {
-      const raw = await backgroundSaveQueue.readResponses().catch(() => null)
-      const map = raw && typeof raw === 'object' ? (raw as any) : null
-      const hit = map && map[rid] ? map[rid] : null
-      const p = hit && typeof hit.savedPath === 'string' ? String(hit.savedPath).trim() : ''
-      if (p) return p
-      await sleepMs(Number.isFinite(interval) && interval > 0 ? interval : 250)
-    }
-    return ''
-  }
-
-  async function enqueueBackgroundSave(dataUrl: string) {
-    const data = String(dataUrl || '').trim()
-    if (!data) return ''
-    const rid = `save-${Date.now()}-${Math.random().toString(16).slice(2)}`
-    const raw = await backgroundSaveQueue.readRequests().catch(() => null)
-    const map = raw && typeof raw === 'object' ? { ...(raw as any) } : {}
-    ;(map as any)[rid] = { dataUrl: data, at: Date.now(), by: 'ui' }
-    await backgroundSaveQueue.writeRequests(map).catch(() => {})
-    return rid
-  }
-
-  function stopBackgroundSavedPathWatcher() {
-    if (bgSaveWatchTimer) {
-      clearTimeout(bgSaveWatchTimer)
-      bgSaveWatchTimer = null
-    }
-    bgSaveWatchTaskId = ''
-    bgSaveWatchStartedAt = 0
-  }
-
-  async function tickBackgroundSavedPathWatcher() {
-    const tid = String(bgSaveWatchTaskId || '').trim()
-    if (!tid) return stopBackgroundSavedPathWatcher()
-    if (state.savedPath) return stopBackgroundSavedPathWatcher()
-    const startedAt = Number(bgSaveWatchStartedAt) || 0
-    if (startedAt && Date.now() - startedAt > 2 * 60 * 1000) return stopBackgroundSavedPathWatcher()
-
-    const hit = await getBackgroundSavedPath(tid).catch(() => '')
-    if (hit) {
-      if (!state.savedPath) {
-        state.error = ''
-        state.savedPath = String(hit || '')
-        await refreshImageHistoryFromOutputDir(state.savedPath)
-        notify()
-        host.toast('已生成并保存')
-      }
-      stopBackgroundSavedPathWatcher()
-      return
-    }
-
-    bgSaveWatchTimer = setTimeout(() => {
-      void tickBackgroundSavedPathWatcher()
-    }, 900)
-  }
-
-  function startBackgroundSavedPathWatcher(taskId: string) {
-    const tid = String(taskId || '').trim()
-    if (!tid) return
-    if (bgSaveWatchTaskId === tid && bgSaveWatchTimer) return
-    stopBackgroundSavedPathWatcher()
-    bgSaveWatchTaskId = tid
-    bgSaveWatchStartedAt = Date.now()
-    bgSaveWatchTimer = setTimeout(() => void tickBackgroundSavedPathWatcher(), 900)
   }
 
   async function applyImageHistoryIndex(index: number) {
@@ -1202,18 +985,10 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     if (status === 'succeeded') {
       try {
         const localCtx = taskId ? localEditContextByTaskId.get(taskId) : null
-        const tagsRaw = task?.meta && Array.isArray(task.meta.tags) ? task.meta.tags : []
-        const tags = Array.isArray(tagsRaw) ? tagsRaw.map((x) => String(x || '').trim()).filter(Boolean) : []
 
         if (localCtx) {
           localEditContextByTaskId.delete(taskId)
-          const r = task && task.result && typeof task.result === 'object' ? task.result : {}
-          const httpStatus = Number(r.status)
-          const bodyText = typeof r.body === 'string' ? r.body : ''
-          if (!Number.isFinite(httpStatus)) throw new Error('请求失败：无响应')
-          if (httpStatus < 200 || httpStatus >= 300) throw new Error(`HTTP ${httpStatus}：${parseErrorBody(bodyText)}`)
-
-          const patch = parseImageDataUrlFromHttpBodyText(bodyText)
+          const patch = String(task?.imageDataUrl || '').trim()
           if (!patch) throw new Error('未拿到图片数据（请确保服务端返回 base64 图片）')
 
           const finalDataUrl = await compositePatchToBase(localCtx.baseDataUrl, patch, localCtx.selPx)
@@ -1227,10 +1002,7 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
           notify()
 
           if (state.data && state.data.autoSave) {
-            const rid = await enqueueBackgroundSave(finalDataUrl).catch(() => '')
-            if (!rid) throw new Error('保存失败：无法发起后台保存')
-            host.toast('已生成（保存中…）')
-            const savedPath = await waitBackgroundSaveResponse(rid).catch(() => '')
+            const savedPath = await outputImages.saveBase64(finalDataUrl).catch(() => '')
             if (savedPath) {
               state.savedPath = savedPath
               await refreshImageHistoryFromOutputDir(state.savedPath)
@@ -1244,57 +1016,16 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
           return
         }
 
-        if (tags.includes('local-edit') || tags.includes('no-autosave')) {
-          throw new Error('局部绘图任务已完成，但上下文已丢失（请重新生成）')
-        }
-
-        const bgSavedPath = state.data && state.data.autoSave ? await getBackgroundSavedPath(taskId) : ''
-        if (bgSavedPath) {
-          state.savedPath = bgSavedPath
+        const savedPath = String(task?.savedPath || '').trim()
+        const generatedDataUrl = String(task?.imageDataUrl || '').trim()
+        if (savedPath) {
+          state.savedPath = savedPath
           await refreshImageHistoryFromOutputDir(state.savedPath)
-          stopBackgroundSavedPathWatcher()
           host.toast('已生成并保存')
           await recordTaskHistoryStatus(task)
           return
         }
-
-        const r = task && task.result && typeof task.result === 'object' ? task.result : {}
-        const httpStatus = Number(r.status)
-        const bodyText = typeof r.body === 'string' ? r.body : ''
-        if (!Number.isFinite(httpStatus)) throw new Error('请求失败：无响应')
-        if (httpStatus < 200 || httpStatus >= 300) throw new Error(`HTTP ${httpStatus}：${parseErrorBody(bodyText)}`)
-
-        const dataUrl = parseImageDataUrlFromHttpBodyText(bodyText)
-        if (!dataUrl) {
-          try {
-            const j = JSON.parse(String(bodyText || '{}'))
-            const item = (Array.isArray(j?.data) && j.data[0]) || (Array.isArray(j?.images) && j.images[0]) || null
-            if (item?.url) throw new Error('服务端返回 url（宿主无法下载二进制）。请配置为返回 base64（b64_json / b64_png / data_url）。')
-          } catch {}
-          throw new Error('未拿到图片数据（b64_json）')
-        }
-
-        const generatedDataUrl = String(dataUrl).trim()
-        if (state.data && state.data.autoSave) {
-          state.imageDataUrl = generatedDataUrl
-          state.savedPath = ''
-          notify()
-
-          const waited = await waitBackgroundSavedPath(taskId, 20000, 250)
-          if (waited) {
-            state.savedPath = waited
-            await refreshImageHistoryFromOutputDir(state.savedPath)
-            stopBackgroundSavedPathWatcher()
-            host.toast('已生成并保存')
-            await recordTaskHistoryStatus(task)
-            return
-          }
-
-          startBackgroundSavedPathWatcher(taskId)
-          host.toast('已生成（等待后台保存…）')
-          await recordTaskHistoryStatus(task)
-          return
-        }
+        if (!generatedDataUrl) throw new Error('未拿到图片数据（b64_json）')
 
         state.imageDataUrl = generatedDataUrl
         state.savedPath = ''
@@ -1313,24 +1044,17 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     }
 
     if (status === 'failed') {
-      const rr = task && task.result && typeof task.result === 'object' ? task.result : null
       const taskErr = String((task as any)?.error || '').trim()
-      const rawHttpStatus = rr ? Number(rr.status) : NaN
-      const rawBodyText = rr && typeof rr.body === 'string' ? rr.body : ''
-      const body = typeof rawBodyText === 'string' ? rawBodyText : ''
-      const err = body ? parseErrorBody(body) : ''
       const msg = formatAiDrawError({
         hint: '生成失败',
         stage: '后台任务执行',
-        httpStatus: Number.isFinite(rawHttpStatus) ? rawHttpStatus : null,
-        serverMessage: err,
         taskError: taskErr,
-        rawMessage: taskErr || (!Number.isFinite(rawHttpStatus) ? '请求失败：无响应/无状态' : ''),
+        rawMessage: taskErr || '请求失败',
       })
       state.error = msg
-      await recordTaskHistoryStatus(task, { failureReason: String(err || taskErr || '请求失败') })
+      await recordTaskHistoryStatus(task, { failureReason: String(taskErr || '请求失败') })
       notify()
-      host.toast(`生成失败：${String(err || taskErr || '请求失败')}`)
+      host.toast(`生成失败：${String(taskErr || '请求失败')}`)
       return
     }
 
@@ -1342,14 +1066,11 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
   async function pollTasks() {
     if (taskPolling) return
     const active = getActiveTasks()
-    if (!active.length) {
-      stopTaskPolling()
-      return
-    }
+    if (!active.length) return
 
     taskPolling = true
     try {
-      const infos = await Promise.all(active.map((t) => generationTasks.get(String(t.id || '')).catch(() => null)))
+      const infos = await Promise.all(active.map((t) => generation.get(String(t.id || '')).catch(() => null)))
       let changed = false
       for (const info of infos) {
         if (!info) continue
@@ -1367,15 +1088,10 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
       if (changed) notify()
     } finally {
       taskPolling = false
-      if (getActiveTasks().length) {
-        taskPollTimer = setTimeout(() => void pollTasks(), TASK_POLL_INTERVAL)
-      }
     }
   }
 
   async function generateNormal() {
-    stopBackgroundSavedPathWatcher()
-
     const prompt = String(state.prompt || '').trim()
     if (!prompt) {
       state.error = '请输入提示词'
@@ -1412,160 +1128,39 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     addPromptHistory(prompt)
     notify()
 
-    const protocol = String(p?.protocol || 'images') === 'chat' ? 'chat' : 'images'
-    const refUrls = (Array.isArray(state.refImages) ? state.refImages : [])
-      .map((x) => String(x && x.dataUrl ? x.dataUrl : '').trim())
-      .filter((x) => x.startsWith('data:image/'))
-      .slice(0, MAX_REF_IMAGES)
-
-    const refForSend: string[] = []
-    for (const u of refUrls) {
-      const safeUrl = isShrinkRefImagesEnabled()
-        ? await shrinkRefImageDataUrl(u, { maxDimension: REF_SHRINK_MAX_DIMENSION, ifOverBytes: REF_SHRINK_IF_OVER_BYTES }).catch(() => u)
-        : u
-      if (String(safeUrl || '').startsWith('data:image/')) refForSend.push(safeUrl)
-    }
-
-    const useEdits = protocol === 'images' && refForSend.length
-    if (useEdits) host.toast('已选参考图：自动使用 /images/edits（多图参考）')
-
-    const chatUserContent = refForSend.length
-      ? [{ type: 'text', text: prompt }, ...refForSend.map((url) => ({ type: 'image_url', image_url: { url } }))]
-      : prompt
-
-    const size = String(p?.size || '').trim() || '1024x1024'
-    const protocolKind = protocol === 'chat' ? 'chat' : useEdits ? 'images-edits' : 'images'
-
-    let req: any = null
-    let debugBodyText = ''
-    if (protocolKind === 'chat') {
-      const body = JSON.stringify({
-        model,
-        messages: [
-          ...(String(p?.chatSystemPrompt || '').trim()
-            ? [{ role: 'system', content: String(p?.chatSystemPrompt || '').trim() }]
-            : []),
-          { role: 'user', content: chatUserContent },
-        ],
-        temperature: 0.2,
-      })
-      if (body.length > MAX_TASK_JSON_BODY_CHARS) {
-        state.submitting = false
-        host.toast('请求体过大：请减少参考图/换更小图片')
-        state.error = `请求体过大（约 ${formatBytes(body.length)}）。请减少参考图数量/换更小图片（建议裁剪或压缩），再试一次。`
-        notify()
-        return
-      }
-      req = {
-        mode: 'task',
-        method: 'POST',
-        url: `${baseUrl}/chat/completions`,
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body,
-        timeoutMs: requestTimeoutMs(state.data),
-      }
-      debugBodyText = body
-    } else if (protocolKind === 'images-edits') {
-      const boundary = `fast-window-${Date.now()}-${Math.random().toString(16).slice(2)}`
-      const parts: any[] = [
-        { name: 'model', value: model },
-        { name: 'prompt', value: prompt },
-        { name: 'size', value: size },
-        { name: 'response_format', value: 'b64_json' },
-      ]
-      for (let i = 0; i < refForSend.length; i++) {
-        const url = refForSend[i]
-        const mime = inferImageMimeFromBase64(url) || 'image/png'
-        const ext = inferExtFromMime(mime)
-        const dataBytes = base64ToBytes(url)
-        parts.push({ name: 'image[]', filename: `ref-${i + 1}.${ext}`, contentType: mime, dataBytes })
-      }
-      const mpBytes = buildMultipartFormDataBytes(boundary, parts)
-      if (mpBytes.length > MAX_TASK_JSON_BODY_CHARS) {
-        state.submitting = false
-        host.toast('请求体过大：请减少参考图/换更小图片')
-        state.error = `请求体过大（约 ${formatBytes(mpBytes.length)}）。请减少参考图数量/换更小图片（建议裁剪或压缩），再试一次。`
-        notify()
-        return
-      }
-      req = {
-        mode: 'task',
-        method: 'POST',
-        url: `${baseUrl}/images/edits`,
-        headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, Authorization: `Bearer ${apiKey}` },
-        bodyBase64: bytesToBase64(mpBytes),
-        timeoutMs: requestTimeoutMs(state.data),
-      }
-      debugBodyText = `[multipart/form-data] fields=model,prompt,size,response_format; images=${refForSend.length}; bytes=${formatBytes(mpBytes.length)}`
-    } else {
-      const body = JSON.stringify({ model, prompt, size, n: 1, response_format: 'b64_json' })
-      if (body.length > MAX_TASK_JSON_BODY_CHARS) {
-        state.submitting = false
-        host.toast('请求体过大：请减少参考图/换更小图片')
-        state.error = `请求体过大（约 ${formatBytes(body.length)}）。请减少参考图数量/换更小图片（建议裁剪或压缩），再试一次。`
-        notify()
-        return
-      }
-      req = {
-        mode: 'task',
-        method: 'POST',
-        url: `${baseUrl}/images/generations`,
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body,
-        timeoutMs: requestTimeoutMs(state.data),
-      }
-      debugBodyText = body
-    }
-
     try {
-      // 调试模式：记录请求信息（debug record 跟最后一个被追踪的任务 taskId 绑定）
-      if (state.data?.debugMode) {
-        setLastDebugRecord(buildDebugRecordFromRequest({ mode: 'normal', request: req, bodyText: debugBodyText }))
+      const refImages = []
+      const rawRefs = (Array.isArray(state.refImages) ? state.refImages : []).slice(0, MAX_REF_IMAGES)
+      for (const image of rawRefs) {
+        const dataUrl = String(image?.dataUrl || '').trim()
+        if (!dataUrl.startsWith('data:image/')) continue
+        const safeUrl = isShrinkRefImagesEnabled()
+          ? await shrinkRefImageDataUrl(dataUrl, { maxDimension: REF_SHRINK_MAX_DIMENSION, ifOverBytes: REF_SHRINK_IF_OVER_BYTES }).catch(() => dataUrl)
+          : dataUrl
+        if (safeUrl.startsWith('data:image/')) refImages.push({ name: String(image?.name || '图片'), dataUrl: safeUrl, sourcePath: String((image as any)?.sourcePath || '') || undefined })
       }
+      if (String(p?.protocol || 'images') !== 'chat' && refImages.length) host.toast('已选参考图：自动使用 /images/edits（多图参考）')
 
-      const results = await Promise.allSettled(Array.from({ length: batch }, () => generationTasks.requestHttpTask(req)))
-      const ids: string[] = []
-      let failed = 0
-      const rejectReasons: string[] = []
+      const tasks = await generation.createNormal({
+        provider: p,
+        prompt,
+        refImages,
+        batchCount: batch,
+        autoSave: !!state.data?.autoSave,
+        shrinkRefImages: isShrinkRefImagesEnabled(),
+        debugMode: !!state.data?.debugMode,
+        requestTimeoutSec: normalizeRequestTimeoutSec(state.data?.requestTimeoutSec ?? DEFAULT_REQUEST_TIMEOUT_SEC),
+      })
       const requestAt = Date.now()
       const providerSnapshot = activeProviderSnapshot()
-      let failedHistoryCount = 0
-      for (const r of results) {
-        if (r.status !== 'fulfilled') {
-          failed++
-          const reasonText = String((r as any)?.reason?.message ?? (r as any)?.reason ?? '').trim()
-          if (reasonText) rejectReasons.push(reasonText)
-          failedHistoryCount++
-          await recordTaskCreationFailure({
-            id: `create-failed-${requestAt}-${failedHistoryCount}`,
-            prompt,
-            mode: 'normal',
-            requestAt,
-            providerId: providerSnapshot.providerId,
-            providerName: providerSnapshot.providerName,
-            model: providerSnapshot.model,
-            failureReason: reasonText || '创建后台任务失败',
-          })
-          continue
-        }
-        const taskId = String((r as any).value && (r as any).value.id ? (r as any).value.id : '').trim()
+      const ids: string[] = []
+      for (const task of tasks) {
+        const taskId = String(task?.id || '').trim()
         if (!taskId) {
-          failed++
-          failedHistoryCount++
-          await recordTaskCreationFailure({
-            id: `create-failed-${requestAt}-${failedHistoryCount}`,
-            prompt,
-            mode: 'normal',
-            requestAt,
-            providerId: providerSnapshot.providerId,
-            providerName: providerSnapshot.providerName,
-            model: providerSnapshot.model,
-            failureReason: '创建后台任务失败：未返回任务 ID',
-          })
           continue
         }
         ids.push(taskId)
-        upsertTask({ id: taskId, status: 'pending', prompt, at: Date.now() })
+        upsertTask({ id: taskId, status: String(task.status || 'pending'), prompt, at: task.createdAt || Date.now() })
         await recordTaskHistoryStart({
           taskId,
           prompt,
@@ -1578,31 +1173,12 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
       }
 
       if (!ids.length) throw new Error('创建后台任务失败')
-      if (failed) host.toast(`部分任务创建失败：${failed} 个`)
-      if (failed && rejectReasons.length) {
-        state.error = formatAiDrawError({
-          hint: `部分任务创建失败：${failed} 个`,
-          stage: '创建后台任务',
-          method: String(req?.method || ''),
-          url: String(req?.url || ''),
-          timeoutMs: typeof req?.timeoutMs === 'number' ? req.timeoutMs : null,
-          rawMessage: rejectReasons[0],
-        })
-      }
-
-      // 调试模式：把最后一个任务 ID 绑定到 debug record（轮询完成后会回填 response）
-      const trackedTaskId = ids[ids.length - 1]
-      if (state.data?.debugMode && state.lastDebugRecord) {
-        attachDebugTaskId(trackedTaskId, 'pending')
-      }
-
       if (state.data) {
         state.data.pendingTaskId = ids[ids.length - 1]
         await saveSettings().catch(() => {})
       }
       state.submitting = false
       notify()
-      void pollTasks()
     } catch (e: any) {
       const providerSnapshot = activeProviderSnapshot()
       await recordTaskCreationFailure({
@@ -1619,9 +1195,6 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
       state.error = formatAiDrawError({
         hint: '生成失败',
         stage: '创建后台任务',
-        method: String(req?.method || ''),
-        url: String(req?.url || ''),
-        timeoutMs: typeof req?.timeoutMs === 'number' ? req.timeoutMs : null,
         rawMessage: String(e?.message || e || '请求失败'),
       })
       notify()
@@ -1629,7 +1202,6 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
   }
 
   async function generateLocalEdit() {
-    stopBackgroundSavedPathWatcher()
     const prompt = String(state.prompt || '').trim()
     if (!prompt) {
       state.error = '请输入提示词'
@@ -1694,71 +1266,30 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
         .filter((x) => x.startsWith('data:image/'))
         .slice(0, MAX_REF_IMAGES)
 
-      const instruction =
-        `请根据要求修改图片：${prompt}\n` +
-        `图 1 是需要修改的“选区图片”；后续图片（如果有）是参考图（风格/细节参考）。\n` +
-        `只输出一张最终图片（PNG），尺寸必须与输入图片一致。\n` +
-        `输出格式必须是 data URL（data:image/png;base64,...）或 JSON（{\"data_url\":\"...\"} / {\"b64_png\":\"...\"} / {\"b64_json\":\"...\"}），不要输出其它文字。`
-
-      const refForSend: string[] = []
+      const refForSend: Array<{ name: string; dataUrl: string; sourcePath?: string }> = []
       for (const u of refUrls) {
         const safeUrl = isShrinkRefImagesEnabled()
           ? await shrinkRefImageDataUrl(u, { maxDimension: REF_SHRINK_MAX_DIMENSION, ifOverBytes: REF_SHRINK_IF_OVER_BYTES }).catch(() => u)
           : u
-        if (String(safeUrl || '').startsWith('data:image/')) refForSend.push(safeUrl)
+        if (String(safeUrl || '').startsWith('data:image/')) refForSend.push({ name: '参考图', dataUrl: safeUrl })
       }
 
-      const body = JSON.stringify({
-        model,
-        messages: [
-          ...(String(p?.chatSystemPrompt || '').trim()
-            ? [{ role: 'system', content: String(p?.chatSystemPrompt || '').trim() }]
-            : []),
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: instruction },
-              { type: 'image_url', image_url: { url: cropForSend } },
-              ...refForSend.map((url) => ({ type: 'image_url', image_url: { url } })),
-            ],
-          },
-        ],
-        temperature: 0.2,
-      })
-
-      if (body.length > MAX_TASK_JSON_BODY_CHARS) {
-        throw new Error(`请求体过大（约 ${formatBytes(body.length)}）。请缩小选区/减少参考图/换更小图片。`)
-      }
-
-      const localEditPayload = {
-        method: 'POST',
-        url: `${base}/chat/completions`,
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-        body,
-        timeoutMs: requestTimeoutMs(state.data),
-      }
-
-      // 调试模式：记录请求信息
-      if (state.data?.debugMode) {
-        setLastDebugRecord(buildDebugRecordFromRequest({ mode: 'local-edit', request: localEditPayload, bodyText: body }))
-      }
-
-      const created = await generationTasks.create({
-        kind: TASK_KIND_HTTP_REQUEST,
-        meta: { tags: ['no-autosave', 'local-edit'] },
-        payload: localEditPayload,
+      const created = await generation.createLocalEdit({
+        provider: p,
+        prompt,
+        cropImage: { name: state.edit.baseName || '选区图片', dataUrl: cropForSend, width: selPx.w, height: selPx.h },
+        refImages: refForSend,
+        autoSave: false,
+        shrinkRefImages: isShrinkRefImagesEnabled(),
+        debugMode: !!state.data?.debugMode,
+        requestTimeoutSec: normalizeRequestTimeoutSec(state.data?.requestTimeoutSec ?? DEFAULT_REQUEST_TIMEOUT_SEC),
       })
 
       const taskId = String(created && (created as any).id ? (created as any).id : '').trim()
       if (!taskId) throw new Error('创建后台任务失败')
 
-      // 调试模式：绑定 taskId
-      if (state.data?.debugMode && state.lastDebugRecord) {
-        attachDebugTaskId(taskId, 'pending')
-      }
-
       localEditContextByTaskId.set(taskId, { baseDataUrl: baseUrl, selPx })
-      upsertTask({ id: taskId, status: 'pending', prompt, at: Date.now() })
+      upsertTask({ id: taskId, status: String(created.status || 'pending'), prompt, at: created.createdAt || Date.now() })
       const providerSnapshot = activeProviderSnapshot()
       await recordTaskHistoryStart({
         taskId,
@@ -1771,7 +1302,6 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
       })
       state.submitting = false
       notify()
-      void pollTasks()
     } catch (e: any) {
       const providerSnapshot = activeProviderSnapshot()
       await recordTaskCreationFailure({
@@ -1788,9 +1318,6 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
       state.error = formatAiDrawError({
         hint: '生成失败',
         stage: '提交局部任务',
-        method: 'POST',
-        url: `${trimSlash(String(p?.baseUrl || ''))}/chat/completions`,
-        timeoutMs: requestTimeoutMs(state.data),
         rawMessage: String(e?.message || e || '请求失败'),
       })
       notify()
@@ -2125,10 +1652,10 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
 
   async function saveImage() {
     if (!state.imageDataUrl) return
-    const rid = await enqueueBackgroundSave(state.imageDataUrl).catch(() => '')
-    if (!rid) return host.toast('保存失败：无法发起后台保存')
-    host.toast('已请求后台保存…')
-    const p = await waitBackgroundSaveResponse(rid).catch(() => '')
+    const p = await outputImages.saveBase64(state.imageDataUrl).catch((e: any) => {
+      host.toast(`保存失败：${String(e?.message || e)}`)
+      return ''
+    })
     if (!p) return
     state.savedPath = p
     await refreshImageHistoryFromOutputDir(state.savedPath)
@@ -2239,7 +1766,7 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     upsertTask({ id: tid, status: 'canceling' })
     await recordTaskHistoryStatus({ id: tid, status: 'canceling' })
     notify()
-    await generationTasks.cancel(tid).catch(() => {})
+    await generation.cancel(tid).catch(() => {})
     void pollTasks()
   }
 
@@ -2251,7 +1778,7 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
       await recordTaskHistoryStatus({ id: t.id, status: 'canceling' }, { prompt: String(t.prompt || '') })
     }
     notify()
-    await Promise.allSettled(active.map((t) => generationTasks.cancel(t.id)))
+    await Promise.allSettled(active.map((t) => generation.cancel(t.id)))
     void pollTasks()
   }
 
@@ -2527,7 +2054,23 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     state.outputDir = await outputImages.getOutputDir().catch(() => '')
 
     state.tasks = []
-    const pending = await generationTasks.list(50).catch(() => [])
+    unsubscribeGeneration?.()
+    unsubscribeGeneration = generation.subscribe((event) => {
+      const task = (event as any)?.task as AiDrawGenerationTask | undefined
+      if (!task?.id) return
+      upsertTask({ id: task.id, status: task.status, prompt: task.prompt, at: task.createdAt })
+      updateDebugRecordFromTask(task)
+      if (isTaskDone(task.status)) {
+        void applyTaskCompletion(task).finally(() => {
+          removeTask(task.id)
+          notify()
+        })
+      } else {
+        notify()
+      }
+    })
+
+    const pending = await generation.list(50).catch(() => [])
     const running = Array.isArray(pending)
       ? pending.filter((t) => !isTaskDone(String((t as any)?.status || '')))
       : []

@@ -1,33 +1,13 @@
-import type { AiDrawSettingsV1, PromptLibraryV1, RefLibraryIndexV1 } from '../core/schema'
-import type { AiDrawTaskHistoryItem } from '../core/taskHistory'
-
-export type AiDrawRuntimeKind = 'ui' | 'background'
-
-export type AiDrawImageScope = 'data' | 'output'
-
-export type AiDrawTaskStatus = 'pending' | 'succeeded' | 'failed' | 'canceled' | 'canceling'
-
-export type AiDrawTaskKind = 'http.request' | string
-
-export type AiDrawTaskResult = {
-  status?: number
-  body?: string
-  attemptCount?: number
-}
-
-export type AiDrawTaskMeta = {
-  tags?: string[]
-  [key: string]: unknown
-}
-
-export type AiDrawTask = {
-  id: string
-  kind?: AiDrawTaskKind
-  status: AiDrawTaskStatus | string
-  result?: AiDrawTaskResult | null
-  error?: string
-  meta?: AiDrawTaskMeta | null
-}
+import type {
+  AiDrawCreateLocalEditGenerationRequest,
+  AiDrawCreateNormalGenerationRequest,
+  AiDrawGenerationEvent,
+  AiDrawGenerationTask,
+  AiDrawSettingsV1,
+  AiDrawTaskHistoryItem,
+  PromptLibraryV1,
+  RefLibraryIndexV1,
+} from '../shared/domain'
 
 export type AiDrawPickedImage = {
   name: string
@@ -35,27 +15,8 @@ export type AiDrawPickedImage = {
   sourcePath?: string
 }
 
-export type AiDrawHttpRequest = {
-  method: string
-  url: string
-  headers?: Record<string, string>
-  body?: string
-  bodyBase64?: string
-  timeoutMs?: number | null
-}
-
-export type AiDrawCreateTaskRequest = {
-  kind: AiDrawTaskKind
-  payload: unknown
-  meta?: AiDrawTaskMeta
-}
-
-export type AiDrawSaveRequestMap = Record<string, { dataUrl: string; at: number; by: 'ui' | 'background' | string }>
-export type AiDrawSaveResponseMap = Record<string, { savedPath: string; at: number; by: 'ui' | 'background' | string }>
-export type AiDrawSavedResultMap = Record<string, { savedPath: string; at: number; by: 'ui' | 'background' | string }>
-
 export type AiDrawGateway = {
-  runtime: AiDrawRuntimeKind
+  runtime: 'ui'
 
   host: {
     back: () => Promise<void>
@@ -88,15 +49,6 @@ export type AiDrawGateway = {
     write: (index: RefLibraryIndexV1) => Promise<void>
   }
 
-  backgroundSaveQueue: {
-    readRequests: () => Promise<AiDrawSaveRequestMap>
-    writeRequests: (map: AiDrawSaveRequestMap) => Promise<void>
-    readResponses: () => Promise<AiDrawSaveResponseMap>
-    writeResponses: (map: AiDrawSaveResponseMap) => Promise<void>
-    readSavedResults: () => Promise<AiDrawSavedResultMap>
-    writeSavedResults: (map: AiDrawSavedResultMap) => Promise<void>
-  }
-
   outputImages: {
     getOutputDir: () => Promise<string>
     pickOutputDir: () => Promise<string | null>
@@ -115,11 +67,14 @@ export type AiDrawGateway = {
     delete: (path: string) => Promise<void>
   }
 
-  generationTasks: {
-    requestHttpTask: (req: AiDrawHttpRequest) => Promise<AiDrawTask>
-    create: (req: AiDrawCreateTaskRequest) => Promise<AiDrawTask>
-    get: (taskId: string) => Promise<AiDrawTask | null>
-    list: (limit?: number | null) => Promise<AiDrawTask[]>
+  generation: {
+    createNormal: (req: AiDrawCreateNormalGenerationRequest) => Promise<AiDrawGenerationTask[]>
+    createLocalEdit: (req: AiDrawCreateLocalEditGenerationRequest) => Promise<AiDrawGenerationTask>
+    get: (taskId: string) => Promise<AiDrawGenerationTask | null>
+    list: (limit?: number | null) => Promise<AiDrawGenerationTask[]>
     cancel: (taskId: string) => Promise<void>
+    subscribe: (listener: (event: AiDrawGenerationEvent) => void) => () => void
   }
+
+  close?: () => void
 }

@@ -2,40 +2,13 @@
   "id": "ai-draw",
   "name": "AI 绘图",
   "author": "fast-window",
-  "version": "1.4.8",
-  "description": "左侧输入提示词，右侧出图；一次请求一次返回（无上下文）；默认保存到 data/ai-draw/output（兼容旧目录 output-images），可通过资源管理器选择输出目录",
-  "main": "index.js",
+  "version": "1.5.0",
+  "description": "AI 绘图插件",
+  "apiVersion": 4,
+  "main": "ui/index.js",
+  "icon": "assets/icon.svg",
   "background": {
-    "autoStart": true,
+    "main": "backend/index.js",
     "lifecycle": "resident"
-  },
-  "icon": "svg:icon.svg",
-  "keyword": "ai",
-  "apiVersion": 2,
-  "ui": {
-    "type": "iframe"
-  },
-  "requires": [
-    "tauri:plugin_files_list_dir",
-    "tauri:plugin_files_read_text",
-    "tauri:plugin_files_write_text",
-    "tauri:plugin_files_delete",
-    "tauri:http_request",
-    "tauri:task_create",
-    "tauri:task_get",
-    "tauri:task_list",
-    "tauri:task_cancel",
-    "tauri:plugin_get_output_dir",
-    "tauri:plugin_pick_output_dir",
-    "tauri:plugin_open_output_dir",
-    "tauri:plugin_pick_images",
-    "tauri:plugin_images_write_base64",
-    "tauri:plugin_images_read",
-    "tauri:plugin_images_list",
-    "tauri:plugin_images_delete",
-    "tauri:plugin_files_thumbnail",
-    "tauri:plugin:window|start_dragging",
-    "tauri:plugin:clipboard-manager|write_text",
-    "tauri:clipboard_write_image_data_url"
-  ]
+  }
 }
