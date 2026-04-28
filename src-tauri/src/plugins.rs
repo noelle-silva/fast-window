@@ -483,7 +483,7 @@ fn is_dir_empty(dir: &Path) -> bool {
 // Release/MSI 不再随包预置任何插件（纯净宿主）。插件只通过商店安装到 plugins/ 目录。
 
 #[tauri::command]
-pub(crate) fn get_plugins_dir(app: tauri::AppHandle) -> String {
+pub(crate) async fn get_plugins_dir(app: tauri::AppHandle) -> String {
     // 统一使用 App 本地数据目录（避免 cwd 漂移），插件默认放到这里
     let plugins_dir = app_plugins_dir(&app);
     let _ = std::fs::create_dir_all(&plugins_dir);
@@ -616,7 +616,11 @@ pub(crate) fn get_plugins_dir(app: tauri::AppHandle) -> String {
                 .map_err(|e| format!("写入 dev manifest 失败: {e}"))
         }
 
-        fn sync_repo_plugins_into(repo_plugins: &Path, plugins_dir: &Path) -> Result<(), String> {
+        async fn sync_repo_plugins_into(
+            app: &tauri::AppHandle,
+            repo_plugins: &Path,
+            plugins_dir: &Path,
+        ) -> Result<(), String> {
             let Ok(entries) = std::fs::read_dir(repo_plugins) else {
                 return Ok(());
             };
@@ -649,6 +653,7 @@ pub(crate) fn get_plugins_dir(app: tauri::AppHandle) -> String {
                 let dst = plugins_dir.join(&plugin_id);
                 if is_trusted_local_app_manifest(&manifest) {
                     // v4 开发同步只复制运行产物目录，避免 node_modules/src/dev-docs 等开发目录拖慢宿主启动。
+                    let _ = stop_plugin_backend_before_replace(app, &plugin_id).await;
                     let _ = sync_v4_runtime_plugin_dir(&src, &dst, &plugin_id).and_then(|_| {
                         if let Some(dev_manifest) =
                             dev_background_manifest_override(&src, &manifest)
@@ -686,7 +691,7 @@ pub(crate) fn get_plugins_dir(app: tauri::AppHandle) -> String {
         let repo_plugins = workspace_root.join("plugins");
         if repo_plugins.is_dir() && !crate::same_path(&repo_plugins, &plugins_dir) {
             // 开发同步：v4 以完整插件包为单位；旧插件保留最小运行时文件同步，避免 node_modules 等大目录拖慢/失败。
-            let _ = sync_repo_plugins_into(&repo_plugins, &plugins_dir);
+            let _ = sync_repo_plugins_into(&app, &repo_plugins, &plugins_dir).await;
         }
     }
 
