@@ -1,4 +1,4 @@
-import type { AiDrawFastWindowApi } from '../bridge/tauriCompat'
+import type { AiDrawGateway } from '../gateway/types'
 import {
   DEFAULT_REQUEST_TIMEOUT_SEC,
   UI_MODE_LOCAL_EDIT,
@@ -44,14 +44,6 @@ import {
   taskHistorySuccessFromStatus,
   type AiDrawTaskHistoryItem,
 } from '../core/taskHistory'
-
-const STORAGE_KEY = 'settings'
-const TASK_HISTORY_KEY = 'taskHistory'
-const PROMPT_LIBRARY_KEY = 'promptLibrary'
-const REF_LIBRARY_INDEX_KEY = 'refLibraryIndex'
-const BG_SAVED_RESULTS_KEY = 'bgSavedResults'
-const BG_SAVE_REQUESTS_KEY = 'bgSaveRequests'
-const BG_SAVE_RESPONSES_KEY = 'bgSaveResponses'
 
 const MAX_BATCH_COUNT = 20
 const MAX_REF_IMAGES = 8
@@ -268,7 +260,19 @@ function requestTimeoutMs(data: AiDrawSettingsV1 | null) {
   return sec * 1000
 }
 
-export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawController {
+export function createAiDrawController(gateway: AiDrawGateway): AiDrawController {
+  const {
+    host,
+    clipboard,
+    settingsStore,
+    taskHistoryStore,
+    promptLibraryStore,
+    referenceLibraryIndexStore,
+    backgroundSaveQueue,
+    outputImages,
+    referenceImages,
+    generationTasks,
+  } = gateway
   const listeners = new Set<Listener>()
   const localEditContextByTaskId = new Map<string, { baseDataUrl: string; selPx: { x: number; y: number; w: number; h: number } }>()
   const imageLoadByPath = new Map<string, Promise<string>>()
@@ -322,7 +326,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
   async function saveTaskHistory() {
     const limit = state.data?.taskHistoryLimit
     state.taskHistory = normalizeTaskHistory(state.taskHistory, limit)
-    await api.storage.set(TASK_HISTORY_KEY, state.taskHistory)
+    await taskHistoryStore.write(state.taskHistory)
   }
 
   function updateTaskHistoryInMemory(next: AiDrawTaskHistoryItem) {
@@ -526,7 +530,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       notify()
 
       imageThumbActive++
-      const job = api.files.images.read({ scope: 'output', path: p })
+      const job = outputImages.read(p)
         .then((x) => normalizeImageDataUrlOrBase64(x))
         .finally(() => {
           imageLoadByPath.delete(`thumb:${p}`)
@@ -599,26 +603,26 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
   async function saveSettings() {
     if (!state.data) return
-    await api.storage.set(STORAGE_KEY, state.data)
+    await settingsStore.write(state.data)
   }
 
   async function saveRefLibraryIndex() {
     const d = state.refLibrary.index
     if (!d) return
-    await api.storage.set(REF_LIBRARY_INDEX_KEY, d).catch((e: any) => {
-      api.ui.showToast(`参考图库收藏夹保存失败：${String(e?.message || e)}`)
+    await referenceLibraryIndexStore.write(d).catch((e: any) => {
+      host.toast(`参考图库收藏夹保存失败：${String(e?.message || e)}`)
     })
   }
 
   async function savePromptLibrary() {
     const d = state.promptLib.data
     if (!d) return
-    await api.storage.set(PROMPT_LIBRARY_KEY, d).catch(() => {})
+    await promptLibraryStore.write(d).catch(() => {})
   }
 
   async function clearTaskHistory() {
     state.taskHistory = []
-    await api.storage.set(TASK_HISTORY_KEY, []).catch(() => {})
+    await taskHistoryStore.write([]).catch(() => {})
     notify()
   }
 
@@ -627,7 +631,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     state.refLibrary.indexLoading = true
     notify()
     try {
-      const raw = await api.storage.get(REF_LIBRARY_INDEX_KEY).catch(() => null)
+      const raw = await referenceLibraryIndexStore.read().catch(() => null)
       const loaded = normalizeRefLibraryIndex(raw)
       const cur = ensureRefLibraryIndexData()
 
@@ -986,7 +990,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
   async function getBackgroundSavedPath(taskId: string) {
     const tid = String(taskId || '').trim()
     if (!tid) return ''
-    const raw = await api.storage.get(BG_SAVED_RESULTS_KEY).catch(() => null)
+    const raw = await backgroundSaveQueue.readSavedResults().catch(() => null)
     const map = raw && typeof raw === 'object' ? { ...(raw as any) } : {}
     const hit = (map as any)[tid]
     const path = hit && typeof hit.savedPath === 'string' ? String(hit.savedPath).trim() : ''
@@ -1020,7 +1024,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     const timeout = Number(timeoutMs)
     const interval = Number(intervalMs)
     while (Date.now() - startedAt < (Number.isFinite(timeout) && timeout > 0 ? timeout : 0)) {
-      const raw = await api.storage.get(BG_SAVE_RESPONSES_KEY).catch(() => null)
+      const raw = await backgroundSaveQueue.readResponses().catch(() => null)
       const map = raw && typeof raw === 'object' ? (raw as any) : null
       const hit = map && map[rid] ? map[rid] : null
       const p = hit && typeof hit.savedPath === 'string' ? String(hit.savedPath).trim() : ''
@@ -1034,10 +1038,10 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     const data = String(dataUrl || '').trim()
     if (!data) return ''
     const rid = `save-${Date.now()}-${Math.random().toString(16).slice(2)}`
-    const raw = await api.storage.get(BG_SAVE_REQUESTS_KEY).catch(() => null)
+    const raw = await backgroundSaveQueue.readRequests().catch(() => null)
     const map = raw && typeof raw === 'object' ? { ...(raw as any) } : {}
     ;(map as any)[rid] = { dataUrl: data, at: Date.now(), by: 'ui' }
-    await api.storage.set(BG_SAVE_REQUESTS_KEY, map).catch(() => {})
+    await backgroundSaveQueue.writeRequests(map).catch(() => {})
     return rid
   }
 
@@ -1064,7 +1068,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
         state.savedPath = String(hit || '')
         await refreshImageHistoryFromOutputDir(state.savedPath)
         notify()
-        api.ui.showToast('已生成并保存')
+        host.toast('已生成并保存')
       }
       stopBackgroundSavedPathWatcher()
       return
@@ -1106,7 +1110,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     item.error = ''
     notify()
 
-    const loaded = await api.files.images.read({ scope: 'output', path: state.savedPath }).catch(() => '')
+    const loaded = await outputImages.read(state.savedPath).catch(() => '')
     if (!loaded) {
       item.loading = false
       item.error = '加载失败'
@@ -1122,7 +1126,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
   }
 
   async function refreshImageHistoryFromOutputDir(preferPath = '') {
-    const paths = await api.files.images.list({ scope: 'output' }).catch(() => [])
+    const paths = await outputImages.list().catch(() => [])
     const list = (Array.isArray(paths) ? paths : []).map((x) => String(x || '').trim()).filter(Boolean)
     const prevByPath = new Map(
       (Array.isArray(state.imageHistory) ? state.imageHistory : [])
@@ -1225,16 +1229,16 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
           if (state.data && state.data.autoSave) {
             const rid = await enqueueBackgroundSave(finalDataUrl).catch(() => '')
             if (!rid) throw new Error('保存失败：无法发起后台保存')
-            api.ui.showToast('已生成（保存中…）')
+            host.toast('已生成（保存中…）')
             const savedPath = await waitBackgroundSaveResponse(rid).catch(() => '')
             if (savedPath) {
               state.savedPath = savedPath
               await refreshImageHistoryFromOutputDir(state.savedPath)
-              api.ui.showToast('已生成并保存')
+              host.toast('已生成并保存')
             }
             await recordTaskHistoryStatus(task)
           } else {
-            api.ui.showToast('已生成（已贴回选区）')
+            host.toast('已生成（已贴回选区）')
             await recordTaskHistoryStatus(task)
           }
           return
@@ -1249,7 +1253,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
           state.savedPath = bgSavedPath
           await refreshImageHistoryFromOutputDir(state.savedPath)
           stopBackgroundSavedPathWatcher()
-          api.ui.showToast('已生成并保存')
+          host.toast('已生成并保存')
           await recordTaskHistoryStatus(task)
           return
         }
@@ -1281,13 +1285,13 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
             state.savedPath = waited
             await refreshImageHistoryFromOutputDir(state.savedPath)
             stopBackgroundSavedPathWatcher()
-            api.ui.showToast('已生成并保存')
+            host.toast('已生成并保存')
             await recordTaskHistoryStatus(task)
             return
           }
 
           startBackgroundSavedPathWatcher(taskId)
-          api.ui.showToast('已生成（等待后台保存…）')
+          host.toast('已生成（等待后台保存…）')
           await recordTaskHistoryStatus(task)
           return
         }
@@ -1295,7 +1299,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
         state.imageDataUrl = generatedDataUrl
         state.savedPath = ''
         notify()
-        api.ui.showToast('已生成')
+        host.toast('已生成')
         await recordTaskHistoryStatus(task)
         return
       } catch (e: any) {
@@ -1303,7 +1307,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
         state.error = formatAiDrawError({ hint: '生成失败', stage: '处理任务结果', rawMessage: msg })
         await recordTaskHistoryStatus({ ...task, status: 'failed' }, { failureReason: msg })
         notify()
-        api.ui.showToast(`生成失败：${msg}`)
+        host.toast(`生成失败：${msg}`)
         return
       }
     }
@@ -1326,7 +1330,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       state.error = msg
       await recordTaskHistoryStatus(task, { failureReason: String(err || taskErr || '请求失败') })
       notify()
-      api.ui.showToast(`生成失败：${String(err || taskErr || '请求失败')}`)
+      host.toast(`生成失败：${String(err || taskErr || '请求失败')}`)
       return
     }
 
@@ -1345,7 +1349,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
     taskPolling = true
     try {
-      const infos = await Promise.all(active.map((t) => api.task.get(String(t.id || '')).catch(() => null)))
+      const infos = await Promise.all(active.map((t) => generationTasks.get(String(t.id || '')).catch(() => null)))
       let changed = false
       for (const info of infos) {
         if (!info) continue
@@ -1423,7 +1427,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     }
 
     const useEdits = protocol === 'images' && refForSend.length
-    if (useEdits) api.ui.showToast('已选参考图：自动使用 /images/edits（多图参考）')
+    if (useEdits) host.toast('已选参考图：自动使用 /images/edits（多图参考）')
 
     const chatUserContent = refForSend.length
       ? [{ type: 'text', text: prompt }, ...refForSend.map((url) => ({ type: 'image_url', image_url: { url } }))]
@@ -1447,7 +1451,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       })
       if (body.length > MAX_TASK_JSON_BODY_CHARS) {
         state.submitting = false
-        api.ui.showToast('请求体过大：请减少参考图/换更小图片')
+        host.toast('请求体过大：请减少参考图/换更小图片')
         state.error = `请求体过大（约 ${formatBytes(body.length)}）。请减少参考图数量/换更小图片（建议裁剪或压缩），再试一次。`
         notify()
         return
@@ -1479,7 +1483,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       const mpBytes = buildMultipartFormDataBytes(boundary, parts)
       if (mpBytes.length > MAX_TASK_JSON_BODY_CHARS) {
         state.submitting = false
-        api.ui.showToast('请求体过大：请减少参考图/换更小图片')
+        host.toast('请求体过大：请减少参考图/换更小图片')
         state.error = `请求体过大（约 ${formatBytes(mpBytes.length)}）。请减少参考图数量/换更小图片（建议裁剪或压缩），再试一次。`
         notify()
         return
@@ -1497,7 +1501,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       const body = JSON.stringify({ model, prompt, size, n: 1, response_format: 'b64_json' })
       if (body.length > MAX_TASK_JSON_BODY_CHARS) {
         state.submitting = false
-        api.ui.showToast('请求体过大：请减少参考图/换更小图片')
+        host.toast('请求体过大：请减少参考图/换更小图片')
         state.error = `请求体过大（约 ${formatBytes(body.length)}）。请减少参考图数量/换更小图片（建议裁剪或压缩），再试一次。`
         notify()
         return
@@ -1519,7 +1523,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
         setLastDebugRecord(buildDebugRecordFromRequest({ mode: 'normal', request: req, bodyText: debugBodyText }))
       }
 
-      const results = await Promise.allSettled(Array.from({ length: batch }, () => api.net.request({ ...req })))
+      const results = await Promise.allSettled(Array.from({ length: batch }, () => generationTasks.requestHttpTask(req)))
       const ids: string[] = []
       let failed = 0
       const rejectReasons: string[] = []
@@ -1574,7 +1578,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       }
 
       if (!ids.length) throw new Error('创建后台任务失败')
-      if (failed) api.ui.showToast(`部分任务创建失败：${failed} 个`)
+      if (failed) host.toast(`部分任务创建失败：${failed} 个`)
       if (failed && rejectReasons.length) {
         state.error = formatAiDrawError({
           hint: `部分任务创建失败：${failed} 个`,
@@ -1739,7 +1743,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
         setLastDebugRecord(buildDebugRecordFromRequest({ mode: 'local-edit', request: localEditPayload, bodyText: body }))
       }
 
-      const created = await api.task.create({
+      const created = await generationTasks.create({
         kind: TASK_KIND_HTTP_REQUEST,
         meta: { tags: ['no-autosave', 'local-edit'] },
         payload: localEditPayload,
@@ -1805,11 +1809,11 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
   async function pickRefImages() {
     const remaining = MAX_REF_IMAGES - (Array.isArray(state.refImages) ? state.refImages.length : 0)
     if (remaining <= 0) {
-      api.ui.showToast(`参考图最多 ${MAX_REF_IMAGES} 张`)
+      host.toast(`参考图最多 ${MAX_REF_IMAGES} 张`)
       return
     }
-    const picked = await api.files.pickImages(remaining).catch((e: any) => {
-      api.ui.showToast(`选择图片失败：${String(e?.message || e)}`)
+    const picked = await referenceImages.pick(remaining).catch((e: any) => {
+      host.toast(`选择图片失败：${String(e?.message || e)}`)
       return []
     })
     const list = Array.isArray(picked) ? picked : []
@@ -1832,7 +1836,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
     if (!out.length) return
     const merged = state.refImages.concat(out).slice(0, MAX_REF_IMAGES)
-    if (merged.length < state.refImages.length + out.length) api.ui.showToast(`参考图最多 ${MAX_REF_IMAGES} 张`)
+    if (merged.length < state.refImages.length + out.length) host.toast(`参考图最多 ${MAX_REF_IMAGES} 张`)
     state.refImages = merged
     notify()
   }
@@ -1841,7 +1845,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     const list = Array.isArray(files) ? files : []
     const remaining = MAX_REF_IMAGES - (Array.isArray(state.refImages) ? state.refImages.length : 0)
     if (remaining <= 0) {
-      api.ui.showToast(`参考图最多 ${MAX_REF_IMAGES} 张`)
+      host.toast(`参考图最多 ${MAX_REF_IMAGES} 张`)
       return
     }
 
@@ -1855,26 +1859,26 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       } catch (_) {}
     }
     if (!out.length) {
-      api.ui.showToast('未识别到图片')
+      host.toast('未识别到图片')
       return
     }
 
     const merged = state.refImages.concat(out).slice(0, MAX_REF_IMAGES)
-    if (merged.length < state.refImages.length + out.length) api.ui.showToast(`参考图最多 ${MAX_REF_IMAGES} 张`)
+    if (merged.length < state.refImages.length + out.length) host.toast(`参考图最多 ${MAX_REF_IMAGES} 张`)
     state.refImages = merged
     notify()
   }
 
   async function pickEditImage() {
-    const picked = await api.files.pickImages(1).catch((e: any) => {
-      api.ui.showToast(`选择图片失败：${String(e?.message || e)}`)
+    const picked = await referenceImages.pick(1).catch((e: any) => {
+      host.toast(`选择图片失败：${String(e?.message || e)}`)
       return []
     })
     const it = Array.isArray(picked) && picked[0] ? picked[0] : null
     const name = typeof it?.name === 'string' ? it.name : ''
     const raw = typeof (it as any)?.dataUrl === 'string' ? (it as any).dataUrl : typeof (it as any)?.data_url === 'string' ? (it as any).data_url : ''
     const u = normalizeImageDataUrlOrBase64(raw)
-    if (!u.startsWith('data:image/')) return api.ui.showToast('图片数据无效（需要 data URL 或 base64）')
+    if (!u.startsWith('data:image/')) return host.toast('图片数据无效（需要 data URL 或 base64）')
 
     try {
       const img = await loadImageFromDataUrl(u)
@@ -1888,7 +1892,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       state.error = ''
       notify()
     } catch (e: any) {
-      api.ui.showToast(`解析图片失败：${String(e?.message || e)}`)
+      host.toast(`解析图片失败：${String(e?.message || e)}`)
     }
   }
 
@@ -1897,7 +1901,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     state.refLibrary.loading = true
     notify()
     try {
-      const paths = await api.files.images.list({ scope: 'data' }).catch(() => [])
+      const paths = await referenceImages.list().catch(() => [])
       const list = (Array.isArray(paths) ? paths : []).map((x) => String(x || '').trim()).filter(Boolean)
       state.refLibrary.paths = list
       // 清理已不存在的缓存，避免无限增长
@@ -1939,7 +1943,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
     Promise.resolve()
       .then(async () => {
-        const dataUrl = await api.files.images.read({ scope: 'data', path: p }).catch(() => '')
+        const dataUrl = await referenceImages.read(p).catch(() => '')
         const u = normalizeImageDataUrlOrBase64(dataUrl)
         if (!u.startsWith('data:image/')) throw new Error('图片数据无效')
         slot.dataUrl = u
@@ -1958,8 +1962,8 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     state.refLibrary.busy = true
     notify()
     try {
-      const picked = await api.files.pickImages(12).catch((e: any) => {
-        api.ui.showToast(`选择图片失败：${String(e?.message || e)}`)
+      const picked = await referenceImages.pick(12).catch((e: any) => {
+        host.toast(`选择图片失败：${String(e?.message || e)}`)
         return []
       })
       const list = Array.isArray(picked) ? picked : []
@@ -1978,7 +1982,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
         const u = normalizeImageDataUrlOrBase64(raw)
         if (!u.startsWith('data:image/')) continue
         try {
-          const savedPath = await api.files.images.writeBase64({ scope: 'data', dataUrlOrBase64: u })
+          const savedPath = await referenceImages.saveBase64(u)
           if (savedPath) ok++
           else failed++
         } catch (e: any) {
@@ -1986,9 +1990,9 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
           if (!firstError) firstError = String(e?.message || e || 'unknown')
         }
       }
-      if (ok && failed) api.ui.showToast(`已导入 ${ok} 张，失败 ${failed} 张${firstError ? `：${firstError}` : ''}`)
-      else if (ok) api.ui.showToast(`已导入 ${ok} 张到参考图库`)
-      else if (failed) api.ui.showToast(`导入失败：${firstError || '请稍后重试'}`)
+      if (ok && failed) host.toast(`已导入 ${ok} 张，失败 ${failed} 张${firstError ? `：${firstError}` : ''}`)
+      else if (ok) host.toast(`已导入 ${ok} 张到参考图库`)
+      else if (failed) host.toast(`导入失败：${firstError || '请稍后重试'}`)
       await refreshRefLibrary()
     } finally {
       state.refLibrary.busy = false
@@ -2017,7 +2021,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
     for (const p of uniq) {
       let success = true
-      await api.files.images.delete({ scope: 'data', path: p }).catch((e: any) => {
+      await referenceImages.delete(p).catch((e: any) => {
         success = false
         failed++
         if (!firstError) firstError = String(e?.message || e || 'unknown')
@@ -2042,9 +2046,9 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     if (changed) void saveRefLibraryIndex().catch(() => {})
 
     const batch = uniq.length > 1
-    if (ok && failed) api.ui.showToast(`已删除 ${ok} 张，失败 ${failed} 张${firstError ? `：${firstError}` : ''}`)
-    else if (ok && batch) api.ui.showToast(`已删除 ${ok} 张`)
-    else if (failed) api.ui.showToast(`删除失败：${firstError || '请稍后重试'}`)
+    if (ok && failed) host.toast(`已删除 ${ok} 张，失败 ${failed} 张${firstError ? `：${firstError}` : ''}`)
+    else if (ok && batch) host.toast(`已删除 ${ok} 张`)
+    else if (failed) host.toast(`删除失败：${firstError || '请稍后重试'}`)
 
     await refreshRefLibrary()
   }
@@ -2065,7 +2069,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       notify()
       return
     }
-    if (state.refImages.length >= MAX_REF_IMAGES) return api.ui.showToast(`参考图最多 ${MAX_REF_IMAGES} 张`)
+    if (state.refImages.length >= MAX_REF_IMAGES) return host.toast(`参考图最多 ${MAX_REF_IMAGES} 张`)
     const name = p.split(/[\\/]/).pop() || p
     const slot = state.refLibrary.itemsByPath[p]
     if (slot && slot.dataUrl) {
@@ -2073,9 +2077,9 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       notify()
       return
     }
-    const dataUrl = await api.files.images.read({ scope: 'data', path: p }).catch(() => '')
+    const dataUrl = await referenceImages.read(p).catch(() => '')
     const u = normalizeImageDataUrlOrBase64(dataUrl)
-    if (!u.startsWith('data:image/')) return api.ui.showToast('图片数据无效')
+    if (!u.startsWith('data:image/')) return host.toast('图片数据无效')
     state.refLibrary.itemsByPath[p] = { dataUrl: u, loading: false, error: '' }
     state.refImages = state.refImages.concat([{ id: id('ref'), name, dataUrl: u, sourcePath: p }]).slice(0, MAX_REF_IMAGES)
     notify()
@@ -2097,39 +2101,39 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
   }
 
   async function pickOutputDir() {
-    const picked = await api.files.pickOutputDir().catch((e: any) => {
-      api.ui.showToast(`选择目录失败：${String(e?.message || e)}`)
+    const picked = await outputImages.pickOutputDir().catch((e: any) => {
+      host.toast(`选择目录失败：${String(e?.message || e)}`)
       return null
     })
     if (!picked) return
     state.outputDir = String(picked || '')
-    api.ui.showToast('输出目录已更新')
+    host.toast('输出目录已更新')
     await refreshImageHistoryFromOutputDir()
   }
 
   async function openOutputDir() {
-    await api.files.openOutputDir().catch((e: any) => api.ui.showToast(`打开目录失败：${String(e?.message || e)}`))
+    await outputImages.openOutputDir().catch((e: any) => host.toast(`打开目录失败：${String(e?.message || e)}`))
   }
 
   async function copyImage() {
     if (!state.imageDataUrl) return
-    await api.clipboard.writeImage(state.imageDataUrl).then(
-      () => api.ui.showToast('已复制图片到剪贴板'),
-      (e: any) => api.ui.showToast(`复制失败：${String(e?.message || e)}`),
+    await clipboard.writeImage(state.imageDataUrl).then(
+      () => host.toast('已复制图片到剪贴板'),
+      (e: any) => host.toast(`复制失败：${String(e?.message || e)}`),
     )
   }
 
   async function saveImage() {
     if (!state.imageDataUrl) return
     const rid = await enqueueBackgroundSave(state.imageDataUrl).catch(() => '')
-    if (!rid) return api.ui.showToast('保存失败：无法发起后台保存')
-    api.ui.showToast('已请求后台保存…')
+    if (!rid) return host.toast('保存失败：无法发起后台保存')
+    host.toast('已请求后台保存…')
     const p = await waitBackgroundSaveResponse(rid).catch(() => '')
     if (!p) return
     state.savedPath = p
     await refreshImageHistoryFromOutputDir(state.savedPath)
     notify()
-    api.ui.showToast('已保存图片')
+    host.toast('已保存图片')
   }
 
   async function deleteCurrentOutputImage() {
@@ -2138,7 +2142,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     const item = Number.isFinite(idx) && idx >= 0 ? list[idx] : null
     const path = String(item?.savedPath || '').trim() || String(state.savedPath || '').trim()
     if (!path) {
-      api.ui.showToast('暂无可删除的已保存图片')
+      host.toast('暂无可删除的已保存图片')
       return
     }
 
@@ -2150,8 +2154,8 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       preferPath = next || prev
     }
 
-    await api.files.images.delete({ scope: 'output', path }).catch((e: any) => {
-      api.ui.showToast(`删除失败：${String(e?.message || e)}`)
+    await outputImages.delete(path).catch((e: any) => {
+      host.toast(`删除失败：${String(e?.message || e)}`)
       throw e
     })
 
@@ -2163,7 +2167,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
     await refreshImageHistoryFromOutputDir(preferPath)
     notify()
-    api.ui.showToast('已删除')
+    host.toast('已删除')
   }
 
   async function deleteOutputImages(paths: string[]) {
@@ -2209,7 +2213,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
     for (const p of uniq) {
       let success = true
-      await api.files.images.delete({ scope: 'output', path: p }).catch((e: any) => {
+      await outputImages.delete(p).catch((e: any) => {
         success = false
         failed++
         if (!firstError) firstError = String(e?.message || e || 'unknown')
@@ -2221,9 +2225,9 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     if (ok && deletingCurrent) state.imageDataUrl = ''
 
     const batch = uniq.length > 1
-    if (ok && failed) api.ui.showToast(`已删除 ${ok} 张，失败 ${failed} 张${firstError ? `：${firstError}` : ''}`)
-    else if (ok && batch) api.ui.showToast(`已删除 ${ok} 张`)
-    else if (failed) api.ui.showToast(`删除失败：${firstError || '请稍后重试'}`)
+    if (ok && failed) host.toast(`已删除 ${ok} 张，失败 ${failed} 张${firstError ? `：${firstError}` : ''}`)
+    else if (ok && batch) host.toast(`已删除 ${ok} 张`)
+    else if (failed) host.toast(`删除失败：${firstError || '请稍后重试'}`)
 
     await refreshImageHistoryFromOutputDir(preferPath)
     notify()
@@ -2235,7 +2239,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     upsertTask({ id: tid, status: 'canceling' })
     await recordTaskHistoryStatus({ id: tid, status: 'canceling' })
     notify()
-    await api.task.cancel(tid).catch(() => {})
+    await generationTasks.cancel(tid).catch(() => {})
     void pollTasks()
   }
 
@@ -2247,7 +2251,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
       await recordTaskHistoryStatus({ id: t.id, status: 'canceling' }, { prompt: String(t.prompt || '') })
     }
     notify()
-    await Promise.allSettled(active.map((t) => api.task.cancel(t.id)))
+    await Promise.allSettled(active.map((t) => generationTasks.cancel(t.id)))
     void pollTasks()
   }
 
@@ -2342,7 +2346,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
   async function deleteProvider(providerId: string) {
     if (!state.data) return
     if (state.data.providers.length <= 1) {
-      api.ui.showToast('至少保留一个供应商')
+      host.toast('至少保留一个供应商')
       return
     }
     const pid = String(providerId || '').trim()
@@ -2392,7 +2396,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
   async function loadPromptLibrary() {
     state.promptLib.loading = true
     notify()
-    const raw = await api.storage.get(PROMPT_LIBRARY_KEY).catch(() => null)
+    const raw = await promptLibraryStore.read().catch(() => null)
     state.promptLib.data = normalizePromptLibrary(raw)
     state.promptLib.loading = false
     await savePromptLibrary().catch(() => {})
@@ -2439,7 +2443,7 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
 
   async function deletePromptFolder(folderId: string) {
     const d = ensurePromptLibraryData()
-    if (d.folders.length <= 1) return api.ui.showToast('至少保留一个收藏夹')
+    if (d.folders.length <= 1) return host.toast('至少保留一个收藏夹')
     const fid = String(folderId || '').trim()
     d.folders = d.folders.filter((x) => x.id !== fid)
     if (!d.folders.length) d.folders = defaultPromptLibrary().folders
@@ -2510,9 +2514,9 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     state.loading = true
     notify()
 
-    const saved = await api.storage.get(STORAGE_KEY).catch(() => null)
+    const saved = await settingsStore.read().catch(() => null)
     state.data = normalizeSettings(saved)
-    const taskHistorySaved = await api.storage.get(TASK_HISTORY_KEY).catch(() => null)
+    const taskHistorySaved = await taskHistoryStore.read().catch(() => null)
     state.taskHistory = normalizeTaskHistory(taskHistorySaved, state.data.taskHistoryLimit)
     state.uiMode = normalizeUiMode(state.data.uiMode)
     state.promptHistory = normalizePromptHistory(state.data.promptHistory, state.data.promptHistoryLimit)
@@ -2520,10 +2524,10 @@ export function createAiDrawController(api: AiDrawFastWindowApi): AiDrawControll
     state.promptHistoryDraft = ''
     await saveSettings().catch(() => {})
 
-    state.outputDir = await api.files.getOutputDir().catch(() => '')
+    state.outputDir = await outputImages.getOutputDir().catch(() => '')
 
     state.tasks = []
-    const pending = await api.task.list(50).catch(() => [])
+    const pending = await generationTasks.list(50).catch(() => [])
     const running = Array.isArray(pending)
       ? pending.filter((t) => !isTaskDone(String((t as any)?.status || '')))
       : []

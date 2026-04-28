@@ -1,18 +1,16 @@
-import { createAiDrawFastWindowApi } from './bridge/tauriCompat'
+import { createV2AiDrawGateway } from './gateway/createV2AiDrawGateway'
 import { runAiDrawBackground } from './background/runBackground'
 import { mountAiDrawUi } from './ui/mount'
 
 ;(function bootstrap() {
-  const baseApi = (window as any).fastWindow
-  const api = createAiDrawFastWindowApi(baseApi, 'ai-draw')
-  ;(window as any).fastWindow = api
+  const baseApi = (window as unknown as { fastWindow?: unknown }).fastWindow
+  const gateway = createV2AiDrawGateway(baseApi, 'ai-draw')
 
-  const runtime = String(api?.__meta?.runtime || 'ui')
-  if (runtime === 'background') {
-    runAiDrawBackground(api)
+  if (gateway.runtime === 'background') {
+    runAiDrawBackground(gateway)
     return
   }
 
-  mountAiDrawUi(api)
+  mountAiDrawUi(gateway)
 })()
 

@@ -1,11 +1,8 @@
-import type { AiDrawFastWindowApi } from '../bridge/tauriCompat'
+import type { AiDrawGateway } from '../gateway/types'
 import { normalizeImageDataUrlOrBase64, toImageDataUrlFromBase64 } from '../core/images'
 
-export function runAiDrawBackground(api: AiDrawFastWindowApi) {
-  const SETTINGS_KEY = 'settings'
-  const SAVED_RESULTS_KEY = 'bgSavedResults'
-  const SAVE_REQUESTS_KEY = 'bgSaveRequests'
-  const SAVE_RESPONSES_KEY = 'bgSaveResponses'
+export function runAiDrawBackground(gateway: AiDrawGateway) {
+  const { settingsStore, backgroundSaveQueue, outputImages, generationTasks } = gateway
   const POLL_INTERVAL = 1200
   const MAX_SAVED_RESULTS = 200
   const MAX_SAVE_ITEMS = 50
@@ -92,22 +89,22 @@ export function runAiDrawBackground(api: AiDrawFastWindowApi) {
   }
 
   async function readSavedResults() {
-    const raw = await api.storage.get(SAVED_RESULTS_KEY).catch(() => null)
+    const raw = await backgroundSaveQueue.readSavedResults().catch(() => null)
     return raw && typeof raw === 'object' ? { ...raw } : {}
   }
 
   async function readSaveRequests() {
-    const raw = await api.storage.get(SAVE_REQUESTS_KEY).catch(() => null)
+    const raw = await backgroundSaveQueue.readRequests().catch(() => null)
     return raw && typeof raw === 'object' ? { ...raw } : {}
   }
 
   async function readSaveResponses() {
-    const raw = await api.storage.get(SAVE_RESPONSES_KEY).catch(() => null)
+    const raw = await backgroundSaveQueue.readResponses().catch(() => null)
     return raw && typeof raw === 'object' ? { ...raw } : {}
   }
 
   async function isAutoSaveEnabled() {
-    const raw = await api.storage.get(SETTINGS_KEY).catch(() => null)
+    const raw = await settingsStore.read().catch(() => null)
     return !!(raw && typeof raw === 'object' ? (raw as any).autoSave !== false : true)
   }
 
@@ -140,7 +137,7 @@ export function runAiDrawBackground(api: AiDrawFastWindowApi) {
           continue
         }
 
-        const savedPath = await api.files.images.writeBase64({ scope: 'output', dataUrlOrBase64: dataUrl }).catch(() => '')
+        const savedPath = await outputImages.saveBase64(dataUrl).catch(() => '')
         if (!savedPath) continue
 
         ;(resMap as any)[rid] = { savedPath: String(savedPath), at: Date.now(), by: 'background' }
@@ -150,13 +147,13 @@ export function runAiDrawBackground(api: AiDrawFastWindowApi) {
       }
 
       if (saveChanged) {
-        await api.storage.set(SAVE_REQUESTS_KEY, trimSaveMap(reqMap)).catch(() => {})
-        await api.storage.set(SAVE_RESPONSES_KEY, trimSaveMap(resMap)).catch(() => {})
+        await backgroundSaveQueue.writeRequests(trimSaveMap(reqMap)).catch(() => {})
+        await backgroundSaveQueue.writeResponses(trimSaveMap(resMap)).catch(() => {})
       }
 
       if (!autoSave) return
 
-      const tasks = await api.task.list(40).catch(() => [])
+      const tasks = await generationTasks.list(40).catch(() => [])
       if (!Array.isArray(tasks) || !tasks.length) return
 
       const saved = await readSavedResults()
@@ -180,7 +177,7 @@ export function runAiDrawBackground(api: AiDrawFastWindowApi) {
         const dataUrl = parseTaskImageData(task)
         if (!dataUrl) continue
 
-        const savedPath = await api.files.images.writeBase64({ scope: 'output', dataUrlOrBase64: dataUrl }).catch(() => '')
+        const savedPath = await outputImages.saveBase64(dataUrl).catch(() => '')
         if (!savedPath) continue
 
         ;(saved as any)[taskId] = { savedPath: String(savedPath), at: Date.now(), by: 'background' }
@@ -188,7 +185,7 @@ export function runAiDrawBackground(api: AiDrawFastWindowApi) {
       }
 
       if (changed) {
-        await api.storage.set(SAVED_RESULTS_KEY, trimSavedResults(saved)).catch(() => {})
+        await backgroundSaveQueue.writeSavedResults(trimSavedResults(saved)).catch(() => {})
       }
     } finally {
       ticking = false

@@ -61,7 +61,7 @@ import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRound
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import BugReportRoundedIcon from '@mui/icons-material/BugReportRounded'
-import type { AiDrawFastWindowApi } from '../bridge/tauriCompat'
+import type { AiDrawGateway } from '../gateway/types'
 import { createAiDrawController } from '../controller/createController'
 import { UI_MODE_LOCAL_EDIT, UI_MODE_NORMAL, type AiDrawProvider, type UiMode } from '../core/schema'
 import type { AiDrawTaskHistoryItem } from '../core/taskHistory'
@@ -87,8 +87,8 @@ type LightboxState =
 
 type SettingsTab = 'provider' | 'plugin'
 
-function useAiDrawController(api: AiDrawFastWindowApi) {
-  const controller = React.useMemo(() => createAiDrawController(api), [api])
+function useAiDrawController(gateway: AiDrawGateway) {
+  const controller = React.useMemo(() => createAiDrawController(gateway), [gateway])
   React.useEffect(() => {
     void controller.init()
     return () => {}
@@ -310,10 +310,11 @@ function EditImageSelector(props: {
   )
 }
 
-export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
-  const { api } = props
+export function AiDrawApp(props: { gateway: AiDrawGateway }) {
+  const { gateway } = props
+  const { host, clipboard } = gateway
   const theme = React.useMemo(() => createClaudeTheme(), [])
-  const { controller, state, revision } = useAiDrawController(api)
+  const { controller, state, revision } = useAiDrawController(gateway)
 
   const data = state.data
   const provider = activeProviderFromState(data)
@@ -880,7 +881,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
     const t = e.target as any
     if (!t || typeof t.closest !== 'function') return
     if (t.closest('button, a, input, textarea, select, [role="button"]')) return
-    void api.ui.startDragging()
+    void host.startDragging()
   }
 
   const clampBatch = (n: number) => Math.max(1, Math.min(20, Math.floor(n)))
@@ -918,11 +919,9 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 size="small"
                 onClick={() => {
                   try {
-                    const back = (api as any)?.host?.back
-                    if (typeof back === 'function') back()
-                    else api.ui.showToast('宿主不支持返回')
+                    void host.back()
                   } catch (e: any) {
-                    api.ui.showToast(String(e?.message || e || '返回失败'))
+                    host.toast(String(e?.message || e || '返回失败'))
                   }
                 }}
                 aria-label="返回主页"
@@ -1652,7 +1651,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 })
               }
               if (!task) return
-              void task.then(() => api.ui.showToast('保存成功'))
+              void task.then(() => host.toast('保存成功'))
             }}
           >
             保存
@@ -1749,10 +1748,10 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                           onClick={() => {
                             if (promptHistoryMultiMode) return togglePromptHistorySelected(text)
                             controller.setPrompt(text)
-                            void api.clipboard
+                            void clipboard
                               .writeText(text)
-                              .then(() => api.ui.showToast('已复制并填入'))
-                              .catch((e: any) => api.ui.showToast(`复制失败：${String(e?.message || e)}`))
+                              .then(() => host.toast('已复制并填入'))
+                              .catch((e: any) => host.toast(`复制失败：${String(e?.message || e)}`))
                           }}
                           onContextMenu={(e) => {
                             e.preventDefault()
@@ -1801,10 +1800,10 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
             setPromptHistoryItemMenu({ open: false, x: 0, y: 0, text: '' })
             if (!text) return
             controller.setPrompt(text)
-            void api.clipboard
+            void clipboard
               .writeText(text)
-              .then(() => api.ui.showToast('已复制并填入'))
-              .catch((e: any) => api.ui.showToast(`复制失败：${String(e?.message || e)}`))
+              .then(() => host.toast('已复制并填入'))
+              .catch((e: any) => host.toast(`复制失败：${String(e?.message || e)}`))
           }}
         >
           使用
@@ -1848,9 +1847,9 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 () => {
                   // 删除后保持在多选模式下，但清掉已选。
                   clearPromptHistorySelection()
-                  api.ui.showToast('已删除')
+                  host.toast('已删除')
                 },
-                (e: any) => api.ui.showToast(`删除失败：${String(e?.message || e)}`),
+                (e: any) => host.toast(`删除失败：${String(e?.message || e)}`),
               )
             }}
           >
@@ -2091,7 +2090,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 () => {
                   clearImageGallerySelection()
                 },
-                (e: any) => api.ui.showToast(`删除失败：${String(e?.message || e)}`),
+                (e: any) => host.toast(`删除失败：${String(e?.message || e)}`),
               )
             }}
           >
@@ -2210,10 +2209,10 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                                   style={style}
                                   onClick={() => {
                                     const text = String(p.text || '')
-                                    void api.clipboard
+                                    void clipboard
                                       .writeText(text)
-                                      .then(() => api.ui.showToast('已复制'))
-                                      .catch((e: any) => api.ui.showToast(`复制失败：${String(e?.message || e)}`))
+                                      .then(() => host.toast('已复制'))
+                                      .catch((e: any) => host.toast(`复制失败：${String(e?.message || e)}`))
                                   }}
                                 >
                                   <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.5, pr: 4 }}>
@@ -2672,10 +2671,10 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 <Button
                   size="small"
                   onClick={() => {
-                    void api.clipboard
+                    void clipboard
                       .writeText(state.savedPath)
-                      .then(() => api.ui.showToast('已复制保存路径'))
-                      .catch((e: any) => api.ui.showToast(`复制失败：${String(e?.message || e)}`))
+                      .then(() => host.toast('已复制保存路径'))
+                      .catch((e: any) => host.toast(`复制失败：${String(e?.message || e)}`))
                   }}
                 >
                   复制路径
@@ -2706,11 +2705,11 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                 variant="outlined"
                 onClick={() => {
                   const text = String(state.outputDir || '').trim()
-                  if (!text) return api.ui.showToast('输出目录为空')
-                  void api.clipboard
+                  if (!text) return host.toast('输出目录为空')
+                  void clipboard
                     .writeText(text)
-                    .then(() => api.ui.showToast('已复制输出目录'))
-                    .catch((e: any) => api.ui.showToast(`复制失败：${String(e?.message || e)}`))
+                    .then(() => host.toast('已复制输出目录'))
+                    .catch((e: any) => host.toast(`复制失败：${String(e?.message || e)}`))
                 }}
               >
                 复制
@@ -3351,7 +3350,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
                         await controller.setRefItemFolderIds(p, next)
                       }
                       clearRefSelection()
-                      api.ui.showToast(`已批量收藏 ${uniq.length} 张`)
+                      host.toast(`已批量收藏 ${uniq.length} 张`)
                     } finally {
                       setRefMultiBusy(false)
                     }
@@ -3464,7 +3463,7 @@ export function AiDrawApp(props: { api: AiDrawFastWindowApi }) {
               const record = state.lastDebugRecord
               if (!record) return
               const text = JSON.stringify(record, null, 2)
-              void api.clipboard.writeText(text).then(() => api.ui.showToast('调试信息已复制')).catch(() => api.ui.showToast('复制失败'))
+              void clipboard.writeText(text).then(() => host.toast('调试信息已复制')).catch(() => host.toast('复制失败'))
             }}
             disabled={!state.lastDebugRecord}
             startIcon={<ContentCopyRoundedIcon />}

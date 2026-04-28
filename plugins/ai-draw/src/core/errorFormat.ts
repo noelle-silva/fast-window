@@ -66,7 +66,13 @@ function guessCategory(ctx: AiDrawErrorContext): { category: AiDrawErrorCategory
   if (httpStatus && (httpStatus < 200 || httpStatus >= 300)) return { category: '服务端', titleSuffix: httpStatus >= 500 ? '（上游异常）' : '' }
 
   if (raw.includes('Base URL') || raw.includes('API Key') || raw.includes('url 必须以 http')) return { category: '配置', titleSuffix: '' }
-  if (raw.includes('tauri.invoke 不可用') || raw.includes('pluginId 不合法') || raw.includes('任务状态锁定失败')) return { category: '宿主', titleSuffix: '' }
+  if (
+    (raw.includes('tauri') && raw.includes('invoke 不可用')) ||
+    raw.includes('AiDrawGateway 不可用') ||
+    raw.includes('gateway 不可用') ||
+    raw.includes('pluginId 不合法') ||
+    raw.includes('任务状态锁定失败')
+  ) return { category: '宿主', titleSuffix: '' }
   if (raw.includes('请求体过大') || raw.includes('未拿到图片数据') || raw.includes('合成失败') || raw.includes('裁剪失败')) return { category: '插件', titleSuffix: '' }
 
   if (raw.includes('请求失败') || raw.includes('读取响应失败') || raw.includes('创建 http client 失败') || raw.includes('bodyBase64')) {
