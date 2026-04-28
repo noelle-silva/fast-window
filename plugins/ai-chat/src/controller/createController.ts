@@ -20,12 +20,13 @@ import {
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import mammoth from 'mammoth/mammoth.browser'
 import { extractPptMarkdown } from '../core/ppt'
-import { createAiChatRequestBridge } from '../aiRequestBridge'
-import { createAiChatRequestPipeline } from '../requestPipeline'
+import { createAiChatInternalGateway } from '../gateway/createAiChatInternalGateway'
+import type { AiChatInternalGateway } from '../gateway/types'
+import { UI_CHAT_UPDATED_NOTICE_KEY } from '../runtime/runtimeKeys'
 import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from '../core/viewerZoom'
 import type { AiChatController } from './types'
 
-export function createAiChatController(deps: { api: any; runtime: string; runtimeStorage: any }): {
+export function createAiChatController(deps: { api: any; runtime: string; runtimeStorage: any; aiGateway?: AiChatInternalGateway }): {
   controller: AiChatController
   init: () => Promise<void>
 } {
@@ -33,23 +34,12 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
   const runtime = String(deps.runtime || 'ui')
   const runtimeStorage = deps.runtimeStorage
 
-  const BG_STREAM_KEY_PREFIX = 'bg.stream.'
-  const ENGINE_FINAL_PREFIX = 'engine.v1/final/'
   const VERSION = 2
   const SPLIT_SCHEMA_VERSION = 1
   const SPLIT_META_KEY = 'meta/index'
   const STICKERS_KEY = 'stickers/index'
-  const UI_CHAT_UPDATED_NOTICE_KEY = 'ui/notice/chat-updated'
 
   const sleepMs = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, Math.floor(ms || 0))))
-
-  function streamKey(mid: any) {
-    return `${BG_STREAM_KEY_PREFIX}${String(mid || '')}`
-  }
-
-  function finalKey(mid: any) {
-    return `${ENGINE_FINAL_PREFIX}${String(mid || '')}`
-  }
 
   async function onAssistantRunFinal(run: any, finalText: string) {
     // service run：不属于聊天消息生成，不允许触发 patchAssistantMessage / 工具链。
@@ -162,7 +152,7 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
               stream: !!streamEnabled,
             }
 
-            await requestPipeline.enqueueOne({
+            await submitChatCompletion({
               target: {
                 kind: kind === 'group' ? 'group' : 'role',
                 groupId: kind === 'group' ? groupId : undefined,
@@ -180,25 +170,24 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
     }
   }
 
-  const requestBridge = createAiChatRequestBridge({
-    runtime: runtime === 'background' ? 'background' : 'ui',
-    store: runtimeStorage,
-    net: {
-      request: (req: any) => api.net.request(req),
-      requestStream: typeof api?.net?.requestStream === 'function' ? (req: any) => api.net.requestStream(req) : undefined,
-    },
-    streamKey,
-    onRunFinal: onAssistantRunFinal,
-  })
+  const aiGateway = deps.aiGateway ||
+    createAiChatInternalGateway({
+      runtime: runtime === 'background' ? 'background' : 'ui',
+      store: runtimeStorage,
+      net: {
+        request: (req: any) => api.net.request(req),
+        requestStream: typeof api?.net?.requestStream === 'function' ? (req: any) => api.net.requestStream(req) : undefined,
+      },
+      onRunFinal: onAssistantRunFinal,
+      buildRoleReqFromStorage: (jobStub) => buildOpenAiChatReqFromStorage(jobStub),
+      buildGroupReqFromStorage: (jobStub) => buildOpenAiGroupChatReqFromStorage(jobStub),
+    })
 
-  const requestPipeline = createAiChatRequestPipeline({
-    store: runtimeStorage,
-    streamKey: (mid) => streamKey(mid),
-    finalKey: (mid) => finalKey(mid),
-    bridge: requestBridge,
-    buildRoleReqFromStorage: (jobStub) => buildOpenAiChatReqFromStorage(jobStub),
-    buildGroupReqFromStorage: (jobStub) => buildOpenAiGroupChatReqFromStorage(jobStub),
-  })
+  async function submitChatCompletion(input: any) {
+    const kind = String(input?.target?.kind || '').trim() === 'group' ? 'group' : 'role'
+    if (kind === 'group') return aiGateway.submitGroupChatCompletion(input)
+    return aiGateway.submitRoleChatCompletion(input)
+  }
 
   function chatWriteLockKey(kind: any, targetId: any, chatId: any) {
     const k = String(kind || '').trim() === 'group' ? 'g' : 'r'
@@ -2020,7 +2009,7 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
   }
 
   if (runtime === 'background') {
-    requestBridge.startBackgroundLoop(350).catch(() => {})
+    aiGateway.startBackgroundWorker(350).catch(() => {})
     return
   }
 
@@ -2510,18 +2499,10 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
     const waitFinal = async (mid: string, timeoutMs: number) => {
       const deadline = now() + Math.max(2000, Math.floor(timeoutMs || 0))
       while (now() < deadline) {
-        let fin: any = null
-        try {
-          fin = await runtimeStorage.get(finalKey(mid))
-        } catch (_) {
-          fin = null
-        }
+        const fin = await aiGateway.consumeAssistantFinal(mid)
         if (fin && typeof fin === 'object') {
           const status = String(fin?.status || '').trim()
           const text = String(fin?.text || '')
-          try {
-            await runtimeStorage.remove(finalKey(mid))
-          } catch (_) {}
           if (status && status !== 'succeeded') throw new Error(text || '请求失败')
           return text
         }
@@ -2530,7 +2511,7 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
       throw new Error('AI 微服务请求超时（后台可能未启动或已卡住）')
     }
 
-    await requestPipeline.enqueueReq({ target: target as any, req: httpReq, stream: false })
+    await aiGateway.submitRawServiceRequest({ target: target as any, req: httpReq, stream: false })
 
     const out = await waitFinal(assistantMid, 140_000)
     return String(out || '')
@@ -3652,7 +3633,7 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
         branchId: activeBranchId,
         stream: streamEnabled,
       }
-      await requestPipeline.enqueueOne({
+      await submitChatCompletion({
         target: {
           kind: 'role',
           roleId: String(role.id || ''),
@@ -4008,7 +3989,7 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
 
       await save()
 
-      await requestPipeline.enqueueMany(
+      await aiGateway.submitManyChatCompletions(
         assistantMids
           .map((it: any) => {
             const assistantMid = String(it?.mid || '').trim()
@@ -4076,13 +4057,13 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
     if (!mid) return api.ui?.showToast?.('当前会话没有正在生成的消息')
 
     try {
-      await requestBridge.requestCancelByAssistantMid(mid)
+      await aiGateway.cancelAssistant(mid)
     } catch (_) {}
 
     if (state.data && chatId && mid && (kind === 'role' ? roleId : groupId)) {
       let text = ''
       try {
-        const s = await runtimeStorage.get(streamKey(mid))
+        const s = await aiGateway.readAssistantStream(mid)
         text = String(s?.text || '')
       } catch (_) {}
 
@@ -4187,7 +4168,7 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
       repairChatLinearBranching(chat)
 
       try {
-        await requestPipeline.resetAssistantRuntime(mid)
+        await aiGateway.resetAssistantRuntime(mid)
       } catch (_) {}
 
       await save()
@@ -4201,7 +4182,7 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
         branchId,
         stream: streamEnabled,
       }
-      await requestPipeline.enqueueOne({
+      await submitChatCompletion({
         target: {
           kind: 'role',
           roleId: String(role.id || ''),
@@ -4298,7 +4279,7 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
       repairChatLinearBranching(chat)
 
       try {
-        await requestPipeline.resetAssistantRuntime(mid)
+        await aiGateway.resetAssistantRuntime(mid)
       } catch (_) {}
 
       await save()
@@ -4314,7 +4295,7 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
         branchId,
         stream: streamEnabled,
       }
-      await requestPipeline.enqueueOne({
+      await submitChatCompletion({
         target: {
           kind: 'group',
           groupId,
@@ -4420,7 +4401,7 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
         branchId: activeBranchId,
         stream: streamEnabled,
       }
-      await requestPipeline.enqueueOne({
+      await submitChatCompletion({
         target: {
           kind: 'role',
           roleId: String(role.id || ''),
@@ -4632,7 +4613,7 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
 
       await save()
 
-      await requestPipeline.enqueueMany(
+      await aiGateway.submitManyChatCompletions(
         toInsert
           .map((am: any) => {
             const assistantMid = String(am?.id || '').trim()
@@ -4908,7 +4889,7 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
         uiStreamCache.delete(mid)
       } catch (_) {}
       try {
-        await runtimeStorage.remove(streamKey(mid))
+        await aiGateway.resetAssistantRuntime(mid)
       } catch (_) {}
     }
 
@@ -5057,7 +5038,7 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
         uiStreamCache.delete(id)
       } catch (_) {}
       try {
-        await runtimeStorage.remove(streamKey(id))
+        await aiGateway.resetAssistantRuntime(id)
       } catch (_) {}
     }
 
@@ -6080,14 +6061,14 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
       let changed = false
       for (const m of pending) {
         if (!m.streaming) continue
-        const s = await runtimeStorage.get(streamKey(String(m.id || '')))
+        const s = await aiGateway.readAssistantStream(String(m.id || ''))
         const text = String(s?.text || '')
         const mid = String(m.id || '')
         if (!text) {
           // 兜底：如果后台已经“收尾”但落盘失败/被锁卡住，UI 不能永远显示（生成中…）。
           // final marker 属于运行时信号，不做历史数据迁移。
           try {
-            const fin = await runtimeStorage.get(finalKey(mid))
+            const fin = await aiGateway.consumeAssistantFinal(mid)
             const finText = String(fin?.text || '').trim()
             const exp = Number(fin?.expiresAt || 0)
             if (fin && (!exp || exp > now())) {
@@ -6096,10 +6077,7 @@ export function createAiChatController(deps: { api: any; runtime: string; runtim
               m.streaming = false
               changed = true
               try {
-                await runtimeStorage.remove(finalKey(mid))
-              } catch (_) {}
-              try {
-                await runtimeStorage.remove(streamKey(mid))
+                await aiGateway.resetAssistantRuntime(mid)
               } catch (_) {}
             }
           } catch (_) {}

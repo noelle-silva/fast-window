@@ -1,6 +1,7 @@
 import { AnyRecord, FILE_SUFFIX, runtimeKeyToRelPath, storageKeyToRelPath } from './storageCodec'
 import { createPluginFilesClient } from './pluginFilesClient'
 import { migrateIfNeeded } from './migrate'
+import { isStrongConsistencyRuntimeKey } from '../runtime/runtimeKeys'
 
 export function createAiChatStorage(tauri: any, pluginId: string) {
   const client = createPluginFilesClient(tauri, pluginId)
@@ -105,9 +106,8 @@ export function createAiChatStorage(tauri: any, pluginId: string) {
   async function runtimeSetRaw(key: string, value: any) {
     await ensureReady()
     const path = runtimeKeyToRelPath(key)
-    // engine.v1 属于“控制面 + 高一致性”：需要跨 UI/background 立即可见，避免批处理延迟导致丢单/取消不生效。
-    const k = String(key || '')
-    if (k.startsWith('engine.v1/') && !k.startsWith('engine.v1/progress/')) {
+    // 控制面运行态需要跨 UI/background 立即可见，避免批处理延迟导致丢单/取消不生效。
+    if (isStrongConsistencyRuntimeKey(key)) {
       rtQueue.delete(path)
       rtWriteChain = rtWriteChain.then(() => client.writeJson(path, value)).catch(() => {})
       try {
@@ -122,8 +122,7 @@ export function createAiChatStorage(tauri: any, pluginId: string) {
   async function runtimeRemoveRaw(key: string) {
     await ensureReady()
     const path = runtimeKeyToRelPath(key)
-    const k = String(key || '')
-    if (k.startsWith('engine.v1/') && !k.startsWith('engine.v1/progress/')) {
+    if (isStrongConsistencyRuntimeKey(key)) {
       rtQueue.delete(path)
       rtWriteChain = rtWriteChain.then(() => client.deleteIfExists(path)).catch(() => {})
       try {
