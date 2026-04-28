@@ -6,8 +6,9 @@
   "description": "查看和管理剪贴板历史记录",
   "main": "ui/index.js",
   "background": {
-    "main": "backend/index.js",
-    "lifecycle": "resident"
+    "main": "backend/clipboard-history.exe",
+    "lifecycle": "resident",
+    "runtime": "direct"
   },
   "icon": "assets/icon.svg",
   "keyword": "cb",

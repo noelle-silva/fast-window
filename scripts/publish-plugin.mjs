@@ -161,7 +161,7 @@ function releaseManifest(manifest, pkg) {
 
 function collectPackageFiles(manifest, pluginDir) {
   const out = []
-  const ignore = new Set(['src', 'node_modules', '.git', '.cache'])
+  const ignore = new Set(['src', 'backend-rs', 'backend-go', 'node_modules', '.git', '.cache'])
   const stack = ['']
 
   while (stack.length) {

@@ -4,6 +4,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
+import { spawn } from 'node:child_process'
 import * as esbuild from 'esbuild'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -68,6 +69,14 @@ async function exists(p) {
 async function readJson(filePath) {
   const raw = await fs.readFile(filePath, 'utf8')
   return JSON.parse(raw)
+}
+
+function run(cmd, args, opts = {}) {
+  return spawn(cmd, args, { stdio: 'inherit', shell: false, ...opts })
+}
+
+function waitExit(child) {
+  return new Promise(resolve => child.on('exit', code => resolve(code ?? 0)))
 }
 
 function resolveDevPluginSyncDir() {
@@ -164,16 +173,23 @@ async function syncDevRuntimePlugin(plan) {
   if (copied > 0) pluginInfo(`${plan.pluginId}: synced dev runtime -> ${devPluginSyncDir}`)
 }
 
-function resolveBackgroundBuildConfig(cfg) {
+function resolveBackgroundBuildConfig(cfg, mode) {
   const bg = cfg && typeof cfg.background === 'object' ? cfg.background : null
+  const profileKey = mode === 'build' ? 'release' : mode
+  const selected = bg && typeof bg[profileKey] === 'object' ? bg[profileKey] : null
   const dev = bg && typeof bg.dev === 'object' ? bg.dev : null
-  const entry = typeof dev?.entry === 'string' ? dev.entry.trim() : typeof cfg.backgroundEntry === 'string' ? cfg.backgroundEntry.trim() : ''
-  const main = typeof dev?.main === 'string' ? dev.main.trim() : ''
-  const runtime = typeof dev?.runtime === 'string' ? dev.runtime.trim() : 'node'
-  return { entry, main, runtime }
+  const raw = selected || dev || null
+  const entry = typeof raw?.entry === 'string' ? raw.entry.trim() : typeof cfg.backgroundEntry === 'string' ? cfg.backgroundEntry.trim() : ''
+  const main = typeof raw?.main === 'string' ? raw.main.trim() : ''
+  const runtime = typeof raw?.runtime === 'string' ? raw.runtime.trim() : 'node'
+  const kind = typeof raw?.kind === 'string' ? raw.kind.trim() : 'node-bundle'
+  const manifest = typeof raw?.manifest === 'string' ? raw.manifest.trim() : ''
+  const packageName = typeof raw?.package === 'string' ? raw.package.trim() : ''
+  const profile = typeof raw?.profile === 'string' ? raw.profile.trim() : mode === 'build' ? 'release' : 'dev'
+  return { kind, entry, main, runtime, manifest, packageName, profile }
 }
 
-async function resolvePluginBuildPlan(pluginId) {
+async function resolvePluginBuildPlan(pluginId, mode) {
   const pluginDir = path.join(pluginsDir, pluginId)
   const manifestPath = path.join(pluginDir, 'manifest.json')
   if (!(await exists(manifestPath))) return null
@@ -213,26 +229,40 @@ async function resolvePluginBuildPlan(pluginId) {
   }
 
   let background = null
-  const bgCfg = resolveBackgroundBuildConfig(cfg)
+  const bgCfg = resolveBackgroundBuildConfig(cfg, mode)
   const bgMain = bgCfg.main || (manifest.background && typeof manifest.background === 'object' ? String(manifest.background.main || '').trim() : '')
   if (bgMain && bgMain !== manifest.main) {
     const bgOutfile = safeResolveWithin(pluginDir, bgMain)
-    const bgEntryRel = bgCfg.entry
-    const bgEntryAbs = bgEntryRel ? safeResolveWithin(pluginDir, bgEntryRel) : ''
-    const bgDefaultCandidates = [
-      path.join(pluginDir, 'src', 'background.ts'),
-      path.join(pluginDir, 'src', 'background.tsx'),
-    ]
-    const bgEntry =
-      (bgEntryAbs && (await exists(bgEntryAbs)) ? bgEntryAbs : '') ||
-      (await (async () => {
-        for (const c of bgDefaultCandidates) {
-          if (await exists(c)) return c
-        }
-        return ''
-      })()) ||
-      uiEntry
-    background = { entry: bgEntry, outfile: bgOutfile, runtime: bgCfg.runtime }
+    if (bgCfg.kind === 'rust-binary') {
+      const manifestRel = bgCfg.manifest || 'backend-rs/Cargo.toml'
+      const manifestAbs = safeResolveWithin(pluginDir, manifestRel)
+      background = {
+        kind: 'rust-binary',
+        outfile: bgOutfile,
+        runtime: bgCfg.runtime || 'direct',
+        manifest: manifestAbs,
+        manifestRel,
+        packageName: bgCfg.packageName,
+        profile: bgCfg.profile,
+      }
+    } else {
+      const bgEntryRel = bgCfg.entry
+      const bgEntryAbs = bgEntryRel ? safeResolveWithin(pluginDir, bgEntryRel) : ''
+      const bgDefaultCandidates = [
+        path.join(pluginDir, 'src', 'background.ts'),
+        path.join(pluginDir, 'src', 'background.tsx'),
+      ]
+      const bgEntry =
+        (bgEntryAbs && (await exists(bgEntryAbs)) ? bgEntryAbs : '') ||
+        (await (async () => {
+          for (const c of bgDefaultCandidates) {
+            if (await exists(c)) return c
+          }
+          return ''
+        })()) ||
+        uiEntry
+      background = { kind: 'node-bundle', entry: bgEntry, outfile: bgOutfile, runtime: bgCfg.runtime }
+    }
   }
 
   return {
@@ -278,6 +308,49 @@ function createBuildOptions(opts) {
   }
 }
 
+function rustTargetDir(manifestPath) {
+  return path.join(path.dirname(manifestPath), 'target')
+}
+
+function rustBinaryName(packageName) {
+  return process.platform === 'win32' ? `${packageName}.exe` : packageName
+}
+
+async function buildRustBackground(background) {
+  const manifestDir = path.dirname(background.manifest)
+  const packageName = background.packageName || path.basename(manifestDir)
+  const release = background.profile === 'release'
+  const args = ['build', '--manifest-path', background.manifest]
+  if (release) args.push('--release')
+  const code = await waitExit(run('cargo', args))
+  if (code !== 0) throw new Error(`cargo build failed: exit ${code}`)
+
+  const profileDir = release ? 'release' : 'debug'
+  const built = path.join(rustTargetDir(background.manifest), profileDir, rustBinaryName(packageName))
+  if (!(await exists(built))) throw new Error(`Rust backend output not found: ${built}`)
+  await fs.mkdir(path.dirname(background.outfile), { recursive: true })
+  await fs.copyFile(built, background.outfile)
+}
+
+async function buildBackground(plan, minify, sourcemap) {
+  if (!plan.background) return
+  if (plan.background.kind === 'rust-binary') {
+    await buildRustBackground(plan.background)
+    return
+  }
+
+  const bgOpts = createBuildOptions({
+    pluginId: plan.pluginId,
+    pluginDir: plan.pluginDir,
+    entry: plan.background.entry,
+    outfile: plan.background.outfile,
+    minify,
+    sourcemap,
+    runtime: plan.background.runtime,
+  })
+  await esbuild.build(bgOpts)
+}
+
 function getWatchRoots(plan) {
   if (plan.kind !== 'bundled') return []
   const roots = new Set()
@@ -288,18 +361,26 @@ function getWatchRoots(plan) {
   } catch {}
 
   roots.add(path.dirname(plan.ui.entry))
-  if (plan.background) roots.add(path.dirname(plan.background.entry))
+  if (plan.background?.kind === 'rust-binary') {
+    roots.add(path.join(path.dirname(plan.background.manifest), 'src'))
+  } else if (plan.background) {
+    roots.add(path.dirname(plan.background.entry))
+  }
 
   return [...roots]
 }
 
 async function getLatestInputMtimeMs(plan) {
-  const ignoreNames = new Set(['node_modules', 'dist', 'build', 'out', '.git', '.cache'])
+  const ignoreNames = new Set(['node_modules', 'dist', 'build', 'out', 'target', '.git', '.cache'])
   let latest = 0
 
   latest = Math.max(latest, await statMtimeMs(path.join(plan.pluginDir, 'manifest.json')))
   latest = Math.max(latest, await statMtimeMs(path.join(plan.pluginDir, 'package.json')))
   latest = Math.max(latest, await statMtimeMs(rootLockPath))
+  if (plan.background?.kind === 'rust-binary') {
+    latest = Math.max(latest, await statMtimeMs(plan.background.manifest))
+    latest = Math.max(latest, await statMtimeMs(path.join(path.dirname(plan.background.manifest), 'Cargo.lock')))
+  }
 
   for (const dir of getWatchRoots(plan)) {
     latest = Math.max(latest, await maxMtimeMsInDir(dir, ignoreNames))
@@ -410,18 +491,7 @@ async function buildOne(plan, mode) {
     })
     await esbuild.build(uiOpts)
 
-    if (plan.background) {
-      const bgOpts = createBuildOptions({
-        pluginId: plan.pluginId,
-        pluginDir: plan.pluginDir,
-        entry: plan.background.entry,
-        outfile: plan.background.outfile,
-        minify,
-        sourcemap,
-        runtime: plan.background.runtime,
-      })
-      await esbuild.build(bgOpts)
-    }
+    await buildBackground(plan, minify, sourcemap)
 
     if (!sourcemap) {
       // 清理 watch 模式遗留的 .map，避免打包/分发时把大文件一并带走。
@@ -452,7 +522,7 @@ async function buildOne(plan, mode) {
   contexts.push(uiCtx)
 
   let bgCtx = null
-  if (plan.background) {
+  if (plan.background?.kind === 'node-bundle') {
     const bgOpts = createBuildOptions({
       pluginId: plan.pluginId,
       pluginDir: plan.pluginDir,
@@ -469,6 +539,7 @@ async function buildOne(plan, mode) {
   const trigger = createDebounced(async () => {
     try {
       await Promise.all(contexts.map(c => c.rebuild()))
+      if (plan.background?.kind === 'rust-binary') await buildRustBackground(plan.background)
       pluginInfo(`${plan.pluginId}: rebuilt`)
       await syncDevRuntimePlugin(plan)
     } catch (e) {
@@ -480,6 +551,7 @@ async function buildOne(plan, mode) {
   if (!(await isUpToDate(plan, { sourcemap }))) {
     try {
       await Promise.all(contexts.map(c => c.rebuild()))
+      if (plan.background?.kind === 'rust-binary') await buildRustBackground(plan.background)
       pluginInfo(`${plan.pluginId}: built (startup)`)
       await syncDevRuntimePlugin(plan)
     } catch (e) {
@@ -518,6 +590,19 @@ async function buildOne(plan, mode) {
       watchers.push(pkgWatcher)
     }
   } catch {}
+  if (plan.background?.kind === 'rust-binary') {
+    try {
+      const cargoWatcher = fssync.watch(plan.background.manifest, () => trigger())
+      watchers.push(cargoWatcher)
+    } catch {}
+    try {
+      const lockPath = path.join(path.dirname(plan.background.manifest), 'Cargo.lock')
+      if (fssync.existsSync(lockPath)) {
+        const cargoLockWatcher = fssync.watch(lockPath, () => trigger())
+        watchers.push(cargoLockWatcher)
+      }
+    } catch {}
+  }
 
   return { contexts, watchers, triggerRebuild: trigger }
 }
@@ -555,7 +640,7 @@ async function main() {
 
   const plans = []
   for (const id of targets) {
-    const plan = await resolvePluginBuildPlan(id).catch(e => {
+    const plan = await resolvePluginBuildPlan(id, mode).catch(e => {
       console.error(String(e?.message || e))
       return null
     })

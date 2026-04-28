@@ -1,0 +1,18 @@
+[package]
+name = "clipboard-history"
+version = "1.0.2"
+edition = "2021"
+
+[dependencies]
+arboard = "3.4"
+base64 = "0.22"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tungstenite = "0.24"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
