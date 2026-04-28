@@ -1,14 +1,16 @@
 import { createBackendApi } from './nodeApi'
 import { createHyperCortexBackendService } from './hypercortexService'
-import { sendReady, startRpcServer } from './rpcServer'
+import { startDirectServer } from './directServer'
 
 const api = createBackendApi()
 const service = createHyperCortexBackendService(api)
 
 async function main() {
-  startRpcServer((method, params) => service.dispatch(method, params))
   await service.warmup()
-  sendReady()
+  await startDirectServer({
+    serviceName: 'hypercortex-backend',
+    handleRequest: (method, params) => service.dispatch(method, params),
+  })
 }
 
 main().catch(error => {

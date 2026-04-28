@@ -7,7 +7,7 @@
   "main": "ui/index.js",
   "background": {
     "main": "backend/index.js",
-    "lifecycle": "on_demand"
+    "lifecycle": "resident"
   },
   "icon": "assets/icon.svg",
   "keyword": "note",

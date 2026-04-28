@@ -10,9 +10,10 @@ import { createHostGateway } from './hostGateway'
 import type { HyperCortexGateway } from './types'
 
 let gatewayCache: HyperCortexGateway | null = null
+let gatewayPromise: Promise<HyperCortexGateway> | null = null
 
-export function createHyperCortexGateway(baseApi: any): HyperCortexGateway {
-  const background = createBackgroundClient(baseApi)
+export async function createHyperCortexGateway(baseApi: any): Promise<HyperCortexGateway> {
+  const background = await createBackgroundClient(baseApi)
   const host = createHostGateway(baseApi, background)
   const clipboard = createClipboardGateway(baseApi)
 
@@ -28,9 +29,10 @@ export function createHyperCortexGateway(baseApi: any): HyperCortexGateway {
   }
 }
 
-export function getHyperCortexGateway(): HyperCortexGateway {
+export async function getHyperCortexGateway(): Promise<HyperCortexGateway> {
   if (gatewayCache) return gatewayCache
-  gatewayCache = createHyperCortexGateway((window as any).fastWindow)
+  if (!gatewayPromise) gatewayPromise = createHyperCortexGateway((window as any).fastWindow)
+  gatewayCache = await gatewayPromise
   return gatewayCache
 }
 

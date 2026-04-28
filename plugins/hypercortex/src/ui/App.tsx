@@ -68,7 +68,7 @@ import { loadNoteCardInfo, startPrefetchNoteCardInfo } from './noteCardInfoLoade
 import type { AssetEntry } from '../assetTypes'
 import { assetTabId } from '../assetTypes'
 import { assetRefKeyFromTabKey, noteIdFromTabKey, noteTabKey, parseAssetRefKey, tabKind, type TabKey } from '../tabKey'
-import { getHyperCortexGateway } from '../gateway'
+import type { HyperCortexGateway } from '../gateway'
 
 type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'asset-detail' | 'index' | 'settings' | 'trash'
 
@@ -316,8 +316,8 @@ function getShortcutChord(bindings: HyperCortexShortcutBindingsV1, id: HyperCort
   }
 }
 
-export function HyperCortexApp() {
-  const gateway = React.useMemo(() => getHyperCortexGateway(), [])
+export function HyperCortexApp(props: { gateway: HyperCortexGateway }) {
+  const { gateway } = props
   type MetadataPatch = Partial<HyperCortexMetadataV1> & { indexEditMode?: boolean; currentFolderId?: string }
 
   // ---- 核心 UI 状态
