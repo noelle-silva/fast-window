@@ -1073,6 +1073,7 @@ import {
 
         try {
           setInternalCopy(item.type, item.content)
+          let snapshot = null
           if (item.type === 'image') {
             const hidKey = historyKey(item)
             let dataUrl = ''
@@ -1088,22 +1089,17 @@ import {
               }
             }
             if (!dataUrl) throw new Error('image not available')
-            await gateway.clipboard.writeImage(dataUrl)
+            snapshot = await gateway.clipboard.writeImage(dataUrl)
           } else {
-            await gateway.clipboard.writeText(item.content)
+            snapshot = await gateway.clipboard.writeText(item.content)
           }
 
-          const newItem = { ...item, time: now() }
-          if (item.type === 'image') state.currentImage = item.content
-          else state.currentText = item.content
-
-          upsertHistoryItem(newItem)
-
-          await persistClipboard()
+          applySnapshot(snapshot)
           void gateway.host.toast('复制成功')
           renderClipboardList()
         } catch (err) {
           clearInternalCopy()
+          void gateway.host.toast(String((err && (err as Error).message) || '复制失败'))
         }
         return
       }

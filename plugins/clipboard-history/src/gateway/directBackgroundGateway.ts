@@ -17,7 +17,7 @@ export async function createDirectBackgroundGateway(baseApi: any): Promise<Omit<
     },
     images: {
       readOutputImage: path => client.invoke(ClipboardHistoryRpc.images.readOutput, { path }),
-      deleteOutputImage: async () => {},
+      deleteOutputImage: path => client.invoke(ClipboardHistoryRpc.images.deleteOutput, { path }),
     },
     collections: {
       createFolder: (parentId, name) => client.invoke(ClipboardHistoryRpc.collections.createFolder, { parentId, name }),

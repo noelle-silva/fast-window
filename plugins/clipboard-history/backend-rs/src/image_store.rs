@@ -2,6 +2,15 @@ use base64::Engine as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+pub fn write_clipboard_image(output_root: &Path, hash: u32, png: &[u8]) -> Result<(String, String), String> {
+    fs::create_dir_all(output_root).map_err(|e| format!("创建图片目录失败: {e}"))?;
+    let hash_hex = format!("{hash:08x}");
+    let filename = format!("clipboard-image-{hash_hex}.png");
+    let full = output_root.join(&filename);
+    fs::write(&full, png).map_err(|e| format!("写入图片失败: {e}"))?;
+    Ok((format!("img:{hash_hex}"), full.to_string_lossy().to_string()))
+}
+
 pub fn read_output_image(output_root: &Path, requested: &str) -> Result<String, String> {
     let path = resolve_output_path(output_root, requested)?;
     let bytes = fs::read(&path).map_err(|e| format!("读取图片失败: {e}"))?;
@@ -20,6 +29,18 @@ pub fn delete_managed_output_image(output_root: &Path, requested: &str) {
     }
     if let Ok(path) = resolve_output_path(output_root, requested) {
         let _ = fs::remove_file(path);
+    }
+}
+
+pub fn delete_output_image(output_root: &Path, requested: &str) -> Result<(), String> {
+    if !is_managed_clipboard_image_path(requested) {
+        return Ok(());
+    }
+    let path = resolve_output_path(output_root, requested)?;
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("删除图片失败: {e}")),
     }
 }
 

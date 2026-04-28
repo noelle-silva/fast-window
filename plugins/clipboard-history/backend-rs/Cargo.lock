@@ -91,6 +91,7 @@ version = "1.0.2"
 dependencies = [
  "arboard",
  "base64",
+ "image",
  "serde",
  "serde_json",
  "tungstenite",

@@ -1,6 +1,11 @@
-use crate::clipboard::{read_text_clipboard, write_text_clipboard};
+use crate::clipboard::{
+    read_image_clipboard, read_text_clipboard, write_image_clipboard_from_data_url,
+    write_text_clipboard,
+};
 use crate::domain::*;
-use crate::image_store::{delete_managed_output_image, read_output_image};
+use crate::image_store::{
+    delete_managed_output_image, delete_output_image, read_output_image, write_clipboard_image,
+};
 use crate::model::*;
 use crate::store::Store;
 use serde_json::{json, Value};
@@ -14,6 +19,7 @@ const RPC_STATE_DELETE_HISTORY_ITEM: &str = "clipboardHistory.state.deleteHistor
 const RPC_CLIPBOARD_WRITE_TEXT: &str = "clipboardHistory.clipboard.writeText";
 const RPC_CLIPBOARD_WRITE_IMAGE: &str = "clipboardHistory.clipboard.writeImage";
 const RPC_IMAGES_READ_OUTPUT: &str = "clipboardHistory.images.readOutput";
+const RPC_IMAGES_DELETE_OUTPUT: &str = "clipboardHistory.images.deleteOutput";
 const RPC_COLLECTIONS_CREATE_FOLDER: &str = "clipboardHistory.collections.createFolder";
 const RPC_COLLECTIONS_CREATE_ITEM: &str = "clipboardHistory.collections.createItem";
 const RPC_COLLECTIONS_UPDATE_FOLDER: &str = "clipboardHistory.collections.updateFolder";
@@ -97,9 +103,13 @@ impl ClipboardHistoryService {
             RPC_STATE_CLEAR_HISTORY => self.clear_history(),
             RPC_STATE_DELETE_HISTORY_ITEM => self.delete_history_item(params.get("item").cloned()),
             RPC_CLIPBOARD_WRITE_TEXT => self.write_text(params.get("text").and_then(Value::as_str).unwrap_or("")),
-            RPC_CLIPBOARD_WRITE_IMAGE => Err("当前 Rust 后台暂不支持可靠写入图片剪贴板".to_string()),
+            RPC_CLIPBOARD_WRITE_IMAGE => self.write_image(params),
             RPC_IMAGES_READ_OUTPUT => read_output_image(&self.output_root, params.get("path").and_then(Value::as_str).unwrap_or(""))
                 .map(Value::String),
+            RPC_IMAGES_DELETE_OUTPUT => {
+                delete_output_image(&self.output_root, params.get("path").and_then(Value::as_str).unwrap_or(""))?;
+                Ok(Value::Null)
+            }
             RPC_COLLECTIONS_CREATE_FOLDER => {
                 create_folder(&mut self.collections, str_param(&params, "parentId"), str_param(&params, "name"));
                 self.save_collections_and_emit()
@@ -151,16 +161,27 @@ impl ClipboardHistoryService {
         if !self.settings.auto_monitor {
             return;
         }
-        let Ok(text) = read_text_clipboard() else { return };
-        if text.trim().is_empty() {
-            self.monitor_latest_text.clear();
+
+        if let Ok(text) = read_text_clipboard() {
+            if text.trim().is_empty() {
+                self.monitor_latest_text.clear();
+            } else if text != self.monitor_latest_text {
+                self.monitor_latest_text = text.clone();
+                let item = ClipboardHistoryItem { item_type: "text".to_string(), content: text, time: now_ms(), path: None };
+                self.monitor_latest = Some(item.clone());
+                let _ = self.handle_monitor_change(item);
+            }
+        }
+
+        let Ok(image) = read_image_clipboard() else { return };
+        let Some(image) = image else {
+            return;
+        };
+        let Ok((content, path)) = write_clipboard_image(&self.output_root, image.hash, &image.png) else { return };
+        if content == self.current_image {
             return;
         }
-        if text == self.monitor_latest_text {
-            return;
-        }
-        self.monitor_latest_text = text.clone();
-        let item = ClipboardHistoryItem { item_type: "text".to_string(), content: text, time: now_ms(), path: None };
+        let item = ClipboardHistoryItem { item_type: "image".to_string(), content, time: now_ms(), path: Some(path) };
         self.monitor_latest = Some(item.clone());
         let _ = self.handle_monitor_change(item);
     }
@@ -236,6 +257,37 @@ impl ClipboardHistoryService {
         self.internal_copy = internal_copy("text");
         write_text_clipboard(text)?;
         let item = ClipboardHistoryItem { item_type: "text".to_string(), content: text.to_string(), time: now_ms(), path: None };
+        self.history = merge_history_items(vec![item], self.history.clone(), self.settings.max_history);
+        self.save_clipboard()?;
+        self.emit_snapshot();
+        serde_json::to_value(self.snapshot()).map_err(|e| e.to_string())
+    }
+
+    fn write_image(&mut self, params: Value) -> Result<Value, String> {
+        let data_url = params.get("dataUrl").and_then(Value::as_str).unwrap_or("").trim();
+        let path = params.get("path").and_then(Value::as_str).unwrap_or("").trim();
+        let (content, item_path) = if !data_url.is_empty() {
+            write_image_clipboard_from_data_url(data_url)?;
+            match read_image_clipboard()? {
+                Some(image) => write_clipboard_image(&self.output_root, image.hash, &image.png)?,
+                None => (data_url.to_string(), String::new()),
+            }
+        } else if !path.is_empty() {
+            let data_url = read_output_image(&self.output_root, path)?;
+            write_image_clipboard_from_data_url(&data_url)?;
+            (path.to_string(), path.to_string())
+        } else {
+            return Err("图片剪贴板写入需要 dataUrl 或 path".to_string());
+        };
+
+        self.internal_copy = internal_copy("image");
+        self.current_image = content.clone();
+        let item = ClipboardHistoryItem {
+            item_type: "image".to_string(),
+            content,
+            time: now_ms(),
+            path: if item_path.is_empty() { None } else { Some(item_path) },
+        };
         self.history = merge_history_items(vec![item], self.history.clone(), self.settings.max_history);
         self.save_clipboard()?;
         self.emit_snapshot();

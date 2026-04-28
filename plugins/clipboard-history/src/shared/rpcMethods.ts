@@ -11,6 +11,7 @@ export const ClipboardHistoryRpc = {
   },
   images: {
     readOutput: 'clipboardHistory.images.readOutput',
+    deleteOutput: 'clipboardHistory.images.deleteOutput',
   },
   collections: {
     createFolder: 'clipboardHistory.collections.createFolder',
