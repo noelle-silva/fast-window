@@ -77,6 +77,14 @@ function waitExit(child) {
   return new Promise(resolve => child.on('exit', code => resolve(code ?? 0)))
 }
 
+function asStringArray(value) {
+  return Array.isArray(value) ? value.map(v => String(v ?? '').trim()).filter(Boolean) : []
+}
+
+function asCommandArgs(value) {
+  return Array.isArray(value) ? value.map(v => String(v ?? '')) : []
+}
+
 function safeResolveWithin(dir, relPath) {
   const abs = path.resolve(dir, relPath)
   const dirAbs = path.resolve(dir) + path.sep
@@ -84,6 +92,10 @@ function safeResolveWithin(dir, relPath) {
     throw new Error(`Path escapes plugin dir: ${relPath}`)
   }
   return abs
+}
+
+function safeResolveManyWithin(dir, relPaths) {
+  return asStringArray(relPaths).map(rel => safeResolveWithin(dir, rel))
 }
 
 async function listPluginIds() {
@@ -148,7 +160,12 @@ function resolveBackgroundBuildConfig(cfg, mode) {
   const manifest = typeof raw?.manifest === 'string' ? raw.manifest.trim() : ''
   const packageName = typeof raw?.package === 'string' ? raw.package.trim() : ''
   const profile = typeof raw?.profile === 'string' ? raw.profile.trim() : mode === 'build' ? 'release' : 'dev'
-  return { kind, entry, main, runtime, manifest, packageName, profile }
+  const command = typeof raw?.command === 'string' ? raw.command.trim() : ''
+  const args = asCommandArgs(raw?.args)
+  const cwd = typeof raw?.cwd === 'string' ? raw.cwd.trim() : ''
+  const outputs = asStringArray(raw?.outputs)
+  const watch = asStringArray(raw?.watch)
+  return { kind, entry, main, runtime, manifest, packageName, profile, command, args, cwd, outputs, watch }
 }
 
 async function resolvePluginBuildPlan(pluginId, mode) {
@@ -206,6 +223,18 @@ async function resolvePluginBuildPlan(pluginId, mode) {
         manifestRel,
         packageName: bgCfg.packageName,
         profile: bgCfg.profile,
+      }
+    } else if (bgCfg.kind === 'command') {
+      if (!bgCfg.command) throw new Error(`[plugin:${pluginId}] command background requires command`)
+      background = {
+        kind: 'command',
+        outfile: bgOutfile,
+        runtime: bgCfg.runtime || 'direct',
+        command: bgCfg.command,
+        args: bgCfg.args,
+        cwd: bgCfg.cwd ? safeResolveWithin(pluginDir, bgCfg.cwd) : pluginDir,
+        outputs: safeResolveManyWithin(pluginDir, bgCfg.outputs.length ? bgCfg.outputs : [bgMain]),
+        watch: safeResolveManyWithin(pluginDir, bgCfg.watch),
       }
     } else {
       const bgEntryRel = bgCfg.entry
@@ -294,10 +323,22 @@ async function buildRustBackground(background) {
   await fs.copyFile(built, background.outfile)
 }
 
+async function buildCommandBackground(background) {
+  const code = await waitExit(run(background.command, background.args, { cwd: background.cwd }))
+  if (code !== 0) throw new Error(`command backend build failed: ${background.command} exit ${code}`)
+  for (const output of background.outputs) {
+    if (!(await exists(output))) throw new Error(`command backend output not found: ${output}`)
+  }
+}
+
 async function buildBackground(plan, minify, sourcemap) {
   if (!plan.background) return
   if (plan.background.kind === 'rust-binary') {
     await buildRustBackground(plan.background)
+    return
+  }
+  if (plan.background.kind === 'command') {
+    await buildCommandBackground(plan.background)
     return
   }
 
@@ -325,6 +366,8 @@ function getWatchRoots(plan) {
   roots.add(path.dirname(plan.ui.entry))
   if (plan.background?.kind === 'rust-binary') {
     roots.add(path.join(path.dirname(plan.background.manifest), 'src'))
+  } else if (plan.background?.kind === 'command') {
+    for (const watchPath of plan.background.watch) roots.add(watchPath)
   } else if (plan.background) {
     roots.add(path.dirname(plan.background.entry))
   }
@@ -342,6 +385,10 @@ async function getLatestInputMtimeMs(plan) {
   if (plan.background?.kind === 'rust-binary') {
     latest = Math.max(latest, await statMtimeMs(plan.background.manifest))
     latest = Math.max(latest, await statMtimeMs(path.join(path.dirname(plan.background.manifest), 'Cargo.lock')))
+  } else if (plan.background?.kind === 'command') {
+    for (const watchPath of plan.background.watch) {
+      latest = Math.max(latest, await statMtimeMs(watchPath))
+    }
   }
 
   for (const dir of getWatchRoots(plan)) {
@@ -357,7 +404,8 @@ async function isUpToDate(plan, opts = {}) {
   const wantSourcemap = Boolean(opts.sourcemap)
 
   const outfiles = [plan.ui.outfile]
-  if (plan.background) outfiles.push(plan.background.outfile)
+  if (plan.background?.kind === 'command') outfiles.push(...plan.background.outputs)
+  else if (plan.background) outfiles.push(plan.background.outfile)
 
   if (!wantSourcemap) {
     // 如果上一次是 watch（带 .map），而这次是 build（不带 .map），
@@ -590,6 +638,14 @@ async function buildOne(plan, mode) {
           handle.watchers.push(cargoLockWatcher)
         }
       } catch {}
+    }
+    if (currentPlan.background?.kind === 'command') {
+      for (const watchPath of currentPlan.background.watch) {
+        try {
+          const w = fssync.watch(watchPath, { recursive: true }, () => trigger())
+          handle.watchers.push(w)
+        } catch {}
+      }
     }
   }
 
