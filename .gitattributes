@@ -7,3 +7,6 @@
 
 # Unix 脚本保持 LF
 *.sh text eol=lf
+
+# Tauri 生成的 schema 使用 LF，避免开发启动后出现无内容修改
+src-tauri/gen/schemas/*.json text eol=lf
