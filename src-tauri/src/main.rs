@@ -68,8 +68,9 @@ use crate::plugin_files_delete_tree::plugin_files_delete_tree;
 use crate::plugins::{
     get_data_dir, get_plugins_allow_overwrite_on_update, get_plugins_auto_update_enabled,
     get_plugins_dir, install_plugin_files, list_plugins, open_data_dir, open_data_root_dir,
-    open_plugins_dir, plugin_store_install, read_plugin_file, read_plugin_file_base64,
-    read_plugins_dir, set_plugin_allow_overwrite_on_update, set_plugin_auto_update_enabled,
+    open_plugins_dir, plugin_dev_sync, plugin_store_install, read_plugin_file,
+    read_plugin_file_base64, read_plugins_dir, set_plugin_allow_overwrite_on_update,
+    set_plugin_auto_update_enabled,
 };
 use crate::sqlite_gateway::{
     plugin_sqlite_batch, plugin_sqlite_close, plugin_sqlite_execute, plugin_sqlite_query,
@@ -2556,6 +2557,7 @@ fn set_auto_start(app: tauri::AppHandle, enabled: bool) -> Result<AutoStartStatu
 fn main() {
     let builder = app::builder_base().invoke_handler(tauri::generate_handler![
         get_plugins_dir,
+        plugin_dev_sync,
         get_data_dir,
         get_wallpaper_settings,
         set_wallpaper_settings,

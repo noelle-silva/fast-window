@@ -12,8 +12,6 @@ const __dirname = path.dirname(__filename)
 const rootDir = path.resolve(__dirname, '..')
 const pluginsDir = path.join(rootDir, 'plugins')
 const rootLockPath = path.join(rootDir, 'pnpm-lock.yaml')
-const devPluginSyncEnabled = process.env.FAST_WINDOW_PLUGIN_DEV_SYNC === '1'
-const devPluginSyncDir = resolveDevPluginSyncDir()
 const require = createRequire(import.meta.url)
 
 function rawTextQueryPlugin() {
@@ -79,16 +77,6 @@ function waitExit(child) {
   return new Promise(resolve => child.on('exit', code => resolve(code ?? 0)))
 }
 
-function resolveDevPluginSyncDir() {
-  const explicit = String(process.env.FAST_WINDOW_PLUGIN_DEV_SYNC_DIR || '').trim()
-  if (explicit) return path.resolve(explicit)
-
-  const dataDir = String(process.env.FAST_WINDOW_DATA_DIR || '').trim()
-  if (dataDir) return path.resolve(dataDir, 'plugins')
-
-  return path.join(rootDir, 'src-tauri', 'target', 'debug', 'plugins')
-}
-
 function safeResolveWithin(dir, relPath) {
   const abs = path.resolve(dir, relPath)
   const dirAbs = path.resolve(dir) + path.sep
@@ -145,32 +133,6 @@ async function maxMtimeMsInDir(dir, ignoreNames) {
 
 function normalizeRel(p) {
   return String(p || '').replaceAll('\\', '/')
-}
-
-async function copyRuntimeEntry(pluginDir, pluginId, entryName) {
-  const from = path.join(pluginDir, entryName)
-  if (!(await exists(from))) return false
-
-  const to = path.join(devPluginSyncDir, pluginId, entryName)
-  await fs.rm(to, { recursive: true, force: true }).catch(() => {})
-  await fs.mkdir(path.dirname(to), { recursive: true })
-  await fs.cp(from, to, { recursive: true, force: true })
-  return true
-}
-
-async function syncDevRuntimePlugin(plan) {
-  if (!devPluginSyncEnabled) return
-
-  const manifestPath = path.join(plan.pluginDir, 'manifest.json')
-  if (!(await exists(manifestPath))) return
-
-  await fs.mkdir(path.join(devPluginSyncDir, plan.pluginId), { recursive: true })
-  const entries = ['manifest.json', 'package.json', 'assets', 'ui', 'backend', 'shared']
-  let copied = 0
-  for (const entry of entries) {
-    if (await copyRuntimeEntry(plan.pluginDir, plan.pluginId, entry)) copied += 1
-  }
-  if (copied > 0) pluginInfo(`${plan.pluginId}: synced dev runtime -> ${devPluginSyncDir}`)
 }
 
 function resolveBackgroundBuildConfig(cfg, mode) {
@@ -465,20 +427,23 @@ function createDebounced(fn, waitMs) {
   }
 }
 
+function createEmptyBuildHandle() {
+  return { contexts: [], watchers: [], triggerRebuild: null, dispose: async () => {} }
+}
+
 async function buildOne(plan, mode) {
   if (plan.kind !== 'bundled') {
     pluginInfo(`${plan.pluginId}: skip (prebuilt)`)
-    return { contexts: [], watchers: [], triggerRebuild: null }
+    return createEmptyBuildHandle()
   }
 
   const minify = mode === 'build'
   const sourcemap = mode !== 'build'
 
-    if (mode === 'build') {
+  if (mode === 'build') {
     if (await isUpToDate(plan, { sourcemap })) {
       pluginInfo(`${plan.pluginId}: up-to-date`)
-      await syncDevRuntimePlugin(plan)
-      return { contexts: [], watchers: [], triggerRebuild: null }
+      return createEmptyBuildHandle()
     }
 
     const uiOpts = createBuildOptions({
@@ -503,134 +468,134 @@ async function buildOne(plan, mode) {
     }
 
     pluginInfo(`${plan.pluginId}: built`)
-    await syncDevRuntimePlugin(plan)
-    return { contexts: [], watchers: [], triggerRebuild: null }
+    return createEmptyBuildHandle()
   }
 
-  const contexts = []
-  const watchers = []
+  const handle = { contexts: [], watchers: [], triggerRebuild: null, dispose: async () => {} }
+  let currentPlan = plan
   let rebuildingPlan = false
 
-  const uiOpts = createBuildOptions({
-    pluginId: plan.pluginId,
-    pluginDir: plan.pluginDir,
-    entry: plan.ui.entry,
-    outfile: plan.ui.outfile,
-    minify,
-    sourcemap,
-  })
-  const uiCtx = await esbuild.context(uiOpts)
-  contexts.push(uiCtx)
-
-  let bgCtx = null
-  if (plan.background?.kind === 'node-bundle') {
-    const bgOpts = createBuildOptions({
-      pluginId: plan.pluginId,
-      pluginDir: plan.pluginDir,
-      entry: plan.background.entry,
-      outfile: plan.background.outfile,
-      minify,
-      sourcemap,
-      runtime: plan.background.runtime,
-    })
-    bgCtx = await esbuild.context(bgOpts)
-    contexts.push(bgCtx)
+  async function disposeCurrent() {
+    for (const w of handle.watchers.splice(0)) {
+      try {
+        w.close()
+      } catch {}
+    }
+    await Promise.allSettled(handle.contexts.splice(0).map(c => c.dispose()))
   }
 
   const trigger = createDebounced(async () => {
     try {
       if (rebuildingPlan) return
-      await Promise.all(contexts.map(c => c.rebuild()))
-      if (plan.background?.kind === 'rust-binary') await buildRustBackground(plan.background)
-      pluginInfo(`${plan.pluginId}: rebuilt`)
-      await syncDevRuntimePlugin(plan)
+      await Promise.all(handle.contexts.map(c => c.rebuild()))
+      if (currentPlan.background?.kind === 'rust-binary') await buildRustBackground(currentPlan.background)
+      pluginInfo(`${currentPlan.pluginId}: rebuilt`)
     } catch (e) {
       const msg = e && e.errors ? e.errors.map(x => x.text).join('\n') : String(e?.message || e)
-      pluginError(`${plan.pluginId}: rebuild failed\n${msg}`)
+      pluginError(`${currentPlan.pluginId}: rebuild failed\n${msg}`)
     }
   }, 120)
+  handle.triggerRebuild = trigger
 
   const triggerPlanReload = createDebounced(async () => {
     if (rebuildingPlan) return
     rebuildingPlan = true
     try {
-      for (const w of watchers.splice(0)) {
-        try {
-          w.close()
-        } catch {}
-      }
-      await Promise.allSettled(contexts.splice(0).map(c => c.dispose()))
-      const nextPlan = await resolvePluginBuildPlan(plan.pluginId, mode)
-      if (!nextPlan) return
-      const next = await buildOne(nextPlan, mode)
-      contexts.push(...next.contexts)
-      watchers.push(...next.watchers)
-      plan = nextPlan
+      await disposeCurrent()
+      const nextPlan = await resolvePluginBuildPlan(currentPlan.pluginId, mode)
+      if (!nextPlan || nextPlan.kind !== 'bundled') return
+      currentPlan = nextPlan
+      await setupWatchPlan(false)
     } catch (e) {
       const msg = e && e.errors ? e.errors.map(x => x.text).join('\n') : String(e?.message || e)
-      pluginError(`${plan.pluginId}: reload failed\n${msg}`)
+      pluginError(`${currentPlan.pluginId}: reload failed\n${msg}`)
     } finally {
       rebuildingPlan = false
     }
   }, 120)
 
-  if (!(await isUpToDate(plan, { sourcemap }))) {
-    try {
-      await Promise.all(contexts.map(c => c.rebuild()))
-      if (plan.background?.kind === 'rust-binary') await buildRustBackground(plan.background)
-      pluginInfo(`${plan.pluginId}: built (startup)`)
-      await syncDevRuntimePlugin(plan)
-    } catch (e) {
-      const msg = e && e.errors ? e.errors.map(x => x.text).join('\n') : String(e?.message || e)
-      pluginError(`${plan.pluginId}: build failed (startup)\n${msg}`)
-    }
-  } else {
-    pluginInfo(`${plan.pluginId}: up-to-date (startup)`)
-    await syncDevRuntimePlugin(plan)
-  }
+  async function setupWatchPlan(runStartupBuild) {
+    const uiOpts = createBuildOptions({
+      pluginId: currentPlan.pluginId,
+      pluginDir: currentPlan.pluginDir,
+      entry: currentPlan.ui.entry,
+      outfile: currentPlan.ui.outfile,
+      minify,
+      sourcemap,
+    })
+    handle.contexts.push(await esbuild.context(uiOpts))
 
-  const ignoreRel = createIgnoreRelSet(plan)
-  const roots = new Set(getWatchRoots(plan))
-  for (const root of roots) {
-    try {
-      const w = fssync.watch(root, { recursive: true }, (_event, filename) => {
-        if (!filename) return trigger()
-        const abs = path.resolve(root, String(filename))
-        const rel = normalizeRel(path.relative(plan.pluginDir, abs))
-        if (rel.startsWith('../')) return trigger()
-        if (ignoreRel.has(rel)) return
-        trigger()
+    if (currentPlan.background?.kind === 'node-bundle') {
+      const bgOpts = createBuildOptions({
+        pluginId: currentPlan.pluginId,
+        pluginDir: currentPlan.pluginDir,
+        entry: currentPlan.background.entry,
+        outfile: currentPlan.background.outfile,
+        minify,
+        sourcemap,
+        runtime: currentPlan.background.runtime,
       })
-      watchers.push(w)
-    } catch {}
-  }
-
-  try {
-    const manifestWatcher = fssync.watch(path.join(plan.pluginDir, 'manifest.json'), () => triggerPlanReload())
-    watchers.push(manifestWatcher)
-  } catch {}
-  try {
-    const pkgPath = path.join(plan.pluginDir, 'package.json')
-    if (fssync.existsSync(pkgPath)) {
-      const pkgWatcher = fssync.watch(pkgPath, () => triggerPlanReload())
-      watchers.push(pkgWatcher)
+      handle.contexts.push(await esbuild.context(bgOpts))
     }
-  } catch {}
-  if (plan.background?.kind === 'rust-binary') {
+
+    if (runStartupBuild && !(await isUpToDate(currentPlan, { sourcemap }))) {
+      try {
+        await Promise.all(handle.contexts.map(c => c.rebuild()))
+        if (currentPlan.background?.kind === 'rust-binary') await buildRustBackground(currentPlan.background)
+        pluginInfo(`${currentPlan.pluginId}: built (startup)`)
+      } catch (e) {
+        const msg = e && e.errors ? e.errors.map(x => x.text).join('\n') : String(e?.message || e)
+        pluginError(`${currentPlan.pluginId}: build failed (startup)\n${msg}`)
+      }
+    } else if (runStartupBuild) {
+      pluginInfo(`${currentPlan.pluginId}: up-to-date (startup)`)
+    }
+
+    const ignoreRel = createIgnoreRelSet(currentPlan)
+    const roots = new Set(getWatchRoots(currentPlan))
+    for (const root of roots) {
+      try {
+        const w = fssync.watch(root, { recursive: true }, (_event, filename) => {
+          if (!filename) return trigger()
+          const abs = path.resolve(root, String(filename))
+          const rel = normalizeRel(path.relative(currentPlan.pluginDir, abs))
+          if (rel.startsWith('../')) return trigger()
+          if (ignoreRel.has(rel)) return
+          trigger()
+        })
+        handle.watchers.push(w)
+      } catch {}
+    }
+
     try {
-      const cargoWatcher = fssync.watch(plan.background.manifest, () => trigger())
-      watchers.push(cargoWatcher)
+      const manifestWatcher = fssync.watch(path.join(currentPlan.pluginDir, 'manifest.json'), () => triggerPlanReload())
+      handle.watchers.push(manifestWatcher)
     } catch {}
     try {
-      const lockPath = path.join(path.dirname(plan.background.manifest), 'Cargo.lock')
-      if (fssync.existsSync(lockPath)) {
-        const cargoLockWatcher = fssync.watch(lockPath, () => trigger())
-        watchers.push(cargoLockWatcher)
+      const pkgPath = path.join(currentPlan.pluginDir, 'package.json')
+      if (fssync.existsSync(pkgPath)) {
+        const pkgWatcher = fssync.watch(pkgPath, () => triggerPlanReload())
+        handle.watchers.push(pkgWatcher)
       }
     } catch {}
+    if (currentPlan.background?.kind === 'rust-binary') {
+      try {
+        const cargoWatcher = fssync.watch(currentPlan.background.manifest, () => trigger())
+        handle.watchers.push(cargoWatcher)
+      } catch {}
+      try {
+        const lockPath = path.join(path.dirname(currentPlan.background.manifest), 'Cargo.lock')
+        if (fssync.existsSync(lockPath)) {
+          const cargoLockWatcher = fssync.watch(lockPath, () => trigger())
+          handle.watchers.push(cargoLockWatcher)
+        }
+      } catch {}
+    }
   }
 
-  return { contexts, watchers, triggerRebuild: trigger }
+  handle.dispose = disposeCurrent
+  await setupWatchPlan(true)
+  return handle
 }
 
 function parseArgs(argv) {
@@ -712,14 +677,7 @@ async function main() {
           lockWatcher.close()
         } catch {}
       }
-      for (const r of activeBuilds) {
-        for (const w of r.watchers) {
-          try {
-            w.close()
-          } catch {}
-        }
-      }
-      await Promise.allSettled(activeBuilds.flatMap(r => r.contexts).map(c => c.dispose()))
+      await Promise.allSettled(activeBuilds.map(r => r.dispose()))
     }
     process.on('SIGINT', () => void disposeAll().finally(() => process.exit(0)))
     process.on('SIGTERM', () => void disposeAll().finally(() => process.exit(0)))

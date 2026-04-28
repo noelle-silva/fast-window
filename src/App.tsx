@@ -531,6 +531,9 @@ function App() {
   const loadPlugins = useCallback(async (opts?: { showToast?: boolean }) => {
     setLoading(true)
     try {
+      await invoke('plugin_dev_sync').catch(error => {
+        console.warn('[plugin] dev sync failed:', error)
+      })
       const dir = await invoke<string>('get_plugins_dir')
       setPluginsDir(dir)
       console.log('Plugins directory:', dir)
@@ -752,8 +755,10 @@ function App() {
 
       setRefreshingPluginId(plugin.id)
       try {
-        // 开发模式下：get_plugins_dir 会把仓库 plugins 同步到 app 本地数据目录。
-        // 不先调用的话，单独刷新可能读到旧副本，表现为“没热更新”。
+        // 开发模式下先显式同步仓库插件产物，否则单独刷新可能读到旧运行副本。
+        await invoke('plugin_dev_sync').catch(error => {
+          console.warn('[plugin] dev sync failed:', error)
+        })
         const dir = await invoke<string>('get_plugins_dir').catch(() => '')
         if (dir) setPluginsDir(dir)
 

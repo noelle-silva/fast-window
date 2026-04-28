@@ -26,18 +26,15 @@ function waitExit(p) {
   return new Promise(resolve => p.on('exit', code => resolve(code ?? 0)))
 }
 
+async function runPluginBuild(pluginFilter) {
+  const build = run('pnpm', pluginFilter ? ['run', 'plugins:build', '--', '--plugin', pluginFilter] : ['run', 'plugins:build'])
+  return waitExit(build)
+}
+
 function withDevSyncDisabledEnv() {
   return {
     ...process.env,
     FAST_WINDOW_SKIP_PLUGIN_DEV_SYNC: process.env.FAST_WINDOW_SKIP_PLUGIN_DEV_SYNC || '1',
-  }
-}
-
-function devPluginSyncEnv() {
-  return {
-    ...process.env,
-    FAST_WINDOW_PLUGIN_DEV_SYNC: '1',
-    FAST_WINDOW_PLUGIN_DEV_SYNC_DIR: process.env.FAST_WINDOW_PLUGIN_DEV_SYNC_DIR || path.join(rootDir, 'src-tauri', 'target', 'debug', 'plugins'),
   }
 }
 
@@ -61,15 +58,13 @@ async function main() {
       return
     }
 
-    const pluginEnv = devPluginSyncEnv()
-    const build = run('pnpm', pluginFilter ? ['run', 'plugins:build', '--', '--plugin', pluginFilter] : ['run', 'plugins:build'], { env: pluginEnv })
-    const buildCode = await waitExit(build)
+    const buildCode = await runPluginBuild(pluginFilter)
     if (buildCode !== 0) {
       process.exit(buildCode)
       return
     }
 
-    const watch = run('pnpm', pluginFilter ? ['run', 'plugins:watch', '--', '--plugin', pluginFilter] : ['run', 'plugins:watch'], { env: pluginEnv })
+    const watch = run('pnpm', pluginFilter ? ['run', 'plugins:watch', '--', '--plugin', pluginFilter] : ['run', 'plugins:watch'])
     const tauri = runTauri(args, skipPluginDevSync ? { env: withDevSyncDisabledEnv() } : {})
     const procs = [watch, tauri]
 
@@ -87,6 +82,11 @@ async function main() {
   }
 
   if (isBuild) {
+    const buildCode = await runPluginBuild(pluginFilter)
+    if (buildCode !== 0) {
+      process.exit(buildCode)
+      return
+    }
     const code = await waitExit(runTauri(args))
     process.exit(code)
     return

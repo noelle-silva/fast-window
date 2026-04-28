@@ -487,15 +487,24 @@ pub(crate) async fn get_plugins_dir(app: tauri::AppHandle) -> String {
     // 统一使用 App 本地数据目录（避免 cwd 漂移），插件默认放到这里
     let plugins_dir = app_plugins_dir(&app);
     let _ = std::fs::create_dir_all(&plugins_dir);
+    plugins_dir.to_string_lossy().to_string()
+}
 
-    // 开发模式：把仓库里的 plugins 同步到本地数据目录（方便开发，且配合 fs scope 收紧）
+#[tauri::command]
+pub(crate) async fn plugin_dev_sync(app: tauri::AppHandle) -> Result<bool, String> {
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = app;
+        return Ok(false);
+    }
+
     #[cfg(debug_assertions)]
     {
         let skip_dev_sync = std::env::var("FAST_WINDOW_SKIP_PLUGIN_DEV_SYNC")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
         if skip_dev_sync {
-            return plugins_dir.to_string_lossy().to_string();
+            return Ok(false);
         }
 
         fn collect_referenced_seed_files(manifest: &Value) -> Result<Vec<String>, String> {
@@ -653,15 +662,15 @@ pub(crate) async fn get_plugins_dir(app: tauri::AppHandle) -> String {
                 let dst = plugins_dir.join(&plugin_id);
                 if is_trusted_local_app_manifest(&manifest) {
                     // v4 开发同步只复制运行产物目录，避免 node_modules/src/dev-docs 等开发目录拖慢宿主启动。
-                    let _ = stop_plugin_backend_before_replace(app, &plugin_id).await;
-                    let _ = sync_v4_runtime_plugin_dir(&src, &dst, &plugin_id).and_then(|_| {
+                    stop_plugin_backend_before_replace(app, &plugin_id).await?;
+                    sync_v4_runtime_plugin_dir(&src, &dst, &plugin_id).and_then(|_| {
                         if let Some(dev_manifest) =
                             dev_background_manifest_override(&src, &manifest)
                         {
                             write_dev_manifest_override(&dst, &dev_manifest)?;
                         }
                         Ok(())
-                    });
+                    })?;
                 } else {
                     let files = match collect_referenced_seed_files(&manifest) {
                         Ok(v) => v,
@@ -689,13 +698,15 @@ pub(crate) async fn get_plugins_dir(app: tauri::AppHandle) -> String {
             .map(|p| p.to_path_buf())
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         let repo_plugins = workspace_root.join("plugins");
+        let plugins_dir = app_plugins_dir(&app);
+        std::fs::create_dir_all(&plugins_dir).map_err(|e| format!("创建插件目录失败: {e}"))?;
         if repo_plugins.is_dir() && !crate::same_path(&repo_plugins, &plugins_dir) {
             // 开发同步：v4 以完整插件包为单位；旧插件保留最小运行时文件同步，避免 node_modules 等大目录拖慢/失败。
-            let _ = sync_repo_plugins_into(&app, &repo_plugins, &plugins_dir).await;
+            sync_repo_plugins_into(&app, &repo_plugins, &plugins_dir).await?;
+            return Ok(true);
         }
+        Ok(false)
     }
-
-    plugins_dir.to_string_lossy().to_string()
 }
 
 #[tauri::command]
