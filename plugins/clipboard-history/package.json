@@ -1,0 +1,10 @@
+{
+  "name": "@fast-window/plugin-clipboard-history",
+  "private": true,
+  "version": "1.0.2",
+  "dependencies": {},
+  "devDependencies": {},
+  "fastWindowPlugin": {
+    "entry": "src/index.ts"
+  }
+}
