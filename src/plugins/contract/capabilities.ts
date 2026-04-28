@@ -1,6 +1,7 @@
 export const LEGACY_PLUGIN_API_VERSION = 2 as const
 export const SYSTEM_BACKEND_PLUGIN_API_VERSION = 3 as const
 export const TRUSTED_LOCAL_APP_PLUGIN_API_VERSION = 4 as const
+// apiVersion 4 uses the v4.5 direct background contract in the current runtime.
 export const LATEST_PLUGIN_API_VERSION = 4 as const
 export const PLUGIN_API_VERSION = LATEST_PLUGIN_API_VERSION
 

@@ -103,6 +103,12 @@ export function parsePluginManifest(pluginId: string, manifestContent: string): 
 
   const requiresResult = parseRequires(raw?.requires, policy.requireRequires)
   if (!requiresResult.ok) return requiresResult
+  if (
+    apiVersion >= TRUSTED_LOCAL_APP_PLUGIN_API_VERSION &&
+    requiresResult.requires.some(item => item === 'cap:background.invoke' || item === 'cap:background.*')
+  ) {
+    warnings.push('apiVersion=4 uses the v4.5 direct runtime; background.invoke is legacy only')
+  }
 
   const main = normalizeText(raw?.main)
   if (!main) return { ok: false, reason: 'manifest.main is required' }

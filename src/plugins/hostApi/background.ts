@@ -5,6 +5,7 @@ import type { PluginMethodRegistry } from './types'
 import { V3_METHOD } from './v3/methodNames'
 import { expectPlainObject, readNonEmptyString, readOptionalNumber } from './v3/validate'
 
+// Legacy background.invoke bridge. v4.5 direct plugins must not include this method.
 const BACKGROUND_INVOKE_TIMEOUT_MS = 15 * 60 * 1000
 const BACKGROUND_INVOKE_MAX_PAYLOAD_BYTES = 1024 * 1024
 

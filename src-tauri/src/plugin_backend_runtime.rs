@@ -1,3 +1,7 @@
+use crate::plugin_backend_endpoint::{
+    build_endpoint_response, generate_session_token, PluginBackendEndpointRes,
+    PluginBackendEndpointState,
+};
 use crate::plugin_backend_ipc::{
     encode_request_frame, ensure_frame_size, parse_stdout_frame, response_result,
     BackendStdoutFrame, BACKEND_READY_TIMEOUT_MS,
@@ -56,6 +60,10 @@ struct PluginBackendEntry {
     pid: Option<u32>,
     started_at_ms: u64,
     child: AsyncMutex<Option<Child>>,
+    session_token: String,
+    endpoint: Arc<Mutex<Option<PluginBackendEndpointState>>>,
+    ready_error: Arc<Mutex<Option<String>>>,
+    // Legacy stdin RPC bridge for background.invoke compatibility only.
     stdin: AsyncMutex<Option<tokio::process::ChildStdin>>,
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<BackendRpcResult>>>>,
     require_ready: bool,
@@ -256,6 +264,8 @@ async fn read_stdout_protocol(
     log: Arc<Mutex<BackendLogBuf>>,
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<BackendRpcResult>>>>,
     ready_at_ms: Arc<Mutex<Option<u64>>>,
+    endpoint: Arc<Mutex<Option<PluginBackendEndpointState>>>,
+    ready_error: Arc<Mutex<Option<String>>>,
 ) {
     let mut reader = BufReader::new(stdout).lines();
     loop {
@@ -269,7 +279,14 @@ async fn read_stdout_protocol(
             continue;
         }
         match parse_stdout_frame(trimmed) {
-            BackendStdoutFrame::Ready => {
+            BackendStdoutFrame::Ready(next_endpoint) => {
+                if let Some(next_endpoint) = next_endpoint {
+                    if let Ok(mut g) = endpoint.lock() {
+                        if g.is_none() {
+                            *g = Some(next_endpoint);
+                        }
+                    }
+                }
                 if let Ok(mut g) = ready_at_ms.lock() {
                     if g.is_none() {
                         *g = Some(now_ms());
@@ -277,7 +294,18 @@ async fn read_stdout_protocol(
                 }
                 continue;
             }
-            BackendStdoutFrame::Response(resp) => {
+            BackendStdoutFrame::ProtocolError(error) => {
+                if let Ok(mut g) = ready_error.lock() {
+                    if g.is_none() {
+                        *g = Some(error.clone());
+                    }
+                }
+                if let Ok(mut g) = log.lock() {
+                    g.push(format!("[protocol-error] {error}\n").as_bytes());
+                }
+                continue;
+            }
+            BackendStdoutFrame::LegacyResponse(resp) => {
                 let tx = pending.lock().ok().and_then(|mut g| g.remove(&resp.id));
                 if let Some(tx) = tx {
                     let _ = tx.send(response_result(resp));
@@ -332,6 +360,31 @@ async fn wait_backend_ready(entry: &PluginBackendEntry) -> Result<(), String> {
     }
 }
 
+async fn wait_backend_endpoint(
+    entry: &PluginBackendEntry,
+) -> Result<PluginBackendEndpointState, String> {
+    let started_at = now_ms();
+
+    loop {
+        if let Some(error) = entry.ready_error.lock().ok().and_then(|g| g.clone()) {
+            return Err(error);
+        }
+        if let Some(endpoint) = entry.endpoint.lock().ok().and_then(|g| g.clone()) {
+            return Ok(endpoint);
+        }
+        if let Some(reason) = entry.exit_reason.lock().ok().and_then(|g| g.clone()) {
+            return Err(reason);
+        }
+        if entry.exit_code.lock().ok().and_then(|g| *g).is_some() {
+            return Err("插件后端已退出".to_string());
+        }
+        if now_ms().saturating_sub(started_at) >= BACKEND_READY_TIMEOUT_MS {
+            return Err("插件后端未发送 direct endpoint ready 信号".to_string());
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 pub(crate) fn plugin_backend_start(
     app: &AppHandle,
     manager: Arc<PluginBackendManagerState>,
@@ -362,6 +415,7 @@ pub(crate) fn plugin_backend_start(
     let cwd = resolve_backend_cwd(app, &plugin_id, req.cwd)?;
     let extra_args = sanitize_args(req.args)?;
     let extra_env = sanitize_env(req.env)?;
+    let session_token = generate_session_token()?;
     let mut command_spec = command_for_backend_main(app, &main, req.runtime.as_deref())?;
     command_spec.args.extend(extra_args);
 
@@ -386,6 +440,7 @@ pub(crate) fn plugin_backend_start(
     if !extra_env.is_empty() {
         cmd.envs(extra_env);
     }
+    cmd.env("FAST_WINDOW_PLUGIN_SESSION_TOKEN", &session_token);
     cmd.stdin(std::process::Stdio::piped());
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
@@ -400,6 +455,8 @@ pub(crate) fn plugin_backend_start(
     let stderr_buf = Arc::new(Mutex::new(BackendLogBuf::new()));
     let pending: Arc<Mutex<HashMap<String, oneshot::Sender<BackendRpcResult>>>> =
         Arc::new(Mutex::new(HashMap::new()));
+    let endpoint = Arc::new(Mutex::new(None));
+    let ready_error = Arc::new(Mutex::new(None));
     let require_ready = req.api_version.unwrap_or(0) >= TRUSTED_LOCAL_APP_PLUGIN_API_VERSION;
     let ready_at_ms = Arc::new(Mutex::new(if require_ready {
         None
@@ -411,8 +468,10 @@ pub(crate) fn plugin_backend_start(
         let buf = stdout_buf.clone();
         let pending = pending.clone();
         let ready_at_ms = ready_at_ms.clone();
+        let endpoint = endpoint.clone();
+        let ready_error = ready_error.clone();
         tauri::async_runtime::spawn(async move {
-            read_stdout_protocol(out, buf, pending, ready_at_ms).await
+            read_stdout_protocol(out, buf, pending, ready_at_ms, endpoint, ready_error).await
         });
     }
     if let Some(err) = stderr {
@@ -424,6 +483,9 @@ pub(crate) fn plugin_backend_start(
         pid,
         started_at_ms: now_ms(),
         child: AsyncMutex::new(Some(child)),
+        session_token,
+        endpoint,
+        ready_error,
         stdin: AsyncMutex::new(stdin),
         pending: pending.clone(),
         require_ready,
@@ -608,6 +670,7 @@ pub(crate) fn plugin_backend_status(
     let exit_code = entry.exit_code.lock().ok().and_then(|g| *g);
     let ready_at_ms = entry.ready_at_ms.lock().ok().and_then(|g| *g);
     let exit_reason = entry.exit_reason.lock().ok().and_then(|g| g.clone());
+    let endpoint = entry.endpoint.lock().ok().and_then(|g| g.clone());
     let (stdout, stdout_truncated) = entry
         .stdout
         .lock()
@@ -626,6 +689,9 @@ pub(crate) fn plugin_backend_status(
         ready_at_ms,
         exit_code,
         exit_reason,
+        endpoint_url: endpoint.as_ref().map(|it| it.url.clone()),
+        endpoint_transport: endpoint.as_ref().map(|it| it.transport.clone()),
+        endpoint_protocol_version: endpoint.as_ref().map(|it| it.protocol_version),
         stdout,
         stderr,
         stdout_truncated,
@@ -647,6 +713,35 @@ pub(crate) fn plugin_backend_status_many(
         out.insert(id, status);
     }
     Ok(out)
+}
+
+pub(crate) async fn plugin_backend_endpoint(
+    manager: Arc<PluginBackendManagerState>,
+    plugin_id: String,
+) -> Result<PluginBackendEndpointRes, String> {
+    let plugin_id = plugin_id.trim().to_string();
+    if !is_safe_id(&plugin_id) {
+        return Err("pluginId 不合法".to_string());
+    }
+    let entry = manager
+        .entries
+        .lock()
+        .map_err(|_| "后端状态锁定失败".to_string())?
+        .get(&plugin_id)
+        .cloned()
+        .ok_or_else(|| "插件后端未运行".to_string())?;
+
+    if entry.exit_code.lock().ok().and_then(|g| *g).is_some() {
+        return Err(entry
+            .exit_reason
+            .lock()
+            .ok()
+            .and_then(|g| g.clone())
+            .unwrap_or_else(|| "插件后端已退出".to_string()));
+    }
+
+    let endpoint = wait_backend_endpoint(&entry).await?;
+    Ok(build_endpoint_response(&endpoint, &entry.session_token))
 }
 
 pub(crate) async fn plugin_backend_invoke(

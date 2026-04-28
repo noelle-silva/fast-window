@@ -27,6 +27,7 @@ mod migrations;
 mod os_actions;
 mod plugin_assets;
 mod plugin_backend_commands;
+mod plugin_backend_endpoint;
 mod plugin_backend_ipc;
 mod plugin_backend_runtime;
 mod plugin_backend_runtimes;
@@ -2589,6 +2590,7 @@ fn main() {
         plugin_backend_commands::plugin_backend_stop,
         plugin_backend_commands::plugin_backend_status,
         plugin_backend_commands::plugin_backend_status_many,
+        plugin_backend_commands::plugin_backend_endpoint,
         plugin_backend_commands::plugin_backend_invoke,
         open_external_url,
         open_external_uri,

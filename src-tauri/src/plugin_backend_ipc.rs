@@ -1,3 +1,4 @@
+use crate::plugin_backend_endpoint::{parse_ready_ipc, PluginBackendEndpointState};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -23,8 +24,9 @@ pub(crate) struct BackendRpcResponseFrame {
 }
 
 pub(crate) enum BackendStdoutFrame {
-    Ready,
-    Response(BackendRpcResponseFrame),
+    Ready(Option<PluginBackendEndpointState>),
+    ProtocolError(String),
+    LegacyResponse(BackendRpcResponseFrame),
     Log,
 }
 
@@ -48,14 +50,19 @@ pub(crate) fn parse_stdout_frame(line: &str) -> BackendStdoutFrame {
         return BackendStdoutFrame::Log;
     };
 
-    if value.get("type").and_then(|v| v.as_str()) == Some("ready")
-        || value.get("ready").and_then(|v| v.as_bool()) == Some(true)
-    {
-        return BackendStdoutFrame::Ready;
+    if value.get("type").and_then(|v| v.as_str()) == Some("ready") {
+        return match parse_ready_ipc(&value) {
+            Ok(endpoint) => BackendStdoutFrame::Ready(endpoint),
+            Err(error) => BackendStdoutFrame::ProtocolError(error),
+        };
+    }
+
+    if value.get("ready").and_then(|v| v.as_bool()) == Some(true) {
+        return BackendStdoutFrame::Ready(None);
     }
 
     match serde_json::from_value::<BackendRpcResponseFrame>(value) {
-        Ok(resp) if !resp.id.trim().is_empty() => BackendStdoutFrame::Response(resp),
+        Ok(resp) if !resp.id.trim().is_empty() => BackendStdoutFrame::LegacyResponse(resp),
         _ => BackendStdoutFrame::Log,
     }
 }
@@ -97,11 +104,44 @@ mod tests {
     fn parses_ready_signal() {
         assert!(matches!(
             parse_stdout_frame(r#"{"type":"ready"}"#),
-            BackendStdoutFrame::Ready
+            BackendStdoutFrame::Ready(None)
         ));
         assert!(matches!(
             parse_stdout_frame(r#"{"ready":true}"#),
-            BackendStdoutFrame::Ready
+            BackendStdoutFrame::Ready(None)
+        ));
+    }
+
+    #[test]
+    fn parses_direct_ready_endpoint() {
+        let frame = parse_stdout_frame(
+            r#"{"type":"ready","ipc":{"mode":"direct","transport":"local-websocket","url":"ws://127.0.0.1:39421","protocolVersion":1}}"#,
+        );
+        match frame {
+            BackendStdoutFrame::Ready(Some(endpoint)) => {
+                assert_eq!(endpoint.url, "ws://127.0.0.1:39421")
+            }
+            _ => panic!("expected direct ready endpoint"),
+        }
+    }
+
+    #[test]
+    fn rejects_non_localhost_ready_endpoint() {
+        assert!(matches!(
+            parse_stdout_frame(
+                r#"{"type":"ready","ipc":{"mode":"direct","transport":"local-websocket","url":"ws://localhost:39421","protocolVersion":1}}"#,
+            ),
+            BackendStdoutFrame::ProtocolError(_)
+        ));
+    }
+
+    #[test]
+    fn rejects_wrong_transport() {
+        assert!(matches!(
+            parse_stdout_frame(
+                r#"{"type":"ready","ipc":{"mode":"direct","transport":"stdio","url":"ws://127.0.0.1:39421","protocolVersion":1}}"#,
+            ),
+            BackendStdoutFrame::ProtocolError(_)
         ));
     }
 
@@ -109,7 +149,7 @@ mod tests {
     fn parses_response_frame() {
         let frame = parse_stdout_frame(r#"{"id":"rpc-1","ok":true,"result":{"pong":true}}"#);
         match frame {
-            BackendStdoutFrame::Response(resp) => assert_eq!(resp.id, "rpc-1"),
+            BackendStdoutFrame::LegacyResponse(resp) => assert_eq!(resp.id, "rpc-1"),
             _ => panic!("expected response frame"),
         }
     }

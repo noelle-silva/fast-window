@@ -25,6 +25,7 @@ windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_Graphics_
 sha2 = "0.10"
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
 rusqlite = { version = "0.31", features = ["bundled", "hooks"] }
+getrandom = "0.2"
 
 [features]
 default = ["custom-protocol"]

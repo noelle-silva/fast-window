@@ -16,6 +16,18 @@ export function BackendStatusPanel(props: {
         <Typography sx={labelSx}>后台状态</Typography>
         <Typography sx={valueSx}>{formatBackendStatus(status)}</Typography>
       </Box>
+      {status?.endpointUrl ? (
+        <>
+          <Box sx={fieldRowSx}>
+            <Typography sx={labelSx}>直连端点</Typography>
+            <Typography sx={valueSx}>{status.endpointUrl}</Typography>
+          </Box>
+          <Box sx={fieldRowSx}>
+            <Typography sx={labelSx}>直连协议</Typography>
+            <Typography sx={valueSx}>{`${status.endpointTransport || 'unknown'} / v${status.endpointProtocolVersion || 1}`}</Typography>
+          </Box>
+        </>
+      ) : null}
       {status && logText ? (
         <Box sx={{ mt: 1.25 }}>
           <Typography sx={{ color: 'text.secondary', fontSize: 13, mb: 0.5 }}>后台日志</Typography>

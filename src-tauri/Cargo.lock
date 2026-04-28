@@ -1031,6 +1031,7 @@ name = "fast-window"
 version = "0.6.7"
 dependencies = [
  "base64 0.22.1",
+ "getrandom 0.2.17",
  "image",
  "open",
  "reqwest",

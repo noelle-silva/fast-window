@@ -53,10 +53,23 @@ pub(crate) fn plugin_backend_status_many(
 }
 
 #[tauri::command]
+pub(crate) async fn plugin_backend_endpoint(
+    app: AppHandle,
+    plugin_id: String,
+) -> Result<crate::plugin_backend_endpoint::PluginBackendEndpointRes, String> {
+    let manager = app
+        .state::<Arc<crate::plugin_backend_runtime::PluginBackendManagerState>>()
+        .inner()
+        .clone();
+    crate::plugin_backend_runtime::plugin_backend_endpoint(manager, plugin_id).await
+}
+
+#[tauri::command]
 pub(crate) async fn plugin_backend_invoke(
     app: AppHandle,
     req: crate::plugin_backend_runtime::PluginBackendInvokeReq,
 ) -> Result<crate::plugin_backend_runtime::PluginBackendInvokeRes, String> {
+    // Legacy only: v4.5 direct SDK must not call this command.
     let manager = app
         .state::<Arc<crate::plugin_backend_runtime::PluginBackendManagerState>>()
         .inner()

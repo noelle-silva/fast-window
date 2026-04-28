@@ -60,5 +60,6 @@ export const V3_METHOD = {
   },
   background: {
     invoke: 'background.invoke',
+    endpoint: 'background.endpoint',
   },
 } as const

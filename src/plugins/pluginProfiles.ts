@@ -4,8 +4,8 @@ import {
   type PluginApiVersion,
 } from './pluginContract'
 
-export type PluginRpcProfile = 'v2' | 'v3' | 'v4'
-export type PluginSdkProfile = 'legacy' | 'v3' | 'v4'
+export type PluginRpcProfile = 'v2' | 'v3' | 'v4-legacy' | 'v4-direct'
+export type PluginSdkProfile = 'legacy' | 'v3' | 'v4-legacy' | 'v4-direct'
 
 export type PluginRuntimeProfile = {
   rpcProfile: PluginRpcProfile
@@ -13,11 +13,13 @@ export type PluginRuntimeProfile = {
   exposeMeta: boolean
 }
 
-export const TRUSTED_PLUGIN_RUNTIME_PROFILE: PluginRuntimeProfile = {
-  rpcProfile: 'v4',
-  sdkProfile: 'v4',
+export const DIRECT_PLUGIN_RUNTIME_PROFILE: PluginRuntimeProfile = {
+  rpcProfile: 'v4-direct',
+  sdkProfile: 'v4-direct',
   exposeMeta: false,
 }
+
+export const TRUSTED_PLUGIN_RUNTIME_PROFILE = DIRECT_PLUGIN_RUNTIME_PROFILE
 
 export function resolveLegacyPluginRpcProfile(apiVersion: PluginApiVersion): PluginRpcProfile {
   return apiVersion >= SYSTEM_BACKEND_PLUGIN_API_VERSION ? 'v3' : 'v2'

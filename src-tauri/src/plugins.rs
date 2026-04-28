@@ -538,7 +538,11 @@ pub(crate) fn get_plugins_dir(app: tauri::AppHandle) -> String {
             Ok(out)
         }
 
-        fn sync_v4_runtime_plugin_dir(src: &Path, dst: &Path, plugin_id: &str) -> Result<(), String> {
+        fn sync_v4_runtime_plugin_dir(
+            src: &Path,
+            dst: &Path,
+            plugin_id: &str,
+        ) -> Result<(), String> {
             let Some(parent) = dst.parent() else {
                 return Err("目标插件目录没有父目录".to_string());
             };
@@ -554,8 +558,19 @@ pub(crate) fn get_plugins_dir(app: tauri::AppHandle) -> String {
                 let _ = std::fs::remove_dir_all(&tmp);
             }
 
-            copy_dir_entries(src, &tmp, &["manifest.json", "package.json", "assets", "ui", "backend", "shared"])
-                .map_err(|e| format!("复制 v4 插件运行目录失败: {e}"))?;
+            copy_dir_entries(
+                src,
+                &tmp,
+                &[
+                    "manifest.json",
+                    "package.json",
+                    "assets",
+                    "ui",
+                    "backend",
+                    "shared",
+                ],
+            )
+            .map_err(|e| format!("复制 v4 插件运行目录失败: {e}"))?;
             replace_dir_from_tmp(dst, &tmp, &format!("dev-sync-{plugin_id}"))
         }
 

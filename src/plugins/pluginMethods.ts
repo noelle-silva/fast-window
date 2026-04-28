@@ -3,6 +3,7 @@ import { PluginBridgeError } from './pluginBridge'
 import { clipboardMethods } from './hostApi/clipboard'
 import { clipboardWatchMethods } from './hostApi/clipboardWatch'
 import { backgroundMethods } from './hostApi/background'
+import { backgroundEndpointMethods } from './hostApi/backgroundEndpoint'
 import { dialogMethods } from './hostApi/dialog'
 import { hostMethods } from './hostApi/host'
 import { processMethods } from './hostApi/process'
@@ -48,7 +49,21 @@ function pickMethods(source: PluginMethodRegistry, names: readonly string[]): Pl
   return out
 }
 
-const v4Methods = pickMethods(
+const v4DirectMethods = pickMethods(
+  {
+    ...hostMethods,
+    ...backgroundEndpointMethods,
+  },
+  [
+    V3_METHOD.host.back,
+    V3_METHOD.host.toast,
+    V3_METHOD.host.activatePlugin,
+    V3_METHOD.host.startDragging,
+    V3_METHOD.background.endpoint,
+  ],
+)
+
+const v4LegacyMethods = pickMethods(
   {
     ...hostMethods,
     ...backgroundMethods,
@@ -63,7 +78,8 @@ const v4Methods = pickMethods(
 )
 
 function resolveMethodRegistry(profile: PluginRpcProfile): PluginMethodRegistry {
-  if (profile === 'v4') return v4Methods
+  if (profile === 'v4-direct') return v4DirectMethods
+  if (profile === 'v4-legacy') return v4LegacyMethods
   if (profile === 'v3') return v3Methods
   return v2Methods
 }
