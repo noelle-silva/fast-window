@@ -1,15 +1,17 @@
 import { createBookmarksService } from './bookmarksService'
 import { resolveDataFilePath } from './paths'
-import { startRpcServer, sendReady } from './rpcServer'
+import { startDirectServer } from './directServer'
 import { createBookmarkStore } from './store'
 
 const store = createBookmarkStore(resolveDataFilePath())
 const service = createBookmarksService(store)
 
 async function main() {
-  startRpcServer((method, params) => service.dispatch(method, params))
   await service.list()
-  sendReady()
+  await startDirectServer({
+    serviceName: 'bookmarks-backend',
+    handleRequest: (method, params) => service.dispatch(method, params),
+  })
 }
 
 main().catch(error => {

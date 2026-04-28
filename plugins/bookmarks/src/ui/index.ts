@@ -1,4 +1,4 @@
-"use strict";(()=>{(function(){let h="default",y="__all__",g={list:"bookmarks.list",inferIcon:"bookmarks.inferIcon",addBookmark:"bookmarks.add",updateBookmark:"bookmarks.update",deleteBookmark:"bookmarks.delete",openBookmark:"bookmarks.open",refreshIcon:"bookmarks.refreshIcon",addGroup:"bookmarks.addGroup",renameGroup:"bookmarks.renameGroup",deleteGroup:"bookmarks.deleteGroup"};function $(e){var r;let n=e||{};if(!((r=n.background)!=null&&r.invoke))throw new Error("网站收藏需要 v4 background.invoke");return n}let k=$(window.fastWindow);async function b(e,n){return k.background.invoke(e,n!=null?n:null)}function s(e){var r,a;let n=String(e||"").trim();n&&((a=(r=k.host)==null?void 0:r.toast)==null||a.call(r,n).catch(()=>{}))}let t={loading:!0,groupId:y,search:"",data:{schemaVersion:1,groups:[],items:[]},modal:null,editId:"",addTitle:"",addUrl:"",addGroupId:h,addIconUrl:"",ctxMenu:{open:!1,id:"",x:0,y:0},newGroupName:"",groupNameEdits:{},confirmKey:"",confirmUntil:0},z=`
+import { createDirectBackgroundClient } from './directClient';"use strict";(()=>{(async function(){let h="default",y="__all__",g={list:"bookmarks.list",inferIcon:"bookmarks.inferIcon",addBookmark:"bookmarks.add",updateBookmark:"bookmarks.update",deleteBookmark:"bookmarks.delete",openBookmark:"bookmarks.open",refreshIcon:"bookmarks.refreshIcon",addGroup:"bookmarks.addGroup",renameGroup:"bookmarks.renameGroup",deleteGroup:"bookmarks.deleteGroup"};async function $(e){let n=e||{};return{host:n.host||{},background:await createDirectBackgroundClient(n)}}let k=await $(window.fastWindow);async function b(e,n){return k.background.invoke(e,n!=null?n:null)}function s(e){var r,a;let n=String(e||"").trim();n&&((a=(r=k.host)==null?void 0:r.toast)==null||a.call(r,n).catch(()=>{}))}let t={loading:!0,groupId:y,search:"",data:{schemaVersion:1,groups:[],items:[]},modal:null,editId:"",addTitle:"",addUrl:"",addGroupId:h,addIconUrl:"",ctxMenu:{open:!1,id:"",x:0,y:0},newGroupName:"",groupNameEdits:{},confirmKey:"",confirmUntil:0},z=`
     :root {
       --bg: #FAFAFA;
       --surface: #FFFFFF;
@@ -192,7 +192,7 @@
               <div class="row">
                 <div class="iconLine">
                   <div class="siteIcon small" data-role="addIconWrap"><span class="fallback">🌐</span><img data-role="addIconImg" alt="网站图标" /></div>
-                  <div class="help">v4 后台负责推断 favicon 与持久化数据</div>
+    <div class="help">v4.5 后台负责推断 favicon 与持久化数据</div>
                 </div>
                 <div class="spacer"></div>
                 <button class="btn" data-act="sniffAddIcon">推断图标</button>
