@@ -36,6 +36,10 @@ export async function createClipboardHistoryGateway(baseApi: any): Promise<Clipb
       getTask: async () => ({ id: 'direct-monitor', status: 'running', result: await background.state.load() }),
       cancelTask: async () => {},
     },
+    onSnapshot: listener => background.onSnapshot(snapshot => {
+      cached = snapshot
+      listener(snapshot)
+    }),
     close: background.close,
   }
 }

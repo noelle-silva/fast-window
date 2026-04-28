@@ -39,9 +39,15 @@ export function createClipboardHistoryService(store: ClipboardHistoryStore) {
   let currentText = ''
   let currentImage = ''
   let monitor: ClipboardMonitor | null = null
+  const snapshotListeners = new Set<(snapshot: ClipboardHistorySnapshot) => void>()
 
   function snapshot(): ClipboardHistorySnapshot {
     return { history, settings, deleted, collections, recentFolders }
+  }
+
+  function emitSnapshot() {
+    const next = snapshot()
+    for (const listener of snapshotListeners) listener(next)
   }
 
   async function saveClipboard() {
@@ -74,6 +80,7 @@ export function createClipboardHistoryService(store: ClipboardHistoryStore) {
     }
     history = mergeHistoryItems([item], history, settings.maxHistory)
     await saveClipboard()
+    emitSnapshot()
   }
 
   async function warmup() {
@@ -98,6 +105,7 @@ export function createClipboardHistoryService(store: ClipboardHistoryStore) {
     history = normalizeHistoryItems(history, settings.maxHistory)
     monitor?.restart(settings)
     await saveClipboard()
+    emitSnapshot()
     return snapshot()
   }
 
@@ -107,6 +115,7 @@ export function createClipboardHistoryService(store: ClipboardHistoryStore) {
     history = history.filter(entry => historyUniqKey(entry) !== historyUniqKey(item))
     if (item.type === 'image') await deleteManagedOutputImage(item.path || item.content)
     await saveClipboard()
+    emitSnapshot()
     return snapshot()
   }
 
@@ -116,6 +125,7 @@ export function createClipboardHistoryService(store: ClipboardHistoryStore) {
     else await writeText(item.content)
     history = mergeHistoryItems([{ ...item, time: Date.now() }], history, settings.maxHistory)
     await saveClipboard()
+    emitSnapshot()
     return snapshot()
   }
 
@@ -126,6 +136,7 @@ export function createClipboardHistoryService(store: ClipboardHistoryStore) {
       await deleteManagedImagesForHistory(history)
       history = []
       await saveClipboard()
+      emitSnapshot()
       return snapshot()
     }
     if (method === ClipboardHistoryRpc.state.deleteHistoryItem) return deleteHistoryItem(params?.item)
@@ -135,6 +146,7 @@ export function createClipboardHistoryService(store: ClipboardHistoryStore) {
       await writeText(text)
       history = mergeHistoryItems([{ type: 'text', content: text, time: Date.now() }], history, settings.maxHistory)
       await saveClipboard()
+      emitSnapshot()
       return snapshot()
     }
     if (method === ClipboardHistoryRpc.clipboard.writeImage) return copyHistoryItem({ type: 'image', content: params?.dataUrl || params?.path || '', path: params?.path, time: Date.now() })
@@ -160,8 +172,17 @@ export function createClipboardHistoryService(store: ClipboardHistoryStore) {
       throw new Error(`未知方法：${method}`)
     }
     await saveCollectionsState()
+    emitSnapshot()
     return snapshot()
   }
 
-  return { warmup, snapshot, dispatch }
+  return {
+    warmup,
+    snapshot,
+    dispatch,
+    onSnapshot(listener: (snapshot: ClipboardHistorySnapshot) => void) {
+      snapshotListeners.add(listener)
+      return () => snapshotListeners.delete(listener)
+    },
+  }
 }

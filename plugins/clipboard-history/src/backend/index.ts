@@ -9,6 +9,7 @@ async function main() {
   await startDirectServer({
     serviceName: 'clipboard-history-backend',
     handleRequest: (method, params) => service.dispatch(method, params),
+    registerEventSender: send => service.onSnapshot(snapshot => send('snapshot', { snapshot })),
   })
 }
 

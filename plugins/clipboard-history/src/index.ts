@@ -125,6 +125,21 @@ import {
     return domainNormalizeHostSnapshotItems(result, state.settings.maxHistory)
   }
 
+  function applySnapshot(snapshot) {
+    if (!snapshot || typeof snapshot !== 'object') return
+    state.settings = normalizeSettings(snapshot.settings)
+    state.history = normalizeHistoryItems(snapshot.history, state.settings.maxHistory)
+    state.deleted = normalizeDeletedMap(snapshot.deleted)
+    state.history = state.history.filter((it) => !isDeleted(it))
+    state.collections = ensureCollections(snapshot.collections)
+    if (!state.currentFolderId || !isFolder(state.currentFolderId)) state.currentFolderId = state.collections.rootId || 'root'
+    state.recentFolders = Array.isArray(snapshot.recentFolders) ? snapshot.recentFolders.filter((x) => typeof x === 'string') : []
+    const firstText = state.history.find((it) => it && it.type === 'text' && it.content)
+    state.currentText = firstText ? firstText.content : ''
+    const firstImage = state.history.find((it) => it && it.type === 'image' && it.content)
+    state.currentImage = firstImage ? firstImage.content : ''
+  }
+
   function stopMonitorQueryLoop() {
     if (state.monitorQueryTimer) {
       clearTimeout(state.monitorQueryTimer)
@@ -1841,32 +1856,14 @@ import {
 
   async function init() {
     try {
-      const [savedHistory, savedSettings, savedDeleted, savedCollections, savedRecent] = await Promise.all([
-        gateway.storage.loadHistory(),
-        gateway.storage.loadSettings(),
-        gateway.storage.loadDeletedHistory(),
-        gateway.storage.loadCollections(),
-        gateway.storage.loadRecentFolders(),
-      ])
-
-      state.settings = normalizeSettings(savedSettings)
-      const normalizedHistory = normalizeHistoryItems(savedHistory, state.settings.maxHistory)
-      state.history = normalizedHistory
-      state.deleted = normalizeDeletedMap(savedDeleted)
-      state.history = (Array.isArray(state.history) ? state.history : []).filter((it) => !isDeleted(it))
-      state.collections = ensureCollections(savedCollections)
-      state.currentFolderId = state.collections.rootId || 'root'
-      if (Array.isArray(savedRecent)) state.recentFolders = savedRecent.filter((x) => typeof x === 'string')
-      if (!savedCollections) await persistCollections()
-      if (!savedDeleted || state.history.length !== normalizedHistory.length) await persistClipboard()
-
-      const firstText = state.history.find((it) => it && it.type === 'text' && it.content)
-      if (firstText) state.currentText = firstText.content
-      const firstImage = state.history.find((it) => it && it.type === 'image' && it.content)
-      if (firstImage) state.currentImage = firstImage.content
+      applySnapshot(await gateway.state.load())
     } catch (e) {}
 
     mount()
+    gateway.onSnapshot((snapshot) => {
+      applySnapshot(snapshot)
+      render()
+    })
     render()
 
     await ensureMonitorTaskRunning(false)

@@ -29,6 +29,9 @@ export async function createDirectBackgroundGateway(baseApi: any): Promise<Omit<
       deleteNode: nodeId => client.invoke(ClipboardHistoryRpc.collections.deleteNode, { nodeId }),
       saveRecentFolder: folderId => client.invoke(ClipboardHistoryRpc.collections.saveRecentFolder, { folderId }),
     },
+    onSnapshot: listener => client.onEvent(event => {
+      if (event.type === 'event' && event.event === 'snapshot') listener(event.snapshot as any)
+    }),
     close: () => client.close(),
   }
 }

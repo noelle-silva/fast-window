@@ -2,6 +2,7 @@ import http from 'node:http'
 import WebSocket, { WebSocketServer } from 'ws'
 
 export type DirectRequestHandler = (method: string, params: unknown) => Promise<unknown>
+export type DirectEventSender = (event: string, payload: unknown) => void
 
 function writeFrame(frame: unknown) {
   process.stdout.write(`${JSON.stringify(frame)}\n`)
@@ -40,12 +41,19 @@ async function handleFrame(ws: WebSocket, handler: DirectRequestHandler, frame: 
 export async function startDirectServer(options: {
   serviceName: string
   handleRequest: DirectRequestHandler
+  registerEventSender?(send: DirectEventSender): void
 }): Promise<{ url: string }> {
   const token = String(process.env.FAST_WINDOW_PLUGIN_SESSION_TOKEN || '').trim()
   if (!token) throw new Error(`${options.serviceName} missing FAST_WINDOW_PLUGIN_SESSION_TOKEN`)
 
   const server = http.createServer()
   const wss = new WebSocketServer({ noServer: true })
+  options.registerEventSender?.((event, payload) => {
+    const frame = JSON.stringify({ type: 'event', event, ...(payload && typeof payload === 'object' ? payload as Record<string, unknown> : { payload }) })
+    for (const client of wss.clients) {
+      if (client.readyState === WebSocket.OPEN) client.send(frame)
+    }
+  })
 
   server.on('upgrade', (req, socket, head) => {
     if (!authenticate(req, token)) {

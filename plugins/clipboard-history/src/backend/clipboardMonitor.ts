@@ -1,29 +1,11 @@
-import { spawn } from 'node:child_process'
 import type { ClipboardHistorySettings, ClipboardMonitorSnapshot } from '../shared/types'
+import { readTextClipboard } from './textClipboard'
 
 export type ClipboardMonitor = {
   start(): void
   stop(): void
   restart(settings: ClipboardHistorySettings): void
   snapshot(): ClipboardMonitorSnapshot
-}
-
-function readClipboardText(): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-Clipboard -Raw'], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-    })
-    let stdout = ''
-    let stderr = ''
-    child.stdout.on('data', chunk => { stdout += String(chunk) })
-    child.stderr.on('data', chunk => { stderr += String(chunk) })
-    child.on('error', reject)
-    child.on('exit', code => {
-      if (code === 0) resolve(stdout.replace(/[\r\n]+$/, ''))
-      else reject(new Error(stderr.trim() || `PowerShell exited with ${code}`))
-    })
-  })
 }
 
 export function createClipboardMonitor(options: {
@@ -42,7 +24,7 @@ export function createClipboardMonitor(options: {
     if (stopped || running) return
     running = true
     try {
-      const text = await readClipboardText()
+      const text = await readTextClipboard()
       if (text && text !== latestText) {
         latestText = text
         latest = { type: 'text', content: text, time: Date.now() }

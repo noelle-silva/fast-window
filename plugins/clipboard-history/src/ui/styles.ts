@@ -5,7 +5,7 @@ export const styles = `
       --text: #212121;
       --muted: #757575;
       --primary: #1976D2;
-      --folders: #7C3AED;
+      --folders: #006DFF;
       --outline: #E0E0E0;
       --danger: #D32F2F;
       --shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);

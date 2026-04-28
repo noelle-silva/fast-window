@@ -1,6 +1,12 @@
 export type DirectBackgroundClient = {
   invoke<T = unknown>(method: string, params?: unknown): Promise<T>
+  onEvent(listener: (event: DirectBackgroundEvent) => void): () => void
   close(): void
+}
+
+export type DirectBackgroundEvent = {
+  type: string
+  [key: string]: unknown
 }
 
 const OPEN_TIMEOUT_MS = 15_000
@@ -47,6 +53,7 @@ export async function createDirectBackgroundClient(baseApi: any): Promise<Direct
 
   let seq = 0
   const pending = new Map<string, PendingRequest>()
+  const listeners = new Set<(event: DirectBackgroundEvent) => void>()
 
   function rejectPending(error: Error) {
     for (const entry of pending.values()) {
@@ -63,7 +70,12 @@ export async function createDirectBackgroundClient(baseApi: any): Promise<Direct
     } catch {
       return
     }
-    if (!frame || frame.type !== 'response') return
+    if (!frame) return
+    if (frame.type === 'event') {
+      for (const listener of listeners) listener(frame)
+      return
+    }
+    if (frame.type !== 'response') return
     const id = String(frame.id || '')
     const entry = pending.get(id)
     if (!entry) return
@@ -89,8 +101,13 @@ export async function createDirectBackgroundClient(baseApi: any): Promise<Direct
         ws.send(JSON.stringify({ id, type: 'request', method, params: params ?? {} }))
       })
     },
+    onEvent(listener) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
     close() {
       rejectPending(new Error('剪贴板历史后台连接已关闭'))
+      listeners.clear()
       ws.close()
     },
   }

@@ -67,5 +67,6 @@ export type ClipboardHistoryGateway = {
   images: ImageGateway
   storage: StorageGateway
   monitor: MonitorGateway
+  onSnapshot(listener: (snapshot: ClipboardHistorySnapshot) => void): () => void
   close(): void
 }
