@@ -1,47 +1,13 @@
-import { now, uid, trimSlash, isHttpBaseUrl, clampTemp, normImagePaths, clamp } from '../core/utils'
+import { now, uid, trimSlash, isHttpBaseUrl, clampTemp, normImagePaths } from '../core/utils'
+import { SPLIT_META_KEY, CHAT_DEFAULT_BRANCH_ID, CHAT_ATTACHMENT_KINDS } from '../domain/constants'
+import { normalizeMessageAttachments } from '../domain/message'
+import {
+  normalizeBranchId,
+  normalizeChatBranching,
+} from '../domain/branching'
+import { splitRoleKey, splitChatKey, splitGroupKey, splitGroupChatKey } from '../domain/storageKeys'
 
-// ---- constants ----
-
-const VERSION = 2
-const SPLIT_META_KEY = 'meta/index'
-const CHAT_DEFAULT_BRANCH_ID = 'main'
-
-// ---- domain schema helpers ----
-
-export function splitRoleKey(folder: unknown): string {
-  return `roles/${String(folder || '')}/role`
-}
-
-export function splitChatKey(folder: unknown, chatId: unknown): string {
-  return `chats/${String(folder || '')}/${String(chatId || '')}`
-}
-
-export function splitGroupKey(folder: unknown): string {
-  return `groups/${String(folder || '')}/group`
-}
-
-export function splitGroupChatKey(folder: unknown, chatId: unknown): string {
-  return `groups/${String(folder || '')}/chats/${String(chatId || '')}`
-}
-
-export function normalizeBranchId(input: unknown): string {
-  let s = String(input || '').trim()
-  if (!s) return CHAT_DEFAULT_BRANCH_ID
-  if (s.length > 60) s = s.slice(0, 60).trim()
-  s = s.replace(/[^a-zA-Z0-9._-]/g, '_')
-  return s || CHAT_DEFAULT_BRANCH_ID
-}
-
-export function normalizeChatModelOverride(chat: unknown): { providerId: string; modelId: string } | null {
-  const c = chat && typeof chat === 'object' ? chat as Record<string, unknown> : null
-  const o = c && c.modelOverride && typeof c.modelOverride === 'object' ? c.modelOverride as Record<string, unknown> : null
-  const providerId = String(o?.providerId || '').trim()
-  const modelId = String(o?.modelId || '').trim()
-  if (!providerId || !modelId) return null
-  return { providerId, modelId }
-}
-
-// ---- history / content helpers ----
+// ---- domain helpers (not in domain/ files yet) ----
 
 export function limitHistory(messages: unknown[], maxTurns: number): unknown[] {
   const list = Array.isArray(messages) ? messages : []
@@ -53,16 +19,13 @@ export function looksLikeImageDataUrl(s: unknown): boolean {
   return String(s || '').startsWith('data:image/')
 }
 
-function normalizeMessageAttachments(atts: unknown): Array<{ name?: string; fullLen?: number; sendLen?: number; text?: string }> {
-  if (!Array.isArray(atts)) return []
-  return atts
-    .filter((a) => a && typeof a === 'object')
-    .map((a) => ({
-      name: String((a as any)?.name || ''),
-      fullLen: Number((a as any)?.fullLen || 0),
-      sendLen: Number((a as any)?.sendLen || 0),
-      text: String((a as any)?.text || ''),
-    }))
+export function normalizeChatModelOverride(chat: unknown): { providerId: string; modelId: string } | null {
+  const c = chat && typeof chat === 'object' ? chat as Record<string, unknown> : null
+  const o = c && c.modelOverride && typeof c.modelOverride === 'object' ? c.modelOverride as Record<string, unknown> : null
+  const providerId = String(o?.providerId || '').trim()
+  const modelId = String(o?.modelId || '').trim()
+  if (!providerId || !modelId) return null
+  return { providerId, modelId }
 }
 
 export function buildUserTextForOpenAi(m: unknown): string {
@@ -79,8 +42,8 @@ export function buildUserTextForOpenAi(m: unknown): string {
   const blocks: string[] = []
   for (const a of atts) {
     const name = String(a?.name || '文件')
-    const fullLen = clamp(Number(a?.fullLen || 0), 0, 10_000_000)
-    const sendLen = clamp(Number(a?.sendLen || 0), 0, fullLen || 0)
+    const fullLen = Math.max(0, Math.min(Number(a?.fullLen || 0), 10_000_000))
+    const sendLen = Math.max(0, Math.min(Number(a?.sendLen || 0), fullLen || 0))
     const text = String(a?.text || '')
 
     let header = ''
