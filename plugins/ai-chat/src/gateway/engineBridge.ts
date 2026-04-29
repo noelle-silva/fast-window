@@ -11,6 +11,8 @@ export function createAiChatEngineBridge(opts: {
   streamKey?: (assistantMid: string) => string
   finalKey?: (assistantMid: string) => string
   onRunFinal: (run: AiChatRun, finalText: string) => Promise<void> | void
+  onProgressEvent?: (run: AiChatRun, text: string) => Promise<void> | void
+  onFinalEvent?: (run: AiChatRun, finalText: string) => Promise<void> | void
 }) {
   const store = opts.store
   const streamKey = opts.streamKey || assistantStreamKey
@@ -24,6 +26,9 @@ export function createAiChatEngineBridge(opts: {
       if (!mid) return
       try {
         await store.set(streamKey(mid), { text: String(text || ''), updatedAt: now() })
+      } catch (_) {}
+      try {
+        if (opts.onProgressEvent) await opts.onProgressEvent(run as any, String(text || ''))
       } catch (_) {}
     },
     onFinal: async (run: any, finalText: string) => {
@@ -40,6 +45,9 @@ export function createAiChatEngineBridge(opts: {
       }
       try {
         await opts.onRunFinal(run as any, String(finalText || ''))
+      } catch (_) {}
+      try {
+        if (opts.onFinalEvent) await opts.onFinalEvent(run as any, String(finalText || ''))
       } catch (_) {}
       if (mid) {
         try {

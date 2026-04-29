@@ -15,6 +15,8 @@ export function createAiChatInternalGateway(opts: {
   onRunFinal: (run: AiChatRun, finalText: string) => Promise<void> | void
   buildRoleReqFromStorage: (jobStub: any) => Promise<any>
   buildGroupReqFromStorage: (jobStub: any) => Promise<any>
+  onProgressEvent?: (run: AiChatRun, text: string) => Promise<void> | void
+  onFinalEvent?: (run: AiChatRun, finalText: string) => Promise<void> | void
 }): AiChatInternalGateway {
   const store = opts.store
   const bridge = createAiChatEngineBridge({
@@ -22,6 +24,8 @@ export function createAiChatInternalGateway(opts: {
     store,
     net: opts.net,
     onRunFinal: opts.onRunFinal,
+    onProgressEvent: opts.onProgressEvent,
+    onFinalEvent: opts.onFinalEvent,
   })
   const pipeline = createAiChatRequestPipeline({
     store,
