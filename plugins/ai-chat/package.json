@@ -18,6 +18,20 @@
     "@types/ws": "^8.5.13"
   },
   "fastWindowPlugin": {
-    "entry": "src/index.ts"
+    "entry": "src/index.ts",
+    "background": {
+      "dev": {
+        "kind": "node-bundle",
+        "entry": "src/backend/index.ts",
+        "main": "backend/index.js",
+        "runtime": "node"
+      },
+      "release": {
+        "kind": "node-bundle",
+        "entry": "src/backend/index.ts",
+        "main": "backend/index.js",
+        "runtime": "node"
+      }
+    }
   }
 }
