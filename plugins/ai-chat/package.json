@@ -11,7 +11,11 @@
     "mammoth": "^1.10.0",
     "marked": "^12.0.2",
     "mermaid": "^10.9.1",
-    "pdfjs-dist": "^4.10.38"
+    "pdfjs-dist": "^4.10.38",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13"
   },
   "fastWindowPlugin": {
     "entry": "src/index.ts"
