@@ -1,6 +1,6 @@
 import { AnyRecord, FILE_SUFFIX, runtimeKeyToRelPath, storageKeyToRelPath } from './storageCodec'
 import { createPluginFilesClient } from './pluginFilesClient'
-import { migrateIfNeeded } from './migrate'
+import { migrateIfNeeded } from './migrateStorage'
 import { isStrongConsistencyRuntimeKey } from '../runtime/runtimeKeys'
 
 export function createAiChatStorage(tauri: any, pluginId: string) {
@@ -106,7 +106,6 @@ export function createAiChatStorage(tauri: any, pluginId: string) {
   async function runtimeSetRaw(key: string, value: any) {
     await ensureReady()
     const path = runtimeKeyToRelPath(key)
-    // 控制面运行态需要跨 UI/background 立即可见，避免批处理延迟导致丢单/取消不生效。
     if (isStrongConsistencyRuntimeKey(key)) {
       rtQueue.delete(path)
       rtWriteChain = rtWriteChain.then(() => client.writeJson(path, value)).catch(() => {})

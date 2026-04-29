@@ -1,5 +1,7 @@
 import type { AiChatNetAdapter, AiChatRuntimeStore } from '../engine'
 
+// ---- gateway interface types ----
+
 export type AiChatStorageGateway = {
   get: (key: string) => Promise<any>
   set: (key: string, value: any) => Promise<void>
@@ -33,6 +35,8 @@ export type AiChatClipboardGateway = {
   readText?: () => Promise<string>
 }
 
+// ---- full capabilities (legacy compat) ----
+
 export type AiChatCapabilities = {
   meta: {
     pluginId: string
@@ -45,6 +49,33 @@ export type AiChatCapabilities = {
   ui: AiChatUiGateway
   clipboard: AiChatClipboardGateway
   host?: any
+}
+
+// ---- narrow capabilities (v4.5 target) ----
+
+export type AiChatUiCapabilities = {
+  meta: { pluginId: string; runtime: 'ui' }
+  storage: AiChatStorageGateway
+  ui: AiChatUiGateway
+  clipboard: AiChatClipboardGateway
+  files: { pickImages?: (maxCount?: number) => Promise<any[]>; images: { read?: (req: any) => Promise<any> } }
+  host: { back?: () => Promise<void> }
+  background: { endpoint: () => Promise<unknown>; connect?: () => Promise<unknown> }
+}
+
+export type AiChatBackendCapabilities = {
+  meta: { pluginId: string; runtime: 'background' }
+  storage: AiChatStorageGateway
+  runtimeStorage: AiChatRuntimeStorageGateway
+  net: AiChatNetAdapter
+  files: { images: { writeBase64?: (req: any) => Promise<any>; read?: (req: any) => Promise<any>; delete?: (req: any) => Promise<any> } }
+}
+
+export type AssistantRenderCapabilities = {
+  meta: { pluginId: string; runtime: 'ui' | 'background' }
+  clipboard: AiChatClipboardGateway
+  ui: AiChatUiGateway
+  files: { images: { read?: (req: any) => Promise<any> } }
 }
 
 function requireObject(value: any, label: string) {

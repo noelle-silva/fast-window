@@ -19,8 +19,6 @@ export async function migrateIfNeeded(tauri: any, pluginId: string) {
   const oldRoots = ['meta', 'stickers', 'roles', 'chats']
   const source: AnyRecord = { from: [`${pid}.json`, `${pid}.runtime.json`] }
 
-  // 优先级：只要 legacy store 文件存在（ai-chat.json / ai-chat.runtime.json），就优先以它们为种子迁移，
-  // 即便 storage/ 下已经有分片文件。
   const legacyMain = await client.readJsonMaybeLarge(`${pid}.json`).catch((e) => {
     const msg = String((e as any)?.message || e || '')
     if (msg.includes('文件不存在')) return null
@@ -40,12 +38,10 @@ export async function migrateIfNeeded(tauri: any, pluginId: string) {
       const keys = Object.keys(legacyMain as any)
       for (const k of keys) {
         if (k === '__migrated_from_legacy_v1') continue
-        // legacy 单文件里会混进 bg.* 运行态键；新结构里把它们放到 runtime/ 下，避免污染主数据根目录
         if (k === 'bg.queue' || k.startsWith('bg.')) {
           await client.writeJson(runtimeKeyToRelPath(k), (legacyMain as any)[k])
           continue
         }
-        // ui/notice/chat-updated 是跨会话通知用的运行态键：应写入 runtime/ 下
         if (k === 'ui/notice/chat-updated') {
           await client.writeJson(runtimeKeyToRelPath(k), (legacyMain as any)[k])
           continue

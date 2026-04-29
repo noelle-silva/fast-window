@@ -113,4 +113,3 @@ export function createPluginFilesClient(tauri: any, pluginId: string) {
     deleteIfExists,
   }
 }
-
