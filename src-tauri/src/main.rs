@@ -14,6 +14,7 @@ use tauri::{Emitter, EventTarget, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 mod app;
+mod app_launcher;
 mod browser_stack;
 mod clipboard;
 mod clipboard_snapshot;
@@ -2594,6 +2595,10 @@ fn main() {
         plugin_backend_commands::plugin_backend_status_many,
         plugin_backend_commands::plugin_backend_endpoint,
         plugin_backend_commands::plugin_backend_invoke,
+        app_launcher::app_launch,
+        app_launcher::app_stop,
+        app_launcher::app_status,
+        app_launcher::app_status_many,
         open_external_url,
         open_external_uri,
         open_browser_window,

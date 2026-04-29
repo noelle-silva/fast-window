@@ -8,6 +8,7 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
+use crate::app_launcher::AppLauncherState;
 use crate::browser_stack::{
     browser_stack_bar_height_px, browser_stack_hide, browser_stack_hide_to_main,
     browser_stack_is_closing, browser_stack_is_focused, browser_stack_is_pinned,
@@ -134,6 +135,7 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
             app.manage(Arc::new(SqliteConnManager::default()));
             app.manage(Arc::new(ProcessManagerState::default()));
             app.manage(Arc::new(PluginBackendManagerState::default()));
+            app.manage(Arc::new(AppLauncherState::default()));
             app.manage(BrowserWindowState::default());
 
             // 主窗口行为：三档“焦点模式”（默认：失焦自动隐藏）。

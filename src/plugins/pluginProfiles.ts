@@ -1,4 +1,5 @@
 import {
+  REGISTERED_APP_API_VERSION,
   SYSTEM_BACKEND_PLUGIN_API_VERSION,
   TRUSTED_LOCAL_APP_PLUGIN_API_VERSION,
   type PluginApiVersion,
@@ -47,4 +48,8 @@ export function resolveLegacyPluginRuntimeProfile(apiVersion: PluginApiVersion):
 
 export function resolvePluginRuntimeProfile(apiVersion: PluginApiVersion): PluginRuntimeProfile {
   return isTrustedLocalApp(apiVersion) ? TRUSTED_PLUGIN_RUNTIME_PROFILE : resolveLegacyPluginRuntimeProfile(apiVersion)
+}
+
+export function isRegisteredApp(apiVersion: number | undefined): boolean {
+  return Number(apiVersion ?? 0) >= REGISTERED_APP_API_VERSION
 }

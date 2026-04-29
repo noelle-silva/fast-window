@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
@@ -19,6 +19,12 @@ import TitleBar from './TitleBar'
 import PluginListView from './PluginListView'
 import PluginDetailDialog from './PluginDetailDialog'
 import PluginContextMenu from './PluginContextMenu'
+import AppRegistrationPanel from './apps/AppRegistrationPanel'
+import AppBackgroundPanel from './apps/AppBackgroundPanel'
+import AppActivationView from './apps/AppActivationView'
+import { useRegisteredApps } from './apps/useRegisteredApps'
+import type { RegisteredApp } from './apps/types'
+import { launchApp } from './apps/appLauncher'
 import { usePlugins } from './usePlugins'
 import { useWallpaper, getWallpaperView } from './useWallpaper'
 import { useSearch } from './useSearch'
@@ -46,6 +52,57 @@ const storePlugin: Plugin = {
   component: PluginStoreView,
 }
 
+const appRegistrationPlugin: Plugin = {
+  id: '__app-registration',
+  name: '注册管理',
+  description: '管理已注册的本地应用',
+  icon: '📋',
+  keyword: 'registration',
+  disabled: false,
+  component: (() => { const D: any = () => null; return D })(),
+}
+
+const appBgPanelPlugin: Plugin = {
+  id: '__app-bg-panel',
+  name: '后台管理',
+  description: '查看和管理运行中的应用',
+  icon: '⚡',
+  keyword: 'background',
+  disabled: false,
+  component: (() => { const D: any = () => null; return D })(),
+}
+
+function SpecialPluginView({ pluginId, registeredApps, onBack, onAddApp, onRemoveApp, onUpdateApp }: {
+  pluginId: string
+  registeredApps: RegisteredApp[]
+  onBack: () => void
+  onAddApp: (app: RegisteredApp) => void
+  onRemoveApp: (id: string) => void
+  onUpdateApp: (id: string, patch: Partial<RegisteredApp>) => void
+}) {
+  if (pluginId === '__app-registration') {
+    return (
+      <AppRegistrationPanel
+        apps={registeredApps}
+        onAdd={onAddApp}
+        onRemove={onRemoveApp}
+        onUpdate={onUpdateApp}
+        onClose={onBack}
+      />
+    )
+  }
+  if (pluginId === '__app-bg-panel') {
+    return (
+      <AppBackgroundPanel
+        apps={registeredApps}
+        onClose={onBack}
+        onUpdateApp={onUpdateApp}
+      />
+    )
+  }
+  return null
+}
+
 function App() {
   if (WebviewWindow.getCurrent().label === 'browser_bar') {
     return <BrowserBarWindow />
@@ -70,6 +127,10 @@ function App() {
     changePluginIcon, resetPluginIcon,
     autoUpdatePlugins, loadBrowseLayout,
   } = pluginCtx
+
+  // Registered Apps (v5)
+  const registeredAppsCtx = useRegisteredApps()
+  const { apps: registeredApps, load: loadRegisteredApps, add: addRegisteredApp, remove: removeRegisteredApp, update: updateRegisteredApp } = registeredAppsCtx
 
   // Search
   const search = useSearch(plugins)
@@ -118,6 +179,7 @@ function App() {
 
   useEffect(() => {
     loadPlugins()
+    loadRegisteredApps()
     loadBrowseLayout()
     wallpaperCtx.load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -249,17 +311,48 @@ function App() {
 
   // === Handlers ===
 
+  const registeredAppPlugins: Plugin[] = useMemo(() =>
+    registeredApps.map(app => ({
+      id: `app:${app.id}`,
+      name: app.name,
+      description: app.path,
+      icon: '🚀',
+      keyword: app.id,
+      disabled: false,
+      component: (() => { const D: any = () => null; return D })(),
+    })),
+    [registeredApps],
+  )
+
+  const staticAppPlugins: Plugin[] = useMemo(() => [appRegistrationPlugin, appBgPanelPlugin], [])
+
+  const displayItems: Plugin[] = useMemo(() => {
+    const all = [...staticAppPlugins, ...registeredAppPlugins, ...filtered]
+    const q = query.trim().toLowerCase()
+    if (!q) return all
+    return all.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      p.keyword?.toLowerCase() === q,
+    )
+  }, [staticAppPlugins, registeredAppPlugins, filtered, query])
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
       e.preventDefault()
-      setActiveIndex(i => Math.min(i + 1, filtered.length - 1))
+      setActiveIndex(i => Math.min(i + 1, displayItems.length - 1))
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       setActiveIndex(i => Math.max(i - 1, 0))
-    } else if (e.key === 'Enter' && filtered[activeIndex]) {
+    } else if (e.key === 'Enter' && displayItems[activeIndex]) {
       e.preventDefault()
       if (reorderMode) return
-      setActivePlugin(filtered[activeIndex])
+      const p = displayItems[activeIndex]
+      if (p.id.startsWith('app:')) {
+        const app = registeredApps.find(a => `app:${a.id}` === p.id)
+        if (app) launchApp(app, 'toggle')
+        return
+      }
+      setActivePlugin(p)
     } else if (e.key === 'Escape') {
       if (activePlugin) {
         setActivePlugin(null)
@@ -267,7 +360,7 @@ function App() {
         getCurrentWindow().hide()
       }
     }
-  }, [filtered, activeIndex, activePlugin, reorderMode, setActiveIndex])
+  }, [displayItems, activeIndex, activePlugin, reorderMode, setActiveIndex, registeredApps])
 
   const handlePluginSelect = useCallback((plugin: Plugin, index: number) => {
     if (reorderMode) {
@@ -279,8 +372,13 @@ function App() {
       return
     }
     setActiveIndex(index)
+    if (plugin.id.startsWith('app:')) {
+      const app = registeredApps.find(a => `app:${a.id}` === plugin.id)
+      if (app) launchApp(app, 'toggle')
+      return
+    }
     setActivePlugin(plugin)
-  }, [reorderMode, setActiveIndex])
+  }, [reorderMode, setActiveIndex, registeredApps])
 
   const handleContextMenu = useCallback((e: React.MouseEvent, plugin: Plugin) => {
     e.preventDefault()
@@ -431,6 +529,13 @@ function App() {
     borderRadius: '0 0 16px 16px', overflow: 'hidden', bgcolor: 'background.default',
   } as const
 
+  // Handle registered app activation
+  const isRegisteredAppActive = activePluginId.startsWith('app:')
+  const isStaticAppPanel = activePluginId === '__app-registration' || activePluginId === '__app-bg-panel'
+  const activeRegisteredApp = isRegisteredAppActive
+    ? registeredApps.find(a => `app:${a.id}` === activePluginId) ?? null
+    : null
+
   // Loading state
   if (loading) {
     return (
@@ -523,7 +628,23 @@ function App() {
 
             {showPluginView && ActivePluginComponent && !activePluginKeepAlive && activePluginBackendReady ? (
               <Box sx={{ height: '100%', overflow: 'hidden' }}>
-                <ActivePluginComponent onBack={onBackFromPlugin} />
+                {isStaticAppPanel ? (
+                  <SpecialPluginView
+                    pluginId={activePluginId}
+                    registeredApps={registeredApps}
+                    onBack={onBackFromPlugin}
+                    onAddApp={addRegisteredApp}
+                    onRemoveApp={removeRegisteredApp}
+                    onUpdateApp={updateRegisteredApp}
+                  />
+                ) : isRegisteredAppActive && activeRegisteredApp ? (
+                  <AppActivationView
+                    app={activeRegisteredApp}
+                    onBack={onBackFromPlugin}
+                  />
+                ) : (
+                  <ActivePluginComponent onBack={onBackFromPlugin} />
+                )}
               </Box>
             ) : null}
             {showPluginView && ActivePluginComponent && !activePluginKeepAlive && !activePluginBackendReady ? (
@@ -566,7 +687,7 @@ function App() {
             </Box>
 
             <Box sx={{ flex: 1, overflow: 'auto', p: 1 }}>
-              {filtered.length === 0 ? (
+              {displayItems.length === 0 ? (
                 <Box sx={{ py: 4, textAlign: 'center' }}>
                   <Typography variant="body2" color="text.secondary">没有找到插件</Typography>
                   {pluginsDir ? (
@@ -610,7 +731,7 @@ function App() {
                 </Box>
               ) : (
                 <PluginListView
-                  plugins={filtered}
+                  plugins={displayItems}
                   activeIndex={activeIndex}
                   activePlugin={activePlugin}
                   browseLayout={browseLayout}
