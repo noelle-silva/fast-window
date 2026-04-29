@@ -10,6 +10,13 @@ export const AI_CHAT_DIRECT_METHOD = {
   readAssistantStream: 'aiChat.readAssistantStream',
   consumeAssistantFinal: 'aiChat.consumeAssistantFinal',
   resetAssistantRuntime: 'aiChat.resetAssistantRuntime',
+  storageGet: 'aiChat.storageGet',
+  storageSet: 'aiChat.storageSet',
+  storageRemove: 'aiChat.storageRemove',
+  imageRead: 'aiChat.imageRead',
+  imageWrite: 'aiChat.imageWrite',
+  imageDelete: 'aiChat.imageDelete',
+  imagePick: 'aiChat.imagePick',
 } as const
 
 export const AI_CHAT_DIRECT_EVENT = {
