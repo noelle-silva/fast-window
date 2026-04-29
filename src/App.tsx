@@ -1,474 +1,30 @@
-import { useState, useEffect, useCallback, ComponentType, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
-import { loadAllPluginsReport, loadPluginById, type PluginLoadRejection } from './plugins/pluginLoader'
-import { PluginCapability, type PluginManifest } from './plugins/pluginContract'
-import { BackendStatusPanel, resolveBackendLifecycle, usePluginBackendStatuses, usePluginBackendSupervisor } from './plugins/backendSupervisor'
-import { pluginStoreInstall } from './plugins/pluginStore'
-import {
-  Alert,
-  Avatar,
-  Box,
-  Button,
-  CircularProgress,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  IconButton,
-  InputAdornment,
-  List,
-  ListItemAvatar,
-  ListItemButton,
-  ListItemText,
-  Menu,
-  MenuItem,
-  Paper,
-  Snackbar,
-  TextField,
-  Typography,
-} from '@mui/material'
+import { usePluginBackendStatuses, usePluginBackendSupervisor, resolveBackendLifecycle } from './plugins/backendSupervisor'
 import { alpha } from '@mui/material/styles'
-import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
-import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
-import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
-import DragIndicatorRoundedIcon from '@mui/icons-material/DragIndicatorRounded'
-import FileUploadRoundedIcon from '@mui/icons-material/FileUploadRounded'
-import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
+import {
+  Alert, Box, Button, CircularProgress, Snackbar, TextField,
+  InputAdornment, Typography,
+} from '@mui/material'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
-import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
 import StorefrontRoundedIcon from '@mui/icons-material/StorefrontRounded'
-import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded'
-import ViewModuleRoundedIcon from '@mui/icons-material/ViewModuleRounded'
-import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
-import NavigateBeforeRoundedIcon from '@mui/icons-material/NavigateBeforeRounded'
-import NavigateNextRoundedIcon from '@mui/icons-material/NavigateNextRounded'
 import SettingsView from './components/SettingsView'
 import PluginStoreView from './components/PluginStoreView'
 import ImportPluginDialog from './components/ImportPluginDialog'
 import BrowserBarWindow from './components/BrowserBarWindow'
-import { cycleWallpaper as cycleWallpaperCmd, DEFAULT_WALLPAPER_VIEW, getWallpaperSettings, type WallpaperSettings } from './wallpaper'
-
-interface Plugin {
-  id: string
-  name: string
-  description: string
-  icon: string
-  keyword?: string
-  requires?: PluginCapability[]
-  backgroundCode?: string
-  manifest?: PluginManifest
-  disabled: boolean
-  component: ComponentType<{ onBack: () => void }>
-}
-
-const APP_TITLE = 'Fast Window'
-
-const APP_STORAGE_ID = '__app'
-const PLUGIN_ORDER_KEY = 'pluginOrder'
-const PLUGIN_BROWSE_LAYOUT_KEY = 'pluginBrowseLayout'
-const DISABLED_PLUGINS_KEY = 'disabledPlugins'
-const PLUGIN_AUTO_UPDATE_LAST_CHECK_KEY = 'pluginAutoUpdateLastCheckMs'
-const PLUGIN_AUTO_UPDATE_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000
-const DEFAULT_STORE_INDEX_URL = 'https://raw.githubusercontent.com/noelle-silva/fast-window-plugins-download/main/index.json'
-const MAX_AUTO_UPDATE_PER_RUN = 8
-
-type PluginBrowseLayout = 'list' | 'grid' | 'icon'
-
-type RegistryPluginItem = {
-  id: string
-  name: string
-  description: string
-  version: string
-  download_url: string
-  sha256: string
-  requires?: string[]
-}
-
-type RegistryIndex = {
-  registry_version: number
-  plugins: RegistryPluginItem[]
-}
-
-type Semver = { major: number; minor: number; patch: number }
-
-function parseSemverStrict(raw: string): Semver | null {
-  const s = String(raw || '').trim()
-  const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(s)
-  if (!m) return null
-  const major = Number(m[1])
-  const minor = Number(m[2])
-  const patch = Number(m[3])
-  if (!Number.isSafeInteger(major) || !Number.isSafeInteger(minor) || !Number.isSafeInteger(patch)) return null
-  if (major < 0 || minor < 0 || patch < 0) return null
-  return { major, minor, patch }
-}
-
-function cmpSemver(a: Semver, b: Semver): number {
-  if (a.major !== b.major) return a.major < b.major ? -1 : 1
-  if (a.minor !== b.minor) return a.minor < b.minor ? -1 : 1
-  if (a.patch !== b.patch) return a.patch < b.patch ? -1 : 1
-  return 0
-}
-
-function isSafeId(id: string): boolean {
-  return /^[A-Za-z0-9_-]+$/.test(id)
-}
-
-function normalizeCapabilityList(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  const out: string[] = []
-  for (const it of value) {
-    const s = String(it || '').trim()
-    if (s) out.push(s)
-  }
-  out.sort()
-  // 去重（保持稳定顺序）
-  const uniq: string[] = []
-  for (const s of out) {
-    if (uniq.length === 0 || uniq[uniq.length - 1] !== s) uniq.push(s)
-  }
-  return uniq
-}
-
-function normalizeRegistry(raw: unknown): RegistryIndex {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('index.json 格式不合法')
-  const obj = raw as any
-  if (obj.registry_version !== 1) throw new Error('不支持的 registry_version（仅支持 1）')
-  if (!Array.isArray(obj.plugins)) throw new Error('index.json.plugins 必须是数组')
-
-  const out: RegistryPluginItem[] = []
-  for (const item of obj.plugins) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) continue
-    const id = String((item as any).id || '').trim()
-    const name = String((item as any).name || '').trim()
-    const description = String((item as any).description || '')
-    const version = String((item as any).version || '').trim()
-    const download_url = String((item as any).download_url || '').trim()
-    const sha256 = String((item as any).sha256 || '').trim()
-    const requires = normalizeCapabilityList((item as any).requires)
-
-    if (!id || !isSafeId(id)) continue
-    if (!name) continue
-    if (!version || !parseSemverStrict(version)) continue
-    if (!download_url) continue
-    if (!sha256) continue
-
-    out.push({ id, name, description, version, download_url, sha256, requires })
-  }
-
-  out.sort((a, b) => a.name.localeCompare(b.name))
-  return { registry_version: 1, plugins: out }
-}
-
-async function fetchRegistryIndex(url: string, timeoutMs: number): Promise<RegistryIndex> {
-  const u = String(url || '').trim()
-  if (!u) throw new Error('indexUrl 不能为空')
-  const ctrl = new AbortController()
-  const timer = window.setTimeout(() => ctrl.abort(), Math.max(1_000, timeoutMs))
-  try {
-    const resp = await fetch(u, { cache: 'no-store', signal: ctrl.signal })
-    if (!resp.ok) throw new Error(`拉取 index.json 失败：HTTP ${resp.status}`)
-    const raw = await resp.json()
-    return normalizeRegistry(raw)
-  } finally {
-    window.clearTimeout(timer)
-  }
-}
-
-function normalizeBrowseLayout(value: unknown): PluginBrowseLayout {
-  if (value === 'grid') return 'grid'
-  if (value === 'icon') return 'icon'
-  return 'list'
-}
-
-function isDataImageUrl(value: string): boolean {
-  return value.startsWith('data:image/')
-}
-
-async function pickImageFile(): Promise<File | null> {
-  return new Promise(resolve => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = 'image/png,image/jpeg,image/webp'
-    input.onchange = () => {
-      const file = input.files?.[0] ?? null
-      resolve(file)
-      input.remove()
-    }
-    input.oncancel = () => {
-      resolve(null)
-      input.remove()
-    }
-    input.style.position = 'fixed'
-    input.style.left = '-9999px'
-    document.body.appendChild(input)
-    input.click()
-  })
-}
-
-async function makeThumbnailPngDataUrl(file: File, maxPx: number): Promise<string> {
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onerror = () => reject(new Error('读取图片失败'))
-    reader.onload = () => resolve(String(reader.result || ''))
-    reader.readAsDataURL(file)
-  })
-
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const el = new Image()
-    el.onload = () => resolve(el)
-    el.onerror = () => reject(new Error('加载图片失败'))
-    el.src = dataUrl
-  })
-
-  const w = img.naturalWidth || img.width
-  const h = img.naturalHeight || img.height
-  if (!w || !h) throw new Error('图片尺寸无效')
-
-  const scale = Math.min(1, maxPx / Math.max(w, h))
-  const outW = Math.max(1, Math.round(w * scale))
-  const outH = Math.max(1, Math.round(h * scale))
-
-  const canvas = document.createElement('canvas')
-  canvas.width = outW
-  canvas.height = outH
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('Canvas 不可用')
-  ctx.drawImage(img, 0, 0, outW, outH)
-
-  return canvas.toDataURL('image/png')
-}
-
-function normalizeOrder(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  const ids: string[] = []
-  for (const item of value) {
-    if (typeof item === 'string' && item.trim()) ids.push(item)
-  }
-  return ids
-}
-
-function normalizeDisabledPlugins(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  const ids: string[] = []
-  for (const item of value) {
-    if (typeof item === 'string' && item.trim()) ids.push(item)
-  }
-  return ids
-}
-
-function applyPluginOrder(list: Plugin[], orderIds: string[]): Plugin[] {
-  if (!orderIds.length) return list
-
-  const byId = new Map(list.map(p => [p.id, p]))
-  const result: Plugin[] = []
-  for (const id of orderIds) {
-    const hit = byId.get(id)
-    if (hit) {
-      result.push(hit)
-      byId.delete(id)
-    }
-  }
-  for (const p of list) {
-    if (byId.has(p.id)) result.push(p)
-  }
-  return result
-}
-
-function movePluginById(list: Plugin[], draggedId: string, targetId: string, dropAfter: boolean): Plugin[] {
-  if (!draggedId || !targetId || draggedId === targetId) return list
-  const fromIndex = list.findIndex(p => p.id === draggedId)
-  const toIndex = list.findIndex(p => p.id === targetId)
-  if (fromIndex < 0 || toIndex < 0) return list
-
-  const next = list.slice()
-  const [item] = next.splice(fromIndex, 1)
-  let insertIndex = toIndex + (dropAfter ? 1 : 0)
-  if (fromIndex < insertIndex) insertIndex -= 1
-  if (insertIndex < 0) insertIndex = 0
-  if (insertIndex > next.length) insertIndex = next.length
-  next.splice(insertIndex, 0, item)
-  return next
-}
-
-function TitleBar(props: {
-  title: string
-  translucent?: boolean
-  translucentOpacity?: number
-  translucentBlur?: number
-  onBack?: () => void
-  onPrevWallpaper?: () => void
-  onNextWallpaper?: () => void
-  wallpaperSwitchDisabled?: boolean
-  onStore?: () => void
-  onImportPlugin?: () => void
-  onSettings?: () => void
-  onReloadPlugins?: () => void
-  reloadDisabled?: boolean
-  reorderMode?: boolean
-  onStartReorder?: () => void
-  onSaveReorder?: () => void
-  onCancelReorder?: () => void
-  browseLayout?: PluginBrowseLayout
-  onToggleBrowseLayout?: () => void
-  showDivider?: boolean
-}) {
-  const {
-    title,
-    translucent,
-    translucentOpacity,
-    translucentBlur,
-    onBack,
-    onPrevWallpaper,
-    onNextWallpaper,
-    wallpaperSwitchDisabled,
-    onStore,
-    onImportPlugin,
-    onSettings,
-    onReloadPlugins,
-    reloadDisabled,
-    reorderMode,
-    onStartReorder,
-    onSaveReorder,
-    onCancelReorder,
-    browseLayout,
-    onToggleBrowseLayout,
-    showDivider = true,
-  } = props
-  return (
-    <Box
-      data-tauri-drag-region="true"
-      sx={{
-        height: 40,
-        display: 'flex',
-        alignItems: 'center',
-        position: 'relative',
-        px: 0.5,
-        bgcolor: translucent
-          ? (theme: any) =>
-              alpha(theme.palette.background.paper, Math.max(0, Math.min(1, typeof translucentOpacity === 'number' ? translucentOpacity : 0.62)))
-          : 'background.paper',
-        backdropFilter: translucent
-          ? `blur(${Math.max(0, Math.min(40, typeof translucentBlur === 'number' ? translucentBlur : 12))}px)`
-          : undefined,
-        borderBottom: showDivider ? 1 : 0,
-        borderColor: showDivider ? 'divider' : undefined,
-        WebkitAppRegion: 'drag',
-      }}
-    >
-      {onBack ? (
-        <Box
-          data-tauri-drag-region="false"
-          sx={{ position: 'absolute', left: 6, display: 'flex', alignItems: 'center', gap: 0.5, WebkitAppRegion: 'no-drag' }}
-        >
-          <IconButton aria-label="返回" size="small" onClick={onBack}>
-            <ArrowBackRoundedIcon fontSize="small" />
-          </IconButton>
-        </Box>
-      ) : null}
-
-      {!onBack ? (
-        <Box
-          data-tauri-drag-region="false"
-          sx={{ position: 'absolute', right: 6, display: 'flex', alignItems: 'center', gap: 0.5, WebkitAppRegion: 'no-drag' }}
-        >
-          {reorderMode ? (
-            <>
-              {onCancelReorder ? (
-                <IconButton aria-label="取消排序" size="small" onClick={onCancelReorder}>
-                  <CloseRoundedIcon fontSize="small" />
-                </IconButton>
-              ) : null}
-              {onSaveReorder ? (
-                <IconButton aria-label="保存排序" size="small" onClick={onSaveReorder}>
-                  <CheckRoundedIcon fontSize="small" />
-                </IconButton>
-              ) : null}
-            </>
-          ) : (
-            <>
-              {onPrevWallpaper && onNextWallpaper ? (
-                <>
-                  <IconButton aria-label="上一张壁纸" size="small" onClick={onPrevWallpaper} disabled={wallpaperSwitchDisabled}>
-                    <NavigateBeforeRoundedIcon fontSize="small" />
-                  </IconButton>
-                  <IconButton aria-label="下一张壁纸" size="small" onClick={onNextWallpaper} disabled={wallpaperSwitchDisabled}>
-                    <NavigateNextRoundedIcon fontSize="small" />
-                  </IconButton>
-                </>
-              ) : null}
-              {onImportPlugin ? (
-                <IconButton aria-label="导入插件" size="small" onClick={onImportPlugin}>
-                  <FileUploadRoundedIcon fontSize="small" />
-                </IconButton>
-              ) : null}
-              {onReloadPlugins ? (
-                <IconButton aria-label="刷新插件" size="small" onClick={onReloadPlugins} disabled={reloadDisabled}>
-                  <RefreshRoundedIcon fontSize="small" />
-                </IconButton>
-              ) : null}
-              {onStore ? (
-                <IconButton aria-label="应用商店" size="small" onClick={onStore}>
-                  <StorefrontRoundedIcon fontSize="small" />
-                </IconButton>
-              ) : null}
-              {onToggleBrowseLayout ? (
-                <IconButton
-                  aria-label={
-                    browseLayout === 'list'
-                      ? '切换为网格布局'
-                      : browseLayout === 'grid'
-                        ? '切换为图标布局'
-                        : '切换为列表布局'
-                  }
-                  size="small"
-                  onClick={onToggleBrowseLayout}
-                >
-                  {browseLayout === 'list' ? (
-                    <ViewModuleRoundedIcon fontSize="small" />
-                  ) : browseLayout === 'grid' ? (
-                    <AppsRoundedIcon fontSize="small" />
-                  ) : (
-                    <ViewListRoundedIcon fontSize="small" />
-                  )}
-                </IconButton>
-              ) : null}
-              {onStartReorder ? (
-                <IconButton aria-label="拖拽排序模式" size="small" onClick={onStartReorder}>
-                  <DragIndicatorRoundedIcon fontSize="small" />
-                </IconButton>
-              ) : null}
-              {onSettings ? (
-                <IconButton aria-label="设置" size="small" onClick={onSettings}>
-                  <SettingsRoundedIcon fontSize="small" />
-                </IconButton>
-              ) : null}
-            </>
-          )}
-        </Box>
-      ) : null}
-
-      <Typography
-        variant="body2"
-        color="text.secondary"
-        sx={{
-          width: '100%',
-          textAlign: 'center',
-          fontWeight: 600,
-          letterSpacing: 0.2,
-          px: 4,
-          userSelect: 'none',
-          pointerEvents: 'none',
-        }}
-      >
-        {title}
-      </Typography>
-    </Box>
-  )
-}
+import TitleBar from './TitleBar'
+import PluginListView from './PluginListView'
+import PluginDetailDialog from './PluginDetailDialog'
+import PluginContextMenu from './PluginContextMenu'
+import { usePlugins } from './usePlugins'
+import { useWallpaper, getWallpaperView } from './useWallpaper'
+import { useSearch } from './useSearch'
+import type { Plugin } from './constants'
+import { APP_TITLE } from './constants'
+import { movePluginById } from './utils'
 
 const settingsPlugin: Plugin = {
   id: '__settings',
@@ -495,376 +51,109 @@ function App() {
     return <BrowserBarWindow />
   }
 
-  const [query, setQuery] = useState('')
-  const [plugins, setPlugins] = useState<Plugin[]>([])
-  const [allPlugins, setAllPlugins] = useState<Plugin[]>([])
-  const [activeIndex, setActiveIndex] = useState(0)
+  // Toast
+  const [toast, setToast] = useState<{ open: boolean; message: string; key: number }>({
+    open: false, message: '', key: 0,
+  })
+  const showToast = useCallback((message: string) => {
+    setToast(prev => ({ open: true, message, key: prev.key + 1 }))
+  }, [])
+
+  // Plugins
+  const pluginCtx = usePlugins(showToast)
+  const {
+    plugins, allPlugins, setAllPlugins, pluginsDir,
+    pluginRejected, browseLayout, loading, refreshingId,
+    allPluginsRef, autoUpdateStartedRef,
+    loadPlugins, reloadPlugins, refreshPlugin,
+    persistPluginOrder, toggleBrowseLayout,
+    changePluginIcon, resetPluginIcon,
+    autoUpdatePlugins, loadBrowseLayout,
+  } = pluginCtx
+
+  // Search
+  const search = useSearch(plugins)
+  const { query, setQuery, filtered, activeIndex, setActiveIndex } = search
+
+  // Active plugin
   const [activePlugin, setActivePlugin] = useState<Plugin | null>(null)
+
+  // Wallpaper
+  const wallpaperCtx = useWallpaper()
+  const { wallpaper, switching: wallpaperSwitching, cycle: cycleWallpaper } = wallpaperCtx
+
+  // Keep-alive UI plugins
   const [keepAliveUiPluginIds, setKeepAliveUiPluginIds] = useState<string[]>([])
-  const [loading, setLoading] = useState(true)
-  const [pluginsDir, setPluginsDir] = useState<string>('')
-  const [pluginRejected, setPluginRejected] = useState<PluginLoadRejection[]>([])
+
+  // Import dialog
   const [importOpen, setImportOpen] = useState(false)
+
+  // Reorder
   const [reorderMode, setReorderMode] = useState(false)
-  const [browseLayout, setBrowseLayout] = useState<PluginBrowseLayout>('list')
+  const reorderBackupRef = useRef<Plugin[] | null>(null)
+  const reorderQueryBackupRef = useRef<string>('')
+
+  // Context menu
   const [pluginMenu, setPluginMenu] = useState<{ plugin: Plugin; mouseX: number; mouseY: number } | null>(null)
+  const closePluginMenu = useCallback(() => setPluginMenu(null), [])
+
+  // Detail dialog
   const [pluginDetail, setPluginDetail] = useState<Plugin | null>(null)
-  const [refreshingPluginId, setRefreshingPluginId] = useState<string | null>(null)
+
+  // Drag
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [dragOverId, setDragOverId] = useState<string | null>(null)
   const [dragOverAfter, setDragOverAfter] = useState(false)
-  const [wallpaper, setWallpaper] = useState<WallpaperSettings | null>(null)
-  const selectedIdRef = useRef<string | null>(null)
-  const allPluginsRef = useRef<Plugin[]>([])
-  const pendingActivatePluginIdRef = useRef<string | null>(null)
-  const prevQueryRef = useRef<string>('')
   const dragMovedRef = useRef(false)
-  const reorderBackupRef = useRef<Plugin[] | null>(null)
-  const reorderQueryBackupRef = useRef<string>('')
-  const autoUpdateStartedRef = useRef(false)
-  const [toast, setToast] = useState<{ open: boolean; message: string; key: number }>({
-    open: false,
-    message: '',
-    key: 0,
-  })
+  const pendingActivatePluginIdRef = useRef<string | null>(null)
 
-  const loadPlugins = useCallback(async (opts?: { showToast?: boolean }) => {
-    setLoading(true)
-    try {
-      await invoke('plugin_dev_sync').catch(error => {
-        console.warn('[plugin] dev sync failed:', error)
-      })
-      const dir = await invoke<string>('get_plugins_dir')
-      setPluginsDir(dir)
-      console.log('Plugins directory:', dir)
-
-      const report = await loadAllPluginsReport()
-      setPluginRejected(report.rejected)
-      console.log('Loaded plugins:', report.plugins.length)
-      if (report.rejected.length) {
-        console.warn('[plugin] rejected:', report.rejected)
-      }
-
-      const iconOverrides = await invoke<Record<string, string>>('get_plugin_icon_overrides').catch(
-        () => ({} as Record<string, string>),
-      )
-
-      const disabledSaved = await invoke<unknown | null>('storage_get', { pluginId: APP_STORAGE_ID, key: DISABLED_PLUGINS_KEY }).catch(
-        () => null,
-      )
-      const disabledSet = new Set(normalizeDisabledPlugins(disabledSaved))
-
-      const pluginList: Plugin[] = report.plugins.map(p => ({
-        id: p.manifest.id,
-        name: p.manifest.name,
-        description: p.manifest.description,
-        icon: iconOverrides[p.manifest.id] || p.manifest.icon || '📦',
-        keyword: p.manifest.keyword,
-        requires: p.manifest.requires,
-        backgroundCode: p.backgroundCode,
-        manifest: p.manifest,
-        disabled: disabledSet.has(p.manifest.id),
-        component: p.component,
-      }))
-
-      const saved = await invoke<unknown | null>('storage_get', { pluginId: APP_STORAGE_ID, key: PLUGIN_ORDER_KEY }).catch(
-        () => null,
-      )
-      const ordered = applyPluginOrder(pluginList, normalizeOrder(saved))
-
-      setAllPlugins(ordered)
-      setPlugins(ordered)
-      setActiveIndex(0)
-      if (opts?.showToast) {
-        setToast(prev => ({ open: true, message: '插件已刷新', key: prev.key + 1 }))
-      }
-    } catch (error) {
-      console.error('Failed to load plugins:', error)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  const reloadPlugins = useCallback(() => loadPlugins({ showToast: true }), [loadPlugins])
-
-  async function autoUpdatePluginsOnceAfterStartup() {
-    const enabledRaw = await invoke<string[]>('get_plugins_auto_update_enabled').catch(() => [] as string[])
-    const enabledIds = Array.from(new Set(enabledRaw.map(x => String(x || '').trim()).filter(Boolean)))
-    if (enabledIds.length === 0) return
-
-    const now = Date.now()
-    const lastRaw = await invoke<unknown | null>('storage_get', { pluginId: APP_STORAGE_ID, key: PLUGIN_AUTO_UPDATE_LAST_CHECK_KEY }).catch(
-      () => null,
-    )
-    const lastMs = typeof lastRaw === 'number' && Number.isFinite(lastRaw) ? lastRaw : 0
-    if (now - lastMs < PLUGIN_AUTO_UPDATE_MIN_INTERVAL_MS) return
-
-    let registry: RegistryIndex | null = null
-    try {
-      registry = await fetchRegistryIndex(DEFAULT_STORE_INDEX_URL, 15_000)
-    } catch (e) {
-      console.warn('[auto-update] failed to load store index:', e)
-      return
-    } finally {
-      // 即使失败也打点，避免启动时反复重试刷屏（用户仍可手动到商店更新）。
-      void invoke('storage_set', { pluginId: APP_STORAGE_ID, key: PLUGIN_AUTO_UPDATE_LAST_CHECK_KEY, value: now }).catch(() => {})
-    }
-
-    if (!registry) return
-    const remoteById = new Map<string, RegistryPluginItem>(registry.plugins.map(p => [p.id, p]))
-
-    let updated = 0
-    let skippedPermChanged = 0
-    let failed = 0
-
-    for (const pluginId of enabledIds) {
-      if (updated >= MAX_AUTO_UPDATE_PER_RUN) break
-      const remote = remoteById.get(pluginId)
-      if (!remote) continue
-
-      const localPlugin = allPlugins.find(p => p.id === pluginId) || null
-      const localManifest = localPlugin?.manifest
-      const localVersion = typeof localManifest?.version === 'string' ? localManifest.version.trim() : ''
-      const remoteVersion = remote.version
-
-      const localSemver = parseSemverStrict(localVersion)
-      const remoteSemver = parseSemverStrict(remoteVersion)
-      if (!localSemver || !remoteSemver) continue
-      if (cmpSemver(remoteSemver, localSemver) <= 0) continue
-
-      const localRequires = normalizeCapabilityList(localManifest?.requires)
-      const remoteRequires = normalizeCapabilityList(remote.requires)
-      if (JSON.stringify(localRequires) !== JSON.stringify(remoteRequires)) {
-        skippedPermChanged += 1
-        continue
-      }
-
-      try {
-        await pluginStoreInstall({
-          url: remote.download_url,
-          expectedSha256: remote.sha256,
-          expectedId: remote.id,
-          expectedVersion: remote.version,
-          expectedRequires: remoteRequires,
-        })
-        updated += 1
-      } catch (e) {
-        failed += 1
-        console.warn('[auto-update] failed:', pluginId, e)
-      }
-    }
-
-    if (updated > 0) {
-      window.dispatchEvent(new CustomEvent('fast-window:plugins-changed'))
-    }
-
-    const parts: string[] = []
-    if (updated > 0) parts.push(`已自动更新 ${updated} 个插件`)
-    if (skippedPermChanged > 0) parts.push(`${skippedPermChanged} 个插件因权限变化已跳过（请到商店手动更新确认）`)
-    if (failed > 0) parts.push(`${failed} 个插件更新失败`)
-    if (parts.length) {
-      setToast(prev => ({ open: true, message: `自动更新：${parts.join('；')}`, key: prev.key + 1 }))
-    }
-  }
-
-  const loadWallpaper = useCallback(async () => {
-    try {
-      const wp = await getWallpaperSettings()
-      setWallpaper(wp)
-    } catch (_) {
-      setWallpaper({ enabled: false, opacity: 0.65, blur: 0, titlebarOpacity: 0.62, titlebarBlur: 12, filePath: null })
-    }
-  }, [])
-
-  const [wallpaperSwitching, setWallpaperSwitching] = useState(false)
-  const wallpaperSwitchingRef = useRef(false)
-
-  const cycleWallpaper = useCallback(async (delta: number) => {
-    if (wallpaperSwitchingRef.current) return
-    wallpaperSwitchingRef.current = true
-    setWallpaperSwitching(true)
-    try {
-      const wp = await cycleWallpaperCmd(delta)
-      setWallpaper(wp)
-      window.dispatchEvent(new CustomEvent('fast-window:wallpaper-changed'))
-    } catch (e) {
-      console.warn('[wallpaper] failed to cycle:', e)
-    } finally {
-      wallpaperSwitchingRef.current = false
-      setWallpaperSwitching(false)
-    }
-  }, [])
-
-  const openPluginMenu = useCallback((e: React.MouseEvent, plugin: Plugin) => {
-    e.preventDefault()
-    if (reorderMode) return
-    setPluginMenu({ plugin, mouseX: e.clientX + 2, mouseY: e.clientY + 2 })
-  }, [reorderMode])
-
-  const closePluginMenu = useCallback(() => setPluginMenu(null), [])
-
-  const changePluginIcon = useCallback(async () => {
-    const plugin = pluginMenu?.plugin
-    if (!plugin) return
-    setPluginMenu(null)
-
-    try {
-      const file = await pickImageFile()
-      if (!file) return
-      if (file.size > 50 * 1024 * 1024) {
-        setToast(prev => ({ open: true, message: '图片过大（> 50MB）', key: prev.key + 1 }))
-        return
-      }
-      const dataUrl = await makeThumbnailPngDataUrl(file, 128)
-      await invoke('set_plugin_icon_override', { pluginId: plugin.id, dataUrl })
-      setToast(prev => ({ open: true, message: '图标已更新', key: prev.key + 1 }))
-      void loadPlugins()
-    } catch (e) {
-      console.error('Failed to change plugin icon:', e)
-      const msg =
-        typeof e === 'string'
-          ? e
-          : typeof (e as any)?.message === 'string'
-            ? (e as any).message
-            : typeof (e as any)?.toString === 'function'
-              ? String(e)
-              : ''
-      setToast(prev => ({ open: true, message: msg ? `更改图标失败：${msg}` : '更改图标失败', key: prev.key + 1 }))
-    }
-  }, [pluginMenu, loadPlugins])
-
-  const resetPluginIcon = useCallback(async () => {
-    const plugin = pluginMenu?.plugin
-    if (!plugin) return
-    setPluginMenu(null)
-
-    try {
-      await invoke('remove_plugin_icon_override', { pluginId: plugin.id })
-      setToast(prev => ({ open: true, message: '已恢复默认图标', key: prev.key + 1 }))
-      void loadPlugins()
-    } catch (e) {
-      console.error('Failed to reset plugin icon:', e)
-      setToast(prev => ({ open: true, message: '恢复默认图标失败（详情见控制台）', key: prev.key + 1 }))
-    }
-  }, [pluginMenu, loadPlugins])
-
-  const refreshPlugin = useCallback(
-    async (plugin: Plugin) => {
-      if (loading) return
-      if (refreshingPluginId === plugin.id) return
-
-      setRefreshingPluginId(plugin.id)
-      try {
-        // 开发模式下先显式同步仓库插件产物，否则单独刷新可能读到旧运行副本。
-        await invoke('plugin_dev_sync').catch(error => {
-          console.warn('[plugin] dev sync failed:', error)
-        })
-        const dir = await invoke<string>('get_plugins_dir').catch(() => '')
-        if (dir) setPluginsDir(dir)
-
-        const disabledSaved = await invoke<unknown | null>('storage_get', {
-          pluginId: APP_STORAGE_ID,
-          key: DISABLED_PLUGINS_KEY,
-        }).catch(() => null)
-        const disabledSet = new Set(normalizeDisabledPlugins(disabledSaved))
-
-        const { plugin: loaded, rejection } = await loadPluginById(plugin.id)
-        if (!loaded) {
-          const msg = rejection?.reason ? `刷新失败：${rejection.reason}` : '刷新失败（详情见控制台）'
-          setToast(prev => ({ open: true, message: msg, key: prev.key + 1 }))
-          setPluginRejected(prev => {
-            const rest = prev.filter(r => r.pluginId !== plugin.id)
-            return rejection ? rest.concat(rejection) : rest
-          })
-          return
-        }
-
-        const iconOverrides = await invoke<Record<string, string>>('get_plugin_icon_overrides').catch(() => ({} as Record<string, string>))
-        const icon = iconOverrides[plugin.id] || loaded.manifest.icon || plugin.icon || '📦'
-
-        const updated: Plugin = {
-          ...plugin,
-          name: loaded.manifest.name,
-          description: loaded.manifest.description,
-          icon,
-          keyword: loaded.manifest.keyword,
-          requires: loaded.manifest.requires,
-          backgroundCode: loaded.backgroundCode,
-          manifest: loaded.manifest,
-          disabled: disabledSet.has(plugin.id),
-          component: loaded.component,
-        }
-
-        setAllPlugins(prev => {
-          const idx = prev.findIndex(p => p.id === plugin.id)
-          if (idx < 0) return prev
-          const next = prev.slice()
-          next[idx] = updated
-          return next
-        })
-
-        if (activePlugin?.id === plugin.id) {
-          setActivePlugin(prev => (prev?.id === plugin.id ? updated : prev))
-        }
-
-        setPluginRejected(prev => prev.filter(r => r.pluginId !== plugin.id))
-        setToast(prev => ({ open: true, message: `已刷新：${updated.name}`, key: prev.key + 1 }))
-      } catch (e) {
-        console.error('Failed to refresh plugin:', e)
-        setToast(prev => ({ open: true, message: '刷新失败（详情见控制台）', key: prev.key + 1 }))
-      } finally {
-        setRefreshingPluginId(null)
-      }
-    },
-    [activePlugin, loading, refreshingPluginId],
-  )
-  const openPluginDetail = useCallback((plugin: Plugin) => {
-    setPluginMenu(null)
-    setPluginDetail(plugin)
-  }, [])
-
+  // Backend
   const { backgroundHosts, controller: backendController } = usePluginBackendSupervisor({
     plugins: allPlugins,
     activePluginId: activePlugin?.id ?? null,
   })
   const backendStatusById = usePluginBackendStatuses(allPlugins)
 
-  // 初次加载插件
+  // === Effects ===
+
   useEffect(() => {
     loadPlugins()
-    void loadWallpaper()
-  }, [loadPlugins, loadWallpaper])
+    loadBrowseLayout()
+    wallpaperCtx.load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  // 自动更新（按插件偏好）：初次加载完成后做一次后台检查
   useEffect(() => {
     if (autoUpdateStartedRef.current) return
     if (loading) return
     autoUpdateStartedRef.current = true
-    void autoUpdatePluginsOnceAfterStartup()
-  }, [loading])
+    void autoUpdatePlugins()
+  }, [loading, autoUpdatePlugins, autoUpdateStartedRef])
 
+  // Wallpaper change listener
   useEffect(() => {
-    const onChanged = () => void loadWallpaper()
+    const onChanged = () => { wallpaperCtx.load() }
     window.addEventListener('fast-window:wallpaper-changed', onChanged as any)
     return () => window.removeEventListener('fast-window:wallpaper-changed', onChanged as any)
-  }, [loadWallpaper])
+  }, [wallpaperCtx])
 
+  // Plugins changed listener
   useEffect(() => {
-    const onChanged = () => {
-      void loadPlugins()
-    }
+    const onChanged = () => { void loadPlugins() }
     window.addEventListener('fast-window:plugins-changed', onChanged as any)
     return () => window.removeEventListener('fast-window:plugins-changed', onChanged as any)
   }, [loadPlugins])
 
+  // Disabled plugin check
   useEffect(() => {
     if (!activePlugin) return
     const hit = allPlugins.find(p => p.id === activePlugin.id)
     if (!hit || !hit.disabled) return
     setActivePlugin(null)
-    setToast(prev => ({ open: true, message: `插件已禁用：${hit.name}`, key: prev.key + 1 }))
-  }, [activePlugin, allPlugins])
+    showToast(`插件已禁用：${hit.name}`)
+  }, [activePlugin, allPlugins, showToast])
 
+  // Keep-alive management
   useEffect(() => {
     if (!activePlugin) return
     if (activePlugin.disabled) return
@@ -881,6 +170,7 @@ function App() {
     })
   }, [allPlugins, keepAliveUiPluginIds.length])
 
+  // Pending activation
   useEffect(() => {
     allPluginsRef.current = allPlugins
     const pending = pendingActivatePluginIdRef.current
@@ -890,8 +180,9 @@ function App() {
       pendingActivatePluginIdRef.current = null
       setActivePlugin(found)
     }
-  }, [allPlugins])
+  }, [allPlugins, allPluginsRef])
 
+  // Activate plugin (from Tauri event / DOM event)
   useEffect(() => {
     let unlisten: UnlistenFn | null = null
 
@@ -902,7 +193,7 @@ function App() {
       const found = list.find(p => p.id === id) || null
       if (found) {
         if (found.disabled) {
-          setToast(prev => ({ open: true, message: `插件已禁用：${found.name}`, key: prev.key + 1 }))
+          showToast(`插件已禁用：${found.name}`)
           return
         }
         setActivePlugin(found)
@@ -925,96 +216,86 @@ function App() {
     })()
 
     return () => {
-      try {
-        window.removeEventListener('fast-window:activate-plugin', onDomActivate as any)
-      } catch {}
+      try { window.removeEventListener('fast-window:activate-plugin', onDomActivate as any) } catch {}
       if (unlisten) unlisten()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // 加载宿主主页面浏览布局
-  useEffect(() => {
-    void invoke<unknown | null>('storage_get', { pluginId: APP_STORAGE_ID, key: PLUGIN_BROWSE_LAYOUT_KEY })
-      .then(saved => setBrowseLayout(normalizeBrowseLayout(saved)))
-      .catch(() => {})
-  }, [])
-
-  // 插件/主程序通用 toast
+  // Toast from DOM event
   useEffect(() => {
     const onToast = (event: Event) => {
       const custom = event as CustomEvent<{ message?: unknown }>
       const message = typeof custom.detail?.message === 'string' ? custom.detail.message : ''
       if (!message) return
-      setToast(prev => ({ open: true, message, key: prev.key + 1 }))
+      showToast(message)
     }
     window.addEventListener('fast-window:toast', onToast)
     return () => window.removeEventListener('fast-window:toast', onToast)
-  }, [])
+  }, [showToast])
 
-  // 宿主后端触发 toast（通过 tauri event）
+  // Toast from Tauri event
   useEffect(() => {
     let unlisten: UnlistenFn | null = null
     void (async () => {
       unlisten = await listen<{ message?: unknown }>('fast-window:toast', event => {
         const message = typeof (event as any)?.payload?.message === 'string' ? String((event as any).payload.message) : ''
         if (!message) return
-        setToast(prev => ({ open: true, message, key: prev.key + 1 }))
+        showToast(message)
       })
     })().catch(() => {})
-    return () => {
-      if (unlisten) unlisten()
+    return () => { if (unlisten) unlisten() }
+  }, [showToast])
+
+  // === Handlers ===
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setActiveIndex(i => Math.min(i + 1, filtered.length - 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setActiveIndex(i => Math.max(i - 1, 0))
+    } else if (e.key === 'Enter' && filtered[activeIndex]) {
+      e.preventDefault()
+      if (reorderMode) return
+      setActivePlugin(filtered[activeIndex])
+    } else if (e.key === 'Escape') {
+      if (activePlugin) {
+        setActivePlugin(null)
+      } else {
+        getCurrentWindow().hide()
+      }
     }
-  }, [])
+  }, [filtered, activeIndex, activePlugin, reorderMode, setActiveIndex])
 
-  // 过滤插件
-  useEffect(() => {
-    const q = query.trim()
-    const isQueryChanged = prevQueryRef.current !== query
-    prevQueryRef.current = query
-
-    const visibleAll = allPlugins.filter(p => !p.disabled)
-
-    const nextPlugins =
-      q === ''
-        ? visibleAll
-        : visibleAll.filter(
-            p => p.name.toLowerCase().includes(q.toLowerCase()) || p.keyword?.toLowerCase() === q.toLowerCase(),
-          )
-
-    setPlugins(nextPlugins)
-
-    if (isQueryChanged) {
-      setActiveIndex(0)
+  const handlePluginSelect = useCallback((plugin: Plugin, index: number) => {
+    if (reorderMode) {
+      setActiveIndex(index)
       return
     }
-
-    const selectedId = selectedIdRef.current
-    if (!selectedId) {
-      setActiveIndex(0)
+    if (dragMovedRef.current) {
+      dragMovedRef.current = false
       return
     }
-    const nextIndex = nextPlugins.findIndex(p => p.id === selectedId)
-    setActiveIndex(nextIndex >= 0 ? nextIndex : 0)
-  }, [query, allPlugins])
+    setActiveIndex(index)
+    setActivePlugin(plugin)
+  }, [reorderMode, setActiveIndex])
 
-  useEffect(() => {
-    selectedIdRef.current = plugins[activeIndex]?.id ?? null
-  }, [plugins, activeIndex])
+  const handleContextMenu = useCallback((e: React.MouseEvent, plugin: Plugin) => {
+    e.preventDefault()
+    if (reorderMode) return
+    setPluginMenu({ plugin, mouseX: e.clientX + 2, mouseY: e.clientY + 2 })
+  }, [reorderMode])
 
-  const persistPluginOrder = useCallback((orderedPlugins: Plugin[]) => {
-    const ids = orderedPlugins.map(p => p.id)
-    void invoke('storage_set', { pluginId: APP_STORAGE_ID, key: PLUGIN_ORDER_KEY, value: ids }).catch(e => {
-      console.error('Failed to persist plugin order:', e)
-    })
-  }, [])
-
+  // Reorder
   const startReorder = useCallback(() => {
     reorderBackupRef.current = allPlugins
     reorderQueryBackupRef.current = query
     setQuery('')
     setReorderMode(true)
-    setToast(prev => ({ open: true, message: '进入拖拽排序模式：拖动列表，点右上角保存', key: prev.key + 1 }))
-  }, [allPlugins, query])
+    showToast('进入拖拽排序模式：拖动列表，点右上角保存')
+  }, [allPlugins, query, setQuery, showToast])
 
   const cancelReorder = useCallback(() => {
     const backup = reorderBackupRef.current
@@ -1025,8 +306,8 @@ function App() {
     setDragOverAfter(false)
     setQuery(reorderQueryBackupRef.current)
     reorderBackupRef.current = null
-    setToast(prev => ({ open: true, message: '已取消排序', key: prev.key + 1 }))
-  }, [])
+    showToast('已取消排序')
+  }, [setAllPlugins, setQuery, showToast])
 
   const saveReorder = useCallback(() => {
     persistPluginOrder(allPlugins)
@@ -1036,45 +317,29 @@ function App() {
     setDragOverAfter(false)
     setQuery(reorderQueryBackupRef.current)
     reorderBackupRef.current = null
-    setToast(prev => ({ open: true, message: '排序已保存', key: prev.key + 1 }))
-  }, [allPlugins, persistPluginOrder])
+    showToast('排序已保存')
+  }, [allPlugins, persistPluginOrder, setQuery, showToast])
 
-  const toggleBrowseLayout = useCallback(() => {
-    setBrowseLayout(prev => {
-      const next: PluginBrowseLayout = prev === 'list' ? 'grid' : prev === 'grid' ? 'icon' : 'list'
-      void invoke('storage_set', { pluginId: APP_STORAGE_ID, key: PLUGIN_BROWSE_LAYOUT_KEY, value: next }).catch(() => {})
-      return next
-    })
-  }, [])
-
+  // Drag handlers
   const handlePointerDown = useCallback((e: React.PointerEvent, pluginId: string) => {
     if (!reorderMode) return
     if (e.button !== 0) return
-
     dragMovedRef.current = false
     setDraggingId(pluginId)
     setDragOverId(pluginId)
     setDragOverAfter(false)
-
-    try {
-      ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-    } catch {
-      // ignore
-    }
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId) } catch {}
     e.preventDefault()
   }, [reorderMode])
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!reorderMode) return
     if (!draggingId) return
-
     dragMovedRef.current = true
-
     const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null
     const host = el?.closest?.('[data-plugin-id]') as HTMLElement | null
     const targetId = host?.dataset?.pluginId
     if (!targetId || targetId === draggingId) return
-
     setDragOverId(targetId)
     const rect = host.getBoundingClientRect()
     setDragOverAfter(e.clientY > rect.top + rect.height / 2)
@@ -1083,7 +348,6 @@ function App() {
   const handlePointerUp = useCallback(() => {
     if (!reorderMode) return
     if (!draggingId) return
-
     const targetId = dragOverId
     if (targetId && targetId !== draggingId) {
       const enabled = allPlugins.filter(p => !p.disabled)
@@ -1102,342 +366,13 @@ function App() {
         if (nextAll.length === allPlugins.length) setAllPlugins(nextAll)
       }
     }
-
     setDraggingId(null)
     setDragOverId(null)
     setDragOverAfter(false)
-  }, [allPlugins, dragOverAfter, dragOverId, draggingId, reorderMode])
+  }, [allPlugins, dragOverAfter, dragOverId, draggingId, reorderMode, setAllPlugins])
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      setActiveIndex(i => Math.min(i + 1, plugins.length - 1))
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      setActiveIndex(i => Math.max(i - 1, 0))
-    } else if (e.key === 'Enter' && plugins[activeIndex]) {
-      e.preventDefault()
-      if (reorderMode) return
-      setActivePlugin(plugins[activeIndex])
-    } else if (e.key === 'Escape') {
-      if (activePlugin) {
-        setActivePlugin(null)
-      } else {
-        getCurrentWindow().hide()
-      }
-    }
-  }, [plugins, activeIndex, activePlugin, reorderMode])
+  // === Render helpers ===
 
-  const shellRootSx = {
-    height: '100vh',
-    outline: 'none',
-  } as const
-
-  const shellContainerSx = {
-    height: '100%',
-    display: 'flex',
-    flexDirection: 'column',
-    borderRadius: '0 0 16px 16px',
-    overflow: 'hidden',
-    bgcolor: 'background.default',
-  } as const
-
-  const wallpaperUrl =
-    wallpaper?.enabled && wallpaper.filePath ? `${convertFileSrc('wallpaper', 'wallpaper')}?rev=${wallpaper.rev ?? 0}` : ''
-  const hasWallpaper = !!wallpaperUrl
-  const wallpaperView = (() => {
-    const v: any = wallpaper?.view || null
-    const x = typeof v?.x === 'number' ? v.x : DEFAULT_WALLPAPER_VIEW.x
-    const y = typeof v?.y === 'number' ? v.y : DEFAULT_WALLPAPER_VIEW.y
-    const scale = typeof v?.scale === 'number' ? v.scale : DEFAULT_WALLPAPER_VIEW.scale
-    return {
-      x: Math.max(0, Math.min(100, x)),
-      y: Math.max(0, Math.min(100, y)),
-      scale: Math.max(1, Math.min(4, scale)),
-    }
-  })()
-  const canSwitchWallpaper = !!(
-    wallpaper?.enabled &&
-    wallpaper.filePath &&
-    Array.isArray(wallpaper.items) &&
-    wallpaper.items.length > 1
-  )
-  const titlebarOpacity = typeof wallpaper?.titlebarOpacity === 'number' ? wallpaper.titlebarOpacity : 0.62
-  const titlebarBlur = typeof wallpaper?.titlebarBlur === 'number' ? wallpaper.titlebarBlur : 12
-  const wallpaperLayer = wallpaperUrl ? (
-    <Box
-      aria-hidden
-      sx={{
-        position: 'absolute',
-        inset: 0,
-        zIndex: 0,
-        pointerEvents: 'none',
-        opacity: Math.max(0, Math.min(1, wallpaper?.opacity ?? 0.65)),
-      }}
-    >
-      <Box
-        component="img"
-        alt=""
-        draggable={false}
-        src={wallpaperUrl}
-        sx={{
-          position: 'absolute',
-          inset: 0,
-          width: '100%',
-          height: '100%',
-          objectFit: 'cover',
-          objectPosition: `${wallpaperView.x}% ${wallpaperView.y}%`,
-          transform: `scale(${wallpaperView.scale * 1.05})`,
-          transformOrigin: `${wallpaperView.x}% ${wallpaperView.y}%`,
-          filter: `blur(${Math.max(0, Math.min(40, wallpaper?.blur ?? 0))}px)`,
-          userSelect: 'none',
-        }}
-      />
-    </Box>
-  ) : null
-
-  const toastHost = (
-    <Snackbar
-      key={toast.key}
-      open={toast.open}
-      autoHideDuration={900}
-      onClose={() => setToast(prev => ({ ...prev, open: false }))}
-      anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      sx={{ mb: 4 }}
-    >
-      <Alert
-        variant="filled"
-        severity="success"
-        onClose={() => setToast(prev => ({ ...prev, open: false }))}
-        sx={{ borderRadius: 999, py: 0.25, alignItems: 'center' }}
-      >
-        {toast.message}
-      </Alert>
-    </Snackbar>
-  )
-
-  const pluginDetailDialog = (
-    <Dialog open={!!pluginDetail} onClose={() => setPluginDetail(null)} fullWidth maxWidth="sm">
-      <DialogTitle sx={{ pr: 6 }}>
-        插件详情
-        <IconButton
-          aria-label="关闭插件详情"
-          onClick={() => setPluginDetail(null)}
-          sx={{ position: 'absolute', right: 8, top: 8 }}
-          size="small"
-        >
-          <CloseRoundedIcon fontSize="small" />
-        </IconButton>
-      </DialogTitle>
-      <DialogContent sx={{ pt: 1 }}>
-        {pluginDetail ? (() => {
-          const m = pluginDetail.manifest
-	          const id = (m?.id || pluginDetail.id || '').trim()
-	          const name = (m?.name || pluginDetail.name || '').trim()
-	          const author = (m?.author || '').trim()
-	          const version = (m?.version || '').trim()
-	          const main = (m?.main || '').trim()
-	          const keyword = (m?.keyword || pluginDetail.keyword || '').trim()
-	          const apiVersion = typeof m?.apiVersion === 'number' ? m.apiVersion : undefined
-	          const uiType = m?.ui?.type
-          const requires = Array.isArray(m?.requires) ? m!.requires : pluginDetail.requires
-          const hasBackground = !!m?.background
-          const backgroundAutoStart = hasBackground ? (m!.background!.autoStart !== false) : undefined
-          const resolvedBg = resolveBackendLifecycle(m)
-          const backgroundMain = hasBackground ? ((m!.background!.main || '').trim() || main || '(未指定)') : undefined
-          const backendStatus = id ? backendStatusById[id] : undefined
-          const pluginPath = pluginsDir && id ? `${pluginsDir}\\${id}` : ''
-
-          const fieldRowSx = {
-            display: 'grid',
-            gridTemplateColumns: '120px 1fr',
-            gap: 1,
-            py: 0.5,
-          } as const
-
-          const labelSx = { color: 'text.secondary', fontSize: 13 } as const
-          const valueSx = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 13 } as const
-
-          return (
-            <Box>
-              <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'center', mb: 1.5 }}>
-                <Avatar
-                  variant="rounded"
-                  src={isDataImageUrl(pluginDetail.icon) ? pluginDetail.icon : undefined}
-                  imgProps={{ alt: name || 'plugin' }}
-                  sx={{ width: 44, height: 44, fontSize: 22, bgcolor: 'action.hover', color: 'text.primary' }}
-                >
-                  {isDataImageUrl(pluginDetail.icon) ? null : pluginDetail.icon}
-                </Avatar>
-                <Box sx={{ minWidth: 0, flex: 1 }}>
-                  <Typography variant="body1" sx={{ fontWeight: 800, lineHeight: 1.2 }} noWrap>
-                    {name || '(未命名)'}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" noWrap>
-                    {id || '(无 ID)'}{version ? ` · v${version}` : ''}
-                  </Typography>
-                </Box>
-              </Box>
-
-	              <Box sx={fieldRowSx}>
-	                <Typography sx={labelSx}>目录</Typography>
-	                <Typography sx={{ ...valueSx, wordBreak: 'break-all' }}>{pluginPath || '(未知)'}</Typography>
-	              </Box>
-	              <Box sx={fieldRowSx}>
-	                <Typography sx={labelSx}>作者</Typography>
-	                <Typography sx={valueSx}>{author || '(无)'}</Typography>
-	              </Box>
-	              <Box sx={fieldRowSx}>
-	                <Typography sx={labelSx}>入口（main）</Typography>
-	                <Typography sx={valueSx}>{main || '(未知)'}</Typography>
-	              </Box>
-              <Box sx={fieldRowSx}>
-                <Typography sx={labelSx}>关键字（keyword）</Typography>
-                <Typography sx={valueSx}>{keyword || '(无)'}</Typography>
-              </Box>
-              <Box sx={fieldRowSx}>
-                <Typography sx={labelSx}>契约版本</Typography>
-                <Typography sx={valueSx}>{typeof apiVersion === 'number' ? String(apiVersion) : '(未知)'}</Typography>
-              </Box>
-              <Box sx={fieldRowSx}>
-                <Typography sx={labelSx}>UI 类型</Typography>
-                <Typography sx={valueSx}>{uiType || '(未知)'}</Typography>
-              </Box>
-              <Box sx={fieldRowSx}>
-                <Typography sx={labelSx}>后台</Typography>
-                <Typography sx={valueSx}>
-                  {hasBackground
-                    ? (() => {
-                        const lc = resolvedBg?.lifecycle
-                        const src = resolvedBg?.source
-                        const lcText = lc ? `${lc}${src ? `(${src})` : ''}` : '(未知)'
-                        const legacyText = src === 'legacy' ? `，autoStart=${backgroundAutoStart ? 'true' : 'false'}` : ''
-                        return `启用（lifecycle=${lcText}${legacyText}，main=${backgroundMain}）`
-                      })()
-                    : '未启用'}
-                </Typography>
-              </Box>
-              {hasBackground ? <BackendStatusPanel status={backendStatus} labelSx={labelSx} valueSx={valueSx} fieldRowSx={fieldRowSx} /> : null}
-
-              <Box sx={{ mt: 1 }}>
-                <Typography sx={{ color: 'text.secondary', fontSize: 13, mb: 0.5 }}>描述</Typography>
-                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                  {typeof m?.description === 'string' ? m.description : (pluginDetail.description || '(无)')}
-                </Typography>
-              </Box>
-              <Box sx={{ mt: 1.25 }}>
-                <Typography sx={{ color: 'text.secondary', fontSize: 13, mb: 0.5 }}>能力（requires）</Typography>
-                {Array.isArray(requires) && requires.length ? (
-                  <Box component="ul" sx={{ m: 0, pl: 2 }}>
-                    {requires.map(cap => (
-                      <li key={String(cap)}>
-                        <Typography sx={valueSx}>{String(cap)}</Typography>
-                      </li>
-                    ))}
-                  </Box>
-                ) : (
-                  <Typography sx={valueSx} color="text.secondary">
-                    (空)
-                  </Typography>
-                )}
-              </Box>
-            </Box>
-          )
-        })() : null}
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={() => setPluginDetail(null)}>关闭</Button>
-      </DialogActions>
-    </Dialog>
-  )
-
-  const pluginContextMenu = (
-    <Menu
-      open={!!pluginMenu}
-      onClose={closePluginMenu}
-      anchorReference="anchorPosition"
-      anchorPosition={pluginMenu ? { top: pluginMenu.mouseY, left: pluginMenu.mouseX } : { top: 0, left: 0 }}
-    >
-      <MenuItem
-        disabled={loading || refreshingPluginId === pluginMenu?.plugin.id}
-        onClick={() => {
-          const plugin = pluginMenu?.plugin
-          if (!plugin) return
-          setPluginMenu(null)
-          void refreshPlugin(plugin)
-        }}
-      >
-        刷新
-      </MenuItem>
-      <MenuItem
-        onClick={() => {
-          const plugin = pluginMenu?.plugin
-          if (!plugin) return
-          openPluginDetail(plugin)
-        }}
-      >
-        详情
-      </MenuItem>
-      <MenuItem
-        onClick={() => {
-          void changePluginIcon()
-        }}
-      >
-        更改图标…
-      </MenuItem>
-      <MenuItem
-        onClick={() => {
-          void resetPluginIcon()
-        }}
-      >
-        恢复默认图标
-      </MenuItem>
-    </Menu>
-  )
-
-  const importDialog = (
-    <ImportPluginDialog
-      open={importOpen}
-      onClose={() => setImportOpen(false)}
-      onInstalled={() => {
-        setToast(prev => ({ open: true, message: '插件已导入', key: prev.key + 1 }))
-        reloadPlugins()
-      }}
-    />
-  )
-
-  // 加载中
-  if (loading) {
-    return (
-      <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
-        <Paper
-          variant="outlined"
-          sx={[
-            shellContainerSx,
-            { position: 'relative', '& > :not([aria-hidden])': { position: 'relative', zIndex: 1 } },
-          ]}
-        >
-          {wallpaperLayer}
-          <TitleBar title={APP_TITLE} translucent={hasWallpaper} translucentOpacity={titlebarOpacity} translucentBlur={titlebarBlur} />
-          <Box sx={{ flex: 1, display: 'grid', placeItems: 'center' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-              <CircularProgress size={18} />
-              <Typography variant="body2" color="text.secondary">
-                加载插件中...
-              </Typography>
-            </Box>
-          </Box>
-        </Paper>
-        {toastHost}
-        {pluginContextMenu}
-        {pluginDetailDialog}
-        {importDialog}
-        {backgroundHosts}
-      </Box>
-    )
-  }
-
-  // 如果有激活的插件，渲染插件视图
   const showPluginView = !!activePlugin
   const activePluginId = activePlugin?.id || ''
   const activePluginKeepAlive = activePlugin?.manifest?.ui?.keepAlive === true
@@ -1455,447 +390,283 @@ function App() {
       ? keepAliveUiPluginIds.concat(activePluginId)
       : keepAliveUiPluginIds
 
-  return (
-    <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
-        <Paper
-          variant="outlined"
+  // Wallpaper
+  const wallpaperUrl =
+    wallpaper?.enabled && wallpaper.filePath ? `${convertFileSrc('wallpaper', 'wallpaper')}?rev=${wallpaper.rev ?? 0}` : ''
+  const hasWallpaper = !!wallpaperUrl
+  const wallpaperView = getWallpaperView(wallpaper)
+  const canSwitchWallpaper = !!(
+    wallpaper?.enabled && wallpaper.filePath &&
+    Array.isArray(wallpaper.items) && wallpaper.items.length > 1
+  )
+  const titlebarOpacity = typeof wallpaper?.titlebarOpacity === 'number' ? wallpaper.titlebarOpacity : 0.62
+  const titlebarBlur = typeof wallpaper?.titlebarBlur === 'number' ? wallpaper.titlebarBlur : 12
+
+  const wallpaperLayer = wallpaperUrl ? (
+    <Box
+      aria-hidden
+      sx={{
+        position: 'absolute', inset: 0, zIndex: 0, pointerEvents: 'none',
+        opacity: Math.max(0, Math.min(1, wallpaper?.opacity ?? 0.65)),
+      }}
+    >
+      <Box
+        component="img" alt="" draggable={false} src={wallpaperUrl}
+        sx={{
+          position: 'absolute', inset: 0, width: '100%', height: '100%',
+          objectFit: 'cover',
+          objectPosition: `${wallpaperView.x}% ${wallpaperView.y}%`,
+          transform: `scale(${wallpaperView.scale * 1.05})`,
+          transformOrigin: `${wallpaperView.x}% ${wallpaperView.y}%`,
+          filter: `blur(${Math.max(0, Math.min(40, wallpaper?.blur ?? 0))}px)`,
+          userSelect: 'none',
+        }}
+      />
+    </Box>
+  ) : null
+
+  const shellRootSx = { height: '100vh', outline: 'none' } as const
+  const shellContainerSx = {
+    height: '100%', display: 'flex', flexDirection: 'column',
+    borderRadius: '0 0 16px 16px', overflow: 'hidden', bgcolor: 'background.default',
+  } as const
+
+  // Loading state
+  if (loading) {
+    return (
+      <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
+        <Box
           sx={[
             shellContainerSx,
-            { position: 'relative', '& > :not([aria-hidden])': { position: 'relative', zIndex: 1 } },
+            { position: 'relative', '& > :not([aria-hidden])': { position: 'relative', zIndex: 1 } } as any,
           ]}
         >
           {wallpaperLayer}
-          {showPluginView ? null : (
-            <TitleBar
-              title={APP_TITLE}
-              translucent={hasWallpaper}
-              translucentOpacity={titlebarOpacity}
-              translucentBlur={titlebarBlur}
-              onPrevWallpaper={canSwitchWallpaper ? () => void cycleWallpaper(-1) : undefined}
-              onNextWallpaper={canSwitchWallpaper ? () => void cycleWallpaper(1) : undefined}
-              wallpaperSwitchDisabled={wallpaperSwitching}
-              onImportPlugin={reorderMode ? undefined : () => setImportOpen(true)}
-              onReloadPlugins={reorderMode ? undefined : reloadPlugins}
-              reloadDisabled={loading}
-              browseLayout={browseLayout}
-              onToggleBrowseLayout={reorderMode ? undefined : toggleBrowseLayout}
-              onStartReorder={reorderMode ? undefined : startReorder}
-              reorderMode={reorderMode}
-              onCancelReorder={reorderMode ? cancelReorder : undefined}
-              onSaveReorder={reorderMode ? saveReorder : undefined}
-              onSettings={reorderMode ? undefined : () => setActivePlugin(settingsPlugin)}
-              onStore={reorderMode ? undefined : () => setActivePlugin(storePlugin)}
-              showDivider={false}
-            />
-          )}
-
-          <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-            <Box sx={{ height: '100%', display: showPluginView ? 'block' : 'none', overflow: 'hidden' }}>
-              {renderKeepAliveUiPluginIds.map(id => {
-                const p = allPlugins.find(x => x.id === id) || null
-                if (!p) return null
-                if (p.disabled) return null
-                if (p.manifest?.ui?.keepAlive !== true) return null
-
-                const PluginComponent = p.component
-                const visible = activePluginId === id
-                return (
-                  <Box key={id} sx={{ height: '100%', display: visible ? 'block' : 'none', overflow: 'hidden' }}>
-                    <PluginComponent onBack={onBackFromPlugin} />
-                  </Box>
-                )
-              })}
-
-              {showPluginView && ActivePluginComponent && !activePluginKeepAlive && activePluginBackendReady ? (
-                <Box sx={{ height: '100%', overflow: 'hidden' }}>
-                  <ActivePluginComponent onBack={onBackFromPlugin} />
-                </Box>
-              ) : null}
-              {showPluginView && ActivePluginComponent && !activePluginKeepAlive && !activePluginBackendReady ? (
-                <Box sx={{ height: '100%', display: 'grid', placeItems: 'center', p: 3 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, color: 'text.secondary' }}>
-                    <CircularProgress size={18} />
-                    <Typography variant="body2">
-                      正在启动插件后台{activeBackendLifecycle ? `（${activeBackendLifecycle.lifecycle}）` : ''}...
-                    </Typography>
-                  </Box>
-                </Box>
-              ) : null}
-            </Box>
-
-            <Box
-              sx={{
-                height: '100%',
-                display: showPluginView ? 'none' : 'flex',
-                flexDirection: 'column',
-                minHeight: 0,
-              }}
-            >
-              <Box sx={{ p: 2, bgcolor: 'transparent' }}>
-                <TextField
-                  fullWidth
-                  autoFocus
-                  value={query}
-                  onChange={e => setQuery(e.target.value)}
-                  placeholder="输入关键词搜索插件..."
-                  variant="outlined"
-                  disabled={reorderMode}
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      '& .MuiOutlinedInput-notchedOutline': { border: 0 },
-                      '&:hover .MuiOutlinedInput-notchedOutline': { border: 0 },
-                      '&.Mui-focused': {
-                        boxShadow: theme => `0 0 0 2px ${alpha(theme.palette.primary.main, 0.35)}`,
-                      },
-                    },
-                  }}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <SearchRoundedIcon fontSize="small" />
-                      </InputAdornment>
-                    ),
-                  }}
-                  inputProps={{ 'aria-label': '搜索插件', autoComplete: 'off' }}
-                />
-              </Box>
-
-              <Box sx={{ flex: 1, overflow: 'auto', p: 1 }}>
-          {plugins.length === 0 ? (
-            <Box sx={{ py: 4, textAlign: 'center' }}>
-              <Typography variant="body2" color="text.secondary">
-                没有找到插件
-              </Typography>
-              {pluginsDir ? (
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{
-                    display: 'block',
-                    mt: 1,
-                    px: 2,
-                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  插件目录：{pluginsDir}
-                </Typography>
-              ) : null}
-              <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center', gap: 1, flexWrap: 'wrap' }}>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => void invoke('open_plugins_dir').catch(() => {})}
-                >
-                  打开插件目录
-                </Button>
-                <Button
-                  size="small"
-                  variant="contained"
-                  onClick={() => setActivePlugin(storePlugin)}
-                  disabled={reorderMode}
-                  startIcon={<StorefrontRoundedIcon fontSize="small" />}
-                  sx={{ boxShadow: 'none' }}
-                >
-                  去插件商店
-                </Button>
-                <Button size="small" variant="outlined" onClick={reloadPlugins} disabled={loading}>
-                  重新扫描
-                </Button>
-              </Box>
-              {pluginRejected.length ? (
-                <Box sx={{ mt: 2, mx: 'auto', maxWidth: 720, textAlign: 'left', px: 2 }}>
-                  <Alert severity="warning" variant="outlined">
-                    <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                      发现 {pluginRejected.length} 个插件目录，但加载被拒绝
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                      常见原因：apiVersion 不匹配、ui.type 不是 iframe、requires 缺失/含未知能力、manifest.id 与目录名不一致。
-                    </Typography>
-                    <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2 }}>
-                      {pluginRejected.slice(0, 6).map(r => (
-                        <li key={`${r.pluginId}:${r.reason}`}>
-                          <Typography variant="caption">
-                            {r.pluginId}：{r.reason}
-                          </Typography>
-                        </li>
-                      ))}
-                      {pluginRejected.length > 6 ? (
-                        <li>
-                          <Typography variant="caption" color="text.secondary">
-                            …还有 {pluginRejected.length - 6} 个（详情见控制台日志）
-                          </Typography>
-                        </li>
-                      ) : null}
-                    </Box>
-                  </Alert>
-                </Box>
-              ) : null}
-            </Box>
-          ) : (
-            browseLayout === 'grid' ? (
-              <Box
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-                  gap: 1,
-                  p: 0.5,
-                }}
-              >
-                {plugins.map((plugin, index) => (
-                  <ListItemButton
-                    key={plugin.id}
-                    data-plugin-id={plugin.id}
-                    selected={index === activeIndex}
-                    onContextMenu={e => openPluginMenu(e, plugin)}
-                    onPointerDown={reorderMode ? (e => handlePointerDown(e, plugin.id)) : undefined}
-                    onPointerMove={reorderMode ? handlePointerMove : undefined}
-                    onPointerUp={reorderMode ? handlePointerUp : undefined}
-                    onPointerCancel={reorderMode ? handlePointerUp : undefined}
-                    onClick={() => {
-                      if (reorderMode) {
-                        setActiveIndex(index)
-                        return
-                      }
-                      if (dragMovedRef.current) {
-                        dragMovedRef.current = false
-                        return
-                      }
-                      setActiveIndex(index)
-                      setActivePlugin(plugin)
-                    }}
-                    sx={{
-                      borderRadius: 2,
-                      alignItems: 'stretch',
-                      flexDirection: 'column',
-                      gap: 1,
-                      py: 1.25,
-                      px: 1.25,
-                      border: 'none',
-                      '&.Mui-selected': {
-                        bgcolor: 'transparent',
-                      },
-                      '&.Mui-selected:hover': {
-                        bgcolor: 'action.hover',
-                      },
-                      cursor: reorderMode ? (draggingId ? 'grabbing' : 'grab') : undefined,
-                      opacity: draggingId === plugin.id ? 0.6 : 1,
-                      userSelect: reorderMode ? 'none' : undefined,
-                      touchAction: reorderMode ? 'none' : undefined,
-                      boxShadow:
-                        dragOverId === plugin.id
-                          ? (theme =>
-                              dragOverAfter
-                                ? `inset 0 -2px 0 ${theme.palette.primary.main}`
-                                : `inset 0 2px 0 ${theme.palette.primary.main}`)
-                          : undefined,
-                    }}
-                  >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Avatar
-                        variant="rounded"
-                        src={isDataImageUrl(plugin.icon) ? plugin.icon : undefined}
-                        imgProps={{ alt: plugin.name }}
-                        sx={theme => ({
-                          width: 36,
-                          height: 36,
-                          fontSize: 18,
-                          bgcolor: theme.palette.action.hover,
-                          color: theme.palette.text.primary,
-                        })}
-                      >
-                        {isDataImageUrl(plugin.icon) ? null : plugin.icon}
-                    </Avatar>
-                      <Box sx={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 700, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis' }}
-                          noWrap
-                        >
-                          {plugin.name}
-                        </Typography>
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}
-                          noWrap
-                        >
-                          {plugin.description}
-                        </Typography>
-                      </Box>
-                    </Box>
-                  </ListItemButton>
-                ))}
-              </Box>
-            ) : browseLayout === 'icon' ? (
-              <Box
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))',
-                  gap: 1,
-                  p: 0.5,
-                }}
-              >
-                {plugins.map((plugin, index) => (
-                  <ListItemButton
-                    key={plugin.id}
-                    data-plugin-id={plugin.id}
-                    selected={index === activeIndex}
-                    onContextMenu={e => openPluginMenu(e, plugin)}
-                    onPointerDown={reorderMode ? (e => handlePointerDown(e, plugin.id)) : undefined}
-                    onPointerMove={reorderMode ? handlePointerMove : undefined}
-                    onPointerUp={reorderMode ? handlePointerUp : undefined}
-                    onPointerCancel={reorderMode ? handlePointerUp : undefined}
-                    onClick={() => {
-                      if (reorderMode) {
-                        setActiveIndex(index)
-                        return
-                      }
-                      if (dragMovedRef.current) {
-                        dragMovedRef.current = false
-                        return
-                      }
-                      setActiveIndex(index)
-                      setActivePlugin(plugin)
-                    }}
-                    sx={{
-                      borderRadius: 2,
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      py: 1.25,
-                      px: 1,
-                      gap: 0.75,
-                      '&.Mui-selected': { bgcolor: 'transparent' },
-                      '&.Mui-selected:hover': { bgcolor: 'action.hover' },
-                      cursor: reorderMode ? (draggingId ? 'grabbing' : 'grab') : undefined,
-                      opacity: draggingId === plugin.id ? 0.6 : 1,
-                      userSelect: reorderMode ? 'none' : undefined,
-                      touchAction: reorderMode ? 'none' : undefined,
-                      boxShadow:
-                        dragOverId === plugin.id
-                          ? (theme =>
-                              dragOverAfter
-                                ? `inset 0 -2px 0 ${theme.palette.primary.main}`
-                                : `inset 0 2px 0 ${theme.palette.primary.main}`)
-                          : undefined,
-                    }}
-                  >
-                    <Avatar
-                      src={isDataImageUrl(plugin.icon) ? plugin.icon : undefined}
-                      imgProps={{ alt: plugin.name }}
-                      sx={{
-                        width: 56,
-                        height: 56,
-                        fontSize: 26,
-                        bgcolor: 'action.hover',
-                        color: 'text.primary',
-                      }}
-                    >
-                      {isDataImageUrl(plugin.icon) ? null : plugin.icon}
-                    </Avatar>
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        fontWeight: 700,
-                        lineHeight: 1.2,
-                        textAlign: 'center',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                      }}
-                    >
-                      {plugin.name}
-                    </Typography>
-                  </ListItemButton>
-                ))}
-              </Box>
-            ) : (
-              <List disablePadding sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                {plugins.map((plugin, index) => (
-                  <ListItemButton
-                    key={plugin.id}
-                    data-plugin-id={plugin.id}
-                    selected={index === activeIndex}
-                    onContextMenu={e => openPluginMenu(e, plugin)}
-                    onPointerDown={reorderMode ? (e => handlePointerDown(e, plugin.id)) : undefined}
-                    onPointerMove={reorderMode ? handlePointerMove : undefined}
-                    onPointerUp={reorderMode ? handlePointerUp : undefined}
-                    onPointerCancel={reorderMode ? handlePointerUp : undefined}
-                    onClick={() => {
-                      if (reorderMode) {
-                        setActiveIndex(index)
-                        return
-                      }
-                      if (dragMovedRef.current) {
-                        dragMovedRef.current = false
-                        return
-                      }
-                      setActiveIndex(index)
-                      setActivePlugin(plugin)
-                    }}
-                    sx={{
-                      py: 1,
-                      px: 1.25,
-                      '&.Mui-selected': { bgcolor: 'transparent' },
-                      '&.Mui-selected:hover': { bgcolor: 'action.hover' },
-                      cursor: reorderMode ? (draggingId ? 'grabbing' : 'grab') : undefined,
-                      opacity: draggingId === plugin.id ? 0.6 : 1,
-                      userSelect: reorderMode ? 'none' : undefined,
-                      touchAction: reorderMode ? 'none' : undefined,
-                      boxShadow:
-                        dragOverId === plugin.id
-                          ? (theme =>
-                              dragOverAfter
-                                ? `inset 0 -2px 0 ${theme.palette.primary.main}`
-                                : `inset 0 2px 0 ${theme.palette.primary.main}`)
-                          : undefined,
-                    }}
-                  >
-                    <ListItemAvatar sx={{ minWidth: 44 }}>
-                      <Avatar
-                        variant="rounded"
-                        src={isDataImageUrl(plugin.icon) ? plugin.icon : undefined}
-                        imgProps={{ alt: plugin.name }}
-                        sx={theme => ({
-                          width: 32,
-                          height: 32,
-                          fontSize: 18,
-                          bgcolor: theme.palette.action.hover,
-                          color: theme.palette.text.primary,
-                        })}
-                      >
-                        {isDataImageUrl(plugin.icon) ? null : plugin.icon}
-                      </Avatar>
-                    </ListItemAvatar>
-                    <ListItemText
-                      primary={plugin.name}
-                      secondary={
-                        plugin.description
-                      }
-                      primaryTypographyProps={{ variant: 'body1', fontWeight: 600, noWrap: true }}
-                      secondaryTypographyProps={{ variant: 'body2', color: 'text.secondary', noWrap: true }}
-                    />
-                  </ListItemButton>
-                ))}
-              </List>
-            )
-          )}
-        </Box>
+          <TitleBar title={APP_TITLE} translucent={hasWallpaper} translucentOpacity={titlebarOpacity} translucentBlur={titlebarBlur} />
+          <Box sx={{ flex: 1, display: 'grid', placeItems: 'center' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+              <CircularProgress size={18} />
+              <Typography variant="body2" color="text.secondary">加载插件中...</Typography>
             </Box>
           </Box>
+        </Box>
+        <ToastBar toast={toast} onClose={() => setToast(prev => ({ ...prev, open: false }))} />
+        <PluginContextMenu
+          plugin={pluginMenu?.plugin ?? null}
+          mouseX={pluginMenu?.mouseX ?? 0}
+          mouseY={pluginMenu?.mouseY ?? 0}
+          loading={loading}
+          refreshingId={refreshingId}
+          onClose={closePluginMenu}
+          onRefresh={refreshPlugin}
+          onDetail={setPluginDetail}
+          onChangeIcon={() => pluginMenu?.plugin && changePluginIcon(pluginMenu.plugin)}
+          onResetIcon={() => pluginMenu?.plugin && resetPluginIcon(pluginMenu.plugin)}
+        />
+        <PluginDetailDialog plugin={pluginDetail} pluginsDir={pluginsDir} backendStatusById={backendStatusById} onClose={() => setPluginDetail(null)} />
+        <ImportPluginDialog
+          open={importOpen}
+          onClose={() => setImportOpen(false)}
+          onInstalled={() => { showToast('插件已导入'); reloadPlugins() }}
+        />
+        {backgroundHosts}
+      </Box>
+    )
+  }
 
-      </Paper>
-      {toastHost}
-      {pluginContextMenu}
-      {pluginDetailDialog}
-      {importDialog}
+  return (
+    <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
+      <Box
+        sx={[
+          shellContainerSx,
+          { position: 'relative', '& > :not([aria-hidden])': { position: 'relative', zIndex: 1 } } as any,
+        ]}
+      >
+        {wallpaperLayer}
+        {showPluginView ? null : (
+          <TitleBar
+            title={APP_TITLE}
+            translucent={hasWallpaper}
+            translucentOpacity={titlebarOpacity}
+            translucentBlur={titlebarBlur}
+            onPrevWallpaper={canSwitchWallpaper ? () => cycleWallpaper(-1) : undefined}
+            onNextWallpaper={canSwitchWallpaper ? () => cycleWallpaper(1) : undefined}
+            wallpaperSwitchDisabled={wallpaperSwitching}
+            onImportPlugin={reorderMode ? undefined : () => setImportOpen(true)}
+            onReloadPlugins={reorderMode ? undefined : reloadPlugins}
+            reloadDisabled={loading}
+            browseLayout={browseLayout}
+            onToggleBrowseLayout={reorderMode ? undefined : toggleBrowseLayout}
+            onStartReorder={reorderMode ? undefined : startReorder}
+            reorderMode={reorderMode}
+            onCancelReorder={reorderMode ? cancelReorder : undefined}
+            onSaveReorder={reorderMode ? saveReorder : undefined}
+            onSettings={reorderMode ? undefined : () => setActivePlugin(settingsPlugin)}
+            onStore={reorderMode ? undefined : () => setActivePlugin(storePlugin)}
+            showDivider={false}
+          />
+        )}
+
+        <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <Box sx={{ height: '100%', display: showPluginView ? 'block' : 'none', overflow: 'hidden' }}>
+            {renderKeepAliveUiPluginIds.map(id => {
+              const p = allPlugins.find(x => x.id === id) || null
+              if (!p || p.disabled || p.manifest?.ui?.keepAlive !== true) return null
+              const PluginComponent = p.component
+              const visible = activePluginId === id
+              return (
+                <Box key={id} sx={{ height: '100%', display: visible ? 'block' : 'none', overflow: 'hidden' }}>
+                  <PluginComponent onBack={onBackFromPlugin} />
+                </Box>
+              )
+            })}
+
+            {showPluginView && ActivePluginComponent && !activePluginKeepAlive && activePluginBackendReady ? (
+              <Box sx={{ height: '100%', overflow: 'hidden' }}>
+                <ActivePluginComponent onBack={onBackFromPlugin} />
+              </Box>
+            ) : null}
+            {showPluginView && ActivePluginComponent && !activePluginKeepAlive && !activePluginBackendReady ? (
+              <Box sx={{ height: '100%', display: 'grid', placeItems: 'center', p: 3 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, color: 'text.secondary' }}>
+                  <CircularProgress size={18} />
+                  <Typography variant="body2">
+                    正在启动插件后台{activeBackendLifecycle ? `（${activeBackendLifecycle.lifecycle}）` : ''}...
+                  </Typography>
+                </Box>
+              </Box>
+            ) : null}
+          </Box>
+
+          <Box sx={{ height: '100%', display: showPluginView ? 'none' : 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <Box sx={{ p: 2, bgcolor: 'transparent' }}>
+              <TextField
+                fullWidth autoFocus
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="输入关键词搜索插件..."
+                variant="outlined"
+                disabled={reorderMode}
+                sx={{
+                  '& .MuiOutlinedInput-root': {
+                    '& .MuiOutlinedInput-notchedOutline': { border: 0 },
+                    '&:hover .MuiOutlinedInput-notchedOutline': { border: 0 },
+                    '&.Mui-focused': {
+                      boxShadow: theme => `0 0 0 2px ${alpha(theme.palette.primary.main, 0.35)}`,
+                    },
+                  },
+                }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment>
+                  ),
+                }}
+                inputProps={{ 'aria-label': '搜索插件', autoComplete: 'off' }}
+              />
+            </Box>
+
+            <Box sx={{ flex: 1, overflow: 'auto', p: 1 }}>
+              {filtered.length === 0 ? (
+                <Box sx={{ py: 4, textAlign: 'center' }}>
+                  <Typography variant="body2" color="text.secondary">没有找到插件</Typography>
+                  {pluginsDir ? (
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, px: 2, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      插件目录：{pluginsDir}
+                    </Typography>
+                  ) : null}
+                  <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center', gap: 1, flexWrap: 'wrap' }}>
+                    <Button size="small" variant="outlined" onClick={() => void invoke('open_plugins_dir').catch(() => {})}>
+                      打开插件目录
+                    </Button>
+                    <Button size="small" variant="contained" onClick={() => setActivePlugin(storePlugin)} disabled={reorderMode} startIcon={<StorefrontRoundedIcon fontSize="small" />} sx={{ boxShadow: 'none' }}>
+                      去插件商店
+                    </Button>
+                    <Button size="small" variant="outlined" onClick={reloadPlugins} disabled={loading}>
+                      重新扫描
+                    </Button>
+                  </Box>
+                  {pluginRejected.length ? (
+                    <Box sx={{ mt: 2, mx: 'auto', maxWidth: 720, textAlign: 'left', px: 2 }}>
+                      <Alert severity="warning" variant="outlined">
+                        <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                          发现 {pluginRejected.length} 个插件目录，但加载被拒绝
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                          常见原因：apiVersion 不匹配、ui.type 不是 iframe、requires 缺失/含未知能力、manifest.id 与目录名不一致。
+                        </Typography>
+                        <Box component="ul" sx={{ mt: 1, mb: 0, pl: 2 }}>
+                          {pluginRejected.slice(0, 6).map(r => (
+                            <li key={`${r.pluginId}:${r.reason}`}>
+                              <Typography variant="caption">{r.pluginId}：{r.reason}</Typography>
+                            </li>
+                          ))}
+                          {pluginRejected.length > 6 ? (
+                            <li><Typography variant="caption" color="text.secondary">…还有 {pluginRejected.length - 6} 个（详情见控制台日志）</Typography></li>
+                          ) : null}
+                        </Box>
+                      </Alert>
+                    </Box>
+                  ) : null}
+                </Box>
+              ) : (
+                <PluginListView
+                  plugins={filtered}
+                  activeIndex={activeIndex}
+                  activePlugin={activePlugin}
+                  browseLayout={browseLayout}
+                  reorderMode={reorderMode}
+                  draggingId={draggingId}
+                  dragOverId={dragOverId}
+                  dragOverAfter={dragOverAfter}
+                  onSelect={handlePluginSelect}
+                  onContextMenu={handleContextMenu}
+                  onPointerDown={handlePointerDown}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerUp}
+                />
+              )}
+            </Box>
+          </Box>
+        </Box>
+      </Box>
+      <ToastBar toast={toast} onClose={() => setToast(prev => ({ ...prev, open: false }))} />
+      <PluginContextMenu
+        plugin={pluginMenu?.plugin ?? null}
+        mouseX={pluginMenu?.mouseX ?? 0}
+        mouseY={pluginMenu?.mouseY ?? 0}
+        loading={loading}
+        refreshingId={refreshingId}
+        onClose={closePluginMenu}
+        onRefresh={refreshPlugin}
+        onDetail={setPluginDetail}
+        onChangeIcon={() => pluginMenu?.plugin && changePluginIcon(pluginMenu.plugin)}
+        onResetIcon={() => pluginMenu?.plugin && resetPluginIcon(pluginMenu.plugin)}
+      />
+      <PluginDetailDialog plugin={pluginDetail} pluginsDir={pluginsDir} backendStatusById={backendStatusById} onClose={() => setPluginDetail(null)} />
+      <ImportPluginDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onInstalled={() => { showToast('插件已导入'); reloadPlugins() }}
+      />
       {backgroundHosts}
     </Box>
+  )
+}
+
+function ToastBar({ toast, onClose }: { toast: { open: boolean; message: string; key: number }; onClose: () => void }) {
+  return (
+    <Snackbar
+      key={toast.key}
+      open={toast.open}
+      autoHideDuration={900}
+      onClose={onClose}
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      sx={{ mb: 4 }}
+    >
+      <Alert variant="filled" severity="success" onClose={onClose} sx={{ borderRadius: 999, py: 0.25, alignItems: 'center' }}>
+        {toast.message}
+      </Alert>
+    </Snackbar>
   )
 }
 
