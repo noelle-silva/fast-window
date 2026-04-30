@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "网站收藏",
+  "version": "0.1.0",
+  "identifier": "com.fastwindow.bookmarks",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1430",
+    "beforeBuildCommand": "pnpm build:ui",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "网站收藏",
+        "width": 720,
+        "height": 520,
+        "decorations": false,
+        "resizable": true,
+        "visible": true,
+        "skipTaskbar": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": []
+  }
+}
