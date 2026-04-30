@@ -3,6 +3,7 @@ import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
 import { createAiChatFastWindowApi } from './bridge/tauriCompat'
 import { createAiChatController } from './controller/createController'
+import { createAiChatControllerV2 } from './controller/createControllerV2'
 import { createAiChatCapabilitiesFromHostApi } from './gateway/capabilities'
 import { createDirectCapabilitiesAdapter } from './direct/createDirectCapabilitiesAdapter'
 
@@ -12,9 +13,11 @@ import { createDirectCapabilitiesAdapter } from './direct/createDirectCapabiliti
   const isDirect = !!fw?.background?.endpoint
 
   let capabilities: ReturnType<typeof createAiChatCapabilitiesFromHostApi>
+  let useV2 = false
   if (isDirect) {
     const { api } = await createDirectCapabilitiesAdapter(fw)
     capabilities = createAiChatCapabilitiesFromHostApi(api, 'ai-chat')
+    useV2 = true
   } else {
     const api = createAiChatFastWindowApi(fw, 'ai-chat')
     capabilities = createAiChatCapabilitiesFromHostApi(api, 'ai-chat')
@@ -27,7 +30,8 @@ import { createDirectCapabilitiesAdapter } from './direct/createDirectCapabiliti
     }
   } catch (_) {}
 
-  const { controller, init } = createAiChatController({ capabilities })
+  const factory = useV2 ? createAiChatControllerV2 : createAiChatController
+  const { controller, init } = factory({ capabilities })
   ;(window as any).__fastWindowAiChat = controller
 
   init()
