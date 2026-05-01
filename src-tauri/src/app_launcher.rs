@@ -1,3 +1,4 @@
+use base64::Engine as _;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -379,7 +380,25 @@ pub(crate) fn app_icon_data_url(exe_path: String) -> Result<String, String> {
     if !path.is_file() {
         return Err(format!("应用文件不存在: {}", path.display()));
     }
+    if let Some(svg) = app_svg_icon_data_url(&path)? {
+        return Ok(svg);
+    }
     app_icon_data_url_inner(&path)
+}
+
+fn app_svg_icon_data_url(exe_path: &Path) -> Result<Option<String>, String> {
+    let Some(app_dir) = exe_path.parent() else {
+        return Ok(None);
+    };
+    let icon_path = app_dir.join("assets").join("icon.svg");
+    if !icon_path.is_file() {
+        return Ok(None);
+    }
+
+    let svg = std::fs::read_to_string(&icon_path)
+        .map_err(|e| format!("读取应用 SVG 图标失败: {e}"))?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(svg.as_bytes());
+    Ok(Some(format!("data:image/svg+xml;base64,{b64}")))
 }
 
 #[cfg(target_os = "windows")]
