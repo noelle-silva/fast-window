@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { invoke } from '@tauri-apps/api/core'
 import {
   Box, Typography, IconButton, Button,
   Dialog, DialogTitle, DialogContent, DialogActions,
@@ -26,6 +27,15 @@ function generateId(name: string): string {
     .slice(0, 32) || 'untitled'
 }
 
+async function readAppIcon(path: string) {
+  try {
+    return await invoke<string>('app_icon_data_url', { exePath: path })
+  } catch (error) {
+    console.warn('[app] failed to read app icon:', error)
+    return ''
+  }
+}
+
 export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, onClose, embedded }: AppRegistrationPanelProps) {
   const [editOpen, setEditOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -43,20 +53,21 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
     setEditOpen(true)
   }
 
-  const save = () => {
+  const save = async () => {
     const n = name.trim()
     const p = path.trim()
     if (!n || !p) return
 
     const id = editingId ?? generateId(n)
+    const icon = await readAppIcon(p)
 
     if (editingId) {
-      onUpdate(editingId, { name: n, path: p, hotkey: hotkey.trim() || undefined, displayMode })
+      onUpdate(editingId, { name: n, path: p, icon, hotkey: hotkey.trim() || undefined, displayMode })
     } else {
       onAdd({
         id,
         name: n,
-        icon: '',
+        icon,
         path: p,
         hotkey: hotkey.trim() || undefined,
         displayMode,
@@ -130,7 +141,7 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setEditOpen(false)}>取消</Button>
-          <Button onClick={save} variant="contained" sx={{ boxShadow: 'none' }}>保存</Button>
+          <Button onClick={() => void save()} variant="contained" sx={{ boxShadow: 'none' }}>保存</Button>
         </DialogActions>
       </Dialog>
     </>

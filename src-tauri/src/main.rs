@@ -2599,6 +2599,7 @@ fn main() {
         app_launcher::app_stop,
         app_launcher::app_status,
         app_launcher::app_status_many,
+        app_launcher::app_icon_data_url,
         open_external_url,
         open_external_uri,
         open_browser_window,

@@ -262,7 +262,7 @@ function App() {
       id: `app:${app.id}`,
       name: app.name,
       description: app.path,
-      icon: '🚀',
+      icon: app.icon || app.name[0] || 'A',
       keyword: app.id,
       disabled: false,
       component: (() => { const D: any = () => null; return D })(),

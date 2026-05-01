@@ -2,7 +2,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
@@ -371,6 +371,25 @@ pub(crate) fn app_status_many(
         out.insert(id, status);
     }
     Ok(out)
+}
+
+#[tauri::command]
+pub(crate) fn app_icon_data_url(exe_path: String) -> Result<String, String> {
+    let path = PathBuf::from(exe_path.trim());
+    if !path.is_file() {
+        return Err(format!("应用文件不存在: {}", path.display()));
+    }
+    app_icon_data_url_inner(&path)
+}
+
+#[cfg(target_os = "windows")]
+fn app_icon_data_url_inner(path: &Path) -> Result<String, String> {
+    crate::thumbnails::file_thumbnail_png_data_url(path, 64, 64)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn app_icon_data_url_inner(_path: &Path) -> Result<String, String> {
+    Err("当前系统不支持读取应用图标".to_string())
 }
 
 fn app_status_inner(
