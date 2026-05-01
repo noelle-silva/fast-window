@@ -10,11 +10,12 @@ import AppCardView from './AppCardView'
 
 interface AppBackgroundPanelProps {
   apps: RegisteredApp[]
-  onClose: () => void
+  onClose?: () => void
   onUpdateApp: (id: string, patch: Partial<RegisteredApp>) => void
+  embedded?: boolean
 }
 
-export default function AppBackgroundPanel({ apps, onClose, onUpdateApp }: AppBackgroundPanelProps) {
+export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedded }: AppBackgroundPanelProps) {
   const [statuses, setStatuses] = useState<Record<string, AppStatus>>({})
   const [loading, setLoading] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -59,16 +60,28 @@ export default function AppBackgroundPanel({ apps, onClose, onUpdateApp }: AppBa
     setBusyId(null)
   }
 
-  return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle sx={{ pr: 6, display: 'flex', alignItems: 'center', gap: 1 }}>
-        后台管理
-        {loading ? <CircularProgress size={14} /> : null}
-        <IconButton aria-label="关闭" onClick={onClose} sx={{ position: 'absolute', right: 8, top: 8 }} size="small">
-          <CloseRoundedIcon fontSize="small" />
-        </IconButton>
-      </DialogTitle>
-      <DialogContent>
+  const content = (
+    <>
+      {embedded ? (
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1, mb: 1.25 }}>
+          <Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                应用后台
+              </Typography>
+              {loading ? <CircularProgress size={14} /> : null}
+            </Box>
+            <Typography variant="caption" color="text.secondary">
+              查看 v5 独立应用运行状态，启动、唤醒、停止或设置 FW 启动时自启。
+            </Typography>
+          </Box>
+          <Button size="small" variant="outlined" onClick={refresh} disabled={loading || apps.length === 0} sx={{ flexShrink: 0 }}>
+            刷新
+          </Button>
+        </Box>
+      ) : null}
+
+      <Box>
         {apps.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
             暂无注册应用
@@ -114,7 +127,24 @@ export default function AppBackgroundPanel({ apps, onClose, onUpdateApp }: AppBa
             )
           })
         )}
-      </DialogContent>
+      </Box>
+    </>
+  )
+
+  if (embedded) {
+    return <Box>{content}</Box>
+  }
+
+  return (
+    <Dialog open onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle sx={{ pr: 6, display: 'flex', alignItems: 'center', gap: 1 }}>
+        后台管理
+        {loading ? <CircularProgress size={14} /> : null}
+        <IconButton aria-label="关闭" onClick={onClose} sx={{ position: 'absolute', right: 8, top: 8 }} size="small">
+          <CloseRoundedIcon fontSize="small" />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent>{content}</DialogContent>
     </Dialog>
   )
 }

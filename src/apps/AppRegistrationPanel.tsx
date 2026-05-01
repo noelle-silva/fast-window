@@ -14,7 +14,8 @@ interface AppRegistrationPanelProps {
   onAdd: (app: RegisteredApp) => void
   onRemove: (id: string) => void
   onUpdate: (id: string, patch: Partial<RegisteredApp>) => void
-  onClose: () => void
+  onClose?: () => void
+  embedded?: boolean
 }
 
 function generateId(name: string): string {
@@ -25,7 +26,7 @@ function generateId(name: string): string {
     .slice(0, 32) || 'untitled'
 }
 
-export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, onClose }: AppRegistrationPanelProps) {
+export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, onClose, embedded }: AppRegistrationPanelProps) {
   const [editOpen, setEditOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [name, setName] = useState('')
@@ -66,15 +67,25 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
     setEditOpen(false)
   }
 
-  return (
-    <Dialog open onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle sx={{ pr: 6 }}>
-        注册管理
-        <IconButton aria-label="关闭" onClick={onClose} sx={{ position: 'absolute', right: 8, top: 8 }} size="small">
-          <CloseRoundedIcon fontSize="small" />
-        </IconButton>
-      </DialogTitle>
-      <DialogContent>
+  const content = (
+    <>
+      {embedded ? (
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 1, mb: 1.25 }}>
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 700 }}>
+              应用注册
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              管理可由 Fast Window 启动和唤醒的 v5 独立应用。
+            </Typography>
+          </Box>
+          <Button onClick={openAdd} variant="contained" size="small" sx={{ boxShadow: 'none', flexShrink: 0 }}>
+            添加应用
+          </Button>
+        </Box>
+      ) : null}
+
+      <Box>
         {apps.length === 0 ? (
           <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
             暂无注册应用
@@ -95,12 +106,7 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
             </Box>
           ))
         )}
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={openAdd} variant="contained" size="small" sx={{ boxShadow: 'none' }}>
-          添加应用
-        </Button>
-      </DialogActions>
+      </Box>
 
       <Dialog open={editOpen} onClose={() => setEditOpen(false)} fullWidth maxWidth="xs">
         <DialogTitle>{editingId ? '编辑应用' : '添加应用'}</DialogTitle>
@@ -127,6 +133,27 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
           <Button onClick={save} variant="contained" sx={{ boxShadow: 'none' }}>保存</Button>
         </DialogActions>
       </Dialog>
+    </>
+  )
+
+  if (embedded) {
+    return <Box>{content}</Box>
+  }
+
+  return (
+    <Dialog open onClose={onClose} fullWidth maxWidth="sm">
+      <DialogTitle sx={{ pr: 6 }}>
+        注册管理
+        <IconButton aria-label="关闭" onClick={onClose} sx={{ position: 'absolute', right: 8, top: 8 }} size="small">
+          <CloseRoundedIcon fontSize="small" />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent>{content}</DialogContent>
+      <DialogActions>
+        <Button onClick={openAdd} variant="contained" size="small" sx={{ boxShadow: 'none' }}>
+          添加应用
+        </Button>
+      </DialogActions>
     </Dialog>
   )
 }

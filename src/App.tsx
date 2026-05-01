@@ -19,11 +19,8 @@ import TitleBar from './TitleBar'
 import PluginListView from './PluginListView'
 import PluginDetailDialog from './PluginDetailDialog'
 import PluginContextMenu from './PluginContextMenu'
-import AppRegistrationPanel from './apps/AppRegistrationPanel'
-import AppBackgroundPanel from './apps/AppBackgroundPanel'
 import AppActivationView from './apps/AppActivationView'
 import { useRegisteredApps } from './apps/useRegisteredApps'
-import type { RegisteredApp } from './apps/types'
 import { launchApp } from './apps/appLauncher'
 import { usePlugins } from './usePlugins'
 import { useWallpaper, getWallpaperView } from './useWallpaper'
@@ -50,57 +47,6 @@ const storePlugin: Plugin = {
   keyword: 'store',
   disabled: false,
   component: PluginStoreView,
-}
-
-const appRegistrationPlugin: Plugin = {
-  id: '__app-registration',
-  name: '注册管理',
-  description: '管理已注册的本地应用',
-  icon: '📋',
-  keyword: 'registration',
-  disabled: false,
-  component: (() => { const D: any = () => null; return D })(),
-}
-
-const appBgPanelPlugin: Plugin = {
-  id: '__app-bg-panel',
-  name: '后台管理',
-  description: '查看和管理运行中的应用',
-  icon: '⚡',
-  keyword: 'background',
-  disabled: false,
-  component: (() => { const D: any = () => null; return D })(),
-}
-
-function SpecialPluginView({ pluginId, registeredApps, onBack, onAddApp, onRemoveApp, onUpdateApp }: {
-  pluginId: string
-  registeredApps: RegisteredApp[]
-  onBack: () => void
-  onAddApp: (app: RegisteredApp) => void
-  onRemoveApp: (id: string) => void
-  onUpdateApp: (id: string, patch: Partial<RegisteredApp>) => void
-}) {
-  if (pluginId === '__app-registration') {
-    return (
-      <AppRegistrationPanel
-        apps={registeredApps}
-        onAdd={onAddApp}
-        onRemove={onRemoveApp}
-        onUpdate={onUpdateApp}
-        onClose={onBack}
-      />
-    )
-  }
-  if (pluginId === '__app-bg-panel') {
-    return (
-      <AppBackgroundPanel
-        apps={registeredApps}
-        onClose={onBack}
-        onUpdateApp={onUpdateApp}
-      />
-    )
-  }
-  return null
 }
 
 function App() {
@@ -324,17 +270,15 @@ function App() {
     [registeredApps],
   )
 
-  const staticAppPlugins: Plugin[] = useMemo(() => [appRegistrationPlugin, appBgPanelPlugin], [])
-
   const displayItems: Plugin[] = useMemo(() => {
-    const all = [...staticAppPlugins, ...registeredAppPlugins, ...filtered]
+    const all = [...registeredAppPlugins, ...filtered]
     const q = query.trim().toLowerCase()
     if (!q) return all
     return all.filter(p =>
       p.name.toLowerCase().includes(q) ||
       p.keyword?.toLowerCase() === q,
     )
-  }, [staticAppPlugins, registeredAppPlugins, filtered, query])
+  }, [registeredAppPlugins, filtered, query])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
@@ -531,7 +475,6 @@ function App() {
 
   // Handle registered app activation
   const isRegisteredAppActive = activePluginId.startsWith('app:')
-  const isStaticAppPanel = activePluginId === '__app-registration' || activePluginId === '__app-bg-panel'
   const activeRegisteredApp = isRegisteredAppActive
     ? registeredApps.find(a => `app:${a.id}` === activePluginId) ?? null
     : null
@@ -628,19 +571,18 @@ function App() {
 
             {showPluginView && ActivePluginComponent && !activePluginKeepAlive && activePluginBackendReady ? (
               <Box sx={{ height: '100%', overflow: 'hidden' }}>
-                {isStaticAppPanel ? (
-                  <SpecialPluginView
-                    pluginId={activePluginId}
-                    registeredApps={registeredApps}
-                    onBack={onBackFromPlugin}
-                    onAddApp={addRegisteredApp}
-                    onRemoveApp={removeRegisteredApp}
-                    onUpdateApp={updateRegisteredApp}
-                  />
-                ) : isRegisteredAppActive && activeRegisteredApp ? (
+                {isRegisteredAppActive && activeRegisteredApp ? (
                   <AppActivationView
                     app={activeRegisteredApp}
                     onBack={onBackFromPlugin}
+                  />
+                ) : activePluginId === settingsPlugin.id ? (
+                  <SettingsView
+                    onBack={onBackFromPlugin}
+                    registeredApps={registeredApps}
+                    onAddRegisteredApp={addRegisteredApp}
+                    onRemoveRegisteredApp={removeRegisteredApp}
+                    onUpdateRegisteredApp={updateRegisteredApp}
                   />
                 ) : (
                   <ActivePluginComponent onBack={onBackFromPlugin} />

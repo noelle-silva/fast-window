@@ -38,6 +38,9 @@ import {
 import WallpaperViewEditorDialog from './WallpaperViewEditorDialog'
 import { hostToast } from '../host/hostPrimitives'
 import { getPluginAssetMime, isDataImageUrl, resolveLocalPluginIconPath } from '../plugins/pluginIcon'
+import AppRegistrationPanel from '../apps/AppRegistrationPanel'
+import AppBackgroundPanel from '../apps/AppBackgroundPanel'
+import type { RegisteredApp } from '../apps/types'
 
 const DEFAULT_WAKE_SHORTCUT = 'control+alt+Space'
 const MAX_VIDEO_RATE = 16
@@ -48,9 +51,11 @@ const TAB_GENERAL = 0
 const TAB_APPEARANCE = 1
 const TAB_DATA = 2
 const TAB_PLUGINS = 3
-const TAB_SHORTCUT = 4
-const TAB_WEBVIEW = 5
-const TAB_ABOUT = 6
+const TAB_APP_REGISTRATION = 4
+const TAB_APP_BACKGROUND = 5
+const TAB_SHORTCUT = 6
+const TAB_WEBVIEW = 7
+const TAB_ABOUT = 8
 
 function toast(message: string) {
   void hostToast(message)
@@ -213,8 +218,20 @@ function buildShortcutFromEvent(e: KeyboardEvent): string | null {
   return parts.join('+')
 }
 
-export default function SettingsView(props: { onBack: () => void }) {
-  const { onBack } = props
+export default function SettingsView(props: {
+  onBack: () => void
+  registeredApps?: RegisteredApp[]
+  onAddRegisteredApp?: (app: RegisteredApp) => void
+  onRemoveRegisteredApp?: (id: string) => void
+  onUpdateRegisteredApp?: (id: string, patch: Partial<RegisteredApp>) => void
+}) {
+  const {
+    onBack,
+    registeredApps = [],
+    onAddRegisteredApp = () => {},
+    onRemoveRegisteredApp = () => {},
+    onUpdateRegisteredApp = () => {},
+  } = props
   const [dataDir, setDataDir] = useState<string>('')
   const [pluginsDir, setPluginsDir] = useState<string>('')
   const [appVersion, setAppVersion] = useState<string>('')
@@ -799,9 +816,11 @@ export default function SettingsView(props: { onBack: () => void }) {
             <Tab value={TAB_APPEARANCE} label="外观" id="settings-tab-1" aria-controls="settings-tabpanel-1" />
             <Tab value={TAB_DATA} label="数据" id="settings-tab-2" aria-controls="settings-tabpanel-2" />
             <Tab value={TAB_PLUGINS} label="插件管理" id="settings-tab-3" aria-controls="settings-tabpanel-3" />
-            <Tab value={TAB_SHORTCUT} label="快捷键" id="settings-tab-4" aria-controls="settings-tabpanel-4" />
-            <Tab value={TAB_WEBVIEW} label="WebView" id="settings-tab-5" aria-controls="settings-tabpanel-5" />
-            <Tab value={TAB_ABOUT} label="关于" id="settings-tab-6" aria-controls="settings-tabpanel-6" />
+            <Tab value={TAB_APP_REGISTRATION} label="应用注册" id="settings-tab-4" aria-controls="settings-tabpanel-4" />
+            <Tab value={TAB_APP_BACKGROUND} label="应用后台" id="settings-tab-5" aria-controls="settings-tabpanel-5" />
+            <Tab value={TAB_SHORTCUT} label="快捷键" id="settings-tab-6" aria-controls="settings-tabpanel-6" />
+            <Tab value={TAB_WEBVIEW} label="WebView" id="settings-tab-7" aria-controls="settings-tabpanel-7" />
+            <Tab value={TAB_ABOUT} label="关于" id="settings-tab-8" aria-controls="settings-tabpanel-8" />
           </Tabs>
         </Box>
 
@@ -1296,7 +1315,33 @@ export default function SettingsView(props: { onBack: () => void }) {
         ) : null}
       </Box>
 
-      <Box role="tabpanel" hidden={tabIndex !== TAB_SHORTCUT} id="settings-tabpanel-4" aria-labelledby="settings-tab-4" sx={{ pt: 0.5 }}>
+      <Box role="tabpanel" hidden={tabIndex !== TAB_APP_REGISTRATION} id="settings-tabpanel-4" aria-labelledby="settings-tab-4" sx={{ pt: 0.5 }}>
+        {tabIndex === TAB_APP_REGISTRATION ? (
+          <Box sx={panelSx}>
+            <AppRegistrationPanel
+              embedded
+              apps={registeredApps}
+              onAdd={onAddRegisteredApp}
+              onRemove={onRemoveRegisteredApp}
+              onUpdate={onUpdateRegisteredApp}
+            />
+          </Box>
+        ) : null}
+      </Box>
+
+      <Box role="tabpanel" hidden={tabIndex !== TAB_APP_BACKGROUND} id="settings-tabpanel-5" aria-labelledby="settings-tab-5" sx={{ pt: 0.5 }}>
+        {tabIndex === TAB_APP_BACKGROUND ? (
+          <Box sx={panelSx}>
+            <AppBackgroundPanel
+              embedded
+              apps={registeredApps}
+              onUpdateApp={onUpdateRegisteredApp}
+            />
+          </Box>
+        ) : null}
+      </Box>
+
+      <Box role="tabpanel" hidden={tabIndex !== TAB_SHORTCUT} id="settings-tabpanel-6" aria-labelledby="settings-tab-6" sx={{ pt: 0.5 }}>
         {tabIndex === TAB_SHORTCUT ? (
           <Stack spacing={1.25}>
             <Box sx={panelSx}>
@@ -1429,7 +1474,7 @@ export default function SettingsView(props: { onBack: () => void }) {
         ) : null}
       </Box>
 
-      <Box role="tabpanel" hidden={tabIndex !== TAB_WEBVIEW} id="settings-tabpanel-5" aria-labelledby="settings-tab-5" sx={{ pt: 0.5 }}>
+      <Box role="tabpanel" hidden={tabIndex !== TAB_WEBVIEW} id="settings-tabpanel-7" aria-labelledby="settings-tab-7" sx={{ pt: 0.5 }}>
         {tabIndex === TAB_WEBVIEW ? (
           <Stack spacing={1.25}>
             <Box sx={panelSx}>
@@ -1606,7 +1651,7 @@ export default function SettingsView(props: { onBack: () => void }) {
         ) : null}
       </Box>
 
-      <Box role="tabpanel" hidden={tabIndex !== TAB_ABOUT} id="settings-tabpanel-6" aria-labelledby="settings-tab-6" sx={{ pt: 0.5 }}>
+      <Box role="tabpanel" hidden={tabIndex !== TAB_ABOUT} id="settings-tabpanel-8" aria-labelledby="settings-tab-8" sx={{ pt: 0.5 }}>
         {tabIndex === TAB_ABOUT ? (
           <Stack spacing={1.25}>
             <Box sx={panelSx}>
