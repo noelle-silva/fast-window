@@ -37,7 +37,7 @@ export default function AppActivationView({ app, status, onBack }: AppActivation
               应用正在运行
             </Typography>
             <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
-              <Button variant="outlined" size="small" onClick={() => launchApp(app, 'toggle')}>
+              <Button variant="outlined" size="small" onClick={() => launchApp(app, 'show')}>
                 唤醒窗口
               </Button>
               <Button variant="outlined" size="small" color="error" onClick={() => stopApp(app.id)}>

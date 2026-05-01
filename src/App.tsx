@@ -349,7 +349,7 @@ function App() {
       const p = displayItems[activeIndex]
       if (p.id.startsWith('app:')) {
         const app = registeredApps.find(a => `app:${a.id}` === p.id)
-        if (app) launchApp(app, 'toggle')
+        if (app) launchApp(app, 'show')
         return
       }
       setActivePlugin(p)
@@ -374,7 +374,7 @@ function App() {
     setActiveIndex(index)
     if (plugin.id.startsWith('app:')) {
       const app = registeredApps.find(a => `app:${a.id}` === plugin.id)
-      if (app) launchApp(app, 'toggle')
+      if (app) launchApp(app, 'show')
       return
     }
     setActivePlugin(plugin)

@@ -1,9 +1,12 @@
 use serde::Serialize;
 use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex as AsyncMutex;
 
@@ -17,6 +20,13 @@ struct AppProcessEntry {
     started_at_ms: u64,
     child: AsyncMutex<Option<Child>>,
     exit_code: Mutex<Option<i32>>,
+    control: Mutex<Option<AppControlEndpoint>>,
+}
+
+#[derive(Clone)]
+struct AppControlEndpoint {
+    url: String,
+    token: String,
 }
 
 impl Drop for AppLauncherState {
@@ -41,6 +51,108 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_else(|_| Duration::from_millis(0))
         .as_millis() as u64
+}
+
+fn launch_action(args: &[String]) -> String {
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--fw-action" && i + 1 < args.len() {
+            let action = args[i + 1].trim();
+            if matches!(action, "toggle" | "show" | "hide" | "close") {
+                return action.to_string();
+            }
+        }
+        i += 1;
+    }
+    "show".to_string()
+}
+
+fn action_for_running_instance(action: &str) -> &str {
+    match action {
+        "hide" => "hide",
+        "close" => "close",
+        "toggle" => "toggle",
+        _ => "show",
+    }
+}
+
+async fn wait_control_endpoint(entry: &Arc<AppProcessEntry>) -> Result<AppControlEndpoint, String> {
+    for _ in 0..60 {
+        if let Some(endpoint) = entry
+            .control
+            .lock()
+            .map_err(|_| "应用控制状态锁定失败".to_string())?
+            .clone()
+        {
+            return Ok(endpoint);
+        }
+
+        if entry.exit_code.lock().ok().and_then(|c| *c).is_some() {
+            return Err("应用已退出".to_string());
+        }
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+
+    Err("应用控制通道尚未就绪".to_string())
+}
+
+fn read_http_response(stream: &mut TcpStream) -> Result<String, String> {
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+    let mut buffer = Vec::new();
+    stream
+        .read_to_end(&mut buffer)
+        .map_err(|e| format!("读取应用控制响应失败: {e}"))?;
+    Ok(String::from_utf8_lossy(&buffer).to_string())
+}
+
+fn send_control_action(endpoint: AppControlEndpoint, action: String) -> Result<(), String> {
+    let url = endpoint.url.trim().trim_end_matches('/');
+    let Some(addr) = url.strip_prefix("http://") else {
+        return Err("应用控制地址不支持".to_string());
+    };
+    let body = serde_json::json!({ "action": action }).to_string();
+    let request = format!(
+        "POST /control HTTP/1.1\r\nHost: {addr}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nX-FW-Control-Token: {}\r\nConnection: close\r\n\r\n{}",
+        body.as_bytes().len(),
+        endpoint.token,
+        body,
+    );
+
+    let mut stream = TcpStream::connect(addr)
+        .map_err(|e| format!("连接应用控制通道失败: {e}"))?;
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|e| format!("发送应用控制指令失败: {e}"))?;
+    let response = read_http_response(&mut stream)?;
+    if response.starts_with("HTTP/1.1 200") {
+        Ok(())
+    } else {
+        Err(format!("应用控制指令失败: {response}"))
+    }
+}
+
+async fn send_control_action_async(entry: Arc<AppProcessEntry>, action: String) -> Result<(), String> {
+    let endpoint = wait_control_endpoint(&entry).await?;
+
+    tokio::task::spawn_blocking(move || send_control_action(endpoint, action))
+        .await
+        .map_err(|e| format!("应用控制任务失败: {e}"))?
+}
+
+fn control_from_stdout_line(line: &str) -> Option<AppControlEndpoint> {
+    let value = serde_json::from_str::<serde_json::Value>(line).ok()?;
+    if value.get("type").and_then(|v| v.as_str()) != Some("fw-app-control-ready") {
+        return None;
+    }
+    let control = value.get("control")?;
+    let url = control.get("url").and_then(|v| v.as_str())?.trim().to_string();
+    let token = control.get("token").and_then(|v| v.as_str())?.trim().to_string();
+    if url.is_empty() || token.is_empty() {
+        return None;
+    }
+    Some(AppControlEndpoint { url, token })
 }
 
 #[derive(Serialize)]
@@ -87,34 +199,51 @@ pub(crate) async fn app_launch(
         return Err(format!("应用文件不存在: {}", path.display()));
     }
 
-    // 检查是否已在运行：已存在且未退出则跳过，只做一次
-    if let Ok(g) = state.processes.lock() {
-        if let Some(entry) = g.get(&id).cloned() {
-            if entry.exit_code.lock().ok().and_then(|c| *c).is_none() {
-                // 进程还在运行，不做重复启动
-                return Ok(());
-            }
-        }
+    let running_entry = state
+        .processes
+        .lock()
+        .ok()
+        .and_then(|g| g.get(&id).cloned())
+        .filter(|entry| entry.exit_code.lock().ok().and_then(|c| *c).is_none());
+
+    if let Some(entry) = running_entry {
+        let action = action_for_running_instance(&launch_action(&args)).to_string();
+        return send_control_action_async(entry, action).await;
     }
 
     let mut cmd = Command::new(&path);
     cmd.args(&args);
     cmd.stdin(std::process::Stdio::null());
-    cmd.stdout(std::process::Stdio::null());
+    cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::null());
 
-    let child = cmd
+    let mut child = cmd
         .spawn()
         .map_err(|e| format!("启动应用失败: {e}"))?;
     let pid = child.id().unwrap_or(0);
     let started_at_ms = now_ms();
+    let stdout = child.stdout.take();
 
     let entry = Arc::new(AppProcessEntry {
         pid,
         started_at_ms,
         child: AsyncMutex::new(Some(child)),
         exit_code: Mutex::new(None),
+        control: Mutex::new(None),
     });
+
+    if let Some(stdout) = stdout {
+        let entry_stdout = entry.clone();
+        tauri::async_runtime::spawn(async move {
+            let mut lines = BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let Some(endpoint) = control_from_stdout_line(&line) else { continue };
+                if let Ok(mut g) = entry_stdout.control.lock() {
+                    *g = Some(endpoint);
+                }
+            }
+        });
+    }
 
     // spawn reaper
     let entry_reap = entry.clone();

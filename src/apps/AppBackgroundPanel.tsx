@@ -40,7 +40,7 @@ export default function AppBackgroundPanel({ apps, onClose, onUpdateApp }: AppBa
   const handleLaunch = async (app: RegisteredApp) => {
     setBusyId(app.id)
     try {
-      await launchApp(app, 'toggle')
+      await launchApp(app, 'show')
     } catch (e) {
       console.error('[app] launch failed:', e)
     }
