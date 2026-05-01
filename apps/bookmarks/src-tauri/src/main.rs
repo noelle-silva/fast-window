@@ -4,7 +4,7 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::{Emitter, Manager, Window};
+use tauri::{Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex as AsyncMutex;
@@ -21,6 +21,85 @@ struct BackendState {
     endpoint: Mutex<Option<BackendEndpoint>>,
 }
 
+struct FwArgs {
+    launched: bool,
+    action: String,
+    mode: String,
+    x: Option<i32>,
+    y: Option<i32>,
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+fn parse_fw_args() -> FwArgs {
+    let args: Vec<String> = std::env::args().collect();
+    let mut fw = FwArgs {
+        launched: false,
+        action: "toggle".into(),
+        mode: "default".into(),
+        x: None,
+        y: None,
+        width: None,
+        height: None,
+    };
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--fw-launched" => fw.launched = true,
+            "--fw-action" => {
+                if i + 1 < args.len() && matches!(args[i + 1].as_str(), "toggle" | "show" | "hide" | "close") {
+                    fw.action = args[i + 1].clone();
+                    i += 1;
+                }
+            }
+            "--fw-mode" => {
+                if i + 1 < args.len() && matches!(args[i + 1].as_str(), "default" | "window" | "top") {
+                    fw.mode = args[i + 1].clone();
+                    i += 1;
+                }
+            }
+            "--fw-x" if i + 1 < args.len() => {
+                if let Ok(v) = args[i + 1].parse::<i32>() { fw.x = Some(v); }
+                i += 1;
+            }
+            "--fw-y" if i + 1 < args.len() => {
+                if let Ok(v) = args[i + 1].parse::<i32>() { fw.y = Some(v); }
+                i += 1;
+            }
+            "--fw-width" if i + 1 < args.len() => {
+                if let Ok(v) = args[i + 1].parse::<u32>() { if v > 0 { fw.width = Some(v); } }
+                i += 1;
+            }
+            "--fw-height" if i + 1 < args.len() => {
+                if let Ok(v) = args[i + 1].parse::<u32>() { if v > 0 { fw.height = Some(v); } }
+                i += 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    fw
+}
+
+fn apply_fw_args(window: &WebviewWindow, args: &FwArgs) {
+    if args.launched {
+        let _ = window.set_skip_taskbar(true);
+    }
+    if args.mode == "top" {
+        let _ = window.set_always_on_top(true);
+    }
+    if let (Some(x), Some(y)) = (args.x, args.y) {
+        let _ = window.set_position(PhysicalPosition::new(x, y));
+    }
+    if let (Some(w), Some(h)) = (args.width, args.height) {
+        let _ = window.set_size(PhysicalSize::new(w, h));
+    }
+    match args.action.as_str() {
+        "hide" => { let _ = window.hide(); }
+        _ => {} // show/toggle: window is visible by default on first launch
+    }
+}
+
 fn now_ms() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -33,9 +112,7 @@ fn token() -> String {
 }
 
 fn app_data_dir(app: &tauri::AppHandle) -> PathBuf {
-    app.path()
-        .app_data_dir()
-        .unwrap_or_else(|_| std::env::current_dir().unwrap_or_default().join("data"))
+    resource_or_exe_dir(app).join("data")
 }
 
 fn resource_or_exe_dir(app: &tauri::AppHandle) -> PathBuf {
@@ -47,16 +124,7 @@ fn resource_or_exe_dir(app: &tauri::AppHandle) -> PathBuf {
 }
 
 fn resolve_backend_entry(app: &tauri::AppHandle) -> PathBuf {
-    let candidates: &[PathBuf] = &[
-        resource_or_exe_dir(app).join("backend").join("index.js"),
-        std::env::current_dir().unwrap_or_default().parent().unwrap_or(Path::new(".")).join("backend").join("index.js"),
-    ];
-    for p in candidates {
-        if p.is_file() {
-            return p.clone()
-        }
-    }
-    candidates[0].clone()
+    resource_or_exe_dir(app).join("backend").join("index.js")
 }
 
 #[tauri::command]
@@ -70,18 +138,6 @@ async fn backend_endpoint(state: tauri::State<'_, Arc<BackendState>>) -> Result<
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     Err("后台未就绪".to_string())
-}
-
-#[tauri::command]
-async fn app_hide(window: Window) -> Result<(), String> {
-    window.hide().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn app_toast(window: Window, message: String) -> Result<(), String> {
-    window
-        .emit("bookmarks-toast", message)
-        .map_err(|e| e.to_string())
 }
 
 async fn start_backend(app: tauri::AppHandle, state: Arc<BackendState>) -> Result<(), String> {
@@ -129,13 +185,18 @@ async fn start_backend(app: tauri::AppHandle, state: Arc<BackendState>) -> Resul
 }
 
 fn main() {
+    let fw_args = parse_fw_args();
+
     let backend_state = Arc::new(BackendState::default());
     let backend_state_setup = backend_state.clone();
 
     tauri::Builder::default()
         .manage(backend_state)
-        .invoke_handler(tauri::generate_handler![backend_endpoint, app_hide, app_toast])
+        .invoke_handler(tauri::generate_handler![backend_endpoint])
         .setup(move |app| {
+            let window = app.get_webview_window("main").expect("main window not found");
+            apply_fw_args(&window, &fw_args);
+
             let handle = app.handle().clone();
             let state = backend_state_setup.clone();
             tauri::async_runtime::spawn(async move {

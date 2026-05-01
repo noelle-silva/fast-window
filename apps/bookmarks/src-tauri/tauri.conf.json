@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.fastwindow.bookmarks",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "pnpm build:backend && pnpm build:resources && pnpm dev",
     "devUrl": "http://localhost:1430",
     "beforeBuildCommand": "pnpm build:ui",
     "frontendDist": "../dist"

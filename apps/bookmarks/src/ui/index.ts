@@ -1,21 +1,12 @@
 import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import { showToast } from '../fw-app-sdk/windowPolicy'
 import { createDirectBackgroundClient, type DirectBackgroundClient } from './directClient'
+
+// -- types & constants --------------------------------------------------------
 
 const DEFAULT_GROUP_ID = 'default'
 const ALL_GROUPS = '__all__'
-
-const Rpc = {
-  list: 'bookmarks.list',
-  inferIcon: 'bookmarks.inferIcon',
-  addBookmark: 'bookmarks.add',
-  updateBookmark: 'bookmarks.update',
-  deleteBookmark: 'bookmarks.delete',
-  openBookmark: 'bookmarks.open',
-  refreshIcon: 'bookmarks.refreshIcon',
-  addGroup: 'bookmarks.addGroup',
-  renameGroup: 'bookmarks.renameGroup',
-  deleteGroup: 'bookmarks.deleteGroup',
-}
 
 type BookmarkData = {
   schemaVersion: number
@@ -23,13 +14,23 @@ type BookmarkData = {
   items: Array<{ id: string; title: string; url: string; iconUrl?: string; groupId: string; createdAt: number; updatedAt: number; lastOpenedAt?: number | null }>
 }
 
+// -- state -------------------------------------------------------------------
+
 let bg: DirectBackgroundClient | null = null
 let data: BookmarkData = { schemaVersion: 1, groups: [], items: [] }
-let groupId = ALL_GROUPS
+let groupFilter = ALL_GROUPS
 let search = ''
+let modal: 'add' | 'edit' | 'groups' | null = null
+let editId = ''
+let addTitle = '', addUrl = '', addGroupId = DEFAULT_GROUP_ID, addIconUrl = ''
+let ctxMenu: { open: boolean; id: string; x: number; y: number } = { open: false, id: '', x: 0, y: 0 }
+let groupNameEdits: Record<string, string> = {}
+let newGroupName = ''
+
+// -- api helpers --------------------------------------------------------------
 
 async function initBackground() {
-  const endpoint = await invoke('backend_endpoint')
+  const endpoint: { url: string; token: string } = await invoke('backend_endpoint')
   bg = await createDirectBackgroundClient(endpoint)
 }
 
@@ -38,148 +39,334 @@ async function call<T>(method: string, params?: unknown): Promise<T> {
   return bg.invoke<T>(method, params)
 }
 
-async function toast(message: string) {
-  await invoke('app_toast', { message }).catch(() => {})
-}
+// -- utilities ----------------------------------------------------------------
 
-function escapeHtml(value: unknown) {
-  return String(value ?? '')
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#039;')
+function esc(v: unknown) {
+  return String(v ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;')
 }
 
 function filteredItems() {
   const q = search.trim().toLowerCase()
   return data.items.filter(item => {
-    if (groupId !== ALL_GROUPS && item.groupId !== groupId) return false
+    if (groupFilter !== ALL_GROUPS && item.groupId !== groupFilter) return false
     if (!q) return true
     return item.title.toLowerCase().includes(q) || item.url.toLowerCase().includes(q)
   })
 }
+
+function closeCtx() { ctxMenu.open = false }
+
+function startTopbarDragging(event: PointerEvent) {
+  if (event.button !== 0) return
+
+  const target = event.target
+  if (target instanceof Element && target.closest('button, a, input, textarea, select, [role="button"]')) return
+
+  event.preventDefault()
+  void getCurrentWindow().startDragging().catch(error => {
+    showToast(String(error?.message || error || '无法拖拽窗口'))
+  })
+}
+
+// -- render -------------------------------------------------------------------
 
 function render() {
   const root = document.getElementById('app') || document.body
   const groups = data.groups.slice().sort((a, b) => a.createdAt - b.createdAt)
   const items = filteredItems()
 
+  const css = `
+    *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#FAFAFA;color:#212121}
+    .wrap{height:100vh;display:flex;flex-direction:column}
+    .topbar{height:44px;background:#fff;border-bottom:1px solid #E0E0E0;display:flex;align-items:center;gap:8px;padding:0 10px;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+    .title{font-weight:800;font-size:13px;margin-right:auto}
+    .btn{border:1px solid #E0E0E0;background:#fff;color:#212121;height:30px;padding:0 10px;border-radius:8px;cursor:pointer;font-size:12px}
+    .btn.primary{border-color:transparent;background:#1976D2;color:#fff}
+    .btn.danger{border-color:transparent;background:#D32F2F;color:#fff}
+    .btn[disabled]{opacity:.55;cursor:not-allowed}
+    .filters{display:flex;gap:10px;padding:10px}
+    .field{display:flex;flex-direction:column;gap:6px;min-width:120px}
+    .field.grow{flex:1;min-width:0}
+    .label{font-size:11px;color:#757575}
+    select,input{height:34px;border:1px solid #E0E0E0;border-radius:10px;padding:0 10px;font-size:13px;outline:none;background:#fff;color:#212121}
+    .content{flex:1;overflow:auto;padding:10px}
+    .list{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:12px;align-content:start}
+    .tile{background:#fff;border:1px solid #E0E0E0;border-radius:12px;padding:12px 10px;box-shadow:0 1px 3px rgba(0,0,0,.12);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:8px;user-select:none}
+    .tileName{font-weight:800;font-size:12px;width:100%;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .siteIcon{width:52px;height:52px;border-radius:999px;border:1px solid #E0E0E0;background:#fff;overflow:hidden;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+    .siteIcon img{width:100%;height:100%;display:block}
+    .siteIcon.small{width:24px;height:24px;border-radius:6px}
+    .empty{color:#757575;text-align:center;padding:28px 0;font-size:13px}
+    .overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;padding:16px;z-index:40}
+    .overlay.open{display:flex}
+    .card{width:min(560px,100%);background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    .cardHead{display:flex;align-items:center;gap:8px;padding:10px;border-bottom:1px solid #E0E0E0}
+    .cardTitle{font-size:13px;font-weight:800;margin-right:auto}
+    .cardBody{padding:10px;display:flex;flex-direction:column;gap:10px}
+    .row{display:flex;gap:10px;align-items:center}
+    .row .grow{flex:1;min-width:0}
+    .help{font-size:12px;color:#757575}
+    .groupRow{display:flex;gap:8px;align-items:center;padding:8px;border:1px solid #E0E0E0;border-radius:12px;background:#fff}
+    .groupRow input{flex:1}
+    .spacer{margin-left:auto}
+    .ctxBackdrop{position:fixed;inset:0;background:transparent;z-index:50;display:none}
+    .ctxBackdrop.open{display:block}
+    .ctxMenu{position:fixed;z-index:60;min-width:160px;background:#fff;border:1px solid #E0E0E0;border-radius:12px;box-shadow:0 12px 30px rgba(0,0,0,.22);padding:6px;display:none}
+    .ctxMenu.open{display:block}
+    .ctxItem{width:100%;height:34px;padding:0 10px;border:0;background:transparent;border-radius:10px;cursor:pointer;text-align:left;color:#212121;font-size:12px;display:flex;align-items:center;gap:8px}
+    .ctxItem:hover{background:rgba(0,0,0,.06)}
+    .ctxItem.danger{color:#D32F2F}
+    .ctxSep{height:1px;background:#E0E0E0;margin:6px 4px}
+  `
+
   root.innerHTML = `
-    <style>
-      * { box-sizing: border-box; }
-      body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:#FAFAFA; color:#212121; }
-      .wrap { height:100vh; display:flex; flex-direction:column; }
-      .topbar { height:44px; background:white; border-bottom:1px solid #e0e0e0; display:flex; align-items:center; gap:8px; padding:0 10px; box-shadow:0 1px 3px rgba(0,0,0,.12); }
-      .title { font-weight:800; font-size:13px; margin-right:auto; }
-      .btn { border:1px solid #e0e0e0; background:white; color:#212121; height:30px; padding:0 10px; border-radius:8px; cursor:pointer; font-size:12px; }
-      .btn.primary { border-color:transparent; background:#1976d2; color:white; }
-      .btn.danger { border-color:transparent; background:#d32f2f; color:white; }
-      .filters { display:flex; gap:10px; padding:10px; }
-      .field { display:flex; flex-direction:column; gap:6px; min-width:120px; }
-      .field.grow { flex:1; min-width:0; }
-      .label { font-size:11px; color:#757575; }
-      select,input { height:34px; border:1px solid #e0e0e0; border-radius:10px; padding:0 10px; font-size:13px; outline:none; background:white; color:#212121; }
-      .content { flex:1; overflow:auto; padding:10px; }
-      .list { display:grid; grid-template-columns:repeat(auto-fill,minmax(96px,1fr)); gap:12px; align-content:start; }
-      .tile { background:white; border:1px solid #e0e0e0; border-radius:12px; padding:12px 10px; box-shadow:0 1px 3px rgba(0,0,0,.12); cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:8px; }
-      .tileName { font-weight:800; font-size:12px; width:100%; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-      .siteIcon { width:52px; height:52px; border-radius:999px; border:1px solid #e0e0e0; background:white; overflow:hidden; display:flex; align-items:center; justify-content:center; }
-      .siteIcon img { width:100%; height:100%; display:block; }
-      .empty { color:#757575; text-align:center; padding:28px 0; font-size:13px; }
-      .modal { position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; padding:16px; }
-      .modal.open { display:flex; }
-      .card { width:min(560px,100%); background:white; border-radius:14px; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,.25); }
-      .cardHead { display:flex; align-items:center; gap:8px; padding:10px; border-bottom:1px solid #e0e0e0; }
-      .cardTitle { font-size:13px; font-weight:800; margin-right:auto; }
-      .cardBody { padding:10px; display:flex; flex-direction:column; gap:10px; }
-      .row { display:flex; gap:10px; align-items:center; }
-      .row .grow { flex:1; min-width:0; }
-    </style>
+    <style>${css}</style>
     <div class="wrap">
-      <div class="topbar" data-drag-region>
-        <button class="btn" data-act="back" aria-label="返回">←</button>
+      <div class="topbar">
+        <button class="btn" data-act="back">←</button>
         <div class="title">网站收藏</div>
         <button class="btn" data-act="groups">分组</button>
         <button class="btn primary" data-act="add">新增</button>
       </div>
       <div class="filters">
-        <label class="field"><span class="label">分组</span><select data-act="group">${['<option value="__all__">全部</option>'].concat(groups.map(g => `<option value="${escapeHtml(g.id)}" ${g.id === groupId ? 'selected' : ''}>${escapeHtml(g.name)}</option>`)).join('')}</select></label>
-        <label class="field grow"><span class="label">搜索</span><input data-act="search" value="${escapeHtml(search)}" placeholder="按标题 / URL 搜索" /></label>
+        <label class="field"><span class="label">分组</span><select data-act="group">${['<option value="__all__">全部</option>'].concat(groups.map(g => `<option value="${esc(g.id)}" ${g.id === groupFilter ? 'selected' : ''}>${esc(g.name)}</option>`)).join('')}</select></label>
+        <label class="field grow"><span class="label">搜索</span><input data-act="search" value="${esc(search)}" placeholder="按标题 / URL 搜索" /></label>
       </div>
       <div class="content">
-        ${items.length ? `<div class="list">${items.map(item => `<div class="tile" data-act="open" data-id="${escapeHtml(item.id)}" title="${escapeHtml(item.url)}"><div class="siteIcon">${item.iconUrl ? `<img src="${escapeHtml(item.iconUrl)}" referrerpolicy="no-referrer" />` : '🌐'}</div><div class="tileName">${escapeHtml(item.title || item.url)}</div><button class="btn" data-act="edit" data-id="${escapeHtml(item.id)}">编辑</button><button class="btn danger" data-act="delete" data-id="${escapeHtml(item.id)}">删除</button></div>`).join('')}</div>` : `<div class="empty">${search ? '未找到匹配的收藏' : '暂无收藏'}</div>`}
+        ${items.length ? `<div class="list">${items.map(item => {
+          const iconHtml = item.iconUrl ? `<img src="${esc(item.iconUrl)}" referrerpolicy="no-referrer" />` : '<span class="fallback">🌐</span>'
+          return `<div class="tile" data-role="tile" data-id="${esc(item.id)}" title="${esc(item.url)}"><div class="siteIcon">${iconHtml}</div><div class="tileName">${esc(item.title || item.url)}</div></div>`
+        }).join('')}</div>` : `<div class="empty">${search ? '未找到匹配的收藏' : '暂无收藏'}</div>`}
       </div>
     </div>
-    <div class="modal" data-role="addModal"><div class="card"><div class="cardHead"><div class="cardTitle">新增收藏</div><button class="btn" data-act="closeModal">关闭</button></div><div class="cardBody"><input data-form="title" placeholder="标题（可选）" /><input data-form="url" placeholder="https://example.com" /><select data-form="group">${groups.map(g => `<option value="${escapeHtml(g.id)}">${escapeHtml(g.name)}</option>`).join('')}</select><div class="row"><button class="btn" data-act="closeModal">取消</button><button class="btn primary" data-act="saveAdd">保存</button></div></div></div></div>
+    ${renderAddEditModal(groups)}
+    ${renderGroupsModal(groups)}
+    ${renderCtxMenu()}
+  `
+
+  const topbar = root.querySelector('.topbar')
+  if (topbar) {
+    topbar.addEventListener('pointerdown', event => startTopbarDragging(event as PointerEvent))
+  }
+}
+
+function renderAddEditModal(groups: ReturnType<typeof data.groups.slice>) {
+  const isEdit = !!editId
+  const isOpen = modal === 'add' || modal === 'edit'
+  return `
+    <div class="overlay${isOpen ? ' open' : ''}" data-role="addModal">
+      <div class="card">
+        <div class="cardHead"><div class="cardTitle">${isEdit ? '编辑收藏' : '新增收藏'}</div><button class="btn" data-act="closeAdd">关闭</button></div>
+        <div class="cardBody">
+          <label class="field"><span class="label">标题（可选）</span><input data-act="addTitle" value="${esc(addTitle)}" placeholder="GitHub" /></label>
+          <label class="field"><span class="label">URL</span><input data-act="addUrl" value="${esc(addUrl)}" placeholder="https://example.com" /></label>
+          <div class="row">
+            <div class="siteIcon small"><img data-role="addIconImg" referrerpolicy="no-referrer" src="${esc(addIconUrl)}" style="display:${addIconUrl ? 'block' : 'none'}" /><span class="fallback" style="display:${addIconUrl ? 'none' : 'block'}">🌐</span></div>
+            <div class="help">后台推断 favicon</div>
+            <div class="spacer"></div>
+            <button class="btn" data-act="sniffAddIcon">推断图标</button>
+            <button class="btn" data-act="clearAddIcon">清除</button>
+          </div>
+          <label class="field"><span class="label">分组</span><select data-act="addGroup">${groups.map(g => `<option value="${esc(g.id)}" ${g.id === addGroupId ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select></label>
+          <div class="row"><div class="spacer"></div><button class="btn" data-act="closeAdd">取消</button><button class="btn primary" data-act="confirmAdd">${isEdit ? '保存' : '添加'}</button></div>
+        </div>
+      </div>
+    </div>
   `
 }
 
+function renderGroupsModal(groups: ReturnType<typeof data.groups.slice>) {
+  const isOpen = modal === 'groups'
+  return `
+    <div class="overlay${isOpen ? ' open' : ''}" data-role="groupsModal">
+      <div class="card">
+        <div class="cardHead"><div class="cardTitle">分组管理</div><button class="btn" data-act="closeGroups">关闭</button></div>
+        <div class="cardBody">
+          <div class="help">删除分组会把收藏移动到「默认」</div>
+          <div data-area="groupsList">${groups.map(g => {
+            const name = groupNameEdits[g.id] ?? g.name
+            const locked = g.id === DEFAULT_GROUP_ID
+            return `<div class="groupRow"><input data-act="groupName" data-id="${esc(g.id)}" value="${esc(name)}" /><button class="btn" data-act="saveGroup" data-id="${esc(g.id)}">保存</button>${locked ? '<button class="btn" disabled>锁定</button>' : `<button class="btn danger" data-act="delGroup" data-id="${esc(g.id)}">删除</button>`}</div>`
+          }).join('')}</div>
+          <div class="row grow"><input class="grow" data-act="newGroupName" value="${esc(newGroupName)}" placeholder="新分组名" /><button class="btn primary" data-act="addGroup">添加</button></div>
+        </div>
+      </div>
+    </div>
+  `
+}
+
+function renderCtxMenu() {
+  const open = ctxMenu.open
+  const style = open ? ` style="left:${ctxMenu.x}px;top:${ctxMenu.y}px"` : ''
+  return `<div class="ctxBackdrop${open ? ' open' : ''}" data-role="ctxBackdrop"></div><div class="ctxMenu${open ? ' open' : ''}" data-role="ctxMenu"${style}><button class="ctxItem" data-act="ctxOpen">↗ 打开</button><button class="ctxItem" data-act="ctxEdit">✎ 编辑</button><button class="ctxItem" data-act="ctxSniff">⟳ 刷新图标</button><div class="ctxSep"></div><button class="ctxItem danger" data-act="ctxDelete">删除</button></div>`
+}
+
+// -- reload ------------------------------------------------------------------
+
 async function reload() {
-  data = await call<BookmarkData>(Rpc.list, {})
+  data = await call<BookmarkData>('bookmarks.list', {})
   render()
 }
 
-function openAddModal() {
-  const modal = document.querySelector('[data-role="addModal"]')
-  modal?.classList.add('open')
+// -- modal helpers -----------------------------------------------------------
+
+function openModal(type: 'add' | 'edit' | 'groups') {
+  modal = type
+  if (type === 'add') {
+    editId = ''; addTitle = ''; addUrl = ''; addIconUrl = ''; addGroupId = groupFilter === ALL_GROUPS ? DEFAULT_GROUP_ID : groupFilter
+  }
+  if (type === 'groups') { newGroupName = ''; groupNameEdits = {} }
+  render()
+}
+
+function openEdit(id: string) {
+  const item = data.items.find(i => i.id === id)
+  if (!item) { showToast('条目不存在'); return }
+  modal = 'edit'
+  editId = id
+  addTitle = item.title || ''
+  addUrl = item.url || ''
+  addGroupId = data.groups.some(g => g.id === item.groupId) ? item.groupId : DEFAULT_GROUP_ID
+  addIconUrl = item.iconUrl || ''
+  closeCtx()
+  render()
 }
 
 function closeModal() {
-  document.querySelector('[data-role="addModal"]')?.classList.remove('open')
+  modal = null; editId = ''
+  render()
 }
+
+// -- events ------------------------------------------------------------------
 
 document.addEventListener('click', async event => {
   const el = event.target as HTMLElement | null
-  const act = el?.getAttribute('data-act')
-  if (!act) return
+  if (!el) return
+  const act = el.getAttribute('data-act')
 
-  if (act === 'back') return invoke('app_hide').catch(() => {})
-  if (act === 'add') return openAddModal()
-  if (act === 'closeModal') return closeModal()
-  if (act === 'open') {
-    const id = el?.getAttribute('data-id') || ''
-    await call(Rpc.openBookmark, { id })
-    await reload()
-    return
-  }
-  if (act === 'delete') {
-    const id = el?.getAttribute('data-id') || ''
-    if (!confirm('删除这条收藏？')) return
-    await call(Rpc.deleteBookmark, { id })
-    await reload()
-    return
-  }
-  if (act === 'saveAdd') {
-    const title = (document.querySelector('[data-form="title"]') as HTMLInputElement | null)?.value || ''
-    const url = (document.querySelector('[data-form="url"]') as HTMLInputElement | null)?.value || ''
-    const group = (document.querySelector('[data-form="group"]') as HTMLSelectElement | null)?.value || DEFAULT_GROUP_ID
+  // context-dismiss
+  if (ctxMenu.open && !el.closest('[data-role="ctxMenu"]')) { closeCtx(); render() }
+
+  if (act === 'back') return getCurrentWindow().hide()
+  if (act === 'add') return openModal('add')
+  if (act === 'groups') return openModal('groups')
+  if (act === 'closeAdd' || act === 'closeGroups') return closeModal()
+
+  if (act === 'confirmAdd') {
+    const title = (document.querySelector('[data-act="addTitle"]') as HTMLInputElement)?.value || ''
+    const url = (document.querySelector('[data-act="addUrl"]') as HTMLInputElement)?.value || ''
+    const group = (document.querySelector('[data-act="addGroup"]') as HTMLSelectElement)?.value || DEFAULT_GROUP_ID
     try {
-      data = await call<BookmarkData>(Rpc.addBookmark, { title, url, groupId: group })
+      if (editId) {
+        data = await call<BookmarkData>('bookmarks.update', { id: editId, title, url, groupId: group, iconUrl: addIconUrl })
+        showToast('已保存')
+      } else {
+        data = await call<BookmarkData>('bookmarks.add', { title, url, groupId: group, iconUrl: addIconUrl })
+        showToast('已添加')
+      }
       closeModal()
+    } catch (e: any) { showToast(String(e?.message || e || '操作失败')) }
+    return
+  }
+
+  if (act === 'sniffAddIcon') {
+    const url = (document.querySelector('[data-act="addUrl"]') as HTMLInputElement)?.value || ''
+    try {
+      const r = await call<{ iconUrl: string }>('bookmarks.inferIcon', { url })
+      addIconUrl = r?.iconUrl || ''
       render()
-      await toast('已添加')
-    } catch (e: any) {
-      await toast(String(e?.message || e || '添加失败'))
-    }
+    } catch (e: any) { showToast(String(e?.message || e || '推断失败')) }
+    return
+  }
+
+  if (act === 'clearAddIcon') { addIconUrl = ''; render(); return }
+
+  if (act === 'addGroup') {
+    const name = (document.querySelector('[data-act="newGroupName"]') as HTMLInputElement)?.value?.trim() || ''
+    if (!name) { showToast('请输入分组名'); return }
+    try { data = await call<BookmarkData>('bookmarks.addGroup', { name }); newGroupName = ''; render() }
+    catch (e: any) { showToast(String(e?.message || e || '添加失败')) }
+    return
+  }
+
+  if (act === 'saveGroup') {
+    const groupId = el.getAttribute('data-id') || ''
+    const name = (document.querySelector(`[data-act="groupName"][data-id="${groupId}"]`) as HTMLInputElement)?.value?.trim() || ''
+    try { data = await call<BookmarkData>('bookmarks.renameGroup', { groupId, name }); render() }
+    catch (e: any) { showToast(String(e?.message || e || '保存失败')) }
+    return
+  }
+
+  if (act === 'delGroup') {
+    const groupId = el.getAttribute('data-id') || ''
+    if (!confirm('删除此分组？收藏将移到「默认」分组')) return
+    try { data = await call<BookmarkData>('bookmarks.deleteGroup', { groupId }); render() }
+    catch (e: any) { showToast(String(e?.message || e || '删除失败')) }
+    return
+  }
+
+  // context menu actions
+  if (act === 'ctxOpen') {
+    const id = ctxMenu.id; closeCtx(); render()
+    if (id) { await call('bookmarks.open', { id }); await reload() }
+    return
+  }
+  if (act === 'ctxEdit') { const id = ctxMenu.id; if (id) openEdit(id); return }
+  if (act === 'ctxSniff') {
+    const id = ctxMenu.id; closeCtx(); render()
+    if (id) { data = await call<BookmarkData>('bookmarks.refreshIcon', { id }); render() }
+    return
+  }
+  if (act === 'ctxDelete') {
+    const id = ctxMenu.id; closeCtx(); render()
+    if (id && confirm('删除这条收藏？')) { data = await call<BookmarkData>('bookmarks.delete', { id }); render() }
+    return
+  }
+
+  // tile open
+  if (el.closest('[data-role="tile"]')) {
+    const tile = el.closest('[data-role="tile"]') as HTMLElement
+    const id = tile?.getAttribute('data-id') || ''
+    if (id) { await call('bookmarks.open', { id }); await reload() }
+  }
+})
+
+document.addEventListener('contextmenu', event => {
+  if (modal) return
+  const tile = (event.target as HTMLElement)?.closest?.('[data-role="tile"]') as HTMLElement | null
+  if (!tile) return
+  event.preventDefault()
+  ctxMenu.open = true
+  ctxMenu.id = tile.getAttribute('data-id') || ''
+  ctxMenu.x = event.clientX
+  ctxMenu.y = event.clientY
+  render()
+})
+
+document.addEventListener('input', event => {
+  const el = event.target as HTMLElement | null
+  if (!el) return
+  const act = el.getAttribute('data-act')
+  if (act === 'search') { search = (el as HTMLInputElement).value || ''; render() }
+  if (act === 'addTitle') { addTitle = (el as HTMLInputElement).value; return }
+  if (act === 'addUrl') { addUrl = (el as HTMLInputElement).value; return }
+  if (act === 'newGroupName') { newGroupName = (el as HTMLInputElement).value; return }
+  if (act === 'groupName') {
+    const id = el.getAttribute('data-id') || ''
+    groupNameEdits[id] = (el as HTMLInputElement).value
+    return
   }
 })
 
 document.addEventListener('change', event => {
   const el = event.target as HTMLElement | null
-  if (el?.getAttribute('data-act') === 'group') {
-    groupId = (el as HTMLSelectElement).value || ALL_GROUPS
-    render()
-  }
+  if (!el) return
+  const act = el.getAttribute('data-act')
+  if (act === 'group') { groupFilter = (el as HTMLSelectElement).value || ALL_GROUPS; render() }
+  if (act === 'addGroup') { addGroupId = (el as HTMLSelectElement).value; return }
 })
 
-document.addEventListener('input', event => {
-  const el = event.target as HTMLElement | null
-  if (el?.getAttribute('data-act') === 'search') {
-    search = (el as HTMLInputElement).value || ''
-    render()
-  }
-})
+// -- main --------------------------------------------------------------------
 
 async function main() {
   await initBackground()
