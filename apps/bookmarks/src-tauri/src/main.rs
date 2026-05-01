@@ -1,8 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::Serialize;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -11,6 +14,12 @@ use tokio::sync::Mutex as AsyncMutex;
 
 #[derive(Clone, Serialize)]
 struct BackendEndpoint {
+    url: String,
+    token: String,
+}
+
+#[derive(Clone, Serialize)]
+struct ControlEndpoint {
     url: String,
     token: String,
 }
@@ -96,8 +105,15 @@ fn apply_fw_args(window: &WebviewWindow, args: &FwArgs) {
     }
     match args.action.as_str() {
         "hide" => { let _ = window.hide(); }
-        _ => {} // show/toggle: window is visible by default on first launch
+        "close" => { let _ = window.close(); }
+        _ => { show_and_focus(window); }
     }
+}
+
+fn show_and_focus(window: &WebviewWindow) {
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
 }
 
 fn now_ms() -> u128 {
@@ -109,6 +125,195 @@ fn now_ms() -> u128 {
 
 fn token() -> String {
     format!("bm-{}-{}", now_ms(), std::process::id())
+}
+
+fn write_json_line(value: serde_json::Value) {
+    let mut out = std::io::stdout();
+    let _ = writeln!(out, "{}", value);
+    let _ = out.flush();
+}
+
+fn start_control_server(app: tauri::AppHandle) -> Result<ControlEndpoint, String> {
+    let listener = TcpListener::bind(("127.0.0.1", 0))
+        .map_err(|e| format!("启动控制通道失败: {e}"))?;
+    let port = listener
+        .local_addr()
+        .map_err(|e| format!("读取控制通道端口失败: {e}"))?
+        .port();
+
+    let endpoint = ControlEndpoint {
+        url: format!("http://127.0.0.1:{port}"),
+        token: token(),
+    };
+
+    write_json_line(serde_json::json!({
+        "type": "fw-app-control-ready",
+        "control": {
+            "mode": "http",
+            "url": endpoint.url,
+            "token": endpoint.token,
+            "protocolVersion": 1
+        }
+    }));
+
+    let expected_token = endpoint.token.clone();
+    thread::Builder::new()
+        .name("fw-app-control".to_string())
+        .spawn(move || {
+            for stream in listener.incoming() {
+                match stream {
+                    Ok(stream) => handle_control_connection(stream, &app, &expected_token),
+                    Err(error) => {
+                        eprintln!("[bookmarks-app] control connection failed: {error}");
+                        break;
+                    }
+                }
+            }
+        })
+        .map_err(|e| format!("启动控制通道线程失败: {e}"))?;
+
+    Ok(endpoint)
+}
+
+struct ControlRequest {
+    method: String,
+    path: String,
+    token: String,
+    body: Vec<u8>,
+}
+
+fn find_header_end(buffer: &[u8]) -> Option<usize> {
+    buffer.windows(4).position(|w| w == b"\r\n\r\n").map(|i| i + 4)
+}
+
+fn read_control_request(stream: &mut TcpStream) -> Result<ControlRequest, String> {
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+
+    let mut buffer = Vec::new();
+    let mut chunk = [0u8; 1024];
+    let header_end = loop {
+        let n = stream.read(&mut chunk).map_err(|e| format!("读取控制请求失败: {e}"))?;
+        if n == 0 {
+            return Err("控制请求为空".to_string());
+        }
+        buffer.extend_from_slice(&chunk[..n]);
+        if let Some(end) = find_header_end(&buffer) {
+            break end;
+        }
+        if buffer.len() > 64 * 1024 {
+            return Err("控制请求头过大".to_string());
+        }
+    };
+
+    let header = String::from_utf8_lossy(&buffer[..header_end]);
+    let mut lines = header.split("\r\n");
+    let request_line = lines.next().unwrap_or_default();
+    let mut request_parts = request_line.split_whitespace();
+    let method = request_parts.next().unwrap_or_default().to_string();
+    let path = request_parts.next().unwrap_or_default().to_string();
+
+    let mut content_length = 0usize;
+    let mut token = String::new();
+    for line in lines {
+        let Some((key, value)) = line.split_once(':') else { continue };
+        let key = key.trim();
+        let value = value.trim();
+        if key.eq_ignore_ascii_case("content-length") {
+            content_length = value.parse::<usize>().unwrap_or(0);
+        }
+        if key.eq_ignore_ascii_case("x-fw-control-token") {
+            token = value.to_string();
+        }
+    }
+
+    let mut body = buffer[header_end..].to_vec();
+    while body.len() < content_length {
+        let n = stream.read(&mut chunk).map_err(|e| format!("读取控制请求体失败: {e}"))?;
+        if n == 0 {
+            break;
+        }
+        body.extend_from_slice(&chunk[..n]);
+    }
+    body.truncate(content_length);
+
+    Ok(ControlRequest { method, path, token, body })
+}
+
+fn write_control_response(stream: &mut TcpStream, status: u16, body: serde_json::Value) {
+    let reason = match status {
+        200 => "OK",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        _ => "Internal Server Error",
+    };
+    let payload = body.to_string();
+    let head = format!(
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        payload.as_bytes().len(),
+    );
+    let _ = stream.write_all(head.as_bytes());
+    let _ = stream.write_all(payload.as_bytes());
+    let _ = stream.flush();
+}
+
+fn handle_control_connection(mut stream: TcpStream, app: &tauri::AppHandle, expected_token: &str) {
+    let request = match read_control_request(&mut stream) {
+        Ok(request) => request,
+        Err(error) => {
+            write_control_response(&mut stream, 400, serde_json::json!({ "ok": false, "error": error }));
+            return;
+        }
+    };
+
+    if request.path != "/control" {
+        write_control_response(&mut stream, 404, serde_json::json!({ "ok": false, "error": "控制入口不存在" }));
+        return;
+    }
+    if request.method != "POST" {
+        write_control_response(&mut stream, 405, serde_json::json!({ "ok": false, "error": "控制入口只接受 POST" }));
+        return;
+    }
+    if request.token != expected_token {
+        write_control_response(&mut stream, 401, serde_json::json!({ "ok": false, "error": "控制令牌无效" }));
+        return;
+    }
+
+    let value = serde_json::from_slice::<serde_json::Value>(&request.body).unwrap_or_else(|_| serde_json::json!({}));
+    let action = value
+        .get("action")
+        .and_then(|v| v.as_str())
+        .unwrap_or("show");
+
+    match apply_control_action(app, action) {
+        Ok(()) => write_control_response(&mut stream, 200, serde_json::json!({ "ok": true })),
+        Err(error) => write_control_response(&mut stream, 400, serde_json::json!({ "ok": false, "error": error })),
+    }
+}
+
+fn apply_control_action(app: &tauri::AppHandle, action: &str) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "主窗口不存在".to_string())?;
+
+    match action {
+        "show" => {
+            show_and_focus(&window);
+            Ok(())
+        }
+        "hide" => window.hide().map_err(|e| format!("隐藏窗口失败: {e}")),
+        "toggle" => {
+            if window.is_visible().unwrap_or(false) {
+                window.hide().map_err(|e| format!("隐藏窗口失败: {e}"))
+            } else {
+                show_and_focus(&window);
+                Ok(())
+            }
+        }
+        "close" => window.close().map_err(|e| format!("关闭窗口失败: {e}")),
+        _ => Err(format!("未知窗口指令: {action}")),
+    }
 }
 
 fn app_data_dir(app: &tauri::AppHandle) -> PathBuf {
@@ -196,6 +401,7 @@ fn main() {
         .setup(move |app| {
             let window = app.get_webview_window("main").expect("main window not found");
             apply_fw_args(&window, &fw_args);
+            start_control_server(app.handle().clone())?;
 
             let handle = app.handle().clone();
             let state = backend_state_setup.clone();
