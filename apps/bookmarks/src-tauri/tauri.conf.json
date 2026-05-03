@@ -32,7 +32,6 @@
       "binaries/bookmarks-backend"
     ],
     "resources": {
-      "../backend/": "backend",
       "../assets/": "assets"
     },
     "icon": [

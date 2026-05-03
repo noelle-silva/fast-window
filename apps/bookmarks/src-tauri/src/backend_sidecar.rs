@@ -1,6 +1,3 @@
-#[cfg(debug_assertions)]
-use std::path::{Path, PathBuf};
-#[cfg(not(debug_assertions))]
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -13,7 +10,7 @@ use tokio::sync::Mutex as AsyncMutex;
 
 use crate::data_dir;
 
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", not(debug_assertions)))]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 #[derive(Clone, Serialize)]
@@ -147,17 +144,7 @@ fn hide_backend_console(cmd: &mut Command) {
 }
 
 fn backend_command(app: &tauri::AppHandle) -> Result<Command, String> {
-    #[cfg(debug_assertions)]
-    {
-        let mut cmd = Command::new("node");
-        cmd.arg(resolve_backend_entry(app));
-        Ok(cmd)
-    }
-
-    #[cfg(not(debug_assertions))]
-    {
-        Ok(Command::new(resolve_backend_sidecar(app)?))
-    }
+    Ok(Command::new(resolve_backend_sidecar(app)?))
 }
 
 fn now_ms() -> u128 {
@@ -171,12 +158,6 @@ fn token() -> String {
     format!("bm-{}-{}", now_ms(), std::process::id())
 }
 
-#[cfg(debug_assertions)]
-fn resolve_backend_entry(app: &tauri::AppHandle) -> PathBuf {
-    resource_or_exe_dir(app).join("backend").join("index.cjs")
-}
-
-#[cfg(not(debug_assertions))]
 fn resolve_backend_sidecar(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let exe_name = if cfg!(target_os = "windows") {
         "bookmarks-backend.exe"
@@ -200,17 +181,4 @@ fn resolve_backend_sidecar(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     }
 
     Err(format!("后台 sidecar 不存在: {exe_name}"))
-}
-
-#[cfg(debug_assertions)]
-fn resource_or_exe_dir(app: &tauri::AppHandle) -> PathBuf {
-    app.path()
-        .resource_dir()
-        .ok()
-        .or_else(|| {
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(Path::to_path_buf))
-        })
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
 }

@@ -28,9 +28,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": [],
+    "externalBin": [
+      "binaries/bookmarks-backend"
+    ],
     "resources": {
-      "../backend/": "backend",
       "../assets/": "assets"
     },
     "icon": [
