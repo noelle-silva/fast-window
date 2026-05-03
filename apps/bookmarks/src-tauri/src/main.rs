@@ -2,10 +2,12 @@
 
 mod fw_window;
 mod control_server;
+mod data_dir;
 mod single_instance;
 mod standalone_tray;
 
 use control_server::{available_commands, start_control_server, ControlServerConfig};
+use data_dir::DataDirStatus;
 use fw_window::{
     app_ready, apply_fw_args, fw_initial_command, fw_launch_info, install_window_policy, parse_fw_args,
     report_available_commands, FwWindowState,
@@ -29,6 +31,7 @@ struct BackendEndpoint {
 struct BackendState {
     child: AsyncMutex<Option<Child>>,
     endpoint: Mutex<Option<BackendEndpoint>>,
+    last_error: Mutex<Option<String>>,
 }
 
 impl Drop for BackendState {
@@ -62,10 +65,6 @@ fn token() -> String {
     format!("bm-{}-{}", now_ms(), std::process::id())
 }
 
-fn app_data_dir(app: &tauri::AppHandle) -> PathBuf {
-    resource_or_exe_dir(app).join("data")
-}
-
 fn resource_or_exe_dir(app: &tauri::AppHandle) -> PathBuf {
     app.path()
         .resource_dir()
@@ -97,10 +96,45 @@ async fn backend_endpoint(
     Err("后台未就绪".to_string())
 }
 
+#[tauri::command]
+fn data_dir_status(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<BackendState>>,
+) -> Result<DataDirStatus, String> {
+    let runtime_error = state.last_error.lock().ok().and_then(|value| value.clone());
+    Ok(data_dir::data_dir_status(&app, runtime_error))
+}
+
+#[tauri::command]
+async fn pick_data_dir(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<BackendState>>,
+) -> Result<Option<DataDirStatus>, String> {
+    let Some(path) = rfd::FileDialog::new().set_title("选择网站收藏数据目录").pick_folder() else {
+        return Ok(None);
+    };
+    data_dir::save_data_dir(&app, &path)?;
+    state.stop_sync();
+    if let Ok(mut endpoint) = state.endpoint.lock() {
+        *endpoint = None;
+    }
+    if let Ok(mut error) = state.last_error.lock() {
+        *error = None;
+    }
+    let state_inner = state.inner().clone();
+    if let Err(error) = start_backend(app.clone(), state_inner).await {
+        if let Ok(mut last_error) = state.last_error.lock() {
+            *last_error = Some(error.clone());
+        }
+        return Err(error);
+    }
+    Ok(Some(data_dir::data_dir_status(&app, None)))
+}
+
 async fn start_backend(app: tauri::AppHandle, state: Arc<BackendState>) -> Result<(), String> {
     let session_token = token();
-    let data_dir = app_data_dir(&app);
-    let _ = std::fs::create_dir_all(&data_dir);
+    let data_dir = data_dir::resolve_data_dir(&app);
+    data_dir::ensure_writable_dir(&data_dir)?;
 
     let backend_js = resolve_backend_entry(&app);
 
@@ -159,6 +193,11 @@ fn main() {
         return;
     }
 
+    #[cfg(debug_assertions)]
+    let context = tauri::generate_context!("tauri.conf.dev.json");
+    #[cfg(not(debug_assertions))]
+    let context = tauri::generate_context!("tauri.conf.json");
+
     let backend_state = Arc::new(BackendState::default());
     let backend_state_setup = backend_state.clone();
     let window_state = Arc::new(FwWindowState::default());
@@ -167,7 +206,7 @@ fn main() {
     tauri::Builder::default()
         .manage(backend_state)
         .manage(window_state)
-        .invoke_handler(tauri::generate_handler![backend_endpoint, app_ready, fw_initial_command, fw_launch_info])
+        .invoke_handler(tauri::generate_handler![backend_endpoint, data_dir_status, pick_data_dir, app_ready, fw_initial_command, fw_launch_info])
         .setup(move |app| {
             let window = app
                 .get_webview_window("main")
@@ -201,11 +240,14 @@ fn main() {
             let state = backend_state_setup.clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = start_backend(handle, state).await {
+                    if let Ok(mut error) = backend_state_setup.last_error.lock() {
+                        *error = Some(e.clone());
+                    }
                     eprintln!("[bookmarks-app] {e}");
                 }
             });
             Ok(())
         })
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running bookmarks app");
 }

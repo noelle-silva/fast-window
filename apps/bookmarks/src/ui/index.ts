@@ -15,6 +15,14 @@ type BookmarkData = {
   items: Array<{ id: string; title: string; url: string; iconUrl?: string; groupId: string; createdAt: number; updatedAt: number; lastOpenedAt?: number | null }>
 }
 
+type DataDirStatus = {
+  dataDir: string
+  defaultDataDir: string
+  configuredDataDir?: string | null
+  writable: boolean
+  error?: string | null
+}
+
 // -- state -------------------------------------------------------------------
 
 let bg: DirectBackgroundClient | null = null
@@ -28,12 +36,23 @@ let ctxMenu: { open: boolean; id: string; x: number; y: number } = { open: false
 let groupNameEdits: Record<string, string> = {}
 let newGroupName = ''
 let standaloneLaunch = false
+let dataDirStatus: DataDirStatus | null = null
+let bootstrapError = ''
 
 // -- api helpers --------------------------------------------------------------
 
 async function initBackground() {
   const endpoint: { url: string; token: string } = await invoke('backend_endpoint')
   bg = await createDirectBackgroundClient(endpoint)
+}
+
+async function refreshDataDirStatus() {
+  dataDirStatus = await invoke<DataDirStatus>('data_dir_status').catch(error => ({
+    dataDir: '',
+    defaultDataDir: '',
+    writable: false,
+    error: String((error as any)?.message || error || '读取数据目录状态失败'),
+  }))
 }
 
 async function call<T>(method: string, params?: unknown): Promise<T> {
@@ -100,6 +119,11 @@ function render() {
     .row{display:flex;gap:10px;align-items:center}
     .row .grow{flex:1;min-width:0}
     .help{font-size:12px;color:#757575}
+    .statusPanel{margin:10px;padding:10px;border:1px solid #E0E0E0;border-radius:12px;background:#fff;display:flex;flex-direction:column;gap:8px;font-size:12px;color:#424242;-webkit-app-region:no-drag}
+    .statusPanel.error{border-color:#EF9A9A;background:#FFF5F5;color:#B71C1C}
+    .statusLine{display:flex;gap:8px;align-items:flex-start;word-break:break-all}
+    .statusLabel{font-weight:800;flex-shrink:0;color:#616161}
+    .statusActions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
     .groupRow{display:flex;gap:8px;align-items:center;padding:8px;border:1px solid #E0E0E0;border-radius:12px;background:#fff}
     .groupRow input{flex:1}
     .spacer{margin-left:auto}
@@ -127,6 +151,7 @@ function render() {
         <label class="field"><span class="label">分组</span><select data-act="group">${['<option value="__all__">全部</option>'].concat(groups.map(g => `<option value="${esc(g.id)}" ${g.id === groupFilter ? 'selected' : ''}>${esc(g.name)}</option>`)).join('')}</select></label>
         <label class="field grow"><span class="label">搜索</span><input data-act="search" value="${esc(search)}" placeholder="按标题 / URL 搜索" /></label>
       </div>
+      ${renderDataDirPanel()}
       <div class="content">
         ${items.length ? `<div class="list">${items.map(item => {
           const iconHtml = item.iconUrl ? `<img src="${esc(item.iconUrl)}" referrerpolicy="no-referrer" />` : '<span class="fallback">🌐</span>'
@@ -137,6 +162,24 @@ function render() {
     ${renderAddEditModal(groups)}
     ${renderGroupsModal(groups)}
     ${renderCtxMenu()}
+  `
+}
+
+function renderDataDirPanel() {
+  if (!dataDirStatus && !bootstrapError) return ''
+  const status = dataDirStatus
+  const hasError = !!bootstrapError || !!status?.error || status?.writable === false
+  const dataDir = status?.dataDir || '未就绪'
+  const error = status?.error || bootstrapError || ''
+  return `
+    <div class="statusPanel${hasError ? ' error' : ''}">
+      <div class="statusLine"><span class="statusLabel">数据目录</span><span>${esc(dataDir)}</span></div>
+      ${error ? `<div class="statusLine"><span class="statusLabel">问题</span><span>${esc(error)}</span></div>` : ''}
+      <div class="statusActions">
+        <button class="btn" data-act="pickDataDir">选择数据目录</button>
+        ${status?.configuredDataDir ? `<span class="help">已使用自定义目录</span>` : `<span class="help">默认使用 App 旁边的 data 文件夹</span>`}
+      </div>
+    </div>
   `
 }
 
@@ -270,6 +313,22 @@ document.addEventListener('click', async event => {
   if (act === 'winMinimize') return getCurrentWindow().minimize()
   if (act === 'winToggleMaximize') return getCurrentWindow().toggleMaximize()
   if (act === 'winClose') return getCurrentWindow().hide()
+  if (act === 'pickDataDir') {
+    try {
+      const picked = await invoke<DataDirStatus | null>('pick_data_dir')
+      if (!picked) return
+      dataDirStatus = picked
+      bootstrapError = ''
+      await initBackground()
+      await reload()
+      showToast('数据目录已更新')
+    } catch (e: any) {
+      bootstrapError = String(e?.message || e || '选择数据目录失败')
+      await refreshDataDirStatus()
+      render()
+    }
+    return
+  }
   if (act === 'add') return openModal('add')
   if (act === 'groups') return openModal('groups')
   if (act === 'closeAdd' || act === 'closeGroups') return closeModal()
@@ -393,8 +452,17 @@ document.addEventListener('change', event => {
 async function main() {
   const launchInfo = await invoke<{ standalone?: boolean }>('fw_launch_info').catch(() => ({ standalone: false }))
   standaloneLaunch = !!launchInfo?.standalone
-  await initBackground()
-  await reload()
+  await refreshDataDirStatus()
+  try {
+    await initBackground()
+    await reload()
+  } catch (error: any) {
+    bootstrapError = String(error?.message || error || '后台未就绪')
+    await refreshDataDirStatus()
+    render()
+    await invoke('app_ready')
+    return
+  }
   await listenRuntimeCommands()
   const command = await invoke<string | null>('fw_initial_command').catch(() => null)
   handleInitialCommand(command)
