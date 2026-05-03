@@ -30,6 +30,12 @@ struct AppControlEndpoint {
     token: String,
 }
 
+enum AppRuntimeMessage {
+    ControlReady(AppControlEndpoint),
+    WindowBounds(crate::app_registry::AppWindowBounds),
+    Ignore,
+}
+
 impl Drop for AppLauncherState {
     fn drop(&mut self) {
         let entries: Vec<Arc<AppProcessEntry>> = self
@@ -138,8 +144,7 @@ fn send_control_action(endpoint: AppControlEndpoint, action: String) -> Result<(
         body,
     );
 
-    let mut stream = TcpStream::connect(addr)
-        .map_err(|e| format!("连接应用控制通道失败: {e}"))?;
+    let mut stream = TcpStream::connect(addr).map_err(|e| format!("连接应用控制通道失败: {e}"))?;
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
     stream
         .write_all(request.as_bytes())
@@ -152,7 +157,10 @@ fn send_control_action(endpoint: AppControlEndpoint, action: String) -> Result<(
     }
 }
 
-async fn send_control_action_async(entry: Arc<AppProcessEntry>, action: String) -> Result<(), String> {
+async fn send_control_action_async(
+    entry: Arc<AppProcessEntry>,
+    action: String,
+) -> Result<(), String> {
     let endpoint = wait_control_endpoint(&entry).await?;
 
     tokio::task::spawn_blocking(move || send_control_action(endpoint, action))
@@ -160,14 +168,38 @@ async fn send_control_action_async(entry: Arc<AppProcessEntry>, action: String) 
         .map_err(|e| format!("应用控制任务失败: {e}"))?
 }
 
-fn control_from_stdout_line(line: &str) -> Option<AppControlEndpoint> {
-    let value = serde_json::from_str::<serde_json::Value>(line).ok()?;
+fn runtime_message_from_stdout_line(line: &str) -> AppRuntimeMessage {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+        return AppRuntimeMessage::Ignore;
+    };
+    match value.get("type").and_then(|v| v.as_str()) {
+        Some("fw-app-control-ready") => control_from_stdout_value(&value)
+            .map(AppRuntimeMessage::ControlReady)
+            .unwrap_or(AppRuntimeMessage::Ignore),
+        Some("fw-app-window-bounds") => value
+            .get("windowBounds")
+            .and_then(crate::app_registry::AppWindowBounds::from_value)
+            .map(AppRuntimeMessage::WindowBounds)
+            .unwrap_or(AppRuntimeMessage::Ignore),
+        _ => AppRuntimeMessage::Ignore,
+    }
+}
+
+fn control_from_stdout_value(value: &serde_json::Value) -> Option<AppControlEndpoint> {
     if value.get("type").and_then(|v| v.as_str()) != Some("fw-app-control-ready") {
         return None;
     }
     let control = value.get("control")?;
-    let url = control.get("url").and_then(|v| v.as_str())?.trim().to_string();
-    let token = control.get("token").and_then(|v| v.as_str())?.trim().to_string();
+    let url = control
+        .get("url")
+        .and_then(|v| v.as_str())?
+        .trim()
+        .to_string();
+    let token = control
+        .get("token")
+        .and_then(|v| v.as_str())?
+        .trim()
+        .to_string();
     if url.is_empty() || token.is_empty() {
         return None;
     }
@@ -199,7 +231,7 @@ impl AppStatusResult {
 
 #[tauri::command]
 pub(crate) async fn app_launch(
-    _app_handle: AppHandle,
+    app_handle: AppHandle,
     state: tauri::State<'_, Arc<AppLauncherState>>,
     app_id: String,
     exe_path: String,
@@ -239,9 +271,7 @@ pub(crate) async fn app_launch(
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::null());
 
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("启动应用失败: {e}"))?;
+    let mut child = cmd.spawn().map_err(|e| format!("启动应用失败: {e}"))?;
     let pid = child.id().unwrap_or(0);
     if should_allow_foreground(&launch_action(&args)) {
         allow_foreground_for_process(pid);
@@ -259,12 +289,27 @@ pub(crate) async fn app_launch(
 
     if let Some(stdout) = stdout {
         let entry_stdout = entry.clone();
+        let app_stdout = app_handle.clone();
+        let id_stdout = id.clone();
         tauri::async_runtime::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                let Some(endpoint) = control_from_stdout_line(&line) else { continue };
-                if let Ok(mut g) = entry_stdout.control.lock() {
-                    *g = Some(endpoint);
+                match runtime_message_from_stdout_line(&line) {
+                    AppRuntimeMessage::ControlReady(endpoint) => {
+                        if let Ok(mut g) = entry_stdout.control.lock() {
+                            *g = Some(endpoint);
+                        }
+                    }
+                    AppRuntimeMessage::WindowBounds(bounds) => {
+                        if let Err(error) = crate::app_registry::persist_app_window_bounds(
+                            &app_stdout,
+                            &id_stdout,
+                            bounds,
+                        ) {
+                            eprintln!("[app-launcher] failed to persist window bounds for {id_stdout}: {error}");
+                        }
+                    }
+                    AppRuntimeMessage::Ignore => {}
                 }
             }
         });
@@ -334,8 +379,7 @@ pub(crate) async fn app_stop(
     {
         let mut g = entry.child.lock().await;
         if let Some(ch) = g.as_mut() {
-            ch.start_kill()
-                .map_err(|e| format!("停止应用失败: {e}"))?;
+            ch.start_kill().map_err(|e| format!("停止应用失败: {e}"))?;
             let _ = g.take();
         }
     }
@@ -419,8 +463,8 @@ fn app_svg_icon_data_url(exe_path: &Path) -> Result<Option<String>, String> {
         return Ok(None);
     }
 
-    let svg = std::fs::read_to_string(&icon_path)
-        .map_err(|e| format!("读取应用 SVG 图标失败: {e}"))?;
+    let svg =
+        std::fs::read_to_string(&icon_path).map_err(|e| format!("读取应用 SVG 图标失败: {e}"))?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(svg.as_bytes());
     Ok(Some(format!("data:image/svg+xml;base64,{b64}")))
 }
@@ -435,10 +479,7 @@ fn app_icon_data_url_inner(_path: &Path) -> Result<String, String> {
     Err("当前系统不支持读取应用图标".to_string())
 }
 
-fn app_status_inner(
-    state: &Arc<AppLauncherState>,
-    id: &str,
-) -> Result<AppStatusResult, String> {
+fn app_status_inner(state: &Arc<AppLauncherState>, id: &str) -> Result<AppStatusResult, String> {
     let entry = state
         .processes
         .lock()

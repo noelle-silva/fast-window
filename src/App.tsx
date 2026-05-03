@@ -152,6 +152,21 @@ function App() {
     return () => window.removeEventListener('fast-window:plugins-changed', onChanged as any)
   }, [loadPlugins])
 
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null
+    const reloadRegisteredApps = () => { void loadRegisteredApps() }
+
+    window.addEventListener('fast-window:registered-apps-changed', reloadRegisteredApps)
+    void (async () => {
+      unlisten = await listen('fast-window:registered-apps-changed', reloadRegisteredApps)
+    })().catch(() => {})
+
+    return () => {
+      window.removeEventListener('fast-window:registered-apps-changed', reloadRegisteredApps)
+      if (unlisten) unlisten()
+    }
+  }, [loadRegisteredApps])
+
   // Disabled plugin check
   useEffect(() => {
     if (!activePlugin) return

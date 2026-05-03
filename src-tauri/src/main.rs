@@ -15,6 +15,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 mod app;
 mod app_launcher;
+mod app_registry;
 mod browser_stack;
 mod clipboard;
 mod clipboard_snapshot;
@@ -2600,6 +2601,11 @@ fn main() {
         app_launcher::app_status,
         app_launcher::app_status_many,
         app_launcher::app_icon_data_url,
+        app_registry::app_registry_load,
+        app_registry::app_registry_save,
+        app_registry::app_registry_add,
+        app_registry::app_registry_remove,
+        app_registry::app_registry_update,
         open_external_url,
         open_external_uri,
         open_browser_window,
