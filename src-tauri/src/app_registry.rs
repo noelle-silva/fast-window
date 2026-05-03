@@ -104,6 +104,7 @@ fn save_registry_and_refresh_shortcuts(app: &AppHandle, registry: Vec<Value>) ->
         validate_app_value(item)?;
     }
     validate_app_hotkeys(&registry)?;
+    validate_app_commands(&registry)?;
     crate::app_shortcuts::validate_registered_app_shortcuts_available(app, &registry)?;
 
     {
@@ -155,6 +156,41 @@ fn validate_app_hotkeys(apps: &[Value]) -> Result<(), String> {
             return Err(format!(
                 "快捷键重复: {normalized}（{existing_app_id} 和 {app_id}）"
             ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_app_commands(apps: &[Value]) -> Result<(), String> {
+    for item in apps {
+        let app_id = app_id_from_value(item).unwrap_or("");
+        let Some(commands) = item.get("commands").and_then(Value::as_array) else {
+            continue;
+        };
+
+        let mut seen: HashMap<String, ()> = HashMap::new();
+        for command in commands {
+            let command_id = command
+                .get("id")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| format!("{app_id} 的命令 ID 不能为空"))?;
+            if !crate::is_safe_id(command_id) {
+                return Err(format!("{app_id} 的命令 ID 不合法: {command_id}"));
+            }
+            let title = command
+                .get("title")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|title| !title.is_empty())
+                .ok_or_else(|| format!("{app_id} 的命令名称不能为空"))?;
+            if seen.insert(command_id.to_string(), ()).is_some() {
+                return Err(format!("{app_id} 的命令 ID 重复: {command_id}"));
+            }
+            if title.len() > 80 {
+                return Err(format!("{app_id} 的命令名称过长: {title}"));
+            }
         }
     }
     Ok(())

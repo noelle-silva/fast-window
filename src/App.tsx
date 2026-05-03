@@ -29,6 +29,42 @@ import type { Plugin } from './constants'
 import { APP_TITLE } from './constants'
 import { movePluginById } from './utils'
 
+const APP_PLUGIN_PREFIX = 'app:'
+const APP_COMMAND_PLUGIN_PREFIX = 'app-command:'
+
+type AppListSelection =
+  | { type: 'app'; appId: string }
+  | { type: 'appCommand'; appId: string; commandId: string }
+  | { type: 'plugin' }
+
+function registeredAppPluginId(appId: string) {
+  return `${APP_PLUGIN_PREFIX}${appId}`
+}
+
+function registeredAppCommandPluginId(appId: string, commandId: string) {
+  return `${APP_COMMAND_PLUGIN_PREFIX}${appId}:${commandId}`
+}
+
+function parseAppListSelection(pluginId: string): AppListSelection {
+  if (pluginId.startsWith(APP_COMMAND_PLUGIN_PREFIX)) {
+    const rest = pluginId.slice(APP_COMMAND_PLUGIN_PREFIX.length)
+    const separator = rest.indexOf(':')
+    if (separator > 0 && separator < rest.length - 1) {
+      return {
+        type: 'appCommand',
+        appId: rest.slice(0, separator),
+        commandId: rest.slice(separator + 1),
+      }
+    }
+  }
+
+  if (pluginId.startsWith(APP_PLUGIN_PREFIX)) {
+    return { type: 'app', appId: pluginId.slice(APP_PLUGIN_PREFIX.length) }
+  }
+
+  return { type: 'plugin' }
+}
+
 const settingsPlugin: Plugin = {
   id: '__settings',
   name: '设置',
@@ -272,28 +308,56 @@ function App() {
 
   // === Handlers ===
 
-  const registeredAppPlugins: Plugin[] = useMemo(() =>
-    registeredApps.map(app => ({
-      id: `app:${app.id}`,
-      name: app.name,
-      description: app.path,
-      icon: app.icon || app.name[0] || 'A',
-      keyword: app.id,
-      disabled: false,
-      component: (() => { const D: any = () => null; return D })(),
-    })),
-    [registeredApps],
-  )
+  const registeredAppPlugins: Plugin[] = useMemo(() => {
+    const NullView = (() => { const D: any = () => null; return D })()
+    return registeredApps.flatMap(app => {
+      const icon = app.icon || app.name[0] || 'A'
+      const appItem: Plugin = {
+        id: registeredAppPluginId(app.id),
+        name: app.name,
+        description: app.path,
+        icon,
+        keyword: app.id,
+        disabled: false,
+        component: NullView,
+      }
+      const commandItems = (app.commands || []).map(command => ({
+        id: registeredAppCommandPluginId(app.id, command.id),
+        name: command.title,
+        description: `${app.name} · 命令`,
+        icon,
+        keyword: `${app.id} ${command.id} ${command.title}`,
+        disabled: false,
+        component: NullView,
+      }))
+      return [appItem, ...commandItems]
+    })
+  }, [registeredApps])
 
   const displayItems: Plugin[] = useMemo(() => {
     const all = [...registeredAppPlugins, ...filtered]
     const q = query.trim().toLowerCase()
     if (!q) return all
-    return all.filter(p =>
-      p.name.toLowerCase().includes(q) ||
-      p.keyword?.toLowerCase() === q,
-    )
+    return all.filter(p => {
+      const keyword = p.keyword?.toLowerCase() || ''
+      return p.name.toLowerCase().includes(q) || keyword.includes(q)
+    })
   }, [registeredAppPlugins, filtered, query])
+
+  const activateListItem = useCallback((plugin: Plugin) => {
+    const selection = parseAppListSelection(plugin.id)
+    if (selection.type === 'appCommand') {
+      const app = registeredApps.find(app => app.id === selection.appId)
+      if (app) launchApp(app, 'show', selection.commandId)
+      return
+    }
+    if (selection.type === 'app') {
+      const app = registeredApps.find(app => app.id === selection.appId)
+      if (app) launchApp(app, 'show')
+      return
+    }
+    setActivePlugin(plugin)
+  }, [registeredApps])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
@@ -305,13 +369,7 @@ function App() {
     } else if (e.key === 'Enter' && displayItems[activeIndex]) {
       e.preventDefault()
       if (reorderMode) return
-      const p = displayItems[activeIndex]
-      if (p.id.startsWith('app:')) {
-        const app = registeredApps.find(a => `app:${a.id}` === p.id)
-        if (app) launchApp(app, 'show')
-        return
-      }
-      setActivePlugin(p)
+      activateListItem(displayItems[activeIndex])
     } else if (e.key === 'Escape') {
       if (activePlugin) {
         setActivePlugin(null)
@@ -319,7 +377,7 @@ function App() {
         getCurrentWindow().hide()
       }
     }
-  }, [displayItems, activeIndex, activePlugin, reorderMode, setActiveIndex, registeredApps])
+  }, [displayItems, activeIndex, activePlugin, reorderMode, setActiveIndex, activateListItem])
 
   const handlePluginSelect = useCallback((plugin: Plugin, index: number) => {
     if (reorderMode) {
@@ -331,13 +389,8 @@ function App() {
       return
     }
     setActiveIndex(index)
-    if (plugin.id.startsWith('app:')) {
-      const app = registeredApps.find(a => `app:${a.id}` === plugin.id)
-      if (app) launchApp(app, 'show')
-      return
-    }
-    setActivePlugin(plugin)
-  }, [reorderMode, setActiveIndex, registeredApps])
+    activateListItem(plugin)
+  }, [reorderMode, setActiveIndex, activateListItem])
 
   const handleContextMenu = useCallback((e: React.MouseEvent, plugin: Plugin) => {
     e.preventDefault()
@@ -489,9 +542,9 @@ function App() {
   } as const
 
   // Handle registered app activation
-  const isRegisteredAppActive = activePluginId.startsWith('app:')
+  const isRegisteredAppActive = activePluginId.startsWith(APP_PLUGIN_PREFIX)
   const activeRegisteredApp = isRegisteredAppActive
-    ? registeredApps.find(a => `app:${a.id}` === activePluginId) ?? null
+    ? registeredApps.find(a => registeredAppPluginId(a.id) === activePluginId) ?? null
     : null
 
   // Loading state

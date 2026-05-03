@@ -8,8 +8,10 @@ import {
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
-import type { AppDisplayMode, RegisteredApp, RegisteredAppUpdatePatch } from './types'
+import type { AppDisplayMode, RegisteredApp, RegisteredAppCommand, RegisteredAppUpdatePatch } from './types'
 import AppCardView from './AppCardView'
+import AppCommandEditor from './AppCommandEditor'
+import { generateSafeId } from './ids'
 import { hostToast } from '../host/hostPrimitives'
 import { buildShortcutFromEvent, pauseShortcutRecordingGuards, resumeShortcutRecordingGuards } from '../shortcuts'
 
@@ -20,14 +22,6 @@ interface AppRegistrationPanelProps {
   onUpdate: (id: string, patch: RegisteredAppUpdatePatch) => void | Promise<void>
   onClose?: () => void
   embedded?: boolean
-}
-
-function generateId(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 32) || 'untitled'
 }
 
 async function readAppIcon(path: string) {
@@ -47,6 +41,7 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
   const [hotkey, setHotkey] = useState('')
   const [hotkeyRecording, setHotkeyRecording] = useState(false)
   const [displayMode, setDisplayMode] = useState<AppDisplayMode>('default')
+  const [commands, setCommands] = useState<RegisteredAppCommand[]>([])
   const [saving, setSaving] = useState(false)
 
   const openAdd = () => {
@@ -56,6 +51,7 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
     setPath('')
     setHotkey('')
     setDisplayMode('default')
+    setCommands([])
     setEditOpen(true)
   }
 
@@ -66,8 +62,13 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
     setPath(app.path)
     setHotkey(app.hotkey ?? '')
     setDisplayMode(app.displayMode)
+    setCommands(Array.isArray(app.commands) ? app.commands : [])
     setEditOpen(true)
   }
+
+  const normalizedCommands = () => commands
+    .map(command => ({ ...command, title: command.title.trim() }))
+    .filter(command => command.id.trim() && command.title)
 
   const save = async () => {
     const n = name.trim()
@@ -76,12 +77,13 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
 
     setSaving(true)
     try {
-      const id = editingId ?? generateId(n)
+      const id = editingId ?? generateSafeId(n)
       const icon = await readAppIcon(p)
       const nextHotkey = hotkey.trim()
+      const nextCommands = normalizedCommands()
 
       if (editingId) {
-        await onUpdate(editingId, { name: n, path: p, icon, hotkey: nextHotkey || null, displayMode })
+        await onUpdate(editingId, { name: n, path: p, icon, hotkey: nextHotkey || null, displayMode, commands: nextCommands })
       } else {
         await onAdd({
           id,
@@ -90,7 +92,7 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
           path: p,
           hotkey: nextHotkey || undefined,
           displayMode,
-          commands: [],
+          commands: nextCommands,
           autoStart: false,
         })
       }
@@ -226,6 +228,7 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
               <ToggleButton value="top">置顶</ToggleButton>
             </ToggleButtonGroup>
           </Box>
+          <AppCommandEditor commands={commands} onChange={setCommands} />
         </DialogContent>
         <DialogActions>
           <Button disabled={saving} onClick={() => { setHotkeyRecording(false); setEditOpen(false) }}>取消</Button>
