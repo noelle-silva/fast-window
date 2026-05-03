@@ -81,7 +81,8 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
     setSaving(true)
     try {
       const id = editingId ?? generateSafeId(n)
-      const icon = await readAppIcon(p)
+      const existingApp = editingId ? apps.find(app => app.id === editingId) : null
+      const icon = await readAppIcon(p) || existingApp?.icon || ''
       const nextHotkey = hotkey.trim()
       const nextCommands = normalizedCommands()
 

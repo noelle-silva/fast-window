@@ -68,7 +68,7 @@ export default function AppCommandEditor({ commands, availableCommands = [], onC
           应用命令
         </Typography>
         <Typography variant="caption" color="text.secondary">
-          命令会出现在主搜索列表里。优先从 App 上报的可用命令中选择，必要时也可以手动添加。
+          命令会出现在主搜索列表里。命令 ID 会传给 App，优先从 App 上报的可用命令中选择。
         </Typography>
       </Box>
 
@@ -111,7 +111,6 @@ export default function AppCommandEditor({ commands, availableCommands = [], onC
                 onChange={event => updateCommandId(command.id, event.target.value)}
                 size="small"
                 sx={{ width: 150, flexShrink: 0 }}
-                helperText="传给 App"
               />
               <IconButton size="small" aria-label={`删除命令 ${command.title}`} onClick={() => removeCommand(command.id)}>
                 <DeleteRoundedIcon fontSize="small" />
