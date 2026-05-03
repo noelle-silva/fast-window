@@ -1,5 +1,4 @@
 import { invoke } from '@tauri-apps/api/core'
-import { getCurrentWindow } from '@tauri-apps/api/window'
 import { showToast } from '../fw-app-sdk/windowPolicy'
 import { createDirectBackgroundClient, type DirectBackgroundClient } from './directClient'
 
@@ -56,18 +55,6 @@ function filteredItems() {
 
 function closeCtx() { ctxMenu.open = false }
 
-function startTopbarDragging(event: PointerEvent) {
-  if (event.button !== 0) return
-
-  const target = event.target
-  if (target instanceof Element && target.closest('button, a, input, textarea, select, [role="button"]')) return
-
-  event.preventDefault()
-  void getCurrentWindow().startDragging().catch(error => {
-    showToast(String(error?.message || error || '无法拖拽窗口'))
-  })
-}
-
 // -- render -------------------------------------------------------------------
 
 function render() {
@@ -78,9 +65,9 @@ function render() {
   const css = `
     *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#FAFAFA;color:#212121}
     .wrap{height:100vh;display:flex;flex-direction:column}
-    .topbar{height:44px;background:#fff;border-bottom:1px solid #E0E0E0;display:flex;align-items:center;gap:8px;padding:0 10px;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+    .topbar{height:44px;background:#fff;border-bottom:1px solid #E0E0E0;display:flex;align-items:center;gap:8px;padding:0 10px;box-shadow:0 1px 3px rgba(0,0,0,.12);-webkit-app-region:drag;user-select:none}
     .title{font-weight:800;font-size:13px;margin-right:auto}
-    .btn{border:1px solid #E0E0E0;background:#fff;color:#212121;height:30px;padding:0 10px;border-radius:8px;cursor:pointer;font-size:12px}
+    .btn{border:1px solid #E0E0E0;background:#fff;color:#212121;height:30px;padding:0 10px;border-radius:8px;cursor:pointer;font-size:12px;-webkit-app-region:no-drag}
     .btn.primary{border-color:transparent;background:#1976D2;color:#fff}
     .btn.danger{border-color:transparent;background:#D32F2F;color:#fff}
     .btn[disabled]{opacity:.55;cursor:not-allowed}
@@ -122,7 +109,7 @@ function render() {
   root.innerHTML = `
     <style>${css}</style>
     <div class="wrap">
-      <div class="topbar">
+      <div class="topbar" data-tauri-drag-region="true">
         <button class="btn" data-act="back">←</button>
         <div class="title">网站收藏</div>
         <button class="btn" data-act="groups">分组</button>
@@ -143,11 +130,6 @@ function render() {
     ${renderGroupsModal(groups)}
     ${renderCtxMenu()}
   `
-
-  const topbar = root.querySelector('.topbar')
-  if (topbar) {
-    topbar.addEventListener('pointerdown', event => startTopbarDragging(event as PointerEvent))
-  }
 }
 
 function renderAddEditModal(groups: ReturnType<typeof data.groups.slice>) {
@@ -371,6 +353,7 @@ document.addEventListener('change', event => {
 async function main() {
   await initBackground()
   await reload()
+  await invoke('app_ready')
 }
 
 main().catch(error => {

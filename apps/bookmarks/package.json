@@ -6,6 +6,8 @@
   "scripts": {
     "build:backend": "node scripts/build-backend.mjs",
     "build:resources": "node scripts/build-resources.mjs",
+    "build:exe": "pnpm tauri build",
+    "build:exe:dev": "cargo build --manifest-path src-tauri/Cargo.toml",
     "build:ui": "pnpm build:backend && vite build && pnpm build:resources",
     "dev": "vite --host 127.0.0.1",
     "tauri": "tauri"
