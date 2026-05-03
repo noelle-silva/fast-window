@@ -15,10 +15,32 @@ interface AppBackgroundPanelProps {
   embedded?: boolean
 }
 
+function formatDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000))
+  if (totalSeconds < 60) return `${totalSeconds} 秒`
+
+  const totalMinutes = Math.floor(totalSeconds / 60)
+  if (totalMinutes < 60) return `${totalMinutes} 分钟`
+
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  if (hours < 24) return minutes ? `${hours} 小时 ${minutes} 分钟` : `${hours} 小时`
+
+  const days = Math.floor(hours / 24)
+  const restHours = hours % 24
+  return restHours ? `${days} 天 ${restHours} 小时` : `${days} 天`
+}
+
+function runningDurationText(status: AppStatus | undefined, now: number): string | null {
+  if (!status?.running || !status.startedAt) return null
+  return `已运行 ${formatDuration(now - status.startedAt)}`
+}
+
 export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedded }: AppBackgroundPanelProps) {
   const [statuses, setStatuses] = useState<Record<string, AppStatus>>({})
   const [loading, setLoading] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [now, setNow] = useState(() => Date.now())
 
   const refresh = async () => {
     if (apps.length === 0) return
@@ -37,6 +59,15 @@ export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedde
     refresh()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apps.length])
+
+  useEffect(() => {
+    const hasRunningApp = Object.values(statuses).some(status => status.running && status.startedAt)
+    if (!hasRunningApp) return
+
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000)
+    setNow(Date.now())
+    return () => window.clearInterval(timer)
+  }, [statuses])
 
   const handleLaunch = async (app: RegisteredApp) => {
     setBusyId(app.id)
@@ -89,9 +120,15 @@ export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedde
         ) : (
           apps.map(app => {
             const status = statuses[app.id]
+            const durationText = runningDurationText(status, now)
             return (
               <Box key={app.id} sx={{ mb: 2, p: 1.25, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
                 <AppCardView app={app} status={status} />
+                {durationText ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 1.25, mt: -0.5 }}>
+                    {durationText}
+                  </Typography>
+                ) : null}
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Button
