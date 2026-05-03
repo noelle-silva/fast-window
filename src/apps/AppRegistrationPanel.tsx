@@ -1,20 +1,23 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import {
   Box, Typography, IconButton, Button,
   Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, ToggleButtonGroup, ToggleButton,
+  Stack, TextField, ToggleButtonGroup, ToggleButton,
 } from '@mui/material'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
-import type { AppDisplayMode, RegisteredApp } from './types'
+import EditRoundedIcon from '@mui/icons-material/EditRounded'
+import type { AppDisplayMode, RegisteredApp, RegisteredAppUpdatePatch } from './types'
 import AppCardView from './AppCardView'
+import { hostToast } from '../host/hostPrimitives'
+import { buildShortcutFromEvent, pauseShortcutRecordingGuards, resumeShortcutRecordingGuards } from '../shortcuts'
 
 interface AppRegistrationPanelProps {
   apps: RegisteredApp[]
-  onAdd: (app: RegisteredApp) => void
-  onRemove: (id: string) => void
-  onUpdate: (id: string, patch: Partial<RegisteredApp>) => void
+  onAdd: (app: RegisteredApp) => void | Promise<void>
+  onRemove: (id: string) => void | Promise<void>
+  onUpdate: (id: string, patch: RegisteredAppUpdatePatch) => void | Promise<void>
   onClose?: () => void
   embedded?: boolean
 }
@@ -42,9 +45,12 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
   const [name, setName] = useState('')
   const [path, setPath] = useState('')
   const [hotkey, setHotkey] = useState('')
+  const [hotkeyRecording, setHotkeyRecording] = useState(false)
   const [displayMode, setDisplayMode] = useState<AppDisplayMode>('default')
+  const [saving, setSaving] = useState(false)
 
   const openAdd = () => {
+    setHotkeyRecording(false)
     setEditingId(null)
     setName('')
     setPath('')
@@ -53,29 +59,88 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
     setEditOpen(true)
   }
 
+  const openEdit = (app: RegisteredApp) => {
+    setHotkeyRecording(false)
+    setEditingId(app.id)
+    setName(app.name)
+    setPath(app.path)
+    setHotkey(app.hotkey ?? '')
+    setDisplayMode(app.displayMode)
+    setEditOpen(true)
+  }
+
   const save = async () => {
     const n = name.trim()
     const p = path.trim()
     if (!n || !p) return
 
-    const id = editingId ?? generateId(n)
-    const icon = await readAppIcon(p)
+    setSaving(true)
+    try {
+      const id = editingId ?? generateId(n)
+      const icon = await readAppIcon(p)
+      const nextHotkey = hotkey.trim()
 
-    if (editingId) {
-      onUpdate(editingId, { name: n, path: p, icon, hotkey: hotkey.trim() || undefined, displayMode })
-    } else {
-      onAdd({
-        id,
-        name: n,
-        icon,
-        path: p,
-        hotkey: hotkey.trim() || undefined,
-        displayMode,
-        commands: [],
-        autoStart: false,
-      })
+      if (editingId) {
+        await onUpdate(editingId, { name: n, path: p, icon, hotkey: nextHotkey || null, displayMode })
+      } else {
+        await onAdd({
+          id,
+          name: n,
+          icon,
+          path: p,
+          hotkey: nextHotkey || undefined,
+          displayMode,
+          commands: [],
+          autoStart: false,
+        })
+      }
+      setHotkeyRecording(false)
+      setEditOpen(false)
+    } catch (error: any) {
+      await hostToast(String(error?.message || error || '保存应用失败'))
+    } finally {
+      setSaving(false)
     }
-    setEditOpen(false)
+  }
+
+  const startHotkeyRecording = () => {
+    setHotkeyRecording(true)
+  }
+
+  const saveHotkey = (next: string) => {
+    setHotkey(next)
+    setHotkeyRecording(false)
+  }
+
+  const cancelHotkeyRecording = () => {
+    setHotkeyRecording(false)
+  }
+
+  useEffect(() => {
+    if (!hotkeyRecording) return
+
+    pauseShortcutRecordingGuards()
+
+    return () => {
+      resumeShortcutRecordingGuards()
+    }
+  }, [hotkeyRecording])
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (!hotkeyRecording) return
+    e.preventDefault()
+    e.stopPropagation()
+    ;(e as any).stopImmediatePropagation?.()
+
+    if (e.key === 'Escape') {
+      cancelHotkeyRecording()
+      return
+    }
+
+    if (e.repeat) return
+    const shot = buildShortcutFromEvent(e.nativeEvent)
+    if (!shot) return
+    saveHotkey(shot)
   }
 
   const content = (
@@ -109,6 +174,13 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
               </Box>
               <IconButton
                 size="small"
+                onClick={() => openEdit(app)}
+                aria-label={`编辑 ${app.name}`}
+              >
+                <EditRoundedIcon fontSize="small" />
+              </IconButton>
+              <IconButton
+                size="small"
                 onClick={() => onRemove(app.id)}
                 aria-label={`移除 ${app.name}`}
               >
@@ -119,12 +191,28 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
         )}
       </Box>
 
-      <Dialog open={editOpen} onClose={() => setEditOpen(false)} fullWidth maxWidth="xs">
+      <Dialog open={editOpen} onClose={() => { setHotkeyRecording(false); setEditOpen(false) }} fullWidth maxWidth="xs">
         <DialogTitle>{editingId ? '编辑应用' : '添加应用'}</DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '8px !important' }}>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '8px !important' }} onKeyDown={onKeyDown}>
           <TextField label="名称" value={name} onChange={e => setName(e.target.value)} size="small" fullWidth />
           <TextField label="可执行文件路径" value={path} onChange={e => setPath(e.target.value)} size="small" fullWidth placeholder="C:\Apps\my-app\app.exe" />
-          <TextField label="快捷键（可选）" value={hotkey} onChange={e => setHotkey(e.target.value)} size="small" fullWidth placeholder="Alt+Space H" />
+          <TextField
+            label="快捷键（可选）"
+            value={hotkey}
+            size="small"
+            fullWidth
+            placeholder="点击录制然后按键"
+            InputProps={{ readOnly: true }}
+            helperText={hotkeyRecording ? '录制中…按 ESC 取消，按下组合键即可保存到输入框里。' : '点击开始录制，然后按下组合键。'}
+          />
+          <Stack direction="row" spacing={1}>
+            <Button variant={hotkeyRecording ? 'contained' : 'outlined'} color={hotkeyRecording ? 'warning' : 'primary'} onClick={hotkeyRecording ? cancelHotkeyRecording : startHotkeyRecording}>
+              {hotkeyRecording ? '录制中…' : '开始录制'}
+            </Button>
+            <Button variant="outlined" onClick={() => setHotkey('')}>
+              清空快捷键
+            </Button>
+          </Stack>
           <Box>
             <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>显示模式</Typography>
             <ToggleButtonGroup
@@ -140,8 +228,8 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
           </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setEditOpen(false)}>取消</Button>
-          <Button onClick={() => void save()} variant="contained" sx={{ boxShadow: 'none' }}>保存</Button>
+          <Button disabled={saving} onClick={() => { setHotkeyRecording(false); setEditOpen(false) }}>取消</Button>
+          <Button disabled={saving} onClick={() => void save()} variant="contained" sx={{ boxShadow: 'none' }}>保存</Button>
         </DialogActions>
       </Dialog>
     </>

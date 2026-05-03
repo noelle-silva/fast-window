@@ -1,6 +1,10 @@
+use std::collections::HashMap;
+use std::str::FromStr;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tauri::{AppHandle, Emitter};
+use tauri_plugin_global_shortcut::Shortcut;
 
 const REGISTRY_KEY: &str = "registeredApps";
 const REGISTERED_APPS_CHANGED_EVENT: &str = "fast-window:registered-apps-changed";
@@ -70,9 +74,47 @@ fn load_registry_array(app: &AppHandle) -> Result<Vec<Value>, String> {
     }
 }
 
+pub(crate) fn load_registered_app_records(app: &AppHandle) -> Result<Vec<Value>, String> {
+    let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    load_registry_array(app)
+}
+
+pub(crate) fn load_registered_app_record(
+    app: &AppHandle,
+    app_id: &str,
+) -> Result<Option<Value>, String> {
+    let id = app_id.trim();
+    if !crate::is_safe_id(id) {
+        return Err("appId 不合法".to_string());
+    }
+
+    Ok(load_registered_app_records(app)?
+        .into_iter()
+        .find(|item| app_id_from_value(item) == Some(id)))
+}
+
 fn save_registry_array(app: &AppHandle, items: Vec<Value>) -> Result<(), String> {
     let path = crate::storage_value_path(app, crate::APP_STORAGE_ID, REGISTRY_KEY)?;
     crate::write_json_value(&path, &Value::Array(items))
+}
+
+fn save_registry_and_refresh_shortcuts(app: &AppHandle, registry: Vec<Value>) -> Result<(), String> {
+    for item in &registry {
+        validate_app_value(item)?;
+    }
+    validate_app_hotkeys(&registry)?;
+    crate::app_shortcuts::validate_registered_app_shortcuts_available(app, &registry)?;
+
+    {
+        let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
+        let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        save_registry_array(app, registry)?;
+    }
+
+    crate::app_shortcuts::refresh_registered_app_shortcuts(app)?;
+    emit_registry_changed(app);
+    Ok(())
 }
 
 fn app_id_from_value(value: &Value) -> Option<&str> {
@@ -91,6 +133,33 @@ fn validate_app_value(value: &Value) -> Result<String, String> {
     Ok(id.to_string())
 }
 
+fn app_hotkey_from_value(value: &Value) -> Option<&str> {
+    value
+        .get("hotkey")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|hotkey| !hotkey.is_empty())
+}
+
+fn validate_app_hotkeys(apps: &[Value]) -> Result<(), String> {
+    let mut seen: HashMap<String, String> = HashMap::new();
+    for item in apps {
+        let app_id = app_id_from_value(item).unwrap_or("");
+        let Some(raw_hotkey) = app_hotkey_from_value(item) else {
+            continue;
+        };
+        let shortcut = Shortcut::from_str(raw_hotkey)
+            .map_err(|e| format!("{app_id} 的快捷键格式不合法: {e}"))?;
+        let normalized = shortcut.to_string();
+        if let Some(existing_app_id) = seen.insert(normalized.clone(), app_id.to_string()) {
+            return Err(format!(
+                "快捷键重复: {normalized}（{existing_app_id} 和 {app_id}）"
+            ));
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub(crate) fn app_registry_load(app: AppHandle) -> Result<Vec<Value>, String> {
     let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
@@ -100,23 +169,13 @@ pub(crate) fn app_registry_load(app: AppHandle) -> Result<Vec<Value>, String> {
 
 #[tauri::command]
 pub(crate) fn app_registry_save(app: AppHandle, apps: Vec<Value>) -> Result<(), String> {
-    for item in &apps {
-        validate_app_value(item)?;
-    }
-
-    let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
-    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-    save_registry_array(&app, apps)?;
-    emit_registry_changed(&app);
-    Ok(())
+    save_registry_and_refresh_shortcuts(&app, apps)
 }
 
 #[tauri::command]
 pub(crate) fn app_registry_add(app: AppHandle, app_record: Value) -> Result<(), String> {
     let id = validate_app_value(&app_record)?;
-    let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
-    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-    let mut registry = load_registry_array(&app)?;
+    let mut registry = load_registered_app_records(&app)?;
     if let Some(existing) = registry
         .iter_mut()
         .find(|item| app_id_from_value(item) == Some(id.as_str()))
@@ -125,9 +184,7 @@ pub(crate) fn app_registry_add(app: AppHandle, app_record: Value) -> Result<(), 
     } else {
         registry.push(app_record);
     }
-    save_registry_array(&app, registry)?;
-    emit_registry_changed(&app);
-    Ok(())
+    save_registry_and_refresh_shortcuts(&app, registry)
 }
 
 #[tauri::command]
@@ -137,16 +194,12 @@ pub(crate) fn app_registry_remove(app: AppHandle, app_id: String) -> Result<(), 
         return Err("appId 不合法".to_string());
     }
 
-    let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
-    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-    let registry = load_registry_array(&app)?;
+    let registry = load_registered_app_records(&app)?;
     let next: Vec<Value> = registry
         .into_iter()
         .filter(|item| app_id_from_value(item) != Some(id.as_str()))
         .collect();
-    save_registry_array(&app, next)?;
-    emit_registry_changed(&app);
-    Ok(())
+    save_registry_and_refresh_shortcuts(&app, next)
 }
 
 #[tauri::command]
@@ -160,9 +213,7 @@ pub(crate) fn app_registry_update(
         return Err("appId 不合法".to_string());
     }
 
-    let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
-    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-    let mut registry = load_registry_array(&app)?;
+    let mut registry = load_registered_app_records(&app)?;
     let mut changed = false;
     for item in &mut registry {
         if app_id_from_value(item) != Some(id.as_str()) {
@@ -175,14 +226,17 @@ pub(crate) fn app_registry_update(
             if key == "id" {
                 continue;
             }
+            if value.is_null() {
+                record.remove(&key);
+                continue;
+            }
             record.insert(key, value);
         }
         changed = true;
         break;
     }
     if changed {
-        save_registry_array(&app, registry)?;
-        emit_registry_changed(&app);
+        save_registry_and_refresh_shortcuts(&app, registry)?;
     }
     Ok(())
 }

@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { RegisteredApp } from './types'
+import type { RegisteredApp, RegisteredAppUpdatePatch } from './types'
 
 export async function loadRegistry(): Promise<RegisteredApp[]> {
   const raw = await invoke<unknown>('app_registry_load').catch(() => [])
@@ -19,6 +19,6 @@ export async function removeApp(id: string): Promise<void> {
   await invoke('app_registry_remove', { appId: id })
 }
 
-export async function updateApp(id: string, patch: Partial<RegisteredApp>): Promise<void> {
+export async function updateApp(id: string, patch: RegisteredAppUpdatePatch): Promise<void> {
   await invoke('app_registry_update', { appId: id, patch })
 }

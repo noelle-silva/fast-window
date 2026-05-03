@@ -37,10 +37,11 @@ import {
 } from '../wallpaper'
 import WallpaperViewEditorDialog from './WallpaperViewEditorDialog'
 import { hostToast } from '../host/hostPrimitives'
+import { buildShortcutFromEvent, pauseShortcutRecordingGuards, resumeShortcutRecordingGuards } from '../shortcuts'
 import { getPluginAssetMime, isDataImageUrl, resolveLocalPluginIconPath } from '../plugins/pluginIcon'
 import AppRegistrationPanel from '../apps/AppRegistrationPanel'
 import AppBackgroundPanel from '../apps/AppBackgroundPanel'
-import type { RegisteredApp } from '../apps/types'
+import type { RegisteredApp, RegisteredAppUpdatePatch } from '../apps/types'
 
 const DEFAULT_WAKE_SHORTCUT = 'control+alt+Space'
 const MAX_VIDEO_RATE = 16
@@ -193,37 +194,12 @@ const DEFAULT_WEBVIEW_SETTINGS: WebviewSettings = {
   },
 }
 
-const modifierCodes = new Set([
-  'ShiftLeft',
-  'ShiftRight',
-  'ControlLeft',
-  'ControlRight',
-  'AltLeft',
-  'AltRight',
-  'MetaLeft',
-  'MetaRight',
-])
-
-function buildShortcutFromEvent(e: KeyboardEvent): string | null {
-  const code = typeof e.code === 'string' ? e.code : ''
-  if (!code || code === 'Unidentified') return null
-  if (modifierCodes.has(code)) return null
-
-  const parts: string[] = []
-  if (e.ctrlKey) parts.push('control')
-  if (e.altKey) parts.push('alt')
-  if (e.shiftKey) parts.push('shift')
-  if (e.metaKey) parts.push('super')
-  parts.push(code)
-  return parts.join('+')
-}
-
 export default function SettingsView(props: {
   onBack: () => void
   registeredApps?: RegisteredApp[]
   onAddRegisteredApp?: (app: RegisteredApp) => void
   onRemoveRegisteredApp?: (id: string) => void
-  onUpdateRegisteredApp?: (id: string, patch: Partial<RegisteredApp>) => void
+  onUpdateRegisteredApp?: (id: string, patch: RegisteredAppUpdatePatch) => void
 }) {
   const {
     onBack,
@@ -647,8 +623,7 @@ export default function SettingsView(props: {
   useEffect(() => {
     if (!recording) return
 
-    invoke('pause_wake_shortcut').catch(() => {})
-    invoke('pause_main_window_mode_shortcut').catch(() => {})
+    pauseShortcutRecordingGuards()
 
     const onKeyDown = (e: KeyboardEvent) => {
       e.preventDefault()
@@ -673,16 +648,14 @@ export default function SettingsView(props: {
     window.addEventListener('keydown', onKeyDown, true)
     return () => {
       window.removeEventListener('keydown', onKeyDown, true)
-      invoke('resume_wake_shortcut').catch(() => {})
-      invoke('resume_main_window_mode_shortcut').catch(() => {})
+      resumeShortcutRecordingGuards()
     }
   }, [recording])
 
   useEffect(() => {
     if (recordingPresetIndex == null) return
 
-    invoke('pause_wake_shortcut').catch(() => {})
-    invoke('pause_main_window_mode_shortcut').catch(() => {})
+    pauseShortcutRecordingGuards()
 
     const onKeyDown = (e: KeyboardEvent) => {
       e.preventDefault()
@@ -710,16 +683,14 @@ export default function SettingsView(props: {
     window.addEventListener('keydown', onKeyDown, true)
     return () => {
       window.removeEventListener('keydown', onKeyDown, true)
-      invoke('resume_wake_shortcut').catch(() => {})
-      invoke('resume_main_window_mode_shortcut').catch(() => {})
+      resumeShortcutRecordingGuards()
     }
   }, [recordingPresetIndex])
 
   useEffect(() => {
     if (!modeShortcutRecording) return
 
-    invoke('pause_wake_shortcut').catch(() => {})
-    invoke('pause_main_window_mode_shortcut').catch(() => {})
+    pauseShortcutRecordingGuards()
 
     const onKeyDown = (e: KeyboardEvent) => {
       e.preventDefault()
@@ -744,8 +715,7 @@ export default function SettingsView(props: {
     window.addEventListener('keydown', onKeyDown, true)
     return () => {
       window.removeEventListener('keydown', onKeyDown, true)
-      invoke('resume_wake_shortcut').catch(() => {})
-      invoke('resume_main_window_mode_shortcut').catch(() => {})
+      resumeShortcutRecordingGuards()
     }
   }, [modeShortcutRecording])
 

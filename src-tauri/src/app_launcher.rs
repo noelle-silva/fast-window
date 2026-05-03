@@ -237,6 +237,16 @@ pub(crate) async fn app_launch(
     exe_path: String,
     args: Vec<String>,
 ) -> Result<(), String> {
+    app_launch_inner(app_handle, state.inner().clone(), app_id, exe_path, args).await
+}
+
+pub(crate) async fn app_launch_inner(
+    app_handle: AppHandle,
+    state: Arc<AppLauncherState>,
+    app_id: String,
+    exe_path: String,
+    args: Vec<String>,
+) -> Result<(), String> {
     let id = app_id.trim().to_string();
     if id.is_empty() {
         return Err("appId 不能为空".to_string());

@@ -23,6 +23,10 @@ export interface RegisteredApp {
   windowY?: number
 }
 
+export type RegisteredAppUpdatePatch = Partial<Omit<RegisteredApp, 'id' | 'hotkey'>> & {
+  hotkey?: string | null
+}
+
 export type AppStatus = {
   running: boolean
   pid?: number

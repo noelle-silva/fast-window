@@ -4,14 +4,14 @@ import {
   Switch, Button, CircularProgress,
 } from '@mui/material'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
-import type { RegisteredApp, AppStatus } from './types'
+import type { RegisteredApp, RegisteredAppUpdatePatch, AppStatus } from './types'
 import { launchApp, stopApp, getAppStatuses } from './appLauncher'
 import AppCardView from './AppCardView'
 
 interface AppBackgroundPanelProps {
   apps: RegisteredApp[]
   onClose?: () => void
-  onUpdateApp: (id: string, patch: Partial<RegisteredApp>) => void
+  onUpdateApp: (id: string, patch: RegisteredAppUpdatePatch) => void
   embedded?: boolean
 }
 
