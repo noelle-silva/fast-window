@@ -40,17 +40,31 @@ function withDevSyncDisabledEnv() {
 
 async function main() {
   const rawArgs = process.argv.slice(2)
+  const fastDev = rawArgs.includes('--fast')
   const skipPluginWatch = process.env.FAST_WINDOW_SKIP_PLUGIN_WATCH === '1' || rawArgs.includes('--no-plugin-watch')
   const skipPluginDevSync = process.env.FAST_WINDOW_SKIP_PLUGIN_DEV_SYNC === '1' || rawArgs.includes('--no-plugin-dev-sync')
-  const args = rawArgs.filter(arg => arg !== '--no-plugin-watch' && arg !== '--no-plugin-dev-sync')
+  const args = rawArgs.filter(arg => arg !== '--fast' && arg !== '--no-plugin-watch' && arg !== '--no-plugin-dev-sync')
   const sub = (args[0] || '').trim()
   const isDev = sub === 'dev'
   const isBuild = sub === 'build'
 
   const runTauri = (tauriArgs, opts = {}) => run('pnpm', ['exec', 'tauri', ...tauriArgs], opts)
+  const withFastDevConfig = (tauriArgs) => [...tauriArgs, '--config', 'src-tauri/tauri.fast.conf.json']
   const pluginFilter = String(process.env.FAST_WINDOW_PLUGIN || '').trim()
 
   if (isDev) {
+    if (fastDev) {
+      const buildCode = await runPluginBuild(pluginFilter)
+      if (buildCode !== 0) {
+        process.exit(buildCode)
+        return
+      }
+
+      const code = await waitExit(runTauri(withFastDevConfig(args), { env: withDevSyncDisabledEnv() }))
+      process.exit(code)
+      return
+    }
+
     if (skipPluginWatch) {
       const opts = skipPluginDevSync ? { env: withDevSyncDisabledEnv() } : {}
       const code = await waitExit(runTauri(args, opts))
