@@ -1,5 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod fw_window;
+
+use fw_window::{apply_control_action, apply_fw_args, app_ready, install_focus_policy, parse_fw_args, FwWindowState};
 use serde::Serialize;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -7,12 +10,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::{Manager, PhysicalPosition, PhysicalSize, WebviewWindow, WindowEvent};
+use tauri::Manager;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex as AsyncMutex;
-
-const FOCUS_HIDE_DELAY_MS: u64 = 120;
 
 #[derive(Clone, Serialize)]
 struct BackendEndpoint {
@@ -30,8 +31,6 @@ struct ControlEndpoint {
 struct BackendState {
     child: AsyncMutex<Option<Child>>,
     endpoint: Mutex<Option<BackendEndpoint>>,
-    last_window_position: Mutex<Option<PhysicalPosition<i32>>>,
-    initial_action: Mutex<Option<String>>,
 }
 
 impl Drop for BackendState {
@@ -42,171 +41,6 @@ impl Drop for BackendState {
             }
         }
     }
-}
-
-struct FwArgs {
-    launched: bool,
-    action: String,
-    mode: String,
-    x: Option<i32>,
-    y: Option<i32>,
-    width: Option<u32>,
-    height: Option<u32>,
-}
-
-fn parse_fw_args() -> FwArgs {
-    let args: Vec<String> = std::env::args().collect();
-    let mut fw = FwArgs {
-        launched: false,
-        action: "toggle".into(),
-        mode: "default".into(),
-        x: None,
-        y: None,
-        width: None,
-        height: None,
-    };
-    let mut i = 0;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--fw-launched" => fw.launched = true,
-            "--fw-action" => {
-                if i + 1 < args.len() && matches!(args[i + 1].as_str(), "toggle" | "show" | "hide" | "close") {
-                    fw.action = args[i + 1].clone();
-                    i += 1;
-                }
-            }
-            "--fw-mode" => {
-                if i + 1 < args.len() && matches!(args[i + 1].as_str(), "default" | "window" | "top") {
-                    fw.mode = args[i + 1].clone();
-                    i += 1;
-                }
-            }
-            "--fw-x" if i + 1 < args.len() => {
-                if let Ok(v) = args[i + 1].parse::<i32>() { fw.x = Some(v); }
-                i += 1;
-            }
-            "--fw-y" if i + 1 < args.len() => {
-                if let Ok(v) = args[i + 1].parse::<i32>() { fw.y = Some(v); }
-                i += 1;
-            }
-            "--fw-width" if i + 1 < args.len() => {
-                if let Ok(v) = args[i + 1].parse::<u32>() { if v > 0 { fw.width = Some(v); } }
-                i += 1;
-            }
-            "--fw-height" if i + 1 < args.len() => {
-                if let Ok(v) = args[i + 1].parse::<u32>() { if v > 0 { fw.height = Some(v); } }
-                i += 1;
-            }
-            _ => {}
-        }
-        i += 1;
-    }
-    fw
-}
-
-fn apply_fw_args(window: &WebviewWindow, args: &FwArgs, state: &BackendState) {
-    if args.launched {
-        let _ = window.set_skip_taskbar(true);
-    }
-    if args.mode == "default" || args.mode == "top" {
-        let _ = window.set_always_on_top(true);
-    }
-    if let (Some(x), Some(y)) = (args.x, args.y) {
-        let position = PhysicalPosition::new(x, y);
-        let _ = window.set_position(position);
-        remember_window_position(state, position);
-    }
-    if let (Some(w), Some(h)) = (args.width, args.height) {
-        let _ = window.set_size(PhysicalSize::new(w, h));
-    }
-    if let Ok(mut initial_action) = state.initial_action.lock() {
-        *initial_action = Some(args.action.clone());
-    }
-
-    match args.action.as_str() {
-        "hide" => { hide_without_animation(window, state); }
-        "close" => { let _ = window.close(); }
-        _ => { stage_initial_show(window, state); }
-    }
-}
-
-fn install_focus_policy(window: &WebviewWindow, args: &FwArgs, state: Arc<BackendState>) {
-    if !args.launched || args.mode != "default" {
-        return;
-    }
-
-    let window_for_event = window.clone();
-    window.on_window_event(move |event| {
-        match event {
-            WindowEvent::Focused(false) => {
-                schedule_hide_if_unfocused(window_for_event.clone(), state.clone());
-            }
-            WindowEvent::Moved(_) => {
-                if let Ok(position) = window_for_event.outer_position() {
-                    remember_window_position(&state, position);
-                }
-            }
-            _ => {}
-        }
-    });
-}
-
-fn schedule_hide_if_unfocused(window: WebviewWindow, state: Arc<BackendState>) {
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(FOCUS_HIDE_DELAY_MS)).await;
-        if !window.is_visible().unwrap_or(false) {
-            return;
-        }
-        if window.is_focused().unwrap_or(false) {
-            return;
-        }
-        hide_without_animation(&window, &state);
-    });
-}
-
-fn remember_window_position(state: &BackendState, position: PhysicalPosition<i32>) {
-    if position.x <= -9000 || position.y <= -9000 {
-        return;
-    }
-    if let Ok(mut last) = state.last_window_position.lock() {
-        *last = Some(position);
-    }
-}
-
-fn restore_window_position(window: &WebviewWindow, state: &BackendState) {
-    let position = state
-        .last_window_position
-        .lock()
-        .ok()
-        .and_then(|last| *last);
-    if let Some(position) = position {
-        let _ = window.set_position(position);
-    }
-}
-
-fn hide_without_animation(window: &WebviewWindow, state: &BackendState) {
-    if let Ok(position) = window.outer_position() {
-        remember_window_position(state, position);
-    }
-    let _ = window.set_position(PhysicalPosition::new(-10000, -10000));
-    let _ = window.hide();
-}
-
-fn stage_initial_show(window: &WebviewWindow, state: &BackendState) {
-    if state.last_window_position.lock().ok().and_then(|last| *last).is_none() {
-        if let Ok(position) = window.outer_position() {
-            remember_window_position(state, position);
-        }
-    }
-    let _ = window.set_position(PhysicalPosition::new(-10000, -10000));
-    let _ = window.hide();
-}
-
-fn show_and_focus(window: &WebviewWindow, state: &BackendState) {
-    restore_window_position(window, state);
-    let _ = window.unminimize();
-    let _ = window.show();
-    let _ = window.set_focus();
 }
 
 fn now_ms() -> u128 {
@@ -226,7 +60,7 @@ fn write_json_line(value: serde_json::Value) {
     let _ = out.flush();
 }
 
-fn start_control_server(app: tauri::AppHandle, state: Arc<BackendState>) -> Result<ControlEndpoint, String> {
+fn start_control_server(app: tauri::AppHandle, window_state: Arc<FwWindowState>) -> Result<ControlEndpoint, String> {
     let listener = TcpListener::bind(("127.0.0.1", 0))
         .map_err(|e| format!("启动控制通道失败: {e}"))?;
     let port = listener
@@ -255,7 +89,7 @@ fn start_control_server(app: tauri::AppHandle, state: Arc<BackendState>) -> Resu
         .spawn(move || {
             for stream in listener.incoming() {
                 match stream {
-                    Ok(stream) => handle_control_connection(stream, &app, &state, &expected_token),
+                    Ok(stream) => handle_control_connection(stream, &app, &window_state, &expected_token),
                     Err(error) => {
                         eprintln!("[bookmarks-app] control connection failed: {error}");
                         break;
@@ -351,7 +185,7 @@ fn write_control_response(stream: &mut TcpStream, status: u16, body: serde_json:
     let _ = stream.flush();
 }
 
-fn handle_control_connection(mut stream: TcpStream, app: &tauri::AppHandle, state: &BackendState, expected_token: &str) {
+fn handle_control_connection(mut stream: TcpStream, app: &tauri::AppHandle, window_state: &FwWindowState, expected_token: &str) {
     let request = match read_control_request(&mut stream) {
         Ok(request) => request,
         Err(error) => {
@@ -379,37 +213,9 @@ fn handle_control_connection(mut stream: TcpStream, app: &tauri::AppHandle, stat
         .and_then(|v| v.as_str())
         .unwrap_or("show");
 
-    match apply_control_action(app, state, action) {
+    match apply_control_action(app, window_state, action) {
         Ok(()) => write_control_response(&mut stream, 200, serde_json::json!({ "ok": true })),
         Err(error) => write_control_response(&mut stream, 400, serde_json::json!({ "ok": false, "error": error })),
-    }
-}
-
-fn apply_control_action(app: &tauri::AppHandle, state: &BackendState, action: &str) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "主窗口不存在".to_string())?;
-
-    match action {
-        "show" => {
-            show_and_focus(&window, state);
-            Ok(())
-        }
-        "hide" => {
-            hide_without_animation(&window, state);
-            Ok(())
-        }
-        "toggle" => {
-            if window.is_visible().unwrap_or(false) {
-                hide_without_animation(&window, state);
-                Ok(())
-            } else {
-                show_and_focus(&window, state);
-                Ok(())
-            }
-        }
-        "close" => window.close().map_err(|e| format!("关闭窗口失败: {e}")),
-        _ => Err(format!("未知窗口指令: {action}")),
     }
 }
 
@@ -427,28 +233,6 @@ fn resource_or_exe_dir(app: &tauri::AppHandle) -> PathBuf {
 
 fn resolve_backend_entry(app: &tauri::AppHandle) -> PathBuf {
     resource_or_exe_dir(app).join("backend").join("index.js")
-}
-
-#[tauri::command]
-fn app_ready(app: tauri::AppHandle, state: tauri::State<'_, Arc<BackendState>>) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "主窗口不存在".to_string())?;
-    let action = state
-        .initial_action
-        .lock()
-        .ok()
-        .and_then(|value| value.clone())
-        .unwrap_or_else(|| "show".to_string());
-
-    match action.as_str() {
-        "hide" => Ok(()),
-        "close" => window.close().map_err(|e| format!("关闭窗口失败: {e}")),
-        _ => {
-            show_and_focus(&window, &state);
-            Ok(())
-        }
-    }
 }
 
 #[tauri::command]
@@ -514,15 +298,18 @@ fn main() {
 
     let backend_state = Arc::new(BackendState::default());
     let backend_state_setup = backend_state.clone();
+    let window_state = Arc::new(FwWindowState::default());
+    let window_state_setup = window_state.clone();
 
     tauri::Builder::default()
         .manage(backend_state)
+        .manage(window_state)
         .invoke_handler(tauri::generate_handler![backend_endpoint, app_ready])
         .setup(move |app| {
             let window = app.get_webview_window("main").expect("main window not found");
-            install_focus_policy(&window, &fw_args, backend_state_setup.clone());
-            apply_fw_args(&window, &fw_args, &backend_state_setup);
-            start_control_server(app.handle().clone(), backend_state_setup.clone())?;
+            install_focus_policy(&window, &fw_args, window_state_setup.clone());
+            apply_fw_args(&window, &fw_args, &window_state_setup);
+            start_control_server(app.handle().clone(), window_state_setup.clone())?;
 
             let handle = app.handle().clone();
             let state = backend_state_setup.clone();
