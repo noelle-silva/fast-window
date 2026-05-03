@@ -7,6 +7,7 @@ import { usePluginBackendStatuses, usePluginBackendSupervisor, resolveBackendLif
 import { alpha } from '@mui/material/styles'
 import {
   Alert, Box, Button, CircularProgress, Snackbar, TextField,
+  Dialog, DialogActions, DialogContent, DialogTitle,
   InputAdornment, Typography,
 } from '@mui/material'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
@@ -18,53 +19,26 @@ import BrowserBarWindow from './components/BrowserBarWindow'
 import TitleBar from './TitleBar'
 import PluginListView from './PluginListView'
 import PluginDetailDialog from './PluginDetailDialog'
-import PluginContextMenu from './PluginContextMenu'
+import PluginContextMenu, { type ContextMenuAction } from './PluginContextMenu'
 import AppActivationView from './apps/AppActivationView'
 import { useRegisteredApps } from './apps/useRegisteredApps'
-import { getAppStatuses, launchApp } from './apps/appLauncher'
-import type { AppStatus } from './apps/types'
+import { getAppStatuses, launchApp, stopApp } from './apps/appLauncher'
+import {
+  buildRegisteredAppListItems,
+  parseRegisteredAppListItemId,
+  registeredAppFromListItem,
+} from './apps/listItems'
+import type { AppStatus, RegisteredApp } from './apps/types'
 import { usePlugins } from './usePlugins'
 import { useWallpaper, getWallpaperView } from './useWallpaper'
 import { useSearch } from './useSearch'
 import type { Plugin } from './constants'
 import { APP_TITLE } from './constants'
-import { movePluginById } from './utils'
+import { makeThumbnailPngDataUrl, movePluginById, pickImageFile } from './utils'
 
-const APP_PLUGIN_PREFIX = 'app:'
-const APP_COMMAND_PLUGIN_PREFIX = 'app-command:'
-
-type AppListSelection =
-  | { type: 'app'; appId: string }
-  | { type: 'appCommand'; appId: string; commandId: string }
-  | { type: 'plugin' }
-
-function registeredAppPluginId(appId: string) {
-  return `${APP_PLUGIN_PREFIX}${appId}`
-}
-
-function registeredAppCommandPluginId(appId: string, commandId: string) {
-  return `${APP_COMMAND_PLUGIN_PREFIX}${appId}:${commandId}`
-}
-
-function parseAppListSelection(pluginId: string): AppListSelection {
-  if (pluginId.startsWith(APP_COMMAND_PLUGIN_PREFIX)) {
-    const rest = pluginId.slice(APP_COMMAND_PLUGIN_PREFIX.length)
-    const separator = rest.indexOf(':')
-    if (separator > 0 && separator < rest.length - 1) {
-      return {
-        type: 'appCommand',
-        appId: rest.slice(0, separator),
-        commandId: rest.slice(separator + 1),
-      }
-    }
-  }
-
-  if (pluginId.startsWith(APP_PLUGIN_PREFIX)) {
-    return { type: 'app', appId: pluginId.slice(APP_PLUGIN_PREFIX.length) }
-  }
-
-  return { type: 'plugin' }
-}
+type StopAppConfirmState = {
+  app: RegisteredApp
+} | null
 
 const settingsPlugin: Plugin = {
   id: '__settings',
@@ -141,6 +115,8 @@ function App() {
   // Context menu
   const [pluginMenu, setPluginMenu] = useState<{ plugin: Plugin; mouseX: number; mouseY: number } | null>(null)
   const closePluginMenu = useCallback(() => setPluginMenu(null), [])
+  const [stopAppConfirm, setStopAppConfirm] = useState<StopAppConfirmState>(null)
+  const [stoppingAppId, setStoppingAppId] = useState<string | null>(null)
 
   // Detail dialog
   const [pluginDetail, setPluginDetail] = useState<Plugin | null>(null)
@@ -333,33 +309,7 @@ function App() {
   // === Handlers ===
 
   const registeredAppPlugins: Plugin[] = useMemo(() => {
-    const NullView = (() => { const D: any = () => null; return D })()
-    return registeredApps.flatMap(app => {
-      const icon = app.icon || app.name[0] || 'A'
-      const appItem: Plugin = {
-        id: registeredAppPluginId(app.id),
-        name: app.name,
-        description: app.path,
-        icon,
-        keyword: app.id,
-        disabled: false,
-        component: NullView,
-        appStatus: {
-          type: 'registered-app',
-          running: registeredAppStatuses[app.id]?.running === true,
-        },
-      }
-      const commandItems = (app.commands || []).map(command => ({
-        id: registeredAppCommandPluginId(app.id, command.id),
-        name: command.title,
-        description: `${app.name} · 命令`,
-        icon,
-        keyword: `${app.id} ${command.id} ${command.title}`,
-        disabled: false,
-        component: NullView,
-      }))
-      return [appItem, ...commandItems]
-    })
+    return buildRegisteredAppListItems(registeredApps, registeredAppStatuses)
   }, [registeredApps, registeredAppStatuses])
 
   const displayItems: Plugin[] = useMemo(() => {
@@ -373,7 +323,7 @@ function App() {
   }, [registeredAppPlugins, filtered, query])
 
   const activateListItem = useCallback((plugin: Plugin) => {
-    const selection = parseAppListSelection(plugin.id)
+    const selection = parseRegisteredAppListItemId(plugin.id)
     if (selection.type === 'appCommand') {
       const app = registeredApps.find(app => app.id === selection.appId)
       if (app) {
@@ -390,6 +340,104 @@ function App() {
     }
     setActivePlugin(plugin)
   }, [registeredApps, refreshRegisteredAppStatuses])
+
+  const registeredAppFromMenuItem = useCallback((plugin: Plugin): RegisteredApp | null => {
+    return registeredAppFromListItem(registeredApps, plugin.id)
+  }, [registeredApps])
+
+  const changeMenuItemIcon = useCallback(async () => {
+    const plugin = pluginMenu?.plugin
+    if (!plugin) return
+    const app = registeredAppFromMenuItem(plugin)
+    if (!app) {
+      await changePluginIcon(plugin)
+      return
+    }
+
+    try {
+      const file = await pickImageFile()
+      if (!file) return
+      if (file.size > 50 * 1024 * 1024) {
+        showToast('图片过大（> 50MB）')
+        return
+      }
+      const dataUrl = await makeThumbnailPngDataUrl(file, 128)
+      await updateRegisteredApp(app.id, { icon: dataUrl })
+      showToast('图标已更新')
+    } catch (error: any) {
+      console.error('Failed to change registered app icon:', error)
+      const msg = typeof error === 'string' ? error : typeof error?.message === 'string' ? error.message : ''
+      showToast(msg ? `更改图标失败：${msg}` : '更改图标失败')
+    }
+  }, [changePluginIcon, pluginMenu?.plugin, registeredAppFromMenuItem, showToast, updateRegisteredApp])
+
+  const resetMenuItemIcon = useCallback(async () => {
+    const plugin = pluginMenu?.plugin
+    if (!plugin) return
+    const app = registeredAppFromMenuItem(plugin)
+    if (!app) {
+      await resetPluginIcon(plugin)
+      return
+    }
+
+    try {
+      const icon = await invoke<string>('app_icon_data_url', { exePath: app.path }).catch(() => '')
+      await updateRegisteredApp(app.id, { icon })
+      showToast('已恢复默认图标')
+    } catch (error: any) {
+      console.error('Failed to reset registered app icon:', error)
+      showToast('恢复默认图标失败（详情见控制台）')
+    }
+  }, [pluginMenu?.plugin, registeredAppFromMenuItem, resetPluginIcon, showToast, updateRegisteredApp])
+
+  const closeStopAppConfirm = useCallback(() => {
+    if (stoppingAppId) return
+    setStopAppConfirm(null)
+  }, [stoppingAppId])
+
+  const confirmStopApp = useCallback(async () => {
+    const app = stopAppConfirm?.app
+    if (!app) return
+    setStoppingAppId(app.id)
+    try {
+      await stopApp(app.id)
+      showToast(`已停止：${app.name}`)
+      setStopAppConfirm(null)
+      window.setTimeout(() => void refreshRegisteredAppStatuses(), 300)
+    } catch (error: any) {
+      showToast(String(error?.message || error || '停止应用失败'))
+    } finally {
+      setStoppingAppId(null)
+    }
+  }, [refreshRegisteredAppStatuses, showToast, stopAppConfirm?.app])
+
+  const pluginMenuActions = useMemo<ContextMenuAction[]>(() => {
+    const plugin = pluginMenu?.plugin
+    if (!plugin) return []
+    const app = registeredAppFromMenuItem(plugin)
+    const commonActions: ContextMenuAction[] = [
+      { id: 'detail', label: '详情', onSelect: () => setPluginDetail(plugin) },
+      { id: 'change-icon', label: '更改图标…', onSelect: () => void changeMenuItemIcon() },
+      { id: 'reset-icon', label: '恢复默认图标', onSelect: () => void resetMenuItemIcon() },
+    ]
+
+    if (app) {
+      return [
+        { id: 'stop-app', label: '停止', color: 'error', onSelect: () => setStopAppConfirm({ app }) },
+        ...commonActions,
+      ]
+    }
+
+    return [
+      {
+        id: 'refresh-plugin',
+        label: '刷新',
+        disabled: loading || refreshingId === plugin.id,
+        onSelect: () => refreshPlugin(plugin),
+      },
+      ...commonActions,
+    ]
+  }, [changeMenuItemIcon, loading, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, resetMenuItemIcon])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
@@ -574,10 +622,7 @@ function App() {
   } as const
 
   // Handle registered app activation
-  const isRegisteredAppActive = activePluginId.startsWith(APP_PLUGIN_PREFIX)
-  const activeRegisteredApp = isRegisteredAppActive
-    ? registeredApps.find(a => registeredAppPluginId(a.id) === activePluginId) ?? null
-    : null
+  const activeRegisteredApp = registeredAppFromListItem(registeredApps, activePluginId)
 
   // Loading state
   if (loading) {
@@ -603,13 +648,8 @@ function App() {
           plugin={pluginMenu?.plugin ?? null}
           mouseX={pluginMenu?.mouseX ?? 0}
           mouseY={pluginMenu?.mouseY ?? 0}
-          loading={loading}
-          refreshingId={refreshingId}
+          actions={pluginMenuActions}
           onClose={closePluginMenu}
-          onRefresh={refreshPlugin}
-          onDetail={setPluginDetail}
-          onChangeIcon={() => pluginMenu?.plugin && changePluginIcon(pluginMenu.plugin)}
-          onResetIcon={() => pluginMenu?.plugin && resetPluginIcon(pluginMenu.plugin)}
         />
         <PluginDetailDialog plugin={pluginDetail} pluginsDir={pluginsDir} backendStatusById={backendStatusById} onClose={() => setPluginDetail(null)} />
         <ImportPluginDialog
@@ -671,7 +711,7 @@ function App() {
 
             {showPluginView && ActivePluginComponent && !activePluginKeepAlive && activePluginBackendReady ? (
               <Box sx={{ height: '100%', overflow: 'hidden' }}>
-                {isRegisteredAppActive && activeRegisteredApp ? (
+                {activeRegisteredApp ? (
                   <AppActivationView
                     app={activeRegisteredApp}
                     onBack={onBackFromPlugin}
@@ -797,14 +837,29 @@ function App() {
         plugin={pluginMenu?.plugin ?? null}
         mouseX={pluginMenu?.mouseX ?? 0}
         mouseY={pluginMenu?.mouseY ?? 0}
-        loading={loading}
-        refreshingId={refreshingId}
+        actions={pluginMenuActions}
         onClose={closePluginMenu}
-        onRefresh={refreshPlugin}
-        onDetail={setPluginDetail}
-        onChangeIcon={() => pluginMenu?.plugin && changePluginIcon(pluginMenu.plugin)}
-        onResetIcon={() => pluginMenu?.plugin && resetPluginIcon(pluginMenu.plugin)}
       />
+      <Dialog open={!!stopAppConfirm} onClose={closeStopAppConfirm} fullWidth maxWidth="xs">
+        <DialogTitle>停止 v5 应用</DialogTitle>
+        <DialogContent sx={{ pt: '8px !important' }}>
+          <Typography variant="body2">
+            确定要停止「{stopAppConfirm?.app.name ?? ''}」吗？应用窗口和它的后台进程会一起关闭。
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button disabled={!!stoppingAppId} onClick={closeStopAppConfirm}>取消</Button>
+          <Button
+            color="error"
+            variant="contained"
+            disabled={!!stoppingAppId}
+            onClick={() => void confirmStopApp()}
+            sx={{ boxShadow: 'none' }}
+          >
+            停止
+          </Button>
+        </DialogActions>
+      </Dialog>
       <PluginDetailDialog plugin={pluginDetail} pluginsDir={pluginsDir} backendStatusById={backendStatusById} onClose={() => setPluginDetail(null)} />
       <ImportPluginDialog
         open={importOpen}
