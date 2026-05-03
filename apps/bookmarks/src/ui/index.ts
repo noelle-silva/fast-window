@@ -38,10 +38,16 @@ let newGroupName = ''
 let standaloneLaunch = false
 let dataDirStatus: DataDirStatus | null = null
 let bootstrapError = ''
+let bootstrapping = true
+let pendingLaunchCommand: string | null = null
 
 // -- api helpers --------------------------------------------------------------
 
 async function initBackground() {
+  if (bg) {
+    bg.close()
+    bg = null
+  }
   const endpoint: { url: string; token: string } = await invoke('backend_endpoint')
   bg = await createDirectBackgroundClient(endpoint)
 }
@@ -83,6 +89,7 @@ function render() {
   const root = document.getElementById('app') || document.body
   const groups = data.groups.slice().sort((a, b) => a.createdAt - b.createdAt)
   const items = filteredItems()
+  const controlsDisabled = bootstrapping || !!bootstrapError
 
   const css = `
     *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#FAFAFA;color:#212121}
@@ -135,6 +142,11 @@ function render() {
     .ctxItem:hover{background:rgba(0,0,0,.06)}
     .ctxItem.danger{color:#D32F2F}
     .ctxSep{height:1px;background:#E0E0E0;margin:6px 4px}
+    .loadingPanel{height:100%;min-height:220px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#616161;text-align:center}
+    .spinner{width:28px;height:28px;border-radius:999px;border:3px solid #E3F2FD;border-top-color:#1976D2;animation:spin .8s linear infinite}
+    .loadingTitle{font-size:13px;font-weight:800;color:#212121}
+    .loadingHint{font-size:12px;color:#757575}
+    @keyframes spin{to{transform:rotate(360deg)}}
   `
 
   root.innerHTML = `
@@ -143,26 +155,40 @@ function render() {
       <div class="topbar" data-tauri-drag-region="true">
         <button class="btn" data-act="back">←</button>
         <div class="title">网站收藏</div>
-        <button class="btn" data-act="groups">分组</button>
-        <button class="btn primary" data-act="add">新增</button>
+        <button class="btn" data-act="groups" ${controlsDisabled ? 'disabled' : ''}>分组</button>
+        <button class="btn primary" data-act="add" ${controlsDisabled ? 'disabled' : ''}>新增</button>
         ${standaloneLaunch ? renderWindowControls() : ''}
       </div>
       <div class="filters">
-        <label class="field"><span class="label">分组</span><select data-act="group">${['<option value="__all__">全部</option>'].concat(groups.map(g => `<option value="${esc(g.id)}" ${g.id === groupFilter ? 'selected' : ''}>${esc(g.name)}</option>`)).join('')}</select></label>
-        <label class="field grow"><span class="label">搜索</span><input data-act="search" value="${esc(search)}" placeholder="按标题 / URL 搜索" /></label>
+        <label class="field"><span class="label">分组</span><select data-act="group" ${controlsDisabled ? 'disabled' : ''}>${['<option value="__all__">全部</option>'].concat(groups.map(g => `<option value="${esc(g.id)}" ${g.id === groupFilter ? 'selected' : ''}>${esc(g.name)}</option>`)).join('')}</select></label>
+        <label class="field grow"><span class="label">搜索</span><input data-act="search" value="${esc(search)}" placeholder="按标题 / URL 搜索" ${controlsDisabled ? 'disabled' : ''} /></label>
       </div>
       ${renderDataDirPanel()}
       <div class="content">
-        ${items.length ? `<div class="list">${items.map(item => {
-          const iconHtml = item.iconUrl ? `<img src="${esc(item.iconUrl)}" referrerpolicy="no-referrer" />` : '<span class="fallback">🌐</span>'
-          return `<div class="tile" data-role="tile" data-id="${esc(item.id)}" title="${esc(item.url)}"><div class="siteIcon">${iconHtml}</div><div class="tileName">${esc(item.title || item.url)}</div></div>`
-        }).join('')}</div>` : `<div class="empty">${search ? '未找到匹配的收藏' : '暂无收藏'}</div>`}
+        ${renderContent(items)}
       </div>
     </div>
     ${renderAddEditModal(groups)}
     ${renderGroupsModal(groups)}
     ${renderCtxMenu()}
   `
+}
+
+function renderContent(items: BookmarkData['items']) {
+  if (bootstrapping) {
+    return `
+      <div class="loadingPanel" aria-live="polite">
+        <div class="spinner" aria-hidden="true"></div>
+        <div class="loadingTitle">正在启动网站收藏</div>
+        <div class="loadingHint">窗口已就绪，收藏数据正在加载。</div>
+      </div>
+    `
+  }
+  if (!items.length) return `<div class="empty">${search ? '未找到匹配的收藏' : '暂无收藏'}</div>`
+  return `<div class="list">${items.map(item => {
+    const iconHtml = item.iconUrl ? `<img src="${esc(item.iconUrl)}" referrerpolicy="no-referrer" />` : '<span class="fallback">🌐</span>'
+    return `<div class="tile" data-role="tile" data-id="${esc(item.id)}" title="${esc(item.url)}"><div class="siteIcon">${iconHtml}</div><div class="tileName">${esc(item.title || item.url)}</div></div>`
+  }).join('')}</div>`
 }
 
 function renderDataDirPanel() {
@@ -283,6 +309,10 @@ function closeModal() {
 function handleInitialCommand(command: string | null | undefined) {
   const id = String(command || '').trim()
   if (!id) return
+  if (bootstrapping || bootstrapError) {
+    pendingLaunchCommand = id
+    return
+  }
 
   if (id === 'add' || id === 'new' || id === 'new-bookmark') {
     openModal('add')
@@ -291,6 +321,12 @@ function handleInitialCommand(command: string | null | undefined) {
   }
 
   showToast(`未知命令：${id}`)
+}
+
+function flushPendingLaunchCommand() {
+  const command = pendingLaunchCommand
+  pendingLaunchCommand = null
+  handleInitialCommand(command)
 }
 
 async function listenRuntimeCommands() {
@@ -319,10 +355,16 @@ document.addEventListener('click', async event => {
       if (!picked) return
       dataDirStatus = picked
       bootstrapError = ''
+      bootstrapping = true
+      render()
       await initBackground()
-      await reload()
+      data = await call<BookmarkData>('bookmarks.list', {})
+      bootstrapping = false
+      render()
+      flushPendingLaunchCommand()
       showToast('数据目录已更新')
     } catch (e: any) {
+      bootstrapping = false
       bootstrapError = String(e?.message || e || '选择数据目录失败')
       await refreshDataDirStatus()
       render()
@@ -452,23 +494,30 @@ document.addEventListener('change', event => {
 async function main() {
   const launchInfo = await invoke<{ standalone?: boolean }>('fw_launch_info').catch(() => ({ standalone: false }))
   standaloneLaunch = !!launchInfo?.standalone
+  await listenRuntimeCommands()
+  const command = await invoke<string | null>('fw_initial_command').catch(() => null)
+  if (command) pendingLaunchCommand = command
+  render()
+  await invoke('app_ready')
   await refreshDataDirStatus()
+  render()
   try {
     await initBackground()
-    await reload()
+    data = await call<BookmarkData>('bookmarks.list', {})
+    bootstrapping = false
+    bootstrapError = ''
+    render()
+    flushPendingLaunchCommand()
   } catch (error: any) {
+    bootstrapping = false
     bootstrapError = String(error?.message || error || '后台未就绪')
     await refreshDataDirStatus()
     render()
-    await invoke('app_ready')
     return
   }
-  await listenRuntimeCommands()
-  const command = await invoke<string | null>('fw_initial_command').catch(() => null)
-  handleInitialCommand(command)
-  await invoke('app_ready')
 }
 
-main().catch(error => {
+main().catch(async error => {
   document.body.textContent = String(error?.message || error || '加载失败')
+  await invoke('app_ready').catch(() => {})
 })

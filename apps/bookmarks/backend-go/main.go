@@ -103,9 +103,6 @@ func run() error {
 	}
 
 	svc := &service{dataFile: resolveDataFilePath()}
-	if _, err := svc.load(); err != nil {
-		return err
-	}
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
