@@ -54,6 +54,17 @@ pub(crate) fn pick_image_files(app: &tauri::AppHandle, title: &str) -> Option<Ve
     })
 }
 
+pub(crate) fn pick_executable_file(app: &tauri::AppHandle, title: &str) -> Option<PathBuf> {
+    with_main_window_dialog_focus(app, || {
+        let dialog = rfd::FileDialog::new().set_title(title);
+        #[cfg(target_os = "windows")]
+        let dialog = dialog.add_filter("Executable", &["exe"]);
+        #[cfg(not(target_os = "windows"))]
+        let dialog = dialog.add_filter("Application", &["app", "sh", "bin"]);
+        dialog.pick_file()
+    })
+}
+
 pub(crate) fn confirm(app: &tauri::AppHandle, title: &str, message: &str) -> bool {
     let result = with_main_window_dialog_focus(app, || {
         rfd::MessageDialog::new()

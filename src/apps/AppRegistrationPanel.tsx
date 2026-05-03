@@ -38,22 +38,26 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
   const [editingId, setEditingId] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [path, setPath] = useState('')
+  const [icon, setIcon] = useState('')
   const [hotkey, setHotkey] = useState('')
   const [hotkeyRecording, setHotkeyRecording] = useState(false)
   const [displayMode, setDisplayMode] = useState<AppDisplayMode>('default')
   const [commands, setCommands] = useState<RegisteredAppCommand[]>([])
   const [availableCommands, setAvailableCommands] = useState<RegisteredAppCommand[]>([])
   const [saving, setSaving] = useState(false)
+  const [pickingPath, setPickingPath] = useState(false)
 
   const openAdd = () => {
     setHotkeyRecording(false)
     setEditingId(null)
     setName('')
     setPath('')
+    setIcon('')
     setHotkey('')
     setDisplayMode('default')
     setCommands([])
     setAvailableCommands([])
+    setPickingPath(false)
     setEditOpen(true)
   }
 
@@ -62,11 +66,28 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
     setEditingId(app.id)
     setName(app.name)
     setPath(app.path)
+    setIcon(app.icon || '')
     setHotkey(app.hotkey ?? '')
     setDisplayMode(app.displayMode)
     setCommands(Array.isArray(app.commands) ? app.commands : [])
     setAvailableCommands(Array.isArray(app.availableCommands) ? app.availableCommands : [])
+    setPickingPath(false)
     setEditOpen(true)
+  }
+
+  const pickExecutablePath = async () => {
+    setPickingPath(true)
+    try {
+      const picked = await invoke<string | null>('host_dialog_pick_app_executable')
+      if (!picked) return
+      setPath(picked)
+      const nextIcon = await readAppIcon(picked)
+      if (nextIcon) setIcon(nextIcon)
+    } catch (error: any) {
+      await hostToast(String(error?.message || error || '选择应用文件失败'))
+    } finally {
+      setPickingPath(false)
+    }
   }
 
   const normalizedCommands = () => commands
@@ -82,17 +103,17 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
     try {
       const id = editingId ?? generateSafeId(n)
       const existingApp = editingId ? apps.find(app => app.id === editingId) : null
-      const icon = await readAppIcon(p) || existingApp?.icon || ''
+      const nextIcon = await readAppIcon(p) || icon || existingApp?.icon || ''
       const nextHotkey = hotkey.trim()
       const nextCommands = normalizedCommands()
 
       if (editingId) {
-        await onUpdate(editingId, { name: n, path: p, icon, hotkey: nextHotkey || null, displayMode, commands: nextCommands })
+        await onUpdate(editingId, { name: n, path: p, icon: nextIcon, hotkey: nextHotkey || null, displayMode, commands: nextCommands })
       } else {
         await onAdd({
           id,
           name: n,
-          icon,
+          icon: nextIcon,
           path: p,
           hotkey: nextHotkey || undefined,
           displayMode,
@@ -201,7 +222,12 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
         <DialogTitle>{editingId ? '编辑应用' : '添加应用'}</DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '8px !important' }} onKeyDown={onKeyDown}>
           <TextField label="名称" value={name} onChange={e => setName(e.target.value)} size="small" fullWidth />
-          <TextField label="可执行文件路径" value={path} onChange={e => setPath(e.target.value)} size="small" fullWidth placeholder="C:\Apps\my-app\app.exe" />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <TextField label="可执行文件路径" value={path} onChange={e => setPath(e.target.value)} size="small" fullWidth placeholder="C:\Apps\my-app\app.exe" />
+            <Button variant="outlined" onClick={() => void pickExecutablePath()} disabled={pickingPath || saving} sx={{ flexShrink: 0 }}>
+              {pickingPath ? '选择中…' : '选择文件'}
+            </Button>
+          </Box>
           <TextField
             label="快捷键（可选）"
             value={hotkey}

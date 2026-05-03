@@ -1245,6 +1245,12 @@ fn host_dialog_pick_dir(
 }
 
 #[tauri::command]
+fn host_dialog_pick_app_executable(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let picked = host_dialog::pick_executable_file(&app, "选择应用可执行文件");
+    Ok(picked.map(|path| path.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
 fn plugin_open_output_dir(app: tauri::AppHandle, plugin_id: String) -> Result<(), String> {
     if !is_safe_id(&plugin_id) {
         return Err("pluginId 不合法".to_string());
@@ -2654,6 +2660,7 @@ fn main() {
         host_dialog_pick_output_dir,
         host_dialog_pick_library_dir,
         host_dialog_pick_dir,
+        host_dialog_pick_app_executable,
         plugin_open_output_dir,
         plugin_open_dir,
         plugin_files_list_dir,
