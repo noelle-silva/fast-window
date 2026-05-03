@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -44,6 +44,14 @@ pub(crate) fn available_commands() -> Vec<AppCommandDescriptor> {
         id: "add",
         title: "新增收藏",
     }]
+}
+
+pub(crate) fn session_token() -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_millis(0))
+        .as_millis();
+    format!("bm-{}-{}", now, std::process::id())
 }
 
 pub(crate) fn start_control_server(

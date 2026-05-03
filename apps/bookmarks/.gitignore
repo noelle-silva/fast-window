@@ -1,5 +1,4 @@
-/node_modules/
-/dist/
-/backend/index.js
-/backend/index.js.map
-/src-tauri/target/
+backend/
+src-tauri/target/
+src-tauri/binaries/.sea/
+src-tauri/binaries/bookmarks-backend-*

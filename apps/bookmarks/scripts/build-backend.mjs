@@ -5,16 +5,17 @@ import * as esbuild from 'esbuild'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const appDir = path.resolve(__dirname, '..')
+const backendDir = path.join(appDir, 'backend')
 
-await fs.mkdir(path.join(appDir, 'backend'), { recursive: true })
+await fs.rm(backendDir, { recursive: true, force: true })
+await fs.mkdir(backendDir, { recursive: true })
 
 await esbuild.build({
   entryPoints: [path.join(appDir, 'src', 'backend', 'index.ts')],
-  outfile: path.join(appDir, 'backend', 'index.js'),
+  outfile: path.join(backendDir, 'index.cjs'),
   bundle: true,
   platform: 'node',
-  format: 'esm',
+  format: 'cjs',
   target: 'node18',
   sourcemap: true,
-  external: ['ws'],
 })

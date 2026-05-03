@@ -1,99 +1,27 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod fw_window;
+mod backend_sidecar;
 mod control_server;
 mod data_dir;
 mod single_instance;
 mod standalone_tray;
 
+use backend_sidecar::{start_backend, BackendEndpoint, BackendState};
 use control_server::{available_commands, start_control_server, ControlServerConfig};
 use data_dir::DataDirStatus;
 use fw_window::{
     app_ready, apply_fw_args, fw_initial_command, fw_launch_info, install_window_policy, parse_fw_args,
     report_available_commands, FwWindowState,
 };
-use serde::Serialize;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
 use tauri::Manager;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{Child, Command};
-use tokio::sync::Mutex as AsyncMutex;
-
-#[derive(Clone, Serialize)]
-struct BackendEndpoint {
-    url: String,
-    token: String,
-}
-
-#[derive(Default)]
-struct BackendState {
-    child: AsyncMutex<Option<Child>>,
-    endpoint: Mutex<Option<BackendEndpoint>>,
-    last_error: Mutex<Option<String>>,
-}
-
-impl Drop for BackendState {
-    fn drop(&mut self) {
-        if let Ok(mut child) = self.child.try_lock() {
-            if let Some(ch) = child.as_mut() {
-                let _ = ch.start_kill();
-            }
-        }
-    }
-}
-
-impl BackendState {
-    fn stop_sync(&self) {
-        if let Ok(mut child) = self.child.try_lock() {
-            if let Some(mut ch) = child.take() {
-                let _ = ch.start_kill();
-            }
-        }
-    }
-}
-
-fn now_ms() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_millis(0))
-        .as_millis()
-}
-
-fn token() -> String {
-    format!("bm-{}-{}", now_ms(), std::process::id())
-}
-
-fn resource_or_exe_dir(app: &tauri::AppHandle) -> PathBuf {
-    app.path()
-        .resource_dir()
-        .ok()
-        .or_else(|| {
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(Path::to_path_buf))
-        })
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
-}
-
-fn resolve_backend_entry(app: &tauri::AppHandle) -> PathBuf {
-    resource_or_exe_dir(app).join("backend").join("index.js")
-}
 
 #[tauri::command]
 async fn backend_endpoint(
     state: tauri::State<'_, Arc<BackendState>>,
 ) -> Result<BackendEndpoint, String> {
-    for _ in 0..100 {
-        if let Ok(g) = state.endpoint.lock() {
-            if let Some(ep) = g.clone() {
-                return Ok(ep);
-            }
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    Err("后台未就绪".to_string())
+    state.endpoint().await
 }
 
 #[tauri::command]
@@ -101,8 +29,7 @@ fn data_dir_status(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<BackendState>>,
 ) -> Result<DataDirStatus, String> {
-    let runtime_error = state.last_error.lock().ok().and_then(|value| value.clone());
-    Ok(data_dir::data_dir_status(&app, runtime_error))
+    Ok(data_dir::data_dir_status(&app, state.runtime_error()))
 }
 
 #[tauri::command]
@@ -115,76 +42,13 @@ async fn pick_data_dir(
     };
     data_dir::save_data_dir(&app, &path)?;
     state.stop_sync();
-    if let Ok(mut endpoint) = state.endpoint.lock() {
-        *endpoint = None;
-    }
-    if let Ok(mut error) = state.last_error.lock() {
-        *error = None;
-    }
+    state.clear_runtime_state();
     let state_inner = state.inner().clone();
     if let Err(error) = start_backend(app.clone(), state_inner).await {
-        if let Ok(mut last_error) = state.last_error.lock() {
-            *last_error = Some(error.clone());
-        }
+        state.set_runtime_error(error.clone());
         return Err(error);
     }
     Ok(Some(data_dir::data_dir_status(&app, None)))
-}
-
-async fn start_backend(app: tauri::AppHandle, state: Arc<BackendState>) -> Result<(), String> {
-    let session_token = token();
-    let data_dir = data_dir::resolve_data_dir(&app);
-    data_dir::ensure_writable_dir(&data_dir)?;
-
-    let backend_js = resolve_backend_entry(&app);
-
-    let mut cmd = Command::new("node");
-    cmd.arg(backend_js);
-    cmd.env("FW_APP_SESSION_TOKEN", &session_token);
-    cmd.env("FW_APP_DATA_DIR", data_dir);
-    cmd.stdin(std::process::Stdio::null());
-    cmd.stdout(std::process::Stdio::piped());
-    cmd.stderr(std::process::Stdio::inherit());
-    cmd.kill_on_drop(true);
-
-    let mut child = cmd.spawn().map_err(|e| format!("启动后台失败: {e}"))?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "后台 stdout 不可用".to_string())?;
-    {
-        let mut g = state.child.lock().await;
-        *g = Some(child);
-    }
-
-    let state_for_stdout = state.clone();
-    tauri::async_runtime::spawn(async move {
-        let mut lines = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
-                continue;
-            };
-            if value.get("type").and_then(|v| v.as_str()) != Some("ready") {
-                continue;
-            }
-            let Some(url) = value
-                .get("ipc")
-                .and_then(|v| v.get("url"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-            else {
-                continue;
-            };
-            if let Ok(mut g) = state_for_stdout.endpoint.lock() {
-                *g = Some(BackendEndpoint {
-                    url,
-                    token: session_token.clone(),
-                });
-            }
-        }
-    });
-
-    Ok(())
 }
 
 fn main() {
@@ -226,7 +90,7 @@ fn main() {
                 ControlServerConfig {
                     name: "fw-app-control",
                     bind_addr: "127.0.0.1:0",
-                    token: token(),
+                    token: control_server::session_token(),
                     announce_to_stdout: true,
                 },
             )?;
@@ -240,9 +104,7 @@ fn main() {
             let state = backend_state_setup.clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = start_backend(handle, state).await {
-                    if let Ok(mut error) = backend_state_setup.last_error.lock() {
-                        *error = Some(e.clone());
-                    }
+                    backend_state_setup.set_runtime_error(e.clone());
                     eprintln!("[bookmarks-app] {e}");
                 }
             });
