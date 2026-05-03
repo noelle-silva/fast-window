@@ -9,6 +9,7 @@ use tauri::{
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 use crate::app_launcher::AppLauncherState;
+use crate::app_autostart::schedule_registered_app_auto_start;
 use crate::app_shortcuts::{refresh_registered_app_shortcuts, RegisteredAppShortcutState};
 use crate::browser_stack::{
     browser_stack_bar_height_px, browser_stack_hide, browser_stack_hide_to_main,
@@ -278,6 +279,7 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
             }
 
             let _ = refresh_registered_app_shortcuts(app.handle());
+            schedule_registered_app_auto_start(app.handle());
 
             Ok(())
         })

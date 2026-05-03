@@ -15,6 +15,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 mod app;
 mod app_launcher;
+mod app_autostart;
 mod app_registry;
 mod app_shortcuts;
 mod browser_stack;

@@ -1,11 +1,12 @@
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
-use serde::Deserialize;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
-use crate::app_launcher::{app_launch_inner, AppLauncherState};
+use crate::app_launcher::{
+    app_launch_inner, build_registered_app_launch_args, AppLauncherState, RegisteredAppLaunchConfig,
+};
 
 #[derive(Default)]
 pub(crate) struct RegisteredAppShortcutState {
@@ -22,23 +23,6 @@ struct RegisteredAppShortcutBinding {
 struct RegisteredAppShortcutTarget {
     app_id: String,
     shortcut: Shortcut,
-}
-
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RegisteredAppLaunchConfig {
-    id: String,
-    path: String,
-    #[serde(default)]
-    display_mode: Option<String>,
-    #[serde(default)]
-    window_width: Option<u32>,
-    #[serde(default)]
-    window_height: Option<u32>,
-    #[serde(default)]
-    window_x: Option<i32>,
-    #[serde(default)]
-    window_y: Option<i32>,
 }
 
 fn shortcut_targets_from_records(
@@ -71,37 +55,6 @@ fn shortcut_targets_from_records(
     Ok(targets)
 }
 
-fn build_launch_args(app: &RegisteredAppLaunchConfig) -> Vec<String> {
-    let mut args = vec!["--fw-launched".to_string(), "--fw-action".to_string(), "toggle".to_string()];
-
-    let mode = app
-        .display_mode
-        .as_deref()
-        .filter(|mode| matches!(*mode, "default" | "window" | "top"))
-        .unwrap_or("default");
-    args.push("--fw-mode".to_string());
-    args.push(mode.to_string());
-
-    if let Some(width) = app.window_width {
-        args.push("--fw-width".to_string());
-        args.push(width.to_string());
-    }
-    if let Some(height) = app.window_height {
-        args.push("--fw-height".to_string());
-        args.push(height.to_string());
-    }
-    if let Some(x) = app.window_x {
-        args.push("--fw-x".to_string());
-        args.push(x.to_string());
-    }
-    if let Some(y) = app.window_y {
-        args.push("--fw-y".to_string());
-        args.push(y.to_string());
-    }
-
-    args
-}
-
 async fn activate_registered_app_by_id(app: AppHandle, app_id: String) -> Result<(), String> {
     let Some(value) = crate::app_registry::load_registered_app_record(&app, &app_id)? else {
         return Err(format!("注册应用不存在: {app_id}"));
@@ -114,7 +67,7 @@ async fn activate_registered_app_by_id(app: AppHandle, app_id: String) -> Result
         launcher,
         config.id.clone(),
         config.path.clone(),
-        build_launch_args(&config),
+        build_registered_app_launch_args(&config, "toggle"),
     )
     .await
 }

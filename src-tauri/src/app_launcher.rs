@@ -16,6 +16,25 @@ pub(crate) struct AppLauncherState {
     processes: Mutex<HashMap<String, Arc<AppProcessEntry>>>,
 }
 
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RegisteredAppLaunchConfig {
+    pub(crate) id: String,
+    pub(crate) path: String,
+    #[serde(default)]
+    pub(crate) display_mode: Option<String>,
+    #[serde(default)]
+    pub(crate) window_width: Option<u32>,
+    #[serde(default)]
+    pub(crate) window_height: Option<u32>,
+    #[serde(default)]
+    pub(crate) window_x: Option<i32>,
+    #[serde(default)]
+    pub(crate) window_y: Option<i32>,
+    #[serde(default)]
+    pub(crate) auto_start: bool,
+}
+
 struct AppProcessEntry {
     pid: u32,
     started_at_ms: u64,
@@ -87,6 +106,48 @@ fn launch_command(args: &[String]) -> Option<String> {
         i += 1;
     }
     None
+}
+
+pub(crate) fn build_registered_app_launch_args(
+    app: &RegisteredAppLaunchConfig,
+    action: &str,
+) -> Vec<String> {
+    let mut args = vec![
+        "--fw-launched".to_string(),
+        "--fw-action".to_string(),
+        if matches!(action, "toggle" | "show" | "hide" | "close") {
+            action.to_string()
+        } else {
+            "show".to_string()
+        },
+    ];
+
+    let mode = app
+        .display_mode
+        .as_deref()
+        .filter(|mode| matches!(*mode, "default" | "window" | "top"))
+        .unwrap_or("default");
+    args.push("--fw-mode".to_string());
+    args.push(mode.to_string());
+
+    if let Some(width) = app.window_width {
+        args.push("--fw-width".to_string());
+        args.push(width.to_string());
+    }
+    if let Some(height) = app.window_height {
+        args.push("--fw-height".to_string());
+        args.push(height.to_string());
+    }
+    if let Some(x) = app.window_x {
+        args.push("--fw-x".to_string());
+        args.push(x.to_string());
+    }
+    if let Some(y) = app.window_y {
+        args.push("--fw-y".to_string());
+        args.push(y.to_string());
+    }
+
+    args
 }
 
 fn action_for_running_instance(action: &str) -> &str {
