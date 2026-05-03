@@ -2,7 +2,10 @@
 
 mod fw_window;
 
-use fw_window::{apply_control_action, apply_fw_args, app_ready, install_focus_policy, parse_fw_args, FwWindowState};
+use fw_window::{
+    app_ready, apply_control_action, apply_fw_args, install_window_policy, parse_fw_args,
+    FwWindowState,
+};
 use serde::Serialize;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -60,9 +63,12 @@ fn write_json_line(value: serde_json::Value) {
     let _ = out.flush();
 }
 
-fn start_control_server(app: tauri::AppHandle, window_state: Arc<FwWindowState>) -> Result<ControlEndpoint, String> {
-    let listener = TcpListener::bind(("127.0.0.1", 0))
-        .map_err(|e| format!("启动控制通道失败: {e}"))?;
+fn start_control_server(
+    app: tauri::AppHandle,
+    window_state: Arc<FwWindowState>,
+) -> Result<ControlEndpoint, String> {
+    let listener =
+        TcpListener::bind(("127.0.0.1", 0)).map_err(|e| format!("启动控制通道失败: {e}"))?;
     let port = listener
         .local_addr()
         .map_err(|e| format!("读取控制通道端口失败: {e}"))?
@@ -89,7 +95,9 @@ fn start_control_server(app: tauri::AppHandle, window_state: Arc<FwWindowState>)
         .spawn(move || {
             for stream in listener.incoming() {
                 match stream {
-                    Ok(stream) => handle_control_connection(stream, &app, &window_state, &expected_token),
+                    Ok(stream) => {
+                        handle_control_connection(stream, &app, &window_state, &expected_token)
+                    }
                     Err(error) => {
                         eprintln!("[bookmarks-app] control connection failed: {error}");
                         break;
@@ -110,7 +118,10 @@ struct ControlRequest {
 }
 
 fn find_header_end(buffer: &[u8]) -> Option<usize> {
-    buffer.windows(4).position(|w| w == b"\r\n\r\n").map(|i| i + 4)
+    buffer
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map(|i| i + 4)
 }
 
 fn read_control_request(stream: &mut TcpStream) -> Result<ControlRequest, String> {
@@ -119,7 +130,9 @@ fn read_control_request(stream: &mut TcpStream) -> Result<ControlRequest, String
     let mut buffer = Vec::new();
     let mut chunk = [0u8; 1024];
     let header_end = loop {
-        let n = stream.read(&mut chunk).map_err(|e| format!("读取控制请求失败: {e}"))?;
+        let n = stream
+            .read(&mut chunk)
+            .map_err(|e| format!("读取控制请求失败: {e}"))?;
         if n == 0 {
             return Err("控制请求为空".to_string());
         }
@@ -142,7 +155,9 @@ fn read_control_request(stream: &mut TcpStream) -> Result<ControlRequest, String
     let mut content_length = 0usize;
     let mut token = String::new();
     for line in lines {
-        let Some((key, value)) = line.split_once(':') else { continue };
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
         let key = key.trim();
         let value = value.trim();
         if key.eq_ignore_ascii_case("content-length") {
@@ -155,7 +170,9 @@ fn read_control_request(stream: &mut TcpStream) -> Result<ControlRequest, String
 
     let mut body = buffer[header_end..].to_vec();
     while body.len() < content_length {
-        let n = stream.read(&mut chunk).map_err(|e| format!("读取控制请求体失败: {e}"))?;
+        let n = stream
+            .read(&mut chunk)
+            .map_err(|e| format!("读取控制请求体失败: {e}"))?;
         if n == 0 {
             break;
         }
@@ -163,7 +180,12 @@ fn read_control_request(stream: &mut TcpStream) -> Result<ControlRequest, String
     }
     body.truncate(content_length);
 
-    Ok(ControlRequest { method, path, token, body })
+    Ok(ControlRequest {
+        method,
+        path,
+        token,
+        body,
+    })
 }
 
 fn write_control_response(stream: &mut TcpStream, status: u16, body: serde_json::Value) {
@@ -185,29 +207,51 @@ fn write_control_response(stream: &mut TcpStream, status: u16, body: serde_json:
     let _ = stream.flush();
 }
 
-fn handle_control_connection(mut stream: TcpStream, app: &tauri::AppHandle, window_state: &FwWindowState, expected_token: &str) {
+fn handle_control_connection(
+    mut stream: TcpStream,
+    app: &tauri::AppHandle,
+    window_state: &FwWindowState,
+    expected_token: &str,
+) {
     let request = match read_control_request(&mut stream) {
         Ok(request) => request,
         Err(error) => {
-            write_control_response(&mut stream, 400, serde_json::json!({ "ok": false, "error": error }));
+            write_control_response(
+                &mut stream,
+                400,
+                serde_json::json!({ "ok": false, "error": error }),
+            );
             return;
         }
     };
 
     if request.path != "/control" {
-        write_control_response(&mut stream, 404, serde_json::json!({ "ok": false, "error": "控制入口不存在" }));
+        write_control_response(
+            &mut stream,
+            404,
+            serde_json::json!({ "ok": false, "error": "控制入口不存在" }),
+        );
         return;
     }
     if request.method != "POST" {
-        write_control_response(&mut stream, 405, serde_json::json!({ "ok": false, "error": "控制入口只接受 POST" }));
+        write_control_response(
+            &mut stream,
+            405,
+            serde_json::json!({ "ok": false, "error": "控制入口只接受 POST" }),
+        );
         return;
     }
     if request.token != expected_token {
-        write_control_response(&mut stream, 401, serde_json::json!({ "ok": false, "error": "控制令牌无效" }));
+        write_control_response(
+            &mut stream,
+            401,
+            serde_json::json!({ "ok": false, "error": "控制令牌无效" }),
+        );
         return;
     }
 
-    let value = serde_json::from_slice::<serde_json::Value>(&request.body).unwrap_or_else(|_| serde_json::json!({}));
+    let value = serde_json::from_slice::<serde_json::Value>(&request.body)
+        .unwrap_or_else(|_| serde_json::json!({}));
     let action = value
         .get("action")
         .and_then(|v| v.as_str())
@@ -215,7 +259,11 @@ fn handle_control_connection(mut stream: TcpStream, app: &tauri::AppHandle, wind
 
     match apply_control_action(app, window_state, action) {
         Ok(()) => write_control_response(&mut stream, 200, serde_json::json!({ "ok": true })),
-        Err(error) => write_control_response(&mut stream, 400, serde_json::json!({ "ok": false, "error": error })),
+        Err(error) => write_control_response(
+            &mut stream,
+            400,
+            serde_json::json!({ "ok": false, "error": error }),
+        ),
     }
 }
 
@@ -227,7 +275,11 @@ fn resource_or_exe_dir(app: &tauri::AppHandle) -> PathBuf {
     app.path()
         .resource_dir()
         .ok()
-        .or_else(|| std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf)))
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(Path::to_path_buf))
+        })
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
 }
 
@@ -236,7 +288,9 @@ fn resolve_backend_entry(app: &tauri::AppHandle) -> PathBuf {
 }
 
 #[tauri::command]
-async fn backend_endpoint(state: tauri::State<'_, Arc<BackendState>>) -> Result<BackendEndpoint, String> {
+async fn backend_endpoint(
+    state: tauri::State<'_, Arc<BackendState>>,
+) -> Result<BackendEndpoint, String> {
     for _ in 0..100 {
         if let Ok(g) = state.endpoint.lock() {
             if let Some(ep) = g.clone() {
@@ -265,7 +319,10 @@ async fn start_backend(app: tauri::AppHandle, state: Arc<BackendState>) -> Resul
     cmd.kill_on_drop(true);
 
     let mut child = cmd.spawn().map_err(|e| format!("启动后台失败: {e}"))?;
-    let stdout = child.stdout.take().ok_or_else(|| "后台 stdout 不可用".to_string())?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "后台 stdout 不可用".to_string())?;
     {
         let mut g = state.child.lock().await;
         *g = Some(child);
@@ -275,7 +332,9 @@ async fn start_backend(app: tauri::AppHandle, state: Arc<BackendState>) -> Resul
     tauri::async_runtime::spawn(async move {
         let mut lines = BufReader::new(stdout).lines();
         while let Ok(Some(line)) = lines.next_line().await {
-            let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
+                continue;
+            };
             if value.get("type").and_then(|v| v.as_str()) != Some("ready") {
                 continue;
             }
@@ -283,9 +342,15 @@ async fn start_backend(app: tauri::AppHandle, state: Arc<BackendState>) -> Resul
                 .get("ipc")
                 .and_then(|v| v.get("url"))
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_string()) else { continue };
+                .map(|s| s.to_string())
+            else {
+                continue;
+            };
             if let Ok(mut g) = state_for_stdout.endpoint.lock() {
-                *g = Some(BackendEndpoint { url, token: session_token.clone() });
+                *g = Some(BackendEndpoint {
+                    url,
+                    token: session_token.clone(),
+                });
             }
         }
     });
@@ -306,8 +371,10 @@ fn main() {
         .manage(window_state)
         .invoke_handler(tauri::generate_handler![backend_endpoint, app_ready])
         .setup(move |app| {
-            let window = app.get_webview_window("main").expect("main window not found");
-            install_focus_policy(&window, &fw_args, window_state_setup.clone());
+            let window = app
+                .get_webview_window("main")
+                .expect("main window not found");
+            install_window_policy(&window, &fw_args, window_state_setup.clone());
             apply_fw_args(&window, &fw_args, &window_state_setup);
             start_control_server(app.handle().clone(), window_state_setup.clone())?;
 
