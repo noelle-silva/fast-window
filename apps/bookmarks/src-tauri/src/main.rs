@@ -41,6 +41,16 @@ impl Drop for BackendState {
     }
 }
 
+impl BackendState {
+    fn stop_sync(&self) {
+        if let Ok(mut child) = self.child.try_lock() {
+            if let Some(mut ch) = child.take() {
+                let _ = ch.start_kill();
+            }
+        }
+    }
+}
+
 fn now_ms() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -162,7 +172,13 @@ fn main() {
             let window = app
                 .get_webview_window("main")
                 .expect("main window not found");
-            standalone_tray::install_standalone_tray(app, &fw_args, window_state_setup.clone())?;
+            let backend_for_tray_quit = backend_state_setup.clone();
+            standalone_tray::install_standalone_tray(
+                app,
+                &fw_args,
+                window_state_setup.clone(),
+                Arc::new(move || backend_for_tray_quit.stop_sync()),
+            )?;
             install_window_policy(&window, &fw_args, window_state_setup.clone());
             apply_fw_args(&window, &fw_args, &window_state_setup);
             start_control_server(

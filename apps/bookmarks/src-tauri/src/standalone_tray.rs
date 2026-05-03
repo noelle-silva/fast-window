@@ -12,6 +12,7 @@ pub(crate) fn install_standalone_tray(
     app: &tauri::App,
     args: &FwArgs,
     window_state: Arc<FwWindowState>,
+    on_quit: Arc<dyn Fn() + Send + Sync>,
 ) -> tauri::Result<()> {
     if args.launched {
         return Ok(());
@@ -36,9 +37,9 @@ pub(crate) fn install_standalone_tray(
             "quit" => {
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = close_window(&window, &state_for_menu);
-                } else {
-                    app.exit(0);
                 }
+                on_quit();
+                app.exit(0);
             }
             _ => {}
         })

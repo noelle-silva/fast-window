@@ -269,7 +269,7 @@ document.addEventListener('click', async event => {
   if (act === 'back') return getCurrentWindow().hide()
   if (act === 'winMinimize') return getCurrentWindow().minimize()
   if (act === 'winToggleMaximize') return getCurrentWindow().toggleMaximize()
-  if (act === 'winClose') return getCurrentWindow().close()
+  if (act === 'winClose') return getCurrentWindow().hide()
   if (act === 'add') return openModal('add')
   if (act === 'groups') return openModal('groups')
   if (act === 'closeAdd' || act === 'closeGroups') return closeModal()
