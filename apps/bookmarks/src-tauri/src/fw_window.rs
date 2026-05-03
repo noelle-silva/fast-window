@@ -3,13 +3,21 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tauri::{Manager, PhysicalPosition, PhysicalSize, WebviewWindow, WindowEvent};
+use serde::Serialize;
+use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow, WindowEvent};
 
 const FOCUS_HIDE_DELAY_MS: u64 = 120;
 const BOUNDS_REPORT_DELAY_MS: u64 = 350;
 const HIDDEN_POSITION_THRESHOLD: i32 = -9000;
 const MIN_WINDOW_WIDTH: u32 = 200;
 const MIN_WINDOW_HEIGHT: u32 = 150;
+const RUNTIME_COMMAND_EVENT: &str = "fw-app-command";
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RuntimeCommandPayload {
+    command: String,
+}
 
 pub(crate) struct FwArgs {
     pub(crate) launched: bool,
@@ -185,6 +193,7 @@ pub(crate) fn apply_control_action(
     app: &tauri::AppHandle,
     state: &FwWindowState,
     action: &str,
+    command: Option<&str>,
 ) -> Result<(), String> {
     let window = app
         .get_webview_window("main")
@@ -193,6 +202,7 @@ pub(crate) fn apply_control_action(
     match action {
         "show" => {
             show_and_focus(&window, state);
+            emit_runtime_command(&window, command)?;
             Ok(())
         }
         "hide" => {
@@ -205,12 +215,27 @@ pub(crate) fn apply_control_action(
                 Ok(())
             } else {
                 show_and_focus(&window, state);
+                emit_runtime_command(&window, command)?;
                 Ok(())
             }
         }
         "close" => close_window(&window, state).map_err(|e| format!("关闭窗口失败: {e}")),
         _ => Err(format!("未知窗口指令: {action}")),
     }
+}
+
+fn emit_runtime_command(window: &WebviewWindow, command: Option<&str>) -> Result<(), String> {
+    let Some(command) = command.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(());
+    };
+    window
+        .emit(
+            RUNTIME_COMMAND_EVENT,
+            RuntimeCommandPayload {
+                command: command.to_string(),
+            },
+        )
+        .map_err(|e| format!("投递运行中命令失败: {e}"))
 }
 
 #[tauri::command]

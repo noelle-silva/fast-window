@@ -256,8 +256,9 @@ fn handle_control_connection(
         .get("action")
         .and_then(|v| v.as_str())
         .unwrap_or("show");
+    let command = value.get("command").and_then(|v| v.as_str());
 
-    match apply_control_action(app, window_state, action) {
+    match apply_control_action(app, window_state, action, command) {
         Ok(()) => write_control_response(&mut stream, 200, serde_json::json!({ "ok": true })),
         Err(error) => write_control_response(
             &mut stream,

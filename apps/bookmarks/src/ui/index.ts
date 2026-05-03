@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { showToast } from '../fw-app-sdk/windowPolicy'
 import { createDirectBackgroundClient, type DirectBackgroundClient } from './directClient'
 
@@ -232,6 +233,12 @@ function handleInitialCommand(command: string | null | undefined) {
   showToast(`未知命令：${id}`)
 }
 
+async function listenRuntimeCommands() {
+  await listen<{ command?: string }>('fw-app-command', event => {
+    handleInitialCommand(event.payload?.command)
+  })
+}
+
 // -- events ------------------------------------------------------------------
 
 document.addEventListener('click', async event => {
@@ -366,6 +373,7 @@ document.addEventListener('change', event => {
 async function main() {
   await initBackground()
   await reload()
+  await listenRuntimeCommands()
   const command = await invoke<string | null>('fw_initial_command').catch(() => null)
   handleInitialCommand(command)
   await invoke('app_ready')
