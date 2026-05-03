@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Box, Typography, IconButton, Dialog, DialogTitle, DialogContent,
   Switch, Button, CircularProgress,
@@ -42,23 +42,34 @@ export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedde
   const [busyId, setBusyId] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
 
-  const refresh = async () => {
-    if (apps.length === 0) return
-    setLoading(true)
+  const refreshStatuses = useCallback(async (options?: { silent?: boolean }) => {
+    if (apps.length === 0) {
+      setStatuses({})
+      return
+    }
+    if (!options?.silent) setLoading(true)
     try {
       const result = await getAppStatuses(apps.map(a => a.id))
       setStatuses(result)
+      setNow(Date.now())
     } catch (e) {
       console.warn('[app] status refresh failed:', e)
     } finally {
-      setLoading(false)
+      if (!options?.silent) setLoading(false)
     }
-  }
+  }, [apps])
 
   useEffect(() => {
-    refresh()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apps.length])
+    void refreshStatuses()
+  }, [refreshStatuses])
+
+  useEffect(() => {
+    if (apps.length === 0) return
+    const timer = window.setInterval(() => {
+      void refreshStatuses({ silent: true })
+    }, 5_000)
+    return () => window.clearInterval(timer)
+  }, [apps.length, refreshStatuses])
 
   useEffect(() => {
     const hasRunningApp = Object.values(statuses).some(status => status.running && status.startedAt)
@@ -76,7 +87,7 @@ export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedde
     } catch (e) {
       console.error('[app] launch failed:', e)
     }
-    setTimeout(refresh, 500)
+    window.setTimeout(() => void refreshStatuses(), 500)
     setBusyId(null)
   }
 
@@ -87,7 +98,7 @@ export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedde
     } catch (e) {
       console.error('[app] stop failed:', e)
     }
-    setTimeout(refresh, 500)
+    window.setTimeout(() => void refreshStatuses(), 500)
     setBusyId(null)
   }
 
@@ -106,7 +117,7 @@ export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedde
               查看 v5 独立应用运行状态，启动、唤醒、停止或设置 FW 启动时自启。
             </Typography>
           </Box>
-          <Button size="small" variant="outlined" onClick={refresh} disabled={loading || apps.length === 0} sx={{ flexShrink: 0 }}>
+          <Button size="small" variant="outlined" onClick={() => void refreshStatuses()} disabled={loading || apps.length === 0} sx={{ flexShrink: 0 }}>
             刷新
           </Button>
         </Box>
