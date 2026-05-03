@@ -13,6 +13,9 @@ use tokio::sync::Mutex as AsyncMutex;
 
 use crate::data_dir;
 
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Clone, Serialize)]
 pub(crate) struct BackendEndpoint {
     pub(crate) url: String,
@@ -89,6 +92,7 @@ pub(crate) async fn start_backend(
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::inherit());
     cmd.kill_on_drop(true);
+    hide_backend_console(&mut cmd);
 
     let mut child = cmd.spawn().map_err(|e| format!("启动后台失败: {e}"))?;
     let stdout = child
@@ -128,6 +132,18 @@ pub(crate) async fn start_backend(
     });
 
     Ok(())
+}
+
+fn hide_backend_console(cmd: &mut Command) {
+    #[cfg(all(target_os = "windows", not(debug_assertions)))]
+    {
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    #[cfg(not(all(target_os = "windows", not(debug_assertions))))]
+    {
+        let _ = cmd;
+    }
 }
 
 fn backend_command(app: &tauri::AppHandle) -> Result<Command, String> {
