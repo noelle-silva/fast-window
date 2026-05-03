@@ -21,7 +21,7 @@ base64 = "0.22"
 rfd = "0.14"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 open = "5"
-windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_UI_Shell"] }
+windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
 sha2 = "0.10"
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
 rusqlite = { version = "0.31", features = ["bundled", "hooks"] }

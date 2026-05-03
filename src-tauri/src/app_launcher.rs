@@ -77,6 +77,24 @@ fn action_for_running_instance(action: &str) -> &str {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn allow_foreground_for_process(pid: u32) {
+    if pid == 0 {
+        return;
+    }
+
+    unsafe {
+        let _ = windows::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow(pid);
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn allow_foreground_for_process(_pid: u32) {}
+
+fn should_allow_foreground(action: &str) -> bool {
+    matches!(action, "show" | "toggle")
+}
+
 async fn wait_control_endpoint(entry: &Arc<AppProcessEntry>) -> Result<AppControlEndpoint, String> {
     for _ in 0..60 {
         if let Some(endpoint) = entry
@@ -209,6 +227,9 @@ pub(crate) async fn app_launch(
 
     if let Some(entry) = running_entry {
         let action = action_for_running_instance(&launch_action(&args)).to_string();
+        if should_allow_foreground(&action) {
+            allow_foreground_for_process(entry.pid);
+        }
         return send_control_action_async(entry, action).await;
     }
 
@@ -222,6 +243,9 @@ pub(crate) async fn app_launch(
         .spawn()
         .map_err(|e| format!("启动应用失败: {e}"))?;
     let pid = child.id().unwrap_or(0);
+    if should_allow_foreground(&launch_action(&args)) {
+        allow_foreground_for_process(pid);
+    }
     let started_at_ms = now_ms();
     let stdout = child.stdout.take();
 
