@@ -23,6 +23,13 @@ pub(crate) struct AppWindowBounds {
     pub(crate) height: u32,
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AppReportedCommand {
+    pub(crate) id: String,
+    pub(crate) title: String,
+}
+
 impl AppWindowBounds {
     pub(crate) fn from_value(value: &Value) -> Option<Self> {
         let x = i32::try_from(value.get("x")?.as_i64()?).ok()?;
@@ -164,36 +171,64 @@ fn validate_app_hotkeys(apps: &[Value]) -> Result<(), String> {
 fn validate_app_commands(apps: &[Value]) -> Result<(), String> {
     for item in apps {
         let app_id = app_id_from_value(item).unwrap_or("");
-        let Some(commands) = item.get("commands").and_then(Value::as_array) else {
-            continue;
-        };
+        validate_command_array(app_id, item.get("commands"), "命令")?;
+        validate_command_array(app_id, item.get("availableCommands"), "可用命令")?;
+    }
+    Ok(())
+}
 
-        let mut seen: HashMap<String, ()> = HashMap::new();
-        for command in commands {
-            let command_id = command
-                .get("id")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|id| !id.is_empty())
-                .ok_or_else(|| format!("{app_id} 的命令 ID 不能为空"))?;
-            if !crate::is_safe_id(command_id) {
-                return Err(format!("{app_id} 的命令 ID 不合法: {command_id}"));
-            }
-            let title = command
-                .get("title")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|title| !title.is_empty())
-                .ok_or_else(|| format!("{app_id} 的命令名称不能为空"))?;
-            if seen.insert(command_id.to_string(), ()).is_some() {
-                return Err(format!("{app_id} 的命令 ID 重复: {command_id}"));
-            }
-            if title.len() > 80 {
-                return Err(format!("{app_id} 的命令名称过长: {title}"));
-            }
+fn validate_command_array(app_id: &str, value: Option<&Value>, label: &str) -> Result<(), String> {
+    let Some(commands) = value.and_then(Value::as_array) else {
+        return Ok(());
+    };
+
+    let mut seen: HashMap<String, ()> = HashMap::new();
+    for command in commands {
+        let command_id = command
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .ok_or_else(|| format!("{app_id} 的{label} ID 不能为空"))?;
+        if !crate::is_safe_id(command_id) {
+            return Err(format!("{app_id} 的{label} ID 不合法: {command_id}"));
+        }
+        let title = command
+            .get("title")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+            .ok_or_else(|| format!("{app_id} 的{label}名称不能为空"))?;
+        if seen.insert(command_id.to_string(), ()).is_some() {
+            return Err(format!("{app_id} 的{label} ID 重复: {command_id}"));
+        }
+        if title.len() > 80 {
+            return Err(format!("{app_id} 的{label}名称过长: {title}"));
         }
     }
     Ok(())
+}
+
+fn command_to_value(command: AppReportedCommand) -> Value {
+    serde_json::json!({ "id": command.id, "title": command.title })
+}
+
+fn normalize_reported_commands(commands: Vec<AppReportedCommand>) -> Vec<Value> {
+    let mut seen: HashMap<String, ()> = HashMap::new();
+    commands
+        .into_iter()
+        .filter_map(|command| {
+            let id = command.id.trim().to_string();
+            let title = command.title.trim().to_string();
+            if !crate::is_safe_id(&id) || title.is_empty() || title.len() > 80 {
+                return None;
+            }
+            if seen.insert(id.clone(), ()).is_some() {
+                return None;
+            }
+            Some(command_to_value(AppReportedCommand { id, title }))
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -354,5 +389,54 @@ pub(crate) fn persist_app_window_bounds(
         },
     );
 
+    Ok(true)
+}
+
+pub(crate) fn persist_app_available_commands(
+    app: &AppHandle,
+    app_id: &str,
+    commands: Vec<AppReportedCommand>,
+) -> Result<bool, String> {
+    if !crate::is_safe_id(app_id) {
+        return Err("appId 不合法".to_string());
+    }
+
+    let commands = normalize_reported_commands(commands);
+    if commands.is_empty() {
+        return Ok(false);
+    }
+
+    let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+
+    let mut registry = load_registry_value(app)?;
+    let Value::Array(items) = &mut registry else {
+        return Ok(false);
+    };
+
+    let mut changed = false;
+    for item in items {
+        let Some(app_record) = item.as_object_mut() else {
+            continue;
+        };
+        if app_record.get("id").and_then(Value::as_str) != Some(app_id) {
+            continue;
+        }
+        let next = Value::Array(commands.clone());
+        if app_record.get("availableCommands") == Some(&next) {
+            return Ok(false);
+        }
+        app_record.insert("availableCommands".to_string(), next);
+        changed = true;
+        break;
+    }
+
+    if !changed {
+        return Ok(false);
+    }
+
+    let path = crate::storage_value_path(app, crate::APP_STORAGE_ID, REGISTRY_KEY)?;
+    crate::write_json_value(&path, &registry)?;
+    emit_registry_changed(app);
     Ok(true)
 }

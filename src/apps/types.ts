@@ -16,6 +16,7 @@ export interface RegisteredApp {
   hotkey?: string
   displayMode: AppDisplayMode
   commands: RegisteredAppCommand[]
+  availableCommands?: RegisteredAppCommand[]
   autoStart: boolean
   windowWidth?: number
   windowHeight?: number

@@ -1,5 +1,5 @@
 use base64::Engine as _;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -33,6 +33,7 @@ struct AppControlEndpoint {
 enum AppRuntimeMessage {
     ControlReady(AppControlEndpoint),
     WindowBounds(crate::app_registry::AppWindowBounds),
+    AvailableCommands(Vec<crate::app_registry::AppReportedCommand>),
     Ignore,
 }
 
@@ -149,7 +150,7 @@ fn send_control_action(
     endpoint: AppControlEndpoint,
     action: String,
     command: Option<String>,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let url = endpoint.url.trim().trim_end_matches('/');
     let Some(addr) = url.strip_prefix("http://") else {
         return Err("应用控制地址不支持".to_string());
@@ -173,22 +174,39 @@ fn send_control_action(
         .map_err(|e| format!("发送应用控制指令失败: {e}"))?;
     let response = read_http_response(&mut stream)?;
     if response.starts_with("HTTP/1.1 200") {
-        Ok(())
+        Ok(response)
     } else {
         Err(format!("应用控制指令失败: {response}"))
     }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AppControlResponse {
+    #[serde(default)]
+    available_commands: Vec<crate::app_registry::AppReportedCommand>,
+}
+
+fn available_commands_from_response(response: &str) -> Vec<crate::app_registry::AppReportedCommand> {
+    let Some((_, body)) = response.split_once("\r\n\r\n") else {
+        return Vec::new();
+    };
+    serde_json::from_str::<AppControlResponse>(body)
+        .map(|value| value.available_commands)
+        .unwrap_or_default()
 }
 
 async fn send_control_action_async(
     entry: Arc<AppProcessEntry>,
     action: String,
     command: Option<String>,
-) -> Result<(), String> {
+) -> Result<Vec<crate::app_registry::AppReportedCommand>, String> {
     let endpoint = wait_control_endpoint(&entry).await?;
 
-    tokio::task::spawn_blocking(move || send_control_action(endpoint, action, command))
+    let response = tokio::task::spawn_blocking(move || send_control_action(endpoint, action, command))
         .await
-        .map_err(|e| format!("应用控制任务失败: {e}"))?
+        .map_err(|e| format!("应用控制任务失败: {e}"))??;
+    Ok(available_commands_from_response(&response))
 }
 
 fn runtime_message_from_stdout_line(line: &str) -> AppRuntimeMessage {
@@ -203,6 +221,16 @@ fn runtime_message_from_stdout_line(line: &str) -> AppRuntimeMessage {
             .get("windowBounds")
             .and_then(crate::app_registry::AppWindowBounds::from_value)
             .map(AppRuntimeMessage::WindowBounds)
+            .unwrap_or(AppRuntimeMessage::Ignore),
+        Some("fw-app-commands") => value
+            .get("commands")
+            .and_then(|commands| {
+                serde_json::from_value::<Vec<crate::app_registry::AppReportedCommand>>(
+                    commands.clone(),
+                )
+                .ok()
+            })
+            .map(AppRuntimeMessage::AvailableCommands)
             .unwrap_or(AppRuntimeMessage::Ignore),
         _ => AppRuntimeMessage::Ignore,
     }
@@ -296,7 +324,15 @@ pub(crate) async fn app_launch_inner(
         if should_allow_foreground(&action) {
             allow_foreground_for_process(entry.pid);
         }
-        return send_control_action_async(entry, action, command).await;
+        let available_commands = send_control_action_async(entry, action, command).await?;
+        if !available_commands.is_empty() {
+            crate::app_registry::persist_app_available_commands(
+                &app_handle,
+                &id,
+                available_commands,
+            )?;
+        }
+        return Ok(());
     }
 
     let mut cmd = Command::new(&path);
@@ -341,6 +377,15 @@ pub(crate) async fn app_launch_inner(
                             bounds,
                         ) {
                             eprintln!("[app-launcher] failed to persist window bounds for {id_stdout}: {error}");
+                        }
+                    }
+                    AppRuntimeMessage::AvailableCommands(commands) => {
+                        if let Err(error) = crate::app_registry::persist_app_available_commands(
+                            &app_stdout,
+                            &id_stdout,
+                            commands,
+                        ) {
+                            eprintln!("[app-launcher] failed to persist available commands for {id_stdout}: {error}");
                         }
                     }
                     AppRuntimeMessage::Ignore => {}

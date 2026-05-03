@@ -42,6 +42,7 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
   const [hotkeyRecording, setHotkeyRecording] = useState(false)
   const [displayMode, setDisplayMode] = useState<AppDisplayMode>('default')
   const [commands, setCommands] = useState<RegisteredAppCommand[]>([])
+  const [availableCommands, setAvailableCommands] = useState<RegisteredAppCommand[]>([])
   const [saving, setSaving] = useState(false)
 
   const openAdd = () => {
@@ -52,6 +53,7 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
     setHotkey('')
     setDisplayMode('default')
     setCommands([])
+    setAvailableCommands([])
     setEditOpen(true)
   }
 
@@ -63,6 +65,7 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
     setHotkey(app.hotkey ?? '')
     setDisplayMode(app.displayMode)
     setCommands(Array.isArray(app.commands) ? app.commands : [])
+    setAvailableCommands(Array.isArray(app.availableCommands) ? app.availableCommands : [])
     setEditOpen(true)
   }
 
@@ -228,7 +231,7 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
               <ToggleButton value="top">置顶</ToggleButton>
             </ToggleButtonGroup>
           </Box>
-          <AppCommandEditor commands={commands} onChange={setCommands} />
+          <AppCommandEditor commands={commands} availableCommands={availableCommands} onChange={setCommands} />
         </DialogContent>
         <DialogActions>
           <Button disabled={saving} onClick={() => { setHotkeyRecording(false); setEditOpen(false) }}>取消</Button>
