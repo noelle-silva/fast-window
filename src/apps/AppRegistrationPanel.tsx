@@ -11,6 +11,7 @@ import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import type { AppDisplayMode, RegisteredApp, RegisteredAppCommand, RegisteredAppUpdatePatch } from './types'
 import AppCardView from './AppCardView'
 import AppCommandEditor from './AppCommandEditor'
+import { getAppStatus, stopApp } from './appLauncher'
 import { generateSafeId } from './ids'
 import { hostToast } from '../host/hostPrimitives'
 import { buildShortcutFromEvent, pauseShortcutRecordingGuards, resumeShortcutRecordingGuards } from '../shortcuts'
@@ -23,6 +24,13 @@ interface AppRegistrationPanelProps {
   onClose?: () => void
   embedded?: boolean
 }
+
+type RemoveConfirmStep = 'remove' | 'stop-running'
+
+type RemoveConfirmState = {
+  app: RegisteredApp
+  step: RemoveConfirmStep
+} | null
 
 async function readAppIcon(path: string) {
   try {
@@ -46,6 +54,8 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
   const [availableCommands, setAvailableCommands] = useState<RegisteredAppCommand[]>([])
   const [saving, setSaving] = useState(false)
   const [pickingPath, setPickingPath] = useState(false)
+  const [removingId, setRemovingId] = useState<string | null>(null)
+  const [removeConfirm, setRemoveConfirm] = useState<RemoveConfirmState>(null)
 
   const openAdd = () => {
     setHotkeyRecording(false)
@@ -93,6 +103,36 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
   const normalizedCommands = () => commands
     .map(command => ({ ...command, title: command.title.trim() }))
     .filter(command => command.id.trim() && command.title)
+
+  const openRemoveConfirm = (app: RegisteredApp) => {
+    setRemoveConfirm({ app, step: 'remove' })
+  }
+
+  const closeRemoveConfirm = () => {
+    if (removingId) return
+    setRemoveConfirm(null)
+  }
+
+  const removeRegisteredAppSafely = async (app: RegisteredApp, stopRunning: boolean) => {
+    setRemovingId(app.id)
+    try {
+      const status = await getAppStatus(app.id).catch(() => null)
+      if (status?.running) {
+        if (!stopRunning) {
+          setRemoveConfirm({ app, step: 'stop-running' })
+          return
+        }
+        await stopApp(app.id)
+      }
+      await onRemove(app.id)
+      await hostToast(`已取消注册：${app.name}`)
+      setRemoveConfirm(null)
+    } catch (error: any) {
+      await hostToast(String(error?.message || error || '取消注册失败'))
+    } finally {
+      setRemovingId(null)
+    }
+  }
 
   const save = async () => {
     const n = name.trim()
@@ -208,8 +248,9 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
               </IconButton>
               <IconButton
                 size="small"
-                onClick={() => onRemove(app.id)}
+                onClick={() => openRemoveConfirm(app)}
                 aria-label={`移除 ${app.name}`}
+                disabled={removingId === app.id}
               >
                 <DeleteRoundedIcon fontSize="small" />
               </IconButton>
@@ -263,6 +304,32 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
         <DialogActions>
           <Button disabled={saving} onClick={() => { setHotkeyRecording(false); setEditOpen(false) }}>取消</Button>
           <Button disabled={saving} onClick={() => void save()} variant="contained" sx={{ boxShadow: 'none' }}>保存</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!removeConfirm} onClose={closeRemoveConfirm} fullWidth maxWidth="xs">
+        <DialogTitle>{removeConfirm?.step === 'stop-running' ? '停止并取消注册' : '取消注册应用'}</DialogTitle>
+        <DialogContent sx={{ pt: '8px !important' }}>
+          <Typography variant="body2" sx={{ fontWeight: 700, mb: 1 }}>
+            {removeConfirm ? `「${removeConfirm.app.name}」` : ''}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {removeConfirm?.step === 'stop-running'
+              ? '这个应用正在运行。取消注册前需要先停止它，然后再从 Fast Window 的注册列表中移除。磁盘上的应用文件不会被删除。'
+              : '确定要从 Fast Window 取消注册这个应用吗？这只会移除注册记录，不会删除磁盘上的应用文件。'}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button disabled={!!removingId} onClick={closeRemoveConfirm}>取消</Button>
+          <Button
+            disabled={!!removingId || !removeConfirm}
+            color="error"
+            variant="contained"
+            onClick={() => removeConfirm && void removeRegisteredAppSafely(removeConfirm.app, removeConfirm.step === 'stop-running')}
+            sx={{ boxShadow: 'none' }}
+          >
+            {removeConfirm?.step === 'stop-running' ? '停止并取消注册' : '取消注册'}
+          </Button>
         </DialogActions>
       </Dialog>
     </>
