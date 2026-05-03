@@ -19,6 +19,7 @@ struct RuntimeCommandPayload {
     command: String,
 }
 
+#[derive(Clone)]
 pub(crate) struct FwArgs {
     pub(crate) launched: bool,
     pub(crate) action: String,
