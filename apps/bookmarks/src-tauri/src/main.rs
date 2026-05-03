@@ -3,7 +3,7 @@
 mod fw_window;
 
 use fw_window::{
-    app_ready, apply_control_action, apply_fw_args, install_window_policy, parse_fw_args,
+    app_ready, apply_control_action, apply_fw_args, fw_initial_command, install_window_policy, parse_fw_args,
     FwWindowState,
 };
 use serde::Serialize;
@@ -369,7 +369,7 @@ fn main() {
     tauri::Builder::default()
         .manage(backend_state)
         .manage(window_state)
-        .invoke_handler(tauri::generate_handler![backend_endpoint, app_ready])
+        .invoke_handler(tauri::generate_handler![backend_endpoint, app_ready, fw_initial_command])
         .setup(move |app| {
             let window = app
                 .get_webview_window("main")

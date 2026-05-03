@@ -14,6 +14,7 @@ const MIN_WINDOW_HEIGHT: u32 = 150;
 pub(crate) struct FwArgs {
     pub(crate) launched: bool,
     pub(crate) action: String,
+    pub(crate) command: Option<String>,
     pub(crate) mode: String,
     pub(crate) x: Option<i32>,
     pub(crate) y: Option<i32>,
@@ -25,6 +26,7 @@ pub(crate) struct FwArgs {
 pub(crate) struct FwWindowState {
     last_window_bounds: Mutex<Option<WindowBounds>>,
     initial_action: Mutex<Option<String>>,
+    initial_command: Mutex<Option<String>>,
     bounds_report_seq: AtomicU64,
 }
 
@@ -39,6 +41,7 @@ pub(crate) fn parse_fw_args() -> FwArgs {
     let mut fw = FwArgs {
         launched: false,
         action: "toggle".into(),
+        command: None,
         mode: "default".into(),
         x: None,
         y: None,
@@ -65,6 +68,13 @@ pub(crate) fn parse_fw_args() -> FwArgs {
                     fw.mode = args[i + 1].clone();
                     i += 1;
                 }
+            }
+            "--fw-command" if i + 1 < args.len() => {
+                let command = args[i + 1].trim();
+                if !command.is_empty() && !command.starts_with("--") {
+                    fw.command = Some(command.to_string());
+                }
+                i += 1;
             }
             "--fw-x" if i + 1 < args.len() => {
                 if let Ok(v) = args[i + 1].parse::<i32>() {
@@ -120,6 +130,9 @@ pub(crate) fn apply_fw_args(window: &WebviewWindow, args: &FwArgs, state: &FwWin
     }
     if let Ok(mut initial_action) = state.initial_action.lock() {
         *initial_action = Some(args.action.clone());
+    }
+    if let Ok(mut initial_command) = state.initial_command.lock() {
+        *initial_command = args.command.clone();
     }
 
     match args.action.as_str() {
@@ -223,6 +236,13 @@ pub(crate) fn app_ready(
             Ok(())
         }
     }
+}
+
+#[tauri::command]
+pub(crate) fn fw_initial_command(
+    state: tauri::State<'_, Arc<FwWindowState>>,
+) -> Result<Option<String>, String> {
+    Ok(state.initial_command.lock().ok().and_then(|value| value.clone()))
 }
 
 fn schedule_hide_if_unfocused(window: WebviewWindow, state: Arc<FwWindowState>) {

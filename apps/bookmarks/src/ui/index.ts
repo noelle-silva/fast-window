@@ -219,6 +219,19 @@ function closeModal() {
   render()
 }
 
+function handleInitialCommand(command: string | null | undefined) {
+  const id = String(command || '').trim()
+  if (!id) return
+
+  if (id === 'add' || id === 'new' || id === 'new-bookmark') {
+    openModal('add')
+    showToast('已打开新增收藏')
+    return
+  }
+
+  showToast(`未知命令：${id}`)
+}
+
 // -- events ------------------------------------------------------------------
 
 document.addEventListener('click', async event => {
@@ -353,6 +366,8 @@ document.addEventListener('change', event => {
 async function main() {
   await initBackground()
   await reload()
+  const command = await invoke<string | null>('fw_initial_command').catch(() => null)
+  handleInitialCommand(command)
   await invoke('app_ready')
 }
 
