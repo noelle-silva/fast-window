@@ -21,7 +21,8 @@ import PluginDetailDialog from './PluginDetailDialog'
 import PluginContextMenu from './PluginContextMenu'
 import AppActivationView from './apps/AppActivationView'
 import { useRegisteredApps } from './apps/useRegisteredApps'
-import { launchApp } from './apps/appLauncher'
+import { getAppStatuses, launchApp } from './apps/appLauncher'
+import type { AppStatus } from './apps/types'
 import { usePlugins } from './usePlugins'
 import { useWallpaper, getWallpaperView } from './useWallpaper'
 import { useSearch } from './useSearch'
@@ -113,6 +114,7 @@ function App() {
   // Registered Apps (v5)
   const registeredAppsCtx = useRegisteredApps()
   const { apps: registeredApps, load: loadRegisteredApps, add: addRegisteredApp, remove: removeRegisteredApp, update: updateRegisteredApp } = registeredAppsCtx
+  const [registeredAppStatuses, setRegisteredAppStatuses] = useState<Record<string, AppStatus>>({})
 
   // Search
   const search = useSearch(plugins)
@@ -202,6 +204,28 @@ function App() {
       if (unlisten) unlisten()
     }
   }, [loadRegisteredApps])
+
+  const refreshRegisteredAppStatuses = useCallback(async () => {
+    if (!registeredApps.length) {
+      setRegisteredAppStatuses({})
+      return
+    }
+    try {
+      const result = await getAppStatuses(registeredApps.map(app => app.id))
+      setRegisteredAppStatuses(result)
+    } catch (error) {
+      console.warn('[app] main list status refresh failed:', error)
+    }
+  }, [registeredApps])
+
+  useEffect(() => {
+    void refreshRegisteredAppStatuses()
+    if (!registeredApps.length) return
+    const timer = window.setInterval(() => {
+      void refreshRegisteredAppStatuses()
+    }, 5_000)
+    return () => window.clearInterval(timer)
+  }, [registeredApps.length, refreshRegisteredAppStatuses])
 
   // Disabled plugin check
   useEffect(() => {
@@ -320,6 +344,10 @@ function App() {
         keyword: app.id,
         disabled: false,
         component: NullView,
+        appStatus: {
+          type: 'registered-app',
+          running: registeredAppStatuses[app.id]?.running === true,
+        },
       }
       const commandItems = (app.commands || []).map(command => ({
         id: registeredAppCommandPluginId(app.id, command.id),
@@ -332,7 +360,7 @@ function App() {
       }))
       return [appItem, ...commandItems]
     })
-  }, [registeredApps])
+  }, [registeredApps, registeredAppStatuses])
 
   const displayItems: Plugin[] = useMemo(() => {
     const all = [...registeredAppPlugins, ...filtered]
@@ -348,16 +376,20 @@ function App() {
     const selection = parseAppListSelection(plugin.id)
     if (selection.type === 'appCommand') {
       const app = registeredApps.find(app => app.id === selection.appId)
-      if (app) launchApp(app, 'show', selection.commandId)
+      if (app) {
+        launchApp(app, 'show', selection.commandId).finally(() => window.setTimeout(() => void refreshRegisteredAppStatuses(), 500))
+      }
       return
     }
     if (selection.type === 'app') {
       const app = registeredApps.find(app => app.id === selection.appId)
-      if (app) launchApp(app, 'show')
+      if (app) {
+        launchApp(app, 'show').finally(() => window.setTimeout(() => void refreshRegisteredAppStatuses(), 500))
+      }
       return
     }
     setActivePlugin(plugin)
-  }, [registeredApps])
+  }, [registeredApps, refreshRegisteredAppStatuses])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {

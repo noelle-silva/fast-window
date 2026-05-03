@@ -49,23 +49,51 @@ const listCardSx = {
 
 export function PluginCardContent(props: { plugin: Plugin; layout: PluginBrowseLayout }) {
   const { plugin, layout } = props
+  const isRegisteredAppRunning = plugin.appStatus?.type === 'registered-app' && plugin.appStatus.running
+  const avatarWithStatus = (
+    avatar: React.ReactNode,
+    size: number,
+  ) => (
+    <Box sx={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+      {avatar}
+      {isRegisteredAppRunning ? (
+        <Box
+          title="运行中"
+          aria-label="运行中"
+          sx={theme => ({
+            position: 'absolute',
+            right: -1,
+            top: -1,
+            width: 12,
+            height: 12,
+            borderRadius: '999px',
+            bgcolor: theme.palette.success.main,
+            boxShadow: `0 0 0 2px ${theme.palette.background.paper}`,
+          })}
+        />
+      ) : null}
+    </Box>
+  )
 
   if (layout === 'icon') {
     return (
       <>
-        <Avatar
-          src={isDataImageUrl(plugin.icon) ? plugin.icon : undefined}
-          imgProps={{ alt: plugin.name }}
-          sx={{
-            width: 56,
-            height: 56,
-            fontSize: 26,
-            bgcolor: 'action.hover',
-            color: 'text.primary',
-          }}
-        >
-          {isDataImageUrl(plugin.icon) ? null : plugin.icon}
-        </Avatar>
+        {avatarWithStatus(
+          <Avatar
+            src={isDataImageUrl(plugin.icon) ? plugin.icon : undefined}
+            imgProps={{ alt: plugin.name }}
+            sx={{
+              width: 56,
+              height: 56,
+              fontSize: 26,
+              bgcolor: 'action.hover',
+              color: 'text.primary',
+            }}
+          >
+            {isDataImageUrl(plugin.icon) ? null : plugin.icon}
+          </Avatar>,
+          56,
+        )}
         <Typography
           variant="caption"
           sx={{
@@ -88,20 +116,23 @@ export function PluginCardContent(props: { plugin: Plugin; layout: PluginBrowseL
   if (layout === 'grid') {
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Avatar
-          variant="rounded"
-          src={isDataImageUrl(plugin.icon) ? plugin.icon : undefined}
-          imgProps={{ alt: plugin.name }}
-          sx={theme => ({
-            width: 36,
-            height: 36,
-            fontSize: 18,
-            bgcolor: theme.palette.action.hover,
-            color: theme.palette.text.primary,
-          })}
-        >
-          {isDataImageUrl(plugin.icon) ? null : plugin.icon}
-        </Avatar>
+        {avatarWithStatus(
+          <Avatar
+            variant="rounded"
+            src={isDataImageUrl(plugin.icon) ? plugin.icon : undefined}
+            imgProps={{ alt: plugin.name }}
+            sx={theme => ({
+              width: 36,
+              height: 36,
+              fontSize: 18,
+              bgcolor: theme.palette.action.hover,
+              color: theme.palette.text.primary,
+            })}
+          >
+            {isDataImageUrl(plugin.icon) ? null : plugin.icon}
+          </Avatar>,
+          36,
+        )}
         <Box sx={{ minWidth: 0, flex: 1, overflow: 'hidden' }}>
           <Typography
             variant="body2"
@@ -127,20 +158,23 @@ export function PluginCardContent(props: { plugin: Plugin; layout: PluginBrowseL
   return (
     <>
       <Box component="span" sx={{ minWidth: 44, display: 'inline-flex', flexShrink: 0 }}>
-        <Avatar
-          variant="rounded"
-          src={isDataImageUrl(plugin.icon) ? plugin.icon : undefined}
-          imgProps={{ alt: plugin.name }}
-          sx={theme => ({
-            width: 32,
-            height: 32,
-            fontSize: 18,
-            bgcolor: theme.palette.action.hover,
-            color: theme.palette.text.primary,
-          })}
-        >
-          {isDataImageUrl(plugin.icon) ? null : plugin.icon}
-        </Avatar>
+        {avatarWithStatus(
+          <Avatar
+            variant="rounded"
+            src={isDataImageUrl(plugin.icon) ? plugin.icon : undefined}
+            imgProps={{ alt: plugin.name }}
+            sx={theme => ({
+              width: 32,
+              height: 32,
+              fontSize: 18,
+              bgcolor: theme.palette.action.hover,
+              color: theme.palette.text.primary,
+            })}
+          >
+            {isDataImageUrl(plugin.icon) ? null : plugin.icon}
+          </Avatar>,
+          32,
+        )}
       </Box>
       <Box component="span" sx={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column' }}>
         <Typography variant="body1" fontWeight={600} noWrap>

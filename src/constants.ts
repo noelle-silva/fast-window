@@ -23,6 +23,10 @@ export interface Plugin {
   manifest?: PluginManifest
   disabled: boolean
   component: ComponentType<{ onBack: () => void }>
+  appStatus?: {
+    type: 'registered-app'
+    running: boolean
+  }
 }
 
 export type PluginBrowseLayout = 'list' | 'grid' | 'icon'
