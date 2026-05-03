@@ -74,6 +74,20 @@ fn launch_action(args: &[String]) -> String {
     "show".to_string()
 }
 
+fn launch_command(args: &[String]) -> Option<String> {
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--fw-command" && i + 1 < args.len() {
+            let command = args[i + 1].trim();
+            if !command.is_empty() && !command.starts_with("--") {
+                return Some(command.to_string());
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
 fn action_for_running_instance(action: &str) -> &str {
     match action {
         "hide" => "hide",
@@ -131,12 +145,20 @@ fn read_http_response(stream: &mut TcpStream) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&buffer).to_string())
 }
 
-fn send_control_action(endpoint: AppControlEndpoint, action: String) -> Result<(), String> {
+fn send_control_action(
+    endpoint: AppControlEndpoint,
+    action: String,
+    command: Option<String>,
+) -> Result<(), String> {
     let url = endpoint.url.trim().trim_end_matches('/');
     let Some(addr) = url.strip_prefix("http://") else {
         return Err("应用控制地址不支持".to_string());
     };
-    let body = serde_json::json!({ "action": action }).to_string();
+    let mut body_value = serde_json::json!({ "action": action });
+    if let Some(command) = command {
+        body_value["command"] = serde_json::Value::String(command);
+    }
+    let body = body_value.to_string();
     let request = format!(
         "POST /control HTTP/1.1\r\nHost: {addr}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nX-FW-Control-Token: {}\r\nConnection: close\r\n\r\n{}",
         body.as_bytes().len(),
@@ -160,10 +182,11 @@ fn send_control_action(endpoint: AppControlEndpoint, action: String) -> Result<(
 async fn send_control_action_async(
     entry: Arc<AppProcessEntry>,
     action: String,
+    command: Option<String>,
 ) -> Result<(), String> {
     let endpoint = wait_control_endpoint(&entry).await?;
 
-    tokio::task::spawn_blocking(move || send_control_action(endpoint, action))
+    tokio::task::spawn_blocking(move || send_control_action(endpoint, action, command))
         .await
         .map_err(|e| format!("应用控制任务失败: {e}"))?
 }
@@ -269,10 +292,11 @@ pub(crate) async fn app_launch_inner(
 
     if let Some(entry) = running_entry {
         let action = action_for_running_instance(&launch_action(&args)).to_string();
+        let command = launch_command(&args);
         if should_allow_foreground(&action) {
             allow_foreground_for_process(entry.pid);
         }
-        return send_control_action_async(entry, action).await;
+        return send_control_action_async(entry, action, command).await;
     }
 
     let mut cmd = Command::new(&path);
