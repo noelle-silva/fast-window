@@ -156,6 +156,19 @@ pub(crate) fn apply_fw_args(window: &WebviewWindow, args: &FwArgs, state: &FwWin
     }
 }
 
+pub(crate) fn report_available_commands(commands: serde_json::Value) {
+    write_stdout_json_line(serde_json::json!({
+        "type": "fw-app-commands",
+        "commands": commands
+    }));
+}
+
+fn write_stdout_json_line(value: serde_json::Value) {
+    let mut out = std::io::stdout();
+    let _ = writeln!(out, "{}", value);
+    let _ = out.flush();
+}
+
 pub(crate) fn install_window_policy(
     window: &WebviewWindow,
     args: &FwArgs,

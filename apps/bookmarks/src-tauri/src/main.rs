@@ -4,7 +4,7 @@ mod fw_window;
 
 use fw_window::{
     app_ready, apply_control_action, apply_fw_args, fw_initial_command, install_window_policy, parse_fw_args,
-    FwWindowState,
+    report_available_commands, FwWindowState,
 };
 use serde::Serialize;
 use std::io::{Read, Write};
@@ -28,6 +28,13 @@ struct BackendEndpoint {
 struct ControlEndpoint {
     url: String,
     token: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppCommandDescriptor {
+    id: &'static str,
+    title: &'static str,
 }
 
 #[derive(Default)]
@@ -61,6 +68,13 @@ fn write_json_line(value: serde_json::Value) {
     let mut out = std::io::stdout();
     let _ = writeln!(out, "{}", value);
     let _ = out.flush();
+}
+
+fn available_commands() -> Vec<AppCommandDescriptor> {
+    vec![AppCommandDescriptor {
+        id: "add",
+        title: "新增收藏",
+    }]
 }
 
 fn start_control_server(
@@ -259,7 +273,11 @@ fn handle_control_connection(
     let command = value.get("command").and_then(|v| v.as_str());
 
     match apply_control_action(app, window_state, action, command) {
-        Ok(()) => write_control_response(&mut stream, 200, serde_json::json!({ "ok": true })),
+        Ok(()) => write_control_response(
+            &mut stream,
+            200,
+            serde_json::json!({ "ok": true, "availableCommands": available_commands() }),
+        ),
         Err(error) => write_control_response(
             &mut stream,
             400,
@@ -378,6 +396,7 @@ fn main() {
             install_window_policy(&window, &fw_args, window_state_setup.clone());
             apply_fw_args(&window, &fw_args, &window_state_setup);
             start_control_server(app.handle().clone(), window_state_setup.clone())?;
+            report_available_commands(serde_json::json!(available_commands()));
 
             let handle = app.handle().clone();
             let state = backend_state_setup.clone();
