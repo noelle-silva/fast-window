@@ -19,6 +19,14 @@ struct RuntimeCommandPayload {
     command: String,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FwLaunchInfo {
+    pub(crate) launched: bool,
+    pub(crate) standalone: bool,
+    pub(crate) mode: String,
+}
+
 #[derive(Clone)]
 pub(crate) struct FwArgs {
     pub(crate) launched: bool,
@@ -36,6 +44,7 @@ pub(crate) struct FwWindowState {
     last_window_bounds: Mutex<Option<WindowBounds>>,
     initial_action: Mutex<Option<String>>,
     initial_command: Mutex<Option<String>>,
+    launch_info: Mutex<Option<FwLaunchInfo>>,
     bounds_report_seq: AtomicU64,
 }
 
@@ -124,9 +133,12 @@ pub(crate) fn parse_fw_args() -> FwArgs {
 pub(crate) fn apply_fw_args(window: &WebviewWindow, args: &FwArgs, state: &FwWindowState) {
     if args.launched {
         let _ = window.set_skip_taskbar(true);
-    }
-    if args.mode == "default" || args.mode == "top" {
-        let _ = window.set_always_on_top(true);
+        if args.mode == "default" || args.mode == "top" {
+            let _ = window.set_always_on_top(true);
+        }
+    } else {
+        let _ = window.set_skip_taskbar(false);
+        let _ = window.set_always_on_top(false);
     }
     if let (Some(x), Some(y)) = (args.x, args.y) {
         let position = PhysicalPosition::new(x, y);
@@ -142,6 +154,13 @@ pub(crate) fn apply_fw_args(window: &WebviewWindow, args: &FwArgs, state: &FwWin
     }
     if let Ok(mut initial_command) = state.initial_command.lock() {
         *initial_command = args.command.clone();
+    }
+    if let Ok(mut launch_info) = state.launch_info.lock() {
+        *launch_info = Some(FwLaunchInfo {
+            launched: args.launched,
+            standalone: !args.launched,
+            mode: if args.launched { args.mode.clone() } else { "standalone".to_string() },
+        });
     }
 
     match args.action.as_str() {
@@ -284,6 +303,16 @@ pub(crate) fn fw_initial_command(
     Ok(state.initial_command.lock().ok().and_then(|value| value.clone()))
 }
 
+#[tauri::command]
+pub(crate) fn fw_launch_info(state: tauri::State<'_, Arc<FwWindowState>>) -> Result<FwLaunchInfo, String> {
+    state
+        .launch_info
+        .lock()
+        .ok()
+        .and_then(|value| value.clone())
+        .ok_or_else(|| "启动信息尚未就绪".to_string())
+}
+
 fn schedule_hide_if_unfocused(window: WebviewWindow, state: Arc<FwWindowState>) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_millis(FOCUS_HIDE_DELAY_MS)).await;
@@ -345,14 +374,14 @@ fn stage_initial_show(window: &WebviewWindow, state: &FwWindowState) {
     let _ = window.hide();
 }
 
-fn show_and_focus(window: &WebviewWindow, state: &FwWindowState) {
+pub(crate) fn show_and_focus(window: &WebviewWindow, state: &FwWindowState) {
     restore_window_bounds(window, state);
     let _ = window.unminimize();
     let _ = window.show();
     let _ = window.set_focus();
 }
 
-fn close_window(window: &WebviewWindow, state: &FwWindowState) -> tauri::Result<()> {
+pub(crate) fn close_window(window: &WebviewWindow, state: &FwWindowState) -> tauri::Result<()> {
     remember_window_bounds_from_window(window, state);
     report_remembered_window_bounds(state);
     window.close()

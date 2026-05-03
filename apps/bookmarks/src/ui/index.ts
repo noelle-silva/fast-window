@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { showToast } from '../fw-app-sdk/windowPolicy'
 import { createDirectBackgroundClient, type DirectBackgroundClient } from './directClient'
 
@@ -26,6 +27,7 @@ let addTitle = '', addUrl = '', addGroupId = DEFAULT_GROUP_ID, addIconUrl = ''
 let ctxMenu: { open: boolean; id: string; x: number; y: number } = { open: false, id: '', x: 0, y: 0 }
 let groupNameEdits: Record<string, string> = {}
 let newGroupName = ''
+let standaloneLaunch = false
 
 // -- api helpers --------------------------------------------------------------
 
@@ -72,6 +74,10 @@ function render() {
     .btn.primary{border-color:transparent;background:#1976D2;color:#fff}
     .btn.danger{border-color:transparent;background:#D32F2F;color:#fff}
     .btn[disabled]{opacity:.55;cursor:not-allowed}
+    .windowControls{display:flex;align-items:center;gap:4px;-webkit-app-region:no-drag}
+    .windowBtn{width:30px;height:30px;border:0;background:transparent;color:#424242;border-radius:8px;cursor:pointer;font-size:14px;line-height:30px;text-align:center;-webkit-app-region:no-drag}
+    .windowBtn:hover{background:rgba(0,0,0,.08)}
+    .windowBtn.close:hover{background:#D32F2F;color:#fff}
     .filters{display:flex;gap:10px;padding:10px}
     .field{display:flex;flex-direction:column;gap:6px;min-width:120px}
     .field.grow{flex:1;min-width:0}
@@ -115,6 +121,7 @@ function render() {
         <div class="title">网站收藏</div>
         <button class="btn" data-act="groups">分组</button>
         <button class="btn primary" data-act="add">新增</button>
+        ${standaloneLaunch ? renderWindowControls() : ''}
       </div>
       <div class="filters">
         <label class="field"><span class="label">分组</span><select data-act="group">${['<option value="__all__">全部</option>'].concat(groups.map(g => `<option value="${esc(g.id)}" ${g.id === groupFilter ? 'selected' : ''}>${esc(g.name)}</option>`)).join('')}</select></label>
@@ -130,6 +137,16 @@ function render() {
     ${renderAddEditModal(groups)}
     ${renderGroupsModal(groups)}
     ${renderCtxMenu()}
+  `
+}
+
+function renderWindowControls() {
+  return `
+    <div class="windowControls" aria-label="窗口控制">
+      <button class="windowBtn" data-act="winMinimize" title="最小化" aria-label="最小化">−</button>
+      <button class="windowBtn" data-act="winToggleMaximize" title="最大化或还原" aria-label="最大化或还原">□</button>
+      <button class="windowBtn close" data-act="winClose" title="关闭" aria-label="关闭">×</button>
+    </div>
   `
 }
 
@@ -250,6 +267,9 @@ document.addEventListener('click', async event => {
   if (ctxMenu.open && !el.closest('[data-role="ctxMenu"]')) { closeCtx(); render() }
 
   if (act === 'back') return getCurrentWindow().hide()
+  if (act === 'winMinimize') return getCurrentWindow().minimize()
+  if (act === 'winToggleMaximize') return getCurrentWindow().toggleMaximize()
+  if (act === 'winClose') return getCurrentWindow().close()
   if (act === 'add') return openModal('add')
   if (act === 'groups') return openModal('groups')
   if (act === 'closeAdd' || act === 'closeGroups') return closeModal()
@@ -371,6 +391,8 @@ document.addEventListener('change', event => {
 // -- main --------------------------------------------------------------------
 
 async function main() {
+  const launchInfo = await invoke<{ standalone?: boolean }>('fw_launch_info').catch(() => ({ standalone: false }))
+  standaloneLaunch = !!launchInfo?.standalone
   await initBackground()
   await reload()
   await listenRuntimeCommands()

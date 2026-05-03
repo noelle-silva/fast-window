@@ -3,10 +3,11 @@
 mod fw_window;
 mod control_server;
 mod single_instance;
+mod standalone_tray;
 
 use control_server::{available_commands, start_control_server, ControlServerConfig};
 use fw_window::{
-    app_ready, apply_fw_args, fw_initial_command, install_window_policy, parse_fw_args,
+    app_ready, apply_fw_args, fw_initial_command, fw_launch_info, install_window_policy, parse_fw_args,
     report_available_commands, FwWindowState,
 };
 use serde::Serialize;
@@ -156,11 +157,12 @@ fn main() {
     tauri::Builder::default()
         .manage(backend_state)
         .manage(window_state)
-        .invoke_handler(tauri::generate_handler![backend_endpoint, app_ready, fw_initial_command])
+        .invoke_handler(tauri::generate_handler![backend_endpoint, app_ready, fw_initial_command, fw_launch_info])
         .setup(move |app| {
             let window = app
                 .get_webview_window("main")
                 .expect("main window not found");
+            standalone_tray::install_standalone_tray(app, &fw_args, window_state_setup.clone())?;
             install_window_policy(&window, &fw_args, window_state_setup.clone());
             apply_fw_args(&window, &fw_args, &window_state_setup);
             start_control_server(
