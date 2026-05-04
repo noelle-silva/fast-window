@@ -1,7 +1,8 @@
 import { Box, Typography, Button, CircularProgress, IconButton } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import type { RegisteredApp, AppStatus } from './types'
-import { launchApp, stopApp } from './appLauncher'
+import { appStopToastMessage, launchApp, stopApp } from './appLauncher'
+import { hostToast } from '../host/hostPrimitives'
 
 interface AppActivationViewProps {
   app: RegisteredApp
@@ -10,6 +11,15 @@ interface AppActivationViewProps {
 }
 
 export default function AppActivationView({ app, status, onBack }: AppActivationViewProps) {
+  const handleStop = async () => {
+    try {
+      const result = await stopApp(app.id)
+      await hostToast(appStopToastMessage(app.name, result))
+    } catch (error: any) {
+      await hostToast(String(error?.message || error || '停止应用失败'))
+    }
+  }
+
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <Box
@@ -40,7 +50,7 @@ export default function AppActivationView({ app, status, onBack }: AppActivation
               <Button variant="outlined" size="small" onClick={() => launchApp(app, 'show')}>
                 唤醒窗口
               </Button>
-              <Button variant="outlined" size="small" color="error" onClick={() => stopApp(app.id)}>
+              <Button variant="outlined" size="small" color="error" onClick={() => void handleStop()}>
                 停止应用
               </Button>
             </Box>

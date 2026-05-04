@@ -23,7 +23,7 @@ import PluginContextMenu, { type ContextMenuAction } from './PluginContextMenu'
 import AppActivationView from './apps/AppActivationView'
 import AppDetailDialog from './apps/AppDetailDialog'
 import { useRegisteredApps } from './apps/useRegisteredApps'
-import { getAppStatuses, launchApp, stopApp } from './apps/appLauncher'
+import { appStopToastMessage, forceStopApp, getAppStatuses, launchApp, stopApp } from './apps/appLauncher'
 import {
   buildRegisteredAppListItems,
   parseRegisteredAppListItemId,
@@ -39,6 +39,7 @@ import { makeThumbnailPngDataUrl, movePluginById, pickImageFile } from './utils'
 
 type StopAppConfirmState = {
   app: RegisteredApp
+  force?: boolean
 } | null
 
 const settingsPlugin: Plugin = {
@@ -419,8 +420,8 @@ function App() {
     if (!app) return
     setStoppingAppId(app.id)
     try {
-      await stopApp(app.id)
-      showToast(`已停止：${app.name}`)
+      const result = stopAppConfirm.force ? await forceStopApp(app.id) : await stopApp(app.id)
+      showToast(appStopToastMessage(app.name, result))
       setStopAppConfirm(null)
       window.setTimeout(() => void refreshRegisteredAppStatuses(), 300)
     } catch (error: any) {
@@ -428,7 +429,7 @@ function App() {
     } finally {
       setStoppingAppId(null)
     }
-  }, [refreshRegisteredAppStatuses, showToast, stopAppConfirm?.app])
+  }, [refreshRegisteredAppStatuses, showToast, stopAppConfirm?.app, stopAppConfirm?.force])
 
   const pluginMenuActions = useMemo<ContextMenuAction[]>(() => {
     const plugin = pluginMenu?.plugin
@@ -446,6 +447,7 @@ function App() {
     if (app) {
       return [
         { id: 'stop-app', label: '停止', color: 'error', onSelect: () => setStopAppConfirm({ app }) },
+        { id: 'force-stop-app', label: '强制停止', color: 'error', onSelect: () => setStopAppConfirm({ app, force: true }) },
         { id: 'registration-edit', label: '注册编辑', onSelect: () => requestAppRegistrationEdit(app) },
         ...commonActions,
       ]
@@ -867,10 +869,12 @@ function App() {
         onClose={closePluginMenu}
       />
       <Dialog open={!!stopAppConfirm} onClose={closeStopAppConfirm} fullWidth maxWidth="xs">
-        <DialogTitle>停止 v5 应用</DialogTitle>
+        <DialogTitle>{stopAppConfirm?.force ? '强制停止 v5 应用' : '停止 v5 应用'}</DialogTitle>
         <DialogContent sx={{ pt: '8px !important' }}>
           <Typography variant="body2">
-            确定要停止「{stopAppConfirm?.app.name ?? ''}」吗？应用窗口和它的后台进程会一起关闭。
+            {stopAppConfirm?.force
+              ? `确定要强制停止「${stopAppConfirm?.app.name ?? ''}」吗？宿主会直接 kill 应用进程树，用于正常停止无响应的情况。`
+              : `确定要停止「${stopAppConfirm?.app.name ?? ''}」吗？应用窗口和它的后台进程会一起关闭。`}
           </Typography>
         </DialogContent>
         <DialogActions>
@@ -882,7 +886,7 @@ function App() {
             onClick={() => void confirmStopApp()}
             sx={{ boxShadow: 'none' }}
           >
-            停止
+            {stopAppConfirm?.force ? '强制停止' : '停止'}
           </Button>
         </DialogActions>
       </Dialog>

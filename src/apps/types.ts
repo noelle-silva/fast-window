@@ -39,3 +39,10 @@ export type AppStatus = {
   startedAt?: number
   exitCode?: number
 }
+
+export type AppStopMethod = 'graceful' | 'killed' | 'alreadyStopped'
+
+export type AppStopResult = {
+  stopped: boolean
+  method: AppStopMethod
+}

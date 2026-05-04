@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { AppActivationAction, AppStatus, RegisteredApp } from './types'
+import type { AppActivationAction, AppStatus, AppStopResult, RegisteredApp } from './types'
 
 function buildLaunchArgs(app: RegisteredApp, action?: AppActivationAction, command?: string): string[] {
   const args: string[] = ['--fw-launched']
@@ -25,8 +25,18 @@ export async function launchApp(app: RegisteredApp, action?: AppActivationAction
   await invoke('app_launch', { appId: app.id, exePath: app.path, args })
 }
 
-export async function stopApp(id: string): Promise<void> {
-  await invoke('app_stop', { appId: id })
+export async function stopApp(id: string): Promise<AppStopResult> {
+  return invoke<AppStopResult>('app_stop', { appId: id })
+}
+
+export async function forceStopApp(id: string): Promise<AppStopResult> {
+  return invoke<AppStopResult>('app_force_stop', { appId: id })
+}
+
+export function appStopToastMessage(appName: string, result: AppStopResult): string {
+  if (result.method === 'killed') return `已兜底 kill：${appName}`
+  if (result.method === 'alreadyStopped') return `应用已不在运行：${appName}`
+  return `已停止：${appName}`
 }
 
 export async function getAppStatus(id: string): Promise<AppStatus> {

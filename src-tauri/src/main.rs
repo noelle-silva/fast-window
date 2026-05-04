@@ -2605,6 +2605,7 @@ fn main() {
         plugin_backend_commands::plugin_backend_endpoint,
         plugin_backend_commands::plugin_backend_invoke,
         app_launcher::app_launch,
+        app_launcher::app_force_stop,
         app_launcher::app_stop,
         app_launcher::app_status,
         app_launcher::app_status_many,

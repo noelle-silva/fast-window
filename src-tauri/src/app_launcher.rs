@@ -11,6 +11,9 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex as AsyncMutex;
 
+const STOP_GRACE_TIMEOUT: Duration = Duration::from_millis(2_500);
+const STOP_GRACE_POLL: Duration = Duration::from_millis(100);
+
 #[derive(Default)]
 pub(crate) struct AppLauncherState {
     processes: Mutex<HashMap<String, Arc<AppProcessEntry>>>,
@@ -270,6 +273,53 @@ async fn send_control_action_async(
     Ok(available_commands_from_response(&response))
 }
 
+async fn wait_for_process_exit(entry: &Arc<AppProcessEntry>, timeout: Duration) -> bool {
+    let start = tokio::time::Instant::now();
+    while start.elapsed() < timeout {
+        if entry.exit_code.lock().ok().and_then(|c| *c).is_some() {
+            return true;
+        }
+        if entry.child.lock().await.is_none() {
+            return true;
+        }
+        tokio::time::sleep(STOP_GRACE_POLL).await;
+    }
+    false
+}
+
+async fn kill_process_entry(entry: &Arc<AppProcessEntry>) -> Result<bool, String> {
+    let tree_killed = kill_process_tree(entry.pid)?;
+    let mut g = entry.child.lock().await;
+    if let Some(ch) = g.as_mut() {
+        if !tree_killed {
+            ch.start_kill().map_err(|e| format!("停止应用失败: {e}"))?;
+        }
+        let _ = g.take();
+        return Ok(true);
+    }
+    Ok(tree_killed)
+}
+
+#[cfg(target_os = "windows")]
+fn kill_process_tree(pid: u32) -> Result<bool, String> {
+    if pid == 0 {
+        return Ok(false);
+    }
+    let status = std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map_err(|e| format!("停止应用进程树失败: {e}"))?;
+    Ok(status.success())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn kill_process_tree(_pid: u32) -> Result<bool, String> {
+    Ok(false)
+}
+
 fn runtime_message_from_stdout_line(line: &str) -> AppRuntimeMessage {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
         return AppRuntimeMessage::Ignore;
@@ -328,6 +378,36 @@ pub(crate) struct AppStatusResult {
     pub started_at: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AppStopResult {
+    pub stopped: bool,
+    pub method: String,
+}
+
+impl AppStopResult {
+    fn already_stopped() -> Self {
+        Self {
+            stopped: false,
+            method: "alreadyStopped".to_string(),
+        }
+    }
+
+    fn graceful() -> Self {
+        Self {
+            stopped: true,
+            method: "graceful".to_string(),
+        }
+    }
+
+    fn killed() -> Self {
+        Self {
+            stopped: true,
+            method: "killed".to_string(),
+        }
+    }
 }
 
 impl AppStatusResult {
@@ -499,7 +579,7 @@ pub(crate) async fn app_launch_inner(
 pub(crate) async fn app_stop(
     state: tauri::State<'_, Arc<AppLauncherState>>,
     app_id: String,
-) -> Result<(), String> {
+) -> Result<AppStopResult, String> {
     let id = app_id.trim().to_string();
     if id.is_empty() {
         return Err("appId 不能为空".to_string());
@@ -513,22 +593,57 @@ pub(crate) async fn app_stop(
         .cloned();
 
     let Some(entry) = entry else {
-        return Ok(());
+        return Ok(AppStopResult::already_stopped());
     };
 
-    {
-        let mut g = entry.child.lock().await;
-        if let Some(ch) = g.as_mut() {
-            ch.start_kill().map_err(|e| format!("停止应用失败: {e}"))?;
-            let _ = g.take();
-        }
-    }
+    let _ = send_control_action_async(entry.clone(), "close".to_string(), None).await;
+    let result = if wait_for_process_exit(&entry, STOP_GRACE_TIMEOUT).await {
+        AppStopResult::graceful()
+    } else if kill_process_entry(&entry).await? {
+        AppStopResult::killed()
+    } else {
+        AppStopResult::already_stopped()
+    };
 
     if let Ok(mut g) = state.processes.lock() {
         g.remove(&id);
     }
 
-    Ok(())
+    Ok(result)
+}
+
+#[tauri::command]
+pub(crate) async fn app_force_stop(
+    state: tauri::State<'_, Arc<AppLauncherState>>,
+    app_id: String,
+) -> Result<AppStopResult, String> {
+    let id = app_id.trim().to_string();
+    if id.is_empty() {
+        return Err("appId 不能为空".to_string());
+    }
+
+    let entry = state
+        .processes
+        .lock()
+        .map_err(|_| "进程状态锁定失败".to_string())?
+        .get(&id)
+        .cloned();
+
+    let Some(entry) = entry else {
+        return Ok(AppStopResult::already_stopped());
+    };
+
+    let result = if kill_process_entry(&entry).await? {
+        AppStopResult::killed()
+    } else {
+        AppStopResult::already_stopped()
+    };
+
+    if let Ok(mut g) = state.processes.lock() {
+        g.remove(&id);
+    }
+
+    Ok(result)
 }
 
 #[tauri::command]

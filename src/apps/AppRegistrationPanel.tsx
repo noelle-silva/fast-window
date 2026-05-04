@@ -11,7 +11,7 @@ import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
 import type { AppDisplayMode, AppRegistrationEditRequest, RegisteredApp, RegisteredAppCommand, RegisteredAppUpdatePatch } from './types'
 import AppCardView from './AppCardView'
 import AppCommandEditor from './AppCommandEditor'
-import { getAppStatus, stopApp } from './appLauncher'
+import { appStopToastMessage, getAppStatus, stopApp } from './appLauncher'
 import { generateSafeId } from './ids'
 import { hostToast } from '../host/hostPrimitives'
 import { buildShortcutFromEvent, pauseShortcutRecordingGuards, resumeShortcutRecordingGuards } from '../shortcuts'
@@ -160,7 +160,8 @@ export default function AppRegistrationPanel({
           setRemoveConfirm({ app, step: 'stop-running' })
           return
         }
-        await stopApp(app.id)
+        const result = await stopApp(app.id)
+        await hostToast(appStopToastMessage(app.name, result))
       }
       await onRemove(app.id)
       await hostToast(`已取消注册：${app.name}`)
