@@ -59,6 +59,11 @@ enum AppRuntimeMessage {
     Ignore,
 }
 
+enum AppStopMode {
+    Graceful,
+    Force,
+}
+
 impl Drop for AppLauncherState {
     fn drop(&mut self) {
         let entries: Vec<Arc<AppProcessEntry>> = self
@@ -69,7 +74,9 @@ impl Drop for AppLauncherState {
         for entry in entries {
             if let Ok(mut child) = entry.child.try_lock() {
                 if let Some(ch) = child.as_mut() {
-                    let _ = ch.start_kill();
+                    if !kill_process_tree(entry.pid).unwrap_or(false) {
+                        let _ = ch.start_kill();
+                    }
                 }
             }
         }
@@ -380,32 +387,40 @@ pub(crate) struct AppStatusResult {
     pub exit_code: Option<i32>,
 }
 
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum AppStopMethod {
+    AlreadyStopped,
+    Graceful,
+    Killed,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AppStopResult {
-    pub stopped: bool,
-    pub method: String,
+    pub(crate) stopped: bool,
+    pub(crate) method: AppStopMethod,
 }
 
 impl AppStopResult {
     fn already_stopped() -> Self {
         Self {
             stopped: false,
-            method: "alreadyStopped".to_string(),
+            method: AppStopMethod::AlreadyStopped,
         }
     }
 
     fn graceful() -> Self {
         Self {
             stopped: true,
-            method: "graceful".to_string(),
+            method: AppStopMethod::Graceful,
         }
     }
 
     fn killed() -> Self {
         Self {
             stopped: true,
-            method: "killed".to_string(),
+            method: AppStopMethod::Killed,
         }
     }
 }
@@ -580,42 +595,21 @@ pub(crate) async fn app_stop(
     state: tauri::State<'_, Arc<AppLauncherState>>,
     app_id: String,
 ) -> Result<AppStopResult, String> {
-    let id = app_id.trim().to_string();
-    if id.is_empty() {
-        return Err("appId 不能为空".to_string());
-    }
-
-    let entry = state
-        .processes
-        .lock()
-        .map_err(|_| "进程状态锁定失败".to_string())?
-        .get(&id)
-        .cloned();
-
-    let Some(entry) = entry else {
-        return Ok(AppStopResult::already_stopped());
-    };
-
-    let _ = send_control_action_async(entry.clone(), "close".to_string(), None).await;
-    let result = if wait_for_process_exit(&entry, STOP_GRACE_TIMEOUT).await {
-        AppStopResult::graceful()
-    } else if kill_process_entry(&entry).await? {
-        AppStopResult::killed()
-    } else {
-        AppStopResult::already_stopped()
-    };
-
-    if let Ok(mut g) = state.processes.lock() {
-        g.remove(&id);
-    }
-
-    Ok(result)
+    app_stop_with_mode(state.inner(), app_id, AppStopMode::Graceful).await
 }
 
 #[tauri::command]
 pub(crate) async fn app_force_stop(
     state: tauri::State<'_, Arc<AppLauncherState>>,
     app_id: String,
+) -> Result<AppStopResult, String> {
+    app_stop_with_mode(state.inner(), app_id, AppStopMode::Force).await
+}
+
+async fn app_stop_with_mode(
+    state: &Arc<AppLauncherState>,
+    app_id: String,
+    mode: AppStopMode,
 ) -> Result<AppStopResult, String> {
     let id = app_id.trim().to_string();
     if id.is_empty() {
@@ -633,10 +627,24 @@ pub(crate) async fn app_force_stop(
         return Ok(AppStopResult::already_stopped());
     };
 
-    let result = if kill_process_entry(&entry).await? {
-        AppStopResult::killed()
-    } else {
-        AppStopResult::already_stopped()
+    let result = match mode {
+        AppStopMode::Graceful => {
+            let _ = send_control_action_async(entry.clone(), "close".to_string(), None).await;
+            if wait_for_process_exit(&entry, STOP_GRACE_TIMEOUT).await {
+                AppStopResult::graceful()
+            } else if kill_process_entry(&entry).await? {
+                AppStopResult::killed()
+            } else {
+                AppStopResult::already_stopped()
+            }
+        }
+        AppStopMode::Force => {
+            if kill_process_entry(&entry).await? {
+                AppStopResult::killed()
+            } else {
+                AppStopResult::already_stopped()
+            }
+        }
     };
 
     if let Ok(mut g) = state.processes.lock() {

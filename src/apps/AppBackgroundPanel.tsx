@@ -5,7 +5,8 @@ import {
 } from '@mui/material'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import type { RegisteredApp, RegisteredAppUpdatePatch, AppStatus } from './types'
-import { appStopToastMessage, launchApp, stopApp, getAppStatuses } from './appLauncher'
+import { launchApp, getAppStatuses } from './appLauncher'
+import { appStopToastMessage, stopRegisteredApp } from './appStop'
 import AppCardView from './AppCardView'
 import { hostToast } from '../host/hostPrimitives'
 
@@ -95,7 +96,7 @@ export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedde
   const handleStop = async (app: RegisteredApp) => {
     setBusyId(app.id)
     try {
-      const result = await stopApp(app.id)
+      const result = await stopRegisteredApp(app)
       await hostToast(appStopToastMessage(app.name, result))
     } catch (e: any) {
       console.error('[app] stop failed:', e)

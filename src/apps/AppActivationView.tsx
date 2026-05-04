@@ -1,7 +1,8 @@
 import { Box, Typography, Button, CircularProgress, IconButton } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import type { RegisteredApp, AppStatus } from './types'
-import { appStopToastMessage, launchApp, stopApp } from './appLauncher'
+import { launchApp } from './appLauncher'
+import { appStopToastMessage, stopRegisteredApp } from './appStop'
 import { hostToast } from '../host/hostPrimitives'
 
 interface AppActivationViewProps {
@@ -13,7 +14,7 @@ interface AppActivationViewProps {
 export default function AppActivationView({ app, status, onBack }: AppActivationViewProps) {
   const handleStop = async () => {
     try {
-      const result = await stopApp(app.id)
+      const result = await stopRegisteredApp(app)
       await hostToast(appStopToastMessage(app.name, result))
     } catch (error: any) {
       await hostToast(String(error?.message || error || '停止应用失败'))

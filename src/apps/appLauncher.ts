@@ -33,12 +33,6 @@ export async function forceStopApp(id: string): Promise<AppStopResult> {
   return invoke<AppStopResult>('app_force_stop', { appId: id })
 }
 
-export function appStopToastMessage(appName: string, result: AppStopResult): string {
-  if (result.method === 'killed') return `已兜底 kill：${appName}`
-  if (result.method === 'alreadyStopped') return `应用已不在运行：${appName}`
-  return `已停止：${appName}`
-}
-
 export async function getAppStatus(id: string): Promise<AppStatus> {
   return invoke<AppStatus>('app_status', { appId: id })
 }
