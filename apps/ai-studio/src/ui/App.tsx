@@ -1,0 +1,8068 @@
+import * as React from 'react'
+import {
+  AppBar,
+  Avatar,
+  Box,
+  Button,
+  Checkbox,
+  Chip,
+  Collapse,
+  CssBaseline,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  FormControl,
+  FormControlLabel,
+  GlobalStyles,
+  IconButton,
+  InputAdornment,
+  InputLabel,
+  List,
+  ListItemAvatar,
+  ListItemButton,
+  ListItemText,
+  MenuItem,
+  Paper,
+  Popover,
+  Select,
+  Slider,
+  Stack,
+  Switch,
+  Tab,
+  Tabs,
+  TextField,
+  ThemeProvider,
+  Toolbar,
+  Tooltip,
+  Typography,
+  createTheme,
+} from '@mui/material'
+import AddIcon from '@mui/icons-material/Add'
+import CloseIcon from '@mui/icons-material/Close'
+import ContentCopyIcon from '@mui/icons-material/ContentCopy'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
+import HistoryIcon from '@mui/icons-material/History'
+import SearchIcon from '@mui/icons-material/Search'
+import ImageIcon from '@mui/icons-material/Image'
+import AttachFileIcon from '@mui/icons-material/AttachFile'
+import RefreshIcon from '@mui/icons-material/Refresh'
+import SettingsIcon from '@mui/icons-material/Settings'
+import StorageIcon from '@mui/icons-material/Storage'
+import ZoomInIcon from '@mui/icons-material/ZoomIn'
+import ZoomOutIcon from '@mui/icons-material/ZoomOut'
+import RestartAltIcon from '@mui/icons-material/RestartAlt'
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
+import ChevronRightIcon from '@mui/icons-material/ChevronRight'
+import AccountTreeIcon from '@mui/icons-material/AccountTree'
+import AutorenewIcon from '@mui/icons-material/Autorenew'
+import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
+import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import StarBorderRoundedIcon from '@mui/icons-material/StarBorderRounded'
+import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
+import DriveFileMoveOutlinedIcon from '@mui/icons-material/DriveFileMoveOutlined'
+import UnfoldLessIcon from '@mui/icons-material/UnfoldLess'
+import { BUILTIN_TOOL_REQUEST_PRESETS, stringifyToolRequestRenderPreset } from '../core/toolRequestPresets'
+import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from '../core/viewerZoom'
+import { ApiKeyField } from './components/fields/ApiKeyField'
+import { SecretField } from './components/fields/SecretField'
+import { useAiChatState } from './hooks/useAiChatState'
+import { useEvent } from './hooks/useEvent'
+import { findAtMentionTrigger } from './utils/mention'
+import { ToolRequestPresetsDialog } from './dialogs/ToolRequestPresetsDialog'
+import { ProvidersDialog } from './dialogs/ProvidersDialog'
+import { RoleDialog } from './dialogs/RoleDialog'
+import { ToolServerToolsDialog } from './dialogs/ToolServerToolsDialog'
+import { GroupDialog } from './dialogs/GroupDialog'
+import { ConfirmDialog } from './dialogs/ConfirmDialog'
+import { MermaidDialog } from './dialogs/MermaidDialog'
+import { ImageDialog } from './dialogs/ImageDialog'
+import { RoleAvatarCropper } from './components/avatar/RoleAvatarCropper'
+
+function isNearBottom(el: HTMLElement, thresholdPx = 24) {
+  const gap = el.scrollHeight - el.scrollTop - el.clientHeight
+  return Math.ceil(gap) <= thresholdPx
+}
+
+function clampNum(n: number, min: number, max: number) {
+  const x = Number(n)
+  if (!isFinite(x)) return min
+  if (x < min) return min
+  if (x > max) return max
+  return x
+}
+
+function snippetText(raw: any, maxLen = 26) {
+  const s0 = typeof raw === 'string' ? raw : String(raw ?? '')
+  const s1 = s0.replace(/\r/g, '').trim()
+  if (!s1) return '（空）'
+  const firstLine = (s1.split('\n').find((x) => String(x || '').trim()) || '').trim()
+  const s = firstLine || s1.split('\n')[0] || s1
+  const one = s.replace(/\s+/g, ' ').trim()
+  if (one.length <= maxLen) return one
+  return one.slice(0, Math.max(0, maxLen - 1)).trimEnd() + '…'
+}
+
+function svgSafeId(raw: any) {
+  const s0 = typeof raw === 'string' ? raw : String(raw ?? '')
+  const s = s0.trim()
+  if (!s) return 'x'
+  return s.replace(/[^a-zA-Z0-9\-_:.]/g, '_').slice(0, 80) || 'x'
+}
+
+function normalizeHotkeyString(raw: any) {
+  const s0 = typeof raw === 'string' ? raw : String(raw ?? '')
+  const s = s0.trim()
+  if (!s) return ''
+  const parts = s
+    .split('+')
+    .map((x) => String(x || '').trim())
+    .filter((x) => !!x)
+
+  const modSet = new Set<string>()
+  let key = ''
+  for (const p0 of parts) {
+    const p = p0.toLowerCase()
+    if (p === 'ctrl' || p === 'control') modSet.add('Ctrl')
+    else if (p === 'alt' || p === 'option') modSet.add('Alt')
+    else if (p === 'shift') modSet.add('Shift')
+    else if (p === 'meta' || p === 'cmd' || p === 'command' || p === 'win') modSet.add('Meta')
+    else key = p0
+  }
+
+  const k0 = String(key || '').trim()
+  if (!k0) return ''
+  const k1 = k0.length === 1 ? k0.toUpperCase() : k0
+
+  const mods = ['Ctrl', 'Alt', 'Shift', 'Meta'].filter((m) => modSet.has(m))
+  return [...mods, k1].join('+')
+}
+
+function hotkeyFromKeyEvent(e: { key?: any; ctrlKey?: any; altKey?: any; shiftKey?: any; metaKey?: any }) {
+  const k0 = String(e?.key || '').trim()
+  if (!k0) return ''
+  const lower = k0.toLowerCase()
+  if (lower === 'control' || lower === 'shift' || lower === 'alt' || lower === 'meta') return ''
+
+  const mods: string[] = []
+  if (e?.ctrlKey) mods.push('Ctrl')
+  if (e?.altKey) mods.push('Alt')
+  if (e?.shiftKey) mods.push('Shift')
+  if (e?.metaKey) mods.push('Meta')
+
+  const key =
+    k0 === ' ' ? 'Space' : k0.length === 1 ? k0.toUpperCase() : k0.startsWith('Arrow') ? k0 : k0[0].toUpperCase() + k0.slice(1)
+  return normalizeHotkeyString([...mods, key].join('+'))
+}
+
+function buildChatTreeLayout(messagesRaw: any[], opts?: { maxNodes?: number }) {
+  const maxNodes = Math.max(50, Math.min(2000, Math.floor(Number(opts?.maxNodes ?? 600))))
+  const msgs = Array.isArray(messagesRaw) ? messagesRaw : []
+  const items0 = msgs
+    .map((m: any) => {
+      const id = String(m?.id || '').trim()
+      if (!id) return null
+      const role = m?.role === 'assistant' ? 'assistant' : 'user'
+      const content = String(m?.content ?? '')
+      const parentMid = String((m as any)?.parentMid || '').trim()
+      const createdAt = Number(m?.createdAt || 0)
+      const branchId = String((m as any)?.branchId || '').trim()
+      const groupRole = String((m as any)?.groupRole || '').trim()
+      if (groupRole === 'attachment') return null
+      return { id, role, content, parentMid, createdAt, branchId, groupRole }
+    })
+    .filter(Boolean) as any[]
+
+  if (items0.length > maxNodes) {
+    items0.sort((a: any, b: any) => {
+      const da = Number(a?.createdAt || 0)
+      const db = Number(b?.createdAt || 0)
+      if (da !== db) return da - db
+      return String(a?.id || '').localeCompare(String(b?.id || ''))
+    })
+    items0.splice(0, Math.max(0, items0.length - maxNodes))
+  }
+
+  const byId = new Map<string, any>()
+  for (const it of items0) byId.set(String(it.id), it)
+
+  const nodes = items0.map((it: any) => {
+    const pid = String(it.parentMid || '').trim()
+    const parentId = pid && byId.has(pid) ? pid : ''
+    return {
+      id: String(it.id),
+      parentId,
+      role: it.role,
+      branchId: String(it.branchId || ''),
+      createdAt: Number(it.createdAt || 0),
+      text: snippetText(it.content, 16),
+      kind: 'message',
+    }
+  })
+
+  const children = new Map<string, string[]>()
+  for (const n of nodes) {
+    if (!n.parentId) continue
+    const list = children.get(n.parentId) || []
+    list.push(n.id)
+    children.set(n.parentId, list)
+  }
+
+  const sortIds = (ids: string[]) =>
+    ids.sort((a: string, b: string) => {
+      const na = byId.get(a)
+      const nb = byId.get(b)
+      const da = Number(na?.createdAt || 0)
+      const db = Number(nb?.createdAt || 0)
+      if (da !== db) return da - db
+      return String(a).localeCompare(String(b))
+    })
+
+  for (const [k, list] of children.entries()) children.set(k, sortIds(list))
+
+  const roots = nodes
+    .filter((n) => !n.parentId)
+    .map((n) => n.id)
+    .sort((a: string, b: string) => {
+      const na = byId.get(a)
+      const nb = byId.get(b)
+      const da = Number(na?.createdAt || 0)
+      const db = Number(nb?.createdAt || 0)
+      if (da !== db) return da - db
+      return String(a).localeCompare(String(b))
+    })
+
+  const pos = new Map<string, { depth: number; y: number }>()
+  const seen = new Set<string>()
+  let nextY = 0
+
+  const layout = (id: string, depth: number) => {
+    if (!id) return
+    if (seen.has(id)) return
+    seen.add(id)
+    const kids = children.get(id) || []
+    for (const c of kids) layout(c, depth + 1)
+    if (!kids.length) {
+      pos.set(id, { depth, y: nextY })
+      nextY += 1
+      return
+    }
+    const ys = kids.map((c) => pos.get(c)?.y).filter((x: any) => typeof x === 'number') as number[]
+    if (!ys.length) {
+      pos.set(id, { depth, y: nextY })
+      nextY += 1
+      return
+    }
+    const y = (ys[0] + ys[ys.length - 1]) / 2
+    pos.set(id, { depth, y })
+  }
+
+  for (const r of roots) {
+    layout(r, 0)
+    nextY += 0.8
+  }
+
+  const nodeW = 168
+  const nodeH = 44
+  const gapX = 120
+  const gapY = 70
+  const pad = 22
+
+  const laidNodes = nodes
+    .map((n) => {
+      const p = pos.get(n.id)
+      if (!p) return null
+      return { ...n, depth: Number(p.depth || 0), lane: Number(p.y || 0) }
+    })
+    .filter(Boolean) as any[]
+
+  let maxDepth = 0
+  let maxLane = 0
+  for (const n of laidNodes) {
+    maxDepth = Math.max(maxDepth, Math.floor(Number(n.depth || 0)))
+    maxLane = Math.max(maxLane, Number(n.lane || 0))
+  }
+
+  const edges = laidNodes
+    .filter((n) => !!n.parentId && pos.has(n.parentId))
+    .map((n) => ({ from: n.parentId, to: n.id }))
+
+  return { nodes: laidNodes, edges, byId, roots, nodeW, nodeH, gapX, gapY, pad, maxDepth, maxLane }
+}
+
+const TOPBAR_H = 40
+
+function AssistantContent(props: {
+  controller: any
+  className?: string
+  text: string
+  mid: string
+  toolRequestPresetKey: string
+  renderSafetyPolicyKey: string
+  chatRootRef: React.RefObject<HTMLElement | null>
+}) {
+  const { controller, className, text, mid, toolRequestPresetKey, renderSafetyPolicyKey, chatRootRef } = props
+  const ref = React.useRef<HTMLDivElement | null>(null)
+
+  React.useLayoutEffect(() => {
+    if (!ref.current) return
+    controller.renderAssistantInto(ref.current, text)
+  }, [controller, text, toolRequestPresetKey, renderSafetyPolicyKey])
+
+  const onClick = useEvent((e: React.MouseEvent) => {
+    const t = e.target as any
+    const root = chatRootRef.current
+    if (!root || !(t instanceof Element)) return
+    const block = t.closest?.('.mermaid-block[data-mermaid="1"]')
+    if (!block) return
+    controller.actions.openMermaidViewer(root, block)
+  })
+
+  return <div className={className} data-mid={mid} ref={ref} onClick={onClick} />
+}
+
+function RefImageThumb(props: { controller: any; path: string }) {
+  const { controller, path } = props
+  const [src, setSrc] = React.useState('')
+
+  React.useEffect(() => {
+    let alive = true
+    const api = controller?.capabilities
+    if (!api?.files?.images?.read) return
+    api.files.images
+      .read({ scope: 'data', path })
+      .then((url: string) => {
+        if (!alive) return
+        setSrc(String(url || ''))
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [controller, path])
+
+  return (
+    <Box
+      component="img"
+      data-fw-img="1"
+      src={src || undefined}
+      alt="image"
+      sx={{
+        width: 160,
+        height: 110,
+        objectFit: 'cover',
+        borderRadius: 2,
+        border: '1px solid',
+        borderColor: 'divider',
+        bgcolor: 'action.hover',
+        cursor: 'zoom-in',
+      }}
+    />
+  )
+}
+
+const stickerSrcCache = new Map<string, string>()
+
+function StickerInlineImage(props: { controller: any; path: string; label: string; size?: number }) {
+  const { controller, path, label, size } = props
+  const [src, setSrc] = React.useState('')
+
+  React.useEffect(() => {
+    const p = String(path || '').trim()
+    if (!p) return
+
+    const cached = stickerSrcCache.get(p)
+    if (typeof cached === 'string' && cached) {
+      setSrc(cached)
+      return
+    }
+
+    let alive = true
+    const api = controller?.capabilities
+    if (!api?.files?.images?.read) return
+
+    api.files.images
+      .read({ scope: 'data', path: p })
+      .then((url: string) => {
+        if (!alive) return
+        const u = String(url || '')
+        if (u.startsWith('data:')) stickerSrcCache.set(p, u)
+        setSrc(u)
+      })
+      .catch(() => {})
+
+    return () => {
+      alive = false
+    }
+  }, [controller, path])
+
+  const s = clampNum(Number(size || 90), 32, 240)
+
+  return (
+    <Box
+      component="img"
+      data-fw-img="1"
+      src={src || undefined}
+      alt={label || 'sticker'}
+      sx={{
+        width: s,
+        height: s,
+        objectFit: 'contain',
+        display: 'inline-block',
+        verticalAlign: 'middle',
+        borderRadius: 12,
+        border: '1px solid',
+        borderColor: 'divider',
+        bgcolor: 'action.hover',
+        cursor: 'zoom-in',
+      }}
+    />
+  )
+}
+
+type StickerSeg =
+  | { kind: 'text'; text: string }
+  | { kind: 'sticker'; raw: string; category: string; name: string }
+
+function splitStickerSegments(input: string): StickerSeg[] {
+  const s = String(input || '')
+  if (!s) return [{ kind: 'text', text: '' }]
+
+  const out: StickerSeg[] = []
+  const re = /\[\[\s*(?:sticker|表情包)\s*:\s*([^\]\n]{1,220}?)\s*\]\]/g
+  let last = 0
+  let m: RegExpExecArray | null = null
+
+  while ((m = re.exec(s))) {
+    const idx = m.index
+    const full = String(m[0] || '')
+    const inner = String(m[1] || '').trim().replace(/\\/g, '/')
+
+    if (idx > last) out.push({ kind: 'text', text: s.slice(last, idx) })
+
+    const parts = inner
+      .split('/')
+      .map((x) => String(x || '').trim())
+      .filter((x) => !!x)
+    if (parts.length === 2) {
+      out.push({ kind: 'sticker', raw: full, category: parts[0], name: parts[1] })
+    } else {
+      out.push({ kind: 'text', text: full })
+    }
+
+    last = idx + full.length
+  }
+
+  if (last < s.length) out.push({ kind: 'text', text: s.slice(last) })
+  return out.length ? out : [{ kind: 'text', text: s }]
+}
+
+function StickerText(props: { controller: any; text: string; stickerMap: any }) {
+  const { controller, text, stickerMap } = props
+  const segs = React.useMemo(() => splitStickerSegments(String(text || '')), [text])
+
+  return (
+    <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+      {segs.map((seg, i) => {
+        if (seg.kind === 'text') return <React.Fragment key={i}>{seg.text}</React.Fragment>
+        const cat = String(seg.category || '').trim()
+        const name = String(seg.name || '').trim()
+        const relPath = stickerMap && typeof stickerMap === 'object' ? String(stickerMap?.[cat]?.[name]?.relPath || '') : ''
+        if (!relPath) return <React.Fragment key={i}>{seg.raw}</React.Fragment>
+        return <StickerInlineImage key={i} controller={controller} path={relPath} label={`${cat}/${name}`} />
+      })}
+    </Typography>
+  )
+}
+
+export function AiChatApp(props: { controller: any }) {
+  const { controller } = props
+  const s = useAiChatState(controller)
+
+  const theme = React.useMemo(
+    () =>
+      createTheme({
+        palette: { mode: 'light' },
+        shape: { borderRadius: 12 },
+        typography: {
+          fontFamily:
+            'system-ui,-apple-system,"Segoe UI","Microsoft YaHei","PingFang SC","Noto Sans CJK SC",Roboto,Arial,sans-serif',
+        },
+      }),
+    [],
+  )
+
+  const data = s.data
+  const roles = Array.isArray(data?.roles) ? data.roles : []
+  const groups = Array.isArray((data as any)?.groups) ? ((data as any).groups as any[]) : []
+  const providers = Array.isArray(data?.settings?.providers) ? data.settings.providers : []
+  const favorites = (data as any)?.favorites && typeof (data as any).favorites === 'object' ? (data as any).favorites : { folders: [], chatRefsByFolderId: {} }
+  const favoriteFolders = Array.isArray((favorites as any)?.folders) ? ((favorites as any).folders as any[]) : []
+  const favoriteChatRefsByFolderId =
+    (favorites as any)?.chatRefsByFolderId && typeof (favorites as any).chatRefsByFolderId === 'object' ? (favorites as any).chatRefsByFolderId : {}
+  const transparentChatBg = !!data?.settings?.transparentChatBg
+  const chatBgOpacity = clampNum(Number(data?.settings?.chatBgOpacity ?? 0), 0, 100)
+  const chatBgBlur = clampNum(Number(data?.settings?.chatBgBlur ?? 0), 0, 24)
+  const topbarOpacity = clampNum(Number(data?.settings?.topbarOpacity ?? 100), 0, 100)
+  const topbarBlur = clampNum(Number(data?.settings?.topbarBlur ?? 0), 0, 24)
+  const composerOpacity = clampNum(Number(data?.settings?.composerOpacity ?? 86), 40, 100)
+  const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
+  const toolRequestRenderPreset = String((data?.settings as any)?.toolRequestRenderPreset || 'classic')
+  const renderSafetyPolicy = (() => {
+    const v = String((data?.settings as any)?.renderSafetyPolicy || 'original').trim()
+    return v === 'unsafe' ? 'unsafe' : v === 'baseline' ? 'baseline' : 'original'
+  })()
+  const toolRequestRenderPresetsKey = (() => {
+    const list = (data?.settings as any)?.toolRequestRenderPresets
+    try {
+      return JSON.stringify(list && typeof list === 'object' ? list : [])
+    } catch (_) {
+      return ''
+    }
+  })()
+  const userMessageCollapseEnabled = !!data?.settings?.userMessageCollapseEnabled
+  const userMessageCollapseLines = clampNum(Number(data?.settings?.userMessageCollapseLines ?? 8), 1, 50)
+  const attachSendLimitChars = clampNum(Number(data?.settings?.attachments?.sendLimitChars ?? 80000), 1000, 2000000)
+  const attachMaxFileSizeMbByKind0 = (data?.settings?.attachments as any)?.maxFileSizeMbByKind
+  const attachMaxFileSizeMbByKind = attachMaxFileSizeMbByKind0 && typeof attachMaxFileSizeMbByKind0 === 'object' ? attachMaxFileSizeMbByKind0 : {}
+  const attachMaxFileSizeMbTxt = clampNum(Number((attachMaxFileSizeMbByKind as any)?.txt ?? 10), 0, 2048)
+  const attachMaxFileSizeMbMd = clampNum(Number((attachMaxFileSizeMbByKind as any)?.md ?? 10), 0, 2048)
+  const attachMaxFileSizeMbPdf = clampNum(Number((attachMaxFileSizeMbByKind as any)?.pdf ?? 10), 0, 2048)
+  const attachMaxFileSizeMbDocx = clampNum(Number((attachMaxFileSizeMbByKind as any)?.docx ?? 10), 0, 2048)
+  const attachMaxFileSizeMbPpt = clampNum(Number((attachMaxFileSizeMbByKind as any)?.ppt ?? 10), 0, 2048)
+  const stickersEnabled = !!data?.settings?.stickers?.enabled
+  const stickerMap = data?.settings?.stickers?.map
+  const stickerCategories = Array.isArray(data?.settings?.stickers?.categories) ? data.settings.stickers.categories : []
+  const bgAlpha = transparentChatBg ? Math.max(chatBgOpacity / 100, chatBgBlur > 0 ? 0.01 : 0) : 1
+
+  const activeTargetKind = String((s.draft as any)?.activeTargetKind || (data?.ui as any)?.activeTargetKind || 'role') === 'group' ? 'group' : 'role'
+  const activeGroupId = String((s.draft as any)?.activeGroupId || (data?.ui as any)?.activeGroupId || '')
+  const activeRole = controller.activeRole()
+  const activeGroup = activeTargetKind === 'group' ? (groups.find((g: any) => String(g?.id || '') === activeGroupId) || null) : null
+  const activeChat = controller.activeChat()
+  const savedTreeDir = (() => {
+    const raw = String(((data?.settings as any)?.branchTree?.dir ?? '') as any).trim()
+    return raw === 'lr' || raw === 'tb' || raw === 'bt' || raw === 'rl' ? (raw as any) : 'lr'
+  })() as 'lr' | 'tb' | 'bt' | 'rl'
+  const savedTreeView = (() => {
+    const raw = String(((data?.settings as any)?.branchTree?.view ?? '') as any).trim()
+    return raw === 'right' || raw === 'float' ? (raw as any) : 'right'
+  })() as 'right' | 'float'
+  const savedTreeModalHotkey = (() => {
+    const raw = String(((data?.settings as any)?.branchTree?.modalHotkey ?? '') as any).trim()
+    return normalizeHotkeyString(raw)
+  })()
+  const savedTreeFollowSelected = (() => {
+    const raw = (data?.settings as any)?.branchTree?.followSelected
+    return typeof raw === 'boolean' ? raw : true
+  })() as boolean
+  const branchDraftRaw: any = (s as any)?.branchDraft
+  const branchDraft =
+    activeTargetKind === 'role' &&
+    branchDraftRaw &&
+    typeof branchDraftRaw === 'object' &&
+    String(branchDraftRaw?.roleId || '') === String(activeRole?.id || '') &&
+    String(branchDraftRaw?.chatId || '') === String(activeChat?.id || '')
+      ? branchDraftRaw
+      : null
+  const branchDraftKey = branchDraft ? `${String(branchDraft?.chatId || '')}:${String(branchDraft?.forkFromMid || '')}:${String(branchDraft?.createdAt || '')}` : ''
+  const [treeOpen, setTreeOpen] = React.useState(false)
+  const [treeViewOverride, setTreeViewOverride] = React.useState<'' | 'right' | 'float'>('')
+  const [treePan, setTreePan] = React.useState<{ x: number; y: number }>({ x: 18, y: 18 })
+  const [treeScale, setTreeScale] = React.useState(1)
+  const [treeDir, setTreeDir] = React.useState<'lr' | 'tb' | 'bt' | 'rl'>(() => savedTreeDir)
+  const [treeSelectedMid, setTreeSelectedMid] = React.useState('')
+  const [treePop, setTreePop] = React.useState<{ id: string; at: number }>({ id: '', at: 0 })
+  const [treeDragging, setTreeDragging] = React.useState(false)
+  const treeDragRef = React.useRef<{ pid: number; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null>(null)
+  const treeSuppressClickRef = React.useRef(false)
+  const treeViewportRef = React.useRef<SVGGElement | null>(null)
+  const treeViewRef = React.useRef<{ x: number; y: number; scale: number }>({ x: 18, y: 18, scale: 1 })
+  const treeViewRafRef = React.useRef<number>(0)
+  const treeHostRightRef = React.useRef<HTMLDivElement | null>(null)
+  const treeHostFloatRef = React.useRef<HTMLDivElement | null>(null)
+  const treeFollowRafRef = React.useRef<number>(0)
+  const treeFollowAnimRef = React.useRef<{ targetX: number; targetY: number; lastT: number } | null>(null)
+  const treeOpenTokenRef = React.useRef(0)
+  const treeInitialCenterRafRef = React.useRef<number>(0)
+  const treeNeedInitialCenterRef = React.useRef(false)
+
+  const effectiveTreeView = (treeViewOverride || savedTreeView) as 'right' | 'float'
+  const isChatGenerating = React.useCallback((chat: any) => {
+    const msgs = Array.isArray(chat?.messages) ? chat.messages : []
+    return msgs.some((m: any) => m && m.role === 'assistant' && m.pending)
+  }, [])
+  const isSendingThisChat = React.useCallback(
+    (targetKind: 'role' | 'group', targetId: string, chatId: string) => {
+      const tid = String(targetId || '')
+      const cid = String(chatId || '')
+      if (!tid || !cid) return false
+      if (targetKind === 'group') {
+        const box = (data as any)?.chatsByGroup?.[tid]
+        const chats = Array.isArray(box?.chats) ? box.chats : []
+        const chat = chats.find((c: any) => String(c?.id || '') === cid) || null
+        return isChatGenerating(chat)
+      }
+      const box = data?.chatsByRole?.[tid]
+      const chats = Array.isArray(box?.chats) ? box.chats : []
+      const chat = chats.find((c: any) => String(c?.id || '') === cid) || null
+      return isChatGenerating(chat)
+    },
+    [data, isChatGenerating],
+  )
+
+  const favoriteChildrenMap = (() => {
+    const map: Record<string, any[]> = {}
+    for (const f of favoriteFolders) {
+      const pid = String((f as any)?.parentId || '')
+      if (!map[pid]) map[pid] = []
+      map[pid].push(f)
+    }
+    for (const list of Object.values(map)) {
+      list.sort((a: any, b: any) => Number(a?.createdAt || 0) - Number(b?.createdAt || 0))
+    }
+    return map
+  })()
+
+  const collectFavoriteFolderSubtreeIds = React.useCallback(
+    (folderId: string) => {
+      const fid = String(folderId || '')
+      if (!fid) return []
+      const out: string[] = []
+      const stack = [fid]
+      while (stack.length) {
+        const cur = String(stack.pop() || '')
+        if (!cur || out.includes(cur)) continue
+        out.push(cur)
+        const children = favoriteChildrenMap[cur] || []
+        for (const child of children) {
+          const cid = String(child?.id || '')
+          if (cid) stack.push(cid)
+        }
+      }
+      return out
+    },
+    [favoriteChildrenMap],
+  )
+
+  const getChatByFavoriteRef = React.useCallback(
+    (targetKind: 'role' | 'group', targetId: string, chatId: string) => {
+      const tid = String(targetId || '')
+      const cid = String(chatId || '')
+      if (!tid || !cid) return null
+      if (targetKind === 'group') {
+        const box = (data as any)?.chatsByGroup?.[tid]
+        const chats = Array.isArray(box?.chats) ? box.chats : []
+        return chats.find((c: any) => String(c?.id || '') === cid) || null
+      }
+      const box = data?.chatsByRole?.[tid]
+      const chats = Array.isArray(box?.chats) ? box.chats : []
+      return chats.find((c: any) => String(c?.id || '') === cid) || null
+    },
+    [data],
+  )
+
+  const getFavoriteTargetMeta = React.useCallback(
+    (targetKind: 'role' | 'group', targetId: string) => {
+      const tid = String(targetId || '')
+      if (!tid) return null
+      if (targetKind === 'group') {
+        const g = groups.find((it: any) => String(it?.id || '') === tid) || null
+        if (!g) return null
+        return {
+          name: String(g?.name || '群聊'),
+          avatar: String(g?.avatar || '👥'),
+          avatarImage: String(g?.avatarImage || ''),
+        }
+      }
+      const r = roles.find((it: any) => String(it?.id || '') === tid) || null
+      if (!r) return null
+      return {
+        name: String(r?.name || '角色'),
+        avatar: String(r?.avatar || '🙂'),
+        avatarImage: String(r?.avatarImage || ''),
+      }
+    },
+    [groups, roles],
+  )
+
+  const formatModelRefText = React.useCallback(
+    (modelRef: any) => {
+      const providerId = String(modelRef?.providerId || '').trim()
+      const modelId = String(modelRef?.modelId || '').trim()
+      if (!providerId && !modelId) return ''
+      return providerId && modelId ? `${providerId} / ${modelId}` : providerId || modelId
+    },
+    [],
+  )
+
+  const openCreateFavoriteFolder = useEvent((parentId = '') => {
+    setCreateFavoriteFolder({ open: true, parentId: String(parentId || ''), name: '' })
+  })
+  const closeCreateFavoriteFolder = useEvent(() => setCreateFavoriteFolder({ open: false, parentId: '', name: '' }))
+  const closeFavoriteFolderMenu = useEvent(() => setFavoriteFolderMenu({ folderId: '', parentId: '', x: 0, y: 0 }))
+  const openRenameFavoriteFolder = useEvent((folderId: string) => {
+    const fid = String(folderId || '')
+    const folder = favoriteFolders.find((f: any) => String(f?.id || '') === fid) || null
+    if (!folder) return
+    closeFavoriteFolderMenu()
+    setRenameFavoriteFolder({ open: true, folderId: fid, name: String(folder?.name || '') })
+  })
+  const closeRenameFavoriteFolder = useEvent(() => setRenameFavoriteFolder({ open: false, folderId: '', name: '' }))
+  const submitRenameFavoriteFolder = useEvent(() => {
+    const fid = String(renameFavoriteFolder.folderId || '')
+    const name = String(renameFavoriteFolder.name || '').trim()
+    if (!fid || !name) return
+    controller.actions.renameFavoriteFolder?.(fid, name)
+    closeRenameFavoriteFolder()
+  })
+  const openDeleteFavoriteFolderConfirm = useEvent((folderId: string, mode: 'keep' | 'tree') => {
+    closeFavoriteFolderMenu()
+    setConfirmDeleteFavoriteFolder({ open: true, folderId: String(folderId || ''), mode })
+  })
+  const closeDeleteFavoriteFolderConfirm = useEvent(() => setConfirmDeleteFavoriteFolder({ open: false, folderId: '', mode: 'keep' }))
+  const closeMoveFavoriteFolderContents = useEvent(() => setMoveFavoriteFolderContents({ open: false, folderId: '', targetFolderId: '' }))
+  const closeMoveFavoriteFolderDialog = useEvent(() => setMoveFavoriteFolderDialog({ open: false, folderId: '', parentId: '' }))
+  const closeConfirmClearFavoriteFolder = useEvent(() => setConfirmClearFavoriteFolder({ open: false, folderId: '' }))
+  const submitDeleteFavoriteFolder = useEvent(() => {
+    const fid = String(confirmDeleteFavoriteFolder.folderId || '')
+    if (!fid) return
+    const folder = favoriteFolders.find((f: any) => String(f?.id || '') === fid) || null
+    const isTop = !String((folder as any)?.parentId || '').trim()
+    const refs = Array.isArray((favoriteChatRefsByFolderId as any)?.[fid]) ? (favoriteChatRefsByFolderId as any)[fid] : []
+    if (confirmDeleteFavoriteFolder.mode === 'tree') {
+      controller.actions.deleteFavoriteFolderTree?.(fid)
+      closeDeleteFavoriteFolderConfirm()
+      return
+    }
+    if (isTop && refs.length) {
+      const fallback = favoriteFolders.find((f: any) => String(f?.id || '') !== fid) || null
+      setMoveFavoriteFolderContents({ open: true, folderId: fid, targetFolderId: String((fallback as any)?.id || '') })
+      closeDeleteFavoriteFolderConfirm()
+      return
+    }
+    controller.actions.deleteFavoriteFolderKeepContents?.(fid)
+    closeDeleteFavoriteFolderConfirm()
+  })
+  const submitMoveFavoriteFolderContents = useEvent(() => {
+    const fid = String(moveFavoriteFolderContents.folderId || '')
+    const targetFolderId = String(moveFavoriteFolderContents.targetFolderId || '')
+    if (!fid || !targetFolderId) return
+    controller.actions.deleteFavoriteFolderKeepContents?.(fid, targetFolderId)
+    closeMoveFavoriteFolderContents()
+  })
+  const submitClearFavoriteFolder = useEvent(() => {
+    const fid = String(confirmClearFavoriteFolder.folderId || '')
+    if (!fid) return
+    controller.actions.clearFavoriteFolderRefs?.(fid)
+    closeConfirmClearFavoriteFolder()
+  })
+  const submitMoveFavoriteFolder = useEvent(() => {
+    const fid = String(moveFavoriteFolderDialog.folderId || '')
+    if (!fid) return
+    controller.actions.moveFavoriteFolder?.(fid, moveFavoriteFolderDialog.parentId)
+    const moved = favoriteFolders.find((f: any) => String(f?.id || '') === fid) || null
+    const nextParentId = String(moveFavoriteFolderDialog.parentId || '')
+    setFavoriteFolderExpanded((p) => {
+      const next = { ...p, [fid]: true }
+      if (nextParentId) next[nextParentId] = true
+      const prevParentId = String((moved as any)?.parentId || '')
+      if (prevParentId) next[prevParentId] = true
+      return next
+    })
+    closeMoveFavoriteFolderDialog()
+  })
+  const collapseAllFavoriteFolders = useEvent(() => {
+    const next: Record<string, boolean> = {}
+    for (const folder of favoriteFolders) {
+      const fid = String(folder?.id || '')
+      if (fid) next[fid] = false
+    }
+    setFavoriteFolderExpanded(next)
+  })
+  const toggleFavoriteFolderExpanded = useEvent((folderId: string) => {
+    const fid = String(folderId || '')
+    if (!fid) return
+    setFavoriteFolderExpanded((p) => ({ ...p, [fid]: !p[fid] }))
+  })
+  const toggleFavoriteFolderChecked = useEvent((folderId: string) => {
+    const fid = String(folderId || '')
+    if (!fid) return
+    setFavoriteCheckedFolderIds((p) => (p.includes(fid) ? p.filter((x) => x !== fid) : p.concat(fid)))
+  })
+  const openFavoriteDialog = useEvent((targetKind: 'role' | 'group', targetId: string, chatId: string, title: string) => {
+    const tid = String(targetId || '')
+    const cid = String(chatId || '')
+    if (!tid || !cid) return
+    const ids = Array.isArray(controller.actions.getChatFavoriteFolderIds?.(targetKind, tid, cid))
+      ? controller.actions.getChatFavoriteFolderIds(targetKind, tid, cid)
+      : []
+    setFavoriteCheckedFolderIds(ids.map((x: any) => String(x || '')).filter(Boolean))
+    setFavoriteDialog({ open: true, targetKind, targetId: tid, chatId: cid, title: String(title || '') })
+  })
+  const closeFavoriteDialog = useEvent(() => {
+    setFavoriteDialog({ open: false, targetKind: 'role', targetId: '', chatId: '', title: '' })
+    setFavoriteCheckedFolderIds([])
+  })
+  const saveFavoriteDialog = useEvent(() => {
+    const { targetKind, targetId, chatId } = favoriteDialog
+    if (!targetId || !chatId) return
+    controller.actions.setChatFavoriteFolders?.(targetKind, targetId, chatId, favoriteCheckedFolderIds)
+    closeFavoriteDialog()
+  })
+  const submitCreateFavoriteFolder = useEvent(() => {
+    const name = String(createFavoriteFolder.name || '').trim()
+    if (!name) return
+    const parentId = String(createFavoriteFolder.parentId || '')
+    const id = controller.actions.createFavoriteFolder?.(name, parentId)
+    if (id) {
+      setFavoriteFolderExpanded((p) => {
+        const next = { ...p, [String(id || '')]: true }
+        if (parentId) next[parentId] = true
+        return next
+      })
+      closeCreateFavoriteFolder()
+    }
+  })
+  const openFavoritedChat = useEvent((targetKind: 'role' | 'group', targetId: string, chatId: string) => {
+    const tid = String(targetId || '')
+    const cid = String(chatId || '')
+    if (!tid || !cid) return
+    if (targetKind === 'group') controller.actions.setActiveGroup?.(tid)
+    else controller.actions.setActiveRole?.(tid)
+    controller.actions.setActiveChat?.(cid)
+    closeChatPicker()
+  })
+
+  const chatRootRef = React.useRef<HTMLDivElement | null>(null)
+  const stickToBottomRef = React.useRef(true)
+  const autoScrollBlockUntilRef = React.useRef(0)
+  const composerRef = React.useRef<HTMLDivElement | null>(null)
+  const [composerHeight, setComposerHeight] = React.useState(0)
+  const chatPaneRef = React.useRef<HTMLDivElement | null>(null)
+  const [treePanelW, setTreePanelW] = React.useState(360)
+  const treePanelWRef = React.useRef(360)
+  const [treeResizing, setTreeResizing] = React.useState(false)
+  const treeResizeRef = React.useRef<{ pid: number; right: number } | null>(null)
+  const treeResizeLastXRef = React.useRef(0)
+  const treeResizeRafRef = React.useRef<number>(0)
+
+  const [page, setPage] = React.useState<'chat' | 'settings'>('chat')
+  const [settingsTab, setSettingsTab] = React.useState<'appearance' | 'attachments' | 'groups' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers'>(
+    'roles',
+  )
+
+  const [expandedUserMsgIds, setExpandedUserMsgIds] = React.useState(() => new Set<string>())
+  const [expandedToolMsgIds, setExpandedToolMsgIds] = React.useState(() => new Set<string>())
+  const [branchNav, setBranchNav] = React.useState<{ mid: string; at: number }>({ mid: '', at: 0 })
+
+  React.useEffect(() => {
+    setExpandedUserMsgIds(() => new Set())
+    setExpandedToolMsgIds(() => new Set())
+  }, [String(activeChat?.id || '')])
+
+  React.useEffect(() => {
+    setTreePan({ x: 18, y: 18 })
+    setTreeScale(1)
+    setTreeSelectedMid('')
+    treeViewRef.current = { x: 18, y: 18, scale: 1 }
+  }, [String(activeChat?.id || '')])
+
+  React.useEffect(() => {
+    if (treeDir === savedTreeDir) return
+    setTreeDir(savedTreeDir)
+  }, [savedTreeDir, treeDir])
+
+  // float 模态窗不需要“吸附/定位”逻辑
+
+  const applyTreeViewTransform = useEvent(() => {
+    const g = treeViewportRef.current
+    if (!g) return
+    const v = treeViewRef.current
+    const x = Math.round(Number(v?.x || 0))
+    const y = Math.round(Number(v?.y || 0))
+    const s = clampNum(Number(v?.scale || 1), 0.35, 2.6)
+    try {
+      g.setAttribute('transform', `translate(${x},${y}) scale(${s})`)
+    } catch (_) {}
+  })
+
+  const scheduleTreeViewTransform = useEvent(() => {
+    if (treeViewRafRef.current) return
+    treeViewRafRef.current = requestAnimationFrame(() => {
+      treeViewRafRef.current = 0
+      applyTreeViewTransform()
+    })
+  })
+
+  const stopTreeFollow = useEvent(() => {
+    treeFollowAnimRef.current = null
+    if (treeFollowRafRef.current) {
+      cancelAnimationFrame(treeFollowRafRef.current)
+      treeFollowRafRef.current = 0
+    }
+  })
+
+  React.useLayoutEffect(() => {
+    treeViewRef.current = { x: treePan.x, y: treePan.y, scale: treeScale }
+    applyTreeViewTransform()
+  }, [treeOpen, treePan.x, treePan.y, treeScale, applyTreeViewTransform])
+
+  React.useEffect(() => {
+    const id = String(treePop.id || '').trim()
+    if (!id) return
+    const t = window.setTimeout(() => setTreePop({ id: '', at: 0 }), 420)
+    return () => window.clearTimeout(t)
+  }, [treePop.id, treePop.at])
+
+  React.useEffect(() => {
+    treePanelWRef.current = treePanelW
+  }, [treePanelW])
+
+  React.useEffect(() => {
+    if (treeOpen) return
+    treeDragRef.current = null
+    treeSuppressClickRef.current = false
+    setTreeDragging(false)
+    setTreeViewOverride('')
+    stopTreeFollow()
+  }, [treeOpen, stopTreeFollow])
+
+  const endTreeResize = useEvent((e: React.PointerEvent) => {
+    const st = treeResizeRef.current
+    if (!st) return
+    if (Number(e.pointerId) !== Number(st.pid)) return
+    treeResizeRef.current = null
+    if (treeResizeRafRef.current) {
+      cancelAnimationFrame(treeResizeRafRef.current)
+      treeResizeRafRef.current = 0
+    }
+    setTreeResizing(false)
+  })
+
+  const onTreeSplitterPointerDown = useEvent((e: React.PointerEvent) => {
+    if (!treeOpen) return
+    if (e.button !== 0) return
+    const host = chatPaneRef.current
+    let right = 0
+    try {
+      right = host ? Number(host.getBoundingClientRect().right || 0) : 0
+    } catch (_) {
+      right = 0
+    }
+    treeResizeLastXRef.current = Number(e.clientX || 0)
+    treeResizeRef.current = { pid: Number(e.pointerId), right }
+    setTreeResizing(true)
+    e.preventDefault()
+    e.stopPropagation()
+    try {
+      ;(e.currentTarget as any)?.setPointerCapture?.(e.pointerId)
+    } catch (_) {}
+  })
+
+  const onTreeSplitterPointerMove = useEvent((e: React.PointerEvent) => {
+    const st = treeResizeRef.current
+    if (!st) return
+    if (Number(e.pointerId) !== Number(st.pid)) return
+    treeResizeLastXRef.current = Number(e.clientX || 0)
+    if (treeResizeRafRef.current) return
+    treeResizeRafRef.current = requestAnimationFrame(() => {
+      treeResizeRafRef.current = 0
+      const cur = treeResizeRef.current
+      if (!cur) return
+      const raw = Math.max(0, Number(cur.right || 0) - Number(treeResizeLastXRef.current || 0))
+      const next = clampNum(Math.round(raw), 240, 860)
+      setTreePanelW(next)
+    })
+  })
+
+  React.useEffect(() => {
+    if (!treeResizing) return
+    const onUp = () => {
+      treeResizeRef.current = null
+      setTreeResizing(false)
+    }
+    window.addEventListener('mouseup', onUp)
+    window.addEventListener('blur', onUp)
+    return () => {
+      window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('blur', onUp)
+    }
+  }, [treeResizing])
+
+  React.useEffect(() => {
+    if (!treeDragging) return
+    const onUp = () => {
+      treeDragRef.current = null
+      setTreeDragging(false)
+      treeSuppressClickRef.current = false
+    }
+    window.addEventListener('mouseup', onUp)
+    window.addEventListener('blur', onUp)
+    return () => {
+      window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('blur', onUp)
+    }
+  }, [treeDragging])
+
+  React.useEffect(() => {
+    if (!userMessageCollapseEnabled) setExpandedUserMsgIds(() => new Set())
+  }, [userMessageCollapseEnabled])
+
+  const toggleExpandedUserMsg = useEvent((mid: string) => {
+    const id = String(mid || '')
+    if (!id) return
+    setExpandedUserMsgIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  })
+
+  const toggleExpandedToolMsg = useEvent((mid: string) => {
+    const id = String(mid || '')
+    if (!id) return
+    setExpandedToolMsgIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  })
+
+  const [rolePickerEl, setRolePickerEl] = React.useState<HTMLElement | null>(null)
+  const [rolePickerTab, setRolePickerTab] = React.useState<'roles' | 'groups'>('roles')
+  const [chatPickerEl, setChatPickerEl] = React.useState<HTMLElement | null>(null)
+  const [chatPickerView, setChatPickerView] = React.useState<'history' | 'favorites'>('history')
+  const [chatPickerSearchOpen, setChatPickerSearchOpen] = React.useState(false)
+  const [chatPickerSearchText, setChatPickerSearchText] = React.useState('')
+  const chatPickerSearchInputRef = React.useRef<HTMLInputElement | null>(null)
+  const [favoriteSearchOpen, setFavoriteSearchOpen] = React.useState(false)
+  const [favoriteSearchText, setFavoriteSearchText] = React.useState('')
+  const favoriteSearchInputRef = React.useRef<HTMLInputElement | null>(null)
+  const [favoriteFolderExpanded, setFavoriteFolderExpanded] = React.useState<Record<string, boolean>>({})
+  const [favoriteDialog, setFavoriteDialog] = React.useState<{ open: boolean; targetKind: 'role' | 'group'; targetId: string; chatId: string; title: string }>({
+    open: false,
+    targetKind: 'role',
+    targetId: '',
+    chatId: '',
+    title: '',
+  })
+  const [favoriteCheckedFolderIds, setFavoriteCheckedFolderIds] = React.useState<string[]>([])
+  const [createFavoriteFolder, setCreateFavoriteFolder] = React.useState<{ open: boolean; parentId: string; name: string }>({
+    open: false,
+    parentId: '',
+    name: '',
+  })
+  const [favoriteFolderMenu, setFavoriteFolderMenu] = React.useState<{ folderId: string; parentId: string; x: number; y: number }>({ folderId: '', parentId: '', x: 0, y: 0 })
+  const [renameFavoriteFolder, setRenameFavoriteFolder] = React.useState<{ open: boolean; folderId: string; name: string }>({ open: false, folderId: '', name: '' })
+  const [confirmDeleteFavoriteFolder, setConfirmDeleteFavoriteFolder] = React.useState<{ open: boolean; folderId: string; mode: 'keep' | 'tree' }>({
+    open: false,
+    folderId: '',
+    mode: 'keep',
+  })
+  const [moveFavoriteFolderContents, setMoveFavoriteFolderContents] = React.useState<{ open: boolean; folderId: string; targetFolderId: string }>({
+    open: false,
+    folderId: '',
+    targetFolderId: '',
+  })
+  const [moveFavoriteFolderDialog, setMoveFavoriteFolderDialog] = React.useState<{ open: boolean; folderId: string; parentId: string }>({
+    open: false,
+    folderId: '',
+    parentId: '',
+  })
+  const [confirmClearFavoriteFolder, setConfirmClearFavoriteFolder] = React.useState<{ open: boolean; folderId: string }>({ open: false, folderId: '' })
+  const [tempModelPickerEl, setTempModelPickerEl] = React.useState<HTMLElement | null>(null)
+  const [fileAdjust, setFileAdjust] = React.useState<{ el: HTMLElement | null; id: string }>({ el: null, id: '' })
+  const [tempModelProviderId, setTempModelProviderId] = React.useState('')
+  const [tempModelPick, setTempModelPick] = React.useState('')
+  const [tempCustomModelId, setTempCustomModelId] = React.useState('')
+  const composerInputRef = React.useRef<HTMLTextAreaElement | HTMLInputElement | null>(null)
+  const [atPicker, setAtPicker] = React.useState<null | { triggerIndex: number; cursorIndex: number; query: string }>(null)
+  const closeAtPicker = useEvent(() => setAtPicker(null))
+
+  const backToHost = useEvent(() => {
+    const host = (controller as any)?.capabilities?.host
+    if (host?.back) host.back()
+    else controller?.capabilities?.ui?.showToast?.('无法返回')
+  })
+
+  const focusComposerSoon = useEvent(() => {
+    if (page !== 'chat') return
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const el = composerInputRef.current
+        if (!el) return
+        try {
+          el.focus?.()
+          const v = typeof (el as any).value === 'string' ? String((el as any).value || '') : ''
+          if (typeof (el as any).setSelectionRange === 'function') (el as any).setSelectionRange(v.length, v.length)
+        } catch (_) {}
+      }, 0)
+    })
+  })
+
+  const closeTreeModal = useEvent((focusComposer: boolean) => {
+    setTreeViewOverride('')
+    setTreeOpen(false)
+    if (focusComposer) focusComposerSoon()
+  })
+
+  const onTopbarPointerDown = useEvent((e: React.PointerEvent) => {
+    if (e.button !== 0) return
+    const t = e.target as any
+    if (!t || typeof t.closest !== 'function') return
+    if (t.closest('button, a, input, textarea, select, [role="button"]')) return
+    controller?.capabilities?.ui?.startDragging?.()
+  })
+
+  const onClickOpenImageViewer = useEvent((e: React.MouseEvent) => {
+    const t = e.target as any
+    if (!(t instanceof Element)) return
+    const img = t.closest?.('img[data-fw-img="1"]')
+    if (!img) return
+    if (!(img instanceof HTMLImageElement)) return
+    const src = String(img.getAttribute('src') || '').trim()
+    if (!src) return
+    e.preventDefault()
+    e.stopPropagation()
+    controller.actions.openImageViewer(e.currentTarget as any, img)
+  })
+
+  const closeFileAdjust = useEvent(() => setFileAdjust({ el: null, id: '' }))
+  const openFileAdjust = useEvent((e: React.MouseEvent<HTMLElement>, fileId: string) => {
+    const id = String(fileId || '')
+    if (!id) return
+    e.preventDefault()
+    e.stopPropagation()
+    setFileAdjust({ el: e.currentTarget, id })
+  })
+
+  const [attachView, setAttachView] = React.useState<{ el: HTMLElement | null; mid: string; idx: number }>({ el: null, mid: '', idx: -1 })
+  const closeAttachView = useEvent(() => setAttachView({ el: null, mid: '', idx: -1 }))
+  const openAttachView = useEvent((e: React.MouseEvent<HTMLElement>, mid: string, idx: number) => {
+    const id = String(mid || '').trim()
+    if (!id) return
+    e.preventDefault()
+    e.stopPropagation()
+    setAttachView({ el: e.currentTarget, mid: id, idx: Math.max(-1, Math.floor(Number(idx || 0))) })
+  })
+
+  const endTreeDrag = useEvent((e: React.PointerEvent) => {
+    const st = treeDragRef.current
+    if (!st) return
+    if (Number(e.pointerId) !== Number(st.pid)) return
+    treeDragRef.current = null
+    setTreeDragging(false)
+    const v = treeViewRef.current
+    setTreePan({ x: Number(v?.x || 0), y: Number(v?.y || 0) })
+    setTreeScale(clampNum(Number(v?.scale || 1), 0.35, 2.6))
+    if (st.moved) {
+      treeSuppressClickRef.current = true
+      setTimeout(() => {
+        treeSuppressClickRef.current = false
+      }, 0)
+    }
+  })
+
+  const onTreePointerDown = useEvent((e: React.PointerEvent) => {
+    if (!treeOpen) return
+    if (e.button !== 0) return
+    try {
+      const t = e.target as any
+      if (t && typeof t.closest === 'function' && t.closest('[data-tree-node="1"]')) return
+    } catch (_) {}
+    stopTreeFollow()
+    treeSuppressClickRef.current = false
+    const v = treeViewRef.current
+    treeDragRef.current = { pid: Number(e.pointerId), sx: Number(e.clientX), sy: Number(e.clientY), ox: Number(v?.x || 0), oy: Number(v?.y || 0), moved: false }
+    setTreeDragging(true)
+    e.preventDefault()
+    try {
+      ;(e.currentTarget as any)?.setPointerCapture?.(e.pointerId)
+    } catch (_) {}
+  })
+
+  const onTreePointerMove = useEvent((e: React.PointerEvent) => {
+    const st = treeDragRef.current
+    if (!st) return
+    if (Number(e.pointerId) !== Number(st.pid)) return
+    const dx = Number(e.clientX) - Number(st.sx)
+    const dy = Number(e.clientY) - Number(st.sy)
+    if (!st.moved && Math.hypot(dx, dy) > 3) st.moved = true
+    treeViewRef.current = { ...treeViewRef.current, x: st.ox + dx, y: st.oy + dy }
+    scheduleTreeViewTransform()
+  })
+
+  const onTreeWheel = useEvent((e: React.WheelEvent) => {
+    if (!treeOpen) return
+    const el = e.currentTarget as HTMLElement | null
+    if (!el) return
+    const dy = Number((e as any)?.deltaY || 0)
+    if (!isFinite(dy) || dy === 0) return
+    e.preventDefault()
+
+    const rect = el.getBoundingClientRect()
+    const cx = Number(e.clientX) - Number(rect.left)
+    const cy = Number(e.clientY) - Number(rect.top)
+
+    const scale0 = Number(treeViewRef.current?.scale || 1)
+    const factor = dy > 0 ? 1 / 1.12 : 1.12
+    const nextScale = clampNum(scale0 * factor, 0.35, 2.6)
+    if (Math.abs(nextScale - scale0) < 1e-6) return
+
+    const pan0 = treeViewRef.current
+    const wx = (cx - Number(pan0?.x || 0)) / scale0
+    const wy = (cy - Number(pan0?.y || 0)) / scale0
+    const nx = cx - wx * nextScale
+    const ny = cy - wy * nextScale
+
+    treeViewRef.current = { x: nx, y: ny, scale: nextScale }
+    scheduleTreeViewTransform()
+  })
+
+  // 分支树：Ctrl + 上/下 缩放（以视窗中心为锚点）
+  React.useEffect(() => {
+    if (!treeOpen) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!treeOpen) return
+      if (e.defaultPrevented) return
+      if ((e as any).isComposing) return
+      if (!e.ctrlKey) return
+
+      const key = String(e.key || '')
+      if (key !== 'ArrowUp' && key !== 'ArrowDown') return
+
+      const target = e.target as any
+      const tag = String(target?.tagName || '').toUpperCase()
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || !!target?.isContentEditable) return
+
+      const host = (effectiveTreeView === 'float' ? treeHostFloatRef.current : treeHostRightRef.current) as HTMLDivElement | null
+      if (!host) return
+      const w = Number(host.clientWidth || 0)
+      const h = Number(host.clientHeight || 0)
+      if (w < 20 || h < 20) return
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      stopTreeFollow()
+
+      const cx = w / 2
+      const cy = h / 2
+
+      const scale0 = Number(treeViewRef.current?.scale || 1)
+      const factor = key === 'ArrowUp' ? 1.12 : 1 / 1.12
+      const nextScale = clampNum(scale0 * factor, 0.35, 2.6)
+      if (Math.abs(nextScale - scale0) < 1e-6) return
+
+      const pan0 = treeViewRef.current
+      const wx = (cx - Number(pan0?.x || 0)) / scale0
+      const wy = (cy - Number(pan0?.y || 0)) / scale0
+      const nx = cx - wx * nextScale
+      const ny = cy - wy * nextScale
+
+      treeViewRef.current = { x: nx, y: ny, scale: nextScale }
+      scheduleTreeViewTransform()
+      setTreePan({ x: nx, y: ny })
+      setTreeScale(nextScale)
+    }
+
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [treeOpen, effectiveTreeView, scheduleTreeViewTransform, stopTreeFollow])
+
+  const cycleTreeDir = useEvent(() => {
+    const order: Array<'lr' | 'tb' | 'bt' | 'rl'> = ['lr', 'tb', 'bt', 'rl']
+    const i = Math.max(0, order.indexOf(treeDir))
+    const next = order[(i + 1) % order.length]
+    setTreeDir(next)
+    controller.actions.setBranchTreeDir?.(next)
+    setTreePan({ x: 18, y: 18 })
+    setTreeScale(1)
+    treeViewRef.current = { x: 18, y: 18, scale: 1 }
+    scheduleTreeViewTransform()
+  })
+
+  const chatAllMessagesRaw: any[] = Array.isArray(activeChat?.messages) ? (activeChat.messages as any[]) : []
+  const chatAllById = (() => {
+    const m = new Map<string, any>()
+    for (const it of chatAllMessagesRaw) {
+      const id = String(it?.id || '').trim()
+      if (!id || m.has(id)) continue
+      m.set(id, it)
+    }
+    return m
+  })()
+  const chatAllIndexById = (() => {
+    const m = new Map<string, number>()
+    for (let i = 0; i < chatAllMessagesRaw.length; i++) {
+      const id = String(chatAllMessagesRaw[i]?.id || '').trim()
+      if (!id || m.has(id)) continue
+      m.set(id, i)
+    }
+    return m
+  })()
+  const prevAiMidByAssistantId = (() => {
+    const out = new Map<string, string>()
+    const msgs = chatAllMessagesRaw
+
+    const findPrevAi = (assistantMid: string) => {
+      const aiIndex = chatAllIndexById.get(assistantMid)
+      if (aiIndex == null || aiIndex < 0) return ''
+      const target = msgs[aiIndex]
+      if (!target || target.role !== 'assistant') return ''
+
+      let userMid = String((target as any)?.parentMid || '').trim()
+      let userMsg = userMid ? (chatAllById.get(userMid) || null) : null
+      if (!userMsg || userMsg.role !== 'user') {
+        for (let i = aiIndex - 1; i >= 0; i--) {
+          const m = msgs[i]
+          if (m && m.role === 'user') {
+            userMsg = m
+            userMid = String(m?.id || '').trim()
+            break
+          }
+          if (m && m.role === 'assistant') break
+        }
+      }
+      if (!userMsg || userMsg.role !== 'user') return ''
+
+      const p0 = String((userMsg as any)?.parentMid || '').trim()
+      const pMsg = p0 ? (chatAllById.get(p0) || null) : null
+      if (pMsg && pMsg.role === 'assistant') return String(pMsg?.id || '').trim()
+
+      const uidx = userMid ? (chatAllIndexById.get(userMid) ?? -1) : -1
+      const start = uidx >= 0 ? uidx - 1 : aiIndex - 1
+      for (let i = start; i >= 0; i--) {
+        const m = msgs[i]
+        if (m && m.role === 'assistant') return String(m?.id || '').trim()
+      }
+      return ''
+    }
+
+    for (const m of msgs) {
+      if (!m || m.role !== 'assistant') continue
+      const mid = String(m?.id || '').trim()
+      if (!mid || out.has(mid)) continue
+      out.set(mid, findPrevAi(mid))
+    }
+    return out
+  })()
+  const treeLayout = React.useMemo(() => {
+    if (!activeChat) return null
+    return buildChatTreeLayout(chatAllMessagesRaw, { maxNodes: 900 })
+  }, [String(activeChat?.id || ''), Number((activeChat as any)?.updatedAt || 0), chatAllMessagesRaw.length])
+  const treeRender = React.useMemo(() => {
+    const tl: any = treeLayout
+    if (!tl || !Array.isArray(tl.nodes) || tl.nodes.length === 0) return null
+
+    const nodeW = Number(tl.nodeW || 168)
+    const nodeH = Number(tl.nodeH || 44)
+    const gapX = Number(tl.gapX || 120)
+    const gapY = Number(tl.gapY || 70)
+    const pad = Number(tl.pad || 22)
+    const maxDepth = Math.max(0, Math.floor(Number(tl.maxDepth || 0)))
+    const maxLane = Math.max(0, Number(tl.maxLane || 0))
+
+    const stepDepthX = nodeW + gapX
+    const stepDepthY = nodeH + gapY
+    const stepLaneX = nodeW + gapX
+    const stepLaneY = gapY
+
+    const nodes = (tl.nodes as any[]).map((n: any) => {
+      const depth = Math.max(0, Math.floor(Number(n?.depth || 0)))
+      const lane = Math.max(0, Number(n?.lane || 0))
+      let x = 0
+      let y = 0
+
+      if (treeDir === 'lr' || treeDir === 'rl') {
+        const d = treeDir === 'rl' ? maxDepth - depth : depth
+        x = pad + d * stepDepthX
+        y = pad + lane * stepLaneY
+      } else {
+        const d = treeDir === 'bt' ? maxDepth - depth : depth
+        x = pad + lane * stepLaneX
+        y = pad + d * stepDepthY
+      }
+
+      return { ...n, depth, lane, x, y }
+    })
+
+    const byId = new Map<string, any>()
+    for (const n of nodes) {
+      const id = String(n?.id || '').trim()
+      if (id && !byId.has(id)) byId.set(id, n)
+    }
+
+    const edges = Array.isArray(tl.edges) ? (tl.edges as any[]) : []
+
+    let maxX = 0
+    let maxY = 0
+    for (const n of nodes) {
+      maxX = Math.max(maxX, Number(n.x || 0) + nodeW)
+      maxY = Math.max(maxY, Number(n.y || 0) + nodeH)
+    }
+
+    const size = { w: maxX + pad, h: maxY + pad }
+    return { nodes, edges, byId, nodeW, nodeH, size }
+  }, [treeLayout, treeDir])
+  const activeBranchIdUi = String((activeChat as any)?.branching?.activeBranchId || '')
+  const allMessages: any[] = (() => {
+    const chat: any = activeChat
+    const msgs = chatAllMessagesRaw
+    if (!chat || !Array.isArray(msgs) || msgs.length === 0) return []
+
+    const branching = chat?.branching
+    const activeBranchId = String(branching?.activeBranchId || 'main').trim() || 'main'
+    const branches = Array.isArray(branching?.branches) ? branching.branches : []
+    const b = branches.find((x: any) => String(x?.id || '') === activeBranchId) || null
+
+    let headMid = String(b?.headMid || '').trim()
+    if (branchDraft) headMid = String(branchDraft?.forkFromMid || '').trim() || headMid
+    if (!branchDraft && treeSelectedMid) headMid = String(treeSelectedMid || '').trim() || headMid
+    if (!headMid) headMid = String(msgs[msgs.length - 1]?.id || '').trim()
+    if (!headMid) return msgs
+
+    const byId = new Map<string, any>()
+    for (const m of msgs) {
+      const id = String(m?.id || '').trim()
+      if (!id || byId.has(id)) continue
+      byId.set(id, m)
+    }
+
+    const out: any[] = []
+    const seen = new Set<string>()
+    let cur = headMid
+    while (cur && !seen.has(cur)) {
+      seen.add(cur)
+      const m = byId.get(cur) || null
+      if (!m) break
+      out.push(m)
+      cur = String((m as any)?.parentMid || '').trim()
+    }
+
+    out.reverse()
+    return out.length ? out : msgs
+  })()
+
+  const assistantSiblingsByPrevAiMid = (() => {
+    const map = new Map<string, any[]>()
+    for (const m of chatAllMessagesRaw) {
+      if (!m || m.role !== 'assistant') continue
+      const mid = String(m?.id || '').trim()
+      if (!mid) continue
+      const prevAiMid = String(prevAiMidByAssistantId.get(mid) || '').trim()
+      if (!prevAiMid) continue
+      const list = map.get(prevAiMid) || []
+      list.push(m)
+      map.set(prevAiMid, list)
+    }
+    for (const [k, list] of map.entries()) {
+      list.sort((a: any, b: any) => {
+        const da = Number(a?.createdAt || 0)
+        const db = Number(b?.createdAt || 0)
+        if (da !== db) return da - db
+        return String(a?.id || '').localeCompare(String(b?.id || ''))
+      })
+      map.set(k, list)
+    }
+    return map
+  })()
+  const msgIndexById = (() => {
+    const m = new Map<string, number>()
+    for (let i = 0; i < allMessages.length; i++) {
+      const id = String(allMessages[i]?.id || '')
+      if (!id) continue
+      if (!m.has(id)) m.set(id, i)
+    }
+    return m
+  })()
+  const groupedAttMsgsByRootMid = (() => {
+    const map = new Map<string, any[]>()
+    for (const m of allMessages) {
+      if (!m || m.role !== 'user') continue
+      if (String(m?.groupRole || '') !== 'attachment') continue
+      const parent = String(m?.groupParentMid || '').trim()
+      if (!parent) continue
+      const list = map.get(parent) || []
+      list.push(m)
+      map.set(parent, list)
+    }
+    return map
+  })()
+  const renderMessages = (() => {
+    const out: any[] = []
+    for (const m of allMessages) {
+      if (!m) continue
+      if (m.role !== 'user') {
+        out.push(m)
+        continue
+      }
+      if (String(m?.groupRole || '') === 'attachment' && String(m?.groupParentMid || '').trim()) continue
+      out.push(m)
+    }
+    return out
+  })()
+
+  const lastMsg = renderMessages.length ? renderMessages[renderMessages.length - 1] : null
+  const lastMsgId = String(lastMsg?.id || '')
+  const lastMsgText = String(lastMsg?.content || '')
+  const isReplying = allMessages.some((m: any) => m && m.role === 'assistant' && m.pending)
+  const treeHighlightEdgeKeys = React.useMemo(() => {
+    const tr: any = treeRender
+    const target = String(lastMsgId || '').trim()
+    if (!tr || !target) return new Set<string>()
+    const byId = tr?.byId
+    if (!byId || typeof byId.get !== 'function') return new Set<string>()
+
+    const out = new Set<string>()
+    const seen = new Set<string>()
+    let cur = target
+    let guard = 0
+    while (cur && !seen.has(cur) && guard < 6000) {
+      guard++
+      seen.add(cur)
+      const n = byId.get(cur) || null
+      if (!n) break
+      const p = String(n?.parentId || '').trim()
+      if (!p) break
+      out.add(`${p}->${cur}`)
+      cur = p
+    }
+    return out
+  }, [treeRender, lastMsgId])
+  const chatOverride = (activeChat && typeof activeChat === 'object' ? (activeChat as any).modelOverride : null) as any
+  const overrideProviderId = String(chatOverride?.providerId || '').trim()
+  const overrideModelId = String(chatOverride?.modelId || '').trim()
+  const hasChatOverride = !!overrideProviderId && !!overrideModelId
+
+  const roleProviderId = String((activeRole as any)?.modelRef?.providerId || '').trim()
+  const roleModelId = String((activeRole as any)?.modelRef?.modelId || '').trim()
+
+  const effectiveProviderId = hasChatOverride ? overrideProviderId : roleProviderId
+  const effectiveModelId = hasChatOverride ? overrideModelId : roleModelId
+
+  const modelLoading = !!(s as any)?.models?.loading
+  const uiBusy = !!s.sending
+  const chatLocked = isReplying
+  const jumpToMessage = useEvent((mid0: string) => {
+    // 重要：树视图的缩放/平移是用 ref 更新的（为了性能不频繁 setState）。
+    // 但一旦触发 React render（比如点击节点），useLayoutEffect 会用 treePan/treeScale 覆盖 ref。
+    // 所以这里先把 ref 的最新值同步回 state，避免“缩放后第一次点击不居中、第二次才正常”的错位。
+    const vv = treeViewRef.current
+    setTreePan({ x: Number(vv?.x || 0), y: Number(vv?.y || 0) })
+    setTreeScale(clampNum(Number(vv?.scale || 1), 0.35, 2.6))
+
+    const mid = String(mid0 || '').trim()
+    if (!mid) return
+    if (!activeChat) return
+    const msg = chatAllById.get(mid) || null
+    if (!msg) return
+    setTreeSelectedMid(mid)
+
+    const branching = (activeChat as any)?.branching
+    const curBid = String(branching?.activeBranchId || 'main').trim() || 'main'
+    const branches = Array.isArray(branching?.branches) ? branching.branches : []
+
+    const containsMid = (headMid0: any) => {
+      let cur = String(headMid0 || '').trim()
+      const seen = new Set<string>()
+      let guard = 0
+      while (cur && !seen.has(cur) && guard < 6000) {
+        guard++
+        seen.add(cur)
+        if (cur === mid) return true
+        const m = chatAllById.get(cur) || null
+        if (!m) break
+        cur = String((m as any)?.parentMid || '').trim()
+      }
+      return false
+    }
+
+    const rawBid = String((msg as any)?.branchId || '').trim()
+    let bid = rawBid || curBid || 'main'
+
+    const curBranch = branches.find((b: any) => String(b?.id || '').trim() === curBid) || null
+    const curHead = String((curBranch as any)?.headMid || '').trim()
+    if (curHead && containsMid(curHead)) bid = curBid || bid
+    else {
+      let picked = ''
+      for (const b of branches) {
+        const id = String(b?.id || '').trim()
+        const head = String((b as any)?.headMid || '').trim()
+        if (!id || !head) continue
+        if (!containsMid(head)) continue
+        picked = id
+        break
+      }
+      if (picked) bid = picked
+    }
+
+    stickToBottomRef.current = false
+    autoScrollBlockUntilRef.current = Date.now() + 1200
+    setBranchNav({ mid, at: Date.now() })
+    if (bid && bid !== curBid) controller.actions.setActiveBranch?.(bid)
+  })
+
+  // 选中节点 → 视角自动追踪到中心（可开关，全局持久化）
+  React.useEffect(() => {
+    stopTreeFollow()
+    if (!treeOpen) return
+    if (!savedTreeFollowSelected) return
+    const mid = String(treeSelectedMid || '').trim()
+    if (!mid) return
+    const tr: any = treeRender
+    if (!tr || !tr.byId || typeof tr.byId.get !== 'function') return
+
+    const node = tr.byId.get(mid) || null
+    if (!node) return
+
+    const host = (effectiveTreeView === 'float' ? treeHostFloatRef.current : treeHostRightRef.current) as HTMLDivElement | null
+    if (!host) return
+    const w = Number(host.clientWidth || 0)
+    const h = Number(host.clientHeight || 0)
+    if (w < 20 || h < 20) return
+
+    const nodeW = Number(tr.nodeW || 168)
+    const nodeH = Number(tr.nodeH || 44)
+    const wx = Number(node?.x || 0) + nodeW / 2
+    const wy = Number(node?.y || 0) + nodeH / 2
+
+    const v0 = treeViewRef.current
+    const s = clampNum(Number(v0?.scale || 1), 0.35, 2.6)
+    const cx = w / 2
+    const cy = h / 2
+    const targetX = cx - wx * s
+    const targetY = cy - wy * s
+
+    const start = () => {
+      const speed = 1800 // px / s（屏幕坐标）
+      const tick = (t: number) => {
+        treeFollowRafRef.current = 0
+        if (!treeOpen || !savedTreeFollowSelected) {
+          treeFollowAnimRef.current = null
+          return
+        }
+        if (treeDragRef.current) {
+          treeFollowAnimRef.current = null
+          return
+        }
+
+        const a = treeFollowAnimRef.current
+        if (!a) return
+
+        const last = Number(a.lastT || 0) || t
+        const dt = Math.min(0.05, Math.max(0.001, (t - last) / 1000))
+        a.lastT = t
+
+        const v = treeViewRef.current
+        const x0 = Number(v?.x || 0)
+        const y0 = Number(v?.y || 0)
+        const dx = Number(a.targetX) - x0
+        const dy = Number(a.targetY) - y0
+        const dist = Math.hypot(dx, dy)
+
+        if (dist < 0.8) {
+          treeViewRef.current = { ...treeViewRef.current, x: Number(a.targetX), y: Number(a.targetY) }
+          scheduleTreeViewTransform()
+          setTreePan({ x: Number(a.targetX), y: Number(a.targetY) })
+          treeFollowAnimRef.current = null
+          return
+        }
+
+        const step = Math.min(dist, speed * dt)
+        const nx = x0 + (dx / dist) * step
+        const ny = y0 + (dy / dist) * step
+        treeViewRef.current = { ...treeViewRef.current, x: nx, y: ny }
+        scheduleTreeViewTransform()
+
+        treeFollowRafRef.current = requestAnimationFrame(tick)
+      }
+
+      treeFollowAnimRef.current = { targetX, targetY, lastT: performance.now() }
+      treeFollowRafRef.current = requestAnimationFrame(tick)
+    }
+
+    start()
+    return () => stopTreeFollow()
+  }, [treeOpen, effectiveTreeView, savedTreeFollowSelected, treeSelectedMid, treeRender, scheduleTreeViewTransform, stopTreeFollow])
+
+  // 分支树（悬浮模态窗）：键盘方向键切换选中节点（按“深度/平级/分支最深”策略）
+  React.useEffect(() => {
+    if (!treeOpen || effectiveTreeView !== 'float') return
+    const tr: any = treeRender
+    if (!tr || !Array.isArray(tr.nodes) || tr.nodes.length === 0) return
+    const byId = tr?.byId
+    if (!byId || typeof byId.get !== 'function') return
+
+    const nodes = tr.nodes as any[]
+
+    const nodesAtDepth = new Map<number, any[]>()
+    const childrenById = new Map<string, any[]>()
+    const hasChild = new Set<string>()
+
+    for (const n of nodes) {
+      const id = String(n?.id || '').trim()
+      if (!id) continue
+      const depth = Math.floor(Number(n?.depth || 0))
+      const list = nodesAtDepth.get(depth) || []
+      list.push(n)
+      nodesAtDepth.set(depth, list)
+
+      const pid = String(n?.parentId || '').trim()
+      if (pid) {
+        hasChild.add(pid)
+        const kids = childrenById.get(pid) || []
+        kids.push(n)
+        childrenById.set(pid, kids)
+      }
+    }
+
+    const sortByLane = (a: any, b: any) => {
+      const la = Number(a?.lane ?? Number.POSITIVE_INFINITY)
+      const lb = Number(b?.lane ?? Number.POSITIVE_INFINITY)
+      if (la !== lb) return la - lb
+      const da = Math.floor(Number(a?.depth || 0))
+      const db = Math.floor(Number(b?.depth || 0))
+      if (da !== db) return da - db
+      return String(a?.id || '').localeCompare(String(b?.id || ''))
+    }
+
+    for (const [d, list] of nodesAtDepth.entries()) nodesAtDepth.set(d, list.slice().sort(sortByLane))
+    for (const [pid, kids] of childrenById.entries()) childrenById.set(pid, kids.slice().sort(sortByLane))
+
+    const leaves = nodes.filter((n) => {
+      const id = String(n?.id || '').trim()
+      if (!id) return false
+      return !hasChild.has(id)
+    })
+    leaves.sort(sortByLane)
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!treeOpen || effectiveTreeView !== 'float') return
+      if (e.defaultPrevented) return
+      if ((e as any).isComposing) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+
+      const target = e.target as any
+      const tag = String(target?.tagName || '').toUpperCase()
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || !!target?.isContentEditable) return
+
+      const key = String(e.key || '')
+      const isArrow = key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown'
+      if (!isArrow) return
+
+      const action = (() => {
+        // 让方向键按“屏幕方向”适配 4 种树生长方向：
+        // - 深度轴（父/子）跟随树的生长方向；
+        // - 平级（lane）轴跟随与深度轴正交的方向。
+        if (treeDir === 'tb') {
+          if (key === 'ArrowUp') return 'parent'
+          if (key === 'ArrowDown') return 'child'
+          if (key === 'ArrowLeft') return 'lanePrev'
+          return 'laneNext'
+        }
+        if (treeDir === 'bt') {
+          if (key === 'ArrowDown') return 'parent'
+          if (key === 'ArrowUp') return 'child'
+          if (key === 'ArrowLeft') return 'lanePrev'
+          return 'laneNext'
+        }
+        if (treeDir === 'lr') {
+          if (key === 'ArrowLeft') return 'parent'
+          if (key === 'ArrowRight') return 'child'
+          if (key === 'ArrowUp') return 'lanePrev'
+          return 'laneNext'
+        }
+        // rl
+        if (key === 'ArrowRight') return 'parent'
+        if (key === 'ArrowLeft') return 'child'
+        if (key === 'ArrowUp') return 'lanePrev'
+        return 'laneNext'
+      })() as 'parent' | 'child' | 'lanePrev' | 'laneNext'
+
+      const pickStartId = () => {
+        const a = String(treeSelectedMid || '').trim()
+        if (a && byId.get(a)) return a
+        const b = String(lastMsgId || '').trim()
+        if (b && byId.get(b)) return b
+        const first = tr.nodes.find((n: any) => !!String(n?.id || '').trim()) || null
+        const fid = String(first?.id || '').trim()
+        return fid && byId.get(fid) ? fid : ''
+      }
+
+      const curId = pickStartId()
+      const cur = curId ? byId.get(curId) : null
+      if (!cur) return
+
+      const curDepth = Math.floor(Number(cur?.depth || 0))
+      const curLane = Number(cur?.lane ?? 0)
+
+      // 策略：
+      // - 平级：在“同深度”上按 lane 移动；如果同深度边界无节点，则按 lane 去找“相邻分支”的叶子（最深节点）。
+      // - 深度：parent/child。
+      let nextId = ''
+      if (action === 'lanePrev') {
+        const list = nodesAtDepth.get(curDepth) || []
+        const idx = list.findIndex((x: any) => String(x?.id || '').trim() === curId)
+        if (idx > 0) nextId = String(list[idx - 1]?.id || '').trim()
+        else {
+          const cand = list
+            .slice()
+            .reverse()
+            .find((x: any) => Number(x?.lane ?? Number.POSITIVE_INFINITY) < curLane && String(x?.id || '').trim() !== curId)
+          nextId = cand ? String(cand?.id || '').trim() : ''
+        }
+        if (!nextId) {
+          const leaf = leaves
+            .slice()
+            .reverse()
+            .find((x: any) => Number(x?.lane ?? Number.POSITIVE_INFINITY) < curLane && String(x?.id || '').trim() !== curId)
+          nextId = leaf ? String(leaf?.id || '').trim() : ''
+        }
+      } else if (action === 'laneNext') {
+        const list = nodesAtDepth.get(curDepth) || []
+        const idx = list.findIndex((x: any) => String(x?.id || '').trim() === curId)
+        if (idx >= 0 && idx + 1 < list.length) nextId = String(list[idx + 1]?.id || '').trim()
+        else {
+          const cand = list.find((x: any) => Number(x?.lane ?? Number.POSITIVE_INFINITY) > curLane && String(x?.id || '').trim() !== curId)
+          nextId = cand ? String(cand?.id || '').trim() : ''
+        }
+        if (!nextId) {
+          const leaf = leaves.find((x: any) => Number(x?.lane ?? Number.POSITIVE_INFINITY) > curLane && String(x?.id || '').trim() !== curId)
+          nextId = leaf ? String(leaf?.id || '').trim() : ''
+        }
+      } else if (action === 'parent') {
+        const pid = String(cur?.parentId || '').trim()
+        if (pid && byId.get(pid)) nextId = pid
+      } else if (action === 'child') {
+        const kids = childrenById.get(curId) || []
+        if (kids.length === 1) nextId = String(kids[0]?.id || '').trim()
+        else if (kids.length > 1) {
+          let best = ''
+          let bestD = Number.POSITIVE_INFINITY
+          for (const k of kids) {
+            const id = String(k?.id || '').trim()
+            if (!id || !byId.get(id)) continue
+            const lane = Number(k?.lane ?? Number.POSITIVE_INFINITY)
+            const d = Math.abs(lane - curLane)
+            if (d < bestD) {
+              bestD = d
+              best = id
+            }
+          }
+          nextId = best
+        }
+      }
+
+      if (!nextId || nextId === curId) return
+      e.preventDefault()
+      e.stopPropagation()
+      jumpToMessage(nextId)
+    }
+
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [treeOpen, effectiveTreeView, treeDir, treeRender, treeSelectedMid, lastMsgId, jumpToMessage])
+
+  // 分支树（悬浮模态窗）：按 Enter 关闭
+  React.useEffect(() => {
+    if (!treeOpen || effectiveTreeView !== 'float') return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!treeOpen || effectiveTreeView !== 'float') return
+      if (e.defaultPrevented) return
+      if ((e as any).isComposing) return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      if (String(e.key || '') !== 'Enter') return
+
+      const target = e.target as any
+      const tag = String(target?.tagName || '').toUpperCase()
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || !!target?.isContentEditable) return
+
+      e.preventDefault()
+      e.stopPropagation()
+      closeTreeModal(true)
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [treeOpen, effectiveTreeView, closeTreeModal])
+
+  // 全局：快捷键打开/关闭“分支树模态窗”（不改变默认显示方式）
+  React.useEffect(() => {
+    if (page !== 'chat') return
+    const hk = String(savedTreeModalHotkey || '').trim()
+    if (!hk) return
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
+      if ((e as any).isComposing) return
+      const cur = hotkeyFromKeyEvent(e)
+      if (!cur || cur !== hk) return
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      if (treeOpen && effectiveTreeView === 'float') {
+        closeTreeModal(true)
+        return
+      }
+
+      setTreeViewOverride('float')
+      setTreeOpen(true)
+    }
+
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [page, savedTreeModalHotkey, treeOpen, effectiveTreeView, closeTreeModal])
+  const activeBranchHeadMid = React.useMemo(() => {
+    const chat: any = activeChat
+    if (!chat) return ''
+    const branching = chat?.branching
+    const bid = String(branching?.activeBranchId || 'main').trim() || 'main'
+    const branches = Array.isArray(branching?.branches) ? branching.branches : []
+    const b = branches.find((x: any) => String(x?.id || '') === bid) || null
+    return String(b?.headMid || '').trim()
+  }, [String(activeChat?.id || ''), Number((activeChat as any)?.updatedAt || 0), activeBranchIdUi])
+
+  // 打开分支树时：让视角先落在“当前选中节点”上（默认取当前分支 head）
+  React.useEffect(() => {
+    if (!treeOpen) return
+    treeOpenTokenRef.current++
+    treeNeedInitialCenterRef.current = true
+  }, [treeOpen, effectiveTreeView, String(activeChat?.id || '')])
+
+  React.useEffect(() => {
+    if (!treeOpen) return
+    if (!treeNeedInitialCenterRef.current) return
+
+    const token = treeOpenTokenRef.current
+    let tries = 0
+
+    const pickMid = () => {
+      if (branchDraft) return String((branchDraft as any)?.forkFromMid || '').trim()
+      const chosen = String(treeSelectedMid || '').trim()
+      if (chosen) return chosen
+      const head = String(activeBranchHeadMid || '').trim()
+      if (head) return head
+      const msgs: any[] = Array.isArray((activeChat as any)?.messages) ? ((activeChat as any).messages as any[]) : []
+      return msgs.length ? String(msgs[msgs.length - 1]?.id || '').trim() : ''
+    }
+
+    const tryCenterOnce = () => {
+      if (!treeOpen) return true
+      if (token !== treeOpenTokenRef.current) return true
+      const tr: any = treeRender
+      if (!tr || !tr.byId || typeof tr.byId.get !== 'function') return false
+
+      const mid = pickMid()
+      if (!mid) return false
+      const node = tr.byId.get(mid) || null
+      if (!node) return false
+
+      const host = (effectiveTreeView === 'float' ? treeHostFloatRef.current : treeHostRightRef.current) as HTMLDivElement | null
+      if (!host) return false
+      const w = Number(host.clientWidth || 0)
+      const h = Number(host.clientHeight || 0)
+      if (w < 20 || h < 20) return false
+
+      stopTreeFollow()
+
+      const nodeW = Number(tr.nodeW || 168)
+      const nodeH = Number(tr.nodeH || 44)
+      const wx = Number(node?.x || 0) + nodeW / 2
+      const wy = Number(node?.y || 0) + nodeH / 2
+
+      const v0 = treeViewRef.current
+      const s = clampNum(Number(v0?.scale || 1), 0.35, 2.6)
+      const cx = w / 2
+      const cy = h / 2
+      const targetX = cx - wx * s
+      const targetY = cy - wy * s
+
+      treeViewRef.current = { ...treeViewRef.current, x: targetX, y: targetY }
+      setTreePan({ x: targetX, y: targetY })
+      scheduleTreeViewTransform()
+
+      if (!String(treeSelectedMid || '').trim()) setTreeSelectedMid(mid)
+      treeNeedInitialCenterRef.current = false
+      return true
+    }
+
+    const tick = () => {
+      treeInitialCenterRafRef.current = 0
+      if (!treeNeedInitialCenterRef.current) return
+      tries++
+      if (tries > 14) {
+        treeNeedInitialCenterRef.current = false
+        return
+      }
+      const ok = tryCenterOnce()
+      if (ok) return
+      treeInitialCenterRafRef.current = requestAnimationFrame(tick)
+    }
+
+    if (treeInitialCenterRafRef.current) cancelAnimationFrame(treeInitialCenterRafRef.current)
+    treeInitialCenterRafRef.current = requestAnimationFrame(tick)
+
+    return () => {
+      if (treeInitialCenterRafRef.current) cancelAnimationFrame(treeInitialCenterRafRef.current)
+      treeInitialCenterRafRef.current = 0
+    }
+  }, [
+    treeOpen,
+    effectiveTreeView,
+    treeRender,
+    branchDraftKey,
+    treeSelectedMid,
+    activeBranchHeadMid,
+    String(activeChat?.id || ''),
+    stopTreeFollow,
+    scheduleTreeViewTransform,
+  ])
+  const draftFiles: any[] = Array.isArray((s.draft as any)?.files) ? ((s.draft as any).files as any[]) : []
+  const hasDraftFiles = draftFiles.length > 0
+  const draftFilesPending = hasDraftFiles && draftFiles.some((f: any) => !!f?.pending)
+  const draftFilesWarn =
+    hasDraftFiles &&
+    draftFiles.some((f: any) => {
+      if (!f || f.pending) return false
+      if (String(f?.error || '').trim()) return false
+      const rawLen = String(f?.text || '').trim().length
+      if (!rawLen) return false
+      const pct = clampNum(Math.round(Number(f?.sendPct ?? 100)), 0, 100)
+      const sendLen = Math.max(0, Math.ceil((rawLen * pct) / 100))
+      return sendLen > attachSendLimitChars
+    })
+
+  const activeRoleId = String(activeRole?.id || '')
+  const attachViewItem = (() => {
+    const mid = String(attachView.mid || '').trim()
+    const idx = Math.floor(Number(attachView.idx ?? -1))
+    if (!mid || !activeChat || !Array.isArray((activeChat as any).messages) || idx < 0) return null
+    const m = (activeChat as any).messages.find((x: any) => String(x?.id || '') === mid) || null
+    const atts = m && Array.isArray(m.attachments) ? m.attachments : []
+    const a = idx >= 0 && idx < atts.length ? atts[idx] : null
+    if (!a) return null
+    return { message: m, attachment: a }
+  })()
+  const chatNav = (() => {
+    const loading = !!s.loading
+    if (loading) return { olderId: '', newerId: '', lockedReason: '正在加载中' }
+    if (activeTargetKind === 'group') {
+      const gid = String((activeGroup as any)?.id || activeGroupId || '').trim()
+      if (!gid) return { olderId: '', newerId: '', lockedReason: '请先选择群组' }
+    } else {
+      if (!activeRoleId) return { olderId: '', newerId: '', lockedReason: '请先选择角色' }
+    }
+    if (!data) return { olderId: '', newerId: '', lockedReason: '数据未就绪' }
+
+    const box =
+      activeTargetKind === 'group' ? (data as any)?.chatsByGroup?.[String((activeGroup as any)?.id || activeGroupId || '')] : data?.chatsByRole?.[activeRoleId]
+    const chats = Array.isArray(box?.chats) ? box.chats.slice() : []
+    chats.sort((a: any, b: any) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0))
+    const ids = chats.map((c: any) => String(c?.id || '')).filter((id: string) => !!id)
+    if (!ids.length) return { olderId: '', newerId: '', lockedReason: '暂无会话' }
+
+    const cur = String(activeChat?.id || box?.activeChatId || ids[0] || '')
+    const idx = ids.findIndex((id: string) => id === cur)
+    const i = idx >= 0 ? idx : 0
+    const olderId = i + 1 < ids.length ? ids[i + 1] : ''
+    const newerId = i - 1 >= 0 ? ids[i - 1] : ''
+    return { olderId, newerId, lockedReason: '' }
+  })()
+
+  React.useLayoutEffect(() => {
+    if (page !== 'chat') return
+    const el = composerRef.current
+    if (!el) return
+
+    const measure = () => {
+      try {
+        setComposerHeight(Math.ceil(el.getBoundingClientRect().height || 0))
+      } catch (_) {}
+    }
+
+    const raf = requestAnimationFrame(measure)
+
+    if (typeof ResizeObserver === 'undefined') {
+      return () => cancelAnimationFrame(raf)
+    }
+
+    const ro = new ResizeObserver(() => measure())
+    ro.observe(el)
+    return () => {
+      cancelAnimationFrame(raf)
+      ro.disconnect()
+    }
+  }, [page])
+
+  React.useEffect(() => {
+    if (page !== 'chat') return
+    const el = chatRootRef.current
+    if (!el) return
+    const onScroll = () => {
+      stickToBottomRef.current = isNearBottom(el)
+    }
+    onScroll()
+    el.addEventListener('scroll', onScroll, { passive: true } as any)
+    return () => el.removeEventListener('scroll', onScroll as any)
+  }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey])
+
+  React.useEffect(() => {
+    if (page !== 'chat') return
+    const el = chatRootRef.current
+    if (!el) return
+    if (Date.now() < autoScrollBlockUntilRef.current) return
+    if (branchNav.mid) return
+    stickToBottomRef.current = true
+    requestAnimationFrame(() => {
+      try {
+        el.scrollTop = el.scrollHeight
+      } catch (_) {}
+    })
+  }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey, branchNav.mid])
+
+  React.useEffect(() => {
+    if (page !== 'chat') return
+    const el = chatRootRef.current
+    if (!el) return
+    if (Date.now() < autoScrollBlockUntilRef.current) return
+    if (!stickToBottomRef.current) return
+    requestAnimationFrame(() => {
+      try {
+        el.scrollTop = el.scrollHeight
+      } catch (_) {}
+    })
+  }, [page, allMessages.length, lastMsgId, lastMsgText, activeBranchIdUi, branchDraftKey])
+
+  React.useEffect(() => {
+    if (page !== 'chat') return
+    const mid = String(branchNav.mid || '').trim()
+    if (!mid) return
+
+    const root = chatRootRef.current
+    if (!root) return
+
+    stickToBottomRef.current = false
+
+    let tries = 0
+    let canceled = false
+
+    const tick = () => {
+      if (canceled) return
+      tries++
+      const esc = typeof CSS !== 'undefined' && typeof (CSS as any).escape === 'function' ? (CSS as any).escape(mid) : mid.replace(/"/g, '\\"')
+      const node = root.querySelector(`[data-mid="${esc}"]`) as HTMLElement | null
+      if (node) {
+        try {
+          const rr = root.getBoundingClientRect()
+          const nr = node.getBoundingClientRect()
+          const top = nr.top - rr.top + root.scrollTop
+          const target = Math.max(0, Math.floor(top - 12))
+          root.scrollTop = target
+        } catch (_) {}
+        setBranchNav({ mid: '', at: 0 })
+        return
+      }
+      if (tries >= 10) {
+        setBranchNav({ mid: '', at: 0 })
+        return
+      }
+      requestAnimationFrame(tick)
+    }
+
+    requestAnimationFrame(tick)
+    return () => {
+      canceled = true
+    }
+  }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi, branchNav.mid, branchNav.at])
+
+  const [sendWarn, setSendWarn] = React.useState<{ open: boolean; items: any[] }>({ open: false, items: [] })
+  const closeSendWarn = useEvent(() => setSendWarn({ open: false, items: [] }))
+  const sendFromComposer = useEvent(() => {
+    stickToBottomRef.current = true
+    const mid = !branchDraft ? String(treeSelectedMid || '').trim() : ''
+    const canFork = !!mid && !!activeChat && mid !== String(activeBranchHeadMid || '').trim()
+    if (canFork) {
+      setTreeSelectedMid('')
+      controller.actions.sendFromMid?.(mid)
+      return
+    }
+    setTreeSelectedMid('')
+    controller.actions.send()
+  })
+  const confirmSendWarn = useEvent(() => {
+    setSendWarn({ open: false, items: [] })
+    sendFromComposer()
+  })
+
+  const onSend = useEvent(() => {
+    if (draftFilesPending) return controller?.capabilities?.ui?.showToast?.('文件解析中，请稍候…')
+    closeAtPicker()
+    const warns = draftFiles
+      .map((f: any) => {
+        if (!f || f.pending) return null
+        const err = String(f?.error || '').trim()
+        if (err) return null
+        const rawLen = String(f?.text || '').trim().length
+        if (!rawLen) return null
+        const pct = clampNum(Math.round(Number(f?.sendPct ?? 100)), 0, 100)
+        const sendLen = Math.max(0, Math.ceil((rawLen * pct) / 100))
+        if (sendLen <= attachSendLimitChars) return null
+        return { id: String(f?.id || ''), name: String(f?.name || '文件'), pct, rawLen, sendLen }
+      })
+      .filter(Boolean)
+    if (warns.length) return setSendWarn({ open: true, items: warns })
+    sendFromComposer()
+  })
+  const onStop = useEvent(() => controller.actions.stop?.())
+  const onPickImages = useEvent(() => controller.actions.pickImages())
+  const onPickFilesChanged = useEvent((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : []
+    e.target.value = ''
+    if (!files.length) return
+    controller.actions.addDraftFilesFromFiles?.(files)
+  })
+  const closeTempModelPicker = useEvent(() => setTempModelPickerEl(null))
+  const openTempModelPicker = useEvent((e: React.MouseEvent<HTMLElement>) => {
+    if (!activeRole) return
+    if (!providers.length) return controller?.capabilities?.ui?.showToast?.('暂无供应商')
+
+    const pid0 = effectiveProviderId || String((providers[0] as any)?.id || '')
+    const mid0 = effectiveModelId || ''
+
+    const pid = String(pid0 || '').trim()
+    const mid = String(mid0 || '').trim()
+
+    setTempModelProviderId(pid)
+
+    const p = providers.find((x: any) => String(x?.id || '') === pid) || null
+    const items = Array.isArray(p?.modelsCache?.items) ? (p.modelsCache.items as any[]).map((x) => String(x)) : []
+    const inList = !!mid && items.some((x: string) => x === mid)
+
+    setTempModelPick(inList ? mid : mid ? '__custom__' : '')
+    setTempCustomModelId(inList ? '' : mid)
+    setTempModelPickerEl(e.currentTarget)
+  })
+
+  const onTempProviderChanged = useEvent((nextProviderId: string) => {
+    const pid = String(nextProviderId || '').trim()
+    setTempModelProviderId(pid)
+    setTempModelPick('')
+    setTempCustomModelId('')
+  })
+
+  const saveTempModelOverride = useEvent(() => {
+    const pid = String(tempModelProviderId || '').trim()
+    let mid = String(tempModelPick || '').trim()
+    if (mid === '__custom__') mid = String(tempCustomModelId || '').trim()
+
+    if (!pid) return controller?.capabilities?.ui?.showToast?.('请选择供应商')
+    if (!mid) return controller?.capabilities?.ui?.showToast?.('请选择模型')
+
+    controller.actions.setChatModelOverride?.(pid, mid)
+    closeTempModelPicker()
+  })
+
+  const clearTempModelOverride = useEvent(() => {
+    controller.actions.clearChatModelOverride?.()
+    closeTempModelPicker()
+  })
+  const [regen, setRegen] = React.useState<{ mid: string; role: 'assistant' | 'user' }>({ mid: '', role: 'assistant' })
+  const [msgMenu, setMsgMenu] = React.useState<{ mid: string; role: 'user' | 'assistant'; x: number; y: number; pending: boolean }>({
+    mid: '',
+    role: 'assistant',
+    x: 0,
+    y: 0,
+    pending: false,
+  })
+  const [treeNodeMenu, setTreeNodeMenu] = React.useState<{ mid: string; role: 'user' | 'assistant'; x: number; y: number }>({
+    mid: '',
+    role: 'assistant',
+    x: 0,
+    y: 0,
+  })
+  const [confirmDelMsg, setConfirmDelMsg] = React.useState<{ mid: string; role: 'user' | 'assistant' }>({ mid: '', role: 'assistant' })
+  const [confirmDelTree, setConfirmDelTree] = React.useState<{ mid: string; role: 'user' | 'assistant' }>({
+    mid: '',
+    role: 'assistant',
+  })
+  const [editingMsg, setEditingMsg] = React.useState<{ mid: string; text: string }>({ mid: '', text: '' })
+  const [chatMenu, setChatMenu] = React.useState<{
+    targetKind: 'role' | 'group'
+    targetId: string
+    chatId: string
+    title: string
+    x: number
+    y: number
+  }>({
+    targetKind: 'role',
+    targetId: '',
+    chatId: '',
+    title: '',
+    x: 0,
+    y: 0,
+  })
+  const [favoriteChatMenu, setFavoriteChatMenu] = React.useState<{
+    folderId: string
+    targetKind: 'role' | 'group'
+    targetId: string
+    chatId: string
+    title: string
+    x: number
+    y: number
+  }>({
+    folderId: '',
+    targetKind: 'role',
+    targetId: '',
+    chatId: '',
+    title: '',
+    x: 0,
+    y: 0,
+  })
+  const [confirmDelChat, setConfirmDelChat] = React.useState<{ targetKind: 'role' | 'group'; targetId: string; chatId: string }>({
+    targetKind: 'role',
+    targetId: '',
+    chatId: '',
+  })
+  const [editingChatTitle, setEditingChatTitle] = React.useState<{ targetKind: 'role' | 'group'; targetId: string; chatId: string; text: string }>({
+    targetKind: 'role',
+    targetId: '',
+    chatId: '',
+    text: '',
+  })
+
+  React.useEffect(() => {
+    setEditingMsg({ mid: '', text: '' })
+  }, [page, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey])
+
+  React.useEffect(() => {
+    setChatMenu({ targetKind: 'role', targetId: '', chatId: '', title: '', x: 0, y: 0 })
+    setFavoriteChatMenu({ folderId: '', targetKind: 'role', targetId: '', chatId: '', title: '', x: 0, y: 0 })
+    setConfirmDelChat({ targetKind: 'role', targetId: '', chatId: '' })
+    setEditingChatTitle({ targetKind: 'role', targetId: '', chatId: '', text: '' })
+  }, [page, activeRole?.id, (activeGroup as any)?.id, activeTargetKind])
+
+  React.useEffect(() => {
+    if (!favoriteDialog.open) return
+    setFavoriteCheckedFolderIds((p) => p.filter((id) => favoriteFolders.some((f: any) => String(f?.id || '') === String(id || ''))))
+  }, [favoriteDialog.open, favoriteFolders])
+
+  React.useEffect(() => {
+    if (!moveFavoriteFolderContents.open) return
+    const fid = String(moveFavoriteFolderContents.folderId || '')
+    setMoveFavoriteFolderContents((p) => {
+      const cur = String(p.targetFolderId || '')
+      if (cur && cur !== fid && favoriteFolders.some((f: any) => String(f?.id || '') === cur)) return p
+      const fallback = favoriteFolders.find((f: any) => String(f?.id || '') !== fid) || null
+      return { ...p, targetFolderId: String((fallback as any)?.id || '') }
+    })
+  }, [moveFavoriteFolderContents.open, moveFavoriteFolderContents.folderId, favoriteFolders])
+
+  React.useEffect(() => {
+    if (!moveFavoriteFolderDialog.open) return
+    const fid = String(moveFavoriteFolderDialog.folderId || '')
+    const subtree = new Set(collectFavoriteFolderSubtreeIds(fid))
+    setMoveFavoriteFolderDialog((p) => {
+      const cur = String(p.parentId || '')
+      if (!cur) return p
+      if (cur !== fid && !subtree.has(cur) && favoriteFolders.some((f: any) => String(f?.id || '') === cur)) return p
+      return { ...p, parentId: '' }
+    })
+  }, [moveFavoriteFolderDialog.open, moveFavoriteFolderDialog.folderId, favoriteFolders, collectFavoriteFolderSubtreeIds])
+
+  const renderFavoriteFolderPicker = React.useCallback(
+    (parentId = '', depth = 0): React.ReactNode => {
+      const items = favoriteChildrenMap[String(parentId || '')] || []
+      return items.map((folder: any) => {
+        const fid = String(folder?.id || '')
+        const children = favoriteChildrenMap[fid] || []
+        const expanded = !!favoriteFolderExpanded[fid]
+        return (
+          <React.Fragment key={`pick-${fid}`}>
+            <ListItemButton sx={{ pl: 1 + depth * 2, pr: 1 }} onClick={() => toggleFavoriteFolderChecked(fid)}>
+              <Checkbox
+                size="small"
+                edge="start"
+                checked={favoriteCheckedFolderIds.includes(fid)}
+                onClick={(e) => e.stopPropagation()}
+                onChange={() => toggleFavoriteFolderChecked(fid)}
+              />
+              {children.length ? (
+                <IconButton
+                  size="small"
+                  edge="start"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    toggleFavoriteFolderExpanded(fid)
+                  }}
+                  sx={{ mr: 0.5 }}
+                >
+                  {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                </IconButton>
+              ) : (
+                <Box sx={{ width: 28 }} />
+              )}
+              <FolderOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', ml: 0.5, mr: 1 }} />
+              <ListItemText primary={String(folder?.name || '未命名文件夹')} />
+            </ListItemButton>
+            {children.length ? <Collapse in={expanded}>{renderFavoriteFolderPicker(fid, depth + 1)}</Collapse> : null}
+          </React.Fragment>
+        )
+      })
+    },
+    [favoriteChildrenMap, favoriteFolderExpanded, favoriteCheckedFolderIds, toggleFavoriteFolderExpanded, toggleFavoriteFolderChecked],
+  )
+
+  const renderFavoriteFolderSinglePicker = React.useCallback(
+    (selectedId: string, onSelect: (folderId: string) => void, options?: { includeRoot?: boolean; filter?: (folder: any) => boolean }, parentId = '', depth = 0): React.ReactNode => {
+      const items = favoriteChildrenMap[String(parentId || '')] || []
+      const nodes: React.ReactNode[] = []
+      if (!parentId && options?.includeRoot) {
+        nodes.push(
+          <ListItemButton key="pick-root" sx={{ pl: 1, pr: 1 }} selected={!selectedId} onClick={() => onSelect('')}>
+            <Box sx={{ width: 20 }} />
+            <FolderOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', ml: 0.5, mr: 1 }} />
+            <ListItemText primary="顶层" secondary="移动到最外层" />
+          </ListItemButton>,
+        )
+      }
+      for (const folder of items) {
+        if (options?.filter && !options.filter(folder)) continue
+        const fid = String(folder?.id || '')
+        const children = favoriteChildrenMap[fid] || []
+        const visibleChildren = options?.filter ? children.filter((child: any) => options.filter?.(child)) : children
+        const expanded = !!favoriteFolderExpanded[fid]
+        nodes.push(
+          <React.Fragment key={`single-pick-${fid}`}>
+            <ListItemButton sx={{ pl: 1 + depth * 2, pr: 1 }} selected={selectedId === fid} onClick={() => onSelect(fid)}>
+              {visibleChildren.length ? (
+                <IconButton
+                  size="small"
+                  edge="start"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    toggleFavoriteFolderExpanded(fid)
+                  }}
+                  sx={{ mr: 0.5 }}
+                >
+                  {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                </IconButton>
+              ) : (
+                <Box sx={{ width: 28 }} />
+              )}
+              <FolderOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', ml: 0.5, mr: 1 }} />
+              <ListItemText primary={String(folder?.name || '未命名文件夹')} />
+            </ListItemButton>
+            {visibleChildren.length ? <Collapse in={expanded}>{renderFavoriteFolderSinglePicker(selectedId, onSelect, options, fid, depth + 1)}</Collapse> : null}
+          </React.Fragment>,
+        )
+      }
+      return nodes
+    },
+    [favoriteChildrenMap, favoriteFolderExpanded, toggleFavoriteFolderExpanded],
+  )
+
+  const renderFavoriteFolderTree = React.useCallback(
+    (parentId = '', depth = 0): React.ReactNode => {
+      const q = String(favoriteSearchText || '').trim().toLowerCase()
+      const itemMatches = (folder: any, refs: any[]) => {
+        if (!q) return true
+        const folderName = String(folder?.name || '').toLowerCase()
+        if (folderName.includes(q)) return true
+        for (const ref of refs) {
+          const targetKind = String(ref?.targetKind || '').trim() === 'group' ? 'group' : 'role'
+          const targetId = String(ref?.targetId || '')
+          const chatId = String(ref?.chatId || '')
+          const chat = getChatByFavoriteRef(targetKind as any, targetId, chatId)
+          const targetMeta = getFavoriteTargetMeta(targetKind as any, targetId)
+          const hay = [
+            String((chat as any)?.title || ''),
+            snippetText((Array.isArray((chat as any)?.messages) ? (chat as any).messages : []).slice(-1)[0]?.content || ''),
+            String(targetMeta?.name || ''),
+          ]
+            .join('\n')
+            .toLowerCase()
+          if (hay.includes(q)) return true
+        }
+        return false
+      }
+      const renderNode = (folder: any, depth2: number): React.ReactNode => {
+        const fid = String(folder?.id || '')
+        const children = favoriteChildrenMap[fid] || []
+        const refs = Array.isArray((favoriteChatRefsByFolderId as any)?.[fid]) ? (favoriteChatRefsByFolderId as any)[fid] : []
+        const visibleChildren = children
+          .map((child: any) => renderNode(child, depth2 + 1))
+          .filter((node) => node !== null)
+        const visibleRefs = refs
+          .map((ref: any) => {
+            const targetKind = String(ref?.targetKind || '').trim() === 'group' ? 'group' : 'role'
+            const targetId = String(ref?.targetId || '')
+            const chatId = String(ref?.chatId || '')
+            const chat = getChatByFavoriteRef(targetKind as any, targetId, chatId)
+            if (!chat) return null
+            const targetMeta = getFavoriteTargetMeta(targetKind as any, targetId)
+            const targetName = String(targetMeta?.name || (targetKind === 'group' ? '群聊' : '角色'))
+            const snippet = snippetText((Array.isArray((chat as any)?.messages) ? (chat as any).messages : []).slice(-1)[0]?.content || '')
+            if (q) {
+              const hay = [String((chat as any)?.title || ''), snippet, targetName].join('\n').toLowerCase()
+              if (!hay.includes(q)) return null
+            }
+            return (
+              <ListItemButton
+                key={`${fid}:${targetKind}:${targetId}:${chatId}`}
+                sx={{ pl: 3 + depth2 * 2, pr: 1, alignItems: 'flex-start', gap: 1 }}
+                onClick={() => openFavoritedChat(targetKind as any, targetId, chatId)}
+                onContextMenu={(e) => onFavoriteChatContextMenu(e, fid, targetKind as any, targetId, chatId, String((chat as any)?.title || ''))}
+              >
+                <Stack spacing={0.5} alignItems="center" sx={{ width: 48, flex: '0 0 48px', pt: 0.25 }}>
+                  <Avatar src={String(targetMeta?.avatarImage || '') || undefined} sx={{ width: 28, height: 28, fontSize: 14 }}>
+                    {String(targetMeta?.avatar || (targetKind === 'group' ? '👥' : '🙂'))}
+                  </Avatar>
+                  <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: '100%' }}>
+                    {targetName}
+                  </Typography>
+                </Stack>
+                <ListItemText sx={{ minWidth: 0, mt: 0.25 }} primary={String((chat as any)?.title || (targetKind === 'group' ? '群聊' : '新聊天'))} secondary={snippet} />
+              </ListItemButton>
+            )
+          })
+          .filter((node) => node !== null)
+        if (!itemMatches(folder, refs) && !visibleChildren.length && !visibleRefs.length) return null
+        const expanded = q ? true : favoriteFolderExpanded[fid] ?? true
+        return (
+          <React.Fragment key={fid}>
+            <ListItemButton
+              sx={{ pl: 1 + depth2 * 2, pr: 1 }}
+              onClick={() => toggleFavoriteFolderExpanded(fid)}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                const folderParentId = String(folder?.parentId || '')
+                setFavoriteFolderMenu({ folderId: fid, x: e.clientX, y: e.clientY, parentId: folderParentId })
+              }}
+            >
+              {visibleChildren.length || visibleRefs.length ? expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" /> : <Box sx={{ width: 20 }} />}
+              <FolderOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', ml: 0.5, mr: 1 }} />
+              <ListItemText primary={String(folder?.name || '未命名文件夹')} secondary={visibleRefs.length ? `${visibleRefs.length} 条收藏` : undefined} />
+            </ListItemButton>
+            <Collapse in={expanded}>
+              {visibleChildren}
+              {visibleRefs}
+            </Collapse>
+          </React.Fragment>
+        )
+      }
+      const items = favoriteChildrenMap[String(parentId || '')] || []
+      return items.map((folder: any) => renderNode(folder, depth)).filter((node) => node !== null)
+    },
+    [
+      favoriteChildrenMap,
+      favoriteChatRefsByFolderId,
+      favoriteFolderExpanded,
+      favoriteSearchText,
+      getChatByFavoriteRef,
+      getFavoriteTargetMeta,
+      openFavoritedChat,
+      toggleFavoriteFolderExpanded,
+    ],
+  )
+
+  const closeMsgMenu = useEvent(() => setMsgMenu({ mid: '', role: 'assistant', x: 0, y: 0, pending: false }))
+  const onMessageContextMenu = useEvent((e: React.MouseEvent, mid: string, role: 'user' | 'assistant', pending: boolean) => {
+    if (!mid) return
+    e.preventDefault()
+    e.stopPropagation()
+    setMsgMenu({ mid, role, x: e.clientX, y: e.clientY, pending })
+  })
+
+  const closeTreeNodeMenu = useEvent(() => setTreeNodeMenu({ mid: '', role: 'assistant', x: 0, y: 0 }))
+  const onTreeNodeContextMenu = useEvent((e: any, mid: string, role: 'user' | 'assistant') => {
+    const id = String(mid || '').trim()
+    if (!id) return
+    try {
+      e.preventDefault?.()
+      e.stopPropagation?.()
+    } catch (_) {}
+    treeSuppressClickRef.current = true
+    setTimeout(() => {
+      treeSuppressClickRef.current = false
+    }, 0)
+    setTreeNodeMenu({ mid: id, role, x: Number(e?.clientX || 0), y: Number(e?.clientY || 0) })
+  })
+
+  const closeChatMenu = useEvent(() => setChatMenu({ targetKind: 'role', targetId: '', chatId: '', title: '', x: 0, y: 0 }))
+  const closeFavoriteChatMenu = useEvent(() => setFavoriteChatMenu({ folderId: '', targetKind: 'role', targetId: '', chatId: '', title: '', x: 0, y: 0 }))
+  const onChatContextMenu = useEvent((e: React.MouseEvent, targetKind: 'role' | 'group', targetId: string, chatId: string, title: string) => {
+    const kind = targetKind === 'group' ? 'group' : 'role'
+    const tid = String(targetId || '')
+    const cid = String(chatId || '')
+    if (!tid || !cid) return
+    e.preventDefault()
+    e.stopPropagation()
+    setChatMenu({ targetKind: kind, targetId: tid, chatId: cid, title: String(title ?? ''), x: e.clientX, y: e.clientY })
+  })
+  const onFavoriteChatContextMenu = useEvent(
+    (e: React.MouseEvent, folderId: string, targetKind: 'role' | 'group', targetId: string, chatId: string, title: string) => {
+      const fid = String(folderId || '')
+      const kind = targetKind === 'group' ? 'group' : 'role'
+      const tid = String(targetId || '')
+      const cid = String(chatId || '')
+      if (!fid || !tid || !cid) return
+      e.preventDefault()
+      e.stopPropagation()
+      setFavoriteChatMenu({ folderId: fid, targetKind: kind, targetId: tid, chatId: cid, title: String(title ?? ''), x: e.clientX, y: e.clientY })
+    },
+  )
+
+  React.useEffect(() => {
+    if (page !== 'chat') return
+    const mid = String(editingMsg.mid || '')
+    if (!mid) return
+    const msgs = Array.isArray(activeChat?.messages) ? activeChat.messages : []
+    if (!msgs.some((m: any) => String(m?.id || '') === mid)) setEditingMsg({ mid: '', text: '' })
+  }, [page, activeChat?.id, (activeChat?.messages || []).length, editingMsg.mid])
+
+  const startEditMessage = useEvent((mid: string, text: string, pending: boolean) => {
+    if (!mid) return
+    if (pending || s.loading || uiBusy || chatLocked) return
+    setEditingMsg({ mid, text: String(text ?? '') })
+  })
+  const cancelEditMessage = useEvent(() => setEditingMsg({ mid: '', text: '' }))
+  const saveEditMessage = useEvent(() => {
+    const mid = String(editingMsg.mid || '')
+    if (!mid) return
+    if (s.loading || uiBusy || chatLocked) return
+    controller.actions.editMessage?.(mid, String(editingMsg.text ?? ''))
+    setEditingMsg({ mid: '', text: '' })
+  })
+
+  const openRolePicker = useEvent((e: React.MouseEvent<HTMLElement>) => {
+    setRolePickerTab(activeTargetKind === 'group' ? 'groups' : 'roles')
+    setRolePickerEl(e.currentTarget)
+  })
+  const closeRolePicker = useEvent(() => setRolePickerEl(null))
+  const openChatPicker = useEvent((e: React.MouseEvent<HTMLElement>) => {
+    setChatPickerView('history')
+    setChatPickerEl(e.currentTarget)
+  })
+  const closeChatPicker = useEvent(() => {
+    setChatPickerEl(null)
+    setChatPickerView('history')
+    closeChatMenu()
+    closeFavoriteChatMenu()
+    closeFavoriteFolderMenu()
+    closeFavoriteDialog()
+    closeCreateFavoriteFolder()
+    closeRenameFavoriteFolder()
+    closeDeleteFavoriteFolderConfirm()
+    closeMoveFavoriteFolderContents()
+    closeMoveFavoriteFolderDialog()
+    closeConfirmClearFavoriteFolder()
+    setChatPickerSearchOpen(false)
+    setChatPickerSearchText('')
+    setFavoriteSearchOpen(false)
+    setFavoriteSearchText('')
+  })
+
+  const openPluginSettings = useEvent(
+    (tab: 'appearance' | 'attachments' | 'groups' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers' = 'roles') => {
+    setRolePickerEl(null)
+    setChatPickerEl(null)
+    setChatPickerSearchOpen(false)
+    setChatPickerSearchText('')
+    setSettingsTab(tab)
+    setPage('settings')
+  })
+  const closePluginSettings = useEvent(() => setPage('chat'))
+
+  React.useEffect(() => {
+    if (!chatPickerEl) return
+    if (!chatPickerSearchOpen) return
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const el = chatPickerSearchInputRef.current
+        if (!el) return
+        try {
+          el.focus?.()
+          el.select?.()
+        } catch (_) {}
+      }, 0)
+    })
+  }, [chatPickerEl, chatPickerSearchOpen])
+
+  const onPaste = useEvent((e: React.ClipboardEvent) => {
+    if (s.loading) return
+    const items = e.clipboardData?.items ? Array.from(e.clipboardData.items) : []
+    const files: File[] = []
+    for (const it of items) {
+      if (!it || it.kind !== 'file') continue
+      const type = String(it.type || '')
+      if (!type.startsWith('image/')) continue
+      const f = it.getAsFile?.()
+      if (f) files.push(f)
+    }
+    if (!files.length) return
+    e.preventDefault()
+    controller.actions.addDraftImagesFromFiles(files)
+  })
+
+  const syncAtPicker = useEvent((text?: string, cursorIndex?: number) => {
+    if (s.loading) return closeAtPicker()
+    if (activeTargetKind !== 'group' || !activeGroup) return closeAtPicker()
+
+    const members0 = Array.isArray((activeGroup as any)?.memberRoleIds) ? ((activeGroup as any).memberRoleIds as any[]) : []
+    const memberIds = members0.map((x) => String(x || '').trim()).filter((x) => !!x)
+    if (!memberIds.length) return closeAtPicker()
+
+    const el = composerInputRef.current as any
+    const v =
+      typeof text === 'string'
+        ? text
+        : el && typeof el.value === 'string'
+          ? String(el.value || '')
+          : String(s.draft?.input || '')
+    const c0 =
+      typeof cursorIndex === 'number'
+        ? cursorIndex
+        : el && typeof el.selectionStart === 'number'
+          ? Number(el.selectionStart || 0)
+          : v.length
+
+    const hit = findAtMentionTrigger(v, c0)
+    if (!hit) return closeAtPicker()
+    setAtPicker(hit)
+  })
+
+  const atPickerOptions = React.useMemo(() => {
+    if (!atPicker) return []
+    if (activeTargetKind !== 'group' || !activeGroup) return []
+    const members0 = Array.isArray((activeGroup as any)?.memberRoleIds) ? ((activeGroup as any).memberRoleIds as any[]) : []
+    const memberIds = members0.map((x) => String(x || '').trim()).filter((x) => !!x)
+    if (!memberIds.length) return []
+    const memberRoles = memberIds.map((rid) => roles.find((r: any) => String(r?.id || '') === rid) || null).filter((x) => !!x) as any[]
+    const q = String(atPicker.query || '').trim().toLowerCase()
+    if (!q) return memberRoles.slice(0, 30)
+    return memberRoles
+      .filter((r: any) => String(r?.name || '').toLowerCase().includes(q) || String(r?.id || '').toLowerCase().includes(q))
+      .slice(0, 30)
+  }, [atPicker, activeTargetKind, activeGroup, roles])
+
+  const applyAtPickRole = useEvent((role: any) => {
+    const el = composerInputRef.current as any
+    if (!el) return
+    const v = typeof el.value === 'string' ? String(el.value || '') : String(s.draft?.input || '')
+    const cursor = typeof el.selectionStart === 'number' ? Number(el.selectionStart || 0) : v.length
+    const hit = atPicker ? findAtMentionTrigger(v, cursor) : null
+    if (!hit) return closeAtPicker()
+
+    const rawName = String(role?.name || '').trim()
+    const safeName = rawName.replace(/[{}]/g, '').slice(0, 80) || 'AI'
+    const insert = `@{${safeName}} `
+    const next = v.slice(0, hit.triggerIndex) + insert + v.slice(hit.cursorIndex)
+    controller.actions.setDraft('input', next)
+    closeAtPicker()
+
+    requestAnimationFrame(() => {
+      try {
+        el.focus?.()
+        const pos = Math.min(next.length, hit.triggerIndex + insert.length)
+        el.setSelectionRange?.(pos, pos)
+      } catch (_) {}
+    })
+  })
+
+  const onKeyDown = useEvent((e: React.KeyboardEvent) => {
+    if (atPicker) {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        closeAtPicker()
+        return
+      }
+      if (e.key === 'Enter' && !e.shiftKey && atPickerOptions.length) {
+        e.preventDefault()
+        applyAtPickRole(atPickerOptions[0])
+        return
+      }
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      if (isReplying) return
+      e.preventDefault()
+      onSend()
+    }
+  })
+
+  const msgMenuMid = String(msgMenu.mid || '')
+  const msgMenuMessages = Array.isArray(activeChat?.messages) ? activeChat.messages : []
+  const msgMenuIndex = msgMenuMid ? msgMenuMessages.findIndex((m: any) => String(m?.id || '') === msgMenuMid) : -1
+  const msgMenuMsg = msgMenuIndex >= 0 ? msgMenuMessages[msgMenuIndex] : null
+  const msgMenuText = String(msgMenuMsg?.content || '')
+  const msgMenuIsToolResponse = msgMenuText.startsWith('<<<[TOOL_RESPONSE]>>>')
+  const msgMenuPending = msgMenuMsg ? !!msgMenuMsg?.pending : !!msgMenu.pending
+  const msgMenuCanEdit = !!msgMenuMid && !msgMenuPending && !s.loading && !uiBusy && !chatLocked
+
+  let msgMenuRegenMid = msgMenuMid
+  let msgMenuRegenRole: 'assistant' | 'user' = msgMenu.role === 'user' ? 'user' : 'assistant'
+  let msgMenuRegenPending = msgMenu.role === 'assistant' ? msgMenuPending : false
+  if (msgMenu.role === 'user' && msgMenuIndex >= 0) {
+    for (let j = msgMenuIndex + 1; j < msgMenuMessages.length; j++) {
+      const next = msgMenuMessages[j]
+      if (!next) continue
+      if (next.role === 'assistant') {
+        msgMenuRegenRole = 'assistant'
+        msgMenuRegenMid = String(next?.id || '')
+        msgMenuRegenPending = !!next?.pending
+        break
+      }
+    }
+  }
+  const msgMenuCanRegen =
+    !!msgMenuRegenMid &&
+    !s.loading &&
+    !uiBusy &&
+    !chatLocked &&
+    !(msgMenuRegenRole === 'assistant' && msgMenuRegenPending)
+
+  const fileAdjustItem = fileAdjust.id ? draftFiles.find((x: any) => String(x?.id || '') === String(fileAdjust.id || '')) : null
+  const fileAdjustName = String(fileAdjustItem?.name || '文件')
+  const fileAdjustPending = !!fileAdjustItem?.pending
+  const fileAdjustError = String(fileAdjustItem?.error || '').trim()
+  const fileAdjustRaw = String(fileAdjustItem?.text || '').trim()
+  const fileAdjustFullLen = fileAdjustRaw.length
+  const fileAdjustPct = clampNum(Math.round(Number(fileAdjustItem?.sendPct ?? 100)), 0, 100)
+  const fileAdjustSendLen = Math.max(0, Math.ceil((fileAdjustFullLen * fileAdjustPct) / 100))
+  const fileAdjustTooLong = !fileAdjustPending && !fileAdjustError && fileAdjustFullLen > 0 && fileAdjustSendLen > attachSendLimitChars
+
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <GlobalStyles
+        styles={{
+          'html, body': {
+             height: '100%',
+             width: '100%',
+             overflow: 'hidden',
+             overscrollBehavior: 'none',
+             backgroundColor: transparentChatBg ? `rgba(255,255,255,${bgAlpha})` : '#fff',
+           },
+          '#fast-window-ai-chat-root': {
+            height: '100%',
+            overflow: 'hidden',
+            backgroundColor: transparentChatBg ? `rgba(255,255,255,${bgAlpha})` : '#fff',
+            backdropFilter: transparentChatBg && chatBgBlur > 0 ? `blur(${chatBgBlur}px)` : 'none',
+            WebkitBackdropFilter: transparentChatBg && chatBgBlur > 0 ? `blur(${chatBgBlur}px)` : 'none',
+          },
+          '@keyframes fw-tree-pop': {
+            '0%': { transform: 'scale(1)' },
+            '28%': { transform: 'scale(.92)' },
+            '62%': { transform: 'scale(1.07)' },
+            '100%': { transform: 'scale(1)' },
+          },
+          '.fw-tree-node': {
+            transformOrigin: 'center',
+            transformBox: 'fill-box',
+            willChange: 'transform',
+          },
+          '.fw-tree-node[data-pop="1"]': {
+            animation: 'fw-tree-pop 420ms cubic-bezier(.2,.9,.2,1) both',
+          },
+          '.prose': {
+            fontSize: 14,
+            lineHeight: 1.75,
+            wordBreak: 'break-word',
+            overflowWrap: 'anywhere',
+          },
+          '.prose pre': {
+            overflow: 'auto',
+            padding: 12,
+            borderRadius: 12,
+            background: '#0b1220',
+            color: '#e5e7eb',
+            border: '1px solid rgba(255,255,255,.06)',
+          },
+          '.prose pre.fw-code-block': {
+            position: 'relative',
+            paddingTop: 38,
+          },
+          '.prose pre.fw-code-block .fw-code-copy': {
+            position: 'absolute',
+            top: 8,
+            right: 8,
+            zIndex: 1,
+            width: 30,
+            height: 30,
+            padding: 0,
+            borderRadius: 999,
+            border: '1px solid rgba(255,255,255,.18)',
+            background: 'rgba(255,255,255,.08)',
+            color: '#e5e7eb',
+            fontSize: 12,
+            cursor: 'pointer',
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
+            backdropFilter: 'blur(6px)',
+            WebkitBackdropFilter: 'blur(6px)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            '&:hover': { background: 'rgba(255,255,255,.12)' },
+            '&:active': { background: 'rgba(255,255,255,.16)' },
+            '&:disabled': { opacity: 0.75, cursor: 'default' },
+            '&:focus-visible': { outline: '2px solid rgba(255,255,255,.35)', outlineOffset: 2 },
+          },
+          '.prose pre.fw-code-block .fw-code-copy[data-state="ok"]': { color: '#34d399' },
+          '.prose pre.fw-code-block .fw-code-copy[data-state="fail"]': { color: '#f87171' },
+          '.prose code': { fontFamily: 'ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace' },
+          '.prose blockquote': {
+            margin: '10px 0',
+            padding: '8px 12px',
+            borderLeft: '4px solid rgba(25,118,210,.35)',
+            background: 'rgba(25,118,210,.06)',
+            borderRadius: 12,
+          },
+          '.prose img': { maxWidth: '100%', height: 'auto' },
+          '.prose img.fw-sticker': { maxWidth: 160, maxHeight: 160, width: 'auto', height: 'auto', display: 'inline-block', verticalAlign: 'middle', borderRadius: 12 },
+          '.prose .fw-sticker-miss': { color: 'rgba(0,0,0,.55)' },
+          '.prose table': {
+            borderCollapse: 'collapse',
+            width: '100%',
+            maxWidth: '100%',
+            overflowX: 'auto',
+            overflowY: 'hidden',
+            borderRadius: 12,
+            display: 'block',
+          },
+          '.prose th, .prose td': { border: '1px solid rgba(0,0,0,.12)', padding: 8, verticalAlign: 'top' },
+          '.math-block': { margin: '10px 0', overflowX: 'auto' },
+          // KaTeX 的上标/帽子等会超出行盒；inline 公式不要做滚动容器，否则很容易出现裁切或滚动条。
+          '.prose .katex, .prose .katex-display': { maxWidth: '100%' },
+          '.prose span.katex': { display: 'inline-block', overflow: 'visible', verticalAlign: 'middle' },
+           '.prose .katex-display': { overflow: 'visible' },
+           '.prose .katex-display > .katex': { display: 'block', overflowX: 'visible' },
+          '.fw-math-host': { position: 'relative' },
+          '.math-inline.fw-math-host': { display: 'inline-block' },
+          '.math-block.fw-math-host': { display: 'block' },
+          '.fw-math-copy': {
+            position: 'absolute',
+            width: 24,
+            height: 24,
+            padding: 0,
+            borderRadius: 999,
+            border: '1px solid transparent',
+            background: 'transparent',
+            color: 'rgba(0,0,0,.55)',
+            cursor: 'pointer',
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 12,
+            lineHeight: 1,
+            opacity: 0,
+            visibility: 'hidden',
+            pointerEvents: 'none',
+            transition: 'opacity 120ms ease',
+            '&:hover': { background: 'rgba(0,0,0,.06)', borderColor: 'rgba(0,0,0,.12)', color: 'rgba(0,0,0,.72)' },
+            '&:active': { background: 'rgba(0,0,0,.10)', borderColor: 'rgba(0,0,0,.12)', color: 'rgba(0,0,0,.76)' },
+            '&:focus-visible': { outline: '2px solid rgba(25,118,210,.35)', outlineOffset: 2 },
+          },
+          '.math-inline.fw-math-host > .fw-math-copy': {
+            left: '100%',
+            top: '50%',
+            transform: 'translate(0, -50%)',
+          },
+          '.math-block.fw-math-host > .fw-math-copy': {
+            right: 6,
+            top: '50%',
+            transform: 'translateY(-50%)',
+          },
+          '.fw-math-host:hover > .fw-math-copy, .fw-math-host:focus-within > .fw-math-copy': {
+            opacity: 1,
+            visibility: 'visible',
+            pointerEvents: 'auto',
+          },
+           '.mermaid-block': { margin: '10px 0', overflowX: 'auto', textAlign: 'center' },
+            '.mermaid-block[data-mermaid="1"]': { cursor: 'zoom-in' },
+             '.mermaid-block svg': { maxWidth: '100%', height: 'auto', display: 'block', margin: '0 auto' },
+           '.mermaid-error': { margin: '10px 0', overflowX: 'auto' },
+           '.mermaid-error-box': {
+             position: 'relative',
+             background: '#fff',
+             border: '1px solid rgba(0,0,0,.12)',
+             borderRadius: 12,
+             padding: '10px 12px',
+             paddingRight: 80,
+           },
+           '.mermaid-error-fix': {
+             position: 'absolute',
+             top: 8,
+             right: 40,
+             width: 28,
+             height: 28,
+             padding: 0,
+             borderRadius: 999,
+             border: '1px solid rgba(0,0,0,.12)',
+             background: 'rgba(255,255,255,.92)',
+             color: 'rgba(0,0,0,.72)',
+             cursor: 'pointer',
+             userSelect: 'none',
+             WebkitUserSelect: 'none',
+             display: 'inline-flex',
+             alignItems: 'center',
+             justifyContent: 'center',
+             '&:hover': { background: 'rgba(255,255,255,1)' },
+             '&:active': { background: 'rgba(255,255,255,.96)' },
+             '&:disabled': { opacity: 0.7, cursor: 'default' },
+             '&:focus-visible': { outline: '2px solid rgba(25,118,210,.35)', outlineOffset: 2 },
+           },
+           '.mermaid-error-copy': {
+             position: 'absolute',
+             top: 8,
+             right: 8,
+             width: 28,
+             height: 28,
+             padding: 0,
+             borderRadius: 999,
+             border: '1px solid rgba(0,0,0,.12)',
+             background: 'rgba(255,255,255,.92)',
+             color: 'rgba(0,0,0,.72)',
+             cursor: 'pointer',
+             userSelect: 'none',
+             WebkitUserSelect: 'none',
+             display: 'inline-flex',
+             alignItems: 'center',
+             justifyContent: 'center',
+             '&:hover': { background: 'rgba(255,255,255,1)' },
+             '&:active': { background: 'rgba(255,255,255,.96)' },
+             '&:disabled': { opacity: 0.7, cursor: 'default' },
+             '&:focus-visible': { outline: '2px solid rgba(25,118,210,.35)', outlineOffset: 2 },
+           },
+           '.mermaid-error-title': { fontWeight: 900, fontSize: 12, color: 'rgba(0,0,0,.72)' },
+           '.mermaid-error-msg': {
+             marginTop: 6,
+             fontFamily: 'ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace',
+             fontSize: 12,
+             color: 'rgba(0,0,0,.82)',
+             whiteSpace: 'pre-wrap',
+             wordBreak: 'break-word',
+           },
+           '.mermaid-error-src': { display: 'none' },
+           '.mermaid-error-err': { display: 'none' },
+         }}
+       />
+
+      <Box sx={{ height: '100%', minWidth: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+        <AppBar
+          position="absolute"
+          elevation={0}
+          sx={{
+            bgcolor: `rgba(255,255,255,${topbarOpacity / 100})`,
+            color: 'text.primary',
+            borderBottom: 'none',
+            backdropFilter: topbarBlur > 0 ? `blur(${topbarBlur}px)` : 'none',
+            WebkitBackdropFilter: topbarBlur > 0 ? `blur(${topbarBlur}px)` : 'none',
+            top: 0,
+            left: 0,
+            right: 0,
+          }}
+        >
+          <Toolbar
+             variant="dense"
+            sx={{
+              gap: 0.5,
+              minHeight: 40,
+              px: 1,
+              '&.MuiToolbar-root': { minHeight: 40 },
+            }}
+            onPointerDown={onTopbarPointerDown}
+           >
+             {page === 'settings' ? (
+               <>
+                 <IconButton onClick={backToHost} size="small" aria-label="返回主页">
+                   <ArrowBackRoundedIcon fontSize="small" />
+                 </IconButton>
+                 <IconButton onClick={closePluginSettings} size="small">
+                   <ChevronLeftIcon fontSize="small" />
+                 </IconButton>
+
+                <Typography variant="subtitle2" sx={{ fontWeight: 900, mr: 0.5 }}>
+                  插件设置
+                </Typography>
+
+                <Box sx={{ flex: 1 }} />
+
+                <Button
+                  size="small"
+                  variant={settingsTab === 'appearance' ? 'contained' : 'outlined'}
+                  onClick={() => setSettingsTab('appearance')}
+                  sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
+                >
+                  外观
+                </Button>
+                <Button
+                  size="small"
+                  variant={settingsTab === 'attachments' ? 'contained' : 'outlined'}
+                  onClick={() => setSettingsTab('attachments')}
+                  sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
+                >
+                  附件
+                </Button>
+                <Button
+                  size="small"
+                  variant={settingsTab === 'groups' ? 'contained' : 'outlined'}
+                  onClick={() => setSettingsTab('groups')}
+                  sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
+                >
+                  群组管理
+                </Button>
+                <Button
+                  size="small"
+                  variant={settingsTab === 'roles' ? 'contained' : 'outlined'}
+                  onClick={() => setSettingsTab('roles')}
+                  sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
+                >
+                  角色管理
+                </Button>
+                 <Button
+                   size="small"
+                   variant={settingsTab === 'providers' ? 'contained' : 'outlined'}
+                   onClick={() => setSettingsTab('providers')}
+                   sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
+                 >
+                   供应商管理
+                 </Button>
+                  <Button
+                    size="small"
+                    variant={settingsTab === 'services' ? 'contained' : 'outlined'}
+                    onClick={() => setSettingsTab('services')}
+                    sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
+                  >
+                    AI 微服务
+                  </Button>
+                  <Button
+                    size="small"
+                    variant={settingsTab === 'toolServer' ? 'contained' : 'outlined'}
+                    onClick={() => setSettingsTab('toolServer')}
+                    sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
+                  >
+                    工具服务器
+                  </Button>
+                  <Button
+                    size="small"
+                    variant={settingsTab === 'stickers' ? 'contained' : 'outlined'}
+                    onClick={() => setSettingsTab('stickers')}
+                    sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
+                 >
+                   表情包
+                 </Button>
+               </>
+              ) : (
+               <>
+                 <IconButton onClick={backToHost} size="small" aria-label="返回主页">
+                   <ArrowBackRoundedIcon fontSize="small" />
+                 </IconButton>
+                 <Typography variant="subtitle2" sx={{ fontWeight: 900, mr: 0.5 }}>
+                   AI 聊天
+                 </Typography>
+
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={openRolePicker}
+                  disabled={s.loading || (!roles.length && !groups.length)}
+                  sx={{ borderRadius: 999, px: 1, py: 0.25, minWidth: 0, gap: 0.75, borderColor: 'divider' }}
+                >
+                  <Avatar
+                    src={
+                      activeTargetKind === 'group'
+                        ? String((activeGroup as any)?.avatarImage || '') || undefined
+                        : String(activeRole?.avatarImage || '') || undefined
+                    }
+                    sx={{ width: 22, height: 22, fontSize: 12 }}
+                  >
+                    {activeTargetKind === 'group' ? String((activeGroup as any)?.avatar || '👥') : String(activeRole?.avatar || '🙂')}
+                  </Avatar>
+                  <Typography variant="body2" sx={{ fontWeight: 900, maxWidth: 180 }} noWrap>
+                    {activeTargetKind === 'group'
+                      ? activeGroup
+                        ? String((activeGroup as any)?.name || '')
+                        : '请选择群组'
+                      : activeRole
+                        ? String(activeRole?.name || '')
+                        : '请选择角色'}
+                  </Typography>
+                </Button>
+
+                <Tooltip title="流式输出">
+                  <Stack direction="row" alignItems="center" spacing={1} sx={{ mr: 1 }}>
+                    <Switch
+                      size="small"
+                      checked={!!data?.settings?.streamEnabled}
+                      onChange={() => controller.actions.toggleStream()}
+                      disabled={!data}
+                    />
+                    <Typography variant="body2" color="text.secondary">
+                      流式
+                    </Typography>
+                  </Stack>
+                </Tooltip>
+
+                <Box sx={{ flex: 1 }} />
+
+                <Tooltip title={chatNav.lockedReason || (chatNav.olderId ? '切换到较旧会话' : '没有更旧的会话')}>
+                  <span>
+                    <IconButton
+                      onClick={() => controller.actions.setActiveChat(chatNav.olderId)}
+                      size="small"
+                      disabled={!!chatNav.lockedReason || !chatNav.olderId}
+                      aria-label="切换到较旧会话"
+                    >
+                      <ChevronLeftIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title={chatNav.lockedReason || (chatNav.newerId ? '切换到较新会话' : '没有更新的会话')}>
+                  <span>
+                    <IconButton
+                      onClick={() => controller.actions.setActiveChat(chatNav.newerId)}
+                      size="small"
+                      disabled={!!chatNav.lockedReason || !chatNav.newerId}
+                      aria-label="切换到较新会话"
+                    >
+                      <ChevronRightIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title="聊天记录">
+                  <IconButton onClick={openChatPicker} size="small">
+                    <HistoryIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="新建聊天">
+                  <span>
+                    <IconButton
+                      onClick={() => controller.actions.createChat()}
+                      size="small"
+                      disabled={activeTargetKind === 'group' ? !activeGroup : !activeRole}
+                      aria-label="新建聊天"
+                    >
+                      <AddIcon fontSize="small" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Tooltip title={treeOpen ? '收起分支树' : '展开分支树'}>
+                  <IconButton onClick={() => setTreeOpen((v) => !v)} size="small" aria-label={treeOpen ? '收起分支树' : '展开分支树'}>
+                    <AccountTreeIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="插件设置">
+                  <IconButton onClick={() => openPluginSettings('roles')} size="small">
+                    <SettingsIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </>
+            )}
+          </Toolbar>
+        </AppBar>
+
+        <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+        {page === 'chat' ? (
+          <>
+            <Box
+              ref={chatPaneRef}
+              sx={{
+                flex: 1,
+                minWidth: 0,
+                minHeight: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                position: 'relative',
+                bgcolor: transparentChatBg ? 'transparent' : 'background.default',
+              }}
+            >
+             <Box
+                ref={chatRootRef}
+                onClick={onClickOpenImageViewer}
+                sx={{
+                  flex: 1,
+                  minHeight: 0,
+                  overflowY: 'auto',
+                 overflowX: 'hidden',
+                 pl: 2,
+                 pr: treeOpen && effectiveTreeView === 'right' ? `calc(16px + ${Math.round(treePanelW)}px)` : 2,
+                 pt: `calc(${TOPBAR_H}px + 16px)`,
+                 bgcolor: transparentChatBg ? 'transparent' : 'grey.50',
+                 paddingBottom: `calc(${Math.max(0, composerHeight)}px + 24px)`,
+               }}
+             >
+                {s.loading ? (
+                  <Typography variant="body2" color="text.secondary">
+                    加载中…
+                  </Typography>
+                ) : !activeRole || !activeChat ? (
+                <Typography variant="body2" color="text.secondary">
+                  请选择角色
+                </Typography>
+              ) : !Array.isArray(activeChat.messages) || activeChat.messages.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  还没有消息。输入内容并发送。
+                </Typography>
+              ) : (
+                <Stack spacing={1.25}>
+                  {renderMessages.map((m: any) => {
+                     const content = String(m?.content || '')
+                     const isToolResponse = content.startsWith('<<<[TOOL_RESPONSE]>>>')
+                     const mid = String(m?.id || '')
+                     const isToolExpanded = !!mid && expandedToolMsgIds.has(mid)
+                     const isEditing = editingMsg.mid === mid
+
+                     if (isToolResponse) {
+                       const resultTags = content.match(/<<\[RESULT-\d+\]>>/g) || []
+                       const count = resultTags.length
+                       const names = Array.from(content.matchAll(/tool_name:「start」([\s\S]*?)「end」/g))
+                         .map((x) => String(x?.[1] || '').trim())
+                         .filter(Boolean)
+                       const statuses = Array.from(content.matchAll(/status:「start」([\s\S]*?)「end」/g))
+                         .map((x) => String(x?.[1] || '').trim())
+                         .filter(Boolean)
+                       const pairs = names.slice(0, 3).map((n, i) => {
+                         const st = statuses[i] || ''
+                         return st ? `${n}（${st}）` : n
+                       })
+                       const summary = count ? `${count}项：${pairs.join('，')}${count > 3 ? '…' : ''}` : pairs.length ? pairs.join('，') : '工具结果'
+                       const time = controller.fmtTime(Number(m?.createdAt || 0))
+
+                       return (
+                         <Stack key={mid} direction="row" justifyContent="flex-start">
+                           <Paper
+                             variant="outlined"
+                             data-mid={mid}
+                             onContextMenu={isEditing ? undefined : (e) => onMessageContextMenu(e, mid, 'user', !!m?.pending)}
+                              sx={{
+                                width: '100%',
+                                maxWidth: '100%',
+                                px: 1.25,
+                                py: 1.1,
+                                bgcolor: 'rgba(2, 132, 199, .05)',
+                                borderColor: 'rgba(2, 132, 199, .20)',
+                              }}
+                            >
+                              <Stack
+                                direction="row"
+                                alignItems="center"
+                                spacing={1}
+                                role={isEditing ? undefined : 'button'}
+                                tabIndex={isEditing ? -1 : 0}
+                                aria-label={isEditing ? '工具返回（编辑中）' : isToolExpanded ? '收起工具返回' : '展开工具返回'}
+                                aria-expanded={isEditing ? undefined : isToolExpanded}
+                                onClick={isEditing ? undefined : () => toggleExpandedToolMsg(mid)}
+                                onKeyDown={
+                                  isEditing
+                                    ? undefined
+                                    : (e) => {
+                                        const k = String((e as any)?.key || '')
+                                        if (k === 'Enter' || k === ' ') {
+                                          e.preventDefault()
+                                          toggleExpandedToolMsg(mid)
+                                        }
+                                      }
+                                }
+                                sx={{ mb: 0.5, cursor: isEditing ? 'default' : 'pointer', userSelect: 'none' }}
+                              >
+                                <StorageIcon sx={{ fontSize: 18, color: 'rgba(2, 132, 199, .85)' }} />
+                                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                                  工具返回
+                                </Typography>
+                                {summary ? (
+                                  <Typography variant="caption" color="text.secondary" sx={{ minWidth: 0 }} noWrap>
+                                    {summary}
+                                  </Typography>
+                                ) : null}
+                                <Box sx={{ flex: 1 }} />
+                                <Box sx={{ display: 'flex', alignItems: 'center', color: 'text.secondary' }}>
+                                  {isToolExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                                </Box>
+                                <Typography variant="caption" color="text.secondary">
+                                  {time}
+                                </Typography>
+                              </Stack>
+
+                              {isEditing ? (
+                                <Box sx={{ mt: 0.75 }}>
+                                  <TextField
+                                    autoFocus
+                                    fullWidth
+                                    multiline
+                                    minRows={3}
+                                    size="small"
+                                    placeholder="编辑工具返回…"
+                                    value={editingMsg.text}
+                                    onChange={(e) => setEditingMsg((p) => ({ ...p, text: e.target.value }))}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Escape') cancelEditMessage()
+                                      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveEditMessage()
+                                    }}
+                                    sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#fff' } }}
+                                  />
+                                  <Stack direction="row" spacing={1} sx={{ mt: 1 }} justifyContent="flex-end">
+                                    <Button size="small" variant="contained" onClick={saveEditMessage} disabled={s.loading || uiBusy || chatLocked}>
+                                      保存
+                                    </Button>
+                                    <Button size="small" onClick={cancelEditMessage} disabled={s.loading || uiBusy || chatLocked}>
+                                      取消
+                                    </Button>
+                                  </Stack>
+                                </Box>
+                              ) : (
+                                <Collapse in={isToolExpanded} timeout={160} unmountOnExit>
+                                  <Box
+                                    sx={{
+                                      mt: 0.75,
+                                      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                                      fontSize: 12,
+                                      whiteSpace: 'pre-wrap',
+                                      overflowWrap: 'anywhere',
+                                      wordBreak: 'break-word',
+                                      bgcolor: 'rgba(255,255,255,.7)',
+                                      border: '1px solid rgba(2, 132, 199, .18)',
+                                      borderRadius: 2,
+                                      px: 1,
+                                      py: 0.75,
+                                    }}
+                                  >
+                                    {content}
+                                  </Box>
+                                </Collapse>
+                              )}
+                            </Paper>
+                          </Stack>
+                        )
+                     }
+
+                    const displayRole: 'user' | 'assistant' = m?.role === 'user' ? 'user' : 'assistant'
+                    const isUser = displayRole === 'user'
+                    const speakerRoleId = !isUser ? String((m as any)?.speakerRoleId || '') : ''
+                    const speakerRole =
+                      !isUser && activeTargetKind === 'group'
+                        ? roles.find((r0: any) => String(r0?.id || '') === speakerRoleId) || null
+                        : !isUser
+                          ? activeRole
+                          : null
+                    const roleName = String((speakerRole as any)?.name || (activeTargetKind === 'group' ? 'AI' : activeRole?.name || 'AI'))
+                    const roleAvatarEmoji = String((speakerRole as any)?.avatar || '🤖')
+                    const roleAvatarImage = String((speakerRole as any)?.avatarImage || '')
+                    const roleModelText = !isUser ? formatModelRefText((m as any)?.modelRef) : ''
+                    const time = controller.fmtTime(Number(m?.createdAt || 0))
+                    const imgPaths = isUser ? (Array.isArray(m?.images) ? m.images : []) : []
+                    const attMsgs = isUser ? (groupedAttMsgsByRootMid.get(String(m?.id || '').trim()) || []) : []
+                    const canEdit = !isEditing && !m?.pending && !s.loading && !uiBusy && !chatLocked && !!mid
+                    const contentLines = userMessageCollapseEnabled && isUser ? content.split(/\r?\n/) : []
+                    const canCollapse = userMessageCollapseEnabled && isUser && !isEditing && contentLines.length > userMessageCollapseLines
+                    const isExpanded = !canCollapse || expandedUserMsgIds.has(mid)
+                    const shownContent = canCollapse && !isExpanded ? contentLines.slice(0, userMessageCollapseLines).join('\n') : content
+
+                    let regenRole: 'assistant' | 'user' = isUser ? 'user' : 'assistant'
+                    let regenMid = mid
+                    let regenPending = isUser ? false : !!m?.pending
+                    if (isUser) {
+                      const msgs = chatAllMessagesRaw
+                      const fullIdx = msgs.findIndex((x: any) => String(x?.id || '') === mid)
+                      for (let j = fullIdx + 1; j < msgs.length; j++) {
+                        const next = msgs[j]
+                        if (!next) continue
+                        if (next.role === 'assistant') {
+                          regenRole = 'assistant'
+                          regenMid = String(next?.id || '')
+                          regenPending = !!next?.pending
+                          break
+                        }
+                        if (next.role === 'user') break
+                      }
+                    } else {
+                      regenRole = 'assistant'
+                      regenMid = mid
+                      regenPending = !!m?.pending
+                    }
+
+                    const branchPrevAiMid = !isUser ? String(prevAiMidByAssistantId.get(mid) || '').trim() : ''
+                    const branchSiblings = !isUser && branchPrevAiMid ? assistantSiblingsByPrevAiMid.get(branchPrevAiMid) || [] : []
+                    const branchIndex = !isUser ? branchSiblings.findIndex((x: any) => String(x?.id || '') === mid) : -1
+                    const canSwitchBranch = !isUser && branchSiblings.length >= 2 && branchIndex >= 0
+                    return (
+                      <Stack key={mid} direction="row" justifyContent={isUser ? 'flex-end' : 'flex-start'}>
+                        <Paper
+                          variant="outlined"
+                          data-mid={mid}
+                          onContextMenu={isEditing ? undefined : (e) => onMessageContextMenu(e, mid, isUser ? 'user' : 'assistant', !!m?.pending)}
+                          sx={{
+                            width: isUser ? 'auto' : '100%',
+                            maxWidth: isUser ? 920 : '100%',
+                            px: 1.5,
+                            py: 1.25,
+                            bgcolor: isUser ? 'rgba(25,118,210,.06)' : 'transparent',
+                            borderColor: isUser ? 'rgba(25,118,210,.22)' : 'transparent',
+                          }}
+                        >
+                          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 0.75 }}>
+                            {isUser ? (
+                              <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                                你
+                              </Typography>
+                            ) : (
+                              <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+                                <Avatar src={roleAvatarImage || undefined} sx={{ width: 66, height: 66, fontSize: 28 }}>
+                                  {roleAvatarEmoji}
+                                </Avatar>
+                                <Stack spacing={0} sx={{ minWidth: 0 }}>
+                                  <Typography variant="subtitle1" sx={{ fontWeight: 900, minWidth: 0, fontSize: 20 }} noWrap>
+                                    {roleName}
+                                  </Typography>
+                                  {roleModelText ? (
+                                    <Typography variant="caption" color="text.secondary" sx={{ minWidth: 0, lineHeight: 1.2 }} noWrap>
+                                      {roleModelText}
+                                    </Typography>
+                                  ) : null}
+                                </Stack>
+                              </Stack>
+                            )}
+                            <Box sx={{ flex: 1 }} />
+                            <Typography variant="caption" color="text.secondary">
+                              {time}
+                            </Typography>
+                          </Stack>
+
+                          {imgPaths.length ? (
+                            <Stack direction="row" spacing={1} sx={{ mb: 1, flexWrap: 'wrap' }}>
+                              {imgPaths.slice(0, 8).map((p: string) => (
+                                <RefImageThumb key={p} controller={controller} path={String(p || '')} />
+                              ))}
+                            </Stack>
+                          ) : null}
+
+                          {isEditing ? (
+                            <TextField
+                              autoFocus
+                              fullWidth
+                              multiline
+                              minRows={3}
+                              size="small"
+                              placeholder={isUser ? '编辑用户消息…' : '编辑 AI 回复…'}
+                              value={editingMsg.text}
+                              onChange={(e) => setEditingMsg((p) => ({ ...p, text: e.target.value }))}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Escape') cancelEditMessage()
+                                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) saveEditMessage()
+                              }}
+                              sx={{ '& .MuiOutlinedInput-root': { bgcolor: '#fff' } }}
+                            />
+                          ) : isUser ? (
+                            <Box>
+                              {shownContent ? (
+                                stickersEnabled ? (
+                                  <StickerText controller={controller} text={shownContent} stickerMap={stickerMap} />
+                                ) : (
+                                  <Typography sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{shownContent}</Typography>
+                                )
+                              ) : attMsgs.length ? (
+                                <Typography variant="body2" color="text.secondary">
+                                  （附件）
+                                </Typography>
+                              ) : null}
+                              {canCollapse ? (
+                                <Box sx={{ textAlign: 'right' }}>
+                                  <Button
+                                    size="small"
+                                    variant="text"
+                                    onClick={() => toggleExpandedUserMsg(mid)}
+                                    aria-label={isExpanded ? '收起用户消息' : '展开用户消息'}
+                                    aria-expanded={isExpanded}
+                                    sx={{ mt: 0.25, minWidth: 0, px: 0.5, borderRadius: 2 }}
+                                  >
+                                    {isExpanded ? `收起（共${contentLines.length}行）` : `展开（共${contentLines.length}行）`}
+                                  </Button>
+                                </Box>
+                              ) : null}
+                              {attMsgs.length ? (
+                                <Stack direction="row" spacing={0.75} sx={{ mt: 0.75, flexWrap: 'wrap' }}>
+                                  {attMsgs.slice(0, 20).map((am: any) => {
+                                    const a = am && Array.isArray(am.attachments) ? am.attachments[0] : null
+                                    if (!a) return null
+                                    const childMid = String(am?.id || '').trim()
+                                    if (!childMid) return null
+                                    const name = String(a?.name || '文件')
+                                    const pct = clampNum(Math.round(Number(a?.sendPct ?? 100)), 0, 100)
+                                    const fullLen = clampNum(Math.round(Number(a?.fullLen ?? 0)), 0, 10_000_000)
+                                    const sendLen = clampNum(Math.round(Number(a?.sendLen ?? String(a?.text || '').length ?? 0)), 0, fullLen || 0)
+                                    const label = `${name}（${pct}%：${sendLen}/${fullLen}）`
+                                    return (
+                                      <Chip
+                                        key={String(a?.id || childMid)}
+                                        size="small"
+                                        icon={<AttachFileIcon fontSize="small" />}
+                                        label={label}
+                                        variant="outlined"
+                                        onClick={(e) => openAttachView(e as any, childMid, 0)}
+                                        sx={{ maxWidth: 520 }}
+                                      />
+                                    )
+                                  })}
+                                </Stack>
+                              ) : null}
+                            </Box>
+                          ) : (
+                            <AssistantContent
+                              controller={controller}
+                              className="prose"
+                              text={content}
+                              mid={mid}
+                              toolRequestPresetKey={`${toolRequestRenderPreset}|${toolRequestRenderPresetsKey}`}
+                              renderSafetyPolicyKey={renderSafetyPolicy}
+                              chatRootRef={chatRootRef}
+                            />
+                          )}
+
+                          {isEditing ? (
+                            <Stack direction="row" spacing={1} sx={{ mt: 1 }} justifyContent="flex-end">
+                              <Button size="small" variant="contained" onClick={saveEditMessage} disabled={s.loading || uiBusy || chatLocked}>
+                                保存
+                              </Button>
+                              <Button size="small" onClick={cancelEditMessage} disabled={s.loading || uiBusy || chatLocked}>
+                                取消
+                              </Button>
+                            </Stack>
+                          ) : (
+                            <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }} justifyContent="flex-end">
+                              <Tooltip title="上一个分支">
+                                <span>
+                              <IconButton
+                                    aria-label="上一个分支"
+                                    size="small"
+                                    disabled={!canSwitchBranch || s.loading || uiBusy || chatLocked}
+                                    onClick={() => {
+                                      if (!canSwitchBranch) return
+                                      const len = branchSiblings.length
+                                      if (!len) return
+                                      const next = branchSiblings[(branchIndex - 1 + len) % len]
+                                      const nextMid = String(next?.id || '').trim()
+                                      stickToBottomRef.current = false
+                                      autoScrollBlockUntilRef.current = Date.now() + 1200
+                                      if (nextMid) setBranchNav({ mid: nextMid, at: Date.now() })
+                                      controller.actions.switchBranchSibling?.(mid, -1)
+                                    }}
+                                  >
+                                    <ChevronLeftIcon fontSize="inherit" />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+
+                              <Tooltip title="下一个分支">
+                                <span>
+                                  <IconButton
+                                    aria-label="下一个分支"
+                                    size="small"
+                                    disabled={!canSwitchBranch || s.loading || uiBusy || chatLocked}
+                                    onClick={() => {
+                                      if (!canSwitchBranch) return
+                                      const len = branchSiblings.length
+                                      if (!len) return
+                                      const next = branchSiblings[(branchIndex + 1 + len) % len]
+                                      const nextMid = String(next?.id || '').trim()
+                                      stickToBottomRef.current = false
+                                      autoScrollBlockUntilRef.current = Date.now() + 1200
+                                      if (nextMid) setBranchNav({ mid: nextMid, at: Date.now() })
+                                      controller.actions.switchBranchSibling?.(mid, 1)
+                                    }}
+                                  >
+                                    <ChevronRightIcon fontSize="inherit" />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+
+                              <Tooltip title="重新回复">
+                                <span>
+                                  <IconButton
+                                    aria-label="重新回复"
+                                    size="small"
+                                    disabled={!regenMid || s.loading || uiBusy || chatLocked || (regenRole === 'assistant' && regenPending)}
+                                    onClick={() => {
+                                      if (!regenMid) return
+                                      setRegen({ mid: regenMid, role: regenRole })
+                                    }}
+                                  >
+                                    <RestartAltIcon fontSize="inherit" />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+
+                              <Tooltip title="编辑">
+                                <span>
+                                  <IconButton aria-label="编辑消息" size="small" disabled={!canEdit} onClick={() => startEditMessage(mid, String(m?.content || ''), !!m?.pending)}>
+                                    <EditOutlinedIcon fontSize="inherit" />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+
+                              <Tooltip title="复制">
+                                <IconButton
+                                  aria-label="复制内容"
+                                  size="small"
+                                  onClick={() => {
+                                    const text = String(m?.content || '')
+                                    controller.capabilities?.clipboard?.writeText?.(text).then(
+                                      () => controller.capabilities?.ui?.showToast?.('已复制'),
+                                      () => controller.capabilities?.ui?.showToast?.('复制失败'),
+                                    )
+                                  }}
+                                >
+                                  <ContentCopyIcon fontSize="inherit" />
+                                </IconButton>
+                              </Tooltip>
+                            </Stack>
+                          )}
+
+                          {m?.pending ? (
+                            <Box sx={{ mt: 1 }}>
+                              <Chip size="small" label={m?.streaming ? '生成中（流式）' : '生成中'} />
+                            </Box>
+                          ) : null}
+                        </Paper>
+                      </Stack>
+                    )
+                  })}
+                </Stack>
+               )}
+             </Box>
+
+             <Popover
+               open={!!attachView.el && !!attachViewItem}
+               anchorEl={attachView.el}
+               onClose={closeAttachView}
+               anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+               transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+             >
+               <Box sx={{ width: 520, maxWidth: '84vw', p: 1.25 }}>
+                 <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ mb: 0.75 }}>
+                   <Typography sx={{ fontWeight: 900 }}>
+                     {String(attachViewItem?.attachment?.name || '附件')}
+                   </Typography>
+                   <Stack direction="row" spacing={0.5}>
+                     <Tooltip title="复制文本">
+                       <IconButton
+                         size="small"
+                         aria-label="复制附件文本"
+                         onClick={() => {
+                           const text = String(attachViewItem?.attachment?.text || '')
+                            const writeText = controller.capabilities?.clipboard?.writeText
+                            if (typeof writeText !== 'function') return controller.capabilities?.ui?.showToast?.('未授权：clipboard.writeText')
+                            Promise.resolve()
+                              .then(() => writeText(text))
+                              .then(() => controller.capabilities?.ui?.showToast?.('已复制'))
+                              .catch(() => controller.capabilities?.ui?.showToast?.('复制失败'))
+                         }}
+                       >
+                         <ContentCopyIcon fontSize="inherit" />
+                       </IconButton>
+                     </Tooltip>
+                     <Tooltip title="关闭">
+                       <IconButton size="small" aria-label="关闭附件预览" onClick={closeAttachView}>
+                         <CloseIcon fontSize="inherit" />
+                       </IconButton>
+                     </Tooltip>
+                   </Stack>
+                 </Stack>
+
+                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+                   将发送：{Math.round(Number(attachViewItem?.attachment?.sendLen ?? 0))}/{Math.round(Number(attachViewItem?.attachment?.fullLen ?? 0))}（
+                   {clampNum(Math.round(Number(attachViewItem?.attachment?.sendPct ?? 100)), 0, 100)}%）
+                 </Typography>
+
+                 <TextField
+                   fullWidth
+                   multiline
+                   minRows={8}
+                   maxRows={20}
+                   size="small"
+                   value={String(attachViewItem?.attachment?.text || '')}
+                   inputProps={{ readOnly: true, style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' } }}
+                 />
+               </Box>
+             </Popover>
+
+              <Popover
+                open={!!msgMenu.mid}
+                onClose={closeMsgMenu}
+                anchorReference="anchorPosition"
+                anchorPosition={msgMenu.mid ? { top: msgMenu.y, left: msgMenu.x } : undefined}
+                transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+              >
+                <Box sx={{ minWidth: 160, p: 0.5 }}>
+                  {msgMenuIsToolResponse ? (
+                    <>
+                      <MenuItem
+                        disabled={!msgMenuMid}
+                        onClick={() => {
+                          const text = msgMenuText
+                          closeMsgMenu()
+                           controller.capabilities?.clipboard?.writeText?.(text).then(
+                             () => controller.capabilities?.ui?.showToast?.('已复制'),
+                             () => controller.capabilities?.ui?.showToast?.('复制失败'),
+                          )
+                        }}
+                        sx={{ gap: 1 }}
+                      >
+                        <ContentCopyIcon fontSize="small" />
+                        复制
+                      </MenuItem>
+
+                      <MenuItem
+                        disabled={!msgMenuMid}
+                        onClick={() => {
+                          const mid = msgMenuMid
+                          closeMsgMenu()
+                          if (!mid) return
+                          toggleExpandedToolMsg(mid)
+                        }}
+                        sx={{ gap: 1 }}
+                      >
+                        {msgMenuMid && expandedToolMsgIds.has(msgMenuMid) ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                        {msgMenuMid && expandedToolMsgIds.has(msgMenuMid) ? '收起' : '展开'}
+                      </MenuItem>
+
+                      <MenuItem
+                        disabled={!msgMenuCanEdit}
+                        onClick={() => {
+                          const mid = msgMenuMid
+                          const pending = msgMenuPending
+                          const text = msgMenuText
+                          closeMsgMenu()
+                          startEditMessage(mid, text, pending)
+                        }}
+                        sx={{ gap: 1 }}
+                      >
+                        <EditOutlinedIcon fontSize="small" />
+                        编辑
+                      </MenuItem>
+
+                      <MenuItem
+                        disabled={!msgMenuMid || msgMenuPending || s.loading || uiBusy || chatLocked}
+                        onClick={() => {
+                          const mid = msgMenuMid
+                          const role = msgMenu.role
+                          closeMsgMenu()
+                          setConfirmDelMsg({ mid, role })
+                        }}
+                        sx={{ gap: 1 }}
+                      >
+                        <DeleteOutlineIcon fontSize="small" />
+                        删除
+                      </MenuItem>
+                    </>
+                  ) : (
+                    <>
+                      <MenuItem
+                        disabled={!msgMenuMid || msgMenu.role !== 'assistant' || msgMenuPending || s.loading || uiBusy || chatLocked}
+                        onClick={() => {
+                          const mid = msgMenuMid
+                          closeMsgMenu()
+                          if (!mid) return
+                          controller.actions.createBranchFromAssistant?.(mid)
+                        }}
+                        sx={{ gap: 1 }}
+                      >
+                        <AddIcon fontSize="small" />
+                        新建分支
+                      </MenuItem>
+
+                      <MenuItem
+                        disabled={!msgMenuCanRegen}
+                        onClick={() => {
+                          const mid = msgMenuRegenMid
+                          const role = msgMenuRegenRole
+                          closeMsgMenu()
+                          if (!mid) return
+                          setRegen({ mid, role })
+                        }}
+                        sx={{ gap: 1 }}
+                      >
+                        <RestartAltIcon fontSize="small" />
+                        重新回复
+                      </MenuItem>
+
+                      <MenuItem
+                        disabled={!msgMenuCanEdit}
+                        onClick={() => {
+                          const mid = msgMenuMid
+                          const pending = msgMenuPending
+                          const text = msgMenuText
+                          closeMsgMenu()
+                          startEditMessage(mid, text, pending)
+                        }}
+                        sx={{ gap: 1 }}
+                      >
+                        <EditOutlinedIcon fontSize="small" />
+                        编辑
+                      </MenuItem>
+
+                      <MenuItem
+                        disabled={!msgMenuMid}
+                        onClick={() => {
+                          const text = msgMenuText
+                          closeMsgMenu()
+                           controller.capabilities?.clipboard?.writeText?.(text).then(
+                             () => controller.capabilities?.ui?.showToast?.('已复制'),
+                             () => controller.capabilities?.ui?.showToast?.('复制失败'),
+                          )
+                        }}
+                        sx={{ gap: 1 }}
+                      >
+                        <ContentCopyIcon fontSize="small" />
+                        复制
+                      </MenuItem>
+
+                      <MenuItem
+                        disabled={!msgMenuMid || msgMenuPending || s.loading || uiBusy || chatLocked}
+                        onClick={() => {
+                          const mid = msgMenuMid
+                          const role = msgMenu.role
+                          closeMsgMenu()
+                          setConfirmDelMsg({ mid, role })
+                        }}
+                        sx={{ gap: 1 }}
+                      >
+                        <DeleteOutlineIcon fontSize="small" />
+                        删除
+                      </MenuItem>
+                    </>
+                  )}
+                </Box>
+              </Popover>
+
+              <Popover
+                open={!!treeNodeMenu.mid}
+                onClose={closeTreeNodeMenu}
+                anchorReference="anchorPosition"
+                anchorPosition={treeNodeMenu.mid ? { top: treeNodeMenu.y, left: treeNodeMenu.x } : undefined}
+                transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+              >
+                <Box sx={{ minWidth: 220, p: 0.5 }}>
+                  <MenuItem
+                    disabled={!treeNodeMenu.mid || s.loading || uiBusy || chatLocked}
+                    onClick={() => {
+                      const mid = String(treeNodeMenu.mid || '').trim()
+                      const role = treeNodeMenu.role
+                      closeTreeNodeMenu()
+                      if (!mid) return
+                      setConfirmDelMsg({ mid, role })
+                    }}
+                    sx={{ gap: 1 }}
+                  >
+                    <DeleteOutlineIcon fontSize="small" />
+                    仅删除当前节点
+                  </MenuItem>
+
+                  <MenuItem
+                    disabled={!treeNodeMenu.mid || s.loading || uiBusy || chatLocked}
+                    onClick={() => {
+                      const mid = String(treeNodeMenu.mid || '').trim()
+                      const role = treeNodeMenu.role
+                      closeTreeNodeMenu()
+                      if (!mid) return
+                      setConfirmDelTree({ mid, role })
+                    }}
+                    sx={{ gap: 1 }}
+                  >
+                    <DeleteOutlineIcon fontSize="small" />
+                    删除节点及子节点
+                  </MenuItem>
+                </Box>
+              </Popover>
+
+             <Dialog
+               open={!!confirmDelMsg.mid}
+               onClose={() => setConfirmDelMsg({ mid: '', role: 'assistant' })}
+               maxWidth="xs"
+               fullWidth
+             >
+               <DialogTitle>确认删除这条消息？</DialogTitle>
+               <DialogContent>
+                 <Typography variant="body2" color="text.secondary">
+                   仅删除当前这条{confirmDelMsg.role === 'assistant' ? ' AI 回复' : '用户消息'}，不影响其他记录。
+                 </Typography>
+               </DialogContent>
+               <DialogActions>
+                 <Button onClick={() => setConfirmDelMsg({ mid: '', role: 'assistant' })}>取消</Button>
+                 <Button
+                   variant="contained"
+                   color="error"
+                   onClick={() => {
+                     const mid = confirmDelMsg.mid
+                     setConfirmDelMsg({ mid: '', role: 'assistant' })
+                     controller.actions.deleteMessage?.(mid)
+                   }}
+                  disabled={!confirmDelMsg.mid || s.loading || uiBusy || chatLocked}
+                 >
+                   删除
+                 </Button>
+               </DialogActions>
+             </Dialog>
+
+              <Dialog
+                open={!!confirmDelTree.mid}
+                onClose={() => setConfirmDelTree({ mid: '', role: 'assistant' })}
+                maxWidth="xs"
+                fullWidth
+              >
+                <DialogTitle>确认删除该节点及其子节点？</DialogTitle>
+                <DialogContent>
+                  <Typography variant="body2" color="text.secondary">
+                    将删除该{confirmDelTree.role === 'assistant' ? ' AI 回复' : '用户消息'}节点，以及它后面所有分支上的子节点。
+                  </Typography>
+                </DialogContent>
+                <DialogActions>
+                  <Button onClick={() => setConfirmDelTree({ mid: '', role: 'assistant' })}>取消</Button>
+                  <Button
+                    variant="contained"
+                    color="error"
+                    onClick={() => {
+                      const mid = confirmDelTree.mid
+                      setConfirmDelTree({ mid: '', role: 'assistant' })
+                      controller.actions.deleteMessageSubtree?.(mid)
+                    }}
+                    disabled={!confirmDelTree.mid || s.loading || uiBusy || chatLocked}
+                  >
+                    删除
+                  </Button>
+                </DialogActions>
+              </Dialog>
+
+              <Dialog
+                open={!!regen.mid}
+                onClose={() => setRegen({ mid: '', role: 'assistant' })}
+                maxWidth="xs"
+                fullWidth
+              >
+                <DialogTitle>确认重新回复？</DialogTitle>
+                <DialogContent>
+                  <Typography variant="body2" color="text.secondary">
+                    {regen.role === 'assistant' ? '这会用新内容覆盖当前 AI 回复。' : '这会基于该用户消息生成一条新的 AI 回复。'}
+                  </Typography>
+                </DialogContent>
+                <DialogActions>
+                  <Button onClick={() => setRegen({ mid: '', role: 'assistant' })}>取消</Button>
+                  <Button
+                    variant="contained"
+                    color="warning"
+                    onClick={() => {
+                      const mid = regen.mid
+                      const role = regen.role
+                      setRegen({ mid: '', role: 'assistant' })
+                      if (role === 'assistant') controller.actions.regenerateAssistant?.(mid)
+                      else controller.actions.replyFromUserMessage?.(mid)
+                    }}
+                   disabled={!regen.mid || s.loading || uiBusy || chatLocked}
+                  >
+                    重新回复
+                  </Button>
+                </DialogActions>
+              </Dialog>
+
+              <Dialog open={sendWarn.open} onClose={closeSendWarn} maxWidth="xs" fullWidth>
+                <DialogTitle>附件超长提醒</DialogTitle>
+                <DialogContent>
+                  <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      以下附件当前“实际发送长度”超过阈值（{Math.round(attachSendLimitChars)} 字符）。仍然发送可能导致响应慢或消耗更多 token。
+                    </Typography>
+                    <Stack spacing={0.75}>
+                      {sendWarn.items.map((it: any, i: number) => (
+                        <Paper key={String(it?.id || i)} variant="outlined" sx={{ p: 1 }}>
+                          <Typography sx={{ fontWeight: 900 }} noWrap>
+                            {String(it?.name || '文件')}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            当前发送 {Math.round(Number(it?.pct ?? 100))}%：{Number(it?.sendLen || 0)}/{Number(it?.rawLen || 0)} 字符
+                          </Typography>
+                        </Paper>
+                      ))}
+                    </Stack>
+                  </Stack>
+                </DialogContent>
+                <DialogActions>
+                  <Button onClick={closeSendWarn}>取消</Button>
+                  <Button variant="contained" color="warning" onClick={confirmSendWarn}>
+                    仍然发送
+                  </Button>
+                </DialogActions>
+              </Dialog>
+
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: TOPBAR_H,
+                  right: 0,
+                  bottom: 0,
+                  width: treeOpen && effectiveTreeView === 'right' ? Math.round(treePanelW) : 0,
+                  transition: treeResizing ? 'none' : 'width 180ms ease',
+                  overflow: 'hidden',
+                  pointerEvents: treeOpen && effectiveTreeView === 'right' ? 'auto' : 'none',
+                  borderLeft: treeOpen && effectiveTreeView === 'right' ? '1px solid rgba(0,0,0,.10)' : '1px solid transparent',
+                  bgcolor: transparentChatBg ? `rgba(255,255,255,${Math.max(0.72, bgAlpha)})` : 'background.paper',
+                  zIndex: 1000,
+                }}
+              >
+                {treeOpen && effectiveTreeView === 'right' ? (
+                  <Box
+                    onPointerDown={onTreeSplitterPointerDown}
+                    onPointerMove={onTreeSplitterPointerMove}
+                    onPointerUp={endTreeResize}
+                    onPointerCancel={endTreeResize}
+                    sx={{
+                      position: 'absolute',
+                      left: -4,
+                      top: 0,
+                      bottom: 0,
+                      width: 8,
+                      zIndex: 4,
+                      cursor: 'col-resize',
+                      touchAction: 'none',
+                      userSelect: 'none',
+                      WebkitUserSelect: 'none',
+                      display: 'flex',
+                      alignItems: 'stretch',
+                      justifyContent: 'center',
+                      '& .fw-split-line': {
+                        opacity: treeResizing ? 1 : 0,
+                        bgcolor: treeResizing ? 'rgba(25,118,210,.55)' : 'rgba(0,0,0,.18)',
+                        transition: 'opacity 120ms ease, background-color 120ms ease',
+                      },
+                      '&:hover .fw-split-line': { opacity: 1, bgcolor: 'rgba(25,118,210,.55)' },
+                    }}
+                  >
+                    <Box className="fw-split-line" sx={{ width: 1, bgcolor: 'rgba(0,0,0,.18)' }} />
+                  </Box>
+                ) : null}
+                <Box sx={{ position: 'relative', width: '100%', height: '100%', userSelect: 'none', WebkitUserSelect: 'none' }}>
+                  <Tooltip title="重置视图">
+                    <span>
+                      <IconButton
+                        size="small"
+                        onClick={(e) => {
+                          setTreePan({ x: 18, y: 18 })
+                          setTreeScale(1)
+                          treeViewRef.current = { x: 18, y: 18, scale: 1 }
+                          scheduleTreeViewTransform()
+                          try {
+                            ;(e.currentTarget as any)?.blur?.()
+                          } catch (_) {}
+                        }}
+                        disabled={!treeOpen}
+                        sx={{
+                          position: 'absolute',
+                          top: 10,
+                          right: 10,
+                          zIndex: 2,
+                          bgcolor: 'rgba(255,255,255,.72)',
+                          border: '1px solid rgba(0,0,0,.12)',
+                          backdropFilter: 'blur(8px)',
+                          WebkitBackdropFilter: 'blur(8px)',
+                          '&:hover': { bgcolor: 'rgba(255,255,255,.82)' },
+                        }}
+                      >
+                        <RestartAltIcon fontSize="inherit" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+
+                  <Tooltip
+                    title={
+                      treeDir === 'lr'
+                        ? '切换方向（当前：左→右）'
+                        : treeDir === 'rl'
+                          ? '切换方向（当前：右→左）'
+                          : treeDir === 'tb'
+                            ? '切换方向（当前：上→下）'
+                            : '切换方向（当前：下→上）'
+                    }
+                  >
+                      <span>
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            cycleTreeDir()
+                            try {
+                              ;(e.currentTarget as any)?.blur?.()
+                            } catch (_) {}
+                          }}
+                          disabled={!treeOpen}
+                          sx={{
+                            position: 'absolute',
+                            top: 10,
+                          right: 52,
+                          zIndex: 2,
+                          bgcolor: 'rgba(255,255,255,.72)',
+                          border: '1px solid rgba(0,0,0,.12)',
+                          backdropFilter: 'blur(8px)',
+                          WebkitBackdropFilter: 'blur(8px)',
+                          '&:hover': { bgcolor: 'rgba(255,255,255,.82)' },
+                        }}
+                      >
+                        <AutorenewIcon fontSize="inherit" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+
+                <Box
+                    onPointerDown={onTreePointerDown}
+                    onPointerMove={onTreePointerMove}
+                    onPointerUp={endTreeDrag}
+                    onPointerCancel={endTreeDrag}
+                    onWheel={onTreeWheel}
+                    ref={(el: any) => {
+                      treeHostRightRef.current = el
+                    }}
+                    sx={{
+                      position: 'absolute',
+                      inset: 0,
+                      bgcolor: 'rgba(0,0,0,.03)',
+                      overflow: 'hidden',
+                      cursor: treeDragging ? 'grabbing' : 'grab',
+                      touchAction: 'none',
+                      userSelect: 'none',
+                      WebkitUserSelect: 'none',
+                    }}
+                  >
+                    {treeRender && Array.isArray((treeRender as any).nodes) && (treeRender as any).nodes.length ? (
+                      <svg width="100%" height="100%" style={{ display: 'block' }}>
+                        <g
+                          ref={(el) => {
+                            treeViewportRef.current = el
+                            if (el) requestAnimationFrame(() => applyTreeViewTransform())
+                          }}
+                          transform="translate(0,0) scale(1)"
+                        >
+                          {Array.isArray((treeRender as any).edges)
+                            ? ((treeRender as any).edges as any[]).map((e: any) => {
+                                const from = String(e?.from || '').trim()
+                                const to = String(e?.to || '').trim()
+                                if (!from || !to) return null
+                                const a = (treeRender as any)?.byId?.get(from) || null
+                                const b = (treeRender as any)?.byId?.get(to) || null
+                                if (!a || !b) return null
+                                const w = Number((treeRender as any).nodeW || 168)
+                                const h = Number((treeRender as any).nodeH || 44)
+                                const strokeW = 6
+                                const capR = strokeW / 2
+                                const aiGap = 2
+                                const selectedMid = String(treeSelectedMid || '')
+
+                                const ax = Number(a.x || 0)
+                                const ay = Number(a.y || 0)
+                                const bx = Number(b.x || 0)
+                                const by = Number(b.y || 0)
+                                const aIsAi = String(a?.role || '') === 'assistant'
+                                const bIsAi = String(b?.role || '') === 'assistant'
+                                const aDotR = aIsAi && from === selectedMid ? 10 : 8
+                                const bDotR = bIsAi && to === selectedMid ? 10 : 8
+                                const aOff = aIsAi ? aDotR + capR + aiGap : 0
+                                const bOff = bIsAi ? bDotR + capR + aiGap : 0
+
+                                const horizontal = treeDir === 'lr' || treeDir === 'rl'
+                                let sx = 0
+                                let sy = 0
+                                let tx = 0
+                                let ty = 0
+                                let d = ''
+
+                                if (horizontal) {
+                                  const forward = bx >= ax
+                                  const acx = ax + w / 2
+                                  const acy = ay + h / 2
+                                  const bcx = bx + w / 2
+                                  const bcy = by + h / 2
+
+                                  sx = aIsAi ? acx + (forward ? aOff : -aOff) : ax + (forward ? w : 0)
+                                  sy = aIsAi ? acy : ay + h / 2
+                                  tx = bIsAi ? bcx + (forward ? -bOff : bOff) : bx + (forward ? 0 : w)
+                                  ty = bIsAi ? bcy : by + h / 2
+                                  const dd = Math.max(42, Math.abs(tx - sx) * 0.5)
+                                  d = `M ${sx} ${sy} C ${sx + (forward ? dd : -dd)} ${sy} ${tx - (forward ? dd : -dd)} ${ty} ${tx} ${ty}`
+                                } else {
+                                  const forward = by >= ay
+                                  const acx = ax + w / 2
+                                  const acy = ay + h / 2
+                                  const bcx = bx + w / 2
+                                  const bcy = by + h / 2
+
+                                  sx = aIsAi ? acx : ax + w / 2
+                                  sy = aIsAi ? acy + (forward ? aOff : -aOff) : ay + (forward ? h : 0)
+                                  tx = bIsAi ? bcx : bx + w / 2
+                                  ty = bIsAi ? bcy + (forward ? -bOff : bOff) : by + (forward ? 0 : h)
+                                  const dd = Math.max(42, Math.abs(ty - sy) * 0.5)
+                                  d = `M ${sx} ${sy} C ${sx} ${sy + (forward ? dd : -dd)} ${tx} ${ty - (forward ? dd : -dd)} ${tx} ${ty}`
+                                }
+                                const key = `${from}->${to}`
+                                const hi = treeHighlightEdgeKeys.has(key)
+                                return (
+                                  <path
+                                    key={key}
+                                    d={d}
+                                    fill="none"
+                                    stroke={hi ? 'rgba(34,197,94,.85)' : 'rgba(0,0,0,.16)'}
+                                    strokeWidth={strokeW}
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                )
+                              })
+                            : null}
+
+                          {((treeRender as any).nodes as any[]).map((n: any) => {
+                            const id = String(n?.id || '').trim()
+                            if (!id) return null
+                            const x = Number(n?.x || 0)
+                            const y = Number(n?.y || 0)
+                            const w = Number((treeRender as any).nodeW || 168)
+                            const h = Number((treeRender as any).nodeH || 44)
+                            const role = String(n?.role || '')
+                            const text = String(n?.text || '')
+                            const isSelected = id === String(treeSelectedMid || '')
+                            const isAi = role === 'assistant'
+                            const clipId = `fw-tree-clip-${svgSafeId(id)}`
+                            const nodeFill = '#ffffff'
+
+                            return (
+                              <g key={id} transform={`translate(${Math.round(x)},${Math.round(y)})`}>
+                                <g
+                                  className="fw-tree-node"
+                                  data-pop={treePop.id === id ? '1' : undefined}
+                                  style={{ cursor: 'pointer' }}
+                                  data-tree-node="1"
+                                  onClick={(ev) => {
+                                    if (treeSuppressClickRef.current) {
+                                      treeSuppressClickRef.current = false
+                                      ev.preventDefault()
+                                      ev.stopPropagation()
+                                      return
+                                    }
+                                    setTreeSelectedMid(id)
+                                    setTreePop({ id, at: Date.now() })
+                                    jumpToMessage(id)
+                                  }}
+                                  onPointerDown={(ev) => {
+                                    ev.stopPropagation()
+                                  }}
+                                >
+                                  {isAi ? (
+                                    <>
+                                      <circle
+                                        cx={w / 2}
+                                        cy={h / 2}
+                                        r={(isSelected ? 10 : 8) + 6}
+                                        fill="transparent"
+                                        pointerEvents="all"
+                                      />
+                                      {isSelected ? (
+                                        <>
+                                          <circle
+                                            cx={w / 2}
+                                            cy={h / 2}
+                                            r={26}
+                                            fill="rgba(34,197,94,.14)"
+                                            style={{ filter: 'drop-shadow(0 0 20px rgba(34,197,94,.85))' }}
+                                          />
+                                          <circle
+                                            cx={w / 2}
+                                            cy={h / 2}
+                                            r={18}
+                                            fill="rgba(34,197,94,.26)"
+                                            style={{ filter: 'drop-shadow(0 0 10px rgba(34,197,94,.75))' }}
+                                          />
+                                        </>
+                                      ) : null}
+                                      <circle
+                                        cx={w / 2}
+                                        cy={h / 2}
+                                        r={isSelected ? 10 : 8}
+                                        fill="#22c55e"
+                                      />
+                                      <title>{text || 'AI'}</title>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <defs>
+                                        <clipPath id={clipId}>
+                                          <rect x={10} y={6} width={Math.max(0, w - 20)} height={Math.max(0, h - 12)} rx={8} />
+                                        </clipPath>
+                                      </defs>
+                                      {isSelected ? (
+                                        <>
+                                          <rect
+                                            x={-10}
+                                            y={-10}
+                                            width={w + 20}
+                                            height={h + 20}
+                                            rx={18}
+                                            fill="rgba(34,197,94,.10)"
+                                            style={{ filter: 'drop-shadow(0 0 22px rgba(34,197,94,.85))' }}
+                                          />
+                                          <rect
+                                            x={-4}
+                                            y={-4}
+                                            width={w + 8}
+                                            height={h + 8}
+                                            rx={14}
+                                            fill="rgba(34,197,94,.20)"
+                                            style={{ filter: 'drop-shadow(0 0 12px rgba(34,197,94,.75))' }}
+                                          />
+                                        </>
+                                      ) : null}
+                                      <rect x={0} y={0} width={w} height={h} rx={12} fill={nodeFill} />
+                                      <text
+                                        x={12}
+                                        y={h / 2}
+                                        fill="rgba(0,0,0,.82)"
+                                        fontSize={12}
+                                        dominantBaseline="middle"
+                                        clipPath={`url(#${clipId})`}
+                                        style={{ pointerEvents: 'none' }}
+                                      >
+                                        {text}
+                                      </text>
+                                    </>
+                                  )}
+                                </g>
+                              </g>
+                            )
+                          })}
+                        </g>
+                      </svg>
+                    ) : (
+                      <Box sx={{ p: 1.5 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          暂无可展示的树（至少需要 1 条消息）。
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                </Box>
+              </Box>
+
+              <Dialog
+                open={treeOpen && effectiveTreeView === 'float'}
+                onClose={() => closeTreeModal(true)}
+                maxWidth={false}
+                disableRestoreFocus
+                PaperProps={{
+                  sx: {
+                    width: 'min(92vw, 980px)',
+                    height: 'min(80vh, 760px)',
+                    borderRadius: 3,
+                    overflow: 'hidden',
+                    bgcolor: transparentChatBg ? `rgba(255,255,255,${Math.max(0.72, bgAlpha)})` : 'background.paper',
+                  },
+                }}
+              >
+                <Box sx={{ position: 'relative', width: '100%', height: '100%' }}>
+                  <Box sx={{ position: 'absolute', top: 10, right: 10, zIndex: 3, display: 'flex', gap: 1 }}>
+                    <Tooltip
+                      title={
+                        treeDir === 'lr'
+                          ? '切换方向（当前：左→右）'
+                          : treeDir === 'rl'
+                            ? '切换方向（当前：右→左）'
+                            : treeDir === 'tb'
+                              ? '切换方向（当前：上→下）'
+                              : '切换方向（当前：下→上）'
+                      }
+                    >
+                      <span>
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            cycleTreeDir()
+                            try {
+                              ;(e.currentTarget as any)?.blur?.()
+                            } catch (_) {}
+                          }}
+                          sx={{
+                            bgcolor: 'rgba(255,255,255,.72)',
+                            border: '1px solid rgba(0,0,0,.12)',
+                            backdropFilter: 'blur(8px)',
+                            WebkitBackdropFilter: 'blur(8px)',
+                            '&:hover': { bgcolor: 'rgba(255,255,255,.82)' },
+                          }}
+                        >
+                          <AutorenewIcon fontSize="inherit" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    <Tooltip title="重置视图">
+                      <span>
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            setTreePan({ x: 18, y: 18 })
+                            setTreeScale(1)
+                            treeViewRef.current = { x: 18, y: 18, scale: 1 }
+                            scheduleTreeViewTransform()
+                          }}
+                          onMouseUp={(e) => {
+                            try {
+                              ;(e.currentTarget as any)?.blur?.()
+                            } catch (_) {}
+                          }}
+                          sx={{
+                            bgcolor: 'rgba(255,255,255,.72)',
+                            border: '1px solid rgba(0,0,0,.12)',
+                            backdropFilter: 'blur(8px)',
+                            WebkitBackdropFilter: 'blur(8px)',
+                            '&:hover': { bgcolor: 'rgba(255,255,255,.82)' },
+                          }}
+                        >
+                          <RestartAltIcon fontSize="inherit" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </Box>
+                  <Box
+                    onPointerDown={onTreePointerDown}
+                    onPointerMove={onTreePointerMove}
+                    onPointerUp={endTreeDrag}
+                    onPointerCancel={endTreeDrag}
+                    onWheel={onTreeWheel}
+                    ref={(el: any) => {
+                      treeHostFloatRef.current = el
+                    }}
+                    sx={{
+                      position: 'absolute',
+                      inset: 0,
+                      bgcolor: 'rgba(0,0,0,.03)',
+                      overflow: 'hidden',
+                      cursor: treeDragging ? 'grabbing' : 'grab',
+                      touchAction: 'none',
+                      userSelect: 'none',
+                      WebkitUserSelect: 'none',
+                      contain: 'strict',
+                    }}
+                  >
+                    {treeRender && Array.isArray((treeRender as any).nodes) && (treeRender as any).nodes.length ? (
+                      <svg width="100%" height="100%" style={{ display: 'block' }}>
+                        <g
+                          ref={(el) => {
+                            treeViewportRef.current = el
+                            if (el) requestAnimationFrame(() => applyTreeViewTransform())
+                          }}
+                          transform="translate(0,0) scale(1)"
+                        >
+                          {Array.isArray((treeRender as any).edges)
+                            ? ((treeRender as any).edges as any[]).map((e: any) => {
+                                const from = String(e?.from || '').trim()
+                                const to = String(e?.to || '').trim()
+                                if (!from || !to) return null
+                                const a = (treeRender as any)?.byId?.get(from) || null
+                                const b = (treeRender as any)?.byId?.get(to) || null
+                                if (!a || !b) return null
+                                const w = Number((treeRender as any).nodeW || 168)
+                                const h = Number((treeRender as any).nodeH || 44)
+                                const ax = Number(a.x || 0)
+                                const ay = Number(a.y || 0)
+                                const bx = Number(b.x || 0)
+                                const by = Number(b.y || 0)
+                                const strokeW = 6
+                                const capR = strokeW / 2
+                                const aiGap = 2
+                                const selectedMid = String(treeSelectedMid || '')
+                                const aIsAi = String(a?.role || '') === 'assistant'
+                                const bIsAi = String(b?.role || '') === 'assistant'
+                                const aDotR = aIsAi && from === selectedMid ? 10 : 8
+                                const bDotR = bIsAi && to === selectedMid ? 10 : 8
+                                const aOff = aIsAi ? aDotR + capR + aiGap : 0
+                                const bOff = bIsAi ? bDotR + capR + aiGap : 0
+
+                                const horizontal = treeDir === 'lr' || treeDir === 'rl'
+                                let sx = 0
+                                let sy = 0
+                                let tx = 0
+                                let ty = 0
+                                let d = ''
+
+                                if (horizontal) {
+                                  const forward = bx >= ax
+                                  const acx = ax + w / 2
+                                  const acy = ay + h / 2
+                                  const bcx = bx + w / 2
+                                  const bcy = by + h / 2
+
+                                  sx = aIsAi ? acx + (forward ? aOff : -aOff) : ax + (forward ? w : 0)
+                                  sy = aIsAi ? acy : ay + h / 2
+                                  tx = bIsAi ? bcx + (forward ? -bOff : bOff) : bx + (forward ? 0 : w)
+                                  ty = bIsAi ? bcy : by + h / 2
+                                  const dd = Math.max(42, Math.abs(tx - sx) * 0.5)
+                                  d = `M ${sx} ${sy} C ${sx + (forward ? dd : -dd)} ${sy} ${tx - (forward ? dd : -dd)} ${ty} ${tx} ${ty}`
+                                } else {
+                                  const forward = by >= ay
+                                  const acx = ax + w / 2
+                                  const acy = ay + h / 2
+                                  const bcx = bx + w / 2
+                                  const bcy = by + h / 2
+
+                                  sx = aIsAi ? acx : ax + w / 2
+                                  sy = aIsAi ? acy + (forward ? aOff : -aOff) : ay + (forward ? h : 0)
+                                  tx = bIsAi ? bcx : bx + w / 2
+                                  ty = bIsAi ? bcy + (forward ? -bOff : bOff) : by + (forward ? 0 : h)
+                                  const dd = Math.max(42, Math.abs(ty - sy) * 0.5)
+                                  d = `M ${sx} ${sy} C ${sx} ${sy + (forward ? dd : -dd)} ${tx} ${ty - (forward ? dd : -dd)} ${tx} ${ty}`
+                                }
+                                const key = `${from}->${to}`
+                                const hi = treeHighlightEdgeKeys.has(key)
+                                return (
+                                  <path
+                                    key={key}
+                                    d={d}
+                                    fill="none"
+                                    stroke={hi ? 'rgba(34,197,94,.85)' : 'rgba(0,0,0,.16)'}
+                                    strokeWidth={strokeW}
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                )
+                              })
+                            : null}
+
+                          {((treeRender as any).nodes as any[]).map((n: any) => {
+                            const id = String(n?.id || '').trim()
+                            if (!id) return null
+                            const x = Number(n?.x || 0)
+                            const y = Number(n?.y || 0)
+                            const w = Number((treeRender as any).nodeW || 168)
+                            const h = Number((treeRender as any).nodeH || 44)
+                            const role = String(n?.role || '')
+                            const text = String(n?.text || '')
+                            const isSelected = id === String(treeSelectedMid || '')
+                            const isAi = role === 'assistant'
+                            const clipId = `fw-tree-clip-${svgSafeId(id)}`
+
+                            return (
+                              <g key={id} transform={`translate(${Math.round(x)},${Math.round(y)})`}>
+                                <g
+                                  className="fw-tree-node"
+                                  data-pop={treePop.id === id ? '1' : undefined}
+                                  style={{ cursor: 'pointer' }}
+                                  data-tree-node="1"
+                                  onClick={(ev) => {
+                                    if (treeSuppressClickRef.current) {
+                                      treeSuppressClickRef.current = false
+                                      ev.preventDefault()
+                                      ev.stopPropagation()
+                                      return
+                                    }
+                                    setTreeSelectedMid(id)
+                                    setTreePop({ id, at: Date.now() })
+                                    jumpToMessage(id)
+                                  }}
+                                  onContextMenu={(ev) => {
+                                    onTreeNodeContextMenu(ev, id, isAi ? 'assistant' : 'user')
+                                  }}
+                                  onContextMenu={(ev) => {
+                                    onTreeNodeContextMenu(ev, id, isAi ? 'assistant' : 'user')
+                                  }}
+                                  onPointerDown={(ev) => {
+                                    ev.stopPropagation()
+                                  }}
+                                >
+                                  {isAi ? (
+                                    <>
+                                      <circle cx={w / 2} cy={h / 2} r={(isSelected ? 10 : 8) + 6} fill="transparent" pointerEvents="all" />
+                                      {isSelected ? (
+                                        <>
+                                          <circle
+                                            cx={w / 2}
+                                            cy={h / 2}
+                                            r={26}
+                                            fill="rgba(34,197,94,.14)"
+                                            style={{ filter: 'drop-shadow(0 0 20px rgba(34,197,94,.85))' }}
+                                          />
+                                          <circle
+                                            cx={w / 2}
+                                            cy={h / 2}
+                                            r={18}
+                                            fill="rgba(34,197,94,.26)"
+                                            style={{ filter: 'drop-shadow(0 0 10px rgba(34,197,94,.75))' }}
+                                          />
+                                        </>
+                                      ) : null}
+                                      <circle cx={w / 2} cy={h / 2} r={isSelected ? 10 : 8} fill="#22c55e" />
+                                      <title>{text || 'AI'}</title>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <defs>
+                                        <clipPath id={clipId}>
+                                          <rect x={10} y={6} width={Math.max(0, w - 20)} height={Math.max(0, h - 12)} rx={8} />
+                                        </clipPath>
+                                      </defs>
+                                      {isSelected ? (
+                                        <>
+                                          <rect
+                                            x={-10}
+                                            y={-10}
+                                            width={w + 20}
+                                            height={h + 20}
+                                            rx={18}
+                                            fill="rgba(34,197,94,.10)"
+                                            style={{ filter: 'drop-shadow(0 0 22px rgba(34,197,94,.85))' }}
+                                          />
+                                          <rect
+                                            x={-4}
+                                            y={-4}
+                                            width={w + 8}
+                                            height={h + 8}
+                                            rx={14}
+                                            fill="rgba(34,197,94,.20)"
+                                            style={{ filter: 'drop-shadow(0 0 12px rgba(34,197,94,.75))' }}
+                                          />
+                                        </>
+                                      ) : null}
+                                      <rect x={0} y={0} width={w} height={h} rx={12} fill="#ffffff" />
+                                      <text
+                                        x={12}
+                                        y={h / 2}
+                                        fill="rgba(0,0,0,.82)"
+                                        fontSize={12}
+                                        dominantBaseline="middle"
+                                        clipPath={`url(#${clipId})`}
+                                        style={{ pointerEvents: 'none' }}
+                                      >
+                                        {text}
+                                      </text>
+                                    </>
+                                  )}
+                                </g>
+                              </g>
+                            )
+                          })}
+                        </g>
+                      </svg>
+                    ) : (
+                      <Box sx={{ p: 1.5 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          暂无可展示的树（至少需要 1 条消息）。
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                </Box>
+              </Dialog>
+
+               <Box
+                 ref={composerRef}
+                 onClick={onClickOpenImageViewer}
+                 sx={{
+                 position: 'absolute',
+                 left: 16,
+                 right: treeOpen && effectiveTreeView === 'right' ? 16 + Math.round(treePanelW) : 16,
+                 bottom: 16,
+                zIndex: 1299,
+                p: 1.5,
+                borderRadius: 18,
+                bgcolor: `rgba(255,255,255,${composerOpacity / 100})`,
+                boxShadow: '0 12px 28px rgba(0,0,0,.18)',
+                backdropFilter: composerBlur > 0 ? `blur(${composerBlur}px)` : 'none',
+                WebkitBackdropFilter: composerBlur > 0 ? `blur(${composerBlur}px)` : 'none',
+              }}
+            >
+              <Stack spacing={1}>
+                {Array.isArray(s.draft?.images) && s.draft.images.length ? (
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                    {s.draft.images.map((img: any) => (
+                      <Box key={String(img?.id || '')} sx={{ position: 'relative' }}>
+                        <Box
+                          component="img"
+                          data-fw-img="1"
+                          src={String(img?.dataUrl || '')}
+                          alt={String(img?.name || '图片')}
+                          sx={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 2, border: '1px solid', borderColor: 'divider', cursor: 'zoom-in' }}
+                        />
+                        <IconButton
+                          size="small"
+                          onClick={() => controller.actions.removeDraftImage(String(img?.id || ''))}
+                          sx={{ position: 'absolute', top: 4, right: 4, bgcolor: 'rgba(255,255,255,.85)', border: '1px solid', borderColor: 'divider' }}
+                        >
+                          <CloseIcon fontSize="inherit" />
+                        </IconButton>
+                      </Box>
+                    ))}
+                  </Stack>
+                ) : null}
+
+                {Array.isArray((s.draft as any)?.files) && (s.draft as any).files.length ? (
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+                    {(s.draft as any).files.map((f: any) => {
+                      const id = String(f?.id || '')
+                      const name = String(f?.name || '文件')
+                      const pending = !!f?.pending
+                      const err = String(f?.error || '').trim()
+                      const pct0 = Math.round(Number(f?.sendPct ?? 100))
+                      const pct = clampNum(pct0, 0, 100)
+                      const rawLen = String(f?.text || '').trim().length
+                      const sendLen = Math.max(0, Math.ceil((rawLen * pct) / 100))
+                      const warn = !pending && !err && rawLen > 0 && sendLen > attachSendLimitChars
+                      const label = pending
+                        ? `${name}（解析中…）`
+                        : err
+                          ? `${name}（失败）`
+                          : warn
+                            ? `${name}（超长提醒）`
+                            : pct < 100
+                              ? `${name}（${pct}%）`
+                              : name
+                      return (
+                        <Chip
+                          key={id || name}
+                          size="small"
+                          label={label}
+                          variant="outlined"
+                          color={err ? 'error' : warn ? 'warning' : 'default'}
+                          onClick={id ? (e) => openFileAdjust(e as any, id) : undefined}
+                          onDelete={id ? () => controller.actions.removeDraftFile?.(id) : undefined}
+                          sx={{ maxWidth: 320 }}
+                        />
+                      )
+                    })}
+                  </Stack>
+                ) : null}
+
+                <Stack direction="row" spacing={1} alignItems="flex-end">
+                  <Tooltip title="图片">
+                    <span>
+                      <IconButton
+                        aria-label="选择图片"
+                        onClick={onPickImages}
+                        disabled={s.loading || !activeRole}
+                        size="small"
+                        sx={{
+                          bgcolor: 'rgba(0,0,0,.05)',
+                          borderRadius: '999px',
+                          width: 36,
+                          height: 36,
+                          '&:hover': { bgcolor: 'rgba(0,0,0,.09)' },
+                        }}
+                      >
+                        <ImageIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+
+                  <Tooltip title="文件（txt/md/pdf/docx/ppt/pptx）">
+                    <span>
+                      <IconButton
+                        aria-label="选择文件"
+                        component="label"
+                        disabled={s.loading || !activeRole}
+                        size="small"
+                        sx={{
+                          bgcolor: 'rgba(0,0,0,.05)',
+                          borderRadius: '999px',
+                          width: 36,
+                          height: 36,
+                          '&:hover': { bgcolor: 'rgba(0,0,0,.09)' },
+                        }}
+                      >
+                        <AttachFileIcon fontSize="small" />
+                        <input
+                          hidden
+                          type="file"
+                          multiple
+                          accept=".txt,.md,.pdf,.docx,.ppt,.pptx,text/plain,text/markdown,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                          onChange={onPickFilesChanged}
+                        />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+
+
+                  <Tooltip title="临时切换模型">
+                    <span>
+                      <IconButton
+                        aria-label="临时切换模型"
+                        onClick={openTempModelPicker}
+                        disabled={s.loading || !activeRole || !providers.length}
+                        size="small"
+                        sx={{
+                          bgcolor: 'rgba(0,0,0,.05)',
+                          borderRadius: '999px',
+                          width: 36,
+                          height: 36,
+                          '&:hover': { bgcolor: 'rgba(0,0,0,.09)' },
+                        }}
+                      >
+                        <StorageIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+
+                  <TextField
+                    fullWidth
+                    multiline
+                    minRows={2}
+                    maxRows={8}
+                    variant="outlined"
+                    placeholder="输入消息…（Enter 发送 / Shift+Enter 换行；支持粘贴图片/选择文件）"
+                    value={String(s.draft?.input || '')}
+                    inputRef={(el) => {
+                      composerInputRef.current = el as any
+                    }}
+                    onChange={(e) => {
+                      controller.actions.setDraft('input', e.target.value)
+                      syncAtPicker(e.target.value, typeof (e.target as any).selectionStart === 'number' ? Number((e.target as any).selectionStart || 0) : e.target.value.length)
+                    }}
+                    onKeyDown={onKeyDown}
+                    onKeyUp={() => syncAtPicker()}
+                    onClick={() => syncAtPicker()}
+                    onPaste={onPaste}
+                    disabled={s.loading || !activeRole}
+                    sx={{
+                      '& .MuiOutlinedInput-notchedOutline': { border: 0 },
+                      '&:hover .MuiOutlinedInput-notchedOutline': { border: 0 },
+                      '& .MuiOutlinedInput-root.Mui-focused .MuiOutlinedInput-notchedOutline': { border: 0 },
+                    }}
+                  />
+
+                  <Popover
+                    open={!!atPicker && !!composerInputRef.current && activeTargetKind === 'group' && !!activeGroup}
+                    anchorEl={(composerInputRef.current as any) || undefined}
+                    onClose={closeAtPicker}
+                    anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+                    transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+                    disableAutoFocus
+                    disableEnforceFocus
+                    PaperProps={{ sx: { width: 280, maxHeight: 320, overflow: 'hidden' } }}
+                  >
+                    <Box sx={{ p: 0.5, maxHeight: 320, overflowY: 'auto' }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ px: 1, display: 'block', pb: 0.5 }}>
+                        点名回答：选择要被 @ 的角色
+                      </Typography>
+                      {atPickerOptions.length ? (
+                        <List dense sx={{ py: 0 }}>
+                          {atPickerOptions.map((r: any) => {
+                            const id = String(r?.id || '')
+                            const name = String(r?.name || '')
+                            const avatar = String(r?.avatar || '🙂')
+                            const avatarImage = String(r?.avatarImage || '')
+                            const providerId = String(r?.modelRef?.providerId || '')
+                            const modelId = String(r?.modelRef?.modelId || '')
+                            return (
+                              <ListItemButton
+                                key={id || name}
+                                onMouseDown={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  applyAtPickRole(r)
+                                }}
+                                sx={{ borderRadius: 1 }}
+                              >
+                                <ListItemAvatar sx={{ minWidth: 40 }}>
+                                  <Avatar src={avatarImage || undefined} sx={{ width: 28, height: 28, fontSize: 16 }}>
+                                    {avatar}
+                                  </Avatar>
+                                </ListItemAvatar>
+                                <ListItemText
+                                  primary={name || '未命名角色'}
+                                  secondary={
+                                    providerId || modelId
+                                      ? `${providerId || '未选供应商'}${modelId ? ` / ${modelId}` : ''}`
+                                      : '未配置模型'
+                                  }
+                                />
+                              </ListItemButton>
+                            )
+                          })}
+                        </List>
+                      ) : (
+                        <Typography variant="body2" sx={{ px: 1, py: 1 }} color="text.secondary">
+                          没找到匹配的角色
+                        </Typography>
+                      )}
+                    </Box>
+                  </Popover>
+
+                  {isReplying ? (
+                    <Button variant="contained" color="error" onClick={onStop} disabled={s.loading || !activeRole} sx={{ borderRadius: 999 }}>
+                      停止
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="contained"
+                      color={draftFilesWarn ? 'warning' : 'primary'}
+                      onClick={onSend}
+                      disabled={
+                        s.loading ||
+                        !activeRole ||
+                        draftFilesPending ||
+                        (!String(s.draft?.input || '').trim() && !(s.draft?.images || []).length && !hasDraftFiles)
+                      }
+                      sx={{ borderRadius: 999 }}
+                    >
+                      发送
+                    </Button>
+                  )}
+                </Stack>
+
+                {hasChatOverride ? (
+                  <Stack direction="row" spacing={1} alignItems="center" sx={{ px: 0.5 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ flex: 1, minWidth: 0 }} noWrap>
+                      {`临时模型：${overrideProviderId}${overrideModelId ? ` / ${overrideModelId}` : ''}`}
+                    </Typography>
+
+                    <Button size="small" variant="text" onClick={() => controller.actions.clearChatModelOverride?.()} disabled={s.loading}>
+                      清除
+                    </Button>
+                  </Stack>
+                ) : null}
+              </Stack>
+            </Box>
+        </Box>
+
+        <Popover
+          open={!!tempModelPickerEl}
+          anchorEl={tempModelPickerEl}
+          onClose={closeTempModelPicker}
+          anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+          transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        >
+          <Box data-area="temp-model" sx={{ width: 420, p: 1.5 }}>
+            <Stack spacing={1.25}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+                  当前会话临时模型
+                </Typography>
+                <Box sx={{ flex: 1 }} />
+                <Button size="small" onClick={closeTempModelPicker}>
+                  关闭
+                </Button>
+              </Stack>
+
+              <Typography variant="caption" color="text.secondary">
+                仅影响当前会话；不修改角色设置。
+              </Typography>
+
+              <FormControl size="small" fullWidth>
+                <InputLabel id="chat-override-provider">供应商</InputLabel>
+                <Select
+                  labelId="chat-override-provider"
+                  label="供应商"
+                  value={String(tempModelProviderId || '')}
+                  onChange={(e) => onTempProviderChanged(String(e.target.value || ''))}
+                  disabled={s.loading || !providers.length}
+                >
+                  {providers.map((pp: any) => (
+                    <MenuItem key={String(pp?.id || '')} value={String(pp?.id || '')}>
+                      {String(pp?.name || '')}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {(() => {
+                const pid = String(tempModelProviderId || '')
+                const p = providers.find((x: any) => String(x?.id || '') === pid) || null
+                const items = Array.isArray(p?.modelsCache?.items) ? (p.modelsCache.items as any[]).map((x) => String(x)) : []
+
+                return (
+                  <Stack spacing={1}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <FormControl size="small" fullWidth>
+                        <InputLabel id="chat-override-model">模型</InputLabel>
+                        <Select
+                          labelId="chat-override-model"
+                          label="模型"
+                          value={String(tempModelPick || '')}
+                          onChange={(e) => setTempModelPick(String(e.target.value || ''))}
+                          disabled={s.loading || !pid}
+                        >
+                          <MenuItem value="">
+                            <em>请选择…</em>
+                          </MenuItem>
+                          {items.map((id: string) => (
+                            <MenuItem key={id} value={id}>
+                              {id}
+                            </MenuItem>
+                          ))}
+                          <MenuItem value="__custom__">自定义模型ID…</MenuItem>
+                        </Select>
+                      </FormControl>
+
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<RefreshIcon />}
+                        onClick={() => controller.actions.refreshModels(pid, true)}
+                        disabled={!pid || modelLoading || s.loading}
+                        sx={{ whiteSpace: 'nowrap' }}
+                      >
+                        {modelLoading ? '刷新中…' : '刷新'}
+                      </Button>
+                    </Stack>
+
+                    {String(tempModelPick || '') === '__custom__' ? (
+                      <TextField
+                        size="small"
+                        label="自定义模型ID"
+                        value={String(tempCustomModelId || '')}
+                        onChange={(e) => setTempCustomModelId(e.target.value)}
+                        placeholder="例如：gpt-4.1-mini / deepseek-chat"
+                        fullWidth
+                      />
+                    ) : null}
+                  </Stack>
+                )
+              })()}
+
+              <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center">
+                <Button variant="text" onClick={clearTempModelOverride} disabled={!hasChatOverride || s.loading}>
+                  清除临时模型（跟随角色）
+                </Button>
+                <Button variant="contained" onClick={saveTempModelOverride} disabled={s.loading || !tempModelProviderId}>
+                  保存
+                </Button>
+              </Stack>
+            </Stack>
+          </Box>
+        </Popover>
+
+        <Popover
+          open={!!fileAdjust.el}
+          anchorEl={fileAdjust.el}
+          onClose={closeFileAdjust}
+          anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+          transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        >
+          <Box data-area="file-adjust" sx={{ width: 420, p: 1.5 }}>
+            <Stack spacing={1.25}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="subtitle2" sx={{ fontWeight: 900 }} noWrap>
+                  附件：{fileAdjustName}
+                </Typography>
+                <Box sx={{ flex: 1 }} />
+                <Button size="small" onClick={closeFileAdjust}>
+                  关闭
+                </Button>
+              </Stack>
+
+              {!fileAdjustItem ? (
+                <Typography variant="body2" color="text.secondary">
+                  未找到该附件。
+                </Typography>
+              ) : fileAdjustPending ? (
+                <Typography variant="body2" color="text.secondary">
+                  解析中…
+                </Typography>
+              ) : fileAdjustError ? (
+                <Typography variant="body2" color="error">
+                  {fileAdjustError}
+                </Typography>
+              ) : (
+                <>
+                  <Typography variant="caption" color="text.secondary">
+                    文件文本长度：{fileAdjustFullLen}；阈值：{attachSendLimitChars}；当前将发送：{fileAdjustSendLen}
+                  </Typography>
+
+                  <Box>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                        发送百分比
+                      </Typography>
+                      <Box sx={{ flex: 1 }} />
+                      <Typography variant="caption" color={fileAdjustTooLong ? 'error' : 'text.secondary'}>
+                        {fileAdjustPct}%
+                      </Typography>
+                    </Stack>
+                    <Slider
+                      size="small"
+                      value={fileAdjustPct}
+                      min={0}
+                      max={100}
+                      step={1}
+                      onChange={(_e, v) => controller.actions.setDraftFileSendPct?.(String(fileAdjust.id || ''), v)}
+                    />
+                    {fileAdjustTooLong ? (
+                      <Typography variant="caption" sx={{ color: 'warning.main' }}>
+                        超过阈值：点击发送时会弹出确认提醒。
+                      </Typography>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        发送时仅取文件开头部分；不会自动截断。超过阈值会在点击发送时提示确认。
+                      </Typography>
+                    )}
+                  </Box>
+
+                  <Paper variant="outlined" sx={{ p: 1, bgcolor: 'grey.50', maxHeight: 200, overflow: 'auto' }}>
+                    <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}>
+                      {(() => {
+                        const sendLen = clampNum(fileAdjustSendLen, 0, fileAdjustFullLen)
+                        const snippet = fileAdjustRaw.slice(0, sendLen)
+                        if (snippet.length <= 4000) return snippet
+                        const head = snippet.slice(0, 1500).trimEnd()
+                        const tail = snippet.slice(Math.max(0, snippet.length - 1500)).trimStart()
+                        return `${head}\n\n…（中间省略 ${Math.max(0, snippet.length - head.length - tail.length)} 字符）…\n\n${tail}`
+                      })()}
+                    </Typography>
+                  </Paper>
+                  <Typography variant="caption" color="text.secondary">
+                    预览显示“将发送内容”的开头与截断点附近片段（超过 4000 字符会省略中间）。
+                  </Typography>
+                </>
+              )}
+            </Stack>
+          </Box>
+        </Popover>
+
+        <Popover
+          open={!!rolePickerEl}
+          anchorEl={rolePickerEl}
+          onClose={closeRolePicker}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+          transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        >
+          <Box sx={{ width: 380, maxHeight: '70vh', overflowY: 'auto' }}>
+            <Box sx={{ px: 1.5, pt: 1.25, pb: 0.5 }}>
+              <Tabs
+                value={rolePickerTab}
+                onChange={(_e, v) => setRolePickerTab(v === 'groups' ? 'groups' : 'roles')}
+                variant="fullWidth"
+              >
+                <Tab value="roles" label="选择角色" />
+                <Tab value="groups" label="群组" />
+              </Tabs>
+            </Box>
+            <Divider />
+            {rolePickerTab === 'roles' ? (
+              <List dense sx={{ py: 0 }}>
+                {roles.map((r: any) => {
+                  const on = String(r?.id || '') === String(s.draft?.activeRoleId || '')
+                  const providerId = String(r?.modelRef?.providerId || '')
+                  const modelId = String(r?.modelRef?.modelId || '')
+                  return (
+                    <ListItemButton
+                      key={String(r?.id || '')}
+                      selected={on && activeTargetKind === 'role'}
+                      onClick={() => {
+                        controller.actions.setActiveRole(String(r?.id || ''))
+                        closeRolePicker()
+                      }}
+                      sx={{ borderBottom: '1px solid', borderColor: 'divider' }}
+                    >
+                      <ListItemAvatar>
+                        <Avatar src={String(r?.avatarImage || '') || undefined} sx={{ width: 28, height: 28, fontSize: 14 }}>
+                          {String(r?.avatar || '🙂')}
+                        </Avatar>
+                      </ListItemAvatar>
+                      <ListItemText
+                        sx={{ minWidth: 0 }}
+                        primary={
+                          <Typography sx={{ fontWeight: 900, fontSize: 13 }} noWrap>
+                            {String(r?.name || '')}
+                          </Typography>
+                        }
+                        secondary={
+                          <Typography variant="caption" color="text.secondary" noWrap>
+                            {providerId}
+                            {modelId ? ` / ${modelId}` : ''}
+                          </Typography>
+                        }
+                      />
+                      <Tooltip title="设置">
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            closeRolePicker()
+                            controller.actions.openRoleEditor(String(r?.id || ''))
+                          }}
+                        >
+                          <SettingsIcon fontSize="inherit" />
+                        </IconButton>
+                      </Tooltip>
+                    </ListItemButton>
+                  )
+                })}
+              </List>
+            ) : groups.length ? (
+              <List dense sx={{ py: 0 }}>
+                {groups.map((g: any) => {
+                  const on = String(g?.id || '') === String(activeGroupId || '')
+                  return (
+                    <ListItemButton
+                      key={String(g?.id || '')}
+                      selected={on && activeTargetKind === 'group'}
+                      onClick={() => {
+                        controller.actions.setActiveGroup?.(String(g?.id || ''))
+                        closeRolePicker()
+                      }}
+                      sx={{ borderBottom: '1px solid', borderColor: 'divider' }}
+                    >
+                      <ListItemAvatar>
+                        <Avatar src={String(g?.avatarImage || '') || undefined} sx={{ width: 28, height: 28, fontSize: 14 }}>
+                          {String(g?.avatar || '👥')}
+                        </Avatar>
+                      </ListItemAvatar>
+                      <ListItemText
+                        sx={{ minWidth: 0 }}
+                        primary={
+                          <Typography sx={{ fontWeight: 900, fontSize: 13 }} noWrap>
+                            {String(g?.name || '')}
+                          </Typography>
+                        }
+                        secondary={
+                          <Typography variant="caption" color="text.secondary" noWrap>
+                            {Array.isArray(g?.memberRoleIds) ? `${g.memberRoleIds.length} 个成员` : '群聊'}
+                          </Typography>
+                        }
+                      />
+                      <Tooltip title="设置">
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            closeRolePicker()
+                            controller.actions.openGroupEditor?.(String(g?.id || ''))
+                          }}
+                        >
+                          <SettingsIcon fontSize="inherit" />
+                        </IconButton>
+                      </Tooltip>
+                    </ListItemButton>
+                  )
+                })}
+              </List>
+            ) : (
+              <Box sx={{ p: 2 }}>
+                <Typography variant="body2" color="text.secondary">
+                  还没有群组。
+                </Typography>
+                <Button
+                  size="small"
+                  variant="contained"
+                  sx={{ mt: 1 }}
+                  onClick={() => {
+                    closeRolePicker()
+                    openPluginSettings('groups')
+                  }}
+                >
+                  去创建群组
+                </Button>
+              </Box>
+            )}
+          </Box>
+        </Popover>
+
+        <Popover
+          open={!!chatPickerEl}
+          anchorEl={chatPickerEl}
+          onClose={closeChatPicker}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+          transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        >
+          <Box sx={{ width: 420, maxHeight: '70vh', overflow: 'hidden' }}>
+            <Box
+              sx={{
+                width: 840,
+                display: 'flex',
+                transform: chatPickerView === 'favorites' ? 'translateX(-420px)' : 'translateX(0)',
+                transition: 'transform 220ms ease',
+              }}
+            >
+              <Box sx={{ width: 420, maxHeight: '70vh', overflowY: 'auto', flex: '0 0 420px' }}>
+                <Box sx={{ p: 1.5, pb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Tooltip title={chatPickerSearchOpen ? '关闭搜索' : '搜索'}>
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        setChatPickerSearchOpen((p) => !p)
+                        if (chatPickerSearchOpen) setChatPickerSearchText('')
+                      }}
+                    >
+                      {chatPickerSearchOpen ? <CloseIcon fontSize="inherit" /> : <SearchIcon fontSize="inherit" />}
+                    </IconButton>
+                  </Tooltip>
+                  <Box sx={{ flex: 1 }} />
+                  <Tooltip title="收藏夹">
+                    <IconButton size="small" onClick={() => setChatPickerView('favorites')}>
+                      <StarBorderRoundedIcon fontSize="inherit" />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+                <Collapse in={chatPickerSearchOpen}>
+                  <Box sx={{ px: 1.5, pb: 1 }}>
+                    <TextField
+                      inputRef={chatPickerSearchInputRef}
+                      fullWidth
+                      size="small"
+                      placeholder="搜索会话…"
+                      value={String(chatPickerSearchText || '')}
+                      onChange={(e) => setChatPickerSearchText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          e.preventDefault()
+                          setChatPickerSearchOpen(false)
+                          setChatPickerSearchText('')
+                        }
+                      }}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <SearchIcon fontSize="small" />
+                          </InputAdornment>
+                        ),
+                      }}
+                    />
+                  </Box>
+                </Collapse>
+                <Divider />
+                {(() => {
+                  const q = String(chatPickerSearchText || '').trim().toLowerCase()
+                  const match = (chat: any, fallbackTitle: string) => {
+                    if (!q) return true
+                    if (!chat) return false
+                    const title = String(chat?.title || fallbackTitle || '')
+                    const msgs = Array.isArray(chat?.messages) ? chat.messages : []
+                    const last = msgs.length ? msgs[msgs.length - 1] : null
+                    const raw = String(last?.content || '')
+                      .replace(/\s+/g, ' ')
+                      .trim()
+                    return (title + '\n' + raw).toLowerCase().includes(q)
+                  }
+                  if (activeTargetKind === 'group') {
+                    if (!activeGroup) {
+                      return (
+                        <Box sx={{ p: 2 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            先选择群组
+                          </Typography>
+                        </Box>
+                      )
+                    }
+                    const box = (data as any)?.chatsByGroup?.[String((activeGroup as any).id || '')]
+                    const chats = Array.isArray(box?.chats) ? box.chats.slice() : []
+                    const activeChatId = String(box?.activeChatId || '')
+                    const pendingChat =
+                      (s as any)?.pendingGroupChat && String((s as any).pendingGroupChat?.groupId || '') === String((activeGroup as any)?.id || '')
+                        ? (s as any).pendingGroupChat.chat
+                        : null
+                    const hasPending = !!pendingChat
+                    chats.sort((a: any, b: any) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0))
+                    const showPending = hasPending && match(pendingChat, '群聊')
+                    const shownChats = chats.filter((c: any) => match(c, '群聊'))
+                    if (!showPending && !shownChats.length) {
+                      return (
+                        <Box sx={{ p: 2 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            没有匹配的会话
+                          </Typography>
+                        </Box>
+                      )
+                    }
+                    return (
+                      <List dense sx={{ py: 0 }}>
+                        {showPending ? (
+                          <ListItemButton selected sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}>
+                            <ListItemText
+                              sx={{ minWidth: 0 }}
+                              primary={
+                                <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+                                  <Typography sx={{ fontWeight: 900, fontSize: 13, flex: 1, minWidth: 0 }} noWrap>
+                                    {String(pendingChat?.title || '群聊')}（未发送）
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {controller.fmtTime(Number(pendingChat?.updatedAt || pendingChat?.createdAt || 0))}
+                                  </Typography>
+                                </Stack>
+                              }
+                              secondary={
+                                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', minWidth: 0 }}>
+                                  （草稿）
+                                </Typography>
+                              }
+                            />
+                          </ListItemButton>
+                        ) : null}
+                        {shownChats.map((c: any) => {
+                          const on = !showPending && String(c?.id || '') === activeChatId
+                          const msgs = Array.isArray(c?.messages) ? c.messages : []
+                          const last = msgs.length ? msgs[msgs.length - 1] : null
+                          const raw = String(last?.content || '').replace(/\s+/g, ' ').trim()
+                          const snippet = raw.length > 40 ? raw.slice(0, 40) + '…' : raw
+                          const time = controller.fmtTime(Number(c?.updatedAt || c?.createdAt || 0))
+                          return (
+                            <ListItemButton
+                              key={String(c?.id || '')}
+                              selected={on}
+                              onClick={() => {
+                                controller.actions.setActiveChat(String(c?.id || ''))
+                                closeChatPicker()
+                              }}
+                              onContextMenu={(e) =>
+                                onChatContextMenu(e, 'group', String((activeGroup as any)?.id || ''), String(c?.id || ''), String(c?.title || '群聊'))
+                              }
+                              sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}
+                            >
+                              <ListItemText
+                                sx={{ minWidth: 0 }}
+                                primary={
+                                  <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+                                    <Typography sx={{ fontWeight: 900, fontSize: 13, flex: 1, minWidth: 0 }} noWrap>
+                                      {String(c?.title || '群聊')}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {time}
+                                    </Typography>
+                                  </Stack>
+                                }
+                                secondary={
+                                  <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', minWidth: 0 }}>
+                                    {snippet || '（空）'}
+                                  </Typography>
+                                }
+                              />
+                            </ListItemButton>
+                          )
+                        })}
+                      </List>
+                    )
+                  }
+
+                  const role = activeRole
+                  if (!role) {
+                    return (
+                      <Box sx={{ p: 2 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          先选择角色
+                        </Typography>
+                      </Box>
+                    )
+                  }
+                  const box = data?.chatsByRole?.[String(role.id)]
+                  const chats = Array.isArray(box?.chats) ? box.chats.slice() : []
+                  const activeChatId = String(box?.activeChatId || '')
+                  const pendingChat = s?.pendingChat && String(s.pendingChat?.roleId || '') === String(role.id) ? s.pendingChat.chat : null
+                  const hasPending = !!pendingChat
+                  chats.sort((a: any, b: any) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0))
+                  const showPending = hasPending && match(pendingChat, '新聊天')
+                  const shownChats = chats.filter((c: any) => match(c, '新聊天'))
+                  if (!showPending && !shownChats.length) {
+                    return (
+                      <Box sx={{ p: 2 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          没有匹配的会话
+                        </Typography>
+                      </Box>
+                    )
+                  }
+                  return (
+                    <List dense sx={{ py: 0 }}>
+                      {showPending ? (
+                        <ListItemButton selected sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}>
+                          <ListItemText
+                            sx={{ minWidth: 0 }}
+                            primary={
+                              <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+                                <Typography sx={{ fontWeight: 900, fontSize: 13, flex: 1, minWidth: 0 }} noWrap>
+                                  {String(pendingChat?.title || '新聊天')}（未发送）
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {controller.fmtTime(Number(pendingChat?.updatedAt || pendingChat?.createdAt || 0))}
+                                </Typography>
+                              </Stack>
+                            }
+                            secondary={
+                              <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', minWidth: 0 }}>
+                                （草稿）
+                              </Typography>
+                            }
+                          />
+                        </ListItemButton>
+                      ) : null}
+                      {shownChats.map((c: any) => {
+                        const on = !showPending && String(c?.id || '') === activeChatId
+                        const msgs = Array.isArray(c?.messages) ? c.messages : []
+                        const last = msgs.length ? msgs[msgs.length - 1] : null
+                        const raw = String(last?.content || '').replace(/\s+/g, ' ').trim()
+                        const snippet = raw.length > 40 ? raw.slice(0, 40) + '…' : raw
+                        const time = controller.fmtTime(Number(c?.updatedAt || c?.createdAt || 0))
+                        return (
+                          <ListItemButton
+                            key={String(c?.id || '')}
+                            selected={on}
+                            onClick={() => {
+                              controller.actions.setActiveChat(String(c?.id || ''))
+                              closeChatPicker()
+                            }}
+                            onContextMenu={(e) =>
+                              onChatContextMenu(e, 'role', String(role?.id || ''), String(c?.id || ''), String(c?.title || '新聊天'))
+                            }
+                            sx={{ borderBottom: '1px solid', borderColor: 'divider', alignItems: 'flex-start' }}
+                          >
+                            <ListItemText
+                              sx={{ minWidth: 0 }}
+                              primary={
+                                <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+                                  <Typography sx={{ fontWeight: 900, fontSize: 13, flex: 1, minWidth: 0 }} noWrap>
+                                    {String(c?.title || '新聊天')}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {time}
+                                  </Typography>
+                                </Stack>
+                              }
+                              secondary={
+                                <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', minWidth: 0 }}>
+                                  {snippet || '（空）'}
+                                </Typography>
+                              }
+                            />
+                          </ListItemButton>
+                        )
+                      })}
+                    </List>
+                  )
+                })()}
+              </Box>
+
+              <Box sx={{ width: 420, maxHeight: '70vh', overflowY: 'auto', flex: '0 0 420px' }}>
+                <Box sx={{ p: 1.5, pb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Tooltip title="返回历史记录">
+                    <IconButton size="small" onClick={() => setChatPickerView('history')}>
+                      <ArrowBackRoundedIcon fontSize="inherit" />
+                    </IconButton>
+                  </Tooltip>
+                  <Typography sx={{ fontWeight: 800, flex: 1 }}>收藏夹</Typography>
+                  <Tooltip title={favoriteSearchOpen ? '关闭搜索' : '搜索'}>
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        setFavoriteSearchOpen((p) => !p)
+                        if (favoriteSearchOpen) setFavoriteSearchText('')
+                      }}
+                    >
+                      {favoriteSearchOpen ? <CloseIcon fontSize="inherit" /> : <SearchIcon fontSize="inherit" />}
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="折叠全部">
+                    <span>
+                      <IconButton size="small" onClick={collapseAllFavoriteFolders} disabled={!favoriteFolders.length}>
+                        <UnfoldLessIcon fontSize="inherit" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title="新建文件夹">
+                    <IconButton size="small" onClick={() => openCreateFavoriteFolder('')}>
+                      <AddIcon fontSize="inherit" />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+                <Collapse in={favoriteSearchOpen}>
+                  <Box sx={{ px: 1.5, pb: 1 }}>
+                    <TextField
+                      inputRef={favoriteSearchInputRef}
+                      fullWidth
+                      size="small"
+                      placeholder="搜索收藏夹…"
+                      value={String(favoriteSearchText || '')}
+                      onChange={(e) => setFavoriteSearchText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          e.preventDefault()
+                          setFavoriteSearchOpen(false)
+                          setFavoriteSearchText('')
+                        }
+                      }}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <SearchIcon fontSize="small" />
+                          </InputAdornment>
+                        ),
+                      }}
+                    />
+                  </Box>
+                </Collapse>
+                <Divider />
+                {!favoriteFolders.length ? (
+                  <Box sx={{ p: 2.5 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      还没有收藏夹，点击右上角加号新建。
+                    </Typography>
+                  </Box>
+                ) : (
+                  <List dense sx={{ py: 0 }}>{renderFavoriteFolderTree('', 0)}</List>
+                )}
+              </Box>
+            </Box>
+          </Box>
+        </Popover>
+
+        <Popover
+          open={!!favoriteFolderMenu.folderId}
+          onClose={closeFavoriteFolderMenu}
+          anchorReference="anchorPosition"
+          anchorPosition={favoriteFolderMenu.folderId ? { top: favoriteFolderMenu.y, left: favoriteFolderMenu.x } : undefined}
+          transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        >
+          <Box sx={{ minWidth: 220, p: 0.5 }}>
+            <MenuItem
+              onClick={() => {
+                const fid = String(favoriteFolderMenu.folderId || '')
+                if (!fid) return
+                openCreateFavoriteFolder(fid)
+                closeFavoriteFolderMenu()
+              }}
+              sx={{ gap: 1 }}
+            >
+              <AddIcon fontSize="small" />
+              新建子文件夹
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                openCreateFavoriteFolder(String(favoriteFolderMenu.parentId || ''))
+                closeFavoriteFolderMenu()
+              }}
+              sx={{ gap: 1 }}
+            >
+              <AddIcon fontSize="small" />
+              新建同级文件夹
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                const fid = String(favoriteFolderMenu.folderId || '')
+                if (!fid) return
+                closeFavoriteFolderMenu()
+                setMoveFavoriteFolderDialog({ open: true, folderId: fid, parentId: String(favoriteFolderMenu.parentId || '') })
+              }}
+              sx={{ gap: 1 }}
+            >
+              <DriveFileMoveOutlinedIcon fontSize="small" />
+              移动到...
+            </MenuItem>
+            <MenuItem onClick={() => openRenameFavoriteFolder(favoriteFolderMenu.folderId)} sx={{ gap: 1 }}>
+              <EditOutlinedIcon fontSize="small" />
+              重命名
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                closeFavoriteFolderMenu()
+                setConfirmClearFavoriteFolder({ open: true, folderId: String(favoriteFolderMenu.folderId || '') })
+              }}
+              sx={{ gap: 1 }}
+            >
+              <DeleteOutlineIcon fontSize="small" />
+              清空当前文件夹收藏
+            </MenuItem>
+            <MenuItem onClick={() => openDeleteFavoriteFolderConfirm(favoriteFolderMenu.folderId, 'keep')} sx={{ gap: 1 }}>
+              <DeleteOutlineIcon fontSize="small" />
+              删除文件夹（内容保留）
+            </MenuItem>
+            <MenuItem onClick={() => openDeleteFavoriteFolderConfirm(favoriteFolderMenu.folderId, 'tree')} sx={{ gap: 1 }}>
+              <DeleteOutlineIcon fontSize="small" />
+              删除文件夹及其子内容
+            </MenuItem>
+          </Box>
+        </Popover>
+
+        <Popover
+          open={!!favoriteChatMenu.chatId}
+          onClose={closeFavoriteChatMenu}
+          anchorReference="anchorPosition"
+          anchorPosition={favoriteChatMenu.chatId ? { top: favoriteChatMenu.y, left: favoriteChatMenu.x } : undefined}
+          transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        >
+          <Box sx={{ minWidth: 200, p: 0.5 }}>
+            <MenuItem
+              disabled={!favoriteChatMenu.chatId || !favoriteChatMenu.targetId || s.loading}
+              onClick={() => {
+                const { targetKind, targetId, chatId, title } = favoriteChatMenu
+                closeFavoriteChatMenu()
+                openFavoriteDialog(targetKind, targetId, chatId, title)
+              }}
+              sx={{ gap: 1 }}
+            >
+              <StarBorderRoundedIcon fontSize="small" />
+              收藏到...
+            </MenuItem>
+            <MenuItem
+              disabled={!favoriteChatMenu.chatId || !favoriteChatMenu.targetId || !favoriteChatMenu.folderId || s.loading}
+              onClick={() => {
+                const { folderId, targetKind, targetId, chatId } = favoriteChatMenu
+                const currentIds = Array.isArray(controller.actions.getChatFavoriteFolderIds?.(targetKind, targetId, chatId))
+                  ? controller.actions.getChatFavoriteFolderIds(targetKind, targetId, chatId)
+                  : []
+                closeFavoriteChatMenu()
+                controller.actions.setChatFavoriteFolders?.(
+                  targetKind,
+                  targetId,
+                  chatId,
+                  currentIds.filter((id: any) => String(id || '') !== String(folderId || '')),
+                )
+              }}
+              sx={{ gap: 1 }}
+            >
+              <DeleteOutlineIcon fontSize="small" />
+              从当前文件夹移除
+            </MenuItem>
+            <MenuItem
+              disabled={!favoriteChatMenu.chatId || !favoriteChatMenu.targetId || s.loading}
+              onClick={() => {
+                const { targetKind, targetId, chatId, title } = favoriteChatMenu
+                closeFavoriteChatMenu()
+                setEditingChatTitle({ targetKind, targetId, chatId, text: String(title ?? '') })
+              }}
+              sx={{ gap: 1 }}
+            >
+              <EditOutlinedIcon fontSize="small" />
+              编辑标题
+            </MenuItem>
+            <MenuItem
+              disabled={
+                !favoriteChatMenu.chatId ||
+                !favoriteChatMenu.targetId ||
+                s.loading ||
+                isSendingThisChat(favoriteChatMenu.targetKind, favoriteChatMenu.targetId, favoriteChatMenu.chatId)
+              }
+              onClick={() => {
+                const { targetKind, targetId, chatId } = favoriteChatMenu
+                closeFavoriteChatMenu()
+                Promise.resolve()
+                  .then(() => {
+                    if (targetKind === 'group') return controller.actions.aiGenerateGroupChatTitle?.(targetId, chatId)
+                    return controller.actions.aiGenerateChatTitle?.(targetId, chatId)
+                  })
+                  .catch(() => {})
+              }}
+              sx={{ gap: 1 }}
+            >
+              <AutorenewIcon fontSize="small" />
+              AI 生成标题
+            </MenuItem>
+          </Box>
+        </Popover>
+
+        <Popover
+          open={!!chatMenu.chatId}
+          onClose={closeChatMenu}
+          anchorReference="anchorPosition"
+          anchorPosition={chatMenu.chatId ? { top: chatMenu.y, left: chatMenu.x } : undefined}
+          transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        >
+          <Box sx={{ minWidth: 180, p: 0.5 }}>
+            <MenuItem
+              disabled={!chatMenu.chatId || !chatMenu.targetId || s.loading}
+              onClick={() => {
+                const { targetKind, targetId, chatId, title } = chatMenu
+                closeChatMenu()
+                setEditingChatTitle({ targetKind, targetId, chatId, text: String(title ?? '') })
+              }}
+              sx={{ gap: 1 }}
+            >
+              <EditOutlinedIcon fontSize="small" />
+              编辑标题
+            </MenuItem>
+            <MenuItem
+              disabled={!chatMenu.chatId || !chatMenu.targetId || s.loading || isSendingThisChat(chatMenu.targetKind, chatMenu.targetId, chatMenu.chatId)}
+              onClick={() => {
+                const { targetKind, targetId, chatId } = chatMenu
+                closeChatMenu()
+                Promise.resolve()
+                  .then(() => {
+                    if (targetKind === 'group') return controller.actions.aiGenerateGroupChatTitle?.(targetId, chatId)
+                    return controller.actions.aiGenerateChatTitle?.(targetId, chatId)
+                  })
+                  .catch(() => {})
+              }}
+              sx={{ gap: 1 }}
+            >
+              <AutorenewIcon fontSize="small" />
+              AI 生成标题
+            </MenuItem>
+            <MenuItem
+              disabled={!chatMenu.chatId || !chatMenu.targetId || s.loading}
+              onClick={() => {
+                const { targetKind, targetId, chatId, title } = chatMenu
+                closeChatMenu()
+                openFavoriteDialog(targetKind, targetId, chatId, title)
+              }}
+              sx={{ gap: 1 }}
+            >
+              <StarBorderRoundedIcon fontSize="small" />
+              收藏到...
+            </MenuItem>
+            <MenuItem
+              disabled={!chatMenu.chatId || !chatMenu.targetId || s.loading || isSendingThisChat(chatMenu.targetKind, chatMenu.targetId, chatMenu.chatId)}
+              onClick={() => {
+                const { targetKind, targetId, chatId } = chatMenu
+                closeChatMenu()
+                setConfirmDelChat({ targetKind, targetId, chatId })
+              }}
+              sx={{ gap: 1 }}
+            >
+              <DeleteOutlineIcon fontSize="small" />
+              删除
+            </MenuItem>
+          </Box>
+        </Popover>
+
+        <Dialog open={createFavoriteFolder.open} onClose={closeCreateFavoriteFolder} maxWidth="xs" fullWidth>
+          <DialogTitle>{createFavoriteFolder.parentId ? '新建子文件夹' : '新建文件夹'}</DialogTitle>
+          <DialogContent>
+            <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+              <TextField
+                autoFocus
+                size="small"
+                label="文件夹名"
+                value={createFavoriteFolder.name}
+                onChange={(e) => setCreateFavoriteFolder((p) => ({ ...p, name: e.target.value }))}
+                placeholder="例如：工作 / 灵感 / 需求"
+                fullWidth
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    submitCreateFavoriteFolder()
+                  }
+                }}
+              />
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeCreateFavoriteFolder}>取消</Button>
+            <Button variant="contained" onClick={submitCreateFavoriteFolder} disabled={!String(createFavoriteFolder.name || '').trim() || s.loading}>
+              创建
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog open={renameFavoriteFolder.open} onClose={closeRenameFavoriteFolder} maxWidth="xs" fullWidth>
+          <DialogTitle>重命名文件夹</DialogTitle>
+          <DialogContent>
+            <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+              <TextField
+                autoFocus
+                size="small"
+                label="文件夹名"
+                value={renameFavoriteFolder.name}
+                onChange={(e) => setRenameFavoriteFolder((p) => ({ ...p, name: e.target.value }))}
+                fullWidth
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    submitRenameFavoriteFolder()
+                  }
+                }}
+              />
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeRenameFavoriteFolder}>取消</Button>
+            <Button variant="contained" onClick={submitRenameFavoriteFolder} disabled={!String(renameFavoriteFolder.name || '').trim() || s.loading}>
+              保存
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog open={confirmDeleteFavoriteFolder.open} onClose={closeDeleteFavoriteFolderConfirm} maxWidth="xs" fullWidth>
+          <DialogTitle>{confirmDeleteFavoriteFolder.mode === 'tree' ? '删除文件夹及其子内容？' : '删除文件夹（内容保留）？'}</DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" color="text.secondary">
+              {confirmDeleteFavoriteFolder.mode === 'tree'
+                ? '这会删除当前文件夹、它的子文件夹，以及这一整棵树里的收藏关系。'
+                : '这会删除当前文件夹，并尽量保留内容：子文件夹会上移到上一层；当前文件夹里的收藏会移动到父文件夹。若它是带收藏的顶层文件夹，下一步会让你选择迁移目标。'}
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeDeleteFavoriteFolderConfirm}>取消</Button>
+            <Button variant="contained" color="error" onClick={submitDeleteFavoriteFolder} disabled={!confirmDeleteFavoriteFolder.folderId || s.loading}>
+              删除
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog open={moveFavoriteFolderContents.open} onClose={closeMoveFavoriteFolderContents} maxWidth="xs" fullWidth>
+          <DialogTitle>选择内容迁移目标</DialogTitle>
+          <DialogContent>
+            <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+              <Typography variant="body2" color="text.secondary">
+                这个顶层文件夹里有收藏内容。删除前，请先选择一个文件夹来承接这些内容和子文件夹。
+              </Typography>
+              {!favoriteFolders.filter((f: any) => String(f?.id || '') !== String(moveFavoriteFolderContents.folderId || '')).length ? (
+                <Box sx={{ py: 1 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    当前没有可承接内容的其他文件夹。
+                  </Typography>
+                </Box>
+              ) : (
+                <List dense sx={{ py: 0 }}>
+                  {renderFavoriteFolderSinglePicker(
+                    String(moveFavoriteFolderContents.targetFolderId || ''),
+                    (folderId) => setMoveFavoriteFolderContents((p) => ({ ...p, targetFolderId: folderId })),
+                    { filter: (folder: any) => String(folder?.id || '') !== String(moveFavoriteFolderContents.folderId || '') },
+                  )}
+                </List>
+              )}
+              <Button variant="outlined" startIcon={<AddIcon />} onClick={() => openCreateFavoriteFolder('')} sx={{ alignSelf: 'flex-start' }}>
+                新建文件夹
+              </Button>
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeMoveFavoriteFolderContents}>取消</Button>
+            <Button
+              variant="contained"
+              onClick={submitMoveFavoriteFolderContents}
+              disabled={!String(moveFavoriteFolderContents.targetFolderId || '').trim() || s.loading}
+            >
+              确认迁移并删除
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog open={confirmClearFavoriteFolder.open} onClose={closeConfirmClearFavoriteFolder} maxWidth="xs" fullWidth>
+          <DialogTitle>清空当前文件夹收藏？</DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" color="text.secondary">
+              只会清空这个文件夹里直接挂着的聊天收藏，不会删除文件夹本身，也不会影响子文件夹。
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeConfirmClearFavoriteFolder}>取消</Button>
+            <Button variant="contained" color="error" onClick={submitClearFavoriteFolder} disabled={!confirmClearFavoriteFolder.folderId || s.loading}>
+              清空
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog open={moveFavoriteFolderDialog.open} onClose={closeMoveFavoriteFolderDialog} maxWidth="xs" fullWidth>
+          <DialogTitle>移动到...</DialogTitle>
+          <DialogContent>
+            <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+              <Typography variant="body2" color="text.secondary">
+                选择这个文件夹的新父文件夹。点“顶层”就是把它移动回最外层。
+              </Typography>
+              <List dense sx={{ py: 0 }}>
+                {renderFavoriteFolderSinglePicker(
+                  String(moveFavoriteFolderDialog.parentId || ''),
+                  (folderId) => setMoveFavoriteFolderDialog((p) => ({ ...p, parentId: folderId })),
+                  {
+                    includeRoot: true,
+                    filter: (folder: any) => {
+                      const fid = String(folder?.id || '')
+                      if (!fid || fid === String(moveFavoriteFolderDialog.folderId || '')) return false
+                      return !collectFavoriteFolderSubtreeIds(String(moveFavoriteFolderDialog.folderId || '')).includes(fid)
+                    },
+                  },
+                )}
+              </List>
+              <Button variant="outlined" startIcon={<AddIcon />} onClick={() => openCreateFavoriteFolder('')} sx={{ alignSelf: 'flex-start' }}>
+                新建文件夹
+              </Button>
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeMoveFavoriteFolderDialog}>取消</Button>
+            <Button variant="contained" onClick={submitMoveFavoriteFolder} disabled={!moveFavoriteFolderDialog.folderId || s.loading}>
+              确认移动
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog open={favoriteDialog.open} onClose={closeFavoriteDialog} maxWidth="xs" fullWidth>
+          <DialogTitle>收藏到文件夹</DialogTitle>
+          <DialogContent>
+            <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+              <Typography variant="body2" color="text.secondary">
+                {String(favoriteDialog.title || '未命名会话')}
+              </Typography>
+              {!favoriteFolders.length ? (
+                <Box sx={{ py: 1 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    还没有收藏夹，请先新建文件夹。
+                  </Typography>
+                </Box>
+              ) : (
+                <List dense sx={{ py: 0 }}>{renderFavoriteFolderPicker('', 0)}</List>
+              )}
+              <Button variant="outlined" startIcon={<AddIcon />} onClick={() => openCreateFavoriteFolder('')} sx={{ alignSelf: 'flex-start' }}>
+                新建文件夹
+              </Button>
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeFavoriteDialog}>取消</Button>
+            <Button variant="contained" onClick={saveFavoriteDialog} disabled={!favoriteDialog.targetId || !favoriteDialog.chatId || s.loading}>
+              保存
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog
+          open={!!editingChatTitle.chatId}
+          onClose={() => setEditingChatTitle({ targetKind: 'role', targetId: '', chatId: '', text: '' })}
+          maxWidth="xs"
+          fullWidth
+        >
+          <DialogTitle>编辑会话标题</DialogTitle>
+          <DialogContent>
+            <TextField
+              autoFocus
+              fullWidth
+              size="small"
+              label="标题"
+              placeholder="例如：需求讨论 / bug 复盘 / …"
+              value={String(editingChatTitle.text ?? '')}
+              onChange={(e) => setEditingChatTitle((p) => ({ ...p, text: e.target.value }))}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setEditingChatTitle({ targetKind: 'role', targetId: '', chatId: '', text: '' })
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  const { targetKind, targetId, chatId, text } = editingChatTitle
+                  if (!targetId || !chatId || s.loading) return
+                  setEditingChatTitle({ targetKind: 'role', targetId: '', chatId: '', text: '' })
+                  if (targetKind === 'group') controller.actions.renameGroupChat?.(targetId, chatId, String(text ?? ''))
+                  else controller.actions.renameChat?.(targetId, chatId, String(text ?? ''))
+                }
+              }}
+              sx={{ mt: 1 }}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setEditingChatTitle({ targetKind: 'role', targetId: '', chatId: '', text: '' })}>取消</Button>
+            <Button
+              variant="contained"
+              onClick={() => {
+                const { targetKind, targetId, chatId, text } = editingChatTitle
+                if (!targetId || !chatId || s.loading) return
+                setEditingChatTitle({ targetKind: 'role', targetId: '', chatId: '', text: '' })
+                if (targetKind === 'group') controller.actions.renameGroupChat?.(targetId, chatId, String(text ?? ''))
+                else controller.actions.renameChat?.(targetId, chatId, String(text ?? ''))
+              }}
+              disabled={!editingChatTitle.targetId || !editingChatTitle.chatId || s.loading}
+            >
+              保存
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <Dialog
+          open={!!confirmDelChat.chatId}
+          onClose={() => setConfirmDelChat({ targetKind: 'role', targetId: '', chatId: '' })}
+          maxWidth="xs"
+          fullWidth
+        >
+          <DialogTitle>确认删除这个会话？</DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" color="text.secondary">
+              这会删除该会话下的全部消息记录，且不可恢复；同时会尝试删除该会话引用的本地图片文件（若其它会话仍引用则会保留）。
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setConfirmDelChat({ targetKind: 'role', targetId: '', chatId: '' })}>取消</Button>
+            <Button
+              variant="contained"
+              color="error"
+              onClick={() => {
+                const { targetKind, targetId, chatId } = confirmDelChat
+                setConfirmDelChat({ targetKind: 'role', targetId: '', chatId: '' })
+                if (!targetId || !chatId) return
+                if (targetKind === 'group') controller.actions.deleteGroupChat?.(targetId, chatId)
+                else controller.actions.deleteChat?.(targetId, chatId)
+              }}
+              disabled={
+                !confirmDelChat.targetId ||
+                !confirmDelChat.chatId ||
+                s.loading ||
+                isSendingThisChat(confirmDelChat.targetKind, confirmDelChat.targetId, confirmDelChat.chatId)
+              }
+            >
+              删除
+            </Button>
+          </DialogActions>
+        </Dialog>
+          </>
+        ) : (
+          <PluginSettingsPage
+            controller={controller}
+            loading={!!s.loading}
+            data={data}
+            roles={roles}
+            groups={groups}
+            providers={providers}
+            models={s.models}
+            draft={s.draft}
+            activeRoleId={String(s.draft?.activeRoleId || '')}
+            tab={settingsTab}
+          />
+        )}
+        </Box>
+
+        <ProvidersDialog open={s.modal === 'providers'} controller={controller} providers={providers} draft={s.draft} />
+        <RoleDialog open={s.modal === 'role'} controller={controller} providers={providers} draft={s.draft} models={s.models} />
+        <GroupDialog open={s.modal === 'group'} controller={controller} roles={roles} draft={s.draft} />
+        <ConfirmDialog open={s.modal === 'confirm'} controller={controller} draft={s.draft} roles={roles} groups={groups} providers={providers} />
+        <MermaidDialog open={s.modal === 'mermaid'} controller={controller} mermaid={s.mermaid} />
+        <ImageDialog open={s.modal === 'image'} controller={controller} viewer={s.imageViewer} />
+      </Box>
+    </ThemeProvider>
+  )
+}
+
+function StickersSettingsPanel(props: { controller: any; loading: boolean; data: any }) {
+  const { controller, loading, data } = props
+  const api = controller?.capabilities
+
+  const cfg = data?.settings?.stickers && typeof data.settings.stickers === 'object' ? data.settings.stickers : {}
+  const enabled = !!cfg.enabled
+  const categories = Array.isArray(cfg.categories) ? (cfg.categories as any[]).map((x) => String(x || '')).filter((x) => !!x) : []
+  const stickerMap = cfg.map && typeof cfg.map === 'object' ? cfg.map : {}
+
+  const [cat, setCat] = React.useState('')
+  const [filter, setFilter] = React.useState('')
+  const [confirmDelCat, setConfirmDelCat] = React.useState('')
+  const [catMenuEl, setCatMenuEl] = React.useState<HTMLElement | null>(null)
+  const [createCat, setCreateCat] = React.useState<{ open: boolean; name: string }>({ open: false, name: '' })
+  const [rename, setRename] = React.useState<{ open: boolean; oldName: string; nextName: string }>({
+    open: false,
+    oldName: '',
+    nextName: '',
+  })
+
+  React.useEffect(() => {
+    const cur = String(cat || '')
+    if (cur && categories.includes(cur)) return
+    setCat(categories.length ? categories[0] : '')
+  }, [categories, cat])
+
+  // 注意：stickerMap 内部会“就地修改”，object 引用可能不变；这里不要 useMemo，否则 UI 会卡在旧列表。
+  const names = (() => {
+    const box = stickerMap && typeof stickerMap === 'object' ? (stickerMap as any)[String(cat || '')] : null
+    const list = box && typeof box === 'object' ? Object.keys(box).map((x) => String(x || '')).filter((x) => !!x) : []
+    const q = String(filter || '').trim().toLowerCase()
+    const filtered = q ? list.filter((n) => n.toLowerCase().includes(q)) : list
+    filtered.sort((a, b) => a.localeCompare(b))
+    return filtered
+  })()
+
+  const tokenFor = (category: string, name: string) => `[[sticker:${String(category || '')}/${String(name || '')}]]`
+
+  const buildCategoryPrompt = useEvent((categoryName: string) => {
+    const catName = String(categoryName || '').trim()
+    if (!catName) return ''
+
+    const box = stickerMap && typeof stickerMap === 'object' ? (stickerMap as any)[catName] : null
+    const all = box && typeof box === 'object' ? Object.keys(box).map((x) => String(x || '')).filter((x) => !!x) : []
+    all.sort((a, b) => a.localeCompare(b))
+
+    const LIMIT = 120
+    const shown = all.slice(0, LIMIT)
+    const more = all.length > shown.length
+    const listText = `|${shown.join('|')}${more ? '|…|' : '|'}`
+
+    return `你可以使用「${catName}」表情包，调用方式为：[[sticker:${catName}/名称]]（可选尺寸：[[sticker:${catName}/名称/128]]，单位 px，范围 16~4096）\n${catName}表情包列表有：${listText}`
+  })
+
+  const copyCategoryPrompt = useEvent(() => {
+    const name = String(cat || '').trim()
+    if (!name) return api?.ui?.showToast?.('请先选择分类')
+    const prompt = buildCategoryPrompt(name)
+    if (!prompt) return
+    const writeText = api?.clipboard?.writeText
+    if (typeof writeText !== 'function') return api?.ui?.showToast?.('未授权：clipboard.writeText')
+    Promise.resolve()
+      .then(() => writeText(prompt))
+      .then(() => api?.ui?.showToast?.('已复制提示词'))
+      .catch(() => api?.ui?.showToast?.('复制失败'))
+  })
+
+  const openCatMenu = useEvent((e: React.MouseEvent<HTMLElement>) => setCatMenuEl(e.currentTarget))
+  const closeCatMenu = useEvent(() => setCatMenuEl(null))
+
+  const openCreateCat = useEvent(() => {
+    closeCatMenu()
+    setCreateCat({ open: true, name: '' })
+  })
+
+  const closeCreateCat = useEvent(() => setCreateCat({ open: false, name: '' }))
+
+  const onConfirmCreateCat = useEvent(() => {
+    const name = String(createCat.name || '').trim()
+    if (!name) return api?.ui?.showToast?.('请输入分类名')
+    closeCreateCat()
+    controller.actions.createStickerCategory?.(name)
+  })
+
+  const onPickImages = useEvent(async () => {
+    if (!cat) return api?.ui?.showToast?.('请先选择分类')
+    if (!api?.files?.pickImages) return api?.ui?.showToast?.('未授权：files.pickImages')
+    try {
+      const items = await api.files.pickImages(30)
+      await controller.actions.addStickersFromPickedImages?.(cat, items)
+    } catch (e) {
+      api?.ui?.showToast?.(String((e as any)?.message || e || '选择图片失败'))
+    }
+  })
+
+  const onOpenRename = useEvent((oldName: string) => {
+    const n = String(oldName || '').trim()
+    if (!n) return
+    setRename({ open: true, oldName: n, nextName: n })
+  })
+
+  const onConfirmRename = useEvent(() => {
+    if (!rename.open) return
+    const oldName = String(rename.oldName || '').trim()
+    const nextName = String(rename.nextName || '').trim()
+    setRename({ open: false, oldName: '', nextName: '' })
+    if (!cat || !oldName || !nextName) return
+    controller.actions.renameSticker?.(cat, oldName, nextName)
+  })
+
+  const box = stickerMap && typeof stickerMap === 'object' ? (stickerMap as any)[String(cat || '')] : null
+
+  return (
+    <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
+      <Paper variant="outlined" sx={{ p: 1.5 }}>
+        <Stack spacing={1.5}>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography sx={{ fontWeight: 900 }}>表情包</Typography>
+            <Box sx={{ flex: 1 }} />
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <Switch size="small" checked={enabled} onChange={() => controller.actions.toggleStickersEnabled?.()} />
+              <Typography variant="body2" color="text.secondary">
+                渲染
+              </Typography>
+            </Stack>
+          </Stack>
+          <Divider />
+
+          <Typography variant="caption" color="text.secondary">
+            协议：在消息中写 {tokenFor('分类', '名称')}，客户端会按“分类+名称”查表渲染为本地图片（不需要后缀）。
+          </Typography>
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+            <FormControl size="small" fullWidth>
+              <InputLabel id="sticker-cat-settings">分类</InputLabel>
+              <Select
+                labelId="sticker-cat-settings"
+                value={String(cat || '')}
+                label="分类"
+                onChange={(e) => setCat(String(e.target.value || ''))}
+                disabled={loading}
+              >
+                {categories.length ? (
+                  categories.map((c) => (
+                    <MenuItem key={c} value={c}>
+                      {c}
+                    </MenuItem>
+                  ))
+                ) : (
+                  <MenuItem value="">
+                    <em>暂无分类</em>
+                  </MenuItem>
+                )}
+              </Select>
+            </FormControl>
+
+            <Button
+              variant="outlined"
+              startIcon={<ContentCopyIcon />}
+              onClick={copyCategoryPrompt}
+              disabled={loading || !cat || typeof api?.clipboard?.writeText !== 'function'}
+              sx={{ whiteSpace: 'nowrap' }}
+            >
+              复制提示词
+            </Button>
+
+            <Tooltip title="分类操作">
+              <span>
+                <IconButton aria-label="分类操作" onClick={openCatMenu} disabled={loading} size="small">
+                  <MoreVertIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+          </Stack>
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+            <Button startIcon={<ImageIcon />} variant="outlined" onClick={onPickImages} disabled={loading || !cat}>
+              上传
+            </Button>
+            <Box sx={{ flex: 1 }} />
+            <TextField size="small" label="搜索表情名" value={filter} onChange={(e) => setFilter(e.target.value)} disabled={loading || !cat} />
+          </Stack>
+
+          {!cat ? (
+            <Typography variant="body2" color="text.secondary">
+              先创建/选择一个分类。
+            </Typography>
+          ) : !names.length ? (
+            <Typography variant="body2" color="text.secondary">
+              这个分类还没有表情包。
+            </Typography>
+          ) : (
+            <Stack spacing={1}>
+              {names.slice(0, 300).map((name) => {
+                const relPath = box && typeof box === 'object' ? String((box as any)?.[name]?.relPath || '') : ''
+                const token = tokenFor(cat, name)
+                return (
+                  <Paper key={name} variant="outlined" sx={{ p: 1.25 }}>
+                    <Stack direction="row" spacing={1.25} alignItems="center">
+                      {relPath ? <StickerInlineImage controller={controller} path={relPath} label={token} size={64} /> : null}
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Typography sx={{ fontWeight: 900 }} noWrap>
+                          {name}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" noWrap>
+                          {token}
+                        </Typography>
+                      </Box>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => controller.capabilities?.clipboard?.writeText?.(token)}
+                        disabled={!controller.capabilities?.clipboard?.writeText}
+                      >
+                        复制 token
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => {
+                          Promise.resolve()
+                            .then(() => controller.actions.aiGenerateStickerName?.(cat, name))
+                            .catch(() => {})
+                        }}
+                        disabled={loading}
+                      >
+                        AI 取名
+                      </Button>
+                      <Button size="small" variant="outlined" onClick={() => onOpenRename(name)} disabled={loading}>
+                        改名
+                      </Button>
+                      <Button size="small" color="error" variant="outlined" onClick={() => controller.actions.deleteSticker?.(cat, name)}>
+                        删除
+                      </Button>
+                    </Stack>
+                  </Paper>
+                )
+              })}
+            </Stack>
+          )}
+        </Stack>
+      </Paper>
+
+      <Dialog open={!!confirmDelCat} onClose={() => setConfirmDelCat('')} maxWidth="xs" fullWidth>
+        <DialogTitle>确认删除分类？</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            这会删除分类下的全部表情包映射，并尝试删除对应图片文件。
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmDelCat('')}>取消</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => {
+              const name = String(confirmDelCat || '')
+              setConfirmDelCat('')
+              controller.actions.deleteStickerCategory?.(name)
+            }}
+            disabled={!confirmDelCat || loading}
+          >
+            删除
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Popover
+        open={!!catMenuEl}
+        anchorEl={catMenuEl}
+        onClose={closeCatMenu}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <Box sx={{ minWidth: 180, p: 0.5 }}>
+          <MenuItem
+            onClick={openCreateCat}
+            disabled={loading}
+            sx={{ gap: 1 }}
+          >
+            <AddIcon fontSize="small" />
+            新建分类
+          </MenuItem>
+          <MenuItem
+            onClick={() => {
+              const name = String(cat || '')
+              closeCatMenu()
+              if (!name) return api?.ui?.showToast?.('请先选择分类')
+              setConfirmDelCat(name)
+            }}
+            disabled={loading || !cat}
+            sx={{ gap: 1 }}
+          >
+            <DeleteOutlineIcon fontSize="small" />
+            删除当前分类
+          </MenuItem>
+        </Box>
+      </Popover>
+
+      <Dialog open={createCat.open} onClose={closeCreateCat} maxWidth="xs" fullWidth>
+        <DialogTitle>新建分类</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+            <TextField
+              autoFocus
+              size="small"
+              label="分类名"
+              value={createCat.name}
+              onChange={(e) => setCreateCat((p) => ({ ...p, name: e.target.value }))}
+              placeholder="例如：通用"
+              fullWidth
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeCreateCat}>取消</Button>
+          <Button variant="contained" onClick={onConfirmCreateCat} disabled={!String(createCat.name || '').trim() || loading}>
+            创建
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={rename.open} onClose={() => setRename({ open: false, oldName: '', nextName: '' })} maxWidth="xs" fullWidth>
+        <DialogTitle>表情包改名</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+            <TextField size="small" label="原名称" value={rename.oldName} disabled fullWidth />
+            <TextField
+              autoFocus
+              size="small"
+              label="新名称"
+              value={rename.nextName}
+              onChange={(e) => setRename((p) => ({ ...p, nextName: e.target.value }))}
+              fullWidth
+            />
+            <Typography variant="caption" color="text.secondary">
+              新 token：{tokenFor(cat || '分类', rename.nextName || '名称')}
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRename({ open: false, oldName: '', nextName: '' })}>取消</Button>
+          <Button variant="contained" onClick={onConfirmRename} disabled={!String(rename.nextName || '').trim() || loading}>
+            保存
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
+  )
+}
+
+function PluginSettingsPage(props: {
+  controller: any
+  loading: boolean
+  data: any
+  roles: any[]
+  groups: any[]
+  providers: any[]
+  models: any
+  draft: any
+  activeRoleId: string
+  tab: 'appearance' | 'attachments' | 'groups' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers'
+}) {
+  const { controller, loading, data, roles, groups, providers, models, draft, activeRoleId, tab } = props
+  const [toolServerTest, setToolServerTest] = React.useState(() => ({ loading: false, ok: null as null | boolean, msg: '', detail: '' }))
+  const [toolServerTools, setToolServerTools] = React.useState(() => ({
+    open: false,
+    loading: false,
+    ok: null as null | boolean,
+    msg: '',
+    detail: '',
+    tools: [] as any[],
+    count: 0,
+  }))
+  const [toolReqPresetsOpen, setToolReqPresetsOpen] = React.useState(false)
+  const [treeHotkeyRecording, setTreeHotkeyRecording] = React.useState(false)
+
+  React.useEffect(() => {
+    if (!treeHotkeyRecording) return
+    const toast = (s: string) => controller?.capabilities?.ui?.showToast?.(s)
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
+      if ((e as any).isComposing) return
+
+      const key = String(e.key || '')
+      if (key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        setTreeHotkeyRecording(false)
+        toast('已取消录制')
+        return
+      }
+
+      const hk = hotkeyFromKeyEvent(e)
+      if (!hk) return
+
+      const hasMainMod = !!(e.ctrlKey || e.altKey || e.metaKey)
+      if (!hasMainMod) {
+        e.preventDefault()
+        e.stopPropagation()
+        toast('请使用 Ctrl / Alt / Meta + 任意键')
+        return
+      }
+
+      e.preventDefault()
+      e.stopPropagation()
+      setTreeHotkeyRecording(false)
+      controller.actions.setBranchTreeModalHotkey?.(hk)
+      toast(`快捷键已设置：${hk}`)
+    }
+
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [treeHotkeyRecording, controller])
+
+  const runToolServerTest = useEvent(async (baseUrlRaw: string, tokenRaw: string) => {
+    const api = controller?.capabilities
+    const toast = (s: string) => api?.ui?.showToast?.(s)
+
+    const base = String(baseUrlRaw || '').trim().replace(/\/+$/g, '')
+    const token = String(tokenRaw || '').trim()
+
+    if (!base) {
+      setToolServerTest({ loading: false, ok: false, msg: 'Base URL 为空', detail: '' })
+      toast('请先填写 Base URL')
+      return
+    }
+    if (!/^https?:\/\//i.test(base)) {
+      setToolServerTest({ loading: false, ok: false, msg: 'Base URL 无效（需 http/https）', detail: base })
+      toast('Base URL 无效（需 http/https）')
+      return
+    }
+    if (typeof api?.net?.request !== 'function') {
+      setToolServerTest({ loading: false, ok: false, msg: '未授权：net.request', detail: '' })
+      toast('未授权：net.request')
+      return
+    }
+
+    setToolServerTest({ loading: true, ok: null, msg: '测试中…', detail: '' })
+
+    try {
+      const r1 = await api.net.request({ method: 'GET', url: `${base}/health`, timeoutMs: 8000 })
+      const s1 = Number(r1?.status || 0)
+      const b1 = String(r1?.body || '')
+      let j1: any = null
+      try {
+        j1 = JSON.parse(b1 || '{}')
+      } catch (_) {}
+      const healthOk = s1 >= 200 && s1 < 300 && String(j1?.status || '').trim().toLowerCase() === 'ok'
+      if (!healthOk) {
+        const msg = s1 ? `健康检查失败（HTTP ${s1}）` : '健康检查失败'
+        setToolServerTest({ loading: false, ok: false, msg, detail: b1 || '' })
+        toast(msg)
+        return
+      }
+
+      // 可选：如果用户填了 token，则顺便测一下鉴权接口是否通过（空 calls 不会执行任何工具）。
+      if (token) {
+        const r2 = await api.net.request({
+          method: 'POST',
+          url: `${base}/internal/tool-call/execute`,
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ timeout_ms: 1, calls: [] }),
+          timeoutMs: 8000,
+        })
+        const s2 = Number(r2?.status || 0)
+        const b2 = String(r2?.body || '')
+        if (s2 < 200 || s2 >= 300) {
+          const msg = `连通 OK，但鉴权失败（HTTP ${s2}）`
+          setToolServerTest({ loading: false, ok: false, msg, detail: b2 || '' })
+          toast(msg)
+          return
+        }
+
+        setToolServerTest({ loading: false, ok: true, msg: '连通 OK，鉴权 OK', detail: '' })
+        toast('工具服务器连接正常')
+        return
+      }
+
+      setToolServerTest({ loading: false, ok: true, msg: '连通 OK', detail: '' })
+      toast('工具服务器连接正常')
+    } catch (e: any) {
+      const msg = String(e?.message || e || '测试失败')
+      setToolServerTest({ loading: false, ok: false, msg: '测试失败', detail: msg })
+      toast(msg || '测试失败')
+    }
+  })
+
+  const runToolServerFetchTools = useEvent(async (baseUrlRaw: string, tokenRaw: string) => {
+    const api = controller?.capabilities
+    const toast = (s: string) => api?.ui?.showToast?.(s)
+
+    const base = String(baseUrlRaw || '').trim().replace(/\/+$/g, '')
+    const token = String(tokenRaw || '').trim()
+
+    if (!base) {
+      setToolServerTools((p) => ({ ...p, loading: false, ok: false, msg: 'Base URL 为空', detail: '', tools: [], count: 0 }))
+      toast('请先填写 Base URL')
+      return
+    }
+    if (!/^https?:\/\//i.test(base)) {
+      setToolServerTools((p) => ({ ...p, loading: false, ok: false, msg: 'Base URL 无效（需 http/https）', detail: base, tools: [], count: 0 }))
+      toast('Base URL 无效（需 http/https）')
+      return
+    }
+    if (typeof api?.net?.request !== 'function') {
+      setToolServerTools((p) => ({ ...p, loading: false, ok: false, msg: '未授权：net.request', detail: '', tools: [], count: 0 }))
+      toast('未授权：net.request')
+      return
+    }
+
+    setToolServerTools((p) => ({ ...p, loading: true, ok: null, msg: '加载中…', detail: '' }))
+
+    try {
+      const r = await api.net.request({
+        method: 'GET',
+        url: `${base}/api/tools`,
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        timeoutMs: 8000,
+      })
+      const s = Number(r?.status || 0)
+      const b = String(r?.body || '')
+      let j: any = null
+      try {
+        j = JSON.parse(b || '{}')
+      } catch (_) {}
+
+      if (s < 200 || s >= 300) {
+        const code = String(j?.error || '').trim()
+        const detail =
+          code === 'ui_key_not_set'
+            ? '服务端未设置 TOOL_CALL_SERVER_UI_KEY（/api/* 管理接口需要这个 Key）。'
+            : b || ''
+        const msg = `获取工具列表失败（HTTP ${s}）`
+        setToolServerTools((p) => ({ ...p, loading: false, ok: false, msg, detail, tools: [], count: 0 }))
+        toast(msg)
+        return
+      }
+
+      const tools = Array.isArray(j?.tools) ? j.tools : []
+      const count = Number.isFinite(Number(j?.count)) ? Number(j.count) : tools.length
+      setToolServerTools((p) => ({ ...p, loading: false, ok: true, msg: '获取成功', detail: '', tools, count }))
+      toast('已获取工具列表')
+    } catch (e: any) {
+      const msg = String(e?.message || e || '请求失败')
+      setToolServerTools((p) => ({ ...p, loading: false, ok: false, msg: '请求失败', detail: msg, tools: [], count: 0 }))
+      toast(msg || '请求失败')
+    }
+  })
+
+  React.useEffect(() => {
+    setToolServerTest({ loading: false, ok: null, msg: '', detail: '' })
+  }, [String((data?.settings?.toolCallServer as any)?.baseUrl || ''), String((data?.settings?.toolCallServer as any)?.token || '')])
+
+  if (!data) {
+    return (
+      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
+        <Typography variant="body2" color="text.secondary">
+          {loading ? '加载中…' : '未加载到数据'}
+        </Typography>
+      </Box>
+    )
+  }
+
+  const transparentChatBg = !!data?.settings?.transparentChatBg
+  const chatBgOpacity = clampNum(Number(data?.settings?.chatBgOpacity ?? 0), 0, 100)
+  const chatBgBlur = clampNum(Number(data?.settings?.chatBgBlur ?? 0), 0, 24)
+  const topbarOpacity = clampNum(Number(data?.settings?.topbarOpacity ?? 100), 0, 100)
+  const topbarBlur = clampNum(Number(data?.settings?.topbarBlur ?? 0), 0, 24)
+  const composerOpacity = clampNum(Number(data?.settings?.composerOpacity ?? 86), 40, 100)
+  const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
+  const toolRequestRenderPreset = String((data?.settings as any)?.toolRequestRenderPreset || 'classic')
+  const toolRequestRenderPresets = Array.isArray((data?.settings as any)?.toolRequestRenderPresets) ? ((data?.settings as any).toolRequestRenderPresets as any[]) : []
+  const renderSafetyPolicy = (() => {
+    const v = String((data?.settings as any)?.renderSafetyPolicy || 'original').trim()
+    return v === 'unsafe' ? 'unsafe' : v === 'baseline' ? 'baseline' : 'original'
+  })()
+  const userMessageCollapseEnabled = !!data?.settings?.userMessageCollapseEnabled
+  const userMessageCollapseLines = clampNum(Number(data?.settings?.userMessageCollapseLines ?? 8), 1, 50)
+  const attachSendLimitChars = clampNum(Number(data?.settings?.attachments?.sendLimitChars ?? 80000), 1000, 2000000)
+  const attachMaxFileSizeMbByKind0 = (data?.settings?.attachments as any)?.maxFileSizeMbByKind
+  const attachMaxFileSizeMbByKind = attachMaxFileSizeMbByKind0 && typeof attachMaxFileSizeMbByKind0 === 'object' ? attachMaxFileSizeMbByKind0 : {}
+  const attachMaxFileSizeMbTxt = clampNum(Number((attachMaxFileSizeMbByKind as any)?.txt ?? 10), 0, 2048)
+  const attachMaxFileSizeMbMd = clampNum(Number((attachMaxFileSizeMbByKind as any)?.md ?? 10), 0, 2048)
+  const attachMaxFileSizeMbPdf = clampNum(Number((attachMaxFileSizeMbByKind as any)?.pdf ?? 10), 0, 2048)
+  const attachMaxFileSizeMbDocx = clampNum(Number((attachMaxFileSizeMbByKind as any)?.docx ?? 10), 0, 2048)
+  const attachMaxFileSizeMbPpt = clampNum(Number((attachMaxFileSizeMbByKind as any)?.ppt ?? 10), 0, 2048)
+  const branchTreeView = (() => {
+    const raw = String(((data?.settings as any)?.branchTree?.view ?? '') as any).trim()
+    return raw === 'right' || raw === 'float' ? raw : 'right'
+  })()
+  const branchTreeFollowSelected = (() => {
+    const raw = (data?.settings as any)?.branchTree?.followSelected
+    return typeof raw === 'boolean' ? raw : true
+  })()
+  const branchTreeModalHotkey = (() => {
+    const raw = String(((data?.settings as any)?.branchTree?.modalHotkey ?? '') as any).trim()
+    return normalizeHotkeyString(raw)
+  })()
+
+  const appearancePanel = (
+    <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
+      <Stack spacing={1.25}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Typography sx={{ fontWeight: 900 }}>外观</Typography>
+          <Box sx={{ flex: 1 }} />
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <Switch size="small" checked={transparentChatBg} onChange={() => controller.actions.toggleTransparentChatBg?.()} />
+            <Typography variant="body2" color="text.secondary">
+              聊天背景透明
+            </Typography>
+          </Stack>
+        </Stack>
+
+        <Typography variant="body2" sx={{ fontWeight: 900 }} color="text.secondary">
+          组件调节
+        </Typography>
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              聊天背景透明度
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {Math.round(chatBgOpacity)}%
+            </Typography>
+          </Stack>
+          <Slider
+            size="small"
+            value={chatBgOpacity}
+            min={0}
+            max={100}
+            step={1}
+            onChange={(_e, v) => controller.actions.setChatBgOpacity?.(v, false)}
+            onChangeCommitted={(_e, v) => controller.actions.setChatBgOpacity?.(v, true)}
+            disabled={loading || !transparentChatBg}
+          />
+        </Box>
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              聊天背景磨砂度
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {Math.round(chatBgBlur)}px
+            </Typography>
+          </Stack>
+          <Slider
+            size="small"
+            value={chatBgBlur}
+            min={0}
+            max={24}
+            step={1}
+            onChange={(_e, v) => controller.actions.setChatBgBlur?.(v, false)}
+            onChangeCommitted={(_e, v) => controller.actions.setChatBgBlur?.(v, true)}
+            disabled={loading || !transparentChatBg}
+          />
+        </Box>
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              顶部栏透明度
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {Math.round(topbarOpacity)}%
+            </Typography>
+          </Stack>
+          <Slider
+            size="small"
+            value={topbarOpacity}
+            min={0}
+            max={100}
+            step={1}
+            onChange={(_e, v) => controller.actions.setTopbarOpacity?.(v, false)}
+            onChangeCommitted={(_e, v) => controller.actions.setTopbarOpacity?.(v, true)}
+            disabled={loading}
+          />
+        </Box>
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              顶部栏磨砂度
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {Math.round(topbarBlur)}px
+            </Typography>
+          </Stack>
+          <Slider
+            size="small"
+            value={topbarBlur}
+            min={0}
+            max={24}
+            step={1}
+            onChange={(_e, v) => controller.actions.setTopbarBlur?.(v, false)}
+            onChangeCommitted={(_e, v) => controller.actions.setTopbarBlur?.(v, true)}
+            disabled={loading}
+          />
+        </Box>
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              输入栏透明度
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {Math.round(composerOpacity)}%
+            </Typography>
+          </Stack>
+          <Slider
+            size="small"
+            value={composerOpacity}
+            min={40}
+            max={100}
+            step={1}
+            onChange={(_e, v) => controller.actions.setComposerOpacity?.(v, false)}
+            onChangeCommitted={(_e, v) => controller.actions.setComposerOpacity?.(v, true)}
+            disabled={loading}
+          />
+        </Box>
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              输入栏磨砂度
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {Math.round(composerBlur)}px
+            </Typography>
+          </Stack>
+          <Slider
+            size="small"
+            value={composerBlur}
+            min={0}
+            max={24}
+            step={1}
+            onChange={(_e, v) => controller.actions.setComposerBlur?.(v, false)}
+            onChangeCommitted={(_e, v) => controller.actions.setComposerBlur?.(v, true)}
+            disabled={loading}
+          />
+        </Box>
+
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Typography sx={{ fontWeight: 900 }}>用户消息折叠</Typography>
+          <Box sx={{ flex: 1 }} />
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <Switch size="small" checked={userMessageCollapseEnabled} onChange={() => controller.actions.toggleUserMessageCollapse?.()} />
+            <Typography variant="body2" color="text.secondary">
+              启用
+            </Typography>
+          </Stack>
+        </Stack>
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              折叠行数
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <Typography variant="caption" color="text.secondary">
+              {Math.round(userMessageCollapseLines)} 行
+            </Typography>
+          </Stack>
+          <Slider
+            size="small"
+            value={userMessageCollapseLines}
+            min={1}
+            max={50}
+            step={1}
+            onChange={(_e, v) => controller.actions.setUserMessageCollapseLines?.(v, false)}
+            onChangeCommitted={(_e, v) => controller.actions.setUserMessageCollapseLines?.(v, true)}
+            disabled={loading || !userMessageCollapseEnabled}
+          />
+          <Typography variant="caption" color="text.secondary">
+            用户消息超过该行数时默认折叠，可在消息中展开/收起。
+          </Typography>
+        </Box>
+
+        <Divider />
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              分支树面板
+            </Typography>
+            <Box sx={{ flex: 1 }} />
+            <FormControl size="small" sx={{ minWidth: 160 }}>
+              <InputLabel id="fw-branch-tree-view">显示方式</InputLabel>
+              <Select
+                labelId="fw-branch-tree-view"
+                label="显示方式"
+                value={branchTreeView}
+                onChange={(e) => controller.actions.setBranchTreeView?.(String(e.target.value || ''))}
+                disabled={loading}
+              >
+                <MenuItem value="right">右侧面板</MenuItem>
+                <MenuItem value="float">悬浮模态窗</MenuItem>
+              </Select>
+            </FormControl>
+          </Stack>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+            <Switch
+              size="small"
+              checked={!!branchTreeFollowSelected}
+              onChange={(e) => controller.actions.setBranchTreeFollowSelected?.(!!e.target.checked)}
+              disabled={loading}
+            />
+            <Typography variant="body2" color="text.secondary">
+              选中节点自动居中
+            </Typography>
+          </Stack>
+
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+            <TextField
+              size="small"
+              label="快捷键（打开模态窗）"
+              value={branchTreeModalHotkey || ''}
+              placeholder="未设置"
+              disabled={loading}
+              sx={{ flex: 1, minWidth: 0 }}
+              InputProps={{ readOnly: true }}
+            />
+            <Button
+              size="small"
+              variant={treeHotkeyRecording ? 'contained' : 'outlined'}
+              color={treeHotkeyRecording ? 'success' : 'inherit'}
+              onClick={() => setTreeHotkeyRecording((v) => !v)}
+              disabled={loading}
+            >
+              {treeHotkeyRecording ? '录制中…' : '录制'}
+            </Button>
+            <Button
+              size="small"
+              variant="outlined"
+              color="inherit"
+              onClick={() => controller.actions.setBranchTreeModalHotkey?.('')}
+              disabled={loading || !branchTreeModalHotkey}
+            >
+              清除
+            </Button>
+          </Stack>
+          {treeHotkeyRecording ? (
+            <Typography variant="caption" color="text.secondary">
+              按下组合键完成录制（建议 Ctrl/Alt/Meta + 任意键），按 Esc 取消。
+            </Typography>
+          ) : null}
+          <Typography variant="caption" color="text.secondary">
+            “右侧面板”会挤压聊天内容；“悬浮模态窗”会覆盖在当前界面上方。
+          </Typography>
+        </Box>
+
+        <Divider />
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              工具调用渲染预设
+            </Typography>
+          </Stack>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <FormControl size="small" sx={{ flex: 1, minWidth: 0 }}>
+              <InputLabel id="toolreq-preset">预设</InputLabel>
+              <Select
+                labelId="toolreq-preset"
+                label="预设"
+                value={toolRequestRenderPreset}
+                onChange={(e) => controller.actions.setToolRequestRenderPreset?.(String(e.target.value || ''))}
+                disabled={loading}
+              >
+                {(() => {
+                  const out: any[] = []
+                  const builtinIds = new Set<string>(BUILTIN_TOOL_REQUEST_PRESETS.map((x) => String(x?.id || '').trim()).filter((x) => !!x))
+                  const userItems = toolRequestRenderPresets
+                    .map((x: any) => ({ id: String(x?.id || '').trim(), name: String(x?.name || '').trim() }))
+                    .filter((x: any) => x.id && x.name && !builtinIds.has(x.id))
+                    .slice(0, 60)
+
+                  const active = String(toolRequestRenderPreset || '').trim()
+                  const hasActive =
+                    !active ||
+                    BUILTIN_TOOL_REQUEST_PRESETS.some((x) => String(x?.id || '').trim() === active) ||
+                    userItems.some((x: any) => x.id === active)
+                  if (active && !hasActive) out.push(<MenuItem key="missing" value={active}>{`（未找到）${active}`}</MenuItem>)
+
+                  for (const p of BUILTIN_TOOL_REQUEST_PRESETS) {
+                    const id = String((p as any)?.id || '').trim()
+                    if (!id) continue
+                    out.push(
+                      <MenuItem key={`builtin:${id}`} value={id}>
+                        {`（内置）${String((p as any)?.name || id)}`}
+                      </MenuItem>,
+                    )
+                  }
+                  for (const p of userItems) {
+                    out.push(
+                      <MenuItem key={`user:${p.id}`} value={p.id}>
+                        {`（自定义）${p.name}`}
+                      </MenuItem>,
+                    )
+                  }
+                  return out
+                })()}
+              </Select>
+            </FormControl>
+            <Button size="small" variant="outlined" onClick={() => setToolReqPresetsOpen(true)} disabled={loading}>
+              管理…
+            </Button>
+          </Stack>
+          <Typography variant="caption" color="text.secondary">
+            仅影响 AI 回复中 TOOL_REQUEST 工具调用块的展示样式。
+          </Typography>
+          <ToolRequestPresetsDialog
+            open={toolReqPresetsOpen}
+            onClose={() => setToolReqPresetsOpen(false)}
+            controller={controller}
+            loading={loading}
+            userPresets={toolRequestRenderPresets}
+          />
+        </Box>
+
+        <Divider />
+
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
+            <Typography variant="body2" sx={{ fontWeight: 900 }}>
+              回复渲染安全
+            </Typography>
+          </Stack>
+          <FormControl size="small" fullWidth>
+            <InputLabel id="render-safety-policy">策略</InputLabel>
+            <Select
+              labelId="render-safety-policy"
+              label="策略"
+              value={renderSafetyPolicy}
+              onChange={(e) => controller.actions.requestSetRenderSafetyPolicy?.(String(e.target.value || 'original'))}
+              disabled={loading}
+            >
+              <MenuItem value="original">默认模式</MenuItem>
+              <MenuItem value="baseline">保留底线</MenuItem>
+              <MenuItem value="unsafe">完全裸奔（极高风险）</MenuItem>
+            </Select>
+          </FormControl>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
+            影响 AI 回复中的 HTML、SVG、Mermaid 等富渲染限制。
+          </Typography>
+          <Typography variant="caption" color={renderSafetyPolicy === 'unsafe' ? 'warning.main' : 'text.secondary'} sx={{ display: 'block', mt: 0.5 }}>
+            {renderSafetyPolicy === 'unsafe'
+              ? '当前是完全裸奔模式：不会再额外加这层 HTML / SVG / Mermaid 安全限制。'
+              : renderSafetyPolicy === 'baseline'
+                ? '当前是保留底线模式：会放宽表现，但仍保留脚本、事件属性、javascript: 链接等最小限制。'
+                : '当前是默认模式：回到添加这次策略分级前的原始渲染行为。'}
+          </Typography>
+        </Box>
+      </Stack>
+    </Paper>
+  )
+
+  if (tab === 'appearance') {
+    return (
+      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
+        {appearancePanel}
+      </Box>
+    )
+  }
+
+  if (tab === 'attachments') {
+    return (
+      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
+        <Paper variant="outlined" sx={{ p: 1.5, mb: 1.5 }}>
+          <Stack spacing={1.25}>
+            <Typography sx={{ fontWeight: 900 }}>附件</Typography>
+
+            <Box>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                  单文件长度阈值
+                </Typography>
+                <Box sx={{ flex: 1 }} />
+                <Typography variant="caption" color="text.secondary">
+                  {Math.round(attachSendLimitChars)} 字符
+                </Typography>
+              </Stack>
+              <Slider
+                size="small"
+                value={attachSendLimitChars}
+                min={1000}
+                max={2000000}
+                step={5000}
+                onChange={(_e, v) => controller.actions.setAttachmentsSendLimitChars?.(v, false)}
+                onChangeCommitted={(_e, v) => controller.actions.setAttachmentsSendLimitChars?.(v, true)}
+                disabled={loading}
+              />
+              <Typography variant="caption" color="text.secondary">
+                当任一附件“实际发送长度”超过该阈值，点击发送会弹出确认提醒；可在输入栏的附件条目里单独调节“发送百分比”。
+              </Typography>
+            </Box>
+            <Box>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                  单文件大小上限
+                </Typography>
+                <Box sx={{ flex: 1 }} />
+                <Typography variant="caption" color="text.secondary">
+                  MB（0 表示不限制）
+                </Typography>
+              </Stack>
+
+              <Stack spacing={1} sx={{ mt: 1 }}>
+                <TextField
+                  size="small"
+                  label="TXT"
+                  type="number"
+                  value={String(Math.round(attachMaxFileSizeMbTxt))}
+                  onChange={(e) => controller.actions.setAttachmentsMaxFileSizeMb?.('txt', e.target.value, false)}
+                  onBlur={(e) => controller.actions.setAttachmentsMaxFileSizeMb?.('txt', (e.target as any).value, true)}
+                  inputProps={{ min: 0, max: 2048, step: 1 }}
+                  InputProps={{ endAdornment: <InputAdornment position="end">MB</InputAdornment> }}
+                  disabled={loading}
+                />
+                <TextField
+                  size="small"
+                  label="MD"
+                  type="number"
+                  value={String(Math.round(attachMaxFileSizeMbMd))}
+                  onChange={(e) => controller.actions.setAttachmentsMaxFileSizeMb?.('md', e.target.value, false)}
+                  onBlur={(e) => controller.actions.setAttachmentsMaxFileSizeMb?.('md', (e.target as any).value, true)}
+                  inputProps={{ min: 0, max: 2048, step: 1 }}
+                  InputProps={{ endAdornment: <InputAdornment position="end">MB</InputAdornment> }}
+                  disabled={loading}
+                />
+                <TextField
+                  size="small"
+                  label="PDF"
+                  type="number"
+                  value={String(Math.round(attachMaxFileSizeMbPdf))}
+                  onChange={(e) => controller.actions.setAttachmentsMaxFileSizeMb?.('pdf', e.target.value, false)}
+                  onBlur={(e) => controller.actions.setAttachmentsMaxFileSizeMb?.('pdf', (e.target as any).value, true)}
+                  inputProps={{ min: 0, max: 2048, step: 1 }}
+                  InputProps={{ endAdornment: <InputAdornment position="end">MB</InputAdornment> }}
+                  disabled={loading}
+                />
+                <TextField
+                  size="small"
+                  label="DOCX"
+                  type="number"
+                  value={String(Math.round(attachMaxFileSizeMbDocx))}
+                  onChange={(e) => controller.actions.setAttachmentsMaxFileSizeMb?.('docx', e.target.value, false)}
+                  onBlur={(e) => controller.actions.setAttachmentsMaxFileSizeMb?.('docx', (e.target as any).value, true)}
+                  inputProps={{ min: 0, max: 2048, step: 1 }}
+                  InputProps={{ endAdornment: <InputAdornment position="end">MB</InputAdornment> }}
+                  disabled={loading}
+                />
+                <TextField
+                  size="small"
+                  label="PPT/PPTX"
+                  type="number"
+                  value={String(Math.round(attachMaxFileSizeMbPpt))}
+                  onChange={(e) => controller.actions.setAttachmentsMaxFileSizeMb?.('ppt', e.target.value, false)}
+                  onBlur={(e) => controller.actions.setAttachmentsMaxFileSizeMb?.('ppt', (e.target as any).value, true)}
+                  inputProps={{ min: 0, max: 2048, step: 1 }}
+                  InputProps={{ endAdornment: <InputAdornment position="end">MB</InputAdornment> }}
+                  disabled={loading}
+                />
+              </Stack>
+
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+                超过上限会在解析前直接拒绝；0 表示不限制。
+              </Typography>
+            </Box>
+          </Stack>
+        </Paper>
+      </Box>
+    )
+  }
+
+  if (tab === 'groups') {
+    const activeGroupId = String((draft as any)?.activeGroupId || '')
+    return (
+      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
+        <Paper variant="outlined" sx={{ p: 1.5 }}>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography sx={{ fontWeight: 900 }}>群组管理</Typography>
+            <Box sx={{ flex: 1 }} />
+            <Button startIcon={<AddIcon />} onClick={() => controller.actions.createGroup?.()} disabled={loading}>
+              新建群组
+            </Button>
+          </Stack>
+          <Divider sx={{ my: 1.5 }} />
+          <Stack spacing={1.25}>
+            {groups.length ? (
+              groups.map((g: any) => {
+                const gid = String(g?.id || '')
+                const isActive = gid && gid === activeGroupId
+                const memberCount = Array.isArray(g?.memberRoleIds) ? g.memberRoleIds.length : 0
+                return (
+                  <Paper
+                    key={gid}
+                    variant="outlined"
+                    sx={{
+                      p: 1.25,
+                      borderColor: isActive ? 'primary.main' : 'divider',
+                      bgcolor: isActive ? 'rgba(25,118,210,.06)' : 'background.paper',
+                    }}
+                  >
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', sm: 'center' }}>
+                      <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
+                        <Avatar src={String(g?.avatarImage || '') || undefined} sx={{ width: 28, height: 28, fontSize: 14 }}>
+                          {String(g?.avatar || '👥')}
+                        </Avatar>
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography sx={{ fontWeight: 900 }} noWrap>
+                            {String(g?.name || '')}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" noWrap>
+                            {memberCount ? `${memberCount} 个成员` : '未选择成员'}
+                          </Typography>
+                        </Box>
+                      </Stack>
+
+                      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <Button
+                          size="small"
+                          variant={isActive ? 'contained' : 'outlined'}
+                          onClick={() => controller.actions.setActiveGroup?.(gid)}
+                          disabled={!gid}
+                        >
+                          {isActive ? '当前' : '进入群聊'}
+                        </Button>
+                        <Button size="small" onClick={() => controller.actions.openGroupEditor?.(gid)} disabled={!gid}>
+                          编辑
+                        </Button>
+                        <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => controller.actions.askDeleteGroup?.(gid)} disabled={!gid}>
+                          删除
+                        </Button>
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                )
+              })
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                暂无群组
+              </Typography>
+            )}
+          </Stack>
+        </Paper>
+      </Box>
+    )
+  }
+
+  if (tab === 'roles') {
+    return (
+      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
+        <Paper variant="outlined" sx={{ p: 1.5 }}>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Typography sx={{ fontWeight: 900 }}>角色管理</Typography>
+            <Box sx={{ flex: 1 }} />
+            <Button startIcon={<AddIcon />} onClick={() => controller.actions.createRole()} disabled={loading}>
+              新建角色
+            </Button>
+          </Stack>
+          <Divider sx={{ my: 1.5 }} />
+          <Stack spacing={1.25}>
+            {roles.length ? (
+              roles.map((r: any) => {
+                const rid = String(r?.id || '')
+                const isActive = rid && rid === activeRoleId
+                const providerId = String(r?.modelRef?.providerId || '')
+                const modelId = String(r?.modelRef?.modelId || '')
+                return (
+                  <Paper
+                    key={rid}
+                    variant="outlined"
+                    sx={{
+                      p: 1.25,
+                      borderColor: isActive ? 'primary.main' : 'divider',
+                      bgcolor: isActive ? 'rgba(25,118,210,.06)' : 'background.paper',
+                    }}
+                  >
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', sm: 'center' }}>
+                      <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
+                        <Avatar src={String(r?.avatarImage || '') || undefined} sx={{ width: 28, height: 28, fontSize: 14 }}>
+                          {String(r?.avatar || '🙂')}
+                        </Avatar>
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography sx={{ fontWeight: 900 }} noWrap>
+                            {String(r?.name || '')}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" noWrap>
+                            {providerId}
+                            {modelId ? ` / ${modelId}` : ''}
+                          </Typography>
+                        </Box>
+                      </Stack>
+
+                      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <Button
+                          size="small"
+                          variant={isActive ? 'contained' : 'outlined'}
+                          onClick={() => controller.actions.setActiveRole(rid)}
+                          disabled={!rid}
+                        >
+                          {isActive ? '当前' : '设为当前'}
+                        </Button>
+                        <Button size="small" onClick={() => controller.actions.openRoleEditor(rid)} disabled={!rid}>
+                          编辑
+                        </Button>
+                        <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => controller.actions.askDeleteRole(rid)} disabled={!rid}>
+                          删除
+                        </Button>
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                )
+              })
+            ) : (
+              <Typography variant="body2" color="text.secondary">
+                暂无角色
+              </Typography>
+            )}
+          </Stack>
+        </Paper>
+      </Box>
+    )
+  }
+
+  if (tab === 'stickers') {
+    return <StickersSettingsPanel controller={controller} loading={loading} data={data} />
+  }
+
+  if (tab === 'toolServer') {
+    const cfg = (data?.settings?.toolCallServer && typeof data.settings.toolCallServer === 'object') ? data.settings.toolCallServer : {}
+    const baseUrl = String((cfg as any).baseUrl || '')
+    const token = String((cfg as any).token || '')
+
+    return (
+      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
+        <Paper variant="outlined" sx={{ p: 1.5 }}>
+          <Stack spacing={1.5}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography sx={{ fontWeight: 900 }}>工具服务器</Typography>
+              <Box sx={{ flex: 1 }} />
+            </Stack>
+            <Divider />
+            <Stack spacing={1.25}>
+              <TextField
+                size="small"
+                label="Base URL"
+                value={baseUrl}
+                onChange={(e) => controller.actions.setToolCallServerBaseUrl?.(e.target.value)}
+                placeholder="http://localhost:9083"
+                fullWidth
+                disabled={loading}
+              />
+              <SecretField label="鉴权 Key" value={token} onValueChange={(next) => controller.actions.setToolCallServerToken?.(next)} />
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                <Button size="small" variant="outlined" onClick={() => runToolServerTest(baseUrl, token)} disabled={loading || toolServerTest.loading}>
+                  {toolServerTest.loading ? '测试中…' : '测试连接'}
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => {
+                    setToolServerTools((p) => ({ ...p, open: true }))
+                    runToolServerFetchTools(baseUrl, token)
+                  }}
+                  disabled={loading || toolServerTools.loading}
+                >
+                  {toolServerTools.loading ? '加载工具…' : '查看工具列表'}
+                </Button>
+                {toolServerTest.ok === true ? <Chip size="small" color="success" label="连接正常" /> : null}
+                {toolServerTest.ok === false ? <Chip size="small" color="error" label="连接失败" /> : null}
+                {toolServerTest.ok === null ? <Chip size="small" variant="outlined" label="未测试" /> : null}
+                {toolServerTest.msg ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ minWidth: 0 }} noWrap>
+                    {toolServerTest.msg}
+                  </Typography>
+                ) : null}
+              </Stack>
+              {toolServerTest.detail ? (
+                <Typography
+                  variant="caption"
+                  sx={{
+                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                    whiteSpace: 'pre-wrap',
+                    overflowWrap: 'anywhere',
+                    wordBreak: 'break-word',
+                    color: 'text.secondary',
+                  }}
+                >
+                  {toolServerTest.detail}
+                </Typography>
+              ) : null}
+              <Typography variant="caption" color="text.secondary">
+                用于执行 AI 工具调用（ai-tool-call-server）。鉴权 Key 会保存在插件数据中。
+              </Typography>
+            </Stack>
+          </Stack>
+        </Paper>
+        <ToolServerToolsDialog
+          open={toolServerTools.open}
+          loading={toolServerTools.loading}
+          ok={toolServerTools.ok}
+          msg={toolServerTools.msg}
+          detail={toolServerTools.detail}
+          tools={toolServerTools.tools}
+          count={toolServerTools.count}
+          onClose={() => setToolServerTools((p) => ({ ...p, open: false }))}
+          onRefresh={() => runToolServerFetchTools(baseUrl, token)}
+        />
+      </Box>
+    )
+  }
+
+  if (tab === 'services') {
+    const mmCfg = (data?.settings?.aiServices?.mermaidFix && typeof data.settings.aiServices.mermaidFix === 'object') ? data.settings.aiServices.mermaidFix : {}
+    const mmEnabled = !!mmCfg.enabled
+    const mmProviderId = String(mmCfg.providerId || providers?.[0]?.id || '')
+    const mmModelPick = String(mmCfg.modelId || '')
+    const mmCustomModelId = String(mmCfg.customModelId || '')
+    const mmSystemPrompt = typeof mmCfg.systemPrompt === 'string' ? mmCfg.systemPrompt : ''
+    const mmDefaultPrompt = String(controller?.defaults?.mermaidFixSystemPrompt || '')
+    const mmPromptChanged = !!mmDefaultPrompt && mmSystemPrompt.trim() !== mmDefaultPrompt.trim()
+
+    const ctnCfg = (data?.settings?.aiServices?.chatTitleNaming && typeof (data.settings.aiServices as any).chatTitleNaming === 'object') ? (data.settings.aiServices as any).chatTitleNaming : {}
+    const ctnEnabled = !!ctnCfg.enabled
+    const ctnProviderId = String(ctnCfg.providerId || providers?.[0]?.id || '')
+    const ctnModelPick = String(ctnCfg.modelId || '')
+    const ctnCustomModelId = String(ctnCfg.customModelId || '')
+    const ctnSystemPrompt = typeof ctnCfg.systemPrompt === 'string' ? ctnCfg.systemPrompt : ''
+    const ctnDefaultPrompt = String(controller?.defaults?.chatTitleNamingSystemPrompt || '')
+    const ctnPromptChanged = !!ctnDefaultPrompt && ctnSystemPrompt.trim() !== ctnDefaultPrompt.trim()
+
+    const snCfg = (data?.settings?.aiServices?.stickerNaming && typeof (data.settings.aiServices as any).stickerNaming === 'object') ? (data.settings.aiServices as any).stickerNaming : {}
+    const snEnabled = !!snCfg.enabled
+    const snProviderId = String(snCfg.providerId || providers?.[0]?.id || '')
+    const snModelPick = String(snCfg.modelId || '')
+    const snCustomModelId = String(snCfg.customModelId || '')
+    const snSystemPrompt = typeof snCfg.systemPrompt === 'string' ? snCfg.systemPrompt : ''
+    const snDefaultPrompt = String(controller?.defaults?.stickerNamingSystemPrompt || '')
+    const snPromptChanged = !!snDefaultPrompt && snSystemPrompt.trim() !== snDefaultPrompt.trim()
+
+    const mmP = providers.find((x: any) => String(x?.id || '') === mmProviderId) || null
+    const mmModelItems = Array.isArray(mmP?.modelsCache?.items) ? (mmP.modelsCache.items as any[]).map((x) => String(x)) : []
+    const mmHasPickInList = !!mmModelPick && mmModelPick !== '__custom__' && mmModelItems.some((x) => x === mmModelPick)
+
+    const ctnP = providers.find((x: any) => String(x?.id || '') === ctnProviderId) || null
+    const ctnModelItems = Array.isArray(ctnP?.modelsCache?.items) ? (ctnP.modelsCache.items as any[]).map((x) => String(x)) : []
+    const ctnHasPickInList = !!ctnModelPick && ctnModelPick !== '__custom__' && ctnModelItems.some((x) => x === ctnModelPick)
+
+    const snP = providers.find((x: any) => String(x?.id || '') === snProviderId) || null
+    const snModelItems = Array.isArray(snP?.modelsCache?.items) ? (snP.modelsCache.items as any[]).map((x) => String(x)) : []
+    const snHasPickInList = !!snModelPick && snModelPick !== '__custom__' && snModelItems.some((x) => x === snModelPick)
+
+    const modelLoading = !!models?.loading
+
+    return (
+      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
+        <Paper variant="outlined" sx={{ p: 1.5 }}>
+          <Stack spacing={1.5}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography sx={{ fontWeight: 900 }}>AI 微服务</Typography>
+              <Box sx={{ flex: 1 }} />
+            </Stack>
+            <Divider />
+
+            <Stack spacing={1.25}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography sx={{ fontWeight: 900 }}>Mermaid AI 修复</Typography>
+                <Box sx={{ flex: 1 }} />
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <Switch size="small" checked={mmEnabled} onChange={(e) => controller.actions.setMermaidFixEnabled?.(e.target.checked)} />
+                  <Typography variant="body2" color="text.secondary">
+                    启用
+                  </Typography>
+                </Stack>
+              </Stack>
+
+              <Typography variant="caption" color="text.secondary">
+                Mermaid 渲染失败时，可在错误块中点击“AI 修复”，用选定供应商的模型按系统提示词修复源码并替换到消息里。
+              </Typography>
+
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                <FormControl size="small" fullWidth>
+                  <InputLabel id="mmfix-provider">供应商</InputLabel>
+                  <Select
+                    labelId="mmfix-provider"
+                    value={mmProviderId}
+                    label="供应商"
+                    onChange={(e) => controller.actions.setMermaidFixProviderId?.(e.target.value)}
+                    disabled={loading || !providers.length}
+                  >
+                    {providers.map((pp: any) => {
+                      const id = String(pp?.id || '')
+                      return (
+                        <MenuItem key={id} value={id}>
+                          {id}
+                        </MenuItem>
+                      )
+                    })}
+                  </Select>
+                </FormControl>
+
+                <Stack direction="row" spacing={1} sx={{ pt: { xs: 0, sm: 0.5 } }}>
+                  <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => controller.actions.refreshModels(mmProviderId, true)} disabled={!mmProviderId || modelLoading}>
+                    {modelLoading ? '刷新中…' : '刷新模型'}
+                  </Button>
+                </Stack>
+              </Stack>
+
+              <FormControl size="small" fullWidth>
+                <InputLabel id="mmfix-model">模型</InputLabel>
+                <Select
+                  labelId="mmfix-model"
+                  value={mmHasPickInList ? mmModelPick : mmModelPick === '__custom__' ? '__custom__' : ''}
+                  label="模型"
+                  onChange={(e) => controller.actions.setMermaidFixModelId?.(e.target.value)}
+                  disabled={loading || !mmProviderId}
+                >
+                  <MenuItem value="">
+                    <em>请选择…</em>
+                  </MenuItem>
+                  {mmModelItems.map((id: string) => (
+                    <MenuItem key={id} value={id}>
+                      {id}
+                    </MenuItem>
+                  ))}
+                  <MenuItem value="__custom__">自定义模型ID…</MenuItem>
+                </Select>
+              </FormControl>
+
+              {mmModelPick === '__custom__' ? (
+                <TextField
+                  size="small"
+                  label="自定义模型ID"
+                  value={mmCustomModelId}
+                  onChange={(e) => controller.actions.setMermaidFixCustomModelId?.(e.target.value)}
+                  placeholder="例如：gpt-4.1-mini / deepseek-chat"
+                  fullWidth
+                />
+              ) : null}
+
+              <TextField
+                size="small"
+                label="系统提示词"
+                value={mmSystemPrompt}
+                onChange={(e) => controller.actions.setMermaidFixSystemPrompt?.(e.target.value)}
+                placeholder="写入系统提示词…"
+                fullWidth
+                multiline
+                minRows={8}
+              />
+
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Typography variant="caption" color={mmPromptChanged ? 'warning.main' : 'text.secondary'}>
+                  {mmPromptChanged ? '已自定义系统提示词' : '当前为默认系统提示词'}
+                </Typography>
+                <Box sx={{ flex: 1 }} />
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => controller.actions.resetMermaidFixSystemPromptDefault?.()}
+                  disabled={!mmDefaultPrompt || !mmPromptChanged}
+                >
+                  恢复默认
+                </Button>
+              </Stack>
+
+              <Divider sx={{ my: 1.25 }} />
+
+              <Stack spacing={1.25}>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Typography sx={{ fontWeight: 900 }}>AI 聊天记录取名</Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <Switch size="small" checked={ctnEnabled} onChange={(e) => controller.actions.setChatTitleNamingEnabled?.(e.target.checked)} />
+                    <Typography variant="body2" color="text.secondary">
+                      启用
+                    </Typography>
+                  </Stack>
+                </Stack>
+
+                <Typography variant="caption" color="text.secondary">
+                  在“聊天记录”的会话菜单里，可点击“AI 生成标题”，用选定供应商/模型按系统提示词为当前会话生成新标题。
+                </Typography>
+
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                  <FormControl size="small" fullWidth>
+                    <InputLabel id="ctn-provider">供应商</InputLabel>
+                    <Select
+                      labelId="ctn-provider"
+                      value={ctnProviderId}
+                      label="供应商"
+                      onChange={(e) => controller.actions.setChatTitleNamingProviderId?.(e.target.value)}
+                      disabled={loading || !providers.length}
+                    >
+                      {providers.map((pp: any) => {
+                        const id = String(pp?.id || '')
+                        return (
+                          <MenuItem key={id} value={id}>
+                            {id}
+                          </MenuItem>
+                        )
+                      })}
+                    </Select>
+                  </FormControl>
+
+                  <Stack direction="row" spacing={1} sx={{ pt: { xs: 0, sm: 0.5 } }}>
+                    <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => controller.actions.refreshModels(ctnProviderId, true)} disabled={!ctnProviderId || modelLoading}>
+                      {modelLoading ? '刷新中…' : '刷新模型'}
+                    </Button>
+                  </Stack>
+                </Stack>
+
+                <FormControl size="small" fullWidth>
+                  <InputLabel id="ctn-model">模型</InputLabel>
+                  <Select
+                    labelId="ctn-model"
+                    value={ctnHasPickInList ? ctnModelPick : ctnModelPick === '__custom__' ? '__custom__' : ''}
+                    label="模型"
+                    onChange={(e) => controller.actions.setChatTitleNamingModelId?.(e.target.value)}
+                    disabled={loading || !ctnProviderId}
+                  >
+                    <MenuItem value="">
+                      <em>请选择…</em>
+                    </MenuItem>
+                    {ctnModelItems.map((id: string) => (
+                      <MenuItem key={id} value={id}>
+                        {id}
+                      </MenuItem>
+                    ))}
+                    <MenuItem value="__custom__">自定义模型ID…</MenuItem>
+                  </Select>
+                </FormControl>
+
+                {ctnModelPick === '__custom__' ? (
+                  <TextField
+                    size="small"
+                    label="自定义模型ID"
+                    value={ctnCustomModelId}
+                    onChange={(e) => controller.actions.setChatTitleNamingCustomModelId?.(e.target.value)}
+                    placeholder="例如：gpt-4.1-mini / deepseek-chat"
+                    fullWidth
+                  />
+                ) : null}
+
+                <TextField
+                  size="small"
+                  label="系统提示词"
+                  value={ctnSystemPrompt}
+                  onChange={(e) => controller.actions.setChatTitleNamingSystemPrompt?.(e.target.value)}
+                  placeholder="写入系统提示词…"
+                  fullWidth
+                  multiline
+                  minRows={6}
+                />
+
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Typography variant="caption" color={ctnPromptChanged ? 'warning.main' : 'text.secondary'}>
+                    {ctnPromptChanged ? '已自定义系统提示词' : '当前为默认系统提示词'}
+                  </Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => controller.actions.resetChatTitleNamingSystemPromptDefault?.()}
+                    disabled={!ctnDefaultPrompt || !ctnPromptChanged}
+                  >
+                    恢复默认
+                  </Button>
+                </Stack>
+              </Stack>
+
+              <Divider sx={{ my: 1.25 }} />
+
+              <Stack spacing={1.25}>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Typography sx={{ fontWeight: 900 }}>表情包取名服务</Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <Switch size="small" checked={snEnabled} onChange={(e) => controller.actions.setStickerNamingEnabled?.(e.target.checked)} />
+                    <Typography variant="body2" color="text.secondary">
+                      启用
+                    </Typography>
+                  </Stack>
+                </Stack>
+
+                <Typography variant="caption" color="text.secondary">
+                  在“表情包”设置页，每个表情条目里可点击“AI 取名”，将图片按系统提示词交给模型生成新名称并自动改名。
+                </Typography>
+
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                  <FormControl size="small" fullWidth>
+                    <InputLabel id="sn-provider">供应商</InputLabel>
+                    <Select
+                      labelId="sn-provider"
+                      value={snProviderId}
+                      label="供应商"
+                      onChange={(e) => controller.actions.setStickerNamingProviderId?.(e.target.value)}
+                      disabled={loading || !providers.length}
+                    >
+                      {providers.map((pp: any) => {
+                        const id = String(pp?.id || '')
+                        return (
+                          <MenuItem key={id} value={id}>
+                            {id}
+                          </MenuItem>
+                        )
+                      })}
+                    </Select>
+                  </FormControl>
+
+                  <Stack direction="row" spacing={1} sx={{ pt: { xs: 0, sm: 0.5 } }}>
+                    <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => controller.actions.refreshModels(snProviderId, true)} disabled={!snProviderId || modelLoading}>
+                      {modelLoading ? '刷新中…' : '刷新模型'}
+                    </Button>
+                  </Stack>
+                </Stack>
+
+                <FormControl size="small" fullWidth>
+                  <InputLabel id="sn-model">模型</InputLabel>
+                  <Select
+                    labelId="sn-model"
+                    value={snHasPickInList ? snModelPick : snModelPick === '__custom__' ? '__custom__' : ''}
+                    label="模型"
+                    onChange={(e) => controller.actions.setStickerNamingModelId?.(e.target.value)}
+                    disabled={loading || !snProviderId}
+                  >
+                    <MenuItem value="">
+                      <em>请选择…</em>
+                    </MenuItem>
+                    {snModelItems.map((id: string) => (
+                      <MenuItem key={id} value={id}>
+                        {id}
+                      </MenuItem>
+                    ))}
+                    <MenuItem value="__custom__">自定义模型ID…</MenuItem>
+                  </Select>
+                </FormControl>
+
+                {snModelPick === '__custom__' ? (
+                  <TextField
+                    size="small"
+                    label="自定义模型ID"
+                    value={snCustomModelId}
+                    onChange={(e) => controller.actions.setStickerNamingCustomModelId?.(e.target.value)}
+                    placeholder="例如：gpt-4.1-mini / deepseek-chat"
+                    fullWidth
+                  />
+                ) : null}
+
+                <TextField
+                  size="small"
+                  label="系统提示词"
+                  value={snSystemPrompt}
+                  onChange={(e) => controller.actions.setStickerNamingSystemPrompt?.(e.target.value)}
+                  placeholder="写入系统提示词…"
+                  fullWidth
+                  multiline
+                  minRows={6}
+                />
+
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Typography variant="caption" color={snPromptChanged ? 'warning.main' : 'text.secondary'}>
+                    {snPromptChanged ? '已自定义系统提示词' : '当前为默认系统提示词'}
+                  </Typography>
+                  <Box sx={{ flex: 1 }} />
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => controller.actions.resetStickerNamingSystemPromptDefault?.()}
+                    disabled={!snDefaultPrompt || !snPromptChanged}
+                  >
+                    恢复默认
+                  </Button>
+                </Stack>
+              </Stack>
+            </Stack>
+          </Stack>
+        </Paper>
+      </Box>
+    )
+  }
+
+  const editingId = String(draft?.editProviderId || '')
+
+  return (
+    <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
+      <Paper variant="outlined" sx={{ p: 1.5 }}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Typography sx={{ fontWeight: 900 }}>供应商管理</Typography>
+          <Box sx={{ flex: 1 }} />
+          <Button startIcon={<AddIcon />} onClick={() => controller.actions.createProvider()} disabled={loading}>
+            新建供应商
+          </Button>
+        </Stack>
+        <Divider sx={{ my: 1.5 }} />
+        <Stack spacing={1.5}>
+          {providers.map((p: any) => {
+            const pid = String(p?.id || '')
+            const isEditing = pid && pid === editingId
+            return (
+              <Paper key={pid} variant="outlined" sx={{ p: 1.5 }}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', sm: 'center' }}>
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography sx={{ fontWeight: 900 }} noWrap>
+                      {String(p?.name || '')}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" noWrap>
+                      {String(p?.baseUrl || '')}
+                    </Typography>
+                  </Box>
+
+                  <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <Button
+                      size="small"
+                      variant={isEditing ? 'outlined' : 'text'}
+                      onClick={() => (isEditing ? controller.actions.closeProviderEditor() : controller.actions.openProviderEditor(pid))}
+                      disabled={!pid}
+                    >
+                      {isEditing ? '收起' : '编辑'}
+                    </Button>
+                    <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => controller.actions.askDeleteProvider(pid)} disabled={!pid}>
+                      删除
+                    </Button>
+                  </Stack>
+                </Stack>
+
+                {isEditing ? (
+                  <Stack spacing={1.5} sx={{ mt: 1.5 }}>
+                    <TextField label="名称" value={String(draft?.providerName || '')} onChange={(e) => controller.actions.setDraft('providerName', e.target.value)} />
+                    <TextField
+                      label="Base URL"
+                      value={String(draft?.providerBaseUrl || '')}
+                      onChange={(e) => controller.actions.setDraft('providerBaseUrl', e.target.value)}
+                      placeholder="https://api.openai.com/v1"
+                    />
+                    <ApiKeyField value={String(draft?.providerApiKey || '')} onValueChange={(next) => controller.actions.setDraft('providerApiKey', next)} />
+                    <Stack direction="row" spacing={1} justifyContent="flex-end">
+                      <Button variant="contained" onClick={() => controller.actions.saveProvider()}>
+                        保存
+                      </Button>
+                    </Stack>
+                  </Stack>
+                ) : null}
+              </Paper>
+            )
+          })}
+        </Stack>
+      </Paper>
+    </Box>
+  )
+}
+
+function parseSvgSize(raw: string) {
+  try {
+    const doc = new DOMParser().parseFromString(raw, 'image/svg+xml')
+    const root = doc.querySelector('svg') || doc.documentElement
+    if (!root) return { w: 0, h: 0 }
+    const vb = String(root.getAttribute('viewBox') || '').trim()
+    if (vb) {
+      const nums = vb
+        .split(/[\s,]+/g)
+        .map((x) => Number(x))
+        .filter((x) => isFinite(x))
+      if (nums.length >= 4) return { w: Math.max(0, nums[2]), h: Math.max(0, nums[3]) }
+    }
+    const w = String(root.getAttribute('width') || '').trim()
+    const h = String(root.getAttribute('height') || '').trim()
+    if (w.endsWith('%') || h.endsWith('%')) return { w: 0, h: 0 }
+    const nw = parseFloat(w)
+    const nh = parseFloat(h)
+    return { w: Math.max(0, isFinite(nw) ? nw : 0), h: Math.max(0, isFinite(nh) ? nh : 0) }
+  } catch (_) {
+    return { w: 0, h: 0 }
+  }
+}
+
+function getMermaidCopyBitmapSize(baseW: number, baseH: number) {
+  const exportScale = Math.min(
+    MERMAID_COPY_IMAGE_MAX_SCALE,
+    Math.max(MERMAID_COPY_IMAGE_MIN_SCALE, Number(window.devicePixelRatio || 1) * MERMAID_COPY_IMAGE_DPR_FACTOR),
+  )
+  const scaledLongest = Math.max(baseW, baseH) * exportScale
+  const fitScale = scaledLongest > MERMAID_COPY_IMAGE_MAX_SIDE ? MERMAID_COPY_IMAGE_MAX_SIDE / scaledLongest : 1
+  const pixelScale = exportScale * fitScale
+  return {
+    width: Math.max(1, Math.round(baseW * pixelScale)),
+    height: Math.max(1, Math.round(baseH * pixelScale)),
+  }
+}
+
+function normalizeSvgForExport(raw: string, baseW: number, baseH: number) {
+  const svgDoc = new DOMParser().parseFromString(raw, 'image/svg+xml')
+  const root = svgDoc.querySelector('svg') || svgDoc.documentElement
+  if (!root) throw new Error('SVG 内容无效')
+  if (!root.getAttribute('xmlns')) root.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+  if (!root.getAttribute('xmlns:xlink')) root.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
+  root.setAttribute('width', String(baseW))
+  root.setAttribute('height', String(baseH))
+  if (!String(root.getAttribute('viewBox') || '').trim()) root.setAttribute('viewBox', `0 0 ${baseW} ${baseH}`)
+  return new XMLSerializer().serializeToString(root)
+}
+
+async function rasterizeSvgToPngDataUrl(svgMarkup: string, width: number, height: number) {
+  const blob = new Blob([svgMarkup], { type: 'image/svg+xml;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  try {
+    return await new Promise<string>((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas')
+          canvas.width = width
+          canvas.height = height
+          const ctx = canvas.getContext('2d')
+          if (!ctx) return reject(new Error('无法创建画布'))
+          ctx.fillStyle = MERMAID_COPY_IMAGE_BG
+          ctx.fillRect(0, 0, width, height)
+          ctx.imageSmoothingEnabled = true
+          ;(ctx as any).imageSmoothingQuality = 'high'
+          ctx.drawImage(img, 0, 0, width, height)
+          const out = canvas.toDataURL('image/png')
+          if (!String(out || '').startsWith('data:image/')) return reject(new Error('导出图片失败'))
+          resolve(out)
+        } catch (e) {
+          reject(e)
+        }
+      }
+      img.onerror = () => reject(new Error('SVG 转图片失败'))
+      img.src = url
+    })
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
