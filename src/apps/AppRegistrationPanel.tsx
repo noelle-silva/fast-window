@@ -3,11 +3,11 @@ import { invoke } from '@tauri-apps/api/core'
 import {
   Box, Typography, IconButton, Button,
   Dialog, DialogTitle, DialogContent, DialogActions,
-  Stack, TextField, ToggleButtonGroup, ToggleButton,
+  Stack, TextField, ToggleButtonGroup, ToggleButton, Menu, MenuItem,
 } from '@mui/material'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
-import EditRoundedIcon from '@mui/icons-material/EditRounded'
+import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
 import type { AppDisplayMode, RegisteredApp, RegisteredAppCommand, RegisteredAppUpdatePatch } from './types'
 import AppCardView from './AppCardView'
 import AppCommandEditor from './AppCommandEditor'
@@ -56,6 +56,19 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
   const [pickingPath, setPickingPath] = useState(false)
   const [removingId, setRemovingId] = useState<string | null>(null)
   const [removeConfirm, setRemoveConfirm] = useState<RemoveConfirmState>(null)
+  const [editMenuAnchorEl, setEditMenuAnchorEl] = useState<HTMLElement | null>(null)
+
+  const editingApp = editingId ? apps.find(app => app.id === editingId) ?? null : null
+
+  const closeEditMenu = () => {
+    setEditMenuAnchorEl(null)
+  }
+
+  const closeEditDialog = () => {
+    setHotkeyRecording(false)
+    closeEditMenu()
+    setEditOpen(false)
+  }
 
   const openAdd = () => {
     setHotkeyRecording(false)
@@ -68,6 +81,7 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
     setCommands([])
     setAvailableCommands([])
     setPickingPath(false)
+    closeEditMenu()
     setEditOpen(true)
   }
 
@@ -82,6 +96,7 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
     setCommands(Array.isArray(app.commands) ? app.commands : [])
     setAvailableCommands(Array.isArray(app.availableCommands) ? app.availableCommands : [])
     setPickingPath(false)
+    closeEditMenu()
     setEditOpen(true)
   }
 
@@ -105,6 +120,7 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
     .filter(command => command.id.trim() && command.title)
 
   const openRemoveConfirm = (app: RegisteredApp) => {
+    closeEditMenu()
     setRemoveConfirm({ app, step: 'remove' })
   }
 
@@ -126,6 +142,11 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
       }
       await onRemove(app.id)
       await hostToast(`已取消注册：${app.name}`)
+      if (editingId === app.id) {
+        setHotkeyRecording(false)
+        setEditOpen(false)
+        setEditingId(null)
+      }
       setRemoveConfirm(null)
     } catch (error: any) {
       await hostToast(String(error?.message || error || '取消注册失败'))
@@ -162,6 +183,7 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
         })
       }
       setHotkeyRecording(false)
+      closeEditMenu()
       setEditOpen(false)
     } catch (error: any) {
       await hostToast(String(error?.message || error || '保存应用失败'))
@@ -235,32 +257,43 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
           </Typography>
         ) : (
           apps.map(app => (
-            <Box key={app.id} sx={{ display: 'flex', alignItems: 'center' }}>
-              <Box sx={{ flex: 1 }}>
-                <AppCardView app={app} />
-              </Box>
-              <IconButton
-                size="small"
-                onClick={() => openEdit(app)}
-                aria-label={`编辑 ${app.name}`}
-              >
-                <EditRoundedIcon fontSize="small" />
-              </IconButton>
-              <IconButton
-                size="small"
-                onClick={() => openRemoveConfirm(app)}
-                aria-label={`移除 ${app.name}`}
-                disabled={removingId === app.id}
-              >
-                <DeleteRoundedIcon fontSize="small" />
-              </IconButton>
-            </Box>
+            <AppCardView key={app.id} app={app} onClick={() => openEdit(app)} />
           ))
         )}
       </Box>
 
-      <Dialog open={editOpen} onClose={() => { setHotkeyRecording(false); setEditOpen(false) }} fullWidth maxWidth="xs">
-        <DialogTitle>{editingId ? '编辑应用' : '添加应用'}</DialogTitle>
+      <Dialog open={editOpen} onClose={closeEditDialog} fullWidth maxWidth="md">
+        <DialogTitle sx={{ pr: editingId ? 6 : undefined }}>
+          {editingId ? '编辑应用' : '添加应用'}
+          {editingId ? (
+            <>
+              <IconButton
+                aria-label="更多应用操作"
+                size="small"
+                onClick={e => setEditMenuAnchorEl(e.currentTarget)}
+                sx={{ position: 'absolute', right: 8, top: 8 }}
+              >
+                <MoreVertRoundedIcon fontSize="small" />
+              </IconButton>
+              <Menu
+                anchorEl={editMenuAnchorEl}
+                open={!!editMenuAnchorEl}
+                onClose={closeEditMenu}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+              >
+                <MenuItem
+                  disabled={!editingApp || !!removingId}
+                  onClick={() => editingApp && openRemoveConfirm(editingApp)}
+                  sx={{ color: 'error.main', gap: 1 }}
+                >
+                  <DeleteRoundedIcon fontSize="small" />
+                  取消注册
+                </MenuItem>
+              </Menu>
+            </>
+          ) : null}
+        </DialogTitle>
         <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '8px !important' }} onKeyDown={onKeyDown}>
           <TextField label="名称" value={name} onChange={e => setName(e.target.value)} size="small" fullWidth />
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -302,7 +335,7 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
           <AppCommandEditor commands={commands} availableCommands={availableCommands} onChange={setCommands} />
         </DialogContent>
         <DialogActions>
-          <Button disabled={saving} onClick={() => { setHotkeyRecording(false); setEditOpen(false) }}>取消</Button>
+          <Button disabled={saving} onClick={closeEditDialog}>取消</Button>
           <Button disabled={saving} onClick={() => void save()} variant="contained" sx={{ boxShadow: 'none' }}>保存</Button>
         </DialogActions>
       </Dialog>

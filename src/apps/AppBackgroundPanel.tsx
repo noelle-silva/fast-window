@@ -134,7 +134,7 @@ export default function AppBackgroundPanel({ apps, onClose, onUpdateApp, embedde
             const durationText = runningDurationText(status, now)
             return (
               <Box key={app.id} sx={{ mb: 2, p: 1.25, borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
-                <AppCardView app={app} status={status} />
+                <AppCardView app={app} status={status} showStatus />
                 {durationText ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 1.25, mt: -0.5 }}>
                     {durationText}

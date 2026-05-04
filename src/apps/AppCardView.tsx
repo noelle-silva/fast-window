@@ -4,25 +4,42 @@ import type { RegisteredApp, AppStatus } from './types'
 interface AppCardViewProps {
   app: RegisteredApp
   status?: AppStatus
+  showStatus?: boolean
   selected?: boolean
   onClick?: () => void
   onContextMenu?: (e: React.MouseEvent) => void
 }
 
-export default function AppCardView({ app, status, selected, onClick, onContextMenu }: AppCardViewProps) {
+export default function AppCardView({ app, status, showStatus, selected, onClick, onContextMenu }: AppCardViewProps) {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!onClick) return
+    if (e.key !== 'Enter' && e.key !== ' ') return
+    e.preventDefault()
+    onClick()
+  }
+
   return (
     <Box
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      aria-label={onClick ? `编辑 ${app.name}` : undefined}
       onClick={onClick}
       onContextMenu={onContextMenu}
+      onKeyDown={handleKeyDown}
       sx={{
         display: 'flex',
         alignItems: 'center',
         gap: 1.5,
         p: 1.25,
         borderRadius: 2,
-        cursor: 'pointer',
+        cursor: onClick ? 'pointer' : 'default',
         bgcolor: selected ? 'action.selected' : 'transparent',
-        '&:hover': { bgcolor: 'action.hover' },
+        '&:hover': { bgcolor: onClick ? 'action.hover' : selected ? 'action.selected' : 'transparent' },
+        '&:focus-visible': {
+          outline: onClick ? '2px solid' : 'none',
+          outlineColor: 'primary.main',
+          outlineOffset: 2,
+        },
       }}
     >
       <Avatar
@@ -37,11 +54,13 @@ export default function AppCardView({ app, status, selected, onClick, onContextM
           {app.name}
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
-          {status?.running ? (
-            <Chip label="运行中" size="small" color="success" sx={{ height: 18, fontSize: 10 }} />
-          ) : (
-            <Chip label="未运行" size="small" variant="outlined" sx={{ height: 18, fontSize: 10 }} />
-          )}
+          {showStatus ? (
+            status?.running ? (
+              <Chip label="运行中" size="small" color="success" sx={{ height: 18, fontSize: 10 }} />
+            ) : (
+              <Chip label="未运行" size="small" variant="outlined" sx={{ height: 18, fontSize: 10 }} />
+            )
+          ) : null}
           {app.hotkey ? (
             <Typography variant="caption" color="text.secondary">
               {app.hotkey}
