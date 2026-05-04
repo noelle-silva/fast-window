@@ -15,7 +15,7 @@ use fw_window::{
     report_available_commands, FwWindowState,
 };
 use std::sync::Arc;
-use tauri::Manager;
+use tauri::{Manager, WindowEvent};
 
 #[tauri::command]
 async fn backend_endpoint(
@@ -75,13 +75,22 @@ fn main() {
             let window = app
                 .get_webview_window("main")
                 .expect("main window not found");
-            let backend_for_tray_quit = backend_state_setup.clone();
+            let stop_backend = {
+                let backend = backend_state_setup.clone();
+                Arc::new(move || backend.stop_sync())
+            };
             standalone_tray::install_standalone_tray(
                 app,
                 &fw_args,
                 window_state_setup.clone(),
-                Arc::new(move || backend_for_tray_quit.stop_sync()),
+                stop_backend.clone(),
             )?;
+            let stop_backend_for_window_close = stop_backend.clone();
+            window.on_window_event(move |event| {
+                if matches!(event, WindowEvent::CloseRequested { .. }) {
+                    stop_backend_for_window_close();
+                }
+            });
             install_window_policy(&window, &fw_args, window_state_setup.clone());
             apply_fw_args(&window, &fw_args, &window_state_setup);
             start_control_server(
