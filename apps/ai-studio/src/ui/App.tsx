@@ -91,6 +91,23 @@ const MERMAID_COPY_IMAGE_DPR_FACTOR = 3
 const MERMAID_COPY_IMAGE_MAX_SIDE = 12288
 const MERMAID_COPY_IMAGE_BG = '#ffffff'
 
+type SettingsTab = 'appearance' | 'attachments' | 'data' | 'groups' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers'
+
+type DataDirectoryStatus = {
+  dataDir: string
+  defaultDataDir: string
+  configuredDataDir?: string | null
+  writable: boolean
+  error?: string | null
+}
+
+type AiChatDataDirectory = {
+  status: DataDirectoryStatus | null
+  busy?: boolean
+  onPick?: () => Promise<void> | void
+  onRefresh?: () => Promise<DataDirectoryStatus | null> | void
+}
+
 function isNearBottom(el: HTMLElement, thresholdPx = 24) {
   const gap = el.scrollHeight - el.scrollTop - el.clientHeight
   return Math.ceil(gap) <= thresholdPx
@@ -487,8 +504,8 @@ function StickerText(props: { controller: any; text: string; stickerMap: any }) 
   )
 }
 
-export function AiChatApp(props: { controller: any }) {
-  const { controller } = props
+export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDirectory }) {
+  const { controller, dataDirectory } = props
   const s = useAiChatState(controller)
 
   const theme = React.useMemo(
@@ -860,9 +877,7 @@ export function AiChatApp(props: { controller: any }) {
   const treeResizeRafRef = React.useRef<number>(0)
 
   const [page, setPage] = React.useState<'chat' | 'settings'>('chat')
-  const [settingsTab, setSettingsTab] = React.useState<'appearance' | 'attachments' | 'groups' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers'>(
-    'roles',
-  )
+  const [settingsTab, setSettingsTab] = React.useState<SettingsTab>('roles')
 
   const [expandedUserMsgIds, setExpandedUserMsgIds] = React.useState(() => new Set<string>())
   const [expandedToolMsgIds, setExpandedToolMsgIds] = React.useState(() => new Set<string>())
@@ -2680,7 +2695,7 @@ export function AiChatApp(props: { controller: any }) {
   })
 
   const openPluginSettings = useEvent(
-    (tab: 'appearance' | 'attachments' | 'groups' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers' = 'roles') => {
+    (tab: SettingsTab = 'roles') => {
     setRolePickerEl(null)
     setChatPickerEl(null)
     setChatPickerSearchOpen(false)
@@ -3100,8 +3115,8 @@ export function AiChatApp(props: { controller: any }) {
                    <ChevronLeftIcon fontSize="small" />
                  </IconButton>
 
-                <Typography variant="subtitle2" sx={{ fontWeight: 900, mr: 0.5 }}>
-                  插件设置
+                  <Typography variant="subtitle2" sx={{ fontWeight: 900, mr: 0.5 }}>
+                   设置
                 </Typography>
 
                 <Box sx={{ flex: 1 }} />
@@ -3121,6 +3136,14 @@ export function AiChatApp(props: { controller: any }) {
                   sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
                 >
                   附件
+                </Button>
+                <Button
+                  size="small"
+                  variant={settingsTab === 'data' ? 'contained' : 'outlined'}
+                  onClick={() => setSettingsTab('data')}
+                  sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
+                >
+                  数据
                 </Button>
                 <Button
                   size="small"
@@ -3270,7 +3293,7 @@ export function AiChatApp(props: { controller: any }) {
                     <AccountTreeIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="插件设置">
+                <Tooltip title="设置">
                   <IconButton onClick={() => openPluginSettings('roles')} size="small">
                     <SettingsIcon fontSize="small" />
                   </IconButton>
@@ -6210,6 +6233,7 @@ export function AiChatApp(props: { controller: any }) {
             draft={s.draft}
             activeRoleId={String(s.draft?.activeRoleId || '')}
             tab={settingsTab}
+            dataDirectory={dataDirectory}
           />
         )}
         </Box>
@@ -6586,9 +6610,10 @@ function PluginSettingsPage(props: {
   models: any
   draft: any
   activeRoleId: string
-  tab: 'appearance' | 'attachments' | 'groups' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers'
+  tab: SettingsTab
+  dataDirectory?: AiChatDataDirectory
 }) {
-  const { controller, loading, data, roles, groups, providers, models, draft, activeRoleId, tab } = props
+  const { controller, loading, data, roles, groups, providers, models, draft, activeRoleId, tab, dataDirectory } = props
   const [toolServerTest, setToolServerTest] = React.useState(() => ({ loading: false, ok: null as null | boolean, msg: '', detail: '' }))
   const [toolServerTools, setToolServerTools] = React.useState(() => ({
     open: false,
@@ -7309,6 +7334,10 @@ function PluginSettingsPage(props: {
     )
   }
 
+  if (tab === 'data') {
+    return <DataSettingsPanel dataDirectory={dataDirectory} loading={loading} />
+  }
+
   if (tab === 'groups') {
     const activeGroupId = String((draft as any)?.activeGroupId || '')
     return (
@@ -7528,7 +7557,7 @@ function PluginSettingsPage(props: {
                 </Typography>
               ) : null}
               <Typography variant="caption" color="text.secondary">
-                用于执行 AI 工具调用（ai-tool-call-server）。鉴权 Key 会保存在插件数据中。
+                用于执行 AI 工具调用（ai-tool-call-server）。鉴权 Key 会保存在 AI Studio 数据中。
               </Typography>
             </Stack>
           </Stack>
@@ -7982,6 +8011,92 @@ function PluginSettingsPage(props: {
               </Paper>
             )
           })}
+        </Stack>
+      </Paper>
+    </Box>
+  )
+}
+
+function DataSettingsPanel(props: { dataDirectory?: AiChatDataDirectory; loading: boolean }) {
+  const { dataDirectory, loading } = props
+  const status = dataDirectory?.status || null
+  const busy = !!dataDirectory?.busy || loading
+  const currentDir = String(status?.dataDir || '')
+  const defaultDir = String(status?.defaultDataDir || '')
+  const configuredDir = String(status?.configuredDataDir || '')
+  const hasCustomDir = !!configuredDir && configuredDir !== defaultDir
+  const issue = String(status?.error || '').trim() || (status && !status.writable ? '数据目录不可写' : '')
+
+  const runPick = useEvent(async () => {
+    if (typeof dataDirectory?.onPick !== 'function') return
+    await dataDirectory.onPick()
+  })
+
+  const runRefresh = useEvent(async () => {
+    if (typeof dataDirectory?.onRefresh !== 'function') return
+    await dataDirectory.onRefresh()
+  })
+
+  return (
+    <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
+      <Paper variant="outlined" sx={{ p: 1.5 }}>
+        <Stack spacing={1.5}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+            <Box sx={{ minWidth: 0, flex: 1 }}>
+              <Typography sx={{ fontWeight: 900 }}>数据</Typography>
+              <Typography variant="caption" color="text.secondary">
+                AI Studio 的聊天、角色、图片和运行状态都会保存在这个目录里。
+              </Typography>
+            </Box>
+            {status ? <Chip size="small" color={status.writable ? 'success' : 'error'} label={status.writable ? '可写' : '不可写'} /> : <Chip size="small" variant="outlined" label="读取中" />}
+          </Stack>
+
+          <Divider />
+
+          {issue ? (
+            <Paper variant="outlined" sx={{ p: 1.25, borderColor: 'error.light', bgcolor: 'rgba(211,47,47,.04)' }}>
+              <Typography variant="body2" color="error" sx={{ fontWeight: 800 }}>
+                {issue}
+              </Typography>
+            </Paper>
+          ) : null}
+
+          <Stack spacing={1.25}>
+            <TextField
+              size="small"
+              label="当前数据目录"
+              value={currentDir || '读取中...'}
+              fullWidth
+              InputProps={{ readOnly: true }}
+            />
+            <TextField
+              size="small"
+              label="默认数据目录"
+              value={defaultDir || '读取中...'}
+              fullWidth
+              InputProps={{ readOnly: true }}
+            />
+            <TextField
+              size="small"
+              label="目录来源"
+              value={hasCustomDir ? '自定义目录' : '默认目录'}
+              fullWidth
+              InputProps={{ readOnly: true }}
+            />
+          </Stack>
+
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+            <Button variant="contained" onClick={runPick} disabled={busy || typeof dataDirectory?.onPick !== 'function'}>
+              {busy ? '处理中…' : '选择数据目录'}
+            </Button>
+            <Button variant="outlined" onClick={runRefresh} disabled={busy || typeof dataDirectory?.onRefresh !== 'function'}>
+              刷新状态
+            </Button>
+          </Stack>
+
+          <Typography variant="caption" color="text.secondary">
+            切换目录会重启 AI Studio 自己的本机后台，然后重新载入新目录中的数据。
+          </Typography>
         </Stack>
       </Paper>
     </Box>
