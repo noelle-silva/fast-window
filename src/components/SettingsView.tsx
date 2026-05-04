@@ -41,7 +41,7 @@ import { buildShortcutFromEvent, pauseShortcutRecordingGuards, resumeShortcutRec
 import { getPluginAssetMime, isDataImageUrl, resolveLocalPluginIconPath } from '../plugins/pluginIcon'
 import AppRegistrationPanel from '../apps/AppRegistrationPanel'
 import AppBackgroundPanel from '../apps/AppBackgroundPanel'
-import type { RegisteredApp, RegisteredAppUpdatePatch } from '../apps/types'
+import type { AppRegistrationEditRequest, RegisteredApp, RegisteredAppUpdatePatch } from '../apps/types'
 
 const DEFAULT_WAKE_SHORTCUT = 'control+alt+Space'
 const MAX_VIDEO_RATE = 16
@@ -200,6 +200,8 @@ export default function SettingsView(props: {
   onAddRegisteredApp?: (app: RegisteredApp) => void
   onRemoveRegisteredApp?: (id: string) => void
   onUpdateRegisteredApp?: (id: string, patch: RegisteredAppUpdatePatch) => void
+  appRegistrationEditRequest?: AppRegistrationEditRequest | null
+  onAppRegistrationEditRequestHandled?: (requestId: number) => void
 }) {
   const {
     onBack,
@@ -207,6 +209,8 @@ export default function SettingsView(props: {
     onAddRegisteredApp = () => {},
     onRemoveRegisteredApp = () => {},
     onUpdateRegisteredApp = () => {},
+    appRegistrationEditRequest = null,
+    onAppRegistrationEditRequestHandled,
   } = props
   const [dataDir, setDataDir] = useState<string>('')
   const [pluginsDir, setPluginsDir] = useState<string>('')
@@ -526,6 +530,11 @@ export default function SettingsView(props: {
     if (tabIndex !== TAB_PLUGINS) return
     loadPluginManage()
   }, [tabIndex])
+
+  useEffect(() => {
+    if (!appRegistrationEditRequest) return
+    setTabIndex(TAB_APP_REGISTRATION)
+  }, [appRegistrationEditRequest?.requestId])
 
   async function openDataDir() {
     try {
@@ -1294,6 +1303,8 @@ export default function SettingsView(props: {
               onAdd={onAddRegisteredApp}
               onRemove={onRemoveRegisteredApp}
               onUpdate={onUpdateRegisteredApp}
+              editRequest={appRegistrationEditRequest}
+              onEditRequestHandled={onAppRegistrationEditRequestHandled}
             />
           </Box>
         ) : null}

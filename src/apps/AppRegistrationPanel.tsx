@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import {
   Box, Typography, IconButton, Button,
@@ -8,7 +8,7 @@ import {
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
-import type { AppDisplayMode, RegisteredApp, RegisteredAppCommand, RegisteredAppUpdatePatch } from './types'
+import type { AppDisplayMode, AppRegistrationEditRequest, RegisteredApp, RegisteredAppCommand, RegisteredAppUpdatePatch } from './types'
 import AppCardView from './AppCardView'
 import AppCommandEditor from './AppCommandEditor'
 import { getAppStatus, stopApp } from './appLauncher'
@@ -23,6 +23,8 @@ interface AppRegistrationPanelProps {
   onUpdate: (id: string, patch: RegisteredAppUpdatePatch) => void | Promise<void>
   onClose?: () => void
   embedded?: boolean
+  editRequest?: AppRegistrationEditRequest | null
+  onEditRequestHandled?: (requestId: number) => void
 }
 
 type RemoveConfirmStep = 'remove' | 'stop-running'
@@ -41,7 +43,16 @@ async function readAppIcon(path: string) {
   }
 }
 
-export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, onClose, embedded }: AppRegistrationPanelProps) {
+export default function AppRegistrationPanel({
+  apps,
+  onAdd,
+  onRemove,
+  onUpdate,
+  onClose,
+  embedded,
+  editRequest,
+  onEditRequestHandled,
+}: AppRegistrationPanelProps) {
   const [editOpen, setEditOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [name, setName] = useState('')
@@ -57,6 +68,7 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
   const [removingId, setRemovingId] = useState<string | null>(null)
   const [removeConfirm, setRemoveConfirm] = useState<RemoveConfirmState>(null)
   const [editMenuAnchorEl, setEditMenuAnchorEl] = useState<HTMLElement | null>(null)
+  const handledEditRequestIdRef = useRef<number | null>(null)
 
   const editingApp = editingId ? apps.find(app => app.id === editingId) ?? null : null
 
@@ -99,6 +111,16 @@ export default function AppRegistrationPanel({ apps, onAdd, onRemove, onUpdate, 
     closeEditMenu()
     setEditOpen(true)
   }
+
+  useEffect(() => {
+    if (!editRequest) return
+    if (handledEditRequestIdRef.current === editRequest.requestId) return
+    const app = apps.find(item => item.id === editRequest.appId)
+    if (!app) return
+    handledEditRequestIdRef.current = editRequest.requestId
+    openEdit(app)
+    onEditRequestHandled?.(editRequest.requestId)
+  }, [apps, editRequest, onEditRequestHandled])
 
   const pickExecutablePath = async () => {
     setPickingPath(true)

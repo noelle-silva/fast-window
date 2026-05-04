@@ -24,6 +24,11 @@ export interface RegisteredApp {
   windowY?: number
 }
 
+export interface AppRegistrationEditRequest {
+  appId: string
+  requestId: number
+}
+
 export type RegisteredAppUpdatePatch = Partial<Omit<RegisteredApp, 'id' | 'hotkey'>> & {
   hotkey?: string | null
 }

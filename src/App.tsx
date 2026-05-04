@@ -29,7 +29,7 @@ import {
   parseRegisteredAppListItemId,
   registeredAppFromListItem,
 } from './apps/listItems'
-import type { AppStatus, RegisteredApp } from './apps/types'
+import type { AppRegistrationEditRequest, AppStatus, RegisteredApp } from './apps/types'
 import { usePlugins } from './usePlugins'
 import { useWallpaper, getWallpaperView } from './useWallpaper'
 import { useSearch } from './useSearch'
@@ -122,6 +122,7 @@ function App() {
   // Detail dialog
   const [pluginDetail, setPluginDetail] = useState<Plugin | null>(null)
   const [appDetailId, setAppDetailId] = useState<string | null>(null)
+  const [appRegistrationEditRequest, setAppRegistrationEditRequest] = useState<AppRegistrationEditRequest | null>(null)
 
   // Drag
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -352,6 +353,17 @@ function App() {
     return registeredApps.find(app => app.id === appDetailId) ?? null
   }, [appDetailId, registeredApps])
 
+  const requestAppRegistrationEdit = useCallback((app: RegisteredApp) => {
+    setPluginDetail(null)
+    setAppDetailId(null)
+    setActivePlugin(settingsPlugin)
+    setAppRegistrationEditRequest(prev => ({ appId: app.id, requestId: (prev?.requestId ?? 0) + 1 }))
+  }, [])
+
+  const handleAppRegistrationEditRequestHandled = useCallback((requestId: number) => {
+    setAppRegistrationEditRequest(prev => (prev?.requestId === requestId ? null : prev))
+  }, [])
+
   const changeMenuItemIcon = useCallback(async () => {
     const plugin = pluginMenu?.plugin
     if (!plugin) return
@@ -434,6 +446,7 @@ function App() {
     if (app) {
       return [
         { id: 'stop-app', label: '停止', color: 'error', onSelect: () => setStopAppConfirm({ app }) },
+        { id: 'registration-edit', label: '注册编辑', onSelect: () => requestAppRegistrationEdit(app) },
         ...commonActions,
       ]
     }
@@ -447,7 +460,7 @@ function App() {
       },
       ...commonActions,
     ]
-  }, [changeMenuItemIcon, loading, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, resetMenuItemIcon])
+  }, [changeMenuItemIcon, loading, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, requestAppRegistrationEdit, resetMenuItemIcon])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
@@ -734,6 +747,8 @@ function App() {
                     onAddRegisteredApp={addRegisteredApp}
                     onRemoveRegisteredApp={removeRegisteredApp}
                     onUpdateRegisteredApp={updateRegisteredApp}
+                    appRegistrationEditRequest={appRegistrationEditRequest}
+                    onAppRegistrationEditRequestHandled={handleAppRegistrationEditRequestHandled}
                   />
                 ) : (
                   <ActivePluginComponent onBack={onBackFromPlugin} />
