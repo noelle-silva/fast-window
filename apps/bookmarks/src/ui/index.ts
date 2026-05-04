@@ -40,6 +40,7 @@ let dataDirStatus: DataDirStatus | null = null
 let bootstrapError = ''
 let bootstrapping = true
 let pendingLaunchCommand: string | null = null
+let settingsOpen = false
 
 // -- api helpers --------------------------------------------------------------
 
@@ -83,6 +84,10 @@ function filteredItems() {
 
 function closeCtx() { ctxMenu.open = false }
 
+function dataDirHasIssue() {
+  return !!bootstrapError || !!dataDirStatus?.error || dataDirStatus?.writable === false
+}
+
 // -- render -------------------------------------------------------------------
 
 function render() {
@@ -90,6 +95,7 @@ function render() {
   const groups = data.groups.slice().sort((a, b) => a.createdAt - b.createdAt)
   const items = filteredItems()
   const controlsDisabled = bootstrapping || !!bootstrapError
+  const hasDataDirIssue = dataDirHasIssue()
 
   const css = `
     *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#FAFAFA;color:#212121}
@@ -100,6 +106,9 @@ function render() {
     .btn.primary{border-color:transparent;background:#1976D2;color:#fff}
     .btn.danger{border-color:transparent;background:#D32F2F;color:#fff}
     .btn[disabled]{opacity:.55;cursor:not-allowed}
+    .iconBtn{width:30px;height:30px;border:1px solid #E0E0E0;background:#fff;color:#424242;border-radius:8px;cursor:pointer;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;-webkit-app-region:no-drag;position:relative}
+    .iconBtn:hover{background:rgba(0,0,0,.06)}
+    .iconBtn.warn::after{content:"";position:absolute;right:5px;top:5px;width:7px;height:7px;border-radius:999px;background:#D32F2F;box-shadow:0 0 0 2px #fff}
     .windowControls{display:flex;align-items:center;gap:4px;-webkit-app-region:no-drag}
     .windowBtn{width:30px;height:30px;border:0;background:transparent;color:#424242;border-radius:8px;cursor:pointer;font-size:14px;line-height:30px;text-align:center;-webkit-app-region:no-drag}
     .windowBtn:hover{background:rgba(0,0,0,.08)}
@@ -126,7 +135,11 @@ function render() {
     .row{display:flex;gap:10px;align-items:center}
     .row .grow{flex:1;min-width:0}
     .help{font-size:12px;color:#757575}
-    .statusPanel{margin:10px;padding:10px;border:1px solid #E0E0E0;border-radius:12px;background:#fff;display:flex;flex-direction:column;gap:8px;font-size:12px;color:#424242;-webkit-app-region:no-drag}
+    .settingsPopover{position:fixed;right:10px;top:52px;z-index:70;width:min(360px,calc(100vw - 20px));background:#fff;border:1px solid #E0E0E0;border-radius:14px;box-shadow:0 14px 36px rgba(0,0,0,.22);padding:10px;display:none;-webkit-app-region:no-drag}
+    .settingsPopover.open{display:block}
+    .settingsHead{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+    .settingsTitle{font-size:13px;font-weight:800;margin-right:auto}
+    .statusPanel{padding:10px;border:1px solid #E0E0E0;border-radius:12px;background:#fff;display:flex;flex-direction:column;gap:8px;font-size:12px;color:#424242;-webkit-app-region:no-drag}
     .statusPanel.error{border-color:#EF9A9A;background:#FFF5F5;color:#B71C1C}
     .statusLine{display:flex;gap:8px;align-items:flex-start;word-break:break-all}
     .statusLabel{font-weight:800;flex-shrink:0;color:#616161}
@@ -155,6 +168,7 @@ function render() {
       <div class="topbar" data-tauri-drag-region="true">
         <button class="btn" data-act="back">←</button>
         <div class="title">网站收藏</div>
+        <button class="iconBtn${hasDataDirIssue ? ' warn' : ''}" data-act="settings" title="设置" aria-label="设置">⚙</button>
         <button class="btn" data-act="groups" ${controlsDisabled ? 'disabled' : ''}>分组</button>
         <button class="btn primary" data-act="add" ${controlsDisabled ? 'disabled' : ''}>新增</button>
         ${standaloneLaunch ? renderWindowControls() : ''}
@@ -163,11 +177,11 @@ function render() {
         <label class="field"><span class="label">分组</span><select data-act="group" ${controlsDisabled ? 'disabled' : ''}>${['<option value="__all__">全部</option>'].concat(groups.map(g => `<option value="${esc(g.id)}" ${g.id === groupFilter ? 'selected' : ''}>${esc(g.name)}</option>`)).join('')}</select></label>
         <label class="field grow"><span class="label">搜索</span><input data-act="search" value="${esc(search)}" placeholder="按标题 / URL 搜索" ${controlsDisabled ? 'disabled' : ''} /></label>
       </div>
-      ${renderDataDirPanel()}
       <div class="content">
         ${renderContent(items)}
       </div>
     </div>
+    ${renderSettingsPopover()}
     ${renderAddEditModal(groups)}
     ${renderGroupsModal(groups)}
     ${renderCtxMenu()}
@@ -191,8 +205,27 @@ function renderContent(items: BookmarkData['items']) {
   }).join('')}</div>`
 }
 
-function renderDataDirPanel() {
-  if (!dataDirStatus && !bootstrapError) return ''
+function renderSettingsPopover() {
+  const openClass = settingsOpen ? ' open' : ''
+  return `
+    <div class="settingsPopover${openClass}" data-role="settingsPopover">
+      <div class="settingsHead">
+        <div class="settingsTitle">设置</div>
+        <button class="btn" data-act="closeSettings">关闭</button>
+      </div>
+      ${renderDataDirSettings()}
+    </div>
+  `
+}
+
+function renderDataDirSettings() {
+  if (!dataDirStatus && !bootstrapError) {
+    return `
+      <div class="statusPanel">
+        <div class="statusLine"><span class="statusLabel">数据目录</span><span>正在读取...</span></div>
+      </div>
+    `
+  }
   const status = dataDirStatus
   const hasError = !!bootstrapError || !!status?.error || status?.writable === false
   const dataDir = status?.dataDir || '未就绪'
@@ -344,8 +377,11 @@ document.addEventListener('click', async event => {
 
   // context-dismiss
   if (ctxMenu.open && !el.closest('[data-role="ctxMenu"]')) { closeCtx(); render() }
+  if (settingsOpen && !el.closest('[data-role="settingsPopover"]') && !el.closest('[data-act="settings"]')) { settingsOpen = false; render() }
 
   if (act === 'back') return getCurrentWindow().hide()
+  if (act === 'settings') { settingsOpen = !settingsOpen; render(); return }
+  if (act === 'closeSettings') { settingsOpen = false; render(); return }
   if (act === 'winMinimize') return getCurrentWindow().minimize()
   if (act === 'winToggleMaximize') return getCurrentWindow().toggleMaximize()
   if (act === 'winClose') return getCurrentWindow().hide()
@@ -353,6 +389,7 @@ document.addEventListener('click', async event => {
     try {
       const picked = await invoke<DataDirStatus | null>('pick_data_dir')
       if (!picked) return
+      settingsOpen = false
       dataDirStatus = picked
       bootstrapError = ''
       bootstrapping = true
