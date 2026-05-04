@@ -1,0 +1,623 @@
+import * as React from 'react'
+import { Box, Menu, MenuItem, Typography } from '@mui/material'
+
+import type { AssetEntry } from '../assetTypes'
+import { kindFromMime, mimeFromExt, type NoteMeta } from '../core'
+import type { HyperCortexGateway } from '../gateway'
+import {
+  addRef,
+  createFolder,
+  deleteFolder,
+  getFolderById,
+  getRefsByFolderId,
+  removeRef,
+  updateFolderInfo,
+  type FavoriteFolder,
+  type FavoriteItemRef,
+  type HyperCortexFavoritesDocV1,
+} from '../favorites'
+import { getFolderRefIssue } from '../favoritesGraph'
+import { AssetCard } from './index-cards/AssetCard'
+import { FolderCard } from './index-cards/FolderCard'
+import { NoteCard } from './index-cards/NoteCard'
+import { StaleRefCard } from './index-cards/StaleRefCard'
+import { IndexCardShell } from './index-page/IndexCardShell'
+import { folderTitle } from './index-page/helpers'
+import { IndexPageDialogs } from './index-page/IndexPageDialogs'
+import { MuuriGrid } from './index-page/MuuriGrid'
+import { IndexPageToolbar } from './index-page/IndexPageToolbar'
+import type { AddKind, AddMode, DeleteEntityTarget, EditFolderTarget, ResizeHandleDirection } from './index-page/types'
+import { useIndexLayoutEditor } from './index-page/useIndexLayoutEditor'
+
+type Props = {
+  gateway: HyperCortexGateway
+  doc: HyperCortexFavoritesDocV1
+  currentFolderId: string
+  editMode: boolean
+  noteIndex?: Record<string, NoteMeta>
+  assetIndex?: Record<string, any>
+  onNavigateFolder: (folderId: string) => void
+  onOpenNote: (note: NoteMeta) => void
+  onOpenAsset: (asset: AssetEntry) => void
+  onDocChange: (doc: HyperCortexFavoritesDocV1) => void
+  onEditModeChange: (editMode: boolean) => void
+  onCreateNoteInIndex?: (folderId: string) => Promise<void> | void
+  onImportAssetsInIndex?: (folderId: string) => Promise<void> | void
+  onDeleteFolderEntity?: (folderId: string) => void
+  onDeleteNoteEntity?: (note: NoteMeta) => void
+  onDeleteAssetEntity?: (asset: AssetEntry) => void
+}
+
+function buildAssetLookup(assetIndex?: Record<string, any>): {
+  byKey: Record<string, AssetEntry>
+  byAssetId: Record<string, AssetEntry>
+} {
+  const byKey: Record<string, AssetEntry> = {}
+  const byAssetId: Record<string, AssetEntry> = {}
+  if (!assetIndex) return { byKey, byAssetId }
+
+  for (const [k, v] of Object.entries(assetIndex)) {
+    if (!v || typeof v !== 'object') continue
+    const raw = v as any
+    const key = String(k || '').trim()
+    const dotIdx = key.lastIndexOf('.')
+    const assetId = String(raw.assetId || (dotIdx > 0 ? key.slice(0, dotIdx) : key)).trim()
+    const ext = String(raw.ext || (dotIdx > 0 ? key.slice(dotIdx + 1) : '')).trim().toLowerCase()
+    const relPath = String(raw.relPath || raw.path || '').trim()
+    if (!assetId || !relPath) continue
+    const mime = mimeFromExt(ext)
+    const kind = String(raw.kind || '').trim() || (mime ? kindFromMime(mime) : 'document')
+    const asset: AssetEntry = {
+      relPath,
+      fileName: String(raw.fileName || key || (ext ? `${assetId}.${ext}` : assetId)),
+      displayName: String(raw.displayName || '').trim() || undefined,
+      assetId,
+      ext,
+      kind: kind || 'document',
+      size: Number(raw.size || 0) || 0,
+      modifiedMs: Number(raw.modifiedMs || 0) || 0,
+    }
+    const refKey = ext ? `${assetId}.${ext}` : assetId
+    byKey[key || refKey] = asset
+    byKey[refKey] = asset
+    byAssetId[assetId] = asset
+  }
+  return { byKey, byAssetId }
+}
+
+export function IndexPage(props: Props): React.ReactNode {
+  const {
+    gateway,
+    doc,
+    currentFolderId,
+    editMode,
+    noteIndex,
+    assetIndex,
+    onNavigateFolder,
+    onOpenNote,
+    onOpenAsset,
+    onDocChange,
+    onEditModeChange,
+    onCreateNoteInIndex,
+    onImportAssetsInIndex,
+    onDeleteFolderEntity,
+    onDeleteNoteEntity,
+    onDeleteAssetEntity,
+  } = props
+
+  const [breadcrumb, setBreadcrumb] = React.useState<string[]>(['root'])
+  const [addExistingAnchorEl, setAddExistingAnchorEl] = React.useState<HTMLElement | null>(null)
+  const [createNewAnchorEl, setCreateNewAnchorEl] = React.useState<HTMLElement | null>(null)
+  const [addMode, setAddMode] = React.useState<AddMode | null>(null)
+  const [addKind, setAddKind] = React.useState<AddKind | null>(null)
+  const [folderTitleDraft, setFolderTitleDraft] = React.useState('')
+  const [folderDescriptionDraft, setFolderDescriptionDraft] = React.useState('')
+  const [noteIdDraft, setNoteIdDraft] = React.useState('')
+  const [assetIdDraft, setAssetIdDraft] = React.useState('')
+  const [noteSearch, setNoteSearch] = React.useState('')
+  const [assetSearch, setAssetSearch] = React.useState('')
+  const [deleteFolderConfirmId, setDeleteFolderConfirmId] = React.useState('')
+  const [deleteEntityTarget, setDeleteEntityTarget] = React.useState<DeleteEntityTarget | null>(null)
+  const [editFolderTarget, setEditFolderTarget] = React.useState<EditFolderTarget | null>(null)
+  const [editFolderTitleDraft, setEditFolderTitleDraft] = React.useState('')
+  const [editFolderDescriptionDraft, setEditFolderDescriptionDraft] = React.useState('')
+
+  const refs = React.useMemo(() => getRefsByFolderId(doc, currentFolderId), [doc, currentFolderId])
+  const currentTitle = React.useMemo(() => folderTitle(doc, currentFolderId), [doc, currentFolderId])
+  const assetLookup = React.useMemo(() => buildAssetLookup(assetIndex), [assetIndex])
+  const canGoBack = breadcrumb.length > 1
+
+  const { gridRef, draggingRefId, dropIndicatorLayout, getPreviewLayout, beginResize, previewDragLayout, commitDragPreview, cancelDragPreview, handleDragStateChange, isResizingRef } = useIndexLayoutEditor({
+    refs,
+    doc,
+    currentFolderId,
+    editMode,
+    onDocChange,
+  })
+
+  React.useEffect(() => {
+    const nextId = String(currentFolderId || '').trim() || 'root'
+    setBreadcrumb(prev => {
+      const base = prev?.length ? prev : ['root']
+      if (nextId === 'root') return ['root']
+      if (base[base.length - 1] === nextId) return base
+      const existingIdx = base.indexOf(nextId)
+      if (existingIdx >= 0) return base.slice(0, existingIdx + 1)
+      if (base[0] !== 'root') return ['root', ...base, nextId]
+      return [...base, nextId]
+    })
+  }, [currentFolderId])
+
+  const closeAddMenus = () => {
+    setAddExistingAnchorEl(null)
+    setCreateNewAnchorEl(null)
+  }
+  const openAddExistingMenu = (el: HTMLElement) => setAddExistingAnchorEl(el)
+  const openCreateNewMenu = (el: HTMLElement) => setCreateNewAnchorEl(el)
+
+  const openAddDialog = (mode: AddMode, kind: AddKind) => {
+    closeAddMenus()
+    setAddMode(mode)
+    setAddKind(kind)
+    setFolderTitleDraft('')
+    setFolderDescriptionDraft('')
+    setNoteIdDraft('')
+    setAssetIdDraft('')
+    setNoteSearch('')
+    setAssetSearch('')
+  }
+
+  const closeAddDialog = () => {
+    setAddMode(null)
+    setAddKind(null)
+  }
+
+  const createNewNote = React.useCallback(() => {
+    closeAddMenus()
+    void onCreateNoteInIndex?.(currentFolderId)
+  }, [currentFolderId, onCreateNoteInIndex])
+
+  const importNewAssets = React.useCallback(() => {
+    closeAddMenus()
+    void onImportAssetsInIndex?.(currentFolderId)
+  }, [currentFolderId, onImportAssetsInIndex])
+
+  const removeOneRef = React.useCallback(
+    (refId: string) => {
+      const next = removeRef(doc, refId)
+      if (next !== doc) onDocChange(next)
+    },
+    [doc, onDocChange],
+  )
+
+  const confirmAddFolder = React.useCallback(() => {
+    const created = createFolder(doc, folderTitleDraft, folderDescriptionDraft)
+    const added = addRef(created.doc, currentFolderId, 'folder', created.folder.id)
+    onDocChange(added?.doc || created.doc)
+    closeAddDialog()
+  }, [currentFolderId, doc, folderDescriptionDraft, folderTitleDraft, onDocChange])
+
+  const addExistingFolder = React.useCallback(
+    (folderId: string) => {
+      const issue = getFolderRefIssue(doc, currentFolderId, folderId)
+      if (issue === 'self-reference') {
+        void gateway.host.toast('不能把当前收藏夹再次引用到自己页面里')
+        return
+      }
+      if (issue === 'cycle') {
+        void gateway.host.toast('这次添加会形成收藏夹循环引用，已阻止')
+        return
+      }
+      const added = addRef(doc, currentFolderId, 'folder', folderId)
+      if (!added) {
+        void gateway.host.toast('这个收藏夹已经在当前页面里了，或无法添加')
+        return
+      }
+      onDocChange(added.doc)
+      closeAddDialog()
+    },
+    [currentFolderId, doc, gateway, onDocChange],
+  )
+
+  const confirmAddNote = React.useCallback(
+    (id?: string) => {
+      const targetId = String(id ?? noteIdDraft ?? '').trim()
+      if (!targetId) return
+      const added = addRef(doc, currentFolderId, 'note', targetId)
+      if (!added) {
+        void gateway.host.toast('这条笔记已经在当前页面里了，或无法添加')
+        return
+      }
+      onDocChange(added.doc)
+      closeAddDialog()
+    },
+    [currentFolderId, doc, gateway, noteIdDraft, onDocChange],
+  )
+
+  const confirmAddAsset = React.useCallback(
+    (id?: string) => {
+      const targetId = String(id ?? assetIdDraft ?? '').trim()
+      if (!targetId) return
+      const added = addRef(doc, currentFolderId, 'asset', targetId)
+      if (!added) {
+        void gateway.host.toast('这个附件已经在当前页面里了，或无法添加')
+        return
+      }
+      onDocChange(added.doc)
+      closeAddDialog()
+    },
+    [assetIdDraft, currentFolderId, doc, gateway, onDocChange],
+  )
+
+  const folderSuggestions = React.useMemo(() => {
+    const all = Object.values(doc.folders || {})
+      .filter(f => f && f.id && f.id !== 'root' && f.id !== currentFolderId)
+      .sort((a, b) => (b.updatedAtMs || 0) - (a.updatedAtMs || 0))
+    return all.slice(0, 12)
+  }, [doc, currentFolderId])
+
+  const folderDisabledReasonById = React.useMemo(() => {
+    const out: Record<string, string> = {}
+    for (const folder of folderSuggestions) {
+      const issue = getFolderRefIssue(doc, currentFolderId, folder.id)
+      if (issue === 'cycle') out[folder.id] = '会形成循环引用，不能添加'
+      else if (issue === 'self-reference') out[folder.id] = '不能引用自己'
+    }
+    return out
+  }, [currentFolderId, doc, folderSuggestions])
+
+  const noteSuggestions = React.useMemo(() => {
+    if (!noteIndex) return []
+    const q = String(noteSearch || '').trim().toLowerCase()
+    const all = Object.values(noteIndex || {}).sort((a, b) => (b.updatedAtMs || 0) - (a.updatedAtMs || 0))
+    const filtered = q ? all.filter(n => String(n.title || '').toLowerCase().includes(q) || String(n.id || '').toLowerCase().includes(q)) : all
+    return filtered.slice(0, 20)
+  }, [noteIndex, noteSearch])
+
+  const assetSuggestions = React.useMemo(() => {
+    const values = Object.values(assetLookup.byKey || {})
+    const uniq: AssetEntry[] = []
+    const seen = new Set<string>()
+    for (const a of values) {
+      const key = a.ext ? `${a.assetId}.${a.ext}` : a.assetId
+      if (seen.has(key)) continue
+      seen.add(key)
+      uniq.push(a)
+    }
+    uniq.sort((a, b) => (b.modifiedMs || 0) - (a.modifiedMs || 0))
+    const q = String(assetSearch || '').trim().toLowerCase()
+    const filtered = q
+      ? uniq.filter(a => {
+          const key = `${a.assetId}.${a.ext}`.toLowerCase()
+          const name = String(a.displayName || a.fileName || '').toLowerCase()
+          return key.includes(q) || name.includes(q)
+        })
+      : uniq
+    return filtered.slice(0, 20)
+  }, [assetLookup, assetSearch])
+
+  const handleGoBack = React.useCallback(() => {
+    if (!canGoBack) {
+      void gateway.host.toast('没有上一层索引路径了')
+      return
+    }
+    const prevId = breadcrumb[breadcrumb.length - 2] || 'root'
+    onNavigateFolder(prevId)
+  }, [breadcrumb, canGoBack, gateway, onNavigateFolder])
+
+  const openDeleteCurrentFolderConfirm = React.useCallback(() => {
+    if (currentFolderId === 'root') {
+      void gateway.host.toast('根收藏夹不能删除')
+      return
+    }
+    setDeleteFolderConfirmId(currentFolderId)
+  }, [currentFolderId, gateway])
+
+  const confirmDeleteCurrentFolder = React.useCallback(() => {
+    const targetId = String(deleteFolderConfirmId || '').trim()
+    if (!targetId) return
+    const nextDoc = deleteFolder(doc, targetId)
+    if (!nextDoc) {
+      void gateway.host.toast('删除收藏夹失败')
+      return
+    }
+    onDocChange(nextDoc)
+    setDeleteFolderConfirmId('')
+    onNavigateFolder('root')
+    onDeleteFolderEntity?.(targetId)
+  }, [deleteFolderConfirmId, doc, gateway, onDeleteFolderEntity, onDocChange, onNavigateFolder])
+
+  const confirmDeleteEntity = React.useCallback(() => {
+    const target = deleteEntityTarget
+    if (!target) return
+    setDeleteEntityTarget(null)
+    if (target.kind === 'folder') {
+      const nextDoc = deleteFolder(doc, target.folderId)
+      if (!nextDoc) {
+        void gateway.host.toast('删除收藏夹失败')
+        return
+      }
+      onDocChange(nextDoc)
+      onDeleteFolderEntity?.(target.folderId)
+      if (target.folderId === currentFolderId) onNavigateFolder('root')
+      return
+    }
+    if (target.kind === 'note') {
+      onDeleteNoteEntity?.(target.note)
+      return
+    }
+    onDeleteAssetEntity?.(target.asset)
+  }, [currentFolderId, deleteEntityTarget, doc, gateway, onDeleteAssetEntity, onDeleteFolderEntity, onDeleteNoteEntity, onDocChange, onNavigateFolder])
+
+  const openEditFolderDialog = React.useCallback((folder: FavoriteFolder) => {
+    const target = {
+      folderId: folder.id,
+      title: folder.title || '未命名收藏夹',
+      description: folder.description || '',
+    }
+    setEditFolderTarget(target)
+    setEditFolderTitleDraft(target.title)
+    setEditFolderDescriptionDraft(target.description)
+  }, [])
+
+  const closeEditFolderDialog = React.useCallback(() => {
+    setEditFolderTarget(null)
+    setEditFolderTitleDraft('')
+    setEditFolderDescriptionDraft('')
+  }, [])
+
+  const confirmEditFolder = React.useCallback(() => {
+    const targetId = String(editFolderTarget?.folderId || '').trim()
+    if (!targetId) return
+    const nextDoc = updateFolderInfo(doc, targetId, {
+      title: editFolderTitleDraft,
+      description: editFolderDescriptionDraft,
+    })
+    if (!nextDoc) {
+      void gateway.host.toast('收藏夹标题不能为空')
+      return
+    }
+    if (nextDoc !== doc) onDocChange(nextDoc)
+    closeEditFolderDialog()
+  }, [closeEditFolderDialog, doc, editFolderDescriptionDraft, editFolderTarget, editFolderTitleDraft, gateway, onDocChange])
+
+  const breadcrumbItems = React.useMemo(
+    () => breadcrumb.map(id => ({ id, title: folderTitle(doc, id) })),
+    [breadcrumb, doc],
+  )
+
+  const renderFolderSuggestionCard = React.useCallback(
+    (folder: FavoriteFolder) => {
+      const refCount = getRefsByFolderId(doc, folder.id).length
+      return <FolderCard folderId={folder.id} title={folder.title} description={folder.description} refCount={refCount} disabled onClick={() => {}} />
+    },
+    [doc],
+  )
+
+  const renderRef = React.useCallback(
+    (
+      ref: FavoriteItemRef,
+      options?: { dragging: boolean },
+    ): React.ReactNode => {
+      const onStartResize = editMode ? (direction: ResizeHandleDirection, e: React.PointerEvent) => beginResize(ref, direction, e) : undefined
+
+      if (ref.kind === 'folder') {
+        const folder = getFolderById(doc, ref.targetId)
+        if (!folder) {
+          const compact = getPreviewLayout(ref).h <= 1
+          return (
+            <IndexCardShell
+              editMode={editMode}
+              dragging={options?.dragging}
+              resizing={isResizingRef(ref.id)}
+              onRemove={() => removeOneRef(ref.id)}
+              onStartResize={onStartResize}
+            >
+              <StaleRefCard ref={ref} compact={compact} disabled={editMode} onClickRemove={removeOneRef} />
+            </IndexCardShell>
+          )
+        }
+        const refCount = getRefsByFolderId(doc, folder.id).length
+        const compact = getPreviewLayout(ref).h <= 1
+        return (
+          <IndexCardShell
+            editMode={editMode}
+            dragging={options?.dragging}
+            resizing={isResizingRef(ref.id)}
+            onRemove={() => removeOneRef(ref.id)}
+            onEditEntity={() => openEditFolderDialog(folder)}
+            onDeleteEntity={() => setDeleteEntityTarget({ kind: 'folder', title: folder.title || '未命名收藏夹', folderId: folder.id })}
+            onStartResize={onStartResize}
+          >
+            <FolderCard folderId={folder.id} title={folder.title} description={folder.description} refCount={refCount} compact={compact} disabled={editMode} onClick={fid => onNavigateFolder(fid)} />
+          </IndexCardShell>
+        )
+      }
+
+      if (ref.kind === 'note') {
+        const note = noteIndex?.[ref.targetId]
+        if (!note) {
+          const compact = getPreviewLayout(ref).h <= 1
+          return (
+            <IndexCardShell
+              editMode={editMode}
+              dragging={options?.dragging}
+              resizing={isResizingRef(ref.id)}
+              onRemove={() => removeOneRef(ref.id)}
+              onStartResize={onStartResize}
+            >
+              <StaleRefCard ref={ref} compact={compact} disabled={editMode} onClickRemove={removeOneRef} />
+            </IndexCardShell>
+          )
+        }
+        const compact = getPreviewLayout(ref).h <= 1
+        return (
+          <IndexCardShell
+            editMode={editMode}
+            dragging={options?.dragging}
+            resizing={isResizingRef(ref.id)}
+            onRemove={() => removeOneRef(ref.id)}
+            onDeleteEntity={() => setDeleteEntityTarget({ kind: 'note', title: note.title || '未命名笔记', note })}
+            onStartResize={onStartResize}
+          >
+            <NoteCard note={note} compact={compact} disabled={editMode} onClick={onOpenNote} />
+          </IndexCardShell>
+        )
+      }
+
+      if (ref.kind === 'asset') {
+        const asset = assetLookup.byKey[ref.targetId] || assetLookup.byAssetId[ref.targetId]
+        if (!asset) {
+          const compact = getPreviewLayout(ref).h <= 1
+          return (
+            <IndexCardShell
+              editMode={editMode}
+              dragging={options?.dragging}
+              resizing={isResizingRef(ref.id)}
+              onRemove={() => removeOneRef(ref.id)}
+              onStartResize={onStartResize}
+            >
+              <StaleRefCard ref={ref} compact={compact} disabled={editMode} onClickRemove={removeOneRef} />
+            </IndexCardShell>
+          )
+        }
+        const compact = getPreviewLayout(ref).h <= 1
+        return (
+          <IndexCardShell
+            editMode={editMode}
+            dragging={options?.dragging}
+            resizing={isResizingRef(ref.id)}
+            onRemove={() => removeOneRef(ref.id)}
+            onDeleteEntity={() => setDeleteEntityTarget({ kind: 'asset', title: String(asset.displayName || asset.fileName || asset.assetId), asset })}
+            onStartResize={onStartResize}
+          >
+            <AssetCard asset={asset} compact={compact} disabled={editMode} onClick={onOpenAsset} />
+          </IndexCardShell>
+        )
+      }
+
+      return (
+        <IndexCardShell
+          editMode={editMode}
+          dragging={options?.dragging}
+          resizing={isResizingRef(ref.id)}
+          onRemove={() => removeOneRef(ref.id)}
+          onStartResize={onStartResize}
+        >
+          <StaleRefCard ref={ref} compact={getPreviewLayout(ref).h <= 1} disabled={editMode} onClickRemove={removeOneRef} />
+        </IndexCardShell>
+      )
+    },
+    [
+      assetLookup.byAssetId,
+      assetLookup.byKey,
+      beginResize,
+      doc,
+      editMode,
+      getPreviewLayout,
+      isResizingRef,
+      noteIndex,
+      openEditFolderDialog,
+      onNavigateFolder,
+      onOpenAsset,
+      onOpenNote,
+      removeOneRef,
+    ],
+  )
+
+  return (
+    <Box sx={{ px: 1.5, py: 1.5 }}>
+      <IndexPageToolbar
+        breadcrumb={breadcrumbItems}
+        canGoBack={canGoBack}
+        currentTitle={currentTitle}
+        refsCount={refs.length}
+        editMode={editMode}
+        currentFolderId={currentFolderId}
+        onGoBack={handleGoBack}
+        onNavigateFolder={onNavigateFolder}
+        onOpenAddExistingMenu={openAddExistingMenu}
+        onOpenCreateNewMenu={openCreateNewMenu}
+        onToggleEditMode={() => onEditModeChange(!editMode)}
+        onDeleteCurrentFolder={openDeleteCurrentFolderConfirm}
+      />
+
+      {refs.length === 0 ? (
+        <Box sx={{ px: 1, py: 4, borderRadius: 4, bgcolor: 'rgba(0,0,0,.02)', textAlign: 'center' }}>
+          <Typography sx={{ fontSize: 14, fontWeight: 800, color: 'rgba(0,0,0,.70)' }}>这个收藏夹还是空的</Typography>
+          {editMode ? <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.45)', pt: 0.75 }}>点击右上角添加卡片</Typography> : null}
+        </Box>
+      ) : (
+        <MuuriGrid
+          refs={refs}
+          editMode={editMode}
+          gridRef={gridRef}
+          getLayout={getPreviewLayout}
+          draggingRefId={draggingRefId}
+          dropIndicatorLayout={dropIndicatorLayout}
+          onPreviewDragLayout={previewDragLayout}
+          onCommitDrag={commitDragPreview}
+          onCancelPreview={cancelDragPreview}
+          onDragStateChange={handleDragStateChange}
+          renderItem={(ref, isDragging) => renderRef(ref, { dragging: isDragging })}
+        />
+      )}
+
+      <Menu open={!!addExistingAnchorEl} onClose={closeAddMenus} anchorEl={addExistingAnchorEl} PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}>
+        <MenuItem onClick={() => openAddDialog('existing', 'folder')}>已有收藏夹</MenuItem>
+        <MenuItem onClick={() => openAddDialog('existing', 'note')}>已有笔记</MenuItem>
+        <MenuItem onClick={() => openAddDialog('existing', 'asset')}>已有附件</MenuItem>
+      </Menu>
+
+      <Menu open={!!createNewAnchorEl} onClose={closeAddMenus} anchorEl={createNewAnchorEl} PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}>
+        <MenuItem onClick={() => openAddDialog('create', 'folder')}>新收藏夹</MenuItem>
+        <MenuItem onClick={createNewNote}>新笔记</MenuItem>
+        <MenuItem onClick={importNewAssets}>上传附件</MenuItem>
+      </Menu>
+
+      <IndexPageDialogs
+        doc={doc}
+        currentFolderId={currentFolderId}
+        addMode={addMode}
+        addKind={addKind}
+        folderTitleDraft={folderTitleDraft}
+        folderDescriptionDraft={folderDescriptionDraft}
+        noteIdDraft={noteIdDraft}
+        assetIdDraft={assetIdDraft}
+        noteSearch={noteSearch}
+        assetSearch={assetSearch}
+        noteIndex={noteIndex}
+        folderSuggestions={folderSuggestions}
+        folderDisabledReasonById={folderDisabledReasonById}
+        noteSuggestions={noteSuggestions}
+        assetSuggestions={assetSuggestions}
+        assetLookupKeyCount={Object.keys(assetLookup.byKey).length}
+        deleteFolderConfirmId={deleteFolderConfirmId}
+        deleteEntityTarget={deleteEntityTarget}
+        editFolderTarget={editFolderTarget}
+        editFolderTitleDraft={editFolderTitleDraft}
+        editFolderDescriptionDraft={editFolderDescriptionDraft}
+        onCloseAddDialog={closeAddDialog}
+        onFolderTitleDraftChange={setFolderTitleDraft}
+        onFolderDescriptionDraftChange={setFolderDescriptionDraft}
+        onNoteIdDraftChange={setNoteIdDraft}
+        onAssetIdDraftChange={setAssetIdDraft}
+        onNoteSearchChange={setNoteSearch}
+        onAssetSearchChange={setAssetSearch}
+        onConfirmAddFolder={confirmAddFolder}
+        onAddExistingFolder={addExistingFolder}
+        onConfirmAddNote={confirmAddNote}
+        onConfirmAddAsset={confirmAddAsset}
+        renderFolderSuggestionCard={renderFolderSuggestionCard}
+        onCloseDeleteFolder={() => setDeleteFolderConfirmId('')}
+        onConfirmDeleteFolder={confirmDeleteCurrentFolder}
+        onCloseDeleteEntity={() => setDeleteEntityTarget(null)}
+        onConfirmDeleteEntity={confirmDeleteEntity}
+        onCloseEditFolder={closeEditFolderDialog}
+        onEditFolderTitleDraftChange={setEditFolderTitleDraft}
+        onEditFolderDescriptionDraftChange={setEditFolderDescriptionDraft}
+        onConfirmEditFolder={confirmEditFolder}
+      />
+    </Box>
+  )
+}
