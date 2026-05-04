@@ -14,7 +14,7 @@ export function createEventHandlers(deps: {
   render: () => void
   showToast?: (msg: any) => void
   clipboard?: { writeText?: (text: string) => Promise<void>; writeImage?: (...args: any[]) => void; readText?: () => Promise<string> }
-  pickImages?: () => void
+  pickImages?: (maxCount?: number) => Promise<any[]> | void
 }) {
   let mermaidDrag: any = null
 
@@ -42,7 +42,7 @@ export function createEventHandlers(deps: {
     d.stage.scrollTop = d.st - dy
   }
 
-  function onMouseUpMermaid(_e: MouseEvent) {
+  function onMouseUpMermaid(_e: Event) {
     if (!mermaidDrag) return
     cancelMermaidDrag()
   }
@@ -261,7 +261,7 @@ export function createEventHandlers(deps: {
 
   function onInput(e: Event) {
     const t = e?.target
-    if (!(t instanceof HTMLElement)) return
+    if (!(t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement)) return
     const bind = t.getAttribute('data-bind') || ''
     if (!bind) return
     const state = deps.getState()
@@ -270,7 +270,7 @@ export function createEventHandlers(deps: {
 
   function onChange(e: Event) {
     const t = e?.target
-    if (!(t instanceof HTMLElement)) return
+    if (!(t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement)) return
     const bind = t.getAttribute('data-bind') || ''
     if (!bind) return
     const state = deps.getState()

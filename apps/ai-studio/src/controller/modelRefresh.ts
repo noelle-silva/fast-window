@@ -8,7 +8,7 @@ export function createModelRefresh(deps: {
   emit: () => void
   showToast?: (msg: string) => void
 }) {
-  async function refreshModels(providerId, force) {
+  async function refreshModels(providerId: string, force: boolean) {
     const s = deps.getState()
     const p = deps.getProvider(providerId)
     if (!p) return
@@ -55,17 +55,17 @@ export function createModelRefresh(deps: {
       if (!list) throw new Error('models 响应格式不支持（期望 data[] 或 models[]）')
 
       const ids = list
-        .map((m) => (m && typeof m.id === 'string' ? m.id : ''))
-        .filter((x) => !!x)
+        .map((m: any) => (m && typeof m.id === 'string' ? m.id : ''))
+        .filter((x: string) => !!x)
         .slice(0, 800)
-        .sort((a, b) => String(a).localeCompare(String(b)))
+        .sort((a: string, b: string) => String(a).localeCompare(String(b)))
 
       p.modelsCache = { items: ids, fetchedAt: now() }
       await deps.save()
 
       s.models = { loading: false, error: '', items: ids.slice(0, 300) }
       deps.showToast?.(`模型已刷新（${ids.length}）`)
-    } catch (e) {
+    } catch (e: any) {
       s.models = { loading: false, error: String(e?.message || e || '获取模型失败'), items: [] }
       deps.showToast?.(s.models.error || '获取模型失败')
     } finally {
@@ -73,7 +73,7 @@ export function createModelRefresh(deps: {
     }
   }
 
-  function resolveAiModelId(modelPick, customModelId) {
+  function resolveAiModelId(modelPick: any, customModelId: any) {
     const pick = String(modelPick || '').trim()
     if (!pick) return ''
     if (pick === '__custom__') return String(customModelId || '').trim()

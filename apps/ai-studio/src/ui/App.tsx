@@ -78,10 +78,18 @@ import { ProvidersDialog } from './dialogs/ProvidersDialog'
 import { RoleDialog } from './dialogs/RoleDialog'
 import { ToolServerToolsDialog } from './dialogs/ToolServerToolsDialog'
 import { GroupDialog } from './dialogs/GroupDialog'
+
+const isRenderableNode = (node: React.ReactNode): node is Exclude<React.ReactNode, null> => node !== null
 import { ConfirmDialog } from './dialogs/ConfirmDialog'
 import { MermaidDialog } from './dialogs/MermaidDialog'
 import { ImageDialog } from './dialogs/ImageDialog'
 import { RoleAvatarCropper } from './components/avatar/RoleAvatarCropper'
+
+const MERMAID_COPY_IMAGE_MIN_SCALE = 3
+const MERMAID_COPY_IMAGE_MAX_SCALE = 6
+const MERMAID_COPY_IMAGE_DPR_FACTOR = 3
+const MERMAID_COPY_IMAGE_MAX_SIDE = 12288
+const MERMAID_COPY_IMAGE_BG = '#ffffff'
 
 function isNearBottom(el: HTMLElement, thresholdPx = 24) {
   const gap = el.scrollHeight - el.scrollTop - el.clientHeight
@@ -2499,7 +2507,7 @@ export function AiChatApp(props: { controller: any }) {
         const refs = Array.isArray((favoriteChatRefsByFolderId as any)?.[fid]) ? (favoriteChatRefsByFolderId as any)[fid] : []
         const visibleChildren = children
           .map((child: any) => renderNode(child, depth2 + 1))
-          .filter((node) => node !== null)
+          .filter(isRenderableNode)
         const visibleRefs = refs
           .map((ref: any) => {
             const targetKind = String(ref?.targetKind || '').trim() === 'group' ? 'group' : 'role'
@@ -2533,7 +2541,7 @@ export function AiChatApp(props: { controller: any }) {
               </ListItemButton>
             )
           })
-          .filter((node) => node !== null)
+          .filter(isRenderableNode)
         if (!itemMatches(folder, refs) && !visibleChildren.length && !visibleRefs.length) return null
         const expanded = q ? true : favoriteFolderExpanded[fid] ?? true
         return (
@@ -2560,7 +2568,7 @@ export function AiChatApp(props: { controller: any }) {
         )
       }
       const items = favoriteChildrenMap[String(parentId || '')] || []
-      return items.map((folder: any) => renderNode(folder, depth)).filter((node) => node !== null)
+      return items.map((folder: any) => renderNode(folder, depth)).filter(isRenderableNode)
     },
     [
       favoriteChildrenMap,
@@ -4666,9 +4674,6 @@ export function AiChatApp(props: { controller: any }) {
                                     setTreeSelectedMid(id)
                                     setTreePop({ id, at: Date.now() })
                                     jumpToMessage(id)
-                                  }}
-                                  onContextMenu={(ev) => {
-                                    onTreeNodeContextMenu(ev, id, isAi ? 'assistant' : 'user')
                                   }}
                                   onContextMenu={(ev) => {
                                     onTreeNodeContextMenu(ev, id, isAi ? 'assistant' : 'user')

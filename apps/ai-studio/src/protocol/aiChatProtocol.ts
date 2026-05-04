@@ -10,6 +10,7 @@ export const AI_CHAT_DIRECT_METHOD = {
   readAssistantStream: 'aiChat.readAssistantStream',
   consumeAssistantFinal: 'aiChat.consumeAssistantFinal',
   resetAssistantRuntime: 'aiChat.resetAssistantRuntime',
+  netRequest: 'aiChat.netRequest',
   storageGet: 'aiChat.storageGet',
   storageSet: 'aiChat.storageSet',
   storageRemove: 'aiChat.storageRemove',

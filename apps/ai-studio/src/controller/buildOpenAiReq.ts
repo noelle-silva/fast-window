@@ -33,7 +33,7 @@ export function createBuildOpenAiReq(deps: {
     return meta
   }
 
-  async function buildOpenAiChatReqFromStorage(job) {
+  async function buildOpenAiChatReqFromStorage(job: any) {
     const roleId = String(job?.roleId || '')
     const chatId = String(job?.chatId || '')
     if (!roleId || !chatId) throw new Error('job 缺少 roleId/chatId')
@@ -67,20 +67,20 @@ export function createBuildOpenAiReq(deps: {
     if (!role.modelRef.providerId) role.modelRef.providerId = fallbackPid
     if (typeof role.modelRef.modelId !== 'string') role.modelRef.modelId = ''
 
-    const providers = Array.isArray(d?.settings?.providers) ? d.settings.providers : []
+    const providers: any[] = Array.isArray(d?.settings?.providers) ? d.settings.providers : []
 
     let providerId = String(role.modelRef?.providerId || '')
     let modelId = String(role.modelRef?.modelId || '').trim()
     const o = normalizeChatModelOverride(chat)
     if (o) {
-      const p0 = providers.find((x) => String(x?.id || '') === o.providerId) || null
+      const p0 = providers.find((x: any) => String(x?.id || '') === o.providerId) || null
       if (p0) {
         providerId = o.providerId
         modelId = o.modelId
       }
     }
 
-    const p = providers.find((x) => String(x?.id || '') === providerId) || null
+    const p = providers.find((x: any) => String(x?.id || '') === providerId) || null
     if (!p) throw new Error('供应商不存在')
 
     const baseUrl = trimSlash(p.baseUrl || '')
@@ -90,7 +90,7 @@ export function createBuildOpenAiReq(deps: {
     if (!modelId) throw new Error('模型ID 为空')
 
     const cutoffMid = String(job?.cutoffMid || '').trim()
-    const msgs0 = Array.isArray(chat.messages) ? chat.messages : []
+    const msgs0: any[] = Array.isArray(chat.messages) ? chat.messages : []
 
     const branchIdRaw = String((job as any)?.branchId || '').trim()
     const wantBranchId = branchIdRaw ? normalizeBranchId(branchIdRaw) : ''
@@ -133,16 +133,16 @@ export function createBuildOpenAiReq(deps: {
     } else {
       let baseMsgs0 = msgs0
       if (cutoffMid) {
-        const idx = msgs0.findIndex((m) => String(m?.id || '') === cutoffMid)
+        const idx = msgs0.findIndex((m: any) => String(m?.id || '') === cutoffMid)
         if (idx >= 0) baseMsgs0 = msgs0.slice(0, idx)
       }
-      historySource = baseMsgs0.filter((m) => !(m && m.role === 'assistant' && m.pending))
+      historySource = baseMsgs0.filter((m: any) => !(m && m.role === 'assistant' && m.pending))
     }
 
     const history = limitHistory(historySource, 40)
 
     const sys = String(role.systemPrompt || '').trim()
-    const messages = []
+    const messages: any[] = []
     if (sys) messages.push({ role: 'system', content: sys })
 
     for (const m of history) {
@@ -152,12 +152,12 @@ export function createBuildOpenAiReq(deps: {
         const paths = normImagePaths(m?.images)
         if (paths.length) {
           if (typeof filesImagesRead !== 'function') throw new Error('未授权：files.images.read')
-          const parts = [{ type: 'text', text }]
+          const parts: any[] = [{ type: 'text', text }]
           for (const path of paths) {
             let dataUrl = ''
             try {
               dataUrl = await filesImagesRead({ scope: 'data', path })
-            } catch (e) {
+            } catch (e: any) {
               throw new Error(`读取图片失败：${String(e?.message || e || 'unknown')}`)
             }
             if (!looksLikeImageDataUrl(dataUrl)) throw new Error('读取图片失败：格式不支持')

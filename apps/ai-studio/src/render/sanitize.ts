@@ -226,7 +226,7 @@ export function createHtmlSanitizer(domPurifyHooked: BoolRef) {
       }
     }
 
-    for (const n of toRemove) n.remove()
+    for (const n of toRemove) n.parentNode?.removeChild(n)
     return tpl.innerHTML
   }
 

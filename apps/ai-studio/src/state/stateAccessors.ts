@@ -232,6 +232,22 @@ export function createStateAccessors(deps: {
     return chats.find((c: any) => String(c?.id || '') === cid) || null
   }
 
+  function pickChatModelRef(role: any, chat: any) {
+    const override = chat && typeof chat === 'object' ? chat.modelRef : null
+    const overrideProviderId = String(override?.providerId || '').trim()
+    const overrideModelId = String(override?.modelId || '').trim()
+    if (overrideProviderId && overrideModelId) {
+      const provider = getProvider(overrideProviderId)
+      if (provider) return { providerId: overrideProviderId, modelId: overrideModelId, overridden: true }
+    }
+
+    return {
+      providerId: String(role?.modelRef?.providerId || '').trim(),
+      modelId: String(role?.modelRef?.modelId || '').trim(),
+      overridden: false,
+    }
+  }
+
   return {
     getProvider,
     getRoleById,
@@ -253,5 +269,6 @@ export function createStateAccessors(deps: {
     createChatForGroup,
     findChatByIds,
     findGroupChatByIds,
+    pickChatModelRef,
   }
 }

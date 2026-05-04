@@ -170,14 +170,14 @@ export function createMermaidUi(deps: {
     d.stage.scrollTop = d.st - dy
   }
 
-  function onMouseUpMermaid(_e: MouseEvent) {
+  function onMouseUpMermaid(_e: Event) {
     if (!mermaidDrag) return
     cancelMermaidDrag()
   }
 
   const mermaidFixWriteQueue = new Map<string, Promise<void>>()
 
-  function enqueueMermaidFixWrite(messageId: string, fn: () => Promise<void>) {
+  function enqueueMermaidFixWrite<T>(messageId: string, fn: () => Promise<T>) {
     const mid = String(messageId || '').trim()
     if (!mid) return Promise.reject(new Error('未找到消息ID'))
 

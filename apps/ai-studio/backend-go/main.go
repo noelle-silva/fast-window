@@ -1,14 +1,18 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -31,11 +35,11 @@ type responseFrame struct {
 }
 
 type studioData struct {
-	SchemaVersion int                    `json:"schemaVersion"`
-	State         map[string]any         `json:"state"`
-	Conversations []conversation         `json:"conversations"`
-	Providers     []provider             `json:"providers"`
-	UpdatedAt     int64                  `json:"updatedAt"`
+	SchemaVersion int            `json:"schemaVersion"`
+	State         map[string]any `json:"state"`
+	Conversations []conversation `json:"conversations"`
+	Providers     []provider     `json:"providers"`
+	UpdatedAt     int64          `json:"updatedAt"`
 }
 
 type conversation struct {
@@ -67,8 +71,22 @@ type provider struct {
 }
 
 type service struct {
-	dataFile string
+	dataDir string
+	ai      *aiRunQueue
 }
+
+type storageValueFile struct {
+	Value any `json:"value"`
+}
+
+type storedImage struct {
+	RelPath string `json:"relPath"`
+	Path    string `json:"path"`
+	MIME    string `json:"mime"`
+	Size    int    `json:"size"`
+}
+
+var imageDataURLPattern = regexp.MustCompile(`^data:(image/[a-zA-Z0-9.+-]+);base64,`)
 
 func main() {
 	if err := run(); err != nil {
@@ -83,7 +101,7 @@ func run() error {
 		return errors.New("ai-studio-backend missing FW_APP_SESSION_TOKEN")
 	}
 
-	svc := &service{dataFile: resolveDataFilePath()}
+	svc := newService(resolveDataDir())
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return fmt.Errorf("failed to bind local websocket: %w", err)
@@ -143,12 +161,12 @@ func writeReady(port int) {
 	fmt.Println(string(line))
 }
 
-func resolveDataFilePath() string {
+func resolveDataDir() string {
 	dataDir := strings.TrimSpace(os.Getenv("FW_APP_DATA_DIR"))
 	if dataDir == "" {
 		dataDir = filepath.Join(mustGetwd(), "data")
 	}
-	return filepath.Join(dataDir, "studio.json")
+	return dataDir
 }
 
 func mustGetwd() string {
@@ -164,33 +182,21 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 	case "studio.bootstrap":
 		return svc.bootstrap()
 	case "studio.state.get":
-		data, err := svc.load()
-		if err != nil {
-			return nil, err
-		}
-		return data.State, nil
+		return svc.storageGetByKey("studio/state")
 	case "studio.state.save":
-		return svc.saveState(params)
+		return svc.saveStateCompat(params)
 	case "studio.conversation.list":
-		data, err := svc.load()
-		if err != nil {
-			return nil, err
-		}
-		return data.Conversations, nil
+		return []any{}, nil
 	case "studio.conversation.create":
-		return svc.createConversation(params)
+		return nil, errors.New("studio.conversation.create is superseded by aiChat split storage")
 	case "studio.conversation.update":
-		return svc.updateConversation(params)
+		return nil, errors.New("studio.conversation.update is superseded by aiChat split storage")
 	case "studio.conversation.delete":
-		return svc.deleteConversation(params)
+		return nil, errors.New("studio.conversation.delete is superseded by aiChat split storage")
 	case "studio.provider.list":
-		data, err := svc.load()
-		if err != nil {
-			return nil, err
-		}
-		return data.Providers, nil
+		return svc.bootstrapProviderList()
 	case "studio.provider.save":
-		return svc.saveProvider(params)
+		return nil, errors.New("studio.provider.save is superseded by aiChat split storage")
 	case "studio.message.send":
 		return nil, errors.New("AI 消息发送将在业务迁移阶段接入")
 	case "studio.message.cancel":
@@ -205,31 +211,101 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return svc.storageSet(params)
 	case "aiChat.storageRemove":
 		return svc.storageRemove(params)
+	case "aiChat.imageRead":
+		return svc.imageRead(params)
+	case "aiChat.imageWrite":
+		return svc.imageWrite(params)
+	case "aiChat.imageDelete":
+		return svc.imageDelete(params)
+	case "aiChat.imagePick":
+		return nil, errors.New("NOT_IMPLEMENTED: imagePick must be handled by UI host capability")
+	case "aiChat.netRequest":
+		return svc.netRequest(params)
+	case "aiChat.submitChatCompletion":
+		return svc.submitChatCompletion(params)
+	case "aiChat.submitManyChatCompletions":
+		return svc.submitManyChatCompletions(params)
+	case "aiChat.submitRawServiceRequest":
+		return svc.submitRawServiceRequest(params)
+	case "aiChat.waitServiceFinal":
+		return svc.waitServiceFinal(params)
+	case "aiChat.cancelAssistant":
+		return svc.cancelAssistant(params)
+	case "aiChat.readAssistantStream":
+		return svc.readAssistantStream(params)
+	case "aiChat.consumeAssistantFinal":
+		return svc.consumeAssistantFinal(params)
+	case "aiChat.resetAssistantRuntime":
+		return svc.resetAssistantRuntime(params)
 	default:
 		return nil, fmt.Errorf("未知请求：%s", method)
 	}
 }
 
 func (svc *service) bootstrap() (map[string]any, error) {
-	data, err := svc.load()
+	metaValue, err := svc.storageGetByKey("meta/index")
 	if err != nil {
 		return nil, err
 	}
+	meta, _ := metaValue.(map[string]any)
+	if meta == nil {
+		meta = map[string]any{}
+	}
+	settings, _ := meta["settings"].(map[string]any)
+	if settings == nil {
+		settings = map[string]any{}
+	}
+	providers, _ := settings["providers"].([]any)
+	if providers == nil {
+		providers = []any{}
+	}
 	return map[string]any{
-		"schemaVersion": data.SchemaVersion,
-		"state":         data.State,
-		"conversations": data.Conversations,
-		"providers":     data.Providers,
-		"dataFile":      svc.dataFile,
-		"updatedAt":     data.UpdatedAt,
+		"schemaVersion": 2,
+		"state":         map[string]any{},
+		"conversations": []any{},
+		"providers":     providers,
+		"dataFile":      svc.storageDir(),
+		"storageDir":    svc.storageDir(),
+		"updatedAt":     asInt64(meta["updatedAt"], 0),
 	}, nil
 }
 
+func (svc *service) bootstrapProviderList() ([]any, error) {
+	metaValue, err := svc.storageGetByKey("meta/index")
+	if err != nil {
+		return nil, err
+	}
+	meta, _ := metaValue.(map[string]any)
+	settings, _ := meta["settings"].(map[string]any)
+	providers, _ := settings["providers"].([]any)
+	if providers == nil {
+		providers = []any{}
+	}
+	return providers, nil
+}
+
+func (svc *service) saveStateCompat(params json.RawMessage) (map[string]bool, error) {
+	var payload map[string]any
+	if err := json.Unmarshal(params, &payload); err != nil {
+		return nil, err
+	}
+	state, ok := payload["state"]
+	if !ok {
+		state = payload
+	}
+	data, err := json.Marshal(state)
+	if err != nil {
+		return nil, err
+	}
+	return svc.storageSet(json.RawMessage(fmt.Sprintf(`{"key":"studio/state","value":%s}`, string(data))))
+}
+
 func (svc *service) load() (studioData, error) {
-	if err := os.MkdirAll(filepath.Dir(svc.dataFile), 0o755); err != nil {
+	legacyFile := svc.legacyStudioFilePath()
+	if err := os.MkdirAll(filepath.Dir(legacyFile), 0o755); err != nil {
 		return studioData{}, err
 	}
-	rawBytes, err := os.ReadFile(svc.dataFile)
+	rawBytes, err := os.ReadFile(legacyFile)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return studioData{}, err
 	}
@@ -246,7 +322,8 @@ func (svc *service) load() (studioData, error) {
 }
 
 func (svc *service) save(data studioData) error {
-	if err := os.MkdirAll(filepath.Dir(svc.dataFile), 0o755); err != nil {
+	legacyFile := svc.legacyStudioFilePath()
+	if err := os.MkdirAll(filepath.Dir(legacyFile), 0o755); err != nil {
 		return err
 	}
 	normalized := normalizeData(data)
@@ -256,7 +333,7 @@ func (svc *service) save(data studioData) error {
 		return err
 	}
 	payload = append(payload, '\n')
-	return os.WriteFile(svc.dataFile, payload, 0o644)
+	return atomicWriteFile(legacyFile, payload, 0o644)
 }
 
 func (svc *service) saveState(params json.RawMessage) (map[string]any, error) {
@@ -372,46 +449,127 @@ func (svc *service) saveProvider(params json.RawMessage) ([]provider, error) {
 }
 
 func (svc *service) storageGet(params json.RawMessage) (any, error) {
-	data, err := svc.load()
+	key := requestKey(params)
+	return svc.storageGetByKey(key)
+}
+
+func (svc *service) storageGetByKey(key string) (any, error) {
+	path, err := svc.storagePathForKey(key)
 	if err != nil {
 		return nil, err
 	}
-	key := requestKey(params)
-	if key == "" {
-		return nil, errors.New("key is required")
+	rawBytes, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
 	}
-	return data.State[key], nil
+	if err != nil {
+		return nil, err
+	}
+	var box map[string]json.RawMessage
+	if err := json.Unmarshal(rawBytes, &box); err == nil {
+		if rawValue, ok := box["value"]; ok {
+			var value any
+			if err := json.Unmarshal(rawValue, &value); err != nil {
+				return nil, err
+			}
+			return value, nil
+		}
+	}
+	var value any
+	if err := json.Unmarshal(rawBytes, &value); err != nil {
+		return nil, err
+	}
+	return value, nil
 }
 
 func (svc *service) storageSet(params json.RawMessage) (map[string]bool, error) {
-	data, err := svc.load()
-	if err != nil {
-		return nil, err
-	}
 	var payload map[string]any
 	_ = json.Unmarshal(params, &payload)
 	key := strings.TrimSpace(asString(payload["key"]))
-	if key == "" {
-		return nil, errors.New("key is required")
-	}
-	if data.State == nil {
-		data.State = map[string]any{}
-	}
-	data.State[key] = payload["value"]
-	return map[string]bool{"ok": true}, svc.save(data)
-}
-
-func (svc *service) storageRemove(params json.RawMessage) (map[string]bool, error) {
-	data, err := svc.load()
+	path, err := svc.storagePathForKey(key)
 	if err != nil {
 		return nil, err
 	}
-	key := requestKey(params)
-	if key == "" {
-		return nil, errors.New("key is required")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
 	}
-	delete(data.State, key)
-	return map[string]bool{"ok": true}, svc.save(data)
+	data, err := json.MarshalIndent(storageValueFile{Value: payload["value"]}, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	data = append(data, '\n')
+	return map[string]bool{"ok": true}, atomicWriteFile(path, data, 0o644)
+}
+
+func (svc *service) storageRemove(params json.RawMessage) (map[string]bool, error) {
+	key := requestKey(params)
+	path, err := svc.storagePathForKey(key)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	return map[string]bool{"ok": true}, nil
+}
+
+func (svc *service) imageRead(params json.RawMessage) (string, error) {
+	path, _, err := svc.imagePathFromRequest(params)
+	if err != nil {
+		return "", err
+	}
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	mime := imageMimeFromExt(filepath.Ext(path))
+	return "data:" + mime + ";base64," + base64.StdEncoding.EncodeToString(payload), nil
+}
+
+func (svc *service) imageWrite(params json.RawMessage) (storedImage, error) {
+	var payload map[string]any
+	_ = json.Unmarshal(params, &payload)
+	dataURL := strings.TrimSpace(firstNonEmptyString(payload["dataUrlOrBase64"], payload["dataUrl"], payload["base64"]))
+	if dataURL == "" {
+		return storedImage{}, errors.New("dataUrl is required")
+	}
+	mime, raw, err := decodeImageDataURL(dataURL)
+	if err != nil {
+		return storedImage{}, err
+	}
+	relPath := strings.TrimSpace(firstNonEmptyString(payload["relPath"], payload["path"]))
+	if relPath == "" {
+		relPath = filepath.ToSlash(filepath.Join("images", randomImageName(imageExtFromMime(mime))))
+	}
+	path, safeRel, err := svc.imagePathForRel(relPath)
+	if err != nil {
+		return storedImage{}, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return storedImage{}, err
+	}
+	if !truthy(payload["overwrite"]) {
+		if _, statErr := os.Stat(path); statErr == nil {
+			return storedImage{}, errors.New("image already exists")
+		} else if !errors.Is(statErr, os.ErrNotExist) {
+			return storedImage{}, statErr
+		}
+	}
+	if err := atomicWriteFile(path, raw, 0o644); err != nil {
+		return storedImage{}, err
+	}
+	return storedImage{RelPath: safeRel, Path: safeRel, MIME: mime, Size: len(raw)}, nil
+}
+
+func (svc *service) imageDelete(params json.RawMessage) (map[string]bool, error) {
+	path, _, err := svc.imagePathFromRequest(params)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	return map[string]bool{"ok": true}, nil
 }
 
 func defaultStudioData() studioData {
@@ -439,6 +597,224 @@ func normalizeData(data studioData) studioData {
 		data.Providers = []provider{}
 	}
 	return data
+}
+
+func (svc *service) legacyStudioFilePath() string {
+	return filepath.Join(svc.dataDir, "studio.json")
+}
+
+func (svc *service) storageDir() string {
+	return filepath.Join(svc.dataDir, "storage")
+}
+
+func (svc *service) runtimeStorageDir() string {
+	return filepath.Join(svc.dataDir, "runtime")
+}
+
+func (svc *service) imagesDir() string {
+	return filepath.Join(svc.dataDir, "files", "data")
+}
+
+func (svc *service) storagePathForKey(key string) (string, error) {
+	cleanKey, runtime, err := cleanStorageKey(key)
+	if err != nil {
+		return "", err
+	}
+	baseDir := svc.storageDir()
+	if runtime {
+		baseDir = svc.runtimeStorageDir()
+	}
+	return safeJoin(baseDir, filepath.FromSlash(cleanKey)+".json")
+}
+
+func cleanStorageKey(raw string) (string, bool, error) {
+	key := strings.TrimSpace(raw)
+	if key == "" {
+		return "", false, errors.New("key is required")
+	}
+	if len(key) > 600 {
+		return "", false, errors.New("storage key is too long")
+	}
+	if strings.Contains(key, "\\") || strings.ContainsRune(key, 0) || strings.HasPrefix(key, "/") {
+		return "", false, errors.New("storage key is invalid")
+	}
+	runtime := false
+	if strings.HasPrefix(key, "runtime/") {
+		runtime = true
+		key = strings.TrimPrefix(key, "runtime/")
+	}
+	parts := strings.Split(key, "/")
+	for _, part := range parts {
+		segment := strings.TrimSpace(part)
+		if segment == "" || segment == "." || segment == ".." {
+			return "", false, errors.New("storage key has invalid path segment")
+		}
+	}
+	return key, runtime, nil
+}
+
+func (svc *service) imagePathFromRequest(params json.RawMessage) (string, string, error) {
+	var payload map[string]any
+	_ = json.Unmarshal(params, &payload)
+	relPath := strings.TrimSpace(firstNonEmptyString(payload["path"], payload["relPath"]))
+	if relPath == "" {
+		return "", "", errors.New("path is required")
+	}
+	return svc.imagePathForRel(relPath)
+}
+
+func (svc *service) imagePathForRel(raw string) (string, string, error) {
+	relPath, err := cleanImageRelPath(raw)
+	if err != nil {
+		return "", "", err
+	}
+	path, err := safeJoin(svc.imagesDir(), filepath.FromSlash(relPath))
+	return path, relPath, err
+}
+
+func cleanImageRelPath(raw string) (string, error) {
+	relPath := strings.TrimSpace(strings.ReplaceAll(raw, "\\", "/"))
+	if relPath == "" {
+		return "", errors.New("image path is required")
+	}
+	if len(relPath) > 600 || strings.HasPrefix(relPath, "/") || strings.ContainsRune(relPath, 0) {
+		return "", errors.New("image path is invalid")
+	}
+	parts := strings.Split(relPath, "/")
+	for _, part := range parts {
+		segment := strings.TrimSpace(part)
+		if segment == "" || segment == "." || segment == ".." {
+			return "", errors.New("image path has invalid path segment")
+		}
+	}
+	ext := strings.ToLower(filepath.Ext(relPath))
+	if !isAllowedImageExt(ext) {
+		return "", fmt.Errorf("unsupported image extension: %s", ext)
+	}
+	return relPath, nil
+}
+
+func safeJoin(baseDir string, relPath string) (string, error) {
+	baseAbs, err := filepath.Abs(baseDir)
+	if err != nil {
+		return "", err
+	}
+	fullAbs, err := filepath.Abs(filepath.Join(baseAbs, relPath))
+	if err != nil {
+		return "", err
+	}
+	baseClean := filepath.Clean(baseAbs)
+	fullClean := filepath.Clean(fullAbs)
+	if fullClean != baseClean && !strings.HasPrefix(fullClean, baseClean+string(os.PathSeparator)) {
+		return "", errors.New("path traversal detected")
+	}
+	return fullClean, nil
+}
+
+func atomicWriteFile(path string, payload []byte, perm os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := fmt.Sprintf("%s.tmp-%d", path, nowMs())
+	if err := os.WriteFile(tmp, payload, perm); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			_ = os.Remove(tmp)
+			return removeErr
+		}
+		if renameErr := os.Rename(tmp, path); renameErr != nil {
+			_ = os.Remove(tmp)
+			return renameErr
+		}
+	}
+	return nil
+}
+
+func decodeImageDataURL(dataURL string) (string, []byte, error) {
+	match := imageDataURLPattern.FindStringSubmatch(dataURL)
+	if len(match) != 2 {
+		return "", nil, errors.New("invalid image data URL")
+	}
+	mime := strings.ToLower(match[1])
+	if !isAllowedImageMime(mime) {
+		return "", nil, fmt.Errorf("unsupported image MIME: %s", mime)
+	}
+	encoded := strings.TrimSpace(strings.TrimPrefix(dataURL, match[0]))
+	reader := base64.NewDecoder(base64.StdEncoding, strings.NewReader(encoded))
+	payload, err := io.ReadAll(reader)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(payload) == 0 {
+		return "", nil, errors.New("image payload is empty")
+	}
+	return mime, payload, nil
+}
+
+func isAllowedImageExt(ext string) bool {
+	switch strings.ToLower(ext) {
+	case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".bmp":
+		return true
+	default:
+		return false
+	}
+}
+
+func isAllowedImageMime(mime string) bool {
+	switch strings.ToLower(mime) {
+	case "image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml", "image/bmp":
+		return true
+	default:
+		return false
+	}
+}
+
+func imageMimeFromExt(ext string) string {
+	switch strings.ToLower(ext) {
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".webp":
+		return "image/webp"
+	case ".gif":
+		return "image/gif"
+	case ".svg":
+		return "image/svg+xml"
+	case ".bmp":
+		return "image/bmp"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+func imageExtFromMime(mime string) string {
+	switch strings.ToLower(mime) {
+	case "image/png":
+		return ".png"
+	case "image/jpeg":
+		return ".jpg"
+	case "image/webp":
+		return ".webp"
+	case "image/gif":
+		return ".gif"
+	case "image/svg+xml":
+		return ".svg"
+	case "image/bmp":
+		return ".bmp"
+	default:
+		return ".png"
+	}
+}
+
+func randomImageName(ext string) string {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return fmt.Sprintf("image-%d%s", nowMs(), ext)
+	}
+	return fmt.Sprintf("%x%s", buf, ext)
 }
 
 func normalizeMessages(raw any) []message {
@@ -498,6 +874,32 @@ func defaultString(raw string, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func firstNonEmptyString(values ...any) string {
+	for _, value := range values {
+		text := strings.TrimSpace(asString(value))
+		if text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func truthy(raw any) bool {
+	switch value := raw.(type) {
+	case bool:
+		return value
+	case string:
+		text := strings.TrimSpace(strings.ToLower(value))
+		return text == "true" || text == "1" || text == "yes"
+	case float64:
+		return value != 0
+	case int:
+		return value != 0
+	default:
+		return false
+	}
 }
 
 func asString(raw any) string {

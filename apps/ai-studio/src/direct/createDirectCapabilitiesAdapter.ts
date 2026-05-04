@@ -29,23 +29,8 @@ export async function createDirectCapabilitiesAdapter(baseApi: unknown): Promise
 
     net: {
       request: async (req: unknown) => {
-        const r = req as any
-        const assistantMid = `svc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 9)}`
-        await directClient.invoke(AI_CHAT_DIRECT_METHOD.submitRawServiceRequest, {
-          target: {
-            kind: 'role',
-            roleId: '__ai_service__',
-            chatId: `svc:${r?.purpose || 'misc'}`,
-            branchId: 'main',
-            assistantMid,
-            tag: 'service',
-            service: r?.purpose || 'misc',
-          },
-          req,
-          stream: false,
-        })
-        const result = await directClient.invoke(AI_CHAT_DIRECT_METHOD.waitServiceFinal, { assistantMid, timeoutMs: r?.timeoutMs || 140000 })
-        return { status: 200, body: String(result || '') }
+        const timeoutMs = Math.max(30000, Math.floor(Number((req as any)?.timeoutMs || 0)) + 5000)
+        return directClient.invoke(AI_CHAT_DIRECT_METHOD.netRequest, req, { timeoutMs })
       },
       requestStream: undefined,
     },
@@ -59,8 +44,12 @@ export async function createDirectCapabilitiesAdapter(baseApi: unknown): Promise
           const path = String((req as any)?.path || (req as any)?.relPath || '').trim()
           return directClient.invoke(AI_CHAT_DIRECT_METHOD.imageRead, { path })
         },
-        writeBase64: async (req: unknown) =>
-          directClient.invoke(AI_CHAT_DIRECT_METHOD.imageWrite, req),
+        writeBase64: async (req: unknown) => {
+          const result = await directClient.invoke(AI_CHAT_DIRECT_METHOD.imageWrite, req)
+          if (typeof result === 'string') return result
+          const relPath = String((result as any)?.relPath || (result as any)?.path || '').trim()
+          return relPath || result
+        },
         delete: async (req: unknown) =>
           directClient.invoke(AI_CHAT_DIRECT_METHOD.imageDelete, req),
       },

@@ -9,7 +9,7 @@ export function createImageUtils(deps: {
 }) {
   const { filesImagesRead, uiRefImgCache = new Map(), uiRefImgPending = new Set() } = deps
 
-  function shrinkImageDataUrl(dataUrl, maxSide) {
+  function shrinkImageDataUrl(dataUrl: unknown, maxSide: unknown): Promise<string> {
     return new Promise((resolve) => {
       try {
         const u = String(dataUrl || '').trim()
@@ -50,7 +50,7 @@ export function createImageUtils(deps: {
     })
   }
 
-  function readFileAsDataUrl(file) {
+  function readFileAsDataUrl(file: unknown): Promise<string> {
     return new Promise((resolve, reject) => {
       if (!(file instanceof File)) return reject(new Error('file 无效'))
       const r = new FileReader()
@@ -60,7 +60,7 @@ export function createImageUtils(deps: {
     })
   }
 
-  function hydrateRefImages(root) {
+  function hydrateRefImages(root: unknown) {
     if (!(root instanceof HTMLElement)) return
     if (typeof filesImagesRead !== 'function') return
 

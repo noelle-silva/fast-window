@@ -86,7 +86,7 @@ export function createDefaultAssistantRenderEngine(capabilities: AiChatCapabilit
 
     let safe = htmlSanitizer.sanitizeHtml(html, renderSafetyPolicy)
     if (Array.isArray(pre.math) && pre.math.length) {
-      safe = safe.replace(/@@MATH_(INLINE|BLOCK)_(\d+)@@/g, (_m, kind, id) => {
+      safe = safe.replace(/@@MATH_(INLINE|BLOCK)_(\d+)@@/g, (_m: string, kind: string, id: string) => {
         const it = pre.math[Number(id)]
         const tex = it ? String(it.tex || '') : ''
         if (kind === 'INLINE') return `<span class="math-inline" data-tex="${esc(tex)}"></span>`
@@ -94,24 +94,24 @@ export function createDefaultAssistantRenderEngine(capabilities: AiChatCapabilit
       })
     }
     if (Array.isArray(pre.mermaid) && pre.mermaid.length) {
-      safe = safe.replace(/@@MERMAID_(\d+)@@/g, (_m, id) => {
+      safe = safe.replace(/@@MERMAID_(\d+)@@/g, (_m: string, id: string) => {
         const code = pre.mermaid[Number(id)] ?? ''
         return `<pre><code class="language-mermaid">${esc(code)}</code></pre>`
       })
     }
     if (Array.isArray(pre.toolRequests) && pre.toolRequests.length) {
-      safe = safe.replace(/@@TOOL_REQUEST_(\d+)@@/g, (_m, id) => {
+      safe = safe.replace(/@@TOOL_REQUEST_(\d+)@@/g, (_m: string, id: string) => {
         const it = pre.toolRequests[Number(id)] || null
         if (!it) return ''
 
         const toolNames = Array.isArray(it.toolNames) ? it.toolNames : []
-        const summary = toolNames.length ? toolNames.map((n) => esc(String(n || '').trim() || '(无 tool_name)')).join('<br/>') : esc('(工具调用解析失败)')
+        const summary = toolNames.length ? toolNames.map((n: unknown) => esc(String(n || '').trim() || '(无 tool_name)')).join('<br/>') : esc('(工具调用解析失败)')
         const detailText = String(it.detailText || '')
         return renderToolRequestHtml(toolReqPreset, summary, detailText)
       })
     }
     if (Array.isArray(pre.stickers) && pre.stickers.length) {
-      safe = safe.replace(/@@STICKER_(\d+)@@/g, (_m, id) => {
+      safe = safe.replace(/@@STICKER_(\d+)@@/g, (_m: string, id: string) => {
         const it = pre.stickers[Number(id)] || null
         if (!it) return ''
         const rawToken = String(it.raw || '')

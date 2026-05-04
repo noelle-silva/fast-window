@@ -109,6 +109,17 @@ textarea {
 .content {
   flex: 1;
   min-height: 0;
+  overflow: hidden;
+}
+
+.chatHost {
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.startupPanel {
+  height: 100%;
   overflow: auto;
   padding: 22px;
 }
@@ -254,6 +265,23 @@ h2 {
   margin-top: 16px;
 }
 
+.toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 10000;
+  max-width: min(420px, calc(100vw - 36px));
+  padding: 12px 14px;
+  border: 1px solid rgba(73, 82, 106, 0.16);
+  border-radius: 16px;
+  color: #1f2937;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 44px rgba(41, 51, 82, 0.18);
+  font-size: 13px;
+  line-height: 1.5;
+  backdrop-filter: blur(18px);
+}
+
 dl {
   display: grid;
   grid-template-columns: 92px minmax(0, 1fr);
@@ -281,7 +309,7 @@ dd {
     padding: 8px;
   }
 
-  .content {
+  .startupPanel {
     padding: 14px;
   }
 

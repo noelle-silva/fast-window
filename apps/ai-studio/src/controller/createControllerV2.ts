@@ -420,6 +420,14 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     filesImagesRead: api.files?.images?.read as any || ((() => Promise.resolve('')) as any),
   })
   const { buildOpenAiChatReqFromStorage, buildOpenAiGroupChatReqFromStorage, loadToolCallServerConfigFromStorage } = buildReq
+  const aiGateway = deps.aiGateway || createAiChatInternalGateway({
+    runtime,
+    store: runtimeStorage,
+    net: capabilities.net,
+    onRunFinal: async () => {},
+    buildRoleReqFromStorage: buildOpenAiChatReqFromStorage,
+    buildGroupReqFromStorage: buildOpenAiGroupChatReqFromStorage,
+  })
 
   const splitStore = createSplitStorage({
     storage,
@@ -620,7 +628,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     getState: () => state,
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
     filesImagesRead: (api.files?.images?.read as any) || ((() => Promise.resolve('')) as any),
-    aiGateway: deps.aiGateway || createAiChatInternalGateway(capabilities),
+    aiGateway,
     save,
     emit,
     getProvider,
@@ -628,7 +636,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     resolveAiModelId,
     locateMessageInActiveChat,
     patchMessageContentSilent,
-    enqueueMermaidFixWrite,
+    enqueueMermaidFixWrite: (mid: string, fn: () => Promise<string>) => enqueueMermaidFixWrite(mid, fn),
     ensureChatsBoxBare,
     ensureGroupChatsBoxBare,
     chatHasPendingAssistant,
@@ -702,7 +710,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // ============================================================
   const chatOps = createChatOperations({
     getState: () => state,
-    aiGateway: deps.aiGateway || createAiChatInternalGateway(capabilities),
+    aiGateway,
     filesImages: api.files?.images as any,
     filesPickImages: api.files?.pickImages as any || (async () => []),
     showToast: api.ui?.showToast,
@@ -711,7 +719,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     render,
     renderComposer,
     scrollToBottomSoon,
-    extractTextFromFile,
+    extractTextFromFile: (file: File, kind: string) => extractTextFromFile(file, kind as DraftFileKind),
     uiStreamCache,
   })
   const {
@@ -734,7 +742,10 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   } = chatOps
 
   // Fill placeholder
-  pickImagesFn = pickImages
+  pickImagesFn = async (maxCount?: number) => {
+    await pickImages()
+    return []
+  }
 
   // ============================================================
   // 17. PATCH OPERATIONS
@@ -742,7 +753,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const patchOps = createPatchOperations({
     getState: () => state,
     storage,
-    aiGateway: deps.aiGateway || createAiChatInternalGateway(capabilities),
+    aiGateway,
     loadSplitMeta: loadSplitMetaCached,
     loadToolCallServerConfig: loadToolCallServerConfigFromStorage,
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
@@ -765,7 +776,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     getState: () => state,
     storage,
     rtStorage: runtimeStorage,
-    aiGateway: deps.aiGateway || createAiChatInternalGateway(capabilities),
+    aiGateway,
     loadSplitMeta: loadSplitMetaCached,
     getSplitMetaCache,
     emit,
@@ -792,7 +803,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     closeModal,
     applyMermaidScaleDom,
     openMermaidViewer: mermaidOpenViewer,
-    cancelMermaidDrag,
+    cancelMermaidDrag: mermaidCancelDrag,
     onMouseMoveMermaid: mermaidMouseMove,
     onMouseUpMermaid: mermaidMouseUp,
     enqueueMermaidFixWrite,

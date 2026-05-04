@@ -2,7 +2,9 @@ import * as React from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { createDirectClient, type DirectClient } from './directClient'
+import { AiChatApp } from '../ui/App'
+import type { AiChatController } from '../controller/types'
+import { createAiChatAppRuntime, type AiChatAppRuntime } from './aiChatAppHost'
 
 type DataDirStatus = {
   dataDir: string
@@ -20,13 +22,21 @@ type LaunchInfo = {
 
 type BootstrapState = {
   schemaVersion?: number
-  conversations?: Array<{ id: string; title: string; updatedAt: number }>
-  providers?: Array<{ id: string; name: string; kind: string }>
   dataFile?: string
   updatedAt?: number
 }
 
 type BootStatus = 'booting' | 'ready' | 'error'
+type ToastMessage = {
+  id: number
+  text: string
+}
+
+function commandLabel(command: string | null | undefined) {
+  const id = String(command || '').trim()
+  if (!id) return ''
+  return COMMAND_LABELS[id] || `未知命令：${id}`
+}
 
 const COMMAND_LABELS: Record<string, string> = {
   'new-chat': '新建对话',
@@ -41,7 +51,16 @@ export function App() {
   const [bootStatus, setBootStatus] = React.useState<BootStatus>('booting')
   const [bootError, setBootError] = React.useState('')
   const [pendingCommand, setPendingCommand] = React.useState<string | null>(null)
-  const clientRef = React.useRef<DirectClient | null>(null)
+  const [controller, setController] = React.useState<AiChatController | null>(null)
+  const [toast, setToast] = React.useState<ToastMessage | null>(null)
+  const runtimeRef = React.useRef<AiChatAppRuntime | null>(null)
+  const toastSeqRef = React.useRef(0)
+
+  const showToast = React.useCallback((message: unknown) => {
+    const text = String((message as any)?.message || message || '').trim()
+    if (!text) return
+    setToast({ id: ++toastSeqRef.current, text })
+  }, [])
 
   const refreshDataDirStatus = React.useCallback(async () => {
     const status = await invoke<DataDirStatus>('data_dir_status').catch(error => ({
@@ -55,23 +74,44 @@ export function App() {
   }, [])
 
   const connectBackend = React.useCallback(async () => {
-    clientRef.current?.close()
-    clientRef.current = null
-    const endpoint = await invoke<{ url: string; token: string }>('backend_endpoint')
-    const client = await createDirectClient(endpoint)
-    clientRef.current = client
-    const result = await client.invoke<BootstrapState>('studio.bootstrap')
-    setBootstrap(result)
+    runtimeRef.current?.dispose()
+    runtimeRef.current = null
+    setController(null)
+    const runtime = await createAiChatAppRuntime({
+      showToast,
+      onBack: () => getCurrentWindow().hide(),
+    })
+    runtimeRef.current = runtime
+    setController(runtime.controller)
+    setBootstrap((runtime.bootstrap && typeof runtime.bootstrap === 'object' ? runtime.bootstrap : {}) as BootstrapState)
     setBootStatus('ready')
     setBootError('')
-    return client
-  }, [])
+    return runtime
+  }, [showToast])
 
   const handleCommand = React.useCallback((command: string | null | undefined) => {
     const id = String(command || '').trim()
     if (!id) return
-    setPendingCommand(COMMAND_LABELS[id] || `未知命令：${id}`)
+    setPendingCommand(id)
   }, [])
+
+  React.useEffect(() => {
+    if (!controller || bootStatus !== 'ready' || !pendingCommand) return
+    const command = pendingCommand
+    setPendingCommand(null)
+
+    if (command === 'open-studio') return
+    if (command === 'new-chat') {
+      Promise.resolve(controller.actions.createChat?.()).catch(error => showToast(error))
+      return
+    }
+    if (command === 'provider-settings') {
+      Promise.resolve(controller.actions.openProviders?.()).catch(error => showToast(error))
+      return
+    }
+
+    showToast(`未知命令：${command}`)
+  }, [bootStatus, controller, pendingCommand, showToast])
 
   React.useEffect(() => {
     let disposed = false
@@ -101,10 +141,16 @@ export function App() {
     return () => {
       disposed = true
       if (unlisten) unlisten()
-      clientRef.current?.close()
-      clientRef.current = null
+      runtimeRef.current?.dispose()
+      runtimeRef.current = null
     }
   }, [connectBackend, handleCommand, refreshDataDirStatus])
+
+  React.useEffect(() => {
+    if (!toast) return
+    const timer = window.setTimeout(() => setToast(current => current?.id === toast.id ? null : current), 3200)
+    return () => window.clearTimeout(timer)
+  }, [toast])
 
   async function pickDataDir() {
     try {
@@ -125,8 +171,6 @@ export function App() {
   }
 
   const issue = bootError || dataDirStatus?.error || (dataDirStatus && !dataDirStatus.writable ? '数据目录不可写' : '')
-  const conversationCount = bootstrap?.conversations?.length ?? 0
-  const providerCount = bootstrap?.providers?.length ?? 0
 
   return (
     <div className="appShell">
@@ -141,48 +185,22 @@ export function App() {
       </header>
 
       <main className="content">
-        <section className="heroCard">
-          <div>
-            <p className="eyebrow">v5 App Skeleton</p>
-            <h1>AI Studio 正在 App 化</h1>
-            <p className="heroText">当前阶段已接入独立 Tauri 壳、Go sidecar、v5 运行时控制和数据目录机制。完整 AI 聊天业务将在下一阶段从旧插件模块迁移进来。</p>
+        {controller && bootStatus === 'ready' && !issue ? (
+          <div id="fast-window-ai-chat-root" className="chatHost">
+            <AiChatApp controller={controller} />
           </div>
-          <StatusBadge status={bootStatus} />
-        </section>
-
-        {pendingCommand ? (
-          <section className="noticeCard">
-            <strong>收到命令</strong>
-            <span>{pendingCommand}</span>
-          </section>
-        ) : null}
-
-        {issue ? (
-          <section className="errorCard">
-            <strong>需要处理</strong>
-            <span>{issue}</span>
-            <button type="button" onClick={pickDataDir}>选择可写数据目录</button>
-          </section>
-        ) : null}
-
-        <section className="grid">
-          <InfoCard title="后台状态" value={bootStatus === 'ready' ? '已连接' : bootStatus === 'booting' ? '连接中' : '异常'} detail="Go sidecar 通过本机 WebSocket 提供业务 API" />
-          <InfoCard title="会话数量" value={String(conversationCount)} detail="第一阶段只建立数据主链路，业务迁移后接入完整会话" />
-          <InfoCard title="Provider" value={String(providerCount)} detail="模型提供商设置将在业务迁移阶段接入" />
-        </section>
-
-        <section className="dataCard">
-          <h2>数据目录</h2>
-          <dl>
-            <dt>当前目录</dt>
-            <dd>{dataDirStatus?.dataDir || '读取中...'}</dd>
-            <dt>默认目录</dt>
-            <dd>{dataDirStatus?.defaultDataDir || '读取中...'}</dd>
-            <dt>业务文件</dt>
-            <dd>{bootstrap?.dataFile || '后台连接后显示'}</dd>
-          </dl>
-        </section>
+        ) : (
+          <StartupPanel
+            status={bootStatus}
+            issue={issue || ''}
+            pendingCommand={commandLabel(pendingCommand)}
+            dataDirStatus={dataDirStatus}
+            bootstrap={bootstrap}
+            onPickDataDir={pickDataDir}
+          />
+        )}
       </main>
+      {toast ? <div className="toast" role="status" aria-live="polite">{toast.text}</div> : null}
     </div>
   )
 }
@@ -199,6 +217,62 @@ function InfoCard(props: { title: string; value: string; detail: string }) {
       <div className="infoValue">{props.value}</div>
       <div className="infoDetail">{props.detail}</div>
     </article>
+  )
+}
+
+function StartupPanel(props: {
+  status: BootStatus
+  issue: string
+  pendingCommand: string | null
+  dataDirStatus: DataDirStatus | null
+  bootstrap: BootstrapState | null
+  onPickDataDir: () => void
+}) {
+  const { status, issue, pendingCommand, dataDirStatus, bootstrap, onPickDataDir } = props
+  return (
+    <div className="startupPanel">
+      <section className="heroCard">
+        <div>
+          <p className="eyebrow">v5 App</p>
+          <h1>AI Studio 正在启动</h1>
+          <p className="heroText">正在连接本机 Go sidecar，并装配旧 AI Chat 的前端业务。窗口先显示，业务状态随后异步恢复。</p>
+        </div>
+        <StatusBadge status={status} />
+      </section>
+
+      {pendingCommand ? (
+        <section className="noticeCard">
+          <strong>收到命令</strong>
+          <span>{pendingCommand}</span>
+        </section>
+      ) : null}
+
+      {issue ? (
+        <section className="errorCard">
+          <strong>需要处理</strong>
+          <span>{issue}</span>
+          <button type="button" onClick={onPickDataDir}>选择可写数据目录</button>
+        </section>
+      ) : null}
+
+      <section className="grid">
+        <InfoCard title="后台状态" value={status === 'ready' ? '已连接' : status === 'booting' ? '连接中' : '异常'} detail="Go sidecar 通过本机 WebSocket 提供业务 API" />
+        <InfoCard title="窗口状态" value="已显示" detail="v5 要求前端壳层先显示，不硬等业务加载完成" />
+        <InfoCard title="数据状态" value={dataDirStatus?.writable ? '可写' : '检查中'} detail="业务数据写入 AI Studio 自己的数据目录" />
+      </section>
+
+      <section className="dataCard">
+        <h2>数据目录</h2>
+        <dl>
+          <dt>当前目录</dt>
+          <dd>{dataDirStatus?.dataDir || '读取中...'}</dd>
+          <dt>默认目录</dt>
+          <dd>{dataDirStatus?.defaultDataDir || '读取中...'}</dd>
+          <dt>业务文件</dt>
+          <dd>{bootstrap?.dataFile || 'split storage 文件布局'}</dd>
+        </dl>
+      </section>
+    </div>
   )
 }
 

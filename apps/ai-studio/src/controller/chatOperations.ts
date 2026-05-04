@@ -536,14 +536,14 @@ export function createChatOperations(deps: {
       if (maxCount < minCount) maxCount = minCount
 
       const pool = memberRoleIds
-        .map((rid) => {
+        .map((rid: string) => {
           const w = Number((weights0 as any)[rid] ?? 1)
           const weight = isFinite(w) && w >= 0 ? w : 1
           return { rid, weight }
         })
-        .filter((x) => x.weight > 0)
+        .filter((x: { rid: string; weight: number }) => x.weight > 0)
 
-      const candidates = pool.length ? pool.slice() : memberRoleIds.map((rid) => ({ rid, weight: 1 }))
+      const candidates = pool.length ? pool.slice() : memberRoleIds.map((rid: string) => ({ rid, weight: 1 }))
       const maxK = Math.max(1, Math.min(candidates.length, maxCount))
       const minK = Math.max(1, Math.min(maxK, minCount))
       const k = minK + Math.floor(Math.random() * (maxK - minK + 1))
@@ -818,7 +818,7 @@ export function createChatOperations(deps: {
               jobStub,
             }
           })
-          .filter((x: any) => !!x)
+          .filter((x: any): x is any => !!x)
       )
     } catch (e) {
       const msg = String((e as any)?.message || e || '请求失败')
@@ -1457,7 +1457,7 @@ export function createChatOperations(deps: {
               jobStub,
             }
           })
-          .filter((x: any) => !!x)
+          .filter((x: any): x is any => !!x)
       )
     } catch (e) {
       const msg = String((e as any)?.message || e || '请求失败')
