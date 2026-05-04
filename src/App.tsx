@@ -21,6 +21,7 @@ import PluginListView from './PluginListView'
 import PluginDetailDialog from './PluginDetailDialog'
 import PluginContextMenu, { type ContextMenuAction } from './PluginContextMenu'
 import AppActivationView from './apps/AppActivationView'
+import AppDetailDialog from './apps/AppDetailDialog'
 import { useRegisteredApps } from './apps/useRegisteredApps'
 import { getAppStatuses, launchApp, stopApp } from './apps/appLauncher'
 import {
@@ -120,6 +121,7 @@ function App() {
 
   // Detail dialog
   const [pluginDetail, setPluginDetail] = useState<Plugin | null>(null)
+  const [appDetailId, setAppDetailId] = useState<string | null>(null)
 
   // Drag
   const [draggingId, setDraggingId] = useState<string | null>(null)
@@ -345,6 +347,11 @@ function App() {
     return registeredAppFromListItem(registeredApps, plugin.id)
   }, [registeredApps])
 
+  const appDetail = useMemo(() => {
+    if (!appDetailId) return null
+    return registeredApps.find(app => app.id === appDetailId) ?? null
+  }, [appDetailId, registeredApps])
+
   const changeMenuItemIcon = useCallback(async () => {
     const plugin = pluginMenu?.plugin
     if (!plugin) return
@@ -415,8 +422,11 @@ function App() {
     const plugin = pluginMenu?.plugin
     if (!plugin) return []
     const app = registeredAppFromMenuItem(plugin)
+    const detailAction: ContextMenuAction = app
+      ? { id: 'detail', label: '详情', onSelect: () => setAppDetailId(app.id) }
+      : { id: 'detail', label: '详情', onSelect: () => setPluginDetail(plugin) }
     const commonActions: ContextMenuAction[] = [
-      { id: 'detail', label: '详情', onSelect: () => setPluginDetail(plugin) },
+      detailAction,
       { id: 'change-icon', label: '更改图标…', onSelect: () => void changeMenuItemIcon() },
       { id: 'reset-icon', label: '恢复默认图标', onSelect: () => void resetMenuItemIcon() },
     ]
@@ -652,6 +662,7 @@ function App() {
           onClose={closePluginMenu}
         />
         <PluginDetailDialog plugin={pluginDetail} pluginsDir={pluginsDir} backendStatusById={backendStatusById} onClose={() => setPluginDetail(null)} />
+        <AppDetailDialog app={appDetail} status={appDetail ? registeredAppStatuses[appDetail.id] : undefined} onClose={() => setAppDetailId(null)} />
         <ImportPluginDialog
           open={importOpen}
           onClose={() => setImportOpen(false)}
@@ -861,6 +872,7 @@ function App() {
         </DialogActions>
       </Dialog>
       <PluginDetailDialog plugin={pluginDetail} pluginsDir={pluginsDir} backendStatusById={backendStatusById} onClose={() => setPluginDetail(null)} />
+      <AppDetailDialog app={appDetail} status={appDetail ? registeredAppStatuses[appDetail.id] : undefined} onClose={() => setAppDetailId(null)} />
       <ImportPluginDialog
         open={importOpen}
         onClose={() => setImportOpen(false)}
