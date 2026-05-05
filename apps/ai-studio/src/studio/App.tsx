@@ -5,6 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { AiChatApp } from '../ui/App'
 import { StandaloneWindowControls, type WindowControlActions } from '../ui/components/StandaloneWindowControls'
 import type { AiChatController } from '../controller/types'
+import { AI_STUDIO_CHAT_ROOT_ID } from '../runtime/aiStudioGlobals'
 import { createAiChatAppRuntime, type AiChatAppRuntime } from './aiChatAppHost'
 
 type DataDirStatus = {
@@ -180,7 +181,7 @@ export function App() {
   return (
     <div className="appShell">
       {controller && bootStatus === 'ready' && !issue ? (
-        <div id="fast-window-ai-chat-root" className="chatHost">
+        <div id={AI_STUDIO_CHAT_ROOT_ID} className="chatHost">
           <AiChatApp
             controller={controller}
             dataDirectory={{

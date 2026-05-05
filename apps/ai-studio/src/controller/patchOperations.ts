@@ -1,4 +1,4 @@
-// ai-chat (iframe sandbox) — patch / insert operations extracted from createController
+// AI Studio patch / insert operations extracted from the controller.
 import { now, uid, isHttpBaseUrl } from '../core/utils'
 import {
   executeToolCallsOnServer,

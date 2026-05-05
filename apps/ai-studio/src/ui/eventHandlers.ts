@@ -1,4 +1,4 @@
-// ai-chat UI 事件处理器
+// AI Studio UI 事件处理器
 // 提取自 controller/createController.ts
 // 职责：click / wheel / mousedown / input / change / keydown / paste 事件委托与分发
 

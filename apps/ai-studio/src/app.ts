@@ -1,4 +1,4 @@
-// ai-chat (entry: index.js)
+// Legacy Fast Window bridge entry. The standalone App entry is src/studio/main.tsx.
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
 import { createAiChatFastWindowApi } from './bridge/tauriCompat'
@@ -6,6 +6,9 @@ import { createAiChatController } from './controller/createController'
 import { createAiChatControllerV2 } from './controller/createControllerV2'
 import { createAiChatCapabilitiesFromHostApi } from './gateway/capabilities'
 import { createDirectCapabilitiesAdapter } from './direct/createDirectCapabilitiesAdapter'
+import { AI_STUDIO_CONTROLLER_KEY } from './runtime/aiStudioGlobals'
+
+const AI_STUDIO_PLUGIN_ID = 'ai-studio'
 
 ;(async function () {
   const fw = (window as any).fastWindow
@@ -16,11 +19,11 @@ import { createDirectCapabilitiesAdapter } from './direct/createDirectCapabiliti
   let useV2 = false
   if (isDirect) {
     const { api } = await createDirectCapabilitiesAdapter(fw)
-    capabilities = createAiChatCapabilitiesFromHostApi(api, 'ai-chat')
+    capabilities = createAiChatCapabilitiesFromHostApi(api, AI_STUDIO_PLUGIN_ID)
     useV2 = true
   } else {
-    const api = createAiChatFastWindowApi(fw, 'ai-chat')
-    capabilities = createAiChatCapabilitiesFromHostApi(api, 'ai-chat')
+    const api = createAiChatFastWindowApi(fw, AI_STUDIO_PLUGIN_ID)
+    capabilities = createAiChatCapabilitiesFromHostApi(api, AI_STUDIO_PLUGIN_ID)
   }
 
   try {
@@ -32,7 +35,7 @@ import { createDirectCapabilitiesAdapter } from './direct/createDirectCapabiliti
 
   const factory = useV2 ? createAiChatControllerV2 : createAiChatController
   const { controller, init } = factory({ capabilities })
-  ;(window as any).__fastWindowAiChat = controller
+  ;(window as any)[AI_STUDIO_CONTROLLER_KEY] = controller
 
   init()
 })()

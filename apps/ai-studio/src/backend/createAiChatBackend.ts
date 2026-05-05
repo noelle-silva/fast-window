@@ -5,13 +5,15 @@ import type { AiChatBackendService } from './aiChatBackendService'
 import { createBackendHostCapabilities } from '../host/createBackendHostCapabilities'
 import { createAiChatCapabilitiesFromHostApi } from '../gateway/capabilities'
 
+const AI_STUDIO_PLUGIN_ID = 'ai-studio'
+
 export async function createAiChatBackend() {
   const token = String(process.env.FAST_WINDOW_PLUGIN_SESSION_TOKEN || '').trim()
   if (!token) throw new Error('AI Chat backend missing FAST_WINDOW_PLUGIN_SESSION_TOKEN')
 
   let capabilities: any
   if (typeof (globalThis as any).window !== 'undefined' && (globalThis as any).window.fastWindow) {
-    capabilities = createAiChatCapabilitiesFromHostApi((globalThis as any).window.fastWindow, 'ai-chat')
+    capabilities = createAiChatCapabilitiesFromHostApi((globalThis as any).window.fastWindow, AI_STUDIO_PLUGIN_ID)
   } else {
     capabilities = createBackendHostCapabilities()
   }

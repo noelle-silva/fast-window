@@ -76,7 +76,7 @@ export async function startAiChatDirectServer(options: AiChatDirectServerOptions
           send(ws, id, false, undefined, error)
         }
       })().catch((error) => {
-        process.stderr.write(`[ai-chat-backend] frame error: ${String((error as any)?.message || error)}\n`)
+        process.stderr.write(`[ai-studio-backend] frame error: ${String((error as any)?.message || error)}\n`)
       })
     })
   })

@@ -5,6 +5,7 @@ import type { AiChatController } from '../controller/types'
 import { createDirectCapabilitiesAdapter } from '../direct/createDirectCapabilitiesAdapter'
 import { createAiChatCapabilitiesFromHostApi } from '../gateway/capabilities'
 import { AI_CHAT_DIRECT_PROTOCOL_VERSION } from '../protocol/aiChatProtocol'
+import { AI_STUDIO_CONTROLLER_KEY } from '../runtime/aiStudioGlobals'
 import { createAiChatDirectGateway } from './aiChatDirectGateway'
 
 type BackendEndpoint = {
@@ -32,11 +33,15 @@ export async function createAiChatAppRuntime(options: AiChatAppHostOptions): Pro
   const bootstrap = await directClient.invoke('studio.bootstrap').catch(() => null)
 
   await init()
+  ;(window as any)[AI_STUDIO_CONTROLLER_KEY] = controller
 
   return {
     controller,
     bootstrap,
     dispose() {
+      if ((window as any)[AI_STUDIO_CONTROLLER_KEY] === controller) {
+        delete (window as any)[AI_STUDIO_CONTROLLER_KEY]
+      }
       directClient.close()
     },
   }

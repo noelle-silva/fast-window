@@ -1,4 +1,4 @@
-// ai-chat (iframe sandbox) (entry: index.js)
+// Legacy Fast Window controller kept as a reference for the current V2 controller.
 import { now, uid, esc, trimSlash, isHttpBaseUrl, clampTemp, normImagePaths, clamp } from '../core/utils'
 import { extractOpenAiDelta, sseFeed } from '../core/sse'
 import { createDefaultAssistantRenderEngine } from '../render/assistantEngineDefault'

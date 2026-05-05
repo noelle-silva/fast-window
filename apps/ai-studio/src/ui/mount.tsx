@@ -1,12 +1,11 @@
 import * as React from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+import { AI_STUDIO_CHAT_ROOT_ID, AI_STUDIO_MOUNT_FLAG_KEY } from '../runtime/aiStudioGlobals'
 import { AiChatApp } from './App'
-
-const ROOT_ID = 'fast-window-ai-chat-root'
 
 export function mountAiChatUi(controller: any) {
   const w = window as any
-  if (w.__fastWindowAiChatRoot) return
+  if (w[AI_STUDIO_MOUNT_FLAG_KEY]) return
 
   const rootStyle = document.documentElement.style
   const bodyStyle = document.body.style
@@ -20,15 +19,15 @@ export function mountAiChatUi(controller: any) {
   bodyStyle.overflow = 'hidden'
   ;(bodyStyle as any).overscrollBehavior = 'none'
 
-  let el = document.getElementById(ROOT_ID)
+  let el = document.getElementById(AI_STUDIO_CHAT_ROOT_ID)
   if (!el) {
-    document.body.innerHTML = `<div id="${ROOT_ID}"></div>`
-    el = document.getElementById(ROOT_ID)
+    document.body.innerHTML = `<div id="${AI_STUDIO_CHAT_ROOT_ID}"></div>`
+    el = document.getElementById(AI_STUDIO_CHAT_ROOT_ID)
   }
   if (!el) return
   el.style.height = '100%'
 
   const root: Root = createRoot(el)
-  w.__fastWindowAiChatRoot = root
+  w[AI_STUDIO_MOUNT_FLAG_KEY] = root
   root.render(<AiChatApp controller={controller} />)
 }

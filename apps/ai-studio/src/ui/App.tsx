@@ -85,6 +85,7 @@ import { MermaidDialog } from './dialogs/MermaidDialog'
 import { ImageDialog } from './dialogs/ImageDialog'
 import { RoleAvatarCropper } from './components/avatar/RoleAvatarCropper'
 import { StandaloneWindowControls, type WindowControlActions } from './components/StandaloneWindowControls'
+import { AI_STUDIO_CHAT_ROOT_ID } from '../runtime/aiStudioGlobals'
 
 const MERMAID_COPY_IMAGE_MIN_SCALE = 3
 const MERMAID_COPY_IMAGE_MAX_SCALE = 6
@@ -2884,7 +2885,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
              overscrollBehavior: 'none',
              backgroundColor: transparentChatBg ? `rgba(255,255,255,${bgAlpha})` : '#fff',
            },
-          '#fast-window-ai-chat-root': {
+          [`#${AI_STUDIO_CHAT_ROOT_ID}`]: {
             height: '100%',
             overflow: 'hidden',
             backgroundColor: transparentChatBg ? `rgba(255,255,255,${bgAlpha})` : '#fff',

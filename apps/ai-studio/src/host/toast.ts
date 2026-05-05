@@ -1,3 +1,5 @@
+import { AI_STUDIO_TOAST_ID } from '../runtime/aiStudioGlobals'
+
 export function createToast() {
   let el: HTMLDivElement | null = null
   let timer = 0 as any
@@ -6,7 +8,7 @@ export function createToast() {
     if (typeof document === 'undefined') return null
     if (el && el.isConnected) return el
     el = document.createElement('div')
-    el.id = '__fastWindowAiChatToast'
+    el.id = AI_STUDIO_TOAST_ID
     el.style.position = 'fixed'
     el.style.left = '50%'
     el.style.bottom = '24px'

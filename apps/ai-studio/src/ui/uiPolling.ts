@@ -1,4 +1,4 @@
-// ai-chat UI 轮询模块
+// AI Studio UI 轮询模块
 // 提取自 controller/createController.ts
 // 职责：定时轮询 stream 状态、同步 chat 索引、处理跨 tab 聊天更新通知
 
