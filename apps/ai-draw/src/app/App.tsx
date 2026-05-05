@@ -83,7 +83,7 @@ export function App() {
         const gateway = await createAiDrawDirectGateway({
           loadEndpoint: loadBackendEndpoint,
           host: {
-            back: () => getCurrentWindow().hide(),
+            back: () => invoke('hide_to_tray'),
             toast: showToast,
             startDragging: () => getCurrentWindow().startDragging(),
             pickOutputDir: () => invoke<string | null>('pick_output_dir'),

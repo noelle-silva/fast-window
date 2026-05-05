@@ -17,7 +17,7 @@ use fw_window::{
     parse_fw_args, report_available_commands, FwWindowState,
 };
 use std::sync::Arc;
-use tauri::{Manager, RunEvent, WindowEvent};
+use tauri::{Manager, WindowEvent};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -112,6 +112,17 @@ fn open_output_dir(path: String) -> Result<(), String> {
     Err("当前系统不支持打开输出目录".to_string())
 }
 
+#[tauri::command]
+fn hide_to_tray(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<FwWindowState>>,
+) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "主窗口不存在".to_string())?;
+    fw_window::hide_to_tray(&window, &state).map_err(|e| format!("隐藏窗口失败: {e}"))
+}
+
 fn main() {
     let fw_args = parse_fw_args();
     if single_instance::forward_to_existing_instance(&fw_args) {
@@ -128,8 +139,6 @@ fn main() {
     let window_state = Arc::new(FwWindowState::default());
     let window_state_setup = window_state.clone();
 
-    let backend_state_for_run = backend_state.clone();
-
     tauri::Builder::default()
         .manage(backend_state)
         .manage(window_state)
@@ -139,6 +148,7 @@ fn main() {
             pick_data_dir,
             pick_output_dir,
             open_output_dir,
+            hide_to_tray,
             app_ready,
             fw_initial_command,
             fw_launch_info
@@ -157,10 +167,22 @@ fn main() {
                 window_state_setup.clone(),
                 stop_backend.clone(),
             )?;
+            let standalone_launch = !fw_args.launched;
+            let app_handle_for_window_close = app.handle().clone();
+            let window_state_for_window_close = window_state_setup.clone();
             let stop_backend_for_window_close = stop_backend.clone();
             window.on_window_event(move |event| {
-                if matches!(event, WindowEvent::CloseRequested { .. }) {
-                    stop_backend_for_window_close();
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    if standalone_launch {
+                        api.prevent_close();
+                        if let Some(window) = app_handle_for_window_close.get_webview_window("main")
+                        {
+                            let _ =
+                                fw_window::hide_to_tray(&window, &window_state_for_window_close);
+                        }
+                    } else {
+                        stop_backend_for_window_close();
+                    }
                 }
             });
             install_window_policy(&window, &fw_args, window_state_setup.clone());
@@ -193,11 +215,6 @@ fn main() {
             });
             Ok(())
         })
-        .build(context)
-        .expect("error while building AI Draw app")
-        .run(move |_app, event| {
-            if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
-                backend_state_for_run.stop_sync();
-            }
-        });
+        .run(context)
+        .expect("error while running AI Draw app");
 }

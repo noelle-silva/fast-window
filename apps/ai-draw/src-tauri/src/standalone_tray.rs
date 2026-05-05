@@ -6,7 +6,7 @@ use tauri::{
     Manager,
 };
 
-use crate::fw_window::{close_window, show_and_focus, FwArgs, FwWindowState};
+use crate::fw_window::{show_and_focus, FwArgs, FwWindowState};
 
 pub(crate) fn install_standalone_tray(
     app: &tauri::App,
@@ -39,9 +39,6 @@ pub(crate) fn install_standalone_tray(
                 }
             }
             "quit" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = close_window(&window, &state_for_menu);
-                }
                 on_quit();
                 app.exit(0);
             }
