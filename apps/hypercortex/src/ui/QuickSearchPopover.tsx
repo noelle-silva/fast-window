@@ -263,7 +263,7 @@ export function QuickSearchPopover(props: Props) {
       disablePortal={false}
       sx={{ zIndex: 2000 }}
     >
-      <Box ref={popperRootRef} sx={{ pt: 0.75, WebkitAppRegion: 'no-drag' }}>
+      <Box ref={popperRootRef} sx={{ pt: 0.75 }}>
         <ClickAwayListener
           onClickAway={(e: any) => {
             // When `keepMounted` is enabled, ClickAwayListener remains active even while hidden.

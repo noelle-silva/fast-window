@@ -409,7 +409,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
             data-hc-dnd-group-tab-index={typeof opts?.groupTabIndex === 'number' ? opts.groupTabIndex : undefined}
             role="button"
             tabIndex={0}
-              data-tauri-drag-region="false"
               style={opts?.sortable?.style}
             onClick={() => {
               if (dnd.suppressClickRef.current) return
@@ -431,7 +430,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               borderRadius: 2,
               userSelect: 'none',
               outline: 'none',
-              WebkitAppRegion: 'no-drag',
               cursor: isDragging ? 'grabbing' : opts?.sortable ? 'grab' : 'pointer',
               touchAction: opts?.sortable ? 'none' : undefined,
               opacity: isSortablePlaceholder ? 0.44 : isDragging ? 0.72 : 1,
@@ -536,7 +534,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
             data-hc-dnd-group-tab-index={typeof opts?.groupTabIndex === 'number' ? opts.groupTabIndex : undefined}
             role="button"
             tabIndex={0}
-              data-tauri-drag-region="false"
               style={opts?.sortable?.style}
             onClick={() => {
               if (dnd.suppressClickRef.current) return
@@ -558,7 +555,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               borderRadius: 2,
               userSelect: 'none',
               outline: 'none',
-              WebkitAppRegion: 'no-drag',
               cursor: isDragging ? 'grabbing' : opts?.sortable ? 'grab' : 'pointer',
               touchAction: opts?.sortable ? 'none' : undefined,
               opacity: isSortablePlaceholder ? 0.44 : isDragging ? 0.72 : 1,
@@ -644,7 +640,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
             data-hc-dnd-group-tab-index={typeof opts?.groupTabIndex === 'number' ? opts.groupTabIndex : undefined}
             role="button"
             tabIndex={0}
-              data-tauri-drag-region="false"
               style={opts?.sortable?.style}
             onClick={() => {
               if (dnd.suppressClickRef.current) return
@@ -662,7 +657,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               borderRadius: 2,
               userSelect: 'none',
               outline: 'none',
-              WebkitAppRegion: 'no-drag',
               cursor: isDragging ? 'grabbing' : opts?.sortable ? 'grab' : 'pointer',
               touchAction: opts?.sortable ? 'none' : undefined,
               opacity: isSortablePlaceholder ? 0.44 : isDragging ? 0.72 : 0.86,
@@ -820,7 +814,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
             data-hc-dnd-group-section-index={itemIndex}
             role="button"
             tabIndex={0}
-            data-tauri-drag-region="false"
             onClick={() => {
               if (dnd.suppressClickRef.current) return
               onToggleGroupCollapsed(g.id)
@@ -845,7 +838,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               borderRadius: 2,
               userSelect: 'none',
               outline: 'none',
-              WebkitAppRegion: 'no-drag',
               cursor: isDragging ? 'grabbing' : sortable ? 'grab' : 'pointer',
               touchAction: sortable ? 'none' : undefined,
               opacity: isSortablePlaceholder ? 0.5 : isDragging ? 0.78 : 1,
@@ -1085,7 +1077,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       <Box
         ref={scrollContainerRef}
         {...dnd.containerProps}
-        data-tauri-drag-region="false"
         sx={{
           flex: 1,
           minHeight: 0,
@@ -1100,7 +1091,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           gap: 0.25,
           bgcolor: dnd.dragOverKey === 'container' ? 'rgba(25,118,210,.06)' : 'transparent',
           transition: 'background-color 120ms ease',
-          WebkitAppRegion: 'no-drag',
         }}
       >
         {!openTabKeys.length && !tabGroups.length && showTitle ? (

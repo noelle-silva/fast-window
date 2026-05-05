@@ -262,9 +262,7 @@ function NavIconButton(props: {
         size="small"
         aria-label={ariaLabel}
         onClick={onClick}
-        data-tauri-drag-region="false"
         sx={{
-          WebkitAppRegion: 'no-drag',
           borderRadius: 2,
           bgcolor: active ? 'rgba(25,118,210,.10)' : 'transparent',
           '&:hover': { bgcolor: active ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
@@ -2408,14 +2406,12 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           <AppBar position="static" elevation={0} sx={{ bgcolor: '#fff', color: 'text.primary' }}>
             <Toolbar
               variant="dense"
-              data-tauri-drag-region="true"
               sx={{
                 gap: 0.5,
                 minHeight: 40,
                 pl: 0,
                 pr: 0,
                 '&.MuiToolbar-root': { minHeight: 40, paddingLeft: 0, paddingRight: 0 },
-                WebkitAppRegion: 'drag',
                 justifyContent: 'space-between',
               }}
               onPointerDown={onTopbarPointerDown}
@@ -2425,8 +2421,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                   onClick={backToHost}
                   size="small"
                   aria-label="返回主界面"
-                  data-tauri-drag-region="false"
-                  sx={{ WebkitAppRegion: 'no-drag', ml: 0.25 }}
+                  sx={{ ml: 0.25 }}
                 >
                 <ArrowBackRoundedIcon fontSize="small" />
               </IconButton>
@@ -2455,9 +2450,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                     onClick={() => setQuickSearchOpen(v => !v)}
                     size="small"
                     aria-label="搜索"
-                    data-tauri-drag-region="false"
                     sx={{
-                      WebkitAppRegion: 'no-drag',
                       borderRadius: 2,
                       bgcolor: quickSearchOpen ? 'rgba(25,118,210,.10)' : 'transparent',
                       '&:hover': { bgcolor: quickSearchOpen ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
@@ -2476,13 +2469,11 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                     ref={shortcutHintsAnchorRef}
                     size="small"
                     aria-label="快捷键提示"
-                    data-tauri-drag-region="false"
                     onClick={() => {
                       setQuickSearchOpen(false)
                       setShortcutHintsOpen(prev => !prev)
                     }}
                     sx={{
-                      WebkitAppRegion: 'no-drag',
                       borderRadius: 2,
                       bgcolor: shortcutHintsOpen ? 'rgba(25,118,210,.10)' : 'transparent',
                       '&:hover': { bgcolor: shortcutHintsOpen ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
@@ -2521,7 +2512,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           />
 
           <Popper open={shortcutHintsOpen} anchorEl={shortcutHintsAnchorRef.current} placement="bottom-end" disablePortal={false} sx={{ zIndex: 2000 }}>
-            <Box sx={{ pt: 0.75, WebkitAppRegion: 'no-drag' }}>
+            <Box sx={{ pt: 0.75 }}>
               <ClickAwayListener
                 onClickAway={(e: any) => {
                   const anchor = shortcutHintsAnchorRef.current
