@@ -4,17 +4,21 @@ import { createMetadataService } from '../services/metadataService'
 import { createNotesService } from '../services/notesService'
 import { createRefsService } from '../services/refsService'
 import { createTrashService } from '../services/trashService'
+import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { createBackgroundClient } from './backgroundClient'
 import { createClipboardGateway } from './clipboardGateway'
 import { createHostGateway } from './hostGateway'
-import type { HyperCortexGateway } from './types'
+import { HyperCortexRpc } from '../shared/rpcMethods'
+import type { BackgroundClient } from './backgroundClient'
+import type { DataDirStatus, HyperCortexGateway, LegacyDataImportResult } from './types'
 
 let gatewayCache: HyperCortexGateway | null = null
 let gatewayPromise: Promise<HyperCortexGateway> | null = null
 
 export async function createHyperCortexGateway(baseApi: any): Promise<HyperCortexGateway> {
   const background = await createBackgroundClient(baseApi)
-  const host = createHostGateway(baseApi, background)
+  const host = createHostGateway(withAppHostMethods(baseApi, background), background)
   const clipboard = createClipboardGateway(baseApi)
 
   return {
@@ -29,11 +33,59 @@ export async function createHyperCortexGateway(baseApi: any): Promise<HyperCorte
   }
 }
 
+function withAppHostMethods(baseApi: any, background: BackgroundClient) {
+  if (!isTauriAppHost(baseApi)) return baseApi
+  return {
+    ...baseApi,
+    host: {
+      ...(baseApi.host || {}),
+      getDataDirStatus: () => invoke<DataDirStatus>('data_dir_status'),
+      pickDataDir: () => invoke<DataDirStatus | null>('pick_data_dir'),
+      importLegacyData: async (): Promise<LegacyDataImportResult | null> => {
+        const selection = await invoke<{ dir: string } | null>('pick_legacy_data_dir')
+        const dir = String(selection?.dir || '').trim()
+        if (!dir) return null
+        const result = await background.invoke<Omit<LegacyDataImportResult, 'sourceDir'>>(HyperCortexRpc.host.importLegacyData, { dir })
+        return { sourceDir: dir, ...result }
+      },
+    },
+  }
+}
+
+function isTauriAppHost(baseApi: any): boolean {
+  return baseApi?.__meta?.runtime === 'ui' && baseApi?.__meta?.appId === 'hypercortex'
+}
+
+function createHyperCortexAppHostApi() {
+  return {
+    __meta: { runtime: 'ui', appId: 'hypercortex' },
+    background: {
+      endpoint: async () => {
+        const endpoint = await invoke<{ url: string; token: string }>('backend_endpoint')
+        return {
+          mode: 'direct',
+          transport: 'local-websocket',
+          protocolVersion: 1,
+          url: endpoint.url,
+          token: endpoint.token,
+        }
+      },
+    },
+    ui: {
+      startDragging: () => getCurrentWindow().startDragging(),
+    },
+    host: {
+      back: () => getCurrentWindow().hide(),
+      writeClipboardText: (text: string) => invoke('write_clipboard_text', { text: String(text ?? '') }),
+    },
+  }
+}
+
 export async function getHyperCortexGateway(): Promise<HyperCortexGateway> {
   if (gatewayCache) return gatewayCache
-  if (!gatewayPromise) gatewayPromise = createHyperCortexGateway((window as any).fastWindow)
+  if (!gatewayPromise) gatewayPromise = createHyperCortexGateway((window as any).fastWindow || createHyperCortexAppHostApi())
   gatewayCache = await gatewayPromise
   return gatewayCache
 }
 
-export type { HyperCortexGateway, HyperCortexHtmlFaceDoc, HyperCortexTrashItem } from './types'
+export type { DataDirStatus, HyperCortexGateway, HyperCortexHtmlFaceDoc, HyperCortexTrashItem, LegacyDataImportResult } from './types'

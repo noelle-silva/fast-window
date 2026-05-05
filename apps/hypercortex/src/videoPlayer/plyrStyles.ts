@@ -1,4 +1,4 @@
-import plyrCss from 'plyr/dist/plyr.css'
+import plyrCss from 'plyr/dist/plyr.css?raw'
 
 const STYLE_ID = 'hc-plyr-video-player-css'
 

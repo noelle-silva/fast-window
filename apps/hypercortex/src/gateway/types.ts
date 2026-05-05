@@ -14,8 +14,26 @@ export type HostGateway = {
   toast: (message: string) => Promise<void>
   back: () => Promise<void>
   startDragging: () => Promise<void>
+  getDataDirStatus: () => Promise<DataDirStatus>
+  pickDataDir: () => Promise<DataDirStatus | null>
+  importLegacyData: () => Promise<LegacyDataImportResult | null>
   getLibraryDir: () => Promise<string>
   openDir: (dir: string) => Promise<void>
+}
+
+export type DataDirStatus = {
+  dataDir: string
+  defaultDataDir: string
+  configuredDataDir?: string | null
+  writable: boolean
+  error?: string | null
+}
+
+export type LegacyDataImportResult = {
+  imported: boolean
+  sourceDir: string
+  files: string[]
+  skipped: string[]
 }
 
 export type ClipboardGateway = {

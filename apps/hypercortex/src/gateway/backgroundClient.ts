@@ -36,7 +36,7 @@ function waitForOpen(ws: WebSocket) {
 
 export async function createBackgroundClient(baseApi: any): Promise<BackgroundClient> {
   const endpoint = baseApi?.background?.endpoint
-  if (typeof endpoint !== 'function') throw new Error('HyperCortex 需要 v4.5 background.endpoint')
+  if (typeof endpoint !== 'function') throw new Error('HyperCortex 后台 endpoint 不可用')
 
   const ws = new WebSocket(endpointUrlWithToken(await endpoint.call(baseApi.background)))
   await waitForOpen(ws)

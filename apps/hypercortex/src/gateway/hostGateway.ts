@@ -25,6 +25,18 @@ export function createHostGateway(baseApi: any, background: BackgroundClient): H
       if (typeof base?.host?.startDragging === 'function') return base.host.startDragging()
       throw new Error('v4 宿主未提供 startDragging')
     },
+    async getDataDirStatus() {
+      if (typeof base?.host?.getDataDirStatus === 'function') return base.host.getDataDirStatus()
+      throw new Error('数据目录状态能力不可用')
+    },
+    async pickDataDir() {
+      if (typeof base?.host?.pickDataDir === 'function') return base.host.pickDataDir()
+      throw new Error('选择数据目录能力不可用')
+    },
+    async importLegacyData() {
+      if (typeof base?.host?.importLegacyData === 'function') return base.host.importLegacyData()
+      throw new Error('旧数据导入能力不可用')
+    },
     async getLibraryDir() {
       return background.invoke(HyperCortexRpc.host.getLibraryDir, {})
     },

@@ -40,6 +40,7 @@ import { ShortcutSettingsPanel } from './ShortcutSettingsPanel'
 import { TrashSettingsPanel } from './TrashSettingsPanel'
 import { HtmlFaceDisplaySettingsPanel } from './HtmlFaceDisplaySettingsPanel'
 import { SidebarSortSettingsPanel } from './SidebarSortSettingsPanel'
+import { DataDirSettingsPanel } from './DataDirSettingsPanel'
 import { TrashPanel } from './TrashPanel'
 import { QuickSearchPopover } from './QuickSearchPopover'
 import { readFileAsDataUrl } from './fileDataUrl'
@@ -68,7 +69,7 @@ import { loadNoteCardInfo, startPrefetchNoteCardInfo } from './noteCardInfoLoade
 import type { AssetEntry } from '../assetTypes'
 import { assetTabId } from '../assetTypes'
 import { assetRefKeyFromTabKey, noteIdFromTabKey, noteTabKey, parseAssetRefKey, tabKind, type TabKey } from '../tabKey'
-import type { HyperCortexGateway } from '../gateway'
+import type { DataDirStatus, HyperCortexGateway, LegacyDataImportResult } from '../gateway'
 
 type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'asset-detail' | 'index' | 'settings' | 'trash'
 
@@ -316,8 +317,8 @@ function getShortcutChord(bindings: HyperCortexShortcutBindingsV1, id: HyperCort
   }
 }
 
-export function HyperCortexApp(props: { gateway: HyperCortexGateway }) {
-  const { gateway } = props
+export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialCommand?: string | null }) {
+  const { gateway, initialCommand } = props
   type MetadataPatch = Partial<HyperCortexMetadataV1> & { indexEditMode?: boolean; currentFolderId?: string }
 
   // ---- 核心 UI 状态
@@ -380,6 +381,54 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway }) {
   const [shortcutHintsEnabled, setShortcutHintsEnabled] = React.useState(false)
   const [shortcutHintsOpen, setShortcutHintsOpen] = React.useState(false)
   const shortcutHintsAnchorRef = React.useRef<HTMLButtonElement | null>(null)
+  const [dataDirStatus, setDataDirStatus] = React.useState<DataDirStatus | null>(null)
+
+  const refreshDataDirStatus = React.useCallback(async () => {
+    try {
+      const next = await gateway.host.getDataDirStatus()
+      setDataDirStatus(next)
+      return next
+    } catch (e: any) {
+      const message = String(e?.message || e || '刷新数据目录失败')
+      setDataDirStatus(null)
+      void gateway.host.toast(message)
+      throw e
+    }
+  }, [gateway])
+
+  const handlePickDataDir = React.useCallback(async (): Promise<DataDirStatus | null> => {
+    try {
+      const next = await gateway.host.pickDataDir()
+      if (next) {
+        setDataDirStatus(next)
+        void gateway.host.toast('数据目录已切换')
+      }
+      return next
+    } catch (e: any) {
+      void gateway.host.toast(String(e?.message || e || '切换数据目录失败'))
+      throw e
+    }
+  }, [gateway])
+
+  const handleImportLegacyData = React.useCallback(async (): Promise<LegacyDataImportResult | null> => {
+    try {
+      const result = await gateway.host.importLegacyData()
+      if (result) {
+        const importedCount = result.files.length
+        const skippedCount = result.skipped.length
+        void gateway.host.toast(`旧数据导入完成：已导入 ${importedCount} 项，跳过 ${skippedCount} 项`)
+      }
+      return result
+    } catch (e: any) {
+      void gateway.host.toast(String(e?.message || e || '导入旧数据失败'))
+      throw e
+    }
+  }, [gateway])
+
+  React.useEffect(() => {
+    if (page !== 'settings') return
+    void refreshDataDirStatus().catch(() => {})
+  }, [page, refreshDataDirStatus])
 
   // ---- 全部笔记列表
   const [noteIndex, setNoteIndex] = React.useState<HyperCortexIndexV1 | null>(null)
@@ -1675,6 +1724,40 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway }) {
     navigatePage('note-detail')
   }, [navigatePage, updateSidebarItems])
 
+  const handleAppCommand = React.useCallback(
+    (command: string | null | undefined) => {
+      const id = String(command || '').trim()
+      if (!id || id === 'open-hypercortex') return
+      if (id === 'new-note') {
+        handleCreateDraftNote()
+        return
+      }
+      if (id === 'quick-search') {
+        setShortcutHintsOpen(false)
+        setQuickSearchOpen(true)
+        return
+      }
+      if (id === 'open-assets') {
+        navigatePage('attachments')
+        return
+      }
+      void gateway.host.toast(`未知命令：${id}`)
+    },
+    [gateway, handleCreateDraftNote, navigatePage],
+  )
+
+  React.useEffect(() => {
+    handleAppCommand(initialCommand)
+  }, [handleAppCommand, initialCommand])
+
+  React.useEffect(() => {
+    const onCommand = (event: Event) => {
+      handleAppCommand((event as CustomEvent<{ command?: string }>).detail?.command)
+    }
+    window.addEventListener('hypercortex-command', onCommand)
+    return () => window.removeEventListener('hypercortex-command', onCommand)
+  }, [handleAppCommand])
+
   React.useEffect(() => {
     const clearTabSwitchHold = () => {
       const win = window as any
@@ -2801,6 +2884,12 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway }) {
               ) : null}
               {page === 'settings' ? (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, maxWidth: 760 }}>
+                  <DataDirSettingsPanel
+                    status={dataDirStatus}
+                    onRefresh={refreshDataDirStatus}
+                    onPick={handlePickDataDir}
+                    onImportLegacy={handleImportLegacyData}
+                  />
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
                     <Typography sx={{ fontSize: 18, lineHeight: 1.25, fontWeight: 900, color: '#111' }}>快捷键提示</Typography>
                     <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.62)' }}>
