@@ -45,7 +45,7 @@ func (svc *service) createVideoThumbnail(scope string, relPath string, width int
 }
 
 func runFFmpeg(args []string) error {
-	cmd := exec.Command("ffmpeg", args...)
+	cmd := exec.Command(resolveFFmpegBinary(), args...)
 	output, err := cmd.CombinedOutput()
 	if err == nil {
 		return nil
@@ -61,4 +61,39 @@ func runFFmpeg(args []string) error {
 		message = err.Error()
 	}
 	return fmt.Errorf("视频缩略图生成失败：%s", message)
+}
+
+func resolveFFmpegBinary() string {
+	if configured := strings.TrimSpace(os.Getenv("FW_HYPERCORTEX_FFMPEG")); configured != "" {
+		if exists(configured) {
+			return configured
+		}
+	}
+
+	for _, candidate := range bundledFFmpegCandidates() {
+		if exists(candidate) {
+			return candidate
+		}
+	}
+
+	return "ffmpeg"
+}
+
+func bundledFFmpegCandidates() []string {
+	name := "ffmpeg"
+	if isWindows() {
+		name = "ffmpeg.exe"
+	}
+
+	var candidates []string
+	if exe, err := os.Executable(); err == nil {
+		dir := filepath.Dir(exe)
+		candidates = append(candidates, filepath.Join(dir, "bin", name))
+		candidates = append(candidates, filepath.Join(dir, name))
+	}
+	return candidates
+}
+
+func isWindows() bool {
+	return filepath.Separator == '\\'
 }

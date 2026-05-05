@@ -382,6 +382,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   const [shortcutHintsOpen, setShortcutHintsOpen] = React.useState(false)
   const shortcutHintsAnchorRef = React.useRef<HTMLButtonElement | null>(null)
   const [dataDirStatus, setDataDirStatus] = React.useState<DataDirStatus | null>(null)
+  const [pendingAppCommand, setPendingAppCommand] = React.useState<string>(() => String(initialCommand || '').trim())
 
   const refreshDataDirStatus = React.useCallback(async () => {
     try {
@@ -1099,16 +1100,17 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         })()
       }
 
-      if (page === 'note-detail' || page === 'asset-detail') {
+      const currentPage = pageRef.current
+      if (currentPage === 'note-detail' || currentPage === 'asset-detail') {
         if (preferredActiveKey && nextOpenTabKeys.includes(preferredActiveKey)) {
           const targetPage = tabKind(preferredActiveKey) === 'asset' ? 'asset-detail' : 'note-detail'
-          if (page !== targetPage) navigatePage(targetPage, { recordHistory: false })
+          if (currentPage !== targetPage) navigatePage(targetPage, { recordHistory: false })
         } else {
-          navigatePage(page === 'note-detail' ? 'home' : 'attachments', { recordHistory: false })
+          navigatePage(currentPage === 'note-detail' ? 'home' : 'attachments', { recordHistory: false })
         }
       }
     },
-    [gateway, navigatePage, page],
+    [gateway, navigatePage],
   )
 
   const handleSwitchWorkspace = React.useCallback(
@@ -1686,6 +1688,10 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   }, [loadAllNotes, page])
 
   const handleCreateDraftNote = React.useCallback(() => {
+    if (!tabsInitReady || !activeWorkspaceIdRef.current) {
+      setPendingAppCommand('new-note')
+      return
+    }
     const now = Date.now()
     const draftId = `draft_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`
     const draftKey = noteTabKey(draftId)
@@ -1722,12 +1728,16 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     setActiveTabKey(draftKey)
     updateSidebarItems(prev => insertTabAsUngrouped(prev, draftKey, prev.length), { activeTabKey: draftKey })
     navigatePage('note-detail')
-  }, [navigatePage, updateSidebarItems])
+  }, [navigatePage, tabsInitReady, updateSidebarItems])
 
   const handleAppCommand = React.useCallback(
     (command: string | null | undefined) => {
       const id = String(command || '').trim()
       if (!id || id === 'open-hypercortex') return
+      if (!tabsInitReady || !activeWorkspaceIdRef.current) {
+        setPendingAppCommand(id)
+        return
+      }
       if (id === 'new-note') {
         handleCreateDraftNote()
         return
@@ -1743,12 +1753,16 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       }
       void gateway.host.toast(`未知命令：${id}`)
     },
-    [gateway, handleCreateDraftNote, navigatePage],
+    [gateway, handleCreateDraftNote, navigatePage, tabsInitReady],
   )
 
   React.useEffect(() => {
-    handleAppCommand(initialCommand)
-  }, [handleAppCommand, initialCommand])
+    if (!tabsInitReady || !activeWorkspaceId) return
+    const command = String(pendingAppCommand || '').trim()
+    if (!command) return
+    setPendingAppCommand('')
+    handleAppCommand(command)
+  }, [activeWorkspaceId, handleAppCommand, pendingAppCommand, tabsInitReady])
 
   React.useEffect(() => {
     const onCommand = (event: Event) => {

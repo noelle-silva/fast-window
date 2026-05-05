@@ -18,6 +18,9 @@ plugins/**/*.map
 
 # Tauri / Rust
 src-tauri/target/
+apps/*/src-tauri/target/
+apps/*/src-tauri/binaries/
+apps/*/backend-go/*.exe
 
 # Legacy generated dirs (已废弃的随包插件种子机制遗留；保持忽略，避免误提交)
 src-tauri/plugin-seeds/

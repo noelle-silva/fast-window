@@ -32,7 +32,8 @@
       "binaries/hypercortex-backend"
     ],
     "resources": {
-      "../assets/": "assets"
+      "../assets/": "assets",
+      "target/resources/bin/": "bin"
     },
     "icon": [
       "icons/32x32.png",

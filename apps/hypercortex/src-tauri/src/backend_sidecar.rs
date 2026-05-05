@@ -85,6 +85,9 @@ pub(crate) async fn start_backend(
     cmd.env("FW_APP_SESSION_TOKEN", &session_token);
     cmd.env("FW_APP_DATA_DIR", &data_dir);
     cmd.env("FW_HYPERCORTEX_LIBRARY_DIR", data_dir.join("library"));
+    if let Some(ffmpeg_path) = resolve_bundled_ffmpeg(&app) {
+        cmd.env("FW_HYPERCORTEX_FFMPEG", ffmpeg_path);
+    }
     cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::inherit());
@@ -181,4 +184,23 @@ fn resolve_backend_sidecar(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     }
 
     Err(format!("HyperCortex 后台 sidecar 不存在: {exe_name}"))
+}
+
+fn resolve_bundled_ffmpeg(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let exe_name = if cfg!(target_os = "windows") {
+        "ffmpeg.exe"
+    } else {
+        "ffmpeg"
+    };
+    let candidates = [
+        std::env::current_exe()
+            .ok()
+            .and_then(|path| path.parent().map(|dir| dir.join("bin").join(exe_name))),
+        app.path()
+            .resource_dir()
+            .ok()
+            .map(|dir| dir.join("bin").join(exe_name)),
+    ];
+
+    candidates.into_iter().flatten().find(|path| path.is_file())
 }
