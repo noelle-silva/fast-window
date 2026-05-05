@@ -24,6 +24,8 @@ export const styles = `
       box-shadow: var(--shadow);
       flex-shrink: 0;
       position: relative;
+      user-select: none;
+      -webkit-app-region: drag;
     }
     .dropdown { position: relative; }
     .btn {
@@ -36,6 +38,7 @@ export const styles = `
       cursor: pointer;
       font-size: 12px;
       line-height: 28px;
+      -webkit-app-region: no-drag;
     }
     .btn.primary { border-color: transparent; background: var(--primary); color: white; }
     .btn.folders { border-color: transparent; background: var(--folders); color: white; }
@@ -53,6 +56,7 @@ export const styles = `
       outline: none;
       font-size: 12px;
       background: white;
+      -webkit-app-region: no-drag;
     }
     .search:focus-visible { outline: 2px solid rgba(25,118,210,0.45); outline-offset: 1px; }
     .content { flex: 1; overflow: auto; padding: 10px; }
@@ -91,7 +95,31 @@ export const styles = `
       line-height: 26px;
       text-align: center;
       color: var(--muted);
+      -webkit-app-region: no-drag;
     }
+    .windowControls {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      margin-left: 4px;
+      -webkit-app-region: no-drag;
+    }
+    .windowBtn {
+      width: 30px;
+      height: 30px;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 30px;
+      text-align: center;
+      -webkit-app-region: no-drag;
+    }
+    .windowBtn:hover { background: rgba(0,0,0,0.08); color: var(--text); }
+    .windowBtn.close:hover { background: var(--danger); color: white; }
+    .windowBtn:focus-visible { outline: 2px solid rgba(25,118,210,0.45); outline-offset: 1px; }
     .card:hover .iconBtn { border-color: var(--outline); background: white; }
     .iconBtn:hover { border-color: #CFCFCF; background: white; }
     .iconBtn:focus-visible { outline: 2px solid rgba(25,118,210,0.45); outline-offset: 1px; }

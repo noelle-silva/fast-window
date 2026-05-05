@@ -12,7 +12,7 @@ export type HostGateway = {
   startDragging(): Promise<void>
   minimize(): Promise<void>
   toggleMaximize(): Promise<void>
-  closeWindow(): Promise<void>
+  closeToTray(): Promise<void>
 }
 
 export type ClipboardGateway = {
@@ -47,7 +47,6 @@ export type LegacyGateway = {
 }
 
 export type ClipboardHistoryGateway = {
-  host: HostGateway
   state: ClipboardHistoryStateGateway
   collections: ClipboardHistoryCollectionsGateway
   clipboard: ClipboardGateway

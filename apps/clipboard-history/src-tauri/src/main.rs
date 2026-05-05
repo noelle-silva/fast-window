@@ -92,6 +92,7 @@ fn main() {
             data_dir_status,
             pick_data_dir,
             pick_legacy_data_dir,
+            hide_to_tray,
             app_ready,
             fw_initial_command,
             fw_launch_info
@@ -110,10 +111,20 @@ fn main() {
                 window_state_setup.clone(),
                 stop_backend.clone(),
             )?;
+            let standalone_launch = !fw_args.launched;
+            let app_handle_for_window_close = app.handle().clone();
+            let window_state_for_window_close = window_state_setup.clone();
             let stop_backend_for_window_close = stop_backend.clone();
             window.on_window_event(move |event| {
-                if matches!(event, WindowEvent::CloseRequested { .. }) {
-                    stop_backend_for_window_close();
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    if standalone_launch {
+                        api.prevent_close();
+                        if let Some(window) = app_handle_for_window_close.get_webview_window("main") {
+                            let _ = fw_window::hide_to_tray(&window, &window_state_for_window_close);
+                        }
+                    } else {
+                        stop_backend_for_window_close();
+                    }
                 }
             });
             install_window_policy(&window, &fw_args, window_state_setup.clone());
@@ -148,4 +159,15 @@ fn main() {
         })
         .run(context)
         .expect("error while running clipboard history app");
+}
+
+#[tauri::command]
+fn hide_to_tray(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<FwWindowState>>,
+) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "主窗口不存在".to_string())?;
+    fw_window::hide_to_tray(&window, &state).map_err(|e| format!("隐藏窗口失败: {e}"))
 }

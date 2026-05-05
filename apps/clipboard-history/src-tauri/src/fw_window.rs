@@ -9,8 +9,8 @@ use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow, Win
 const FOCUS_HIDE_DELAY_MS: u64 = 120;
 const BOUNDS_REPORT_DELAY_MS: u64 = 350;
 const HIDDEN_POSITION_THRESHOLD: i32 = -9000;
-const MIN_WINDOW_WIDTH: u32 = 200;
-const MIN_WINDOW_HEIGHT: u32 = 150;
+const MIN_WINDOW_WIDTH: u32 = 320;
+const MIN_WINDOW_HEIGHT: u32 = 220;
 const RUNTIME_COMMAND_EVENT: &str = "fw-app-command";
 
 #[derive(Clone, Serialize)]
@@ -194,29 +194,32 @@ pub(crate) fn install_window_policy(
     args: &FwArgs,
     state: Arc<FwWindowState>,
 ) {
-    if !args.launched {
-        return;
-    }
-
     let auto_hide_on_blur = args.mode == "default";
+    let report_bounds = args.launched;
     let window_for_event = window.clone();
     window.on_window_event(move |event| match event {
         WindowEvent::Focused(false) => {
-            if auto_hide_on_blur {
+            if report_bounds && auto_hide_on_blur {
                 schedule_hide_if_unfocused(window_for_event.clone(), state.clone());
             }
         }
         WindowEvent::Moved(_) => {
             remember_window_bounds_from_window(&window_for_event, &state);
-            schedule_window_bounds_report(window_for_event.clone(), state.clone());
+            if report_bounds {
+                schedule_window_bounds_report(window_for_event.clone(), state.clone());
+            }
         }
         WindowEvent::Resized(_) => {
             remember_window_bounds_from_window(&window_for_event, &state);
-            schedule_window_bounds_report(window_for_event.clone(), state.clone());
+            if report_bounds {
+                schedule_window_bounds_report(window_for_event.clone(), state.clone());
+            }
         }
         WindowEvent::CloseRequested { .. } => {
             remember_window_bounds_from_window(&window_for_event, &state);
-            report_remembered_window_bounds(&state);
+            if report_bounds {
+                report_remembered_window_bounds(&state);
+            }
         }
         _ => {}
     });
@@ -358,6 +361,12 @@ fn hide_without_animation(window: &WebviewWindow, state: &FwWindowState) {
     report_remembered_window_bounds(state);
     let _ = window.set_position(PhysicalPosition::new(-10000, -10000));
     let _ = window.hide();
+}
+
+pub(crate) fn hide_to_tray(window: &WebviewWindow, state: &FwWindowState) -> tauri::Result<()> {
+    remember_window_bounds_from_window(window, state);
+    let _ = window.set_position(PhysicalPosition::new(-10000, -10000));
+    window.hide()
 }
 
 fn stage_initial_show(window: &WebviewWindow, state: &FwWindowState) {

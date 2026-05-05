@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { createToast } from '../ui/toast'
 import type { HostGateway } from './types'
@@ -23,8 +24,8 @@ export function createHostGateway(): HostGateway {
     async toggleMaximize() {
       await getCurrentWindow().toggleMaximize()
     },
-    async closeWindow() {
-      await getCurrentWindow().hide()
+    async closeToTray() {
+      await invoke('hide_to_tray')
     },
   }
 }

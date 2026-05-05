@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { createClipboardHistoryGateway } from './gateway'
+import { createHostGateway } from './gateway/hostGateway'
 import { CLIPBOARD_PAGE_SIZE } from './shared/constants'
 import { createClipboardHistoryUiState } from './ui/state'
 import { styles } from './ui/styles'
@@ -27,11 +28,16 @@ import {
 } from './shared/imagePaths'
 
 type PickedDir = { dir: string }
+type FwLaunchInfo = { launched?: boolean; standalone?: boolean; mode?: string }
 
 ;(async function () {
   const state = createClipboardHistoryUiState()
+  const host = createHostGateway()
   let gateway: any = null
   let dataDirStatus: any = null
+  let standaloneLaunch = true
+  let bootStatus: 'booting' | 'ready' | 'error' = 'booting'
+  let bootError = ''
   let snapshotUnsubscribe: (() => void) | null = null
   let pendingLaunchCommand: string | null = await invoke<string | null>('fw_initial_command').catch(() => null)
 
@@ -94,19 +100,19 @@ type PickedDir = { dir: string }
       state.showMoreMenu = true
       state.clearArmedAt = 0
       render()
-      void gateway.host.toast('请在菜单中再次确认清空历史')
+      void host.toast('请在菜单中再次确认清空历史')
       return
     }
 
-    void gateway.host.toast(`未知命令：${command}`)
+    void host.toast(`未知命令：${command}`)
   }
 
   await listen<{ command?: string }>('fw-app-command', event => {
     handleRuntimeCommand(event.payload?.command)
   })
 
-  await refreshDataDirStatus()
-  await connectGateway()
+  const launchInfo = await invoke<FwLaunchInfo>('fw_launch_info').catch(() => null)
+  standaloneLaunch = launchInfo?.standalone !== false
 
   function now() {
     return Date.now()
@@ -510,7 +516,7 @@ type PickedDir = { dir: string }
     root.innerHTML = `
       <style>${styles}</style>
       <div class="wrap">
-        <div class="topbar" data-area="topbar"></div>
+        <div class="topbar" data-area="topbar" data-tauri-drag-region="true"></div>
         <div class="content">
           <div data-page="clipboard" data-area="clipboardPage">
             <div class="settings" data-area="settings" style="display:none"></div>
@@ -536,7 +542,7 @@ type PickedDir = { dir: string }
         const t = e.target
         if (!(t instanceof HTMLElement)) return
         if (t.closest('button, a, input, textarea, select, [role="button"]')) return
-        void gateway.host.startDragging()
+        void host.startDragging()
       })
     }
 
@@ -575,14 +581,14 @@ type PickedDir = { dir: string }
 
         const content = n.type === 'item' ? state.editDialog.itemContent.trim() : ''
         if (n.type === 'item' && !content) {
-          void gateway.host.toast(n.type === 'folder' ? '名称不能为空' : '正文内容不能为空')
+          void host.toast(n.type === 'folder' ? '名称不能为空' : '正文内容不能为空')
           return
         }
 
         if (n.type === 'folder') await updateFolderName(nodeId, state.editDialog.folderName)
         else await updateItem(nodeId, state.editDialog.itemTitle, state.editDialog.itemContent)
 
-        void gateway.host.toast('已保存')
+        void host.toast('已保存')
         closeOverlays()
         render()
         return
@@ -651,9 +657,9 @@ type PickedDir = { dir: string }
           } else {
             await moveNode(movingId, toParentId)
           }
-          void gateway.host.toast(`${action === 'copy' ? '已复制到' : '已移动到'}：${folderLabelById(toParentId)}`)
+          void host.toast(`${action === 'copy' ? '已复制到' : '已移动到'}：${folderLabelById(toParentId)}`)
         } catch (error) {
-          void gateway.host.toast(String((error as any)?.message || error || `${action === 'copy' ? '复制失败' : '移动失败'}`))
+          void host.toast(String((error as any)?.message || error || `${action === 'copy' ? '复制失败' : '移动失败'}`))
         }
         closeOverlays()
         renderOverlay()
@@ -661,10 +667,23 @@ type PickedDir = { dir: string }
         return
       }
       if (act === 'back') {
-        void gateway.host.back()
+        void host.back()
+        return
+      }
+      if (act === 'winMinimize') {
+        void host.minimize()
+        return
+      }
+      if (act === 'winToggleMaximize') {
+        void host.toggleMaximize()
+        return
+      }
+      if (act === 'winClose') {
+        void host.closeToTray()
         return
       }
       if (act === 'openFolders') {
+        if (bootStatus !== 'ready') return
         state.view = 'folders'
         state.showSettings = false
         state.showRecentMenu = false
@@ -673,6 +692,7 @@ type PickedDir = { dir: string }
         return
       }
       if (act === 'openClipboard') {
+        if (bootStatus !== 'ready') return
         state.view = 'clipboard'
         state.showSettings = false
         state.showRecentMenu = false
@@ -708,7 +728,7 @@ type PickedDir = { dir: string }
         const armed = state.clearArmedAt && (now() - state.clearArmedAt) < 2500
         if (!armed) {
           state.clearArmedAt = now()
-          void gateway.host.toast('再点一次清空')
+          void host.toast('再点一次清空')
           renderTopbar()
           return
         }
@@ -718,7 +738,7 @@ type PickedDir = { dir: string }
         state.clipboardImageCache = {}
         state.clipboardImageLoading = {}
         state.clipboardLimit = CLIPBOARD_PAGE_SIZE
-        void gateway.host.toast('已清空')
+        void host.toast('已清空')
         render()
         return
       }
@@ -736,7 +756,7 @@ type PickedDir = { dir: string }
         await createFolder(state.currentFolderId, state.draftFolderName)
         state.showFolderEditor = false
         state.draftFolderName = ''
-        void gateway.host.toast('已创建收藏夹')
+        void host.toast('已创建收藏夹')
         return
       }
       if (act === 'cancelFolder') {
@@ -758,14 +778,14 @@ type PickedDir = { dir: string }
       }
       if (act === 'saveItem') {
         if (!state.draftContent.trim()) {
-          void gateway.host.toast('正文内容不能为空')
+          void host.toast('正文内容不能为空')
           return
         }
         await createItem(state.currentFolderId, state.draftTitle, state.draftContent)
         state.showItemEditor = false
         state.draftTitle = ''
         state.draftContent = ''
-        void gateway.host.toast('已添加条目')
+        void host.toast('已添加条目')
         return
       }
       if (act === 'cancelItem') {
@@ -804,14 +824,14 @@ type PickedDir = { dir: string }
         if (!n) return
         if (!isDeleteArmed(nodeId)) {
           armDelete(nodeId)
-          void gateway.host.toast('再点一次删除')
+          void host.toast('再点一次删除')
           renderFolderList()
           return
         }
         state.deleteArmedId = ''
         state.deleteArmedAt = 0
         await deleteNode(nodeId)
-        void gateway.host.toast('已删除')
+        void host.toast('已删除')
         renderFolderList()
         return
       }
@@ -821,7 +841,7 @@ type PickedDir = { dir: string }
         if (!it || it.type !== 'item') return
         try {
           await gateway.clipboard.writeText(it.content)
-          void gateway.host.toast('复制成功')
+          void host.toast('复制成功')
         } catch (e) {}
         return
       }
@@ -854,7 +874,7 @@ type PickedDir = { dir: string }
           const key = historyKey(item)
           if (!isDeleteArmed(key)) {
             armDelete(key)
-            void gateway.host.toast('再点一次删除')
+            void host.toast('再点一次删除')
             renderClipboardList()
             return
           }
@@ -864,7 +884,7 @@ type PickedDir = { dir: string }
           if (state.clipboardExpanded[key]) delete state.clipboardExpanded[key]
           if (state.clipboardImageCache[key]) delete state.clipboardImageCache[key]
           if (state.clipboardImageLoading[key]) delete state.clipboardImageLoading[key]
-          void gateway.host.toast('已删除')
+          void host.toast('已删除')
           renderClipboardList()
           return
         }
@@ -892,10 +912,10 @@ type PickedDir = { dir: string }
           }
 
           applySnapshot(snapshot)
-          void gateway.host.toast('复制成功')
+          void host.toast('复制成功')
           renderClipboardList()
         } catch (err) {
-          void gateway.host.toast(String((err && (err as Error).message) || '复制失败'))
+          void host.toast(String((err && (err as Error).message) || '复制失败'))
         }
         return
       }
@@ -912,7 +932,7 @@ type PickedDir = { dir: string }
         if (n.type === 'item') {
           try {
             await gateway.clipboard.writeText(n.content)
-            void gateway.host.toast('复制成功')
+            void host.toast('复制成功')
           } catch (e) {}
           return
         }
@@ -1017,7 +1037,7 @@ type PickedDir = { dir: string }
             if (id && id !== movingId) insertIndex += 1
           }
           void moveNode(movingId, state.currentFolderId, insertIndex)
-            .catch(error => gateway.host.toast(String((error as any)?.message || error || '移动失败')))
+            .catch(error => host.toast(String((error as any)?.message || error || '移动失败')))
         }
         render()
       }
@@ -1252,7 +1272,7 @@ type PickedDir = { dir: string }
           applySnapshot(await gateway.state.load())
           subscribeSnapshots()
           render()
-          void gateway.host.toast('数据目录已更新')
+          void host.toast('数据目录已更新')
         } catch (error) {
           await refreshDataDirStatus()
           render()
@@ -1267,9 +1287,9 @@ type PickedDir = { dir: string }
           applySnapshot(result.snapshot)
           render()
           const report = result.report
-          void gateway.host.toast(`已导入 ${report.historyCount} 条历史，备份已创建`)
+          void host.toast(`已导入 ${report.historyCount} 条历史，备份已创建`)
         } catch (error) {
-          void gateway.host.toast(String((error as any)?.message || error || '导入旧数据失败'))
+          void host.toast(String((error as any)?.message || error || '导入旧数据失败'))
         }
       }
     }
@@ -1308,6 +1328,7 @@ type PickedDir = { dir: string }
           </div>
         </div>
         <button class="btn folders" data-act="openFolders">收藏夹</button>
+        ${renderWindowControls()}
       `
       return
     }
@@ -1319,6 +1340,18 @@ type PickedDir = { dir: string }
       <button class="btn" data-act="toggleFolderSearchScope">${state.folderSearchScope === 'global' ? '全局' : '当前'}</button>
       <span class="spacer"></span>
       <button class="btn primary" data-act="openClipboard">剪贴板</button>
+      ${renderWindowControls()}
+    `
+  }
+
+  function renderWindowControls() {
+    if (!standaloneLaunch) return ''
+    return `
+      <div class="windowControls" data-window-controls="true" aria-label="窗口控制">
+        <button class="windowBtn" data-act="winMinimize" title="最小化" aria-label="最小化">−</button>
+        <button class="windowBtn" data-act="winToggleMaximize" title="最大化或还原" aria-label="最大化或还原">□</button>
+        <button class="windowBtn close" data-act="winClose" title="关闭到托盘" aria-label="关闭到托盘">×</button>
+      </div>
     `
   }
 
@@ -1376,6 +1409,17 @@ type PickedDir = { dir: string }
     const listEl = document.querySelector('[data-area="clipboardList"]')
     const emptyEl = document.querySelector('[data-area="clipboardEmpty"]')
     if (!(listEl instanceof HTMLElement) || !(emptyEl instanceof HTMLElement)) return
+
+    if (bootStatus !== 'ready') {
+      detachClipboardSentinelObserver()
+      listEl.innerHTML = ''
+      listEl.style.display = 'none'
+      emptyEl.style.display = 'block'
+      emptyEl.textContent = bootStatus === 'error'
+        ? (bootError || '剪贴板历史启动失败')
+        : '剪贴板历史正在启动...'
+      return
+    }
 
     const q = state.clipboardSearchQuery.trim().toLowerCase()
     let list = state.history
@@ -1480,6 +1524,12 @@ type PickedDir = { dir: string }
             continue
           }
 
+          if (!gateway) {
+            const ph = img.parentElement?.querySelector?.('[data-role="imgPh"]')
+            if (ph instanceof HTMLElement) ph.textContent = '正在连接后台...'
+            continue
+          }
+
           const path = pickImagePath(item)
           if (!path) {
             const ph = img.parentElement?.querySelector?.('[data-role="imgPh"]')
@@ -1514,6 +1564,10 @@ type PickedDir = { dir: string }
   function renderFoldersSubbar() {
     const sub = document.querySelector('[data-area="foldersSubbar"]')
     if (!(sub instanceof HTMLElement)) return
+    if (bootStatus !== 'ready') {
+      sub.innerHTML = ''
+      return
+    }
     if (!state.collections) return
 
     const pathIds = buildPathIds(state.currentFolderId)
@@ -1572,6 +1626,15 @@ type PickedDir = { dir: string }
     const listEl = document.querySelector('[data-area="folderList"]')
     const emptyEl = document.querySelector('[data-area="folderEmpty"]')
     if (!(listEl instanceof HTMLElement) || !(emptyEl instanceof HTMLElement)) return
+    if (bootStatus !== 'ready') {
+      listEl.innerHTML = ''
+      listEl.style.display = 'none'
+      emptyEl.style.display = 'block'
+      emptyEl.textContent = bootStatus === 'error'
+        ? (bootError || '剪贴板历史启动失败')
+        : '剪贴板历史正在启动...'
+      return
+    }
     if (!state.collections) return
 
     const q = (state.folderSearchQuery || '').trim()
@@ -1671,16 +1734,24 @@ type PickedDir = { dir: string }
   }
 
   async function init() {
-    try {
-      applySnapshot(await gateway.state.load())
-    } catch (e) {}
-
     mount()
-    subscribeSnapshots()
     render()
-
     await invoke('app_ready').catch(() => {})
     await refreshDataDirStatus()
+
+    try {
+      await connectGateway()
+      applySnapshot(await gateway.state.load())
+      bootStatus = 'ready'
+      bootError = ''
+    } catch (error) {
+      bootStatus = 'error'
+      bootError = String((error as any)?.message || error || '剪贴板历史启动失败')
+      await refreshDataDirStatus()
+    }
+
+    subscribeSnapshots()
+    render()
 
     if (pendingLaunchCommand) {
       const command = pendingLaunchCommand
