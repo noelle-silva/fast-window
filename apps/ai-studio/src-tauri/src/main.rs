@@ -8,7 +8,9 @@ mod single_instance;
 mod standalone_tray;
 
 use backend_sidecar::{start_backend, BackendEndpoint, BackendState};
-use control_server::{available_commands, start_control_server, ControlServerConfig};
+use control_server::{
+    available_commands, start_control_server, ControlServerConfig, AI_STUDIO_APP_ID,
+};
 use data_dir::DataDirStatus;
 use fw_window::{
     app_ready, apply_fw_args, fw_initial_command, fw_launch_info, install_window_policy,
@@ -132,6 +134,8 @@ fn main() {
                 window_state_setup.clone(),
                 ControlServerConfig {
                     name: "fw-ai-studio-control",
+                    app_id: AI_STUDIO_APP_ID,
+                    server_id: "fw-control",
                     bind_addr: "127.0.0.1:0",
                     token: control_server::session_token(),
                     announce_to_stdout: true,

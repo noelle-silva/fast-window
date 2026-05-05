@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::fw_window::{apply_control_action, FwWindowState};
 
+pub(crate) const AI_STUDIO_APP_ID: &str = "ai-studio";
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AppCommandDescriptor {
@@ -22,14 +24,20 @@ pub(crate) struct ControlEndpoint {
 
 pub(crate) struct ControlServerConfig {
     pub(crate) name: &'static str,
+    pub(crate) app_id: &'static str,
+    pub(crate) server_id: &'static str,
     pub(crate) bind_addr: &'static str,
     pub(crate) token: String,
     pub(crate) announce_to_stdout: bool,
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ControlClientResponse {
     ok: bool,
+    app_id: Option<String>,
+    server_id: Option<String>,
+    protocol_version: Option<u32>,
 }
 
 struct ControlRequest {
@@ -96,22 +104,32 @@ pub(crate) fn start_control_server(
                 "mode": "http",
                 "url": endpoint.url,
                 "token": endpoint.token,
+                "appId": config.app_id,
+                "serverId": config.server_id,
                 "protocolVersion": 1
             }
         }));
     }
 
     let expected_token = endpoint.token.clone();
+    let server_name = config.name;
+    let app_id = config.app_id;
+    let server_id = config.server_id;
     thread::Builder::new()
-        .name(config.name.to_string())
+        .name(server_name.to_string())
         .spawn(move || {
             for stream in listener.incoming() {
                 match stream {
-                    Ok(stream) => {
-                        handle_control_connection(stream, &app, &window_state, &expected_token)
-                    }
+                    Ok(stream) => handle_control_connection(
+                        stream,
+                        &app,
+                        &window_state,
+                        &expected_token,
+                        app_id,
+                        server_id,
+                    ),
                     Err(error) => {
-                        eprintln!("[ai-studio-app] {} connection failed: {error}", config.name);
+                        eprintln!("[ai-studio-app] {} connection failed: {error}", server_name);
                         break;
                     }
                 }
@@ -127,6 +145,8 @@ pub(crate) fn post_control_request(
     token: &str,
     action: &str,
     command: Option<&str>,
+    expected_app_id: &str,
+    expected_server_id: &str,
 ) -> bool {
     let mut body = serde_json::json!({ "action": action });
     if let Some(command) = command.map(str::trim).filter(|value| !value.is_empty()) {
@@ -160,9 +180,7 @@ pub(crate) fn post_control_request(
     let Some((_, body)) = response.split_once("\r\n\r\n") else {
         return false;
     };
-    serde_json::from_str::<ControlClientResponse>(body)
-        .map(|value| value.ok)
-        .unwrap_or(false)
+    control_response_matches(body, expected_app_id, expected_server_id)
 }
 
 fn handle_control_connection(
@@ -170,6 +188,8 @@ fn handle_control_connection(
     app: &tauri::AppHandle,
     window_state: &FwWindowState,
     expected_token: &str,
+    app_id: &str,
+    server_id: &str,
 ) {
     let request = match read_control_request(&mut stream) {
         Ok(request) => request,
@@ -220,7 +240,13 @@ fn handle_control_connection(
         Ok(()) => write_control_response(
             &mut stream,
             200,
-            serde_json::json!({ "ok": true, "availableCommands": available_commands() }),
+            serde_json::json!({
+                "ok": true,
+                "appId": app_id,
+                "serverId": server_id,
+                "protocolVersion": 1,
+                "availableCommands": available_commands()
+            }),
         ),
         Err(error) => write_control_response(
             &mut stream,
@@ -228,6 +254,16 @@ fn handle_control_connection(
             serde_json::json!({ "ok": false, "error": error }),
         ),
     }
+}
+
+fn control_response_matches(body: &str, expected_app_id: &str, expected_server_id: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<ControlClientResponse>(body) else {
+        return false;
+    };
+    value.ok
+        && value.protocol_version == Some(1)
+        && value.app_id.as_deref() == Some(expected_app_id)
+        && value.server_id.as_deref() == Some(expected_server_id)
 }
 
 fn find_header_end(buffer: &[u8]) -> Option<usize> {
@@ -324,4 +360,31 @@ fn write_stdout_json_line(value: serde_json::Value) {
     let mut out = std::io::stdout();
     let _ = writeln!(out, "{}", value);
     let _ = out.flush();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::control_response_matches;
+
+    #[test]
+    fn accepts_matching_control_response_identity() {
+        let body =
+            r#"{"ok":true,"appId":"ai-studio","serverId":"single-instance","protocolVersion":1}"#;
+        assert!(control_response_matches(
+            body,
+            "ai-studio",
+            "single-instance"
+        ));
+    }
+
+    #[test]
+    fn rejects_mismatched_control_response_identity() {
+        let body =
+            r#"{"ok":true,"appId":"other","serverId":"single-instance","protocolVersion":1}"#;
+        assert!(!control_response_matches(
+            body,
+            "ai-studio",
+            "single-instance"
+        ));
+    }
 }
