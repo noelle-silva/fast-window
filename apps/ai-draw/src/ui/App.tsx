@@ -85,7 +85,7 @@ type LightboxState =
   | { open: true; kind: 'refLibrary'; paths: string[]; index: number }
   | { open: true; kind: 'outputGallery'; paths: string[]; index: number }
 
-type SettingsTab = 'provider' | 'plugin'
+type SettingsTab = 'provider' | 'draw'
 
 function useAiDrawController(gateway: AiDrawGateway) {
   const controller = React.useMemo(() => createAiDrawController(gateway), [gateway])
@@ -411,7 +411,7 @@ export function AiDrawApp(props: { gateway: AiDrawGateway }) {
   const [imageGalleryQuery, setImageGalleryQuery] = React.useState('')
 
   const [providerDraft, setProviderDraft] = React.useState<ProviderDraft | null>(null)
-  const [pluginDraft, setPluginDraft] = React.useState<any>(null)
+  const [drawSettingsDraft, setDrawSettingsDraft] = React.useState<any>(null)
   const [debugDialogOpen, setDebugDialogOpen] = React.useState(false)
 
   const [lightbox, setLightbox] = React.useState<LightboxState>({ open: false })
@@ -424,7 +424,7 @@ export function AiDrawApp(props: { gateway: AiDrawGateway }) {
   React.useEffect(() => {
     if (!settingsOpen) return
     if (data) {
-        setPluginDraft({
+        setDrawSettingsDraft({
           autoSave: !!data.autoSave,
           shrinkRefImages: data.shrinkRefImages !== false,
           debugMode: !!data.debugMode,
@@ -1436,11 +1436,11 @@ export function AiDrawApp(props: { gateway: AiDrawGateway }) {
                   size="small"
                   variant="outlined"
                   onClick={() => {
-                    setSettingsTab('plugin')
+                    setSettingsTab('draw')
                     setSettingsOpen(true)
                   }}
                 >
-                  插件设置
+                  绘图设置
                 </Button>
               </Stack>
             </OverlayScrollArea>
@@ -1526,7 +1526,7 @@ export function AiDrawApp(props: { gateway: AiDrawGateway }) {
             sx={{ mb: 2, flex: '0 0 auto' }}
           >
             <Tab value="provider" label="供应商" />
-            <Tab value="plugin" label="插件" />
+            <Tab value="draw" label="绘图" />
           </Tabs>
 
           {settingsTab === 'provider' ? (
@@ -1559,14 +1559,14 @@ export function AiDrawApp(props: { gateway: AiDrawGateway }) {
             </Box>
           ) : null}
 
-          {settingsTab === 'plugin' ? (
+          {settingsTab === 'draw' ? (
             <OverlayScrollArea sx={{ flex: 1, minHeight: 0 }} contentSx={{ pr: 1.5, pb: 0.5, boxSizing: 'border-box' }}>
             <Stack spacing={2}>
               <FormControlLabel
                 control={
                   <Switch
-                    checked={!!pluginDraft?.autoSave}
-                    onChange={(e) => setPluginDraft((d: any) => ({ ...(d || {}), autoSave: e.target.checked }))}
+                    checked={!!drawSettingsDraft?.autoSave}
+                    onChange={(e) => setDrawSettingsDraft((d: any) => ({ ...(d || {}), autoSave: e.target.checked }))}
                   />
                 }
                 label="生成后自动保存到输出目录（由后台执行写入）"
@@ -1574,8 +1574,8 @@ export function AiDrawApp(props: { gateway: AiDrawGateway }) {
               <FormControlLabel
                 control={
                   <Switch
-                    checked={!!pluginDraft?.shrinkRefImages}
-                    onChange={(e) => setPluginDraft((d: any) => ({ ...(d || {}), shrinkRefImages: e.target.checked }))}
+                    checked={!!drawSettingsDraft?.shrinkRefImages}
+                    onChange={(e) => setDrawSettingsDraft((d: any) => ({ ...(d || {}), shrinkRefImages: e.target.checked }))}
                   />
                 }
                 label="参考图自动压缩（更稳/更省流量）"
@@ -1583,8 +1583,8 @@ export function AiDrawApp(props: { gateway: AiDrawGateway }) {
               <FormControlLabel
                 control={
                   <Switch
-                    checked={!!pluginDraft?.debugMode}
-                    onChange={(e) => setPluginDraft((d: any) => ({ ...(d || {}), debugMode: e.target.checked }))}
+                    checked={!!drawSettingsDraft?.debugMode}
+                    onChange={(e) => setDrawSettingsDraft((d: any) => ({ ...(d || {}), debugMode: e.target.checked }))}
                   />
                 }
                 label="调试模式（顶部显示请求/响应查看按钮）"
@@ -1593,24 +1593,24 @@ export function AiDrawApp(props: { gateway: AiDrawGateway }) {
                 <TextField
                   size="small"
                   label="提示词历史上限"
-                  value={pluginDraft?.promptHistoryLimit ?? ''}
-                  onChange={(e) => setPluginDraft((d: any) => ({ ...(d || {}), promptHistoryLimit: e.target.value }))}
+                  value={drawSettingsDraft?.promptHistoryLimit ?? ''}
+                  onChange={(e) => setDrawSettingsDraft((d: any) => ({ ...(d || {}), promptHistoryLimit: e.target.value }))}
                   sx={{ width: 220 }}
                   inputProps={{ inputMode: 'numeric' }}
                 />
                 <TextField
                   size="small"
                   label="任务记录上限"
-                  value={pluginDraft?.taskHistoryLimit ?? ''}
-                  onChange={(e) => setPluginDraft((d: any) => ({ ...(d || {}), taskHistoryLimit: e.target.value }))}
+                  value={drawSettingsDraft?.taskHistoryLimit ?? ''}
+                  onChange={(e) => setDrawSettingsDraft((d: any) => ({ ...(d || {}), taskHistoryLimit: e.target.value }))}
                   sx={{ width: 220 }}
                   inputProps={{ inputMode: 'numeric' }}
                 />
                 <TextField
                   size="small"
                   label="请求超时（秒）"
-                  value={pluginDraft?.requestTimeoutSec ?? ''}
-                  onChange={(e) => setPluginDraft((d: any) => ({ ...(d || {}), requestTimeoutSec: e.target.value }))}
+                  value={drawSettingsDraft?.requestTimeoutSec ?? ''}
+                  onChange={(e) => setDrawSettingsDraft((d: any) => ({ ...(d || {}), requestTimeoutSec: e.target.value }))}
                   sx={{ width: 220 }}
                   inputProps={{ inputMode: 'numeric' }}
                 />
@@ -1640,14 +1640,14 @@ export function AiDrawApp(props: { gateway: AiDrawGateway }) {
               let task: Promise<void> | null = null
               if (settingsTab === 'provider' && provider) {
                 task = controller.saveProvider(provider.id, providerDraft || {})
-              } else if (settingsTab === 'plugin') {
-                task = controller.savePluginSettings({
-                  autoSave: !!pluginDraft?.autoSave,
-                  shrinkRefImages: !!pluginDraft?.shrinkRefImages,
-                  debugMode: !!pluginDraft?.debugMode,
-                  promptHistoryLimit: Number(pluginDraft?.promptHistoryLimit),
-                  taskHistoryLimit: Number(pluginDraft?.taskHistoryLimit),
-                  requestTimeoutSec: Number(pluginDraft?.requestTimeoutSec),
+              } else if (settingsTab === 'draw') {
+                task = controller.saveDrawSettings({
+                  autoSave: !!drawSettingsDraft?.autoSave,
+                  shrinkRefImages: !!drawSettingsDraft?.shrinkRefImages,
+                  debugMode: !!drawSettingsDraft?.debugMode,
+                  promptHistoryLimit: Number(drawSettingsDraft?.promptHistoryLimit),
+                  taskHistoryLimit: Number(drawSettingsDraft?.taskHistoryLimit),
+                  requestTimeoutSec: Number(drawSettingsDraft?.requestTimeoutSec),
                 })
               }
               if (!task) return

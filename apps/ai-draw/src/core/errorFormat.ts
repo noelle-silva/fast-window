@@ -1,4 +1,4 @@
-export type AiDrawErrorCategory = '网络' | '服务端' | '配置' | '宿主' | '插件' | '未知'
+export type AiDrawErrorCategory = '网络' | '服务端' | '配置' | '宿主' | '绘图' | '未知'
 
 export type AiDrawErrorContext = {
   stage?: string
@@ -73,7 +73,7 @@ function guessCategory(ctx: AiDrawErrorContext): { category: AiDrawErrorCategory
     raw.includes('pluginId 不合法') ||
     raw.includes('任务状态锁定失败')
   ) return { category: '宿主', titleSuffix: '' }
-  if (raw.includes('请求体过大') || raw.includes('未拿到图片数据') || raw.includes('合成失败') || raw.includes('裁剪失败')) return { category: '插件', titleSuffix: '' }
+  if (raw.includes('请求体过大') || raw.includes('未拿到图片数据') || raw.includes('合成失败') || raw.includes('裁剪失败')) return { category: '绘图', titleSuffix: '' }
 
   if (raw.includes('请求失败') || raw.includes('读取响应失败') || raw.includes('创建 http client 失败') || raw.includes('bodyBase64')) {
     const kind = guessNetworkKind(raw)
@@ -96,8 +96,8 @@ function suggestionsFor(category: AiDrawErrorCategory, httpStatus: number | null
     if (httpStatus && httpStatus >= 500) return ['服务端/上游模型异常：稍后重试', '若是自建网关：查看服务日志']
     return ['查看服务端返回的错误信息（下方“服务端信息”）', '确认接口路径/协议选择正确（images/chat）']
   }
-  if (category === '宿主') return ['尝试重启宿主应用', '确认宿主网关版本已更新', '若多插件同时异常：可能是宿主权限/环境问题']
-  if (category === '插件') return ['按提示修正输入（提示词/参考图/选区）', '减少参考图或缩小图片体积', '若持续复现：把报错完整复制给开发者']
+  if (category === '宿主') return ['尝试重启宿主应用', '确认宿主网关版本已更新', '若多个 App 同时异常：可能是宿主权限/环境问题']
+  if (category === '绘图') return ['按提示修正输入（提示词/参考图/选区）', '减少参考图或缩小图片体积', '若持续复现：把报错完整复制给开发者']
   return ['把“详情”里的原始错误复制出来（便于定位）', '重试一次排除偶发失败']
 }
 

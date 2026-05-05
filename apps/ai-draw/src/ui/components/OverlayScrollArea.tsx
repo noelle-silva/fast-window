@@ -188,7 +188,7 @@ export function OverlayScrollArea(props: OverlayScrollAreaProps) {
       e.preventDefault()
       e.stopPropagation()
     },
-    [thumb.needed, thumb.height, thumbMinHeight],
+    [axis, thumb.needed, thumb.size, thumbMinHeight],
   )
 
   const onThumbPointerMove = React.useCallback(

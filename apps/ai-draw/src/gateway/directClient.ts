@@ -20,14 +20,14 @@ function getBackgroundEndpoint(baseApi: unknown) {
 
 function normalizeEndpoint(raw: any) {
   const endpoint = raw && typeof raw === 'object' && raw.ipc && typeof raw.ipc === 'object' ? { ...raw.ipc, token: raw.token } : raw
-  if (!endpoint || typeof endpoint !== 'object') throw new Error('background.endpoint 返回值无效')
-  if (endpoint.mode !== 'direct') throw new Error('background.endpoint mode 不支持：需要 direct')
-  if (endpoint.transport !== 'local-websocket') throw new Error('background.endpoint transport 不支持：需要 local-websocket')
-  if (Number(endpoint.protocolVersion) !== AI_DRAW_DIRECT_PROTOCOL_VERSION) throw new Error('background.endpoint 协议版本不兼容')
+  if (!endpoint || typeof endpoint !== 'object') throw new Error('后台 endpoint 返回值无效')
+  if (endpoint.mode !== 'direct') throw new Error('后台 endpoint mode 不支持：需要 direct')
+  if (endpoint.transport !== 'local-websocket') throw new Error('后台 endpoint transport 不支持：需要 local-websocket')
+  if (Number(endpoint.protocolVersion) !== AI_DRAW_DIRECT_PROTOCOL_VERSION) throw new Error('后台 endpoint 协议版本不兼容')
   const url = String(endpoint.url || '').trim()
   const token = String(endpoint.token || '').trim()
-  if (!url.startsWith('ws://127.0.0.1:')) throw new Error('background.endpoint URL 无效')
-  if (!token) throw new Error('background.endpoint token 缺失')
+  if (!url.startsWith('ws://127.0.0.1:')) throw new Error('后台 endpoint URL 无效')
+  if (!token) throw new Error('后台 endpoint token 缺失')
   return { url, token }
 }
 
@@ -35,8 +35,8 @@ function makeRequestId() {
   return `req-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-export async function createDirectAiDrawClient(baseApi: unknown): Promise<DirectAiDrawClient> {
-  const endpoint = normalizeEndpoint(await getBackgroundEndpoint(baseApi))
+export async function createDirectAiDrawClientFromEndpoint(rawEndpoint: unknown): Promise<DirectAiDrawClient> {
+  const endpoint = normalizeEndpoint(rawEndpoint)
   const ws = new WebSocket(`${endpoint.url}?token=${encodeURIComponent(endpoint.token)}`)
   const pending = new Map<string, PendingRequest>()
   const listeners = new Set<(event: AiDrawDirectEvent) => void>()
@@ -124,4 +124,8 @@ export async function createDirectAiDrawClient(baseApi: unknown): Promise<Direct
       ws.close()
     },
   }
+}
+
+export async function createDirectAiDrawClient(baseApi: unknown): Promise<DirectAiDrawClient> {
+  return createDirectAiDrawClientFromEndpoint(await getBackgroundEndpoint(baseApi))
 }
