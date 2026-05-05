@@ -11,7 +11,7 @@ export async function createDirectCapabilitiesAdapter(baseApi: unknown): Promise
   const host = (baseApi as any)?.host
 
   const api = {
-    __meta: { runtime: 'ui', pluginId: 'ai-chat' },
+    __meta: { runtime: 'ui', pluginId: 'ai-studio' },
 
     storage: {
       get: async (key: string) => directClient.invoke(AI_CHAT_DIRECT_METHOD.storageGet, { key }),

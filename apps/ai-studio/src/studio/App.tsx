@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { AiChatApp } from '../ui/App'
+import { StandaloneWindowControls, type WindowControlActions } from '../ui/components/StandaloneWindowControls'
 import type { AiChatController } from '../controller/types'
 import { createAiChatAppRuntime, type AiChatAppRuntime } from './aiChatAppHost'
 
@@ -18,6 +19,20 @@ type BootStatus = 'booting' | 'ready' | 'error'
 type ToastMessage = {
   id: number
   text: string
+}
+
+type FwLaunchInfo = {
+  launched: boolean
+  standalone: boolean
+  mode: string
+}
+
+const TAURI_WINDOW = getCurrentWindow()
+
+const WINDOW_CONTROL_ACTIONS: WindowControlActions = {
+  minimize: () => TAURI_WINDOW.minimize(),
+  toggleMaximize: () => TAURI_WINDOW.toggleMaximize(),
+  closeToTray: () => invoke('hide_to_tray'),
 }
 
 function commandLabel(command: string | null | undefined) {
@@ -40,6 +55,7 @@ export function App() {
   const [pendingCommand, setPendingCommand] = React.useState<string | null>(null)
   const [controller, setController] = React.useState<AiChatController | null>(null)
   const [toast, setToast] = React.useState<ToastMessage | null>(null)
+  const [launchInfo, setLaunchInfo] = React.useState<FwLaunchInfo>({ launched: false, standalone: true, mode: 'standalone' })
   const runtimeRef = React.useRef<AiChatAppRuntime | null>(null)
   const toastSeqRef = React.useRef(0)
 
@@ -105,6 +121,8 @@ export function App() {
 
     async function boot() {
       try {
+        const info = await invoke<FwLaunchInfo>('fw_launch_info').catch(() => null)
+        if (!disposed && info) setLaunchInfo(normalizeLaunchInfo(info))
         const command = await invoke<string | null>('fw_initial_command').catch(() => null)
         if (!disposed) handleCommand(command)
         unlisten = await listen<{ command?: string }>('fw-app-command', event => handleCommand(event.payload?.command))
@@ -171,6 +189,10 @@ export function App() {
               onPick: pickDataDir,
               onRefresh: refreshDataDirStatus,
             }}
+            windowControls={{
+              standalone: launchInfo.standalone,
+              actions: WINDOW_CONTROL_ACTIONS,
+            }}
           />
         </div>
       ) : (
@@ -178,6 +200,8 @@ export function App() {
           status={bootStatus}
           issue={issue || ''}
           pendingCommand={commandLabel(pendingCommand)}
+          standalone={launchInfo.standalone}
+          windowControlActions={WINDOW_CONTROL_ACTIONS}
           onPickDataDir={pickDataDir}
         />
       )}
@@ -186,16 +210,30 @@ export function App() {
   )
 }
 
+function normalizeLaunchInfo(raw: FwLaunchInfo): FwLaunchInfo {
+  return {
+    launched: !!raw?.launched,
+    standalone: raw?.standalone !== false,
+    mode: String(raw?.mode || (raw?.standalone === false ? 'default' : 'standalone')),
+  }
+}
+
 function BootFallback(props: {
   status: BootStatus
   issue: string
   pendingCommand: string | null
+  standalone: boolean
+  windowControlActions: WindowControlActions
   onPickDataDir: () => void
 }) {
-  const { status, issue, pendingCommand, onPickDataDir } = props
+  const { status, issue, pendingCommand, standalone, windowControlActions, onPickDataDir } = props
   const title = issue ? 'AI Studio 启动遇到问题' : 'AI Studio 正在启动'
   return (
     <main className="bootFallback" role={issue ? 'alert' : 'status'} aria-live="polite">
+      <header className="bootFallbackTopbar" data-tauri-drag-region="true">
+        <div className="bootFallbackBrand">AI Studio</div>
+        {standalone ? <StandaloneWindowControls actions={windowControlActions} /> : null}
+      </header>
       <section className="bootFallbackCard">
         <div className="bootFallbackTitle">{title}</div>
         <div className="bootFallbackText">{status === 'booting' ? '正在连接本机后台，请稍等。' : '请处理下面的问题后重试。'}</div>

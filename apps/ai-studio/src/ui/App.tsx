@@ -84,6 +84,7 @@ import { ConfirmDialog } from './dialogs/ConfirmDialog'
 import { MermaidDialog } from './dialogs/MermaidDialog'
 import { ImageDialog } from './dialogs/ImageDialog'
 import { RoleAvatarCropper } from './components/avatar/RoleAvatarCropper'
+import { StandaloneWindowControls, type WindowControlActions } from './components/StandaloneWindowControls'
 
 const MERMAID_COPY_IMAGE_MIN_SCALE = 3
 const MERMAID_COPY_IMAGE_MAX_SCALE = 6
@@ -106,6 +107,11 @@ type AiChatDataDirectory = {
   busy?: boolean
   onPick?: () => Promise<void> | void
   onRefresh?: () => Promise<DataDirectoryStatus | null> | void
+}
+
+export type AiChatWindowControls = {
+  standalone: boolean
+  actions: WindowControlActions
 }
 
 function isNearBottom(el: HTMLElement, thresholdPx = 24) {
@@ -504,8 +510,8 @@ function StickerText(props: { controller: any; text: string; stickerMap: any }) 
   )
 }
 
-export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDirectory }) {
-  const { controller, dataDirectory } = props
+export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDirectory; windowControls?: AiChatWindowControls }) {
+  const { controller, dataDirectory, windowControls } = props
   const s = useAiChatState(controller)
 
   const theme = React.useMemo(
@@ -1142,9 +1148,11 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
     if (e.button !== 0) return
     const t = e.target as any
     if (!t || typeof t.closest !== 'function') return
-    if (t.closest('button, a, input, textarea, select, [role="button"]')) return
+    if (t.closest('button, a, input, textarea, select, [role="button"], [data-window-controls="true"]')) return
     controller?.capabilities?.ui?.startDragging?.()
   })
+
+  const standaloneWindowControls = windowControls?.standalone ? <StandaloneWindowControls actions={windowControls.actions} /> : null
 
   const onClickOpenImageViewer = useEvent((e: React.MouseEvent) => {
     const t = e.target as any
@@ -3099,18 +3107,23 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
           }}
         >
           <Toolbar
-             variant="dense"
+            variant="dense"
+            data-tauri-drag-region="true"
             sx={{
               gap: 0.5,
               minHeight: 40,
               px: 1,
               '&.MuiToolbar-root': { minHeight: 40 },
+              WebkitAppRegion: 'drag',
+              '& button, & a, & input, & textarea, & select, & [role="button"], & [data-window-controls="true"]': {
+                WebkitAppRegion: 'no-drag',
+              },
             }}
             onPointerDown={onTopbarPointerDown}
-           >
-             {page === 'settings' ? (
-               <>
-                 <IconButton onClick={backToHost} size="small" aria-label="返回主页">
+          >
+            {page === 'settings' ? (
+              <>
+                <IconButton onClick={backToHost} size="small" aria-label="返回主页">
                    <ArrowBackRoundedIcon fontSize="small" />
                  </IconButton>
                  <IconButton onClick={closePluginSettings} size="small">
@@ -3192,11 +3205,12 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                     variant={settingsTab === 'stickers' ? 'contained' : 'outlined'}
                     onClick={() => setSettingsTab('stickers')}
                     sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
-                 >
-                   表情包
-                 </Button>
-               </>
-              ) : (
+                  >
+                    表情包
+                  </Button>
+                  {standaloneWindowControls}
+                </>
+            ) : (
                <>
                  <IconButton onClick={backToHost} size="small" aria-label="返回主页">
                    <ArrowBackRoundedIcon fontSize="small" />
@@ -3300,6 +3314,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                     <SettingsIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
+                {standaloneWindowControls}
               </>
             )}
           </Toolbar>

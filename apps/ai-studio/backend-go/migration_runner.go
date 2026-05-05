@@ -221,15 +221,31 @@ func (svc *service) saveMigrationState(state migrationState) error {
 }
 
 type migrationRecoveryPlan struct {
-	MigrationID   string   `json:"migrationId"`
-	FromVersion   int      `json:"fromVersion"`
-	ToVersion     int      `json:"toVersion"`
-	Description   string   `json:"description"`
-	CreatedAt     int64    `json:"createdAt"`
-	Strategy      string   `json:"strategy"`
-	AffectedPaths []string `json:"affectedPaths"`
-	CopiedPaths   []string `json:"copiedPaths"`
-	Notes         []string `json:"notes"`
+	MigrationID        string                 `json:"migrationId"`
+	FromVersion        int                    `json:"fromVersion"`
+	ToVersion          int                    `json:"toVersion"`
+	Description        string                 `json:"description"`
+	CreatedAt          int64                  `json:"createdAt"`
+	Strategy           string                 `json:"strategy"`
+	AffectedPaths      []string               `json:"affectedPaths"`
+	CopiedPaths        []string               `json:"copiedPaths"`
+	MoveDeleteMappings []migrationFileMapping `json:"moveDeleteMappings"`
+	ExecutionLog       []migrationRecoveryLog `json:"executionLog"`
+	FailureRecovery    []string               `json:"failureRecovery"`
+	Notes              []string               `json:"notes"`
+}
+
+type migrationRecoveryLog struct {
+	At      int64  `json:"at"`
+	Step    string `json:"step"`
+	Message string `json:"message"`
+}
+
+type migrationFileMapping struct {
+	Kind        string `json:"kind"`
+	Source      string `json:"source"`
+	Recovery    string `json:"recovery"`
+	Destination string `json:"destination,omitempty"`
 }
 
 func (svc *service) prepareMigrationRecovery(migration *dataMigration) (string, error) {
@@ -238,6 +254,9 @@ func (svc *service) prepareMigrationRecovery(migration *dataMigration) (string, 
 	filesDir := filepath.Join(recoveryDir, "files")
 	paths := normalizeRecoveryPaths(migration.Recovery.AffectedPaths)
 	copied := []string{}
+	log := []migrationRecoveryLog{
+		newMigrationRecoveryLog("prepare", "开始准备变更集恢复包"),
+	}
 	for _, rel := range paths {
 		matched, err := svc.copyRecoveryPath(rel, filesDir)
 		if err != nil {
@@ -246,21 +265,57 @@ func (svc *service) prepareMigrationRecovery(migration *dataMigration) (string, 
 		copied = append(copied, matched...)
 	}
 	sort.Strings(copied)
+	log = append(log, newMigrationRecoveryLog("copy", fmt.Sprintf("已复制 %d 个受影响路径到恢复包", len(copied))))
+	mappings := buildRecoveryMappings(copied)
+	log = append(log, newMigrationRecoveryLog("plan", "已写入恢复计划，后续才允许执行迁移"))
 	plan := migrationRecoveryPlan{
-		MigrationID:   migration.ID,
-		FromVersion:   migration.FromVersion,
-		ToVersion:     migration.ToVersion,
-		Description:   migration.Description,
-		CreatedAt:     nowMs(),
-		Strategy:      "change-set",
-		AffectedPaths: paths,
-		CopiedPaths:   copied,
-		Notes:         migration.Recovery.Notes,
+		MigrationID:        migration.ID,
+		FromVersion:        migration.FromVersion,
+		ToVersion:          migration.ToVersion,
+		Description:        migration.Description,
+		CreatedAt:          nowMs(),
+		Strategy:           "change-set",
+		AffectedPaths:      paths,
+		CopiedPaths:        copied,
+		MoveDeleteMappings: mappings,
+		ExecutionLog:       log,
+		FailureRecovery:    defaultFailureRecoverySteps(recoveryDir),
+		Notes:              migration.Recovery.Notes,
 	}
 	if err := writeRecoveryJSON(filepath.Join(recoveryDir, "plan.json"), plan); err != nil {
 		return "", err
 	}
 	return recoveryDir, nil
+}
+
+func newMigrationRecoveryLog(step string, message string) migrationRecoveryLog {
+	return migrationRecoveryLog{At: nowMs(), Step: step, Message: message}
+}
+
+func buildRecoveryMappings(copied []string) []migrationFileMapping {
+	mappings := make([]migrationFileMapping, 0, len(copied))
+	for _, rel := range copied {
+		rel = strings.Trim(strings.ReplaceAll(rel, "\\", "/"), "/")
+		if rel == "" {
+			continue
+		}
+		mappings = append(mappings, migrationFileMapping{
+			Kind:     "restore-original",
+			Source:   rel,
+			Recovery: filepath.ToSlash(filepath.Join("files", filepath.FromSlash(rel))),
+		})
+	}
+	return mappings
+}
+
+func defaultFailureRecoverySteps(recoveryDir string) []string {
+	return []string{
+		"关闭 AI Studio，确认 ai-studio-backend 进程已经退出。",
+		"打开本恢复包目录：" + filepath.ToSlash(recoveryDir),
+		"按 moveDeleteMappings 中的 recovery 路径，把 files 下对应文件复制回 source 指向的数据目录相对位置。",
+		"如果迁移已经部分生成新文件，先把相关新文件移到数据目录外，再恢复旧文件，避免新旧文件混在一起。",
+		"恢复后重新启动 AI Studio；如果仍失败，请保留本恢复包和数据目录用于诊断。",
+	}
 }
 
 func normalizeRecoveryPaths(paths []string) []string {

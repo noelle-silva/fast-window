@@ -98,6 +98,15 @@ func TestRunMigrationsUpdatesMetaAndMigrationState(t *testing.T) {
 	if plan["strategy"] != "change-set" {
 		t.Fatalf("recovery strategy = %v", plan["strategy"])
 	}
+	if items, _ := plan["moveDeleteMappings"].([]any); len(items) == 0 {
+		t.Fatalf("moveDeleteMappings missing: %#v", plan["moveDeleteMappings"])
+	}
+	if items, _ := plan["executionLog"].([]any); len(items) == 0 {
+		t.Fatalf("executionLog missing: %#v", plan["executionLog"])
+	}
+	if items, _ := plan["failureRecovery"].([]any); len(items) == 0 {
+		t.Fatalf("failureRecovery missing: %#v", plan["failureRecovery"])
+	}
 }
 
 func writeJSONForRunnerTest(t *testing.T, path string, value any) {
