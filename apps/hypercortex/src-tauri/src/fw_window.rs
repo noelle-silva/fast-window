@@ -159,7 +159,11 @@ pub(crate) fn apply_fw_args(window: &WebviewWindow, args: &FwArgs, state: &FwWin
         *launch_info = Some(FwLaunchInfo {
             launched: args.launched,
             standalone: !args.launched,
-            mode: if args.launched { args.mode.clone() } else { "standalone".to_string() },
+            mode: if args.launched {
+                args.mode.clone()
+            } else {
+                "standalone".to_string()
+            },
         });
     }
 
@@ -194,29 +198,32 @@ pub(crate) fn install_window_policy(
     args: &FwArgs,
     state: Arc<FwWindowState>,
 ) {
-    if !args.launched {
-        return;
-    }
-
     let auto_hide_on_blur = args.mode == "default";
+    let report_bounds = args.launched;
     let window_for_event = window.clone();
     window.on_window_event(move |event| match event {
         WindowEvent::Focused(false) => {
-            if auto_hide_on_blur {
+            if report_bounds && auto_hide_on_blur {
                 schedule_hide_if_unfocused(window_for_event.clone(), state.clone());
             }
         }
         WindowEvent::Moved(_) => {
             remember_window_bounds_from_window(&window_for_event, &state);
-            schedule_window_bounds_report(window_for_event.clone(), state.clone());
+            if report_bounds {
+                schedule_window_bounds_report(window_for_event.clone(), state.clone());
+            }
         }
         WindowEvent::Resized(_) => {
             remember_window_bounds_from_window(&window_for_event, &state);
-            schedule_window_bounds_report(window_for_event.clone(), state.clone());
+            if report_bounds {
+                schedule_window_bounds_report(window_for_event.clone(), state.clone());
+            }
         }
         WindowEvent::CloseRequested { .. } => {
             remember_window_bounds_from_window(&window_for_event, &state);
-            report_remembered_window_bounds(&state);
+            if report_bounds {
+                report_remembered_window_bounds(&state);
+            }
         }
         _ => {}
     });
@@ -300,11 +307,17 @@ pub(crate) fn app_ready(
 pub(crate) fn fw_initial_command(
     state: tauri::State<'_, Arc<FwWindowState>>,
 ) -> Result<Option<String>, String> {
-    Ok(state.initial_command.lock().ok().and_then(|value| value.clone()))
+    Ok(state
+        .initial_command
+        .lock()
+        .ok()
+        .and_then(|value| value.clone()))
 }
 
 #[tauri::command]
-pub(crate) fn fw_launch_info(state: tauri::State<'_, Arc<FwWindowState>>) -> Result<FwLaunchInfo, String> {
+pub(crate) fn fw_launch_info(
+    state: tauri::State<'_, Arc<FwWindowState>>,
+) -> Result<FwLaunchInfo, String> {
     state
         .launch_info
         .lock()
@@ -358,6 +371,12 @@ fn hide_without_animation(window: &WebviewWindow, state: &FwWindowState) {
     report_remembered_window_bounds(state);
     let _ = window.set_position(PhysicalPosition::new(-10000, -10000));
     let _ = window.hide();
+}
+
+pub(crate) fn hide_to_tray(window: &WebviewWindow, state: &FwWindowState) -> tauri::Result<()> {
+    remember_window_bounds_from_window(window, state);
+    let _ = window.set_position(PhysicalPosition::new(-10000, -10000));
+    window.hide()
 }
 
 fn stage_initial_show(window: &WebviewWindow, state: &FwWindowState) {

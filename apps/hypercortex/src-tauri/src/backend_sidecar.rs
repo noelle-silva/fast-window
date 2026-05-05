@@ -94,7 +94,9 @@ pub(crate) async fn start_backend(
     cmd.kill_on_drop(true);
     hide_backend_console(&mut cmd);
 
-    let mut child = cmd.spawn().map_err(|e| format!("启动 HyperCortex 后台失败: {e}"))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("启动 HyperCortex 后台失败: {e}"))?;
     let stdout = child
         .stdout
         .take()
@@ -171,10 +173,7 @@ fn resolve_backend_sidecar(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         std::env::current_exe()
             .ok()
             .and_then(|path| path.parent().map(|dir| dir.join(exe_name))),
-        app.path()
-            .resource_dir()
-            .ok()
-            .map(|dir| dir.join(exe_name)),
+        app.path().resource_dir().ok().map(|dir| dir.join(exe_name)),
     ];
 
     for candidate in candidates.into_iter().flatten() {

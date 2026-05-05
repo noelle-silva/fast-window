@@ -1,11 +1,13 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use crate::fw_window::{apply_control_action, FwWindowState};
+
+pub(crate) const HYPERCORTEX_APP_ID: &str = "hypercortex";
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,14 +24,20 @@ pub(crate) struct ControlEndpoint {
 
 pub(crate) struct ControlServerConfig {
     pub(crate) name: &'static str,
+    pub(crate) app_id: &'static str,
+    pub(crate) server_id: &'static str,
     pub(crate) bind_addr: &'static str,
     pub(crate) token: String,
     pub(crate) announce_to_stdout: bool,
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ControlClientResponse {
     ok: bool,
+    app_id: Option<String>,
+    server_id: Option<String>,
+    protocol_version: Option<u32>,
 }
 
 struct ControlRequest {
@@ -61,11 +69,19 @@ pub(crate) fn available_commands() -> Vec<AppCommandDescriptor> {
 }
 
 pub(crate) fn session_token() -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_millis(0))
-        .as_millis();
-    format!("hc-{}-{}", now, std::process::id())
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).expect("failed to generate HyperCortex control token");
+    format!("hc-{}", hex_token(&bytes))
+}
+
+fn hex_token(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
 }
 
 pub(crate) fn start_control_server(
@@ -73,8 +89,8 @@ pub(crate) fn start_control_server(
     window_state: std::sync::Arc<FwWindowState>,
     config: ControlServerConfig,
 ) -> Result<ControlEndpoint, String> {
-    let listener = TcpListener::bind(config.bind_addr)
-        .map_err(|e| format!("启动{}失败: {e}", config.name))?;
+    let listener =
+        TcpListener::bind(config.bind_addr).map_err(|e| format!("启动{}失败: {e}", config.name))?;
     let port = listener
         .local_addr()
         .map_err(|e| format!("读取{}端口失败: {e}", config.name))?
@@ -92,20 +108,35 @@ pub(crate) fn start_control_server(
                 "mode": "http",
                 "url": endpoint.url,
                 "token": endpoint.token,
+                "appId": config.app_id,
+                "serverId": config.server_id,
                 "protocolVersion": 1
             }
         }));
     }
 
     let expected_token = endpoint.token.clone();
+    let server_name = config.name;
+    let app_id = config.app_id;
+    let server_id = config.server_id;
     thread::Builder::new()
-        .name(config.name.to_string())
+        .name(server_name.to_string())
         .spawn(move || {
             for stream in listener.incoming() {
                 match stream {
-                    Ok(stream) => handle_control_connection(stream, &app, &window_state, &expected_token),
+                    Ok(stream) => handle_control_connection(
+                        stream,
+                        &app,
+                        &window_state,
+                        &expected_token,
+                        app_id,
+                        server_id,
+                    ),
                     Err(error) => {
-                        eprintln!("[hypercortex-app] {} connection failed: {error}", config.name);
+                        eprintln!(
+                            "[hypercortex-app] {} connection failed: {error}",
+                            server_name
+                        );
                         break;
                     }
                 }
@@ -121,6 +152,8 @@ pub(crate) fn post_control_request(
     token: &str,
     action: &str,
     command: Option<&str>,
+    expected_app_id: &str,
+    expected_server_id: &str,
 ) -> bool {
     let mut body = serde_json::json!({ "action": action });
     if let Some(command) = command.map(str::trim).filter(|value| !value.is_empty()) {
@@ -154,9 +187,7 @@ pub(crate) fn post_control_request(
     let Some((_, body)) = response.split_once("\r\n\r\n") else {
         return false;
     };
-    serde_json::from_str::<ControlClientResponse>(body)
-        .map(|value| value.ok)
-        .unwrap_or(false)
+    control_response_matches(body, expected_app_id, expected_server_id)
 }
 
 fn handle_control_connection(
@@ -164,25 +195,43 @@ fn handle_control_connection(
     app: &tauri::AppHandle,
     window_state: &FwWindowState,
     expected_token: &str,
+    app_id: &str,
+    server_id: &str,
 ) {
     let request = match read_control_request(&mut stream) {
         Ok(request) => request,
         Err(error) => {
-            write_control_response(&mut stream, 400, serde_json::json!({ "ok": false, "error": error }));
+            write_control_response(
+                &mut stream,
+                400,
+                serde_json::json!({ "ok": false, "error": error }),
+            );
             return;
         }
     };
 
     if request.path != "/control" {
-        write_control_response(&mut stream, 404, serde_json::json!({ "ok": false, "error": "控制入口不存在" }));
+        write_control_response(
+            &mut stream,
+            404,
+            serde_json::json!({ "ok": false, "error": "控制入口不存在" }),
+        );
         return;
     }
     if request.method != "POST" {
-        write_control_response(&mut stream, 405, serde_json::json!({ "ok": false, "error": "控制入口只接受 POST" }));
+        write_control_response(
+            &mut stream,
+            405,
+            serde_json::json!({ "ok": false, "error": "控制入口只接受 POST" }),
+        );
         return;
     }
     if request.token != expected_token {
-        write_control_response(&mut stream, 401, serde_json::json!({ "ok": false, "error": "控制令牌无效" }));
+        write_control_response(
+            &mut stream,
+            401,
+            serde_json::json!({ "ok": false, "error": "控制令牌无效" }),
+        );
         return;
     }
 
@@ -198,10 +247,30 @@ fn handle_control_connection(
         Ok(()) => write_control_response(
             &mut stream,
             200,
-            serde_json::json!({ "ok": true, "availableCommands": available_commands() }),
+            serde_json::json!({
+                "ok": true,
+                "appId": app_id,
+                "serverId": server_id,
+                "protocolVersion": 1,
+                "availableCommands": available_commands()
+            }),
         ),
-        Err(error) => write_control_response(&mut stream, 400, serde_json::json!({ "ok": false, "error": error })),
+        Err(error) => write_control_response(
+            &mut stream,
+            400,
+            serde_json::json!({ "ok": false, "error": error }),
+        ),
     }
+}
+
+fn control_response_matches(body: &str, expected_app_id: &str, expected_server_id: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<ControlClientResponse>(body) else {
+        return false;
+    };
+    value.ok
+        && value.protocol_version == Some(1)
+        && value.app_id.as_deref() == Some(expected_app_id)
+        && value.server_id.as_deref() == Some(expected_server_id)
 }
 
 fn find_header_end(buffer: &[u8]) -> Option<usize> {
@@ -267,7 +336,12 @@ fn read_control_request(stream: &mut TcpStream) -> Result<ControlRequest, String
     }
     body.truncate(content_length);
 
-    Ok(ControlRequest { method, path, token, body })
+    Ok(ControlRequest {
+        method,
+        path,
+        token,
+        body,
+    })
 }
 
 fn write_control_response(stream: &mut TcpStream, status: u16, body: serde_json::Value) {

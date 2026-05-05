@@ -8,11 +8,13 @@ mod single_instance;
 mod standalone_tray;
 
 use backend_sidecar::{start_backend, BackendEndpoint, BackendState};
-use control_server::{available_commands, start_control_server, ControlServerConfig};
+use control_server::{
+    available_commands, start_control_server, ControlServerConfig, HYPERCORTEX_APP_ID,
+};
 use data_dir::DataDirStatus;
 use fw_window::{
-    app_ready, apply_fw_args, fw_initial_command, fw_launch_info, install_window_policy, parse_fw_args,
-    report_available_commands, FwWindowState,
+    app_ready, apply_fw_args, fw_initial_command, fw_launch_info, install_window_policy,
+    parse_fw_args, report_available_commands, FwWindowState,
 };
 use std::sync::Arc;
 use tauri::{Manager, WindowEvent};
@@ -43,7 +45,10 @@ async fn pick_data_dir(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<BackendState>>,
 ) -> Result<Option<DataDirStatus>, String> {
-    let Some(path) = rfd::FileDialog::new().set_title("选择 HyperCortex 数据目录").pick_folder() else {
+    let Some(path) = rfd::FileDialog::new()
+        .set_title("选择 HyperCortex 数据目录")
+        .pick_folder()
+    else {
         return Ok(None);
     };
     data_dir::save_data_dir(&app, &path)?;
@@ -65,6 +70,17 @@ fn pick_legacy_data_dir() -> Result<Option<PickedDir>, String> {
         .map(|dir| PickedDir {
             dir: dir.display().to_string(),
         }))
+}
+
+#[tauri::command]
+fn hide_to_tray(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<FwWindowState>>,
+) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "主窗口不存在".to_string())?;
+    fw_window::hide_to_tray(&window, &state).map_err(|e| format!("隐藏窗口失败: {e}"))
 }
 
 #[tauri::command]
@@ -94,7 +110,17 @@ fn main() {
     tauri::Builder::default()
         .manage(backend_state)
         .manage(window_state)
-        .invoke_handler(tauri::generate_handler![backend_endpoint, data_dir_status, pick_data_dir, pick_legacy_data_dir, write_clipboard_text, app_ready, fw_initial_command, fw_launch_info])
+        .invoke_handler(tauri::generate_handler![
+            backend_endpoint,
+            data_dir_status,
+            pick_data_dir,
+            pick_legacy_data_dir,
+            hide_to_tray,
+            write_clipboard_text,
+            app_ready,
+            fw_initial_command,
+            fw_launch_info
+        ])
         .setup(move |app| {
             let window = app
                 .get_webview_window("main")
@@ -109,10 +135,22 @@ fn main() {
                 window_state_setup.clone(),
                 stop_backend.clone(),
             )?;
+            let standalone_launch = !fw_args.launched;
+            let app_handle_for_window_close = app.handle().clone();
+            let window_state_for_window_close = window_state_setup.clone();
             let stop_backend_for_window_close = stop_backend.clone();
             window.on_window_event(move |event| {
-                if matches!(event, WindowEvent::CloseRequested { .. }) {
-                    stop_backend_for_window_close();
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    if standalone_launch {
+                        api.prevent_close();
+                        if let Some(window) = app_handle_for_window_close.get_webview_window("main")
+                        {
+                            let _ =
+                                fw_window::hide_to_tray(&window, &window_state_for_window_close);
+                        }
+                    } else {
+                        stop_backend_for_window_close();
+                    }
                 }
             });
             install_window_policy(&window, &fw_args, window_state_setup.clone());
@@ -122,6 +160,8 @@ fn main() {
                 window_state_setup.clone(),
                 ControlServerConfig {
                     name: "fw-hypercortex-control",
+                    app_id: HYPERCORTEX_APP_ID,
+                    server_id: "fw-control",
                     bind_addr: "127.0.0.1:0",
                     token: control_server::session_token(),
                     announce_to_stdout: true,

@@ -43,6 +43,7 @@ import { SidebarSortSettingsPanel } from './SidebarSortSettingsPanel'
 import { DataDirSettingsPanel } from './DataDirSettingsPanel'
 import { TrashPanel } from './TrashPanel'
 import { QuickSearchPopover } from './QuickSearchPopover'
+import { StandaloneWindowControls, type WindowControlActions } from './StandaloneWindowControls'
 import { readFileAsDataUrl } from './fileDataUrl'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
@@ -75,6 +76,11 @@ type PageId = 'home' | 'attachments' | 'all-notes' | 'note-detail' | 'asset-deta
 
 type AllNotesLayout = 'list' | 'grid' | 'icon'
 type TabsMode = 'manual' | 'hover'
+
+export type HyperCortexWindowControls = {
+  standalone: boolean
+  actions: WindowControlActions
+}
 
 function normalizeAllNotesLayout(value: unknown): AllNotesLayout {
   return value === 'grid' || value === 'icon' ? value : 'list'
@@ -238,7 +244,7 @@ const theme = createTheme({
 function isInteractiveTarget(target: EventTarget | null): boolean {
   const t = target as any
   if (!t || typeof t.closest !== 'function') return false
-  return !!t.closest('button, a, input, textarea, select, [role="button"]')
+  return !!t.closest('button, a, input, textarea, select, [role="button"], [data-window-controls="true"]')
 }
 
   function isKeyUpForChordMainKey(e: KeyboardEvent, chord: string): boolean {
@@ -315,8 +321,8 @@ function getShortcutChord(bindings: HyperCortexShortcutBindingsV1, id: HyperCort
   }
 }
 
-export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialCommand?: string | null }) {
-  const { gateway, initialCommand } = props
+export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialCommand?: string | null; windowControls?: HyperCortexWindowControls }) {
+  const { gateway, initialCommand, windowControls } = props
   type MetadataPatch = Partial<HyperCortexMetadataV1> & { indexEditMode?: boolean; currentFolderId?: string }
 
   // ---- 核心 UI 状态
@@ -980,6 +986,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     },
     [gateway],
   )
+
+  const standaloneWindowControls = windowControls?.standalone ? <StandaloneWindowControls actions={windowControls.actions} /> : null
 
   const toggleAllNotesLayout = React.useCallback(() => {
     setAllNotesLayout(prev => {
@@ -2486,6 +2494,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
               <NavIconButton title="设置" ariaLabel="设置" active={page === 'settings'} onClick={() => navigatePage('settings')}>
                 <SettingsRoundedIcon fontSize="small" />
               </NavIconButton>
+              {standaloneWindowControls}
             </Box>
             </Toolbar>
           </AppBar>
