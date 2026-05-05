@@ -87,7 +87,6 @@ pub(crate) async fn start_backend(
     let mut cmd = backend_command(&app)?;
     cmd.env("FW_APP_SESSION_TOKEN", &session_token);
     cmd.env("FW_APP_DATA_DIR", data_dir);
-    cmd.env("FW_APP_PARENT_PID", std::process::id().to_string());
     cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::inherit());

@@ -26,7 +26,6 @@ func run() error {
 	if token == "" {
 		return errors.New("ai-draw-backend missing FW_APP_SESSION_TOKEN")
 	}
-	startParentWatchFromEnv()
 
 	direct, err := newDirectServer(token, resolveDataDir())
 	if err != nil {

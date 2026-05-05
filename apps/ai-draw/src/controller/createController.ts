@@ -1812,7 +1812,7 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     state.taskHistory = normalizeTaskHistory(state.taskHistory, state.data.taskHistoryLimit)
     state.promptHistoryIndex = -1
     state.promptHistoryDraft = ''
-    await saveSettings().catch(() => {})
+    await saveSettings()
     await saveTaskHistory().catch(() => {})
     notify()
   }
@@ -1926,7 +1926,7 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     const normalized = normalizeSettings({ ...state.data, providers: state.data.providers.map((x) => (x.id === pid ? merged : x)) })
     state.data = normalized
     state.uiMode = normalizeUiMode(state.data.uiMode)
-    await saveSettings().catch(() => {})
+    await saveSettings()
     notify()
   }
 
