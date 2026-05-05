@@ -31,12 +31,12 @@ func TestRunMigrationsUpdatesMetaAndMigrationState(t *testing.T) {
 	}
 
 	meta := readJSONForRunnerTest(t, filepath.Join(dataDir, "meta", "index.json"))
-	if got := int(asInt64(meta["dataVersion"], 0)); got != 4 {
+	if got := int(asInt64(meta["dataVersion"], 0)); got != 5 {
 		t.Fatalf("dataVersion = %d", got)
 	}
 	state := readJSONForRunnerTest(t, filepath.Join(dataDir, "_migrations.json"))
 	applied, _ := state["applied"].([]any)
-	if len(applied) != 2 {
+	if len(applied) != 3 {
 		t.Fatalf("applied length = %d", len(applied))
 	}
 	entry, _ := applied[0].(map[string]any)
@@ -46,6 +46,13 @@ func TestRunMigrationsUpdatesMetaAndMigrationState(t *testing.T) {
 	entry2, _ := applied[1].(map[string]any)
 	if entry2["id"] != "2026-05-05-remove-migrated-role-chat-root-images" {
 		t.Fatalf("migration id = %v", entry2["id"])
+	}
+	entry3, _ := applied[2].(map[string]any)
+	if entry3["id"] != "2026-05-05-ref-images-to-data-tree" {
+		t.Fatalf("migration id = %v", entry3["id"])
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "ref-images")); !os.IsNotExist(err) {
+		t.Fatalf("ref-images should be removed, stat err=%v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "_migration-backups")); err != nil {
 		t.Fatalf("backup dir missing: %v", err)

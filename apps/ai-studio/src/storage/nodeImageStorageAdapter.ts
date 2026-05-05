@@ -48,7 +48,7 @@ function base64ToBuffer(dataUrl: string): { buffer: Buffer; ext: string; mime: s
   return { buffer: Buffer.from(b64, 'base64'), ext, mime }
 }
 
-export function createNodeImageStorageAdapter(filesDataDir: string): AiChatImageStorageAdapter {
+export function createNodeImageStorageAdapter(imageRootDir: string): AiChatImageStorageAdapter {
   return {
     writeBase64: async (req: unknown) => {
       const r = req as any
@@ -59,12 +59,12 @@ export function createNodeImageStorageAdapter(filesDataDir: string): AiChatImage
 
       let relPath = String(r?.relPath || r?.path || '').trim()
       if (!relPath) {
-        relPath = generateSafeName(ext)
+        relPath = path.posix.join('images', generateSafeName(ext))
       } else {
         validateExtension(path.extname(relPath))
       }
 
-      const fullPath = safePath(filesDataDir, relPath)
+      const fullPath = safePath(imageRootDir, relPath)
       await fs.mkdir(path.dirname(fullPath), { recursive: true })
       await fs.writeFile(fullPath, buffer)
 
@@ -76,7 +76,7 @@ export function createNodeImageStorageAdapter(filesDataDir: string): AiChatImage
       const relPath = String(r?.relPath || r?.path || '').trim()
       if (!relPath) throw new Error('relPath is required')
 
-      const fullPath = safePath(filesDataDir, relPath)
+      const fullPath = safePath(imageRootDir, relPath)
       const buffer = await fs.readFile(fullPath)
       const ext = path.extname(relPath).toLowerCase()
       const mimeMap: Record<string, string> = {
@@ -97,7 +97,7 @@ export function createNodeImageStorageAdapter(filesDataDir: string): AiChatImage
       const relPath = String(r?.relPath || r?.path || '').trim()
       if (!relPath) throw new Error('relPath is required')
 
-      const fullPath = safePath(filesDataDir, relPath)
+      const fullPath = safePath(imageRootDir, relPath)
       try {
         await fs.unlink(fullPath)
       } catch (e: any) {

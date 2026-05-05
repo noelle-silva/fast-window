@@ -110,7 +110,7 @@ func (svc *service) copyImageIntoRoleChatPackage(folder string, chatID string, c
 	if isRoleChatPackageImagePathGo(currentRel) {
 		oldPath, _, err = svc.imagePathForRel(currentRel)
 	} else if shouldMigrateLegacyImageSourceGo(currentRel) {
-		oldPath, _, err = svc.legacyImagePathForRel(currentRel)
+		oldPath, _, err = svc.imagePathForRel(currentRel)
 	} else {
 		return "", false, nil
 	}
@@ -151,15 +151,6 @@ func normalizeStoredImageRelPathGo(raw string) string {
 		value = value[len("ref-images/"):]
 	}
 	return strings.TrimLeft(value, "/")
-}
-
-func (svc *service) legacyImagePathForRel(raw string) (string, string, error) {
-	relPath, err := cleanImageRelPath(raw)
-	if err != nil {
-		return "", "", err
-	}
-	path, err := safeJoin(svc.imagesDir(), filepath.FromSlash(relPath))
-	return path, relPath, err
 }
 
 func isRoleChatPackageImagePathGo(relPath string) bool {

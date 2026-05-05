@@ -6,7 +6,7 @@ import { createNodeImageStorageAdapter } from '../storage/nodeImageStorageAdapte
 export function createBackendHostCapabilities(): AiChatBackendCapabilities {
   const dirs = readBackendDataDirs()
   const { persistent, runtime } = createNodeFileStorageAdapter(dirs)
-  const images = createNodeImageStorageAdapter(dirs.filesDataDir)
+  const images = createNodeImageStorageAdapter(dirs.dataDir)
 
   return {
     meta: { pluginId: dirs.pluginId, runtime: 'background' },

@@ -16,8 +16,6 @@ import (
 	"strings"
 	"time"
 
-	appmigrations "fast-window-ai-studio-backend/migrations"
-
 	"github.com/gorilla/websocket"
 )
 
@@ -616,10 +614,6 @@ func (svc *service) runtimeStorageDir() string {
 	return filepath.Join(svc.dataDir, "runtime")
 }
 
-func (svc *service) imagesDir() string {
-	return filepath.Join(svc.dataDir, "ref-images")
-}
-
 func (svc *service) storagePathForKey(key string) (string, error) {
 	cleanKey, runtime, err := cleanStorageKey(key)
 	if err != nil {
@@ -673,11 +667,7 @@ func (svc *service) imagePathForRel(raw string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	baseDir := svc.imagesDir()
-	if appmigrations.IsRoleChatPackageImagePath(relPath) {
-		baseDir = svc.storageDir()
-	}
-	path, err := safeJoin(baseDir, filepath.FromSlash(relPath))
+	path, err := safeJoin(svc.storageDir(), filepath.FromSlash(relPath))
 	return path, relPath, err
 }
 

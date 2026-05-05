@@ -26,11 +26,7 @@ func imagePathForRel(dataDir string, raw string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	baseDir := filepath.Join(dataDir, "ref-images")
-	if IsRoleChatPackageImagePath(relPath) {
-		baseDir = dataDir
-	}
-	path, err := safeJoin(baseDir, filepath.FromSlash(relPath))
+	path, err := safeJoin(dataDir, filepath.FromSlash(relPath))
 	return path, relPath, err
 }
 

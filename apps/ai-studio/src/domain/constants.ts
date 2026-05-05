@@ -1,4 +1,4 @@
-export const VERSION = 4
+export const VERSION = 5
 export const SPLIT_SCHEMA_VERSION = 1
 export const SPLIT_META_KEY = 'meta/index'
 export const STICKERS_KEY = 'stickers/index'

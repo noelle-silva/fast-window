@@ -17,5 +17,6 @@ func All() []Migration {
 	return []Migration{
 		RoleChatPackages(),
 		RemoveMigratedRoleChatRootImages(),
+		RefImagesToDataTree(),
 	}
 }

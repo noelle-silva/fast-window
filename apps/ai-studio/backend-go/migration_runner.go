@@ -14,7 +14,7 @@ import (
 
 const (
 	aiStudioSchemaVersion = 1
-	aiStudioDataVersion   = 4
+	aiStudioDataVersion   = 5
 	migrationStateKey     = "_migrations"
 )
 
