@@ -80,8 +80,23 @@ func TestRunMigrationsUpdatesMetaAndMigrationState(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dataDir, "ref-images")); !os.IsNotExist(err) {
 		t.Fatalf("ref-images should be removed, stat err=%v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dataDir, "_migration-backups")); err != nil {
-		t.Fatalf("backup dir missing: %v", err)
+	recoveryEntries, err := os.ReadDir(filepath.Join(dataDir, "_migration-recovery"))
+	if err != nil {
+		t.Fatalf("recovery dir missing: %v", err)
+	}
+	if len(recoveryEntries) != 5 {
+		t.Fatalf("recovery dir entries = %d", len(recoveryEntries))
+	}
+	planPayload, err := os.ReadFile(filepath.Join(dataDir, "_migration-recovery", recoveryEntries[0].Name(), "plan.json"))
+	if err != nil {
+		t.Fatalf("plan missing: %v", err)
+	}
+	var plan map[string]any
+	if err := json.Unmarshal(planPayload, &plan); err != nil {
+		t.Fatal(err)
+	}
+	if plan["strategy"] != "change-set" {
+		t.Fatalf("recovery strategy = %v", plan["strategy"])
 	}
 }
 

@@ -18,6 +18,13 @@ func RefImagesToDataTree() Migration {
 		FromVersion: 4,
 		ToVersion:   5,
 		Description: "将 ref-images 下的图片归档到对应业务数据目录，并移除空的 ref-images",
+		Recovery: recoverySpec([]string{
+			"ref-images",
+			"roles",
+			"groups",
+			"stickers",
+			"images",
+		}, "moves legacy ref-images files into their business data paths and removes empty legacy directories"),
 		Apply:       applyRefImagesToDataTree,
 	}
 }

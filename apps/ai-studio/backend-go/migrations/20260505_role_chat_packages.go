@@ -19,6 +19,10 @@ func RoleChatPackages() Migration {
 		FromVersion: 2,
 		ToVersion:   3,
 		Description: "角色聊天记录目录化，并把每个聊天使用的图片收拢到对应聊天文件夹",
+		Recovery: recoverySpec([]string{
+			"chats",
+			"ref-images/images",
+		}, "migrates legacy role chat JSON files into chat package directories and may remove migrated legacy root images"),
 		Apply:       applyRoleChatPackages,
 	}
 }

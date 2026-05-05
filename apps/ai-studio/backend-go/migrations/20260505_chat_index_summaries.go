@@ -15,6 +15,10 @@ func ChatIndexSummaries() Migration {
 		FromVersion: 6,
 		ToVersion:   7,
 		Description: "为聊天索引补充轻量摘要，支持前端按需加载聊天正文",
+		Recovery: recoverySpec([]string{
+			"chats/*/index.json",
+			"groups/*/chats/index.json",
+		}, "updates role and group chat index files with chatMetas summaries"),
 		Apply:       applyChatIndexSummaries,
 	}
 }

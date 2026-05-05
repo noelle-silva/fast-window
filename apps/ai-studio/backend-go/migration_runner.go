@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	pathpkg "path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -78,13 +80,13 @@ func (svc *service) runMigrations() error {
 			continue
 		}
 
-		backupDir, err := svc.backupDataBeforeMigration(migration.ID)
+		recoveryDir, err := svc.prepareMigrationRecovery(migration)
 		if err != nil {
 			return err
 		}
 		ctx := appmigrations.Context{DataDir: svc.dataDir, Meta: meta}
 		if err := migration.Apply(ctx); err != nil {
-			return fmt.Errorf("数据迁移失败：%s，已保留备份 %s：%w", migration.ID, backupDir, err)
+			return fmt.Errorf("数据迁移失败：%s，已保留恢复包 %s：%w", migration.ID, recoveryDir, err)
 		}
 
 		current = migration.ToVersion
@@ -218,31 +220,186 @@ func (svc *service) saveMigrationState(state migrationState) error {
 	})
 }
 
-func (svc *service) backupDataBeforeMigration(migrationID string) (string, error) {
+type migrationRecoveryPlan struct {
+	MigrationID   string   `json:"migrationId"`
+	FromVersion   int      `json:"fromVersion"`
+	ToVersion     int      `json:"toVersion"`
+	Description   string   `json:"description"`
+	CreatedAt     int64    `json:"createdAt"`
+	Strategy      string   `json:"strategy"`
+	AffectedPaths []string `json:"affectedPaths"`
+	CopiedPaths   []string `json:"copiedPaths"`
+	Notes         []string `json:"notes"`
+}
+
+func (svc *service) prepareMigrationRecovery(migration *dataMigration) (string, error) {
 	stamp := time.Now().Format("20060102-150405")
-	backupDir := filepath.Join(svc.dataDir, "_migration-backups", stamp+"-"+sanitizeMigrationID(migrationID))
-	backupAbs, err := filepath.Abs(backupDir)
-	if err != nil {
+	recoveryDir := filepath.Join(svc.dataDir, "_migration-recovery", stamp+"-"+sanitizeMigrationID(migration.ID))
+	filesDir := filepath.Join(recoveryDir, "files")
+	paths := normalizeRecoveryPaths(migration.Recovery.AffectedPaths)
+	copied := []string{}
+	for _, rel := range paths {
+		matched, err := svc.copyRecoveryPath(rel, filesDir)
+		if err != nil {
+			return "", err
+		}
+		copied = append(copied, matched...)
+	}
+	sort.Strings(copied)
+	plan := migrationRecoveryPlan{
+		MigrationID:   migration.ID,
+		FromVersion:   migration.FromVersion,
+		ToVersion:     migration.ToVersion,
+		Description:   migration.Description,
+		CreatedAt:     nowMs(),
+		Strategy:      "change-set",
+		AffectedPaths: paths,
+		CopiedPaths:   copied,
+		Notes:         migration.Recovery.Notes,
+	}
+	if err := writeRecoveryJSON(filepath.Join(recoveryDir, "plan.json"), plan); err != nil {
 		return "", err
 	}
-	if err := copyDirFiltered(svc.dataDir, backupDir, func(path string, info os.FileInfo) bool {
-		pathAbs, err := filepath.Abs(path)
-		if err == nil && (pathAbs == backupAbs || strings.HasPrefix(pathAbs, backupAbs+string(os.PathSeparator))) {
-			return false
+	return recoveryDir, nil
+}
+
+func normalizeRecoveryPaths(paths []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, raw := range paths {
+		value := strings.TrimSpace(strings.ReplaceAll(raw, "\\", "/"))
+		value = strings.Trim(value, "/")
+		if value == "" || value == "." || strings.ContainsRune(value, 0) || strings.HasPrefix(value, "../") || strings.Contains(value, "/../") {
+			continue
+		}
+		if value == "_migration-recovery" || strings.HasPrefix(value, "_migration-recovery/") || value == "_migration-backups" || strings.HasPrefix(value, "_migration-backups/") {
+			continue
+		}
+		if !seen[value] {
+			seen[value] = true
+			out = append(out, value)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (svc *service) copyRecoveryPath(pattern string, filesDir string) ([]string, error) {
+	if strings.Contains(pattern, "*") {
+		return svc.copyRecoveryGlob(pattern, filesDir)
+	}
+	path, err := safeJoin(svc.dataDir, filepath.FromSlash(pattern))
+	if err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if err := copyPathToRecovery(svc.dataDir, path, filesDir); err != nil {
+		return nil, err
+	}
+	return []string{filepath.ToSlash(pattern)}, nil
+}
+
+func (svc *service) copyRecoveryGlob(pattern string, filesDir string) ([]string, error) {
+	base := recoveryGlobBase(pattern)
+	basePath, err := safeJoin(svc.dataDir, filepath.FromSlash(base))
+	if err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(basePath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	matches := []string{}
+	err = filepath.Walk(basePath, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if shouldSkipRecoveryInternal(svc.dataDir, path) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		rel, err := filepath.Rel(svc.dataDir, path)
 		if err != nil {
-			return false
+			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if rel == "." {
-			return true
+		matched, err := pathpkg.Match(pattern, rel)
+		if err != nil {
+			return err
 		}
-		return rel != "_migration-backups" && !strings.HasPrefix(rel, "_migration-backups/")
-	}); err != nil {
-		return "", err
+		if !matched {
+			return nil
+		}
+		if err := copyPathToRecovery(svc.dataDir, path, filesDir); err != nil {
+			return err
+		}
+		matches = append(matches, rel)
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	return backupDir, nil
+	sort.Strings(matches)
+	return matches, nil
+}
+
+func recoveryGlobBase(pattern string) string {
+	parts := strings.Split(strings.Trim(pattern, "/"), "/")
+	base := []string{}
+	for _, part := range parts {
+		if strings.Contains(part, "*") {
+			break
+		}
+		base = append(base, part)
+	}
+	if len(base) == 0 {
+		return "."
+	}
+	return strings.Join(base, "/")
+}
+
+func shouldSkipRecoveryInternal(dataDir string, path string) bool {
+	rel, err := filepath.Rel(dataDir, path)
+	if err != nil {
+		return true
+	}
+	rel = filepath.ToSlash(rel)
+	return rel == "_migration-recovery" || strings.HasPrefix(rel, "_migration-recovery/") || rel == "_migration-backups" || strings.HasPrefix(rel, "_migration-backups/")
+}
+
+func copyPathToRecovery(dataDir string, src string, filesDir string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(dataDir, src)
+	if err != nil {
+		return err
+	}
+	rel = filepath.ToSlash(rel)
+	dst := filepath.Join(filesDir, rel)
+	if info.IsDir() {
+		return copyDirFiltered(src, dst, nil)
+	}
+	return copyFile(src, dst, info.Mode().Perm())
+}
+
+func writeRecoveryJSON(path string, value any) error {
+	payload, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	payload = append(payload, '\n')
+	return atomicWriteFile(path, payload, 0o644)
 }
 
 func sanitizeMigrationID(raw string) string {

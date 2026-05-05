@@ -19,6 +19,17 @@ func SplitMetaIndexes() Migration {
 		FromVersion: 5,
 		ToVersion:   6,
 		Description: "拆分 meta/index 中的聊天索引和供应商配置",
+		Recovery: recoverySpec([]string{
+			"meta/index.json",
+			"chats/index.json",
+			"chats/*/index.json",
+			"groups/index.json",
+			"groups/*/chats/index.json",
+			"groups/*/chats/*.json",
+			"groups/*/chats/*/images",
+			"providers",
+			"images",
+		}, "splits indexes and providers out of meta, rewrites group chat image paths, and may remove migrated legacy images"),
 		Apply:       applySplitMetaIndexes,
 	}
 }

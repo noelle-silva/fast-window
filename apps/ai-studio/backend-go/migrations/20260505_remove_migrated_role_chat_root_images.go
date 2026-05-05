@@ -17,6 +17,9 @@ func RemoveMigratedRoleChatRootImages() Migration {
 		FromVersion: 3,
 		ToVersion:   4,
 		Description: "清理已经复制进角色聊天包的 ref-images 根部旧图片副本",
+		Recovery: recoverySpec([]string{
+			"ref-images",
+		}, "removes duplicate legacy root images only when payload matches the migrated chat package image"),
 		Apply:       applyRemoveMigratedRoleChatRootImages,
 	}
 }
