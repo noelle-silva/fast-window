@@ -1,0 +1,1 @@
+{"compilerOptions":{"allowImportingTsExtensions":true,"isolatedModules":true,"lib":["ES2021","DOM","DOM.Iterable"],"module":"ESNext","moduleResolution":"Bundler","noEmit":true,"noImplicitAny":false,"resolveJsonModule":true,"skipLibCheck":true,"strict":true,"target":"ES2021","types":["node"],"useDefineForClassFields":true},"include":["src"]}

@@ -2,9 +2,7 @@ import { DEFAULT_SETTINGS } from './constants'
 import type {
   ClipboardHistoryItem,
   ClipboardHistorySettings,
-  ClipboardMonitorSnapshot,
   DeletedHistoryMap,
-  InternalCopyMarker,
 } from './types'
 
 export function nowId(now = new Date()): string {
@@ -120,27 +118,4 @@ export function isSameHistory(a: unknown, b: unknown): boolean {
     if (left.type === 'image' && String(left.path || '') !== String(right.path || '')) return false
   }
   return true
-}
-
-export function normalizeHostSnapshotItems(result: ClipboardMonitorSnapshot | unknown, limit: number): ClipboardHistoryItem[] {
-  const snapshot = result && typeof result === 'object' ? (result as ClipboardMonitorSnapshot) : {}
-  const latest = normalizeHistoryItem(snapshot.latest)
-  const items = normalizeHistoryItems(snapshot.items, limit)
-  return latest ? mergeHistoryItems([latest], items, limit) : items
-}
-
-export function internalCopyWindowMs(pollInterval: number): number {
-  return Math.max(1500, pollInterval * 2)
-}
-
-export function createInternalCopyMarker(type: 'text' | 'image', content: string, nowMs = Date.now()): InternalCopyMarker {
-  return { type, content, at: nowMs }
-}
-
-export function createEmptyInternalCopyMarker(): InternalCopyMarker {
-  return { type: '', content: '', at: 0 }
-}
-
-export function isWithinInternalCopyWindow(marker: InternalCopyMarker, pollInterval: number, nowMs = Date.now()): boolean {
-  return Boolean(marker.at && nowMs - marker.at < internalCopyWindowMs(pollInterval))
 }

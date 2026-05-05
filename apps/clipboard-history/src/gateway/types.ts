@@ -3,13 +3,16 @@ import type {
   ClipboardHistorySettings,
   ClipboardHistorySnapshot,
   CollectionsDoc,
-  DeletedHistoryMap,
+  LegacyDataImportResult,
 } from '../shared/types'
 
 export type HostGateway = {
   toast(message: string): Promise<void>
   back(): Promise<void>
   startDragging(): Promise<void>
+  minimize(): Promise<void>
+  toggleMaximize(): Promise<void>
+  closeWindow(): Promise<void>
 }
 
 export type ClipboardGateway = {
@@ -19,7 +22,6 @@ export type ClipboardGateway = {
 
 export type ImageGateway = {
   readOutputImage(path: string): Promise<string>
-  deleteOutputImage(path: string): Promise<void>
 }
 
 export type ClipboardHistoryStateGateway = {
@@ -40,23 +42,8 @@ export type ClipboardHistoryCollectionsGateway = {
   saveRecentFolder(folderId: string): Promise<ClipboardHistorySnapshot>
 }
 
-export type StorageGateway = {
-  loadHistory(): Promise<ClipboardHistoryItem[] | null>
-  saveHistory(items: ClipboardHistoryItem[]): Promise<void>
-  loadSettings(): Promise<Partial<ClipboardHistorySettings> | null>
-  saveSettings(settings: ClipboardHistorySettings): Promise<void>
-  loadDeletedHistory(): Promise<DeletedHistoryMap | null>
-  saveDeletedHistory(deleted: DeletedHistoryMap): Promise<void>
-  loadCollections(): Promise<CollectionsDoc | null>
-  saveCollections(collections: CollectionsDoc): Promise<void>
-  loadRecentFolders(): Promise<string[] | null>
-  saveRecentFolders(folderIds: string[]): Promise<void>
-}
-
-export type MonitorGateway = {
-  startClipboardWatch(payload: { intervalMs: number; maxHistory: number }): Promise<{ id: string } | null>
-  getTask(taskId: string): Promise<{ id: string; status: string; result?: unknown } | null>
-  cancelTask(taskId: string): Promise<void>
+export type LegacyGateway = {
+  importData(sourceDir: string): Promise<LegacyDataImportResult>
 }
 
 export type ClipboardHistoryGateway = {
@@ -65,8 +52,7 @@ export type ClipboardHistoryGateway = {
   collections: ClipboardHistoryCollectionsGateway
   clipboard: ClipboardGateway
   images: ImageGateway
-  storage: StorageGateway
-  monitor: MonitorGateway
+  legacy: LegacyGateway
   onSnapshot(listener: (snapshot: ClipboardHistorySnapshot) => void): () => void
   close(): void
 }

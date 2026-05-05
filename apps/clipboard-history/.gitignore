@@ -1,0 +1,5 @@
+backend/
+backend-rs/target/
+src-tauri/target/
+src-tauri/binaries/.sea/
+src-tauri/binaries/clipboard-history-backend-*

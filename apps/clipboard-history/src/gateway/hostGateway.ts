@@ -1,9 +1,30 @@
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import { createToast } from '../ui/toast'
 import type { HostGateway } from './types'
 
-export function createHostGateway(baseApi: any): HostGateway {
+export function createHostGateway(): HostGateway {
+  const toast = createToast()
+
   return {
-    toast: async (message) => baseApi?.host?.toast?.(String(message || '')),
-    back: async () => baseApi?.host?.back?.(),
-    startDragging: async () => baseApi?.host?.startDragging?.(),
+    async toast(message: string) {
+      const text = String(message || '').trim()
+      if (!text) return
+      toast(text)
+    },
+    async back() {
+      await getCurrentWindow().hide()
+    },
+    async startDragging() {
+      await getCurrentWindow().startDragging()
+    },
+    async minimize() {
+      await getCurrentWindow().minimize()
+    },
+    async toggleMaximize() {
+      await getCurrentWindow().toggleMaximize()
+    },
+    async closeWindow() {
+      await getCurrentWindow().hide()
+    },
   }
 }

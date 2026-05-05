@@ -40,23 +40,6 @@ export type CollectionsDoc = {
   nodes: Record<string, CollectionNode>
 }
 
-export type ClipboardWatchPayload = {
-  intervalMs: number
-  maxHistory: number
-}
-
-export type ClipboardWatchTask = {
-  id: string
-  kind: string
-  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | string
-  result?: unknown
-}
-
-export type ClipboardMonitorSnapshot = {
-  latest?: ClipboardHistoryItem | null
-  items?: ClipboardHistoryItem[]
-}
-
 export type ClipboardHistorySnapshot = {
   history: ClipboardHistoryItem[]
   settings: ClipboardHistorySettings
@@ -65,8 +48,17 @@ export type ClipboardHistorySnapshot = {
   recentFolders: string[]
 }
 
-export type InternalCopyMarker = {
-  type: '' | 'text' | 'image'
-  content: string
-  at: number
+export type LegacyDataImportReport = {
+  sourceDir: string
+  backupDir?: string | null
+  importedFiles: string[]
+  copiedImages: number
+  historyCount: number
+  collectionCount: number
+  recentFolderCount: number
+}
+
+export type LegacyDataImportResult = {
+  report: LegacyDataImportReport
+  snapshot: ClipboardHistorySnapshot
 }

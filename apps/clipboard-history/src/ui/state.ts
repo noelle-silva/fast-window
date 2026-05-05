@@ -37,18 +37,9 @@ export function createClipboardHistoryUiState() {
     navBack: [],
     navForward: [],
 
-    currentText: '',
-    currentImage: '',
-    internalCopy: { type: '', content: '', at: 0 },
-
     ctxMenu: { open: false, x: 0, y: 0, nodeId: '' },
     movePicker: { open: false, movingId: '', query: '', action: 'move' },
     editDialog: { open: false, nodeId: '', folderName: '', itemTitle: '', itemContent: '' },
-
-    monitorTaskId: '',
-    monitorQueryTimer: null,
-    monitorQuerying: false,
-    persistTimer: null,
   }
 }
 

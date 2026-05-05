@@ -20,14 +20,11 @@ type PendingRequest = {
 
 function validateEndpoint(endpoint: any) {
   if (!endpoint || typeof endpoint !== 'object') throw new Error('剪贴板历史后台 endpoint 不完整')
-  if (endpoint.mode !== 'direct') throw new Error('剪贴板历史后台 endpoint mode 非 direct')
-  if (endpoint.transport !== 'local-websocket') throw new Error('剪贴板历史后台 transport 非 local-websocket')
-  if (Number(endpoint.protocolVersion || 0) < 1) throw new Error('剪贴板历史后台协议版本不支持')
   const url = String(endpoint.url || '')
   const token = String(endpoint.token || '')
   if (!url || !token) throw new Error('剪贴板历史后台 endpoint 不完整')
-  const sep = url.includes('?') ? '&' : '?'
-  return `${url}${sep}token=${encodeURIComponent(token)}`
+  if (!/^ws:\/\/127\.0\.0\.1:\d+$/i.test(url)) throw new Error('剪贴板历史后台地址必须是本机 WebSocket')
+  return { url, token }
 }
 
 function waitForOpen(ws: WebSocket) {
@@ -44,11 +41,9 @@ function waitForOpen(ws: WebSocket) {
   })
 }
 
-export async function createDirectBackgroundClient(baseApi: any): Promise<DirectBackgroundClient> {
-  const endpoint = baseApi?.background?.endpoint
-  if (typeof endpoint !== 'function') throw new Error('剪贴板历史需要 v4.5 background.endpoint')
-
-  const ws = new WebSocket(validateEndpoint(await endpoint.call(baseApi.background)))
+export async function createDirectBackgroundClient(endpoint: any): Promise<DirectBackgroundClient> {
+  const { url, token } = validateEndpoint(endpoint)
+  const ws = new WebSocket(`${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`)
   await waitForOpen(ws)
 
   let seq = 0

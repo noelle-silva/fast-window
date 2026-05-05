@@ -1,0 +1,46 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "剪贴板历史 Dev",
+  "version": "1.0.2",
+  "identifier": "com.fastwindow.clipboardhistory.dev",
+  "build": {
+    "beforeDevCommand": "pnpm build:backend:dev && pnpm build:resources && pnpm dev",
+    "devUrl": "http://localhost:1433",
+    "beforeBuildCommand": "pnpm build:backend:release && vite build && pnpm build:resources",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "剪贴板历史 Dev",
+        "width": 720,
+        "height": 560,
+        "decorations": false,
+        "resizable": true,
+        "visible": false,
+        "skipTaskbar": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "externalBin": [
+      "binaries/clipboard-history-backend"
+    ],
+    "resources": {
+      "../assets/": "assets"
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico",
+      "icons/icon.png"
+    ]
+  }
+}

@@ -11,7 +11,6 @@ export const ClipboardHistoryRpc = {
   },
   images: {
     readOutput: 'clipboardHistory.images.readOutput',
-    deleteOutput: 'clipboardHistory.images.deleteOutput',
   },
   collections: {
     createFolder: 'clipboardHistory.collections.createFolder',
@@ -23,8 +22,7 @@ export const ClipboardHistoryRpc = {
     deleteNode: 'clipboardHistory.collections.deleteNode',
     saveRecentFolder: 'clipboardHistory.collections.saveRecentFolder',
   },
-  monitor: {
-    restart: 'clipboardHistory.monitor.restart',
-    snapshot: 'clipboardHistory.monitor.snapshot',
+  legacy: {
+    importData: 'clipboardHistory.legacy.import',
   },
 } as const

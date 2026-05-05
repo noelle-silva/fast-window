@@ -1,26 +1,27 @@
 {
-  "name": "@fast-window/plugin-clipboard-history",
-  "private": true,
+  "name": "@fast-window/app-clipboard-history",
   "version": "1.0.2",
-  "fastWindowPlugin": {
-    "entry": "src/ui/index.ts",
-    "background": {
-      "dev": {
-        "kind": "rust-binary",
-        "manifest": "backend-rs/Cargo.toml",
-        "package": "clipboard-history",
-        "main": "backend/clipboard-history.exe",
-        "runtime": "direct",
-        "profile": "dev"
-      },
-      "release": {
-        "kind": "rust-binary",
-        "manifest": "backend-rs/Cargo.toml",
-        "package": "clipboard-history",
-        "main": "backend/clipboard-history.exe",
-        "runtime": "direct",
-        "profile": "release"
-      }
-    }
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:backend": "node scripts/build-backend.mjs",
+    "build:backend:dev": "node scripts/build-backend.mjs --dev-copy",
+    "build:backend:release": "node scripts/build-backend.mjs --release",
+    "build:resources": "node scripts/build-resources.mjs",
+    "build:exe": "pnpm tauri build --no-bundle",
+    "build:bundle": "pnpm tauri build",
+    "build:exe:dev": "pnpm build:backend:dev && cargo build --manifest-path src-tauri/Cargo.toml",
+    "build:ui": "pnpm build:backend && vite build && pnpm build:resources",
+    "dev": "vite --host 127.0.0.1 --port 1433",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.0",
+    "@types/node": "^25.6.0",
+    "typescript": "^5.3.0",
+    "vite": "^5.0.0"
   }
 }

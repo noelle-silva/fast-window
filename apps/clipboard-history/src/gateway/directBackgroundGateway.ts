@@ -2,8 +2,8 @@ import { ClipboardHistoryRpc } from '../shared/rpcMethods'
 import { createDirectBackgroundClient } from '../ui/directClient'
 import type { ClipboardHistoryGateway } from './types'
 
-export async function createDirectBackgroundGateway(baseApi: any): Promise<Omit<ClipboardHistoryGateway, 'host' | 'storage' | 'monitor'>> {
-  const client = await createDirectBackgroundClient(baseApi)
+export async function createDirectBackgroundGateway(endpoint: any): Promise<Omit<ClipboardHistoryGateway, 'host'>> {
+  const client = await createDirectBackgroundClient(endpoint)
   return {
     state: {
       load: () => client.invoke(ClipboardHistoryRpc.state.load),
@@ -17,7 +17,6 @@ export async function createDirectBackgroundGateway(baseApi: any): Promise<Omit<
     },
     images: {
       readOutputImage: path => client.invoke(ClipboardHistoryRpc.images.readOutput, { path }),
-      deleteOutputImage: path => client.invoke(ClipboardHistoryRpc.images.deleteOutput, { path }),
     },
     collections: {
       createFolder: (parentId, name) => client.invoke(ClipboardHistoryRpc.collections.createFolder, { parentId, name }),
@@ -28,6 +27,9 @@ export async function createDirectBackgroundGateway(baseApi: any): Promise<Omit<
       copyItem: (itemId, toParentId) => client.invoke(ClipboardHistoryRpc.collections.copyItem, { itemId, toParentId }),
       deleteNode: nodeId => client.invoke(ClipboardHistoryRpc.collections.deleteNode, { nodeId }),
       saveRecentFolder: folderId => client.invoke(ClipboardHistoryRpc.collections.saveRecentFolder, { folderId }),
+    },
+    legacy: {
+      importData: sourceDir => client.invoke(ClipboardHistoryRpc.legacy.importData, { sourceDir }),
     },
     onSnapshot: listener => client.onEvent(event => {
       if (event.type === 'event' && event.event === 'snapshot') listener(event.snapshot as any)

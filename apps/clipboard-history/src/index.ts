@@ -1,76 +1,115 @@
+import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { createClipboardHistoryGateway } from './gateway'
-import { CLIPBOARD_PAGE_SIZE, TASK_QUERY_INTERVAL } from './shared/constants'
+import { CLIPBOARD_PAGE_SIZE } from './shared/constants'
 import { createClipboardHistoryUiState } from './ui/state'
 import { styles } from './ui/styles'
 import {
-  buildParentMap as domainBuildParentMap,
   buildPathIds as domainBuildPathIds,
   canMoveInto as domainCanMoveInto,
-  createFolder as domainCreateFolder,
-  createItem as domainCreateItem,
-  deleteNode as domainDeleteNode,
-  deleteNodeRecursive as domainDeleteNodeRecursive,
   ensureCollections as domainEnsureCollections,
-  findParentId as domainFindParentId,
   folderLabelById as domainFolderLabelById,
   getNode as domainGetNode,
-  insertChild as domainInsertChild,
   isFolder as domainIsFolder,
   listChildren as domainListChildren,
-  makeId as domainMakeId,
-  moveNode as domainMoveNode,
-  removeChild as domainRemoveChild,
   searchItems as domainSearchItems,
-  traverseItemsUnder as domainTraverseItemsUnder,
-  updateFolderName as domainUpdateFolderName,
-  updateItem as domainUpdateItem,
 } from './shared/collectionsDomain'
 import {
-  createEmptyInternalCopyMarker,
-  createInternalCopyMarker,
   historyUniqKey as domainHistoryUniqKey,
   isDeleted as domainIsDeleted,
-  isSameHistory as domainIsSameHistory,
-  isWithinInternalCopyWindow,
-  mergeHistoryItems as domainMergeHistoryItems,
   normalizeDeletedMap as domainNormalizeDeletedMap,
-  normalizeHistoryItem as domainNormalizeHistoryItem,
   normalizeHistoryItems as domainNormalizeHistoryItems,
-  normalizeHostSnapshotItems as domainNormalizeHostSnapshotItems,
   normalizeSettings as domainNormalizeSettings,
 } from './shared/historyDomain'
 import {
-  basenameFromPath as domainBasenameFromPath,
   isDataUrl as domainIsDataUrl,
-  isManagedClipboardImagePath as domainIsManagedClipboardImagePath,
   pickImagePath as domainPickImagePath,
 } from './shared/imagePaths'
 
+type PickedDir = { dir: string }
+
 ;(async function () {
-  const baseFastWindow = (window as any).fastWindow
-  const gateway = await createClipboardHistoryGateway(baseFastWindow)
-  ;(window as any).fastWindow = baseFastWindow
-
   const state = createClipboardHistoryUiState()
+  let gateway: any = null
+  let dataDirStatus: any = null
+  let snapshotUnsubscribe: (() => void) | null = null
+  let pendingLaunchCommand: string | null = await invoke<string | null>('fw_initial_command').catch(() => null)
 
-  function internalWindowMs() {
-    return Math.max(1500, state.settings.pollInterval * 2)
+  async function refreshDataDirStatus() {
+    dataDirStatus = await invoke('data_dir_status').catch(error => ({
+      dataDir: '',
+      defaultDataDir: '',
+      configuredDataDir: null,
+      writable: false,
+      error: String((error as any)?.message || error || '读取数据目录状态失败'),
+    }))
+    return dataDirStatus
   }
+
+  async function connectGateway() {
+    if (snapshotUnsubscribe) {
+      snapshotUnsubscribe()
+      snapshotUnsubscribe = null
+    }
+    if (gateway) {
+      gateway.close()
+      gateway = null
+    }
+    const endpoint = await invoke('backend_endpoint').catch(() => null)
+    if (!endpoint) throw new Error('剪贴板历史后台未就绪')
+    gateway = await createClipboardHistoryGateway(endpoint)
+    return gateway
+  }
+
+  function subscribeSnapshots() {
+    if (!gateway) return
+    if (snapshotUnsubscribe) snapshotUnsubscribe()
+    snapshotUnsubscribe = gateway.onSnapshot((snapshot) => {
+      applySnapshot(snapshot)
+      render()
+    })
+  }
+
+  function handleRuntimeCommand(raw: unknown) {
+    const command = String(raw || '').trim()
+    if (!command) return
+    if (!gateway) {
+      pendingLaunchCommand = command
+      return
+    }
+
+    pendingLaunchCommand = null
+    if (command === 'open-history') {
+      state.view = 'clipboard'
+      render()
+      return
+    }
+    if (command === 'open-folders') {
+      state.view = 'folders'
+      render()
+      return
+    }
+    if (command === 'clear-history') {
+      state.view = 'clipboard'
+      state.showMoreMenu = true
+      state.clearArmedAt = 0
+      render()
+      void gateway.host.toast('请在菜单中再次确认清空历史')
+      return
+    }
+
+    void gateway.host.toast(`未知命令：${command}`)
+  }
+
+  await listen<{ command?: string }>('fw-app-command', event => {
+    handleRuntimeCommand(event.payload?.command)
+  })
+
+  await refreshDataDirStatus()
+  await connectGateway()
 
   function now() {
     return Date.now()
-  }
-
-  function setInternalCopy(type, content) {
-    state.internalCopy = createInternalCopyMarker(type, content)
-  }
-
-  function clearInternalCopy() {
-    state.internalCopy = createEmptyInternalCopyMarker()
-  }
-
-  function withinInternalWindow() {
-    return isWithinInternalCopyWindow(state.internalCopy, state.settings.pollInterval)
   }
 
   function historyUniqKey(item) {
@@ -81,48 +120,16 @@ import {
     return domainNormalizeDeletedMap(raw)
   }
 
-  function markDeleted(item) {
-    if (!item || !item.type || !item.content) return
-    state.deleted = normalizeDeletedMap({ ...(state.deleted || {}), [historyUniqKey(item)]: now() })
-  }
-
   function isDeleted(item) {
     return domainIsDeleted(item, state.deleted)
-  }
-
-  function mergeHistoryItems(primary, secondary, limit = state.settings.maxHistory) {
-    return domainMergeHistoryItems(primary, secondary, limit)
-  }
-
-  function isSameHistory(a, b) {
-    return domainIsSameHistory(a, b)
-  }
-
-  function upsertHistoryItem(item) {
-    state.history = mergeHistoryItems([item], state.history, state.settings.maxHistory)
-  }
-
-  function replaceInternalImageIfNeeded(internalContent, newContent) {
-    if (!internalContent || internalContent === newContent) return
-    const item = { type: 'image', content: newContent, time: now() }
-    state.history = [item, ...state.history.filter((it) => !(it.type === 'image' && (it.content === internalContent || it.content === newContent)))]
-      .slice(0, state.settings.maxHistory)
   }
 
   function normalizeSettings(raw) {
     return domainNormalizeSettings(raw)
   }
 
-  function normalizeHistoryItem(raw) {
-    return domainNormalizeHistoryItem(raw)
-  }
-
   function normalizeHistoryItems(raw, limit = state.settings.maxHistory) {
     return domainNormalizeHistoryItems(raw, limit)
-  }
-
-  function normalizeHostSnapshotItems(result) {
-    return domainNormalizeHostSnapshotItems(result, state.settings.maxHistory)
   }
 
   function applySnapshot(snapshot) {
@@ -134,175 +141,6 @@ import {
     state.collections = ensureCollections(snapshot.collections)
     if (!state.currentFolderId || !isFolder(state.currentFolderId)) state.currentFolderId = state.collections.rootId || 'root'
     state.recentFolders = Array.isArray(snapshot.recentFolders) ? snapshot.recentFolders.filter((x) => typeof x === 'string') : []
-    const firstText = state.history.find((it) => it && it.type === 'text' && it.content)
-    state.currentText = firstText ? firstText.content : ''
-    const firstImage = state.history.find((it) => it && it.type === 'image' && it.content)
-    state.currentImage = firstImage ? firstImage.content : ''
-  }
-
-  function stopMonitorQueryLoop() {
-    if (state.monitorQueryTimer) {
-      clearTimeout(state.monitorQueryTimer)
-      state.monitorQueryTimer = null
-    }
-    state.monitorQuerying = false
-  }
-
-  function schedulePersistClipboard(delayMs = 120) {
-    if (state.persistTimer) {
-      clearTimeout(state.persistTimer)
-      state.persistTimer = null
-    }
-    state.persistTimer = setTimeout(() => {
-      state.persistTimer = null
-      void persistClipboard()
-    }, Math.max(0, Number(delayMs) || 0))
-  }
-
-  async function syncFromMonitorTaskSnapshot(task) {
-    const result = task && task.result && typeof task.result === 'object' ? task.result : {}
-    const snapshotItems = normalizeHostSnapshotItems(result).filter((it) => !isDeleted(it))
-    const merged = mergeHistoryItems(
-      (Array.isArray(state.history) ? state.history : []).filter((it) => !isDeleted(it)),
-      snapshotItems,
-      state.settings.maxHistory,
-    )
-    const changed = !isSameHistory(state.history, merged)
-    if (changed) {
-      state.history = merged
-      schedulePersistClipboard()
-      if (state.view === 'clipboard') renderClipboardList()
-    }
-    const firstText = state.history.find((it) => it && it.type === 'text' && it.content)
-    if (firstText) state.currentText = firstText.content
-    const firstImage = state.history.find((it) => it && it.type === 'image' && it.content)
-    if (firstImage) state.currentImage = firstImage.content
-  }
-
-  async function queryMonitorTask(taskId) {
-    if (!taskId || state.monitorTaskId !== taskId || state.monitorQuerying) return
-    state.monitorQuerying = true
-    try {
-      const task = await gateway.monitor.getTask(taskId).catch(() => null)
-      if (!task || state.monitorTaskId !== taskId) return
-
-      const status = String(task.status || '')
-      if (status === 'running' || status === 'queued') {
-        await syncFromMonitorTaskSnapshot(task)
-      }
-
-      if (status === 'succeeded') {
-        await syncFromMonitorTaskSnapshot(task)
-        state.monitorTaskId = ''
-        if (state.settings.autoMonitor) {
-          await ensureMonitorTaskRunning(true)
-        }
-        return
-      }
-
-      if (status === 'failed' || status === 'canceled') {
-        state.monitorTaskId = ''
-        if (state.settings.autoMonitor) {
-          await ensureMonitorTaskRunning(true)
-        }
-        return
-      }
-
-      state.monitorQueryTimer = setTimeout(() => {
-        state.monitorQuerying = false
-        queryMonitorTask(taskId)
-      }, TASK_QUERY_INTERVAL)
-      return
-    } finally {
-      state.monitorQuerying = false
-    }
-  }
-
-  async function ensureMonitorTaskRunning(forceCreate = false) {
-    stopMonitorQueryLoop()
-    if (!state.settings.autoMonitor) {
-      if (state.monitorTaskId) {
-        await gateway.monitor.cancelTask(state.monitorTaskId).catch(() => {})
-      }
-      state.monitorTaskId = ''
-      return
-    }
-
-    if (!forceCreate && state.monitorTaskId) {
-      queryMonitorTask(state.monitorTaskId)
-      return
-    }
-
-    if (state.monitorTaskId) {
-      await gateway.monitor.cancelTask(state.monitorTaskId).catch(() => {})
-      state.monitorTaskId = ''
-    }
-
-    const task = await gateway.monitor
-      .startClipboardWatch({
-        intervalMs: state.settings.pollInterval,
-        maxHistory: state.settings.maxHistory,
-      })
-      .catch(() => null)
-    const tid = String(task && task.id ? task.id : '').trim()
-    if (!tid) return
-    state.monitorTaskId = tid
-    queryMonitorTask(tid)
-  }
-
-  function handleClipboardChange(type, content) {
-    if (!content) return
-
-    // 内部复制产生的剪贴板变化：不要再新增记录（避免重复）；图片可能被重编码，做一次替换
-    if (withinInternalWindow() && state.internalCopy.type === type) {
-      const internalContent = state.internalCopy.content
-      clearInternalCopy()
-      if (type === 'text') {
-        state.currentText = content
-        return
-      }
-      if (type === 'image') {
-        replaceInternalImageIfNeeded(internalContent, content)
-        state.currentImage = content
-        return
-      }
-    }
-
-    // 过期就清
-    if (state.internalCopy.at && !withinInternalWindow()) clearInternalCopy()
-
-    if (type === 'text') {
-      if (content === state.currentText) return
-      state.currentText = content
-      upsertHistoryItem({ type: 'text', content, time: now() })
-      return
-    }
-
-    if (type === 'image') {
-      if (content === state.currentImage) return
-      state.currentImage = content
-      upsertHistoryItem({ type: 'image', content, time: now() })
-      return
-    }
-  }
-
-  async function persistClipboard() {
-    try {
-      await gateway.storage.saveHistory(state.history)
-      await gateway.storage.saveSettings(state.settings)
-      await gateway.storage.saveDeletedHistory(state.deleted)
-    } catch (e) {}
-  }
-
-  async function persistCollections() {
-    try {
-      if (state.collections) await gateway.storage.saveCollections(state.collections)
-      await gateway.storage.saveRecentFolders(state.recentFolders)
-    } catch (e) {}
-  }
-
-  function makeId() {
-    return domainMakeId()
   }
 
   function ensureCollections(saved) {
@@ -317,10 +155,6 @@ import {
     return domainIsFolder(state.collections, id)
   }
 
-  function buildParentMap() {
-    return domainBuildParentMap(state.collections)
-  }
-
   function buildPathIds(folderId) {
     return domainBuildPathIds(state.collections, folderId)
   }
@@ -329,10 +163,17 @@ import {
     return domainFolderLabelById(state.collections, folderId)
   }
 
+  function applyRemoteSnapshot(snapshot) {
+    applySnapshot(snapshot)
+    render()
+  }
+
   function touchRecentFolder(folderId) {
     if (!folderId || !isFolder(folderId)) return
     state.recentFolders = [folderId, ...state.recentFolders.filter((id) => id !== folderId)].slice(0, 10)
-    persistCollections()
+    void gateway.collections.saveRecentFolder(folderId)
+      .then(applySnapshot)
+      .catch(() => {})
   }
 
   function openFolder(folderId) {
@@ -411,65 +252,36 @@ import {
     return domainCanMoveInto(state.collections, targetFolderId, movingId)
   }
 
-  function removeChild(parentId, childId) {
-    domainRemoveChild(state.collections, parentId, childId)
+  async function moveNode(movingId, toParentId, toIndex) {
+    applyRemoteSnapshot(await gateway.collections.moveNode(movingId, toParentId, toIndex))
   }
 
-  function insertChild(parentId, childId, index) {
-    domainInsertChild(state.collections, parentId, childId, index)
+  async function deleteNode(nodeId) {
+    applyRemoteSnapshot(await gateway.collections.deleteNode(nodeId))
   }
 
-  function findParentId(childId) {
-    return domainFindParentId(state.collections, childId)
+  async function createFolder(parentId, name) {
+    applyRemoteSnapshot(await gateway.collections.createFolder(parentId, name))
   }
 
-  function moveNode(movingId, toParentId, toIndex) {
-    if (!domainMoveNode(state.collections, movingId, toParentId, toIndex)) return false
-    persistCollections()
-    return true
+  async function createItem(parentId, title, content) {
+    applyRemoteSnapshot(await gateway.collections.createItem(parentId, title, content))
   }
 
-  function deleteNodeRecursive(nodeId) {
-    domainDeleteNodeRecursive(state.collections, nodeId)
+  async function updateFolderName(folderId, name) {
+    applyRemoteSnapshot(await gateway.collections.updateFolder(folderId, name))
   }
 
-  function deleteNode(nodeId) {
-    if (!domainDeleteNode(state.collections, nodeId)) return
-    persistCollections()
+  async function updateItem(itemId, title, content) {
+    applyRemoteSnapshot(await gateway.collections.updateItem(itemId, title, content))
   }
 
-  function createFolder(parentId, name) {
-    const folderId = domainCreateFolder(state.collections, parentId, name)
-    if (!folderId) return ''
-    persistCollections()
-    return folderId
-  }
-
-  function createItem(parentId, title, content) {
-    const itemId = domainCreateItem(state.collections, parentId, title, content)
-    if (!itemId) return ''
-    persistCollections()
-    return itemId
-  }
-
-  function updateFolderName(folderId, name) {
-    if (!domainUpdateFolderName(state.collections, folderId, name)) return false
-    persistCollections()
-    return true
-  }
-
-  function updateItem(itemId, title, content) {
-    if (!domainUpdateItem(state.collections, itemId, title, content)) return false
-    persistCollections()
-    return true
+  async function copyItem(itemId, toParentId) {
+    applyRemoteSnapshot(await gateway.collections.copyItem(itemId, toParentId))
   }
 
   function listChildren(folderId) {
     return domainListChildren(state.collections, folderId)
-  }
-
-  function traverseItemsUnder(folderId) {
-    return domainTraverseItemsUnder(state.collections, folderId)
   }
 
   function searchItems(query, scope) {
@@ -761,14 +573,14 @@ import {
           return
         }
 
-        let ok = false
-        if (n.type === 'folder') ok = updateFolderName(nodeId, state.editDialog.folderName)
-        else ok = updateItem(nodeId, state.editDialog.itemTitle, state.editDialog.itemContent)
-
-        if (!ok) {
+        const content = n.type === 'item' ? state.editDialog.itemContent.trim() : ''
+        if (n.type === 'item' && !content) {
           void gateway.host.toast(n.type === 'folder' ? '名称不能为空' : '正文内容不能为空')
           return
         }
+
+        if (n.type === 'folder') await updateFolderName(nodeId, state.editDialog.folderName)
+        else await updateItem(nodeId, state.editDialog.itemTitle, state.editDialog.itemContent)
 
         void gateway.host.toast('已保存')
         closeOverlays()
@@ -833,16 +645,16 @@ import {
         const movingId = state.movePicker.movingId
         const action = state.movePicker.action === 'copy' ? 'copy' : 'move'
         const moving = getNode(movingId)
-        let ok = false
-        if (action === 'copy') {
-          if (moving && moving.type === 'item') {
-            ok = !!createItem(toParentId, moving.title, moving.content)
+        try {
+          if (action === 'copy') {
+            if (moving && moving.type === 'item') await copyItem(movingId, toParentId)
+          } else {
+            await moveNode(movingId, toParentId)
           }
-        } else {
-          ok = moveNode(movingId, toParentId)
+          void gateway.host.toast(`${action === 'copy' ? '已复制到' : '已移动到'}：${folderLabelById(toParentId)}`)
+        } catch (error) {
+          void gateway.host.toast(String((error as any)?.message || error || `${action === 'copy' ? '复制失败' : '移动失败'}`))
         }
-        if (ok) void gateway.host.toast(`${action === 'copy' ? '已复制到' : '已移动到'}：${folderLabelById(toParentId)}`)
-        else void gateway.host.toast(`${action === 'copy' ? '复制失败' : '移动失败'}`)
         closeOverlays()
         renderOverlay()
         renderFolderList()
@@ -906,7 +718,6 @@ import {
         state.clipboardImageCache = {}
         state.clipboardImageLoading = {}
         state.clipboardLimit = CLIPBOARD_PAGE_SIZE
-        restartMonitor()
         void gateway.host.toast('已清空')
         render()
         return
@@ -922,13 +733,10 @@ import {
         return
       }
       if (act === 'saveFolder') {
-        const id = createFolder(state.currentFolderId, state.draftFolderName)
-        if (id) {
-          state.showFolderEditor = false
-          state.draftFolderName = ''
-          void gateway.host.toast('已创建收藏夹')
-        }
-        render()
+        await createFolder(state.currentFolderId, state.draftFolderName)
+        state.showFolderEditor = false
+        state.draftFolderName = ''
+        void gateway.host.toast('已创建收藏夹')
         return
       }
       if (act === 'cancelFolder') {
@@ -949,14 +757,15 @@ import {
         return
       }
       if (act === 'saveItem') {
-        const id = createItem(state.currentFolderId, state.draftTitle, state.draftContent)
-        if (id) {
-          state.showItemEditor = false
-          state.draftTitle = ''
-          state.draftContent = ''
-          void gateway.host.toast('已添加条目')
+        if (!state.draftContent.trim()) {
+          void gateway.host.toast('正文内容不能为空')
+          return
         }
-        render()
+        await createItem(state.currentFolderId, state.draftTitle, state.draftContent)
+        state.showItemEditor = false
+        state.draftTitle = ''
+        state.draftContent = ''
+        void gateway.host.toast('已添加条目')
         return
       }
       if (act === 'cancelItem') {
@@ -1001,7 +810,7 @@ import {
         }
         state.deleteArmedId = ''
         state.deleteArmedAt = 0
-        deleteNode(nodeId)
+        await deleteNode(nodeId)
         void gateway.host.toast('已删除')
         renderFolderList()
         return
@@ -1061,7 +870,6 @@ import {
         }
 
         try {
-          setInternalCopy(item.type, item.content)
           let snapshot = null
           if (item.type === 'image') {
             const hidKey = historyKey(item)
@@ -1087,7 +895,6 @@ import {
           void gateway.host.toast('复制成功')
           renderClipboardList()
         } catch (err) {
-          clearInternalCopy()
           void gateway.host.toast(String((err && (err as Error).message) || '复制失败'))
         }
         return
@@ -1194,18 +1001,23 @@ import {
       if (!drag.active) return
       drag.active = false
 
-      if (commit && drag.id && state.collections && state.view === 'folders' && !state.folderSearchQuery.trim()) {
-        if (isFolder(state.currentFolderId) && drag.listEl instanceof HTMLElement) {
+      const movingId = drag.id
+      const listEl = drag.listEl
+      const placeholder = drag.placeholder
+
+      if (commit && movingId && state.collections && state.view === 'folders' && !state.folderSearchQuery.trim()) {
+        if (isFolder(state.currentFolderId) && listEl instanceof HTMLElement) {
           let insertIndex = 0
-          const children = Array.from(drag.listEl.children)
+          const children = Array.from(listEl.children)
           for (const el of children) {
-            if (el === drag.placeholder) break
+            if (el === placeholder) break
             if (!(el instanceof HTMLElement)) continue
             if (el.getAttribute('data-role') !== 'folderCard') continue
             const id = el.getAttribute('data-id') || ''
-            if (id && id !== drag.id) insertIndex += 1
+            if (id && id !== movingId) insertIndex += 1
           }
-          moveNode(drag.id, state.currentFolderId, insertIndex)
+          void moveNode(movingId, state.currentFolderId, insertIndex)
+            .catch(error => gateway.host.toast(String((error as any)?.message || error || '移动失败')))
         }
         render()
       }
@@ -1388,6 +1200,19 @@ import {
       <div class="row">
         <button class="btn primary" data-act="saveSettings">保存</button>
       </div>
+      <div class="row">
+        <label>数据目录</label>
+        <span class="pill" title="${escapeHtml(String(dataDirStatus?.dataDir || ''))}">${escapeHtml(dataDirStatus?.writable === false ? '不可写' : '正常')}</span>
+        <button class="btn" data-act="pickDataDir">选择目录</button>
+      </div>
+      <div class="row">
+        <label>旧数据</label>
+        <button class="btn" data-act="importLegacyData">导入旧插件数据</button>
+      </div>
+      <div class="hint">
+        <span>导入需要手动选择旧数据目录；导入前会备份当前数据。</span>
+      </div>
+      ${dataDirStatus?.error ? `<div class="hint">${escapeHtml(String(dataDirStatus.error))}</div>` : ''}
     `
 
     area.onclick = async (e) => {
@@ -1399,8 +1224,7 @@ import {
           ...state.settings,
           autoMonitor: !state.settings.autoMonitor,
         })
-        await persistClipboard()
-        restartMonitor()
+        applySnapshot(await gateway.state.saveSettings(state.settings))
         render()
       }
       if (act === 'saveSettings') {
@@ -1416,10 +1240,37 @@ import {
           maxHistory,
           collapseLines,
         })
-        state.history = normalizeHistoryItems(state.history, state.settings.maxHistory)
-        await persistClipboard()
-        restartMonitor()
+        applySnapshot(await gateway.state.saveSettings(state.settings))
         render()
+      }
+      if (act === 'pickDataDir') {
+        try {
+          const picked = await invoke('pick_data_dir')
+          if (!picked) return
+          dataDirStatus = picked
+          await connectGateway()
+          applySnapshot(await gateway.state.load())
+          subscribeSnapshots()
+          render()
+          void gateway.host.toast('数据目录已更新')
+        } catch (error) {
+          await refreshDataDirStatus()
+          render()
+          void gateway?.host?.toast?.(String((error as any)?.message || error || '选择数据目录失败'))
+        }
+      }
+      if (act === 'importLegacyData') {
+        try {
+          const picked = await invoke<PickedDir | null>('pick_legacy_data_dir')
+          if (!picked?.dir) return
+          const result = await gateway.legacy.importData(picked.dir)
+          applySnapshot(result.snapshot)
+          render()
+          const report = result.report
+          void gateway.host.toast(`已导入 ${report.historyCount} 条历史，备份已创建`)
+        } catch (error) {
+          void gateway.host.toast(String((error as any)?.message || error || '导入旧数据失败'))
+        }
       }
     }
   }
@@ -1477,22 +1328,6 @@ import {
 
   function pickImagePath(item) {
     return domainPickImagePath(item)
-  }
-
-  function basenameFromPath(path) {
-    return domainBasenameFromPath(path)
-  }
-
-  function isManagedClipboardImagePath(path) {
-    return domainIsManagedClipboardImagePath(path)
-  }
-
-  async function tryDeleteManagedImageFile(item) {
-    if (!item || item.type !== 'image') return
-    const path = pickImagePath(item)
-    if (!path) return
-    if (!isManagedClipboardImagePath(path)) return
-    await gateway.images.deleteOutputImage(path).catch(() => {})
   }
 
   let clipboardSentinelObserver = null
@@ -1835,24 +1670,27 @@ import {
     renderOverlay()
   }
 
-  function restartMonitor() {
-    void ensureMonitorTaskRunning(true)
-  }
-
   async function init() {
     try {
       applySnapshot(await gateway.state.load())
     } catch (e) {}
 
     mount()
-    gateway.onSnapshot((snapshot) => {
-      applySnapshot(snapshot)
-      render()
-    })
+    subscribeSnapshots()
     render()
 
-    await ensureMonitorTaskRunning(false)
+    await invoke('app_ready').catch(() => {})
+    await refreshDataDirStatus()
+
+    if (pendingLaunchCommand) {
+      const command = pendingLaunchCommand
+      pendingLaunchCommand = null
+      handleRuntimeCommand(command)
+    }
   }
 
   await init()
-})()
+})().catch(async error => {
+  document.body.textContent = String((error && (error as Error).message) || error || '剪贴板历史加载失败')
+  await invoke('app_ready').catch(() => {})
+})
