@@ -75,10 +75,6 @@ type service struct {
 	ai      *aiRunQueue
 }
 
-type storageValueFile struct {
-	Value any `json:"value"`
-}
-
 type storedImage struct {
 	RelPath string `json:"relPath"`
 	Path    string `json:"path"`
@@ -264,8 +260,8 @@ func (svc *service) bootstrap() (map[string]any, error) {
 		"state":         map[string]any{},
 		"conversations": []any{},
 		"providers":     providers,
-		"dataFile":      svc.storageDir(),
-		"storageDir":    svc.storageDir(),
+		"dataFile":      svc.dataDir,
+		"storageDir":    svc.dataDir,
 		"updatedAt":     asInt64(meta["updatedAt"], 0),
 	}, nil
 }
@@ -493,7 +489,7 @@ func (svc *service) storageSet(params json.RawMessage) (map[string]bool, error) 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
-	data, err := json.MarshalIndent(storageValueFile{Value: payload["value"]}, "", "  ")
+	data, err := json.MarshalIndent(payload["value"], "", "  ")
 	if err != nil {
 		return nil, err
 	}
@@ -604,7 +600,7 @@ func (svc *service) legacyStudioFilePath() string {
 }
 
 func (svc *service) storageDir() string {
-	return filepath.Join(svc.dataDir, "storage")
+	return svc.dataDir
 }
 
 func (svc *service) runtimeStorageDir() string {
@@ -612,7 +608,7 @@ func (svc *service) runtimeStorageDir() string {
 }
 
 func (svc *service) imagesDir() string {
-	return filepath.Join(svc.dataDir, "files", "data")
+	return filepath.Join(svc.dataDir, "ref-images")
 }
 
 func (svc *service) storagePathForKey(key string) (string, error) {
