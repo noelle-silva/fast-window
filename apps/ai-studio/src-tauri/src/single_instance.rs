@@ -1,5 +1,6 @@
 use std::env;
 use std::fs;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -12,7 +13,7 @@ use crate::control_server::{
 };
 use crate::fw_window::{FwArgs, FwWindowState};
 
-const SINGLE_INSTANCE_ADDR: &str = "127.0.0.1:45632";
+const SINGLE_INSTANCE_BIND_ADDR: &str = "127.0.0.1:0";
 const SINGLE_INSTANCE_SERVER_ID: &str = "single-instance";
 const INSTANCE_STATE_FILE: &str = "ai-studio-single-instance.json";
 
@@ -62,7 +63,7 @@ pub(crate) fn start_single_instance_server(
             name: "fw-ai-studio-single-instance",
             app_id: AI_STUDIO_APP_ID,
             server_id: SINGLE_INSTANCE_SERVER_ID,
-            bind_addr: SINGLE_INSTANCE_ADDR,
+            bind_addr: SINGLE_INSTANCE_BIND_ADDR,
             token,
             announce_to_stdout: false,
         },
@@ -116,8 +117,15 @@ fn endpoint_addr(endpoint: &ControlEndpoint) -> String {
 fn is_valid_instance_state(state: &InstanceState) -> bool {
     state.app_id == AI_STUDIO_APP_ID
         && state.server_id == SINGLE_INSTANCE_SERVER_ID
-        && state.addr == SINGLE_INSTANCE_ADDR
+        && is_loopback_control_addr(&state.addr)
         && !state.token.trim().is_empty()
+}
+
+fn is_loopback_control_addr(addr: &str) -> bool {
+    let Ok(addr) = addr.parse::<SocketAddr>() else {
+        return false;
+    };
+    addr.ip().is_loopback() && addr.port() != 0
 }
 
 fn instance_state_path() -> PathBuf {
@@ -158,7 +166,7 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{forwarded_action, is_valid_instance_state, InstanceState};
-    use super::{SINGLE_INSTANCE_ADDR, SINGLE_INSTANCE_SERVER_ID};
+    use super::SINGLE_INSTANCE_SERVER_ID;
     use crate::control_server::AI_STUDIO_APP_ID;
     use crate::fw_window::FwArgs;
 
@@ -166,7 +174,7 @@ mod tests {
         InstanceState {
             app_id: AI_STUDIO_APP_ID.to_string(),
             server_id: SINGLE_INSTANCE_SERVER_ID.to_string(),
-            addr: SINGLE_INSTANCE_ADDR.to_string(),
+            addr: "127.0.0.1:49152".to_string(),
             token: "token".to_string(),
             pid: 123,
             updated_at: 456,
@@ -201,6 +209,18 @@ mod tests {
         let mut empty_token = valid_state();
         empty_token.token = " ".to_string();
         assert!(!is_valid_instance_state(&empty_token));
+
+        let mut external_addr = valid_state();
+        external_addr.addr = "192.168.1.10:49152".to_string();
+        assert!(!is_valid_instance_state(&external_addr));
+
+        let mut zero_port = valid_state();
+        zero_port.addr = "127.0.0.1:0".to_string();
+        assert!(!is_valid_instance_state(&zero_port));
+
+        let mut malformed_addr = valid_state();
+        malformed_addr.addr = "not-an-addr".to_string();
+        assert!(!is_valid_instance_state(&malformed_addr));
     }
 
     #[test]
