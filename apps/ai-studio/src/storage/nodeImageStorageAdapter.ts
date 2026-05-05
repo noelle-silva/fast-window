@@ -59,7 +59,7 @@ export function createNodeImageStorageAdapter(imageRootDir: string): AiChatImage
 
       let relPath = String(r?.relPath || r?.path || '').trim()
       if (!relPath) {
-        relPath = path.posix.join('images', generateSafeName(ext))
+        relPath = generateSafeName(ext)
       } else {
         validateExtension(path.extname(relPath))
       }

@@ -1,6 +1,5 @@
 import {
   VERSION,
-  SPLIT_META_KEY,
   GROUP_SPEAKER_USER_PREFIX,
 } from '../domain/constants'
 import {
@@ -17,7 +16,8 @@ import {
   looksLikeImageDataUrl,
 } from '../domain/textProcessing'
 import { trimSlash, isHttpBaseUrl, clampTemp, normImagePaths } from '../core/utils'
-import { normalizeData, normalizeSplitMeta } from '../domain/dataNormalizers'
+import { normalizeData } from '../domain/dataNormalizers'
+import { loadProvidersFromStorage, loadSplitMetaSnapshot } from '../storage/splitIndexes'
 
 export function createBuildOpenAiReq(deps: {
   storage: { get: (key: string) => Promise<any> }
@@ -26,11 +26,7 @@ export function createBuildOpenAiReq(deps: {
   const { storage, filesImagesRead } = deps
 
   async function loadSplitMeta() {
-    const raw = await storage.get(SPLIT_META_KEY)
-    if (raw == null) return null
-    const meta = normalizeSplitMeta(raw)
-    if (!meta) throw new Error('存储索引损坏：meta/index 格式不正确')
-    return meta
+    return loadSplitMetaSnapshot(storage)
   }
 
   async function buildOpenAiChatReqFromStorage(job: any) {
@@ -48,9 +44,10 @@ export function createBuildOpenAiReq(deps: {
     const role = r0 && typeof r0 === 'object' ? r0 : null
     if (!role) throw new Error('角色不存在')
 
+    const storedProviders = await loadProvidersFromStorage(storage, meta)
     const d = normalizeData({
       version: VERSION,
-      settings: meta.settings && typeof meta.settings === 'object' ? meta.settings : {},
+      settings: { ...(meta.settings && typeof meta.settings === 'object' ? meta.settings : {}), providers: storedProviders },
       roles: [role],
       chatsByRole: {},
       ui: meta.ui && typeof meta.ui === 'object' ? meta.ui : {},
@@ -202,9 +199,10 @@ export function createBuildOpenAiReq(deps: {
     const group = g0 && typeof g0 === 'object' ? g0 : null
     if (!group) throw new Error('群组不存在')
 
+    const storedProviders = await loadProvidersFromStorage(storage, meta)
     const d = normalizeData({
       version: VERSION,
-      settings: meta.settings && typeof meta.settings === 'object' ? meta.settings : {},
+      settings: { ...(meta.settings && typeof meta.settings === 'object' ? meta.settings : {}), providers: storedProviders },
       roles: [role],
       chatsByRole: {},
       groups: [group],
@@ -377,7 +375,7 @@ export function createBuildOpenAiReq(deps: {
 
     const d = normalizeData({
       version: VERSION,
-      settings: meta.settings && typeof meta.settings === 'object' ? meta.settings : {},
+      settings: { ...(meta.settings && typeof meta.settings === 'object' ? meta.settings : {}), providers: [{ id: '__fallback__', name: '__fallback__', baseUrl: 'http://', apiKey: '', modelsCache: { items: [], fetchedAt: 0 } }] },
       roles: [],
       chatsByRole: {},
       ui: meta.ui && typeof meta.ui === 'object' ? meta.ui : {},

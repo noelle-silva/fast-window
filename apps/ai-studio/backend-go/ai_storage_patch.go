@@ -76,8 +76,14 @@ func (svc *service) touchChatUpdatedAt(meta map[string]any, kind string, roleID 
 		updatedAt = nowMs()
 	}
 	if kind == "group" {
-		indexes := asMap(meta["chatIndexByGroup"])
-		idx := asMap(indexes[groupID])
+		folder := strings.TrimSpace(asString(asMap(meta["groupFolders"])[groupID]))
+		if folder == "" {
+			return nil
+		}
+		idx, err := svc.loadObject(splitGroupChatIndexKeyGo(folder))
+		if err != nil {
+			return err
+		}
 		if idx == nil {
 			return nil
 		}
@@ -87,9 +93,19 @@ func (svc *service) touchChatUpdatedAt(meta map[string]any, kind string, roleID 
 			idx["chatUpdatedAt"] = updated
 		}
 		updated[chatID] = updatedAt
+		idx["updatedAt"] = nowMs()
+		if err := svc.storageSetByKey(splitGroupChatIndexKeyGo(folder), idx); err != nil {
+			return err
+		}
 	} else {
-		indexes := asMap(meta["chatIndexByRole"])
-		idx := asMap(indexes[roleID])
+		folder := strings.TrimSpace(asString(asMap(meta["roleFolders"])[roleID]))
+		if folder == "" {
+			return nil
+		}
+		idx, err := svc.loadObject(splitRoleChatIndexKeyGo(folder))
+		if err != nil {
+			return err
+		}
 		if idx == nil {
 			return nil
 		}
@@ -99,10 +115,10 @@ func (svc *service) touchChatUpdatedAt(meta map[string]any, kind string, roleID 
 			idx["chatUpdatedAt"] = updated
 		}
 		updated[chatID] = updatedAt
-	}
-	meta["updatedAt"] = nowMs()
-	if err := svc.storageSetByKey(splitMetaKey, meta); err != nil {
-		return err
+		idx["updatedAt"] = nowMs()
+		if err := svc.storageSetByKey(splitRoleChatIndexKeyGo(folder), idx); err != nil {
+			return err
+		}
 	}
 	noticeKind := "role"
 	targetID := roleID

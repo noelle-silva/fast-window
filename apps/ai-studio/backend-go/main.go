@@ -250,13 +250,9 @@ func (svc *service) bootstrap() (map[string]any, error) {
 	if meta == nil {
 		meta = map[string]any{}
 	}
-	settings, _ := meta["settings"].(map[string]any)
-	if settings == nil {
-		settings = map[string]any{}
-	}
-	providers, _ := settings["providers"].([]any)
-	if providers == nil {
-		providers = []any{}
+	providers, err := svc.loadProviders()
+	if err != nil {
+		return nil, err
 	}
 	return map[string]any{
 		"schemaVersion": aiStudioDataVersion,
@@ -270,17 +266,7 @@ func (svc *service) bootstrap() (map[string]any, error) {
 }
 
 func (svc *service) bootstrapProviderList() ([]any, error) {
-	metaValue, err := svc.storageGetByKey("meta/index")
-	if err != nil {
-		return nil, err
-	}
-	meta, _ := metaValue.(map[string]any)
-	settings, _ := meta["settings"].(map[string]any)
-	providers, _ := settings["providers"].([]any)
-	if providers == nil {
-		providers = []any{}
-	}
-	return providers, nil
+	return svc.loadProviders()
 }
 
 func (svc *service) saveStateCompat(params json.RawMessage) (map[string]bool, error) {
@@ -542,7 +528,7 @@ func (svc *service) imageWrite(params json.RawMessage) (storedImage, error) {
 	}
 	relPath := strings.TrimSpace(firstNonEmptyString(payload["relPath"], payload["path"]))
 	if relPath == "" {
-		relPath = filepath.ToSlash(filepath.Join("images", randomImageName(imageExtFromMime(mime))))
+		relPath = randomImageName(imageExtFromMime(mime))
 	}
 	path, safeRel, err := svc.imagePathForRel(relPath)
 	if err != nil {

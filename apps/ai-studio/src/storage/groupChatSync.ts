@@ -1,7 +1,5 @@
 import { now } from '../core/utils'
-import { splitGroupChatKey } from '../domain/storageKeys'
-
-const SPLIT_META_KEY = 'meta/index'
+import { splitGroupChatIndexKey, splitGroupChatKey } from '../domain/storageKeys'
 
 export function createGroupChatSync(deps: {
   storage: { get: (k: string) => Promise<any>; set: (k: string, v: any) => Promise<void> }
@@ -25,12 +23,14 @@ export function createGroupChatSync(deps: {
     await withSplitMetaWrite(async () => {
       const meta = (await loadSplitMeta()) || getSplitMetaCache()
       if (!meta) return
-      const idx = (meta as any).chatIndexByGroup?.[gid]
+      const folder = String((meta as any).groupFolders?.[gid] || '').trim()
+      if (!folder) return
+      const idx = await storage.get(splitGroupChatIndexKey(folder)).catch(() => null)
       if (!idx || typeof idx !== 'object') return
       if (!(idx as any).chatUpdatedAt || typeof (idx as any).chatUpdatedAt !== 'object') (idx as any).chatUpdatedAt = {}
       ;(idx as any).chatUpdatedAt[String(cid)] = ua0 > 0 ? ua0 : now()
-      meta.updatedAt = now()
-      await storage.set(SPLIT_META_KEY, meta)
+      ;(idx as any).updatedAt = now()
+      await storage.set(splitGroupChatIndexKey(folder), idx)
     })
   }
 

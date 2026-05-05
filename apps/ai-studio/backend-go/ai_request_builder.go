@@ -41,8 +41,10 @@ func (svc *service) buildOpenAIChatReqFromStorage(job map[string]any) (aiHTTPReq
 		return aiHTTPRequest{}, errors.New("会话不存在")
 	}
 
-	settings := asMap(meta["settings"])
-	providers := asSlice(settings["providers"])
+	providers, err := svc.loadProviders()
+	if err != nil {
+		return aiHTTPRequest{}, err
+	}
 	fallbackPid := ""
 	if len(providers) > 0 {
 		fallbackPid = strings.TrimSpace(asString(asMap(providers[0])["id"]))
@@ -147,8 +149,10 @@ func (svc *service) buildOpenAIGroupChatReqFromStorage(job map[string]any) (aiHT
 		return aiHTTPRequest{}, errors.New("会话不存在")
 	}
 
-	settings := asMap(meta["settings"])
-	providers := asSlice(settings["providers"])
+	providers, err := svc.loadProviders()
+	if err != nil {
+		return aiHTTPRequest{}, err
+	}
 	fallbackPid := ""
 	if len(providers) > 0 {
 		fallbackPid = strings.TrimSpace(asString(asMap(providers[0])["id"]))
@@ -256,21 +260,6 @@ func (svc *service) buildOpenAIGroupChatReqFromStorage(job map[string]any) (aiHT
 
 	stream := truthy(job["stream"])
 	return buildChatCompletionsRequest(baseURL, apiKey, modelID, messages, clampTempGo(role["temperature"]), stream), nil
-}
-
-func (svc *service) loadSplitMeta() (map[string]any, error) {
-	value, err := svc.storageGetByKey(splitMetaKey)
-	if err != nil {
-		return nil, err
-	}
-	meta, _ := value.(map[string]any)
-	if meta == nil {
-		return nil, errors.New("存储未初始化")
-	}
-	if int(asInt64(meta["schemaVersion"], 0)) != 1 {
-		return nil, errors.New("存储索引损坏：meta/index 格式不正确")
-	}
-	return meta, nil
 }
 
 func (svc *service) loadObject(key string) (map[string]any, error) {

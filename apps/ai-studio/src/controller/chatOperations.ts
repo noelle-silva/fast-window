@@ -22,7 +22,7 @@ import type { DraftFileKind, DraftFileItem } from '../domain/draftFileUtils'
 import { buildMessageModelRef, normalizeChatModelOverride } from '../domain/modelRefUtils'
 import { createStateAccessors } from '../state/stateAccessors'
 import type { AiChatInternalGateway } from '../gateway/types'
-import { roleFolderName, roleChatImageRelPath } from '../domain/storageKeys'
+import { groupChatImageRelPath, roleFolderName, roleChatImageRelPath } from '../domain/storageKeys'
 
 type ChatAttachmentItem = {
   id: string
@@ -625,15 +625,6 @@ export function createChatOperations(deps: {
         if (!modelId) throw new Error(`请先为「${String((r as any).name || '角色')}」选择模型ID`)
       }
 
-      const savedPaths: string[] = []
-      for (const img of draftImages.slice(0, MAX_DRAFT_IMAGES)) {
-        const dataUrl = String(img?.dataUrl || '')
-        if (!looksLikeImageDataUrl(dataUrl)) continue
-        const saved = await filesImages!.writeBase64!({ scope: 'data', dataUrlOrBase64: dataUrl })
-        const path = String(saved || '').trim()
-        if (path) savedPaths.push(path)
-      }
-
       const streamEnabled = !!state.data?.settings?.streamEnabled
 
       const pending = (state as any).pendingGroupChat
@@ -657,6 +648,20 @@ export function createChatOperations(deps: {
         chat = box.chats.find((c: any) => String(c?.id || '') === String(box.activeChatId || '')) || box.chats[0] || null
       }
       if (!chat) throw new Error('创建会话失败')
+
+      const meta = typeof loadSplitMeta === 'function' ? await loadSplitMeta().catch(() => null) : null
+      const groupFolder = String(meta?.groupFolders?.[gid] || '').trim()
+      if (!groupFolder) throw new Error('群组索引损坏：groupFolders 缺失')
+
+      const savedPaths: string[] = []
+      for (const [index, img] of draftImages.slice(0, MAX_DRAFT_IMAGES).entries()) {
+        const dataUrl = String(img?.dataUrl || '')
+        if (!looksLikeImageDataUrl(dataUrl)) continue
+        const relPath = groupChatImageRelPath(groupFolder, chat.id, chatImageFileName(chat.id, index, dataUrl))
+        const saved = await filesImages!.writeBase64!({ scope: 'data', relPath, overwrite: false, dataUrlOrBase64: dataUrl })
+        const path = String(saved || '').trim()
+        if (path) savedPaths.push(path)
+      }
 
       const branching = ensureChatBranching(chat)
       let activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)

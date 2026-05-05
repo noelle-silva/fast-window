@@ -7,9 +7,17 @@ import {
   splitChatKey,
   splitGroupKey,
   splitGroupChatKey,
+  splitChatsIndexKey,
+  splitRoleChatIndexKey,
+  splitGroupsIndexKey,
+  splitGroupChatIndexKey,
+  splitProvidersIndexKey,
+  splitProviderKey,
   roleFolderName,
   groupFolderName,
+  providerFolderName,
 } from '../domain/storageKeys'
+import { loadProvidersFromStorage, loadSplitMetaSnapshot } from './splitIndexes'
 
 let splitMetaCache: any = null
 let splitMetaWriteChain: Promise<void> = Promise.resolve()
@@ -126,10 +134,7 @@ export function createSplitStorage(deps: {
   const writeChatUpdatedNotice = _writeChatUpdatedNotice || noop
 
   async function loadSplitMeta() {
-    const raw = await storage.get(SPLIT_META_KEY)
-    if (raw == null) return null
-    const meta = normalizeSplitMeta(raw)
-    if (!meta) throw new Error('存储索引损坏：meta/index 格式不正确')
+    const meta = await loadSplitMetaSnapshot(storage)
     splitMetaCache = meta
     return meta
   }
@@ -153,12 +158,14 @@ export function createSplitStorage(deps: {
     await withSplitMetaWrite(async () => {
       const meta = (await loadSplitMeta()) || splitMetaCache
       if (!meta) return
-      const idx = meta.chatIndexByRole?.[rid]
+      const folder = String(meta.roleFolders?.[rid] || '').trim()
+      if (!folder) return
+      const idx = await storage.get(splitRoleChatIndexKey(folder)).catch(() => null)
       if (!idx || typeof idx !== 'object') return
       if (!(idx as any).chatUpdatedAt || typeof (idx as any).chatUpdatedAt !== 'object') (idx as any).chatUpdatedAt = {}
       ;(idx as any).chatUpdatedAt[String(cid)] = ua0 > 0 ? ua0 : now()
-      meta.updatedAt = now()
-      await storage.set(SPLIT_META_KEY, meta)
+      ;(idx as any).updatedAt = now()
+      await storage.set(splitRoleChatIndexKey(folder), idx)
       splitMetaCache = meta
     })
   }
@@ -174,6 +181,8 @@ export function createSplitStorage(deps: {
       stickers = null
     }
 
+    const providers = await loadProvidersFromStorage(storage, meta)
+
     const d = {
       version: VERSION,
       settings: meta.settings && typeof meta.settings === 'object' ? meta.settings : {},
@@ -186,6 +195,7 @@ export function createSplitStorage(deps: {
     }
 
     ;(d.settings as any).stickers = stickers && typeof stickers === 'object' ? stickers : {}
+    ;(d.settings as any).providers = providers
 
     for (const rid of meta.roleOrder) {
       const folder = String(meta.roleFolders?.[rid] || '')
@@ -272,6 +282,9 @@ export function createSplitStorage(deps: {
     const groupOrder = groups.map((g: any) => String(g?.id || '')).filter((x: any) => !!x)
     const groupFolders: Record<string, string> = {}
     const chatIndexByGroup: Record<string, any> = {}
+    const providers = d.settings && typeof d.settings === 'object' && Array.isArray((d.settings as any).providers) ? (d.settings as any).providers : []
+    const providerOrder = providers.map((p: any) => String(p?.id || '')).filter((x: any) => !!x)
+    const providerFolders: Record<string, string> = {}
 
     const usedFolders = new Set<string>()
     for (const r of roles) {
@@ -299,6 +312,20 @@ export function createSplitStorage(deps: {
       }
       usedGroupFolders.add(folder)
       ;(groupFolders as any)[gid] = folder
+    }
+
+    const usedProviderFolders = new Set<string>()
+    for (const p of providers) {
+      const pid = String(p?.id || '')
+      if (!pid) continue
+      const base = providerFolderName(p)
+      let folder = base
+      if (usedProviderFolders.has(folder)) {
+        const tail = pid.slice(Math.max(0, pid.length - 8)) || uid('p')
+        folder = `${base}__${tail}`
+      }
+      usedProviderFolders.add(folder)
+      providerFolders[pid] = folder
     }
 
     for (const r of roles) {
@@ -409,12 +436,84 @@ export function createSplitStorage(deps: {
     const settingsMeta = d.settings && typeof d.settings === 'object' ? { ...(d.settings as any) } : {}
     try {
       delete (settingsMeta as any).stickers
+      delete (settingsMeta as any).providers
     } catch (_) {}
 
     try {
       const stickers = d.settings && typeof d.settings === 'object' ? (d.settings as any).stickers : null
       await storage.set(STICKERS_KEY, stickers && typeof stickers === 'object' ? stickers : {})
     } catch (_) {}
+
+    try {
+      await storage.set(splitChatsIndexKey(), {
+        schemaVersion: SPLIT_SCHEMA_VERSION,
+        updatedAt: now(),
+        roleOrder,
+        roleFolders,
+      })
+    } catch (_) {}
+
+    for (const rid of roleOrder) {
+      const folder = String(roleFolders[rid] || '')
+      if (!folder) continue
+      const idx = chatIndexByRole[rid]
+      try {
+        await storage.set(splitRoleChatIndexKey(folder), {
+          schemaVersion: SPLIT_SCHEMA_VERSION,
+          roleId: rid,
+          roleFolder: folder,
+          activeChatId: String(idx?.activeChatId || ''),
+          chatIds: Array.isArray(idx?.chatIds) ? idx.chatIds : [],
+          chatUpdatedAt: idx?.chatUpdatedAt && typeof idx.chatUpdatedAt === 'object' ? idx.chatUpdatedAt : {},
+          updatedAt: now(),
+        })
+      } catch (_) {}
+    }
+
+    try {
+      await storage.set(splitGroupsIndexKey(), {
+        schemaVersion: SPLIT_SCHEMA_VERSION,
+        updatedAt: now(),
+        groupOrder,
+        groupFolders,
+      })
+    } catch (_) {}
+
+    for (const gid of groupOrder) {
+      const folder = String((groupFolders as any)[gid] || '')
+      if (!folder) continue
+      const idx = (chatIndexByGroup as any)[gid]
+      try {
+        await storage.set(splitGroupChatIndexKey(folder), {
+          schemaVersion: SPLIT_SCHEMA_VERSION,
+          groupId: gid,
+          groupFolder: folder,
+          activeChatId: String((idx as any)?.activeChatId || ''),
+          chatIds: Array.isArray((idx as any)?.chatIds) ? (idx as any).chatIds : [],
+          chatUpdatedAt: (idx as any)?.chatUpdatedAt && typeof (idx as any).chatUpdatedAt === 'object' ? (idx as any).chatUpdatedAt : {},
+          updatedAt: now(),
+        })
+      } catch (_) {}
+    }
+
+    try {
+      await storage.set(splitProvidersIndexKey(), {
+        schemaVersion: SPLIT_SCHEMA_VERSION,
+        updatedAt: now(),
+        providerOrder,
+        providerFolders,
+      })
+    } catch (_) {}
+
+    for (const p of providers) {
+      const pid = String(p?.id || '')
+      if (!pid) continue
+      const folder = String(providerFolders[pid] || '')
+      if (!folder) continue
+      try {
+        await storage.set(splitProviderKey(folder), p)
+      } catch (_) {}
+    }
 
     const meta = {
       schemaVersion: SPLIT_SCHEMA_VERSION,
@@ -423,12 +522,6 @@ export function createSplitStorage(deps: {
       ui: d.ui && typeof d.ui === 'object' ? d.ui : {},
       settings: settingsMeta,
       favorites: normalizeFavorites((d as any).favorites),
-      roleOrder,
-      roleFolders,
-      chatIndexByRole,
-      groupOrder,
-      groupFolders,
-      chatIndexByGroup,
     }
 
     try {
@@ -575,10 +668,10 @@ export function createSplitStorage(deps: {
     const settingsMeta = state.data.settings && typeof state.data.settings === 'object' ? { ...(state.data.settings as any) } : {}
     try {
       delete (settingsMeta as any).stickers
+      delete (settingsMeta as any).providers
     } catch (_) {}
 
     const meta = {
-      ...(old && typeof old === 'object' ? old : {}),
       schemaVersion: SPLIT_SCHEMA_VERSION,
       dataVersion: VERSION,
       updatedAt: now(),

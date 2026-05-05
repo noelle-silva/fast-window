@@ -18,5 +18,6 @@ func All() []Migration {
 		RoleChatPackages(),
 		RemoveMigratedRoleChatRootImages(),
 		RefImagesToDataTree(),
+		SplitMetaIndexes(),
 	}
 }

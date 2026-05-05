@@ -12,7 +12,11 @@ func TestRunMigrationsUpdatesMetaAndMigrationState(t *testing.T) {
 	writeJSONForRunnerTest(t, filepath.Join(dataDir, "meta", "index.json"), map[string]any{
 		"schemaVersion": 1,
 		"dataVersion":   2,
-		"roleFolders":   map[string]any{"r1": "Alice"},
+		"settings": map[string]any{
+			"providers": []any{map[string]any{"id": "OpenAI", "name": "OpenAI"}},
+		},
+		"roleOrder":   []any{"r1"},
+		"roleFolders": map[string]any{"r1": "Alice"},
 		"chatIndexByRole": map[string]any{
 			"r1": map[string]any{"chatIds": []any{"c1"}},
 		},
@@ -31,12 +35,12 @@ func TestRunMigrationsUpdatesMetaAndMigrationState(t *testing.T) {
 	}
 
 	meta := readJSONForRunnerTest(t, filepath.Join(dataDir, "meta", "index.json"))
-	if got := int(asInt64(meta["dataVersion"], 0)); got != 5 {
+	if got := int(asInt64(meta["dataVersion"], 0)); got != 6 {
 		t.Fatalf("dataVersion = %d", got)
 	}
 	state := readJSONForRunnerTest(t, filepath.Join(dataDir, "_migrations.json"))
 	applied, _ := state["applied"].([]any)
-	if len(applied) != 3 {
+	if len(applied) != 4 {
 		t.Fatalf("applied length = %d", len(applied))
 	}
 	entry, _ := applied[0].(map[string]any)
@@ -50,6 +54,19 @@ func TestRunMigrationsUpdatesMetaAndMigrationState(t *testing.T) {
 	entry3, _ := applied[2].(map[string]any)
 	if entry3["id"] != "2026-05-05-ref-images-to-data-tree" {
 		t.Fatalf("migration id = %v", entry3["id"])
+	}
+	entry4, _ := applied[3].(map[string]any)
+	if entry4["id"] != "2026-05-05-split-meta-indexes" {
+		t.Fatalf("migration id = %v", entry4["id"])
+	}
+	if _, ok := meta["chatIndexByRole"]; ok {
+		t.Fatal("chatIndexByRole should be removed from meta")
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "chats", "index.json")); err != nil {
+		t.Fatalf("chats index missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "providers", "OpenAI", "provider.json")); err != nil {
+		t.Fatalf("provider missing: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "ref-images")); !os.IsNotExist(err) {
 		t.Fatalf("ref-images should be removed, stat err=%v", err)
