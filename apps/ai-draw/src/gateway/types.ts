@@ -9,6 +9,17 @@ import type {
   RefLibraryIndexV1,
 } from '../shared/domain'
 
+export type AiDrawWindowControlActions = {
+  minimize: () => Promise<void> | void
+  toggleMaximize: () => Promise<void> | void
+  closeToTray: () => Promise<void> | void
+}
+
+export type AiDrawWindowControls = {
+  standalone: boolean
+  actions: AiDrawWindowControlActions
+}
+
 export type AiDrawPickedImage = {
   name: string
   dataUrl: string
@@ -23,6 +34,8 @@ export type AiDrawGateway = {
     toast: (message: string) => void
     startDragging: () => Promise<void>
   }
+
+  windowControls?: AiDrawWindowControls
 
   clipboard: {
     writeText: (text: string) => Promise<void>

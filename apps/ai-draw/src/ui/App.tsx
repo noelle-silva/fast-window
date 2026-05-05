@@ -78,6 +78,7 @@ import {
   rectSortingStrategy,
   resolveSortMovePosition,
 } from './components/SortableDnd'
+import { StandaloneWindowControls } from './components/StandaloneWindowControls'
 
 type LightboxState =
   | { open: false }
@@ -313,6 +314,7 @@ function EditImageSelector(props: {
 export function AiDrawApp(props: { gateway: AiDrawGateway }) {
   const { gateway } = props
   const { host, clipboard } = gateway
+  const windowControls = gateway.windowControls
   const theme = React.useMemo(() => createClaudeTheme(), [])
   const { controller, state, revision } = useAiDrawController(gateway)
 
@@ -880,7 +882,7 @@ export function AiDrawApp(props: { gateway: AiDrawGateway }) {
     if (e.button !== 0) return
     const t = e.target as any
     if (!t || typeof t.closest !== 'function') return
-    if (t.closest('button, a, input, textarea, select, [role="button"]')) return
+    if (t.closest('button, a, input, textarea, select, [role="button"], [data-window-controls="true"]')) return
     void host.startDragging()
   }
 
@@ -985,6 +987,8 @@ export function AiDrawApp(props: { gateway: AiDrawGateway }) {
                 <SettingsRoundedIcon fontSize="small" />
               </IconButton>
             </Tooltip>
+
+            {windowControls?.standalone ? <StandaloneWindowControls actions={windowControls.actions} /> : null}
           </Box>
         </AppBar>
 

@@ -4,7 +4,7 @@ import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { AiDrawApp } from '../ui/App'
 import { createAiDrawDirectGateway } from '../gateway/createAiDrawDirectGateway'
-import type { AiDrawGateway } from '../gateway/types'
+import type { AiDrawGateway, AiDrawWindowControlActions } from '../gateway/types'
 import { AI_DRAW_DIRECT_PROTOCOL_VERSION } from '../shared/protocol'
 
 type BackendEndpoint = {
@@ -16,6 +16,20 @@ type BootStatus = 'booting' | 'ready' | 'error'
 type ToastMessage = {
   id: number
   text: string
+}
+
+type FwLaunchInfo = {
+  launched: boolean
+  standalone: boolean
+  mode: string
+}
+
+const TAURI_WINDOW = getCurrentWindow()
+
+const WINDOW_CONTROL_ACTIONS: AiDrawWindowControlActions = {
+  minimize: () => TAURI_WINDOW.minimize(),
+  toggleMaximize: () => TAURI_WINDOW.toggleMaximize(),
+  closeToTray: () => invoke('hide_to_tray'),
 }
 
 const COMMAND_LABELS: Record<string, string> = {
@@ -75,6 +89,8 @@ export function App() {
 
     async function boot() {
       try {
+        const info = await invoke<FwLaunchInfo>('fw_launch_info').catch(() => null)
+        const normalizedLaunchInfo = normalizeLaunchInfo(info)
         const command = await invoke<string | null>('fw_initial_command').catch(() => null)
         if (!disposed) handleCommand(command)
         unlisten = await listen<{ command?: string }>('fw-app-command', event => handleCommand(event.payload?.command))
@@ -93,6 +109,10 @@ export function App() {
         if (disposed) {
           gateway.close?.()
           return
+        }
+        gateway.windowControls = {
+          standalone: normalizedLaunchInfo.standalone,
+          actions: WINDOW_CONTROL_ACTIONS,
         }
         gatewayRef.current = gateway
         setGateway(gateway)
@@ -132,6 +152,14 @@ export function App() {
       {toast ? <div className="toast" role="status" aria-live="polite">{toast.text}</div> : null}
     </div>
   )
+}
+
+function normalizeLaunchInfo(raw: FwLaunchInfo | null): FwLaunchInfo {
+  return {
+    launched: !!raw?.launched,
+    standalone: raw?.standalone !== false,
+    mode: String(raw?.mode || (raw?.standalone === false ? 'default' : 'standalone')),
+  }
 }
 
 async function loadBackendEndpoint() {
