@@ -7,16 +7,9 @@ import {
   parseToolRequestCalls,
 } from '@noelle-silva/eucli-aitoolcall-sdk'
 import type { AiChatInternalGateway } from '../gateway/types'
+import { splitChatKey, splitGroupChatKey } from '../domain/storageKeys'
 
 const CHAT_DEFAULT_BRANCH_ID = 'main'
-
-function splitChatKey(folder: string, chatId: string) {
-  return `chats/${String(folder || '')}/${String(chatId || '')}`
-}
-
-function splitGroupChatKey(folder: string, chatId: string) {
-  return `groups/${String(folder || '')}/chats/${String(chatId || '')}`
-}
 
 function normalizeBranchId(input: any) {
   let s = String(input || '').trim()

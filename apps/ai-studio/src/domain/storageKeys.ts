@@ -36,7 +36,16 @@ export function splitRoleKey(folder: unknown) {
 }
 
 export function splitChatKey(folder: unknown, chatId: unknown) {
-  return `chats/${String(folder || '')}/${String(chatId || '')}`
+  return `chats/${String(folder || '')}/${String(chatId || '')}/chat`
+}
+
+export function roleChatImageRelPath(folder: unknown, chatId: unknown, fileName: unknown) {
+  const rawName = String(fileName || '').trim() || 'image.png'
+  const dot = rawName.lastIndexOf('.')
+  const ext = dot > 0 ? rawName.slice(dot).replace(/[^a-zA-Z0-9.]/g, '').slice(0, 12) : ''
+  const stem = dot > 0 ? rawName.slice(0, dot) : rawName
+  const name = `${safeDirName(stem, 'image')}${ext || '.png'}`
+  return `chats/${String(folder || '')}/${String(chatId || '')}/images/${name}`
 }
 
 export function splitGroupKey(folder: unknown) {

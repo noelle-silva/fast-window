@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	appmigrations "fast-window-ai-studio-backend/migrations"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -98,6 +100,9 @@ func run() error {
 	}
 
 	svc := newService(resolveDataDir())
+	if err := svc.runMigrations(); err != nil {
+		return err
+	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return fmt.Errorf("failed to bind local websocket: %w", err)
@@ -256,7 +261,7 @@ func (svc *service) bootstrap() (map[string]any, error) {
 		providers = []any{}
 	}
 	return map[string]any{
-		"schemaVersion": 2,
+		"schemaVersion": aiStudioDataVersion,
 		"state":         map[string]any{},
 		"conversations": []any{},
 		"providers":     providers,
@@ -489,7 +494,11 @@ func (svc *service) storageSet(params json.RawMessage) (map[string]bool, error) 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
-	data, err := json.MarshalIndent(payload["value"], "", "  ")
+	value, err := svc.prepareStorageValueForSet(key, payload["value"])
+	if err != nil {
+		return nil, err
+	}
+	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return nil, err
 	}
@@ -664,7 +673,11 @@ func (svc *service) imagePathForRel(raw string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	path, err := safeJoin(svc.imagesDir(), filepath.FromSlash(relPath))
+	baseDir := svc.imagesDir()
+	if appmigrations.IsRoleChatPackageImagePath(relPath) {
+		baseDir = svc.storageDir()
+	}
+	path, err := safeJoin(baseDir, filepath.FromSlash(relPath))
 	return path, relPath, err
 }
 

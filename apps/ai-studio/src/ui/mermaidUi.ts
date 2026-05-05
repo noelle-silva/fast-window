@@ -1,5 +1,6 @@
 import { clamp, now } from '../core/utils'
 import { VIEWER_ZOOM_MIN, MERMAID_VIEWER_ZOOM_MAX } from '../core/viewerZoom'
+import { splitChatKey } from '../domain/storageKeys'
 
 export function createMermaidUi(deps: {
   getState: () => any
@@ -226,7 +227,7 @@ export function createMermaidUi(deps: {
         const meta = await loadSplitMeta()
         const folder = meta ? String(meta.roleFolders?.[rid] || '') : ''
         if (folder) {
-          const raw = await storage.get(`chats/${folder}/${cid}`)
+          const raw = await storage.get(splitChatKey(folder, cid))
           const saved = raw && typeof raw === 'object' ? raw : null
           const msgs = Array.isArray(saved?.messages) ? saved.messages : []
           const m = msgs.find((x: any) => String(x?.id || '') === mid) || null

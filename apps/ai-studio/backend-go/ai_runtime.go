@@ -53,7 +53,11 @@ func (svc *service) storageSetByKey(key string, value any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(value, "", "  ")
+	prepared, err := svc.prepareStorageValueForSet(key, value)
+	if err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(prepared, "", "  ")
 	if err != nil {
 		return err
 	}

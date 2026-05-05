@@ -135,6 +135,10 @@ func splitRoleKeyGo(folder string) string {
 }
 
 func splitChatKeyGo(folder string, chatID string) string {
+	return "chats/" + strings.TrimSpace(folder) + "/" + strings.TrimSpace(chatID) + "/chat"
+}
+
+func splitChatLegacyKeyGo(folder string, chatID string) string {
 	return "chats/" + strings.TrimSpace(folder) + "/" + strings.TrimSpace(chatID)
 }
 

@@ -4,14 +4,7 @@
 
 import { now } from '../core/utils'
 import { UI_CHAT_UPDATED_NOTICE_KEY } from '../runtime/runtimeKeys'
-
-function splitChatKey(folder: string, chatId: string) {
-  return `chats/${String(folder || '')}/${String(chatId || '')}`
-}
-
-function splitGroupChatKey(folder: string, chatId: string) {
-  return `groups/${String(folder || '')}/chats/${String(chatId || '')}`
-}
+import { splitChatKey, splitGroupChatKey } from '../domain/storageKeys'
 
 export function createUiPolling(deps: {
   getState: () => any

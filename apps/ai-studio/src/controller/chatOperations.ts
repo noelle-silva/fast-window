@@ -22,6 +22,7 @@ import type { DraftFileKind, DraftFileItem } from '../domain/draftFileUtils'
 import { buildMessageModelRef, normalizeChatModelOverride } from '../domain/modelRefUtils'
 import { createStateAccessors } from '../state/stateAccessors'
 import type { AiChatInternalGateway } from '../gateway/types'
+import { roleFolderName, roleChatImageRelPath } from '../domain/storageKeys'
 
 type ChatAttachmentItem = {
   id: string
@@ -36,11 +37,26 @@ type ChatAttachmentItem = {
 
 type ChatMsgGroupRole = '' | 'root' | 'attachment'
 
+function imageExtFromDataUrl(dataUrl: unknown): string {
+  const match = /^data:image\/([a-zA-Z0-9.+-]+);base64,/.exec(String(dataUrl || '').trim())
+  if (!match) return 'png'
+  const mime = String(match[1] || '').toLowerCase()
+  if (mime === 'jpeg' || mime === 'jpg') return 'jpg'
+  if (mime === 'png' || mime === 'gif' || mime === 'webp' || mime === 'bmp' || mime === 'svg+xml') return mime === 'svg+xml' ? 'svg' : mime
+  return 'png'
+}
+
+function chatImageFileName(chatId: unknown, index: number, dataUrl: unknown): string {
+  const random = Math.random().toString(36).slice(2, 8)
+  return `image-${Date.now().toString(36)}-${random}-${String(chatId || 'chat')}-${Math.max(0, index + 1)}.${imageExtFromDataUrl(dataUrl)}`
+}
+
 export function createChatOperations(deps: {
   getState: () => any
   aiGateway: AiChatInternalGateway
   filesImages?: { writeBase64?: (...args: any[]) => Promise<any>; read?: any; delete?: any }
   filesPickImages?: (maxCount: number) => Promise<any[]>
+  loadSplitMeta?: () => Promise<any>
   showToast?: (msg: any) => void
   save: () => Promise<void>
   emit: () => void
@@ -50,7 +66,7 @@ export function createChatOperations(deps: {
   extractTextFromFile: (file: File, kind: string) => Promise<string>
   uiStreamCache: Map<string, string>
 }) {
-  const { getState, aiGateway, filesImages, filesPickImages, showToast, save, emit, render, renderComposer, scrollToBottomSoon, extractTextFromFile, uiStreamCache } = deps
+  const { getState, aiGateway, filesImages, filesPickImages, loadSplitMeta, showToast, save, emit, render, renderComposer, scrollToBottomSoon, extractTextFromFile, uiStreamCache } = deps
 
   const sa = createStateAccessors({ getState })
 
@@ -252,15 +268,6 @@ export function createChatOperations(deps: {
       state.sending = true
       renderComposer()
 
-      const savedPaths: string[] = []
-      for (const img of draftImages.slice(0, MAX_DRAFT_IMAGES)) {
-        const dataUrl = String(img?.dataUrl || '')
-        if (!looksLikeImageDataUrl(dataUrl)) continue
-        const saved = await filesImages!.writeBase64!({ scope: 'data', dataUrlOrBase64: dataUrl })
-        const path = String(saved || '').trim()
-        if (path) savedPaths.push(path)
-      }
-
       const streamEnabled = !!state.data?.settings?.streamEnabled
       assistantMid = uid('m')
 
@@ -272,6 +279,18 @@ export function createChatOperations(deps: {
         if (!chat) chat = sa.createChatForRole(rid)
       }
       if (!chat) throw new Error('创建会话失败')
+
+      const meta = typeof loadSplitMeta === 'function' ? await loadSplitMeta().catch(() => null) : null
+      const chatFolder = String(meta?.roleFolders?.[rid] || '').trim() || roleFolderName(role)
+      const savedPaths: string[] = []
+      for (const [index, img] of draftImages.slice(0, MAX_DRAFT_IMAGES).entries()) {
+        const dataUrl = String(img?.dataUrl || '')
+        if (!looksLikeImageDataUrl(dataUrl)) continue
+        const relPath = roleChatImageRelPath(chatFolder, chat.id, chatImageFileName(chat.id, index, dataUrl))
+        const saved = await filesImages!.writeBase64!({ scope: 'data', relPath, overwrite: false, dataUrlOrBase64: dataUrl })
+        const path = String(saved || '').trim()
+        if (path) savedPaths.push(path)
+      }
 
       const messageModelRef = buildMessageModelRef(providerId, modelId)
       const branching = ensureChatBranching(chat)

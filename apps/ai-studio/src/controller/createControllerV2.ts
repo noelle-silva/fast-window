@@ -713,6 +713,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     aiGateway,
     filesImages: api.files?.images as any,
     filesPickImages: api.files?.pickImages as any || (async () => []),
+    loadSplitMeta: loadSplitMetaCached,
     showToast: api.ui?.showToast,
     save,
     emit,
