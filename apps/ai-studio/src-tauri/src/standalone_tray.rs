@@ -25,7 +25,11 @@ pub(crate) fn install_standalone_tray(
     let state_for_click = window_state;
 
     let _tray = TrayIconBuilder::new()
-        .icon(app.default_window_icon().expect("default window icon missing").clone())
+        .icon(
+            app.default_window_icon()
+                .expect("default window icon missing")
+                .clone(),
+        )
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id.as_ref() {

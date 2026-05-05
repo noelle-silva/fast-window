@@ -159,7 +159,11 @@ pub(crate) fn apply_fw_args(window: &WebviewWindow, args: &FwArgs, state: &FwWin
         *launch_info = Some(FwLaunchInfo {
             launched: args.launched,
             standalone: !args.launched,
-            mode: if args.launched { args.mode.clone() } else { "standalone".to_string() },
+            mode: if args.launched {
+                args.mode.clone()
+            } else {
+                "standalone".to_string()
+            },
         });
     }
 
@@ -303,11 +307,17 @@ pub(crate) fn app_ready(
 pub(crate) fn fw_initial_command(
     state: tauri::State<'_, Arc<FwWindowState>>,
 ) -> Result<Option<String>, String> {
-    Ok(state.initial_command.lock().ok().and_then(|value| value.clone()))
+    Ok(state
+        .initial_command
+        .lock()
+        .ok()
+        .and_then(|value| value.clone()))
 }
 
 #[tauri::command]
-pub(crate) fn fw_launch_info(state: tauri::State<'_, Arc<FwWindowState>>) -> Result<FwLaunchInfo, String> {
+pub(crate) fn fw_launch_info(
+    state: tauri::State<'_, Arc<FwWindowState>>,
+) -> Result<FwLaunchInfo, String> {
     state
         .launch_info
         .lock()

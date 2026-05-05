@@ -34,7 +34,10 @@ pub(crate) fn resolve_data_dir(app: &tauri::AppHandle) -> PathBuf {
         .unwrap_or_else(|| default_data_dir(app))
 }
 
-pub(crate) fn data_dir_status(app: &tauri::AppHandle, runtime_error: Option<String>) -> DataDirStatus {
+pub(crate) fn data_dir_status(
+    app: &tauri::AppHandle,
+    runtime_error: Option<String>,
+) -> DataDirStatus {
     let settings = load_settings(app);
     let configured = settings
         .data_dir
@@ -61,14 +64,18 @@ pub(crate) fn save_data_dir(app: &tauri::AppHandle, data_dir: &Path) -> Result<(
     if let Some(parent) = config_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("创建配置目录失败: {e}"))?;
     }
-    let payload = serde_json::to_string_pretty(&settings).map_err(|e| format!("序列化配置失败: {e}"))?;
-    std::fs::write(config_path, format!("{payload}\n")).map_err(|e| format!("保存数据目录配置失败: {e}"))
+    let payload =
+        serde_json::to_string_pretty(&settings).map_err(|e| format!("序列化配置失败: {e}"))?;
+    std::fs::write(config_path, format!("{payload}\n"))
+        .map_err(|e| format!("保存数据目录配置失败: {e}"))
 }
 
 pub(crate) fn ensure_writable_dir(path: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(path).map_err(|e| format!("数据目录不可创建: {} ({e})", path.display()))?;
+    std::fs::create_dir_all(path)
+        .map_err(|e| format!("数据目录不可创建: {} ({e})", path.display()))?;
     let test_path = path.join(WRITE_TEST_FILE);
-    std::fs::write(&test_path, b"ok").map_err(|e| format!("数据目录不可写: {} ({e})", path.display()))?;
+    std::fs::write(&test_path, b"ok")
+        .map_err(|e| format!("数据目录不可写: {} ({e})", path.display()))?;
     let _ = std::fs::remove_file(test_path);
     Ok(())
 }

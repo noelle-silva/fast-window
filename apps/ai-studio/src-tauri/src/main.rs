@@ -11,8 +11,8 @@ use backend_sidecar::{start_backend, BackendEndpoint, BackendState};
 use control_server::{available_commands, start_control_server, ControlServerConfig};
 use data_dir::DataDirStatus;
 use fw_window::{
-    app_ready, apply_fw_args, fw_initial_command, fw_launch_info, install_window_policy, parse_fw_args,
-    report_available_commands, FwWindowState,
+    app_ready, apply_fw_args, fw_initial_command, fw_launch_info, install_window_policy,
+    parse_fw_args, report_available_commands, FwWindowState,
 };
 use std::sync::Arc;
 use tauri::{Manager, WindowEvent};
@@ -37,7 +37,10 @@ async fn pick_data_dir(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<BackendState>>,
 ) -> Result<Option<DataDirStatus>, String> {
-    let Some(path) = rfd::FileDialog::new().set_title("选择 AI Studio 数据目录").pick_folder() else {
+    let Some(path) = rfd::FileDialog::new()
+        .set_title("选择 AI Studio 数据目录")
+        .pick_folder()
+    else {
         return Ok(None);
     };
     data_dir::save_data_dir(&app, &path)?;
@@ -81,7 +84,15 @@ fn main() {
     tauri::Builder::default()
         .manage(backend_state)
         .manage(window_state)
-        .invoke_handler(tauri::generate_handler![backend_endpoint, data_dir_status, pick_data_dir, hide_to_tray, app_ready, fw_initial_command, fw_launch_info])
+        .invoke_handler(tauri::generate_handler![
+            backend_endpoint,
+            data_dir_status,
+            pick_data_dir,
+            hide_to_tray,
+            app_ready,
+            fw_initial_command,
+            fw_launch_info
+        ])
         .setup(move |app| {
             let window = app
                 .get_webview_window("main")
@@ -104,8 +115,10 @@ fn main() {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     if standalone_launch {
                         api.prevent_close();
-                        if let Some(window) = app_handle_for_window_close.get_webview_window("main") {
-                            let _ = fw_window::hide_to_tray(&window, &window_state_for_window_close);
+                        if let Some(window) = app_handle_for_window_close.get_webview_window("main")
+                        {
+                            let _ =
+                                fw_window::hide_to_tray(&window, &window_state_for_window_close);
                         }
                     } else {
                         stop_backend_for_window_close();
