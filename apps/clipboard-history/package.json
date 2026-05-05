@@ -1,0 +1,26 @@
+{
+  "name": "@fast-window/plugin-clipboard-history",
+  "private": true,
+  "version": "1.0.2",
+  "fastWindowPlugin": {
+    "entry": "src/ui/index.ts",
+    "background": {
+      "dev": {
+        "kind": "rust-binary",
+        "manifest": "backend-rs/Cargo.toml",
+        "package": "clipboard-history",
+        "main": "backend/clipboard-history.exe",
+        "runtime": "direct",
+        "profile": "dev"
+      },
+      "release": {
+        "kind": "rust-binary",
+        "manifest": "backend-rs/Cargo.toml",
+        "package": "clipboard-history",
+        "main": "backend/clipboard-history.exe",
+        "runtime": "direct",
+        "profile": "release"
+      }
+    }
+  }
+}

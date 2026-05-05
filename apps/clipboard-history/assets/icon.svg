@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Clipboard History">
+  <rect x="6" y="6" width="52" height="52" rx="14" fill="#A9D3D9" />
+  <g fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M26 18h12" />
+    <path d="M26 14h12v6H26z" />
+    <path d="M22 20v30h20V20" />
+    <path d="M26 30h12" />
+    <path d="M26 38h10" />
+  </g>
+</svg>
