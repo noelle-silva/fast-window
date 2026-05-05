@@ -1,6 +1,7 @@
 import { now, uid } from '../core/utils'
 import { VERSION, SPLIT_SCHEMA_VERSION, SPLIT_META_KEY, STICKERS_KEY } from '../domain/constants'
-import { normalizeSplitMeta, normalizeData, defaultData } from '../domain/dataNormalizers'
+import { chatMetaFromChat, chatMetaIds, chatMetaUpdatedAtMap, chatMetasFromBox, upsertChatMeta } from '../domain/chatMeta'
+import { normalizeData, defaultData } from '../domain/dataNormalizers'
 import { normalizeFavorites } from '../domain/favorites'
 import {
   splitRoleKey,
@@ -18,6 +19,8 @@ import {
   providerFolderName,
 } from '../domain/storageKeys'
 import { loadProvidersFromStorage, loadSplitMetaSnapshot } from './splitIndexes'
+
+type ChatIndexKind = 'role' | 'group'
 
 let splitMetaCache: any = null
 let splitMetaWriteChain: Promise<void> = Promise.resolve()
@@ -149,25 +152,128 @@ export function createSplitStorage(deps: {
     return p
   }
 
+  async function updateChatIndexEntry(kind: ChatIndexKind, targetId: any, chatId: any, patch: { chat?: any; updatedAt?: any; title?: any; remove?: boolean }) {
+    const tid = String(targetId || '').trim()
+    const cid = String(chatId || '').trim()
+    if (!tid || !cid) return
+    await withSplitMetaWrite(async () => {
+      const meta = (await loadSplitMeta()) || splitMetaCache
+      if (!meta) return
+      const folder = kind === 'group' ? String((meta as any).groupFolders?.[tid] || '').trim() : String(meta.roleFolders?.[tid] || '').trim()
+      if (!folder) return
+      const key = kind === 'group' ? splitGroupChatIndexKey(folder) : splitRoleChatIndexKey(folder)
+      const idx = await storage.get(key).catch(() => null)
+      if (!idx || typeof idx !== 'object') return
+      const fallbackTitle = kind === 'group' ? '群聊' : '新聊天'
+      let metas = chatMetasFromBox(idx, fallbackTitle)
+      if (patch.remove) {
+        metas = metas.filter((m: any) => String(m?.id || '') !== cid)
+      } else {
+        const current = metas.find((m: any) => String(m?.id || '') === cid) || null
+        const updatedAt = Number(patch.updatedAt || patch.chat?.updatedAt || current?.updatedAt || now())
+        let chatForMeta = patch.chat
+        if (!chatForMeta && patch.title == null) {
+          const chatKey = kind === 'group' ? splitGroupChatKey(folder, cid) : splitChatKey(folder, cid)
+          const rawChat = await storage.get(chatKey).catch(() => null)
+          chatForMeta = rawChat && typeof rawChat === 'object' ? rawChat : null
+        }
+        const metaItem = chatForMeta
+          ? chatMetaFromChat(chatForMeta, fallbackTitle)
+          : {
+              id: cid,
+              title: String(patch.title ?? current?.title ?? fallbackTitle).replace(/\s+/g, ' ').trim() || fallbackTitle,
+              createdAt: Number(current?.createdAt || updatedAt || now()),
+              updatedAt,
+              lastMessagePreview: String(current?.lastMessagePreview || ''),
+              messageCount: Number(current?.messageCount || 0),
+              hasPending: !!current?.hasPending,
+            }
+        metas = upsertChatMeta(metas, metaItem, fallbackTitle)
+      }
+      ;(idx as any).chatMetas = metas
+      ;(idx as any).chatIds = metas.map((m: any) => String(m?.id || '')).filter(Boolean)
+      ;(idx as any).chatUpdatedAt = chatMetaUpdatedAtMap(metas)
+      if (patch.remove && String((idx as any).activeChatId || '') === cid) (idx as any).activeChatId = String(metas[0]?.id || '')
+      if (!patch.remove && cid && !(idx as any).activeChatId) (idx as any).activeChatId = cid
+      ;(idx as any).updatedAt = now()
+      await storage.set(key, idx)
+      splitMetaCache = meta
+    })
+  }
+
   async function touchChatUpdatedAt(roleId: any, chatId: any, updatedAt: any) {
     const rid = String(roleId || '').trim()
     const cid = String(chatId || '').trim()
     const ua0 = Number(updatedAt || 0)
     if (!rid || !cid) return
 
-    await withSplitMetaWrite(async () => {
-      const meta = (await loadSplitMeta()) || splitMetaCache
-      if (!meta) return
-      const folder = String(meta.roleFolders?.[rid] || '').trim()
-      if (!folder) return
-      const idx = await storage.get(splitRoleChatIndexKey(folder)).catch(() => null)
-      if (!idx || typeof idx !== 'object') return
-      if (!(idx as any).chatUpdatedAt || typeof (idx as any).chatUpdatedAt !== 'object') (idx as any).chatUpdatedAt = {}
-      ;(idx as any).chatUpdatedAt[String(cid)] = ua0 > 0 ? ua0 : now()
-      ;(idx as any).updatedAt = now()
-      await storage.set(splitRoleChatIndexKey(folder), idx)
-      splitMetaCache = meta
+    await updateChatIndexEntry('role', rid, cid, { updatedAt: ua0 > 0 ? ua0 : now() })
+  }
+
+  async function touchGroupChatUpdatedAt(groupId: any, chatId: any, updatedAt: any) {
+    const gid = String(groupId || '').trim()
+    const cid = String(chatId || '').trim()
+    const ua0 = Number(updatedAt || 0)
+    if (!gid || !cid) return
+    await updateChatIndexEntry('group', gid, cid, { updatedAt: ua0 > 0 ? ua0 : now() })
+  }
+
+  async function saveChatEntry(kind: ChatIndexKind, targetId: any, chat: any) {
+    const tid = String(targetId || '').trim()
+    const cid = String(chat?.id || '').trim()
+    if (!tid || !cid || !chat || typeof chat !== 'object') return
+    const meta = (await loadSplitMeta()) || splitMetaCache
+    const folder = kind === 'group' ? String((meta as any)?.groupFolders?.[tid] || '').trim() : String(meta?.roleFolders?.[tid] || '').trim()
+    if (!folder) throw new Error(kind === 'group' ? '群组不存在' : '角色不存在')
+    const key = kind === 'group' ? splitGroupChatKey(folder, cid) : splitChatKey(folder, cid)
+    await withChatWriteLock(kind, tid, cid, async () => {
+      const raw0 = await storage.get(key)
+      const stored = raw0 && typeof raw0 === 'object' ? raw0 : null
+      const merged = mergeChatForConcurrentWrite(chat, stored)
+      await storage.set(key, merged)
     })
+    await updateChatIndexEntry(kind, tid, cid, { chat })
+    await writeChatUpdatedNotice(kind, tid, cid, Number(chat.updatedAt || now()))
+  }
+
+  async function saveRoleChat(roleId: any, chat: any) {
+    await saveChatEntry('role', roleId, chat)
+  }
+
+  async function saveGroupChat(groupId: any, chat: any) {
+    await saveChatEntry('group', groupId, chat)
+  }
+
+  async function renameChatEntry(kind: ChatIndexKind, targetId: any, chatId: any, title: any) {
+    const tid = String(targetId || '').trim()
+    const cid = String(chatId || '').trim()
+    if (!tid || !cid) return
+    const fallbackTitle = kind === 'group' ? '群聊' : '新聊天'
+    let nextTitle = String(title ?? '').replace(/\s+/g, ' ').trim()
+    if (nextTitle.length > 80) nextTitle = nextTitle.slice(0, 80).trim()
+    nextTitle = nextTitle || fallbackTitle
+    await updateChatIndexEntry(kind, tid, cid, { title: nextTitle, updatedAt: now() })
+
+    const meta = (await loadSplitMeta()) || splitMetaCache
+    const folder = kind === 'group' ? String((meta as any)?.groupFolders?.[tid] || '').trim() : String(meta?.roleFolders?.[tid] || '').trim()
+    if (!folder) return
+    const key = kind === 'group' ? splitGroupChatKey(folder, cid) : splitChatKey(folder, cid)
+    await withChatWriteLock(kind, tid, cid, async () => {
+      const raw = await storage.get(key)
+      const chat = raw && typeof raw === 'object' ? raw : null
+      if (!chat) return
+      ;(chat as any).title = nextTitle
+      ;(chat as any).updatedAt = now()
+      await storage.set(key, chat)
+    })
+  }
+
+  async function renameRoleChat(roleId: any, chatId: any, title: any) {
+    await renameChatEntry('role', roleId, chatId, title)
+  }
+
+  async function renameGroupChat(groupId: any, chatId: any, title: any) {
+    await renameChatEntry('group', groupId, chatId, title)
   }
 
   async function loadSplitData() {
@@ -274,6 +380,7 @@ export function createSplitStorage(deps: {
     const oldGroupFolders = (old as any)?.groupFolders && typeof (old as any).groupFolders === 'object' ? (old as any).groupFolders : {}
     const oldChatIndexByGroup =
       (old as any)?.chatIndexByGroup && typeof (old as any).chatIndexByGroup === 'object' ? (old as any).chatIndexByGroup : {}
+    const oldProviderFolders = (old as any)?.providerFolders && typeof (old as any).providerFolders === 'object' ? (old as any).providerFolders : {}
 
     const roleOrder = roles.map((r: any) => String(r?.id || '')).filter((x: any) => !!x)
     const roleFolders: Record<string, string> = {}
@@ -291,7 +398,7 @@ export function createSplitStorage(deps: {
       const rid = String(r?.id || '')
       if (!rid) continue
       const base = roleFolderName(r)
-      let folder = base
+      let folder = String((oldRoleFolders as any)?.[rid] || '').trim() || base
       if (usedFolders.has(folder)) {
         const tail = rid.slice(Math.max(0, rid.length - 8)) || uid('r')
         folder = `${base}__${tail}`
@@ -305,7 +412,7 @@ export function createSplitStorage(deps: {
       const gid = String((g as any)?.id || '')
       if (!gid) continue
       const base = groupFolderName(g)
-      let folder = base
+      let folder = String((oldGroupFolders as any)?.[gid] || '').trim() || base
       if (usedGroupFolders.has(folder)) {
         const tail = gid.slice(Math.max(0, gid.length - 8)) || uid('g')
         folder = `${base}__${tail}`
@@ -319,7 +426,7 @@ export function createSplitStorage(deps: {
       const pid = String(p?.id || '')
       if (!pid) continue
       const base = providerFolderName(p)
-      let folder = base
+      let folder = String((oldProviderFolders as any)?.[pid] || '').trim() || base
       if (usedProviderFolders.has(folder)) {
         const tail = pid.slice(Math.max(0, pid.length - 8)) || uid('p')
         folder = `${base}__${tail}`
@@ -335,14 +442,15 @@ export function createSplitStorage(deps: {
       const box0 = chatsByRole[rid] && typeof chatsByRole[rid] === 'object' ? chatsByRole[rid] : { activeChatId: '', chats: [] }
       const activeChatId = String(box0.activeChatId || '')
       const chats = Array.isArray(box0.chats) ? box0.chats : []
-      const chatIds = chats.map((c: any) => String(c?.id || '')).filter((x: any) => !!x)
-      const chatUpdatedAt: Record<string, number> = {}
+      let chatMetas = chatMetasFromBox(box0, '新聊天')
       for (const c of chats) {
         const cid = String(c?.id || '')
         if (!cid) continue
-        chatUpdatedAt[cid] = Number(c?.updatedAt || 0)
+        chatMetas = upsertChatMeta(chatMetas, chatMetaFromChat(c, '新聊天'), '新聊天')
       }
-      chatIndexByRole[rid] = { activeChatId, chatIds, chatUpdatedAt }
+      const chatIds = chatMetaIds(chatMetas)
+      const chatUpdatedAt: Record<string, number> = chatMetaUpdatedAtMap(chatMetas)
+      chatIndexByRole[rid] = { activeChatId, chatIds, chatUpdatedAt, chatMetas }
 
       try {
         await storage.set(splitRoleKey(folder), r)
@@ -386,14 +494,15 @@ export function createSplitStorage(deps: {
       const box0 = (chatsByGroup as any)[gid] && typeof (chatsByGroup as any)[gid] === 'object' ? (chatsByGroup as any)[gid] : { activeChatId: '', chats: [] }
       const activeChatId = String((box0 as any).activeChatId || '')
       const chats = Array.isArray((box0 as any).chats) ? (box0 as any).chats : []
-      const chatIds = chats.map((c: any) => String(c?.id || '')).filter((x: any) => !!x)
-      const chatUpdatedAt: any = {}
+      let chatMetas = chatMetasFromBox(box0, '群聊')
       for (const c of chats) {
         const cid = String(c?.id || '')
         if (!cid) continue
-        chatUpdatedAt[cid] = Number(c?.updatedAt || 0)
+        chatMetas = upsertChatMeta(chatMetas, chatMetaFromChat(c, '群聊'), '群聊')
       }
-      ;(chatIndexByGroup as any)[gid] = { activeChatId, chatIds, chatUpdatedAt }
+      const chatIds = chatMetaIds(chatMetas)
+      const chatUpdatedAt: any = chatMetaUpdatedAtMap(chatMetas)
+      ;(chatIndexByGroup as any)[gid] = { activeChatId, chatIds, chatUpdatedAt, chatMetas }
 
       try {
         await storage.set(splitGroupKey(folder), g)
@@ -465,6 +574,7 @@ export function createSplitStorage(deps: {
           activeChatId: String(idx?.activeChatId || ''),
           chatIds: Array.isArray(idx?.chatIds) ? idx.chatIds : [],
           chatUpdatedAt: idx?.chatUpdatedAt && typeof idx.chatUpdatedAt === 'object' ? idx.chatUpdatedAt : {},
+          chatMetas: chatMetasFromBox(idx, '新聊天'),
           updatedAt: now(),
         })
       } catch (_) {}
@@ -491,6 +601,7 @@ export function createSplitStorage(deps: {
           activeChatId: String((idx as any)?.activeChatId || ''),
           chatIds: Array.isArray((idx as any)?.chatIds) ? (idx as any).chatIds : [],
           chatUpdatedAt: (idx as any)?.chatUpdatedAt && typeof (idx as any).chatUpdatedAt === 'object' ? (idx as any).chatUpdatedAt : {},
+          chatMetas: chatMetasFromBox(idx, '群聊'),
           updatedAt: now(),
         })
       } catch (_) {}
@@ -663,7 +774,7 @@ export function createSplitStorage(deps: {
     ;(state.data.ui as any).activeTargetKind = String(state.draft?.activeTargetKind || '') === 'group' ? 'group' : 'role'
 
     const old = splitMetaCache || (await loadSplitMeta())
-    if (!old) return saveSplitData(state.data)
+    if (!old) throw new Error('存储未初始化')
 
     const settingsMeta = state.data.settings && typeof state.data.settings === 'object' ? { ...(state.data.settings as any) } : {}
     try {
@@ -715,7 +826,7 @@ export function createSplitStorage(deps: {
     state.data.ui.activeRoleId = String(state.draft?.activeRoleId || '')
     ;(state.data.ui as any).activeGroupId = String(state.draft?.activeGroupId || '')
     ;(state.data.ui as any).activeTargetKind = String(state.draft?.activeTargetKind || '') === 'group' ? 'group' : 'role'
-    await saveSplitData(state.data)
+    await saveMetaOnly()
   }
 
   return {
@@ -725,6 +836,11 @@ export function createSplitStorage(deps: {
     loadSplitData,
     ensureSplitStoreReady,
     saveSplitData,
+    saveRoleChat,
+    saveGroupChat,
+    renameRoleChat,
+    renameGroupChat,
+    touchGroupChatUpdatedAt,
     saveMetaOnly,
     load,
     save,

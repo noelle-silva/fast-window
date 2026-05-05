@@ -27,12 +27,12 @@ export interface AiServicesDeps {
   emit: () => void
   getProvider: (pid: string) => any
   getGroupById: (gid: string) => any
+  ensureChatLoaded?: (rid: string, cid: string) => Promise<any>
+  ensureGroupChatLoaded?: (gid: string, cid: string) => Promise<any>
   resolveAiModelId: (modelPick: any, customModelId: any) => string
   locateMessageInActiveChat: (mid: string) => any
   patchMessageContentSilent: (mid: string, content: string) => Promise<void>
   enqueueMermaidFixWrite: (mid: string, fn: () => Promise<string>) => Promise<any>
-  ensureChatsBoxBare: (rid: string) => any
-  ensureGroupChatsBoxBare: (gid: string) => any
   chatHasPendingAssistant: (chat: any) => boolean
   renameChatTitle: (rid: string, cid: string, title: string) => void
   renameGroupChatTitle: (gid: string, cid: string, title: string) => void
@@ -48,12 +48,12 @@ export function createAiServices(deps: AiServicesDeps) {
     emit,
     getProvider,
     getGroupById,
+    ensureChatLoaded,
+    ensureGroupChatLoaded,
     resolveAiModelId,
     locateMessageInActiveChat,
     patchMessageContentSilent,
     enqueueMermaidFixWrite,
-    ensureChatsBoxBare,
-    ensureGroupChatsBoxBare,
     chatHasPendingAssistant,
     renameChatTitle,
     renameGroupChatTitle,
@@ -235,10 +235,7 @@ export function createAiServices(deps: AiServicesDeps) {
     const cid = String(chatId || '').trim()
     if (!rid || !cid) throw new Error('未找到会话ID')
 
-    const box = ensureChatsBoxBare(rid)
-    if (!box) throw new Error('角色不存在')
-    const chats = Array.isArray(box.chats) ? box.chats : []
-    const chat = chats.find((c: any) => String(c?.id || '') === cid) || null
+    const chat = (await ensureChatLoaded?.(rid, cid)) || null
     if (!chat) throw new Error('会话不存在')
     if (chatHasPendingAssistant(chat)) throw new Error('会话正在生成中，请稍后再试')
 
@@ -273,10 +270,7 @@ export function createAiServices(deps: AiServicesDeps) {
     const group = getGroupById(gid)
     if (!group) throw new Error('群组不存在')
 
-    const box = ensureGroupChatsBoxBare(gid)
-    if (!box) throw new Error('群组不存在')
-    const chats = Array.isArray(box.chats) ? box.chats : []
-    const chat = chats.find((c: any) => String(c?.id || '') === cid) || null
+    const chat = (await ensureGroupChatLoaded?.(gid, cid)) || null
     if (!chat) throw new Error('会话不存在')
     if (chatHasPendingAssistant(chat)) throw new Error('会话正在生成中，请稍后再试')
 

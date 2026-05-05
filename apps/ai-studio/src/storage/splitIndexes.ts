@@ -1,5 +1,6 @@
 import { now } from '../core/utils'
 import { SPLIT_META_KEY, SPLIT_SCHEMA_VERSION } from '../domain/constants'
+import { normalizeChatMetas } from '../domain/chatMeta'
 import { normalizeSplitMeta } from '../domain/dataNormalizers'
 import {
   splitChatsIndexKey,
@@ -91,6 +92,7 @@ export async function loadSplitMetaSnapshot(storage: SplitStorageReader) {
       activeChatId: String(idx.activeChatId || ''),
       chatIds: stringList(idx.chatIds),
       chatUpdatedAt: objectOrEmpty(idx.chatUpdatedAt),
+      chatMetas: normalizeChatMetas(idx.chatMetas, idx.chatIds, idx.chatUpdatedAt, '新聊天'),
     }
     updatedAt = maxUpdatedAt(updatedAt, idx.updatedAt)
   }
@@ -109,6 +111,7 @@ export async function loadSplitMetaSnapshot(storage: SplitStorageReader) {
       activeChatId: String(idx.activeChatId || ''),
       chatIds: stringList(idx.chatIds),
       chatUpdatedAt: objectOrEmpty(idx.chatUpdatedAt),
+      chatMetas: normalizeChatMetas(idx.chatMetas, idx.chatIds, idx.chatUpdatedAt, '群聊'),
     }
     updatedAt = maxUpdatedAt(updatedAt, idx.updatedAt)
   }

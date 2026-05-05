@@ -1,5 +1,6 @@
 import { now } from '../core/utils'
-import { splitGroupChatIndexKey, splitGroupChatKey } from '../domain/storageKeys'
+import { chatMetaUpdatedAtMap, chatMetasFromBox, upsertChatMeta } from '../domain/chatMeta'
+import { splitGroupChatIndexKey } from '../domain/storageKeys'
 
 export function createGroupChatSync(deps: {
   storage: { get: (k: string) => Promise<any>; set: (k: string, v: any) => Promise<void> }
@@ -27,8 +28,21 @@ export function createGroupChatSync(deps: {
       if (!folder) return
       const idx = await storage.get(splitGroupChatIndexKey(folder)).catch(() => null)
       if (!idx || typeof idx !== 'object') return
-      if (!(idx as any).chatUpdatedAt || typeof (idx as any).chatUpdatedAt !== 'object') (idx as any).chatUpdatedAt = {}
-      ;(idx as any).chatUpdatedAt[String(cid)] = ua0 > 0 ? ua0 : now()
+      const updatedAt = ua0 > 0 ? ua0 : now()
+      let metas = chatMetasFromBox(idx, '群聊')
+      const cur = metas.find((m: any) => String(m?.id || '') === cid) || null
+      metas = upsertChatMeta(metas, {
+        id: cid,
+        title: String(cur?.title || '群聊'),
+        createdAt: Number(cur?.createdAt || updatedAt),
+        updatedAt,
+        lastMessagePreview: String(cur?.lastMessagePreview || ''),
+        messageCount: Number(cur?.messageCount || 0),
+        hasPending: !!cur?.hasPending,
+      }, '群聊')
+      ;(idx as any).chatMetas = metas
+      ;(idx as any).chatIds = metas.map((m: any) => String(m?.id || '')).filter(Boolean)
+      ;(idx as any).chatUpdatedAt = chatMetaUpdatedAtMap(metas)
       ;(idx as any).updatedAt = now()
       await storage.set(splitGroupChatIndexKey(folder), idx)
     })
@@ -53,7 +67,8 @@ export function createGroupChatSync(deps: {
       const idx = (meta as any).chatIndexByGroup?.[gid]
       if (!folder || !idx || typeof idx !== 'object') return
 
-      const desiredChatIds = Array.isArray((idx as any).chatIds) ? (idx as any).chatIds.map((x: any) => String(x || '')).filter((x: any) => !!x) : []
+      const chatMetas = chatMetasFromBox(idx, '群聊')
+      const desiredChatIds = chatMetas.map((x: any) => String(x?.id || '')).filter((x: any) => !!x)
       const desiredActiveChatId = String((idx as any).activeChatId || '')
       const wantUpdatedAt = (idx as any).chatUpdatedAt && typeof (idx as any).chatUpdatedAt === 'object' ? (idx as any).chatUpdatedAt : {}
 
@@ -76,9 +91,6 @@ export function createGroupChatSync(deps: {
       for (const cid of desiredChatIds) {
         const cur = curById.get(cid) || null
         if (!cur) {
-          const c0 = await storage.get(splitGroupChatKey(folder, cid))
-          const c1 = c0 && typeof c0 === 'object' ? c0 : null
-          if (c1) nextChats.push(c1)
           continue
         }
 
@@ -87,30 +99,12 @@ export function createGroupChatSync(deps: {
         nextChats.push(cur)
       }
 
-      for (const c of curChats) {
-        const cid = String(c?.id || '')
-        if (!cid) continue
-        if (!desiredChatIds.includes(cid)) continue
-        if (cid !== activeChatId) continue
-
-        const cur = curById.get(cid) || null
-        if (!cur) continue
-        const want = Number((wantUpdatedAt as any)?.[cid] || 0)
-        if (!want || Number(cur.updatedAt || 0) === want) continue
-        const c0 = await storage.get(splitGroupChatKey(folder, cid))
-        const c1 = c0 && typeof c0 === 'object' ? c0 : null
-        if (c1) {
-          const idx0 = nextChats.findIndex((x) => String(x?.id || '') === activeChatId)
-          if (idx0 >= 0) nextChats[idx0] = c1
-          else nextChats.unshift(c1)
-        }
-      }
-
       box.chats = nextChats
+      ;(box as any).chatMetas = chatMetas
 
-      if (keepChatNow && nextChats.some((c: any) => String(c?.id || '') === keepChatNow)) box.activeChatId = keepChatNow
-      else if (desiredActiveChatId && nextChats.some((c: any) => String(c?.id || '') === desiredActiveChatId)) box.activeChatId = desiredActiveChatId
-      else box.activeChatId = String(nextChats[0]?.id || '')
+      if (keepChatNow && desiredChatIds.includes(keepChatNow)) box.activeChatId = keepChatNow
+      else if (desiredActiveChatId && desiredChatIds.includes(desiredActiveChatId)) box.activeChatId = desiredActiveChatId
+      else box.activeChatId = String(desiredChatIds[0] || '')
     } finally {
       uiChatSyncing = false
     }

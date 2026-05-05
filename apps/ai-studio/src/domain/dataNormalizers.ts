@@ -19,6 +19,7 @@ import {
 } from './branching'
 import { normalizeMessageAttachments, normalizeMessageGroup } from './message'
 import { normalizeFavorites } from './favorites'
+import { chatMetasFromBox } from './chatMeta'
 import { looksLikeImageDataUrl } from './textProcessing'
 import { normalizeChatModelOverride, normalizeMessageModelRef } from './modelRefUtils'
 import { normalizeToolRequestRenderPresets } from '../core/toolRequestPresets'
@@ -337,6 +338,7 @@ export function normalizeData(raw: any) {
     if (!d.chatsByRole[rid] || typeof d.chatsByRole[rid] !== 'object') d.chatsByRole[rid] = { activeChatId: '', chats: [] }
     const box = d.chatsByRole[rid]
     if (!Array.isArray(box.chats)) box.chats = []
+    box.chatMetas = chatMetasFromBox(box, '新聊天')
     box.activeChatId = String(box.activeChatId || '')
 
     box.chats = box.chats
@@ -406,14 +408,18 @@ export function normalizeData(raw: any) {
         return out
       })
 
-    if (!box.chats.length) {
+    if (!box.chats.length && !box.chatMetas.length) {
       const cid = uid('c')
       const t = now()
       box.chats = [{ id: cid, title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }]
+      box.chatMetas = chatMetasFromBox(box, '新聊天')
       box.activeChatId = cid
     }
 
-    if (!box.activeChatId || !box.chats.some((c: any) => String(c.id) === box.activeChatId)) box.activeChatId = String(box.chats[0]?.id || '')
+    const roleMetaIds = box.chatMetas.map((m: any) => String(m?.id || '')).filter(Boolean)
+    if (!box.activeChatId || (!box.chats.some((c: any) => String(c.id) === box.activeChatId) && !roleMetaIds.includes(box.activeChatId))) {
+      box.activeChatId = String(box.chats[0]?.id || roleMetaIds[0] || '')
+    }
   }
 
   if (!d.ui || typeof d.ui !== 'object') d.ui = {}
@@ -477,6 +483,7 @@ export function normalizeData(raw: any) {
     if (!(d as any).chatsByGroup[gid] || typeof (d as any).chatsByGroup[gid] !== 'object') (d as any).chatsByGroup[gid] = { activeChatId: '', chats: [] }
     const box = (d as any).chatsByGroup[gid]
     if (!Array.isArray(box.chats)) box.chats = []
+    box.chatMetas = chatMetasFromBox(box, '群聊')
     box.activeChatId = String(box.activeChatId || '')
 
     box.chats = box.chats
@@ -545,13 +552,17 @@ export function normalizeData(raw: any) {
         return out
       })
 
-    if (!box.chats.length) {
+    if (!box.chats.length && !box.chatMetas.length) {
       const cid = uid('gc')
       const t = now()
       box.chats = [{ id: cid, title: '群聊', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }]
+      box.chatMetas = chatMetasFromBox(box, '群聊')
       box.activeChatId = cid
     }
-    if (!box.activeChatId || !box.chats.some((c: any) => String(c.id) === box.activeChatId)) box.activeChatId = String(box.chats[0]?.id || '')
+    const groupMetaIds = box.chatMetas.map((m: any) => String(m?.id || '')).filter(Boolean)
+    if (!box.activeChatId || (!box.chats.some((c: any) => String(c.id) === box.activeChatId) && !groupMetaIds.includes(box.activeChatId))) {
+      box.activeChatId = String(box.chats[0]?.id || groupMetaIds[0] || '')
+    }
   }
 
   const targetKind0 = String((d.ui as any).activeTargetKind || '').trim()

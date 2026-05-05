@@ -3,6 +3,7 @@
 // 职责：定时轮询 stream 状态、同步 chat 索引、处理跨 tab 聊天更新通知
 
 import { now } from '../core/utils'
+import { chatMetaFromChat, chatMetasFromBox, upsertChatMeta } from '../domain/chatMeta'
 import { UI_CHAT_UPDATED_NOTICE_KEY } from '../runtime/runtimeKeys'
 import { splitChatKey, splitGroupChatKey } from '../domain/storageKeys'
 
@@ -20,6 +21,7 @@ export function createUiPolling(deps: {
   emit: () => void
   activeTargetKind: () => string
   activeChatFromData: () => any
+  ensureActiveChatLoaded?: () => Promise<any>
   syncActiveGroupChatsFromStorage: (meta: any) => Promise<void>
   save: () => Promise<void>
 }) {
@@ -49,7 +51,8 @@ export function createUiPolling(deps: {
       const idx = (meta as any).chatIndexByRole?.[rid]
       if (!folder || !idx || typeof idx !== 'object') return
 
-      const desiredChatIds = Array.isArray((idx as any).chatIds) ? (idx as any).chatIds.map((x: any) => String(x || '')).filter((x: any) => !!x) : []
+      const chatMetas = chatMetasFromBox(idx, '新聊天')
+      const desiredChatIds = chatMetas.map((x: any) => String(x?.id || '')).filter((x: any) => !!x)
       const desiredActiveChatId = String((idx as any).activeChatId || '')
       const wantUpdatedAt = (idx as any).chatUpdatedAt && typeof (idx as any).chatUpdatedAt === 'object' ? (idx as any).chatUpdatedAt : {}
 
@@ -72,9 +75,6 @@ export function createUiPolling(deps: {
       for (const cid of desiredChatIds) {
         const cur = curById.get(cid) || null
         if (!cur) {
-          const c0 = await deps.storage.get(splitChatKey(folder, cid))
-          const c1 = c0 && typeof c0 === 'object' ? c0 : null
-          if (c1) nextChats.push(c1)
           continue
         }
 
@@ -99,10 +99,11 @@ export function createUiPolling(deps: {
       }
 
       box.chats = nextChats
+      box.chatMetas = chatMetas
 
-      if (keepChatNow && nextChats.some((c: any) => String(c?.id || '') === keepChatNow)) box.activeChatId = keepChatNow
-      else if (desiredActiveChatId && nextChats.some((c: any) => String(c?.id || '') === desiredActiveChatId)) box.activeChatId = desiredActiveChatId
-      else box.activeChatId = String(nextChats[0]?.id || '')
+      if (keepChatNow && desiredChatIds.includes(keepChatNow)) box.activeChatId = keepChatNow
+      else if (desiredActiveChatId && desiredChatIds.includes(desiredActiveChatId)) box.activeChatId = desiredActiveChatId
+      else box.activeChatId = String(desiredChatIds[0] || '')
     } finally {
       uiChatSyncing = false
     }
@@ -137,6 +138,7 @@ export function createUiPolling(deps: {
     const idx = box.chats.findIndex((c: any) => String(c?.id || '') === cid)
     if (idx >= 0) box.chats[idx] = chat
     else box.chats.unshift(chat)
+    box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, '新聊天'), '新聊天')
 
     return true
   }
@@ -165,6 +167,7 @@ export function createUiPolling(deps: {
     const idx = box.chats.findIndex((c: any) => String(c?.id || '') === cid)
     if (idx >= 0) box.chats[idx] = chat
     else box.chats.unshift(chat)
+    box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, '群聊'), '群聊')
 
     return true
   }
@@ -197,20 +200,16 @@ export function createUiPolling(deps: {
         : String(state.draft.activeRoleId || state.data?.ui?.activeRoleId || '').trim()
     if (!activeTid || kind !== activeKind || tid !== activeTid) return false
 
-    const activeChatId = String(deps.activeChatFromData()?.id || '').trim()
+      const activeBox = kind === 'group' ? (state.data as any)?.chatsByGroup?.[tid] : state.data?.chatsByRole?.[tid]
+      const activeChatId = String(deps.activeChatFromData()?.id || activeBox?.activeChatId || '').trim()
     if (activeChatId && cid === activeChatId) {
       const ok = kind === 'group' ? await syncGroupChatByIdFromStorage(tid, cid) : await syncChatByIdFromStorage(tid, cid)
       return !!ok
     }
 
-    try {
-      const ok = kind === 'group' ? await syncGroupChatByIdFromStorage(tid, cid) : await syncChatByIdFromStorage(tid, cid)
-      if (ok) return true
-    } catch (_) {}
-
-    const box = kind === 'group' ? (state.data as any)?.chatsByGroup?.[tid] : state.data?.chatsByRole?.[tid]
-    const chats = Array.isArray(box?.chats) ? box.chats : []
-    const it = chats.find((c: any) => String(c?.id || '') === cid) || null
+    const box = activeBox
+    const metas = Array.isArray(box?.chatMetas) ? box.chatMetas : []
+    const it = metas.find((c: any) => String(c?.id || '') === cid) || null
     if (it && updatedAt && Number(it.updatedAt || 0) !== updatedAt) {
       it.updatedAt = updatedAt
       return true
@@ -240,7 +239,7 @@ export function createUiPolling(deps: {
     const state = deps.getState()
     if (state.loading || !state.data) return
 
-    let chat = deps.activeChatFromData()
+    let chat = deps.activeChatFromData() || (await deps.ensureActiveChatLoaded?.().catch(() => null))
     if (!chat) return
 
     try {

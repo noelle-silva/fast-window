@@ -1,5 +1,31 @@
 import { now, uid } from '../core/utils'
 import { createDefaultChatBranching } from '../domain/branching'
+import { chatMetaFromChat, chatMetasFromBox, upsertChatMeta } from '../domain/chatMeta'
+
+function ensureBoxShape(box: any, fallbackTitle: string) {
+  if (!box || typeof box !== 'object') return { activeChatId: '', chatMetas: [], chats: [] }
+  if (!Array.isArray(box.chats)) box.chats = []
+  box.chatMetas = chatMetasFromBox(box, fallbackTitle)
+  box.activeChatId = String(box.activeChatId || '')
+  return box
+}
+
+function chatIdExistsInBox(box: any, chatId: any) {
+  const cid = String(chatId || '').trim()
+  if (!cid) return false
+  const chats = Array.isArray(box?.chats) ? box.chats : []
+  if (chats.some((c: any) => String(c?.id || '') === cid)) return true
+  const metas = Array.isArray(box?.chatMetas) ? box.chatMetas : []
+  return metas.some((m: any) => String(m?.id || '') === cid)
+}
+
+function firstChatIdInBox(box: any) {
+  const metas = Array.isArray(box?.chatMetas) ? box.chatMetas : []
+  const firstMeta = metas.map((m: any) => String(m?.id || '')).find(Boolean)
+  if (firstMeta) return firstMeta
+  const chats = Array.isArray(box?.chats) ? box.chats : []
+  return String(chats[0]?.id || '')
+}
 
 export function createStateAccessors(deps: {
   getState: () => any
@@ -60,7 +86,7 @@ export function createStateAccessors(deps: {
       if (!box) return null
       const activeChatId = String(box.activeChatId || '')
       const chats = Array.isArray(box.chats) ? box.chats : []
-      return chats.find((c: any) => String(c?.id) === activeChatId) || chats[0] || null
+      return chats.find((c: any) => String(c?.id) === activeChatId) || null
     }
 
     const r = activeRole()
@@ -69,7 +95,7 @@ export function createStateAccessors(deps: {
     if (!box) return null
     const activeChatId = String(box.activeChatId || '')
     const chats = Array.isArray(box.chats) ? box.chats : []
-    return chats.find((c: any) => String(c?.id) === activeChatId) || chats[0] || null
+    return chats.find((c: any) => String(c?.id) === activeChatId) || null
   }
 
   function activeChat() {
@@ -122,12 +148,10 @@ export function createStateAccessors(deps: {
     ensureGroupsList()
     const gid = String(groupId || '').trim()
     if (!gid) return null
-    if (!s.data.chatsByGroup[gid] || typeof s.data.chatsByGroup[gid] !== 'object') s.data.chatsByGroup[gid] = { activeChatId: '', chats: [] }
-    const box = s.data.chatsByGroup[gid]
-    if (!Array.isArray(box.chats)) box.chats = []
-    box.activeChatId = String(box.activeChatId || '')
-    if (box.activeChatId && !box.chats.some((c: any) => String(c?.id || '') === box.activeChatId)) box.activeChatId = ''
-    if (!box.activeChatId && box.chats.length) box.activeChatId = String(box.chats[0]?.id || '')
+    if (!s.data.chatsByGroup[gid] || typeof s.data.chatsByGroup[gid] !== 'object') s.data.chatsByGroup[gid] = { activeChatId: '', chatMetas: [], chats: [] }
+    const box = ensureBoxShape(s.data.chatsByGroup[gid], '群聊')
+    if (box.activeChatId && !chatIdExistsInBox(box, box.activeChatId)) box.activeChatId = ''
+    if (!box.activeChatId) box.activeChatId = firstChatIdInBox(box)
     return box
   }
 
@@ -137,17 +161,18 @@ export function createStateAccessors(deps: {
     ensureGroupsList()
     const gid = String(groupId || '').trim()
     if (!gid) return null
-    if (!s.data.chatsByGroup[gid] || typeof s.data.chatsByGroup[gid] !== 'object') s.data.chatsByGroup[gid] = { activeChatId: '', chats: [] }
-    const box = s.data.chatsByGroup[gid]
-    if (!Array.isArray(box.chats)) box.chats = []
+    if (!s.data.chatsByGroup[gid] || typeof s.data.chatsByGroup[gid] !== 'object') s.data.chatsByGroup[gid] = { activeChatId: '', chatMetas: [], chats: [] }
+    const box = ensureBoxShape(s.data.chatsByGroup[gid], '群聊')
     box.activeChatId = String(box.activeChatId || '')
-    if (!box.chats.length) {
+    if (!box.chats.length && !box.chatMetas.length) {
       const cid = uid('gc')
       const t = now()
-      box.chats = [{ id: cid, title: '群聊', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }]
+      const chat = { id: cid, title: '群聊', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }
+      box.chats = [chat]
+      box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, '群聊'), '群聊')
       box.activeChatId = cid
     }
-    if (!box.activeChatId || !box.chats.some((c: any) => String(c?.id) === box.activeChatId)) box.activeChatId = String(box.chats[0]?.id || '')
+    if (!box.activeChatId || !chatIdExistsInBox(box, box.activeChatId)) box.activeChatId = firstChatIdInBox(box)
     return box
   }
 
@@ -157,17 +182,18 @@ export function createStateAccessors(deps: {
     const rid = String(roleId || '')
     if (!rid) return null
     if (!s.data.chatsByRole || typeof s.data.chatsByRole !== 'object') s.data.chatsByRole = {}
-    if (!s.data.chatsByRole[rid] || typeof s.data.chatsByRole[rid] !== 'object') s.data.chatsByRole[rid] = { activeChatId: '', chats: [] }
-    const box = s.data.chatsByRole[rid]
-    if (!Array.isArray(box.chats)) box.chats = []
+    if (!s.data.chatsByRole[rid] || typeof s.data.chatsByRole[rid] !== 'object') s.data.chatsByRole[rid] = { activeChatId: '', chatMetas: [], chats: [] }
+    const box = ensureBoxShape(s.data.chatsByRole[rid], '新聊天')
     box.activeChatId = String(box.activeChatId || '')
-    if (!box.chats.length) {
+    if (!box.chats.length && !box.chatMetas.length) {
       const cid = uid('c')
       const t = now()
-      box.chats = [{ id: cid, title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }]
+      const chat = { id: cid, title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }
+      box.chats = [chat]
+      box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, '新聊天'), '新聊天')
       box.activeChatId = cid
     }
-    if (!box.activeChatId || !box.chats.some((c: any) => String(c?.id) === box.activeChatId)) box.activeChatId = String(box.chats[0]?.id || '')
+    if (!box.activeChatId || !chatIdExistsInBox(box, box.activeChatId)) box.activeChatId = firstChatIdInBox(box)
     return box
   }
 
@@ -177,12 +203,10 @@ export function createStateAccessors(deps: {
     const rid = String(roleId || '')
     if (!rid) return null
     if (!s.data.chatsByRole || typeof s.data.chatsByRole !== 'object') s.data.chatsByRole = {}
-    if (!s.data.chatsByRole[rid] || typeof s.data.chatsByRole[rid] !== 'object') s.data.chatsByRole[rid] = { activeChatId: '', chats: [] }
-    const box = s.data.chatsByRole[rid]
-    if (!Array.isArray(box.chats)) box.chats = []
-    box.activeChatId = String(box.activeChatId || '')
-    if (box.activeChatId && !box.chats.some((c: any) => String(c?.id) === box.activeChatId)) box.activeChatId = ''
-    if (!box.activeChatId && box.chats.length) box.activeChatId = String(box.chats[0]?.id || '')
+    if (!s.data.chatsByRole[rid] || typeof s.data.chatsByRole[rid] !== 'object') s.data.chatsByRole[rid] = { activeChatId: '', chatMetas: [], chats: [] }
+    const box = ensureBoxShape(s.data.chatsByRole[rid], '新聊天')
+    if (box.activeChatId && !chatIdExistsInBox(box, box.activeChatId)) box.activeChatId = ''
+    if (!box.activeChatId) box.activeChatId = firstChatIdInBox(box)
     return box
   }
 
@@ -194,6 +218,7 @@ export function createStateAccessors(deps: {
     const t = now()
     const chat = { id: cid, title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }
     box.chats.unshift(chat)
+    box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, '新聊天'), '新聊天')
     box.activeChatId = cid
     return chat
   }
@@ -206,6 +231,7 @@ export function createStateAccessors(deps: {
     const t = now()
     const chat = { id: cid, title: '群聊', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }
     box.chats.unshift(chat)
+    box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, '群聊'), '群聊')
     box.activeChatId = cid
     return chat
   }

@@ -35,12 +35,12 @@ func TestRunMigrationsUpdatesMetaAndMigrationState(t *testing.T) {
 	}
 
 	meta := readJSONForRunnerTest(t, filepath.Join(dataDir, "meta", "index.json"))
-	if got := int(asInt64(meta["dataVersion"], 0)); got != 6 {
+	if got := int(asInt64(meta["dataVersion"], 0)); got != 7 {
 		t.Fatalf("dataVersion = %d", got)
 	}
 	state := readJSONForRunnerTest(t, filepath.Join(dataDir, "_migrations.json"))
 	applied, _ := state["applied"].([]any)
-	if len(applied) != 4 {
+	if len(applied) != 5 {
 		t.Fatalf("applied length = %d", len(applied))
 	}
 	entry, _ := applied[0].(map[string]any)
@@ -59,11 +59,20 @@ func TestRunMigrationsUpdatesMetaAndMigrationState(t *testing.T) {
 	if entry4["id"] != "2026-05-05-split-meta-indexes" {
 		t.Fatalf("migration id = %v", entry4["id"])
 	}
+	entry5, _ := applied[4].(map[string]any)
+	if entry5["id"] != "2026-05-05-chat-index-summaries" {
+		t.Fatalf("migration id = %v", entry5["id"])
+	}
 	if _, ok := meta["chatIndexByRole"]; ok {
 		t.Fatal("chatIndexByRole should be removed from meta")
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "chats", "index.json")); err != nil {
 		t.Fatalf("chats index missing: %v", err)
+	}
+	roleChatIndex := readJSONForRunnerTest(t, filepath.Join(dataDir, "chats", "Alice", "index.json"))
+	chatMetas, _ := roleChatIndex["chatMetas"].([]any)
+	if len(chatMetas) != 1 || asMap(chatMetas[0])["id"] != "c1" {
+		t.Fatalf("chatMetas = %#v", roleChatIndex["chatMetas"])
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "providers", "OpenAI", "provider.json")); err != nil {
 		t.Fatalf("provider missing: %v", err)

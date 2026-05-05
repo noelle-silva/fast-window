@@ -630,12 +630,14 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
         const box = (data as any)?.chatsByGroup?.[tid]
         const chats = Array.isArray(box?.chats) ? box.chats : []
         const chat = chats.find((c: any) => String(c?.id || '') === cid) || null
-        return isChatGenerating(chat)
+        const meta = Array.isArray(box?.chatMetas) ? box.chatMetas.find((m: any) => String(m?.id || '') === cid) : null
+        return isChatGenerating(chat) || !!meta?.hasPending
       }
       const box = data?.chatsByRole?.[tid]
       const chats = Array.isArray(box?.chats) ? box.chats : []
       const chat = chats.find((c: any) => String(c?.id || '') === cid) || null
-      return isChatGenerating(chat)
+      const meta = Array.isArray(box?.chatMetas) ? box.chatMetas.find((m: any) => String(m?.id || '') === cid) : null
+      return isChatGenerating(chat) || !!meta?.hasPending
     },
     [data, isChatGenerating],
   )
@@ -682,11 +684,11 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
       if (targetKind === 'group') {
         const box = (data as any)?.chatsByGroup?.[tid]
         const chats = Array.isArray(box?.chats) ? box.chats : []
-        return chats.find((c: any) => String(c?.id || '') === cid) || null
+        return chats.find((c: any) => String(c?.id || '') === cid) || (Array.isArray(box?.chatMetas) ? box.chatMetas.find((c: any) => String(c?.id || '') === cid) : null) || null
       }
       const box = data?.chatsByRole?.[tid]
       const chats = Array.isArray(box?.chats) ? box.chats : []
-      return chats.find((c: any) => String(c?.id || '') === cid) || null
+      return chats.find((c: any) => String(c?.id || '') === cid) || (Array.isArray(box?.chatMetas) ? box.chatMetas.find((c: any) => String(c?.id || '') === cid) : null) || null
     },
     [data],
   )
@@ -2087,7 +2089,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
 
     const box =
       activeTargetKind === 'group' ? (data as any)?.chatsByGroup?.[String((activeGroup as any)?.id || activeGroupId || '')] : data?.chatsByRole?.[activeRoleId]
-    const chats = Array.isArray(box?.chats) ? box.chats.slice() : []
+    const chats = Array.isArray(box?.chatMetas) && box.chatMetas.length ? box.chatMetas.slice() : Array.isArray(box?.chats) ? box.chats.slice() : []
     chats.sort((a: any, b: any) => Number(b?.updatedAt || 0) - Number(a?.updatedAt || 0))
     const ids = chats.map((c: any) => String(c?.id || '')).filter((id: string) => !!id)
     if (!ids.length) return { olderId: '', newerId: '', lockedReason: '暂无会话' }
@@ -2503,12 +2505,12 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
           const targetKind = String(ref?.targetKind || '').trim() === 'group' ? 'group' : 'role'
           const targetId = String(ref?.targetId || '')
           const chatId = String(ref?.chatId || '')
-          const chat = getChatByFavoriteRef(targetKind as any, targetId, chatId)
-          const targetMeta = getFavoriteTargetMeta(targetKind as any, targetId)
-          const hay = [
-            String((chat as any)?.title || ''),
-            snippetText((Array.isArray((chat as any)?.messages) ? (chat as any).messages : []).slice(-1)[0]?.content || ''),
-            String(targetMeta?.name || ''),
+            const chat = getChatByFavoriteRef(targetKind as any, targetId, chatId)
+            const targetMeta = getFavoriteTargetMeta(targetKind as any, targetId)
+            const hay = [
+              String((chat as any)?.title || ''),
+              snippetText((chat as any)?.lastMessagePreview || (Array.isArray((chat as any)?.messages) ? (chat as any).messages : []).slice(-1)[0]?.content || ''),
+              String(targetMeta?.name || ''),
           ]
             .join('\n')
             .toLowerCase()
@@ -2532,7 +2534,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
             if (!chat) return null
             const targetMeta = getFavoriteTargetMeta(targetKind as any, targetId)
             const targetName = String(targetMeta?.name || (targetKind === 'group' ? '群聊' : '角色'))
-            const snippet = snippetText((Array.isArray((chat as any)?.messages) ? (chat as any).messages : []).slice(-1)[0]?.content || '')
+            const snippet = snippetText((chat as any)?.lastMessagePreview || (Array.isArray((chat as any)?.messages) ? (chat as any).messages : []).slice(-1)[0]?.content || '')
             if (q) {
               const hay = [String((chat as any)?.title || ''), snippet, targetName].join('\n').toLowerCase()
               if (!hay.includes(q)) return null
@@ -5462,11 +5464,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                     if (!q) return true
                     if (!chat) return false
                     const title = String(chat?.title || fallbackTitle || '')
-                    const msgs = Array.isArray(chat?.messages) ? chat.messages : []
-                    const last = msgs.length ? msgs[msgs.length - 1] : null
-                    const raw = String(last?.content || '')
-                      .replace(/\s+/g, ' ')
-                      .trim()
+                    const raw = String(chat?.lastMessagePreview || '')
                     return (title + '\n' + raw).toLowerCase().includes(q)
                   }
                   if (activeTargetKind === 'group') {
@@ -5480,7 +5478,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                       )
                     }
                     const box = (data as any)?.chatsByGroup?.[String((activeGroup as any).id || '')]
-                    const chats = Array.isArray(box?.chats) ? box.chats.slice() : []
+                    const chats = Array.isArray(box?.chatMetas) && box.chatMetas.length ? box.chatMetas.slice() : Array.isArray(box?.chats) ? box.chats.slice() : []
                     const activeChatId = String(box?.activeChatId || '')
                     const pendingChat =
                       (s as any)?.pendingGroupChat && String((s as any).pendingGroupChat?.groupId || '') === String((activeGroup as any)?.id || '')
@@ -5525,9 +5523,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                         ) : null}
                         {shownChats.map((c: any) => {
                           const on = !showPending && String(c?.id || '') === activeChatId
-                          const msgs = Array.isArray(c?.messages) ? c.messages : []
-                          const last = msgs.length ? msgs[msgs.length - 1] : null
-                          const raw = String(last?.content || '').replace(/\s+/g, ' ').trim()
+                          const raw = String(c?.lastMessagePreview || '').replace(/\s+/g, ' ').trim()
                           const snippet = raw.length > 40 ? raw.slice(0, 40) + '…' : raw
                           const time = controller.fmtTime(Number(c?.updatedAt || c?.createdAt || 0))
                           return (
@@ -5579,7 +5575,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                     )
                   }
                   const box = data?.chatsByRole?.[String(role.id)]
-                  const chats = Array.isArray(box?.chats) ? box.chats.slice() : []
+                  const chats = Array.isArray(box?.chatMetas) && box.chatMetas.length ? box.chatMetas.slice() : Array.isArray(box?.chats) ? box.chats.slice() : []
                   const activeChatId = String(box?.activeChatId || '')
                   const pendingChat = s?.pendingChat && String(s.pendingChat?.roleId || '') === String(role.id) ? s.pendingChat.chat : null
                   const hasPending = !!pendingChat
@@ -5621,9 +5617,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                       ) : null}
                       {shownChats.map((c: any) => {
                         const on = !showPending && String(c?.id || '') === activeChatId
-                        const msgs = Array.isArray(c?.messages) ? c.messages : []
-                        const last = msgs.length ? msgs[msgs.length - 1] : null
-                        const raw = String(last?.content || '').replace(/\s+/g, ' ').trim()
+                        const raw = String(c?.lastMessagePreview || '').replace(/\s+/g, ' ').trim()
                         const snippet = raw.length > 40 ? raw.slice(0, 40) + '…' : raw
                         const time = controller.fmtTime(Number(c?.updatedAt || c?.createdAt || 0))
                         return (

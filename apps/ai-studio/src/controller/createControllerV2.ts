@@ -102,6 +102,7 @@ import {
 import { createChatWriteLock } from '../storage/chatWriteLock'
 import { createStickerStorage } from '../storage/stickerStorage'
 import { createSplitStorage } from '../storage/splitStorage'
+import { createLazyChatStore } from '../storage/lazyChatStore'
 import { createGroupChatSync } from '../storage/groupChatSync'
 
 // ---- state ----
@@ -440,7 +441,18 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     setState: (data: any) => { state.data = data },
     onError: (msg: string) => { api.ui?.showToast?.(msg) },
   })
-  const { loadSplitMeta, withSplitMetaWrite, touchChatUpdatedAt, loadSplitData, ensureSplitStoreReady, saveSplitData, saveMetaOnly } = splitStore
+  const {
+    loadSplitMeta,
+    withSplitMetaWrite,
+    touchChatUpdatedAt,
+    touchGroupChatUpdatedAt,
+    ensureSplitStoreReady,
+    saveRoleChat,
+    saveGroupChat,
+    renameRoleChat,
+    renameGroupChat: renameGroupChatInStore,
+    saveMetaOnly,
+  } = splitStore
 
   // Update splitMetaCache on loadSplitMeta (wrapper)
   const loadSplitMetaCached = async () => {
@@ -452,6 +464,13 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   function getSplitMetaCache(): any {
     return splitMetaCache
   }
+
+  const lazyChatStore = createLazyChatStore({
+    storage,
+    getState: () => state,
+    loadSplitMeta: loadSplitMetaCached,
+  })
+  const { loadShell, ensureChatLoaded, ensureActiveChatLoaded, removeChat, removeLoadedChat } = lazyChatStore
 
   // ============================================================
   // 7. STATE ACCESSORS
@@ -471,7 +490,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     ensureRoleDefaults,
     ensureGroupsList,
     ensureGroupChatsBoxBare,
-    ensureGroupChatsBox,
     ensureChatsBox,
     ensureChatsBoxBare,
     createChatForRole,
@@ -492,7 +510,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     getSplitMetaCache,
     withSplitMetaWrite,
   })
-  const { touchGroupChatUpdatedAt, syncActiveGroupChatsFromStorage } = groupChatSync
+  const { syncActiveGroupChatsFromStorage } = groupChatSync
 
   // ============================================================
   // 8.1. SAVE & LOAD (bridge to splitStorage)
@@ -500,12 +518,13 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   async function load() {
     try {
       await ensureSplitStoreReady()
-      const split = await loadSplitData()
+      const split = await loadShell()
       if (!split) throw new Error('存储未初始化')
       state.data = split
       state.draft.activeRoleId = String(split?.ui?.activeRoleId || '')
       state.draft.activeGroupId = String((split?.ui as any)?.activeGroupId || '')
       state.draft.activeTargetKind = String((split?.ui as any)?.activeTargetKind || 'role') === 'group' ? 'group' : 'role'
+      await ensureActiveChatLoaded()
     } catch (e: any) {
       state.data = null
       state.draft.activeRoleId = ''
@@ -522,7 +541,14 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     state.data.ui.activeRoleId = String(state.draft?.activeRoleId || '')
     ;(state.data.ui as any).activeGroupId = String(state.draft?.activeGroupId || '')
     ;(state.data.ui as any).activeTargetKind = String(state.draft?.activeTargetKind || '') === 'group' ? 'group' : 'role'
-    await saveSplitData(state.data)
+    await saveMetaOnly()
+    const kind = String(state.draft?.activeTargetKind || '') === 'group' ? 'group' : 'role'
+    const targetId = kind === 'group' ? String(state.draft?.activeGroupId || '') : String(state.draft?.activeRoleId || '')
+    const chat = activeChatFromData()
+    if (targetId && chat) {
+      if (kind === 'group') await saveGroupChat(targetId, chat)
+      else await saveRoleChat(targetId, chat)
+    }
   }
 
   // ============================================================
@@ -633,12 +659,12 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     emit,
     getProvider,
     getGroupById,
+    ensureChatLoaded: (rid: string, cid: string) => ensureChatLoaded('role', rid, cid),
+    ensureGroupChatLoaded: (gid: string, cid: string) => ensureChatLoaded('group', gid, cid),
     resolveAiModelId,
     locateMessageInActiveChat,
     patchMessageContentSilent,
     enqueueMermaidFixWrite: (mid: string, fn: () => Promise<string>) => enqueueMermaidFixWrite(mid, fn),
-    ensureChatsBoxBare,
-    ensureGroupChatsBoxBare,
     chatHasPendingAssistant,
     renameChatTitle: (rid: string, cid: string, title: string) => renameChatTitleFn(rid, cid, title),
     renameGroupChatTitle: (gid: string, cid: string, title: string) => renameGroupChatTitleFn(gid, cid, title),
@@ -662,6 +688,12 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     showToast: api.ui?.showToast,
     pickImages: async (maxCount?: number) => pickImagesFn(maxCount),
     filesImages: api.files?.images as any,
+    ensureChatLoaded: (rid: string, cid: string) => ensureChatLoaded('role', rid, cid),
+    ensureGroupChatLoaded: (gid: string, cid: string) => ensureChatLoaded('group', gid, cid),
+    renameRoleChatInStore: renameRoleChat,
+    renameGroupChatInStore,
+    removeChatInStore: removeChat,
+    removeLoadedChat,
     cleanupFavoriteRefsForTarget: favOps.cleanupFavoriteRefsForTarget,
     cleanupFavoriteRefsForChat: favOps.cleanupFavoriteRefsForChat,
   })
@@ -716,6 +748,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     loadSplitMeta: loadSplitMetaCached,
     showToast: api.ui?.showToast,
     save,
+    ensureActiveChatLoaded,
     emit,
     render,
     renderComposer,
@@ -765,7 +798,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     chatHasPendingAssistantInBranch,
     repairChatLinearBranching,
     emit,
-    save,
     sendChat: (opts?: any) => sendChat(opts),
   })
   const { patchAssistantMessage, insertMessagesAfterMessageId, onAssistantRunFinal, submitChatCompletion } = patchOps
@@ -783,6 +815,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     emit,
     activeTargetKind,
     activeChatFromData,
+    ensureActiveChatLoaded,
     syncActiveGroupChatsFromStorage,
     save,
   })
@@ -816,8 +849,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     getProvider,
     getRoleById,
     getGroupById,
-    ensureChatsBox,
-    ensureGroupChatsBox,
+    ensureChatsBox: ensureChatsBoxBare,
+    ensureGroupChatsBox: ensureGroupChatsBoxBare,
     clearPendingChat,
     clearPendingGroupChat,
     // These will be filled by the full actions object
@@ -869,8 +902,9 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       state.branchDraft = null
       ;(state.draft as any).activeTargetKind = 'role'
       state.draft.activeRoleId = String(roleId || '')
-      ensureChatsBox(state.draft.activeRoleId)
-      save().catch(() => {})
+      ensureChatsBoxBare(state.draft.activeRoleId)
+      ensureActiveChatLoaded().catch(() => {}).finally(() => emit())
+      saveMetaOnly().catch(() => {})
       emit()
     },
     setActiveGroup: (groupId: any) => {
@@ -879,13 +913,14 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       state.branchDraft = null
       ;(state.draft as any).activeTargetKind = 'group'
       ;(state.draft as any).activeGroupId = String(groupId || '')
-      ensureGroupChatsBox((state.draft as any).activeGroupId)
-      save().catch(() => {})
+      ensureGroupChatsBoxBare((state.draft as any).activeGroupId)
+      ensureActiveChatLoaded().catch(() => {}).finally(() => emit())
+      saveMetaOnly().catch(() => {})
       emit()
     },
     setActiveChat: (chatId: any) => {
       state.branchDraft = null
-      pickChatForActiveTarget(String(chatId || ''))
+      Promise.resolve(pickChatForActiveTarget(String(chatId || ''))).catch(() => {})
     },
     toggleStream: () => {
       if (!state.data) return
@@ -1776,10 +1811,11 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     regenerateAssistant: (assistantMid: any) => regenerateAssistantMessage(String(assistantMid || '')),
     replyFromUserMessage: (userMid: any) => replyFromUserMessage(String(userMid || '')),
     createBranchFromAssistant: (assistantMid: any) => createParallelBranchFromAssistantMessage(String(assistantMid || '')),
-    switchBranchSibling: (assistantMid: any, delta: any) => switchBranchByAssistantSibling(String(assistantMid || ''), Number(delta || 0)),
-    setActiveBranch: (branchId: any) => setActiveBranch(String(branchId || '')),
-    setChatModelOverride: (providerId: any, modelId: any) => {
+    switchBranchSibling: (assistantMid: any, delta: any) => switchBranchByAssistantSibling(String(assistantMid || ''), Number(delta || 0)).catch(() => {}),
+    setActiveBranch: (branchId: any) => setActiveBranch(String(branchId || '')).catch(() => {}),
+    setChatModelOverride: async (providerId: any, modelId: any) => {
       if (!state.data) return
+      await ensureActiveChatLoaded()
       const role = activeRole()
       const chat = activeChatFromData()
       if (!role || !chat) return
@@ -1797,8 +1833,9 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       emit()
       api.ui?.showToast?.('已设置当前会话临时模型')
     },
-    clearChatModelOverride: () => {
+    clearChatModelOverride: async () => {
       if (!state.data) return
+      await ensureActiveChatLoaded()
       const chat = activeChatFromData()
       if (!chat) return
       try { delete chat.modelOverride } catch (_e) { chat.modelOverride = null }
@@ -1835,7 +1872,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     getRoleById,
     getGroupById,
     ensureChatsBox,
-    ensureGroupChatsBox,
+    ensureGroupChatsBox: ensureGroupChatsBoxBare,
     clearPendingChat,
     clearPendingGroupChat,
     openProvidersEditor,

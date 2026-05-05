@@ -100,7 +100,40 @@ func normalizeChatIndexSnapshot(idx map[string]any) map[string]any {
 		"activeChatId":  strings.TrimSpace(asString(idx["activeChatId"])),
 		"chatIds":       normalizeStringIDsKeepOrder(idx["chatIds"]),
 		"chatUpdatedAt": asMapOrNew(idx["chatUpdatedAt"]),
+		"chatMetas":     normalizeChatMetasGo(idx),
 	}
+}
+
+func normalizeChatMetasGo(idx map[string]any) []any {
+	chatIDs := normalizeStringIDsKeepOrder(idx["chatIds"])
+	updatedAt := asMapOrNew(idx["chatUpdatedAt"])
+	metasRaw := asSlice(idx["chatMetas"])
+	byID := map[string]map[string]any{}
+	for _, raw := range metasRaw {
+		meta := asMap(raw)
+		id := strings.TrimSpace(asString(meta["id"]))
+		if id != "" {
+			byID[id] = meta
+		}
+	}
+	out := make([]any, 0, len(chatIDs))
+	for _, id := range chatIDs {
+		meta := byID[id]
+		if meta == nil {
+			meta = map[string]any{"id": id}
+		}
+		ua := asInt64(meta["updatedAt"], asInt64(updatedAt[id], 0))
+		out = append(out, map[string]any{
+			"id":                 id,
+			"title":              strings.TrimSpace(asString(meta["title"])),
+			"createdAt":          asInt64(meta["createdAt"], ua),
+			"updatedAt":          ua,
+			"lastMessagePreview": strings.TrimSpace(asString(meta["lastMessagePreview"])),
+			"messageCount":       asInt64(meta["messageCount"], 0),
+			"hasPending":         truthy(meta["hasPending"]),
+		})
+	}
+	return out
 }
 
 func normalizeStringMapGo(raw any) map[string]string {

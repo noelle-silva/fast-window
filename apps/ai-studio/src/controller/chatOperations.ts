@@ -59,6 +59,7 @@ export function createChatOperations(deps: {
   loadSplitMeta?: () => Promise<any>
   showToast?: (msg: any) => void
   save: () => Promise<void>
+  ensureActiveChatLoaded?: () => Promise<any>
   emit: () => void
   render: () => void
   renderComposer: () => void
@@ -66,7 +67,7 @@ export function createChatOperations(deps: {
   extractTextFromFile: (file: File, kind: string) => Promise<string>
   uiStreamCache: Map<string, string>
 }) {
-  const { getState, aiGateway, filesImages, filesPickImages, loadSplitMeta, showToast, save, emit, render, renderComposer, scrollToBottomSoon, extractTextFromFile, uiStreamCache } = deps
+  const { getState, aiGateway, filesImages, filesPickImages, loadSplitMeta, showToast, save, ensureActiveChatLoaded, emit, render, renderComposer, scrollToBottomSoon, extractTextFromFile, uiStreamCache } = deps
 
   const sa = createStateAccessors({ getState })
 
@@ -222,6 +223,8 @@ export function createChatOperations(deps: {
   async function sendChat(opts?: { forkFromMid?: string }) {
     const state = getState()
     if (state.sending || state.loading || !state.data) return
+
+    await ensureActiveChatLoaded?.()
 
     if (sa.activeTargetKind() === 'group') {
       await sendGroupChat(opts)
@@ -482,6 +485,8 @@ export function createChatOperations(deps: {
   async function sendGroupChat(_opts?: { forkFromMid?: string }) {
     const state = getState()
     if (state.sending || state.loading || !state.data) return
+
+    await ensureActiveChatLoaded?.()
 
     const group = sa.activeGroup()
     if (!group) return showToast?.('请先选择群组')
@@ -868,6 +873,8 @@ export function createChatOperations(deps: {
     const state = getState()
     if (state.loading) return
 
+    await ensureActiveChatLoaded?.()
+
     const kind = sa.activeTargetKind()
     const roleId = String(sa.activeRole()?.id || '')
     const groupId = String((sa.activeGroup() as any)?.id || '')
@@ -928,6 +935,8 @@ export function createChatOperations(deps: {
   async function regenerateAssistantMessage(assistantMid: any) {
     const state = getState()
     if (state.sending || state.loading || !state.data) return
+
+    await ensureActiveChatLoaded?.()
 
     if (sa.activeTargetKind() === 'group') {
       await regenerateGroupAssistantMessage(String(assistantMid || ''))
@@ -1044,6 +1053,8 @@ export function createChatOperations(deps: {
   async function regenerateGroupAssistantMessage(assistantMid: string) {
     const state = getState()
     if (state.sending || state.loading || !state.data) return
+
+    await ensureActiveChatLoaded?.()
 
     const group = sa.activeGroup()
     const chat = sa.activeChatFromData()
@@ -1164,6 +1175,8 @@ export function createChatOperations(deps: {
     const state = getState()
     if (state.sending || state.loading || !state.data) return
 
+    await ensureActiveChatLoaded?.()
+
     if (sa.activeTargetKind() === 'group') {
       await replyFromUserMessageInGroup(String(userMid || ''))
       return
@@ -1269,6 +1282,8 @@ export function createChatOperations(deps: {
   async function replyFromUserMessageInGroup(userMid: string) {
     const state = getState()
     if (state.sending || state.loading || !state.data) return
+
+    await ensureActiveChatLoaded?.()
 
     const group = sa.activeGroup()
     const chat = sa.activeChatFromData()
@@ -1498,6 +1513,8 @@ export function createChatOperations(deps: {
     const state = getState()
     if (state.sending || state.loading || !state.data) return
 
+    await ensureActiveChatLoaded?.()
+
     const role = sa.activeRole()
     const chat = sa.activeChatFromData()
     if (!role || !chat) return
@@ -1547,9 +1564,11 @@ export function createChatOperations(deps: {
 
   // ============ switch branch by assistant sibling ============
 
-  function switchBranchByAssistantSibling(assistantMid: any, delta: any) {
+  async function switchBranchByAssistantSibling(assistantMid: any, delta: any) {
     const state = getState()
     if (state.loading || !state.data) return
+
+    await ensureActiveChatLoaded?.()
 
     const chat = sa.activeChatFromData()
     if (!chat) return
@@ -1638,9 +1657,11 @@ export function createChatOperations(deps: {
 
   // ============ set active branch ============
 
-  function setActiveBranch(branchId: any) {
+  async function setActiveBranch(branchId: any) {
     const state = getState()
     if (state.loading || !state.data) return
+
+    await ensureActiveChatLoaded?.()
 
     const chat = sa.activeChatFromData()
     if (!chat) return
@@ -1668,6 +1689,8 @@ export function createChatOperations(deps: {
     const state = getState()
     if (state.loading || !state.data) return
     if (state.sending) return showToast?.('操作中，请稍后重试')
+
+    await ensureActiveChatLoaded?.()
 
     const mid = String(messageId || '').trim()
     if (!mid) return
@@ -1805,6 +1828,8 @@ export function createChatOperations(deps: {
     const state = getState()
     if (state.loading || !state.data) return
     if (state.sending) return showToast?.('操作中，请稍后重试')
+
+    await ensureActiveChatLoaded?.()
 
     const mid0 = String(messageId || '').trim()
     if (!mid0) return
@@ -1957,6 +1982,8 @@ export function createChatOperations(deps: {
     const state = getState()
     if (state.loading || !state.data) return
     if (state.sending) return showToast?.('操作中，请稍后重试')
+
+    await ensureActiveChatLoaded?.()
 
     const mid = String(messageId || '').trim()
     if (!mid) return

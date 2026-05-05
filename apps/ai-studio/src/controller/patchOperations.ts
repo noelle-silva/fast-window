@@ -33,7 +33,6 @@ export function createPatchOperations(deps: {
   chatHasPendingAssistantInBranch: (chat: any, bid: string, ex?: string) => boolean
   repairChatLinearBranching: (chat: any) => void
   emit: () => void
-  save: () => Promise<void>
   sendChat?: (opts?: any) => Promise<void>
 }) {
   const {

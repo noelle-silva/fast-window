@@ -1,6 +1,7 @@
 import { now, uid, clamp, clampTemp, normImagePaths } from '../core/utils'
 import { createStateAccessors } from '../state/stateAccessors'
 import { createDefaultChatBranching } from '../domain/branching'
+import { chatMetaFromChat, removeChatMeta, upsertChatMeta } from '../domain/chatMeta'
 import { NEW_ROLE_ID, NEW_GROUP_ID, VERSION, DEFAULT_ATTACH_SEND_LIMIT_CHARS, DEFAULT_ATTACH_MAX_FILE_MB, DEFAULT_MERMAID_FIX_SYSTEM_PROMPT, DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT, DEFAULT_STICKER_NAMING_SYSTEM_PROMPT, DEFAULT_TOOL_CALL_SERVER_BASE_URL } from '../domain/constants'
 
 function looksLikeImageDataUrl(s: any): boolean {
@@ -74,10 +75,16 @@ export function createEntityEditors(deps: {
   showToast?: (msg: string) => void
   pickImages?: (maxCount?: number) => Promise<any[]>
   filesImages: { delete?: (req: any) => Promise<any> }
+  ensureChatLoaded?: (rid: string, cid: string) => Promise<any>
+  ensureGroupChatLoaded?: (gid: string, cid: string) => Promise<any>
+  renameRoleChatInStore?: (rid: string, cid: string, title: string) => Promise<void>
+  renameGroupChatInStore?: (gid: string, cid: string, title: string) => Promise<void>
+  removeChatInStore?: (kind: 'role' | 'group', targetId: string, chatId: string) => Promise<void>
+  removeLoadedChat?: (kind: 'role' | 'group', targetId: string, chatId: string) => void
   cleanupFavoriteRefsForTarget: (kind: string, targetId: string) => void
   cleanupFavoriteRefsForChat: (targetKind: string, targetId: string, chatId: string) => void
 }) {
-  const { getState, save, render, closeModal, showToast, pickImages, filesImages, cleanupFavoriteRefsForTarget, cleanupFavoriteRefsForChat } = deps
+  const { getState, save, render, closeModal, showToast, pickImages, filesImages, ensureChatLoaded, ensureGroupChatLoaded, renameRoleChatInStore, renameGroupChatInStore, removeChatInStore, removeLoadedChat, cleanupFavoriteRefsForTarget, cleanupFavoriteRefsForChat } = deps
   const sa = createStateAccessors({ getState })
 
   function scrollToBottomSoon() {
@@ -332,6 +339,7 @@ export function createEntityEditors(deps: {
       if (!state.data.chatsByRole || typeof state.data.chatsByRole !== 'object') state.data.chatsByRole = {}
       state.data.chatsByRole[newRid] = {
         activeChatId: cid,
+        chatMetas: [{ id: cid, title: '新聊天', createdAt: t, updatedAt: t, lastMessagePreview: '', messageCount: 0, hasPending: false }],
         chats: [{ id: cid, title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }],
       }
       state.draft.activeRoleId = newRid
@@ -496,6 +504,7 @@ export function createEntityEditors(deps: {
       groups.unshift(group)
       ;(state.data as any).chatsByGroup[newGid] = {
         activeChatId: chatId,
+        chatMetas: [{ id: chatId, title: '群聊', createdAt: nowT, updatedAt: nowT, lastMessagePreview: '', messageCount: 0, hasPending: false }],
         chats: [{ id: chatId, title: '群聊', createdAt: nowT, updatedAt: nowT, branching: createDefaultChatBranching('', nowT, nowT), messages: [] }],
       }
       ;(state.draft as any).activeTargetKind = 'group'
@@ -689,30 +698,38 @@ export function createEntityEditors(deps: {
 
   // ===== Pick chat for active =====
 
-  function pickChatForActiveRole(chatId: any) {
+  async function pickChatForActiveRole(chatId: any) {
     const state = getState()
     const role = sa.activeRole()
     if (!role || !state.data) return
     sa.clearPendingChat()
-    const box = sa.ensureChatsBox(String(role.id))
+    const box = sa.ensureChatsBoxBare(String(role.id))
     if (!box) return
     const cid = String(chatId || '')
-    if (!cid || !box.chats.some((c: any) => String(c?.id) === cid)) return
+    const exists =
+      Array.isArray(box.chatMetas) && box.chatMetas.some((c: any) => String(c?.id || '') === cid) ||
+      Array.isArray(box.chats) && box.chats.some((c: any) => String(c?.id || '') === cid)
+    if (!cid || !exists) return
+    await ensureChatLoaded?.(String(role.id || ''), cid)
     box.activeChatId = cid
     save().catch(() => {})
     render()
     scrollToBottomSoon()
   }
 
-  function pickChatForActiveGroup(chatId: any) {
+  async function pickChatForActiveGroup(chatId: any) {
     const state = getState()
     const group = sa.activeGroup()
     if (!group || !state.data) return
     sa.clearPendingGroupChat()
-    const box = sa.ensureGroupChatsBox(String((group as any).id || ''))
+    const box = sa.ensureGroupChatsBoxBare(String((group as any).id || ''))
     if (!box) return
     const cid = String(chatId || '')
-    if (!cid || !box.chats.some((c: any) => String(c?.id) === cid)) return
+    const exists =
+      Array.isArray(box.chatMetas) && box.chatMetas.some((c: any) => String(c?.id || '') === cid) ||
+      Array.isArray(box.chats) && box.chats.some((c: any) => String(c?.id || '') === cid)
+    if (!cid || !exists) return
+    await ensureGroupChatLoaded?.(String((group as any).id || ''), cid)
     box.activeChatId = cid
     save().catch(() => {})
     render()
@@ -735,15 +752,29 @@ export function createEntityEditors(deps: {
 
     const box = sa.ensureChatsBoxBare(rid)
     if (!box) return
-    const chats = Array.isArray(box.chats) ? box.chats : []
-    const chat = chats.find((c: any) => String(c?.id) === cid) || null
-    if (!chat) return
-
     let t = String(title ?? '').replace(/\s+/g, ' ').trim()
     if (t.length > 80) t = t.slice(0, 80).trim()
-    chat.title = t || '新聊天'
+    t = t || '新聊天'
+    const chats = Array.isArray(box.chats) ? box.chats : []
+    const chat = chats.find((c: any) => String(c?.id) === cid) || null
+    if (chat) {
+      chat.title = t
+      chat.updatedAt = now()
+      box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, '新聊天'), '新聊天')
+    } else {
+      const old = Array.isArray(box.chatMetas) ? box.chatMetas.find((m: any) => String(m?.id || '') === cid) : null
+      box.chatMetas = upsertChatMeta(box.chatMetas, {
+        id: cid,
+        title: t,
+        createdAt: Number(old?.createdAt || now()),
+        updatedAt: now(),
+        lastMessagePreview: String(old?.lastMessagePreview || ''),
+        messageCount: Number(old?.messageCount || 0),
+        hasPending: !!old?.hasPending,
+      }, '新聊天')
+    }
 
-    save().catch(() => {})
+    ;(renameRoleChatInStore?.(rid, cid, t) || save()).catch(() => {})
     render()
   }
 
@@ -756,15 +787,29 @@ export function createEntityEditors(deps: {
 
     const box = sa.ensureGroupChatsBoxBare(gid)
     if (!box) return
-    const chats = Array.isArray(box.chats) ? box.chats : []
-    const chat = chats.find((c: any) => String(c?.id) === cid) || null
-    if (!chat) return
-
     let t = String(title ?? '').replace(/\s+/g, ' ').trim()
     if (t.length > 80) t = t.slice(0, 80).trim()
-    chat.title = t || '群聊'
+    t = t || '群聊'
+    const chats = Array.isArray(box.chats) ? box.chats : []
+    const chat = chats.find((c: any) => String(c?.id) === cid) || null
+    if (chat) {
+      chat.title = t
+      chat.updatedAt = now()
+      box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, '群聊'), '群聊')
+    } else {
+      const old = Array.isArray(box.chatMetas) ? box.chatMetas.find((m: any) => String(m?.id || '') === cid) : null
+      box.chatMetas = upsertChatMeta(box.chatMetas, {
+        id: cid,
+        title: t,
+        createdAt: Number(old?.createdAt || now()),
+        updatedAt: now(),
+        lastMessagePreview: String(old?.lastMessagePreview || ''),
+        messageCount: Number(old?.messageCount || 0),
+        hasPending: !!old?.hasPending,
+      }, '群聊')
+    }
 
-    save().catch(() => {})
+    ;(renameGroupChatInStore?.(gid, cid, t) || save()).catch(() => {})
     render()
   }
 
@@ -864,32 +909,25 @@ export function createEntityEditors(deps: {
     if (!box) return
     const before = Array.isArray(box.chats) ? box.chats : []
     const target = before.find((c: any) => String(c?.id) === cid) || null
-    if (!target) return
-    if (chatHasPendingAssistant(target)) {
-      showToast?.('正在生成中，不能删除该会话')
-      return
-    }
-
-    const targetImagePaths = collectChatImagePathSet(target)
-    const otherImagePaths = targetImagePaths.size ? collectOtherChatsImagePathSet(rid, cid) : new Set<string>()
-    const toDeleteImages: string[] = []
-    for (const p of targetImagePaths) {
-      const base = imageBasename(p)
-      if (!otherImagePaths.has(p) && (!base || !otherImagePaths.has(base))) toDeleteImages.push(p)
-    }
+    if (target && chatHasPendingAssistant(target)) return showToast?.('正在生成中，不能删除该会话')
 
     box.chats = before.filter((c: any) => String(c?.id) !== cid)
+    box.chatMetas = removeChatMeta(box.chatMetas, cid, '新聊天')
     cleanupFavoriteRefsForChat('role', rid, cid)
-    if (String(box.activeChatId || '') === cid) box.activeChatId = String(box.chats[0]?.id || '')
+    if (String(box.activeChatId || '') === cid) box.activeChatId = String(box.chatMetas[0]?.id || box.chats[0]?.id || '')
 
-    if (!box.chats.length) {
+    if (!box.chatMetas.length && !box.chats.length) {
       const nid = uid('c')
       const t = now()
-      box.chats = [{ id: nid, title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }]
+      const chat = { id: nid, title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }
+      box.chats = [chat]
+      box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, '新聊天'), '新聊天')
       box.activeChatId = nid
     }
 
-    void save().then(() => deleteChatImages(toDeleteImages)).catch(() => {})
+    removeLoadedChat?.('role', rid, cid)
+    void removeChatInStore?.('role', rid, cid).catch(() => {})
+    void save().catch(() => {})
     render()
   }
 
@@ -904,32 +942,25 @@ export function createEntityEditors(deps: {
     if (!box) return
     const before = Array.isArray(box.chats) ? box.chats : []
     const target = before.find((c: any) => String(c?.id) === cid) || null
-    if (!target) return
-    if (chatHasPendingAssistant(target)) {
-      showToast?.('正在生成中，不能删除该会话')
-      return
-    }
-
-    const targetImagePaths = collectChatImagePathSet(target)
-    const otherImagePaths = targetImagePaths.size ? collectOtherChatsImagePathSetForGroup(gid, cid) : new Set<string>()
-    const toDeleteImages: string[] = []
-    for (const p of targetImagePaths) {
-      const base = imageBasename(p)
-      if (!otherImagePaths.has(p) && (!base || !otherImagePaths.has(base))) toDeleteImages.push(p)
-    }
+    if (target && chatHasPendingAssistant(target)) return showToast?.('正在生成中，不能删除该会话')
 
     box.chats = before.filter((c: any) => String(c?.id) !== cid)
+    box.chatMetas = removeChatMeta(box.chatMetas, cid, '群聊')
     cleanupFavoriteRefsForChat('group', gid, cid)
-    if (String(box.activeChatId || '') === cid) box.activeChatId = String(box.chats[0]?.id || '')
+    if (String(box.activeChatId || '') === cid) box.activeChatId = String(box.chatMetas[0]?.id || box.chats[0]?.id || '')
 
-    if (!box.chats.length) {
+    if (!box.chatMetas.length && !box.chats.length) {
       const nid = uid('gc')
       const t = now()
-      box.chats = [{ id: nid, title: '群聊', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }]
+      const chat = { id: nid, title: '群聊', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }
+      box.chats = [chat]
+      box.chatMetas = upsertChatMeta(box.chatMetas, chatMetaFromChat(chat, '群聊'), '群聊')
       box.activeChatId = nid
     }
 
-    void save().then(() => deleteChatImages(toDeleteImages)).catch(() => {})
+    removeLoadedChat?.('group', gid, cid)
+    void removeChatInStore?.('group', gid, cid).catch(() => {})
+    void save().catch(() => {})
     render()
   }
 
