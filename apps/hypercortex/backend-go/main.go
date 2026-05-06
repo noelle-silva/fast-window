@@ -149,7 +149,7 @@ func (svc *service) ensureRoots() error {
 			return err
 		}
 	}
-	if err := svc.migrateDataLayout(); err != nil {
+	if err := svc.runDataMigrations(); err != nil {
 		return err
 	}
 	for _, dir := range []string{notesDir, assetsDir, trashDir, filepath.Join(assetsDir, "images"), filepath.Join(assetsDir, "videos"), filepath.Join(assetsDir, "docs")} {
