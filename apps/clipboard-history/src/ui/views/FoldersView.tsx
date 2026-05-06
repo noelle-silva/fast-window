@@ -132,7 +132,14 @@ function FolderList(props: FoldersViewProps) {
   const query = state.folderSearchQuery.trim()
   const results = query ? controller.searchItems(query, state.folderSearchScope) : []
   const children = query ? [] : controller.listChildren(state.currentFolderId)
-  const childIds = React.useMemo(() => children.map(node => node.id), [children])
+  const sourceChildIds = React.useMemo(() => children.map(node => node.id), [children])
+  const [optimisticChildIds, setOptimisticChildIds] = React.useState<string[] | null>(null)
+  const childIds = optimisticChildIds || sourceChildIds
+  const sortedChildren = React.useMemo(() => orderNodesByIds(children, childIds), [childIds, children])
+
+  React.useEffect(() => {
+    setOptimisticChildIds(null)
+  }, [state.currentFolderId, sourceChildIds.join('\n')])
 
   const handleMove = React.useCallback((activeId: string, overId: string) => {
     const position = resolveSortMovePosition(childIds, activeId, overId)
@@ -143,8 +150,13 @@ function FolderList(props: FoldersViewProps) {
     if (position === 'after') toIndex += 1
     if (movingIndex < toIndex) toIndex -= 1
     if (toIndex === movingIndex) return
+    const nextIds = moveId(childIds, activeId, toIndex)
+    setOptimisticChildIds(nextIds)
     void controller.moveNode(activeId, state.currentFolderId, toIndex)
-      .catch(error => controller.host.toast(String((error as any)?.message || error || '移动失败')))
+      .catch(error => {
+        setOptimisticChildIds(null)
+        void controller.host.toast(String((error as any)?.message || error || '移动失败'))
+      })
   }, [childIds, controller, state.currentFolderId])
 
   if (query) {
@@ -167,7 +179,7 @@ function FolderList(props: FoldersViewProps) {
       <SortableRoot onMove={handleMove}>
         <SortableSection items={childIds}>
           <Stack spacing={0} divider={<Box sx={{ borderTop: 1, borderColor: 'divider' }} />}>
-            {children.map(node => (
+            {sortedChildren.map(node => (
               <SortableItem key={node.id} id={node.id}>
                 {(sortable) => <FolderCard node={node} controller={controller} sortable={sortable} />}
               </SortableItem>
@@ -177,6 +189,19 @@ function FolderList(props: FoldersViewProps) {
       </SortableRoot>
     </Paper>
   )
+}
+
+function moveId(ids: string[], movingId: string, toIndex: number): string[] {
+  const next = ids.filter(id => id !== movingId)
+  next.splice(Math.max(0, Math.min(next.length, toIndex)), 0, movingId)
+  return next
+}
+
+function orderNodesByIds(nodes: CollectionNode[], ids: string[]): CollectionNode[] {
+  const byId = new Map(nodes.map(node => [node.id, node]))
+  const ordered = ids.map(id => byId.get(id)).filter(Boolean) as CollectionNode[]
+  const orderedIds = new Set(ordered.map(node => node.id))
+  return ordered.concat(nodes.filter(node => !orderedIds.has(node.id)))
 }
 
 function SearchResultCard(props: { item: CollectionItemNode; folderId: string; path: string; controller: ClipboardHistoryController }) {
