@@ -154,6 +154,9 @@ func (svc *service) deleteAsset(scope string, assetID string, ext string) error 
 	if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	if err := svc.deleteThumbnailCacheForAsset(scope, assetID, ext); err != nil {
+		return err
+	}
 	idx, _ := svc.ensureAssetIndex(scope)
 	delete(idx.Assets, assetKey(assetID, ext))
 	return svc.saveAssetIndex(scope, idx)

@@ -10,6 +10,9 @@ export function createAssetsService(background: BackgroundClient): AssetsService
     importFiles: (scope, inputs) => background.invoke(HyperCortexRpc.assets.importFiles, { scope, inputs }),
     readAssetDataUrl: (scope, assetId, ext) => background.invoke(HyperCortexRpc.assets.readDataUrl, { scope, assetId, ext }),
     deleteAsset: (scope, assetId, ext) => background.invoke(HyperCortexRpc.assets.delete, { scope, assetId, ext }),
+    getThumbnail: (scope, assetId, ext, width = 320, height = 180) => background.invoke(HyperCortexRpc.assets.getThumbnail, { scope, assetId, ext, width, height }),
+    rebuildThumbnail: (scope, assetId, ext, width = 320, height = 180) => background.invoke(HyperCortexRpc.assets.rebuildThumbnail, { scope, assetId, ext, width, height }),
+    rebuildAllThumbnails: (scope, width = 320, height = 180) => background.invoke(HyperCortexRpc.assets.rebuildAllThumbnails, { scope, width, height }),
     getVideoThumbnail: (scope, path, width = 320, height = 180) => background.invoke(HyperCortexRpc.assets.getVideoThumbnail, { scope, path, width, height }),
     getAssetBlobUrl: (scope, assetId, ext) => getAssetBlobUrlWithReader(service, scope, assetId, ext),
   }

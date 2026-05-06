@@ -63,8 +63,31 @@ export type AssetsService = {
   importFiles: (scope: VaultScope, inputs: { name?: string; dataUrl: string }[]) => Promise<HyperCortexNoteResourceRef[]>
   readAssetDataUrl: (scope: VaultScope, assetId: string, ext?: string) => Promise<string>
   deleteAsset: (scope: VaultScope, assetId: string, ext?: string) => Promise<void>
+  getThumbnail: (scope: VaultScope, assetId: string, ext?: string, width?: number, height?: number) => Promise<ThumbnailResult>
+  rebuildThumbnail: (scope: VaultScope, assetId: string, ext?: string, width?: number, height?: number) => Promise<ThumbnailResult>
+  rebuildAllThumbnails: (scope: VaultScope, width?: number, height?: number) => Promise<ThumbnailRebuildReport>
   getVideoThumbnail: (scope: VaultScope, path: string, width?: number, height?: number) => Promise<string>
   getAssetBlobUrl: (scope: VaultScope, assetId: string, ext: string) => Promise<string>
+}
+
+export type ThumbnailResult = {
+  dataUrl: string
+  cached: boolean
+  mediaKind: string
+  width: number
+  height: number
+}
+
+export type ThumbnailRebuildReport = {
+  total: number
+  rebuilt: number
+  skipped: number
+  failed: number
+  failures: { asset: string; path: string; error: string }[]
+  width: number
+  height: number
+  startedMs: number
+  completedMs: number
 }
 
 export type FavoritesService = {

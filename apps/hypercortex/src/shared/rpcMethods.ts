@@ -21,6 +21,9 @@ export const HyperCortexRpc = {
     importFiles: 'hypercortex.assets.importFiles',
     readDataUrl: 'hypercortex.assets.readDataUrl',
     delete: 'hypercortex.assets.delete',
+    getThumbnail: 'hypercortex.assets.getThumbnail',
+    rebuildThumbnail: 'hypercortex.assets.rebuildThumbnail',
+    rebuildAllThumbnails: 'hypercortex.assets.rebuildAllThumbnails',
     getVideoThumbnail: 'hypercortex.assets.getVideoThumbnail',
   },
   refs: {

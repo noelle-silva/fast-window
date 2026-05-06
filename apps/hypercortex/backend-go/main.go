@@ -224,8 +224,18 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return svc.readAssetDataURL(requireScope(params), stringField(params, "assetId"), optionalStringField(params, "ext"))
 	case "hypercortex.assets.delete":
 		return nil, svc.deleteAsset(requireScope(params), stringField(params, "assetId"), optionalStringField(params, "ext"))
+	case "hypercortex.assets.getThumbnail":
+		return svc.getAssetThumbnail(requireScope(params), stringField(params, "assetId"), optionalStringField(params, "ext"), intField(params, "width"), intField(params, "height"), false)
+	case "hypercortex.assets.rebuildThumbnail":
+		return svc.rebuildAssetThumbnail(requireScope(params), stringField(params, "assetId"), optionalStringField(params, "ext"), intField(params, "width"), intField(params, "height"))
+	case "hypercortex.assets.rebuildAllThumbnails":
+		return svc.rebuildAllThumbnails(requireScope(params), intField(params, "width"), intField(params, "height"))
 	case "hypercortex.assets.getVideoThumbnail":
-		return svc.createVideoThumbnail(requireScope(params), stringField(params, "path"), intField(params, "width"), intField(params, "height"))
+		result, err := svc.getAssetThumbnailByRelPath(requireScope(params), stringField(params, "path"), intField(params, "width"), intField(params, "height"), false)
+		if err != nil {
+			return nil, err
+		}
+		return result.DataURL, nil
 
 	case "hypercortex.refs.loadIndex":
 		return svc.loadRefIndex(requireScope(params))

@@ -4,6 +4,7 @@ import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
+import ImageSearchRoundedIcon from '@mui/icons-material/ImageSearchRounded'
 import { type VaultScope, acceptString, kindFromMime, mimeFromExt } from '../core'
 import { pickAssetDisplayName } from '../assetDisplayName'
 import type { AssetEntry } from '../assetTypes'
@@ -56,15 +57,21 @@ function buildAssetMarker(asset: Pick<AssetEntry, 'assetId' | 'ext' | 'kind'>): 
   return defaultWidth ? `{{asset:${ref}||${defaultWidth}}}` : `{{asset:${ref}}}`
 }
 
+function canHaveThumbnail(asset: Pick<AssetEntry, 'kind'>): boolean {
+  return asset.kind === 'image' || asset.kind === 'video'
+}
+
 function AssetCard({
   gateway,
   asset,
   onDelete,
+  onRebuildThumbnail,
   onOpenAsset,
 }: {
   gateway: HyperCortexGateway
   asset: AssetEntry
   onDelete: (asset: AssetEntry) => void
+  onRebuildThumbnail: (asset: AssetEntry) => void
   onOpenAsset?: (asset: AssetEntry) => void
 }) {
   const titleLabel = pickAssetDisplayName({ indexName: asset.displayName, ext: asset.ext })
@@ -146,6 +153,28 @@ function AssetCard({
             <ContentCopyRoundedIcon sx={{ fontSize: 16 }} />
           </IconButton>
         </Tooltip>
+
+        {canHaveThumbnail(asset) ? (
+          <Tooltip title="重建缩略图" placement="bottom">
+            <IconButton
+              size="small"
+              aria-label="重建缩略图"
+              onClick={e => {
+                e.stopPropagation()
+                onRebuildThumbnail(asset)
+              }}
+              sx={{
+                width: 28,
+                height: 28,
+                bgcolor: 'rgba(0,0,0,.05)',
+                color: 'rgba(0,0,0,.45)',
+                '&:hover': { bgcolor: 'rgba(0,0,0,.1)', color: '#1976d2' },
+              }}
+            >
+              <ImageSearchRoundedIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+        ) : null}
 
         <Tooltip title="删除" placement="bottom">
           <IconButton
@@ -247,6 +276,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [importing, setImporting] = React.useState(false)
+  const [rebuildingThumbnails, setRebuildingThumbnails] = React.useState(false)
   const [category, setCategory] = React.useState<AssetCategory>('image')
   const [thumbLoadTick, setThumbLoadTick] = React.useState(0)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
@@ -285,59 +315,36 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
 
   React.useEffect(() => { void loadAssets() }, [loadAssets])
 
-  /* ---- 加载图片缩略图（懒加载前几张） ---- */
-  React.useEffect(() => {
-    let cancelled = false
-    const imageAssets = assets.filter(a => a.kind === 'image' && !a.thumbnailUrl).slice(0, 20)
-    if (!imageAssets.length) return
-    ;(async () => {
-      for (const asset of imageAssets) {
-        if (cancelled) break
-        try {
-          const dataUrl = await gateway.assets.readAssetDataUrl(scope, asset.assetId, asset.ext)
-          if (cancelled) break
-          setAssets(prev =>
-            prev.map(a => (a.assetId === asset.assetId ? { ...a, thumbnailUrl: dataUrl } : a)),
-          )
-        } catch {
-          // 缩略图加载失败，静默忽略
-        }
-      }
-    })()
-    return () => { cancelled = true }
-  }, [gateway, scope, thumbLoadTick])
+  const visibleAssets = React.useMemo(() => {
+    return assets.filter(a => categoryFromKind(a.kind) === category)
+  }, [assets, category])
 
-  /* ---- 加载视频缩略图（宿主生成；排障期输出详细错误） ---- */
+  const thumbnailTargets = React.useMemo(() => visibleAssets.filter(canHaveThumbnail), [visibleAssets])
+
+  /* ---- 加载图片/视频缩略图（后端统一缓存，按需增量生成） ---- */
   React.useEffect(() => {
     let cancelled = false
-    if (category !== 'video') return
-    const candidates = assets.filter(a => a.kind === 'video' && !a.thumbnailUrl).slice(0, 8)
+    const candidates = assets.filter(a => canHaveThumbnail(a) && !a.thumbnailUrl && categoryFromKind(a.kind) === category).slice(0, category === 'video' ? 8 : 20)
     if (!candidates.length) return
-
     ;(async () => {
       for (const asset of candidates) {
         if (cancelled) break
         try {
-          const dataUrl = await gateway.assets.getVideoThumbnail(scope, asset.relPath, 320, 180)
+          const result = await gateway.assets.getThumbnail(scope, asset.assetId, asset.ext, 320, 180)
           if (cancelled) break
           setAssets(prev =>
-            prev.map(a =>
-              a.assetId === asset.assetId && a.ext === asset.ext ? { ...a, thumbnailUrl: String(dataUrl || '') } : a,
-            ),
+            prev.map(a => (a.assetId === asset.assetId && a.ext === asset.ext ? { ...a, thumbnailUrl: String(result.dataUrl || '') } : a)),
           )
         } catch (e: any) {
-          const hostMsg = String(e?.message || e || 'unknown error')
-          console.warn('[HyperCortex][thumb] host thumbnail failed:', {
-            asset: `${asset.assetId}.${asset.ext}`,
-            relPath: asset.relPath,
-            hostMsg,
-          })
-          gateway.host.toast(`宿主生成缩略图失败：${hostMsg}`)
-          break
+          if (asset.kind === 'video') {
+            const hostMsg = String(e?.message || e || 'unknown error')
+            console.warn('[HyperCortex][thumb] cached thumbnail failed:', { asset: `${asset.assetId}.${asset.ext}`, relPath: asset.relPath, hostMsg })
+            gateway.host.toast(`生成缩略图失败：${hostMsg}`)
+            break
+          }
         }
       }
     })()
-
     return () => { cancelled = true }
   }, [gateway, scope, thumbLoadTick, category, assets.length])
 
@@ -375,6 +382,59 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
     }
   }, [gateway, scope])
 
+  const handleRebuildThumbnail = React.useCallback(async (asset: AssetEntry) => {
+    if (!canHaveThumbnail(asset)) return
+    try {
+      const result = await gateway.assets.rebuildThumbnail(scope, asset.assetId, asset.ext, 320, 180)
+      setAssets(prev => prev.map(a => (a.assetId === asset.assetId && a.ext === asset.ext ? { ...a, thumbnailUrl: String(result.dataUrl || '') } : a)))
+      gateway.host.toast('缩略图已重建')
+    } catch (err: any) {
+      gateway.host.toast(`重建缩略图失败：${String(err?.message || err || '未知错误')}`)
+    }
+  }, [gateway, scope])
+
+  const handleRebuildVisibleThumbnails = React.useCallback(async () => {
+    const targets = thumbnailTargets
+    if (!targets.length || rebuildingThumbnails) return
+    setRebuildingThumbnails(true)
+    try {
+      const nextByKey = new Map<string, string>()
+      let failed = 0
+      for (const asset of targets) {
+        try {
+          const result = await gateway.assets.rebuildThumbnail(scope, asset.assetId, asset.ext, 320, 180)
+          nextByKey.set(`${asset.assetId}.${asset.ext}`, String(result.dataUrl || ''))
+        } catch {
+          failed += 1
+        }
+      }
+      if (nextByKey.size) {
+        setAssets(prev => prev.map(asset => {
+          const hit = nextByKey.get(`${asset.assetId}.${asset.ext}`)
+          return hit ? { ...asset, thumbnailUrl: hit } : asset
+        }))
+      }
+      gateway.host.toast(failed ? `缩略图重建完成，失败 ${failed} 个` : `已重建 ${nextByKey.size} 个缩略图`)
+    } finally {
+      setRebuildingThumbnails(false)
+    }
+  }, [gateway, rebuildingThumbnails, scope, thumbnailTargets])
+
+  const handleRebuildAllThumbnails = React.useCallback(async () => {
+    if (rebuildingThumbnails) return
+    setRebuildingThumbnails(true)
+    try {
+      const report = await gateway.assets.rebuildAllThumbnails(scope, 320, 180)
+      setAssets(prev => prev.map(asset => (canHaveThumbnail(asset) ? { ...asset, thumbnailUrl: undefined } : asset)))
+      setThumbLoadTick(t => t + 1)
+      gateway.host.toast(report.failed ? `全部缩略图重建完成，失败 ${report.failed} 个` : `已重建 ${report.rebuilt} 个缩略图`)
+    } catch (err: any) {
+      gateway.host.toast(`全部重建失败：${String(err?.message || err || '未知错误')}`)
+    } finally {
+      setRebuildingThumbnails(false)
+    }
+  }, [gateway, rebuildingThumbnails, scope])
+
   /* ---- 渲染 ---- */
 
   const statsByCategory = React.useMemo(() => {
@@ -387,10 +447,6 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
     }
     return { counts, sizes, totalSize: assets.reduce((s, a) => s + (a.size || 0), 0) }
   }, [assets])
-
-  const visibleAssets = React.useMemo(() => {
-    return assets.filter(a => categoryFromKind(a.kind) === category)
-  }, [assets, category])
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -410,6 +466,37 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
             >
               <RefreshRoundedIcon fontSize="small" />
             </IconButton>
+          </Tooltip>
+
+          {category !== 'document' ? (
+            <Tooltip title="重建当前分类缩略图缓存" placement="bottom">
+              <span>
+                <IconButton
+                  size="small"
+                  aria-label="重建当前分类缩略图缓存"
+                  onClick={() => void handleRebuildVisibleThumbnails()}
+                  disabled={rebuildingThumbnails || thumbnailTargets.length === 0}
+                  sx={{ color: 'rgba(0,0,0,.58)', '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' } }}
+                >
+                  {rebuildingThumbnails ? <CircularProgress size={18} /> : <ImageSearchRoundedIcon fontSize="small" />}
+                </IconButton>
+              </span>
+            </Tooltip>
+          ) : null}
+
+          <Tooltip title="重建全部图片/视频缩略图缓存" placement="bottom">
+            <span>
+              <Button
+                variant="text"
+                size="small"
+                startIcon={rebuildingThumbnails ? <CircularProgress size={14} /> : <ImageSearchRoundedIcon sx={{ fontSize: 16 }} />}
+                disabled={rebuildingThumbnails || assets.filter(canHaveThumbnail).length === 0}
+                onClick={() => void handleRebuildAllThumbnails()}
+                sx={{ minWidth: 0, px: 1, borderRadius: 2, textTransform: 'none', color: 'rgba(0,0,0,.58)', fontWeight: 800 }}
+              >
+                全部重建
+              </Button>
+            </span>
           </Tooltip>
 
           <input
@@ -503,6 +590,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
                 gateway={gateway}
                 asset={asset}
                 onDelete={a => void handleDelete(a)}
+                onRebuildThumbnail={a => void handleRebuildThumbnail(a)}
                 onOpenAsset={onOpenAsset}
               />
             ))}
