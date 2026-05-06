@@ -170,6 +170,11 @@ fn resolve_backend_sidecar(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 fn backend_sidecar_dirs(app: &tauri::AppHandle) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
+    #[cfg(debug_assertions)]
+    push_unique_path(
+        &mut dirs,
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries"),
+    );
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             push_unique_path(&mut dirs, dir.to_path_buf());
@@ -180,6 +185,7 @@ fn backend_sidecar_dirs(app: &tauri::AppHandle) -> Vec<PathBuf> {
         push_unique_path(&mut dirs, resource_dir.clone());
         push_unique_path(&mut dirs, resource_dir.join("binaries"));
     }
+    #[cfg(not(debug_assertions))]
     push_unique_path(
         &mut dirs,
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("binaries"),

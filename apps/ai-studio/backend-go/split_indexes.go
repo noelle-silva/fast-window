@@ -23,7 +23,7 @@ func (svc *service) loadSplitMeta() (map[string]any, error) {
 	roleFolders := normalizeStringMapGo(firstNonNil(chatsIndex["roleFolders"], meta["roleFolders"]))
 	chatIndexByRole := map[string]any{}
 	for _, roleID := range roleOrder {
-		folder := strings.TrimSpace(roleFolders[roleID])
+		folder := strings.TrimSpace(asString(roleFolders[roleID]))
 		if folder == "" {
 			continue
 		}
@@ -39,7 +39,7 @@ func (svc *service) loadSplitMeta() (map[string]any, error) {
 	groupFolders := normalizeStringMapGo(firstNonNil(groupsIndex["groupFolders"], meta["groupFolders"]))
 	chatIndexByGroup := map[string]any{}
 	for _, groupID := range groupOrder {
-		folder := strings.TrimSpace(groupFolders[groupID])
+		folder := strings.TrimSpace(asString(groupFolders[groupID]))
 		if folder == "" {
 			continue
 		}
@@ -77,7 +77,7 @@ func (svc *service) loadProviders() ([]any, error) {
 	}
 	providers := make([]any, 0, len(providerOrder))
 	for _, providerID := range providerOrder {
-		folder := strings.TrimSpace(providerFolders[providerID])
+		folder := strings.TrimSpace(asString(providerFolders[providerID]))
 		if folder == "" {
 			continue
 		}
@@ -136,9 +136,9 @@ func normalizeChatMetasGo(idx map[string]any) []any {
 	return out
 }
 
-func normalizeStringMapGo(raw any) map[string]string {
+func normalizeStringMapGo(raw any) map[string]any {
 	src := asMap(raw)
-	out := map[string]string{}
+	out := map[string]any{}
 	for key, value := range src {
 		k := strings.TrimSpace(key)
 		v := strings.TrimSpace(asString(value))

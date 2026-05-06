@@ -1,11 +1,12 @@
 import { now, uid, trimSlash, isHttpBaseUrl, clampTemp, normImagePaths } from '../core/utils'
-import { SPLIT_META_KEY, CHAT_DEFAULT_BRANCH_ID, CHAT_ATTACHMENT_KINDS } from '../domain/constants'
+import { CHAT_DEFAULT_BRANCH_ID, CHAT_ATTACHMENT_KINDS } from '../domain/constants'
 import { normalizeMessageAttachments } from '../domain/message'
 import {
   normalizeBranchId,
   normalizeChatBranching,
 } from '../domain/branching'
 import { splitRoleKey, splitChatKey, splitGroupKey, splitGroupChatKey } from '../domain/storageKeys'
+import { loadProvidersFromStorage, loadSplitMetaSnapshot } from '../storage/splitIndexes'
 
 // ---- domain helpers (not in domain/ files yet) ----
 
@@ -82,11 +83,9 @@ export function buildOpenAiChatReqFromStorage(deps: RequestBuilderDeps, job: unk
   const chatId = String(j?.chatId || '')
   if (!roleId || !chatId) throw new Error('job 缺少 roleId/chatId')
 
-  const metaRaw = storage.get(SPLIT_META_KEY)
   const roleReq = (async () => {
-    const meta = await metaRaw as any
+    const meta = await loadSplitMetaSnapshot(storage)
     if (!meta) throw new Error('存储未初始化')
-    if (Number(meta?.schemaVersion || 0) !== 1) throw new Error('存储索引版本不支持')
 
     const folder = String(meta?.roleFolders?.[roleId] || '')
     if (!folder) throw new Error('角色不存在')
@@ -101,7 +100,7 @@ export function buildOpenAiChatReqFromStorage(deps: RequestBuilderDeps, job: unk
     const chat = c0 && typeof c0 === 'object' ? c0 as any : null
     if (!chat) throw new Error('会话不存在')
 
-    const providers = Array.isArray(meta?.settings?.providers) ? meta.settings.providers : []
+    const providers = await loadProvidersFromStorage(storage, meta)
     const fallbackPid = String(providers[0]?.id || '')
 
     let providerId = String(role?.modelRef?.providerId || fallbackPid)
@@ -218,11 +217,9 @@ export function buildOpenAiGroupChatReqFromStorage(deps: RequestBuilderDeps, job
   const chatId = String(j?.chatId || '').trim()
   if (!roleId || !groupId || !chatId) throw new Error('job 缺少 groupId/roleId/chatId')
 
-  const metaRaw = storage.get(SPLIT_META_KEY)
   const groupReq = (async () => {
-    const meta = await metaRaw as any
+    const meta = await loadSplitMetaSnapshot(storage)
     if (!meta) throw new Error('存储未初始化')
-    if (Number(meta?.schemaVersion || 0) !== 1) throw new Error('存储索引版本不支持')
 
     const roleFolder = String(meta?.roleFolders?.[roleId] || '')
     if (!roleFolder) throw new Error('角色不存在')
@@ -242,7 +239,7 @@ export function buildOpenAiGroupChatReqFromStorage(deps: RequestBuilderDeps, job
     const chat = c0 && typeof c0 === 'object' ? c0 as any : null
     if (!chat) throw new Error('会话不存在')
 
-    const providers = Array.isArray(meta?.settings?.providers) ? meta.settings.providers : []
+    const providers = await loadProvidersFromStorage(storage, meta)
     const fallbackPid = String(providers[0]?.id || '')
 
     let providerId = String(role?.modelRef?.providerId || fallbackPid)

@@ -68,10 +68,11 @@ func (svc *service) submitRunSpec(spec aiRunSpec) (map[string]any, error) {
 
 	var req aiHTTPRequest
 	var err error
+	jobStub := runJobStubWithTarget(spec.JobStub, target)
 	if target.Kind == "group" {
-		req, err = svc.buildOpenAIGroupChatReqFromStorage(spec.JobStub)
+		req, err = svc.buildOpenAIGroupChatReqFromStorage(jobStub)
 	} else {
-		req, err = svc.buildOpenAIChatReqFromStorage(spec.JobStub)
+		req, err = svc.buildOpenAIChatReqFromStorage(jobStub)
 	}
 	if err != nil {
 		return nil, err
@@ -81,6 +82,22 @@ func (svc *service) submitRunSpec(spec aiRunSpec) (map[string]any, error) {
 		return nil, err
 	}
 	return map[string]any{"ok": true, "runId": run.ID}, nil
+}
+
+func runJobStubWithTarget(job map[string]any, target aiRunTarget) map[string]any {
+	out := map[string]any{}
+	for key, value := range job {
+		out[key] = value
+	}
+	out["roleId"] = target.RoleID
+	out["chatId"] = target.ChatID
+	out["branchId"] = target.BranchID
+	out["assistantMid"] = target.AssistantMid
+	if target.Kind == "group" {
+		out["targetKind"] = "group"
+		out["groupId"] = target.GroupID
+	}
+	return out
 }
 
 func (svc *service) submitRawServiceRequest(params json.RawMessage) (map[string]any, error) {
