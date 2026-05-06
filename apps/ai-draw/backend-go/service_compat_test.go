@@ -101,8 +101,8 @@ func TestServiceNormalizesPluginEraReferenceLibraryIndexPaths(t *testing.T) {
 	writeTestFile(t, filepath.Join(dataDir, pluginReferenceImagesDir, "old-ref.jpg"), []byte{0xff, 0xd8, 0xff})
 	legacyAbsolutePath := `\\?\E:\eucli-project\fast-window\src-tauri\target\debug\data\ai-draw\ref-images\old-ref.jpg`
 	index := map[string]any{
-		"version": float64(1),
-		"folders": []any{map[string]any{"id": "folder-a", "name": "收藏夹"}},
+		"version":    float64(1),
+		"folders":    []any{map[string]any{"id": "folder-a", "name": "收藏夹"}},
 		"activeView": map[string]any{"kind": "folder", "folderId": "folder-a"},
 		"folderIdsByPath": map[string]any{
 			legacyAbsolutePath: []any{"folder-a"},

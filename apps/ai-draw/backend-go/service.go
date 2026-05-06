@@ -12,8 +12,8 @@ import (
 const (
 	pluginOutputImagesDir    = "output-images"
 	pluginReferenceImagesDir = "ref-images"
-	legacyShardDir          = "files/storage"
-	legacyPackFile          = "ai-draw.json"
+	legacyShardDir           = "files/storage"
+	legacyPackFile           = "ai-draw.json"
 
 	appOutputImagesDir    = "outputs"
 	appReferenceImagesDir = "reference-images"
@@ -41,6 +41,9 @@ func newService(dataDir string, sink eventSink) (*service, error) {
 		outputImages:    outputImages,
 		referenceImages: newImageStore(resolvePluginCompatibleDir(dataDir, pluginReferenceImagesDir, appReferenceImagesDir)),
 		generation:      newGenerationService(outputImages, newOpenAIImageProvider(nil), sink),
+	}
+	if err := svc.runMigrations(); err != nil {
+		return nil, err
 	}
 	if err := svc.ensureMeta(); err != nil {
 		return nil, err
@@ -123,7 +126,8 @@ func (svc *service) ensureMeta() error {
 	if _, err := os.Stat(metaPath); err == nil {
 		return nil
 	}
-	meta := map[string]any{"schemaVersion": 1, "createdAt": nowMs()}
+	now := nowMs()
+	meta := map[string]any{"schemaVersion": aiDrawSchemaVersion, "dataVersion": aiDrawDataVersion, "createdAt": now, "updatedAt": now}
 	return svc.store.write(metaPath, meta)
 }
 
