@@ -9,7 +9,7 @@ import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
 import NoteAddRoundedIcon from '@mui/icons-material/NoteAddRounded'
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
-import { Box, Breadcrumbs, Button, Chip, IconButton, Paper, Stack, TextField, Typography } from '@mui/material'
+import { Box, Breadcrumbs, Button, Chip, IconButton, Paper, Stack, Typography } from '@mui/material'
 import type { CollectionItemNode, CollectionNode } from '../../shared/types'
 import { EmptyState } from '../components/EmptyState'
 import {
@@ -36,9 +36,8 @@ export function FoldersView(props: FoldersViewProps) {
   if (!state.collections) return null
 
   return (
-    <Stack spacing={1.25}>
+    <Stack spacing={1.25} sx={{ position: 'relative' }}>
       <FoldersSubbar controller={controller} />
-      {state.showItemEditor ? <ItemEditor controller={controller} /> : null}
       <FolderList controller={controller} />
     </Stack>
   )
@@ -50,7 +49,17 @@ function FoldersSubbar(props: FoldersViewProps) {
   const pathIds = controller.buildPathIds(state.currentFolderId)
 
   return (
-    <Paper variant="outlined" sx={{ p: 1.25, boxShadow: 1 }}>
+    <Paper
+      variant="outlined"
+      sx={{
+        p: 1.25,
+        boxShadow: 3,
+        position: 'sticky',
+        top: 0,
+        zIndex: 20,
+        bgcolor: 'background.paper',
+      }}
+    >
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
         <Breadcrumbs separator={<Chip size="small" label="/" />} sx={{ flex: '1 1 220px' }}>
           {pathIds.map(id => {
@@ -69,58 +78,12 @@ function FoldersSubbar(props: FoldersViewProps) {
         <IconButton size="small" title="前进" disabled={!state.navForward.length} onClick={controller.navigateForward}>
           <ArrowForwardRoundedIcon fontSize="small" />
         </IconButton>
-        <Button startIcon={<CreateNewFolderRoundedIcon fontSize="small" />} onClick={() => controller.setShowFolderEditor(!state.showFolderEditor)}>
-          {state.showFolderEditor ? '收起新建' : '新建收藏夹'}
+        <Button startIcon={<CreateNewFolderRoundedIcon fontSize="small" />} onClick={() => controller.setShowFolderEditor(true)}>
+          新建收藏夹
         </Button>
-        <Button variant="contained" startIcon={<NoteAddRoundedIcon fontSize="small" />} onClick={() => controller.setShowItemEditor(!state.showItemEditor)}>
-          {state.showItemEditor ? '收起输入' : '新建条目'}
+        <Button variant="contained" startIcon={<NoteAddRoundedIcon fontSize="small" />} onClick={() => controller.setShowItemEditor(true)}>
+          新建条目
         </Button>
-      </Stack>
-
-      {state.showFolderEditor ? (
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1.25 }}>
-          <TextField
-            placeholder="收藏夹名称"
-            value={state.draftFolderName}
-            onChange={(event) => controller.setDraftFolderName(event.target.value)}
-            sx={{ flex: 1, minWidth: 180 }}
-          />
-          <Button variant="contained" onClick={() => void controller.createFolder(state.draftFolderName)}>创建</Button>
-          <Button onClick={controller.resetFolderDraft}>取消</Button>
-        </Stack>
-      ) : null}
-    </Paper>
-  )
-}
-
-function ItemEditor(props: FoldersViewProps) {
-  const { controller } = props
-  const { state } = controller
-
-  return (
-    <Paper variant="outlined" sx={{ p: 1.25, boxShadow: 1 }}>
-      <Stack direction="row" spacing={1} alignItems="center">
-        <TextField
-          placeholder="标题（可选）"
-          value={state.draftTitle}
-          onChange={(event) => controller.setDraftTitle(event.target.value)}
-          sx={{ flex: 1 }}
-        />
-        <Button variant="contained" onClick={() => void controller.createItem(state.draftTitle, state.draftContent)}>添加</Button>
-        <Button onClick={controller.resetItemDraft}>取消</Button>
-      </Stack>
-      <TextField
-        multiline
-        minRows={4}
-        fullWidth
-        placeholder="输入要收藏的纯文本内容"
-        value={state.draftContent}
-        onChange={(event) => controller.setDraftContent(event.target.value)}
-        sx={{ mt: 1.25 }}
-      />
-      <Stack direction="row" justifyContent="space-between" sx={{ mt: 1, color: 'text.secondary' }}>
-        <Typography variant="caption">提示：条目卡片点击即可复制</Typography>
-        <Typography variant="caption">拖拽卡片排序（仅排序，不支持移入）</Typography>
       </Stack>
     </Paper>
   )

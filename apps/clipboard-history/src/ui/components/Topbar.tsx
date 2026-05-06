@@ -1,10 +1,12 @@
 import * as React from 'react'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
+import ContentPasteRoundedIcon from '@mui/icons-material/ContentPasteRounded'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
+import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
 import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
-import { Box, Button, ClickAwayListener, Divider, IconButton, InputAdornment, Paper, TextField, Typography } from '@mui/material'
+import { Box, Button, ClickAwayListener, Divider, IconButton, InputAdornment, Paper, TextField } from '@mui/material'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import { StandaloneWindowControls } from './StandaloneWindowControls'
 import type { ClipboardHistoryController } from '../hooks/useClipboardHistoryController'
@@ -39,22 +41,42 @@ export function Topbar(props: TopbarProps) {
         bgcolor: 'background.paper',
         borderBottom: 1,
         borderColor: 'divider',
-        display: 'flex',
+        display: 'grid',
+        gridTemplateColumns: { xs: 'auto minmax(120px, 1fr) auto', sm: '1fr minmax(240px, 420px) 1fr' },
         alignItems: 'center',
-        gap: 1,
+        columnGap: 1,
         px: 1.25,
         boxShadow: 1,
         flexShrink: 0,
         userSelect: 'none',
       }}
     >
-      <IconButton size="small" aria-label="返回主页" title="返回主页" onClick={() => run(controller.host.back)}>
-        <ArrowBackRoundedIcon fontSize="small" />
-      </IconButton>
-
-      <Typography variant="subtitle2" sx={{ fontWeight: 700, minWidth: 72 }}>
-        {isClipboard ? '剪贴板历史' : '收藏夹'}
-      </Typography>
+      <Box data-window-drag-ignore="true" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+        <IconButton size="small" aria-label="返回主页" title="返回主页" onClick={() => run(controller.host.back)}>
+          <ArrowBackRoundedIcon fontSize="small" />
+        </IconButton>
+        <Divider orientation="vertical" flexItem sx={{ mx: 0.25 }} />
+        <IconButton
+          size="small"
+          aria-label="剪贴板历史"
+          title="剪贴板历史"
+          disabled={!controller.isReady}
+          onClick={() => controller.setView('clipboard')}
+          sx={viewButtonSx(isClipboard)}
+        >
+          <ContentPasteRoundedIcon fontSize="small" />
+        </IconButton>
+        <IconButton
+          size="small"
+          aria-label="收藏夹"
+          title="收藏夹"
+          disabled={!controller.isReady}
+          onClick={() => controller.setView('folders')}
+          sx={viewButtonSx(!isClipboard)}
+        >
+          <FolderRoundedIcon fontSize="small" />
+        </IconButton>
+      </Box>
 
       <TextField
         data-window-drag-ignore="true"
@@ -72,7 +94,7 @@ export function Topbar(props: TopbarProps) {
               : '当前收藏夹内搜索（含子收藏夹）'
         }
         size="small"
-        sx={{ width: 280, maxWidth: '46vw' }}
+        sx={{ width: '100%', justifySelf: 'center' }}
         InputProps={{
           startAdornment: (
             <InputAdornment position="start">
@@ -82,35 +104,38 @@ export function Topbar(props: TopbarProps) {
         }}
       />
 
-      {isClipboard ? (
-        <ClipboardTopbarActions controller={controller} />
-      ) : (
-        <FoldersTopbarActions controller={controller} />
-      )}
+      <Box data-window-drag-ignore="true" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.75, minWidth: 0 }}>
+        {isClipboard ? (
+          <ClipboardTopbarActions controller={controller} />
+        ) : (
+          <FoldersTopbarActions controller={controller} />
+        )}
 
-      <Box sx={{ flex: 1 }} />
-
-      {isClipboard ? (
-        <Button color="secondary" variant="contained" onClick={() => controller.setView('folders')} disabled={!controller.isReady}>
-          收藏夹
-        </Button>
-      ) : (
-        <Button variant="contained" onClick={() => controller.setView('clipboard')} disabled={!controller.isReady}>
-          剪贴板
-        </Button>
-      )}
-
-      {controller.standaloneLaunch ? (
-        <StandaloneWindowControls
-          actions={{
-            minimize: controller.host.minimize,
-            toggleMaximize: controller.host.toggleMaximize,
-            closeToTray: controller.host.closeToTray,
-          }}
-        />
-      ) : null}
+        {controller.standaloneLaunch ? (
+          <StandaloneWindowControls
+            actions={{
+              minimize: controller.host.minimize,
+              toggleMaximize: controller.host.toggleMaximize,
+              closeToTray: controller.host.closeToTray,
+            }}
+          />
+        ) : null}
+      </Box>
     </Box>
   )
+}
+
+function viewButtonSx(active: boolean) {
+  return {
+    bgcolor: active ? 'primary.main' : 'transparent',
+    color: active ? 'primary.contrastText' : 'text.secondary',
+    '&:hover': {
+      bgcolor: active ? 'primary.dark' : 'action.hover',
+    },
+    '&.Mui-disabled': {
+      bgcolor: active ? 'action.selected' : 'transparent',
+    },
+  }
 }
 
 function ClipboardTopbarActions(props: TopbarProps) {

@@ -3,6 +3,7 @@ import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import DriveFileMoveRoundedIcon from '@mui/icons-material/DriveFileMoveRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
+import NoteAddRoundedIcon from '@mui/icons-material/NoteAddRounded'
 import { Box, Button, ClickAwayListener, Dialog, DialogActions, DialogContent, DialogTitle, Divider, List, ListItemButton, ListItemIcon, ListItemText, Paper, Stack, TextField, Typography } from '@mui/material'
 import type { CollectionFolderNode } from '../../shared/types'
 import type { ClipboardHistoryController } from '../hooks/useClipboardHistoryController'
@@ -16,9 +17,112 @@ export function FolderDialogs(props: FolderDialogsProps) {
   return (
     <>
       <FolderContextMenu controller={controller} />
+      <CreateFolderDialog controller={controller} />
+      <CreateItemDialog controller={controller} />
       <EditNodeDialog controller={controller} />
       <MovePickerDialog controller={controller} />
     </>
+  )
+}
+
+const centeredDialogSx = {
+  zIndex: 1600,
+  '& .MuiDialog-container': {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  '& .MuiDialog-paper': {
+    m: 2,
+    borderRadius: 2,
+    boxShadow: 24,
+  },
+}
+
+function CreateFolderDialog(props: FolderDialogsProps) {
+  const { controller } = props
+  const { state } = controller
+
+  return (
+    <Dialog
+      open={state.showFolderEditor}
+      onClose={controller.resetFolderDraft}
+      fullWidth
+      maxWidth="xs"
+      sx={centeredDialogSx}
+      slotProps={{ backdrop: { sx: { bgcolor: 'rgba(10, 12, 18, 0.52)' } } }}
+    >
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <FolderRoundedIcon fontSize="small" />
+        新建收藏夹
+      </DialogTitle>
+      <DialogContent>
+        <TextField
+          autoFocus
+          fullWidth
+          label="收藏夹名称"
+          placeholder="输入收藏夹名称"
+          value={state.draftFolderName}
+          onChange={(event) => controller.setDraftFolderName(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') return
+            event.preventDefault()
+            void controller.createFolder(state.draftFolderName)
+          }}
+          sx={{ mt: 1 }}
+        />
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={controller.resetFolderDraft}>取消</Button>
+        <Button variant="contained" onClick={() => void controller.createFolder(state.draftFolderName)}>创建</Button>
+      </DialogActions>
+    </Dialog>
+  )
+}
+
+function CreateItemDialog(props: FolderDialogsProps) {
+  const { controller } = props
+  const { state } = controller
+
+  return (
+    <Dialog
+      open={state.showItemEditor}
+      onClose={controller.resetItemDraft}
+      fullWidth
+      maxWidth="sm"
+      sx={centeredDialogSx}
+      slotProps={{ backdrop: { sx: { bgcolor: 'rgba(10, 12, 18, 0.52)' } } }}
+    >
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <NoteAddRoundedIcon fontSize="small" />
+        新建条目
+      </DialogTitle>
+      <DialogContent>
+        <Stack spacing={1.25} sx={{ mt: 1 }}>
+          <TextField
+            autoFocus
+            fullWidth
+            label="标题（可选）"
+            placeholder="标题（可选）"
+            value={state.draftTitle}
+            onChange={(event) => controller.setDraftTitle(event.target.value)}
+          />
+          <TextField
+            multiline
+            minRows={6}
+            fullWidth
+            label="正文"
+            placeholder="输入要收藏的纯文本内容"
+            value={state.draftContent}
+            onChange={(event) => controller.setDraftContent(event.target.value)}
+          />
+          <Typography variant="caption" color="text.secondary">提示：条目卡片点击即可复制，拖拽卡片可排序。</Typography>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={controller.resetItemDraft}>取消</Button>
+        <Button variant="contained" onClick={() => void controller.createItem(state.draftTitle, state.draftContent)}>添加</Button>
+      </DialogActions>
+    </Dialog>
   )
 }
 
