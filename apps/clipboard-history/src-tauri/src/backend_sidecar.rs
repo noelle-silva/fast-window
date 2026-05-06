@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use serde::Serialize;
 use tauri::Manager;
@@ -153,15 +153,20 @@ fn backend_command(app: &tauri::AppHandle) -> Result<Command, String> {
     Ok(Command::new(resolve_backend_sidecar(app)?))
 }
 
-fn now_ms() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_millis(0))
-        .as_millis()
+fn token() -> String {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).expect("failed to generate clipboard history sidecar token");
+    format!("ch-{}", hex_token(&bytes))
 }
 
-fn token() -> String {
-    format!("ch-{}-{}", now_ms(), std::process::id())
+fn hex_token(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
 }
 
 fn resolve_backend_sidecar(app: &tauri::AppHandle) -> Result<PathBuf, String> {

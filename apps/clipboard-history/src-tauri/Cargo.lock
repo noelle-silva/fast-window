@@ -512,6 +512,7 @@ dependencies = [
 name = "clipboard-history-app"
 version = "1.0.2"
 dependencies = [
+ "getrandom 0.3.4",
  "rfd",
  "serde",
  "serde_json",

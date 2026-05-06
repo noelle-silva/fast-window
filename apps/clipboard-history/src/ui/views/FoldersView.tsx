@@ -1,0 +1,279 @@
+import * as React from 'react'
+import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
+import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
+import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
+import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded'
+import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
+import DragIndicatorRoundedIcon from '@mui/icons-material/DragIndicatorRounded'
+import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded'
+import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
+import NoteAddRoundedIcon from '@mui/icons-material/NoteAddRounded'
+import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
+import { Box, Breadcrumbs, Button, Chip, IconButton, Paper, Stack, TextField, Typography } from '@mui/material'
+import type { CollectionItemNode, CollectionNode } from '../../shared/types'
+import { EmptyState } from '../components/EmptyState'
+import type { ClipboardHistoryController } from '../hooks/useClipboardHistoryController'
+
+type FoldersViewProps = {
+  controller: ClipboardHistoryController
+}
+
+export function FoldersView(props: FoldersViewProps) {
+  const { controller } = props
+  const { state, bootStatus, bootError } = controller
+
+  if (bootStatus !== 'ready') {
+    return <EmptyState message={bootStatus === 'error' ? bootError || '剪贴板历史启动失败' : '剪贴板历史正在启动...'} />
+  }
+
+  if (!state.collections) return null
+
+  return (
+    <Stack spacing={1.25}>
+      <FoldersSubbar controller={controller} />
+      {state.showItemEditor ? <ItemEditor controller={controller} /> : null}
+      <FolderList controller={controller} />
+    </Stack>
+  )
+}
+
+function FoldersSubbar(props: FoldersViewProps) {
+  const { controller } = props
+  const { state } = controller
+  const pathIds = controller.buildPathIds(state.currentFolderId)
+
+  return (
+    <Paper variant="outlined" sx={{ p: 1.25, boxShadow: 1 }}>
+      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+        <Breadcrumbs separator={<Chip size="small" label="/" />} sx={{ flex: '1 1 220px' }}>
+          {pathIds.map(id => {
+            const node = controller.getNode(id)
+            const name = node?.type === 'folder' ? node.name : ''
+            return (
+              <Button key={id} size="small" onClick={() => controller.navigateFolder(id)} sx={{ borderRadius: 999 }}>
+                {name}
+              </Button>
+            )
+          })}
+        </Breadcrumbs>
+        <IconButton size="small" title="后退" disabled={!state.navBack.length} onClick={controller.navigateBack}>
+          <ArrowBackRoundedIcon fontSize="small" />
+        </IconButton>
+        <IconButton size="small" title="前进" disabled={!state.navForward.length} onClick={controller.navigateForward}>
+          <ArrowForwardRoundedIcon fontSize="small" />
+        </IconButton>
+        <Button startIcon={<CreateNewFolderRoundedIcon fontSize="small" />} onClick={() => controller.setShowFolderEditor(!state.showFolderEditor)}>
+          {state.showFolderEditor ? '收起新建' : '新建收藏夹'}
+        </Button>
+        <Button variant="contained" startIcon={<NoteAddRoundedIcon fontSize="small" />} onClick={() => controller.setShowItemEditor(!state.showItemEditor)}>
+          {state.showItemEditor ? '收起输入' : '新建条目'}
+        </Button>
+      </Stack>
+
+      {state.showFolderEditor ? (
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1.25 }}>
+          <TextField
+            placeholder="收藏夹名称"
+            value={state.draftFolderName}
+            onChange={(event) => controller.setDraftFolderName(event.target.value)}
+            sx={{ flex: 1, minWidth: 180 }}
+          />
+          <Button variant="contained" onClick={() => void controller.createFolder(state.draftFolderName)}>创建</Button>
+          <Button onClick={controller.resetFolderDraft}>取消</Button>
+        </Stack>
+      ) : null}
+    </Paper>
+  )
+}
+
+function ItemEditor(props: FoldersViewProps) {
+  const { controller } = props
+  const { state } = controller
+
+  return (
+    <Paper variant="outlined" sx={{ p: 1.25, boxShadow: 1 }}>
+      <Stack direction="row" spacing={1} alignItems="center">
+        <TextField
+          placeholder="标题（可选）"
+          value={state.draftTitle}
+          onChange={(event) => controller.setDraftTitle(event.target.value)}
+          sx={{ flex: 1 }}
+        />
+        <Button variant="contained" onClick={() => void controller.createItem(state.draftTitle, state.draftContent)}>添加</Button>
+        <Button onClick={controller.resetItemDraft}>取消</Button>
+      </Stack>
+      <TextField
+        multiline
+        minRows={4}
+        fullWidth
+        placeholder="输入要收藏的纯文本内容"
+        value={state.draftContent}
+        onChange={(event) => controller.setDraftContent(event.target.value)}
+        sx={{ mt: 1.25 }}
+      />
+      <Stack direction="row" justifyContent="space-between" sx={{ mt: 1, color: 'text.secondary' }}>
+        <Typography variant="caption">提示：条目卡片点击即可复制</Typography>
+        <Typography variant="caption">拖拽卡片排序（仅排序，不支持移入）</Typography>
+      </Stack>
+    </Paper>
+  )
+}
+
+function FolderList(props: FoldersViewProps) {
+  const { controller } = props
+  const { state } = controller
+  const query = state.folderSearchQuery.trim()
+  const results = query ? controller.searchItems(query, state.folderSearchScope) : []
+  const children = query ? [] : controller.listChildren(state.currentFolderId)
+  const dragState = React.useRef<{ movingId: string; overId: string; before: boolean } | null>(null)
+
+  if (query) {
+    if (!results.length) return <EmptyState message="没有匹配的内容" />
+    return (
+      <Paper variant="outlined" sx={{ borderRadius: 1.5, overflow: 'hidden' }}>
+        <Stack spacing={0} divider={<Box sx={{ borderTop: 1, borderColor: 'divider' }} />}>
+          {results.map(({ item, folderId, path }) => (
+            <SearchResultCard key={item.id} item={item} folderId={folderId} path={path} controller={controller} />
+          ))}
+        </Stack>
+      </Paper>
+    )
+  }
+
+  if (!children.length) return <EmptyState message="当前收藏夹为空" />
+
+  return (
+    <Paper variant="outlined" sx={{ borderRadius: 1.5, overflow: 'hidden' }}>
+      <Stack spacing={0} divider={<Box sx={{ borderTop: 1, borderColor: 'divider' }} />}>
+        {children.map((node, index) => (
+          <FolderCard
+            key={node.id}
+            node={node}
+            controller={controller}
+            onDragStart={(movingId) => {
+              dragState.current = { movingId, overId: '', before: false }
+            }}
+            onDragOver={(event, overId) => {
+              const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+              dragState.current = {
+                movingId: dragState.current?.movingId || '',
+                overId,
+                before: event.clientY < rect.top + rect.height / 2,
+              }
+              event.preventDefault()
+            }}
+            onDragEnd={() => {
+              const drag = dragState.current
+              dragState.current = null
+              if (!drag?.movingId) return
+              let toIndex = drag.overId ? children.findIndex(n => n.id === drag.overId) : children.length
+              if (toIndex < 0) toIndex = children.length
+              if (!drag.before) toIndex += 1
+              const movingIndex = children.findIndex(n => n.id === drag.movingId)
+              if (movingIndex >= 0 && movingIndex < toIndex) toIndex -= 1
+              if (toIndex === movingIndex) return
+              void controller.moveNode(drag.movingId, state.currentFolderId, toIndex)
+                .catch(error => controller.host.toast(String((error as any)?.message || error || '移动失败')))
+            }}
+          />
+        ))}
+      </Stack>
+    </Paper>
+  )
+}
+
+function SearchResultCard(props: { item: CollectionItemNode; folderId: string; path: string; controller: ClipboardHistoryController }) {
+  const { item, folderId, path, controller } = props
+  return (
+    <Box
+      role="button"
+      tabIndex={0}
+      onClick={() => void controller.copyFolderItem(item.id)}
+      sx={{ p: 1.25, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+    >
+      <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: 0.75 }} onClick={(event) => event.stopPropagation()}>
+        <Chip size="small" label="文本" />
+        <Chip size="small" label={path} />
+        <Box sx={{ flex: 1 }} />
+        <IconButton size="small" title="打开所在收藏夹" onClick={() => {
+          controller.setFolderSearchQuery('')
+          controller.navigateFolder(folderId)
+        }}>
+          <FolderOpenRoundedIcon fontSize="small" />
+        </IconButton>
+        <IconButton size="small" title="复制" onClick={() => void controller.copyFolderItem(item.id)}>
+          <ContentCopyRoundedIcon fontSize="small" />
+        </IconButton>
+      </Stack>
+      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.55 }}>{item.content || ''}</Typography>
+    </Box>
+  )
+}
+
+function FolderCard(props: {
+  node: CollectionNode
+  controller: ClipboardHistoryController
+  onDragStart(movingId: string): void
+  onDragOver(event: React.DragEvent<HTMLDivElement>, overId: string): void
+  onDragEnd(): void
+}) {
+  const { node, controller } = props
+  const armed = controller.isDeleteArmed(node.id)
+
+  return (
+    <Box
+      role="button"
+      tabIndex={0}
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = 'move'
+        props.onDragStart(node.id)
+      }}
+      onDragOver={(event) => props.onDragOver(event, node.id)}
+      onDragEnd={props.onDragEnd}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        controller.setContextMenu(true, node.id, event.clientX, event.clientY)
+      }}
+      onClick={() => {
+        if (node.type === 'folder') controller.navigateFolder(node.id)
+        else void controller.copyFolderItem(node.id)
+      }}
+      sx={{ p: 1.25, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+    >
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: node.type === 'item' ? 0.75 : 0 }}>
+        <Chip size="small" icon={<DragIndicatorRoundedIcon fontSize="small" />} label="" title="拖拽排序" sx={{ cursor: 'grab', width: 32, '& .MuiChip-label': { display: 'none' } }} />
+        {node.type === 'folder' ? (
+          <>
+            <Chip size="small" icon={<FolderRoundedIcon fontSize="small" />} label="" sx={{ '& .MuiChip-label': { display: 'none' } }} />
+            <Typography variant="body2" sx={{ fontWeight: 700 }}>{node.name}</Typography>
+            <Chip size="small" label={`${Array.isArray(node.children) ? node.children.length : 0} 项`} />
+          </>
+        ) : (
+          <>
+            <Chip size="small" label="文本" />
+            <Chip size="small" label={node.title || ''} />
+          </>
+        )}
+        <Box sx={{ flex: 1 }} />
+        {node.type === 'item' ? (
+          <IconButton size="small" title="复制" onClick={(event) => {
+            event.stopPropagation()
+            void controller.copyFolderItem(node.id)
+          }}>
+            <ContentCopyRoundedIcon fontSize="small" />
+          </IconButton>
+        ) : null}
+        <IconButton size="small" title={armed ? '再点一次确认删除' : '删除'} onClick={(event) => {
+          event.stopPropagation()
+          void controller.deleteNode(node.id)
+        }}>
+          {armed ? <WarningAmberRoundedIcon color="warning" fontSize="small" /> : <DeleteOutlineRoundedIcon fontSize="small" />}
+        </IconButton>
+      </Stack>
+      {node.type === 'item' ? (
+        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.55 }}>{node.content || ''}</Typography>
+      ) : null}
+    </Box>
+  )
+}

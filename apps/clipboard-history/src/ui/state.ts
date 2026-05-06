@@ -1,6 +1,51 @@
 import { CLIPBOARD_PAGE_SIZE, DEFAULT_SETTINGS } from '../shared/constants'
+import type {
+  ClipboardHistoryItem,
+  ClipboardHistorySettings,
+  CollectionsDoc,
+  DeletedHistoryMap,
+  LegacyDataImportReport,
+} from '../shared/types'
 
-export function createClipboardHistoryUiState() {
+export type ClipboardHistoryView = 'clipboard' | 'folders'
+export type FolderSearchScope = 'current' | 'global'
+export type MovePickerAction = 'move' | 'copy'
+
+export type ClipboardHistoryUiState = {
+  history: ClipboardHistoryItem[]
+  settings: ClipboardHistorySettings
+  deleted: DeletedHistoryMap
+  showSettings: boolean
+  view: ClipboardHistoryView
+  clipboardSearchQuery: string
+  clipboardLimit: number
+  clipboardExpanded: Record<string, boolean>
+  clipboardImageCache: Record<string, string>
+  clipboardImageLoading: Record<string, boolean>
+  collections: CollectionsDoc | null
+  currentFolderId: string
+  folderSearchQuery: string
+  folderSearchScope: FolderSearchScope
+  recentFolders: string[]
+  showRecentMenu: boolean
+  showMoreMenu: boolean
+  clearArmedAt: number
+  showItemEditor: boolean
+  draftTitle: string
+  draftContent: string
+  showFolderEditor: boolean
+  draftFolderName: string
+  deleteArmedId: string
+  deleteArmedAt: number
+  navBack: string[]
+  navForward: string[]
+  ctxMenu: { open: boolean; x: number; y: number; nodeId: string }
+  movePicker: { open: boolean; movingId: string; query: string; action: MovePickerAction }
+  editDialog: { open: boolean; nodeId: string; folderName: string; itemTitle: string; itemContent: string }
+  legacyImportReport: LegacyDataImportReport | null
+}
+
+export function createClipboardHistoryUiState(): ClipboardHistoryUiState {
   return {
     history: [],
     settings: { ...DEFAULT_SETTINGS },
@@ -40,7 +85,6 @@ export function createClipboardHistoryUiState() {
     ctxMenu: { open: false, x: 0, y: 0, nodeId: '' },
     movePicker: { open: false, movingId: '', query: '', action: 'move' },
     editDialog: { open: false, nodeId: '', folderName: '', itemTitle: '', itemContent: '' },
+    legacyImportReport: null,
   }
 }
-
-export type ClipboardHistoryUiState = ReturnType<typeof createClipboardHistoryUiState>
