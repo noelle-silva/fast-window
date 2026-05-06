@@ -16,10 +16,12 @@ import type { DataDirStatus, HyperCortexGateway, LegacyDataImportResult } from '
 let gatewayCache: HyperCortexGateway | null = null
 let gatewayPromise: Promise<HyperCortexGateway> | null = null
 
-export async function createHyperCortexGateway(baseApi: any): Promise<HyperCortexGateway> {
+export async function createHyperCortexGateway(): Promise<HyperCortexGateway> {
+  const baseApi = createHyperCortexAppHostApi()
   const background = await createBackgroundClient(baseApi)
-  const host = createHostGateway(withAppHostMethods(baseApi, background), background)
-  const clipboard = createClipboardGateway(baseApi)
+  const hostApi = withAppHostMethods(baseApi, background)
+  const host = createHostGateway(hostApi, background)
+  const clipboard = createClipboardGateway(hostApi)
 
   return {
     host,
@@ -34,7 +36,6 @@ export async function createHyperCortexGateway(baseApi: any): Promise<HyperCorte
 }
 
 function withAppHostMethods(baseApi: any, background: BackgroundClient) {
-  if (!isTauriAppHost(baseApi)) return baseApi
   return {
     ...baseApi,
     host: {
@@ -50,10 +51,6 @@ function withAppHostMethods(baseApi: any, background: BackgroundClient) {
       },
     },
   }
-}
-
-function isTauriAppHost(baseApi: any): boolean {
-  return baseApi?.__meta?.runtime === 'ui' && baseApi?.__meta?.appId === 'hypercortex'
 }
 
 function createHyperCortexAppHostApi() {
@@ -83,7 +80,7 @@ function createHyperCortexAppHostApi() {
 
 export async function getHyperCortexGateway(): Promise<HyperCortexGateway> {
   if (gatewayCache) return gatewayCache
-  if (!gatewayPromise) gatewayPromise = createHyperCortexGateway((window as any).fastWindow || createHyperCortexAppHostApi())
+  if (!gatewayPromise) gatewayPromise = createHyperCortexGateway()
   gatewayCache = await gatewayPromise
   return gatewayCache
 }
