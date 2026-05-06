@@ -1,3 +1,4 @@
+// Legacy host image API wrapper for old Fast Window plugin_* commands.
 export function createImageFilesApi(tauri: any, pluginId: string) {
   return {
     pickImages: async (maxCount?: any) => {

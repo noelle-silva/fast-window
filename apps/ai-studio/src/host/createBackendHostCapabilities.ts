@@ -1,4 +1,5 @@
 import type { AiChatBackendCapabilities } from '../gateway/capabilities'
+import { AI_STUDIO_APP_ID } from '../runtime/aiStudioGlobals'
 import { readBackendDataDirs } from '../storage/backendDataDirs'
 import { createNodeFileStorageAdapter } from '../storage/nodeFileStorageAdapter'
 import { createNodeImageStorageAdapter } from '../storage/nodeImageStorageAdapter'
@@ -9,7 +10,7 @@ export function createBackendHostCapabilities(): AiChatBackendCapabilities {
   const images = createNodeImageStorageAdapter(dirs.dataDir)
 
   return {
-    meta: { pluginId: dirs.pluginId, runtime: 'background' },
+    meta: { appId: dirs.appId || AI_STUDIO_APP_ID, runtime: 'background' },
     storage: {
       get: (key) => persistent.get(key),
       set: (key, value) => persistent.set(key, value),

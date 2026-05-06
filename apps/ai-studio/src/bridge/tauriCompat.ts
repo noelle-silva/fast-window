@@ -5,6 +5,7 @@ import { createWindowApi } from '../host/window'
 import { createNetApi } from '../host/net'
 import { createImageFilesApi } from '../host/imageFiles'
 
+// Legacy Fast Window bridge adapter. The standalone v5 App path does not use plugin file commands.
 export function createAiChatFastWindowApi(baseApi: any, pluginId: string) {
   const base = baseApi || {}
   const tauri = base?.tauri || null

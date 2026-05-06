@@ -3,6 +3,7 @@ import { createPluginFilesClient } from './pluginFilesClient'
 import { migrateIfNeeded } from './migrateStorage'
 import { isStrongConsistencyRuntimeKey } from '../runtime/runtimeKeys'
 
+// Legacy storage adapter for old Fast Window plugin files. Not used by the standalone v5 App entry.
 export function createAiChatStorage(tauri: any, pluginId: string) {
   const client = createPluginFilesClient(tauri, pluginId)
 

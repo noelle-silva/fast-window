@@ -1,6 +1,6 @@
 export type AiChatBackendDataDirs = {
-  pluginId: string
-  pluginDir: string
+  appId: string
+  appDir: string
   dataDir: string
   filesDataDir: string
   outputDir: string
@@ -8,20 +8,21 @@ export type AiChatBackendDataDirs = {
 }
 
 export function readBackendDataDirs(): AiChatBackendDataDirs {
-  const pluginId = String(process.env.FAST_WINDOW_PLUGIN_ID || '').trim()
-  if (!pluginId) throw new Error('FAST_WINDOW_PLUGIN_ID is required')
+  // Legacy Node backend reference: old FAST_WINDOW_PLUGIN_* names are accepted only as fallback.
+  const appId = String(process.env.FW_APP_ID || process.env.FAST_WINDOW_PLUGIN_ID || '').trim()
+  if (!appId) throw new Error('FW_APP_ID is required')
 
-  const pluginDir = String(process.env.FAST_WINDOW_PLUGIN_DIR || '').trim()
-  if (!pluginDir) throw new Error('FAST_WINDOW_PLUGIN_DIR is required')
+  const appDir = String(process.env.FW_APP_DIR || process.env.FAST_WINDOW_PLUGIN_DIR || '').trim()
+  if (!appDir) throw new Error('FW_APP_DIR is required')
 
-  const dataDir = String(process.env.FAST_WINDOW_PLUGIN_DATA_DIR || '').trim()
-  if (!dataDir) throw new Error('FAST_WINDOW_PLUGIN_DATA_DIR is required')
+  const dataDir = String(process.env.FW_APP_DATA_DIR || process.env.FAST_WINDOW_PLUGIN_DATA_DIR || '').trim()
+  if (!dataDir) throw new Error('FW_APP_DATA_DIR is required')
 
-  const filesDataDir = String(process.env.FAST_WINDOW_PLUGIN_FILES_DATA_DIR || '').trim()
-  if (!filesDataDir) throw new Error('FAST_WINDOW_PLUGIN_FILES_DATA_DIR is required')
+  const filesDataDir = String(process.env.FW_APP_FILES_DATA_DIR || process.env.FAST_WINDOW_PLUGIN_FILES_DATA_DIR || '').trim()
+  if (!filesDataDir) throw new Error('FW_APP_FILES_DATA_DIR is required')
 
-  const outputDir = String(process.env.FAST_WINDOW_PLUGIN_OUTPUT_DIR || '').trim()
-  const libraryDir = String(process.env.FAST_WINDOW_PLUGIN_LIBRARY_DIR || '').trim()
+  const outputDir = String(process.env.FW_APP_OUTPUT_DIR || process.env.FAST_WINDOW_PLUGIN_OUTPUT_DIR || '').trim()
+  const libraryDir = String(process.env.FW_APP_LIBRARY_DIR || process.env.FAST_WINDOW_PLUGIN_LIBRARY_DIR || '').trim()
 
-  return { pluginId, pluginDir, dataDir, filesDataDir, outputDir, libraryDir }
+  return { appId, appDir, dataDir, filesDataDir, outputDir, libraryDir }
 }

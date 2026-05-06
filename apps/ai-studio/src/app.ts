@@ -6,9 +6,7 @@ import { createAiChatController } from './controller/createController'
 import { createAiChatControllerV2 } from './controller/createControllerV2'
 import { createAiChatCapabilitiesFromHostApi } from './gateway/capabilities'
 import { createDirectCapabilitiesAdapter } from './direct/createDirectCapabilitiesAdapter'
-import { AI_STUDIO_CONTROLLER_KEY } from './runtime/aiStudioGlobals'
-
-const AI_STUDIO_PLUGIN_ID = 'ai-studio'
+import { AI_STUDIO_APP_ID, AI_STUDIO_CONTROLLER_KEY } from './runtime/aiStudioGlobals'
 
 ;(async function () {
   const fw = (window as any).fastWindow
@@ -19,11 +17,11 @@ const AI_STUDIO_PLUGIN_ID = 'ai-studio'
   let useV2 = false
   if (isDirect) {
     const { api } = await createDirectCapabilitiesAdapter(fw)
-    capabilities = createAiChatCapabilitiesFromHostApi(api, AI_STUDIO_PLUGIN_ID)
+    capabilities = createAiChatCapabilitiesFromHostApi(api, AI_STUDIO_APP_ID)
     useV2 = true
   } else {
-    const api = createAiChatFastWindowApi(fw, AI_STUDIO_PLUGIN_ID)
-    capabilities = createAiChatCapabilitiesFromHostApi(api, AI_STUDIO_PLUGIN_ID)
+    const api = createAiChatFastWindowApi(fw, AI_STUDIO_APP_ID)
+    capabilities = createAiChatCapabilitiesFromHostApi(api, AI_STUDIO_APP_ID)
   }
 
   try {

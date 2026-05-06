@@ -1,5 +1,6 @@
 import { FILES_SCOPE } from './storageCodec'
 
+// Legacy client for old Fast Window plugin_files_* commands.
 function dataUrlToBytes(dataUrl: any) {
   const s = String(dataUrl ?? '').trim()
   if (!s.startsWith('data:')) throw new Error('base64 data URL 格式不合法')

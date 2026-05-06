@@ -43,8 +43,8 @@ function ensureStyle(id: string, cssText: string) {
 }
 
 function inlineKatexFonts(cssText: string) {
-  // 插件运行在 sandbox iframe 的 srcDoc 中，CSS 里的相对路径 fonts/*.woff2 无法加载。
-  // 这里把 KaTeX 的 woff2 字体内联成 data URL，避免符号尺寸/字形退化。
+  // App/legacy iframe contexts cannot rely on KaTeX relative font URLs.
+  // Inline woff2 fonts as data URLs to avoid symbol size/font degradation.
   const woff2ByName: Record<string, string> = {
     'KaTeX_AMS-Regular.woff2': String(katexAmsRegularWoff2 || ''),
     'KaTeX_Caligraphic-Bold.woff2': String(katexCaligraphicBoldWoff2 || ''),

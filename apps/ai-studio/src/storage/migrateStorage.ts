@@ -8,6 +8,7 @@ import {
 } from './storageCodec'
 import { createPluginFilesClient } from './pluginFilesClient'
 
+// Legacy one-time migration for old plugin file layouts inside the Fast Window bridge path.
 export async function migrateIfNeeded(tauri: any, pluginId: string) {
   const client = createPluginFilesClient(tauri, pluginId)
 

@@ -2,7 +2,7 @@ import type { AiChatCapabilities, AiChatUiCapabilities } from '../gateway/capabi
 
 export function createUiHostCapabilities(full: AiChatCapabilities): AiChatUiCapabilities {
   return {
-    meta: { pluginId: full.meta.pluginId, runtime: 'ui' as const },
+    meta: { appId: full.meta.appId, runtime: 'ui' as const },
     storage: full.storage,
     ui: full.ui,
     clipboard: full.clipboard,

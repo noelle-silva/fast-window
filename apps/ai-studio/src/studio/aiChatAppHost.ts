@@ -5,7 +5,7 @@ import type { AiChatController } from '../controller/types'
 import { createDirectCapabilitiesAdapter } from '../direct/createDirectCapabilitiesAdapter'
 import { createAiChatCapabilitiesFromHostApi } from '../gateway/capabilities'
 import { AI_CHAT_DIRECT_PROTOCOL_VERSION } from '../protocol/aiChatProtocol'
-import { AI_STUDIO_CONTROLLER_KEY } from '../runtime/aiStudioGlobals'
+import { AI_STUDIO_APP_ID, AI_STUDIO_CONTROLLER_KEY } from '../runtime/aiStudioGlobals'
 import { createAiChatDirectGateway } from './aiChatDirectGateway'
 
 type BackendEndpoint = {
@@ -27,7 +27,7 @@ export type AiChatAppHostOptions = {
 export async function createAiChatAppRuntime(options: AiChatAppHostOptions): Promise<AiChatAppRuntime> {
   const baseApi = createAiStudioHostApi(options)
   const { api, directClient } = await createDirectCapabilitiesAdapter(baseApi)
-  const capabilities = createAiChatCapabilitiesFromHostApi(api, 'ai-studio')
+  const capabilities = createAiChatCapabilitiesFromHostApi(api, AI_STUDIO_APP_ID)
   const aiGateway = createAiChatDirectGateway(directClient)
   const { controller, init } = createAiChatControllerV2({ capabilities, aiGateway })
   const bootstrap = await directClient.invoke('studio.bootstrap').catch(() => null)
@@ -49,7 +49,7 @@ export async function createAiChatAppRuntime(options: AiChatAppHostOptions): Pro
 
 function createAiStudioHostApi(options: AiChatAppHostOptions) {
   return {
-    __meta: { runtime: 'ui', pluginId: 'ai-studio' },
+    __meta: { runtime: 'ui', appId: AI_STUDIO_APP_ID },
     background: {
       endpoint: createBackendEndpoint,
     },

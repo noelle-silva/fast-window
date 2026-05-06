@@ -2778,7 +2778,7 @@ export function createAiChatController(deps: { capabilities: AiChatCapabilities;
 
     const cfg = state.data?.settings?.aiServices?.mermaidFix || {}
     const enabled = !!cfg.enabled
-    if (!enabled) throw new Error('未启用：Mermaid AI 修复（插件设置 → AI 微服务）')
+    if (!enabled) throw new Error('未启用：Mermaid AI 修复（AI Studio 设置 → AI 微服务）')
 
     const providerId = String(cfg.providerId || '').trim()
     const modelId = resolveAiModelId(cfg.modelId, cfg.customModelId)
@@ -2902,7 +2902,7 @@ export function createAiChatController(deps: { capabilities: AiChatCapabilities;
 
     const cfg = (state.data?.settings?.aiServices as any)?.chatTitleNaming || {}
     const enabled = !!cfg.enabled
-    if (!enabled) throw new Error('未启用：AI 聊天记录取名（插件设置 → AI 微服务）')
+    if (!enabled) throw new Error('未启用：AI 聊天记录取名（AI Studio 设置 → AI 微服务）')
 
     const providerId = String(cfg.providerId || '').trim()
     const modelId = resolveAiModelId(cfg.modelId, cfg.customModelId)
@@ -2936,7 +2936,7 @@ export function createAiChatController(deps: { capabilities: AiChatCapabilities;
 
     const cfg = (state.data?.settings?.aiServices as any)?.chatTitleNaming || {}
     const enabled = !!cfg.enabled
-    if (!enabled) throw new Error('未启用：AI 聊天记录取名（插件设置 → AI 微服务）')
+    if (!enabled) throw new Error('未启用：AI 聊天记录取名（AI Studio 设置 → AI 微服务）')
 
     const providerId = String(cfg.providerId || '').trim()
     const modelId = resolveAiModelId(cfg.modelId, cfg.customModelId)
@@ -3011,7 +3011,7 @@ export function createAiChatController(deps: { capabilities: AiChatCapabilities;
 
     const cfg = (state.data?.settings?.aiServices as any)?.stickerNaming || {}
     const enabled = !!cfg.enabled
-    if (!enabled) throw new Error('未启用：表情包取名服务（插件设置 → AI 微服务）')
+    if (!enabled) throw new Error('未启用：表情包取名服务（AI Studio 设置 → AI 微服务）')
 
     const providerId = String(cfg.providerId || '').trim()
     const modelId = resolveAiModelId(cfg.modelId, cfg.customModelId)

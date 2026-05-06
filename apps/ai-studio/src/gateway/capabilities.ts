@@ -39,7 +39,7 @@ export type AiChatClipboardGateway = {
 
 export type AiChatCapabilities = {
   meta: {
-    pluginId: string
+    appId: string
     runtime: 'ui' | 'background'
   }
   storage: AiChatStorageGateway
@@ -54,7 +54,7 @@ export type AiChatCapabilities = {
 // ---- narrow capabilities (v4.5 target) ----
 
 export type AiChatUiCapabilities = {
-  meta: { pluginId: string; runtime: 'ui' }
+  meta: { appId: string; runtime: 'ui' }
   storage: AiChatStorageGateway
   ui: AiChatUiGateway
   clipboard: AiChatClipboardGateway
@@ -64,7 +64,7 @@ export type AiChatUiCapabilities = {
 }
 
 export type AiChatBackendCapabilities = {
-  meta: { pluginId: string; runtime: 'background' }
+  meta: { appId: string; runtime: 'background' }
   storage: AiChatStorageGateway
   runtimeStorage: AiChatRuntimeStorageGateway
   net: AiChatNetAdapter
@@ -72,7 +72,7 @@ export type AiChatBackendCapabilities = {
 }
 
 export type AssistantRenderCapabilities = {
-  meta: { pluginId: string; runtime: 'ui' | 'background' }
+  meta: { appId: string; runtime: 'ui' | 'background' }
   clipboard: AiChatClipboardGateway
   ui: AiChatUiGateway
   files: { images: { read?: (req: any) => Promise<any> } }
@@ -92,7 +92,7 @@ function optionalFunction<T extends (...args: any[]) => any>(value: any): T | un
   return typeof value === 'function' ? (value as T) : undefined
 }
 
-export function createAiChatCapabilitiesFromHostApi(hostApi: any, pluginId: string): AiChatCapabilities {
+export function createAiChatCapabilitiesFromHostApi(hostApi: any, appId: string): AiChatCapabilities {
   const api = requireObject(hostApi, 'host api')
   const storage = requireObject(api.storage, 'storage')
   const runtimeStorage =
@@ -106,7 +106,7 @@ export function createAiChatCapabilitiesFromHostApi(hostApi: any, pluginId: stri
 
   return {
     meta: {
-      pluginId: String(pluginId || ''),
+      appId: String(appId || ''),
       runtime,
     },
     storage: {

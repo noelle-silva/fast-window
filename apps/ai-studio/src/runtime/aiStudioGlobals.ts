@@ -1,3 +1,4 @@
+export const AI_STUDIO_APP_ID = 'ai-studio'
 export const AI_STUDIO_CHAT_ROOT_ID = 'ai-studio-chat-root'
 export const AI_STUDIO_CONTROLLER_KEY = '__aiStudioController'
 export const AI_STUDIO_MOUNT_FLAG_KEY = '__aiStudioMountedRoot'
