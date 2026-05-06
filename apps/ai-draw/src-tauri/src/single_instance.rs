@@ -1,5 +1,6 @@
 use std::env;
 use std::fs;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -116,9 +117,15 @@ fn endpoint_addr(endpoint: &ControlEndpoint) -> String {
 fn is_valid_instance_state(state: &InstanceState) -> bool {
     state.app_id == AI_DRAW_APP_ID
         && state.server_id == SINGLE_INSTANCE_SERVER_ID
-        && !state.addr.trim().is_empty()
-        && state.addr.starts_with("127.0.0.1:")
+        && is_loopback_control_addr(&state.addr)
         && !state.token.trim().is_empty()
+}
+
+fn is_loopback_control_addr(addr: &str) -> bool {
+    let Ok(addr) = addr.parse::<SocketAddr>() else {
+        return false;
+    };
+    addr.ip().is_loopback() && addr.port() != 0
 }
 
 fn instance_state_path() -> PathBuf {
@@ -195,9 +202,25 @@ mod tests {
         wrong_app.app_id = "other".to_string();
         assert!(!is_valid_instance_state(&wrong_app));
 
+        let mut wrong_server = valid_state();
+        wrong_server.server_id = "fw-control".to_string();
+        assert!(!is_valid_instance_state(&wrong_server));
+
         let mut wrong_addr = valid_state();
         wrong_addr.addr = "0.0.0.0:49152".to_string();
         assert!(!is_valid_instance_state(&wrong_addr));
+
+        let mut external_addr = valid_state();
+        external_addr.addr = "192.168.1.10:49152".to_string();
+        assert!(!is_valid_instance_state(&external_addr));
+
+        let mut zero_port = valid_state();
+        zero_port.addr = "127.0.0.1:0".to_string();
+        assert!(!is_valid_instance_state(&zero_port));
+
+        let mut malformed_addr = valid_state();
+        malformed_addr.addr = "not-an-addr".to_string();
+        assert!(!is_valid_instance_state(&malformed_addr));
 
         let mut empty_token = valid_state();
         empty_token.token = " ".to_string();

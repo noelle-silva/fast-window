@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -65,11 +65,19 @@ pub(crate) fn available_commands() -> Vec<AppCommandDescriptor> {
 }
 
 pub(crate) fn session_token() -> String {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_millis(0))
-        .as_millis();
-    format!("aid-{}-{}", now, std::process::id())
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).expect("failed to generate AI Draw control token");
+    format!("aid-{}", hex_token(&bytes))
+}
+
+fn hex_token(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
 }
 
 pub(crate) fn start_control_server(
