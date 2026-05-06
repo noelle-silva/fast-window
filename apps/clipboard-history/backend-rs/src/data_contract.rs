@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
 pub const STORAGE_SCHEMA_VERSION: u64 = 1;
+pub const DATA_VERSION: u64 = 1;
 pub const META_FILE_NAME: &str = "_meta.json";
+pub const MIGRATIONS_FILE_NAME: &str = "_migrations.json";
 pub const OUTPUT_IMAGES_DIR_NAME: &str = "output-images";
 pub const FALLBACK_IMAGES_DIR_NAME: &str = "images";
 

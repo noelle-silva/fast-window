@@ -3,6 +3,7 @@ mod data_contract;
 mod domain;
 mod image_store;
 mod legacy_import;
+mod migrations;
 mod model;
 mod server;
 mod service;
