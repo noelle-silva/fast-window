@@ -5,7 +5,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+)
+
+const (
+	pluginOutputImagesDir    = "output-images"
+	pluginReferenceImagesDir = "ref-images"
+	legacyShardDir          = "files/storage"
+	legacyPackFile          = "ai-draw.json"
+
+	appOutputImagesDir    = "outputs"
+	appReferenceImagesDir = "reference-images"
 )
 
 type service struct {
@@ -23,12 +34,12 @@ func newService(dataDir string, sink eventSink) (*service, error) {
 	if sink == nil {
 		sink = noopEventSink{}
 	}
-	outputImages := newImageStore(filepath.Join(dataDir, "outputs"))
+	outputImages := newImageStore(resolvePluginCompatibleDir(dataDir, pluginOutputImagesDir, appOutputImagesDir))
 	svc := &service{
 		dataDir:         dataDir,
 		store:           newJSONStore(),
 		outputImages:    outputImages,
-		referenceImages: newImageStore(filepath.Join(dataDir, "reference-images")),
+		referenceImages: newImageStore(resolvePluginCompatibleDir(dataDir, pluginReferenceImagesDir, appReferenceImagesDir)),
 		generation:      newGenerationService(outputImages, newOpenAIImageProvider(nil), sink),
 	}
 	if err := svc.ensureMeta(); err != nil {
@@ -117,7 +128,43 @@ func (svc *service) ensureMeta() error {
 }
 
 func (svc *service) readShard(key string) (any, error) {
-	return svc.store.read(filepath.Join(svc.dataDir, shardFile(key)))
+	fileName := shardFile(key)
+	value, err := svc.store.read(filepath.Join(svc.dataDir, fileName))
+	if err != nil || value != nil {
+		if err != nil {
+			return nil, err
+		}
+		return svc.normalizeShardValue(key, value)
+	}
+
+	value, err = svc.store.read(filepath.Join(svc.dataDir, filepath.FromSlash(legacyShardDir), fileName))
+	if err != nil || value != nil {
+		if err != nil {
+			return nil, err
+		}
+		return svc.normalizeShardValue(key, value)
+	}
+
+	legacyPack, err := svc.store.read(filepath.Join(svc.dataDir, legacyPackFile))
+	if err != nil || legacyPack == nil {
+		return nil, err
+	}
+	legacyMap, ok := legacyPack.(map[string]any)
+	if !ok {
+		return nil, nil
+	}
+	return svc.normalizeShardValue(key, legacyMap[key])
+}
+
+func (svc *service) normalizeShardValue(key string, value any) (any, error) {
+	if key != "refLibraryIndex" || value == nil {
+		return value, nil
+	}
+	paths, err := svc.referenceImages.list()
+	if err != nil {
+		return value, nil
+	}
+	return normalizeRefLibraryIndexPaths(value, paths), nil
 }
 
 func (svc *service) writeShardFromParam(params json.RawMessage, key string, paramName string) error {
@@ -184,6 +231,159 @@ func shardFile(key string) string {
 	default:
 		return key + ".json"
 	}
+}
+
+func resolvePluginCompatibleDir(dataDir string, pluginDir string, appDir string) string {
+	pluginPath := filepath.Join(dataDir, pluginDir)
+	if isDir(pluginPath) {
+		return pluginPath
+	}
+	appPath := filepath.Join(dataDir, appDir)
+	if isDir(appPath) {
+		return appPath
+	}
+	return pluginPath
+}
+
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+func normalizeRefLibraryIndexPaths(value any, availablePaths []string) any {
+	index, ok := value.(map[string]any)
+	if !ok {
+		return value
+	}
+	lookup := buildRefPathLookup(availablePaths)
+	if len(lookup) == 0 {
+		return value
+	}
+
+	if rawFolderIDs, ok := index["folderIdsByPath"].(map[string]any); ok {
+		next := make(map[string]any)
+		for rawPath, rawIDs := range rawFolderIDs {
+			path, ok := matchRefPath(rawPath, lookup)
+			if !ok {
+				continue
+			}
+			ids := normalizeStringList(rawIDs)
+			if len(ids) == 0 {
+				continue
+			}
+			next[path] = mergeStringLists(normalizeStringList(next[path]), ids)
+		}
+		index["folderIdsByPath"] = next
+	}
+
+	if rawOrderByFolder, ok := index["folderItemOrderByFolderId"].(map[string]any); ok {
+		next := make(map[string]any)
+		for folderID, rawOrder := range rawOrderByFolder {
+			seen := make(map[string]bool)
+			order := make([]string, 0)
+			for _, rawPath := range normalizeStringList(rawOrder) {
+				path, ok := matchRefPath(rawPath, lookup)
+				if !ok || seen[path] {
+					continue
+				}
+				seen[path] = true
+				order = append(order, path)
+			}
+			if len(order) > 0 {
+				next[folderID] = order
+			}
+		}
+		index["folderItemOrderByFolderId"] = next
+	}
+
+	return index
+}
+
+func buildRefPathLookup(paths []string) map[string]string {
+	lookup := make(map[string]string)
+	for _, rawPath := range paths {
+		path := strings.TrimSpace(rawPath)
+		if path == "" {
+			continue
+		}
+		for _, key := range []string{refPathLookupKey(path), refPathLookupKey(refPathBase(path))} {
+			if key != "" {
+				lookup[key] = path
+			}
+		}
+	}
+	return lookup
+}
+
+func matchRefPath(rawPath string, lookup map[string]string) (string, bool) {
+	path := strings.TrimSpace(rawPath)
+	if path == "" {
+		return "", false
+	}
+	if matched, ok := lookup[refPathLookupKey(path)]; ok {
+		return matched, true
+	}
+	matched, ok := lookup[refPathLookupKey(refPathBase(path))]
+	return matched, ok
+}
+
+func refPathLookupKey(path string) string {
+	value := strings.TrimSpace(path)
+	value = strings.TrimPrefix(value, `\\?\`)
+	value = strings.ReplaceAll(value, "\\", "/")
+	return strings.ToLower(value)
+}
+
+func refPathBase(path string) string {
+	value := strings.TrimSpace(path)
+	value = strings.ReplaceAll(value, "\\", "/")
+	value = strings.TrimRight(value, "/")
+	index := strings.LastIndex(value, "/")
+	if index >= 0 {
+		return value[index+1:]
+	}
+	return value
+}
+
+func normalizeStringList(value any) []string {
+	switch items := value.(type) {
+	case []any:
+		out := make([]string, 0, len(items))
+		for _, item := range items {
+			text := strings.TrimSpace(fmt.Sprint(item))
+			if text != "" {
+				out = append(out, text)
+			}
+		}
+		return out
+	case []string:
+		out := make([]string, 0, len(items))
+		for _, item := range items {
+			text := strings.TrimSpace(item)
+			if text != "" {
+				out = append(out, text)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func mergeStringLists(first []string, second []string) []string {
+	out := make([]string, 0, len(first)+len(second))
+	seen := make(map[string]bool)
+	for _, list := range [][]string{first, second} {
+		for _, item := range list {
+			text := strings.TrimSpace(item)
+			if text == "" || seen[text] {
+				continue
+			}
+			seen[text] = true
+			out = append(out, text)
+		}
+	}
+	return out
 }
 
 func nowMs() int64 {
