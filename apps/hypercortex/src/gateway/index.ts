@@ -88,4 +88,9 @@ export async function getHyperCortexGateway(): Promise<HyperCortexGateway> {
   return gatewayCache
 }
 
+export function resetHyperCortexGateway() {
+  gatewayCache = null
+  gatewayPromise = null
+}
+
 export type { DataDirStatus, HyperCortexGateway, HyperCortexHtmlFaceDoc, HyperCortexTrashItem, LegacyDataImportResult } from './types'

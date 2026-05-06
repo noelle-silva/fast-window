@@ -52,7 +52,7 @@ async fn pick_data_dir(
         return Ok(None);
     };
     data_dir::save_data_dir(&app, &path)?;
-    state.stop_sync();
+    state.stop().await;
     state.clear_runtime_state();
     let state_inner = state.inner().clone();
     if let Err(error) = start_backend(app.clone(), state_inner).await {
@@ -60,6 +60,21 @@ async fn pick_data_dir(
         return Err(error);
     }
     Ok(Some(data_dir::data_dir_status(&app, None)))
+}
+
+#[tauri::command]
+async fn restart_backend(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<BackendState>>,
+) -> Result<DataDirStatus, String> {
+    state.stop().await;
+    state.clear_runtime_state();
+    let state_inner = state.inner().clone();
+    if let Err(error) = start_backend(app.clone(), state_inner).await {
+        state.set_runtime_error(error.clone());
+        return Err(error);
+    }
+    Ok(data_dir::data_dir_status(&app, None))
 }
 
 #[tauri::command]
@@ -114,6 +129,7 @@ fn main() {
             backend_endpoint,
             data_dir_status,
             pick_data_dir,
+            restart_backend,
             pick_legacy_data_dir,
             hide_to_tray,
             write_clipboard_text,
