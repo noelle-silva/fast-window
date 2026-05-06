@@ -71,8 +71,8 @@ export function ClipboardView(props: ClipboardViewProps) {
       {bootStatus !== 'ready' || !total ? (
         <EmptyState message={emptyMessage} />
       ) : (
-        <Paper variant="outlined" sx={{ borderRadius: 1.5, overflow: 'hidden' }}>
-          <Stack spacing={0} divider={<Box sx={{ borderTop: 1, borderColor: 'divider' }} />}>
+        <Paper sx={{ borderRadius: 1.5, overflow: 'hidden', boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)' }}>
+          <Stack spacing={0.25}>
             {visible.map(item => (
               <ClipboardCard key={historyKey(item)} item={item} controller={controller} />
             ))}
@@ -221,9 +221,6 @@ function ImageClipboardContent(props: { item: ClipboardHistoryItem; controller: 
           sx={{
             width: '100%',
             minHeight: 120,
-            border: 1,
-            borderStyle: 'dashed',
-            borderColor: 'divider',
             borderRadius: 1.25,
             display: 'flex',
             alignItems: 'center',

@@ -53,8 +53,9 @@ export function StandaloneWindowControls(props: StandaloneWindowControlsProps) {
               color: 'error.contrastText',
             },
             '&:focus-visible': {
-              outline: '2px solid rgba(211,47,47,.35)',
-              outlineOffset: 2,
+              bgcolor: 'error.main',
+              color: 'error.contrastText',
+              boxShadow: '0 0 0 4px rgba(211,47,47,.16)',
             },
           }}
         >

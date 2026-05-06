@@ -3,7 +3,7 @@ import DownloadDoneRoundedIcon from '@mui/icons-material/DownloadDoneRounded'
 import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded'
 import ImportExportRoundedIcon from '@mui/icons-material/ImportExportRounded'
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
-import { Alert, Box, Button, Chip, Collapse, Divider, Paper, Stack, Switch, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Chip, Collapse, Paper, Stack, Switch, TextField, Typography } from '@mui/material'
 import type { ClipboardHistoryController } from '../hooks/useClipboardHistoryController'
 
 type SettingsPanelProps = {
@@ -34,7 +34,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
 
   return (
     <Collapse in={state.showSettings} unmountOnExit>
-      <Paper variant="outlined" sx={{ mb: 1.25, p: 1.25, borderStyle: 'dashed' }}>
+      <Paper sx={{ mb: 1.25, p: 1.25, boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)', bgcolor: 'background.paper' }}>
         <Stack spacing={1.25}>
           <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
             <Typography variant="body2" color="text.secondary" sx={{ width: 120 }}>自动监控</Typography>
@@ -65,8 +65,6 @@ export function SettingsPanel(props: SettingsPanelProps) {
             <Button variant="contained" startIcon={<SaveRoundedIcon fontSize="small" />} onClick={saveSettings}>保存</Button>
           </Box>
 
-          <Divider />
-
           <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
             <Typography variant="body2" color="text.secondary" sx={{ width: 120 }}>数据目录</Typography>
             <Chip
@@ -83,7 +81,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
             <Button startIcon={<ImportExportRoundedIcon fontSize="small" />} onClick={() => void controller.importLegacyData()}>导入旧插件数据</Button>
           </Stack>
 
-          <Alert severity="info" variant="outlined" sx={{ py: 0.25 }}>
+          <Alert severity="info" sx={{ py: 0.25 }}>
             导入需要手动选择旧数据目录；导入前会备份当前数据。
           </Alert>
 

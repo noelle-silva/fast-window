@@ -6,7 +6,7 @@ import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
 import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
-import { Box, Button, ClickAwayListener, Divider, IconButton, InputAdornment, Paper, TextField } from '@mui/material'
+import { Box, Button, ClickAwayListener, IconButton, InputAdornment, Paper, TextField } from '@mui/material'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import { StandaloneWindowControls } from './StandaloneWindowControls'
 import type { ClipboardHistoryController } from '../hooks/useClipboardHistoryController'
@@ -39,14 +39,12 @@ export function Topbar(props: TopbarProps) {
       sx={{
         height: 44,
         bgcolor: 'background.paper',
-        borderBottom: 1,
-        borderColor: 'divider',
         display: 'grid',
         gridTemplateColumns: { xs: 'auto minmax(120px, 1fr) auto', sm: '1fr minmax(240px, 420px) 1fr' },
         alignItems: 'center',
         columnGap: 1,
         px: 1.25,
-        boxShadow: 1,
+        boxShadow: '0 10px 24px rgba(15, 23, 42, 0.06)',
         flexShrink: 0,
         userSelect: 'none',
       }}
@@ -55,7 +53,6 @@ export function Topbar(props: TopbarProps) {
         <IconButton size="small" aria-label="返回主页" title="返回主页" onClick={() => run(controller.host.back)}>
           <ArrowBackRoundedIcon fontSize="small" />
         </IconButton>
-        <Divider orientation="vertical" flexItem sx={{ mx: 0.25 }} />
         <IconButton
           size="small"
           aria-label="剪贴板历史"
@@ -150,16 +147,15 @@ function ClipboardTopbarActions(props: TopbarProps) {
             最近收藏夹
           </Button>
           {state.showRecentMenu ? (
-            <Paper sx={{ position: 'absolute', top: 36, right: 0, minWidth: 280, overflow: 'hidden', zIndex: 30 }}>
+            <Paper sx={{ position: 'absolute', top: 36, right: 0, minWidth: 280, overflow: 'hidden', zIndex: 30, boxShadow: 8 }}>
               <Box sx={{ px: 1.5, py: 1, color: 'text.secondary', fontSize: 12 }}>最近打开（最多10个）</Box>
-              <Divider />
               {state.recentFolders.filter(controller.isFolder).length ? (
                 state.recentFolders.filter(controller.isFolder).map(id => (
                   <Button
                     key={id}
                     fullWidth
                     startIcon={<FolderOutlinedIcon fontSize="small" />}
-                    sx={{ justifyContent: 'flex-start', border: 0, borderRadius: 0, px: 1.5 }}
+                    sx={{ justifyContent: 'flex-start', borderRadius: 0, px: 1.5 }}
                     onClick={() => controller.openRecentFolder(id)}
                   >
                     {controller.folderLabelById(id)}
@@ -179,13 +175,12 @@ function ClipboardTopbarActions(props: TopbarProps) {
             <MoreVertRoundedIcon fontSize="small" />
           </IconButton>
           {state.showMoreMenu ? (
-            <Paper sx={{ position: 'absolute', top: 36, right: 0, minWidth: 220, overflow: 'hidden', zIndex: 30 }}>
+            <Paper sx={{ position: 'absolute', top: 36, right: 0, minWidth: 220, overflow: 'hidden', zIndex: 30, boxShadow: 8 }}>
               <Box sx={{ px: 1.5, py: 1, color: 'text.secondary', fontSize: 12 }}>更多</Box>
-              <Divider />
               <Button
                 fullWidth
                 startIcon={<SettingsOutlinedIcon fontSize="small" />}
-                sx={{ justifyContent: 'flex-start', border: 0, borderRadius: 0, px: 1.5 }}
+                sx={{ justifyContent: 'flex-start', borderRadius: 0, px: 1.5 }}
                 onClick={controller.toggleSettings}
               >
                 设置
@@ -194,7 +189,7 @@ function ClipboardTopbarActions(props: TopbarProps) {
                 fullWidth
                 color="error"
                 startIcon={<DeleteOutlineRoundedIcon fontSize="small" />}
-                sx={{ justifyContent: 'flex-start', border: 0, borderRadius: 0, px: 1.5 }}
+                sx={{ justifyContent: 'flex-start', borderRadius: 0, px: 1.5 }}
                 onClick={() => void controller.clearHistory()}
               >
                 清空历史

@@ -50,10 +50,9 @@ function FoldersSubbar(props: FoldersViewProps) {
 
   return (
     <Paper
-      variant="outlined"
       sx={{
         p: 1.25,
-        boxShadow: 3,
+        boxShadow: '0 12px 30px rgba(15, 23, 42, 0.08)',
         position: 'sticky',
         top: 0,
         zIndex: 20,
@@ -125,8 +124,8 @@ function FolderList(props: FoldersViewProps) {
   if (query) {
     if (!results.length) return <EmptyState message="没有匹配的内容" />
     return (
-      <Paper variant="outlined" sx={{ borderRadius: 1.5, overflow: 'hidden' }}>
-        <Stack spacing={0} divider={<Box sx={{ borderTop: 1, borderColor: 'divider' }} />}>
+      <Paper sx={{ borderRadius: 1.5, overflow: 'hidden', boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)' }}>
+        <Stack spacing={0.25}>
           {results.map(({ item, folderId, path }) => (
             <SearchResultCard key={item.id} item={item} folderId={folderId} path={path} controller={controller} />
           ))}
@@ -138,10 +137,10 @@ function FolderList(props: FoldersViewProps) {
   if (!children.length) return <EmptyState message="当前收藏夹为空" />
 
   return (
-    <Paper variant="outlined" sx={{ borderRadius: 1.5, overflow: 'hidden' }}>
+    <Paper sx={{ borderRadius: 1.5, overflow: 'hidden', boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)' }}>
       <SortableRoot onMove={handleMove}>
         <SortableSection items={childIds}>
-          <Stack spacing={0} divider={<Box sx={{ borderTop: 1, borderColor: 'divider' }} />}>
+          <Stack spacing={0.25}>
             {sortedChildren.map(node => (
               <SortableItem key={node.id} id={node.id}>
                 {(sortable) => <FolderCard node={node} controller={controller} sortable={sortable} />}

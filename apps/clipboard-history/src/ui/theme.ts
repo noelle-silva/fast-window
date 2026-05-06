@@ -35,7 +35,7 @@ export const clipboardHistoryTheme = createTheme({
     MuiButton: {
       defaultProps: {
         size: 'small',
-        variant: 'outlined',
+        variant: 'text',
       },
       styleOverrides: {
         root: {

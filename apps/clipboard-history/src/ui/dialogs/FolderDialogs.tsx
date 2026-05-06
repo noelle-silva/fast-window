@@ -4,7 +4,7 @@ import DriveFileMoveRoundedIcon from '@mui/icons-material/DriveFileMoveRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
 import NoteAddRoundedIcon from '@mui/icons-material/NoteAddRounded'
-import { Box, Button, ClickAwayListener, Dialog, DialogActions, DialogContent, DialogTitle, Divider, List, ListItemButton, ListItemIcon, ListItemText, Paper, Stack, TextField, Typography } from '@mui/material'
+import { Box, Button, ClickAwayListener, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItemButton, ListItemIcon, ListItemText, Paper, Stack, TextField, Typography } from '@mui/material'
 import type { CollectionFolderNode } from '../../shared/types'
 import type { ClipboardHistoryController } from '../hooks/useClipboardHistoryController'
 
@@ -148,7 +148,7 @@ function FolderContextMenu(props: FolderDialogsProps) {
         <Button
           fullWidth
           startIcon={<EditRoundedIcon fontSize="small" />}
-          sx={{ justifyContent: 'flex-start', border: 0, borderRadius: 0, px: 1.5 }}
+          sx={{ justifyContent: 'flex-start', borderRadius: 0, px: 1.5 }}
           onClick={() => controller.openEditDialog(node.id)}
         >
           编辑
@@ -157,7 +157,7 @@ function FolderContextMenu(props: FolderDialogsProps) {
           <Button
             fullWidth
             startIcon={<ContentCopyRoundedIcon fontSize="small" />}
-            sx={{ justifyContent: 'flex-start', border: 0, borderRadius: 0, px: 1.5 }}
+            sx={{ justifyContent: 'flex-start', borderRadius: 0, px: 1.5 }}
             onClick={() => controller.openMovePicker(node.id, 'copy')}
           >
             复制到...
@@ -166,7 +166,7 @@ function FolderContextMenu(props: FolderDialogsProps) {
         <Button
           fullWidth
           startIcon={<DriveFileMoveRoundedIcon fontSize="small" />}
-          sx={{ justifyContent: 'flex-start', border: 0, borderRadius: 0, px: 1.5 }}
+          sx={{ justifyContent: 'flex-start', borderRadius: 0, px: 1.5 }}
           onClick={() => controller.openMovePicker(node.id, 'move')}
         >
           移动到...
@@ -260,14 +260,13 @@ function MovePickerDialog(props: FolderDialogsProps) {
             value={movePicker.query}
             onChange={(event) => controller.setMovePickerQuery(event.target.value)}
           />
-          <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
+          <Paper sx={{ overflow: 'hidden', bgcolor: 'action.hover', boxShadow: 'none' }}>
             {!folders.length ? (
               <Box sx={{ px: 1.5, py: 1, color: 'text.secondary', fontSize: 12 }}>没有可用的目标收藏夹</Box>
             ) : (
               <List dense disablePadding sx={{ maxHeight: '42vh', overflow: 'auto' }}>
-                {folders.map((folder, index) => (
+                {folders.map((folder) => (
                   <React.Fragment key={folder.id}>
-                    {index ? <Divider /> : null}
                     <ListItemButton onClick={() => void controller.pickMoveTarget(folder.id)}>
                       <ListItemIcon sx={{ minWidth: 32 }}>
                         <FolderRoundedIcon fontSize="small" />
