@@ -1,8 +1,8 @@
-use crate::domain::{ensure_collections, normalize_deleted_map, normalize_history_items, normalize_settings};
-use crate::migrations;
+use crate::data_contract::{META_FILE_NAME, STORAGE_SCHEMA_VERSION};
+use crate::domain::{ensure_collections, normalize_deleted_map, normalize_history_items, normalize_settings, now_ms};
 use crate::model::{ClipboardHistoryItem, ClipboardHistorySettings, CollectionsDoc, DeletedHistoryMap};
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -16,7 +16,8 @@ impl Store {
     }
 
     pub fn ensure_ready(&self) -> Result<(), String> {
-        migrations::ensure_baseline(&self.root)
+        fs::create_dir_all(&self.root).map_err(|e| format!("创建数据目录失败: {e}"))?;
+        self.write_meta()
     }
 
     pub fn root(&self) -> &Path {
@@ -86,7 +87,20 @@ impl Store {
     }
 
     fn write_meta(&self) -> Result<(), String> {
-        migrations::write_meta(&self.root)
+        let path = self.root.join(META_FILE_NAME);
+        let mut meta = read_meta_object(&path).unwrap_or_default();
+        meta.insert("schemaVersion".to_string(), Value::from(STORAGE_SCHEMA_VERSION));
+        meta.insert("updatedAt".to_string(), Value::from(now_ms()));
+        meta.remove("dataVersion");
+        atomic_write_json(&path, &Value::Object(meta))
+    }
+}
+
+fn read_meta_object(path: &Path) -> Option<Map<String, Value>> {
+    let raw = fs::read_to_string(path).ok()?;
+    match serde_json::from_str::<Value>(raw.trim()).ok()? {
+        Value::Object(map) => Some(map),
+        _ => None,
     }
 }
 

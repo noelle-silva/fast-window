@@ -1,8 +1,8 @@
 mod clipboard;
+mod data_contract;
 mod domain;
 mod image_store;
 mod legacy_import;
-mod migrations;
 mod model;
 mod server;
 mod service;
@@ -29,7 +29,7 @@ fn run() -> Result<(), String> {
         return Err("FW_APP_SESSION_TOKEN 未设置".to_string());
     }
 
-    let output_dir = data_dir.join("images");
+    let output_dir = data_contract::output_images_dir(&data_dir);
     let service = Arc::new(Mutex::new(ClipboardHistoryService::warmup(Store::new(data_dir), output_dir)?));
     start_monitor(service.clone());
     let url = server::start_server(service, token)?;

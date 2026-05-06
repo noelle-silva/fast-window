@@ -1,4 +1,6 @@
+use crate::data_contract::{image_data_dirs, image_lookup_dirs, STORAGE_FILES};
 use crate::domain::{ensure_collections, normalize_deleted_map, normalize_history_items, normalize_settings, now_ms};
+use crate::image_store::managed_clipboard_image_file_name_from_reference;
 use crate::model::{ClipboardHistoryItem, ClipboardHistorySettings, CollectionsDoc, DeletedHistoryMap};
 use crate::store::Store;
 use serde::Serialize;
@@ -6,14 +8,6 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-const IMPORT_KEYS: [(&str, &str); 5] = [
-    ("history", "history.json"),
-    ("settings", "settings.json"),
-    ("deletedHistory", "deletedHistory.json"),
-    ("collections", "collections.json"),
-    ("recentFolders", "recentFolders.json"),
-];
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -101,7 +95,7 @@ fn read_legacy_payload(source_root: &Path) -> Result<LegacyPayload, String> {
 
     read_legacy_pack(source_root, &mut values, &mut imported_files)?;
 
-    for (key, file_name) in IMPORT_KEYS {
+    for (key, file_name) in STORAGE_FILES {
         let path = source_root.join(file_name);
         if !path.is_file() {
             continue;
@@ -125,7 +119,7 @@ fn read_legacy_pack(source_root: &Path, values: &mut BTreeMap<String, Value>, im
         let Value::Object(map) = read_json(&path)? else {
             continue;
         };
-        for (key, _) in IMPORT_KEYS {
+        for (key, _) in STORAGE_FILES {
             if let Some(value) = map.get(key) {
                 values.insert(key.to_string(), value.clone());
             }
@@ -165,22 +159,25 @@ fn backup_current_data(root: &Path) -> Result<Option<PathBuf>, String> {
         return Ok(None);
     }
 
-    let has_data = IMPORT_KEYS.iter().any(|(_, file)| root.join(file).is_file()) || root.join("images").is_dir();
+    let has_data = STORAGE_FILES.iter().any(|(_, file)| root.join(file).is_file())
+        || image_data_dirs(root).iter().any(|dir| dir.is_dir());
     if !has_data {
         return Ok(None);
     }
 
     let backup_dir = root.join(format!("_backup-legacy-import-{}", now_ms()));
     fs::create_dir_all(&backup_dir).map_err(|e| format!("创建导入备份失败: {e}"))?;
-    for (_, file_name) in IMPORT_KEYS {
+    for (_, file_name) in STORAGE_FILES {
         let from = root.join(file_name);
         if from.is_file() {
             fs::copy(&from, backup_dir.join(file_name)).map_err(|e| format!("备份 {file_name} 失败: {e}"))?;
         }
     }
-    let images_dir = root.join("images");
-    if images_dir.is_dir() {
-        copy_dir(&images_dir, &backup_dir.join("images"))?;
+    for images_dir in image_data_dirs(root) {
+        if images_dir.is_dir() {
+            let Some(name) = images_dir.file_name() else { continue };
+            copy_dir(&images_dir, &backup_dir.join(name))?;
+        }
     }
     Ok(Some(backup_dir))
 }
@@ -214,7 +211,8 @@ fn rewrite_history_images(
             }
 
             let requested = item.path.as_deref().unwrap_or(&item.content);
-            let Some(file_name) = managed_image_file_name(requested).or_else(|| image_name_from_content(&item.content)) else {
+            let Some(file_name) = managed_clipboard_image_file_name_from_reference(requested)
+                .or_else(|| managed_clipboard_image_file_name_from_reference(&item.content)) else {
                 return item;
             };
             let Some(source_file) = find_source_image(source_root, requested, &file_name) else {
@@ -237,11 +235,14 @@ fn rewrite_history_images(
 fn find_source_image(source_root: &Path, requested: &str, file_name: &str) -> Option<PathBuf> {
     let mut candidates = Vec::new();
     let raw = PathBuf::from(requested.trim());
-    if raw.is_relative() && !raw.as_os_str().is_empty() {
+    if raw.is_absolute() {
+        candidates.push(raw.clone());
+    } else if !raw.as_os_str().is_empty() {
         candidates.push(source_root.join(&raw));
     }
-    candidates.push(source_root.join("images").join(file_name));
-    candidates.push(source_root.join(file_name));
+    for images_dir in image_lookup_dirs(source_root) {
+        candidates.push(images_dir.join(file_name));
+    }
 
     for candidate in candidates {
         let Ok(canonical) = candidate.canonicalize() else {
@@ -249,27 +250,6 @@ fn find_source_image(source_root: &Path, requested: &str, file_name: &str) -> Op
         };
         if canonical.is_file() && canonical.starts_with(source_root) {
             return Some(canonical);
-        }
-    }
-    None
-}
-
-fn image_name_from_content(content: &str) -> Option<String> {
-    let value = content.trim();
-    let hash = value.strip_prefix("img:")?;
-    if is_8_hex(hash) {
-        Some(format!("clipboard-image-{hash}.png"))
-    } else {
-        None
-    }
-}
-
-fn managed_image_file_name(path: &str) -> Option<String> {
-    let name = path.replace('\\', "/").split('/').last()?.to_ascii_lowercase();
-    if name.starts_with("clipboard-image-") && name.ends_with(".png") && name.len() == "clipboard-image-00000000.png".len() {
-        let hash = &name["clipboard-image-".len().."clipboard-image-00000000".len()];
-        if is_8_hex(hash) {
-            return Some(name);
         }
     }
     None
