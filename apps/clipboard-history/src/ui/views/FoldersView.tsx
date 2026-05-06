@@ -12,6 +12,13 @@ import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import { Box, Breadcrumbs, Button, Chip, IconButton, Paper, Stack, TextField, Typography } from '@mui/material'
 import type { CollectionItemNode, CollectionNode } from '../../shared/types'
 import { EmptyState } from '../components/EmptyState'
+import {
+  resolveSortMovePosition,
+  SortableItem,
+  type SortableItemRenderArgs,
+  SortableRoot,
+  SortableSection,
+} from '../components/SortableDnd'
 import type { ClipboardHistoryController } from '../hooks/useClipboardHistoryController'
 
 type FoldersViewProps = {
@@ -125,7 +132,20 @@ function FolderList(props: FoldersViewProps) {
   const query = state.folderSearchQuery.trim()
   const results = query ? controller.searchItems(query, state.folderSearchScope) : []
   const children = query ? [] : controller.listChildren(state.currentFolderId)
-  const dragState = React.useRef<{ movingId: string; overId: string; before: boolean } | null>(null)
+  const childIds = React.useMemo(() => children.map(node => node.id), [children])
+
+  const handleMove = React.useCallback((activeId: string, overId: string) => {
+    const position = resolveSortMovePosition(childIds, activeId, overId)
+    if (!position) return
+    const movingIndex = childIds.indexOf(activeId)
+    let toIndex = childIds.indexOf(overId)
+    if (movingIndex < 0 || toIndex < 0) return
+    if (position === 'after') toIndex += 1
+    if (movingIndex < toIndex) toIndex -= 1
+    if (toIndex === movingIndex) return
+    void controller.moveNode(activeId, state.currentFolderId, toIndex)
+      .catch(error => controller.host.toast(String((error as any)?.message || error || '移动失败')))
+  }, [childIds, controller, state.currentFolderId])
 
   if (query) {
     if (!results.length) return <EmptyState message="没有匹配的内容" />
@@ -144,40 +164,17 @@ function FolderList(props: FoldersViewProps) {
 
   return (
     <Paper variant="outlined" sx={{ borderRadius: 1.5, overflow: 'hidden' }}>
-      <Stack spacing={0} divider={<Box sx={{ borderTop: 1, borderColor: 'divider' }} />}>
-        {children.map((node, index) => (
-          <FolderCard
-            key={node.id}
-            node={node}
-            controller={controller}
-            onDragStart={(movingId) => {
-              dragState.current = { movingId, overId: '', before: false }
-            }}
-            onDragOver={(event, overId) => {
-              const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-              dragState.current = {
-                movingId: dragState.current?.movingId || '',
-                overId,
-                before: event.clientY < rect.top + rect.height / 2,
-              }
-              event.preventDefault()
-            }}
-            onDragEnd={() => {
-              const drag = dragState.current
-              dragState.current = null
-              if (!drag?.movingId) return
-              let toIndex = drag.overId ? children.findIndex(n => n.id === drag.overId) : children.length
-              if (toIndex < 0) toIndex = children.length
-              if (!drag.before) toIndex += 1
-              const movingIndex = children.findIndex(n => n.id === drag.movingId)
-              if (movingIndex >= 0 && movingIndex < toIndex) toIndex -= 1
-              if (toIndex === movingIndex) return
-              void controller.moveNode(drag.movingId, state.currentFolderId, toIndex)
-                .catch(error => controller.host.toast(String((error as any)?.message || error || '移动失败')))
-            }}
-          />
-        ))}
-      </Stack>
+      <SortableRoot onMove={handleMove}>
+        <SortableSection items={childIds}>
+          <Stack spacing={0} divider={<Box sx={{ borderTop: 1, borderColor: 'divider' }} />}>
+            {children.map(node => (
+              <SortableItem key={node.id} id={node.id}>
+                {(sortable) => <FolderCard node={node} controller={controller} sortable={sortable} />}
+              </SortableItem>
+            ))}
+          </Stack>
+        </SortableSection>
+      </SortableRoot>
     </Paper>
   )
 }
@@ -213,24 +210,17 @@ function SearchResultCard(props: { item: CollectionItemNode; folderId: string; p
 function FolderCard(props: {
   node: CollectionNode
   controller: ClipboardHistoryController
-  onDragStart(movingId: string): void
-  onDragOver(event: React.DragEvent<HTMLDivElement>, overId: string): void
-  onDragEnd(): void
+  sortable: SortableItemRenderArgs
 }) {
-  const { node, controller } = props
+  const { node, controller, sortable } = props
   const armed = controller.isDeleteArmed(node.id)
 
   return (
     <Box
+      ref={sortable.setNodeRef}
       role="button"
       tabIndex={0}
-      draggable
-      onDragStart={(event) => {
-        event.dataTransfer.effectAllowed = 'move'
-        props.onDragStart(node.id)
-      }}
-      onDragOver={(event) => props.onDragOver(event, node.id)}
-      onDragEnd={props.onDragEnd}
+      style={sortable.style}
       onContextMenu={(event) => {
         event.preventDefault()
         controller.setContextMenu(true, node.id, event.clientX, event.clientY)
@@ -239,10 +229,27 @@ function FolderCard(props: {
         if (node.type === 'folder') controller.navigateFolder(node.id)
         else void controller.copyFolderItem(node.id)
       }}
-      sx={{ p: 1.25, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+      sx={{
+        p: 1.25,
+        cursor: 'pointer',
+        bgcolor: sortable.isDragging ? 'action.selected' : undefined,
+        opacity: sortable.isDragging ? 0.82 : 1,
+        position: 'relative',
+        '&:hover': { bgcolor: 'action.hover' },
+      }}
     >
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: node.type === 'item' ? 0.75 : 0 }}>
-        <Chip size="small" icon={<DragIndicatorRoundedIcon fontSize="small" />} label="" title="拖拽排序" sx={{ cursor: 'grab', width: 32, '& .MuiChip-label': { display: 'none' } }} />
+        <IconButton
+          ref={sortable.setHandleRef}
+          size="small"
+          title="拖拽排序"
+          aria-label="拖拽排序"
+          onClick={(event) => event.stopPropagation()}
+          sx={{ cursor: sortable.isDragging ? 'grabbing' : 'grab' }}
+          {...sortable.handleProps}
+        >
+          <DragIndicatorRoundedIcon fontSize="small" />
+        </IconButton>
         {node.type === 'folder' ? (
           <>
             <Chip size="small" icon={<FolderRoundedIcon fontSize="small" />} label="" sx={{ '& .MuiChip-label': { display: 'none' } }} />
