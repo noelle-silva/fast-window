@@ -2,7 +2,7 @@ import * as React from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { AiDrawApp } from '../ui/App'
+import { AiDrawApp, type AiDrawRuntimeCommand } from '../ui/App'
 import { createAiDrawDirectGateway } from '../gateway/createAiDrawDirectGateway'
 import type { AiDrawGateway, AiDrawWindowControlActions } from '../gateway/types'
 import { AI_DRAW_DIRECT_PROTOCOL_VERSION } from '../shared/protocol'
@@ -33,8 +33,6 @@ const WINDOW_CONTROL_ACTIONS: AiDrawWindowControlActions = {
 }
 
 const COMMAND_LABELS: Record<string, string> = {
-  'open-draw': '打开 AI 绘图',
-  'new-generation': '新建绘图',
   'provider-settings': '绘图供应商设置',
 }
 
@@ -47,11 +45,12 @@ function commandLabel(command: string | null | undefined) {
 export function App() {
   const [bootStatus, setBootStatus] = React.useState<BootStatus>('booting')
   const [bootError, setBootError] = React.useState('')
-  const [pendingCommand, setPendingCommand] = React.useState<string | null>(null)
+  const [pendingCommand, setPendingCommand] = React.useState<AiDrawRuntimeCommand | null>(null)
   const [gateway, setGateway] = React.useState<AiDrawGateway | null>(null)
   const [toast, setToast] = React.useState<ToastMessage | null>(null)
   const gatewayRef = React.useRef<AiDrawGateway | null>(null)
   const toastSeqRef = React.useRef(0)
+  const commandSeqRef = React.useRef(0)
 
   const showToast = React.useCallback((message: unknown) => {
     const text = String((message as any)?.message || message || '').trim()
@@ -62,26 +61,13 @@ export function App() {
   const handleCommand = React.useCallback((command: string | null | undefined) => {
     const id = String(command || '').trim()
     if (!id) return
-    setPendingCommand(id)
+    setPendingCommand({ id, seq: ++commandSeqRef.current })
   }, [])
 
-  React.useEffect(() => {
-    if (bootStatus !== 'ready' || !pendingCommand) return
-    const command = pendingCommand
-    setPendingCommand(null)
+  const handleCommandHandled = React.useCallback((seq: number) => {
+    setPendingCommand(current => current?.seq === seq ? null : current)
+  }, [])
 
-    if (command === 'open-draw') return
-    if (command === 'new-generation') {
-      showToast('已打开 AI 绘图')
-      return
-    }
-    if (command === 'provider-settings') {
-      showToast('请从右上角设置进入供应商配置')
-      return
-    }
-
-    showToast(`未知命令：${command}`)
-  }, [bootStatus, pendingCommand, showToast])
 
   React.useEffect(() => {
     let disposed = false
@@ -145,9 +131,9 @@ export function App() {
   return (
     <div className="appShell">
       {gateway && bootStatus === 'ready' ? (
-        <AiDrawApp gateway={gateway} />
+        <AiDrawApp gateway={gateway} command={pendingCommand} onCommandHandled={handleCommandHandled} />
       ) : (
-        <BootFallback status={bootStatus} issue={bootError} pendingCommand={commandLabel(pendingCommand)} />
+        <BootFallback status={bootStatus} issue={bootError} pendingCommand={commandLabel(pendingCommand?.id)} />
       )}
       {toast ? <div className="toast" role="status" aria-live="polite">{toast.text}</div> : null}
     </div>

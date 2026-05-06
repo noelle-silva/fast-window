@@ -48,20 +48,10 @@ struct ControlRequest {
 }
 
 pub(crate) fn available_commands() -> Vec<AppCommandDescriptor> {
-    vec![
-        AppCommandDescriptor {
-            id: "open-draw",
-            title: "打开 AI 绘图",
-        },
-        AppCommandDescriptor {
-            id: "new-generation",
-            title: "新建绘图",
-        },
-        AppCommandDescriptor {
-            id: "provider-settings",
-            title: "绘图供应商设置",
-        },
-    ]
+    vec![AppCommandDescriptor {
+        id: "provider-settings",
+        title: "绘图供应商设置",
+    }]
 }
 
 pub(crate) fn session_token() -> String {

@@ -87,6 +87,7 @@ type LightboxState =
   | { open: true; kind: 'outputGallery'; paths: string[]; index: number }
 
 type SettingsTab = 'provider' | 'draw'
+export type AiDrawRuntimeCommand = { id: string; seq: number }
 
 function useAiDrawController(gateway: AiDrawGateway) {
   const controller = React.useMemo(() => createAiDrawController(gateway), [gateway])
@@ -311,8 +312,8 @@ function EditImageSelector(props: {
   )
 }
 
-export function AiDrawApp(props: { gateway: AiDrawGateway }) {
-  const { gateway } = props
+export function AiDrawApp(props: { gateway: AiDrawGateway; command?: AiDrawRuntimeCommand | null; onCommandHandled?: (seq: number) => void }) {
+  const { gateway, command, onCommandHandled } = props
   const { host, clipboard } = gateway
   const windowControls = gateway.windowControls
   const theme = React.useMemo(() => createClaudeTheme(), [])
@@ -415,8 +416,69 @@ export function AiDrawApp(props: { gateway: AiDrawGateway }) {
   const [providerDraft, setProviderDraft] = React.useState<ProviderDraft | null>(null)
   const [drawSettingsDraft, setDrawSettingsDraft] = React.useState<any>(null)
   const [debugDialogOpen, setDebugDialogOpen] = React.useState(false)
+  const promptInputRef = React.useRef<HTMLTextAreaElement | null>(null)
 
   const [lightbox, setLightbox] = React.useState<LightboxState>({ open: false })
+
+  const closeTransientPanels = React.useCallback(() => {
+    setPromptLibOpen(false)
+    setPromptHistoryOpen(false)
+    setPromptHistoryMultiMode(false)
+    setPromptHistorySelectedTexts([])
+    setPromptHistoryDeleteConfirm({ open: false, texts: [] })
+    setPromptHistoryItemMenu({ open: false, x: 0, y: 0, text: '' })
+    setRefLibraryOpen(false)
+    setImageGalleryOpen(false)
+    setImageGalleryMultiMode(false)
+    setImageGallerySelectedPaths([])
+    setImageGalleryDeleteConfirm({ open: false, paths: [] })
+    setImageDetailAnchorEl(null)
+    setNormalMoreAnchorEl(null)
+    setDeleteConfirmOpen(false)
+    setTaskAnchorEl(null)
+    setTaskHistoryOpen(false)
+    setTaskHistoryMenuAnchorEl(null)
+    setTaskHistoryClearConfirmOpen(false)
+    setProviderDeleteConfirm({ open: false, providerId: '', name: '' })
+    setRefLibraryItemMenu({ el: null, path: '' })
+    setRefFolderMenu({ folderId: '', x: 0, y: 0, name: '' })
+    setAddRefFolderDialog({ open: false, parentId: null, name: '' })
+    setRenameRefFolderDialog({ open: false, folderId: '', name: '' })
+    setDeleteRefFolderConfirm({ open: false, folderId: '', name: '' })
+    setAssignRefFolderDialog({ open: false, mode: 'set', paths: [], folderIds: [] })
+    setRefMultiMode(false)
+    setRefSelectedPaths([])
+    setRefMultiDeleteConfirm({ open: false, paths: [] })
+    setPromptFolderMenu({ folderId: '', x: 0, y: 0, name: '' })
+    setRenamePromptFolderDialog({ open: false, folderId: '', name: '' })
+    setDeletePromptFolderConfirm({ open: false, folderId: '', name: '' })
+    setPromptItemMenu({ el: null, folderId: '', promptId: '' })
+    setDeletePromptConfirm({ open: false, folderId: '', promptId: '' })
+    setAddPromptItemDialog({ open: false, text: '' })
+    setDebugDialogOpen(false)
+    setLightbox({ open: false })
+  }, [])
+
+  const openProviderSettings = React.useCallback(() => {
+    closeTransientPanels()
+    setSettingsTab('provider')
+    setSettingsOpen(true)
+  }, [closeTransientPanels])
+
+  React.useEffect(() => {
+    const commandId = String(command?.id || '').trim()
+    if (!commandId) return
+    if (state.loading) return
+
+    if (commandId === 'provider-settings') {
+      openProviderSettings()
+      onCommandHandled?.(command!.seq)
+      return
+    }
+
+    host.toast(`未知命令：${commandId}`)
+    onCommandHandled?.(command!.seq)
+  }, [command, state.loading, host, onCommandHandled, openProviderSettings])
 
   React.useEffect(() => {
     if (!settingsOpen) return
@@ -978,10 +1040,7 @@ export function AiDrawApp(props: { gateway: AiDrawGateway }) {
             <Tooltip title="设置">
               <IconButton
                 size="small"
-                onClick={() => {
-                  setSettingsTab('provider')
-                  setSettingsOpen(true)
-                }}
+                onClick={openProviderSettings}
                 aria-label="打开设置"
               >
                 <SettingsRoundedIcon fontSize="small" />
@@ -1072,6 +1131,7 @@ export function AiDrawApp(props: { gateway: AiDrawGateway }) {
               multiline
               rows={9}
               placeholder={uiMode === UI_MODE_LOCAL_EDIT ? '例如：把选区改成落日油画风，保持结构不变…' : '例如：一只橘猫坐在书桌前，暖色调，插画风…'}
+              inputRef={promptInputRef}
             />
 
             <Stack direction="row" spacing={1} alignItems="center">
