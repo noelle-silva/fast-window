@@ -3109,16 +3109,11 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
         >
           <Toolbar
             variant="dense"
-            data-tauri-drag-region="true"
             sx={{
               gap: 0.5,
               minHeight: 40,
               px: 1,
               '&.MuiToolbar-root': { minHeight: 40 },
-              WebkitAppRegion: 'drag',
-              '& button, & a, & input, & textarea, & select, & [role="button"], & [data-window-controls="true"]': {
-                WebkitAppRegion: 'no-drag',
-              },
             }}
             onPointerDown={onTopbarPointerDown}
           >

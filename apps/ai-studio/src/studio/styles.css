@@ -57,14 +57,7 @@ textarea {
   border-radius: 16px;
   box-shadow: 0 12px 36px rgba(41, 51, 82, 0.08);
   backdrop-filter: blur(18px);
-  -webkit-app-region: drag;
   user-select: none;
-}
-
-.bootFallbackTopbar button,
-.bootFallbackTopbar [role="button"],
-.bootFallbackTopbar [data-window-controls="true"] {
-  -webkit-app-region: no-drag;
 }
 
 .bootFallbackBrand {

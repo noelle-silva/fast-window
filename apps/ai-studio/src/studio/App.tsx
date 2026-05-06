@@ -229,9 +229,17 @@ function BootFallback(props: {
 }) {
   const { status, issue, pendingCommand, standalone, windowControlActions, onPickDataDir } = props
   const title = issue ? 'AI Studio 启动遇到问题' : 'AI Studio 正在启动'
+  const onTopbarPointerDown = React.useCallback((event: React.PointerEvent<HTMLElement>) => {
+    if (event.button !== 0) return
+    const target = event.target
+    if (!(target instanceof HTMLElement)) return
+    if (target.closest('button, a, input, textarea, select, [role="button"], [data-window-controls="true"]')) return
+    void TAURI_WINDOW.startDragging().catch(() => {})
+  }, [])
+
   return (
     <main className="bootFallback" role={issue ? 'alert' : 'status'} aria-live="polite">
-      <header className="bootFallbackTopbar" data-tauri-drag-region="true">
+      <header className="bootFallbackTopbar" onPointerDown={onTopbarPointerDown}>
         <div className="bootFallbackBrand">AI Studio</div>
         {standalone ? <StandaloneWindowControls actions={windowControlActions} /> : null}
       </header>

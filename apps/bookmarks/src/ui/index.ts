@@ -100,17 +100,17 @@ function render() {
   const css = `
     *{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#FAFAFA;color:#212121}
     .wrap{height:100vh;display:flex;flex-direction:column}
-    .topbar{height:44px;background:#fff;border-bottom:1px solid #E0E0E0;display:flex;align-items:center;gap:8px;padding:0 10px;box-shadow:0 1px 3px rgba(0,0,0,.12);-webkit-app-region:drag;user-select:none}
+    .topbar{height:44px;background:#fff;border-bottom:1px solid #E0E0E0;display:flex;align-items:center;gap:8px;padding:0 10px;box-shadow:0 1px 3px rgba(0,0,0,.12);user-select:none}
     .title{font-weight:800;font-size:13px;margin-right:auto}
-    .btn{border:1px solid #E0E0E0;background:#fff;color:#212121;height:30px;padding:0 10px;border-radius:8px;cursor:pointer;font-size:12px;-webkit-app-region:no-drag}
+    .btn{border:1px solid #E0E0E0;background:#fff;color:#212121;height:30px;padding:0 10px;border-radius:8px;cursor:pointer;font-size:12px}
     .btn.primary{border-color:transparent;background:#1976D2;color:#fff}
     .btn.danger{border-color:transparent;background:#D32F2F;color:#fff}
     .btn[disabled]{opacity:.55;cursor:not-allowed}
-    .iconBtn{width:30px;height:30px;border:1px solid #E0E0E0;background:#fff;color:#424242;border-radius:8px;cursor:pointer;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;-webkit-app-region:no-drag;position:relative}
+    .iconBtn{width:30px;height:30px;border:1px solid #E0E0E0;background:#fff;color:#424242;border-radius:8px;cursor:pointer;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;position:relative}
     .iconBtn:hover{background:rgba(0,0,0,.06)}
     .iconBtn.warn::after{content:"";position:absolute;right:5px;top:5px;width:7px;height:7px;border-radius:999px;background:#D32F2F;box-shadow:0 0 0 2px #fff}
-    .windowControls{display:flex;align-items:center;gap:4px;-webkit-app-region:no-drag}
-    .windowBtn{width:30px;height:30px;border:0;background:transparent;color:#424242;border-radius:8px;cursor:pointer;font-size:14px;line-height:30px;text-align:center;-webkit-app-region:no-drag}
+    .windowControls{display:flex;align-items:center;gap:4px}
+    .windowBtn{width:30px;height:30px;border:0;background:transparent;color:#424242;border-radius:8px;cursor:pointer;font-size:14px;line-height:30px;text-align:center}
     .windowBtn:hover{background:rgba(0,0,0,.08)}
     .windowBtn.close:hover{background:#D32F2F;color:#fff}
     .filters{display:flex;gap:10px;padding:10px}
@@ -135,11 +135,11 @@ function render() {
     .row{display:flex;gap:10px;align-items:center}
     .row .grow{flex:1;min-width:0}
     .help{font-size:12px;color:#757575}
-    .settingsPopover{position:fixed;right:10px;top:52px;z-index:70;width:min(360px,calc(100vw - 20px));background:#fff;border:1px solid #E0E0E0;border-radius:14px;box-shadow:0 14px 36px rgba(0,0,0,.22);padding:10px;display:none;-webkit-app-region:no-drag}
+    .settingsPopover{position:fixed;right:10px;top:52px;z-index:70;width:min(360px,calc(100vw - 20px));background:#fff;border:1px solid #E0E0E0;border-radius:14px;box-shadow:0 14px 36px rgba(0,0,0,.22);padding:10px;display:none}
     .settingsPopover.open{display:block}
     .settingsHead{display:flex;align-items:center;gap:8px;margin-bottom:10px}
     .settingsTitle{font-size:13px;font-weight:800;margin-right:auto}
-    .statusPanel{padding:10px;border:1px solid #E0E0E0;border-radius:12px;background:#fff;display:flex;flex-direction:column;gap:8px;font-size:12px;color:#424242;-webkit-app-region:no-drag}
+    .statusPanel{padding:10px;border:1px solid #E0E0E0;border-radius:12px;background:#fff;display:flex;flex-direction:column;gap:8px;font-size:12px;color:#424242}
     .statusPanel.error{border-color:#EF9A9A;background:#FFF5F5;color:#B71C1C}
     .statusLine{display:flex;gap:8px;align-items:flex-start;word-break:break-all}
     .statusLabel{font-weight:800;flex-shrink:0;color:#616161}
@@ -165,7 +165,7 @@ function render() {
   root.innerHTML = `
     <style>${css}</style>
     <div class="wrap">
-      <div class="topbar" data-tauri-drag-region="true">
+      <div class="topbar">
         <button class="btn" data-act="back">←</button>
         <div class="title">网站收藏</div>
         <button class="iconBtn${hasDataDirIssue ? ' warn' : ''}" data-act="settings" title="设置" aria-label="设置">⚙</button>
@@ -489,6 +489,14 @@ document.addEventListener('click', async event => {
     const id = tile?.getAttribute('data-id') || ''
     if (id) { await call('bookmarks.open', { id }); await reload() }
   }
+})
+
+document.addEventListener('pointerdown', event => {
+  if (event.button !== 0) return
+  const el = event.target as HTMLElement | null
+  if (!el?.closest?.('.topbar')) return
+  if (el.closest('button, a, input, textarea, select, [role="button"], [data-window-controls="true"]')) return
+  void getCurrentWindow().startDragging().catch(() => {})
 })
 
 document.addEventListener('contextmenu', event => {

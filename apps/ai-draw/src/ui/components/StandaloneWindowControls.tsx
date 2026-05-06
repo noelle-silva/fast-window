@@ -30,7 +30,6 @@ export function StandaloneWindowControls(props: StandaloneWindowControlsProps) {
         alignItems: 'center',
         gap: 0.25,
         ml: 0.5,
-        WebkitAppRegion: 'no-drag',
       }}
     >
       <Tooltip title="最小化">
