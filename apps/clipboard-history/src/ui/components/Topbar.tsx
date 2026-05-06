@@ -49,7 +49,7 @@ export function Topbar(props: TopbarProps) {
         userSelect: 'none',
       }}
     >
-      <Box data-window-drag-ignore="true" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
         <IconButton size="small" aria-label="返回主页" title="返回主页" onClick={() => run(controller.host.back)}>
           <ArrowBackRoundedIcon fontSize="small" />
         </IconButton>
@@ -101,7 +101,7 @@ export function Topbar(props: TopbarProps) {
         }}
       />
 
-      <Box data-window-drag-ignore="true" sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.75, minWidth: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.75, minWidth: 0 }}>
         {isClipboard ? (
           <ClipboardTopbarActions controller={controller} />
         ) : (
