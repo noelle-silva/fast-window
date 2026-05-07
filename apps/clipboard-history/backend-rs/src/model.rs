@@ -62,6 +62,41 @@ pub struct ClipboardHistorySnapshot {
     pub recent_folders: Vec<String>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrphanImageEntry {
+    pub file_name: String,
+    pub path: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrphanImageReport {
+    pub scanned_files: usize,
+    pub referenced_files: usize,
+    pub orphan_count: usize,
+    pub orphan_bytes: u64,
+    pub orphans: Vec<OrphanImageEntry>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrphanImageDeleteFailure {
+    pub path: String,
+    pub error: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrphanImageCleanupReport {
+    pub detected: OrphanImageReport,
+    pub deleted_count: usize,
+    pub deleted_bytes: u64,
+    pub failed: Vec<OrphanImageDeleteFailure>,
+    pub remaining: OrphanImageReport,
+}
+
 #[derive(Clone, Debug)]
 pub struct InternalCopyMarker {
     pub item_type: String,

@@ -4,6 +4,8 @@ import type {
   ClipboardHistorySnapshot,
   CollectionsDoc,
   LegacyDataImportResult,
+  OrphanImageCleanupReport,
+  OrphanImageReport,
 } from '../shared/types'
 
 export type HostGateway = {
@@ -22,6 +24,8 @@ export type ClipboardGateway = {
 
 export type ImageGateway = {
   readOutputImage(path: string): Promise<string>
+  scanOrphanImages(): Promise<OrphanImageReport>
+  deleteOrphanImages(): Promise<OrphanImageCleanupReport>
 }
 
 export type ClipboardHistoryStateGateway = {

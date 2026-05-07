@@ -3,11 +3,12 @@ import DownloadDoneRoundedIcon from '@mui/icons-material/DownloadDoneRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded'
 import ImportExportRoundedIcon from '@mui/icons-material/ImportExportRounded'
+import ImageSearchRoundedIcon from '@mui/icons-material/ImageSearchRounded'
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import { Alert, Box, Button, Chip, Dialog, Stack, Switch, TextField, Typography } from '@mui/material'
 import type { ClipboardHistoryController } from '../hooks/useClipboardHistoryController'
 import { ThemePicker } from './ThemePicker'
-import type { ClipboardHistoryThemeId } from '../../shared/types'
+import type { ClipboardHistoryThemeId, OrphanImageCleanupReport, OrphanImageReport } from '../../shared/types'
 
 type SettingsPanelProps = {
   controller: ClipboardHistoryController
@@ -19,6 +20,9 @@ export function SettingsPanel(props: SettingsPanelProps) {
   const [pollInterval, setPollInterval] = React.useState(String(state.settings.pollInterval))
   const [maxHistory, setMaxHistory] = React.useState(String(state.settings.maxHistory))
   const [collapseLines, setCollapseLines] = React.useState(String(state.settings.collapseLines))
+  const [orphanReport, setOrphanReport] = React.useState<OrphanImageReport | null>(null)
+  const [orphanCleanup, setOrphanCleanup] = React.useState<OrphanImageCleanupReport | null>(null)
+  const [orphanBusy, setOrphanBusy] = React.useState(false)
 
   React.useEffect(() => {
     setPollInterval(String(state.settings.pollInterval))
@@ -44,6 +48,32 @@ export function SettingsPanel(props: SettingsPanelProps) {
 
   const confirmClearHistory = React.useCallback(() => {
     void controller.clearHistory().catch(error => controller.host.toast(String((error as any)?.message || error || '清空历史失败')))
+  }, [controller])
+
+  const scanOrphans = React.useCallback(async () => {
+    setOrphanBusy(true)
+    try {
+      const report = await controller.scanOrphanImages()
+      if (report) {
+        setOrphanReport(report)
+        setOrphanCleanup(null)
+      }
+    } finally {
+      setOrphanBusy(false)
+    }
+  }, [controller])
+
+  const deleteOrphans = React.useCallback(async () => {
+    setOrphanBusy(true)
+    try {
+      const cleanup = await controller.deleteOrphanImages()
+      if (cleanup) {
+        setOrphanCleanup(cleanup)
+        setOrphanReport(cleanup.remaining)
+      }
+    } finally {
+      setOrphanBusy(false)
+    }
   }, [controller])
 
   return (
@@ -138,6 +168,21 @@ export function SettingsPanel(props: SettingsPanelProps) {
               </Button>
             </Stack>
 
+            <Stack spacing={1}>
+              <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+                <Typography variant="body2" color="text.secondary" sx={{ width: 120 }}>孤立图片</Typography>
+                <Button startIcon={<ImageSearchRoundedIcon fontSize="small" />} onClick={scanOrphans} disabled={!controller.isReady || orphanBusy}>
+                  检测孤立图片
+                </Button>
+                {orphanReport?.orphanCount ? (
+                  <Button color="error" startIcon={<DeleteOutlineRoundedIcon fontSize="small" />} onClick={deleteOrphans} disabled={orphanBusy}>
+                    删除检测结果
+                  </Button>
+                ) : null}
+              </Stack>
+              {orphanReport ? <OrphanImageReportView report={orphanReport} cleanup={orphanCleanup} /> : null}
+            </Stack>
+
             <Alert severity="info" sx={{ py: 0.25 }}>
               导入需要手动选择旧数据目录；导入前会备份当前数据。
             </Alert>
@@ -179,6 +224,45 @@ export function SettingsPanel(props: SettingsPanelProps) {
       </Dialog>
     </>
   )
+}
+
+function OrphanImageReportView(props: { report: OrphanImageReport; cleanup: OrphanImageCleanupReport | null }) {
+  const { report, cleanup } = props
+  const preview = report.orphans.slice(0, 8)
+
+  return (
+    <Alert severity={report.orphanCount ? 'warning' : 'success'} sx={{ py: 0.75 }}>
+      <Stack spacing={0.75}>
+        <Typography variant="body2">
+          已扫描 {report.scannedFiles} 张托管图片，当前历史引用 {report.referencedFiles} 张，发现 {report.orphanCount} 张孤立图片，占用 {formatBytes(report.orphanBytes)}。
+        </Typography>
+        {cleanup ? (
+          <Typography variant="caption" color="text.secondary">
+            最近清理：删除 {cleanup.deletedCount} 张，释放 {formatBytes(cleanup.deletedBytes)}{cleanup.failed.length ? `，失败 ${cleanup.failed.length} 张` : ''}。
+          </Typography>
+        ) : null}
+        {preview.length ? (
+          <Stack spacing={0.25}>
+            {preview.map((item) => (
+              <Typography key={item.path} variant="caption" color="text.secondary" title={item.path}>
+                {item.fileName} · {formatBytes(item.sizeBytes)}
+              </Typography>
+            ))}
+            {report.orphans.length > preview.length ? (
+              <Typography variant="caption" color="text.secondary">还有 {report.orphans.length - preview.length} 张未展示。</Typography>
+            ) : null}
+          </Stack>
+        ) : null}
+      </Stack>
+    </Alert>
+  )
+}
+
+function formatBytes(value: number): string {
+  const bytes = Math.max(0, Number(value) || 0)
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`
 }
 
 function draftNumber(value: string, fallback: number): number {

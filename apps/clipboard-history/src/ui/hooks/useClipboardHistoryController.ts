@@ -29,6 +29,8 @@ import type {
   ClipboardHistorySnapshot,
   CollectionNode,
   LegacyDataImportReport,
+  OrphanImageCleanupReport,
+  OrphanImageReport,
 } from '../../shared/types'
 import {
   createClipboardHistoryUiState,
@@ -75,6 +77,8 @@ export type ClipboardHistoryController = {
   updateSettings(settings: ClipboardHistorySettings): Promise<void>
   pickDataDir(): Promise<void>
   importLegacyData(): Promise<void>
+  scanOrphanImages(): Promise<OrphanImageReport | null>
+  deleteOrphanImages(): Promise<OrphanImageCleanupReport | null>
   getNode(id: string): CollectionNode | null
   isFolder(id: string): boolean
   listChildren(folderId: string): CollectionNode[]
@@ -453,6 +457,32 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
     }
   }, [host])
 
+  const scanOrphanImages = React.useCallback(async (): Promise<OrphanImageReport | null> => {
+    const gateway = gatewayRef.current
+    if (!gateway) return null
+    try {
+      const report = await gateway.images.scanOrphanImages()
+      void host.toast(report.orphanCount ? `发现 ${report.orphanCount} 张孤立图片` : '未发现孤立图片')
+      return report
+    } catch (error) {
+      void host.toast(formatError(error, '检测孤立图片失败'))
+      return null
+    }
+  }, [host])
+
+  const deleteOrphanImages = React.useCallback(async (): Promise<OrphanImageCleanupReport | null> => {
+    const gateway = gatewayRef.current
+    if (!gateway) return null
+    try {
+      const report = await gateway.images.deleteOrphanImages()
+      void host.toast(report.deletedCount ? `已删除 ${report.deletedCount} 张孤立图片` : '没有可删除的孤立图片')
+      return report
+    } catch (error) {
+      void host.toast(formatError(error, '删除孤立图片失败'))
+      return null
+    }
+  }, [host])
+
   const runCollectionMutation = React.useCallback(async (operation: (gateway: ClipboardHistoryGateway) => Promise<ClipboardHistorySnapshot>) => {
     const gateway = gatewayRef.current
     if (!gateway) return
@@ -721,6 +751,8 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
     updateSettings,
     pickDataDir,
     importLegacyData,
+    scanOrphanImages,
+    deleteOrphanImages,
     getNode,
     isFolder,
     listChildren,

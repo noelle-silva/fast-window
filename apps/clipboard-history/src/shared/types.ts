@@ -65,3 +65,30 @@ export type LegacyDataImportResult = {
   report: LegacyDataImportReport
   snapshot: ClipboardHistorySnapshot
 }
+
+export type OrphanImageEntry = {
+  fileName: string
+  path: string
+  sizeBytes: number
+}
+
+export type OrphanImageReport = {
+  scannedFiles: number
+  referencedFiles: number
+  orphanCount: number
+  orphanBytes: number
+  orphans: OrphanImageEntry[]
+}
+
+export type OrphanImageDeleteFailure = {
+  path: string
+  error: string
+}
+
+export type OrphanImageCleanupReport = {
+  detected: OrphanImageReport
+  deletedCount: number
+  deletedBytes: number
+  failed: OrphanImageDeleteFailure[]
+  remaining: OrphanImageReport
+}

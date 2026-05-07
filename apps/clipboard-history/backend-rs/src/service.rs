@@ -4,7 +4,9 @@ use crate::clipboard::{
 };
 use crate::domain::*;
 use crate::image_store::{
-    delete_managed_output_image, read_output_image, write_clipboard_image,
+    delete_managed_output_image, delete_orphan_managed_images,
+    delete_unreferenced_managed_history_images, read_output_image, scan_orphan_managed_images,
+    write_clipboard_image,
 };
 use crate::legacy_import::import_legacy_data;
 use crate::model::*;
@@ -20,6 +22,8 @@ const RPC_STATE_DELETE_HISTORY_ITEM: &str = "clipboardHistory.state.deleteHistor
 const RPC_CLIPBOARD_WRITE_TEXT: &str = "clipboardHistory.clipboard.writeText";
 const RPC_CLIPBOARD_WRITE_IMAGE: &str = "clipboardHistory.clipboard.writeImage";
 const RPC_IMAGES_READ_OUTPUT: &str = "clipboardHistory.images.readOutput";
+const RPC_IMAGES_SCAN_ORPHANS: &str = "clipboardHistory.images.scanOrphans";
+const RPC_IMAGES_DELETE_ORPHANS: &str = "clipboardHistory.images.deleteOrphans";
 const RPC_COLLECTIONS_CREATE_FOLDER: &str = "clipboardHistory.collections.createFolder";
 const RPC_COLLECTIONS_CREATE_ITEM: &str = "clipboardHistory.collections.createItem";
 const RPC_COLLECTIONS_UPDATE_FOLDER: &str = "clipboardHistory.collections.updateFolder";
@@ -102,6 +106,8 @@ impl ClipboardHistoryService {
             RPC_CLIPBOARD_WRITE_TEXT => self.write_text(params.get("text").and_then(Value::as_str).unwrap_or("")),
             RPC_CLIPBOARD_WRITE_IMAGE => self.write_image(params),
             RPC_IMAGES_READ_OUTPUT => read_output_image(&self.output_root, params.get("path").and_then(Value::as_str).unwrap_or("")).map(Value::String),
+            RPC_IMAGES_SCAN_ORPHANS => serde_json::to_value(scan_orphan_managed_images(&self.output_root, &self.history)?).map_err(|e| e.to_string()),
+            RPC_IMAGES_DELETE_ORPHANS => serde_json::to_value(delete_orphan_managed_images(&self.output_root, &self.history)?).map_err(|e| e.to_string()),
             RPC_COLLECTIONS_CREATE_FOLDER => {
                 create_folder(&mut self.collections, str_param(&params, "parentId"), str_param(&params, "name"));
                 self.save_collections_and_emit()
@@ -200,7 +206,8 @@ impl ClipboardHistoryService {
             }
             self.current_image = item.content.clone();
         }
-        self.history = merge_history_items(vec![item], self.history.clone(), self.settings.max_history);
+        let next_history = merge_history_items(vec![item], self.history.clone(), self.settings.max_history);
+        self.replace_history(next_history);
         self.save_clipboard()?;
         self.emit_snapshot();
         Ok(())
@@ -208,7 +215,8 @@ impl ClipboardHistoryService {
 
     fn apply_settings(&mut self, raw: Option<Value>) -> Result<Value, String> {
         self.settings = normalize_settings(raw);
-        self.history = merge_history_items(Vec::new(), self.history.clone(), self.settings.max_history);
+        let next_history = merge_history_items(Vec::new(), self.history.clone(), self.settings.max_history);
+        self.replace_history(next_history);
         self.save_clipboard()?;
         self.emit_snapshot();
         serde_json::to_value(self.snapshot()).map_err(|e| e.to_string())
@@ -243,7 +251,8 @@ impl ClipboardHistoryService {
         self.internal_copy = internal_copy("text");
         write_text_clipboard(text)?;
         let item = ClipboardHistoryItem { item_type: "text".to_string(), content: text.to_string(), time: now_ms(), path: None };
-        self.history = merge_history_items(vec![item], self.history.clone(), self.settings.max_history);
+        let next_history = merge_history_items(vec![item], self.history.clone(), self.settings.max_history);
+        self.replace_history(next_history);
         self.save_clipboard()?;
         self.emit_snapshot();
         serde_json::to_value(self.snapshot()).map_err(|e| e.to_string())
@@ -274,7 +283,8 @@ impl ClipboardHistoryService {
             time: now_ms(),
             path: if item_path.is_empty() { None } else { Some(item_path) },
         };
-        self.history = merge_history_items(vec![item], self.history.clone(), self.settings.max_history);
+        let next_history = merge_history_items(vec![item], self.history.clone(), self.settings.max_history);
+        self.replace_history(next_history);
         self.save_clipboard()?;
         self.emit_snapshot();
         serde_json::to_value(self.snapshot()).map_err(|e| e.to_string())
@@ -305,6 +315,11 @@ impl ClipboardHistoryService {
         self.store.save_history(&self.history)?;
         self.store.save_settings(&self.settings)?;
         self.store.save_deleted(&self.deleted)
+    }
+
+    fn replace_history(&mut self, next_history: Vec<ClipboardHistoryItem>) {
+        let previous = std::mem::replace(&mut self.history, next_history);
+        delete_unreferenced_managed_history_images(&self.output_root, &previous, &self.history);
     }
 
     fn save_collections_state(&self) -> Result<(), String> {
