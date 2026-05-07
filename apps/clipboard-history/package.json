@@ -10,7 +10,7 @@
     "build:resources": "node scripts/build-resources.mjs",
     "build:exe": "pnpm tauri build --no-bundle",
     "build:bundle": "pnpm tauri build",
-    "build:exe:dev": "pnpm build:backend:dev && cargo build --manifest-path src-tauri/Cargo.toml",
+    "build:exe:dev": "pnpm build:ui && cargo build --manifest-path src-tauri/Cargo.toml",
     "build:ui": "pnpm build:backend && vite build && pnpm build:resources",
     "dev": "vite --host 127.0.0.1 --port 1433",
     "tauri": "tauri"
