@@ -10,7 +10,6 @@ import { CLIPBOARD_PAGE_SIZE } from '../../shared/constants'
 import type { ClipboardHistoryItem } from '../../shared/types'
 import { isDataUrl } from '../../shared/imagePaths'
 import { EmptyState } from '../components/EmptyState'
-import { SettingsPanel } from '../components/SettingsPanel'
 import { formatTime, historyKey, shouldShowFoldButton } from '../clipboardUiUtils'
 import type { ClipboardHistoryController } from '../hooks/useClipboardHistoryController'
 
@@ -67,7 +66,6 @@ export function ClipboardView(props: ClipboardViewProps) {
 
   return (
     <Box>
-      <SettingsPanel controller={controller} />
       {bootStatus !== 'ready' || !total ? (
         <EmptyState message={emptyMessage} />
       ) : (

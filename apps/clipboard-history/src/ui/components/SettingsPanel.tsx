@@ -3,7 +3,7 @@ import DownloadDoneRoundedIcon from '@mui/icons-material/DownloadDoneRounded'
 import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded'
 import ImportExportRoundedIcon from '@mui/icons-material/ImportExportRounded'
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
-import { Alert, Box, Button, Chip, Collapse, Paper, Stack, Switch, TextField, Typography } from '@mui/material'
+import { Alert, Box, Button, Chip, Dialog, Stack, Switch, TextField, Typography } from '@mui/material'
 import type { ClipboardHistoryController } from '../hooks/useClipboardHistoryController'
 import { ThemePicker } from './ThemePicker'
 import type { ClipboardHistoryThemeId } from '../../shared/types'
@@ -42,9 +42,29 @@ export function SettingsPanel(props: SettingsPanelProps) {
   }, [buildDraftSettings, controller])
 
   return (
-    <Collapse in={state.showSettings} unmountOnExit>
-      <Paper sx={{ mb: 1.25, p: 1.25, boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)', bgcolor: 'background.paper' }}>
-        <Stack spacing={1.25}>
+    <Dialog
+      open={state.showSettings}
+      onClose={() => controller.setShowSettings(false)}
+      fullWidth
+      maxWidth="md"
+      PaperProps={{
+        sx: {
+          width: 'min(760px, calc(100vw - 28px))',
+          maxHeight: 'min(82vh, 720px)',
+          borderRadius: 3,
+          bgcolor: 'background.paper',
+          boxShadow: '0 28px 80px rgba(15, 23, 42, 0.24)',
+          overflow: 'hidden',
+        },
+      }}
+    >
+      <Box sx={{ p: { xs: 1.5, sm: 2 }, overflow: 'auto' }}>
+        <Stack spacing={1.5}>
+          <Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>设置</Typography>
+            <Typography variant="caption" color="text.secondary">调整剪贴板监听、显示和配色偏好。</Typography>
+          </Box>
+
           <Stack spacing={1}>
             <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
               <Typography variant="body2" color="text.secondary" sx={{ width: 120 }}>配色方案</Typography>
@@ -107,8 +127,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
           {state.legacyImportReport ? <LegacyImportReport controller={controller} /> : null}
           {dataDirStatus?.error ? <Alert severity="warning">{String(dataDirStatus.error)}</Alert> : null}
         </Stack>
-      </Paper>
-    </Collapse>
+      </Box>
+    </Dialog>
   )
 }
 

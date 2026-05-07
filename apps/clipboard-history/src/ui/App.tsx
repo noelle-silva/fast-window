@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Box, CssBaseline, GlobalStyles, ThemeProvider } from '@mui/material'
 import { FolderDialogs } from './dialogs/FolderDialogs'
+import { SettingsPanel } from './components/SettingsPanel'
 import { Topbar } from './components/Topbar'
 import { ClipboardView } from './views/ClipboardView'
 import { FoldersView } from './views/FoldersView'
@@ -42,6 +43,7 @@ export function ClipboardHistoryApp() {
             <FoldersView controller={controller} />
           )}
         </Box>
+        <SettingsPanel controller={controller} />
         <FolderDialogs controller={controller} />
       </Box>
     </ThemeProvider>
