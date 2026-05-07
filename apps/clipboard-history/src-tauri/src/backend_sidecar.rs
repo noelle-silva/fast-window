@@ -19,6 +19,7 @@ pub(crate) struct BackendEndpoint {
     pub(crate) mode: &'static str,
     pub(crate) transport: &'static str,
     pub(crate) url: String,
+    pub(crate) image_base_url: String,
     pub(crate) token: String,
     pub(crate) protocol_version: u8,
 }
@@ -122,11 +123,20 @@ pub(crate) async fn start_backend(
             else {
                 continue;
             };
+            let Some(image_base_url) = value
+                .get("ipc")
+                .and_then(|v| v.get("imageBaseUrl"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+            else {
+                continue;
+            };
             if let Ok(mut endpoint) = state_for_stdout.endpoint.lock() {
                 *endpoint = Some(BackendEndpoint {
                     mode: "direct",
                     transport: "local-websocket",
                     url,
+                    image_base_url,
                     token: session_token.clone(),
                     protocol_version: 1,
                 });

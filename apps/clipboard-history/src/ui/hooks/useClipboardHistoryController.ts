@@ -99,6 +99,7 @@ export type ClipboardHistoryController = {
   copyFolderItem(itemId: string): Promise<void>
   copyHistoryItem(item: ClipboardHistoryItem): Promise<void>
   deleteHistoryItem(item: ClipboardHistoryItem): Promise<void>
+  clipboardImageUrl(item: ClipboardHistoryItem): string
   loadClipboardImage(item: ClipboardHistoryItem): Promise<string>
   toggleClipboardExpanded(key: string): void
   isHistoryExpanded(key: string): boolean
@@ -571,6 +572,12 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
     }
   }, [])
 
+  const clipboardImageUrl = React.useCallback((item: ClipboardHistoryItem): string => {
+    if (isDataUrl(item.content)) return item.content
+    const reference = pickImagePath(item)
+    return reference ? gatewayRef.current?.images.outputImageUrl(reference, item.time) || '' : ''
+  }, [])
+
   const copyHistoryItem = React.useCallback(async (item: ClipboardHistoryItem) => {
     const gateway = gatewayRef.current
     if (!gateway) return
@@ -773,6 +780,7 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
     copyFolderItem,
     copyHistoryItem,
     deleteHistoryItem,
+    clipboardImageUrl,
     loadClipboardImage,
     toggleClipboardExpanded,
     isHistoryExpanded,

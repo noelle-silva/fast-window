@@ -1,3 +1,4 @@
+use crate::http_util::query_param;
 use crate::model::RequestFrame;
 use crate::service::ClipboardHistoryService;
 use serde_json::json;
@@ -7,9 +8,15 @@ use std::time::Duration;
 use tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tungstenite::{accept_hdr, Error, Message};
 
-pub fn start_server(service: Arc<Mutex<ClipboardHistoryService>>, token: String) -> Result<String, String> {
-    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| format!("绑定本地 WebSocket 失败: {e}"))?;
-    let addr = listener.local_addr().map_err(|e| format!("读取监听地址失败: {e}"))?;
+pub fn start_server(
+    service: Arc<Mutex<ClipboardHistoryService>>,
+    token: String,
+) -> Result<String, String> {
+    let listener =
+        TcpListener::bind("127.0.0.1:0").map_err(|e| format!("绑定本地 WebSocket 失败: {e}"))?;
+    let addr = listener
+        .local_addr()
+        .map_err(|e| format!("读取监听地址失败: {e}"))?;
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             let service = service.clone();
@@ -29,7 +36,9 @@ fn handle_client(stream: TcpStream, service: Arc<Mutex<ClipboardHistoryService>>
         } else {
             Err(ErrorResponse::new(None))
         }
-    }) else { return };
+    }) else {
+        return;
+    };
     let (tx, rx) = mpsc::channel::<String>();
     if let Ok(mut svc) = service.lock() {
         svc.add_event_sender(tx);
@@ -52,7 +61,9 @@ fn handle_client(stream: TcpStream, service: Arc<Mutex<ClipboardHistoryService>>
             }
             Ok(Message::Close(_)) => return,
             Ok(_) => {}
-            Err(Error::Io(err)) if err.kind() == std::io::ErrorKind::WouldBlock || err.kind() == std::io::ErrorKind::TimedOut => {}
+            Err(Error::Io(err))
+                if err.kind() == std::io::ErrorKind::WouldBlock
+                    || err.kind() == std::io::ErrorKind::TimedOut => {}
             Err(_) => return,
         }
     }
@@ -60,29 +71,7 @@ fn handle_client(stream: TcpStream, service: Arc<Mutex<ClipboardHistoryService>>
 
 fn request_has_token(req: &Request, expected_token: &str) -> bool {
     let uri = req.uri().to_string();
-    let Some(query) = uri.split_once('?').map(|(_, q)| q) else { return false };
-    query.split('&').any(|part| {
-        let (key, value) = part.split_once('=').unwrap_or((part, ""));
-        key == "token" && percent_decode(value) == expected_token
-    })
-}
-
-fn percent_decode(value: &str) -> String {
-    let bytes = value.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let Ok(hex) = u8::from_str_radix(&value[i + 1..i + 3], 16) {
-                out.push(hex);
-                i += 3;
-                continue;
-            }
-        }
-        out.push(if bytes[i] == b'+' { b' ' } else { bytes[i] });
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).to_string()
+    query_param(&uri, "token").as_deref() == Some(expected_token)
 }
 
 fn handle_text_frame(text: &str, service: &Arc<Mutex<ClipboardHistoryService>>) -> Option<String> {
@@ -92,10 +81,15 @@ fn handle_text_frame(text: &str, service: &Arc<Mutex<ClipboardHistoryService>>) 
         return None;
     }
     let method = req.method.unwrap_or_default();
-    let result = service.lock().map_err(|_| "后端状态锁定失败".to_string()).and_then(|mut svc| svc.dispatch(&method, req.params));
+    let result = service
+        .lock()
+        .map_err(|_| "后端状态锁定失败".to_string())
+        .and_then(|mut svc| svc.dispatch(&method, req.params));
     let frame = match result {
         Ok(value) => json!({ "id": id, "type": "response", "ok": true, "result": value }),
-        Err(message) => json!({ "id": id, "type": "response", "ok": false, "error": { "message": message } }),
+        Err(message) => {
+            json!({ "id": id, "type": "response", "ok": false, "error": { "message": message } })
+        }
     };
     Some(frame.to_string())
 }

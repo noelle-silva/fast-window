@@ -11,25 +11,53 @@ use std::path::{Path, PathBuf};
 const MANAGED_IMAGE_PREFIX: &str = "clipboard-image-";
 const MANAGED_IMAGE_SUFFIX: &str = ".png";
 
-pub fn write_clipboard_image(output_root: &Path, hash: u32, png: &[u8]) -> Result<(String, String), String> {
+pub fn write_clipboard_image(
+    output_root: &Path,
+    hash: u32,
+    png: &[u8],
+) -> Result<(String, String), String> {
     fs::create_dir_all(output_root).map_err(|e| format!("创建图片目录失败: {e}"))?;
     let hash_hex = format!("{hash:08x}");
     let filename = format!("clipboard-image-{hash_hex}.png");
     let full = output_root.join(&filename);
     fs::write(&full, png).map_err(|e| format!("写入图片失败: {e}"))?;
-    Ok((format!("img:{hash_hex}"), full.to_string_lossy().to_string()))
+    Ok((
+        format!("img:{hash_hex}"),
+        full.to_string_lossy().to_string(),
+    ))
 }
 
 pub fn read_output_image(output_root: &Path, requested: &str) -> Result<String, String> {
-    let path = resolve_output_path(output_root, requested)?;
+    let path = resolve_output_image_path(output_root, requested)?;
     let bytes = fs::read(&path).map_err(|e| format!("读取图片失败: {e}"))?;
-    let mime = match path.extension().and_then(|v| v.to_str()).unwrap_or("").to_ascii_lowercase().as_str() {
+    let mime = output_image_mime(&path);
+    Ok(format!(
+        "data:{mime};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
+}
+
+pub fn resolve_output_image_path(output_root: &Path, requested: &str) -> Result<PathBuf, String> {
+    let path = resolve_output_path(output_root, requested)?;
+    if !path.is_file() {
+        return Err("图片不可用".to_string());
+    }
+    Ok(path)
+}
+
+pub fn output_image_mime(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|v| v.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "jpg" | "jpeg" => "image/jpeg",
         "webp" => "image/webp",
         "gif" => "image/gif",
         _ => "image/png",
-    };
-    Ok(format!("data:{mime};base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes)))
+    }
 }
 
 pub fn delete_managed_output_image(output_root: &Path, requested: &str) {
@@ -41,7 +69,11 @@ pub fn delete_managed_output_image(output_root: &Path, requested: &str) {
     }
 }
 
-pub fn delete_unreferenced_managed_history_images(output_root: &Path, previous: &[ClipboardHistoryItem], current: &[ClipboardHistoryItem]) {
+pub fn delete_unreferenced_managed_history_images(
+    output_root: &Path,
+    previous: &[ClipboardHistoryItem],
+    current: &[ClipboardHistoryItem],
+) {
     let live_paths = referenced_managed_image_paths(output_root, current);
     let mut seen = BTreeSet::new();
     for item in previous {
@@ -64,7 +96,10 @@ pub fn delete_unreferenced_managed_history_images(output_root: &Path, previous: 
     }
 }
 
-pub fn scan_orphan_managed_images(output_root: &Path, history: &[ClipboardHistoryItem]) -> Result<OrphanImageReport, String> {
+pub fn scan_orphan_managed_images(
+    output_root: &Path,
+    history: &[ClipboardHistoryItem],
+) -> Result<OrphanImageReport, String> {
     let referenced_paths = referenced_managed_image_paths(output_root, history);
     let mut scanned_files = 0;
     let mut orphan_bytes = 0;
@@ -110,7 +145,10 @@ pub fn scan_orphan_managed_images(output_root: &Path, history: &[ClipboardHistor
     })
 }
 
-pub fn delete_orphan_managed_images(output_root: &Path, history: &[ClipboardHistoryItem]) -> Result<OrphanImageCleanupReport, String> {
+pub fn delete_orphan_managed_images(
+    output_root: &Path,
+    history: &[ClipboardHistoryItem],
+) -> Result<OrphanImageCleanupReport, String> {
     let detected = scan_orphan_managed_images(output_root, history)?;
     let mut deleted_count = 0;
     let mut deleted_bytes = 0;
@@ -154,7 +192,10 @@ fn resolve_output_path(output_root: &Path, requested: &str) -> Result<PathBuf, S
     }
 
     let candidate = PathBuf::from(raw);
-    if candidate.is_absolute() && candidate.is_file() && is_path_inside_allowed_roots(output_root, &candidate) {
+    if candidate.is_absolute()
+        && candidate.is_file()
+        && is_path_inside_allowed_roots(output_root, &candidate)
+    {
         return Ok(candidate);
     }
 
@@ -162,14 +203,21 @@ fn resolve_output_path(output_root: &Path, requested: &str) -> Result<PathBuf, S
         return Ok(output_root.join(file_name));
     }
 
-    let full = if candidate.is_absolute() { candidate } else { output_root.join(candidate) };
+    let full = if candidate.is_absolute() {
+        candidate
+    } else {
+        output_root.join(candidate)
+    };
     if !is_path_inside_allowed_roots(output_root, &full) {
         return Err("路径越界".to_string());
     }
     Ok(full)
 }
 
-fn referenced_managed_image_paths(output_root: &Path, history: &[ClipboardHistoryItem]) -> BTreeSet<String> {
+fn referenced_managed_image_paths(
+    output_root: &Path,
+    history: &[ClipboardHistoryItem],
+) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for item in history {
         if item.item_type != "image" {
@@ -189,7 +237,12 @@ fn referenced_managed_image_paths(output_root: &Path, history: &[ClipboardHistor
 
 fn image_item_references(item: &ClipboardHistoryItem) -> Vec<String> {
     let mut refs = Vec::new();
-    if let Some(path) = item.path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(path) = item
+        .path
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         refs.push(path.to_string());
     }
     let content = item.content.trim();
@@ -201,7 +254,10 @@ fn image_item_references(item: &ClipboardHistoryItem) -> Vec<String> {
 
 fn managed_image_dirs(output_root: &Path) -> Vec<PathBuf> {
     let data_root = output_root.parent().unwrap_or(output_root);
-    let mut dirs = vec![output_root.to_path_buf(), data_root.join(FALLBACK_IMAGES_DIR_NAME)];
+    let mut dirs = vec![
+        output_root.to_path_buf(),
+        data_root.join(FALLBACK_IMAGES_DIR_NAME),
+    ];
     let mut seen = BTreeSet::new();
     dirs.retain(|dir| seen.insert(path_key(dir)));
     dirs
@@ -221,7 +277,11 @@ fn is_path_inside_allowed_roots(output_root: &Path, full: &Path) -> bool {
         data_root.join(OUTPUT_IMAGES_DIR_NAME),
         data_root.join(FALLBACK_IMAGES_DIR_NAME),
     ];
-    let parent = full.parent().unwrap_or(output_root).canonicalize().unwrap_or_else(|_| output_root.to_path_buf());
+    let parent = full
+        .parent()
+        .unwrap_or(output_root)
+        .canonicalize()
+        .unwrap_or_else(|_| output_root.to_path_buf());
     roots.iter().any(|root| {
         let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
         parent.starts_with(root)

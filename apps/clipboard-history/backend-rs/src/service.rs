@@ -58,8 +58,16 @@ impl ClipboardHistoryService {
         history.retain(|item| !is_deleted(item, &deleted));
         let collections = store.load_collections();
         let recent_folders = store.load_recent_folders();
-        let current_text = history.iter().find(|item| item.item_type == "text").map(|v| v.content.clone()).unwrap_or_default();
-        let current_image = history.iter().find(|item| item.item_type == "image").map(|v| v.content.clone()).unwrap_or_default();
+        let current_text = history
+            .iter()
+            .find(|item| item.item_type == "text")
+            .map(|v| v.content.clone())
+            .unwrap_or_default();
+        let current_image = history
+            .iter()
+            .find(|item| item.item_type == "image")
+            .map(|v| v.content.clone())
+            .unwrap_or_default();
         let service = Self {
             store,
             output_root,
@@ -87,6 +95,10 @@ impl ClipboardHistoryService {
         self.settings.clone()
     }
 
+    pub fn output_root(&self) -> &std::path::Path {
+        &self.output_root
+    }
+
     pub fn snapshot(&self) -> ClipboardHistorySnapshot {
         ClipboardHistorySnapshot {
             history: self.history.clone(),
@@ -103,34 +115,78 @@ impl ClipboardHistoryService {
             RPC_STATE_SAVE_SETTINGS => self.apply_settings(params.get("settings").cloned()),
             RPC_STATE_CLEAR_HISTORY => self.clear_history(),
             RPC_STATE_DELETE_HISTORY_ITEM => self.delete_history_item(params.get("item").cloned()),
-            RPC_CLIPBOARD_WRITE_TEXT => self.write_text(params.get("text").and_then(Value::as_str).unwrap_or("")),
+            RPC_CLIPBOARD_WRITE_TEXT => {
+                self.write_text(params.get("text").and_then(Value::as_str).unwrap_or(""))
+            }
             RPC_CLIPBOARD_WRITE_IMAGE => self.write_image(params),
-            RPC_IMAGES_READ_OUTPUT => read_output_image(&self.output_root, params.get("path").and_then(Value::as_str).unwrap_or("")).map(Value::String),
-            RPC_IMAGES_SCAN_ORPHANS => serde_json::to_value(scan_orphan_managed_images(&self.output_root, &self.history)?).map_err(|e| e.to_string()),
-            RPC_IMAGES_DELETE_ORPHANS => serde_json::to_value(delete_orphan_managed_images(&self.output_root, &self.history)?).map_err(|e| e.to_string()),
+            RPC_IMAGES_READ_OUTPUT => read_output_image(
+                &self.output_root,
+                params.get("path").and_then(Value::as_str).unwrap_or(""),
+            )
+            .map(Value::String),
+            RPC_IMAGES_SCAN_ORPHANS => serde_json::to_value(scan_orphan_managed_images(
+                &self.output_root,
+                &self.history,
+            )?)
+            .map_err(|e| e.to_string()),
+            RPC_IMAGES_DELETE_ORPHANS => serde_json::to_value(delete_orphan_managed_images(
+                &self.output_root,
+                &self.history,
+            )?)
+            .map_err(|e| e.to_string()),
             RPC_COLLECTIONS_CREATE_FOLDER => {
-                create_folder(&mut self.collections, str_param(&params, "parentId"), str_param(&params, "name"));
+                create_folder(
+                    &mut self.collections,
+                    str_param(&params, "parentId"),
+                    str_param(&params, "name"),
+                );
                 self.save_collections_and_emit()
             }
             RPC_COLLECTIONS_CREATE_ITEM => {
-                create_item(&mut self.collections, str_param(&params, "parentId"), str_param(&params, "title"), str_param(&params, "content"));
+                create_item(
+                    &mut self.collections,
+                    str_param(&params, "parentId"),
+                    str_param(&params, "title"),
+                    str_param(&params, "content"),
+                );
                 self.save_collections_and_emit()
             }
             RPC_COLLECTIONS_UPDATE_FOLDER => {
-                update_folder_name(&mut self.collections, str_param(&params, "folderId"), str_param(&params, "name"));
+                update_folder_name(
+                    &mut self.collections,
+                    str_param(&params, "folderId"),
+                    str_param(&params, "name"),
+                );
                 self.save_collections_and_emit()
             }
             RPC_COLLECTIONS_UPDATE_ITEM => {
-                update_item(&mut self.collections, str_param(&params, "itemId"), str_param(&params, "title"), str_param(&params, "content"));
+                update_item(
+                    &mut self.collections,
+                    str_param(&params, "itemId"),
+                    str_param(&params, "title"),
+                    str_param(&params, "content"),
+                );
                 self.save_collections_and_emit()
             }
             RPC_COLLECTIONS_MOVE_NODE => {
-                let index = params.get("toIndex").and_then(Value::as_u64).map(|v| v as usize);
-                move_node(&mut self.collections, str_param(&params, "movingId"), str_param(&params, "toParentId"), index);
+                let index = params
+                    .get("toIndex")
+                    .and_then(Value::as_u64)
+                    .map(|v| v as usize);
+                move_node(
+                    &mut self.collections,
+                    str_param(&params, "movingId"),
+                    str_param(&params, "toParentId"),
+                    index,
+                );
                 self.save_collections_and_emit()
             }
             RPC_COLLECTIONS_COPY_ITEM => {
-                copy_item(&mut self.collections, str_param(&params, "itemId"), str_param(&params, "toParentId"));
+                copy_item(
+                    &mut self.collections,
+                    str_param(&params, "itemId"),
+                    str_param(&params, "toParentId"),
+                );
                 self.save_collections_and_emit()
             }
             RPC_COLLECTIONS_DELETE_NODE => {
@@ -161,25 +217,43 @@ impl ClipboardHistoryService {
                 self.monitor_latest_text.clear();
             } else if text != self.monitor_latest_text {
                 self.monitor_latest_text = text.clone();
-                let item = ClipboardHistoryItem { item_type: "text".to_string(), content: text, time: now_ms(), path: None };
+                let item = ClipboardHistoryItem {
+                    item_type: "text".to_string(),
+                    content: text,
+                    time: now_ms(),
+                    path: None,
+                };
                 let _ = self.handle_monitor_change(item);
             }
         }
 
-        let Ok(image) = read_image_clipboard() else { return };
+        let Ok(image) = read_image_clipboard() else {
+            return;
+        };
         let Some(image) = image else {
             return;
         };
-        let Ok((content, path)) = write_clipboard_image(&self.output_root, image.hash, &image.png) else { return };
+        let Ok((content, path)) = write_clipboard_image(&self.output_root, image.hash, &image.png)
+        else {
+            return;
+        };
         if content == self.current_image {
             return;
         }
-        let item = ClipboardHistoryItem { item_type: "image".to_string(), content, time: now_ms(), path: Some(path) };
+        let item = ClipboardHistoryItem {
+            item_type: "image".to_string(),
+            content,
+            time: now_ms(),
+            path: Some(path),
+        };
         let _ = self.handle_monitor_change(item);
     }
 
     fn handle_monitor_change(&mut self, item: ClipboardHistoryItem) -> Result<(), String> {
-        if self.internal_copy.at > 0 && within_internal_window(&self.internal_copy, self.settings.poll_interval) && self.internal_copy.item_type == item.item_type {
+        if self.internal_copy.at > 0
+            && within_internal_window(&self.internal_copy, self.settings.poll_interval)
+            && self.internal_copy.item_type == item.item_type
+        {
             self.internal_copy = empty_internal_copy();
             if item.item_type == "text" {
                 self.current_text = item.content;
@@ -188,7 +262,9 @@ impl ClipboardHistoryService {
             }
             return Ok(());
         }
-        if self.internal_copy.at > 0 && !within_internal_window(&self.internal_copy, self.settings.poll_interval) {
+        if self.internal_copy.at > 0
+            && !within_internal_window(&self.internal_copy, self.settings.poll_interval)
+        {
             self.internal_copy = empty_internal_copy();
         }
         if is_deleted(&item, &self.deleted) {
@@ -206,7 +282,8 @@ impl ClipboardHistoryService {
             }
             self.current_image = item.content.clone();
         }
-        let next_history = merge_history_items(vec![item], self.history.clone(), self.settings.max_history);
+        let next_history =
+            merge_history_items(vec![item], self.history.clone(), self.settings.max_history);
         self.replace_history(next_history);
         self.save_clipboard()?;
         self.emit_snapshot();
@@ -215,7 +292,8 @@ impl ClipboardHistoryService {
 
     fn apply_settings(&mut self, raw: Option<Value>) -> Result<Value, String> {
         self.settings = normalize_settings(raw);
-        let next_history = merge_history_items(Vec::new(), self.history.clone(), self.settings.max_history);
+        let next_history =
+            merge_history_items(Vec::new(), self.history.clone(), self.settings.max_history);
         self.replace_history(next_history);
         self.save_clipboard()?;
         self.emit_snapshot();
@@ -225,7 +303,10 @@ impl ClipboardHistoryService {
     fn clear_history(&mut self) -> Result<Value, String> {
         for item in &self.history {
             if item.item_type == "image" {
-                delete_managed_output_image(&self.output_root, item.path.as_deref().unwrap_or(&item.content));
+                delete_managed_output_image(
+                    &self.output_root,
+                    item.path.as_deref().unwrap_or(&item.content),
+                );
             }
         }
         self.history.clear();
@@ -235,11 +316,18 @@ impl ClipboardHistoryService {
     }
 
     fn delete_history_item(&mut self, raw: Option<Value>) -> Result<Value, String> {
-        if let Some(item) = raw.as_ref().and_then(|v| normalize_history_item(v, now_ms())) {
+        if let Some(item) = raw
+            .as_ref()
+            .and_then(|v| normalize_history_item(v, now_ms()))
+        {
             self.deleted.insert(history_uniq_key(&item), now_ms());
-            self.history.retain(|entry| history_uniq_key(entry) != history_uniq_key(&item));
+            self.history
+                .retain(|entry| history_uniq_key(entry) != history_uniq_key(&item));
             if item.item_type == "image" {
-                delete_managed_output_image(&self.output_root, item.path.as_deref().unwrap_or(&item.content));
+                delete_managed_output_image(
+                    &self.output_root,
+                    item.path.as_deref().unwrap_or(&item.content),
+                );
             }
             self.save_clipboard()?;
             self.emit_snapshot();
@@ -250,8 +338,14 @@ impl ClipboardHistoryService {
     fn write_text(&mut self, text: &str) -> Result<Value, String> {
         self.internal_copy = internal_copy("text");
         write_text_clipboard(text)?;
-        let item = ClipboardHistoryItem { item_type: "text".to_string(), content: text.to_string(), time: now_ms(), path: None };
-        let next_history = merge_history_items(vec![item], self.history.clone(), self.settings.max_history);
+        let item = ClipboardHistoryItem {
+            item_type: "text".to_string(),
+            content: text.to_string(),
+            time: now_ms(),
+            path: None,
+        };
+        let next_history =
+            merge_history_items(vec![item], self.history.clone(), self.settings.max_history);
         self.replace_history(next_history);
         self.save_clipboard()?;
         self.emit_snapshot();
@@ -259,8 +353,16 @@ impl ClipboardHistoryService {
     }
 
     fn write_image(&mut self, params: Value) -> Result<Value, String> {
-        let data_url = params.get("dataUrl").and_then(Value::as_str).unwrap_or("").trim();
-        let path = params.get("path").and_then(Value::as_str).unwrap_or("").trim();
+        let data_url = params
+            .get("dataUrl")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
+        let path = params
+            .get("path")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
         let (content, item_path) = if !data_url.is_empty() {
             write_image_clipboard_from_data_url(data_url)?;
             match read_image_clipboard()? {
@@ -281,9 +383,14 @@ impl ClipboardHistoryService {
             item_type: "image".to_string(),
             content,
             time: now_ms(),
-            path: if item_path.is_empty() { None } else { Some(item_path) },
+            path: if item_path.is_empty() {
+                None
+            } else {
+                Some(item_path)
+            },
         };
-        let next_history = merge_history_items(vec![item], self.history.clone(), self.settings.max_history);
+        let next_history =
+            merge_history_items(vec![item], self.history.clone(), self.settings.max_history);
         self.replace_history(next_history);
         self.save_clipboard()?;
         self.emit_snapshot();
@@ -297,15 +404,30 @@ impl ClipboardHistoryService {
     }
 
     fn import_legacy(&mut self, source_dir: &str) -> Result<Value, String> {
-        let imported = import_legacy_data(&self.store, &self.output_root, &PathBuf::from(source_dir.trim()), self.settings.max_history)?;
+        let imported = import_legacy_data(
+            &self.store,
+            &self.output_root,
+            &PathBuf::from(source_dir.trim()),
+            self.settings.max_history,
+        )?;
         self.settings = imported.settings;
         self.history = imported.history;
         self.deleted = imported.deleted;
         self.history.retain(|item| !is_deleted(item, &self.deleted));
         self.collections = imported.collections;
         self.recent_folders = imported.recent_folders;
-        self.current_text = self.history.iter().find(|item| item.item_type == "text").map(|v| v.content.clone()).unwrap_or_default();
-        self.current_image = self.history.iter().find(|item| item.item_type == "image").map(|v| v.content.clone()).unwrap_or_default();
+        self.current_text = self
+            .history
+            .iter()
+            .find(|item| item.item_type == "text")
+            .map(|v| v.content.clone())
+            .unwrap_or_default();
+        self.current_image = self
+            .history
+            .iter()
+            .find(|item| item.item_type == "image")
+            .map(|v| v.content.clone())
+            .unwrap_or_default();
         self.internal_copy = empty_internal_copy();
         self.emit_snapshot();
         Ok(json!({ "report": imported.report, "snapshot": self.snapshot() }))
@@ -328,9 +450,13 @@ impl ClipboardHistoryService {
     }
 
     fn emit_snapshot(&mut self) {
-        let Ok(snapshot) = serde_json::to_value(self.snapshot()) else { return };
-        let frame = json!({ "type": "event", "event": "snapshot", "snapshot": snapshot }).to_string();
-        self.event_senders.retain(|sender| sender.send(frame.clone()).is_ok());
+        let Ok(snapshot) = serde_json::to_value(self.snapshot()) else {
+            return;
+        };
+        let frame =
+            json!({ "type": "event", "event": "snapshot", "snapshot": snapshot }).to_string();
+        self.event_senders
+            .retain(|sender| sender.send(frame.clone()).is_ok());
     }
 }
 

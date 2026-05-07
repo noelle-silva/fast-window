@@ -1,6 +1,8 @@
 mod clipboard;
 mod data_contract;
 mod domain;
+mod http_util;
+mod image_http;
 mod image_store;
 mod legacy_import;
 mod migrations;
@@ -31,8 +33,17 @@ fn run() -> Result<(), String> {
     }
 
     let output_dir = data_contract::output_images_dir(&data_dir);
-    let service = Arc::new(Mutex::new(ClipboardHistoryService::warmup(Store::new(data_dir), output_dir)?));
+    let service = Arc::new(Mutex::new(ClipboardHistoryService::warmup(
+        Store::new(data_dir),
+        output_dir,
+    )?));
+    let output_dir = service
+        .lock()
+        .map_err(|_| "剪贴板历史服务锁定失败".to_string())?
+        .output_root()
+        .to_path_buf();
     start_monitor(service.clone());
+    let image_base_url = image_http::start_image_server(output_dir, token.clone())?;
     let url = server::start_server(service, token)?;
     println!(
         "{}",
@@ -42,6 +53,7 @@ fn run() -> Result<(), String> {
                 "mode": "direct",
                 "transport": "local-websocket",
                 "url": url,
+                "imageBaseUrl": image_base_url,
                 "protocolVersion": 1
             }
         })

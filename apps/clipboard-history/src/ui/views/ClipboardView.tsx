@@ -8,10 +8,12 @@ import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import { Box, Button, Chip, IconButton, Paper, Stack, Typography } from '@mui/material'
 import { CLIPBOARD_PAGE_SIZE } from '../../shared/constants'
 import type { ClipboardHistoryItem } from '../../shared/types'
-import { isDataUrl } from '../../shared/imagePaths'
 import { EmptyState } from '../components/EmptyState'
 import { formatTime, historyKey, shouldShowFoldButton } from '../clipboardUiUtils'
 import type { ClipboardHistoryController } from '../hooks/useClipboardHistoryController'
+
+const LIST_PRELOAD_ROOT_MARGIN = '1400px 0px'
+const IMAGE_PRELOAD_ROOT_MARGIN = '1800px 0px'
 
 type ClipboardViewProps = {
   controller: ClipboardHistoryController
@@ -52,7 +54,7 @@ export function ClipboardView(props: ClipboardViewProps) {
         if (next <= limit) return
         controller.setClipboardLimit(next)
       },
-      { root: root instanceof HTMLElement ? root : null, rootMargin: '240px 0px', threshold: 0 },
+      { root: root instanceof HTMLElement ? root : null, rootMargin: LIST_PRELOAD_ROOT_MARGIN, threshold: 0 },
     )
     observer.observe(sentinel)
     return () => observer.disconnect()
@@ -107,8 +109,7 @@ function ClipboardCard(props: { item: ClipboardHistoryItem; controller: Clipboar
       sx={{
         p: 1.25,
         cursor: 'pointer',
-        contentVisibility: 'auto',
-        containIntrinsicSize: '80px',
+        ...(isImage ? null : { contentVisibility: 'auto', containIntrinsicSize: '80px' }),
         '&:hover': { bgcolor: 'action.hover' },
       }}
     >
@@ -183,14 +184,19 @@ function TextClipboardContent(props: { item: ClipboardHistoryItem; controller: C
 function ImageClipboardContent(props: { item: ClipboardHistoryItem; controller: ClipboardHistoryController; armed: boolean }) {
   const { item, controller, armed } = props
   const key = historyKey(item)
-  const cached = controller.state.clipboardImageCache[key] || (isDataUrl(item.content) ? item.content : '')
-  const [src, setSrc] = React.useState(cached)
+  const directSrc = React.useMemo(() => controller.clipboardImageUrl(item), [controller, item])
+  const [src, setSrc] = React.useState('')
   const [error, setError] = React.useState('')
   const imgRef = React.useRef<HTMLImageElement | null>(null)
 
   React.useEffect(() => {
-    if (cached) {
-      setSrc(cached)
+    setSrc('')
+    setError('')
+  }, [key, directSrc])
+
+  React.useEffect(() => {
+    if (!directSrc) {
+      setError('图片不可用')
       return
     }
     const img = imgRef.current
@@ -200,13 +206,13 @@ function ImageClipboardContent(props: { item: ClipboardHistoryItem; controller: 
       entries => {
         if (!entries[0]?.isIntersecting) return
         observer.disconnect()
-        void controller.loadClipboardImage(item).then(setSrc).catch(error => setError(String((error as any)?.message || error || '加载失败')))
+        setSrc(directSrc)
       },
-      { root: root instanceof HTMLElement ? root : null, rootMargin: '360px 0px', threshold: 0 },
+      { root: root instanceof HTMLElement ? root : null, rootMargin: IMAGE_PRELOAD_ROOT_MARGIN, threshold: 0 },
     )
     observer.observe(img)
     return () => observer.disconnect()
-  }, [cached, controller, item])
+  }, [directSrc])
 
   return (
     <Stack alignItems="center" spacing={1} sx={{ position: 'relative', minHeight: src ? 0 : 120 }}>
@@ -235,6 +241,12 @@ function ImageClipboardContent(props: { item: ClipboardHistoryItem; controller: 
           ref={imgRef}
           src={src}
           alt="剪贴板图片"
+          decoding="async"
+          loading="eager"
+          onError={() => {
+            setSrc('')
+            setError('图片加载失败')
+          }}
           sx={{ display: 'block', maxWidth: '100%', maxHeight: 220, objectFit: 'contain', borderRadius: 1.25 }}
         />
       )}

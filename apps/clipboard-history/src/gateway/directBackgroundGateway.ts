@@ -3,6 +3,7 @@ import { createDirectBackgroundClient } from '../ui/directClient'
 import type { ClipboardHistoryGateway } from './types'
 
 export async function createDirectBackgroundGateway(endpoint: any): Promise<Omit<ClipboardHistoryGateway, 'host'>> {
+  const imageEndpoint = validateImageEndpoint(endpoint)
   const client = await createDirectBackgroundClient(endpoint)
   return {
     state: {
@@ -17,6 +18,7 @@ export async function createDirectBackgroundGateway(endpoint: any): Promise<Omit
     },
     images: {
       readOutputImage: path => client.invoke(ClipboardHistoryRpc.images.readOutput, { path }),
+      outputImageUrl: (reference, cacheKey) => imageEndpoint.outputImageUrl(reference, cacheKey),
       scanOrphanImages: () => client.invoke(ClipboardHistoryRpc.images.scanOrphans),
       deleteOrphanImages: () => client.invoke(ClipboardHistoryRpc.images.deleteOrphans),
     },
@@ -37,5 +39,23 @@ export async function createDirectBackgroundGateway(endpoint: any): Promise<Omit
       if (event.type === 'event' && event.event === 'snapshot') listener(event.snapshot as any)
     }),
     close: () => client.close(),
+  }
+}
+
+function validateImageEndpoint(endpoint: any) {
+  if (!endpoint || typeof endpoint !== 'object') throw new Error('剪贴板历史后台 endpoint 不完整')
+  const imageBaseUrl = String(endpoint.imageBaseUrl || '')
+  const token = String(endpoint.token || '')
+  if (!/^http:\/\/127\.0\.0\.1:\d+\/images$/i.test(imageBaseUrl) || !token) {
+    throw new Error('剪贴板历史图片服务 endpoint 不完整')
+  }
+  return {
+    outputImageUrl(reference: string, cacheKey?: string | number) {
+      const ref = String(reference || '').trim()
+      if (!ref) return ''
+      const query = new URLSearchParams({ ref, token })
+      if (cacheKey !== undefined && cacheKey !== null && String(cacheKey).trim()) query.set('v', String(cacheKey))
+      return `${imageBaseUrl}?${query.toString()}`
+    },
   }
 }

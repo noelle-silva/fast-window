@@ -24,6 +24,7 @@ export type ClipboardGateway = {
 
 export type ImageGateway = {
   readOutputImage(path: string): Promise<string>
+  outputImageUrl(reference: string, cacheKey?: string | number): string
   scanOrphanImages(): Promise<OrphanImageReport>
   deleteOrphanImages(): Promise<OrphanImageCleanupReport>
 }
