@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, CircularProgress, IconButton, Typography } from '@mui/material'
+import { Box, Button, CircularProgress, IconButton, TextField, Typography } from '@mui/material'
 import ZoomInRoundedIcon from '@mui/icons-material/ZoomInRounded'
 import ZoomOutRoundedIcon from '@mui/icons-material/ZoomOutRounded'
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
@@ -33,6 +33,14 @@ function clampScale(value: number): number {
   if (value < PDF_SCALE_MIN) return PDF_SCALE_MIN
   if (value > PDF_SCALE_MAX) return PDF_SCALE_MAX
   return Math.round(value * 100) / 100
+}
+
+function parseTargetPage(value: string, maxPage: number): number | null {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const parsed = Number(trimmed)
+  if (!Number.isFinite(parsed)) return null
+  return Math.min(Math.max(Math.floor(parsed), 1), Math.max(maxPage, 1))
 }
 
 function usePageVisibility(rootRef: React.RefObject<HTMLDivElement>, pageNumber: number, scale: number): [React.RefObject<HTMLDivElement>, boolean] {
@@ -123,7 +131,7 @@ function PdfPageCanvas({
   }, [pageNumber, pdf, scale, visible])
 
   return (
-    <Box ref={pageRef} sx={{ display: 'flex', justifyContent: 'center', px: 2, py: 1.5 }}>
+    <Box ref={pageRef} data-pdf-page-number={pageNumber} sx={{ display: 'flex', justifyContent: 'center', px: 2, py: 1.5 }}>
       <Box sx={{ position: 'relative', width: size.width, height: size.height, maxWidth: '100%', bgcolor: '#fff', borderRadius: 1, boxShadow: '0 10px 34px rgba(0,0,0,.18)', overflow: 'hidden' }}>
         <canvas ref={canvasRef} aria-label={`PDF 第 ${pageNumber} 页`} style={{ display: visible ? 'block' : 'none' }} />
         {!visible || rendering ? (
@@ -144,6 +152,7 @@ function PdfPageCanvas({
 export function PdfAssetReader({ blobUrl, title }: AssetPreviewContext) {
   const [pdf, setPdf] = React.useState<PdfDocumentProxy | null>(null)
   const [scale, setScale] = React.useState(DEFAULT_PDF_SCALE)
+  const [targetPage, setTargetPage] = React.useState('1')
   const [error, setError] = React.useState<string | null>(null)
   const scrollRootRef = React.useRef<HTMLDivElement | null>(null)
 
@@ -175,6 +184,10 @@ export function PdfAssetReader({ blobUrl, title }: AssetPreviewContext) {
     }
   }, [blobUrl])
 
+  React.useEffect(() => {
+    if (pdf) setTargetPage('1')
+  }, [pdf])
+
   if (error) {
     return (
       <Box sx={{ p: 2, textAlign: 'center' }}>
@@ -186,6 +199,15 @@ export function PdfAssetReader({ blobUrl, title }: AssetPreviewContext) {
   if (!pdf) return <CircularProgress size={20} />
 
   const pages = Array.from({ length: pdf.numPages }, (_, index) => index + 1)
+
+  function jumpToTargetPage(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const pageNumber = parseTargetPage(targetPage, pdf.numPages)
+    if (!pageNumber) return
+    setTargetPage(String(pageNumber))
+    const target = scrollRootRef.current?.querySelector<HTMLElement>(`[data-pdf-page-number="${pageNumber}"]`)
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   return (
     <Box sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#3f3f46' }}>
@@ -204,8 +226,29 @@ export function PdfAssetReader({ blobUrl, title }: AssetPreviewContext) {
         }}
       >
         <Typography noWrap title={title} sx={{ fontSize: 13, fontWeight: 700, minWidth: 0 }}>{title}</Typography>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
           <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,.72)', mr: 0.75 }}>{pages.length} 页 · {Math.round(scale * 100)}%</Typography>
+          <Box component="form" onSubmit={jumpToTargetPage} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <TextField
+              value={targetPage}
+              onChange={event => setTargetPage(event.target.value)}
+              type="number"
+              size="small"
+              aria-label="跳转到 PDF 页码"
+              inputProps={{ min: 1, max: pages.length, step: 1 }}
+              sx={{
+                width: 72,
+                '& .MuiInputBase-root': { height: 28, color: '#fff', fontSize: 12, bgcolor: 'rgba(255,255,255,.08)' },
+                '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,.22)' },
+                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,.42)' },
+                '& .Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,.72)' },
+              }}
+            />
+            <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,.62)' }}>/ {pages.length}</Typography>
+            <Button type="submit" size="small" variant="outlined" sx={{ minWidth: 48, height: 28, px: 1, borderColor: 'rgba(255,255,255,.28)', color: '#fff', fontSize: 12, textTransform: 'none' }}>
+              跳转
+            </Button>
+          </Box>
           <IconButton size="small" aria-label="缩小 PDF" onClick={() => setScale(v => clampScale(v - PDF_SCALE_STEP))} sx={{ color: '#fff' }}>
             <ZoomOutRoundedIcon fontSize="small" />
           </IconButton>
