@@ -3211,11 +3211,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                  <IconButton onClick={backToHost} size="small" aria-label="返回主页">
                    <ArrowBackRoundedIcon fontSize="small" />
                  </IconButton>
-                 <Typography variant="subtitle2" sx={{ fontWeight: 900, mr: 0.5 }}>
-                   AI 聊天
-                 </Typography>
-
-                <Button
+                 <Button
                   variant="outlined"
                   size="small"
                   onClick={openRolePicker}
