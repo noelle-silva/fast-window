@@ -1,7 +1,8 @@
-import { DEFAULT_SETTINGS } from './constants'
+import { CLIPBOARD_HISTORY_THEME_IDS, DEFAULT_SETTINGS } from './constants'
 import type {
   ClipboardHistoryItem,
   ClipboardHistorySettings,
+  ClipboardHistoryThemeId,
   DeletedHistoryMap,
 } from './types'
 
@@ -53,11 +54,15 @@ export function normalizeSettings(raw: unknown): ClipboardHistorySettings {
   const pollRaw = Number(merged.pollInterval)
   const maxRaw = Number(merged.maxHistory)
   const collapseRaw = Number(merged.collapseLines)
+  const theme = CLIPBOARD_HISTORY_THEME_IDS.includes(merged.theme as ClipboardHistoryThemeId)
+    ? (merged.theme as ClipboardHistoryThemeId)
+    : DEFAULT_SETTINGS.theme
   return {
     autoMonitor: merged.autoMonitor !== false,
     pollInterval: Math.min(15000, Math.max(200, Number.isFinite(pollRaw) ? Math.floor(pollRaw) : DEFAULT_SETTINGS.pollInterval)),
     maxHistory: Math.min(1000, Math.max(10, Number.isFinite(maxRaw) ? Math.floor(maxRaw) : DEFAULT_SETTINGS.maxHistory)),
     collapseLines: Math.min(50, Math.max(1, Number.isFinite(collapseRaw) ? Math.floor(collapseRaw) : DEFAULT_SETTINGS.collapseLines)),
+    theme,
   }
 }
 

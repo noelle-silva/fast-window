@@ -5,10 +5,11 @@ import { Topbar } from './components/Topbar'
 import { ClipboardView } from './views/ClipboardView'
 import { FoldersView } from './views/FoldersView'
 import { useClipboardHistoryController } from './hooks/useClipboardHistoryController'
-import { clipboardHistoryTheme } from './theme'
+import { createClipboardHistoryTheme } from './theme'
 
 export function ClipboardHistoryApp() {
   const controller = useClipboardHistoryController()
+  const theme = React.useMemo(() => createClipboardHistoryTheme(controller.state.settings.theme), [controller.state.settings.theme])
 
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -22,7 +23,7 @@ export function ClipboardHistoryApp() {
   }, [controller])
 
   return (
-    <ThemeProvider theme={clipboardHistoryTheme}>
+    <ThemeProvider theme={theme}>
       <CssBaseline />
       <GlobalStyles
         styles={{

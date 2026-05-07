@@ -1,3 +1,5 @@
+export type ClipboardHistoryThemeId = 'calm-blue' | 'catppuccin-latte' | 'rose-pine-dawn' | 'nord-night' | 'catppuccin-mocha'
+
 export type ClipboardHistoryItem = {
   type: 'text' | 'image'
   content: string
@@ -10,6 +12,7 @@ export type ClipboardHistorySettings = {
   pollInterval: number
   maxHistory: number
   collapseLines: number
+  theme: ClipboardHistoryThemeId
 }
 
 export type DeletedHistoryMap = Record<string, number>

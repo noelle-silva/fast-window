@@ -18,6 +18,7 @@ pub struct ClipboardHistorySettings {
     pub poll_interval: u64,
     pub max_history: usize,
     pub collapse_lines: u64,
+    pub theme: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

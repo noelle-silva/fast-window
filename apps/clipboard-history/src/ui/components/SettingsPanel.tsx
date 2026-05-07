@@ -5,6 +5,8 @@ import ImportExportRoundedIcon from '@mui/icons-material/ImportExportRounded'
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import { Alert, Box, Button, Chip, Collapse, Paper, Stack, Switch, TextField, Typography } from '@mui/material'
 import type { ClipboardHistoryController } from '../hooks/useClipboardHistoryController'
+import { ThemePicker } from './ThemePicker'
+import type { ClipboardHistoryThemeId } from '../../shared/types'
 
 type SettingsPanelProps = {
   controller: ClipboardHistoryController
@@ -23,19 +25,36 @@ export function SettingsPanel(props: SettingsPanelProps) {
     setCollapseLines(String(state.settings.collapseLines))
   }, [state.settings.collapseLines, state.settings.maxHistory, state.settings.pollInterval])
 
-  const saveSettings = React.useCallback(() => {
-    void controller.updateSettings({
+  const buildDraftSettings = React.useCallback((patch: Partial<typeof state.settings> = {}) => ({
       ...state.settings,
-      pollInterval: Number(pollInterval),
-      maxHistory: Number(maxHistory),
-      collapseLines: Number(collapseLines),
-    })
-  }, [collapseLines, controller, maxHistory, pollInterval, state.settings])
+      pollInterval: draftNumber(pollInterval, state.settings.pollInterval),
+      maxHistory: draftNumber(maxHistory, state.settings.maxHistory),
+      collapseLines: draftNumber(collapseLines, state.settings.collapseLines),
+      ...patch,
+    }), [collapseLines, maxHistory, pollInterval, state.settings])
+
+  const saveSettings = React.useCallback(() => {
+    void controller.updateSettings(buildDraftSettings())
+  }, [buildDraftSettings, controller])
+
+  const selectTheme = React.useCallback((theme: ClipboardHistoryThemeId) => {
+    void controller.updateSettings(buildDraftSettings({ theme }))
+  }, [buildDraftSettings, controller])
 
   return (
     <Collapse in={state.showSettings} unmountOnExit>
       <Paper sx={{ mb: 1.25, p: 1.25, boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)', bgcolor: 'background.paper' }}>
         <Stack spacing={1.25}>
+          <Stack spacing={1}>
+            <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+              <Typography variant="body2" color="text.secondary" sx={{ width: 120 }}>配色方案</Typography>
+              <Chip size="small" color="primary" label="点击卡片立即切换" />
+            </Stack>
+            <Box sx={{ pl: { xs: 0, sm: '132px' } }}>
+              <ThemePicker value={state.settings.theme} disabled={!controller.isReady} onChange={selectTheme} />
+            </Box>
+          </Stack>
+
           <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
             <Typography variant="body2" color="text.secondary" sx={{ width: 120 }}>自动监控</Typography>
             <Switch
@@ -91,6 +110,11 @@ export function SettingsPanel(props: SettingsPanelProps) {
       </Paper>
     </Collapse>
   )
+}
+
+function draftNumber(value: string, fallback: number): number {
+  const next = Number(value)
+  return Number.isFinite(next) ? next : fallback
 }
 
 function LegacyImportReport(props: SettingsPanelProps) {

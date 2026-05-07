@@ -8,6 +8,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static ID_SEQ: AtomicU64 = AtomicU64::new(0);
+const DEFAULT_THEME_ID: &str = "calm-blue";
+const THEME_IDS: [&str; 5] = [
+    "calm-blue",
+    "catppuccin-latte",
+    "rose-pine-dawn",
+    "nord-night",
+    "catppuccin-mocha",
+];
 
 pub fn now_ms() -> u64 {
     SystemTime::now()
@@ -28,6 +36,7 @@ pub fn default_settings() -> ClipboardHistorySettings {
         poll_interval: 1000,
         max_history: 50,
         collapse_lines: 6,
+        theme: DEFAULT_THEME_ID.to_string(),
     }
 }
 
@@ -45,6 +54,11 @@ pub fn normalize_settings(raw: Option<Value>) -> ClipboardHistorySettings {
     }
     if let Some(v) = map.get("collapseLines").and_then(Value::as_u64) {
         out.collapse_lines = v.clamp(1, 50);
+    }
+    if let Some(v) = map.get("theme").and_then(Value::as_str).map(str::trim) {
+        if THEME_IDS.contains(&v) {
+            out.theme = v.to_string();
+        }
     }
     out
 }
