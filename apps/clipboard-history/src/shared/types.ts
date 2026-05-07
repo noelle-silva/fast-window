@@ -1,4 +1,15 @@
-export type ClipboardHistoryThemeId = 'calm-blue' | 'catppuccin-latte' | 'rose-pine-dawn' | 'nord-night' | 'catppuccin-mocha'
+export type ClipboardHistoryThemeId =
+  | 'calm-blue'
+  | 'catppuccin-latte'
+  | 'rose-pine-dawn'
+  | 'nord-night'
+  | 'catppuccin-mocha'
+  | 'solarized-paper'
+  | 'everforest-moss'
+  | 'gruvbox-ember'
+  | 'dracula-neon'
+  | 'kanagawa-wave'
+  | 'radix-graphite'
 
 export type ClipboardHistoryItem = {
   type: 'text' | 'image'

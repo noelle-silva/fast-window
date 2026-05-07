@@ -9,12 +9,18 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 static ID_SEQ: AtomicU64 = AtomicU64::new(0);
 const DEFAULT_THEME_ID: &str = "calm-blue";
-const THEME_IDS: [&str; 5] = [
+const THEME_IDS: [&str; 11] = [
     "calm-blue",
     "catppuccin-latte",
     "rose-pine-dawn",
     "nord-night",
     "catppuccin-mocha",
+    "solarized-paper",
+    "everforest-moss",
+    "gruvbox-ember",
+    "dracula-neon",
+    "kanagawa-wave",
+    "radix-graphite",
 ];
 
 pub fn now_ms() -> u64 {

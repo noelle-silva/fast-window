@@ -10,6 +10,12 @@ export const CLIPBOARD_HISTORY_THEME_IDS: ClipboardHistoryThemeId[] = [
   'rose-pine-dawn',
   'nord-night',
   'catppuccin-mocha',
+  'solarized-paper',
+  'everforest-moss',
+  'gruvbox-ember',
+  'dracula-neon',
+  'kanagawa-wave',
+  'radix-graphite',
 ]
 
 export const DEFAULT_THEME_ID: ClipboardHistoryThemeId = 'calm-blue'
