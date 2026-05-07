@@ -37,7 +37,7 @@ import {
   type FolderSearchScope,
   type MovePickerAction,
 } from '../state'
-import { formatError, historyKey, isClearArmed, isDeleteArmed, nowMs } from '../clipboardUiUtils'
+import { formatError, historyKey, isDeleteArmed, nowMs } from '../clipboardUiUtils'
 
 type PickedDir = { dir: string }
 type FwLaunchInfo = { launched?: boolean; standalone?: boolean; mode?: string }
@@ -69,7 +69,7 @@ export type ClipboardHistoryController = {
   setShowSettings(show: boolean): void
   toggleSettings(): void
   setShowRecentMenu(show: boolean): void
-  setShowMoreMenu(show: boolean): void
+  setShowClearHistoryConfirm(show: boolean): void
   openRecentFolder(folderId: string): void
   clearHistory(): Promise<void>
   updateSettings(settings: ClipboardHistorySettings): Promise<void>
@@ -296,10 +296,11 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
       setState(prev => ({
         ...prev,
         view: 'clipboard',
-        showMoreMenu: true,
-        clearArmedAt: 0,
+        showSettings: true,
+        showClearHistoryConfirm: true,
+        showRecentMenu: false,
       }))
-      void host.toast('请在菜单中再次确认清空历史')
+      void host.toast('请确认是否清空历史')
       return
     }
 
@@ -358,6 +359,7 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
       view,
       showSettings: false,
       showRecentMenu: false,
+      showClearHistoryConfirm: false,
       clipboardLimit: view === 'clipboard' ? CLIPBOARD_PAGE_SIZE : prev.clipboardLimit,
     }))
   }, [])
@@ -374,12 +376,16 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
   const toggleFolderSearchScope = React.useCallback(() => {
     setState(prev => ({ ...prev, folderSearchScope: prev.folderSearchScope === 'global' ? 'current' : 'global' }))
   }, [])
-  const setShowSettings = React.useCallback((show: boolean) => patchState({ showSettings: show, showMoreMenu: false }), [patchState])
+  const setShowSettings = React.useCallback((show: boolean) => {
+    setState(prev => ({ ...prev, showSettings: show, showClearHistoryConfirm: show ? prev.showClearHistoryConfirm : false }))
+  }, [])
   const toggleSettings = React.useCallback(() => {
-    setState(prev => ({ ...prev, showSettings: !prev.showSettings, showMoreMenu: false }))
+    setState(prev => ({ ...prev, showSettings: !prev.showSettings, showClearHistoryConfirm: false }))
   }, [])
   const setShowRecentMenu = React.useCallback((show: boolean) => patchState({ showRecentMenu: show }), [patchState])
-  const setShowMoreMenu = React.useCallback((show: boolean) => patchState({ showMoreMenu: show }), [patchState])
+  const setShowClearHistoryConfirm = React.useCallback((show: boolean) => {
+    setState(prev => ({ ...prev, showClearHistoryConfirm: show, showSettings: show ? true : prev.showSettings }))
+  }, [])
 
   const openRecentFolder = React.useCallback((folderId: string) => {
     setState(prev => ({ ...prev, view: 'folders', showRecentMenu: false }))
@@ -389,23 +395,17 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
   const clearHistory = React.useCallback(async () => {
     const gateway = gatewayRef.current
     if (!gateway) return
-    const armed = isClearArmed(stateRef.current.clearArmedAt)
-    if (!armed) {
-      patchState({ clearArmedAt: nowMs(), showMoreMenu: false })
-      void host.toast('再点一次清空')
-      return
-    }
     const snapshot = await gateway.state.clearHistory()
     setState(prev => applySnapshotToState({
       ...prev,
-      clearArmedAt: 0,
+      showClearHistoryConfirm: false,
       clipboardExpanded: {},
       clipboardImageCache: {},
       clipboardImageLoading: {},
       clipboardLimit: CLIPBOARD_PAGE_SIZE,
     }, snapshot))
     void host.toast('已清空')
-  }, [host, patchState])
+  }, [host])
 
   const updateSettings = React.useCallback(async (settings: ClipboardHistorySettings) => {
     const gateway = gatewayRef.current
@@ -616,7 +616,7 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
   const resetItemDraft = React.useCallback(() => patchState({ showItemEditor: false, draftTitle: '', draftContent: '' }), [patchState])
 
   const setContextMenu = React.useCallback((open: boolean, nodeId = '', x = 0, y = 0) => {
-    patchState({ ctxMenu: { open, nodeId, x, y }, showRecentMenu: false, showMoreMenu: false })
+    patchState({ ctxMenu: { open, nodeId, x, y }, showRecentMenu: false })
   }, [patchState])
   const closeContextMenu = React.useCallback(() => {
     setState(prev => ({ ...prev, ctxMenu: { open: false, x: 0, y: 0, nodeId: '' } }))
@@ -715,7 +715,7 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
     setShowSettings,
     toggleSettings,
     setShowRecentMenu,
-    setShowMoreMenu,
+    setShowClearHistoryConfirm,
     openRecentFolder,
     clearHistory,
     updateSettings,

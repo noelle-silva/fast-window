@@ -28,8 +28,7 @@ export type ClipboardHistoryUiState = {
   folderSearchScope: FolderSearchScope
   recentFolders: string[]
   showRecentMenu: boolean
-  showMoreMenu: boolean
-  clearArmedAt: number
+  showClearHistoryConfirm: boolean
   showItemEditor: boolean
   draftTitle: string
   draftContent: string
@@ -66,8 +65,7 @@ export function createClipboardHistoryUiState(): ClipboardHistoryUiState {
     folderSearchScope: 'current',
     recentFolders: [],
     showRecentMenu: false,
-    showMoreMenu: false,
-    clearArmedAt: 0,
+    showClearHistoryConfirm: false,
 
     showItemEditor: false,
     draftTitle: '',

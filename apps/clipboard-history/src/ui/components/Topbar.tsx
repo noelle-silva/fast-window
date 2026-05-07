@@ -3,9 +3,7 @@ import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import ContentPasteRoundedIcon from '@mui/icons-material/ContentPasteRounded'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
-import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
-import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import { Box, Button, ClickAwayListener, IconButton, InputAdornment, Paper, TextField } from '@mui/material'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import { StandaloneWindowControls } from './StandaloneWindowControls'
@@ -40,7 +38,7 @@ export function Topbar(props: TopbarProps) {
         height: 44,
         bgcolor: 'background.paper',
         display: 'grid',
-        gridTemplateColumns: { xs: 'auto minmax(120px, 1fr) auto', sm: '1fr minmax(240px, 420px) 1fr' },
+        gridTemplateColumns: { xs: 'auto minmax(120px, 1fr) auto', sm: '1fr minmax(320px, 560px) 1fr' },
         alignItems: 'center',
         columnGap: 1,
         px: 1.25,
@@ -75,38 +73,41 @@ export function Topbar(props: TopbarProps) {
         </IconButton>
       </Box>
 
-      <TextField
-        data-window-drag-ignore="true"
-        value={isClipboard ? state.clipboardSearchQuery : state.folderSearchQuery}
-        onChange={(event) => {
-          const value = event.target.value
-          if (isClipboard) controller.setClipboardSearchQuery(value)
-          else controller.setFolderSearchQuery(value)
-        }}
-        placeholder={
-          isClipboard
-            ? '搜索文本（图片不参与）'
-            : state.folderSearchScope === 'global'
-              ? '全局搜索（标题/内容）'
-              : '当前收藏夹内搜索（含子收藏夹）'
-        }
-        size="small"
-        sx={{ width: '100%', justifySelf: 'center' }}
-        InputProps={{
-          startAdornment: (
-            <InputAdornment position="start">
-              <SearchRoundedIcon fontSize="small" />
-            </InputAdornment>
-          ),
-        }}
-      />
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.75, minWidth: 0 }}>
+        <TextField
+          data-window-drag-ignore="true"
+          value={isClipboard ? state.clipboardSearchQuery : state.folderSearchQuery}
+          onChange={(event) => {
+            const value = event.target.value
+            if (isClipboard) controller.setClipboardSearchQuery(value)
+            else controller.setFolderSearchQuery(value)
+          }}
+          placeholder={
+            isClipboard
+              ? '搜索文本（图片不参与）'
+              : state.folderSearchScope === 'global'
+                ? '全局搜索（标题/内容）'
+                : '当前收藏夹内搜索（含子收藏夹）'
+          }
+          size="small"
+          sx={{ flex: 1, minWidth: 0, maxWidth: 420 }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchRoundedIcon fontSize="small" />
+              </InputAdornment>
+            ),
+          }}
+        />
+        {isClipboard ? <RecentFoldersMenu controller={controller} /> : null}
+      </Box>
 
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.75, minWidth: 0 }}>
-        {isClipboard ? (
-          <ClipboardTopbarActions controller={controller} />
-        ) : (
-          <FoldersTopbarActions controller={controller} />
-        )}
+        {!isClipboard ? <FoldersTopbarActions controller={controller} /> : null}
+
+        <IconButton size="small" aria-label="设置" title="设置" onClick={controller.toggleSettings} disabled={!controller.isReady}>
+          <SettingsOutlinedIcon fontSize="small" />
+        </IconButton>
 
         {controller.standaloneLaunch ? (
           <StandaloneWindowControls
@@ -135,70 +136,38 @@ function viewButtonSx(active: boolean) {
   }
 }
 
-function ClipboardTopbarActions(props: TopbarProps) {
+function RecentFoldersMenu(props: TopbarProps) {
   const { controller } = props
   const { state } = controller
 
   return (
-    <>
-      <ClickAwayListener onClickAway={() => controller.setShowRecentMenu(false)}>
-        <Box data-window-drag-ignore="true" sx={{ position: 'relative' }}>
-          <Button onClick={() => controller.setShowRecentMenu(!state.showRecentMenu)} disabled={!controller.isReady}>
-            最近收藏夹
-          </Button>
-          {state.showRecentMenu ? (
-            <Paper sx={{ position: 'absolute', top: 36, right: 0, minWidth: 280, overflow: 'hidden', zIndex: 30, boxShadow: 8 }}>
-              <Box sx={{ px: 1.5, py: 1, color: 'text.secondary', fontSize: 12 }}>最近打开（最多10个）</Box>
-              {state.recentFolders.filter(controller.isFolder).length ? (
-                state.recentFolders.filter(controller.isFolder).map(id => (
-                  <Button
-                    key={id}
-                    fullWidth
-                    startIcon={<FolderOutlinedIcon fontSize="small" />}
-                    sx={{ justifyContent: 'flex-start', borderRadius: 0, px: 1.5 }}
-                    onClick={() => controller.openRecentFolder(id)}
-                  >
-                    {controller.folderLabelById(id)}
-                  </Button>
-                ))
-              ) : (
-                <Box sx={{ px: 1.5, py: 1, color: 'text.secondary', fontSize: 12 }}>暂无</Box>
-              )}
-            </Paper>
-          ) : null}
-        </Box>
-      </ClickAwayListener>
-
-      <ClickAwayListener onClickAway={() => controller.setShowMoreMenu(false)}>
-        <Box data-window-drag-ignore="true" sx={{ position: 'relative' }}>
-          <IconButton size="small" aria-label="更多" onClick={() => controller.setShowMoreMenu(!state.showMoreMenu)} disabled={!controller.isReady}>
-            <MoreVertRoundedIcon fontSize="small" />
-          </IconButton>
-          {state.showMoreMenu ? (
-            <Paper sx={{ position: 'absolute', top: 36, right: 0, minWidth: 220, overflow: 'hidden', zIndex: 30, boxShadow: 8 }}>
-              <Box sx={{ px: 1.5, py: 1, color: 'text.secondary', fontSize: 12 }}>更多</Box>
-              <Button
-                fullWidth
-                startIcon={<SettingsOutlinedIcon fontSize="small" />}
-                sx={{ justifyContent: 'flex-start', borderRadius: 0, px: 1.5 }}
-                onClick={controller.toggleSettings}
-              >
-                设置
-              </Button>
-              <Button
-                fullWidth
-                color="error"
-                startIcon={<DeleteOutlineRoundedIcon fontSize="small" />}
-                sx={{ justifyContent: 'flex-start', borderRadius: 0, px: 1.5 }}
-                onClick={() => void controller.clearHistory()}
-              >
-                清空历史
-              </Button>
-            </Paper>
-          ) : null}
-        </Box>
-      </ClickAwayListener>
-    </>
+    <ClickAwayListener onClickAway={() => controller.setShowRecentMenu(false)}>
+      <Box data-window-drag-ignore="true" sx={{ position: 'relative', ml: 0.5 }}>
+        <Button onClick={() => controller.setShowRecentMenu(!state.showRecentMenu)} disabled={!controller.isReady} sx={{ whiteSpace: 'nowrap' }}>
+          最近收藏夹
+        </Button>
+        {state.showRecentMenu ? (
+          <Paper sx={{ position: 'absolute', top: 36, right: 0, minWidth: 280, overflow: 'hidden', zIndex: 30, boxShadow: 8 }}>
+            <Box sx={{ px: 1.5, py: 1, color: 'text.secondary', fontSize: 12 }}>最近打开（最多10个）</Box>
+            {state.recentFolders.filter(controller.isFolder).length ? (
+              state.recentFolders.filter(controller.isFolder).map(id => (
+                <Button
+                  key={id}
+                  fullWidth
+                  startIcon={<FolderOutlinedIcon fontSize="small" />}
+                  sx={{ justifyContent: 'flex-start', borderRadius: 0, px: 1.5 }}
+                  onClick={() => controller.openRecentFolder(id)}
+                >
+                  {controller.folderLabelById(id)}
+                </Button>
+              ))
+            ) : (
+              <Box sx={{ px: 1.5, py: 1, color: 'text.secondary', fontSize: 12 }}>暂无</Box>
+            )}
+          </Paper>
+        ) : null}
+      </Box>
+    </ClickAwayListener>
   )
 }
 

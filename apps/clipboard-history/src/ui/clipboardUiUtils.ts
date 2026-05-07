@@ -40,10 +40,6 @@ export function isDeleteArmed(deleteArmedId: string, deleteArmedAt: number, id: 
   return deleteArmedId === id && !!deleteArmedAt && nowMs() - deleteArmedAt < 2500
 }
 
-export function isClearArmed(clearArmedAt: number): boolean {
-  return !!clearArmedAt && nowMs() - clearArmedAt < 2500
-}
-
 export function formatError(error: unknown, fallback: string): string {
   return String((error as any)?.message || error || fallback)
 }
