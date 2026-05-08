@@ -418,14 +418,10 @@ function App() {
   return (
     <main className="app-shell">
       <header className="topbar" onPointerDown={onTopbarPointerDown}>
-        <div className="brand-mark" aria-hidden="true">夹</div>
-        <div className="title-block">
-          <div className="eyebrow">Fast Window v5 App</div>
-          <h1>文件夹收藏</h1>
-        </div>
-        <div className={`status-badge ${phase}`}>{phase === 'ready' ? 'Ready' : phase === 'failed' ? 'Needs Attention' : 'Starting'}</div>
+        <div className="title">文件夹收藏</div>
+        <div className={`status-badge ${phase}`}>{phase === 'ready' ? '就绪' : phase === 'failed' ? '需处理' : '启动中'}</div>
         <button type="button" className="ghost" onClick={() => setSettingsOpen(true)}>设置</button>
-        <button type="button" onClick={openAdd} disabled={phase !== 'ready'}>添加文件夹</button>
+        <button type="button" className="primary" onClick={openAdd} disabled={phase !== 'ready'}>新增</button>
         {launchInfo.standalone ? (
           <div className="window-controls" data-window-control>
             <button type="button" onClick={() => appWindow.minimize()} aria-label="最小化">-</button>
@@ -435,7 +431,7 @@ function App() {
         ) : null}
       </header>
 
-      <section className="toolbar">
+      <section className="filters">
         <label className="field compact">
           <span>分组</span>
           <select value={groupId} onChange={event => setGroupId(event.target.value)}>
@@ -445,7 +441,7 @@ function App() {
         </label>
         <label className="field search-field">
           <span>搜索</span>
-          <input value={search} onChange={event => setSearch(event.target.value)} placeholder="按名称或路径搜索" />
+          <input value={search} onChange={event => setSearch(event.target.value)} placeholder="按名称 / 路径搜索" />
         </label>
         <div className="mode-pill">{launchInfo.standalone ? 'standalone' : `FW ${launchInfo.mode}`}</div>
       </section>
@@ -464,12 +460,11 @@ function App() {
 
       <section className={`folder-list ${settings?.view === 'list' ? 'as-list' : ''}`} aria-label="收藏文件夹列表">
         {filteredItems.length ? filteredItems.map(item => (
-          <article className="folder-card" key={item.id}>
+          <article className="folder-card" key={item.id} title={item.path}>
             <button type="button" className="folder-open" onClick={() => void openFolder(item)} aria-label={`打开文件夹：${item.name}`}>
-              <span className="folder-icon" aria-hidden="true">📁</span>
+              <span className="site-icon" aria-hidden="true"><span className="folder-icon">📁</span></span>
               <span className="folder-name">{item.name}</span>
               <span className="folder-group">{groupName(doc, item.groupId)}</span>
-              <span className="folder-path">{item.path}</span>
             </button>
             <div className="card-actions">
               <button type="button" className="ghost" onClick={() => openEdit(item)}>编辑</button>

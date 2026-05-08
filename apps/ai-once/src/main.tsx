@@ -154,6 +154,13 @@ function defaultSettings(): AiOnceSettings {
   return { schemaVersion: 1, dataVersion: 1, providerName: 'OpenAI Compatible', baseUrl: 'https://api.openai.com/v1', apiKey: '', model: '', systemPrompt: '你是一个严谨、直接、可执行的助手。', temperature: 0.2, updatedAt: '' }
 }
 
+function shortDate(value: string): string {
+  if (!value) return '未记录时间'
+  const time = new Date(value)
+  if (Number.isNaN(time.getTime())) return value
+  return time.toLocaleString()
+}
+
 function App() {
   const [launchInfo, setLaunchInfo] = React.useState<FwLaunchInfo>(DEFAULT_LAUNCH_INFO)
   const [initialCommand, setInitialCommand] = React.useState<string | null>(null)
@@ -329,16 +336,27 @@ function App() {
     void appWindow.startDragging()
   }, [])
 
+  const canAsk = Boolean(client && !busy && prompt.trim())
+  const providerLine = settings.baseUrl || status?.dataDir || '等待后台连接'
+  const latestHistory = history.slice(0, 8)
+
   return (
     <main className="app-shell">
       <header className="topbar" onPointerDown={onTopbarPointerDown}>
-        <div className="brand-mark" aria-hidden="true">AI</div>
-        <div className="title-block">
-          <div className="eyebrow">Fast Window v5 App</div>
-          <h1>AI Once</h1>
+        <div className="brand-mark" aria-hidden="true">
+          <span className="robot-eye" />
+          <span className="robot-eye" />
+          <span className="robot-mouth" />
         </div>
-        <button type="button" className={view === 'ask' ? 'tab active' : 'tab'} onClick={() => setView('ask')}>一次提问</button>
-        <button type="button" className={view === 'settings' ? 'tab active' : 'tab'} onClick={() => setView('settings')}>设置</button>
+        <div className="title-block">
+          <h1>AI 一次性响应</h1>
+          <p className="meta mono" title={providerLine}>{providerLine}</p>
+        </div>
+        <button type="button" className={view === 'ask' ? 'btn pri active' : 'btn'} onClick={() => setView('ask')}>工作台</button>
+        <button type="button" className={view === 'settings' ? 'btn pri active' : 'btn'} onClick={() => setView('settings')}>设置</button>
+        <button type="button" className="btn" onClick={pickDataDir} disabled={busy}>数据目录</button>
+        <button type="button" className="btn" onClick={() => void connect({ restartBackend: true })} disabled={busy}>重试</button>
+        <div className={`status-badge ${phase}`}>{phase === 'ready' ? '就绪' : phase === 'failed' ? '需设置' : '启动中'}</div>
         <div className="mode-pill">{launchInfo.standalone ? 'standalone' : `FW ${launchInfo.mode}`}</div>
         {launchInfo.standalone ? (
           <div className="window-controls" data-window-control>
@@ -349,77 +367,95 @@ function App() {
         ) : null}
       </header>
 
-      <section className="hero-card">
-        <div>
-          <p className="eyebrow">一次请求，一次返回</p>
-          <h2>把临时问题快速交给你的 AI Provider</h2>
-          <p>保留旧插件的 provider endpoint、API key、模型和系统提示语义。没有配置时会明确报错，不会假装请求成功。</p>
-        </div>
-        <div className={`status-badge ${phase}`}>{phase === 'ready' ? 'Backend Ready' : phase === 'failed' ? 'Needs Setup' : 'Starting'}</div>
-      </section>
-
       <section className="workspace">
         <aside className="side-panel">
-          <h3>运行信息</h3>
-          <dl>
+          <div className="panel-head">
+            <h2>默认空间</h2>
+            <span className="meta">一次请求工作台</span>
+          </div>
+          <button type="button" className="space-card" onClick={() => setView('ask')}>
+            <strong>临时问答</strong>
+            <span>模型：<span className="mono">{settings.model || '未设置'}</span></span>
+            <span>历史：{history.length} 条</span>
+          </button>
+
+          <div className="hr" />
+          <div className="panel-head compact">
+            <h3>运行信息</h3>
+            <span className={status?.writable ? 'ok-text' : 'warn-text'}>{status?.writable ? '可写' : '不可写或未知'}</span>
+          </div>
+          <dl className="runtime-list">
             <dt>初始命令</dt><dd>{initialCommand || '无'}</dd>
             <dt>运行命令</dt><dd>{runtimeCommand || '无'}</dd>
             <dt>数据目录</dt><dd>{status?.dataDir || '读取中'}</dd>
-            <dt>可写状态</dt><dd>{status?.writable ? '可写' : '不可写或未知'}</dd>
           </dl>
           {status?.error ? <p className="error-text">{status.error}</p> : null}
-          <div className="actions">
-            <button type="button" onClick={pickDataDir} disabled={busy}>选择数据目录</button>
-            <button type="button" onClick={() => void connect({ restartBackend: true })} disabled={busy}>重试后台</button>
+          <div className="hr" />
+          <div className="panel-head compact">
+            <h3>最近历史</h3>
+            {history.length ? <button type="button" className="link-btn" onClick={clearHistory} disabled={busy}>清空</button> : null}
           </div>
-          <h3>最近历史</h3>
           <div className="history-list">
-            {history.length ? history.map(item => (
+            {latestHistory.length ? latestHistory.map(item => (
               <button type="button" className="history-item" key={item.id} onClick={() => { setPrompt(item.prompt); setAnswer(item.answer); setView('ask') }}>
                 <strong>{item.prompt || '空 Prompt'}</strong>
-                <span>{item.error ? `失败：${item.error}` : `${item.model || '未记录模型'} · ${new Date(item.createdAt).toLocaleString()}`}</span>
+                <span>{item.error ? `失败：${item.error}` : `${item.model || '未记录模型'} · ${shortDate(item.createdAt)}`}</span>
               </button>
             )) : <p className="muted">还没有历史记录</p>}
           </div>
-          {history.length ? <button type="button" className="ghost" onClick={clearHistory} disabled={busy}>清空历史</button> : null}
         </aside>
 
         {view === 'ask' ? (
           <section className="main-panel">
-            <div className="ask-grid">
-              <label className="field prompt-field">
-                <span>Prompt</span>
+            <div className="workbar">
+              <div>
+                <h2>一次性请求</h2>
+                <p className="meta">左侧输入 Prompt，右侧查看输出；Ctrl/⌘ + Enter 发送。</p>
+              </div>
+              <div className="workbar-actions">
+                <span className="meta mono">{settings.providerName} / {settings.model || '未配置模型'}</span>
+                <button type="button" className="btn ok" onClick={askOnce} disabled={!canAsk}>{busy ? '发送中...' : '发送'}</button>
+              </div>
+            </div>
+            <div className="split">
+              <label className="card pane prompt-field">
+                <span className="pane-title">输入</span>
                 <textarea value={prompt} onChange={event => setPrompt(event.target.value)} placeholder="输入这次要问 AI 的内容..." />
               </label>
-              <article className="answer-card">
-                <div className="answer-head">
-                  <span>结果</span>
-                  <small>{settings.providerName} / {settings.model || '未配置模型'}</small>
+              <article className="card pane answer-card">
+                <div className="row">
+                  <span className="pane-title">输出</span>
+                  <button type="button" className="btn" onClick={() => void navigator.clipboard?.writeText(answer)} disabled={!answer}>复制</button>
                 </div>
                 <pre>{answer || (busy ? '正在请求 AI...' : '结果会显示在这里')}</pre>
               </article>
             </div>
             <div className="actions">
-              <button type="button" onClick={askOnce} disabled={!client || busy}>提交一次性请求</button>
-              <button type="button" className="ghost" onClick={() => { setPrompt(''); setAnswer(''); setError(null) }} disabled={busy}>新 Prompt</button>
-              <button type="button" className="ghost" onClick={() => setView('settings')}>打开设置</button>
+              <button type="button" className="btn" onClick={() => { setPrompt(''); setAnswer(''); setError(null) }} disabled={busy}>新 Prompt</button>
+              <button type="button" className="btn" onClick={() => setView('settings')}>打开设置</button>
             </div>
           </section>
         ) : (
           <section className="main-panel settings-panel">
-            <div className="settings-grid">
+            <div className="workbar">
+              <div>
+                <h2>连接设置（OpenAI 兼容）</h2>
+                <p className="meta">保存后继续使用现有 v5 后台，不依赖旧插件运行时。</p>
+              </div>
+            </div>
+            <div className="settings-grid card">
               <label className="field"><span>Provider 名称</span><input value={draftSettings.providerName} onChange={event => setDraftSettings({ ...draftSettings, providerName: event.target.value })} /></label>
-              <label className="field"><span>Endpoint</span><input value={draftSettings.baseUrl} onChange={event => setDraftSettings({ ...draftSettings, baseUrl: event.target.value })} placeholder="https://api.openai.com/v1" /></label>
-              <label className="field"><span>API Key</span><input type="password" value={draftSettings.apiKey} onChange={event => setDraftSettings({ ...draftSettings, apiKey: event.target.value })} /></label>
-              <label className="field"><span>模型</span><input value={draftSettings.model} onChange={event => setDraftSettings({ ...draftSettings, model: event.target.value })} placeholder="gpt-4o-mini" /></label>
-              <label className="field"><span>Temperature</span><input type="number" min="0" max="2" step="0.1" value={draftSettings.temperature ?? 0.2} onChange={event => setDraftSettings({ ...draftSettings, temperature: Number(event.target.value) })} /></label>
-              <label className="field wide"><span>系统提示</span><textarea value={draftSettings.systemPrompt} onChange={event => setDraftSettings({ ...draftSettings, systemPrompt: event.target.value })} /></label>
+              <label className="field"><span>Base URL</span><input className="mono" value={draftSettings.baseUrl} onChange={event => setDraftSettings({ ...draftSettings, baseUrl: event.target.value })} placeholder="https://api.openai.com/v1" /></label>
+              <label className="field"><span>API Key</span><input className="mono" type="password" value={draftSettings.apiKey} onChange={event => setDraftSettings({ ...draftSettings, apiKey: event.target.value })} /></label>
+              <label className="field"><span>模型</span><input className="mono" value={draftSettings.model} onChange={event => setDraftSettings({ ...draftSettings, model: event.target.value })} placeholder="gpt-4o-mini" /></label>
+              <label className="field"><span>Temperature</span><input className="mono" type="number" min="0" max="2" step="0.1" value={draftSettings.temperature ?? 0.2} onChange={event => setDraftSettings({ ...draftSettings, temperature: Number(event.target.value) })} /></label>
+              <label className="field wide"><span>System Prompt</span><textarea className="mono" value={draftSettings.systemPrompt} onChange={event => setDraftSettings({ ...draftSettings, systemPrompt: event.target.value })} /></label>
             </div>
             <div className="actions">
-              <button type="button" onClick={saveSettings} disabled={!client || busy}>保存设置</button>
-              <button type="button" className="ghost" onClick={() => setDraftSettings(settings)} disabled={busy}>还原</button>
+              <button type="button" className="btn pri" onClick={saveSettings} disabled={!client || busy}>保存设置</button>
+              <button type="button" className="btn" onClick={() => setDraftSettings(settings)} disabled={busy}>还原</button>
             </div>
-            <pre className="health-card">{JSON.stringify(health, null, 2) || '后台连接中'}</pre>
+            <pre className="health-card mono">{JSON.stringify(health, null, 2) || '后台连接中'}</pre>
           </section>
         )}
       </section>
