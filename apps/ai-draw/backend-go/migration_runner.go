@@ -104,6 +104,9 @@ func (svc *service) runMigrations() error {
 	meta["schemaVersion"] = aiDrawSchemaVersion
 	meta["dataVersion"] = aiDrawDataVersion
 	meta["updatedAt"] = nowMs()
+	if err := svc.saveMigrationState(state); err != nil {
+		return err
+	}
 	return svc.store.write(filepath.Join(svc.dataDir, metaFile), meta)
 }
 

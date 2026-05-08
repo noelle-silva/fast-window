@@ -470,7 +470,7 @@ export function AiDrawApp(props: { gateway: AiDrawGateway; command?: AiDrawRunti
     if (!commandId) return
     if (state.loading) return
 
-    if (commandId === 'provider-settings') {
+    if (commandId === 'open-settings' || commandId === 'provider-settings') {
       openProviderSettings()
       onCommandHandled?.(command!.seq)
       return

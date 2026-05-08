@@ -4,6 +4,7 @@ mod backend_sidecar;
 mod control_server;
 mod data_dir;
 mod fw_window;
+mod shutdown;
 mod single_instance;
 mod standalone_tray;
 
@@ -14,8 +15,9 @@ use control_server::{
 use data_dir::DataDirStatus;
 use fw_window::{
     app_ready, apply_fw_args, fw_initial_command, fw_launch_info, install_window_policy,
-    parse_fw_args, report_available_commands, FwWindowState,
+    parse_fw_args, report_available_commands, take_shutdown_requested, FwWindowState,
 };
+use shutdown::ShutdownState;
 use std::sync::Arc;
 use tauri::{Manager, WindowEvent};
 
@@ -40,6 +42,16 @@ fn data_dir_status(
     Ok(data_dir::data_dir_status(&app, state.runtime_error()))
 }
 
+fn clear_backend_runtime_error_if_data_dir_ok(app: &tauri::AppHandle, state: &BackendState) {
+    if state.runtime_error().is_none() {
+        return;
+    }
+    let data_dir = data_dir::resolve_data_dir(app);
+    if data_dir::ensure_writable_dir(&data_dir).is_ok() {
+        state.clear_runtime_state();
+    }
+}
+
 #[tauri::command]
 async fn pick_data_dir(
     app: tauri::AppHandle,
@@ -60,6 +72,32 @@ async fn pick_data_dir(
         return Err(error);
     }
     Ok(Some(data_dir::data_dir_status(&app, None)))
+}
+
+#[tauri::command]
+async fn restart_backend(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<BackendState>>,
+) -> Result<DataDirStatus, String> {
+    state.stop_sync();
+    clear_backend_runtime_error_if_data_dir_ok(&app, &state);
+    let state_inner = state.inner().clone();
+    if let Err(error) = start_backend(app.clone(), state_inner).await {
+        state.set_runtime_error(error.clone());
+        return Err(error);
+    }
+    Ok(data_dir::data_dir_status(&app, None))
+}
+
+fn desktop_identifier() -> &'static str {
+    #[cfg(debug_assertions)]
+    {
+        "com.fastwindow.aidraw.dev"
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        "com.fastwindow.aidraw"
+    }
 }
 
 #[tauri::command]
@@ -125,7 +163,8 @@ fn hide_to_tray(
 
 fn main() {
     let fw_args = parse_fw_args();
-    if single_instance::forward_to_existing_instance(&fw_args) {
+    let desktop_identifier = desktop_identifier().to_string();
+    if single_instance::forward_to_existing_instance(&fw_args, &desktop_identifier) {
         return;
     }
 
@@ -138,6 +177,12 @@ fn main() {
     let backend_state_setup = backend_state.clone();
     let window_state = Arc::new(FwWindowState::default());
     let window_state_setup = window_state.clone();
+    let shutdown_state = ShutdownState::new(
+        backend_state.clone(),
+        window_state.clone(),
+        desktop_identifier.clone(),
+    );
+    let shutdown_state_setup = shutdown_state.clone();
 
     tauri::Builder::default()
         .manage(backend_state)
@@ -146,6 +191,7 @@ fn main() {
             backend_endpoint,
             data_dir_status,
             pick_data_dir,
+            restart_backend,
             pick_output_dir,
             open_output_dir,
             hide_to_tray,
@@ -157,31 +203,30 @@ fn main() {
             let window = app
                 .get_webview_window("main")
                 .expect("main window not found");
-            let stop_backend = {
-                let backend = backend_state_setup.clone();
-                Arc::new(move || backend.stop_sync())
-            };
+            let shutdown_for_tray = shutdown_state_setup.clone();
             standalone_tray::install_standalone_tray(
                 app,
                 &fw_args,
                 window_state_setup.clone(),
-                stop_backend.clone(),
+                Arc::new(move |app| shutdown_for_tray.shutdown(app)),
             )?;
             let standalone_launch = !fw_args.launched;
             let app_handle_for_window_close = app.handle().clone();
             let window_state_for_window_close = window_state_setup.clone();
-            let stop_backend_for_window_close = stop_backend.clone();
+            let shutdown_for_window_close = shutdown_state_setup.clone();
             window.on_window_event(move |event| {
                 if let WindowEvent::CloseRequested { api, .. } = event {
-                    if standalone_launch {
+                    if standalone_launch && !take_shutdown_requested(&window_state_for_window_close)
+                    {
                         api.prevent_close();
                         if let Some(window) = app_handle_for_window_close.get_webview_window("main")
                         {
                             let _ =
-                                fw_window::hide_to_tray(&window, &window_state_for_window_close);
+                            fw_window::hide_to_tray(&window, &window_state_for_window_close);
                         }
                     } else {
-                        stop_backend_for_window_close();
+                        api.prevent_close();
+                        shutdown_for_window_close.shutdown(app_handle_for_window_close.clone());
                     }
                 }
             });
@@ -202,6 +247,7 @@ fn main() {
             single_instance::start_single_instance_server(
                 app.handle().clone(),
                 window_state_setup.clone(),
+                &desktop_identifier,
             )?;
             report_available_commands(serde_json::json!(available_commands()));
 

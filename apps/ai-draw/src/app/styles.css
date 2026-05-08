@@ -61,6 +61,35 @@ body {
   white-space: pre-wrap;
 }
 
+.bootFallbackActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.bootFallbackButton {
+  border: 0;
+  border-radius: 999px;
+  background: #2b2118;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 10px 14px;
+}
+
+.bootFallbackButton.secondary {
+  background: rgba(43, 33, 24, 0.1);
+  color: #2b2118;
+}
+
+.bootFallbackButton:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
 .toast {
   position: fixed;
   right: 18px;

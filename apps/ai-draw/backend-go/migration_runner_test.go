@@ -83,8 +83,9 @@ func TestRunMigrationsDoesNotCreateRecoveryForFreshDataDir(t *testing.T) {
 	if got := intNumber(meta["dataVersion"]); got != aiDrawDataVersion {
 		t.Fatalf("dataVersion = %d", got)
 	}
-	if _, err := os.Stat(filepath.Join(dataDir, migrationStateFile)); !os.IsNotExist(err) {
-		t.Fatalf("fresh data dir should not have migration state, stat err=%v", err)
+	state := readJSONForMigrationTest(t, filepath.Join(dataDir, migrationStateFile))
+	if applied := anySlice(state["applied"]); len(applied) != 0 {
+		t.Fatalf("fresh data dir should have empty migration ledger, got %#v", applied)
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "_migration-recovery")); !os.IsNotExist(err) {
 		t.Fatalf("fresh data dir should not have recovery dir, stat err=%v", err)

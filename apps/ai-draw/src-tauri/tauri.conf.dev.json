@@ -5,7 +5,7 @@
   "identifier": "com.fastwindow.aidraw.dev",
   "build": {
     "beforeDevCommand": "pnpm build:backend && pnpm build:resources && pnpm dev",
-    "devUrl": "http://localhost:1432",
+    "devUrl": "http://127.0.0.1:1432",
     "beforeBuildCommand": "pnpm build:ui",
     "frontendDist": "../dist"
   },
