@@ -1,0 +1,165 @@
+:root {
+  color: #0f172a;
+  background: #e0f2fe;
+  font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 18% 12%, rgba(34, 211, 238, 0.35), transparent 28%),
+    radial-gradient(circle at 80% 8%, rgba(99, 102, 241, 0.28), transparent 30%),
+    linear-gradient(135deg, #f8fafc 0%, #eef2ff 52%, #e0f2fe 100%);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  border-radius: 999px;
+  padding: 9px 14px;
+  color: white;
+  background: #4f46e5;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(79, 70, 229, 0.2);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.app-shell {
+  height: 100vh;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.topbar {
+  min-height: 58px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 20px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+  user-select: none;
+}
+
+.brand-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  color: white;
+  font-weight: 900;
+  background: linear-gradient(135deg, #06b6d4, #4f46e5);
+}
+
+.title-block { flex: 1; min-width: 0; }
+.title-block h1 { margin: 0; font-size: 16px; letter-spacing: -0.02em; }
+.eyebrow { margin: 0 0 2px; color: #64748b; font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+
+.mode-pill {
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.window-controls { display: flex; gap: 6px; }
+.window-controls button { width: 32px; height: 32px; padding: 0; background: #0f172a; box-shadow: none; }
+
+.hero-card,
+.panel,
+.error-card {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08);
+}
+
+.hero-card {
+  padding: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.hero-card h2 { margin: 0 0 8px; font-size: 28px; letter-spacing: -0.04em; }
+.hero-card p { margin: 0; max-width: 760px; color: #475569; line-height: 1.7; }
+
+.status-badge {
+  border-radius: 18px;
+  padding: 12px 14px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+.status-badge.ready { color: #065f46; background: #d1fae5; }
+.status-badge.failed { color: #991b1b; background: #fee2e2; }
+.status-badge.starting { color: #92400e; background: #fef3c7; }
+
+.grid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  overflow: auto;
+}
+
+.panel { padding: 18px; min-width: 0; }
+.panel h3 { margin: 0 0 14px; font-size: 16px; }
+
+dl { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 9px 12px; margin: 0; }
+dt { color: #64748b; font-size: 12px; font-weight: 800; }
+dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+
+pre {
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: #334155;
+}
+
+.field { display: grid; gap: 8px; }
+.field span { color: #64748b; font-size: 12px; font-weight: 800; }
+.field input {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  padding: 11px 12px;
+  outline: none;
+  background: white;
+}
+
+.actions { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 10px; }
+.muted { color: #64748b; font-size: 12px; }
+.error-text { color: #b91c1c; overflow-wrap: anywhere; }
+.error-card { padding: 12px 16px; color: #991b1b; background: rgba(254, 226, 226, 0.82); }
+
+@media (max-width: 720px) {
+  .app-shell { padding: 10px; gap: 10px; }
+  .hero-card { align-items: flex-start; flex-direction: column; }
+  .hero-card h2 { font-size: 22px; }
+  .grid { grid-template-columns: 1fr; }
+  .mode-pill { display: none; }
+}
