@@ -47,6 +47,19 @@ export function defaultModel(space: Space | null, providerId: string): string {
   return space?.defaultModelByProvider?.[providerId] || ''
 }
 
+export function modelCoordinate(providerName: string, modelId: string): string {
+  return providerName && modelId ? `${providerName}/${modelId}` : ''
+}
+
+export function parseModelCoordinate(value: string): { providerName: string; modelId: string } {
+  const separator = value.indexOf('/')
+  if (separator <= 0) return { providerName: '', modelId: value.trim() }
+  return {
+    providerName: value.slice(0, separator).trim(),
+    modelId: value.slice(separator + 1).trim(),
+  }
+}
+
 export function createDefaultTemplate(): Template {
   return { id: createId('tpl'), name: DEFAULT_TEMPLATE_NAME, systemPrompt: DEFAULT_SYSTEM_PROMPT }
 }

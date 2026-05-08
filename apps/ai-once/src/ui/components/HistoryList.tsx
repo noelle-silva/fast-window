@@ -1,7 +1,7 @@
 import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded'
 import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
 import { Box, ButtonBase, Chip, Stack, Typography } from '@mui/material'
-import { formatDateTime } from '../../shared/aiOnceDomain'
+import { formatDateTime, modelCoordinate } from '../../shared/aiOnceDomain'
 import type { HistoryEntry } from '../../types'
 import type { AiOnceController } from '../hooks/useAiOnceController'
 
@@ -24,34 +24,37 @@ export function HistoryList(props: HistoryListProps) {
 
   return (
     <Stack spacing={0.75}>
-      {visible.map(entry => (
-        <ButtonBase
-          key={entry.id}
-          onClick={() => controller.loadHistoryEntry(entry)}
-          sx={{
-            display: 'block',
-            width: '100%',
-            textAlign: 'left',
-            borderRadius: 2,
-            p: 1,
-            bgcolor: 'background.paper',
-            boxShadow: 'inset 0 0 0 1px rgba(100, 116, 139, 0.14)',
-            '&:hover': { bgcolor: 'action.hover' },
-          }}
-        >
-          <Stack spacing={0.5}>
-            <Typography variant="body2" sx={{ fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {entry.input || `${entry.images.length} 张图片`}
-            </Typography>
-            <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
-              <Chip size="small" icon={entry.images.length ? <ImageRoundedIcon fontSize="small" /> : <HistoryRoundedIcon fontSize="small" />} label={entry.model || '未记录模型'} />
-              <Typography variant="caption" color={entry.error ? 'error' : 'text.secondary'}>
-                {entry.error ? `失败：${entry.error}` : formatDateTime(entry.createdAt)}
+      {visible.map(entry => {
+        const provider = controller.state.data?.settings.providers.find(item => item.id === entry.providerId)
+        return (
+          <ButtonBase
+            key={entry.id}
+            onClick={() => controller.loadHistoryEntry(entry)}
+            sx={{
+              display: 'block',
+              width: '100%',
+              textAlign: 'left',
+              borderRadius: 2,
+              p: 1,
+              bgcolor: 'background.paper',
+              boxShadow: 'inset 0 0 0 1px rgba(100, 116, 139, 0.14)',
+              '&:hover': { bgcolor: 'action.hover' },
+            }}
+          >
+            <Stack spacing={0.5}>
+              <Typography variant="body2" sx={{ fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {entry.input || `${entry.images.length} 张图片`}
               </Typography>
+              <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
+                <Chip size="small" icon={entry.images.length ? <ImageRoundedIcon fontSize="small" /> : <HistoryRoundedIcon fontSize="small" />} label={modelCoordinate(provider?.name || entry.providerId, entry.model) || '未记录模型'} />
+                <Typography variant="caption" color={entry.error ? 'error' : 'text.secondary'}>
+                  {entry.error ? `失败：${entry.error}` : formatDateTime(entry.createdAt)}
+                </Typography>
+              </Stack>
             </Stack>
-          </Stack>
-        </ButtonBase>
-      ))}
+          </ButtonBase>
+        )
+      })}
     </Stack>
   )
 }

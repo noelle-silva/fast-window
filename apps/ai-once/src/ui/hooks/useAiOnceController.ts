@@ -14,7 +14,9 @@ import {
   defaultModel as getDefaultModel,
   errorMessage,
   fileToDraftImage,
+  modelCoordinate,
   nowMs,
+  parseModelCoordinate,
 } from '../../shared/aiOnceDomain'
 import { createAiOnceUiState, type AiOnceDialog, type AiOnceUiState, type AiOnceView } from '../state'
 
@@ -94,16 +96,21 @@ export function useAiOnceController(): AiOnceController {
   stateRef.current = state
 
   const currentSpace = state.data?.spaces.find(space => space.id === state.spaceId) || state.data?.spaces[0] || null
-  const provider = getActiveProvider(state.data)
+  const activeProvider = getActiveProvider(state.data)
   const template = getActiveTemplate(currentSpace)
-  const providerId = provider?.id || ''
+  const activeProviderId = activeProvider?.id || ''
+  const defaultCoordinate = modelCoordinate(activeProvider?.name || '', getDefaultModel(currentSpace, activeProviderId))
   const model = state.modelDraft === '__custom__'
     ? state.customModel.trim()
-    : (state.modelDraft || getDefaultModel(currentSpace, providerId)).trim()
-  const models = provider?.modelsCache.items || []
+    : (state.modelDraft || defaultCoordinate).trim()
+  const parsedModel = parseModelCoordinate(model)
+  const selectedProvider = parsedModel.providerName ? state.data?.settings.providers.find(item => item.name === parsedModel.providerName) || null : null
+  const provider = selectedProvider || activeProvider
+  const providerId = provider?.id || ''
+  const models = state.data?.settings.providers.flatMap(item => item.modelsCache.items.map(modelId => modelCoordinate(item.name, modelId))) || []
   const imageBytes = state.images.reduce((sum, image) => sum + image.size, 0)
   const isReady = state.phase === 'ready' && !!clientRef.current
-  const canAsk = Boolean(isReady && !state.busy && (state.prompt.trim() || state.images.length) && model)
+  const canAsk = Boolean(isReady && !state.busy && (state.prompt.trim() || state.images.length) && selectedProvider && parsedModel.modelId)
   const providerLine = provider?.baseUrl || state.dataDirStatus?.dataDir || '等待后台连接'
 
   const patchState = React.useCallback((patch: Partial<AiOnceUiState>) => {
@@ -402,10 +409,12 @@ export function useAiOnceController(): AiOnceController {
     const space = data?.spaces.find(item => item.id === stateRef.current.spaceId) || data?.spaces[0] || null
     const active = getActiveProvider(data || null)
     const selectedTemplate = getActiveTemplate(space)
-    const providerModel = stateRef.current.modelDraft === '__custom__'
+    const modelValue = stateRef.current.modelDraft === '__custom__'
       ? stateRef.current.customModel.trim()
-      : (stateRef.current.modelDraft || getDefaultModel(space, active?.id || '')).trim()
-    if (!client || !space || !active) {
+      : (stateRef.current.modelDraft || modelCoordinate(active?.name || '', getDefaultModel(space, active?.id || ''))).trim()
+    const parsedModel = parseModelCoordinate(modelValue)
+    const selectedProvider = data?.settings.providers.find(item => item.name === parsedModel.providerName) || null
+    if (!client || !space || !selectedProvider) {
       patchState({ error: '后台、空间或供应商尚未就绪' })
       return
     }
@@ -413,7 +422,7 @@ export function useAiOnceController(): AiOnceController {
       patchState({ error: '请输入问题或添加图片' })
       return
     }
-    if (!providerModel) {
+    if (!parsedModel.modelId) {
       patchState({ error: '请选择或填写模型' })
       return
     }
@@ -422,8 +431,8 @@ export function useAiOnceController(): AiOnceController {
       const entry = await client.request<HistoryEntry>('aiOnce.ask', {
         spaceId: space.id,
         templateId: selectedTemplate?.id || '',
-        providerId: active.id,
-        model: providerModel,
+        providerId: selectedProvider.id,
+        model: parsedModel.modelId,
         input: stateRef.current.prompt,
         images: stateRef.current.images.map(({ id: _id, previewUrl: _previewUrl, ...rest }) => rest),
       })
@@ -461,6 +470,7 @@ export function useAiOnceController(): AiOnceController {
     const data = stateRef.current.data
     const space = data?.spaces.find(item => item.id === spaceId) || null
     const active = getActiveProvider(data || null)
+    const defaultCoordinate = modelCoordinate(active?.name || '', getDefaultModel(space, active?.id || ''))
     setState(prev => {
       revokeImages(prev.images)
       return {
@@ -471,7 +481,7 @@ export function useAiOnceController(): AiOnceController {
         answer: '',
         images: [],
         error: '',
-        modelDraft: getDefaultModel(space, active?.id || ''),
+        modelDraft: defaultCoordinate,
         customModel: '',
       }
     })
@@ -591,6 +601,7 @@ export function useAiOnceController(): AiOnceController {
   }, [patchState, updateData])
 
   const loadHistoryEntry = React.useCallback((entry: HistoryEntry) => {
+    const provider = stateRef.current.data?.settings.providers.find(item => item.id === entry.providerId)
     setState(prev => {
       revokeImages(prev.images)
       return {
@@ -600,7 +611,7 @@ export function useAiOnceController(): AiOnceController {
         prompt: entry.input,
         answer: entry.output,
         images: [],
-        modelDraft: entry.model,
+        modelDraft: modelCoordinate(provider?.name || entry.providerId, entry.model),
         customModel: '',
         error: entry.error || '',
       }

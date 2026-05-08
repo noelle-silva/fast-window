@@ -1,5 +1,5 @@
 import { Box, Chip, Paper, Stack, Typography } from '@mui/material'
-import { defaultModel } from '../../shared/aiOnceDomain'
+import { defaultModel, modelCoordinate } from '../../shared/aiOnceDomain'
 import type { AiOnceController } from '../hooks/useAiOnceController'
 
 type SpacesViewProps = {
@@ -22,6 +22,7 @@ export function SpacesView(props: SpacesViewProps) {
     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5 }}>
       {data.spaces.map(space => {
         const count = history.filter(item => item.spaceId === space.id).length
+        const defaultModelCoordinate = modelCoordinate(controller.provider?.name || '', defaultModel(space, controller.providerId))
         return (
           <Box key={space.id}>
             <Paper
@@ -50,7 +51,7 @@ export function SpacesView(props: SpacesViewProps) {
                 <Stack direction="row" spacing={1} alignItems="flex-start" justifyContent="space-between">
                   <Box sx={{ minWidth: 0 }}>
                     <Typography variant="subtitle1" sx={{ fontWeight: 900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{space.name}</Typography>
-                    <Typography variant="caption" color="text.secondary">默认模型：{defaultModel(space, controller.providerId) || '未设置'}</Typography>
+                    <Typography variant="caption" color="text.secondary">默认模型：{defaultModelCoordinate || '未设置'}</Typography>
                   </Box>
                   <Chip size="small" color="primary" label={`${space.templates.length} 模板`} />
                 </Stack>

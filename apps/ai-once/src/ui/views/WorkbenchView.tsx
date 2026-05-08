@@ -40,26 +40,17 @@ export function WorkbenchView(props: WorkbenchViewProps) {
 
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
                 <FormControl size="small" sx={{ minWidth: 160, flex: 1 }}>
-                  <InputLabel id="provider-select-label">供应商</InputLabel>
-                  <Select labelId="provider-select-label" label="供应商" value={controller.providerId} onChange={event => void controller.updateActiveProvider(event.target.value)}>
-                    {data.settings.providers.map(provider => <MenuItem key={provider.id} value={provider.id}>{provider.name}</MenuItem>)}
-                  </Select>
-                </FormControl>
-                <FormControl size="small" sx={{ minWidth: 160, flex: 1 }}>
                   <InputLabel id="template-select-label">模板</InputLabel>
                   <Select labelId="template-select-label" label="模板" value={currentSpace.activeTemplateId} onChange={event => void controller.updateActiveTemplate(event.target.value)}>
                     {currentSpace.templates.map(template => <MenuItem key={template.id} value={template.id}>{template.name}</MenuItem>)}
                   </Select>
                 </FormControl>
-              </Stack>
-
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-                <FormControl size="small" sx={{ minWidth: 180, flex: 1 }}>
-                  <InputLabel id="model-select-label">模型</InputLabel>
-                  <Select labelId="model-select-label" label="模型" value={controller.state.modelDraft || controller.model} onChange={event => controller.setModelDraft(event.target.value)}>
+                <FormControl size="small" sx={{ minWidth: 180, flex: 1.4 }}>
+                  <InputLabel id="model-select-label">模型坐标</InputLabel>
+                  <Select labelId="model-select-label" label="模型坐标" value={controller.state.modelDraft || controller.model} onChange={event => controller.setModelDraft(event.target.value)}>
                     <MenuItem value="">选择模型</MenuItem>
                     {controller.models.map(model => <MenuItem key={model} value={model}>{model}</MenuItem>)}
-                    <MenuItem value="__custom__">自定义模型...</MenuItem>
+                    <MenuItem value="__custom__">自定义模型坐标...</MenuItem>
                   </Select>
                 </FormControl>
                 <Button startIcon={<PlayArrowRoundedIcon fontSize="small" />} variant="contained" color="success" onClick={() => void controller.askOnce()} disabled={!controller.canAsk}>
@@ -68,7 +59,7 @@ export function WorkbenchView(props: WorkbenchViewProps) {
               </Stack>
 
               {controller.state.modelDraft === '__custom__' ? (
-                <TextField label="自定义模型名" value={controller.state.customModel} onChange={event => controller.setCustomModel(event.target.value)} />
+                <TextField label="自定义模型坐标" placeholder="供应商名称/模型ID" value={controller.state.customModel} onChange={event => controller.setCustomModel(event.target.value)} />
               ) : null}
 
               <input ref={fileInputRef} type="file" accept="image/*" multiple hidden onChange={event => { if (event.target.files) void controller.addImageFiles(event.target.files); event.target.value = '' }} />
