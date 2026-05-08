@@ -305,50 +305,20 @@ export function App() {
     >
       <TopBar
         busy={busy}
+        doc={doc}
+        groupId={groupId}
         launchInfo={launchInfo}
         phase={phase}
+        search={search}
+        selectedGroup={selectedGroup}
+        view={view}
         onAdd={openAdd}
+        onGroupChange={setGroupId}
+        onOpenGroupEditor={() => openGroupEditor(selectedGroup?.id === DEFAULT_GROUP_ID ? undefined : selectedGroup)}
         onOpenSettings={() => setSettingsOpen(true)}
+        onSearchChange={setSearch}
+        onSetView={nextView => void setView(nextView)}
       />
-
-      <Box sx={{ px: { xs: 1.5, sm: 2 }, pt: 1.5, pb: 1, flexShrink: 0 }}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} alignItems={{ xs: 'stretch', sm: 'center' }}>
-          <FormControl size="small" sx={{ width: { xs: '100%', sm: 180 } }}>
-            <InputLabel id="folders-group-filter-label">分组</InputLabel>
-            <Select labelId="folders-group-filter-label" value={groupId} label="分组" onChange={(event: SelectChangeEvent) => setGroupId(event.target.value)}>
-              <MenuItem value={ALL_GROUP_ID}>全部分组</MenuItem>
-              {doc.groups.map(group => <MenuItem key={group.id} value={group.id}>{group.name}</MenuItem>)}
-            </Select>
-          </FormControl>
-          <TextField
-            value={search}
-            onChange={event => setSearch(event.target.value)}
-            placeholder="按名称或路径搜索"
-            size="small"
-            fullWidth
-            InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment> }}
-          />
-          <Button
-            variant="outlined"
-            startIcon={selectedGroup && selectedGroup.id !== DEFAULT_GROUP_ID ? <EditRoundedIcon /> : <CreateNewFolderRoundedIcon />}
-            onClick={() => openGroupEditor(selectedGroup?.id === DEFAULT_GROUP_ID ? undefined : selectedGroup)}
-            disabled={phase !== 'ready'}
-            sx={{ minWidth: 108 }}
-          >
-            {selectedGroup && selectedGroup.id !== DEFAULT_GROUP_ID ? '编辑分组' : '新分组'}
-          </Button>
-          <ToggleButtonGroup
-            value={view}
-            exclusive
-            size="small"
-            onChange={(_, next: 'grid' | 'list' | null) => { if (next) void setView(next) }}
-            aria-label="切换视图"
-          >
-            <ToggleButton value="grid" aria-label="宫格视图"><GridViewRoundedIcon fontSize="small" /></ToggleButton>
-            <ToggleButton value="list" aria-label="列表视图"><ListRoundedIcon fontSize="small" /></ToggleButton>
-          </ToggleButtonGroup>
-        </Stack>
-      </Box>
 
       <StatusNotice
         busy={busy}
@@ -437,9 +407,26 @@ export function App() {
   )
 }
 
-function TopBar(props: { busy: boolean; launchInfo: FwLaunchInfo; phase: Phase; onAdd(): void; onOpenSettings(): void }) {
-  const statusColor = props.phase === 'ready' ? 'success' : props.phase === 'failed' ? 'error' : 'warning'
-  const statusText = props.phase === 'ready' ? '就绪' : props.phase === 'failed' ? '需处理' : '启动中'
+function TopBar(props: {
+  busy: boolean
+  doc: FoldersDoc
+  groupId: string
+  launchInfo: FwLaunchInfo
+  phase: Phase
+  search: string
+  selectedGroup: FolderGroup | undefined
+  view: 'grid' | 'list'
+  onAdd(): void
+  onGroupChange(groupId: string): void
+  onOpenGroupEditor(): void
+  onOpenSettings(): void
+  onSearchChange(search: string): void
+  onSetView(view: 'grid' | 'list'): void
+}) {
+  const statusColor = props.phase === 'failed' ? 'error' : 'warning'
+  const statusText = props.phase === 'failed' ? '需处理' : '启动中'
+  const canEdit = props.phase === 'ready'
+  const groupActionLabel = props.selectedGroup && props.selectedGroup.id !== DEFAULT_GROUP_ID ? '编辑分组' : '新分组'
 
   return (
     <Paper
@@ -447,26 +434,56 @@ function TopBar(props: { busy: boolean; launchInfo: FwLaunchInfo; phase: Phase; 
       elevation={0}
       onPointerDown={event => { if (event.button === 0 && !isInteractiveTarget(event.target)) void appWindow.startDragging() }}
       sx={{
-        minHeight: 52,
+        minHeight: 56,
         px: { xs: 1.25, sm: 1.5 },
         display: 'flex',
         alignItems: 'center',
-        gap: 1,
+        gap: 1.25,
         borderBottom: theme => `1px solid ${theme.palette.divider}`,
         userSelect: 'none',
         flexShrink: 0,
+        flexWrap: { xs: 'wrap', md: 'nowrap' },
+        py: { xs: 1, md: 0.75 },
       }}
     >
-      <Box sx={{ width: 34, height: 34, borderRadius: 2.5, display: 'grid', placeItems: 'center', color: 'primary.main', bgcolor: theme => alpha(theme.palette.primary.main, 0.12) }}>
-        <FolderRoundedIcon fontSize="small" />
-      </Box>
-      <Box sx={{ minWidth: 0, flex: 1 }}>
-        <Typography variant="h1" noWrap>文件夹收藏</Typography>
-        <Typography variant="caption" color="text.secondary" noWrap>{props.launchInfo.standalone ? 'standalone' : `Fast Window ${props.launchInfo.mode}`}</Typography>
-      </Box>
-      <Chip color={statusColor} size="small" label={statusText} icon={props.phase === 'starting' ? <CircularProgress size={12} color="inherit" /> : undefined} />
+      <TextField
+        value={props.search}
+        onChange={event => props.onSearchChange(event.target.value)}
+        placeholder="按名称或路径搜索"
+        size="small"
+        sx={{ flex: '1 1 260px', minWidth: { xs: '100%', sm: 220 } }}
+        InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment> }}
+      />
+      <FormControl size="small" sx={{ width: { xs: 'calc(50% - 6px)', sm: 180 }, minWidth: 148 }}>
+        <InputLabel id="folders-group-filter-label">分组</InputLabel>
+        <Select labelId="folders-group-filter-label" value={props.groupId} label="分组" onChange={(event: SelectChangeEvent) => props.onGroupChange(event.target.value)}>
+          <MenuItem value={ALL_GROUP_ID}>全部分组</MenuItem>
+          {props.doc.groups.map(group => <MenuItem key={group.id} value={group.id}>{group.name}</MenuItem>)}
+        </Select>
+      </FormControl>
+      <ToggleButtonGroup
+        value={props.view}
+        exclusive
+        size="small"
+        onChange={(_, next: 'grid' | 'list' | null) => { if (next) props.onSetView(next) }}
+        aria-label="切换视图"
+        sx={{ flexShrink: 0 }}
+      >
+        <ToggleButton value="grid" aria-label="宫格视图"><GridViewRoundedIcon fontSize="small" /></ToggleButton>
+        <ToggleButton value="list" aria-label="列表视图"><ListRoundedIcon fontSize="small" /></ToggleButton>
+      </ToggleButtonGroup>
+      {props.phase !== 'ready' ? <Chip color={statusColor} size="small" label={statusText} icon={props.phase === 'starting' ? <CircularProgress size={12} color="inherit" /> : undefined} /> : null}
       <Button variant="outlined" startIcon={<SettingsRoundedIcon />} onClick={props.onOpenSettings}>设置</Button>
-      <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={props.onAdd} disabled={props.phase !== 'ready' || props.busy}>新增</Button>
+      <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={props.onAdd} disabled={!canEdit || props.busy}>新增</Button>
+      <Button
+        variant="outlined"
+        startIcon={props.selectedGroup && props.selectedGroup.id !== DEFAULT_GROUP_ID ? <EditRoundedIcon /> : <CreateNewFolderRoundedIcon />}
+        onClick={props.onOpenGroupEditor}
+        disabled={!canEdit}
+        sx={{ minWidth: 108 }}
+      >
+        {groupActionLabel}
+      </Button>
       {props.launchInfo.standalone ? <WindowControls /> : null}
     </Paper>
   )
