@@ -6,10 +6,10 @@
   "scripts": {
     "build:backend": "node scripts/build-backend.mjs",
     "build:resources": "node scripts/build-resources.mjs",
-    "build:exe": "pnpm build:backend && pnpm tauri build",
+    "build:exe": "pnpm build:ui && pnpm tauri build",
     "build:exe:dev": "pnpm build:ui && cargo build --manifest-path src-tauri/Cargo.toml",
     "build:ui": "pnpm build:backend && vite build && pnpm build:resources",
-    "dev": "vite --host 127.0.0.1",
+    "dev": "vite --host 127.0.0.1 --port 1431",
     "tauri": "tauri"
   },
   "dependencies": {

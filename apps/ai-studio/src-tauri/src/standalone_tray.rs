@@ -12,7 +12,7 @@ pub(crate) fn install_standalone_tray(
     app: &tauri::App,
     args: &FwArgs,
     window_state: Arc<FwWindowState>,
-    on_quit: Arc<dyn Fn() + Send + Sync>,
+    on_quit: Arc<dyn Fn(tauri::AppHandle) + Send + Sync>,
 ) -> tauri::Result<()> {
     if args.launched {
         return Ok(());
@@ -39,8 +39,7 @@ pub(crate) fn install_standalone_tray(
                 }
             }
             "quit" => {
-                on_quit();
-                app.exit(0);
+                on_quit(app.clone());
             }
             _ => {}
         })

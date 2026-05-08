@@ -5,7 +5,7 @@
   "identifier": "com.fastwindow.aistudio",
   "build": {
     "beforeDevCommand": "pnpm build:backend && pnpm build:resources && pnpm dev",
-    "devUrl": "http://localhost:1431",
+    "devUrl": "http://127.0.0.1:1431",
     "beforeBuildCommand": "pnpm build:ui",
     "frontendDist": "../dist"
   },

@@ -46,6 +46,7 @@ const COMMAND_LABELS: Record<string, string> = {
   'new-chat': '新建对话',
   'open-studio': '打开 AI Studio',
   'provider-settings': '模型提供商设置',
+  'open-settings': '打开设置',
 }
 
 export function App() {
@@ -108,7 +109,7 @@ export function App() {
       Promise.resolve(controller.actions.createChat?.()).catch(error => showToast(error))
       return
     }
-    if (command === 'provider-settings') {
+    if (command === 'provider-settings' || command === 'open-settings') {
       Promise.resolve(controller.actions.openProviders?.()).catch(error => showToast(error))
       return
     }

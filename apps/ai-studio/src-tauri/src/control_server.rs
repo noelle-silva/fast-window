@@ -61,6 +61,10 @@ pub(crate) fn available_commands() -> Vec<AppCommandDescriptor> {
             id: "provider-settings",
             title: "模型提供商设置",
         },
+        AppCommandDescriptor {
+            id: "open-settings",
+            title: "打开设置",
+        },
     ]
 }
 
