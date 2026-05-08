@@ -21,6 +21,7 @@ import (
 const (
 	dataSchemaVersion = 1
 	dataVersion       = 1
+	dataFile          = "data.json"
 	foldersFile       = "folders.json"
 	settingsFile      = "settings.json"
 	metaFile          = "_meta.json"
@@ -58,6 +59,8 @@ type folderItem struct {
 	Name        string `json:"name"`
 	Path        string `json:"path"`
 	GroupID     string `json:"groupId"`
+	CreatedAt   string `json:"createdAt"`
+	UpdatedAt   string `json:"updatedAt"`
 	CreatedAtMS int64  `json:"createdAtMs"`
 	UpdatedAtMS int64  `json:"updatedAtMs"`
 }
@@ -199,6 +202,14 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return map[string]any{"echo": payload}, nil
 	case "folders.list":
 		return svc.readFolders()
+	case "folders.getData":
+		return svc.readFolders()
+	case "folders.saveData":
+		var payload foldersDoc
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid data payload: %w", err)
+		}
+		return svc.saveFoldersData(payload)
 	case "folders.add":
 		var payload folderItem
 		if err := json.Unmarshal(params, &payload); err != nil {
@@ -212,13 +223,46 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		}
 		return svc.updateFolder(payload)
 	case "folders.remove":
-		var payload struct{ ID string `json:"id"` }
+		var payload struct {
+			ID string `json:"id"`
+		}
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid remove payload: %w", err)
 		}
 		return svc.removeFolder(payload.ID)
+	case "folders.move":
+		var payload struct {
+			ID      string `json:"id"`
+			GroupID string `json:"groupId"`
+		}
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid move payload: %w", err)
+		}
+		return svc.moveFolder(payload.ID, payload.GroupID)
+	case "folders.groups.add":
+		var payload folderGroup
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid group payload: %w", err)
+		}
+		return svc.addGroup(payload)
+	case "folders.groups.update":
+		var payload folderGroup
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid group payload: %w", err)
+		}
+		return svc.updateGroup(payload)
+	case "folders.groups.remove":
+		var payload struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid remove group payload: %w", err)
+		}
+		return svc.removeGroup(payload.ID)
 	case "folders.open-folder":
-		var payload struct{ ID string `json:"id"` }
+		var payload struct {
+			ID string `json:"id"`
+		}
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid open payload: %w", err)
 		}
@@ -246,7 +290,7 @@ func (svc *service) ensureReady() error {
 	if err := svc.runMigrations(); err != nil {
 		return err
 	}
-	if _, err := os.Stat(filepath.Join(svc.dataDir, foldersFile)); errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(svc.dataDir, dataFile)); errors.Is(err, os.ErrNotExist) {
 		if err := svc.writeFolders(defaultFoldersDoc()); err != nil {
 			return err
 		}
@@ -277,15 +321,62 @@ func (svc *service) runMigrations() error {
 	if ledger.Applied == nil {
 		ledger.Applied = []migrationEntry{}
 	}
+	dataPath := filepath.Join(svc.dataDir, dataFile)
+	if _, err := os.Stat(dataPath); errors.Is(err, os.ErrNotExist) {
+		if migrated, migrationID, err := svc.loadLegacyFoldersDoc(); err != nil {
+			return err
+		} else if migrated != nil {
+			if err := writeJSON(dataPath, normalizeFoldersDoc(*migrated)); err != nil {
+				return err
+			}
+			ledger.Applied = appendMigration(ledger.Applied, migrationEntry{ID: migrationID, FromVersion: 0, ToVersion: dataVersion, Description: "migrate folders app data into data.json", AppliedAt: nowText()})
+		}
+	}
+
 	if err := writeJSON(path, ledger); err != nil {
 		return err
 	}
 	return writeJSON(filepath.Join(svc.dataDir, metaFile), metaDoc{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, UpdatedAt: nowText()})
 }
 
+func (svc *service) loadLegacyFoldersDoc() (*foldersDoc, string, error) {
+	foldersPath := filepath.Join(svc.dataDir, foldersFile)
+	bytes, err := os.ReadFile(foldersPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, "", nil
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("read legacy folders data failed: %w", err)
+	}
+	var wrapped struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(bytes, &wrapped); err == nil && len(wrapped.Data) > 0 && string(wrapped.Data) != "null" {
+		var doc foldersDoc
+		if err := json.Unmarshal(wrapped.Data, &doc); err != nil {
+			return nil, "", fmt.Errorf("parse legacy wrapped folders data failed: %w", err)
+		}
+		return &doc, "legacy-folders-json-wrapper-to-data-json", nil
+	}
+	var doc foldersDoc
+	if err := json.Unmarshal(bytes, &doc); err != nil {
+		return nil, "", fmt.Errorf("parse legacy folders data failed: %w", err)
+	}
+	return &doc, "legacy-folders-json-to-data-json", nil
+}
+
+func appendMigration(entries []migrationEntry, entry migrationEntry) []migrationEntry {
+	for _, current := range entries {
+		if current.ID == entry.ID {
+			return entries
+		}
+	}
+	return append(entries, entry)
+}
+
 func (svc *service) readFolders() (foldersDoc, error) {
 	var doc foldersDoc
-	if err := readJSON(filepath.Join(svc.dataDir, foldersFile), &doc); err != nil {
+	if err := readJSON(filepath.Join(svc.dataDir, dataFile), &doc); err != nil {
 		return foldersDoc{}, err
 	}
 	return normalizeFoldersDoc(doc), nil
@@ -294,13 +385,27 @@ func (svc *service) readFolders() (foldersDoc, error) {
 func (svc *service) writeFolders(doc foldersDoc) error {
 	doc = normalizeFoldersDoc(doc)
 	doc.UpdatedAt = nowText()
-	return writeJSON(filepath.Join(svc.dataDir, foldersFile), doc)
+	return writeJSON(filepath.Join(svc.dataDir, dataFile), doc)
+}
+
+func (svc *service) saveFoldersData(payload foldersDoc) (foldersDoc, error) {
+	doc := normalizeFoldersDoc(payload)
+	if len(doc.Groups) == 0 || doc.Groups[0].ID != defaultGroupID {
+		return foldersDoc{}, errors.New("default group is required")
+	}
+	if err := svc.writeFolders(doc); err != nil {
+		return foldersDoc{}, err
+	}
+	return svc.readFolders()
 }
 
 func (svc *service) addFolder(payload folderItem) (foldersDoc, error) {
 	doc, err := svc.readFolders()
 	if err != nil {
 		return foldersDoc{}, err
+	}
+	if strings.TrimSpace(payload.Name) == "" {
+		return foldersDoc{}, errors.New("folder name is required")
 	}
 	item, err := normalizeFolderItem(payload, doc.Groups, true)
 	if err != nil {
@@ -317,6 +422,9 @@ func (svc *service) updateFolder(payload folderItem) (foldersDoc, error) {
 	doc, err := svc.readFolders()
 	if err != nil {
 		return foldersDoc{}, err
+	}
+	if strings.TrimSpace(payload.Name) == "" {
+		return foldersDoc{}, errors.New("folder name is required")
 	}
 	item, err := normalizeFolderItem(payload, doc.Groups, false)
 	if err != nil {
@@ -357,6 +465,111 @@ func (svc *service) removeFolder(id string) (foldersDoc, error) {
 		return foldersDoc{}, fmt.Errorf("folder not found: %s", id)
 	}
 	doc.Items = next
+	if err := svc.writeFolders(doc); err != nil {
+		return foldersDoc{}, err
+	}
+	return svc.readFolders()
+}
+
+func (svc *service) moveFolder(id string, groupID string) (foldersDoc, error) {
+	doc, err := svc.readFolders()
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	id = strings.TrimSpace(id)
+	groupID = safeID(groupID, 32)
+	if id == "" {
+		return foldersDoc{}, errors.New("folder id is required")
+	}
+	if groupID == "" || !hasGroup(doc.Groups, groupID) {
+		return foldersDoc{}, errors.New("valid group id is required")
+	}
+	for i := range doc.Items {
+		if doc.Items[i].ID == id {
+			doc.Items[i].GroupID = groupID
+			doc.Items[i].UpdatedAtMS = time.Now().UnixMilli()
+			doc.Items[i].UpdatedAt = nowText()
+			if err := svc.writeFolders(doc); err != nil {
+				return foldersDoc{}, err
+			}
+			return svc.readFolders()
+		}
+	}
+	return foldersDoc{}, fmt.Errorf("folder not found: %s", id)
+}
+
+func (svc *service) addGroup(payload folderGroup) (foldersDoc, error) {
+	doc, err := svc.readFolders()
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	group, err := normalizeGroup(payload, true)
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	if hasGroup(doc.Groups, group.ID) {
+		return foldersDoc{}, fmt.Errorf("group already exists: %s", group.ID)
+	}
+	doc.Groups = append(doc.Groups, group)
+	if err := svc.writeFolders(doc); err != nil {
+		return foldersDoc{}, err
+	}
+	return svc.readFolders()
+}
+
+func (svc *service) updateGroup(payload folderGroup) (foldersDoc, error) {
+	doc, err := svc.readFolders()
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	group, err := normalizeGroup(payload, false)
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	for i := range doc.Groups {
+		if doc.Groups[i].ID == group.ID {
+			doc.Groups[i].Name = group.Name
+			if err := svc.writeFolders(doc); err != nil {
+				return foldersDoc{}, err
+			}
+			return svc.readFolders()
+		}
+	}
+	return foldersDoc{}, fmt.Errorf("group not found: %s", group.ID)
+}
+
+func (svc *service) removeGroup(id string) (foldersDoc, error) {
+	doc, err := svc.readFolders()
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	id = safeID(id, 32)
+	if id == "" {
+		return foldersDoc{}, errors.New("group id is required")
+	}
+	if id == defaultGroupID {
+		return foldersDoc{}, errors.New("default group cannot be removed")
+	}
+	nextGroups := doc.Groups[:0]
+	removed := false
+	for _, group := range doc.Groups {
+		if group.ID == id {
+			removed = true
+			continue
+		}
+		nextGroups = append(nextGroups, group)
+	}
+	if !removed {
+		return foldersDoc{}, fmt.Errorf("group not found: %s", id)
+	}
+	for i := range doc.Items {
+		if doc.Items[i].GroupID == id {
+			doc.Items[i].GroupID = defaultGroupID
+			doc.Items[i].UpdatedAtMS = time.Now().UnixMilli()
+			doc.Items[i].UpdatedAt = nowText()
+		}
+	}
+	doc.Groups = nextGroups
 	if err := svc.writeFolders(doc); err != nil {
 		return foldersDoc{}, err
 	}
@@ -405,13 +618,12 @@ func normalizeFoldersDoc(doc foldersDoc) foldersDoc {
 	groups := []folderGroup{{ID: defaultGroupID, Name: "默认"}}
 	seen := map[string]bool{defaultGroupID: true}
 	for _, group := range doc.Groups {
-		id := safeID(group.ID, 32)
-		name := trimMax(group.Name, 40)
-		if id == "" || name == "" || seen[id] {
+		normalized, err := normalizeGroup(group, false)
+		if err != nil || seen[normalized.ID] {
 			continue
 		}
-		groups = append(groups, folderGroup{ID: id, Name: name})
-		seen[id] = true
+		groups = append(groups, normalized)
+		seen[normalized.ID] = true
 	}
 
 	items := make([]folderItem, 0, len(doc.Items))
@@ -427,8 +639,24 @@ func normalizeFoldersDoc(doc foldersDoc) foldersDoc {
 	return foldersDoc{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, Groups: groups, Items: items, UpdatedAt: firstNonEmpty(doc.UpdatedAt, nowText())}
 }
 
+func normalizeGroup(raw folderGroup, allowGeneratedID bool) (folderGroup, error) {
+	name := trimMax(raw.Name, 40)
+	id := safeID(raw.ID, 32)
+	if id == "" && allowGeneratedID {
+		id = safeID(name, 32)
+	}
+	if id == "" {
+		return folderGroup{}, errors.New("group id is required")
+	}
+	if name == "" {
+		return folderGroup{}, errors.New("group name is required")
+	}
+	return folderGroup{ID: id, Name: name}, nil
+}
+
 func normalizeFolderItem(raw folderItem, groups []folderGroup, allowNewID bool) (folderItem, error) {
 	now := time.Now().UnixMilli()
+	nowString := nowText()
 	id := strings.TrimSpace(raw.ID)
 	if id == "" && allowNewID {
 		id = fmt.Sprintf("%d", now)
@@ -443,10 +671,13 @@ func normalizeFolderItem(raw folderItem, groups []folderGroup, allowNewID bool) 
 	name := trimMax(raw.Name, 80)
 	if name == "" {
 		name = trimMax(filepath.Base(filepath.Clean(path)), 80)
+		if name == "" || name == "." {
+			return folderItem{}, errors.New("folder name is required")
+		}
 	}
 	groupID := safeID(raw.GroupID, 32)
 	if groupID == "" || !hasGroup(groups, groupID) {
-		groupID = defaultGroupID
+		return folderItem{}, errors.New("valid group id is required")
 	}
 	createdAt := raw.CreatedAtMS
 	if createdAt <= 0 {
@@ -456,7 +687,15 @@ func normalizeFolderItem(raw folderItem, groups []folderGroup, allowNewID bool) 
 	if updatedAt <= 0 {
 		updatedAt = now
 	}
-	return folderItem{ID: id, Name: name, Path: path, GroupID: groupID, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt}, nil
+	createdAtText := strings.TrimSpace(raw.CreatedAt)
+	if createdAtText == "" {
+		createdAtText = nowString
+	}
+	updatedAtText := strings.TrimSpace(raw.UpdatedAt)
+	if updatedAtText == "" {
+		updatedAtText = nowString
+	}
+	return folderItem{ID: id, Name: name, Path: path, GroupID: groupID, CreatedAt: createdAtText, UpdatedAt: updatedAtText, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt}, nil
 }
 
 func normalizeSettings(settings appSettings) appSettings {

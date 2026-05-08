@@ -1,0 +1,15 @@
+export type FwLaunchInfo = { launched: boolean; standalone: boolean; mode: string }
+export type DataDirStatus = { dataDir: string; defaultDataDir: string; configuredDataDir?: string | null; writable: boolean; error?: string | null }
+export type BackendEndpoint = { mode: 'direct'; transport: 'local-websocket'; url: string; token: string; protocolVersion: number }
+
+export type ModelsCache = { items: string[]; fetchedAt: number }
+export type Provider = { id: string; name: string; baseUrl: string; apiKey: string; modelsCache: ModelsCache }
+export type Template = { id: string; name: string; systemPrompt: string }
+export type Space = { id: string; name: string; createdAt: number; updatedAt: number; defaultModelByProvider: Record<string, string>; activeTemplateId: string; templates: Template[] }
+export type Settings = { providers: Provider[]; activeProviderId: string; imageMaxCount: number; imageMaxMb: number }
+export type AppData = { version: 2; settings: Settings; spaces: Space[] }
+export type DraftImage = { id: string; name: string; type: string; size: number; dataUrl: string; previewUrl: string }
+export type HistoryImage = { name: string; type: string; size: number }
+export type HistoryEntry = { id: string; spaceId: string; templateId: string; providerId: string; model: string; input: string; output: string; error?: string; images: HistoryImage[]; createdAt: string }
+export type HistoryDoc = { schemaVersion: number; dataVersion: number; items: HistoryEntry[] }
+export type DirectClient = { request<T>(method: string, params?: unknown): Promise<T>; close(): void }

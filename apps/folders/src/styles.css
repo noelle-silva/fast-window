@@ -133,7 +133,7 @@ button.danger { border-color: transparent; color: white; background: var(--dange
 }
 
 .folder-list.as-list { grid-template-columns: 1fr; }
-.folder-card { border-radius: var(--radius); padding: 12px 10px; display: grid; gap: 8px; align-content: start; }
+.folder-card { position: relative; border-radius: var(--radius); padding: 12px 10px; display: grid; gap: 8px; align-content: start; }
 .folder-open {
   min-width: 0;
   padding: 0;
@@ -163,12 +163,13 @@ button.danger { border-color: transparent; color: white; background: var(--dange
 .folder-icon { font-size: 22px; line-height: 1; }
 .folder-name { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 800; line-height: 1.2; }
 .folder-group { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: -4px; color: var(--muted); font-size: 11px; }
-.card-actions { display: flex; gap: 6px; justify-content: center; }
-.card-actions button { padding: 5px 8px; }
+.more-button { position: absolute; right: 6px; top: 6px; width: 26px; height: 26px; padding: 0; color: var(--muted); background: rgba(255,255,255,0.86); border-color: var(--outline); }
+.more-button:hover { color: var(--text); }
 .as-list .folder-card { grid-template-columns: 1fr auto; align-items: center; }
 .as-list .folder-open { flex-direction: row; justify-content: flex-start; text-align: left; }
 .as-list .folder-name { width: 180px; }
 .as-list .folder-group { width: 110px; margin-top: 0; text-align: left; }
+.as-list .more-button { position: static; }
 
 .empty-state,
 .notice,
@@ -185,6 +186,8 @@ button.danger { border-color: transparent; color: white; background: var(--dange
 
 .actions { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; }
 .actions.end { justify-content: flex-end; }
+.form-row { margin: 0 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.help-text { margin: 0 10px; color: var(--muted); font-size: 11px; }
 
 .modal-backdrop {
   position: fixed;
@@ -211,11 +214,51 @@ button.danger { border-color: transparent; color: white; background: var(--dange
 .modal > .field,
 .modal > .actions,
 .settings-grid,
-.modal > .error-text { margin-left: 10px; margin-right: 10px; }
+.modal > .error-text,
+.modal > p { margin-left: 10px; margin-right: 10px; }
 .modal > .actions { margin-bottom: 10px; }
 .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .settings-grid p { margin: 4px 0 0; overflow-wrap: anywhere; }
 .path-text { font-size: 12px; color: var(--muted); }
+
+.ctx-menu {
+  position: fixed;
+  z-index: 70;
+  min-width: 178px;
+  padding: 6px;
+  border: 1px solid var(--outline);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 12px 30px rgba(0,0,0,0.22);
+}
+.ctx-menu button,
+.ctx-menu label {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--text);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  box-shadow: none;
+}
+.ctx-menu button:hover { background: rgba(0,0,0,0.06); }
+.ctx-menu label { display: grid; grid-template-columns: auto 1fr; font-size: 12px; }
+.ctx-menu label span { color: var(--muted); }
+.ctx-menu select { min-width: 0; height: 28px; border: 1px solid var(--outline); border-radius: 8px; background: white; }
+.ctx-menu .danger-text { color: var(--danger); }
+.ctx-sep { height: 1px; margin: 6px 4px; background: var(--outline); }
+
+.group-list { margin: 0 10px; display: grid; gap: 6px; max-height: 220px; overflow: auto; }
+.group-row { width: 100%; min-height: 38px; display: flex; align-items: center; justify-content: space-between; color: var(--text); background: var(--surface); border-color: var(--outline); }
+.group-row.active { border-color: var(--primary); color: var(--primary); background: rgba(25,118,210,0.08); }
+.group-row small { color: var(--muted); }
+.confirm-backdrop { z-index: 90; }
+.confirm-modal { width: min(420px, calc(100vw - 28px)); }
 
 @media (max-width: 720px) {
   .topbar { height: auto; min-height: 44px; flex-wrap: wrap; padding: 8px 10px; }
@@ -226,4 +269,5 @@ button.danger { border-color: transparent; color: white; background: var(--dange
   .as-list .folder-card,
   .as-list .folder-open { grid-template-columns: 1fr; }
   .settings-grid { grid-template-columns: 1fr; }
+  .form-row { grid-template-columns: 1fr; }
 }
