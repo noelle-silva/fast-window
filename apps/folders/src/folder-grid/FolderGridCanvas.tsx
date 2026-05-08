@@ -6,13 +6,7 @@ import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
 import { Box, Button, Chip, IconButton, Paper, Stack, Typography, alpha } from '@mui/material'
 import type { ContextMenuState, FolderItem, FoldersDoc, Phase } from '../types'
 import { groupName } from '../utils'
-import {
-  FOLDER_GRID_CELL_HEIGHT,
-  FOLDER_GRID_CELL_WIDTH,
-  FOLDER_GRID_ITEM_HEIGHT,
-  FOLDER_GRID_ITEM_WIDTH,
-  FOLDER_GRID_PADDING,
-} from './constants'
+import { FOLDER_GRID_ITEM_HEIGHT, FOLDER_GRID_ITEM_WIDTH } from './constants'
 import { getFolderGridCanvasHeight, getFolderGridPixelRect, type FolderGridLayoutPatch } from './layout'
 import { useFolderGridEditor } from './useFolderGridEditor'
 
@@ -76,18 +70,11 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
       aria-label="收藏文件夹图标布局"
       sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: { xs: 1, sm: 1.5 }, pb: { xs: 1.5, sm: 2 }, pt: 1 }}
     >
-      <Paper
+      <Box
         ref={setGridNode}
-        elevation={0}
         sx={{
           position: 'relative',
           minHeight: canvasHeight,
-          borderRadius: 4,
-          overflow: 'hidden',
-          bgcolor: theme => alpha(theme.palette.primary.main, 0.035),
-          backgroundImage: theme => `radial-gradient(${alpha(theme.palette.primary.main, 0.16)} 1px, transparent 1px)`,
-          backgroundSize: `${FOLDER_GRID_CELL_WIDTH}px ${FOLDER_GRID_CELL_HEIGHT}px`,
-          backgroundPosition: `${FOLDER_GRID_PADDING}px ${FOLDER_GRID_PADDING}px`,
         }}
       >
         <Box sx={{ position: 'absolute', top: 10, right: 12, px: 1, py: 0.5, borderRadius: 999, bgcolor: theme => alpha(theme.palette.background.paper, 0.76), color: 'text.secondary', fontSize: 11, fontWeight: 800, pointerEvents: 'none' }}>
@@ -113,7 +100,7 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
             />
           )
         })}
-      </Paper>
+      </Box>
     </Box>
   )
 }
