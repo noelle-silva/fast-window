@@ -20,13 +20,13 @@ import (
 
 const (
 	dataSchemaVersion = 1
-	dataVersion       = 1
+	dataVersion       = 2
 	dataFile          = "data.json"
 	foldersFile       = "folders.json"
-	settingsFile      = "settings.json"
 	metaFile          = "_meta.json"
 	migrationsFile    = "_migrations.json"
 	defaultGroupID    = "default"
+	maxLayoutCoord    = 2000
 )
 
 type service struct {
@@ -55,14 +55,25 @@ type folderGroup struct {
 }
 
 type folderItem struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Path        string `json:"path"`
-	GroupID     string `json:"groupId"`
-	CreatedAt   string `json:"createdAt"`
-	UpdatedAt   string `json:"updatedAt"`
-	CreatedAtMS int64  `json:"createdAtMs"`
-	UpdatedAtMS int64  `json:"updatedAtMs"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Path        string            `json:"path"`
+	GroupID     string            `json:"groupId"`
+	CreatedAt   string            `json:"createdAt"`
+	UpdatedAt   string            `json:"updatedAt"`
+	CreatedAtMS int64             `json:"createdAtMs"`
+	UpdatedAtMS int64             `json:"updatedAtMs"`
+	Layout      *folderGridLayout `json:"layout,omitempty"`
+}
+
+type folderGridLayout struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+}
+
+type folderLayoutPatch struct {
+	ID     string           `json:"id"`
+	Layout folderGridLayout `json:"layout"`
 }
 
 type foldersDoc struct {
@@ -71,13 +82,6 @@ type foldersDoc struct {
 	Groups        []folderGroup `json:"groups"`
 	Items         []folderItem  `json:"items"`
 	UpdatedAt     string        `json:"updatedAt"`
-}
-
-type appSettings struct {
-	SchemaVersion int    `json:"schemaVersion"`
-	DataVersion   int    `json:"dataVersion"`
-	View          string `json:"view"`
-	UpdatedAt     string `json:"updatedAt"`
 }
 
 type metaDoc struct {
@@ -239,6 +243,14 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 			return nil, fmt.Errorf("invalid move payload: %w", err)
 		}
 		return svc.moveFolder(payload.ID, payload.GroupID)
+	case "folders.layout.save":
+		var payload struct {
+			Items []folderLayoutPatch `json:"items"`
+		}
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid layout payload: %w", err)
+		}
+		return svc.saveFolderLayouts(payload.Items)
 	case "folders.groups.add":
 		var payload folderGroup
 		if err := json.Unmarshal(params, &payload); err != nil {
@@ -267,14 +279,6 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 			return nil, fmt.Errorf("invalid open payload: %w", err)
 		}
 		return svc.openFolder(payload.ID)
-	case "folders.settings.get":
-		return svc.readSettings()
-	case "folders.settings.save":
-		var payload appSettings
-		if err := json.Unmarshal(params, &payload); err != nil && len(params) > 0 {
-			return nil, fmt.Errorf("invalid settings payload: %w", err)
-		}
-		return svc.saveSettings(payload.View)
 	default:
 		return nil, fmt.Errorf("unknown method: %s", method)
 	}
@@ -294,10 +298,6 @@ func (svc *service) ensureReady() error {
 		if err := svc.writeFolders(defaultFoldersDoc()); err != nil {
 			return err
 		}
-	}
-	if _, err := os.Stat(filepath.Join(svc.dataDir, settingsFile)); errors.Is(err, os.ErrNotExist) {
-		_, err = svc.saveSettings("grid")
-		return err
 	}
 	return nil
 }
@@ -433,6 +433,9 @@ func (svc *service) updateFolder(payload folderItem) (foldersDoc, error) {
 	for i := range doc.Items {
 		if doc.Items[i].ID == item.ID {
 			item.CreatedAtMS = doc.Items[i].CreatedAtMS
+			if item.Layout == nil {
+				item.Layout = doc.Items[i].Layout
+			}
 			doc.Items[i] = item
 			if err := svc.writeFolders(doc); err != nil {
 				return foldersDoc{}, err
@@ -496,6 +499,51 @@ func (svc *service) moveFolder(id string, groupID string) (foldersDoc, error) {
 		}
 	}
 	return foldersDoc{}, fmt.Errorf("folder not found: %s", id)
+}
+
+func (svc *service) saveFolderLayouts(patches []folderLayoutPatch) (foldersDoc, error) {
+	if len(patches) == 0 {
+		return svc.readFolders()
+	}
+	doc, err := svc.readFolders()
+	if err != nil {
+		return foldersDoc{}, err
+	}
+
+	updates := make(map[string]folderGridLayout, len(patches))
+	for _, patch := range patches {
+		id := strings.TrimSpace(patch.ID)
+		if id == "" {
+			return foldersDoc{}, errors.New("folder id is required")
+		}
+		updates[id] = normalizeGridLayout(patch.Layout)
+	}
+
+	found := make(map[string]bool, len(updates))
+	now := time.Now().UnixMilli()
+	nowString := nowText()
+	for i := range doc.Items {
+		layout, ok := updates[doc.Items[i].ID]
+		if !ok {
+			continue
+		}
+		layoutCopy := layout
+		doc.Items[i].Layout = &layoutCopy
+		doc.Items[i].UpdatedAtMS = now
+		doc.Items[i].UpdatedAt = nowString
+		found[doc.Items[i].ID] = true
+	}
+
+	for id := range updates {
+		if !found[id] {
+			return foldersDoc{}, fmt.Errorf("folder not found: %s", id)
+		}
+	}
+
+	if err := svc.writeFolders(doc); err != nil {
+		return foldersDoc{}, err
+	}
+	return svc.readFolders()
 }
 
 func (svc *service) addGroup(payload folderGroup) (foldersDoc, error) {
@@ -593,23 +641,6 @@ func (svc *service) openFolder(id string) (map[string]any, error) {
 	return nil, fmt.Errorf("folder not found: %s", id)
 }
 
-func (svc *service) readSettings() (appSettings, error) {
-	var settings appSettings
-	if err := readJSON(filepath.Join(svc.dataDir, settingsFile), &settings); err != nil {
-		return appSettings{}, err
-	}
-	return normalizeSettings(settings), nil
-}
-
-func (svc *service) saveSettings(view string) (appSettings, error) {
-	settings := normalizeSettings(appSettings{View: view})
-	settings.UpdatedAt = nowText()
-	if err := writeJSON(filepath.Join(svc.dataDir, settingsFile), settings); err != nil {
-		return appSettings{}, err
-	}
-	return settings, nil
-}
-
 func defaultFoldersDoc() foldersDoc {
 	return foldersDoc{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, Groups: []folderGroup{{ID: defaultGroupID, Name: "默认"}}, Items: []folderItem{}, UpdatedAt: nowText()}
 }
@@ -695,15 +726,30 @@ func normalizeFolderItem(raw folderItem, groups []folderGroup, allowNewID bool) 
 	if updatedAtText == "" {
 		updatedAtText = nowString
 	}
-	return folderItem{ID: id, Name: name, Path: path, GroupID: groupID, CreatedAt: createdAtText, UpdatedAt: updatedAtText, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt}, nil
+	var itemLayout *folderGridLayout
+	if raw.Layout != nil {
+		normalizedLayout := normalizeGridLayout(*raw.Layout)
+		itemLayout = &normalizedLayout
+	}
+	return folderItem{ID: id, Name: name, Path: path, GroupID: groupID, CreatedAt: createdAtText, UpdatedAt: updatedAtText, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt, Layout: itemLayout}, nil
 }
 
-func normalizeSettings(settings appSettings) appSettings {
-	view := strings.TrimSpace(settings.View)
-	if view != "list" {
-		view = "grid"
+func normalizeGridLayout(raw folderGridLayout) folderGridLayout {
+	x := raw.X
+	y := raw.Y
+	if x < 0 {
+		x = 0
 	}
-	return appSettings{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, View: view, UpdatedAt: firstNonEmpty(settings.UpdatedAt, nowText())}
+	if y < 0 {
+		y = 0
+	}
+	if x > maxLayoutCoord {
+		x = maxLayoutCoord
+	}
+	if y > maxLayoutCoord {
+		y = maxLayoutCoord
+	}
+	return folderGridLayout{X: x, Y: y}
 }
 
 func hasGroup(groups []folderGroup, id string) bool {

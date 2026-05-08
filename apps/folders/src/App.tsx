@@ -6,14 +6,9 @@ import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
-import DriveFolderUploadRoundedIcon from '@mui/icons-material/DriveFolderUploadRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
-import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
-import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded'
 import HorizontalRuleRoundedIcon from '@mui/icons-material/HorizontalRuleRounded'
 import LaunchRoundedIcon from '@mui/icons-material/LaunchRounded'
-import ListRoundedIcon from '@mui/icons-material/ListRounded'
-import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
@@ -25,7 +20,6 @@ import {
   Alert,
   Box,
   Button,
-  Card,
   Chip,
   CircularProgress,
   Dialog,
@@ -57,11 +51,11 @@ import type {
   FolderGroup,
   FolderItem,
   FoldersDoc,
-  FoldersSettings,
   FwLaunchInfo,
   GroupFormState,
   Phase,
 } from './types'
+import { FolderGridCanvas, type FolderGridLayoutPatch } from './folder-grid/FolderGridCanvas'
 import {
   ALL_GROUP_ID,
   DEFAULT_DOC,
@@ -84,7 +78,6 @@ export function App() {
   const [status, setStatus] = React.useState<DataDirStatus | null>(null)
   const [client, setClient] = React.useState<DirectClient | null>(null)
   const [doc, setDoc] = React.useState<FoldersDoc>(DEFAULT_DOC)
-  const [settings, setSettings] = React.useState<FoldersSettings | null>(null)
   const [phase, setPhase] = React.useState<Phase>('starting')
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -110,11 +103,8 @@ export function App() {
     try {
       if (options?.restartBackend) await invoke('restart_backend')
       const nextClient = await createDirectClient()
-      const [nextDoc, nextSettings] = await Promise.all([
-        nextClient.request<FoldersDoc>('folders.getData'),
-        nextClient.request<FoldersSettings>('folders.settings.get'),
-      ])
-      setClient(nextClient); setDoc(nextDoc); setSettings(nextSettings); setPhase('ready'); await refreshStatus()
+      const nextDoc = await nextClient.request<FoldersDoc>('folders.getData')
+      setClient(nextClient); setDoc(nextDoc); setPhase('ready'); await refreshStatus()
     } catch (e) {
       setPhase('failed'); setError(errorMessage(e, '启动文件夹收藏后台失败')); await refreshStatus()
     } finally { setBusy(false) }
@@ -196,6 +186,7 @@ export function App() {
         id: editing.id || createID(), name, path, groupId: targetGroupId,
         createdAt: editing.createdAt || nowText, updatedAt: nowText,
         createdAtMs: editing.createdAtMs || now, updatedAtMs: now,
+        layout: editing.layout,
       }
       const nextDoc = await client.request<FoldersDoc>(editing.id ? 'folders.update' : 'folders.add', payload)
       setDoc(nextDoc); setEditing(null)
@@ -224,6 +215,25 @@ export function App() {
     try { setDoc(await client.request<FoldersDoc>('folders.move', { id: item.id, groupId: nextGroupId })); setContextMenu(null) }
     catch (e) { setError(errorMessage(e, '移动文件夹失败')) }
     finally { setBusy(false) }
+  }
+
+  async function saveFolderLayouts(patches: FolderGridLayoutPatch[]) {
+    if (!client || patches.length === 0) return
+    const previousDoc = doc
+    setError(null)
+    setDoc(current => ({
+      ...current,
+      items: current.items.map(item => {
+        const patch = patches.find(currentPatch => currentPatch.id === item.id)
+        return patch ? { ...item, layout: patch.layout } : item
+      }),
+    }))
+    try {
+      setDoc(await client.request<FoldersDoc>('folders.layout.save', { items: patches }))
+    } catch (e) {
+      setDoc(previousDoc)
+      setError(errorMessage(e, '保存图标布局失败'))
+    }
   }
 
   function openGroupEditor(group?: FolderGroup) {
@@ -269,22 +279,13 @@ export function App() {
     } catch (e) { setError(errorMessage(e, '选择文件夹失败')) }
   }
 
-  async function setView(view: 'grid' | 'list') {
-    if (!client) return
-    setBusy(true); setError(null)
-    try { setSettings(await client.request<FoldersSettings>('folders.settings.save', { view })) }
-    catch (e) { setError(errorMessage(e, '保存设置失败')) }
-    finally { setBusy(false) }
-  }
-
-  const filteredItems = doc.items.filter(item => {
+  const filteredItems = React.useMemo(() => doc.items.filter(item => {
     const q = search.trim().toLowerCase()
     if (groupId !== ALL_GROUP_ID && item.groupId !== groupId) return false
     return !q || item.name.toLowerCase().includes(q) || item.path.toLowerCase().includes(q)
-  })
+  }), [doc.items, groupId, search])
   const selectedGroup = doc.groups.find(group => group.id === groupId)
   const editableGroups = doc.groups.filter(group => group.id !== DEFAULT_GROUP_ID)
-  const view = settings?.view || 'grid'
 
   return (
     <Box
@@ -306,13 +307,11 @@ export function App() {
         phase={phase}
         search={search}
         selectedGroup={selectedGroup}
-        view={view}
         onAdd={openAdd}
         onGroupChange={setGroupId}
         onOpenGroupEditor={() => openGroupEditor(selectedGroup?.id === DEFAULT_GROUP_ID ? undefined : selectedGroup)}
         onOpenSettings={() => setSettingsOpen(true)}
         onSearchChange={setSearch}
-        onSetView={nextView => void setView(nextView)}
       />
 
       <StatusNotice
@@ -324,16 +323,17 @@ export function App() {
         onRestart={() => void connect({ restartBackend: true })}
       />
 
-      <FoldersList
+      <FolderGridCanvas
         doc={doc}
+        allItems={doc.items}
         groupCount={doc.groups.length}
         items={filteredItems}
         phase={phase}
-        view={view}
         search={search}
         onAdd={openAdd}
         onOpen={item => void openFolder(item)}
         onContextMenu={setContextMenu}
+        onLayoutCommit={patches => void saveFolderLayouts(patches)}
       />
 
       {error && phase !== 'failed' ? <Alert severity="error" sx={{ mx: { xs: 1.5, sm: 2 }, mb: 1.5 }}>{error}</Alert> : null}
@@ -377,12 +377,10 @@ export function App() {
         busy={busy}
         doc={doc}
         open={settingsOpen}
-        settings={settings}
         status={status}
         onClose={() => setSettingsOpen(false)}
         onPickDataDir={pickDataDir}
         onRestart={() => void connect({ restartBackend: true })}
-        onSetView={nextView => void setView(nextView)}
       />
 
       <ConfirmDialog
@@ -410,13 +408,11 @@ function TopBar(props: {
   phase: Phase
   search: string
   selectedGroup: FolderGroup | undefined
-  view: 'grid' | 'list'
   onAdd(): void
   onGroupChange(groupId: string): void
   onOpenGroupEditor(): void
   onOpenSettings(): void
   onSearchChange(search: string): void
-  onSetView(view: 'grid' | 'list'): void
 }) {
   const statusColor = props.phase === 'failed' ? 'error' : 'warning'
   const statusText = props.phase === 'failed' ? '需处理' : '启动中'
@@ -451,7 +447,6 @@ function TopBar(props: {
         InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment> }}
       />
       <GroupFilterSelect doc={props.doc} groupId={props.groupId} onGroupChange={props.onGroupChange} />
-      <ViewModeSwitch view={props.view} onSetView={props.onSetView} />
       {props.phase !== 'ready' ? <Chip color={statusColor} size="small" label={statusText} icon={props.phase === 'starting' ? <CircularProgress size={12} color="inherit" /> : undefined} /> : null}
       <Button variant="text" startIcon={<SettingsRoundedIcon />} onClick={props.onOpenSettings}>设置</Button>
       <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={props.onAdd} disabled={!canEdit || props.busy}>新增</Button>
@@ -500,34 +495,6 @@ function GroupFilterSelect(props: { doc: FoldersDoc; groupId: string; onGroupCha
   )
 }
 
-function ViewModeSwitch(props: { view: 'grid' | 'list'; onSetView(view: 'grid' | 'list'): void }) {
-  return (
-    <Stack
-      direction="row"
-      spacing={0.5}
-      aria-label="切换视图"
-      sx={{ p: 0.5, borderRadius: 2.5, bgcolor: theme => alpha(theme.palette.primary.main, 0.08), flexShrink: 0 }}
-    >
-      <Button
-        variant={props.view === 'grid' ? 'contained' : 'text'}
-        aria-label="宫格视图"
-        onClick={() => props.onSetView('grid')}
-        sx={{ minWidth: 34, px: 1 }}
-      >
-        <GridViewRoundedIcon fontSize="small" />
-      </Button>
-      <Button
-        variant={props.view === 'list' ? 'contained' : 'text'}
-        aria-label="列表视图"
-        onClick={() => props.onSetView('list')}
-        sx={{ minWidth: 34, px: 1 }}
-      >
-        <ListRoundedIcon fontSize="small" />
-      </Button>
-    </Stack>
-  )
-}
-
 function WindowControls() {
   return (
     <Stack direction="row" spacing={0.5} data-window-control>
@@ -558,136 +525,6 @@ function StatusNotice(props: { busy: boolean; error: string | null; phase: Phase
       <Typography fontWeight={900}>后台或数据目录暂不可用</Typography>
       <Typography variant="body2">{props.error || props.status?.error || '请重试或选择新的数据目录。'}</Typography>
     </Alert>
-  )
-}
-
-function FoldersList(props: {
-  doc: FoldersDoc
-  groupCount: number
-  items: FolderItem[]
-  phase: Phase
-  view: 'grid' | 'list'
-  search: string
-  onAdd(): void
-  onOpen(item: FolderItem): void
-  onContextMenu(menu: ContextMenuState): void
-}) {
-  if (!props.items.length) {
-    return (
-      <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: { xs: 1.5, sm: 2 }, pt: 1 }}>
-        <EmptyState phase={props.phase} search={props.search} onAdd={props.onAdd} />
-      </Box>
-    )
-  }
-
-  return (
-    <Box
-      component="section"
-      aria-label="收藏文件夹列表"
-      sx={{
-        flex: 1,
-        minHeight: 0,
-        overflow: 'auto',
-        p: { xs: 1.5, sm: 2 },
-        pt: 1,
-        display: 'grid',
-        gridTemplateColumns: props.view === 'list' ? '1fr' : 'repeat(auto-fill, minmax(132px, 1fr))',
-        alignContent: 'start',
-        gap: 1.5,
-      }}
-    >
-      {props.items.map(item => (
-        <FolderCard
-          key={item.id}
-          doc={props.doc}
-          groupCount={props.groupCount}
-          item={item}
-          view={props.view}
-          onOpen={() => props.onOpen(item)}
-          onContextMenu={(x, y) => props.onContextMenu({ item, x, y })}
-        />
-      ))}
-    </Box>
-  )
-}
-
-function FolderCard(props: { doc: FoldersDoc; groupCount: number; item: FolderItem; view: 'grid' | 'list'; onOpen(): void; onContextMenu(x: number, y: number): void }) {
-  const isList = props.view === 'list'
-  return (
-    <Card
-      onContextMenu={event => { event.preventDefault(); event.stopPropagation(); props.onContextMenu(event.clientX, event.clientY) }}
-      sx={{
-        position: 'relative',
-        overflow: 'visible',
-        borderRadius: 3,
-        transition: 'transform .16s ease, box-shadow .16s ease',
-        '&:hover': {
-          transform: 'translateY(-1px)',
-          boxShadow: '0 18px 42px rgba(37, 99, 235, 0.14)',
-        },
-      }}
-    >
-      <Button
-        color="inherit"
-        onClick={props.onOpen}
-        aria-label={`打开文件夹：${props.item.name}`}
-        sx={{
-          width: '100%',
-          minHeight: isList ? 70 : 136,
-          p: isList ? 1.25 : 1.5,
-          pr: isList ? 5 : 1.5,
-          display: 'flex',
-          flexDirection: isList ? 'row' : 'column',
-          justifyContent: isList ? 'flex-start' : 'center',
-          alignItems: 'center',
-          gap: isList ? 1.25 : 1,
-          textAlign: isList ? 'left' : 'center',
-          borderRadius: 3,
-        }}
-        title={props.item.path}
-      >
-        <Box sx={{ width: 54, height: 54, borderRadius: 3, display: 'grid', placeItems: 'center', color: 'primary.main', bgcolor: theme => alpha(theme.palette.primary.main, 0.1), flexShrink: 0 }}>
-          <FolderRoundedIcon />
-        </Box>
-        <Box sx={{ minWidth: 0, width: isList ? 'auto' : '100%', flex: isList ? 1 : 'none' }}>
-          <Typography fontWeight={900} noWrap>{props.item.name}</Typography>
-          <Typography variant="caption" color="text.secondary" noWrap component="div">{props.item.path}</Typography>
-          {props.groupCount > 1 ? <Chip size="small" label={groupName(props.doc, props.item.groupId)} sx={{ mt: 0.75, maxWidth: '100%' }} /> : null}
-        </Box>
-      </Button>
-      <IconButton
-        aria-label={`更多操作：${props.item.name}`}
-        onClick={event => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); props.onContextMenu(rect.left, rect.bottom + 4) }}
-        sx={{ position: 'absolute', top: 6, right: 6, bgcolor: theme => alpha(theme.palette.background.paper, 0.86), backdropFilter: 'blur(8px)' }}
-      >
-        <MoreVertRoundedIcon fontSize="small" />
-      </IconButton>
-    </Card>
-  )
-}
-
-function EmptyState(props: { phase: Phase; search: string; onAdd(): void }) {
-  return (
-    <Paper
-      sx={{
-        minHeight: '100%',
-        p: { xs: 3, sm: 5 },
-        borderRadius: 4,
-        display: 'grid',
-        placeItems: 'center',
-        textAlign: 'center',
-        bgcolor: 'background.paper',
-      }}
-    >
-      <Stack spacing={1.5} alignItems="center" sx={{ maxWidth: 420 }}>
-        <Box sx={{ width: 72, height: 72, borderRadius: 4, display: 'grid', placeItems: 'center', color: 'primary.main', bgcolor: theme => alpha(theme.palette.primary.main, 0.1) }}>
-          <DriveFolderUploadRoundedIcon fontSize="large" />
-        </Box>
-        <Typography variant="h2">{props.search ? '未找到匹配的文件夹' : '暂无收藏文件夹'}</Typography>
-        <Typography color="text.secondary">{props.search ? '换个关键词试试，或者把这个目录添加到收藏。' : '添加常用目录后，可以从这里一键打开、分组管理和快速搜索。'}</Typography>
-        <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={props.onAdd} disabled={props.phase !== 'ready'}>添加文件夹</Button>
-      </Stack>
-    </Paper>
   )
 }
 
@@ -793,7 +630,7 @@ function FolderDialog(props: {
               fullWidth
             />
           </Stack>
-          <Typography variant="caption" color="text.secondary">右键或点更多菜单可打开、编辑、移动或删除；删除会二次确认。</Typography>
+          <Typography variant="caption" color="text.secondary">图标布局会自动吸附格子；右键或点更多菜单可打开、编辑、移动或删除。</Typography>
           <Stack direction="row" spacing={1} justifyContent="flex-end">
             <Button onClick={props.onClose}>取消</Button>
             <Button variant="contained" onClick={props.onSave} disabled={props.busy}>{props.editing?.id ? '保存' : '添加'}</Button>
@@ -867,12 +704,10 @@ function SettingsDialog(props: {
   busy: boolean
   doc: FoldersDoc
   open: boolean
-  settings: FoldersSettings | null
   status: DataDirStatus | null
   onClose(): void
   onPickDataDir(): void
   onRestart(): void
-  onSetView(view: 'grid' | 'list'): void
 }) {
   return (
     <Dialog open={props.open} onClose={props.onClose} fullWidth maxWidth="md">
@@ -880,7 +715,7 @@ function SettingsDialog(props: {
         <Stack spacing={2.25}>
           <Box>
             <Typography variant="h2">设置</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>查看数据目录、切换视图或重启后台。</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>查看数据目录或重启后台。</Typography>
           </Box>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 1.5 }}>
           <InfoBlock label="当前数据目录" value={props.status?.dataDir || '读取中'} mono />
@@ -889,10 +724,6 @@ function SettingsDialog(props: {
           <InfoBlock label="可写状态" value={props.status?.writable ? '可写' : '不可写或未知'} />
         </Box>
         {props.status?.error ? <Alert severity="error" sx={{ mt: 2 }}>{props.status.error}</Alert> : null}
-        <Stack spacing={1}>
-          <Typography variant="h3">显示方式</Typography>
-          <ViewModeSwitch view={props.settings?.view || 'grid'} onSetView={props.onSetView} />
-        </Stack>
           <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap">
             <Button startIcon={<SplitscreenRoundedIcon />} onClick={props.onPickDataDir} disabled={props.busy}>选择数据目录</Button>
             <Button startIcon={<RestartAltRoundedIcon />} onClick={props.onRestart} disabled={props.busy}>重启后台</Button>

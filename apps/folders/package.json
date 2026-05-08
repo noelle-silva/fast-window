@@ -6,6 +6,7 @@
   "scripts": {
     "build:backend": "node scripts/build-backend.mjs",
     "build:resources": "node scripts/build-resources.mjs",
+    "test:layout": "node --test --import ./scripts/register-layout-tests.mjs scripts/folder-grid-layout.test.mjs",
     "build:ui": "pnpm build:backend && vite build && pnpm build:resources",
     "build:exe:dev": "pnpm build:ui && cargo build --manifest-path src-tauri/Cargo.toml",
     "build:exe": "pnpm build:ui && pnpm tauri build",

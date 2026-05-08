@@ -18,6 +18,8 @@ export type BackendEndpoint = {
 
 export type FolderGroup = { id: string; name: string }
 
+export type FolderGridLayout = { x: number; y: number }
+
 export type FolderItem = {
   id: string
   name: string
@@ -27,6 +29,7 @@ export type FolderItem = {
   updatedAt: string
   createdAtMs: number
   updatedAtMs: number
+  layout?: FolderGridLayout
 }
 
 export type FoldersDoc = {
@@ -34,13 +37,6 @@ export type FoldersDoc = {
   dataVersion: number
   groups: FolderGroup[]
   items: FolderItem[]
-  updatedAt: string
-}
-
-export type FoldersSettings = {
-  schemaVersion: number
-  dataVersion: number
-  view: 'grid' | 'list'
   updatedAt: string
 }
 
