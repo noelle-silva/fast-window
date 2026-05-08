@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use serde::Serialize;
 use tauri::Manager;
@@ -8,6 +8,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex as AsyncMutex;
 
+use crate::control_server::session_token;
 use crate::data_dir;
 
 #[cfg(all(target_os = "windows", not(debug_assertions)))]
@@ -91,7 +92,7 @@ pub(crate) async fn start_backend(
     app: tauri::AppHandle,
     state: Arc<BackendState>,
 ) -> Result<(), String> {
-    let session_token = token();
+    let session_token = session_token();
     let data_dir = data_dir::resolve_data_dir(&app);
     data_dir::ensure_writable_dir(&data_dir)?;
 
@@ -164,17 +165,6 @@ fn hide_backend_console(cmd: &mut Command) {
 
 fn backend_command(app: &tauri::AppHandle) -> Result<Command, String> {
     Ok(Command::new(resolve_backend_sidecar(app)?))
-}
-
-fn now_ms() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_millis(0))
-        .as_millis()
-}
-
-fn token() -> String {
-    format!("hc-{}-{}", now_ms(), std::process::id())
 }
 
 fn resolve_backend_sidecar(app: &tauri::AppHandle) -> Result<PathBuf, String> {

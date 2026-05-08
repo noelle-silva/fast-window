@@ -62,6 +62,10 @@ pub(crate) fn available_commands() -> Vec<AppCommandDescriptor> {
             title: "搜索 HyperCortex",
         },
         AppCommandDescriptor {
+            id: "open-settings",
+            title: "打开设置",
+        },
+        AppCommandDescriptor {
             id: "open-assets",
             title: "打开附件库",
         },
