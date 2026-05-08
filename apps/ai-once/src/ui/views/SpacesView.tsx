@@ -1,5 +1,4 @@
-import EditRoundedIcon from '@mui/icons-material/EditRounded'
-import { Box, Chip, IconButton, Paper, Stack, Tooltip, Typography } from '@mui/material'
+import { Box, Chip, Paper, Stack, Typography } from '@mui/material'
 import { defaultModel } from '../../shared/aiOnceDomain'
 import type { AiOnceController } from '../hooks/useAiOnceController'
 
@@ -62,14 +61,6 @@ export function SpacesView(props: SpacesViewProps) {
                 </Stack>
 
                 <Box sx={{ flex: 1 }} />
-
-                <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
-                  <Tooltip title="改名">
-                    <IconButton aria-label={`改名 ${space.name}`} onClick={event => { event.stopPropagation(); controller.openRenameSpace(space.id) }}>
-                      <EditRoundedIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                </Stack>
               </Stack>
             </Paper>
           </Box>

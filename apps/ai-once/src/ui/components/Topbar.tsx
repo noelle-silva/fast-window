@@ -2,7 +2,7 @@ import * as React from 'react'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
-import { Box, Button, Chip, IconButton, Tooltip } from '@mui/material'
+import { Box, Button, Chip, IconButton, Tooltip, Typography } from '@mui/material'
 import { isInteractiveTarget } from '../../shared/aiOnceDomain'
 import type { AiOnceController } from '../hooks/useAiOnceController'
 import { StandaloneWindowControls } from './StandaloneWindowControls'
@@ -22,6 +22,7 @@ export function Topbar(props: TopbarProps) {
   const { controller } = props
   const { state } = controller
   const hasData = !!state.data
+  const spaceTitle = state.view === 'workbench' ? controller.currentSpace?.name || '空间' : ''
 
   const run = React.useCallback((fn: () => Promise<void> | void) => {
     Promise.resolve(fn()).catch(error => controller.setError(String((error as { message?: string })?.message || error || '操作失败')))
@@ -54,7 +55,7 @@ export function Topbar(props: TopbarProps) {
         userSelect: 'none',
       }}
     >
-      <Box data-window-drag-ignore="true" sx={{ display: 'flex', alignItems: 'center', minWidth: 40 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flex: 1, minWidth: 0 }}>
         {state.view === 'workbench' ? (
           <Tooltip title="返回空间列表">
             <span>
@@ -63,6 +64,11 @@ export function Topbar(props: TopbarProps) {
               </IconButton>
             </span>
           </Tooltip>
+        ) : null}
+        {spaceTitle ? (
+          <Typography variant="subtitle2" sx={{ minWidth: 0, fontWeight: 900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {spaceTitle}
+          </Typography>
         ) : null}
       </Box>
 
