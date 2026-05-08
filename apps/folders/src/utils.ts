@@ -18,7 +18,7 @@ export function errorMessage(error: unknown, fallback: string): string {
 }
 
 export function isInteractiveTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && Boolean(target.closest('button,input,select,textarea,a,[role="button"],[data-window-control]'))
+  return target instanceof Element && Boolean(target.closest('button,input,select,textarea,a,[role="button"],[role="combobox"],[role="listbox"],[role="option"],[data-window-control]'))
 }
 
 export function deriveNameFromPath(path: string): string {

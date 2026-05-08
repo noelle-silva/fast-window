@@ -29,10 +29,7 @@ import {
   Chip,
   CircularProgress,
   Dialog,
-  DialogActions,
   DialogContent,
-  DialogTitle,
-  Divider,
   FormControl,
   IconButton,
   InputAdornment,
@@ -45,8 +42,6 @@ import {
   Select,
   Stack,
   TextField,
-  ToggleButton,
-  ToggleButtonGroup,
   Tooltip,
   Typography,
   alpha,
@@ -439,7 +434,8 @@ function TopBar(props: {
         display: 'flex',
         alignItems: 'center',
         gap: 1.25,
-        borderBottom: theme => `1px solid ${theme.palette.divider}`,
+        bgcolor: 'background.paper',
+        boxShadow: '0 12px 30px rgba(15, 23, 42, 0.08)',
         userSelect: 'none',
         flexShrink: 0,
         flexWrap: { xs: 'wrap', md: 'nowrap' },
@@ -451,32 +447,16 @@ function TopBar(props: {
         onChange={event => props.onSearchChange(event.target.value)}
         placeholder="按名称或路径搜索"
         size="small"
-        sx={{ flex: '1 1 260px', minWidth: { xs: '100%', sm: 220 } }}
+        sx={{ flex: { xs: '1 1 100%', sm: '0 1 130px' }, minWidth: { xs: '100%', sm: 110 }, maxWidth: { xs: '100%', sm: 130 } }}
         InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment> }}
       />
-      <FormControl size="small" sx={{ width: { xs: 'calc(50% - 6px)', sm: 180 }, minWidth: 148 }}>
-        <InputLabel id="folders-group-filter-label">分组</InputLabel>
-        <Select labelId="folders-group-filter-label" value={props.groupId} label="分组" onChange={(event: SelectChangeEvent) => props.onGroupChange(event.target.value)}>
-          <MenuItem value={ALL_GROUP_ID}>全部分组</MenuItem>
-          {props.doc.groups.map(group => <MenuItem key={group.id} value={group.id}>{group.name}</MenuItem>)}
-        </Select>
-      </FormControl>
-      <ToggleButtonGroup
-        value={props.view}
-        exclusive
-        size="small"
-        onChange={(_, next: 'grid' | 'list' | null) => { if (next) props.onSetView(next) }}
-        aria-label="切换视图"
-        sx={{ flexShrink: 0 }}
-      >
-        <ToggleButton value="grid" aria-label="宫格视图"><GridViewRoundedIcon fontSize="small" /></ToggleButton>
-        <ToggleButton value="list" aria-label="列表视图"><ListRoundedIcon fontSize="small" /></ToggleButton>
-      </ToggleButtonGroup>
+      <GroupFilterSelect doc={props.doc} groupId={props.groupId} onGroupChange={props.onGroupChange} />
+      <ViewModeSwitch view={props.view} onSetView={props.onSetView} />
       {props.phase !== 'ready' ? <Chip color={statusColor} size="small" label={statusText} icon={props.phase === 'starting' ? <CircularProgress size={12} color="inherit" /> : undefined} /> : null}
-      <Button variant="outlined" startIcon={<SettingsRoundedIcon />} onClick={props.onOpenSettings}>设置</Button>
+      <Button variant="text" startIcon={<SettingsRoundedIcon />} onClick={props.onOpenSettings}>设置</Button>
       <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={props.onAdd} disabled={!canEdit || props.busy}>新增</Button>
       <Button
-        variant="outlined"
+        variant="text"
         startIcon={props.selectedGroup && props.selectedGroup.id !== DEFAULT_GROUP_ID ? <EditRoundedIcon /> : <CreateNewFolderRoundedIcon />}
         onClick={props.onOpenGroupEditor}
         disabled={!canEdit}
@@ -486,6 +466,65 @@ function TopBar(props: {
       </Button>
       {props.launchInfo.standalone ? <WindowControls /> : null}
     </Paper>
+  )
+}
+
+function GroupFilterSelect(props: { doc: FoldersDoc; groupId: string; onGroupChange(groupId: string): void }) {
+  const [open, setOpen] = React.useState(false)
+
+  return (
+    <FormControl variant="filled" size="small" sx={{ width: { xs: 'calc(50% - 6px)', sm: 180 }, minWidth: 148 }}>
+      <InputLabel id="folders-group-filter-label">分组</InputLabel>
+      <Select
+        variant="filled"
+        labelId="folders-group-filter-label"
+        value={props.groupId}
+        label="分组"
+        open={open}
+        onClose={() => setOpen(false)}
+        onOpen={() => setOpen(true)}
+        onMouseDown={event => {
+          if (!open) return
+          event.preventDefault()
+          setOpen(false)
+        }}
+        onChange={(event: SelectChangeEvent) => {
+          props.onGroupChange(event.target.value)
+          setOpen(false)
+        }}
+      >
+        <MenuItem value={ALL_GROUP_ID}>全部分组</MenuItem>
+        {props.doc.groups.map(group => <MenuItem key={group.id} value={group.id}>{group.name}</MenuItem>)}
+      </Select>
+    </FormControl>
+  )
+}
+
+function ViewModeSwitch(props: { view: 'grid' | 'list'; onSetView(view: 'grid' | 'list'): void }) {
+  return (
+    <Stack
+      direction="row"
+      spacing={0.5}
+      aria-label="切换视图"
+      sx={{ p: 0.5, borderRadius: 2.5, bgcolor: theme => alpha(theme.palette.primary.main, 0.08), flexShrink: 0 }}
+    >
+      <Button
+        variant={props.view === 'grid' ? 'contained' : 'text'}
+        aria-label="宫格视图"
+        onClick={() => props.onSetView('grid')}
+        sx={{ minWidth: 34, px: 1 }}
+      >
+        <GridViewRoundedIcon fontSize="small" />
+      </Button>
+      <Button
+        variant={props.view === 'list' ? 'contained' : 'text'}
+        aria-label="列表视图"
+        onClick={() => props.onSetView('list')}
+        sx={{ minWidth: 34, px: 1 }}
+      >
+        <ListRoundedIcon fontSize="small" />
+      </Button>
+    </Stack>
   )
 }
 
@@ -581,10 +620,9 @@ function FolderCard(props: { doc: FoldersDoc; groupCount: number; item: FolderIt
         position: 'relative',
         overflow: 'visible',
         borderRadius: 3,
-        transition: 'transform .16s ease, box-shadow .16s ease, border-color .16s ease',
+        transition: 'transform .16s ease, box-shadow .16s ease',
         '&:hover': {
           transform: 'translateY(-1px)',
-          borderColor: 'primary.light',
           boxShadow: '0 18px 42px rgba(37, 99, 235, 0.14)',
         },
       }}
@@ -608,7 +646,7 @@ function FolderCard(props: { doc: FoldersDoc; groupCount: number; item: FolderIt
         }}
         title={props.item.path}
       >
-        <Box sx={{ width: 54, height: 54, borderRadius: 3, display: 'grid', placeItems: 'center', color: 'primary.main', bgcolor: theme => alpha(theme.palette.primary.main, 0.1), border: theme => `1px solid ${alpha(theme.palette.primary.main, 0.16)}`, flexShrink: 0 }}>
+        <Box sx={{ width: 54, height: 54, borderRadius: 3, display: 'grid', placeItems: 'center', color: 'primary.main', bgcolor: theme => alpha(theme.palette.primary.main, 0.1), flexShrink: 0 }}>
           <FolderRoundedIcon />
         </Box>
         <Box sx={{ minWidth: 0, width: isList ? 'auto' : '100%', flex: isList ? 1 : 'none' }}>
@@ -631,7 +669,6 @@ function FolderCard(props: { doc: FoldersDoc; groupCount: number; item: FolderIt
 function EmptyState(props: { phase: Phase; search: string; onAdd(): void }) {
   return (
     <Paper
-      variant="outlined"
       sx={{
         minHeight: '100%',
         p: { xs: 3, sm: 5 },
@@ -682,9 +719,10 @@ function FolderContextMenu(props: {
           <ListItemText>编辑</ListItemText>
         </MenuItem>,
         <Box key="move" sx={{ px: 2, py: 1, minWidth: 220 }}>
-          <FormControl fullWidth size="small">
+          <FormControl variant="filled" fullWidth size="small">
             <InputLabel id="context-move-label">移动到</InputLabel>
             <Select
+              variant="filled"
               labelId="context-move-label"
               label="移动到"
               value={props.menu.item.groupId}
@@ -694,7 +732,6 @@ function FolderContextMenu(props: {
             </Select>
           </FormControl>
         </Box>,
-        <Divider key="divider" />,
         <MenuItem key="delete" onClick={() => props.onDelete(props.menu!.item)} sx={{ color: 'error.main' }}>
           <ListItemIcon><DeleteOutlineRoundedIcon fontSize="small" color="error" /></ListItemIcon>
           <ListItemText>删除</ListItemText>
@@ -717,9 +754,12 @@ function FolderDialog(props: {
   const open = Boolean(props.editing)
   return (
     <Dialog open={open} onClose={props.onClose} fullWidth maxWidth="sm">
-      <DialogTitle>{props.editing?.id ? '编辑文件夹' : '添加文件夹'}</DialogTitle>
-      <DialogContent dividers>
-        <Stack spacing={2} sx={{ pt: 0.5 }}>
+      <DialogContent sx={{ p: 3 }}>
+        <Stack spacing={2.25}>
+          <Box>
+            <Typography variant="h2">{props.editing?.id ? '编辑文件夹' : '添加文件夹'}</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>保存常用目录，之后可以一键打开。</Typography>
+          </Box>
           <TextField
             label="名称"
             value={props.form.name}
@@ -736,12 +776,12 @@ function FolderDialog(props: {
               placeholder="选择或粘贴文件夹绝对路径"
               fullWidth
             />
-            <Button variant="outlined" startIcon={<LaunchRoundedIcon />} onClick={props.onPickPath} sx={{ minWidth: 96 }}>选择</Button>
+            <Button variant="text" startIcon={<LaunchRoundedIcon />} onClick={props.onPickPath} sx={{ minWidth: 96 }}>选择</Button>
           </Stack>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
-            <FormControl size="small" fullWidth>
+            <FormControl variant="filled" size="small" fullWidth>
               <InputLabel id="folder-form-group-label">分组</InputLabel>
-              <Select labelId="folder-form-group-label" label="分组" value={props.form.groupId} onChange={(event: SelectChangeEvent) => props.onChange({ ...props.form, groupId: event.target.value })}>
+              <Select variant="filled" labelId="folder-form-group-label" label="分组" value={props.form.groupId} onChange={(event: SelectChangeEvent) => props.onChange({ ...props.form, groupId: event.target.value })}>
                 {props.doc.groups.map(group => <MenuItem key={group.id} value={group.id}>{group.name}</MenuItem>)}
               </Select>
             </FormControl>
@@ -754,12 +794,12 @@ function FolderDialog(props: {
             />
           </Stack>
           <Typography variant="caption" color="text.secondary">右键或点更多菜单可打开、编辑、移动或删除；删除会二次确认。</Typography>
+          <Stack direction="row" spacing={1} justifyContent="flex-end">
+            <Button onClick={props.onClose}>取消</Button>
+            <Button variant="contained" onClick={props.onSave} disabled={props.busy}>{props.editing?.id ? '保存' : '添加'}</Button>
+          </Stack>
         </Stack>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={props.onClose}>取消</Button>
-        <Button variant="contained" onClick={props.onSave} disabled={props.busy}>{props.editing?.id ? '保存' : '添加'}</Button>
-      </DialogActions>
     </Dialog>
   )
 }
@@ -779,9 +819,12 @@ function GroupDialog(props: {
   const selected = props.editableGroups.find(group => group.id === props.form.id)
   return (
     <Dialog open={props.open} onClose={props.onClose} fullWidth maxWidth="sm">
-      <DialogTitle>{props.form.id ? '编辑分组' : '创建分组'}</DialogTitle>
-      <DialogContent dividers>
-        <Stack spacing={2} sx={{ pt: 0.5 }}>
+      <DialogContent sx={{ p: 3 }}>
+        <Stack spacing={2.25}>
+          <Box>
+            <Typography variant="h2">{props.form.id ? '编辑分组' : '创建分组'}</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>用分组把常用目录按场景收纳。</Typography>
+          </Box>
           <TextField
             label="分组名称"
             value={props.form.name}
@@ -797,9 +840,9 @@ function GroupDialog(props: {
                 {props.editableGroups.map(group => (
                   <Button
                     key={group.id}
-                    variant={group.id === props.form.id ? 'contained' : 'outlined'}
+                    variant={group.id === props.form.id ? 'contained' : 'text'}
                     onClick={() => props.onChange({ id: group.id, name: group.name })}
-                    sx={{ justifyContent: 'space-between' }}
+                    sx={{ justifyContent: 'space-between', bgcolor: group.id === props.form.id ? undefined : theme => alpha(theme.palette.primary.main, 0.06) }}
                   >
                     <span>{group.name}</span>
                     <Chip size="small" label={`${props.doc.items.filter(item => item.groupId === group.id).length} 个文件夹`} />
@@ -808,14 +851,14 @@ function GroupDialog(props: {
               </Stack>
             </Stack>
           ) : null}
+          <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap">
+            {selected ? <Button color="error" startIcon={<DeleteOutlineRoundedIcon />} onClick={() => props.onDelete(selected)} disabled={props.busy}>删除分组</Button> : null}
+            <Box sx={{ flex: 1 }} />
+            <Button onClick={props.onNew}>新建</Button>
+            <Button variant="contained" onClick={props.onSave} disabled={props.busy}>保存</Button>
+          </Stack>
         </Stack>
       </DialogContent>
-      <DialogActions>
-        {selected ? <Button color="error" startIcon={<DeleteOutlineRoundedIcon />} onClick={() => props.onDelete(selected)} disabled={props.busy}>删除分组</Button> : null}
-        <Box sx={{ flex: 1 }} />
-        <Button onClick={props.onNew}>新建</Button>
-        <Button variant="contained" onClick={props.onSave} disabled={props.busy}>保存</Button>
-      </DialogActions>
     </Dialog>
   )
 }
@@ -833,8 +876,12 @@ function SettingsDialog(props: {
 }) {
   return (
     <Dialog open={props.open} onClose={props.onClose} fullWidth maxWidth="md">
-      <DialogTitle>设置</DialogTitle>
-      <DialogContent dividers>
+      <DialogContent sx={{ p: 3 }}>
+        <Stack spacing={2.25}>
+          <Box>
+            <Typography variant="h2">设置</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>查看数据目录、切换视图或重启后台。</Typography>
+          </Box>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 1.5 }}>
           <InfoBlock label="当前数据目录" value={props.status?.dataDir || '读取中'} mono />
           <InfoBlock label="默认数据目录" value={props.status?.defaultDataDir || '读取中'} mono />
@@ -842,27 +889,24 @@ function SettingsDialog(props: {
           <InfoBlock label="可写状态" value={props.status?.writable ? '可写' : '不可写或未知'} />
         </Box>
         {props.status?.error ? <Alert severity="error" sx={{ mt: 2 }}>{props.status.error}</Alert> : null}
-        <Divider sx={{ my: 2 }} />
         <Stack spacing={1}>
           <Typography variant="h3">显示方式</Typography>
-          <ToggleButtonGroup value={props.settings?.view || 'grid'} exclusive size="small" onChange={(_, next: 'grid' | 'list' | null) => { if (next) props.onSetView(next) }} aria-label="设置显示方式">
-            <ToggleButton value="grid" aria-label="宫格视图"><GridViewRoundedIcon fontSize="small" sx={{ mr: 0.75 }} />宫格视图</ToggleButton>
-            <ToggleButton value="list" aria-label="列表视图"><ListRoundedIcon fontSize="small" sx={{ mr: 0.75 }} />列表视图</ToggleButton>
-          </ToggleButtonGroup>
+          <ViewModeSwitch view={props.settings?.view || 'grid'} onSetView={props.onSetView} />
+        </Stack>
+          <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap">
+            <Button startIcon={<SplitscreenRoundedIcon />} onClick={props.onPickDataDir} disabled={props.busy}>选择数据目录</Button>
+            <Button startIcon={<RestartAltRoundedIcon />} onClick={props.onRestart} disabled={props.busy}>重启后台</Button>
+            <Button variant="contained" onClick={props.onClose}>完成</Button>
+          </Stack>
         </Stack>
       </DialogContent>
-      <DialogActions>
-        <Button startIcon={<SplitscreenRoundedIcon />} onClick={props.onPickDataDir} disabled={props.busy}>选择数据目录</Button>
-        <Button startIcon={<RestartAltRoundedIcon />} onClick={props.onRestart} disabled={props.busy}>重启后台</Button>
-        <Button variant="contained" onClick={props.onClose}>完成</Button>
-      </DialogActions>
     </Dialog>
   )
 }
 
 function InfoBlock(props: { label: string; value: string; mono?: boolean }) {
   return (
-    <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2.5, minWidth: 0 }}>
+    <Paper elevation={0} sx={{ p: 1.5, borderRadius: 2.5, minWidth: 0, bgcolor: theme => alpha(theme.palette.primary.main, 0.06) }}>
       <Typography variant="caption" color="text.secondary">{props.label}</Typography>
       <Typography sx={{ mt: 0.5, overflowWrap: 'anywhere', fontFamily: props.mono ? 'ui-monospace, SFMono-Regular, Consolas, monospace' : undefined }}>{props.value}</Typography>
     </Paper>
@@ -873,18 +917,22 @@ function ConfirmDialog(props: { busy: boolean; confirm: ConfirmState; doc: Folde
   const groupItemCount = props.confirm?.kind === 'group' ? props.doc.items.filter(item => item.groupId === props.confirm?.id).length : 0
   return (
     <Dialog open={Boolean(props.confirm)} onClose={props.onClose} fullWidth maxWidth="xs">
-      <DialogTitle>确认删除</DialogTitle>
-      <DialogContent dividers>
-        <Typography>
+      <DialogContent sx={{ p: 3 }}>
+        <Stack spacing={2.25}>
+          <Box>
+            <Typography variant="h2">确认删除</Typography>
+            <Typography color="text.secondary" sx={{ mt: 1 }}>
           {props.confirm?.kind === 'group'
             ? `删除分组“${props.confirm.label}”？组内 ${groupItemCount} 个文件夹会移回默认分组。`
             : `删除文件夹“${props.confirm?.label || ''}”？`}
-        </Typography>
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={1} justifyContent="flex-end">
+            <Button onClick={props.onClose}>取消</Button>
+            <Button color="error" variant="contained" onClick={props.onConfirm} disabled={props.busy}>确认删除</Button>
+          </Stack>
+        </Stack>
       </DialogContent>
-      <DialogActions>
-        <Button onClick={props.onClose}>取消</Button>
-        <Button color="error" variant="contained" onClick={props.onConfirm} disabled={props.busy}>确认删除</Button>
-      </DialogActions>
     </Dialog>
   )
 }

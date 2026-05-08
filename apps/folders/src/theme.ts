@@ -69,16 +69,23 @@ export const foldersTheme = createTheme({
         }),
       },
     },
-    MuiOutlinedInput: {
+    MuiTextField: {
+      defaultProps: {
+        variant: 'filled',
+        size: 'small',
+      },
+    },
+    MuiFilledInput: {
+      defaultProps: {
+        disableUnderline: true,
+      },
       styleOverrides: {
         root: ({ theme }) => ({
           backgroundColor: theme.palette.background.paper,
-          '& .MuiOutlinedInput-notchedOutline': {
-            borderColor: alpha(theme.palette.text.secondary, 0.22),
-          },
-          '&:hover .MuiOutlinedInput-notchedOutline': {
-            borderColor: alpha(theme.palette.primary.main, 0.38),
-          },
+          borderRadius: 12,
+          overflow: 'hidden',
+          transition: 'box-shadow .16s ease, background-color .16s ease',
+          '&:hover': { backgroundColor: theme.palette.background.paper },
           '&.Mui-focused': {
             boxShadow: `0 0 0 3px ${alpha(theme.palette.primary.main, 0.14)}`,
           },
@@ -92,10 +99,9 @@ export const foldersTheme = createTheme({
     },
     MuiCard: {
       styleOverrides: {
-        root: ({ theme }) => ({
-          border: `1px solid ${theme.palette.divider}`,
+        root: {
           boxShadow: '0 12px 34px rgba(15, 23, 42, 0.08)',
-        }),
+        },
       },
     },
     MuiDialog: {
