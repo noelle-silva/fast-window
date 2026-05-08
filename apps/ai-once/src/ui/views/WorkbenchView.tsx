@@ -1,8 +1,8 @@
 import * as React from 'react'
 import AutoFixHighRoundedIcon from '@mui/icons-material/AutoFixHighRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
-import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import { Box, Button, Chip, FormControl, InputLabel, MenuItem, Paper, Select, Stack, TextField, Typography } from '@mui/material'
 import { ImageAttachments } from '../components/ImageAttachments'
 import type { AiOnceController } from '../hooks/useAiOnceController'
@@ -33,8 +33,8 @@ export function WorkbenchView(props: WorkbenchViewProps) {
             <Stack spacing={0.75} sx={{ minHeight: 0, height: '100%' }}>
               <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
                 <Typography variant="caption" color="text.secondary">{controller.state.history.length} 条历史 · {controller.state.dataDirStatus?.writable ? '数据目录可写' : '等待数据目录状态'}</Typography>
-                <Button startIcon={<EditRoundedIcon fontSize="small" />} onClick={() => controller.openRenameSpace(currentSpace.id)}>
-                  改名
+                <Button startIcon={<SettingsOutlinedIcon fontSize="small" />} onClick={controller.openTemplates}>
+                  空间编辑
                 </Button>
               </Stack>
 
