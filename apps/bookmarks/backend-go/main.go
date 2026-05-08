@@ -22,7 +22,13 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const defaultGroupID = "default"
+const (
+	defaultGroupID    = "default"
+	dataSchemaVersion = 1
+	dataVersion       = 1
+	metaFile          = "_meta.json"
+	migrationsFile    = "_migrations.json"
+)
 
 type bookmarkGroup struct {
 	ID        string `json:"id"`
@@ -43,8 +49,29 @@ type bookmarkItem struct {
 
 type bookmarkData struct {
 	SchemaVersion int             `json:"schemaVersion"`
+	DataVersion   int             `json:"dataVersion"`
 	Groups        []bookmarkGroup `json:"groups"`
 	Items         []bookmarkItem  `json:"items"`
+}
+
+type metaDoc struct {
+	SchemaVersion int    `json:"schemaVersion"`
+	DataVersion   int    `json:"dataVersion"`
+	UpdatedAt     string `json:"updatedAt"`
+}
+
+type migrationsLedger struct {
+	SchemaVersion int              `json:"schemaVersion"`
+	DataVersion   int              `json:"dataVersion"`
+	Applied       []migrationEntry `json:"applied"`
+}
+
+type migrationEntry struct {
+	ID          string `json:"id"`
+	FromVersion int    `json:"fromVersion"`
+	ToVersion   int    `json:"toVersion"`
+	Description string `json:"description"`
+	AppliedAt   string `json:"appliedAt"`
 }
 
 type rawBookmarkItem struct {
@@ -103,6 +130,9 @@ func run() error {
 	}
 
 	svc := &service{dataFile: resolveDataFilePath()}
+	if err := svc.ensureReady(); err != nil {
+		return err
+	}
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -177,7 +207,7 @@ func mustGetwd() string {
 		return "."
 	}
 	return wd
-	}
+}
 
 func (svc *service) dispatch(method string, params json.RawMessage) (any, error) {
 	switch method {
@@ -209,7 +239,7 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 }
 
 func (svc *service) load() (bookmarkData, error) {
-	if err := os.MkdirAll(filepath.Dir(svc.dataFile), 0o755); err != nil {
+	if err := svc.ensureReady(); err != nil {
 		return bookmarkData{}, err
 	}
 	rawBytes, err := os.ReadFile(svc.dataFile)
@@ -229,7 +259,7 @@ func (svc *service) load() (bookmarkData, error) {
 }
 
 func (svc *service) save(data bookmarkData) error {
-	if err := os.MkdirAll(filepath.Dir(svc.dataFile), 0o755); err != nil {
+	if err := svc.ensureReady(); err != nil {
 		return err
 	}
 	normalized := normalizeDataFromData(data)
@@ -241,10 +271,62 @@ func (svc *service) save(data bookmarkData) error {
 	return os.WriteFile(svc.dataFile, payload, 0o644)
 }
 
+func (svc *service) ensureReady() error {
+	dataDir := filepath.Dir(svc.dataFile)
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		return err
+	}
+	return runMigrations(dataDir)
+}
+
+func runMigrations(dataDir string) error {
+	ledger := migrationsLedger{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, Applied: []migrationEntry{}}
+	path := filepath.Join(dataDir, migrationsFile)
+	if bytes, err := os.ReadFile(path); err == nil {
+		if err := json.Unmarshal(bytes, &ledger); err != nil {
+			return fmt.Errorf("read migrations ledger failed: %w", err)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read migrations ledger failed: %w", err)
+	}
+
+	if ledger.DataVersion > dataVersion {
+		return fmt.Errorf("data version %d is newer than supported version %d", ledger.DataVersion, dataVersion)
+	}
+	ledger.SchemaVersion = dataSchemaVersion
+	ledger.DataVersion = dataVersion
+	if ledger.Applied == nil {
+		ledger.Applied = []migrationEntry{}
+	}
+	if len(ledger.Applied) == 0 {
+		ledger.Applied = append(ledger.Applied, migrationEntry{ID: "bookmarks-data-v1", FromVersion: 0, ToVersion: dataVersion, Description: "Initialize bookmarks data version ledger", AppliedAt: nowText()})
+	}
+	if err := writeJSON(filepath.Join(dataDir, migrationsFile), ledger); err != nil {
+		return err
+	}
+	return writeJSON(filepath.Join(dataDir, metaFile), metaDoc{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, UpdatedAt: nowText()})
+}
+
+func writeJSON(path string, value any) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	bytes, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(bytes, '\n'), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
 func normalizeData(raw *rawBookmarkData) bookmarkData {
 	now := nowMs()
 	base := bookmarkData{
-		SchemaVersion: 1,
+		SchemaVersion: dataSchemaVersion,
+		DataVersion:   dataVersion,
 		Groups:        []bookmarkGroup{{ID: defaultGroupID, Name: "默认", CreatedAt: now}},
 		Items:         []bookmarkItem{},
 	}
@@ -303,7 +385,7 @@ func normalizeData(raw *rawBookmarkData) bookmarkData {
 	}
 	sortItems(items)
 
-	return bookmarkData{SchemaVersion: 1, Groups: groups, Items: items}
+	return bookmarkData{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, Groups: groups, Items: items}
 }
 
 func normalizeDataFromData(data bookmarkData) bookmarkData {
@@ -648,6 +730,10 @@ func openURL(target string) error {
 
 func nowMs() int64 {
 	return time.Now().UnixMilli()
+}
+
+func nowText() string {
+	return time.Now().UTC().Format(time.RFC3339)
 }
 
 func uid() string {

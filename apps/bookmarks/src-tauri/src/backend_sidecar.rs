@@ -168,10 +168,7 @@ fn resolve_backend_sidecar(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         std::env::current_exe()
             .ok()
             .and_then(|path| path.parent().map(|dir| dir.join(exe_name))),
-        app.path()
-            .resource_dir()
-            .ok()
-            .map(|dir| dir.join(exe_name)),
+        app.path().resource_dir().ok().map(|dir| dir.join(exe_name)),
     ];
 
     for candidate in candidates.into_iter().flatten() {

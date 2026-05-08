@@ -11,6 +11,7 @@ const ALL_GROUPS = '__all__'
 
 type BookmarkData = {
   schemaVersion: number
+  dataVersion?: number
   groups: Array<{ id: string; name: string; createdAt: number }>
   items: Array<{ id: string; title: string; url: string; iconUrl?: string; groupId: string; createdAt: number; updatedAt: number; lastOpenedAt?: number | null }>
 }
@@ -350,6 +351,15 @@ function handleInitialCommand(command: string | null | undefined) {
   if (id === 'add' || id === 'new' || id === 'new-bookmark') {
     openModal('add')
     showToast('已打开新增收藏')
+    return
+  }
+
+  if (id === 'open-settings') {
+    settingsOpen = true
+    modal = null
+    closeCtx()
+    render()
+    showToast('已打开设置')
     return
   }
 
