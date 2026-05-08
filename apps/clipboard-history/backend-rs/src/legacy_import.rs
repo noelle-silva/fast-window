@@ -1,7 +1,11 @@
 use crate::data_contract::{image_data_dirs, image_lookup_dirs, STORAGE_FILES};
-use crate::domain::{ensure_collections, normalize_deleted_map, normalize_history_items, normalize_settings, now_ms};
+use crate::domain::{
+    ensure_collections, normalize_deleted_map, normalize_history_items, normalize_settings, now_ms,
+};
 use crate::image_store::managed_clipboard_image_file_name_from_reference;
-use crate::model::{ClipboardHistoryItem, ClipboardHistorySettings, CollectionsDoc, DeletedHistoryMap};
+use crate::model::{
+    ClipboardHistoryItem, ClipboardHistorySettings, CollectionsDoc, DeletedHistoryMap,
+};
 use crate::store::Store;
 use serde::Serialize;
 use serde_json::Value;
@@ -30,12 +34,19 @@ pub struct ImportedLegacyData {
     pub report: LegacyImportReport,
 }
 
-pub fn import_legacy_data(store: &Store, output_root: &Path, source_dir: &Path, current_limit: usize) -> Result<ImportedLegacyData, String> {
+pub fn import_legacy_data(
+    store: &Store,
+    output_root: &Path,
+    source_dir: &Path,
+    current_limit: usize,
+) -> Result<ImportedLegacyData, String> {
     if !source_dir.is_dir() {
         return Err("请选择包含旧剪贴板历史数据文件的目录".to_string());
     }
 
-    let source_root = source_dir.canonicalize().map_err(|e| format!("读取旧数据目录失败: {e}"))?;
+    let source_root = source_dir
+        .canonicalize()
+        .map_err(|e| format!("读取旧数据目录失败: {e}"))?;
     let legacy = read_legacy_payload(&source_root)?;
     if legacy.values.is_empty() {
         return Err("未在所选目录中找到可导入的剪贴板历史数据".to_string());
@@ -107,10 +118,17 @@ fn read_legacy_payload(source_root: &Path) -> Result<LegacyPayload, String> {
 
     imported_files.sort();
     imported_files.dedup();
-    Ok(LegacyPayload { values, imported_files })
+    Ok(LegacyPayload {
+        values,
+        imported_files,
+    })
 }
 
-fn read_legacy_pack(source_root: &Path, values: &mut BTreeMap<String, Value>, imported_files: &mut Vec<String>) -> Result<(), String> {
+fn read_legacy_pack(
+    source_root: &Path,
+    values: &mut BTreeMap<String, Value>,
+    imported_files: &mut Vec<String>,
+) -> Result<(), String> {
     for file_name in ["clipboard-history.json", "clipboard-history.runtime.json"] {
         let path = source_root.join(file_name);
         if !path.is_file() {
@@ -130,7 +148,8 @@ fn read_legacy_pack(source_root: &Path, values: &mut BTreeMap<String, Value>, im
 }
 
 fn read_json(path: &Path) -> Result<Value, String> {
-    let text = fs::read_to_string(path).map_err(|e| format!("读取 {} 失败: {e}", path.display()))?;
+    let text =
+        fs::read_to_string(path).map_err(|e| format!("读取 {} 失败: {e}", path.display()))?;
     serde_json::from_str(text.trim()).map_err(|e| format!("解析 {} 失败: {e}", path.display()))
 }
 
@@ -159,7 +178,9 @@ fn backup_current_data(root: &Path) -> Result<Option<PathBuf>, String> {
         return Ok(None);
     }
 
-    let has_data = STORAGE_FILES.iter().any(|(_, file)| root.join(file).is_file())
+    let has_data = STORAGE_FILES
+        .iter()
+        .any(|(_, file)| root.join(file).is_file())
         || image_data_dirs(root).iter().any(|dir| dir.is_dir());
     if !has_data {
         return Ok(None);
@@ -170,12 +191,15 @@ fn backup_current_data(root: &Path) -> Result<Option<PathBuf>, String> {
     for (_, file_name) in STORAGE_FILES {
         let from = root.join(file_name);
         if from.is_file() {
-            fs::copy(&from, backup_dir.join(file_name)).map_err(|e| format!("备份 {file_name} 失败: {e}"))?;
+            fs::copy(&from, backup_dir.join(file_name))
+                .map_err(|e| format!("备份 {file_name} 失败: {e}"))?;
         }
     }
     for images_dir in image_data_dirs(root) {
         if images_dir.is_dir() {
-            let Some(name) = images_dir.file_name() else { continue };
+            let Some(name) = images_dir.file_name() else {
+                continue;
+            };
             copy_dir(&images_dir, &backup_dir.join(name))?;
         }
     }
@@ -212,7 +236,8 @@ fn rewrite_history_images(
 
             let requested = item.path.as_deref().unwrap_or(&item.content);
             let Some(file_name) = managed_clipboard_image_file_name_from_reference(requested)
-                .or_else(|| managed_clipboard_image_file_name_from_reference(&item.content)) else {
+                .or_else(|| managed_clipboard_image_file_name_from_reference(&item.content))
+            else {
                 return item;
             };
             let Some(source_file) = find_source_image(source_root, requested, &file_name) else {
@@ -256,7 +281,9 @@ fn find_source_image(source_root: &Path, requested: &str, file_name: &str) -> Op
 }
 
 fn hash_from_file_name(file_name: &str) -> Option<&str> {
-    let hash = file_name.strip_prefix("clipboard-image-")?.strip_suffix(".png")?;
+    let hash = file_name
+        .strip_prefix("clipboard-image-")?
+        .strip_suffix(".png")?;
     is_8_hex(hash).then_some(hash)
 }
 

@@ -12,7 +12,7 @@ pub(crate) fn install_standalone_tray(
     app: &tauri::App,
     args: &FwArgs,
     window_state: Arc<FwWindowState>,
-    on_quit: Arc<dyn Fn() + Send + Sync>,
+    on_quit: Arc<dyn Fn(tauri::AppHandle) + Send + Sync>,
 ) -> tauri::Result<()> {
     if args.launched {
         return Ok(());
@@ -25,7 +25,11 @@ pub(crate) fn install_standalone_tray(
     let state_for_click = window_state;
 
     let _tray = TrayIconBuilder::new()
-        .icon(app.default_window_icon().expect("default window icon missing").clone())
+        .icon(
+            app.default_window_icon()
+                .expect("default window icon missing")
+                .clone(),
+        )
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id.as_ref() {
@@ -35,8 +39,7 @@ pub(crate) fn install_standalone_tray(
                 }
             }
             "quit" => {
-                on_quit();
-                app.exit(0);
+                on_quit(app.clone());
             }
             _ => {}
         })

@@ -283,6 +283,11 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
   const handleRuntimeCommand = React.useCallback((raw: unknown) => {
     const command = String(raw || '').trim()
     if (!command) return
+    if (command === 'open-settings') {
+      setState(prev => ({ ...prev, showSettings: true, showRecentMenu: false }))
+      return
+    }
+
     if (!gatewayRef.current) {
       pendingLaunchCommandRef.current = command
       return
@@ -308,7 +313,6 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
       void host.toast('请确认是否清空历史')
       return
     }
-
     void host.toast(`未知命令：${command}`)
   }, [host])
 

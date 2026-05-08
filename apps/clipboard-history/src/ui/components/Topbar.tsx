@@ -105,7 +105,7 @@ export function Topbar(props: TopbarProps) {
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.75, minWidth: 0 }}>
         {!isClipboard ? <FoldersTopbarActions controller={controller} /> : null}
 
-        <IconButton size="small" aria-label="设置" title="设置" onClick={controller.toggleSettings} disabled={!controller.isReady}>
+        <IconButton size="small" aria-label="设置" title="设置" onClick={controller.toggleSettings}>
           <SettingsOutlinedIcon fontSize="small" />
         </IconButton>
 

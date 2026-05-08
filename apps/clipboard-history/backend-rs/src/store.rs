@@ -1,6 +1,10 @@
-use crate::domain::{ensure_collections, normalize_deleted_map, normalize_history_items, normalize_settings};
+use crate::domain::{
+    ensure_collections, normalize_deleted_map, normalize_history_items, normalize_settings,
+};
 use crate::migrations;
-use crate::model::{ClipboardHistoryItem, ClipboardHistorySettings, CollectionsDoc, DeletedHistoryMap};
+use crate::model::{
+    ClipboardHistoryItem, ClipboardHistorySettings, CollectionsDoc, DeletedHistoryMap,
+};
 use serde::Serialize;
 use serde_json::Value;
 use std::fs;
@@ -57,7 +61,10 @@ impl Store {
 
     pub fn load_recent_folders(&self) -> Vec<String> {
         match self.read_value("recentFolders") {
-            Some(Value::Array(list)) => list.into_iter().filter_map(|v| v.as_str().map(ToOwned::to_owned)).collect(),
+            Some(Value::Array(list)) => list
+                .into_iter()
+                .filter_map(|v| v.as_str().map(ToOwned::to_owned))
+                .collect(),
             _ => Vec::new(),
         }
     }
@@ -95,7 +102,8 @@ fn atomic_write_json<T: Serialize + ?Sized>(path: &Path, value: &T) -> Result<()
         fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
     }
     let temp = path.with_extension(format!("json.{}.tmp", std::process::id()));
-    let text = serde_json::to_string_pretty(value).map_err(|e| format!("序列化 JSON 失败: {e}"))? + "\n";
+    let text =
+        serde_json::to_string_pretty(value).map_err(|e| format!("序列化 JSON 失败: {e}"))? + "\n";
     fs::write(&temp, text).map_err(|e| format!("写入临时文件失败: {e}"))?;
     fs::rename(&temp, path).map_err(|e| format!("替换数据文件失败: {e}"))
 }

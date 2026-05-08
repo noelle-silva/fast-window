@@ -11,12 +11,16 @@ pub struct ClipboardImageSnapshot {
 
 pub fn read_text_clipboard() -> Result<String, String> {
     let mut clipboard = arboard::Clipboard::new().map_err(|e| format!("打开剪贴板失败: {e}"))?;
-    clipboard.get_text().map_err(|e| format!("读取剪贴板失败: {e}"))
+    clipboard
+        .get_text()
+        .map_err(|e| format!("读取剪贴板失败: {e}"))
 }
 
 pub fn write_text_clipboard(text: &str) -> Result<(), String> {
     let mut clipboard = arboard::Clipboard::new().map_err(|e| format!("打开剪贴板失败: {e}"))?;
-    clipboard.set_text(text.to_string()).map_err(|e| format!("写入剪贴板失败: {e}"))
+    clipboard
+        .set_text(text.to_string())
+        .map_err(|e| format!("写入剪贴板失败: {e}"))
 }
 
 pub fn read_image_clipboard() -> Result<Option<ClipboardImageSnapshot>, String> {
@@ -27,7 +31,10 @@ pub fn read_image_clipboard() -> Result<Option<ClipboardImageSnapshot>, String> 
     };
     let rgba = image.bytes.as_ref();
     let png = encode_rgba_to_png_bytes(rgba, image.width as u32, image.height as u32)?;
-    Ok(Some(ClipboardImageSnapshot { hash: hash32_sampled_bytes(rgba), png }))
+    Ok(Some(ClipboardImageSnapshot {
+        hash: hash32_sampled_bytes(rgba),
+        png,
+    }))
 }
 
 pub fn write_image_clipboard_from_data_url(data_url: &str) -> Result<(), String> {
@@ -45,7 +52,9 @@ pub fn write_image_clipboard_from_bytes(bytes: &[u8]) -> Result<(), String> {
         bytes: Cow::Owned(rgba.into_raw()),
     };
     let mut clipboard = arboard::Clipboard::new().map_err(|e| format!("打开剪贴板失败: {e}"))?;
-    clipboard.set_image(image).map_err(|e| format!("写入图片剪贴板失败: {e}"))
+    clipboard
+        .set_image(image)
+        .map_err(|e| format!("写入图片剪贴板失败: {e}"))
 }
 
 fn decode_image_data_url(data_url: &str) -> Result<Vec<u8>, String> {

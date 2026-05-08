@@ -1,6 +1,6 @@
 use crate::model::{
-    ClipboardHistoryItem, ClipboardHistorySettings, CollectionNode, CollectionsDoc, DeletedHistoryMap,
-    InternalCopyMarker,
+    ClipboardHistoryItem, ClipboardHistorySettings, CollectionNode, CollectionsDoc,
+    DeletedHistoryMap, InternalCopyMarker,
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -48,7 +48,9 @@ pub fn default_settings() -> ClipboardHistorySettings {
 
 pub fn normalize_settings(raw: Option<Value>) -> ClipboardHistorySettings {
     let mut out = default_settings();
-    let Some(Value::Object(map)) = raw else { return out };
+    let Some(Value::Object(map)) = raw else {
+        return out;
+    };
     if let Some(v) = map.get("autoMonitor") {
         out.auto_monitor = !matches!(v, Value::Bool(false));
     }
@@ -80,11 +82,20 @@ pub fn normalize_history_item(raw: &Value, fallback_now: u64) -> Option<Clipboar
     } else {
         "text"
     };
-    let content = obj.get("content").and_then(Value::as_str).unwrap_or("").trim().to_string();
+    let content = obj
+        .get("content")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
     if content.is_empty() {
         return None;
     }
-    let time = obj.get("time").and_then(Value::as_u64).filter(|v| *v > 0).unwrap_or(fallback_now);
+    let time = obj
+        .get("time")
+        .and_then(Value::as_u64)
+        .filter(|v| *v > 0)
+        .unwrap_or(fallback_now);
     let path = obj
         .get("path")
         .and_then(Value::as_str)
@@ -104,9 +115,13 @@ pub fn normalize_history_items(raw: Option<Value>, limit: usize) -> Vec<Clipboar
     let now = now_ms();
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    let Some(Value::Array(list)) = raw else { return out };
+    let Some(Value::Array(list)) = raw else {
+        return out;
+    };
     for item in list {
-        let Some(normalized) = normalize_history_item(&item, now) else { continue };
+        let Some(normalized) = normalize_history_item(&item, now) else {
+            continue;
+        };
         let key = history_uniq_key(&normalized);
         if seen.insert(key) {
             out.push(normalized);
@@ -129,7 +144,10 @@ pub fn merge_history_items(
             continue;
         }
         let key = history_uniq_key(&item);
-        let replace = map.get(&key).map(|prev| item.time > prev.time).unwrap_or(true);
+        let replace = map
+            .get(&key)
+            .map(|prev| item.time > prev.time)
+            .unwrap_or(true);
         if replace {
             map.insert(key, item);
         }
@@ -144,7 +162,9 @@ pub fn normalize_deleted_map(raw: Option<Value>) -> DeletedHistoryMap {
     let now = now_ms();
     let cutoff = now.saturating_sub(30 * 24 * 60 * 60 * 1000);
     let mut out = BTreeMap::new();
-    let Some(Value::Object(map)) = raw else { return out };
+    let Some(Value::Object(map)) = raw else {
+        return out;
+    };
     for (k, v) in map {
         let Some(ts) = v.as_u64() else { continue };
         if ts > 0 && ts >= cutoff {
@@ -179,10 +199,18 @@ pub fn ensure_collections(raw: Option<Value>) -> CollectionsDoc {
             updated_at: now,
         },
     );
-    let empty = CollectionsDoc { version: 1, root_id: root_id.clone(), nodes };
+    let empty = CollectionsDoc {
+        version: 1,
+        root_id: root_id.clone(),
+        nodes,
+    };
     let Some(value) = raw else { return empty };
-    let Ok(doc) = serde_json::from_value::<CollectionsDoc>(value) else { return empty };
-    let Some(CollectionNode::Folder { children, .. }) = doc.nodes.get(&doc.root_id) else { return empty };
+    let Ok(doc) = serde_json::from_value::<CollectionsDoc>(value) else {
+        return empty;
+    };
+    let Some(CollectionNode::Folder { children, .. }) = doc.nodes.get(&doc.root_id) else {
+        return empty;
+    };
     if children.iter().any(|id| !doc.nodes.contains_key(id)) {
         return empty;
     }
@@ -229,14 +257,24 @@ pub fn can_move_into(doc: &CollectionsDoc, target_folder_id: &str, moving_id: &s
 }
 
 fn remove_child(doc: &mut CollectionsDoc, parent_id: &str, child_id: &str) {
-    if let Some(CollectionNode::Folder { children, updated_at, .. }) = get_node_mut(doc, parent_id) {
+    if let Some(CollectionNode::Folder {
+        children,
+        updated_at,
+        ..
+    }) = get_node_mut(doc, parent_id)
+    {
         children.retain(|id| id != child_id);
         *updated_at = now_ms();
     }
 }
 
 fn insert_child(doc: &mut CollectionsDoc, parent_id: &str, child_id: &str, index: Option<usize>) {
-    if let Some(CollectionNode::Folder { children, updated_at, .. }) = get_node_mut(doc, parent_id) {
+    if let Some(CollectionNode::Folder {
+        children,
+        updated_at,
+        ..
+    }) = get_node_mut(doc, parent_id)
+    {
         children.retain(|id| id != child_id);
         let at = index.unwrap_or(children.len()).min(children.len());
         children.insert(at, child_id.to_string());
@@ -259,7 +297,12 @@ pub fn create_folder(doc: &mut CollectionsDoc, parent_id: &str, name: &str) {
         id.clone(),
         CollectionNode::Folder {
             id: id.clone(),
-            name: if safe_name.is_empty() { "未命名收藏夹" } else { safe_name }.to_string(),
+            name: if safe_name.is_empty() {
+                "未命名收藏夹"
+            } else {
+                safe_name
+            }
+            .to_string(),
             children: Vec::new(),
             created_at: now,
             updated_at: now,
@@ -279,12 +322,22 @@ pub fn create_item(doc: &mut CollectionsDoc, parent_id: &str, title: &str, conte
     let now = now_ms();
     let id = make_id();
     let safe_title = title.trim();
-    let default_title = safe_content.lines().next().unwrap_or("未命名条目").chars().take(24).collect::<String>();
+    let default_title = safe_content
+        .lines()
+        .next()
+        .unwrap_or("未命名条目")
+        .chars()
+        .take(24)
+        .collect::<String>();
     doc.nodes.insert(
         id.clone(),
         CollectionNode::Item {
             id: id.clone(),
-            title: if safe_title.is_empty() { default_title } else { safe_title.to_string() },
+            title: if safe_title.is_empty() {
+                default_title
+            } else {
+                safe_title.to_string()
+            },
             content: safe_content.to_string(),
             created_at: now,
             updated_at: now,
@@ -294,9 +347,19 @@ pub fn create_item(doc: &mut CollectionsDoc, parent_id: &str, title: &str, conte
 }
 
 pub fn update_folder_name(doc: &mut CollectionsDoc, folder_id: &str, name: &str) {
-    if let Some(CollectionNode::Folder { name: folder_name, updated_at, .. }) = get_node_mut(doc, folder_id) {
+    if let Some(CollectionNode::Folder {
+        name: folder_name,
+        updated_at,
+        ..
+    }) = get_node_mut(doc, folder_id)
+    {
         let safe = name.trim();
-        *folder_name = if safe.is_empty() { "未命名收藏夹" } else { safe }.to_string();
+        *folder_name = if safe.is_empty() {
+            "未命名收藏夹"
+        } else {
+            safe
+        }
+        .to_string();
         *updated_at = now_ms();
     }
 }
@@ -306,20 +369,43 @@ pub fn update_item(doc: &mut CollectionsDoc, item_id: &str, title: &str, content
     if safe_content.is_empty() {
         return;
     }
-    if let Some(CollectionNode::Item { title: item_title, content: item_content, updated_at, .. }) = get_node_mut(doc, item_id) {
+    if let Some(CollectionNode::Item {
+        title: item_title,
+        content: item_content,
+        updated_at,
+        ..
+    }) = get_node_mut(doc, item_id)
+    {
         let safe_title = title.trim();
-        let default_title = safe_content.lines().next().unwrap_or("未命名条目").chars().take(24).collect::<String>();
-        *item_title = if safe_title.is_empty() { default_title } else { safe_title.to_string() };
+        let default_title = safe_content
+            .lines()
+            .next()
+            .unwrap_or("未命名条目")
+            .chars()
+            .take(24)
+            .collect::<String>();
+        *item_title = if safe_title.is_empty() {
+            default_title
+        } else {
+            safe_title.to_string()
+        };
         *item_content = safe_content.to_string();
         *updated_at = now_ms();
     }
 }
 
-pub fn move_node(doc: &mut CollectionsDoc, moving_id: &str, to_parent_id: &str, to_index: Option<usize>) {
+pub fn move_node(
+    doc: &mut CollectionsDoc,
+    moving_id: &str,
+    to_parent_id: &str,
+    to_index: Option<usize>,
+) {
     if !can_move_into(doc, to_parent_id, moving_id) {
         return;
     }
-    let Some(from_parent_id) = find_parent_id(doc, moving_id) else { return };
+    let Some(from_parent_id) = find_parent_id(doc, moving_id) else {
+        return;
+    };
     remove_child(doc, &from_parent_id, moving_id);
     insert_child(doc, to_parent_id, moving_id, to_index);
 }
@@ -346,16 +432,24 @@ pub fn delete_node(doc: &mut CollectionsDoc, node_id: &str) {
 }
 
 pub fn copy_item(doc: &mut CollectionsDoc, item_id: &str, to_parent_id: &str) {
-    let Some(CollectionNode::Item { title, content, .. }) = doc.nodes.get(item_id).cloned() else { return };
+    let Some(CollectionNode::Item { title, content, .. }) = doc.nodes.get(item_id).cloned() else {
+        return;
+    };
     create_item(doc, to_parent_id, &title, &content);
 }
 
 pub fn empty_internal_copy() -> InternalCopyMarker {
-    InternalCopyMarker { item_type: String::new(), at: 0 }
+    InternalCopyMarker {
+        item_type: String::new(),
+        at: 0,
+    }
 }
 
 pub fn internal_copy(item_type: &str) -> InternalCopyMarker {
-    InternalCopyMarker { item_type: item_type.to_string(), at: now_ms() }
+    InternalCopyMarker {
+        item_type: item_type.to_string(),
+        at: now_ms(),
+    }
 }
 
 pub fn within_internal_window(marker: &InternalCopyMarker, poll_interval: u64) -> bool {

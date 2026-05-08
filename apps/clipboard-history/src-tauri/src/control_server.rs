@@ -61,6 +61,10 @@ pub(crate) fn available_commands() -> Vec<AppCommandDescriptor> {
             id: "clear-history",
             title: "清空剪贴板历史",
         },
+        AppCommandDescriptor {
+            id: "open-settings",
+            title: "打开剪贴板历史设置",
+        },
     ]
 }
 
@@ -85,8 +89,8 @@ pub(crate) fn start_control_server(
     window_state: std::sync::Arc<FwWindowState>,
     config: ControlServerConfig,
 ) -> Result<ControlEndpoint, String> {
-    let listener = TcpListener::bind(config.bind_addr)
-        .map_err(|e| format!("启动{}失败: {e}", config.name))?;
+    let listener =
+        TcpListener::bind(config.bind_addr).map_err(|e| format!("启动{}失败: {e}", config.name))?;
     let port = listener
         .local_addr()
         .map_err(|e| format!("读取{}端口失败: {e}", config.name))?
@@ -129,7 +133,10 @@ pub(crate) fn start_control_server(
                         server_id,
                     ),
                     Err(error) => {
-                        eprintln!("[clipboard-history-app] {} connection failed: {error}", server_name);
+                        eprintln!(
+                            "[clipboard-history-app] {} connection failed: {error}",
+                            server_name
+                        );
                         break;
                     }
                 }
@@ -194,21 +201,37 @@ fn handle_control_connection(
     let request = match read_control_request(&mut stream) {
         Ok(request) => request,
         Err(error) => {
-            write_control_response(&mut stream, 400, serde_json::json!({ "ok": false, "error": error }));
+            write_control_response(
+                &mut stream,
+                400,
+                serde_json::json!({ "ok": false, "error": error }),
+            );
             return;
         }
     };
 
     if request.path != "/control" {
-        write_control_response(&mut stream, 404, serde_json::json!({ "ok": false, "error": "控制入口不存在" }));
+        write_control_response(
+            &mut stream,
+            404,
+            serde_json::json!({ "ok": false, "error": "控制入口不存在" }),
+        );
         return;
     }
     if request.method != "POST" {
-        write_control_response(&mut stream, 405, serde_json::json!({ "ok": false, "error": "控制入口只接受 POST" }));
+        write_control_response(
+            &mut stream,
+            405,
+            serde_json::json!({ "ok": false, "error": "控制入口只接受 POST" }),
+        );
         return;
     }
     if request.token != expected_token {
-        write_control_response(&mut stream, 401, serde_json::json!({ "ok": false, "error": "控制令牌无效" }));
+        write_control_response(
+            &mut stream,
+            401,
+            serde_json::json!({ "ok": false, "error": "控制令牌无效" }),
+        );
         return;
     }
 
@@ -232,7 +255,11 @@ fn handle_control_connection(
                 "availableCommands": available_commands()
             }),
         ),
-        Err(error) => write_control_response(&mut stream, 400, serde_json::json!({ "ok": false, "error": error })),
+        Err(error) => write_control_response(
+            &mut stream,
+            400,
+            serde_json::json!({ "ok": false, "error": error }),
+        ),
     }
 }
 
@@ -309,7 +336,12 @@ fn read_control_request(stream: &mut TcpStream) -> Result<ControlRequest, String
     }
     body.truncate(content_length);
 
-    Ok(ControlRequest { method, path, token, body })
+    Ok(ControlRequest {
+        method,
+        path,
+        token,
+        body,
+    })
 }
 
 fn write_control_response(stream: &mut TcpStream, status: u16, body: serde_json::Value) {
@@ -353,7 +385,8 @@ mod tests {
 
     #[test]
     fn rejects_mismatched_control_response_identity() {
-        let body = r#"{"ok":true,"appId":"other","serverId":"single-instance","protocolVersion":1}"#;
+        let body =
+            r#"{"ok":true,"appId":"other","serverId":"single-instance","protocolVersion":1}"#;
         assert!(!control_response_matches(
             body,
             "clipboard-history",

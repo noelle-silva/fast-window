@@ -1,4 +1,6 @@
-use crate::data_contract::{DATA_VERSION, META_FILE_NAME, MIGRATIONS_FILE_NAME, STORAGE_SCHEMA_VERSION};
+use crate::data_contract::{
+    DATA_VERSION, META_FILE_NAME, MIGRATIONS_FILE_NAME, STORAGE_SCHEMA_VERSION,
+};
 use crate::domain::now_ms;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -57,7 +59,10 @@ pub fn ensure_ready(root: &Path) -> Result<(), String> {
 pub fn write_meta(root: &Path) -> Result<(), String> {
     let path = root.join(META_FILE_NAME);
     let mut raw = read_meta_object(&path).unwrap_or_default();
-    raw.insert("schemaVersion".to_string(), Value::from(STORAGE_SCHEMA_VERSION));
+    raw.insert(
+        "schemaVersion".to_string(),
+        Value::from(STORAGE_SCHEMA_VERSION),
+    );
     raw.insert("dataVersion".to_string(), Value::from(DATA_VERSION));
     raw.insert("updatedAt".to_string(), Value::from(now_ms()));
     atomic_write_json(&path, &Value::Object(raw))
@@ -70,7 +75,10 @@ fn apply_pending_migrations(
 ) -> Result<Vec<MigrationRecord>, String> {
     let mut current_version = from_data_version;
     while current_version < DATA_VERSION {
-        let Some(step) = MIGRATION_STEPS.iter().find(|step| step.from_version == current_version) else {
+        let Some(step) = MIGRATION_STEPS
+            .iter()
+            .find(|step| step.from_version == current_version)
+        else {
             return Err(format!(
                 "缺少数据迁移步骤：当前数据版本 {current_version}，目标版本 {DATA_VERSION}"
             ));
@@ -96,10 +104,20 @@ fn read_meta(root: &Path) -> Result<StoreMeta, String> {
     let Some(raw) = read_meta_object(&path) else {
         return Ok(current_meta());
     };
-    let schema_version = raw.get("schemaVersion").and_then(Value::as_u64).unwrap_or(STORAGE_SCHEMA_VERSION);
-    let data_version = raw.get("dataVersion").and_then(Value::as_u64).unwrap_or(DATA_VERSION);
+    let schema_version = raw
+        .get("schemaVersion")
+        .and_then(Value::as_u64)
+        .unwrap_or(STORAGE_SCHEMA_VERSION);
+    let data_version = raw
+        .get("dataVersion")
+        .and_then(Value::as_u64)
+        .unwrap_or(DATA_VERSION);
     let updated_at = raw.get("updatedAt").and_then(Value::as_u64).unwrap_or(0);
-    Ok(StoreMeta { schema_version, data_version, updated_at })
+    Ok(StoreMeta {
+        schema_version,
+        data_version,
+        updated_at,
+    })
 }
 
 fn current_meta() -> StoreMeta {
@@ -127,7 +145,8 @@ fn read_migration_records(root: &Path) -> Result<Vec<MigrationRecord>, String> {
     if trimmed.is_empty() {
         return Ok(Vec::new());
     }
-    serde_json::from_str::<Vec<MigrationRecord>>(trimmed).map_err(|e| format!("解析迁移日志失败: {e}"))
+    serde_json::from_str::<Vec<MigrationRecord>>(trimmed)
+        .map_err(|e| format!("解析迁移日志失败: {e}"))
 }
 
 fn write_migration_records(root: &Path, records: &[MigrationRecord]) -> Result<(), String> {
@@ -139,7 +158,8 @@ fn atomic_write_json<T: Serialize + ?Sized>(path: &Path, value: &T) -> Result<()
         fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
     }
     let temp = path.with_extension(format!("json.{}.tmp", std::process::id()));
-    let text = serde_json::to_string_pretty(value).map_err(|e| format!("序列化 JSON 失败: {e}"))? + "\n";
+    let text =
+        serde_json::to_string_pretty(value).map_err(|e| format!("序列化 JSON 失败: {e}"))? + "\n";
     fs::write(&temp, text).map_err(|e| format!("写入临时文件失败: {e}"))?;
     fs::rename(&temp, path).map_err(|e| format!("替换数据文件失败: {e}"))
 }

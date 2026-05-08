@@ -46,6 +46,7 @@ pub(crate) struct FwWindowState {
     initial_command: Mutex<Option<String>>,
     launch_info: Mutex<Option<FwLaunchInfo>>,
     bounds_report_seq: AtomicU64,
+    requested_shutdown: Mutex<bool>,
 }
 
 #[derive(Clone, Copy)]
@@ -159,7 +160,11 @@ pub(crate) fn apply_fw_args(window: &WebviewWindow, args: &FwArgs, state: &FwWin
         *launch_info = Some(FwLaunchInfo {
             launched: args.launched,
             standalone: !args.launched,
-            mode: if args.launched { args.mode.clone() } else { "standalone".to_string() },
+            mode: if args.launched {
+                args.mode.clone()
+            } else {
+                "standalone".to_string()
+            },
         });
     }
 
@@ -167,9 +172,7 @@ pub(crate) fn apply_fw_args(window: &WebviewWindow, args: &FwArgs, state: &FwWin
         "hide" => {
             hide_without_animation(window, state);
         }
-        "close" => {
-            let _ = close_window(window, state);
-        }
+        "close" => request_shutdown(window, state),
         _ => {
             stage_initial_show(window, state);
         }
@@ -255,7 +258,10 @@ pub(crate) fn apply_control_action(
                 Ok(())
             }
         }
-        "close" => close_window(&window, state).map_err(|e| format!("关闭窗口失败: {e}")),
+        "close" => {
+            request_shutdown(&window, state);
+            Ok(())
+        }
         _ => Err(format!("未知窗口指令: {action}")),
     }
 }
@@ -291,7 +297,10 @@ pub(crate) fn app_ready(
 
     match action.as_str() {
         "hide" => Ok(()),
-        "close" => close_window(&window, &state).map_err(|e| format!("关闭窗口失败: {e}")),
+        "close" => {
+            request_shutdown(&window, &state);
+            Ok(())
+        }
         _ => {
             show_and_focus(&window, &state);
             Ok(())
@@ -303,11 +312,17 @@ pub(crate) fn app_ready(
 pub(crate) fn fw_initial_command(
     state: tauri::State<'_, Arc<FwWindowState>>,
 ) -> Result<Option<String>, String> {
-    Ok(state.initial_command.lock().ok().and_then(|value| value.clone()))
+    Ok(state
+        .initial_command
+        .lock()
+        .ok()
+        .and_then(|value| value.clone()))
 }
 
 #[tauri::command]
-pub(crate) fn fw_launch_info(state: tauri::State<'_, Arc<FwWindowState>>) -> Result<FwLaunchInfo, String> {
+pub(crate) fn fw_launch_info(
+    state: tauri::State<'_, Arc<FwWindowState>>,
+) -> Result<FwLaunchInfo, String> {
     state
         .launch_info
         .lock()
@@ -390,10 +405,30 @@ pub(crate) fn show_and_focus(window: &WebviewWindow, state: &FwWindowState) {
     let _ = window.set_focus();
 }
 
-pub(crate) fn close_window(window: &WebviewWindow, state: &FwWindowState) -> tauri::Result<()> {
+pub(crate) fn request_shutdown(window: &WebviewWindow, state: &FwWindowState) {
     remember_window_bounds_from_window(window, state);
     report_remembered_window_bounds(state);
-    window.close()
+    if let Ok(mut requested) = state.requested_shutdown.lock() {
+        *requested = true;
+    }
+    let _ = window.close();
+}
+
+pub(crate) fn take_shutdown_requested(state: &FwWindowState) -> bool {
+    state
+        .requested_shutdown
+        .lock()
+        .map(|mut requested| {
+            let value = *requested;
+            *requested = false;
+            value
+        })
+        .unwrap_or(false)
+}
+
+pub(crate) fn report_current_window_bounds(window: &WebviewWindow, state: &FwWindowState) {
+    remember_window_bounds_from_window(window, state);
+    report_remembered_window_bounds(state);
 }
 
 fn schedule_window_bounds_report(window: WebviewWindow, state: Arc<FwWindowState>) {
