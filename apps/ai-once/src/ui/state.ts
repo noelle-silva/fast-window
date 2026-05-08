@@ -2,7 +2,7 @@ import type { AppData, DataDirStatus, DraftImage, FwLaunchInfo, HistoryEntry } f
 import { DEFAULT_LAUNCH_INFO } from '../shared/aiOnceDomain'
 
 export type AiOnceView = 'spaces' | 'workbench'
-export type AiOnceDialog = '' | 'settings' | 'templates' | 'space'
+export type AiOnceDialog = '' | 'settings' | 'templates' | 'space' | 'app-settings'
 export type AiOncePhase = 'starting' | 'ready' | 'failed'
 
 export type AiOnceUiState = {

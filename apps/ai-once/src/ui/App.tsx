@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { Alert, Box, CssBaseline, GlobalStyles, ThemeProvider } from '@mui/material'
+import { AppSettingsDialog } from './components/AppSettingsDialog'
 import { SpaceDialogs } from './components/SpaceDialogs'
 import { SettingsDialog } from './components/SettingsDialog'
 import { TemplatesDialog } from './components/TemplatesDialog'
@@ -51,6 +52,7 @@ export function AiOnceApp() {
             {controller.state.error}
           </Alert>
         ) : null}
+        <AppSettingsDialog controller={controller} />
         <SettingsDialog controller={controller} />
         <TemplatesDialog controller={controller} />
         <SpaceDialogs controller={controller} />

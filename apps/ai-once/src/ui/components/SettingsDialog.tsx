@@ -81,7 +81,7 @@ export function SettingsDialog(props: SettingsDialogProps) {
             </Box>
 
             <Alert severity="info" sx={{ py: 0.5 }}>
-              模型列表由当前供应商的兼容接口返回；修改 Base URL 后会清空旧模型缓存。
+              模型列表由当前供应商的兼容接口返回；修改 Base URL 后请先保存，再刷新模型重新拉取。
             </Alert>
 
             <Divider />

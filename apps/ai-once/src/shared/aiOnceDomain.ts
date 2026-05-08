@@ -93,5 +93,5 @@ export async function fileToDraftImage(file: File): Promise<DraftImage> {
 }
 
 export function isInteractiveTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && Boolean(target.closest('button,input,select,textarea,a,[role="button"],[data-window-controls="true"],[data-window-drag-ignore="true"]'))
+  return target instanceof Element && Boolean(target.closest('button,input,select,textarea,a,[role="button"],[data-window-controls="true"],[data-window-drag-ignore="true"]'))
 }
