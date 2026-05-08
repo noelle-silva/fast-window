@@ -1,0 +1,212 @@
+:root {
+  color: #172033;
+  background: #f8fafc;
+  font-family: Inter, "Microsoft YaHei", system-ui, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(250, 204, 21, 0.2), transparent 28%),
+    radial-gradient(circle at 92% 10%, rgba(14, 165, 233, 0.24), transparent 30%),
+    linear-gradient(135deg, #fff7ed 0%, #f8fafc 44%, #e0f2fe 100%);
+}
+
+button,
+input,
+select { font: inherit; }
+
+button {
+  border: 0;
+  border-radius: 999px;
+  padding: 9px 14px;
+  color: white;
+  background: #2563eb;
+  cursor: pointer;
+  box-shadow: 0 9px 18px rgba(37, 99, 235, 0.18);
+}
+
+button:disabled { cursor: not-allowed; opacity: 0.55; }
+button.ghost { color: #334155; background: rgba(255, 255, 255, 0.82); border: 1px solid rgba(148, 163, 184, 0.45); box-shadow: none; }
+button.danger { background: #dc2626; box-shadow: none; }
+
+.app-shell {
+  height: 100vh;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.topbar,
+.toolbar,
+.folder-card,
+.notice,
+.error-card,
+.modal {
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 16px 42px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.topbar {
+  min-height: 58px;
+  border-radius: 22px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  user-select: none;
+}
+
+.brand-mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 15px;
+  display: grid;
+  place-items: center;
+  color: white;
+  font-weight: 900;
+  background: linear-gradient(135deg, #f59e0b, #2563eb);
+}
+
+.title-block { flex: 1; min-width: 0; }
+.title-block h1 { margin: 0; font-size: 17px; letter-spacing: -0.03em; }
+.eyebrow { margin: 0 0 2px; color: #64748b; font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+
+.status-badge,
+.mode-pill {
+  border-radius: 999px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+.status-badge.ready { color: #065f46; background: #d1fae5; }
+.status-badge.failed { color: #991b1b; background: #fee2e2; }
+.status-badge.starting { color: #92400e; background: #fef3c7; }
+.mode-pill { color: #1e3a8a; background: #dbeafe; }
+
+.window-controls { display: flex; gap: 6px; }
+.window-controls button { width: 32px; height: 32px; padding: 0; background: #0f172a; box-shadow: none; }
+
+.toolbar {
+  border-radius: 20px;
+  padding: 12px;
+  display: flex;
+  align-items: end;
+  gap: 12px;
+}
+
+.field { display: grid; gap: 7px; }
+.field span,
+.label { color: #64748b; font-size: 12px; font-weight: 800; }
+.field.compact { width: 170px; }
+.search-field { flex: 1; min-width: 0; }
+.field input,
+.field select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  padding: 8px 11px;
+  outline: none;
+  background: white;
+  color: #0f172a;
+}
+
+.path-picker { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+
+.folder-list {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  align-content: start;
+  gap: 12px;
+}
+
+.folder-list.as-list { grid-template-columns: 1fr; }
+.folder-card { border-radius: 22px; padding: 12px; display: grid; gap: 10px; }
+.folder-open {
+  min-width: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 16px;
+  display: grid;
+  justify-items: start;
+  text-align: left;
+  gap: 5px;
+}
+.folder-icon { font-size: 34px; line-height: 1; }
+.folder-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 900; }
+.folder-group { color: #2563eb; font-size: 12px; font-weight: 800; }
+.folder-path { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #64748b; font-size: 12px; }
+.card-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.card-actions button { padding: 7px 10px; }
+.as-list .folder-card { grid-template-columns: 1fr auto; align-items: center; }
+.as-list .folder-open { grid-template-columns: auto 180px 110px 1fr; align-items: center; }
+
+.empty-state,
+.notice,
+.error-card {
+  border-radius: 22px;
+  padding: 20px;
+}
+.empty-state { grid-column: 1 / -1; text-align: center; color: #64748b; }
+.empty-state strong { display: block; color: #0f172a; font-size: 18px; }
+.notice { color: #92400e; background: rgba(254, 243, 199, 0.84); }
+.error-card { color: #991b1b; background: rgba(254, 226, 226, 0.84); }
+.error-card.slim { padding: 11px 14px; }
+.error-text { color: #b91c1c; overflow-wrap: anywhere; }
+
+.actions { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 10px; }
+.actions.end { justify-content: flex-end; }
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  padding: 18px;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 23, 42, 0.38);
+}
+.modal {
+  width: min(560px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
+  overflow: auto;
+  border-radius: 24px;
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+}
+.modal.wide { width: min(760px, calc(100vw - 28px)); }
+.modal header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.modal h2 { margin: 0; font-size: 20px; letter-spacing: -0.03em; }
+.settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.settings-grid p { margin: 4px 0 0; overflow-wrap: anywhere; }
+.path-text { font-size: 12px; color: #475569; }
+
+@media (max-width: 720px) {
+  .app-shell { padding: 10px; }
+  .topbar { flex-wrap: wrap; }
+  .toolbar { align-items: stretch; flex-direction: column; }
+  .field.compact { width: auto; }
+  .mode-pill { display: none; }
+  .folder-list { grid-template-columns: 1fr; }
+  .as-list .folder-card,
+  .as-list .folder-open { grid-template-columns: 1fr; }
+  .settings-grid { grid-template-columns: 1fr; }
+}
