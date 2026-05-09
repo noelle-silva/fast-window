@@ -12,7 +12,6 @@ import {
   DESKTOP_ICON_TITLE_SHADOW,
   getDesktopIconPalette,
 } from './desktopIconTokens'
-import type { FolderGridPixelRect } from './layout'
 
 type Props = {
   assetUrl?(assetId: string): string
@@ -20,8 +19,6 @@ type Props = {
   dragging: boolean
   entry: DesktopGridEntry
   groupCount: number
-  rect: FolderGridPixelRect
-  onBeginDrag(event: React.PointerEvent): void
   onOpen(): void
   onContextMenu(x: number, y: number): void
 }
@@ -36,23 +33,19 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
 
   return (
     <Box
-      onPointerDown={props.onBeginDrag}
       onContextMenu={event => {
         event.preventDefault()
         event.stopPropagation()
         props.onContextMenu(event.clientX, event.clientY)
       }}
       sx={{
-        position: 'absolute',
-        left: props.rect.left,
-        top: props.rect.top,
-        width: props.rect.width,
-        height: props.rect.height,
-        zIndex: props.dragging ? 4 : 1,
+        position: 'relative',
+        width: FOLDER_GRID_ITEM_WIDTH,
+        height: FOLDER_GRID_ITEM_HEIGHT,
         cursor: props.dragging ? 'grabbing' : 'grab',
         touchAction: 'none',
         userSelect: 'none',
-        transition: props.dragging ? 'none' : 'left .16s ease, top .16s ease, transform .16s ease, filter .16s ease',
+        transition: props.dragging ? 'none' : 'transform .16s ease, filter .16s ease',
         transform: props.dragging ? 'scale(1.06)' : 'scale(1)',
         filter: props.dragging ? `drop-shadow(${DESKTOP_ICON_DRAG_SHADOW})` : 'none',
         '&:hover .desktop-grid-icon-menu, &:focus-within .desktop-grid-icon-menu': {

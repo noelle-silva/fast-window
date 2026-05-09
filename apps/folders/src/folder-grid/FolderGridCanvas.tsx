@@ -6,7 +6,7 @@ import type { ContextMenuState, DesktopGridEntry, FoldersDoc, Phase } from '../t
 import { DesktopGridIcon } from './DesktopGridIcon'
 import { desktopEntryKey, parseDesktopEntryKey, type DesktopGridLayoutPatch } from './desktopEntries'
 import { getFolderGridCanvasHeight, getFolderGridPixelRect, type FolderGridLayoutPatch, type FolderGridLayoutSource } from './layout'
-import { useDesktopGridEditor } from './useDesktopGridEditor'
+import { useMuuriDesktopGrid } from './useMuuriDesktopGrid'
 
 type Props = {
   doc: FoldersDoc
@@ -25,39 +25,12 @@ type Props = {
 export type { DesktopGridLayoutPatch }
 
 export function FolderGridCanvas(props: Props): React.ReactNode {
-  const [gridNode, setGridNodeState] = React.useState<HTMLDivElement | null>(null)
-  const [containerWidth, setContainerWidth] = React.useState(0)
   const layoutItems = React.useMemo<FolderGridLayoutSource[]>(() => props.allEntries.map(entry => ({ id: desktopEntryKey(entry.kind, entry.id), layout: entry.layout })), [props.allEntries])
   const visibleEntryByKey = React.useMemo(() => new Map(props.entries.map(entry => [desktopEntryKey(entry.kind, entry.id), entry])), [props.entries])
-  const editor = useDesktopGridEditor({
+  const editor = useMuuriDesktopGrid({
     items: layoutItems,
-    containerWidth,
     onCommit: patches => props.onLayoutCommit(patches.map(toDesktopGridLayoutPatch).filter((patch): patch is DesktopGridLayoutPatch => Boolean(patch))),
   })
-
-  const setGridNode = React.useCallback((node: HTMLDivElement | null) => {
-    editor.gridRef.current = node
-    setGridNodeState(node)
-  }, [editor.gridRef])
-
-  React.useLayoutEffect(() => {
-    if (!gridNode) {
-      setContainerWidth(0)
-      return
-    }
-
-    const updateWidth = () => setContainerWidth(Math.max(0, gridNode.clientWidth))
-    updateWidth()
-
-    if (typeof ResizeObserver === 'undefined') {
-      window.addEventListener('resize', updateWidth)
-      return () => window.removeEventListener('resize', updateWidth)
-    }
-
-    const observer = new ResizeObserver(updateWidth)
-    observer.observe(gridNode)
-    return () => observer.disconnect()
-  }, [gridNode])
 
   if (!props.entries.length) {
     return (
@@ -67,7 +40,7 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
     )
   }
 
-  const canvasHeight = getFolderGridCanvasHeight(editor.layouts.values())
+  const canvasHeight = getFolderGridCanvasHeight(editor.activeLayouts.values())
 
   return (
     <Box
@@ -76,7 +49,7 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
       sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: { xs: 1, sm: 1.5 }, pb: { xs: 1.5, sm: 2 }, pt: 1 }}
     >
       <Box
-        ref={setGridNode}
+        ref={editor.setGridNode}
         sx={{
           position: 'relative',
           minHeight: canvasHeight,
@@ -84,24 +57,42 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
       >
         {props.entries.map(entry => {
           const key = desktopEntryKey(entry.kind, entry.id)
-          const layout = editor.layouts.get(key)
+          const layout = editor.activeLayouts.get(key)
           if (!layout) return null
           const rect = getFolderGridPixelRect(layout)
           return (
-            <DesktopGridIcon
+            <Box
               key={key}
-              assetUrl={props.assetUrl}
-              doc={props.doc}
-              dragging={editor.draggingId === key}
-              entry={entry}
-              groupCount={props.groupCount}
-              rect={rect}
-              onBeginDrag={event => editor.beginDrag(key, event)}
-              onOpen={() => {
-                if (!editor.consumeSuppressedClick(key)) props.onOpen(entry)
+              className={editor.muuriItemClassName}
+              data-entry-key={key}
+              data-layout-x={layout.x}
+              data-layout-y={layout.y}
+              sx={{
+                position: 'absolute',
+                display: 'block',
+                width: rect.width,
+                height: rect.height,
+                minWidth: 0,
+                minHeight: 0,
+                boxSizing: 'border-box',
+                zIndex: editor.draggingId === key ? 3 : 1,
+                '&.muuri-item-releasing': { zIndex: 2 },
+                '&.muuri-item-dragging': { zIndex: 3 },
+                '&.muuri-item-hidden': { zIndex: 0 },
               }}
-              onContextMenu={(x, y) => props.onContextMenu({ entry: visibleEntryByKey.get(key) || entry, x, y })}
-            />
+            >
+              <DesktopGridIcon
+                assetUrl={props.assetUrl}
+                doc={props.doc}
+                dragging={editor.draggingId === key}
+                entry={entry}
+                groupCount={props.groupCount}
+                onOpen={() => {
+                  if (!editor.consumeSuppressedClick(key)) props.onOpen(entry)
+                }}
+                onContextMenu={(x, y) => props.onContextMenu({ entry: visibleEntryByKey.get(key) || entry, x, y })}
+              />
+            </Box>
           )
         })}
       </Box>
