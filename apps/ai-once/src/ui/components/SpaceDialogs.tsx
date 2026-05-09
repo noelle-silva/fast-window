@@ -54,7 +54,7 @@ export function SpaceDialogs(props: SpaceDialogsProps) {
           <Stack spacing={1.5}>
             <Box>
               <Typography variant="h6" sx={{ fontWeight: 900 }}>删除空间？</Typography>
-              <Typography variant="body2" color="text.secondary">将删除「{state.confirmDeleteSpace.name}」及其模板配置。历史记录不会被物理清空，但会保留原空间 ID。</Typography>
+              <Typography variant="body2" color="text.secondary">将删除「{state.confirmDeleteSpace.name}」及其模板配置，并同步清理该空间的历史记录和图片。</Typography>
             </Box>
             <Stack direction="row" spacing={1} justifyContent="flex-end">
               <Button onClick={controller.cancelDeleteSpace}>取消</Button>
@@ -66,22 +66,6 @@ export function SpaceDialogs(props: SpaceDialogsProps) {
         </Box>
       </Dialog>
 
-      <Dialog open={state.confirmClearHistory} onClose={controller.cancelClearHistory} fullWidth maxWidth="xs">
-        <Box sx={{ p: 2 }}>
-          <Stack spacing={1.5}>
-            <Box>
-              <Typography variant="h6" sx={{ fontWeight: 900 }}>清空历史？</Typography>
-              <Typography variant="body2" color="text.secondary">这会清空 AI Once 的历史记录，当前输入和空间配置不会被删除。</Typography>
-            </Box>
-            <Stack direction="row" spacing={1} justifyContent="flex-end">
-              <Button onClick={controller.cancelClearHistory}>取消</Button>
-              <Button color="error" variant="contained" startIcon={<DeleteOutlineRoundedIcon fontSize="small" />} onClick={() => void controller.confirmClearHistory()} disabled={state.busy}>
-                清空
-              </Button>
-            </Stack>
-          </Stack>
-        </Box>
-      </Dialog>
     </>
   )
 }

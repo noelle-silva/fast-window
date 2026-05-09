@@ -16,15 +16,14 @@ export function AiOnceApp() {
   React.useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      if (controller.state.dialog || controller.state.spaceRename.open || controller.state.confirmDeleteSpace.open || controller.state.confirmClearHistory) {
+      if (controller.state.dialog || controller.state.spaceRename.open || controller.state.confirmDeleteSpace.open) {
         controller.closeDialog()
         controller.cancelDeleteSpace()
-        controller.cancelClearHistory()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [controller.closeDialog, controller.cancelDeleteSpace, controller.cancelClearHistory, controller.state.confirmClearHistory, controller.state.confirmDeleteSpace.open, controller.state.dialog, controller.state.spaceRename.open])
+  }, [controller.closeDialog, controller.cancelDeleteSpace, controller.state.confirmDeleteSpace.open, controller.state.dialog, controller.state.spaceRename.open])
 
   return (
     <ThemeProvider theme={aiOnceTheme}>

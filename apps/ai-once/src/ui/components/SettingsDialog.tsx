@@ -2,8 +2,8 @@ import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
-import { Alert, Box, Button, Dialog, Divider, FormControl, InputLabel, MenuItem, Select, Stack, TextField, Typography } from '@mui/material'
-import { activeProvider, createDefaultProvider } from '../../shared/aiOnceDomain'
+import { Alert, Box, Button, Dialog, Divider, FormControl, FormControlLabel, InputLabel, MenuItem, Select, Stack, Switch, TextField, Typography } from '@mui/material'
+import { activeProvider, createDefaultProvider, normalizeHistoryLimit } from '../../shared/aiOnceDomain'
 import type { AiOnceController } from '../hooks/useAiOnceController'
 
 type SettingsDialogProps = {
@@ -22,8 +22,8 @@ export function SettingsDialog(props: SettingsDialogProps) {
         <Box sx={{ p: { xs: 1.5, sm: 2 }, overflow: 'auto' }}>
           <Stack spacing={1.5}>
             <Box>
-              <Typography variant="h6" sx={{ fontWeight: 900 }}>供应商与图片设置</Typography>
-              <Typography variant="body2" color="text.secondary">维护 OpenAI 兼容接口、模型缓存和图片输入限制。</Typography>
+              <Typography variant="h6" sx={{ fontWeight: 900 }}>供应商、图片与历史设置</Typography>
+              <Typography variant="body2" color="text.secondary">维护 OpenAI 兼容接口、模型缓存、图片输入限制和全局历史策略。</Typography>
             </Box>
 
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
@@ -83,6 +83,27 @@ export function SettingsDialog(props: SettingsDialogProps) {
             <Alert severity="info" sx={{ py: 0.5 }}>
               模型列表由当前供应商的兼容接口返回；修改 Base URL 后请先保存，再刷新模型重新拉取。
             </Alert>
+
+            <Divider />
+
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'minmax(0, 1fr) 180px' }, gap: 1.25, alignItems: 'center' }}>
+              <Box>
+                <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>全局历史策略</Typography>
+                <Typography variant="body2" color="text.secondary">空间未单独覆盖时，会使用这里的默认记录规则。</Typography>
+              </Box>
+              <FormControlLabel
+                control={<Switch checked={editing.settings.history.enabled} onChange={event => controller.mutateEditing(draft => { draft.settings.history.enabled = event.target.checked })} />}
+                label="记录历史"
+              />
+              <TextField
+                label="记录上限"
+                type="number"
+                inputProps={{ min: 1 }}
+                value={editing.settings.history.limit}
+                onChange={event => controller.mutateEditing(draft => { draft.settings.history.limit = normalizeHistoryLimit(Number(event.target.value)) })}
+                sx={{ gridColumn: { xs: 'auto', sm: '1 / -1' } }}
+              />
+            </Box>
 
             <Divider />
 

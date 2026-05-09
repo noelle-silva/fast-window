@@ -1,9 +1,11 @@
 import * as React from 'react'
 import AutoFixHighRoundedIcon from '@mui/icons-material/AutoFixHighRounded'
+import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
+import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
-import { Box, Button, Chip, FormControl, InputLabel, MenuItem, Paper, Select, Stack, TextField, Typography } from '@mui/material'
+import { Box, Button, Chip, FormControl, IconButton, InputLabel, MenuItem, Paper, Select, Stack, TextField, Tooltip, Typography } from '@mui/material'
 import { ImageAttachments } from '../components/ImageAttachments'
 import type { AiOnceController } from '../hooks/useAiOnceController'
 
@@ -32,7 +34,7 @@ export function WorkbenchView(props: WorkbenchViewProps) {
           <Box sx={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1fr) minmax(0, 1fr)' }, gap: 1.25 }}>
             <Stack spacing={0.75} sx={{ minHeight: 0, height: '100%' }}>
               <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
-                <Typography variant="caption" color="text.secondary">{controller.state.history.length} 条历史 · {controller.state.dataDirStatus?.writable ? '数据目录可写' : '等待数据目录状态'}</Typography>
+                <Typography variant="caption" color="text.secondary">{controller.state.dataDirStatus?.writable ? '数据目录可写' : '等待数据目录状态'}</Typography>
                 <Button startIcon={<SettingsOutlinedIcon fontSize="small" />} onClick={controller.openTemplates}>
                   空间编辑
                 </Button>
@@ -90,6 +92,23 @@ export function WorkbenchView(props: WorkbenchViewProps) {
             <Stack spacing={0.75} sx={{ minHeight: 0, height: '100%' }}>
               <Stack direction="row" alignItems="center" spacing={1}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>输出</Typography>
+                <Stack direction="row" spacing={0.25} alignItems="center">
+                  <Tooltip title="上一条历史">
+                    <span>
+                      <IconButton size="small" aria-label="上一条历史" onClick={() => void controller.goHistoryBack()} disabled={!controller.canGoHistoryBack}>
+                        <ArrowBackRoundedIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Chip size="small" label={controller.historyPositionLabel} />
+                  <Tooltip title="下一条历史">
+                    <span>
+                      <IconButton size="small" aria-label="下一条历史" onClick={() => void controller.goHistoryForward()} disabled={!controller.canGoHistoryForward}>
+                        <ArrowForwardRoundedIcon fontSize="small" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </Stack>
                 <Box sx={{ flex: 1 }} />
                 <Button startIcon={<ContentCopyRoundedIcon fontSize="small" />} onClick={() => void controller.copyAnswer()} disabled={!controller.state.answer}>复制</Button>
                 <Button onClick={controller.clearWorkbench} disabled={controller.state.busy}>清空</Button>

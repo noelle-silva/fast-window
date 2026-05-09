@@ -1,4 +1,5 @@
-import { Box, Chip, Paper, Stack, Typography } from '@mui/material'
+import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
+import { Box, Paper, Stack, Typography } from '@mui/material'
 import { defaultModel, modelCoordinate } from '../../shared/aiOnceDomain'
 import type { AiOnceController } from '../hooks/useAiOnceController'
 
@@ -8,7 +9,7 @@ type SpacesViewProps = {
 
 export function SpacesView(props: SpacesViewProps) {
   const { controller } = props
-  const { data, history, phase } = controller.state
+  const { data, phase } = controller.state
 
   if (!data) {
     return (
@@ -21,7 +22,6 @@ export function SpacesView(props: SpacesViewProps) {
   return (
     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(3, minmax(0, 1fr))' }, gap: 1.5 }}>
       {data.spaces.map(space => {
-        const count = history.filter(item => item.spaceId === space.id).length
         const defaultModelCoordinate = modelCoordinate(controller.provider?.name || '', defaultModel(space, controller.providerId))
         return (
           <Box key={space.id}>
@@ -53,12 +53,7 @@ export function SpacesView(props: SpacesViewProps) {
                     <Typography variant="subtitle1" sx={{ fontWeight: 900, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{space.name}</Typography>
                     <Typography variant="caption" color="text.secondary">默认模型：{defaultModelCoordinate || '未设置'}</Typography>
                   </Box>
-                  <Chip size="small" color="primary" label={`${space.templates.length} 模板`} />
-                </Stack>
-
-                <Stack direction="row" spacing={0.75} flexWrap="wrap">
-                  <Chip size="small" label={`${count} 条历史`} />
-                  <Chip size="small" label={space.id === controller.state.spaceId ? '当前空间' : '点击打开'} color={space.id === controller.state.spaceId ? 'success' : 'default'} />
+                  <ArrowForwardRoundedIcon fontSize="small" color="action" />
                 </Stack>
 
                 <Box sx={{ flex: 1 }} />

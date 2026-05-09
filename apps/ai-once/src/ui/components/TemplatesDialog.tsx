@@ -4,8 +4,8 @@ import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import StarRoundedIcon from '@mui/icons-material/StarRounded'
-import { Box, Button, Chip, Collapse, Dialog, Divider, IconButton, Paper, Stack, TextField, Tooltip, Typography } from '@mui/material'
-import { createDefaultTemplate, nowMs } from '../../shared/aiOnceDomain'
+import { Box, Button, Chip, Collapse, Dialog, Divider, FormControlLabel, IconButton, Paper, Stack, Switch, TextField, Tooltip, Typography } from '@mui/material'
+import { createDefaultTemplate, effectiveHistorySettings, normalizeHistoryLimit, nowMs } from '../../shared/aiOnceDomain'
 import type { AiOnceController } from '../hooks/useAiOnceController'
 
 type TemplatesDialogProps = {
@@ -18,6 +18,7 @@ export function TemplatesDialog(props: TemplatesDialogProps) {
   const spaceId = controller.currentSpace?.id || editing?.spaces[0]?.id || ''
   const space = editing?.spaces.find(item => item.id === spaceId) || editing?.spaces[0]
   const open = controller.state.dialog === 'templates' && !!editing && !!space
+  const historySettings = effectiveHistorySettings(space || null, editing?.settings.history)
   const [expandedTemplateId, setExpandedTemplateId] = React.useState('')
 
   React.useEffect(() => {
@@ -48,6 +49,54 @@ export function TemplatesDialog(props: TemplatesDialogProps) {
               })}
               fullWidth
             />
+
+            <Paper sx={{ p: 1.25, borderRadius: 2.5, boxShadow: 'inset 0 0 0 1px rgba(100, 116, 139, 0.14)' }}>
+              <Stack spacing={1}>
+                <Box>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>历史策略</Typography>
+                  <Typography variant="body2" color="text.secondary">默认跟随全局设置；开启覆盖后，此空间使用自己的记录规则。</Typography>
+                </Box>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                  <FormControlLabel
+                    control={<Switch checked={space.history.override} onChange={event => controller.mutateEditing(draft => {
+                      const targetSpace = draft.spaces.find(item => item.id === space.id)
+                      if (!targetSpace) return
+                      targetSpace.history.override = event.target.checked
+                      if (event.target.checked) {
+                        targetSpace.history.enabled = historySettings.enabled
+                        targetSpace.history.limit = historySettings.limit
+                      }
+                      targetSpace.updatedAt = nowMs()
+                    })} />}
+                    label="覆盖全局"
+                  />
+                  <FormControlLabel
+                    control={<Switch checked={historySettings.enabled} disabled={!space.history.override} onChange={event => controller.mutateEditing(draft => {
+                      const targetSpace = draft.spaces.find(item => item.id === space.id)
+                      if (!targetSpace) return
+                      targetSpace.history.enabled = event.target.checked
+                      targetSpace.updatedAt = nowMs()
+                    })} />}
+                    label="记录历史"
+                  />
+                  <TextField
+                    label="记录上限"
+                    type="number"
+                    size="small"
+                    disabled={!space.history.override}
+                    inputProps={{ min: 1 }}
+                    value={historySettings.limit}
+                    onChange={event => controller.mutateEditing(draft => {
+                      const targetSpace = draft.spaces.find(item => item.id === space.id)
+                      if (!targetSpace) return
+                      targetSpace.history.limit = normalizeHistoryLimit(Number(event.target.value))
+                      targetSpace.updatedAt = nowMs()
+                    })}
+                    sx={{ maxWidth: { sm: 160 } }}
+                  />
+                </Stack>
+              </Stack>
+            </Paper>
 
             <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>提示词模板</Typography>
 

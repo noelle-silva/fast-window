@@ -1,10 +1,14 @@
-import type { AppData, DraftImage, Provider, Space, Template } from '../types'
+import type { AppData, DraftImage, HistoryEntry, HistoryImage, HistorySettings, Provider, Space, SpaceHistorySettings, Template } from '../types'
 
 export const DEFAULT_LAUNCH_INFO = { launched: false, standalone: true, mode: 'standalone' } as const
 export const DEFAULT_PROVIDER_BASE_URL = 'https://api.openai.com/v1'
 export const DEFAULT_SPACE_NAME = '默认空间'
 export const DEFAULT_TEMPLATE_NAME = '默认'
 export const DEFAULT_SYSTEM_PROMPT = ''
+export const DEFAULT_HISTORY_LIMIT = 50
+
+export const DEFAULT_HISTORY_SETTINGS: HistorySettings = { enabled: true, limit: DEFAULT_HISTORY_LIMIT }
+export const DEFAULT_SPACE_HISTORY_SETTINGS: SpaceHistorySettings = { override: false, enabled: true, limit: DEFAULT_HISTORY_LIMIT }
 
 export function errorMessage(error: unknown, fallback: string): string {
   return String((error as { message?: string })?.message || error || fallback)
@@ -75,6 +79,7 @@ export function createDefaultSpace(name = DEFAULT_SPACE_NAME): Space {
     defaultModelByProvider: {},
     activeTemplateId: template.id,
     templates: [template],
+    history: { ...DEFAULT_SPACE_HISTORY_SETTINGS },
   }
 }
 
@@ -103,6 +108,35 @@ export async function fileToDraftImage(file: File): Promise<DraftImage> {
     dataUrl,
     previewUrl: URL.createObjectURL(file),
   }
+}
+
+export function normalizeHistoryLimit(value: number): number {
+  return Math.max(1, Math.round(Number.isFinite(value) ? value : DEFAULT_HISTORY_LIMIT))
+}
+
+export function effectiveHistorySettings(space: Space | null, global: HistorySettings | undefined): HistorySettings {
+  const base = global || DEFAULT_HISTORY_SETTINGS
+  if (!space?.history?.override) return { enabled: base.enabled, limit: normalizeHistoryLimit(base.limit) }
+  return {
+    enabled: space.history.enabled,
+    limit: normalizeHistoryLimit(space.history.limit),
+  }
+}
+
+export function historyImageToDraftImage(image: HistoryImage): DraftImage {
+  if (!image.dataUrl) throw new Error(`历史图片缺少可预览数据：${image.name}`)
+  return {
+    id: image.id || createId('hist-img'),
+    name: image.name,
+    type: image.type,
+    size: image.size,
+    dataUrl: image.dataUrl,
+    previewUrl: image.dataUrl,
+  }
+}
+
+export function historyEntryToDraftImages(entry: HistoryEntry): DraftImage[] {
+  return entry.images.map(historyImageToDraftImage)
 }
 
 export function isInteractiveTarget(target: EventTarget | null): boolean {

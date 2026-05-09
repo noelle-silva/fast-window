@@ -12,6 +12,7 @@ export type AiOnceUiState = {
   dataDirStatus: DataDirStatus | null
   data: AppData | null
   history: HistoryEntry[]
+  historyCursorId: string
   health: Record<string, unknown> | null
   phase: AiOncePhase
   view: AiOnceView
@@ -28,7 +29,6 @@ export type AiOnceUiState = {
   spaceName: string
   spaceRename: { open: boolean; id: string; name: string }
   confirmDeleteSpace: { open: boolean; id: string; name: string }
-  confirmClearHistory: boolean
 }
 
 export function createAiOnceUiState(): AiOnceUiState {
@@ -39,6 +39,7 @@ export function createAiOnceUiState(): AiOnceUiState {
     dataDirStatus: null,
     data: null,
     history: [],
+    historyCursorId: '',
     health: null,
     phase: 'starting',
     view: 'spaces',
@@ -55,6 +56,5 @@ export function createAiOnceUiState(): AiOnceUiState {
     spaceName: '',
     spaceRename: { open: false, id: '', name: '' },
     confirmDeleteSpace: { open: false, id: '', name: '' },
-    confirmClearHistory: false,
   }
 }

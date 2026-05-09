@@ -8,12 +8,11 @@ import {
   DEFAULT_LAUNCH_INFO,
   activeProvider as getActiveProvider,
   activeTemplate as getActiveTemplate,
-  createDefaultProvider,
   createDefaultSpace,
-  createDefaultTemplate,
   defaultModel as getDefaultModel,
   errorMessage,
   fileToDraftImage,
+  historyEntryToDraftImages,
   modelCoordinate,
   nowMs,
   parseModelCoordinate,
@@ -32,8 +31,11 @@ export type AiOnceController = {
   models: string[]
   imageBytes: number
   providerLine: string
+  historyPositionLabel: string
   isReady: boolean
   canAsk: boolean
+  canGoHistoryBack: boolean
+  canGoHistoryForward: boolean
   setView(view: AiOnceView): void
   setDialog(dialog: AiOnceDialog): void
   setError(message: string): void
@@ -46,9 +48,6 @@ export type AiOnceController = {
   mutateEditing(recipe: (draft: AppData) => void): void
   saveEditing(): Promise<void>
   refreshModels(): Promise<void>
-  requestClearHistory(): void
-  cancelClearHistory(): void
-  confirmClearHistory(): Promise<void>
   setPrompt(value: string): void
   setModelDraft(value: string): void
   setCustomModel(value: string): void
@@ -71,7 +70,8 @@ export type AiOnceController = {
   moveSpace(spaceId: string, direction: number): Promise<void>
   updateActiveProvider(providerId: string): Promise<void>
   updateActiveTemplate(templateId: string): Promise<void>
-  loadHistoryEntry(entry: HistoryEntry): void
+  goHistoryBack(): Promise<void>
+  goHistoryForward(): Promise<void>
   windowActions: {
     startDragging(): Promise<void>
     minimize(): Promise<void>
@@ -85,7 +85,9 @@ function cloneData(data: AppData): AppData {
 }
 
 function revokeImages(images: DraftImage[]) {
-  for (const image of images) URL.revokeObjectURL(image.previewUrl)
+  for (const image of images) {
+    if (image.previewUrl.startsWith('blob:')) URL.revokeObjectURL(image.previewUrl)
+  }
 }
 
 export function useAiOnceController(): AiOnceController {
@@ -108,9 +110,14 @@ export function useAiOnceController(): AiOnceController {
   const provider = selectedProvider || activeProvider
   const providerId = provider?.id || ''
   const models = state.data?.settings.providers.flatMap(item => item.modelsCache.items.map(modelId => modelCoordinate(item.name, modelId))) || []
+  const spaceHistory = currentSpace ? state.history.filter(entry => entry.spaceId === currentSpace.id) : []
+  const historyCursorIndex = state.historyCursorId ? spaceHistory.findIndex(entry => entry.id === state.historyCursorId) : -1
+  const historyPositionLabel = !spaceHistory.length ? '无历史' : historyCursorIndex >= 0 ? `${historyCursorIndex + 1}/${spaceHistory.length}` : `最近 ${spaceHistory.length}`
   const imageBytes = state.images.reduce((sum, image) => sum + image.size, 0)
   const isReady = state.phase === 'ready' && !!clientRef.current
   const canAsk = Boolean(isReady && !state.busy && (state.prompt.trim() || state.images.length) && selectedProvider && parsedModel.modelId)
+  const canGoHistoryBack = Boolean(isReady && !state.busy && spaceHistory.length && (historyCursorIndex < 0 || historyCursorIndex < spaceHistory.length - 1))
+  const canGoHistoryForward = Boolean(isReady && !state.busy && historyCursorIndex > 0)
   const providerLine = provider?.baseUrl || state.dataDirStatus?.dataDir || '等待后台连接'
 
   const patchState = React.useCallback((patch: Partial<AiOnceUiState>) => {
@@ -141,6 +148,7 @@ export function useAiOnceController(): AiOnceController {
         ...prev,
         data,
         spaceId: hasCurrentSpace ? prev.spaceId : firstSpace?.id || '',
+        historyCursorId: hasCurrentSpace ? prev.historyCursorId : '',
         editing: shouldCreateEditingDraft ? cloneData(data) : prev.editing,
       }
     })
@@ -152,9 +160,19 @@ export function useAiOnceController(): AiOnceController {
       client.request<HistoryDoc>('aiOnce.history.list'),
       client.request<Record<string, unknown>>('aiOnce.health'),
     ])
+    const items = history.items || []
     applyData(data)
-    patchState({ history: history.items || [], health })
+    patchState({ history: items, health })
+    return items
   }, [applyData, patchState])
+
+  const refreshHistory = React.useCallback(async (client: DirectClient) => {
+    const history = await client.request<HistoryDoc>('aiOnce.history.list')
+    const items = history.items || []
+    const cursorId = stateRef.current.historyCursorId
+    patchState({ history: items, historyCursorId: items.some(entry => entry.id === cursorId) ? cursorId : '' })
+    return items
+  }, [patchState])
 
   const connect = React.useCallback(async (options?: { restartBackend?: boolean }) => {
     closeClient()
@@ -187,8 +205,9 @@ export function useAiOnceController(): AiOnceController {
     if (!client) throw new Error('后台未连接')
     const saved = await client.request<AppData>('aiOnce.data.save', data)
     applyData(saved)
+    await refreshHistory(client)
     return saved
-  }, [applyData])
+  }, [applyData, refreshHistory])
 
   const updateData = React.useCallback(async (recipe: (draft: AppData) => void) => {
     const data = stateRef.current.data
@@ -201,14 +220,14 @@ export function useAiOnceController(): AiOnceController {
   const clearImages = React.useCallback(() => {
     setState(prev => {
       revokeImages(prev.images)
-      return { ...prev, images: [] }
+      return { ...prev, images: [], historyCursorId: '' }
     })
   }, [])
 
   const clearWorkbench = React.useCallback(() => {
     setState(prev => {
       revokeImages(prev.images)
-      return { ...prev, prompt: '', answer: '', images: [], error: '' }
+      return { ...prev, prompt: '', answer: '', images: [], error: '', historyCursorId: '' }
     })
   }, [])
 
@@ -335,25 +354,6 @@ export function useAiOnceController(): AiOnceController {
     }
   }, [applyData, patchState])
 
-  const requestClearHistory = React.useCallback(() => patchState({ confirmClearHistory: true }), [patchState])
-  const cancelClearHistory = React.useCallback(() => patchState({ confirmClearHistory: false }), [patchState])
-  const confirmClearHistory = React.useCallback(async () => {
-    const client = clientRef.current
-    if (!client) {
-      patchState({ error: '后台未连接' })
-      return
-    }
-    patchState({ busy: true, error: '' })
-    try {
-      const history = await client.request<HistoryDoc>('aiOnce.history.clear')
-      patchState({ history: history.items || [], confirmClearHistory: false })
-    } catch (error) {
-      patchState({ error: errorMessage(error, '清空历史失败') })
-    } finally {
-      patchState({ busy: false })
-    }
-  }, [patchState])
-
   const pickDataDir = React.useCallback(async () => {
     patchState({ busy: true, error: '' })
     try {
@@ -368,9 +368,9 @@ export function useAiOnceController(): AiOnceController {
     }
   }, [connect, patchState, refreshDataDirStatus])
 
-  const setPrompt = React.useCallback((prompt: string) => patchState({ prompt }), [patchState])
-  const setModelDraft = React.useCallback((modelDraft: string) => patchState({ modelDraft, customModel: modelDraft === '__custom__' ? stateRef.current.customModel : '' }), [patchState])
-  const setCustomModel = React.useCallback((customModel: string) => patchState({ customModel }), [patchState])
+  const setPrompt = React.useCallback((prompt: string) => patchState({ prompt, historyCursorId: '' }), [patchState])
+  const setModelDraft = React.useCallback((modelDraft: string) => patchState({ modelDraft, customModel: modelDraft === '__custom__' ? stateRef.current.customModel : '', historyCursorId: '' }), [patchState])
+  const setCustomModel = React.useCallback((customModel: string) => patchState({ customModel, historyCursorId: '' }), [patchState])
 
   const addImageFiles = React.useCallback(async (files: FileList | File[]) => {
     const settings = stateRef.current.data?.settings || { imageMaxCount: 6, imageMaxMb: 8 }
@@ -392,14 +392,14 @@ export function useAiOnceController(): AiOnceController {
     const picked = valid.slice(0, capacity)
     const overflow = Math.max(0, valid.length - picked.length)
     const nextImages = await Promise.all(picked.map(fileToDraftImage))
-    setState(prev => ({ ...prev, images: [...prev.images, ...nextImages], error: rejected.concat(overflow ? [`还有 ${overflow} 张图片超过数量上限`] : []).join('；') }))
+    setState(prev => ({ ...prev, images: [...prev.images, ...nextImages], error: rejected.concat(overflow ? [`还有 ${overflow} 张图片超过数量上限`] : []).join('；'), historyCursorId: '' }))
   }, [patchState])
 
   const removeImage = React.useCallback((imageId: string) => {
     setState(prev => {
       const hit = prev.images.find(image => image.id === imageId)
-      if (hit) URL.revokeObjectURL(hit.previewUrl)
-      return { ...prev, images: prev.images.filter(image => image.id !== imageId) }
+      if (hit?.previewUrl.startsWith('blob:')) URL.revokeObjectURL(hit.previewUrl)
+      return { ...prev, images: prev.images.filter(image => image.id !== imageId), historyCursorId: '' }
     })
   }, [])
 
@@ -436,21 +436,20 @@ export function useAiOnceController(): AiOnceController {
         input: stateRef.current.prompt,
         images: stateRef.current.images.map(({ id: _id, previewUrl: _previewUrl, ...rest }) => rest),
       })
-      const history = await client.request<HistoryDoc>('aiOnce.history.list')
-      await loadFromClient(client)
-      patchState({ answer: entry.output, history: history.items || [] })
+      const history = await loadFromClient(client)
+      patchState({ answer: entry.output, historyCursorId: history.some(item => item.id === entry.id) ? entry.id : '' })
     } catch (error) {
       const message = errorMessage(error, 'AI 请求失败')
       try {
-        const history = await client.request<HistoryDoc>('aiOnce.history.list')
-        patchState({ history: history.items || [], error: message })
+        await refreshHistory(client)
+        patchState({ error: message })
       } catch (historyError) {
         patchState({ error: `${message}；历史刷新失败：${errorMessage(historyError, '未知错误')}` })
       }
     } finally {
       patchState({ busy: false })
     }
-  }, [loadFromClient, patchState])
+  }, [loadFromClient, patchState, refreshHistory])
 
   const copyAnswer = React.useCallback(async () => {
     const answer = stateRef.current.answer
@@ -481,6 +480,7 @@ export function useAiOnceController(): AiOnceController {
         answer: '',
         images: [],
         error: '',
+        historyCursorId: '',
         modelDraft: defaultCoordinate,
         customModel: '',
       }
@@ -496,7 +496,7 @@ export function useAiOnceController(): AiOnceController {
       const saved = await updateData(data => {
         data.spaces.unshift(createDefaultSpace(name))
       })
-      patchState({ dialog: '', spaceName: '', spaceId: saved.spaces[0]?.id || '' })
+      patchState({ dialog: '', spaceName: '', spaceId: saved.spaces[0]?.id || '', historyCursorId: '' })
     } catch (error) {
       patchState({ error: errorMessage(error, '创建空间失败') })
     } finally {
@@ -600,23 +600,54 @@ export function useAiOnceController(): AiOnceController {
     }
   }, [patchState, updateData])
 
-  const loadHistoryEntry = React.useCallback((entry: HistoryEntry) => {
-    const provider = stateRef.current.data?.settings.providers.find(item => item.id === entry.providerId)
-    setState(prev => {
-      revokeImages(prev.images)
-      return {
-        ...prev,
-        view: 'workbench',
-        spaceId: entry.spaceId,
-        prompt: entry.input,
-        answer: entry.output,
-        images: [],
-        modelDraft: modelCoordinate(provider?.name || entry.providerId, entry.model),
-        customModel: '',
-        error: entry.error || '',
-      }
-    })
-  }, [])
+  const loadHistoryEntry = React.useCallback(async (entry: HistoryEntry) => {
+    const client = clientRef.current
+    if (!client) {
+      patchState({ error: '后台未连接' })
+      return
+    }
+    patchState({ busy: true, error: '' })
+    try {
+      const hydrated = await client.request<HistoryEntry>('aiOnce.history.entry', { id: entry.id })
+      const images = historyEntryToDraftImages(hydrated)
+      const provider = stateRef.current.data?.settings.providers.find(item => item.id === hydrated.providerId)
+      setState(prev => {
+        revokeImages(prev.images)
+        return {
+          ...prev,
+          view: 'workbench',
+          spaceId: hydrated.spaceId,
+          prompt: hydrated.input,
+          answer: hydrated.output,
+          images,
+          modelDraft: modelCoordinate(provider?.name || hydrated.providerId, hydrated.model),
+          customModel: '',
+          error: hydrated.error || '',
+          historyCursorId: hydrated.id,
+        }
+      })
+    } catch (error) {
+      patchState({ error: errorMessage(error, '加载历史失败') })
+    } finally {
+      patchState({ busy: false })
+    }
+  }, [patchState])
+
+  const goHistoryBack = React.useCallback(async () => {
+    const spaceId = stateRef.current.spaceId
+    const entries = stateRef.current.history.filter(entry => entry.spaceId === spaceId)
+    if (!entries.length) return
+    const index = stateRef.current.historyCursorId ? entries.findIndex(entry => entry.id === stateRef.current.historyCursorId) : -1
+    const target = entries[index < 0 ? 0 : index + 1]
+    if (target) await loadHistoryEntry(target)
+  }, [loadHistoryEntry])
+
+  const goHistoryForward = React.useCallback(async () => {
+    const spaceId = stateRef.current.spaceId
+    const entries = stateRef.current.history.filter(entry => entry.spaceId === spaceId)
+    const index = stateRef.current.historyCursorId ? entries.findIndex(entry => entry.id === stateRef.current.historyCursorId) : -1
+    if (index > 0) await loadHistoryEntry(entries[index - 1])
+  }, [loadHistoryEntry])
 
   const windowActions = React.useMemo(() => ({
     startDragging: () => appWindow.startDragging(),
@@ -635,8 +666,11 @@ export function useAiOnceController(): AiOnceController {
     models,
     imageBytes,
     providerLine,
+    historyPositionLabel,
     isReady,
     canAsk,
+    canGoHistoryBack,
+    canGoHistoryForward,
     setView,
     setDialog,
     setError,
@@ -649,9 +683,6 @@ export function useAiOnceController(): AiOnceController {
     mutateEditing,
     saveEditing,
     refreshModels,
-    requestClearHistory,
-    cancelClearHistory,
-    confirmClearHistory,
     setPrompt,
     setModelDraft,
     setCustomModel,
@@ -674,7 +705,8 @@ export function useAiOnceController(): AiOnceController {
     moveSpace,
     updateActiveProvider,
     updateActiveTemplate,
-    loadHistoryEntry,
+    goHistoryBack,
+    goHistoryForward,
     windowActions,
   }
 }
