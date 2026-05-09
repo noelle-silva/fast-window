@@ -37,6 +37,13 @@ type DragSession = { itemId: string; offsetX: number; offsetY: number }
 
 type PendingPreview = { itemId: string; targetLayout: FolderGridLayout }
 
+type PendingDragCommit = {
+  itemId: string
+  event: FolderGridDragEvent
+  patches: FolderGridLayoutPatch[]
+  suppressClick: boolean
+}
+
 type Options = {
   items: FolderGridLayoutSource[]
   metrics?: FolderGridMetrics
@@ -164,6 +171,7 @@ export function useMuuriFolderGrid(options: Options) {
   const activeLayoutsRef = React.useRef<FolderGridLayoutMap>(new Map())
   const metricsRef = React.useRef(metrics)
   const suppressClickRef = React.useRef<string | null>(null)
+  const pendingDragCommitRef = React.useRef<PendingDragCommit | null>(null)
   metricsRef.current = metrics
   const layout = React.useMemo(() => createMuuriLayout(activeLayoutsRef, metricsRef), [])
   const columnCount = React.useMemo(() => getFolderGridColumnCount(containerWidth, metrics), [containerWidth, metrics])
@@ -239,10 +247,26 @@ export function useMuuriFolderGrid(options: Options) {
     cancelPreviewFrame()
     pendingPreviewRef.current = null
     latestPreviewRef.current = null
+    pendingDragCommitRef.current = null
     dragSessionRef.current = null
     setPreviewLayouts(null)
     setDraggingId(null)
   }, [cancelPreviewFrame])
+
+  const commitReleasedDrag = React.useCallback((itemId: string) => {
+    const commit = pendingDragCommitRef.current
+    if (!commit || commit.itemId !== itemId) return
+    pendingDragCommitRef.current = null
+    const handled = liveRef.current.onDragEnd?.(commit.event, commit.patches) === true
+    if (!handled && commit.patches.length) liveRef.current.onCommit(commit.patches)
+    if (commit.suppressClick) {
+      suppressClickRef.current = itemId
+      window.setTimeout(() => {
+        if (suppressClickRef.current === itemId) suppressClickRef.current = null
+      }, 180)
+    }
+    setDraggingId(current => current === itemId ? null : current)
+  }, [])
 
   React.useEffect(() => {
     if (!gridNode) return
@@ -310,20 +334,22 @@ export function useMuuriFolderGrid(options: Options) {
       const nextLayouts = latestPreviewRef.current || current.baseLayouts
       const patches = diffFolderGridLayouts(current.baseLayouts, nextLayouts)
       const dragEvent = dragSession ? toDragEvent(dragSession, event.clientX, event.clientY) : null
-      const handled = dragEvent ? current.onDragEnd?.(dragEvent, patches) === true : false
-      if (!handled && patches.length) current.onCommit(patches)
-      if (dragSession) {
-        suppressClickRef.current = dragSession.itemId
-        window.setTimeout(() => {
-          if (suppressClickRef.current === dragSession.itemId) suppressClickRef.current = null
-        }, 180)
+      if (dragSession && dragEvent) {
+        pendingDragCommitRef.current = { itemId: dragSession.itemId, event: dragEvent, patches, suppressClick: true }
+      } else if (patches.length) {
+        current.onCommit(patches)
       }
 
       pendingPreviewRef.current = null
       latestPreviewRef.current = null
       dragSessionRef.current = null
       setPreviewLayouts(null)
-      setDraggingId(null)
+      if (!dragSession) setDraggingId(null)
+    }
+
+    const handleDragReleaseEnd = (item: MuuriItem) => {
+      const itemId = muuriItemId(item)
+      if (itemId) commitReleasedDrag(itemId)
     }
 
     const handleDragCancel = (event: DraggerCancelEvent) => {
@@ -340,17 +366,19 @@ export function useMuuriFolderGrid(options: Options) {
     grid.on('dragStart', handleDragStart)
     grid.on('dragMove', handleDragMove)
     grid.on('dragEnd', handleDragEndEvent)
+    grid.on('dragReleaseEnd', handleDragReleaseEnd)
     gridInstanceRef.current = grid
 
     return () => {
       grid.off('dragStart', handleDragStart)
       grid.off('dragMove', handleDragMove)
       grid.off('dragEnd', handleDragEndEvent)
+      grid.off('dragReleaseEnd', handleDragReleaseEnd)
       cancelDrag()
       grid.destroy()
       gridInstanceRef.current = null
     }
-  }, [cancelDrag, flushPreview, gridNode, layout, schedulePreview])
+  }, [cancelDrag, commitReleasedDrag, flushPreview, gridNode, layout, schedulePreview])
 
   React.useLayoutEffect(() => {
     const grid = gridInstanceRef.current
