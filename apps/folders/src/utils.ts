@@ -1,15 +1,16 @@
 import type { ContainerFormState, FolderFormState, FolderItem, FoldersDoc, FwLaunchInfo, GroupFormState } from './types'
+import { DEFAULT_DESKTOP_ICON_LAYOUT } from './folder-grid/iconLayout'
 
 export const DEFAULT_GROUP_ID = 'default'
 export const ALL_GROUP_ID = '__all__'
 export const DEFAULT_LAUNCH_INFO: FwLaunchInfo = { launched: false, standalone: true, mode: 'standalone' }
 export const DEFAULT_DOC: FoldersDoc = {
   schemaVersion: 1,
-  dataVersion: 6,
+  dataVersion: 7,
   groups: [{ id: DEFAULT_GROUP_ID, name: '默认' }],
   items: [],
   containers: [],
-  desktop: {},
+  desktop: { iconLayout: DEFAULT_DESKTOP_ICON_LAYOUT },
   updatedAt: '',
 }
 export const EMPTY_FOLDER_FORM: FolderFormState = { name: '', path: '', groupId: DEFAULT_GROUP_ID, newGroupName: '' }

@@ -3,18 +3,13 @@ import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
 import { Box, ButtonBase, IconButton, Typography } from '@mui/material'
 import type { DesktopGridEntry, FoldersDoc } from '../types'
 import { groupName } from '../utils'
-import { FOLDER_GRID_ITEM_HEIGHT, FOLDER_GRID_ITEM_WIDTH } from './constants'
 import { DesktopIconVisual } from './DesktopIconVisual'
+import type { FolderGridMetrics } from './iconLayout'
 import {
   DESKTOP_ICON_DRAG_SHADOW,
-  DESKTOP_ICON_SURFACE_SIZE,
   DESKTOP_ICON_TITLE_SHADOW,
   getDesktopIconPalette,
 } from './desktopIconTokens'
-
-const CONTAINER_FOLDER_SURFACE_SIZE = 108
-const CONTAINER_FOLDER_RADIUS = 30
-const CONTAINER_FOLDER_PREVIEW_SIZE = 34
 
 type Props = {
   assetUrl?(assetId: string): string
@@ -22,6 +17,7 @@ type Props = {
   dragging: boolean
   entry: DesktopGridEntry
   groupCount: number
+  metrics: FolderGridMetrics
   onOpen(): void
   onContextMenu(x: number, y: number): void
 }
@@ -44,8 +40,8 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
       }}
       sx={{
         position: 'relative',
-        width: FOLDER_GRID_ITEM_WIDTH,
-        height: FOLDER_GRID_ITEM_HEIGHT,
+        width: props.metrics.itemWidth,
+        height: props.metrics.itemHeight,
         cursor: props.dragging ? 'grabbing' : 'grab',
         touchAction: 'none',
         userSelect: 'none',
@@ -65,8 +61,8 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
         aria-label={`打开：${props.entry.name}`}
         title={props.entry.item?.path || props.entry.name}
         sx={{
-          width: FOLDER_GRID_ITEM_WIDTH,
-          height: FOLDER_GRID_ITEM_HEIGHT,
+          width: props.metrics.itemWidth,
+          height: props.metrics.itemHeight,
           p: 0.5,
           display: 'flex',
           flexDirection: 'column',
@@ -95,6 +91,7 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
             assetUrl={props.assetUrl}
             dragging={props.dragging}
             items={containerItems}
+            metrics={props.metrics}
           />
         ) : (
           <DesktopIconVisual
@@ -102,7 +99,9 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
             className="desktop-grid-icon-surface"
             dragging={props.dragging}
             icon={icon}
+            radius={props.metrics.iconRadius}
             seed={`folder:${props.entry.id}:${props.entry.name}`}
+            size={props.metrics.iconSize}
           />
         )}
         <Box sx={{ width: '100%', minWidth: 0, display: 'grid', justifyItems: 'center', gap: 0.35 }}>
@@ -112,7 +111,7 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
             sx={{
               maxWidth: '100%',
               color: '#FFFFFF',
-              fontSize: 13.5,
+              fontSize: props.metrics.titleFontSize,
               fontWeight: 850,
               lineHeight: 1.14,
               letterSpacing: '-0.01em',
@@ -136,7 +135,7 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
                 py: 0.15,
                 borderRadius: 999,
                 color: '#FFFFFF',
-                fontSize: 10.5,
+                fontSize: props.metrics.detailFontSize,
                 fontWeight: 800,
                 lineHeight: 1.35,
                 textShadow: '0 1px 2px rgba(15, 23, 42, 0.72)',
@@ -161,10 +160,10 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
         }}
         sx={{
           position: 'absolute',
-          top: 4,
-          right: 18,
-          width: 28,
-          height: 28,
+          top: props.metrics.menuTop,
+          right: props.metrics.menuRight,
+          width: props.metrics.menuSize,
+          height: props.metrics.menuSize,
           opacity: 0,
           pointerEvents: 'none',
           transform: 'translateY(-2px) scale(0.92)',
@@ -189,20 +188,20 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
   )
 }
 
-function ContainerFolderPreview(props: { assetUrl?(assetId: string): string; dragging: boolean; items: NonNullable<DesktopGridEntry['item']>[] }) {
+function ContainerFolderPreview(props: { assetUrl?(assetId: string): string; dragging: boolean; items: NonNullable<DesktopGridEntry['item']>[]; metrics: FolderGridMetrics }) {
   const slots = Array.from({ length: 4 }, (_, index) => props.items[index] || null)
   return (
     <Box
       className="desktop-grid-icon-surface"
       sx={{
-        width: CONTAINER_FOLDER_SURFACE_SIZE,
-        height: CONTAINER_FOLDER_SURFACE_SIZE,
-        p: '12px',
+        width: props.metrics.containerSurfaceSize,
+        height: props.metrics.containerSurfaceSize,
+        p: `${props.metrics.containerPreviewPadding}px`,
         display: 'grid',
         gridTemplateColumns: 'repeat(2, 1fr)',
-        gap: '10px',
+        gap: `${props.metrics.containerPreviewGap}px`,
         placeItems: 'center',
-        borderRadius: `${CONTAINER_FOLDER_RADIUS}px`,
+        borderRadius: `${props.metrics.containerSurfaceRadius}px`,
         background: 'rgba(246, 249, 250, 0.92)',
         border: '1px solid rgba(255, 255, 255, 0.78)',
         boxShadow: props.dragging ? DESKTOP_ICON_DRAG_SHADOW : '0 18px 34px rgba(15, 23, 42, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.78)',
@@ -215,14 +214,14 @@ function ContainerFolderPreview(props: { assetUrl?(assetId: string): string; dra
         <DesktopIconVisual
           key={item.id}
           assetUrl={props.assetUrl}
-          glyphSize={21}
+          glyphSize={Math.round(props.metrics.containerPreviewSize * 0.62)}
           icon={item.icon}
-          radius={10}
+          radius={Math.max(8, Math.round(props.metrics.containerPreviewSize * 0.3))}
           seed={`folder:${item.id}:${item.name}`}
           shadow={false}
-          size={CONTAINER_FOLDER_PREVIEW_SIZE}
+          size={props.metrics.containerPreviewSize}
         />
-      ) : <Box key={`empty-${index}`} sx={{ width: CONTAINER_FOLDER_PREVIEW_SIZE, height: CONTAINER_FOLDER_PREVIEW_SIZE }} />)}
+      ) : <Box key={`empty-${index}`} sx={{ width: props.metrics.containerPreviewSize, height: props.metrics.containerPreviewSize }} />)}
     </Box>
   )
 }

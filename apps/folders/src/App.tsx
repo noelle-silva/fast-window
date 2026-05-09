@@ -36,6 +36,7 @@ import {
   MenuItem,
   Paper,
   Select,
+  Slider,
   Stack,
   TextField,
   Tooltip,
@@ -58,6 +59,7 @@ import type {
   DesktopContainer,
   DesktopGridEntry,
   DesktopIcon,
+  DesktopIconLayout,
   DesktopWallpaper as DesktopWallpaperState,
   DirectClient,
   FolderFormState,
@@ -70,6 +72,16 @@ import type {
   Phase,
 } from './types'
 import { FolderGridCanvas, type DesktopGridDragEvent, type DesktopGridLayoutPatch } from './folder-grid/FolderGridCanvas'
+import {
+  DESKTOP_ICON_GAP_MAX,
+  DESKTOP_ICON_GAP_MIN,
+  DESKTOP_ICON_GAP_STEP,
+  DESKTOP_ICON_SCALE_MAX,
+  DESKTOP_ICON_SCALE_MIN,
+  DESKTOP_ICON_SCALE_STEP,
+  DEFAULT_DESKTOP_ICON_LAYOUT,
+  normalizeDesktopIconLayout,
+} from './folder-grid/iconLayout'
 import {
   ALL_GROUP_ID,
   DEFAULT_DOC,
@@ -112,6 +124,7 @@ export function App() {
   const [editingContainer, setEditingContainer] = React.useState<DesktopContainer | null>(null)
   const [containerView, setContainerView] = React.useState<DesktopContainer | null>(null)
   const [iconEditor, setIconEditor] = React.useState<IconEditorState>(null)
+  const [iconLayoutDraft, setIconLayoutDraft] = React.useState<DesktopIconLayout | null>(null)
   const [confirm, setConfirm] = React.useState<ConfirmState>(null)
   const [contextMenu, setContextMenu] = React.useState<ContextMenuState>(null)
   const [desktopDrag, setDesktopDrag] = React.useState<DesktopDragState>(null)
@@ -168,6 +181,9 @@ export function App() {
   }, [])
 
   React.useEffect(() => () => client?.close(), [client])
+  React.useEffect(() => {
+    if (!settingsOpen) setIconLayoutDraft(null)
+  }, [settingsOpen])
   React.useEffect(() => {
     if (!error) return
     const timer = window.setTimeout(() => setError(null), ERROR_AUTO_HIDE_MS)
@@ -481,6 +497,18 @@ export function App() {
     finally { setBusy(false) }
   }
 
+  async function saveDesktopIconLayout(iconLayout: DesktopIconLayout) {
+    if (!client) return
+    setBusy(true); setError(null)
+    try {
+      const nextDoc = await client.request<FoldersDoc>('folders.desktop.icon-layout.save', { iconLayout: normalizeDesktopIconLayout(iconLayout) })
+      setDoc(nextDoc)
+      setIconLayoutDraft(nextDoc.desktop.iconLayout)
+    }
+    catch (e) { setIconLayoutDraft(null); setError(errorMessage(e, '保存图标布局失败')) }
+    finally { setBusy(false) }
+  }
+
   async function pickWallpaperImage() {
     if (!client) return
     setBusy(true); setError(null)
@@ -510,6 +538,7 @@ export function App() {
 
   const allDesktopEntries = React.useMemo(() => buildDesktopGridEntries(doc), [doc])
   const filteredEntries = React.useMemo(() => filterDesktopGridEntries(doc, allDesktopEntries, groupId, search), [allDesktopEntries, doc, groupId, search])
+  const visibleIconLayout = iconLayoutDraft || doc.desktop.iconLayout
   const selectedGroup = doc.groups.find(group => group.id === groupId)
   const editableGroups = doc.groups.filter(group => group.id !== DEFAULT_GROUP_ID)
 
@@ -558,6 +587,7 @@ export function App() {
         allEntries={allDesktopEntries}
         assetUrl={client?.assetUrl}
         groupCount={doc.groups.length}
+        iconLayout={visibleIconLayout}
         entries={filteredEntries}
         phase={phase}
         search={search}
@@ -617,11 +647,14 @@ export function App() {
         open={settingsOpen}
         status={status}
         hasWallpaper={Boolean(doc.desktop.wallpaper)}
+        iconLayout={visibleIconLayout}
         onClearWallpaper={() => void saveDesktopWallpaper(null)}
         onClose={() => setSettingsOpen(false)}
         onPickDataDir={pickDataDir}
         onPickWallpaper={() => void pickWallpaperImage()}
+        onPreviewIconLayout={layout => setIconLayoutDraft(normalizeDesktopIconLayout(layout))}
         onRestart={() => void connect({ restartBackend: true })}
+        onSaveIconLayout={layout => void saveDesktopIconLayout(layout)}
       />
 
       <ContainerDialog
@@ -1014,22 +1047,120 @@ function SettingsDialog(props: {
   busy: boolean
   doc: FoldersDoc
   hasWallpaper: boolean
+  iconLayout: DesktopIconLayout
   open: boolean
   status: DataDirStatus | null
   onClearWallpaper(): void
   onClose(): void
   onPickDataDir(): void
   onPickWallpaper(): void
+  onPreviewIconLayout(layout: DesktopIconLayout): void
   onRestart(): void
+  onSaveIconLayout(layout: DesktopIconLayout): void
 }) {
+  const iconLayout = normalizeDesktopIconLayout(props.iconLayout)
+  const updateDraftIconLayout = (patch: Partial<DesktopIconLayout>) => props.onPreviewIconLayout(normalizeDesktopIconLayout({ ...iconLayout, ...patch }))
+  const saveDraftIconLayout = (patch: Partial<DesktopIconLayout>) => props.onSaveIconLayout(normalizeDesktopIconLayout({ ...iconLayout, ...patch }))
+
   return (
     <Dialog open={props.open} onClose={props.onClose} fullWidth maxWidth="md">
       <DialogContent sx={{ p: 3 }}>
         <Stack spacing={2.25}>
           <Box>
             <Typography variant="h2">设置</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>管理桌面壁纸、数据目录和后台状态。</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>管理桌面图标、壁纸、数据目录和后台状态。</Typography>
           </Box>
+          <Paper elevation={0} sx={{ p: 2, borderRadius: 3, bgcolor: theme => alpha(theme.palette.primary.main, 0.06) }}>
+            <Stack spacing={1.75}>
+              <Box>
+                <Typography fontWeight={900}>桌面图标布局</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>控制桌面图标之间的行列间距，以及图标整体显示大小。</Typography>
+              </Box>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' }, gap: 2 }}>
+                <Box>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                    <Typography fontWeight={800}>图标行间距</Typography>
+                    <Chip size="small" label={`${iconLayout.rowGap}px`} />
+                  </Stack>
+                  <Slider
+                    aria-label="图标行间距"
+                    value={iconLayout.rowGap}
+                    min={DESKTOP_ICON_GAP_MIN}
+                    max={DESKTOP_ICON_GAP_MAX}
+                    step={DESKTOP_ICON_GAP_STEP}
+                    marks={[
+                      { value: DESKTOP_ICON_GAP_MIN, label: `${DESKTOP_ICON_GAP_MIN}px` },
+                      { value: DEFAULT_DESKTOP_ICON_LAYOUT.rowGap, label: `${DEFAULT_DESKTOP_ICON_LAYOUT.rowGap}px` },
+                      { value: DESKTOP_ICON_GAP_MAX, label: `${DESKTOP_ICON_GAP_MAX}px` },
+                    ]}
+                    valueLabelDisplay="auto"
+                    valueLabelFormat={value => `${value}px`}
+                    disabled={props.busy}
+                    onChange={(_, value) => updateDraftIconLayout({ rowGap: Array.isArray(value) ? value[0] : value })}
+                    onChangeCommitted={(_, value) => saveDraftIconLayout({ rowGap: Array.isArray(value) ? value[0] : value })}
+                  />
+                </Box>
+                <Box>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                    <Typography fontWeight={800}>图标列间距</Typography>
+                    <Chip size="small" label={`${iconLayout.columnGap}px`} />
+                  </Stack>
+                  <Slider
+                    aria-label="图标列间距"
+                    value={iconLayout.columnGap}
+                    min={DESKTOP_ICON_GAP_MIN}
+                    max={DESKTOP_ICON_GAP_MAX}
+                    step={DESKTOP_ICON_GAP_STEP}
+                    marks={[
+                      { value: DESKTOP_ICON_GAP_MIN, label: `${DESKTOP_ICON_GAP_MIN}px` },
+                      { value: DEFAULT_DESKTOP_ICON_LAYOUT.columnGap, label: `${DEFAULT_DESKTOP_ICON_LAYOUT.columnGap}px` },
+                      { value: DESKTOP_ICON_GAP_MAX, label: `${DESKTOP_ICON_GAP_MAX}px` },
+                    ]}
+                    valueLabelDisplay="auto"
+                    valueLabelFormat={value => `${value}px`}
+                    disabled={props.busy}
+                    onChange={(_, value) => updateDraftIconLayout({ columnGap: Array.isArray(value) ? value[0] : value })}
+                    onChangeCommitted={(_, value) => saveDraftIconLayout({ columnGap: Array.isArray(value) ? value[0] : value })}
+                  />
+                </Box>
+                <Box>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                    <Typography fontWeight={800}>图标大小缩放</Typography>
+                    <Chip size="small" label={`${Math.round(iconLayout.iconScale * 100)}%`} />
+                  </Stack>
+                  <Slider
+                    aria-label="图标大小缩放"
+                    value={iconLayout.iconScale}
+                    min={DESKTOP_ICON_SCALE_MIN}
+                    max={DESKTOP_ICON_SCALE_MAX}
+                    step={DESKTOP_ICON_SCALE_STEP}
+                    marks={[
+                      { value: DESKTOP_ICON_SCALE_MIN, label: `${Math.round(DESKTOP_ICON_SCALE_MIN * 100)}%` },
+                      { value: 1, label: '100%' },
+                      { value: DESKTOP_ICON_SCALE_MAX, label: `${Math.round(DESKTOP_ICON_SCALE_MAX * 100)}%` },
+                    ]}
+                    valueLabelDisplay="auto"
+                    valueLabelFormat={value => `${Math.round(value * 100)}%`}
+                    disabled={props.busy}
+                    onChange={(_, value) => updateDraftIconLayout({ iconScale: Array.isArray(value) ? value[0] : value })}
+                    onChangeCommitted={(_, value) => saveDraftIconLayout({ iconScale: Array.isArray(value) ? value[0] : value })}
+                  />
+                </Box>
+              </Box>
+              <Stack direction="row" justifyContent="flex-end">
+                <Button
+                  startIcon={<RestartAltRoundedIcon />}
+                  onClick={() => {
+                    props.onPreviewIconLayout(DEFAULT_DESKTOP_ICON_LAYOUT)
+                    props.onSaveIconLayout(DEFAULT_DESKTOP_ICON_LAYOUT)
+                  }}
+                  disabled={props.busy}
+                >
+                  恢复默认图标布局
+                </Button>
+              </Stack>
+            </Stack>
+          </Paper>
           <Paper elevation={0} sx={{ p: 2, borderRadius: 3, bgcolor: theme => alpha(theme.palette.primary.main, 0.06) }}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
               <Box sx={{ minWidth: 0, flex: 1 }}>

@@ -27,7 +27,7 @@ import (
 
 const (
 	dataSchemaVersion      = 1
-	dataVersion            = 6
+	dataVersion            = 7
 	dataFile               = "data.json"
 	foldersFile            = "folders.json"
 	metaFile               = "_meta.json"
@@ -39,6 +39,11 @@ const (
 	maxLayoutCoord         = 2000
 	maxIconAssetBytes      = 12 * 1024 * 1024
 	maxWallpaperAssetBytes = 32 * 1024 * 1024
+	defaultDesktopIconGap  = 38
+	minDesktopIconGap      = 0
+	maxDesktopIconGap      = 64
+	minDesktopIconScale    = 0.75
+	maxDesktopIconScale    = 1.35
 )
 
 type service struct {
@@ -123,8 +128,16 @@ type desktopWallpaper struct {
 	AssetID string `json:"assetId"`
 }
 
+type desktopIconLayout struct {
+	RowGap    int     `json:"rowGap"`
+	ColumnGap int     `json:"columnGap"`
+	IconScale float64 `json:"iconScale"`
+	RowCount  int     `json:"rowCount,omitempty"`
+}
+
 type desktopState struct {
-	Wallpaper *desktopWallpaper `json:"wallpaper,omitempty"`
+	Wallpaper  *desktopWallpaper `json:"wallpaper,omitempty"`
+	IconLayout desktopIconLayout `json:"iconLayout"`
 }
 
 type foldersDoc struct {
@@ -375,6 +388,14 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 			return nil, fmt.Errorf("invalid wallpaper payload: %w", err)
 		}
 		return svc.saveDesktopWallpaper(payload.Wallpaper)
+	case "folders.desktop.icon-layout.save":
+		var payload struct {
+			IconLayout desktopIconLayout `json:"iconLayout"`
+		}
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid desktop icon layout payload: %w", err)
+		}
+		return svc.saveDesktopIconLayout(payload.IconLayout)
 	case "folders.groups.add":
 		var payload folderGroup
 		if err := json.Unmarshal(params, &payload); err != nil {
@@ -450,17 +471,65 @@ func (svc *service) runMigrations() error {
 		if migrated, migrationID, err := svc.loadLegacyFoldersDoc(); err != nil {
 			return err
 		} else if migrated != nil {
-			if err := writeJSON(dataPath, normalizeFoldersDoc(*migrated)); err != nil {
+			doc, err := normalizeFoldersDoc(*migrated, true)
+			if err != nil {
+				return err
+			}
+			if err := writeJSON(dataPath, doc); err != nil {
 				return err
 			}
 			ledger.Applied = appendMigration(ledger.Applied, migrationEntry{ID: migrationID, FromVersion: 0, ToVersion: dataVersion, Description: "migrate folders app data into data.json", AppliedAt: nowText()})
 		}
+	}
+	if err := svc.migrateDesktopIconLayout(dataPath, &ledger); err != nil {
+		return err
 	}
 
 	if err := writeJSON(path, ledger); err != nil {
 		return err
 	}
 	return writeJSON(filepath.Join(svc.dataDir, metaFile), metaDoc{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, UpdatedAt: nowText()})
+}
+
+func (svc *service) migrateDesktopIconLayout(dataPath string, ledger *migrationsLedger) error {
+	if _, err := os.Stat(dataPath); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	var doc foldersDoc
+	if err := readJSON(dataPath, &doc); err != nil {
+		return fmt.Errorf("read folders data for desktop icon layout migration failed: %w", err)
+	}
+	if hasLegacyDesktopIconRowCountLayout(doc.Desktop.IconLayout) {
+		doc.Desktop.IconLayout.RowGap = defaultDesktopIconGap
+		doc.Desktop.IconLayout.ColumnGap = defaultDesktopIconGap
+		doc.Desktop.IconLayout.RowCount = 0
+		fromVersion := doc.DataVersion
+		normalized, err := normalizeFoldersDoc(doc, false)
+		if err != nil {
+			return err
+		}
+		if err := writeJSON(dataPath, normalized); err != nil {
+			return err
+		}
+		ledger.Applied = appendMigration(ledger.Applied, migrationEntry{ID: "desktop-icon-layout-gaps-v7", FromVersion: fromVersion, ToVersion: dataVersion, Description: "migrate desktop icon page rows to row and column gaps", AppliedAt: nowText()})
+		return nil
+	}
+	if doc.DataVersion >= 7 {
+		_, err := normalizeFoldersDoc(doc, false)
+		return err
+	}
+	fromVersion := doc.DataVersion
+	normalized, err := normalizeFoldersDoc(doc, true)
+	if err != nil {
+		return err
+	}
+	if err := writeJSON(dataPath, normalized); err != nil {
+		return err
+	}
+	ledger.Applied = appendMigration(ledger.Applied, migrationEntry{ID: "desktop-icon-layout-settings-v7", FromVersion: fromVersion, ToVersion: dataVersion, Description: "add desktop icon layout settings", AppliedAt: nowText()})
+	return nil
 }
 
 func (svc *service) loadLegacyFoldersDoc() (*foldersDoc, string, error) {
@@ -503,17 +572,24 @@ func (svc *service) readFolders() (foldersDoc, error) {
 	if err := readJSON(filepath.Join(svc.dataDir, dataFile), &doc); err != nil {
 		return foldersDoc{}, err
 	}
-	return normalizeFoldersDoc(doc), nil
+	return normalizeFoldersDoc(doc, false)
 }
 
 func (svc *service) writeFolders(doc foldersDoc) error {
-	doc = normalizeFoldersDoc(doc)
+	normalized, err := normalizeFoldersDoc(doc, false)
+	if err != nil {
+		return err
+	}
+	doc = normalized
 	doc.UpdatedAt = nowText()
 	return writeJSON(filepath.Join(svc.dataDir, dataFile), doc)
 }
 
 func (svc *service) saveFoldersData(payload foldersDoc) (foldersDoc, error) {
-	doc := normalizeFoldersDoc(payload)
+	doc, err := normalizeFoldersDoc(payload, false)
+	if err != nil {
+		return foldersDoc{}, err
+	}
 	if len(doc.Groups) == 0 || doc.Groups[0].ID != defaultGroupID {
 		return foldersDoc{}, errors.New("default group is required")
 	}
@@ -961,6 +1037,22 @@ func (svc *service) saveDesktopWallpaper(wallpaper *desktopWallpaper) (foldersDo
 	return svc.readFolders()
 }
 
+func (svc *service) saveDesktopIconLayout(iconLayout desktopIconLayout) (foldersDoc, error) {
+	doc, err := svc.readFolders()
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	normalized, err := normalizeDesktopIconLayout(iconLayout, false)
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	doc.Desktop.IconLayout = normalized
+	if err := svc.writeFolders(doc); err != nil {
+		return foldersDoc{}, err
+	}
+	return svc.readFolders()
+}
+
 func (svc *service) importAsset(kind string, sourcePath string) (desktopAsset, error) {
 	kind = strings.TrimSpace(kind)
 	assetSubdir := ""
@@ -1157,12 +1249,12 @@ func defaultFoldersDoc() foldersDoc {
 		Groups:        []folderGroup{{ID: defaultGroupID, Name: "默认"}},
 		Items:         []folderItem{},
 		Containers:    []desktopContainer{},
-		Desktop:       desktopState{},
+		Desktop:       desktopState{IconLayout: defaultDesktopIconLayout()},
 		UpdatedAt:     nowText(),
 	}
 }
 
-func normalizeFoldersDoc(doc foldersDoc) foldersDoc {
+func normalizeFoldersDoc(doc foldersDoc, allowEmptyDesktopIconLayout bool) (foldersDoc, error) {
 	groups := []folderGroup{{ID: defaultGroupID, Name: "默认"}}
 	seen := map[string]bool{defaultGroupID: true}
 	for _, group := range doc.Groups {
@@ -1201,7 +1293,10 @@ func normalizeFoldersDoc(doc foldersDoc) foldersDoc {
 		items = append(items, item)
 		itemIDs[item.ID] = true
 	}
-	desktop := normalizeDesktopState(doc.Desktop)
+	desktop, err := normalizeDesktopState(doc.Desktop, allowEmptyDesktopIconLayout)
+	if err != nil {
+		return foldersDoc{}, err
+	}
 	return foldersDoc{
 		SchemaVersion: dataSchemaVersion,
 		DataVersion:   dataVersion,
@@ -1210,7 +1305,7 @@ func normalizeFoldersDoc(doc foldersDoc) foldersDoc {
 		Containers:    containers,
 		Desktop:       desktop,
 		UpdatedAt:     firstNonEmpty(doc.UpdatedAt, nowText()),
-	}
+	}, nil
 }
 
 func normalizeGroup(raw folderGroup, allowGeneratedID bool) (folderGroup, error) {
@@ -1324,12 +1419,49 @@ func normalizeDesktopContainer(raw desktopContainer, allowNewID bool) (desktopCo
 	return desktopContainer{ID: id, Name: name, CreatedAt: createdAtText, UpdatedAt: updatedAtText, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt, Layout: layout}, nil
 }
 
-func normalizeDesktopState(raw desktopState) desktopState {
+func normalizeDesktopState(raw desktopState, allowEmptyIconLayout bool) (desktopState, error) {
 	wallpaper, err := validateDesktopWallpaper(raw.Wallpaper)
 	if err != nil {
 		wallpaper = nil
 	}
-	return desktopState{Wallpaper: wallpaper}
+	iconLayout, err := normalizeDesktopIconLayout(raw.IconLayout, allowEmptyIconLayout)
+	if err != nil {
+		return desktopState{}, err
+	}
+	return desktopState{Wallpaper: wallpaper, IconLayout: iconLayout}, nil
+}
+
+func defaultDesktopIconLayout() desktopIconLayout {
+	return desktopIconLayout{RowGap: defaultDesktopIconGap, ColumnGap: defaultDesktopIconGap, IconScale: 1}
+}
+
+func hasLegacyDesktopIconRowCountLayout(raw desktopIconLayout) bool {
+	return raw.RowCount != 0 && raw.RowGap == 0 && raw.ColumnGap == 0 && raw.IconScale != 0
+}
+
+func normalizeDesktopIconLayout(raw desktopIconLayout, allowEmptyDefault bool) (desktopIconLayout, error) {
+	rowGap := raw.RowGap
+	if rowGap == 0 && allowEmptyDefault {
+		rowGap = defaultDesktopIconGap
+	}
+	if rowGap < minDesktopIconGap || rowGap > maxDesktopIconGap {
+		return desktopIconLayout{}, fmt.Errorf("desktop icon row gap must be between %d and %d", minDesktopIconGap, maxDesktopIconGap)
+	}
+	columnGap := raw.ColumnGap
+	if columnGap == 0 && allowEmptyDefault {
+		columnGap = defaultDesktopIconGap
+	}
+	if columnGap < minDesktopIconGap || columnGap > maxDesktopIconGap {
+		return desktopIconLayout{}, fmt.Errorf("desktop icon column gap must be between %d and %d", minDesktopIconGap, maxDesktopIconGap)
+	}
+	iconScale := raw.IconScale
+	if iconScale == 0 && allowEmptyDefault {
+		iconScale = 1
+	}
+	if iconScale < minDesktopIconScale || iconScale > maxDesktopIconScale {
+		return desktopIconLayout{}, fmt.Errorf("desktop icon scale must be between %.2f and %.2f", minDesktopIconScale, maxDesktopIconScale)
+	}
+	return desktopIconLayout{RowGap: rowGap, ColumnGap: columnGap, IconScale: float64(int(iconScale*100+0.5)) / 100}, nil
 }
 
 func validateDesktopWallpaper(raw *desktopWallpaper) (*desktopWallpaper, error) {

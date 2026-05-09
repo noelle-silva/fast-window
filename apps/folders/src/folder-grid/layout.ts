@@ -1,22 +1,15 @@
 import type { FolderGridLayout } from '../types'
-import {
-  FOLDER_GRID_CELL_HEIGHT,
-  FOLDER_GRID_CELL_WIDTH,
-  FOLDER_GRID_ITEM_HEIGHT,
-  FOLDER_GRID_ITEM_WIDTH,
-  FOLDER_GRID_MAX_COORD,
-  FOLDER_GRID_MIN_HEIGHT,
-  FOLDER_GRID_PADDING,
-} from './constants'
+import { FOLDER_GRID_MAX_COORD } from './constants'
+import { DEFAULT_FOLDER_GRID_METRICS, type FolderGridMetrics } from './iconLayout'
 
 export type FolderGridLayoutMap = Map<string, FolderGridLayout>
 export type FolderGridLayoutPatch = { id: string; layout: FolderGridLayout }
 export type FolderGridPixelRect = { left: number; top: number; width: number; height: number }
 export type FolderGridLayoutSource = { id: string; layout?: FolderGridLayout }
 
-export function getFolderGridColumnCount(containerWidth: number): number {
-  const usableWidth = Math.max(FOLDER_GRID_ITEM_WIDTH, Math.floor(containerWidth) - FOLDER_GRID_PADDING * 2)
-  return Math.max(1, Math.floor((usableWidth + FOLDER_GRID_CELL_WIDTH - FOLDER_GRID_ITEM_WIDTH) / FOLDER_GRID_CELL_WIDTH))
+export function getFolderGridColumnCount(containerWidth: number, metrics: FolderGridMetrics = DEFAULT_FOLDER_GRID_METRICS): number {
+  const usableWidth = Math.max(metrics.itemWidth, Math.floor(containerWidth) - metrics.padding * 2)
+  return Math.max(1, Math.floor((usableWidth + metrics.cellWidth - metrics.itemWidth) / metrics.cellWidth))
 }
 
 export function normalizeFolderGridLayout(layout: Partial<FolderGridLayout> | null | undefined, columnCount: number): FolderGridLayout {
@@ -102,27 +95,27 @@ export function resolveFolderGridDragLayout(
   return nextLayouts
 }
 
-export function getFolderGridPixelRect(layout: FolderGridLayout): FolderGridPixelRect {
+export function getFolderGridPixelRect(layout: FolderGridLayout, metrics: FolderGridMetrics = DEFAULT_FOLDER_GRID_METRICS): FolderGridPixelRect {
   return {
-    left: FOLDER_GRID_PADDING + layout.x * FOLDER_GRID_CELL_WIDTH,
-    top: FOLDER_GRID_PADDING + layout.y * FOLDER_GRID_CELL_HEIGHT,
-    width: FOLDER_GRID_ITEM_WIDTH,
-    height: FOLDER_GRID_ITEM_HEIGHT,
+    left: metrics.padding + layout.x * metrics.cellWidth,
+    top: metrics.padding + layout.y * metrics.cellHeight,
+    width: metrics.itemWidth,
+    height: metrics.itemHeight,
   }
 }
 
-export function getFolderGridLayoutFromPixel(left: number, top: number, columnCount: number): FolderGridLayout {
+export function getFolderGridLayoutFromPixel(left: number, top: number, columnCount: number, metrics: FolderGridMetrics = DEFAULT_FOLDER_GRID_METRICS): FolderGridLayout {
   return normalizeFolderGridLayout({
-    x: Math.round((left - FOLDER_GRID_PADDING) / FOLDER_GRID_CELL_WIDTH),
-    y: Math.round((top - FOLDER_GRID_PADDING) / FOLDER_GRID_CELL_HEIGHT),
+    x: Math.round((left - metrics.padding) / metrics.cellWidth),
+    y: Math.round((top - metrics.padding) / metrics.cellHeight),
   }, columnCount)
 }
 
-export function getFolderGridCanvasHeight(layouts: Iterable<FolderGridLayout>): number {
-  let maxBottom = FOLDER_GRID_MIN_HEIGHT
+export function getFolderGridCanvasHeight(layouts: Iterable<FolderGridLayout>, metrics: FolderGridMetrics = DEFAULT_FOLDER_GRID_METRICS): number {
+  let maxBottom = metrics.minHeight
   for (const layout of layouts) {
-    const rect = getFolderGridPixelRect(layout)
-    maxBottom = Math.max(maxBottom, rect.top + rect.height + FOLDER_GRID_PADDING)
+    const rect = getFolderGridPixelRect(layout, metrics)
+    maxBottom = Math.max(maxBottom, rect.top + rect.height + metrics.padding)
   }
   return maxBottom
 }

@@ -50,6 +50,56 @@ func TestMigratesLegacyWrappedFoldersData(t *testing.T) {
 	}
 }
 
+func TestMigratesDesktopIconLayoutSettings(t *testing.T) {
+	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
+	svc, err := newService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"schemaVersion":1,"dataVersion":6,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{},"updatedAt":"2026-01-01T00:00:00Z"}`
+	if err := os.MkdirAll(svc.dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ensureReady(); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := svc.readFolders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.DataVersion != dataVersion || doc.Desktop.IconLayout.RowGap != defaultDesktopIconGap || doc.Desktop.IconLayout.ColumnGap != defaultDesktopIconGap || doc.Desktop.IconLayout.IconScale != 1 {
+		t.Fatalf("expected migrated desktop icon layout: %#v", doc)
+	}
+}
+
+func TestMigratesLegacyDesktopIconRowCountLayout(t *testing.T) {
+	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
+	svc, err := newService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"schemaVersion":1,"dataVersion":7,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowCount":3,"iconScale":1.2}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	if err := os.MkdirAll(svc.dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ensureReady(); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := svc.readFolders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Desktop.IconLayout.RowGap != defaultDesktopIconGap || doc.Desktop.IconLayout.ColumnGap != defaultDesktopIconGap || doc.Desktop.IconLayout.IconScale != 1.2 || doc.Desktop.IconLayout.RowCount != 0 {
+		t.Fatalf("expected legacy row-count layout to migrate to gaps: %#v", doc.Desktop.IconLayout)
+	}
+}
+
 func TestFoldersRoundTrip(t *testing.T) {
 	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
 	svc, err := newService()
@@ -278,6 +328,78 @@ func TestDesktopWallpaperRoundTrip(t *testing.T) {
 	}
 	if doc.Desktop.Wallpaper != nil {
 		t.Fatalf("expected wallpaper to be cleared: %#v", doc.Desktop.Wallpaper)
+	}
+}
+
+func TestDesktopIconLayoutRoundTrip(t *testing.T) {
+	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
+	svc, err := newService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ensureReady(); err != nil {
+		t.Fatal(err)
+	}
+
+	doc, err := svc.readFolders()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Desktop.IconLayout.RowGap != defaultDesktopIconGap || doc.Desktop.IconLayout.ColumnGap != defaultDesktopIconGap || doc.Desktop.IconLayout.IconScale != 1 {
+		t.Fatalf("expected default desktop icon layout: %#v", doc.Desktop.IconLayout)
+	}
+
+	doc, err = svc.saveDesktopIconLayout(desktopIconLayout{RowGap: 52, ColumnGap: 64, IconScale: 1.2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Desktop.IconLayout.RowGap != 52 || doc.Desktop.IconLayout.ColumnGap != 64 || doc.Desktop.IconLayout.IconScale != 1.2 {
+		t.Fatalf("unexpected desktop icon layout: %#v", doc.Desktop.IconLayout)
+	}
+	if _, err := svc.saveDesktopIconLayout(desktopIconLayout{RowGap: -2, ColumnGap: 38, IconScale: 1}); err == nil {
+		t.Fatal("expected negative row gap to fail")
+	}
+	if _, err := svc.saveDesktopIconLayout(desktopIconLayout{RowGap: 38, ColumnGap: 80, IconScale: 1}); err == nil {
+		t.Fatal("expected too large column gap to fail")
+	}
+	if _, err := svc.saveDesktopIconLayout(desktopIconLayout{RowGap: 38, ColumnGap: 38, IconScale: 2}); err == nil {
+		t.Fatal("expected too large icon scale to fail")
+	}
+}
+
+func TestDesktopIconLayoutInvalidPersistedDataFails(t *testing.T) {
+	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
+	svc, err := newService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid := `{"schemaVersion":1,"dataVersion":7,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":-2,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	if err := os.MkdirAll(svc.dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(invalid), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ensureReady(); err == nil {
+		t.Fatal("expected invalid persisted desktop icon layout to fail")
+	}
+}
+
+func TestDesktopIconLayoutMissingNewVersionFieldFails(t *testing.T) {
+	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
+	svc, err := newService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid := `{"schemaVersion":1,"dataVersion":7,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	if err := os.MkdirAll(svc.dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(invalid), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ensureReady(); err == nil {
+		t.Fatal("expected missing new-version desktop icon layout field to fail")
 	}
 }
 

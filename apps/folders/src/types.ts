@@ -28,7 +28,9 @@ export type DesktopIcon =
 
 export type DesktopWallpaper = { assetId: string }
 
-export type DesktopState = { wallpaper?: DesktopWallpaper }
+export type DesktopIconLayout = { rowGap: number; columnGap: number; iconScale: number }
+
+export type DesktopState = { wallpaper?: DesktopWallpaper; iconLayout: DesktopIconLayout }
 
 export type DesktopContainer = {
   id: string

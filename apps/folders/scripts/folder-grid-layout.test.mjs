@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert'
 import { describe, it } from 'node:test'
 
 import { FOLDER_GRID_CELL_WIDTH, FOLDER_GRID_ITEM_WIDTH, FOLDER_GRID_PADDING } from '../src/folder-grid/constants.ts'
+import { createFolderGridMetrics } from '../src/folder-grid/iconLayout.ts'
 import {
   buildFolderGridLayoutMap,
   diffFolderGridLayouts,
@@ -24,7 +25,8 @@ function item(id, x, y) {
   }
 }
 
-function canvasWidthForColumns(columnCount) {
+function canvasWidthForColumns(columnCount, metrics) {
+  if (metrics) return metrics.padding * 2 + metrics.itemWidth + metrics.cellWidth * (columnCount - 1)
   return FOLDER_GRID_PADDING * 2 + FOLDER_GRID_ITEM_WIDTH + FOLDER_GRID_CELL_WIDTH * (columnCount - 1)
 }
 
@@ -32,6 +34,19 @@ describe('folder grid layout', () => {
   it('computes multiple columns from the rendered canvas width', () => {
     assert.equal(getFolderGridColumnCount(0), 1)
     assert.equal(getFolderGridColumnCount(canvasWidthForColumns(4)), 4)
+  })
+
+  it('uses icon scale and column gap metrics when computing columns', () => {
+    const compactMetrics = createFolderGridMetrics({ rowGap: 38, columnGap: 24, iconScale: 0.8 })
+    const spaciousMetrics = createFolderGridMetrics({ rowGap: 38, columnGap: 72, iconScale: 1.3 })
+    assert.equal(getFolderGridColumnCount(canvasWidthForColumns(4, compactMetrics), compactMetrics), 4)
+    assert.ok(getFolderGridColumnCount(canvasWidthForColumns(4, compactMetrics), spaciousMetrics) < 4)
+  })
+
+  it('uses the configured row gap when converting vertical pixels', () => {
+    const metrics = createFolderGridMetrics({ rowGap: 64, columnGap: 38, iconScale: 1 })
+    const layout = getFolderGridLayoutFromPixel(metrics.padding, metrics.padding + metrics.cellHeight * 4, 4, metrics)
+    assert.equal(layout.y, 4)
   })
 
   it('converts horizontal pixels into grid columns', () => {

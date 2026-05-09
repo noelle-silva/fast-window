@@ -8,7 +8,6 @@ import Muuri, {
   type LayoutFunction,
 } from 'muuri'
 import type { FolderGridLayout } from '../types'
-import { FOLDER_GRID_MIN_HEIGHT, FOLDER_GRID_PADDING } from './constants'
 import {
   buildFolderGridLayoutMap,
   diffFolderGridLayouts,
@@ -20,6 +19,7 @@ import {
   type FolderGridLayoutPatch,
   type FolderGridLayoutSource,
 } from './layout'
+import { DEFAULT_FOLDER_GRID_METRICS, type FolderGridMetrics } from './iconLayout'
 
 const MUURI_ITEM_CLASS = 'folders-grid-muuri-item'
 const MUURI_ITEM_SELECTOR = `.${MUURI_ITEM_CLASS}`
@@ -39,6 +39,7 @@ type PendingPreview = { itemId: string; targetLayout: FolderGridLayout }
 
 type Options = {
   items: FolderGridLayoutSource[]
+  metrics?: FolderGridMetrics
   renderedItemIds?: string[]
   onCommit(patches: FolderGridLayoutPatch[]): void
   onDragCancel?(event: FolderGridDragEvent): void
@@ -51,18 +52,19 @@ function muuriItemId(item: MuuriItem): string {
   return String(item.getElement()?.dataset.entryKey || '').trim()
 }
 
-function createMuuriLayout(layoutsRef: React.MutableRefObject<FolderGridLayoutMap>): LayoutFunction {
+function createMuuriLayout(layoutsRef: React.MutableRefObject<FolderGridLayoutMap>, metricsRef: React.MutableRefObject<FolderGridMetrics>): LayoutFunction {
   return (_grid, layoutId, items, _width, _height, callback) => {
     const slots: number[] = []
-    let maxBottom = FOLDER_GRID_MIN_HEIGHT
+    const metrics = metricsRef.current
+    let maxBottom = metrics.minHeight
 
     for (const item of items) {
       const itemId = muuriItemId(item)
       const layout = layoutsRef.current.get(itemId)
       const position = item.getPosition()
-      const rect = layout ? getFolderGridPixelRect(layout) : { left: position.left, top: position.top, width: item.getWidth(), height: item.getHeight() }
+      const rect = layout ? getFolderGridPixelRect(layout, metrics) : { left: position.left, top: position.top, width: item.getWidth(), height: item.getHeight() }
       slots.push(rect.left, rect.top)
-      maxBottom = Math.max(maxBottom, rect.top + rect.height + FOLDER_GRID_PADDING)
+      maxBottom = Math.max(maxBottom, rect.top + rect.height + metrics.padding)
     }
 
     callback({
@@ -149,6 +151,7 @@ function toDragEvent(session: DragSession, clientX: number, clientY: number, tar
 
 export function useMuuriFolderGrid(options: Options) {
   const { items, renderedItemIds, onCommit, onDragCancel, onDragEnd, onDragMove, onDragStart } = options
+  const metrics = options.metrics || DEFAULT_FOLDER_GRID_METRICS
   const [gridNode, setGridNode] = React.useState<HTMLDivElement | null>(null)
   const [containerWidth, setContainerWidth] = React.useState(0)
   const [draggingId, setDraggingId] = React.useState<string | null>(null)
@@ -159,9 +162,11 @@ export function useMuuriFolderGrid(options: Options) {
   const pendingPreviewRef = React.useRef<PendingPreview | null>(null)
   const latestPreviewRef = React.useRef<FolderGridLayoutMap | null>(null)
   const activeLayoutsRef = React.useRef<FolderGridLayoutMap>(new Map())
+  const metricsRef = React.useRef(metrics)
   const suppressClickRef = React.useRef<string | null>(null)
-  const layout = React.useMemo(() => createMuuriLayout(activeLayoutsRef), [])
-  const columnCount = React.useMemo(() => getFolderGridColumnCount(containerWidth), [containerWidth])
+  metricsRef.current = metrics
+  const layout = React.useMemo(() => createMuuriLayout(activeLayoutsRef, metricsRef), [])
+  const columnCount = React.useMemo(() => getFolderGridColumnCount(containerWidth, metrics), [containerWidth, metrics])
   const baseLayouts = React.useMemo(() => buildFolderGridLayoutMap(items, columnCount), [columnCount, items])
   const activeLayouts = previewLayouts || baseLayouts
   activeLayoutsRef.current = activeLayouts
@@ -174,8 +179,8 @@ export function useMuuriFolderGrid(options: Options) {
   )
   const itemSignature = React.useMemo(() => items.map(item => item.id).join('|'), [items])
   const renderedItemSignature = React.useMemo(() => (renderedItemIds || items.map(item => item.id)).join('|'), [items, renderedItemIds])
-  const liveRef = React.useRef({ items, columnCount, baseLayouts, onCommit, onDragCancel, onDragEnd, onDragMove, onDragStart })
-  liveRef.current = { items, columnCount, baseLayouts, onCommit, onDragCancel, onDragEnd, onDragMove, onDragStart }
+  const liveRef = React.useRef({ items, columnCount, baseLayouts, metrics, onCommit, onDragCancel, onDragEnd, onDragMove, onDragStart })
+  liveRef.current = { items, columnCount, baseLayouts, metrics, onCommit, onDragCancel, onDragEnd, onDragMove, onDragStart }
 
   React.useLayoutEffect(() => {
     if (!gridNode) {
@@ -204,7 +209,7 @@ export function useMuuriFolderGrid(options: Options) {
     pendingPreviewRef.current = null
     setPreviewLayouts(null)
     setDraggingId(null)
-  }, [baseLayouts])
+  }, [baseLayouts, metrics.signature])
 
   const cancelPreviewFrame = React.useCallback(() => {
     if (previewFrameRef.current == null) return
@@ -288,6 +293,7 @@ export function useMuuriFolderGrid(options: Options) {
         (itemRect?.left ?? event.clientX - dragSession.offsetX) - gridRect.left,
         (itemRect?.top ?? event.clientY - dragSession.offsetY) - gridRect.top,
         current.columnCount,
+        current.metrics,
       )
       liveRef.current.onDragMove?.(toDragEvent(dragSession, event.clientX, event.clientY, targetLayout))
       schedulePreview(dragSession.itemId, targetLayout)
@@ -353,11 +359,11 @@ export function useMuuriFolderGrid(options: Options) {
     syncMuuriItemsWithRenderedElements(grid, gridNode, expectedItemIds)
     grid.synchronize()
     grid.refreshItems().layout(true)
-  }, [draggingId, gridNode, itemSignature, renderedItemSignature])
+  }, [draggingId, gridNode, itemSignature, metrics.signature, renderedItemSignature])
 
   React.useLayoutEffect(() => {
     gridInstanceRef.current?.layout()
-  }, [draggingId, positionSignature])
+  }, [draggingId, metrics.signature, positionSignature])
 
   const consumeSuppressedClick = React.useCallback((itemId: string): boolean => {
     if (suppressClickRef.current !== itemId) return false
