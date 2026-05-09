@@ -27,7 +27,7 @@ import (
 
 const (
 	dataSchemaVersion      = 1
-	dataVersion            = 5
+	dataVersion            = 6
 	dataFile               = "data.json"
 	foldersFile            = "folders.json"
 	metaFile               = "_meta.json"
@@ -67,17 +67,18 @@ type folderGroup struct {
 }
 
 type folderItem struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Path        string            `json:"path"`
-	GroupID     string            `json:"groupId"`
-	ContainerID string            `json:"containerId,omitempty"`
-	CreatedAt   string            `json:"createdAt"`
-	UpdatedAt   string            `json:"updatedAt"`
-	CreatedAtMS int64             `json:"createdAtMs"`
-	UpdatedAtMS int64             `json:"updatedAtMs"`
-	Layout      *folderGridLayout `json:"layout,omitempty"`
-	Icon        *desktopIcon      `json:"icon,omitempty"`
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	Path            string            `json:"path"`
+	GroupID         string            `json:"groupId"`
+	ContainerID     string            `json:"containerId,omitempty"`
+	CreatedAt       string            `json:"createdAt"`
+	UpdatedAt       string            `json:"updatedAt"`
+	CreatedAtMS     int64             `json:"createdAtMs"`
+	UpdatedAtMS     int64             `json:"updatedAtMs"`
+	Layout          *folderGridLayout `json:"layout,omitempty"`
+	ContainerLayout *folderGridLayout `json:"containerLayout,omitempty"`
+	Icon            *desktopIcon      `json:"icon,omitempty"`
 }
 
 type folderGridLayout struct {
@@ -89,6 +90,17 @@ type desktopLayoutPatch struct {
 	Kind   string           `json:"kind"`
 	ID     string           `json:"id"`
 	Layout folderGridLayout `json:"layout"`
+}
+
+type containerLayoutPatch struct {
+	ID     string           `json:"id"`
+	Layout folderGridLayout `json:"layout"`
+}
+
+type containerItemsPlacement struct {
+	ContainerID string                 `json:"containerId"`
+	MovedID     string                 `json:"movedId,omitempty"`
+	Items       []containerLayoutPatch `json:"items"`
 }
 
 type desktopIcon struct {
@@ -339,6 +351,12 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 			return nil, fmt.Errorf("invalid item container payload: %w", err)
 		}
 		return svc.saveItemContainer(payload.IDs, payload.ContainerID)
+	case "folders.container.items.place":
+		var payload containerItemsPlacement
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid container placement payload: %w", err)
+		}
+		return svc.placeContainerItems(payload)
 	case "folders.icon.save":
 		var payload struct {
 			Kind string       `json:"kind"`
@@ -543,6 +561,9 @@ func (svc *service) updateFolder(payload folderItem) (foldersDoc, error) {
 			item.ContainerID = doc.Items[i].ContainerID
 			if item.Layout == nil {
 				item.Layout = doc.Items[i].Layout
+			}
+			if item.ContainerLayout == nil {
+				item.ContainerLayout = doc.Items[i].ContainerLayout
 			}
 			if item.Icon == nil {
 				item.Icon = doc.Items[i].Icon
@@ -756,6 +777,7 @@ func (svc *service) removeContainer(id string) (foldersDoc, error) {
 	for i := range doc.Items {
 		if doc.Items[i].ContainerID == id {
 			doc.Items[i].ContainerID = ""
+			doc.Items[i].ContainerLayout = nil
 			doc.Items[i].UpdatedAtMS = now
 			doc.Items[i].UpdatedAt = nowString
 		}
@@ -794,6 +816,9 @@ func (svc *service) saveItemContainer(ids []string, containerID string) (folders
 		if !updates[doc.Items[i].ID] {
 			continue
 		}
+		if doc.Items[i].ContainerID != containerID {
+			doc.Items[i].ContainerLayout = nil
+		}
 		doc.Items[i].ContainerID = containerID
 		doc.Items[i].UpdatedAtMS = now
 		doc.Items[i].UpdatedAt = nowString
@@ -804,6 +829,82 @@ func (svc *service) saveItemContainer(ids []string, containerID string) (folders
 			return foldersDoc{}, fmt.Errorf("folder not found: %s", id)
 		}
 	}
+	if err := svc.writeFolders(doc); err != nil {
+		return foldersDoc{}, err
+	}
+	return svc.readFolders()
+}
+
+func (svc *service) placeContainerItems(payload containerItemsPlacement) (foldersDoc, error) {
+	containerID := strings.TrimSpace(payload.ContainerID)
+	movedID := strings.TrimSpace(payload.MovedID)
+	if containerID == "" {
+		return foldersDoc{}, errors.New("container id is required")
+	}
+	if len(payload.Items) == 0 {
+		if movedID == "" {
+			return svc.readFolders()
+		}
+		return foldersDoc{}, errors.New("moved folder layout is required")
+	}
+
+	doc, err := svc.readFolders()
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	if !hasContainer(doc.Containers, containerID) {
+		return foldersDoc{}, fmt.Errorf("container not found: %s", containerID)
+	}
+
+	placements := make(map[string]folderGridLayout, len(payload.Items))
+	for _, item := range payload.Items {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			return foldersDoc{}, errors.New("folder id is required")
+		}
+		if _, exists := placements[id]; exists {
+			return foldersDoc{}, fmt.Errorf("duplicate folder placement: %s", id)
+		}
+		placements[id] = normalizeGridLayout(item.Layout)
+	}
+	if movedID != "" {
+		if _, exists := placements[movedID]; !exists {
+			return foldersDoc{}, errors.New("moved folder layout is required")
+		}
+	}
+
+	now := time.Now().UnixMilli()
+	nowString := nowText()
+	found := make(map[string]bool, len(placements))
+	movedFound := movedID == ""
+	for i := range doc.Items {
+		id := doc.Items[i].ID
+		if id == movedID {
+			doc.Items[i].ContainerID = containerID
+			movedFound = true
+		}
+		layout, shouldPlace := placements[id]
+		if !shouldPlace {
+			continue
+		}
+		if doc.Items[i].ContainerID != containerID {
+			return foldersDoc{}, fmt.Errorf("folder is not in container %s: %s", containerID, id)
+		}
+		layoutCopy := layout
+		doc.Items[i].ContainerLayout = &layoutCopy
+		doc.Items[i].UpdatedAtMS = now
+		doc.Items[i].UpdatedAt = nowString
+		found[id] = true
+	}
+	if !movedFound {
+		return foldersDoc{}, fmt.Errorf("folder not found: %s", movedID)
+	}
+	for id := range placements {
+		if !found[id] {
+			return foldersDoc{}, fmt.Errorf("folder not found: %s", id)
+		}
+	}
+
 	if err := svc.writeFolders(doc); err != nil {
 		return foldersDoc{}, err
 	}
@@ -1094,6 +1195,9 @@ func normalizeFoldersDoc(doc foldersDoc) foldersDoc {
 		if item.ContainerID != "" && !containerIDs[item.ContainerID] {
 			item.ContainerID = ""
 		}
+		if item.ContainerID == "" {
+			item.ContainerLayout = nil
+		}
 		items = append(items, item)
 		itemIDs[item.ID] = true
 	}
@@ -1170,11 +1274,16 @@ func normalizeFolderItem(raw folderItem, groups []folderGroup, allowNewID bool) 
 		normalizedLayout := normalizeGridLayout(*raw.Layout)
 		itemLayout = &normalizedLayout
 	}
+	var containerLayout *folderGridLayout
+	if raw.ContainerLayout != nil {
+		normalizedLayout := normalizeGridLayout(*raw.ContainerLayout)
+		containerLayout = &normalizedLayout
+	}
 	icon, err := validateDesktopIcon(raw.Icon)
 	if err != nil {
 		return folderItem{}, err
 	}
-	return folderItem{ID: id, Name: name, Path: path, GroupID: groupID, ContainerID: strings.TrimSpace(raw.ContainerID), CreatedAt: createdAtText, UpdatedAt: updatedAtText, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt, Layout: itemLayout, Icon: icon}, nil
+	return folderItem{ID: id, Name: name, Path: path, GroupID: groupID, ContainerID: strings.TrimSpace(raw.ContainerID), CreatedAt: createdAtText, UpdatedAt: updatedAtText, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt, Layout: itemLayout, ContainerLayout: containerLayout, Icon: icon}, nil
 }
 
 func normalizeDesktopContainer(raw desktopContainer, allowNewID bool) (desktopContainer, error) {

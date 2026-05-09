@@ -1,23 +1,23 @@
 import * as React from 'react'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
-import RemoveCircleOutlineRoundedIcon from '@mui/icons-material/RemoveCircleOutlineRounded'
-import { Box, Button, ButtonBase, IconButton, Stack, Typography } from '@mui/material'
-import { DesktopIconVisual } from './folder-grid/DesktopIconVisual'
+import { Box, Button, IconButton, Stack, Typography } from '@mui/material'
+import { ContainerGridCanvas, type ContainerGridApi, type ContainerGridPlacement } from './folder-grid/ContainerGridCanvas'
 import { DESKTOP_ICON_TITLE_SHADOW } from './folder-grid/desktopIconTokens'
-import type { DesktopContainer, FolderItem, FoldersDoc } from './types'
+import type { DesktopContainer, FolderGridLayout, FolderItem, FoldersDoc } from './types'
 
 type Props = {
   assetUrl?(assetId: string): string
   container: DesktopContainer | null
+  dropTargetActive?: boolean
   doc: FoldersDoc
   onClose(): void
   onEdit(container: DesktopContainer): void
+  onLayoutCommit(patches: ContainerGridPlacement[]): void
   onOpenFolder(item: FolderItem): void
   onRemoveItem(item: FolderItem): void
+  onGridReady?(api: ContainerGridApi | null): void
 }
-
-const OVERLAY_ICON_SIZE = 86
 
 export function ContainerFolderOverlay(props: Props): React.ReactNode {
   const container = props.container
@@ -107,97 +107,23 @@ export function ContainerFolderOverlay(props: Props): React.ReactNode {
           WebkitBackdropFilter: 'blur(28px) saturate(1.04)',
         }}
       >
-        {items.length ? (
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(128px, 1fr))',
-              gap: { xs: 2.5, sm: 4.5 },
-              alignItems: 'start',
-            }}
-          >
-            {items.map(item => (
-              <ContainerFolderItem
-                key={item.id}
-                assetUrl={props.assetUrl}
-                item={item}
-                onOpen={() => props.onOpenFolder(item)}
-                onRemove={() => props.onRemoveItem(item)}
-              />
-            ))}
-          </Box>
+        {items.length || props.dropTargetActive ? (
+          <ContainerGridCanvas
+            assetUrl={props.assetUrl}
+            dropTargetActive={props.dropTargetActive}
+            items={items}
+            onLayoutCommit={props.onLayoutCommit}
+            onOpenFolder={props.onOpenFolder}
+            onRemoveItem={props.onRemoveItem}
+            onReady={props.onGridReady}
+          />
         ) : (
           <Stack spacing={1.5} alignItems="center" justifyContent="center" sx={{ minHeight: 220, textAlign: 'center' }}>
             <Typography variant="h2" color="text.primary">这个收纳夹还是空的</Typography>
-            <Typography color="text.secondary">可以在编辑收纳夹时选择要收纳的文件夹。</Typography>
+            <Typography color="text.secondary">把桌面文件夹拖到这个收纳夹上停留，即可展开并放入。</Typography>
           </Stack>
         )}
       </Box>
-    </Box>
-  )
-}
-
-function ContainerFolderItem(props: { assetUrl?(assetId: string): string; item: FolderItem; onOpen(): void; onRemove(): void }) {
-  return (
-    <Box
-      sx={{
-        position: 'relative',
-        display: 'grid',
-        justifyItems: 'center',
-        gap: 1,
-        minWidth: 0,
-        '&:hover .container-folder-remove, &:focus-within .container-folder-remove': { opacity: 1, transform: 'translateY(0) scale(1)' },
-      }}
-    >
-      <ButtonBase
-        onClick={props.onOpen}
-        aria-label={`打开：${props.item.name}`}
-        sx={{
-          width: 122,
-          display: 'grid',
-          justifyItems: 'center',
-          gap: 1,
-          p: 0.5,
-          borderRadius: 5,
-          textAlign: 'center',
-          '&:focus-visible': { outline: '2px solid rgba(37, 99, 235, 0.75)', outlineOffset: 4 },
-        }}
-      >
-        <DesktopIconVisual
-          assetUrl={props.assetUrl}
-          icon={props.item.icon}
-          seed={`folder:${props.item.id}:${props.item.name}`}
-          size={OVERLAY_ICON_SIZE}
-          radius={24}
-        />
-        <Box sx={{ minWidth: 0, width: '100%' }}>
-          <Typography noWrap fontWeight={850} title={props.item.name} sx={{ color: 'text.primary', fontSize: 15 }}>
-            {props.item.name}
-          </Typography>
-          <Typography noWrap title={props.item.path} variant="caption" sx={{ display: 'block', color: 'rgba(15, 23, 42, 0.45)', mt: 0.2 }}>
-            {props.item.path}
-          </Typography>
-        </Box>
-      </ButtonBase>
-      <IconButton
-        className="container-folder-remove"
-        aria-label={`移出收纳夹：${props.item.name}`}
-        onClick={props.onRemove}
-        size="small"
-        sx={{
-          position: 'absolute',
-          top: -7,
-          right: 16,
-          opacity: { xs: 1, sm: 0 },
-          transform: { xs: 'translateY(0) scale(1)', sm: 'translateY(-4px) scale(0.92)' },
-          transition: 'opacity .16s ease, transform .16s ease, background-color .16s ease',
-          bgcolor: 'rgba(255, 255, 255, 0.92)',
-          boxShadow: '0 10px 22px rgba(15, 23, 42, 0.16)',
-          '&:hover': { bgcolor: '#FFFFFF', color: 'error.main' },
-        }}
-      >
-        <RemoveCircleOutlineRoundedIcon fontSize="small" />
-      </IconButton>
     </Box>
   )
 }

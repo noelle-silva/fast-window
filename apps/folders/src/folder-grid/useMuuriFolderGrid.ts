@@ -24,31 +24,43 @@ import {
 const MUURI_ITEM_CLASS = 'folders-grid-muuri-item'
 const MUURI_ITEM_SELECTOR = `.${MUURI_ITEM_CLASS}`
 
+export type FolderGridDragEvent = {
+  itemId: string
+  clientX: number
+  clientY: number
+  offsetX: number
+  offsetY: number
+  targetLayout?: FolderGridLayout
+}
+
 type DragSession = { itemId: string; offsetX: number; offsetY: number }
 
 type PendingPreview = { itemId: string; targetLayout: FolderGridLayout }
 
 type Options = {
   items: FolderGridLayoutSource[]
+  renderedItemIds?: string[]
   onCommit(patches: FolderGridLayoutPatch[]): void
+  onDragCancel?(event: FolderGridDragEvent): void
+  onDragEnd?(event: FolderGridDragEvent, patches: FolderGridLayoutPatch[]): boolean | void
+  onDragMove?(event: FolderGridDragEvent): void
+  onDragStart?(event: FolderGridDragEvent): void
 }
 
-function readLayoutNumber(el: HTMLElement | undefined, key: string): number {
-  const raw = Number(el?.dataset[key] ?? 0)
-  return Number.isFinite(raw) ? raw : 0
+function muuriItemId(item: MuuriItem): string {
+  return String(item.getElement()?.dataset.entryKey || '').trim()
 }
 
-function createMuuriLayout(): LayoutFunction {
+function createMuuriLayout(layoutsRef: React.MutableRefObject<FolderGridLayoutMap>): LayoutFunction {
   return (_grid, layoutId, items, _width, _height, callback) => {
     const slots: number[] = []
     let maxBottom = FOLDER_GRID_MIN_HEIGHT
 
     for (const item of items) {
-      const el = item.getElement()
-      const rect = getFolderGridPixelRect({
-        x: readLayoutNumber(el, 'layoutX'),
-        y: readLayoutNumber(el, 'layoutY'),
-      })
+      const itemId = muuriItemId(item)
+      const layout = layoutsRef.current.get(itemId)
+      const position = item.getPosition()
+      const rect = layout ? getFolderGridPixelRect(layout) : { left: position.left, top: position.top, width: item.getWidth(), height: item.getHeight() }
       slots.push(rect.left, rect.top)
       maxBottom = Math.max(maxBottom, rect.top + rect.height + FOLDER_GRID_PADDING)
     }
@@ -62,7 +74,7 @@ function createMuuriLayout(): LayoutFunction {
   }
 }
 
-function shouldStartDesktopIconDrag(item: MuuriItem, event: DraggerEvent): boolean | undefined {
+function shouldStartFolderGridDrag(item: MuuriItem, event: DraggerEvent): boolean | undefined {
   const options = { distance: 6, delay: 0 }
 
   if (event.isFinal) {
@@ -79,13 +91,15 @@ function getRenderedMuuriElements(containerNode: HTMLDivElement): HTMLElement[] 
   return Array.from(containerNode.children).filter((child): child is HTMLElement => child instanceof HTMLElement && child.classList.contains(MUURI_ITEM_CLASS))
 }
 
-function syncMuuriItemsWithRenderedElements(grid: Muuri, containerNode: HTMLDivElement): void {
+function syncMuuriItemsWithRenderedElements(grid: Muuri, containerNode: HTMLDivElement, expectedItemIds: string[]): void {
   const renderedElements = getRenderedMuuriElements(containerNode)
   const renderedElementSet = new Set(renderedElements)
+  const expectedItemIdSet = new Set(expectedItemIds)
 
   const staleItems = grid.getItems().filter(item => {
     const element = item.getElement()
-    return !element || !renderedElementSet.has(element)
+    const itemId = muuriItemId(item)
+    return !element || (!renderedElementSet.has(element) && !expectedItemIdSet.has(itemId))
   })
   if (staleItems.length) grid.remove(staleItems, { removeElements: false, layout: false })
 
@@ -122,8 +136,19 @@ function autoScrollDuringDrag(containerNode: HTMLElement, clientY: number): void
   if (delta) scrollEl.scrollTop += Math.trunc(delta)
 }
 
-export function useMuuriDesktopGrid(options: Options) {
-  const { items, onCommit } = options
+function toDragEvent(session: DragSession, clientX: number, clientY: number, targetLayout?: FolderGridLayout): FolderGridDragEvent {
+  return {
+    itemId: session.itemId,
+    clientX,
+    clientY,
+    offsetX: session.offsetX,
+    offsetY: session.offsetY,
+    targetLayout,
+  }
+}
+
+export function useMuuriFolderGrid(options: Options) {
+  const { items, renderedItemIds, onCommit, onDragCancel, onDragEnd, onDragMove, onDragStart } = options
   const [gridNode, setGridNode] = React.useState<HTMLDivElement | null>(null)
   const [containerWidth, setContainerWidth] = React.useState(0)
   const [draggingId, setDraggingId] = React.useState<string | null>(null)
@@ -133,11 +158,13 @@ export function useMuuriDesktopGrid(options: Options) {
   const previewFrameRef = React.useRef<number | null>(null)
   const pendingPreviewRef = React.useRef<PendingPreview | null>(null)
   const latestPreviewRef = React.useRef<FolderGridLayoutMap | null>(null)
+  const activeLayoutsRef = React.useRef<FolderGridLayoutMap>(new Map())
   const suppressClickRef = React.useRef<string | null>(null)
-  const layout = React.useMemo(() => createMuuriLayout(), [])
+  const layout = React.useMemo(() => createMuuriLayout(activeLayoutsRef), [])
   const columnCount = React.useMemo(() => getFolderGridColumnCount(containerWidth), [containerWidth])
   const baseLayouts = React.useMemo(() => buildFolderGridLayoutMap(items, columnCount), [columnCount, items])
   const activeLayouts = previewLayouts || baseLayouts
+  activeLayoutsRef.current = activeLayouts
   const positionSignature = React.useMemo(
     () => items.map(item => {
       const itemLayout = activeLayouts.get(item.id)
@@ -146,8 +173,9 @@ export function useMuuriDesktopGrid(options: Options) {
     [activeLayouts, items],
   )
   const itemSignature = React.useMemo(() => items.map(item => item.id).join('|'), [items])
-  const liveRef = React.useRef({ items, columnCount, baseLayouts, onCommit })
-  liveRef.current = { items, columnCount, baseLayouts, onCommit }
+  const renderedItemSignature = React.useMemo(() => (renderedItemIds || items.map(item => item.id)).join('|'), [items, renderedItemIds])
+  const liveRef = React.useRef({ items, columnCount, baseLayouts, onCommit, onDragCancel, onDragEnd, onDragMove, onDragStart })
+  liveRef.current = { items, columnCount, baseLayouts, onCommit, onDragCancel, onDragEnd, onDragMove, onDragStart }
 
   React.useLayoutEffect(() => {
     if (!gridNode) {
@@ -220,10 +248,11 @@ export function useMuuriDesktopGrid(options: Options) {
       layoutOnResize: false,
       layoutDuration: 180,
       layoutEasing: 'ease',
+      dragContainer: document.body,
       dragEnabled: true,
       dragSort: false,
       dragAxis: 'xy',
-      dragStartPredicate: shouldStartDesktopIconDrag,
+      dragStartPredicate: shouldStartFolderGridDrag,
       dragRelease: {
         duration: 180,
         easing: 'ease',
@@ -237,44 +266,50 @@ export function useMuuriDesktopGrid(options: Options) {
       if (!element || !itemId) return
 
       const rect = element.getBoundingClientRect()
-      dragSessionRef.current = {
+      const session = {
         itemId,
         offsetX: event.clientX - rect.left,
         offsetY: event.clientY - rect.top,
       }
+      dragSessionRef.current = session
       setDraggingId(itemId)
+      liveRef.current.onDragStart?.(toDragEvent(session, event.clientX, event.clientY))
     }
 
-    const handleDragMove = (_item: MuuriItem, event: DraggerMoveEvent) => {
+    const handleDragMove = (item: MuuriItem, event: DraggerMoveEvent) => {
       const dragSession = dragSessionRef.current
       if (!dragSession || !gridNode) return
 
       autoScrollDuringDrag(gridNode, event.clientY)
       const current = liveRef.current
       const gridRect = gridNode.getBoundingClientRect()
+      const itemRect = item.getElement()?.getBoundingClientRect()
       const targetLayout = getFolderGridLayoutFromPixel(
-        event.clientX - gridRect.left - dragSession.offsetX,
-        event.clientY - gridRect.top - dragSession.offsetY,
+        (itemRect?.left ?? event.clientX - dragSession.offsetX) - gridRect.left,
+        (itemRect?.top ?? event.clientY - dragSession.offsetY) - gridRect.top,
         current.columnCount,
       )
+      liveRef.current.onDragMove?.(toDragEvent(dragSession, event.clientX, event.clientY, targetLayout))
       schedulePreview(dragSession.itemId, targetLayout)
     }
 
-    const handleDragEnd = () => {
+    const handleDragEnd = (event: DraggerEndEvent) => {
       if (previewFrameRef.current != null) {
         window.cancelAnimationFrame(previewFrameRef.current)
         flushPreview()
       }
 
-      const itemId = dragSessionRef.current?.itemId || null
+      const dragSession = dragSessionRef.current
       const current = liveRef.current
       const nextLayouts = latestPreviewRef.current || current.baseLayouts
       const patches = diffFolderGridLayouts(current.baseLayouts, nextLayouts)
-      if (patches.length) current.onCommit(patches)
-      if (itemId) {
-        suppressClickRef.current = itemId
+      const dragEvent = dragSession ? toDragEvent(dragSession, event.clientX, event.clientY) : null
+      const handled = dragEvent ? current.onDragEnd?.(dragEvent, patches) === true : false
+      if (!handled && patches.length) current.onCommit(patches)
+      if (dragSession) {
+        suppressClickRef.current = dragSession.itemId
         window.setTimeout(() => {
-          if (suppressClickRef.current === itemId) suppressClickRef.current = null
+          if (suppressClickRef.current === dragSession.itemId) suppressClickRef.current = null
         }, 180)
       }
 
@@ -285,9 +320,15 @@ export function useMuuriDesktopGrid(options: Options) {
       setDraggingId(null)
     }
 
+    const handleDragCancel = (event: DraggerCancelEvent) => {
+      const dragSession = dragSessionRef.current
+      if (dragSession) liveRef.current.onDragCancel?.(toDragEvent(dragSession, event.clientX, event.clientY))
+      cancelDrag()
+    }
+
     const handleDragEndEvent = (_item: MuuriItem, event: DraggerEndEvent | DraggerCancelEvent) => {
-      if (event.type === 'cancel') cancelDrag()
-      else handleDragEnd()
+      if (event.type === 'cancel') handleDragCancel(event)
+      else handleDragEnd(event)
     }
 
     grid.on('dragStart', handleDragStart)
@@ -308,10 +349,11 @@ export function useMuuriDesktopGrid(options: Options) {
   React.useLayoutEffect(() => {
     const grid = gridInstanceRef.current
     if (!grid || !gridNode || draggingId) return
-    syncMuuriItemsWithRenderedElements(grid, gridNode)
+    const expectedItemIds = renderedItemIds || items.map(item => item.id)
+    syncMuuriItemsWithRenderedElements(grid, gridNode, expectedItemIds)
     grid.synchronize()
-    grid.refreshItems().layout()
-  }, [draggingId, gridNode, itemSignature])
+    grid.refreshItems().layout(true)
+  }, [draggingId, gridNode, itemSignature, renderedItemSignature])
 
   React.useLayoutEffect(() => {
     gridInstanceRef.current?.layout()
@@ -325,9 +367,11 @@ export function useMuuriDesktopGrid(options: Options) {
 
   return {
     activeLayouts,
+    baseLayouts,
     columnCount,
     containerWidth,
     draggingId,
+    gridNode,
     muuriItemClassName: MUURI_ITEM_CLASS,
     setGridNode,
     consumeSuppressedClick,

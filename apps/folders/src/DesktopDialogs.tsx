@@ -1,14 +1,12 @@
 import * as React from 'react'
-import FolderCopyRoundedIcon from '@mui/icons-material/FolderCopyRounded'
 import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
-import { Box, Button, Checkbox, Dialog, DialogContent, Divider, Stack, TextField, Typography, alpha } from '@mui/material'
+import { Box, Button, Dialog, DialogContent, Divider, Stack, TextField, Typography } from '@mui/material'
 import { DESKTOP_ICON_COLORS } from './folder-grid/desktopIconTokens'
-import type { ContainerFormState, DesktopContainer, FoldersDoc, IconEditorState } from './types'
+import type { ContainerFormState, DesktopContainer, IconEditorState } from './types'
 
 export function ContainerDialog(props: {
   busy: boolean
-  doc: FoldersDoc
   editing: DesktopContainer | null
   form: ContainerFormState
   open: boolean
@@ -16,35 +14,16 @@ export function ContainerDialog(props: {
   onClose(): void
   onSave(): void
 }) {
-  const selected = new Set(props.form.itemIds)
   return (
     <Dialog open={props.open} onClose={props.onClose} fullWidth maxWidth="sm">
       <DialogContent sx={{ p: 3 }}>
         <Stack spacing={2.25}>
           <Box>
             <Typography variant="h2">{props.editing ? '编辑收纳夹' : '创建收纳夹'}</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>收纳夹会作为桌面图标显示，内部文件夹可以随时移回桌面。</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>收纳夹会作为桌面图标显示；内容通过拖拽放入，内部位置也会直接保存。</Typography>
           </Box>
           <TextField label="名称" value={props.form.name} onChange={event => props.onChange({ ...props.form, name: event.target.value })} placeholder="例如：AI 工具" autoFocus fullWidth />
-          <Stack spacing={1}>
-            <Typography variant="caption" color="text.secondary">选择要收纳的文件夹</Typography>
-            <Stack spacing={0.75} sx={{ maxHeight: 280, overflow: 'auto' }}>
-              {props.doc.items.map(item => {
-                const checked = selected.has(item.id)
-                const containerName = item.containerId ? props.doc.containers.find(container => container.id === item.containerId)?.name : ''
-                return (
-                  <Button key={item.id} variant="text" onClick={() => props.onChange({ ...props.form, itemIds: checked ? props.form.itemIds.filter(id => id !== item.id) : [...props.form.itemIds, item.id] })} sx={{ justifyContent: 'flex-start', gap: 1, bgcolor: theme => alpha(theme.palette.primary.main, checked ? 0.12 : 0.05) }}>
-                    <Checkbox checked={checked} tabIndex={-1} disableRipple />
-                    <FolderCopyRoundedIcon fontSize="small" />
-                    <Box sx={{ minWidth: 0, textAlign: 'left' }}>
-                      <Typography noWrap fontWeight={900}>{item.name}</Typography>
-                      <Typography variant="caption" color="text.secondary" noWrap>{containerName ? `当前在：${containerName}` : item.path}</Typography>
-                    </Box>
-                  </Button>
-                )
-              })}
-            </Stack>
-          </Stack>
+          <Typography variant="caption" color="text.secondary">把桌面文件夹拖到收纳夹上停留即可展开并放入；打开收纳夹后也可以直接拖动内部图标排序。</Typography>
           <Stack direction="row" spacing={1} justifyContent="flex-end">
             <Button onClick={props.onClose}>取消</Button>
             <Button variant="contained" onClick={props.onSave} disabled={props.busy}>{props.editing ? '保存' : '创建'}</Button>

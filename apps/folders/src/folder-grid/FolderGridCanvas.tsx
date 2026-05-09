@@ -5,8 +5,8 @@ import { Box, Button, Paper, Stack, Typography, alpha } from '@mui/material'
 import type { ContextMenuState, DesktopGridEntry, FoldersDoc, Phase } from '../types'
 import { DesktopGridIcon } from './DesktopGridIcon'
 import { desktopEntryKey, parseDesktopEntryKey, type DesktopGridLayoutPatch } from './desktopEntries'
-import { getFolderGridCanvasHeight, getFolderGridPixelRect, type FolderGridLayoutPatch, type FolderGridLayoutSource } from './layout'
-import { useMuuriDesktopGrid } from './useMuuriDesktopGrid'
+import { getFolderGridCanvasHeight, getFolderGridPixelRect, type FolderGridLayoutMap, type FolderGridLayoutPatch, type FolderGridLayoutSource } from './layout'
+import { useMuuriFolderGrid, type FolderGridDragEvent } from './useMuuriFolderGrid'
 
 type Props = {
   doc: FoldersDoc
@@ -20,17 +20,36 @@ type Props = {
   onOpen(entry: DesktopGridEntry): void
   onContextMenu(menu: ContextMenuState): void
   onLayoutCommit(patches: DesktopGridLayoutPatch[]): void
+  onDragCancel?(event: DesktopGridDragEvent): void
+  onDragEnd?(event: DesktopGridDragEvent, patches: DesktopGridLayoutPatch[]): boolean | void
+  onDragMove?(event: DesktopGridDragEvent): void
+  onDragStart?(event: DesktopGridDragEvent): void
 }
 
 export type { DesktopGridLayoutPatch }
+export type DesktopGridDragEvent = FolderGridDragEvent & { entry: DesktopGridEntry; hoverContainer?: DesktopGridEntry }
 
 export function FolderGridCanvas(props: Props): React.ReactNode {
   const layoutItems = React.useMemo<FolderGridLayoutSource[]>(() => props.allEntries.map(entry => ({ id: desktopEntryKey(entry.kind, entry.id), layout: entry.layout })), [props.allEntries])
+  const renderedItemIds = React.useMemo(() => props.entries.map(entry => desktopEntryKey(entry.kind, entry.id)), [props.entries])
   const visibleEntryByKey = React.useMemo(() => new Map(props.entries.map(entry => [desktopEntryKey(entry.kind, entry.id), entry])), [props.entries])
-  const editor = useMuuriDesktopGrid({
+  const entryByKey = React.useMemo(() => new Map(props.allEntries.map(entry => [desktopEntryKey(entry.kind, entry.id), entry])), [props.allEntries])
+  const gridNodeRef = React.useRef<HTMLDivElement | null>(null)
+  const hoverLayoutsRef = React.useRef<FolderGridLayoutMap>(new Map())
+  const editor = useMuuriFolderGrid({
     items: layoutItems,
+    renderedItemIds,
     onCommit: patches => props.onLayoutCommit(patches.map(toDesktopGridLayoutPatch).filter((patch): patch is DesktopGridLayoutPatch => Boolean(patch))),
+    onDragCancel: event => props.onDragCancel?.(toDesktopDragEvent(event, entryByKey, visibleEntryByKey, gridNodeRef.current, hoverLayoutsRef.current)),
+    onDragEnd: (event, patches) => props.onDragEnd?.(
+      toDesktopDragEvent(event, entryByKey, visibleEntryByKey, gridNodeRef.current, hoverLayoutsRef.current),
+      patches.map(toDesktopGridLayoutPatch).filter((patch): patch is DesktopGridLayoutPatch => Boolean(patch)),
+    ),
+    onDragMove: event => props.onDragMove?.(toDesktopDragEvent(event, entryByKey, visibleEntryByKey, gridNodeRef.current, hoverLayoutsRef.current)),
+    onDragStart: event => props.onDragStart?.(toDesktopDragEvent(event, entryByKey, visibleEntryByKey, gridNodeRef.current, hoverLayoutsRef.current)),
   })
+  gridNodeRef.current = editor.gridNode
+  hoverLayoutsRef.current = editor.baseLayouts
 
   if (!props.entries.length) {
     return (
@@ -65,8 +84,6 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
               key={key}
               className={editor.muuriItemClassName}
               data-entry-key={key}
-              data-layout-x={layout.x}
-              data-layout-y={layout.y}
               sx={{
                 position: 'absolute',
                 display: 'block',
@@ -77,7 +94,7 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
                 boxSizing: 'border-box',
                 zIndex: editor.draggingId === key ? 3 : 1,
                 '&.muuri-item-releasing': { zIndex: 2 },
-                '&.muuri-item-dragging': { zIndex: 3 },
+                '&.muuri-item-dragging': { zIndex: theme => theme.zIndex.modal + 2 },
                 '&.muuri-item-hidden': { zIndex: 0 },
               }}
             >
@@ -103,6 +120,28 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
 function toDesktopGridLayoutPatch(patch: FolderGridLayoutPatch): DesktopGridLayoutPatch | null {
   const parsed = parseDesktopEntryKey(patch.id)
   return parsed ? { ...parsed, layout: patch.layout } : null
+}
+
+function toDesktopDragEvent(event: FolderGridDragEvent, entries: Map<string, DesktopGridEntry>, hoverEntries: Map<string, DesktopGridEntry>, gridNode: HTMLDivElement | null, layouts: FolderGridLayoutMap): DesktopGridDragEvent {
+  const entry = entries.get(event.itemId)
+  if (!entry) throw new Error(`desktop drag entry not found: ${event.itemId}`)
+  const hoverContainer = findHoverContainer(event, entry, hoverEntries, gridNode, layouts)
+  return { ...event, entry, hoverContainer }
+}
+
+function findHoverContainer(event: FolderGridDragEvent, activeEntry: DesktopGridEntry, entries: Map<string, DesktopGridEntry>, gridNode: HTMLDivElement | null, layouts: FolderGridLayoutMap): DesktopGridEntry | undefined {
+  if (!gridNode) return undefined
+  const gridRect = gridNode.getBoundingClientRect()
+  const x = event.clientX - gridRect.left
+  const y = event.clientY - gridRect.top
+  for (const entry of entries.values()) {
+    if (entry.kind !== 'container' || entry.id === activeEntry.id) continue
+    const layout = layouts.get(desktopEntryKey(entry.kind, entry.id))
+    if (!layout) continue
+    const rect = getFolderGridPixelRect(layout)
+    if (x >= rect.left && x <= rect.left + rect.width && y >= rect.top && y <= rect.top + rect.height) return entry
+  }
+  return undefined
 }
 
 function EmptyState(props: { phase: Phase; search: string; onAdd(): void }) {

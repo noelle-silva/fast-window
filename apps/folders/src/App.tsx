@@ -47,6 +47,7 @@ import { createDirectClient } from './backendClient'
 import { ContainerFolderOverlay } from './ContainerFolderOverlay'
 import { ContainerDialog, IconEditorDialog } from './DesktopDialogs'
 import { DesktopWallpaper } from './DesktopWallpaper'
+import type { ContainerGridApi, ContainerGridPlacement } from './folder-grid/ContainerGridCanvas'
 import { buildDesktopGridEntries, filterDesktopGridEntries } from './folder-grid/desktopEntries'
 import type {
   ConfirmState,
@@ -68,7 +69,7 @@ import type {
   IconEditorState,
   Phase,
 } from './types'
-import { FolderGridCanvas, type DesktopGridLayoutPatch } from './folder-grid/FolderGridCanvas'
+import { FolderGridCanvas, type DesktopGridDragEvent, type DesktopGridLayoutPatch } from './folder-grid/FolderGridCanvas'
 import {
   ALL_GROUP_ID,
   DEFAULT_DOC,
@@ -87,6 +88,9 @@ import {
 
 const appWindow = getCurrentWindow()
 const ERROR_AUTO_HIDE_MS = 4200
+const CONTAINER_HOVER_OPEN_MS = 520
+
+type DesktopDragState = { item: FolderItem; hoverContainerId?: string; targetContainerId?: string } | null
 
 export function App() {
   const [launchInfo, setLaunchInfo] = React.useState<FwLaunchInfo>(DEFAULT_LAUNCH_INFO)
@@ -110,6 +114,11 @@ export function App() {
   const [iconEditor, setIconEditor] = React.useState<IconEditorState>(null)
   const [confirm, setConfirm] = React.useState<ConfirmState>(null)
   const [contextMenu, setContextMenu] = React.useState<ContextMenuState>(null)
+  const [desktopDrag, setDesktopDrag] = React.useState<DesktopDragState>(null)
+  const desktopDragRef = React.useRef<DesktopDragState>(null)
+  const containerGridApiRef = React.useRef<ContainerGridApi | null>(null)
+  const hoverOpenTimerRef = React.useRef<number | null>(null)
+  const hoverOpenTargetIdRef = React.useRef<string | null>(null)
   const readyRef = React.useRef(false)
 
   const refreshStatus = React.useCallback(async () => {
@@ -170,6 +179,7 @@ export function App() {
     window.addEventListener('scroll', close, true)
     return () => { window.removeEventListener('resize', close); window.removeEventListener('scroll', close, true) }
   }, [])
+  React.useEffect(() => () => clearHoverOpenTimer(), [])
 
   function handleCommand(command: string) {
     if (command === 'open-settings') setSettingsOpen(true)
@@ -189,13 +199,13 @@ export function App() {
 
   function openAddContainer() {
     setEditingContainer(null)
-    setContainerForm(EMPTY_CONTAINER_FORM)
+    setContainerForm({ ...EMPTY_CONTAINER_FORM })
     setContainerEditorOpen(true)
   }
 
   function openEditContainer(container: DesktopContainer) {
     setEditingContainer(container)
-    setContainerForm({ id: container.id, name: container.name, itemIds: doc.items.filter(item => item.containerId === container.id).map(item => item.id) })
+    setContainerForm({ id: container.id, name: container.name })
     setContainerEditorOpen(true)
     setContextMenu(null)
   }
@@ -265,6 +275,31 @@ export function App() {
     finally { setBusy(false) }
   }
 
+  async function placeContainerItems(containerId: string, movedId: string | null, placements: ContainerGridPlacement[]) {
+    if (!client || !placements.length) return
+    const previousDoc = doc
+    setError(null)
+    setDoc(current => ({
+      ...current,
+      items: current.items.map(item => {
+        const placement = placements.find(currentPlacement => currentPlacement.id === item.id)
+        if (!placement && item.id !== movedId) return item
+        return {
+          ...item,
+          containerId: item.id === movedId ? containerId : item.containerId,
+          containerLayout: placement?.layout ?? item.containerLayout,
+        }
+      }),
+    }))
+    try {
+      const nextDoc = await client.request<FoldersDoc>('folders.container.items.place', { containerId, movedId: movedId || undefined, items: placements })
+      setDoc(nextDoc)
+    } catch (e) {
+      setDoc(previousDoc)
+      setError(errorMessage(e, '保存收纳夹布局失败'))
+    }
+  }
+
   function openDesktopEntry(entry: DesktopGridEntry) {
     if (entry.kind === 'folder' && entry.item) void openFolder(entry.item)
     if (entry.kind === 'container' && entry.container) { setContainerView(entry.container); setContextMenu(null) }
@@ -286,11 +321,76 @@ export function App() {
       }),
     }))
     try {
-      setDoc(await client.request<FoldersDoc>('folders.desktop.layout.save', { items: patches }))
+      const nextDoc = await client.request<FoldersDoc>('folders.desktop.layout.save', { items: patches })
+      setDoc(nextDoc)
     } catch (e) {
       setDoc(previousDoc)
       setError(errorMessage(e, '保存桌面布局失败'))
     }
+  }
+
+  function clearHoverOpenTimer() {
+    if (hoverOpenTimerRef.current == null) return
+    window.clearTimeout(hoverOpenTimerRef.current)
+    hoverOpenTimerRef.current = null
+    hoverOpenTargetIdRef.current = null
+  }
+
+  function setDesktopDragState(next: DesktopDragState | ((current: DesktopDragState) => DesktopDragState)) {
+    const resolved = typeof next === 'function' ? next(desktopDragRef.current) : next
+    desktopDragRef.current = resolved
+    setDesktopDrag(resolved)
+  }
+
+  function handleDesktopDragStart(event: DesktopGridDragEvent) {
+    clearHoverOpenTimer()
+    if (event.entry.kind !== 'folder' || !event.entry.item) return
+    setDesktopDragState({ item: event.entry.item })
+  }
+
+  function handleDesktopDragMove(event: DesktopGridDragEvent) {
+    if (event.entry.kind !== 'folder' || !event.entry.item) return
+    const hoverContainer = event.hoverContainer?.container
+    setDesktopDragState(current => current && current.item.id === event.entry.id ? { ...current, hoverContainerId: hoverContainer?.id } : current)
+    if (!hoverContainer) {
+      clearHoverOpenTimer()
+      return
+    }
+    if (containerView?.id === hoverContainer.id) {
+      clearHoverOpenTimer()
+      setDesktopDragState(current => current && current.item.id === event.entry.id ? { ...current, targetContainerId: hoverContainer.id } : current)
+      return
+    }
+    if (hoverOpenTargetIdRef.current === hoverContainer.id) return
+    clearHoverOpenTimer()
+    hoverOpenTargetIdRef.current = hoverContainer.id
+    hoverOpenTimerRef.current = window.setTimeout(() => {
+      hoverOpenTimerRef.current = null
+      hoverOpenTargetIdRef.current = null
+      setContainerView(hoverContainer)
+      setDesktopDragState(current => current && current.item.id === event.entry.id ? { ...current, targetContainerId: hoverContainer.id } : current)
+    }, CONTAINER_HOVER_OPEN_MS)
+  }
+
+  function handleDesktopDragEnd(event: DesktopGridDragEvent, patches: DesktopGridLayoutPatch[]) {
+    clearHoverOpenTimer()
+    const drag = desktopDragRef.current
+    const targetContainerId = drag?.targetContainerId
+    const dropLayout = targetContainerId ? containerGridApiRef.current?.layoutFromClientPoint(event.clientX, event.clientY, event.offsetX, event.offsetY) : null
+    if (targetContainerId && drag && dropLayout && event.entry.kind === 'folder') {
+      const nextPlacements = containerGridApiRef.current?.placementsForDrop(drag.item.id, dropLayout) || []
+      void placeContainerItems(targetContainerId, drag.item.id, nextPlacements)
+      setDesktopDragState(null)
+      return true
+    }
+    setDesktopDragState(null)
+    if (patches.length) void saveDesktopLayouts(patches)
+    return true
+  }
+
+  function handleDesktopDragCancel() {
+    clearHoverOpenTimer()
+    setDesktopDragState(null)
   }
 
   function openGroupEditor(group?: FolderGroup) {
@@ -339,13 +439,7 @@ export function App() {
         updatedAtMs: now,
         layout: editingContainer?.layout,
       }
-      let nextDoc = await client.request<FoldersDoc>(editingContainer ? 'folders.containers.update' : 'folders.containers.add', payload)
-      const previousIds = doc.items.filter(item => item.containerId === id).map(item => item.id)
-      const selectedIds = containerForm.itemIds
-      const added = selectedIds.filter(idValue => !previousIds.includes(idValue))
-      const removed = previousIds.filter(idValue => !selectedIds.includes(idValue))
-      if (added.length) nextDoc = await client.request<FoldersDoc>('folders.items.container.save', { ids: added, containerId: id })
-      if (removed.length) nextDoc = await client.request<FoldersDoc>('folders.items.container.save', { ids: removed, containerId: '' })
+      const nextDoc = await client.request<FoldersDoc>(editingContainer ? 'folders.containers.update' : 'folders.containers.add', payload)
       setDoc(nextDoc); setContainerEditorOpen(false); setEditingContainer(null)
     } catch (e) { setError(errorMessage(e, '保存收纳夹失败')) } finally { setBusy(false) }
   }
@@ -471,6 +565,10 @@ export function App() {
         onOpen={openDesktopEntry}
         onContextMenu={setContextMenu}
         onLayoutCommit={patches => void saveDesktopLayouts(patches)}
+        onDragCancel={handleDesktopDragCancel}
+        onDragEnd={handleDesktopDragEnd}
+        onDragMove={handleDesktopDragMove}
+        onDragStart={handleDesktopDragStart}
       />
 
       {error && phase !== 'failed' ? <Alert severity="error" sx={{ mx: { xs: 1.5, sm: 2 }, mb: 1.5 }}>{error}</Alert> : null}
@@ -528,7 +626,6 @@ export function App() {
 
       <ContainerDialog
         busy={busy}
-        doc={doc}
         open={containerEditorOpen}
         form={containerForm}
         editing={editingContainer}
@@ -540,9 +637,12 @@ export function App() {
       <ContainerFolderOverlay
         assetUrl={client?.assetUrl}
         container={containerView}
+        dropTargetActive={Boolean(desktopDrag?.targetContainerId && desktopDrag.targetContainerId === containerView?.id)}
         doc={doc}
         onClose={() => setContainerView(null)}
         onEdit={container => { setContainerView(null); openEditContainer(container) }}
+        onGridReady={api => { containerGridApiRef.current = api }}
+        onLayoutCommit={patches => containerView ? void placeContainerItems(containerView.id, null, patches) : undefined}
         onOpenFolder={item => void openFolder(item)}
         onRemoveItem={item => void saveItemContainer([item.id], '')}
       />

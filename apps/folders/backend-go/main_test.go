@@ -161,6 +161,67 @@ func TestDesktopContainerRoundTrip(t *testing.T) {
 	}
 }
 
+func TestContainerItemsPlacementRoundTrip(t *testing.T) {
+	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
+	svc, err := newService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ensureReady(); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []folderItem{
+		{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID},
+		{ID: "two", Name: "Two", Path: `E:\Two`, GroupID: defaultGroupID},
+	} {
+		if _, err := svc.addFolder(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.saveItemContainer([]string{"one"}, "box"); err != nil {
+		t.Fatal(err)
+	}
+
+	doc, err := svc.placeContainerItems(containerItemsPlacement{
+		ContainerID: "box",
+		Items:       []containerLayoutPatch{{ID: "one", Layout: folderGridLayout{X: 2, Y: 1}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containerLayoutByItem(doc, "one") == nil || containerLayoutByItem(doc, "one").X != 2 || containerLayoutByItem(doc, "one").Y != 1 {
+		t.Fatalf("unexpected container layout: %#v", itemByID(doc, "one"))
+	}
+
+	doc, err = svc.placeContainerItems(containerItemsPlacement{
+		ContainerID: "box",
+		MovedID:     "two",
+		Items: []containerLayoutPatch{
+			{ID: "one", Layout: folderGridLayout{X: 0, Y: 0}},
+			{ID: "two", Layout: folderGridLayout{X: 1, Y: 0}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containerIDByItem(doc, "two") != "box" || containerLayoutByItem(doc, "two") == nil || containerLayoutByItem(doc, "two").X != 1 {
+		t.Fatalf("expected moved item to be placed atomically: %#v", itemByID(doc, "two"))
+	}
+	if _, err := svc.placeContainerItems(containerItemsPlacement{ContainerID: "box", Items: []containerLayoutPatch{{ID: "missing", Layout: folderGridLayout{}}}}); err == nil {
+		t.Fatal("expected missing folder placement to fail")
+	}
+	doc, err = svc.saveItemContainer([]string{"one"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containerLayoutByItem(doc, "one") != nil {
+		t.Fatalf("expected moving out to clear container layout: %#v", itemByID(doc, "one"))
+	}
+}
+
 func TestDesktopIconRoundTrip(t *testing.T) {
 	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
 	svc, err := newService()
@@ -329,6 +390,23 @@ func containerIDByItem(doc foldersDoc, id string) string {
 		}
 	}
 	return ""
+}
+
+func containerLayoutByItem(doc foldersDoc, id string) *folderGridLayout {
+	item := itemByID(doc, id)
+	if item == nil {
+		return nil
+	}
+	return item.ContainerLayout
+}
+
+func itemByID(doc foldersDoc, id string) *folderItem {
+	for i := range doc.Items {
+		if doc.Items[i].ID == id {
+			return &doc.Items[i]
+		}
+	}
+	return nil
 }
 
 func mustTinyPNG(t *testing.T) []byte {

@@ -55,6 +55,7 @@ export type FolderItem = {
   createdAtMs: number
   updatedAtMs: number
   layout?: FolderGridLayout
+  containerLayout?: FolderGridLayout
   icon?: DesktopIcon
 }
 
@@ -91,7 +92,7 @@ export type FolderFormState = {
 
 export type GroupFormState = { id: string; name: string }
 
-export type ContainerFormState = { id: string; name: string; itemIds: string[] }
+export type ContainerFormState = { id: string; name: string }
 
 export type IconEditorState = { id: string; label: string; icon?: DesktopIcon } | null
 
