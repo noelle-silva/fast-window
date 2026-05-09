@@ -1,4 +1,4 @@
-import type { FolderGridLayout, FolderItem } from '../types'
+import type { FolderGridLayout } from '../types'
 import {
   FOLDER_GRID_CELL_HEIGHT,
   FOLDER_GRID_CELL_WIDTH,
@@ -11,6 +11,8 @@ import {
 
 export type FolderGridLayoutMap = Map<string, FolderGridLayout>
 export type FolderGridLayoutPatch = { id: string; layout: FolderGridLayout }
+export type FolderGridPixelRect = { left: number; top: number; width: number; height: number }
+export type FolderGridLayoutSource = { id: string; layout?: FolderGridLayout }
 
 export function getFolderGridColumnCount(containerWidth: number): number {
   const usableWidth = Math.max(FOLDER_GRID_ITEM_WIDTH, Math.floor(containerWidth) - FOLDER_GRID_PADDING * 2)
@@ -46,13 +48,13 @@ function firstFreeLayout(occupiedSlots: Set<number>, startSlot: number, columnCo
   return folderGridLayoutFromSlot(slot, columnCount)
 }
 
-export function buildFolderGridLayoutMap(items: FolderItem[], columnCount: number): FolderGridLayoutMap {
+export function buildFolderGridLayoutMap(items: FolderGridLayoutSource[], columnCount: number): FolderGridLayoutMap {
   const occupiedSlots = new Set<number>()
   const layoutMap: FolderGridLayoutMap = new Map()
 
   const persistedItems = items
     .map((item, index) => ({ item, index, layout: item.layout ? normalizeFolderGridLayout(item.layout, columnCount) : null }))
-    .filter((entry): entry is { item: FolderItem; index: number; layout: FolderGridLayout } => Boolean(entry.layout))
+    .filter((entry): entry is { item: FolderGridLayoutSource; index: number; layout: FolderGridLayout } => Boolean(entry.layout))
     .sort((a, b) => folderGridSlot(a.layout, columnCount) - folderGridSlot(b.layout, columnCount) || a.index - b.index)
 
   for (const { item, layout: desired } of persistedItems) {
@@ -73,7 +75,7 @@ export function buildFolderGridLayoutMap(items: FolderItem[], columnCount: numbe
 }
 
 export function resolveFolderGridDragLayout(
-  items: FolderItem[],
+  items: FolderGridLayoutSource[],
   baseLayouts: FolderGridLayoutMap,
   activeId: string,
   targetLayout: FolderGridLayout,
@@ -100,7 +102,7 @@ export function resolveFolderGridDragLayout(
   return nextLayouts
 }
 
-export function getFolderGridPixelRect(layout: FolderGridLayout): { left: number; top: number; width: number; height: number } {
+export function getFolderGridPixelRect(layout: FolderGridLayout): FolderGridPixelRect {
   return {
     left: FOLDER_GRID_PADDING + layout.x * FOLDER_GRID_CELL_WIDTH,
     top: FOLDER_GRID_PADDING + layout.y * FOLDER_GRID_CELL_HEIGHT,

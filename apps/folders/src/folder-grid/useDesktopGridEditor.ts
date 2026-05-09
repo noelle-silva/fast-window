@@ -1,5 +1,4 @@
 import * as React from 'react'
-import type { FolderItem } from '../types'
 import {
   buildFolderGridLayoutMap,
   diffFolderGridLayouts,
@@ -9,6 +8,7 @@ import {
   resolveFolderGridDragLayout,
   type FolderGridLayoutMap,
   type FolderGridLayoutPatch,
+  type FolderGridLayoutSource,
 } from './layout'
 
 type DragSession = {
@@ -22,7 +22,7 @@ type DragSession = {
 }
 
 type Options = {
-  items: FolderItem[]
+  items: FolderGridLayoutSource[]
   containerWidth: number
   onCommit(patches: FolderGridLayoutPatch[]): void
 }
@@ -53,7 +53,7 @@ function autoScrollDuringDrag(containerNode: HTMLElement, clientY: number): void
   if (delta) scrollEl.scrollTop += Math.trunc(delta)
 }
 
-export function useFolderGridEditor(options: Options) {
+export function useDesktopGridEditor(options: Options) {
   const { items, containerWidth, onCommit } = options
   const gridRef = React.useRef<HTMLDivElement | null>(null)
   const cleanupRef = React.useRef<null | (() => void)>(null)
@@ -82,20 +82,11 @@ export function useFolderGridEditor(options: Options) {
     }
   }, [])
 
-  const clearDrag = React.useCallback(() => {
-    cleanupRef.current?.()
-    cleanupRef.current = null
-    latestPreviewRef.current = null
-    setPreviewLayouts(null)
-    setDraggingId(null)
-    document.body.style.userSelect = ''
-  }, [])
-
-  const beginDrag = React.useCallback((item: FolderItem, event: React.PointerEvent) => {
+  const beginDrag = React.useCallback((itemId: string, event: React.PointerEvent) => {
     if (event.button !== 0) return
     if (event.target instanceof Element && event.target.closest('[data-folder-grid-no-drag="1"]')) return
     const node = gridRef.current
-    const layout = activeLayouts.get(item.id)
+    const layout = activeLayouts.get(itemId)
     if (!node || !layout) return
 
     event.stopPropagation()
@@ -103,7 +94,7 @@ export function useFolderGridEditor(options: Options) {
     const gridRect = node.getBoundingClientRect()
     const itemRect = getFolderGridPixelRect(layout)
     const session: DragSession = {
-      itemId: item.id,
+      itemId,
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
@@ -184,6 +175,5 @@ export function useFolderGridEditor(options: Options) {
     draggingId,
     beginDrag,
     consumeSuppressedClick,
-    clearDrag,
   }
 }

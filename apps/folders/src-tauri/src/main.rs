@@ -41,7 +41,9 @@ async fn pick_data_dir(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<BackendState>>,
 ) -> Result<Option<DataDirStatus>, String> {
+    let window = main_window(&app)?;
     let Some(path) = rfd::FileDialog::new()
+        .set_parent(&window)
         .set_title("选择文件夹收藏数据目录")
         .pick_folder()
     else {
@@ -59,11 +61,29 @@ async fn pick_data_dir(
 }
 
 #[tauri::command]
-fn pick_folder_path() -> Result<Option<String>, String> {
+fn pick_folder_path(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let window = main_window(&app)?;
     Ok(rfd::FileDialog::new()
+        .set_parent(&window)
         .set_title("选择要收藏的文件夹")
         .pick_folder()
         .map(|path| path.display().to_string()))
+}
+
+#[tauri::command]
+fn pick_image_path(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let window = main_window(&app)?;
+    Ok(rfd::FileDialog::new()
+        .set_parent(&window)
+        .set_title("选择图片")
+        .add_filter("图片", &["png", "jpg", "jpeg", "webp", "gif"])
+        .pick_file()
+        .map(|path| path.display().to_string()))
+}
+
+fn main_window(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
+    app.get_webview_window("main")
+        .ok_or_else(|| "主窗口不存在".to_string())
 }
 
 #[tauri::command]
@@ -134,6 +154,7 @@ fn main() {
             data_dir_status,
             pick_data_dir,
             pick_folder_path,
+            pick_image_path,
             restart_backend,
             hide_to_tray,
             app_ready,

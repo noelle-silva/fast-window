@@ -20,16 +20,43 @@ export type FolderGroup = { id: string; name: string }
 
 export type FolderGridLayout = { x: number; y: number }
 
-export type FolderItem = {
+export type DesktopEntryKind = 'folder' | 'container'
+
+export type DesktopIcon =
+  | { kind: 'color'; color: string }
+  | { kind: 'image'; assetId: string }
+
+export type DesktopWallpaper = { assetId: string }
+
+export type DesktopState = { wallpaper?: DesktopWallpaper }
+
+export type DesktopContainer = {
   id: string
   name: string
-  path: string
-  groupId: string
   createdAt: string
   updatedAt: string
   createdAtMs: number
   updatedAtMs: number
   layout?: FolderGridLayout
+  icon?: DesktopIcon
+}
+
+export type DesktopAssetKind = 'icon' | 'wallpaper'
+
+export type DesktopAsset = { id: string; kind: DesktopAssetKind }
+
+export type FolderItem = {
+  id: string
+  name: string
+  path: string
+  groupId: string
+  containerId?: string
+  createdAt: string
+  updatedAt: string
+  createdAtMs: number
+  updatedAtMs: number
+  layout?: FolderGridLayout
+  icon?: DesktopIcon
 }
 
 export type FoldersDoc = {
@@ -37,6 +64,8 @@ export type FoldersDoc = {
   dataVersion: number
   groups: FolderGroup[]
   items: FolderItem[]
+  containers: DesktopContainer[]
+  desktop: DesktopState
   updatedAt: string
 }
 
@@ -48,6 +77,7 @@ export type PendingRequest = {
 
 export type DirectClient = {
   request<T>(method: string, params?: unknown): Promise<T>
+  assetUrl(assetId: string): string
   close(): void
 }
 
@@ -62,6 +92,21 @@ export type FolderFormState = {
 
 export type GroupFormState = { id: string; name: string }
 
-export type ConfirmState = { kind: 'folder' | 'group'; id: string; label: string } | null
+export type ContainerFormState = { id: string; name: string; itemIds: string[] }
 
-export type ContextMenuState = { item: FolderItem; x: number; y: number } | null
+export type IconEditorState = { kind: DesktopEntryKind; id: string; label: string; icon?: DesktopIcon } | null
+
+export type ConfirmState = { kind: 'folder' | 'group' | 'container'; id: string; label: string } | null
+
+export type DesktopGridEntry = {
+  kind: DesktopEntryKind
+  id: string
+  name: string
+  layout?: FolderGridLayout
+  icon?: DesktopIcon
+  item?: FolderItem
+  container?: DesktopContainer
+  itemCount?: number
+}
+
+export type ContextMenuState = { entry: DesktopGridEntry; x: number; y: number } | null

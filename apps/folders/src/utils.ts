@@ -1,17 +1,20 @@
-import type { FolderFormState, FolderItem, FoldersDoc, FwLaunchInfo, GroupFormState } from './types'
+import type { ContainerFormState, FolderFormState, FolderItem, FoldersDoc, FwLaunchInfo, GroupFormState } from './types'
 
 export const DEFAULT_GROUP_ID = 'default'
 export const ALL_GROUP_ID = '__all__'
 export const DEFAULT_LAUNCH_INFO: FwLaunchInfo = { launched: false, standalone: true, mode: 'standalone' }
 export const DEFAULT_DOC: FoldersDoc = {
   schemaVersion: 1,
-  dataVersion: 1,
+  dataVersion: 4,
   groups: [{ id: DEFAULT_GROUP_ID, name: '默认' }],
   items: [],
+  containers: [],
+  desktop: {},
   updatedAt: '',
 }
 export const EMPTY_FOLDER_FORM: FolderFormState = { name: '', path: '', groupId: DEFAULT_GROUP_ID, newGroupName: '' }
 export const EMPTY_GROUP_FORM: GroupFormState = { id: '', name: '' }
+export const EMPTY_CONTAINER_FORM: ContainerFormState = { id: '', name: '', itemIds: [] }
 
 export function errorMessage(error: unknown, fallback: string): string {
   return String((error as { message?: string })?.message || error || fallback)
@@ -40,4 +43,8 @@ export function groupIdFromName(name: string): string {
 
 export function folderTemplate(groupId: string): FolderItem {
   return { id: '', name: '', path: '', groupId, createdAt: '', updatedAt: '', createdAtMs: 0, updatedAtMs: 0 }
+}
+
+export function containerTemplate(): ContainerFormState {
+  return EMPTY_CONTAINER_FORM
 }

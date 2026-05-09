@@ -13,6 +13,13 @@ function endpointUrlWithToken(endpoint: BackendEndpoint): string {
   return `${endpoint.url}${endpoint.url.includes('?') ? '&' : '?'}token=${encodeURIComponent(endpoint.token)}`
 }
 
+function assetUrlWithToken(endpoint: BackendEndpoint, assetId: string): string {
+  const base = new URL(endpoint.url.replace(/^ws:/, 'http:'))
+  base.pathname = `/assets/${assetId.split('/').map(encodeURIComponent).join('/')}`
+  base.searchParams.set('token', endpoint.token)
+  return base.toString()
+}
+
 function waitForOpen(ws: WebSocket) {
   return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('后台连接超时')), OPEN_TIMEOUT_MS)
@@ -59,6 +66,7 @@ export async function createDirectClient(): Promise<DirectClient> {
         ws.send(JSON.stringify({ id, type: 'request', method, params: params ?? {} }))
       })
     },
+    assetUrl(assetId: string): string { return assetUrlWithToken(endpoint, assetId) },
     close() { rejectPending(new Error('后台连接已关闭')); ws.close() },
   }
 }

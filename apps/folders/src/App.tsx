@@ -8,6 +8,8 @@ import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRound
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import HorizontalRuleRoundedIcon from '@mui/icons-material/HorizontalRuleRounded'
+import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
+import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded'
 import LaunchRoundedIcon from '@mui/icons-material/LaunchRounded'
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
@@ -42,10 +44,20 @@ import {
 } from '@mui/material'
 import type { SelectChangeEvent } from '@mui/material/Select'
 import { createDirectClient } from './backendClient'
+import { ContainerDialog, ContainerViewDialog, IconEditorDialog } from './DesktopDialogs'
+import { DesktopWallpaper } from './DesktopWallpaper'
+import { buildDesktopGridEntries, filterDesktopGridEntries } from './folder-grid/desktopEntries'
 import type {
   ConfirmState,
+  ContainerFormState,
   ContextMenuState,
   DataDirStatus,
+  DesktopAsset,
+  DesktopContainer,
+  DesktopEntryKind,
+  DesktopGridEntry,
+  DesktopIcon,
+  DesktopWallpaper as DesktopWallpaperState,
   DirectClient,
   FolderFormState,
   FolderGroup,
@@ -53,14 +65,16 @@ import type {
   FoldersDoc,
   FwLaunchInfo,
   GroupFormState,
+  IconEditorState,
   Phase,
 } from './types'
-import { FolderGridCanvas, type FolderGridLayoutPatch } from './folder-grid/FolderGridCanvas'
+import { FolderGridCanvas, type DesktopGridLayoutPatch } from './folder-grid/FolderGridCanvas'
 import {
   ALL_GROUP_ID,
   DEFAULT_DOC,
   DEFAULT_GROUP_ID,
   DEFAULT_LAUNCH_INFO,
+  EMPTY_CONTAINER_FORM,
   EMPTY_GROUP_FORM,
   createID,
   deriveNameFromPath,
@@ -72,6 +86,7 @@ import {
 } from './utils'
 
 const appWindow = getCurrentWindow()
+const ERROR_AUTO_HIDE_MS = 4200
 
 export function App() {
   const [launchInfo, setLaunchInfo] = React.useState<FwLaunchInfo>(DEFAULT_LAUNCH_INFO)
@@ -88,6 +103,11 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = React.useState(false)
   const [groupEditorOpen, setGroupEditorOpen] = React.useState(false)
   const [groupForm, setGroupForm] = React.useState<GroupFormState>(EMPTY_GROUP_FORM)
+  const [containerEditorOpen, setContainerEditorOpen] = React.useState(false)
+  const [containerForm, setContainerForm] = React.useState<ContainerFormState>(EMPTY_CONTAINER_FORM)
+  const [editingContainer, setEditingContainer] = React.useState<DesktopContainer | null>(null)
+  const [containerView, setContainerView] = React.useState<DesktopContainer | null>(null)
+  const [iconEditor, setIconEditor] = React.useState<IconEditorState>(null)
   const [confirm, setConfirm] = React.useState<ConfirmState>(null)
   const [contextMenu, setContextMenu] = React.useState<ContextMenuState>(null)
   const readyRef = React.useRef(false)
@@ -140,6 +160,11 @@ export function App() {
 
   React.useEffect(() => () => client?.close(), [client])
   React.useEffect(() => {
+    if (!error) return
+    const timer = window.setTimeout(() => setError(null), ERROR_AUTO_HIDE_MS)
+    return () => window.clearTimeout(timer)
+  }, [error])
+  React.useEffect(() => {
     const close = () => setContextMenu(null)
     window.addEventListener('resize', close)
     window.addEventListener('scroll', close, true)
@@ -149,7 +174,7 @@ export function App() {
   function handleCommand(command: string) {
     if (command === 'open-settings') setSettingsOpen(true)
     if (command === 'add-folder') openAdd()
-    if (command === 'open-folders') { setSettingsOpen(false); setGroupEditorOpen(false); setEditing(null) }
+    if (command === 'open-folders') { setSettingsOpen(false); setGroupEditorOpen(false); setEditing(null); setContainerView(null) }
   }
 
   function openAdd() {
@@ -160,6 +185,19 @@ export function App() {
 
   function openEdit(item: FolderItem) {
     setEditing(item); setForm({ name: item.name, path: item.path, groupId: item.groupId, newGroupName: '' }); setContextMenu(null)
+  }
+
+  function openAddContainer() {
+    setEditingContainer(null)
+    setContainerForm(EMPTY_CONTAINER_FORM)
+    setContainerEditorOpen(true)
+  }
+
+  function openEditContainer(container: DesktopContainer) {
+    setEditingContainer(container)
+    setContainerForm({ id: container.id, name: container.name, itemIds: doc.items.filter(item => item.containerId === container.id).map(item => item.id) })
+    setContainerEditorOpen(true)
+    setContextMenu(null)
   }
 
   async function saveFolder() {
@@ -184,9 +222,11 @@ export function App() {
       const nowText = new Date(now).toISOString()
       const payload: FolderItem = {
         id: editing.id || createID(), name, path, groupId: targetGroupId,
+        containerId: editing.containerId,
         createdAt: editing.createdAt || nowText, updatedAt: nowText,
         createdAtMs: editing.createdAtMs || now, updatedAtMs: now,
         layout: editing.layout,
+        icon: editing.icon,
       }
       const nextDoc = await client.request<FoldersDoc>(editing.id ? 'folders.update' : 'folders.add', payload)
       setDoc(nextDoc); setEditing(null)
@@ -217,22 +257,39 @@ export function App() {
     finally { setBusy(false) }
   }
 
-  async function saveFolderLayouts(patches: FolderGridLayoutPatch[]) {
+  async function saveItemContainer(ids: string[], containerId: string) {
+    if (!client || !ids.length) return
+    setBusy(true); setError(null)
+    try { setDoc(await client.request<FoldersDoc>('folders.items.container.save', { ids, containerId })); setContextMenu(null) }
+    catch (e) { setError(errorMessage(e, '移动到收纳盒失败')) }
+    finally { setBusy(false) }
+  }
+
+  function openDesktopEntry(entry: DesktopGridEntry) {
+    if (entry.kind === 'folder' && entry.item) void openFolder(entry.item)
+    if (entry.kind === 'container' && entry.container) { setContainerView(entry.container); setContextMenu(null) }
+  }
+
+  async function saveDesktopLayouts(patches: DesktopGridLayoutPatch[]) {
     if (!client || patches.length === 0) return
     const previousDoc = doc
     setError(null)
     setDoc(current => ({
       ...current,
       items: current.items.map(item => {
-        const patch = patches.find(currentPatch => currentPatch.id === item.id)
+        const patch = patches.find(currentPatch => currentPatch.kind === 'folder' && currentPatch.id === item.id)
         return patch ? { ...item, layout: patch.layout } : item
+      }),
+      containers: current.containers.map(container => {
+        const patch = patches.find(currentPatch => currentPatch.kind === 'container' && currentPatch.id === container.id)
+        return patch ? { ...container, layout: patch.layout } : container
       }),
     }))
     try {
-      setDoc(await client.request<FoldersDoc>('folders.layout.save', { items: patches }))
+      setDoc(await client.request<FoldersDoc>('folders.desktop.layout.save', { items: patches }))
     } catch (e) {
       setDoc(previousDoc)
-      setError(errorMessage(e, '保存图标布局失败'))
+      setError(errorMessage(e, '保存桌面布局失败'))
     }
   }
 
@@ -264,6 +321,85 @@ export function App() {
     } catch (e) { setError(errorMessage(e, '删除分组失败')) } finally { setBusy(false) }
   }
 
+  async function saveContainer() {
+    if (!client) return
+    const name = containerForm.name.trim()
+    if (!name) { setError('收纳盒名称不能为空'); return }
+    setBusy(true); setError(null)
+    try {
+      const id = editingContainer?.id || createID()
+      const now = Date.now()
+      const nowText = new Date(now).toISOString()
+      const payload: DesktopContainer = {
+        id,
+        name,
+        createdAt: editingContainer?.createdAt || nowText,
+        updatedAt: nowText,
+        createdAtMs: editingContainer?.createdAtMs || now,
+        updatedAtMs: now,
+        layout: editingContainer?.layout,
+        icon: editingContainer?.icon,
+      }
+      let nextDoc = await client.request<FoldersDoc>(editingContainer ? 'folders.containers.update' : 'folders.containers.add', payload)
+      const previousIds = doc.items.filter(item => item.containerId === id).map(item => item.id)
+      const selectedIds = containerForm.itemIds
+      const added = selectedIds.filter(idValue => !previousIds.includes(idValue))
+      const removed = previousIds.filter(idValue => !selectedIds.includes(idValue))
+      if (added.length) nextDoc = await client.request<FoldersDoc>('folders.items.container.save', { ids: added, containerId: id })
+      if (removed.length) nextDoc = await client.request<FoldersDoc>('folders.items.container.save', { ids: removed, containerId: '' })
+      setDoc(nextDoc); setContainerEditorOpen(false); setEditingContainer(null)
+    } catch (e) { setError(errorMessage(e, '保存收纳盒失败')) } finally { setBusy(false) }
+  }
+
+  async function removeContainer(container: DesktopContainer) {
+    if (!client) return
+    setBusy(true); setError(null)
+    try { setDoc(await client.request<FoldersDoc>('folders.containers.remove', { id: container.id })); setConfirm(null); setContainerView(null); setContextMenu(null) }
+    catch (e) { setError(errorMessage(e, '删除收纳盒失败')) }
+    finally { setBusy(false) }
+  }
+
+  async function saveDesktopIcon(kind: DesktopEntryKind, id: string, icon: DesktopIcon | null) {
+    if (!client) return
+    setBusy(true); setError(null)
+    try { setDoc(await client.request<FoldersDoc>('folders.icon.save', { kind, id, icon })); setIconEditor(null); setContextMenu(null) }
+    catch (e) { setError(errorMessage(e, '保存图标失败')) }
+    finally { setBusy(false) }
+  }
+
+  async function pickIconImage() {
+    if (!client || !iconEditor) return
+    setBusy(true); setError(null)
+    try {
+      const sourcePath = await invoke<string | null>('pick_image_path')
+      if (!sourcePath) return
+      const asset = await client.request<DesktopAsset>('folders.assets.import', { kind: 'icon', sourcePath })
+      setDoc(await client.request<FoldersDoc>('folders.icon.save', { kind: iconEditor.kind, id: iconEditor.id, icon: { kind: 'image', assetId: asset.id } }))
+      setIconEditor(null)
+    } catch (e) { setError(errorMessage(e, '导入图标图片失败')) }
+    finally { setBusy(false) }
+  }
+
+  async function saveDesktopWallpaper(wallpaper: DesktopWallpaperState | null) {
+    if (!client) return
+    setBusy(true); setError(null)
+    try { setDoc(await client.request<FoldersDoc>('folders.desktop.wallpaper.save', { wallpaper })) }
+    catch (e) { setError(errorMessage(e, '保存壁纸失败')) }
+    finally { setBusy(false) }
+  }
+
+  async function pickWallpaperImage() {
+    if (!client) return
+    setBusy(true); setError(null)
+    try {
+      const sourcePath = await invoke<string | null>('pick_image_path')
+      if (!sourcePath) return
+      const asset = await client.request<DesktopAsset>('folders.assets.import', { kind: 'wallpaper', sourcePath })
+      setDoc(await client.request<FoldersDoc>('folders.desktop.wallpaper.save', { wallpaper: { assetId: asset.id } }))
+    } catch (e) { setError(errorMessage(e, '导入壁纸失败')) }
+    finally { setBusy(false) }
+  }
+
   async function pickDataDir() {
     setBusy(true); setError(null)
     try { const next = await invoke<DataDirStatus | null>('pick_data_dir'); if (next) setStatus(next); await connect() }
@@ -279,11 +415,8 @@ export function App() {
     } catch (e) { setError(errorMessage(e, '选择文件夹失败')) }
   }
 
-  const filteredItems = React.useMemo(() => doc.items.filter(item => {
-    const q = search.trim().toLowerCase()
-    if (groupId !== ALL_GROUP_ID && item.groupId !== groupId) return false
-    return !q || item.name.toLowerCase().includes(q) || item.path.toLowerCase().includes(q)
-  }), [doc.items, groupId, search])
+  const allDesktopEntries = React.useMemo(() => buildDesktopGridEntries(doc), [doc])
+  const filteredEntries = React.useMemo(() => filterDesktopGridEntries(doc, allDesktopEntries, groupId, search), [allDesktopEntries, doc, groupId, search])
   const selectedGroup = doc.groups.find(group => group.id === groupId)
   const editableGroups = doc.groups.filter(group => group.id !== DEFAULT_GROUP_ID)
 
@@ -292,6 +425,7 @@ export function App() {
       component="main"
       onClick={() => setContextMenu(null)}
       sx={{
+        position: 'relative',
         height: '100vh',
         display: 'flex',
         flexDirection: 'column',
@@ -299,6 +433,8 @@ export function App() {
         bgcolor: 'background.default',
       }}
     >
+      <DesktopWallpaper wallpaper={doc.desktop.wallpaper} assetUrl={client?.assetUrl} />
+      <Box sx={{ position: 'relative', zIndex: 1, minHeight: 0, height: '100%', display: 'flex', flexDirection: 'column' }}>
       <TopBar
         busy={busy}
         doc={doc}
@@ -308,6 +444,7 @@ export function App() {
         search={search}
         selectedGroup={selectedGroup}
         onAdd={openAdd}
+        onAddContainer={openAddContainer}
         onGroupChange={setGroupId}
         onOpenGroupEditor={() => openGroupEditor(selectedGroup?.id === DEFAULT_GROUP_ID ? undefined : selectedGroup)}
         onOpenSettings={() => setSettingsOpen(true)}
@@ -325,15 +462,16 @@ export function App() {
 
       <FolderGridCanvas
         doc={doc}
-        allItems={doc.items}
+        allEntries={allDesktopEntries}
+        assetUrl={client?.assetUrl}
         groupCount={doc.groups.length}
-        items={filteredItems}
+        entries={filteredEntries}
         phase={phase}
         search={search}
         onAdd={openAdd}
-        onOpen={item => void openFolder(item)}
+        onOpen={openDesktopEntry}
         onContextMenu={setContextMenu}
-        onLayoutCommit={patches => void saveFolderLayouts(patches)}
+        onLayoutCommit={patches => void saveDesktopLayouts(patches)}
       />
 
       {error && phase !== 'failed' ? <Alert severity="error" sx={{ mx: { xs: 1.5, sm: 2 }, mb: 1.5 }}>{error}</Alert> : null}
@@ -343,10 +481,13 @@ export function App() {
         groups={doc.groups}
         doc={doc}
         onClose={() => setContextMenu(null)}
-        onOpen={item => void openFolder(item)}
+        onOpen={openDesktopEntry}
         onEdit={openEdit}
+        onEditContainer={openEditContainer}
+        onEditIcon={entry => setIconEditor({ kind: entry.kind, id: entry.id, label: entry.name, icon: entry.icon })}
+        onMoveToContainer={(item, containerId) => void saveItemContainer([item.id], containerId)}
         onMove={(item, nextGroupId) => void moveFolder(item, nextGroupId)}
-        onDelete={item => setConfirm({ kind: 'folder', id: item.id, label: item.name })}
+        onDelete={entry => setConfirm({ kind: entry.kind, id: entry.id, label: entry.name })}
       />
 
       <FolderDialog
@@ -378,9 +519,41 @@ export function App() {
         doc={doc}
         open={settingsOpen}
         status={status}
+        hasWallpaper={Boolean(doc.desktop.wallpaper)}
+        onClearWallpaper={() => void saveDesktopWallpaper(null)}
         onClose={() => setSettingsOpen(false)}
         onPickDataDir={pickDataDir}
+        onPickWallpaper={() => void pickWallpaperImage()}
         onRestart={() => void connect({ restartBackend: true })}
+      />
+
+      <ContainerDialog
+        busy={busy}
+        doc={doc}
+        open={containerEditorOpen}
+        form={containerForm}
+        editing={editingContainer}
+        onChange={setContainerForm}
+        onClose={() => { setContainerEditorOpen(false); setEditingContainer(null) }}
+        onSave={() => void saveContainer()}
+      />
+
+      <ContainerViewDialog
+        container={containerView}
+        doc={doc}
+        onClose={() => setContainerView(null)}
+        onEdit={openEditContainer}
+        onOpenFolder={item => void openFolder(item)}
+        onRemoveItem={item => void saveItemContainer([item.id], '')}
+      />
+
+      <IconEditorDialog
+        busy={busy}
+        state={iconEditor}
+        onClose={() => setIconEditor(null)}
+        onPickImage={() => void pickIconImage()}
+        onReset={() => iconEditor ? void saveDesktopIcon(iconEditor.kind, iconEditor.id, null) : undefined}
+        onSaveColor={color => iconEditor ? void saveDesktopIcon(iconEditor.kind, iconEditor.id, { kind: 'color', color }) : undefined}
       />
 
       <ConfirmDialog
@@ -391,11 +564,14 @@ export function App() {
         onConfirm={() => {
           if (!confirm) return
           const item = doc.items.find(current => current.id === confirm.id)
+          const container = doc.containers.find(current => current.id === confirm.id)
           if (confirm.kind === 'group') void removeGroup({ id: confirm.id, name: confirm.label })
-          else if (item) void removeFolder(item)
+          else if (confirm.kind === 'container' && container) void removeContainer(container)
+          else if (confirm.kind === 'folder' && item) void removeFolder(item)
           else setConfirm(null)
         }}
       />
+      </Box>
     </Box>
   )
 }
@@ -409,6 +585,7 @@ function TopBar(props: {
   search: string
   selectedGroup: FolderGroup | undefined
   onAdd(): void
+  onAddContainer(): void
   onGroupChange(groupId: string): void
   onOpenGroupEditor(): void
   onOpenSettings(): void
@@ -430,8 +607,11 @@ function TopBar(props: {
         display: 'flex',
         alignItems: 'center',
         gap: 1.25,
-        bgcolor: 'background.paper',
-        boxShadow: '0 12px 30px rgba(15, 23, 42, 0.08)',
+        bgcolor: 'rgba(255, 255, 255, 0.72)',
+        backdropFilter: 'blur(18px) saturate(1.18)',
+        WebkitBackdropFilter: 'blur(18px) saturate(1.18)',
+        borderBottom: '1px solid rgba(255, 255, 255, 0.46)',
+        boxShadow: '0 12px 30px rgba(15, 23, 42, 0.1)',
         userSelect: 'none',
         flexShrink: 0,
         flexWrap: { xs: 'wrap', md: 'nowrap' },
@@ -450,6 +630,7 @@ function TopBar(props: {
       {props.phase !== 'ready' ? <Chip color={statusColor} size="small" label={statusText} icon={props.phase === 'starting' ? <CircularProgress size={12} color="inherit" /> : undefined} /> : null}
       <Button variant="text" startIcon={<SettingsRoundedIcon />} onClick={props.onOpenSettings}>设置</Button>
       <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={props.onAdd} disabled={!canEdit || props.busy}>新增</Button>
+      <Button variant="text" startIcon={<Inventory2RoundedIcon />} onClick={props.onAddContainer} disabled={!canEdit || props.busy}>收纳盒</Button>
       <Button
         variant="text"
         startIcon={props.selectedGroup && props.selectedGroup.id !== DEFAULT_GROUP_ID ? <EditRoundedIcon /> : <CreateNewFolderRoundedIcon />}
@@ -533,11 +714,17 @@ function FolderContextMenu(props: {
   groups: FolderGroup[]
   doc: FoldersDoc
   onClose(): void
-  onOpen(item: FolderItem): void
+  onOpen(entry: DesktopGridEntry): void
   onEdit(item: FolderItem): void
+  onEditContainer(container: DesktopContainer): void
+  onEditIcon(entry: DesktopGridEntry): void
   onMove(item: FolderItem, groupId: string): void
-  onDelete(item: FolderItem): void
+  onMoveToContainer(item: FolderItem, containerId: string): void
+  onDelete(entry: DesktopGridEntry): void
 }) {
+  const entry = props.menu?.entry
+  const folder = entry?.kind === 'folder' ? entry.item : null
+  const container = entry?.kind === 'container' ? entry.container : null
   return (
     <Menu
       open={Boolean(props.menu)}
@@ -546,30 +733,53 @@ function FolderContextMenu(props: {
       anchorPosition={props.menu ? { left: props.menu.x, top: props.menu.y } : undefined}
       onClick={event => event.stopPropagation()}
     >
-      {props.menu ? [
-        <MenuItem key="open" onClick={() => props.onOpen(props.menu!.item)}>
+      {entry ? [
+        <MenuItem key="open" onClick={() => props.onOpen(entry)}>
           <ListItemIcon><OpenInNewRoundedIcon fontSize="small" /></ListItemIcon>
           <ListItemText>打开</ListItemText>
         </MenuItem>,
-        <MenuItem key="edit" onClick={() => props.onEdit(props.menu!.item)}>
+        folder ? <MenuItem key="edit" onClick={() => props.onEdit(folder)}>
           <ListItemIcon><EditRoundedIcon fontSize="small" /></ListItemIcon>
           <ListItemText>编辑</ListItemText>
+        </MenuItem> : null,
+        container ? <MenuItem key="edit-container" onClick={() => props.onEditContainer(container)}>
+          <ListItemIcon><Inventory2RoundedIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>编辑收纳盒</ListItemText>
+        </MenuItem> : null,
+        <MenuItem key="icon" onClick={() => props.onEditIcon(entry)}>
+          <ListItemIcon><ImageRoundedIcon fontSize="small" /></ListItemIcon>
+          <ListItemText>图标外观</ListItemText>
         </MenuItem>,
-        <Box key="move" sx={{ px: 2, py: 1, minWidth: 220 }}>
+        folder ? <Box key="move" sx={{ px: 2, py: 1, minWidth: 220 }}>
           <FormControl variant="filled" fullWidth size="small">
             <InputLabel id="context-move-label">移动到</InputLabel>
             <Select
               variant="filled"
               labelId="context-move-label"
               label="移动到"
-              value={props.menu.item.groupId}
-              onChange={event => props.onMove(props.menu!.item, event.target.value)}
+              value={folder.groupId}
+              onChange={event => props.onMove(folder, event.target.value)}
             >
               {props.groups.map(group => <MenuItem key={group.id} value={group.id}>{group.name}</MenuItem>)}
             </Select>
           </FormControl>
-        </Box>,
-        <MenuItem key="delete" onClick={() => props.onDelete(props.menu!.item)} sx={{ color: 'error.main' }}>
+        </Box> : null,
+        folder ? <Box key="container" sx={{ px: 2, py: 1, minWidth: 220 }}>
+          <FormControl variant="filled" fullWidth size="small">
+            <InputLabel id="context-container-label">收纳盒</InputLabel>
+            <Select
+              variant="filled"
+              labelId="context-container-label"
+              label="收纳盒"
+              value={folder.containerId || ''}
+              onChange={event => props.onMoveToContainer(folder, event.target.value)}
+            >
+              <MenuItem value="">桌面</MenuItem>
+              {props.doc.containers.map(current => <MenuItem key={current.id} value={current.id}>{current.name}</MenuItem>)}
+            </Select>
+          </FormControl>
+        </Box> : null,
+        <MenuItem key="delete" onClick={() => props.onDelete(entry)} sx={{ color: 'error.main' }}>
           <ListItemIcon><DeleteOutlineRoundedIcon fontSize="small" color="error" /></ListItemIcon>
           <ListItemText>删除</ListItemText>
         </MenuItem>,
@@ -703,10 +913,13 @@ function GroupDialog(props: {
 function SettingsDialog(props: {
   busy: boolean
   doc: FoldersDoc
+  hasWallpaper: boolean
   open: boolean
   status: DataDirStatus | null
+  onClearWallpaper(): void
   onClose(): void
   onPickDataDir(): void
+  onPickWallpaper(): void
   onRestart(): void
 }) {
   return (
@@ -715,15 +928,25 @@ function SettingsDialog(props: {
         <Stack spacing={2.25}>
           <Box>
             <Typography variant="h2">设置</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>查看数据目录或重启后台。</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>管理桌面壁纸、数据目录和后台状态。</Typography>
           </Box>
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 1.5 }}>
-          <InfoBlock label="当前数据目录" value={props.status?.dataDir || '读取中'} mono />
-          <InfoBlock label="默认数据目录" value={props.status?.defaultDataDir || '读取中'} mono />
-          <InfoBlock label="数据版本" value={`${props.doc.schemaVersion} / ${props.doc.dataVersion}`} />
-          <InfoBlock label="可写状态" value={props.status?.writable ? '可写' : '不可写或未知'} />
-        </Box>
-        {props.status?.error ? <Alert severity="error" sx={{ mt: 2 }}>{props.status.error}</Alert> : null}
+          <Paper elevation={0} sx={{ p: 2, borderRadius: 3, bgcolor: theme => alpha(theme.palette.primary.main, 0.06) }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography fontWeight={900}>桌面壁纸</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>选择一张图片作为桌面背景；不会叠加灰色蒙版。</Typography>
+              </Box>
+              <Button startIcon={<ImageRoundedIcon />} onClick={props.onPickWallpaper} disabled={props.busy}>选择壁纸</Button>
+              <Button startIcon={<RestartAltRoundedIcon />} onClick={props.onClearWallpaper} disabled={props.busy || !props.hasWallpaper}>清除壁纸</Button>
+            </Stack>
+          </Paper>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 1.5 }}>
+            <InfoBlock label="当前数据目录" value={props.status?.dataDir || '读取中'} mono />
+            <InfoBlock label="默认数据目录" value={props.status?.defaultDataDir || '读取中'} mono />
+            <InfoBlock label="数据版本" value={`${props.doc.schemaVersion} / ${props.doc.dataVersion}`} />
+            <InfoBlock label="可写状态" value={props.status?.writable ? '可写' : '不可写或未知'} />
+          </Box>
+          {props.status?.error ? <Alert severity="error" sx={{ mt: 2 }}>{props.status.error}</Alert> : null}
           <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap">
             <Button startIcon={<SplitscreenRoundedIcon />} onClick={props.onPickDataDir} disabled={props.busy}>选择数据目录</Button>
             <Button startIcon={<RestartAltRoundedIcon />} onClick={props.onRestart} disabled={props.busy}>重启后台</Button>
@@ -746,6 +969,12 @@ function InfoBlock(props: { label: string; value: string; mono?: boolean }) {
 
 function ConfirmDialog(props: { busy: boolean; confirm: ConfirmState; doc: FoldersDoc; onClose(): void; onConfirm(): void }) {
   const groupItemCount = props.confirm?.kind === 'group' ? props.doc.items.filter(item => item.groupId === props.confirm?.id).length : 0
+  const containerItemCount = props.confirm?.kind === 'container' ? props.doc.items.filter(item => item.containerId === props.confirm?.id).length : 0
+  const message = props.confirm?.kind === 'group'
+    ? `删除分组“${props.confirm.label}”？组内 ${groupItemCount} 个文件夹会移回默认分组。`
+    : props.confirm?.kind === 'container'
+      ? `删除收纳盒“${props.confirm.label}”？盒内 ${containerItemCount} 个文件夹会移回桌面。`
+      : `删除文件夹“${props.confirm?.label || ''}”？`
   return (
     <Dialog open={Boolean(props.confirm)} onClose={props.onClose} fullWidth maxWidth="xs">
       <DialogContent sx={{ p: 3 }}>
@@ -753,9 +982,7 @@ function ConfirmDialog(props: { busy: boolean; confirm: ConfirmState; doc: Folde
           <Box>
             <Typography variant="h2">确认删除</Typography>
             <Typography color="text.secondary" sx={{ mt: 1 }}>
-          {props.confirm?.kind === 'group'
-            ? `删除分组“${props.confirm.label}”？组内 ${groupItemCount} 个文件夹会移回默认分组。`
-            : `删除文件夹“${props.confirm?.label || ''}”？`}
+              {message}
             </Typography>
           </Box>
           <Stack direction="row" spacing={1} justifyContent="flex-end">

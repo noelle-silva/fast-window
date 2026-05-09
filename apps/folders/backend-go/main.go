@@ -1,9 +1,16 @@
 package main
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -19,14 +26,19 @@ import (
 )
 
 const (
-	dataSchemaVersion = 1
-	dataVersion       = 2
-	dataFile          = "data.json"
-	foldersFile       = "folders.json"
-	metaFile          = "_meta.json"
-	migrationsFile    = "_migrations.json"
-	defaultGroupID    = "default"
-	maxLayoutCoord    = 2000
+	dataSchemaVersion      = 1
+	dataVersion            = 4
+	dataFile               = "data.json"
+	foldersFile            = "folders.json"
+	metaFile               = "_meta.json"
+	migrationsFile         = "_migrations.json"
+	assetsDir              = "assets"
+	iconAssetsDir          = "icons"
+	wallpaperAssetsDir     = "wallpapers"
+	defaultGroupID         = "default"
+	maxLayoutCoord         = 2000
+	maxIconAssetBytes      = 12 * 1024 * 1024
+	maxWallpaperAssetBytes = 32 * 1024 * 1024
 )
 
 type service struct {
@@ -59,11 +71,13 @@ type folderItem struct {
 	Name        string            `json:"name"`
 	Path        string            `json:"path"`
 	GroupID     string            `json:"groupId"`
+	ContainerID string            `json:"containerId,omitempty"`
 	CreatedAt   string            `json:"createdAt"`
 	UpdatedAt   string            `json:"updatedAt"`
 	CreatedAtMS int64             `json:"createdAtMs"`
 	UpdatedAtMS int64             `json:"updatedAtMs"`
 	Layout      *folderGridLayout `json:"layout,omitempty"`
+	Icon        *desktopIcon      `json:"icon,omitempty"`
 }
 
 type folderGridLayout struct {
@@ -71,17 +85,50 @@ type folderGridLayout struct {
 	Y int `json:"y"`
 }
 
-type folderLayoutPatch struct {
+type desktopLayoutPatch struct {
+	Kind   string           `json:"kind"`
 	ID     string           `json:"id"`
 	Layout folderGridLayout `json:"layout"`
 }
 
+type desktopIcon struct {
+	Kind    string `json:"kind"`
+	Color   string `json:"color,omitempty"`
+	AssetID string `json:"assetId,omitempty"`
+}
+
+type desktopContainer struct {
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	CreatedAt   string            `json:"createdAt"`
+	UpdatedAt   string            `json:"updatedAt"`
+	CreatedAtMS int64             `json:"createdAtMs"`
+	UpdatedAtMS int64             `json:"updatedAtMs"`
+	Layout      *folderGridLayout `json:"layout,omitempty"`
+	Icon        *desktopIcon      `json:"icon,omitempty"`
+}
+
+type desktopWallpaper struct {
+	AssetID string `json:"assetId"`
+}
+
+type desktopState struct {
+	Wallpaper *desktopWallpaper `json:"wallpaper,omitempty"`
+}
+
 type foldersDoc struct {
-	SchemaVersion int           `json:"schemaVersion"`
-	DataVersion   int           `json:"dataVersion"`
-	Groups        []folderGroup `json:"groups"`
-	Items         []folderItem  `json:"items"`
-	UpdatedAt     string        `json:"updatedAt"`
+	SchemaVersion int                `json:"schemaVersion"`
+	DataVersion   int                `json:"dataVersion"`
+	Groups        []folderGroup      `json:"groups"`
+	Items         []folderItem       `json:"items"`
+	Containers    []desktopContainer `json:"containers"`
+	Desktop       desktopState       `json:"desktop"`
+	UpdatedAt     string             `json:"updatedAt"`
+}
+
+type desktopAsset struct {
+	ID   string `json:"id"`
+	Kind string `json:"kind"`
 }
 
 type metaDoc struct {
@@ -134,6 +181,10 @@ func run() error {
 	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("token") != token {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/assets/") {
+			svc.serveAsset(w, r)
 			return
 		}
 		conn, err := upgrader.Upgrade(w, r, nil)
@@ -243,14 +294,70 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 			return nil, fmt.Errorf("invalid move payload: %w", err)
 		}
 		return svc.moveFolder(payload.ID, payload.GroupID)
-	case "folders.layout.save":
+	case "folders.desktop.layout.save":
 		var payload struct {
-			Items []folderLayoutPatch `json:"items"`
+			Items []desktopLayoutPatch `json:"items"`
 		}
 		if err := json.Unmarshal(params, &payload); err != nil {
-			return nil, fmt.Errorf("invalid layout payload: %w", err)
+			return nil, fmt.Errorf("invalid desktop layout payload: %w", err)
 		}
-		return svc.saveFolderLayouts(payload.Items)
+		return svc.saveDesktopLayouts(payload.Items)
+	case "folders.assets.import":
+		var payload struct {
+			Kind       string `json:"kind"`
+			SourcePath string `json:"sourcePath"`
+		}
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid asset import payload: %w", err)
+		}
+		return svc.importAsset(payload.Kind, payload.SourcePath)
+	case "folders.containers.add":
+		var payload desktopContainer
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid container payload: %w", err)
+		}
+		return svc.addContainer(payload)
+	case "folders.containers.update":
+		var payload desktopContainer
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid container payload: %w", err)
+		}
+		return svc.updateContainer(payload)
+	case "folders.containers.remove":
+		var payload struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid remove container payload: %w", err)
+		}
+		return svc.removeContainer(payload.ID)
+	case "folders.items.container.save":
+		var payload struct {
+			IDs         []string `json:"ids"`
+			ContainerID string   `json:"containerId"`
+		}
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid item container payload: %w", err)
+		}
+		return svc.saveItemContainer(payload.IDs, payload.ContainerID)
+	case "folders.icon.save":
+		var payload struct {
+			Kind string       `json:"kind"`
+			ID   string       `json:"id"`
+			Icon *desktopIcon `json:"icon"`
+		}
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid icon payload: %w", err)
+		}
+		return svc.saveDesktopIcon(payload.Kind, payload.ID, payload.Icon)
+	case "folders.desktop.wallpaper.save":
+		var payload struct {
+			Wallpaper *desktopWallpaper `json:"wallpaper"`
+		}
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid wallpaper payload: %w", err)
+		}
+		return svc.saveDesktopWallpaper(payload.Wallpaper)
 	case "folders.groups.add":
 		var payload folderGroup
 		if err := json.Unmarshal(params, &payload); err != nil {
@@ -433,8 +540,13 @@ func (svc *service) updateFolder(payload folderItem) (foldersDoc, error) {
 	for i := range doc.Items {
 		if doc.Items[i].ID == item.ID {
 			item.CreatedAtMS = doc.Items[i].CreatedAtMS
+			item.CreatedAt = doc.Items[i].CreatedAt
+			item.ContainerID = doc.Items[i].ContainerID
 			if item.Layout == nil {
 				item.Layout = doc.Items[i].Layout
+			}
+			if item.Icon == nil {
+				item.Icon = doc.Items[i].Icon
 			}
 			doc.Items[i] = item
 			if err := svc.writeFolders(doc); err != nil {
@@ -501,7 +613,7 @@ func (svc *service) moveFolder(id string, groupID string) (foldersDoc, error) {
 	return foldersDoc{}, fmt.Errorf("folder not found: %s", id)
 }
 
-func (svc *service) saveFolderLayouts(patches []folderLayoutPatch) (foldersDoc, error) {
+func (svc *service) saveDesktopLayouts(patches []desktopLayoutPatch) (foldersDoc, error) {
 	if len(patches) == 0 {
 		return svc.readFolders()
 	}
@@ -510,33 +622,58 @@ func (svc *service) saveFolderLayouts(patches []folderLayoutPatch) (foldersDoc, 
 		return foldersDoc{}, err
 	}
 
-	updates := make(map[string]folderGridLayout, len(patches))
+	type layoutUpdate struct {
+		kind   string
+		id     string
+		layout folderGridLayout
+	}
+	updates := make([]layoutUpdate, 0, len(patches))
 	for _, patch := range patches {
+		kind := normalizeDesktopEntryKind(patch.Kind)
 		id := strings.TrimSpace(patch.ID)
-		if id == "" {
-			return foldersDoc{}, errors.New("folder id is required")
+		if kind == "" || id == "" {
+			return foldersDoc{}, errors.New("desktop layout kind and id are required")
 		}
-		updates[id] = normalizeGridLayout(patch.Layout)
+		updates = append(updates, layoutUpdate{kind: kind, id: id, layout: normalizeGridLayout(patch.Layout)})
 	}
 
 	found := make(map[string]bool, len(updates))
 	now := time.Now().UnixMilli()
 	nowString := nowText()
-	for i := range doc.Items {
-		layout, ok := updates[doc.Items[i].ID]
-		if !ok {
-			continue
+	for _, update := range updates {
+		key := update.kind + ":" + update.id
+		switch update.kind {
+		case "folder":
+			for i := range doc.Items {
+				if doc.Items[i].ID != update.id {
+					continue
+				}
+				layoutCopy := update.layout
+				doc.Items[i].Layout = &layoutCopy
+				doc.Items[i].UpdatedAtMS = now
+				doc.Items[i].UpdatedAt = nowString
+				found[key] = true
+				break
+			}
+		case "container":
+			for i := range doc.Containers {
+				if doc.Containers[i].ID != update.id {
+					continue
+				}
+				layoutCopy := update.layout
+				doc.Containers[i].Layout = &layoutCopy
+				doc.Containers[i].UpdatedAtMS = now
+				doc.Containers[i].UpdatedAt = nowString
+				found[key] = true
+				break
+			}
 		}
-		layoutCopy := layout
-		doc.Items[i].Layout = &layoutCopy
-		doc.Items[i].UpdatedAtMS = now
-		doc.Items[i].UpdatedAt = nowString
-		found[doc.Items[i].ID] = true
 	}
 
-	for id := range updates {
-		if !found[id] {
-			return foldersDoc{}, fmt.Errorf("folder not found: %s", id)
+	for _, update := range updates {
+		key := update.kind + ":" + update.id
+		if !found[key] {
+			return foldersDoc{}, fmt.Errorf("desktop entry not found: %s", key)
 		}
 	}
 
@@ -544,6 +681,294 @@ func (svc *service) saveFolderLayouts(patches []folderLayoutPatch) (foldersDoc, 
 		return foldersDoc{}, err
 	}
 	return svc.readFolders()
+}
+
+func (svc *service) addContainer(payload desktopContainer) (foldersDoc, error) {
+	doc, err := svc.readFolders()
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	container, err := normalizeDesktopContainer(payload, true)
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	for _, current := range doc.Containers {
+		if current.ID == container.ID {
+			return foldersDoc{}, fmt.Errorf("container already exists: %s", container.ID)
+		}
+	}
+	doc.Containers = append([]desktopContainer{container}, doc.Containers...)
+	if err := svc.writeFolders(doc); err != nil {
+		return foldersDoc{}, err
+	}
+	return svc.readFolders()
+}
+
+func (svc *service) updateContainer(payload desktopContainer) (foldersDoc, error) {
+	doc, err := svc.readFolders()
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	container, err := normalizeDesktopContainer(payload, false)
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	for i := range doc.Containers {
+		if doc.Containers[i].ID != container.ID {
+			continue
+		}
+		container.CreatedAt = doc.Containers[i].CreatedAt
+		container.CreatedAtMS = doc.Containers[i].CreatedAtMS
+		if container.Layout == nil {
+			container.Layout = doc.Containers[i].Layout
+		}
+		if container.Icon == nil {
+			container.Icon = doc.Containers[i].Icon
+		}
+		doc.Containers[i] = container
+		if err := svc.writeFolders(doc); err != nil {
+			return foldersDoc{}, err
+		}
+		return svc.readFolders()
+	}
+	return foldersDoc{}, fmt.Errorf("container not found: %s", container.ID)
+}
+
+func (svc *service) removeContainer(id string) (foldersDoc, error) {
+	doc, err := svc.readFolders()
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return foldersDoc{}, errors.New("container id is required")
+	}
+	nextContainers := doc.Containers[:0]
+	removed := false
+	for _, container := range doc.Containers {
+		if container.ID == id {
+			removed = true
+			continue
+		}
+		nextContainers = append(nextContainers, container)
+	}
+	if !removed {
+		return foldersDoc{}, fmt.Errorf("container not found: %s", id)
+	}
+	now := time.Now().UnixMilli()
+	nowString := nowText()
+	for i := range doc.Items {
+		if doc.Items[i].ContainerID == id {
+			doc.Items[i].ContainerID = ""
+			doc.Items[i].UpdatedAtMS = now
+			doc.Items[i].UpdatedAt = nowString
+		}
+	}
+	doc.Containers = nextContainers
+	if err := svc.writeFolders(doc); err != nil {
+		return foldersDoc{}, err
+	}
+	return svc.readFolders()
+}
+
+func (svc *service) saveItemContainer(ids []string, containerID string) (foldersDoc, error) {
+	if len(ids) == 0 {
+		return svc.readFolders()
+	}
+	doc, err := svc.readFolders()
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	containerID = strings.TrimSpace(containerID)
+	if containerID != "" && !hasContainer(doc.Containers, containerID) {
+		return foldersDoc{}, fmt.Errorf("container not found: %s", containerID)
+	}
+	updates := map[string]bool{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return foldersDoc{}, errors.New("folder id is required")
+		}
+		updates[id] = true
+	}
+	now := time.Now().UnixMilli()
+	nowString := nowText()
+	found := map[string]bool{}
+	for i := range doc.Items {
+		if !updates[doc.Items[i].ID] {
+			continue
+		}
+		doc.Items[i].ContainerID = containerID
+		doc.Items[i].UpdatedAtMS = now
+		doc.Items[i].UpdatedAt = nowString
+		found[doc.Items[i].ID] = true
+	}
+	for id := range updates {
+		if !found[id] {
+			return foldersDoc{}, fmt.Errorf("folder not found: %s", id)
+		}
+	}
+	if err := svc.writeFolders(doc); err != nil {
+		return foldersDoc{}, err
+	}
+	return svc.readFolders()
+}
+
+func (svc *service) saveDesktopIcon(kind string, id string, icon *desktopIcon) (foldersDoc, error) {
+	doc, err := svc.readFolders()
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	kind = normalizeDesktopEntryKind(kind)
+	id = strings.TrimSpace(id)
+	if kind == "" || id == "" {
+		return foldersDoc{}, errors.New("desktop icon kind and id are required")
+	}
+	normalizedIcon, err := validateDesktopIcon(icon)
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	now := time.Now().UnixMilli()
+	nowString := nowText()
+	switch kind {
+	case "folder":
+		for i := range doc.Items {
+			if doc.Items[i].ID != id {
+				continue
+			}
+			doc.Items[i].Icon = normalizedIcon
+			doc.Items[i].UpdatedAtMS = now
+			doc.Items[i].UpdatedAt = nowString
+			if err := svc.writeFolders(doc); err != nil {
+				return foldersDoc{}, err
+			}
+			return svc.readFolders()
+		}
+	case "container":
+		for i := range doc.Containers {
+			if doc.Containers[i].ID != id {
+				continue
+			}
+			doc.Containers[i].Icon = normalizedIcon
+			doc.Containers[i].UpdatedAtMS = now
+			doc.Containers[i].UpdatedAt = nowString
+			if err := svc.writeFolders(doc); err != nil {
+				return foldersDoc{}, err
+			}
+			return svc.readFolders()
+		}
+	}
+	return foldersDoc{}, fmt.Errorf("desktop entry not found: %s:%s", kind, id)
+}
+
+func (svc *service) saveDesktopWallpaper(wallpaper *desktopWallpaper) (foldersDoc, error) {
+	doc, err := svc.readFolders()
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	normalized, err := validateDesktopWallpaper(wallpaper)
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	doc.Desktop.Wallpaper = normalized
+	if err := svc.writeFolders(doc); err != nil {
+		return foldersDoc{}, err
+	}
+	return svc.readFolders()
+}
+
+func (svc *service) importAsset(kind string, sourcePath string) (desktopAsset, error) {
+	kind = strings.TrimSpace(kind)
+	assetSubdir := ""
+	maxAssetBytes := int64(maxIconAssetBytes)
+	switch kind {
+	case "icon":
+		assetSubdir = iconAssetsDir
+	case "wallpaper":
+		assetSubdir = wallpaperAssetsDir
+		maxAssetBytes = maxWallpaperAssetBytes
+	default:
+		return desktopAsset{}, errors.New("asset kind must be icon or wallpaper")
+	}
+
+	sourcePath = strings.TrimSpace(sourcePath)
+	if sourcePath == "" {
+		return desktopAsset{}, errors.New("asset source path is required")
+	}
+	ext := strings.ToLower(filepath.Ext(sourcePath))
+	if !isSupportedImageExt(ext) {
+		return desktopAsset{}, errors.New("asset must be a png, jpg, jpeg, webp, or gif image")
+	}
+	file, err := os.Open(sourcePath)
+	if err != nil {
+		return desktopAsset{}, fmt.Errorf("open asset source failed: %w", err)
+	}
+	defer file.Close()
+
+	stat, err := file.Stat()
+	if err != nil {
+		return desktopAsset{}, fmt.Errorf("stat asset source failed: %w", err)
+	}
+	if stat.Size() <= 0 {
+		return desktopAsset{}, errors.New("asset file is empty")
+	}
+	if stat.Size() > maxAssetBytes {
+		return desktopAsset{}, fmt.Errorf("%s asset file is too large: max %d bytes", kind, maxAssetBytes)
+	}
+	if err := validateAssetImageContent(file, ext); err != nil {
+		return desktopAsset{}, err
+	}
+
+	hasher := sha1.New()
+	if _, err := io.Copy(hasher, file); err != nil {
+		return desktopAsset{}, fmt.Errorf("hash asset source failed: %w", err)
+	}
+	assetName := hex.EncodeToString(hasher.Sum(nil)) + ext
+	assetID := filepath.ToSlash(filepath.Join(assetSubdir, assetName))
+	targetPath := filepath.Join(svc.dataDir, assetsDir, assetSubdir, assetName)
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		return desktopAsset{}, err
+	}
+	if _, err := os.Stat(targetPath); errors.Is(err, os.ErrNotExist) {
+		if _, err := file.Seek(0, 0); err != nil {
+			return desktopAsset{}, fmt.Errorf("rewind asset source failed: %w", err)
+		}
+		out, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err != nil {
+			return desktopAsset{}, fmt.Errorf("create asset target failed: %w", err)
+		}
+		_, copyErr := io.Copy(out, file)
+		closeErr := out.Close()
+		if copyErr != nil {
+			_ = os.Remove(targetPath)
+			return desktopAsset{}, fmt.Errorf("copy asset target failed: %w", copyErr)
+		}
+		if closeErr != nil {
+			_ = os.Remove(targetPath)
+			return desktopAsset{}, fmt.Errorf("close asset target failed: %w", closeErr)
+		}
+	} else if err != nil {
+		return desktopAsset{}, err
+	}
+	return desktopAsset{ID: assetID, Kind: kind}, nil
+}
+
+func (svc *service) serveAsset(w http.ResponseWriter, r *http.Request) {
+	assetID := strings.TrimPrefix(r.URL.Path, "/assets/")
+	path, err := svc.assetPath(assetID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	http.ServeFile(w, r, path)
+}
+
+func (svc *service) assetPath(assetID string) (string, error) {
+	assetID = strings.TrimSpace(filepath.ToSlash(assetID))
+	if !isSafeAssetID(assetID) {
+		return "", errors.New("invalid asset id")
+	}
+	return filepath.Join(svc.dataDir, assetsDir, filepath.FromSlash(assetID)), nil
 }
 
 func (svc *service) addGroup(payload folderGroup) (foldersDoc, error) {
@@ -642,7 +1067,15 @@ func (svc *service) openFolder(id string) (map[string]any, error) {
 }
 
 func defaultFoldersDoc() foldersDoc {
-	return foldersDoc{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, Groups: []folderGroup{{ID: defaultGroupID, Name: "默认"}}, Items: []folderItem{}, UpdatedAt: nowText()}
+	return foldersDoc{
+		SchemaVersion: dataSchemaVersion,
+		DataVersion:   dataVersion,
+		Groups:        []folderGroup{{ID: defaultGroupID, Name: "默认"}},
+		Items:         []folderItem{},
+		Containers:    []desktopContainer{},
+		Desktop:       desktopState{},
+		UpdatedAt:     nowText(),
+	}
 }
 
 func normalizeFoldersDoc(doc foldersDoc) foldersDoc {
@@ -657,6 +1090,17 @@ func normalizeFoldersDoc(doc foldersDoc) foldersDoc {
 		seen[normalized.ID] = true
 	}
 
+	containers := make([]desktopContainer, 0, len(doc.Containers))
+	containerIDs := map[string]bool{}
+	for _, raw := range doc.Containers {
+		container, err := normalizeDesktopContainer(raw, false)
+		if err != nil || containerIDs[container.ID] {
+			continue
+		}
+		containers = append(containers, container)
+		containerIDs[container.ID] = true
+	}
+
 	items := make([]folderItem, 0, len(doc.Items))
 	itemIDs := map[string]bool{}
 	for _, raw := range doc.Items {
@@ -664,10 +1108,22 @@ func normalizeFoldersDoc(doc foldersDoc) foldersDoc {
 		if err != nil || itemIDs[item.ID] {
 			continue
 		}
+		if item.ContainerID != "" && !containerIDs[item.ContainerID] {
+			item.ContainerID = ""
+		}
 		items = append(items, item)
 		itemIDs[item.ID] = true
 	}
-	return foldersDoc{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, Groups: groups, Items: items, UpdatedAt: firstNonEmpty(doc.UpdatedAt, nowText())}
+	desktop := normalizeDesktopState(doc.Desktop)
+	return foldersDoc{
+		SchemaVersion: dataSchemaVersion,
+		DataVersion:   dataVersion,
+		Groups:        groups,
+		Items:         items,
+		Containers:    containers,
+		Desktop:       desktop,
+		UpdatedAt:     firstNonEmpty(doc.UpdatedAt, nowText()),
+	}
 }
 
 func normalizeGroup(raw folderGroup, allowGeneratedID bool) (folderGroup, error) {
@@ -731,7 +1187,109 @@ func normalizeFolderItem(raw folderItem, groups []folderGroup, allowNewID bool) 
 		normalizedLayout := normalizeGridLayout(*raw.Layout)
 		itemLayout = &normalizedLayout
 	}
-	return folderItem{ID: id, Name: name, Path: path, GroupID: groupID, CreatedAt: createdAtText, UpdatedAt: updatedAtText, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt, Layout: itemLayout}, nil
+	icon, err := validateDesktopIcon(raw.Icon)
+	if err != nil {
+		return folderItem{}, err
+	}
+	return folderItem{ID: id, Name: name, Path: path, GroupID: groupID, ContainerID: strings.TrimSpace(raw.ContainerID), CreatedAt: createdAtText, UpdatedAt: updatedAtText, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt, Layout: itemLayout, Icon: icon}, nil
+}
+
+func normalizeDesktopContainer(raw desktopContainer, allowNewID bool) (desktopContainer, error) {
+	now := time.Now().UnixMilli()
+	nowString := nowText()
+	id := strings.TrimSpace(raw.ID)
+	if id == "" && allowNewID {
+		id = fmt.Sprintf("container-%d", now)
+	}
+	if id == "" {
+		return desktopContainer{}, errors.New("container id is required")
+	}
+	name := trimMax(raw.Name, 80)
+	if name == "" {
+		return desktopContainer{}, errors.New("container name is required")
+	}
+	createdAt := raw.CreatedAtMS
+	if createdAt <= 0 {
+		createdAt = now
+	}
+	updatedAt := raw.UpdatedAtMS
+	if updatedAt <= 0 {
+		updatedAt = now
+	}
+	createdAtText := strings.TrimSpace(raw.CreatedAt)
+	if createdAtText == "" {
+		createdAtText = nowString
+	}
+	updatedAtText := strings.TrimSpace(raw.UpdatedAt)
+	if updatedAtText == "" {
+		updatedAtText = nowString
+	}
+	var layout *folderGridLayout
+	if raw.Layout != nil {
+		normalizedLayout := normalizeGridLayout(*raw.Layout)
+		layout = &normalizedLayout
+	}
+	icon, err := validateDesktopIcon(raw.Icon)
+	if err != nil {
+		return desktopContainer{}, err
+	}
+	return desktopContainer{ID: id, Name: name, CreatedAt: createdAtText, UpdatedAt: updatedAtText, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt, Layout: layout, Icon: icon}, nil
+}
+
+func normalizeDesktopState(raw desktopState) desktopState {
+	wallpaper, err := validateDesktopWallpaper(raw.Wallpaper)
+	if err != nil {
+		wallpaper = nil
+	}
+	return desktopState{Wallpaper: wallpaper}
+}
+
+func validateDesktopWallpaper(raw *desktopWallpaper) (*desktopWallpaper, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	assetID := strings.TrimSpace(filepath.ToSlash(raw.AssetID))
+	if !isSafeAssetID(assetID) || !strings.HasPrefix(assetID, wallpaperAssetsDir+"/") {
+		return nil, errors.New("valid wallpaper asset id is required")
+	}
+	return &desktopWallpaper{AssetID: assetID}, nil
+}
+
+func validateDesktopIcon(raw *desktopIcon) (*desktopIcon, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	kind := strings.TrimSpace(raw.Kind)
+	if kind == "" {
+		kind = "color"
+	}
+	switch kind {
+	case "color":
+		color := strings.ToUpper(strings.TrimSpace(raw.Color))
+		if !isSupportedIconColor(color) {
+			return nil, fmt.Errorf("unsupported icon color: %s", raw.Color)
+		}
+		return &desktopIcon{Kind: "color", Color: color}, nil
+	case "image":
+		assetID := strings.TrimSpace(filepath.ToSlash(raw.AssetID))
+		if !isSafeAssetID(assetID) || !strings.HasPrefix(assetID, iconAssetsDir+"/") {
+			return nil, errors.New("valid icon asset id is required")
+		}
+		return &desktopIcon{Kind: "image", AssetID: assetID}, nil
+	default:
+		return nil, fmt.Errorf("unsupported icon kind: %s", kind)
+	}
+}
+
+func normalizeDesktopEntryKind(kind string) string {
+	switch strings.TrimSpace(kind) {
+	case "folder":
+		return "folder"
+	case "container":
+		return "container"
+	default:
+		return ""
+	}
 }
 
 func normalizeGridLayout(raw folderGridLayout) folderGridLayout {
@@ -759,6 +1317,83 @@ func hasGroup(groups []folderGroup, id string) bool {
 		}
 	}
 	return false
+}
+
+func hasContainer(containers []desktopContainer, id string) bool {
+	for _, container := range containers {
+		if container.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func isSupportedIconColor(color string) bool {
+	switch strings.ToUpper(strings.TrimSpace(color)) {
+	case "#8FA99B", "#8FA6B8", "#A79AB4", "#B7A38C", "#A9A18E", "#9AA38F", "#A08F8F", "#8F9FA3":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedImageExt(ext string) bool {
+	switch strings.ToLower(ext) {
+	case ".png", ".jpg", ".jpeg", ".webp", ".gif":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateAssetImageContent(file *os.File, ext string) error {
+	if _, err := file.Seek(0, 0); err != nil {
+		return fmt.Errorf("rewind asset source failed: %w", err)
+	}
+	if ext == ".webp" {
+		header := make([]byte, 12)
+		n, err := io.ReadFull(file, header)
+		if err != nil || n != len(header) || string(header[:4]) != "RIFF" || string(header[8:12]) != "WEBP" {
+			return errors.New("asset content is not a supported image")
+		}
+		_, err = file.Seek(0, 0)
+		return err
+	}
+	if _, _, err := image.DecodeConfig(file); err != nil {
+		return errors.New("asset content is not a supported image")
+	}
+	if _, err := file.Seek(0, 0); err != nil {
+		return fmt.Errorf("rewind asset source failed: %w", err)
+	}
+	return nil
+}
+
+func isSafeAssetID(assetID string) bool {
+	assetID = strings.TrimSpace(filepath.ToSlash(assetID))
+	if assetID == "" || strings.Contains(assetID, "..") || strings.HasPrefix(assetID, "/") {
+		return false
+	}
+	parts := strings.Split(assetID, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return false
+	}
+	if parts[0] != iconAssetsDir && parts[0] != wallpaperAssetsDir {
+		return false
+	}
+	ext := strings.ToLower(filepath.Ext(parts[1]))
+	if !isSupportedImageExt(ext) {
+		return false
+	}
+	name := strings.TrimSuffix(parts[1], ext)
+	if len(name) != 40 {
+		return false
+	}
+	for _, ch := range name {
+		if !((ch >= 'a' && ch <= 'f') || (ch >= '0' && ch <= '9')) {
+			return false
+		}
+	}
+	return true
 }
 
 func openPath(path string) error {

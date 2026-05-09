@@ -1,7 +1,7 @@
-export const FOLDER_GRID_ITEM_WIDTH = 116
-export const FOLDER_GRID_ITEM_HEIGHT = 132
-export const FOLDER_GRID_GAP = 18
-export const FOLDER_GRID_PADDING = 16
+export const FOLDER_GRID_ITEM_WIDTH = 148
+export const FOLDER_GRID_ITEM_HEIGHT = 164
+export const FOLDER_GRID_GAP = 38
+export const FOLDER_GRID_PADDING = 20
 export const FOLDER_GRID_MIN_HEIGHT = 260
 export const FOLDER_GRID_MAX_COORD = 2000
 
