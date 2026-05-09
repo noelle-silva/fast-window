@@ -16,6 +16,20 @@ export type BackendEndpoint = {
   protocolVersion: number
 }
 
+export type FoldersDataHealth = {
+  ok: boolean
+  error?: string
+  schemaVersion?: number
+  dataVersion?: number
+}
+
+export type FoldersHealth = {
+  ok: boolean
+  dataDir: string
+  time: string
+  data: FoldersDataHealth
+}
+
 export type FolderGroup = { id: string; name: string }
 
 export type FolderGridLayout = { x: number; y: number }
@@ -83,7 +97,7 @@ export type DirectClient = {
   close(): void
 }
 
-export type Phase = 'starting' | 'ready' | 'failed'
+export type Phase = 'starting' | 'ready' | 'data-error' | 'failed'
 
 export type FolderFormState = {
   name: string
@@ -98,7 +112,7 @@ export type ContainerFormState = { id: string; name: string }
 
 export type IconEditorState = { id: string; label: string; icon?: DesktopIcon } | null
 
-export type ConfirmState = { kind: 'folder' | 'group' | 'container'; id: string; label: string } | null
+export type ConfirmState = { kind: 'folder' | 'group' | 'container' | 'data-reset'; id: string; label: string } | null
 
 export type DesktopGridEntry = {
   kind: DesktopEntryKind

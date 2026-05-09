@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
@@ -27,11 +28,9 @@ import (
 
 const (
 	dataSchemaVersion      = 1
-	dataVersion            = 7
+	dataVersion            = 1
 	dataFile               = "data.json"
-	foldersFile            = "folders.json"
 	metaFile               = "_meta.json"
-	migrationsFile         = "_migrations.json"
 	assetsDir              = "assets"
 	iconAssetsDir          = "icons"
 	wallpaperAssetsDir     = "wallpapers"
@@ -132,12 +131,22 @@ type desktopIconLayout struct {
 	RowGap    int     `json:"rowGap"`
 	ColumnGap int     `json:"columnGap"`
 	IconScale float64 `json:"iconScale"`
-	RowCount  int     `json:"rowCount,omitempty"`
+}
+
+type desktopIconLayoutInput struct {
+	RowGap    *int     `json:"rowGap"`
+	ColumnGap *int     `json:"columnGap"`
+	IconScale *float64 `json:"iconScale"`
 }
 
 type desktopState struct {
 	Wallpaper  *desktopWallpaper `json:"wallpaper,omitempty"`
 	IconLayout desktopIconLayout `json:"iconLayout"`
+}
+
+type desktopStateInput struct {
+	Wallpaper  *desktopWallpaper       `json:"wallpaper,omitempty"`
+	IconLayout *desktopIconLayoutInput `json:"iconLayout"`
 }
 
 type foldersDoc struct {
@@ -150,6 +159,30 @@ type foldersDoc struct {
 	UpdatedAt     string             `json:"updatedAt"`
 }
 
+type foldersDocInput struct {
+	SchemaVersion *int                `json:"schemaVersion"`
+	DataVersion   *int                `json:"dataVersion"`
+	Groups        *[]folderGroup      `json:"groups"`
+	Items         *[]folderItem       `json:"items"`
+	Containers    *[]desktopContainer `json:"containers"`
+	Desktop       *desktopStateInput  `json:"desktop"`
+	UpdatedAt     *string             `json:"updatedAt"`
+}
+
+type foldersDataHealth struct {
+	OK            bool   `json:"ok"`
+	Error         string `json:"error,omitempty"`
+	SchemaVersion int    `json:"schemaVersion,omitempty"`
+	DataVersion   int    `json:"dataVersion,omitempty"`
+}
+
+type foldersHealth struct {
+	OK      bool              `json:"ok"`
+	DataDir string            `json:"dataDir"`
+	Time    string            `json:"time"`
+	Data    foldersDataHealth `json:"data"`
+}
+
 type desktopAsset struct {
 	ID   string `json:"id"`
 	Kind string `json:"kind"`
@@ -159,20 +192,6 @@ type metaDoc struct {
 	SchemaVersion int    `json:"schemaVersion"`
 	DataVersion   int    `json:"dataVersion"`
 	UpdatedAt     string `json:"updatedAt"`
-}
-
-type migrationsLedger struct {
-	SchemaVersion int              `json:"schemaVersion"`
-	DataVersion   int              `json:"dataVersion"`
-	Applied       []migrationEntry `json:"applied"`
-}
-
-type migrationEntry struct {
-	ID          string `json:"id"`
-	FromVersion int    `json:"fromVersion"`
-	ToVersion   int    `json:"toVersion"`
-	Description string `json:"description"`
-	AppliedAt   string `json:"appliedAt"`
 }
 
 func main() {
@@ -272,7 +291,7 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 
 	switch method {
 	case "folders.health":
-		return map[string]any{"ok": true, "dataDir": svc.dataDir, "time": time.Now().UTC().Format(time.RFC3339)}, nil
+		return svc.health(), nil
 	case "folders.echo":
 		var payload any
 		if len(params) > 0 {
@@ -289,6 +308,8 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 			return nil, fmt.Errorf("invalid data payload: %w", err)
 		}
 		return svc.saveFoldersData(payload)
+	case "folders.data.reset":
+		return svc.resetFoldersData()
 	case "folders.add":
 		var payload folderItem
 		if err := json.Unmarshal(params, &payload); err != nil {
@@ -436,147 +457,31 @@ func (svc *service) ensureReady() error {
 	if err := ensureWritable(svc.dataDir); err != nil {
 		return err
 	}
-	if err := svc.runMigrations(); err != nil {
+	if err := svc.writeMeta(); err != nil {
 		return err
 	}
 	if _, err := os.Stat(filepath.Join(svc.dataDir, dataFile)); errors.Is(err, os.ErrNotExist) {
-		if err := svc.writeFolders(defaultFoldersDoc()); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (svc *service) runMigrations() error {
-	ledger := migrationsLedger{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, Applied: []migrationEntry{}}
-	path := filepath.Join(svc.dataDir, migrationsFile)
-	if bytes, err := os.ReadFile(path); err == nil {
-		if err := json.Unmarshal(bytes, &ledger); err != nil {
-			return fmt.Errorf("read migrations ledger failed: %w", err)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("read migrations ledger failed: %w", err)
-	}
-
-	if ledger.DataVersion > dataVersion {
-		return fmt.Errorf("data version %d is newer than supported version %d", ledger.DataVersion, dataVersion)
-	}
-	ledger.SchemaVersion = dataSchemaVersion
-	ledger.DataVersion = dataVersion
-	if ledger.Applied == nil {
-		ledger.Applied = []migrationEntry{}
-	}
-	dataPath := filepath.Join(svc.dataDir, dataFile)
-	if _, err := os.Stat(dataPath); errors.Is(err, os.ErrNotExist) {
-		if migrated, migrationID, err := svc.loadLegacyFoldersDoc(); err != nil {
-			return err
-		} else if migrated != nil {
-			doc, err := normalizeFoldersDoc(*migrated, true)
-			if err != nil {
-				return err
-			}
-			if err := writeJSON(dataPath, doc); err != nil {
-				return err
-			}
-			ledger.Applied = appendMigration(ledger.Applied, migrationEntry{ID: migrationID, FromVersion: 0, ToVersion: dataVersion, Description: "migrate folders app data into data.json", AppliedAt: nowText()})
-		}
-	}
-	if err := svc.migrateDesktopIconLayout(dataPath, &ledger); err != nil {
-		return err
-	}
-
-	if err := writeJSON(path, ledger); err != nil {
-		return err
-	}
-	return writeJSON(filepath.Join(svc.dataDir, metaFile), metaDoc{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, UpdatedAt: nowText()})
-}
-
-func (svc *service) migrateDesktopIconLayout(dataPath string, ledger *migrationsLedger) error {
-	if _, err := os.Stat(dataPath); errors.Is(err, os.ErrNotExist) {
-		return nil
+		return svc.writeFolders(defaultFoldersDoc())
 	} else if err != nil {
 		return err
 	}
-	var doc foldersDoc
-	if err := readJSON(dataPath, &doc); err != nil {
-		return fmt.Errorf("read folders data for desktop icon layout migration failed: %w", err)
-	}
-	if hasLegacyDesktopIconRowCountLayout(doc.Desktop.IconLayout) {
-		doc.Desktop.IconLayout.RowGap = defaultDesktopIconGap
-		doc.Desktop.IconLayout.ColumnGap = defaultDesktopIconGap
-		doc.Desktop.IconLayout.RowCount = 0
-		fromVersion := doc.DataVersion
-		normalized, err := normalizeFoldersDoc(doc, false)
-		if err != nil {
-			return err
-		}
-		if err := writeJSON(dataPath, normalized); err != nil {
-			return err
-		}
-		ledger.Applied = appendMigration(ledger.Applied, migrationEntry{ID: "desktop-icon-layout-gaps-v7", FromVersion: fromVersion, ToVersion: dataVersion, Description: "migrate desktop icon page rows to row and column gaps", AppliedAt: nowText()})
-		return nil
-	}
-	if doc.DataVersion >= 7 {
-		_, err := normalizeFoldersDoc(doc, false)
-		return err
-	}
-	fromVersion := doc.DataVersion
-	normalized, err := normalizeFoldersDoc(doc, true)
-	if err != nil {
-		return err
-	}
-	if err := writeJSON(dataPath, normalized); err != nil {
-		return err
-	}
-	ledger.Applied = appendMigration(ledger.Applied, migrationEntry{ID: "desktop-icon-layout-settings-v7", FromVersion: fromVersion, ToVersion: dataVersion, Description: "add desktop icon layout settings", AppliedAt: nowText()})
 	return nil
 }
 
-func (svc *service) loadLegacyFoldersDoc() (*foldersDoc, string, error) {
-	foldersPath := filepath.Join(svc.dataDir, foldersFile)
-	bytes, err := os.ReadFile(foldersPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, "", nil
-	}
-	if err != nil {
-		return nil, "", fmt.Errorf("read legacy folders data failed: %w", err)
-	}
-	var wrapped struct {
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(bytes, &wrapped); err == nil && len(wrapped.Data) > 0 && string(wrapped.Data) != "null" {
-		var doc foldersDoc
-		if err := json.Unmarshal(wrapped.Data, &doc); err != nil {
-			return nil, "", fmt.Errorf("parse legacy wrapped folders data failed: %w", err)
-		}
-		return &doc, "legacy-folders-json-wrapper-to-data-json", nil
-	}
-	var doc foldersDoc
-	if err := json.Unmarshal(bytes, &doc); err != nil {
-		return nil, "", fmt.Errorf("parse legacy folders data failed: %w", err)
-	}
-	return &doc, "legacy-folders-json-to-data-json", nil
-}
-
-func appendMigration(entries []migrationEntry, entry migrationEntry) []migrationEntry {
-	for _, current := range entries {
-		if current.ID == entry.ID {
-			return entries
-		}
-	}
-	return append(entries, entry)
+func (svc *service) writeMeta() error {
+	return writeJSON(filepath.Join(svc.dataDir, metaFile), metaDoc{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, UpdatedAt: nowText()})
 }
 
 func (svc *service) readFolders() (foldersDoc, error) {
-	var doc foldersDoc
-	if err := readJSON(filepath.Join(svc.dataDir, dataFile), &doc); err != nil {
+	bytes, err := os.ReadFile(filepath.Join(svc.dataDir, dataFile))
+	if err != nil {
 		return foldersDoc{}, err
 	}
-	return normalizeFoldersDoc(doc, false)
+	return decodeCurrentFoldersDoc(bytes)
 }
 
 func (svc *service) writeFolders(doc foldersDoc) error {
-	normalized, err := normalizeFoldersDoc(doc, false)
+	normalized, err := normalizeFoldersDoc(doc)
 	if err != nil {
 		return err
 	}
@@ -586,7 +491,7 @@ func (svc *service) writeFolders(doc foldersDoc) error {
 }
 
 func (svc *service) saveFoldersData(payload foldersDoc) (foldersDoc, error) {
-	doc, err := normalizeFoldersDoc(payload, false)
+	doc, err := normalizeFoldersDoc(payload)
 	if err != nil {
 		return foldersDoc{}, err
 	}
@@ -597,6 +502,26 @@ func (svc *service) saveFoldersData(payload foldersDoc) (foldersDoc, error) {
 		return foldersDoc{}, err
 	}
 	return svc.readFolders()
+}
+
+func (svc *service) resetFoldersData() (foldersDoc, error) {
+	if err := svc.writeFolders(defaultFoldersDoc()); err != nil {
+		return foldersDoc{}, err
+	}
+	return svc.readFolders()
+}
+
+func (svc *service) health() foldersHealth {
+	health := foldersHealth{OK: true, DataDir: svc.dataDir, Time: nowText(), Data: foldersDataHealth{OK: true}}
+	doc, err := svc.readFolders()
+	if err != nil {
+		health.Data.OK = false
+		health.Data.Error = err.Error()
+		return health
+	}
+	health.Data.SchemaVersion = doc.SchemaVersion
+	health.Data.DataVersion = doc.DataVersion
+	return health
 }
 
 func (svc *service) addFolder(payload folderItem) (foldersDoc, error) {
@@ -1042,7 +967,7 @@ func (svc *service) saveDesktopIconLayout(iconLayout desktopIconLayout) (folders
 	if err != nil {
 		return foldersDoc{}, err
 	}
-	normalized, err := normalizeDesktopIconLayout(iconLayout, false)
+	normalized, err := normalizeDesktopIconLayout(iconLayout)
 	if err != nil {
 		return foldersDoc{}, err
 	}
@@ -1254,13 +1179,90 @@ func defaultFoldersDoc() foldersDoc {
 	}
 }
 
-func normalizeFoldersDoc(doc foldersDoc, allowEmptyDesktopIconLayout bool) (foldersDoc, error) {
-	groups := []folderGroup{{ID: defaultGroupID, Name: "默认"}}
-	seen := map[string]bool{defaultGroupID: true}
-	for _, group := range doc.Groups {
+func decodeCurrentFoldersDoc(payload []byte) (foldersDoc, error) {
+	if len(bytes.TrimSpace(payload)) == 0 {
+		return foldersDoc{}, errors.New("folders data file is empty")
+	}
+	var input foldersDocInput
+	if err := json.Unmarshal(payload, &input); err != nil {
+		return foldersDoc{}, fmt.Errorf("parse folders data failed: %w", err)
+	}
+	if input.SchemaVersion == nil {
+		return foldersDoc{}, errors.New("folders data schemaVersion is required")
+	}
+	if *input.SchemaVersion != dataSchemaVersion {
+		return foldersDoc{}, fmt.Errorf("folders data schemaVersion %d is not supported; expected %d", *input.SchemaVersion, dataSchemaVersion)
+	}
+	if input.DataVersion == nil {
+		return foldersDoc{}, errors.New("folders data dataVersion is required")
+	}
+	if *input.DataVersion != dataVersion {
+		return foldersDoc{}, fmt.Errorf("folders dataVersion %d is not supported in this development baseline; reset data or export it before switching versions", *input.DataVersion)
+	}
+	if input.Groups == nil {
+		return foldersDoc{}, errors.New("folders data groups is required")
+	}
+	if input.Items == nil {
+		return foldersDoc{}, errors.New("folders data items is required")
+	}
+	if input.Containers == nil {
+		return foldersDoc{}, errors.New("folders data containers is required")
+	}
+	if input.Desktop == nil {
+		return foldersDoc{}, errors.New("folders data desktop is required")
+	}
+	if input.Desktop.IconLayout == nil {
+		return foldersDoc{}, errors.New("folders data desktop.iconLayout is required")
+	}
+	iconLayout, err := decodeDesktopIconLayout(*input.Desktop.IconLayout)
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	updatedAt := ""
+	if input.UpdatedAt != nil {
+		updatedAt = *input.UpdatedAt
+	}
+	doc := foldersDoc{
+		SchemaVersion: *input.SchemaVersion,
+		DataVersion:   *input.DataVersion,
+		Groups:        *input.Groups,
+		Items:         *input.Items,
+		Containers:    *input.Containers,
+		Desktop:       desktopState{Wallpaper: input.Desktop.Wallpaper, IconLayout: iconLayout},
+		UpdatedAt:     updatedAt,
+	}
+	return normalizeFoldersDoc(doc)
+}
+
+func decodeDesktopIconLayout(input desktopIconLayoutInput) (desktopIconLayout, error) {
+	if input.RowGap == nil {
+		return desktopIconLayout{}, errors.New("folders data desktop.iconLayout.rowGap is required")
+	}
+	if input.ColumnGap == nil {
+		return desktopIconLayout{}, errors.New("folders data desktop.iconLayout.columnGap is required")
+	}
+	if input.IconScale == nil {
+		return desktopIconLayout{}, errors.New("folders data desktop.iconLayout.iconScale is required")
+	}
+	return normalizeDesktopIconLayout(desktopIconLayout{RowGap: *input.RowGap, ColumnGap: *input.ColumnGap, IconScale: *input.IconScale})
+}
+
+func normalizeFoldersDoc(doc foldersDoc) (foldersDoc, error) {
+	if len(doc.Groups) == 0 {
+		return foldersDoc{}, errors.New("default group is required")
+	}
+	groups := make([]folderGroup, 0, len(doc.Groups))
+	seen := map[string]bool{}
+	for i, group := range doc.Groups {
 		normalized, err := normalizeGroup(group, false)
-		if err != nil || seen[normalized.ID] {
-			continue
+		if err != nil {
+			return foldersDoc{}, fmt.Errorf("groups[%d]: %w", i, err)
+		}
+		if i == 0 && normalized.ID != defaultGroupID {
+			return foldersDoc{}, errors.New("default group must be first")
+		}
+		if seen[normalized.ID] {
+			return foldersDoc{}, fmt.Errorf("duplicate group id: %s", normalized.ID)
 		}
 		groups = append(groups, normalized)
 		seen[normalized.ID] = true
@@ -1268,10 +1270,13 @@ func normalizeFoldersDoc(doc foldersDoc, allowEmptyDesktopIconLayout bool) (fold
 
 	containers := make([]desktopContainer, 0, len(doc.Containers))
 	containerIDs := map[string]bool{}
-	for _, raw := range doc.Containers {
+	for i, raw := range doc.Containers {
 		container, err := normalizeDesktopContainer(raw, false)
-		if err != nil || containerIDs[container.ID] {
-			continue
+		if err != nil {
+			return foldersDoc{}, fmt.Errorf("containers[%d]: %w", i, err)
+		}
+		if containerIDs[container.ID] {
+			return foldersDoc{}, fmt.Errorf("duplicate container id: %s", container.ID)
 		}
 		containers = append(containers, container)
 		containerIDs[container.ID] = true
@@ -1279,21 +1284,24 @@ func normalizeFoldersDoc(doc foldersDoc, allowEmptyDesktopIconLayout bool) (fold
 
 	items := make([]folderItem, 0, len(doc.Items))
 	itemIDs := map[string]bool{}
-	for _, raw := range doc.Items {
+	for i, raw := range doc.Items {
 		item, err := normalizeFolderItem(raw, groups, false)
-		if err != nil || itemIDs[item.ID] {
-			continue
+		if err != nil {
+			return foldersDoc{}, fmt.Errorf("items[%d]: %w", i, err)
+		}
+		if itemIDs[item.ID] {
+			return foldersDoc{}, fmt.Errorf("duplicate folder id: %s", item.ID)
 		}
 		if item.ContainerID != "" && !containerIDs[item.ContainerID] {
-			item.ContainerID = ""
+			return foldersDoc{}, fmt.Errorf("items[%d]: container not found: %s", i, item.ContainerID)
 		}
-		if item.ContainerID == "" {
-			item.ContainerLayout = nil
+		if item.ContainerID == "" && item.ContainerLayout != nil {
+			return foldersDoc{}, fmt.Errorf("items[%d]: containerLayout requires containerId", i)
 		}
 		items = append(items, item)
 		itemIDs[item.ID] = true
 	}
-	desktop, err := normalizeDesktopState(doc.Desktop, allowEmptyDesktopIconLayout)
+	desktop, err := normalizeDesktopState(doc.Desktop)
 	if err != nil {
 		return foldersDoc{}, err
 	}
@@ -1366,12 +1374,18 @@ func normalizeFolderItem(raw folderItem, groups []folderGroup, allowNewID bool) 
 	}
 	var itemLayout *folderGridLayout
 	if raw.Layout != nil {
-		normalizedLayout := normalizeGridLayout(*raw.Layout)
+		normalizedLayout, err := validateGridLayout(*raw.Layout)
+		if err != nil {
+			return folderItem{}, err
+		}
 		itemLayout = &normalizedLayout
 	}
 	var containerLayout *folderGridLayout
 	if raw.ContainerLayout != nil {
-		normalizedLayout := normalizeGridLayout(*raw.ContainerLayout)
+		normalizedLayout, err := validateGridLayout(*raw.ContainerLayout)
+		if err != nil {
+			return folderItem{}, err
+		}
 		containerLayout = &normalizedLayout
 	}
 	icon, err := validateDesktopIcon(raw.Icon)
@@ -1413,18 +1427,21 @@ func normalizeDesktopContainer(raw desktopContainer, allowNewID bool) (desktopCo
 	}
 	var layout *folderGridLayout
 	if raw.Layout != nil {
-		normalizedLayout := normalizeGridLayout(*raw.Layout)
+		normalizedLayout, err := validateGridLayout(*raw.Layout)
+		if err != nil {
+			return desktopContainer{}, err
+		}
 		layout = &normalizedLayout
 	}
 	return desktopContainer{ID: id, Name: name, CreatedAt: createdAtText, UpdatedAt: updatedAtText, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt, Layout: layout}, nil
 }
 
-func normalizeDesktopState(raw desktopState, allowEmptyIconLayout bool) (desktopState, error) {
+func normalizeDesktopState(raw desktopState) (desktopState, error) {
 	wallpaper, err := validateDesktopWallpaper(raw.Wallpaper)
 	if err != nil {
-		wallpaper = nil
+		return desktopState{}, err
 	}
-	iconLayout, err := normalizeDesktopIconLayout(raw.IconLayout, allowEmptyIconLayout)
+	iconLayout, err := normalizeDesktopIconLayout(raw.IconLayout)
 	if err != nil {
 		return desktopState{}, err
 	}
@@ -1435,29 +1452,16 @@ func defaultDesktopIconLayout() desktopIconLayout {
 	return desktopIconLayout{RowGap: defaultDesktopIconGap, ColumnGap: defaultDesktopIconGap, IconScale: 1}
 }
 
-func hasLegacyDesktopIconRowCountLayout(raw desktopIconLayout) bool {
-	return raw.RowCount != 0 && raw.RowGap == 0 && raw.ColumnGap == 0 && raw.IconScale != 0
-}
-
-func normalizeDesktopIconLayout(raw desktopIconLayout, allowEmptyDefault bool) (desktopIconLayout, error) {
+func normalizeDesktopIconLayout(raw desktopIconLayout) (desktopIconLayout, error) {
 	rowGap := raw.RowGap
-	if rowGap == 0 && allowEmptyDefault {
-		rowGap = defaultDesktopIconGap
-	}
 	if rowGap < minDesktopIconGap || rowGap > maxDesktopIconGap {
 		return desktopIconLayout{}, fmt.Errorf("desktop icon row gap must be between %d and %d", minDesktopIconGap, maxDesktopIconGap)
 	}
 	columnGap := raw.ColumnGap
-	if columnGap == 0 && allowEmptyDefault {
-		columnGap = defaultDesktopIconGap
-	}
 	if columnGap < minDesktopIconGap || columnGap > maxDesktopIconGap {
 		return desktopIconLayout{}, fmt.Errorf("desktop icon column gap must be between %d and %d", minDesktopIconGap, maxDesktopIconGap)
 	}
 	iconScale := raw.IconScale
-	if iconScale == 0 && allowEmptyDefault {
-		iconScale = 1
-	}
 	if iconScale < minDesktopIconScale || iconScale > maxDesktopIconScale {
 		return desktopIconLayout{}, fmt.Errorf("desktop icon scale must be between %.2f and %.2f", minDesktopIconScale, maxDesktopIconScale)
 	}
@@ -1528,6 +1532,16 @@ func normalizeGridLayout(raw folderGridLayout) folderGridLayout {
 		y = maxLayoutCoord
 	}
 	return folderGridLayout{X: x, Y: y}
+}
+
+func validateGridLayout(raw folderGridLayout) (folderGridLayout, error) {
+	if raw.X < 0 || raw.X > maxLayoutCoord {
+		return folderGridLayout{}, fmt.Errorf("layout x must be between 0 and %d", maxLayoutCoord)
+	}
+	if raw.Y < 0 || raw.Y > maxLayoutCoord {
+		return folderGridLayout{}, fmt.Errorf("layout y must be between 0 and %d", maxLayoutCoord)
+	}
+	return raw, nil
 }
 
 func hasGroup(groups []folderGroup, id string) bool {
@@ -1644,14 +1658,6 @@ func writeReady(port int) {
 	}
 	line, _ := json.Marshal(ready)
 	fmt.Println(string(line))
-}
-
-func readJSON(path string, target any) error {
-	bytes, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(bytes, target)
 }
 
 func writeJSON(path string, value any) error {

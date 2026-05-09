@@ -18,85 +18,75 @@ func TestServiceCreatesFoldersDataFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, name := range []string{dataFile, metaFile, migrationsFile} {
+	for _, name := range []string{dataFile, metaFile} {
 		if _, err := os.Stat(filepath.Join(svc.dataDir, name)); err != nil {
 			t.Fatalf("expected %s to exist: %v", name, err)
 		}
 	}
 }
 
-func TestMigratesLegacyWrappedFoldersData(t *testing.T) {
+func TestHealthReportsCurrentBaselineData(t *testing.T) {
 	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
 	svc, err := newService()
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy := `{"data":{"schemaVersion":1,"groups":[{"id":"work","name":"工作"}],"items":[{"id":"one","name":"Projects","path":"E:/Projects","groupId":"work","createdAtMs":1}]}}`
-	if err := os.WriteFile(filepath.Join(svc.dataDir, foldersFile), []byte(legacy), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	if err := svc.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(svc.dataDir, dataFile)); err != nil {
-		t.Fatalf("expected migrated data file: %v", err)
-	}
-	doc, err := svc.readFolders()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(doc.Groups) != 2 || doc.Groups[1].ID != "work" || len(doc.Items) != 1 || doc.Items[0].GroupID != "work" {
-		t.Fatalf("unexpected migrated doc: %#v", doc)
+	health := svc.health()
+	if !health.OK || !health.Data.OK || health.Data.DataVersion != dataVersion || health.Data.SchemaVersion != dataSchemaVersion {
+		t.Fatalf("unexpected health: %#v", health)
 	}
 }
 
-func TestMigratesDesktopIconLayoutSettings(t *testing.T) {
+func TestEnsureReadyDoesNotFailForInvalidExistingData(t *testing.T) {
 	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
 	svc, err := newService()
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy := `{"schemaVersion":1,"dataVersion":6,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{},"updatedAt":"2026-01-01T00:00:00Z"}`
+	invalid := `{"schemaVersion":1,"dataVersion":1,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":-2,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
 	if err := os.MkdirAll(svc.dataDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(legacy), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(invalid), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := svc.readFolders()
+	health := svc.health()
+	if health.Data.OK || !strings.Contains(health.Data.Error, "desktop icon row gap") {
+		t.Fatalf("expected data health error, got %#v", health)
+	}
+}
+
+func TestResetFoldersDataReplacesInvalidDataWithCurrentBaseline(t *testing.T) {
+	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
+	svc, err := newService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid := `{"schemaVersion":1,"dataVersion":1,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	if err := os.MkdirAll(svc.dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(invalid), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ensureReady(); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := svc.resetFoldersData()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if doc.DataVersion != dataVersion || doc.Desktop.IconLayout.RowGap != defaultDesktopIconGap || doc.Desktop.IconLayout.ColumnGap != defaultDesktopIconGap || doc.Desktop.IconLayout.IconScale != 1 {
-		t.Fatalf("expected migrated desktop icon layout: %#v", doc)
+		t.Fatalf("expected reset current baseline doc: %#v", doc)
 	}
-}
-
-func TestMigratesLegacyDesktopIconRowCountLayout(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	legacy := `{"schemaVersion":1,"dataVersion":7,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowCount":3,"iconScale":1.2}},"updatedAt":"2026-01-01T00:00:00Z"}`
-	if err := os.MkdirAll(svc.dataDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(legacy), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
-	}
-	doc, err := svc.readFolders()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if doc.Desktop.IconLayout.RowGap != defaultDesktopIconGap || doc.Desktop.IconLayout.ColumnGap != defaultDesktopIconGap || doc.Desktop.IconLayout.IconScale != 1.2 || doc.Desktop.IconLayout.RowCount != 0 {
-		t.Fatalf("expected legacy row-count layout to migrate to gaps: %#v", doc.Desktop.IconLayout)
+	if health := svc.health(); !health.Data.OK {
+		t.Fatalf("expected healthy data after reset: %#v", health)
 	}
 }
 
@@ -367,39 +357,86 @@ func TestDesktopIconLayoutRoundTrip(t *testing.T) {
 	}
 }
 
-func TestDesktopIconLayoutInvalidPersistedDataFails(t *testing.T) {
+func TestInvalidPersistedDataIsDiagnosedAfterStartup(t *testing.T) {
 	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
 	svc, err := newService()
 	if err != nil {
 		t.Fatal(err)
 	}
-	invalid := `{"schemaVersion":1,"dataVersion":7,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":-2,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	invalid := `{"schemaVersion":1,"dataVersion":1,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":-2,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
 	if err := os.MkdirAll(svc.dataDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(invalid), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.ensureReady(); err == nil {
-		t.Fatal("expected invalid persisted desktop icon layout to fail")
+	if err := svc.ensureReady(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.readFolders(); err == nil || !strings.Contains(err.Error(), "desktop icon row gap") {
+		t.Fatalf("expected row gap read error, got %v", err)
+	}
+	if health := svc.health(); health.Data.OK || !strings.Contains(health.Data.Error, "desktop icon row gap") {
+		t.Fatalf("expected row gap health error, got %#v", health)
 	}
 }
 
-func TestDesktopIconLayoutMissingNewVersionFieldFails(t *testing.T) {
+func TestMissingCurrentBaselineFieldIsDiagnosedAfterStartup(t *testing.T) {
 	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
 	svc, err := newService()
 	if err != nil {
 		t.Fatal(err)
 	}
-	invalid := `{"schemaVersion":1,"dataVersion":7,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	invalid := `{"schemaVersion":1,"dataVersion":1,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38}},"updatedAt":"2026-01-01T00:00:00Z"}`
 	if err := os.MkdirAll(svc.dataDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(invalid), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.ensureReady(); err == nil {
-		t.Fatal("expected missing new-version desktop icon layout field to fail")
+	if err := svc.ensureReady(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.readFolders(); err == nil || !strings.Contains(err.Error(), "desktop.iconLayout.iconScale") {
+		t.Fatalf("expected missing icon scale read error, got %v", err)
+	}
+	if health := svc.health(); health.Data.OK || !strings.Contains(health.Data.Error, "desktop.iconLayout.iconScale") {
+		t.Fatalf("expected missing icon scale health error, got %#v", health)
+	}
+}
+
+func TestCurrentBaselineRejectsInvalidReferencesAndDuplicates(t *testing.T) {
+	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
+	svc, err := newService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ensureReady(); err != nil {
+		t.Fatal(err)
+	}
+
+	invalidContainerRef := `{"schemaVersion":1,"dataVersion":1,"groups":[{"id":"default","name":"默认"}],"items":[{"id":"one","name":"One","path":"E:/One","groupId":"default","containerId":"missing","createdAtMs":1,"updatedAtMs":1}],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(invalidContainerRef), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.readFolders(); err == nil || !strings.Contains(err.Error(), "container not found") {
+		t.Fatalf("expected missing container error, got %v", err)
+	}
+
+	duplicateItem := `{"schemaVersion":1,"dataVersion":1,"groups":[{"id":"default","name":"默认"}],"items":[{"id":"one","name":"One","path":"E:/One","groupId":"default","createdAtMs":1,"updatedAtMs":1},{"id":"one","name":"Two","path":"E:/Two","groupId":"default","createdAtMs":2,"updatedAtMs":2}],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(duplicateItem), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.readFolders(); err == nil || !strings.Contains(err.Error(), "duplicate folder id") {
+		t.Fatalf("expected duplicate folder error, got %v", err)
+	}
+
+	invalidLayout := `{"schemaVersion":1,"dataVersion":1,"groups":[{"id":"default","name":"默认"}],"items":[{"id":"one","name":"One","path":"E:/One","groupId":"default","createdAtMs":1,"updatedAtMs":1,"layout":{"x":-1,"y":0}}],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(invalidLayout), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.readFolders(); err == nil || !strings.Contains(err.Error(), "layout x") {
+		t.Fatalf("expected invalid layout error, got %v", err)
 	}
 }
 

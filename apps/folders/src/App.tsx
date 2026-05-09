@@ -64,6 +64,7 @@ import type {
   DirectClient,
   FolderFormState,
   FolderGroup,
+  FoldersHealth,
   FolderItem,
   FoldersDoc,
   FwLaunchInfo,
@@ -145,6 +146,11 @@ export function App() {
     try {
       if (options?.restartBackend) await invoke('restart_backend')
       const nextClient = await createDirectClient()
+      const health = await nextClient.request<FoldersHealth>('folders.health')
+      if (!health.data.ok) {
+        setClient(nextClient); setPhase('data-error'); setError(health.data.error || '数据文件不符合当前开发基线'); await refreshStatus()
+        return
+      }
       const nextDoc = await nextClient.request<FoldersDoc>('folders.getData')
       setClient(nextClient); setDoc(nextDoc); setPhase('ready'); await refreshStatus()
     } catch (e) {
@@ -186,9 +192,10 @@ export function App() {
   }, [settingsOpen])
   React.useEffect(() => {
     if (!error) return
+    if (phase === 'data-error') return
     const timer = window.setTimeout(() => setError(null), ERROR_AUTO_HIDE_MS)
     return () => window.clearTimeout(timer)
-  }, [error])
+  }, [error, phase])
   React.useEffect(() => {
     const close = () => setContextMenu(null)
     window.addEventListener('resize', close)
@@ -528,6 +535,16 @@ export function App() {
     finally { setBusy(false) }
   }
 
+  async function resetData() {
+    if (!client) return
+    setBusy(true); setError(null)
+    try {
+      const nextDoc = await client.request<FoldersDoc>('folders.data.reset')
+      setDoc(nextDoc); setPhase('ready'); setConfirm(null); await refreshStatus()
+    } catch (e) { setError(errorMessage(e, '重置数据失败')) }
+    finally { setBusy(false) }
+  }
+
   async function pickFolderPath() {
     setError(null)
     try {
@@ -580,6 +597,7 @@ export function App() {
         status={status}
         onPickDataDir={pickDataDir}
         onRestart={() => void connect({ restartBackend: true })}
+        onResetData={() => setConfirm({ kind: 'data-reset', id: 'data-reset', label: '当前数据' })}
       />
 
       <FolderGridCanvas
@@ -601,7 +619,7 @@ export function App() {
         onDragStart={handleDesktopDragStart}
       />
 
-      {error && phase !== 'failed' ? <Alert severity="error" sx={{ mx: { xs: 1.5, sm: 2 }, mb: 1.5 }}>{error}</Alert> : null}
+      {error && phase === 'ready' ? <Alert severity="error" sx={{ mx: { xs: 1.5, sm: 2 }, mb: 1.5 }}>{error}</Alert> : null}
 
       <FolderContextMenu
         menu={contextMenu}
@@ -700,6 +718,7 @@ export function App() {
           const container = doc.containers.find(current => current.id === confirm.id)
           if (confirm.kind === 'group') void removeGroup({ id: confirm.id, name: confirm.label })
           else if (confirm.kind === 'container' && container) void removeContainer(container)
+          else if (confirm.kind === 'data-reset') void resetData()
           else if (confirm.kind === 'folder' && item) void removeFolder(item)
           else setConfirm(null)
         }}
@@ -725,7 +744,7 @@ function TopBar(props: {
   onSearchChange(search: string): void
 }) {
   const statusColor = props.phase === 'failed' ? 'error' : 'warning'
-  const statusText = props.phase === 'failed' ? '需处理' : '启动中'
+  const statusText = props.phase === 'data-error' ? '数据异常' : props.phase === 'failed' ? '需处理' : '启动中'
   const canEdit = props.phase === 'ready'
   const groupActionLabel = props.selectedGroup && props.selectedGroup.id !== DEFAULT_GROUP_ID ? '编辑分组' : '新分组'
 
@@ -819,9 +838,27 @@ function WindowControls() {
   )
 }
 
-function StatusNotice(props: { busy: boolean; error: string | null; phase: Phase; status: DataDirStatus | null; onPickDataDir(): void; onRestart(): void }) {
+function StatusNotice(props: { busy: boolean; error: string | null; phase: Phase; status: DataDirStatus | null; onPickDataDir(): void; onRestart(): void; onResetData(): void }) {
   if (props.phase === 'starting') {
     return <Alert severity="info" icon={<CircularProgress size={18} />} sx={{ mx: { xs: 1.5, sm: 2 }, mb: 1 }}>正在连接文件夹收藏后台...</Alert>
+  }
+  if (props.phase === 'data-error') {
+    return (
+      <Alert
+        severity="warning"
+        icon={<WarningAmberRoundedIcon />}
+        sx={{ mx: { xs: 1.5, sm: 2 }, mb: 1, alignItems: 'flex-start' }}
+        action={
+          <Stack direction="row" spacing={1}>
+            <Button color="inherit" size="small" onClick={props.onResetData} disabled={props.busy}>重置数据</Button>
+            <Button color="inherit" size="small" onClick={props.onPickDataDir} disabled={props.busy}>数据目录</Button>
+          </Stack>
+        }
+      >
+        <Typography fontWeight={900}>数据文件不符合当前开发基线</Typography>
+        <Typography variant="body2">{props.error || '当前数据结构与开发基线不一致。请确认是否重置为新的空白基线。'}</Typography>
+      </Alert>
+    )
   }
   if (props.phase !== 'failed') return null
   return (
@@ -836,7 +873,7 @@ function StatusNotice(props: { busy: boolean; error: string | null; phase: Phase
         </Stack>
       }
     >
-      <Typography fontWeight={900}>后台或数据目录暂不可用</Typography>
+      <Typography fontWeight={900}>后台暂不可用</Typography>
       <Typography variant="body2">{props.error || props.status?.error || '请重试或选择新的数据目录。'}</Typography>
     </Alert>
   )
@@ -1205,20 +1242,24 @@ function ConfirmDialog(props: { busy: boolean; confirm: ConfirmState; doc: Folde
     ? `删除分组“${props.confirm.label}”？组内 ${groupItemCount} 个文件夹会移回默认分组。`
     : props.confirm?.kind === 'container'
       ? `删除收纳夹“${props.confirm.label}”？夹内 ${containerItemCount} 个文件夹会移回桌面。`
-      : `删除文件夹“${props.confirm?.label || ''}”？`
+      : props.confirm?.kind === 'data-reset'
+        ? '重置会把当前数据目录的 data.json 写成新的空白开发基线；这不是自动修复，请确认旧数据可以丢弃。'
+        : `删除文件夹“${props.confirm?.label || ''}”？`
+  const title = props.confirm?.kind === 'data-reset' ? '确认重置数据' : '确认删除'
+  const confirmLabel = props.confirm?.kind === 'data-reset' ? '确认重置' : '确认删除'
   return (
     <Dialog open={Boolean(props.confirm)} onClose={props.onClose} fullWidth maxWidth="xs">
       <DialogContent sx={{ p: 3 }}>
         <Stack spacing={2.25}>
           <Box>
-            <Typography variant="h2">确认删除</Typography>
+            <Typography variant="h2">{title}</Typography>
             <Typography color="text.secondary" sx={{ mt: 1 }}>
               {message}
             </Typography>
           </Box>
           <Stack direction="row" spacing={1} justifyContent="flex-end">
             <Button onClick={props.onClose}>取消</Button>
-            <Button color="error" variant="contained" onClick={props.onConfirm} disabled={props.busy}>确认删除</Button>
+            <Button color="error" variant="contained" onClick={props.onConfirm} disabled={props.busy}>{confirmLabel}</Button>
           </Stack>
         </Stack>
       </DialogContent>
