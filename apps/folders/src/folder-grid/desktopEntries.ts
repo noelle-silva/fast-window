@@ -29,7 +29,6 @@ export function buildDesktopGridEntries(doc: FoldersDoc): DesktopGridEntry[] {
       id: container.id,
       name: container.name,
       layout: container.layout,
-      icon: container.icon,
       container,
       itemCount: containedItemCount.get(container.id) || 0,
     })),

@@ -5,7 +5,7 @@ export const ALL_GROUP_ID = '__all__'
 export const DEFAULT_LAUNCH_INFO: FwLaunchInfo = { launched: false, standalone: true, mode: 'standalone' }
 export const DEFAULT_DOC: FoldersDoc = {
   schemaVersion: 1,
-  dataVersion: 4,
+  dataVersion: 5,
   groups: [{ id: DEFAULT_GROUP_ID, name: '默认' }],
   items: [],
   containers: [],

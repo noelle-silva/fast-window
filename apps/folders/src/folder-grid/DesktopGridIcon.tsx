@@ -1,17 +1,20 @@
 import * as React from 'react'
-import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
 import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
 import { Box, ButtonBase, IconButton, Typography } from '@mui/material'
 import type { DesktopGridEntry, FoldersDoc } from '../types'
 import { groupName } from '../utils'
 import { FOLDER_GRID_ITEM_HEIGHT, FOLDER_GRID_ITEM_WIDTH } from './constants'
+import { DesktopIconVisual } from './DesktopIconVisual'
 import {
   DESKTOP_ICON_DRAG_SHADOW,
-  DESKTOP_ICON_SURFACE_RADIUS,
   DESKTOP_ICON_SURFACE_SIZE,
   DESKTOP_ICON_TITLE_SHADOW,
   getDesktopIconPalette,
 } from './desktopIconTokens'
+
+const CONTAINER_FOLDER_SURFACE_SIZE = 108
+const CONTAINER_FOLDER_RADIUS = 30
+const CONTAINER_FOLDER_PREVIEW_SIZE = 34
 
 type Props = {
   assetUrl?(assetId: string): string
@@ -28,8 +31,9 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
   const color = icon?.kind === 'color' ? icon.color : undefined
   const palette = getDesktopIconPalette(`${props.entry.kind}:${props.entry.id}:${props.entry.name}`, color)
   const groupLabel = props.entry.kind === 'folder' && props.groupCount > 1 && props.entry.item ? groupName(props.doc, props.entry.item.groupId) : null
-  const detailLabel = props.entry.kind === 'container' ? `${props.entry.itemCount || 0} 个` : groupLabel
-  const imageSrc = icon?.kind === 'image' && props.assetUrl ? props.assetUrl(icon.assetId) : null
+  const detailLabel = props.entry.kind === 'folder' ? groupLabel : null
+  const containerItems = props.entry.kind === 'container' ? props.doc.items.filter(item => item.containerId === props.entry.id).slice(0, 4) : []
+  const surfaceShadow = props.entry.kind === 'container' ? '0 18px 34px rgba(15, 23, 42, 0.18)' : palette.shadow
 
   return (
     <Box
@@ -74,7 +78,7 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
           textAlign: 'center',
           '&:hover .desktop-grid-icon-surface': {
             transform: 'translateY(-3px)',
-            boxShadow: palette.shadow,
+            boxShadow: surfaceShadow,
           },
           '&:active .desktop-grid-icon-surface': {
             transform: 'translateY(0) scale(0.98)',
@@ -86,32 +90,21 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
           },
         }}
       >
-        <Box
-          className="desktop-grid-icon-surface"
-          sx={{
-            position: 'relative',
-            width: DESKTOP_ICON_SURFACE_SIZE,
-            height: DESKTOP_ICON_SURFACE_SIZE,
-            display: 'grid',
-            placeItems: 'center',
-            flexShrink: 0,
-            overflow: 'hidden',
-            borderRadius: `${DESKTOP_ICON_SURFACE_RADIUS}px`,
-            color: palette.foreground,
-            background: palette.surface,
-            boxShadow: props.dragging ? DESKTOP_ICON_DRAG_SHADOW : palette.shadow,
-            transition: props.dragging ? 'none' : 'transform .18s ease, box-shadow .18s ease',
-          }}
-        >
-          {imageSrc ? (
-            <Box component="img" src={imageSrc} alt="" sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          ) : (
-            <>
-              <FolderRoundedIcon sx={{ fontSize: 54, filter: 'drop-shadow(0 3px 7px rgba(15, 23, 42, 0.22))' }} />
-              {props.entry.kind === 'container' ? <ContainerGlyph /> : null}
-            </>
-          )}
-        </Box>
+        {props.entry.kind === 'container' ? (
+          <ContainerFolderPreview
+            assetUrl={props.assetUrl}
+            dragging={props.dragging}
+            items={containerItems}
+          />
+        ) : (
+          <DesktopIconVisual
+            assetUrl={props.assetUrl}
+            className="desktop-grid-icon-surface"
+            dragging={props.dragging}
+            icon={icon}
+            seed={`folder:${props.entry.id}:${props.entry.name}`}
+          />
+        )}
         <Box sx={{ width: '100%', minWidth: 0, display: 'grid', justifyItems: 'center', gap: 0.35 }}>
           <Typography
             component="span"
@@ -196,10 +189,40 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
   )
 }
 
-function ContainerGlyph() {
+function ContainerFolderPreview(props: { assetUrl?(assetId: string): string; dragging: boolean; items: NonNullable<DesktopGridEntry['item']>[] }) {
+  const slots = Array.from({ length: 4 }, (_, index) => props.items[index] || null)
   return (
-    <Box sx={{ position: 'absolute', right: 13, bottom: 13, display: 'grid', gridTemplateColumns: 'repeat(2, 8px)', gap: '4px' }}>
-      {[0, 1, 2, 3].map(index => <Box key={index} sx={{ width: 8, height: 8, borderRadius: 1, bgcolor: 'rgba(255, 255, 255, 0.82)' }} />)}
+    <Box
+      className="desktop-grid-icon-surface"
+      sx={{
+        width: CONTAINER_FOLDER_SURFACE_SIZE,
+        height: CONTAINER_FOLDER_SURFACE_SIZE,
+        p: '12px',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(2, 1fr)',
+        gap: '10px',
+        placeItems: 'center',
+        borderRadius: `${CONTAINER_FOLDER_RADIUS}px`,
+        background: 'rgba(246, 249, 250, 0.92)',
+        border: '1px solid rgba(255, 255, 255, 0.78)',
+        boxShadow: props.dragging ? DESKTOP_ICON_DRAG_SHADOW : '0 18px 34px rgba(15, 23, 42, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.78)',
+        backdropFilter: 'blur(18px) saturate(1.04)',
+        WebkitBackdropFilter: 'blur(18px) saturate(1.04)',
+        transition: props.dragging ? 'none' : 'transform .18s ease, box-shadow .18s ease',
+      }}
+    >
+      {slots.map((item, index) => item ? (
+        <DesktopIconVisual
+          key={item.id}
+          assetUrl={props.assetUrl}
+          glyphSize={21}
+          icon={item.icon}
+          radius={10}
+          seed={`folder:${item.id}:${item.name}`}
+          shadow={false}
+          size={CONTAINER_FOLDER_PREVIEW_SIZE}
+        />
+      ) : <Box key={`empty-${index}`} sx={{ width: CONTAINER_FOLDER_PREVIEW_SIZE, height: CONTAINER_FOLDER_PREVIEW_SIZE }} />)}
     </Box>
   )
 }

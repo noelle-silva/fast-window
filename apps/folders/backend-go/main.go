@@ -27,7 +27,7 @@ import (
 
 const (
 	dataSchemaVersion      = 1
-	dataVersion            = 4
+	dataVersion            = 5
 	dataFile               = "data.json"
 	foldersFile            = "folders.json"
 	metaFile               = "_meta.json"
@@ -105,7 +105,6 @@ type desktopContainer struct {
 	CreatedAtMS int64             `json:"createdAtMs"`
 	UpdatedAtMS int64             `json:"updatedAtMs"`
 	Layout      *folderGridLayout `json:"layout,omitempty"`
-	Icon        *desktopIcon      `json:"icon,omitempty"`
 }
 
 type desktopWallpaper struct {
@@ -722,9 +721,6 @@ func (svc *service) updateContainer(payload desktopContainer) (foldersDoc, error
 		if container.Layout == nil {
 			container.Layout = doc.Containers[i].Layout
 		}
-		if container.Icon == nil {
-			container.Icon = doc.Containers[i].Icon
-		}
 		doc.Containers[i] = container
 		if err := svc.writeFolders(doc); err != nil {
 			return foldersDoc{}, err
@@ -830,33 +826,20 @@ func (svc *service) saveDesktopIcon(kind string, id string, icon *desktopIcon) (
 	}
 	now := time.Now().UnixMilli()
 	nowString := nowText()
-	switch kind {
-	case "folder":
-		for i := range doc.Items {
-			if doc.Items[i].ID != id {
-				continue
-			}
-			doc.Items[i].Icon = normalizedIcon
-			doc.Items[i].UpdatedAtMS = now
-			doc.Items[i].UpdatedAt = nowString
-			if err := svc.writeFolders(doc); err != nil {
-				return foldersDoc{}, err
-			}
-			return svc.readFolders()
+	if kind != "folder" {
+		return foldersDoc{}, errors.New("only folder icons can be customized")
+	}
+	for i := range doc.Items {
+		if doc.Items[i].ID != id {
+			continue
 		}
-	case "container":
-		for i := range doc.Containers {
-			if doc.Containers[i].ID != id {
-				continue
-			}
-			doc.Containers[i].Icon = normalizedIcon
-			doc.Containers[i].UpdatedAtMS = now
-			doc.Containers[i].UpdatedAt = nowString
-			if err := svc.writeFolders(doc); err != nil {
-				return foldersDoc{}, err
-			}
-			return svc.readFolders()
+		doc.Items[i].Icon = normalizedIcon
+		doc.Items[i].UpdatedAtMS = now
+		doc.Items[i].UpdatedAt = nowString
+		if err := svc.writeFolders(doc); err != nil {
+			return foldersDoc{}, err
 		}
+		return svc.readFolders()
 	}
 	return foldersDoc{}, fmt.Errorf("desktop entry not found: %s:%s", kind, id)
 }
@@ -1229,11 +1212,7 @@ func normalizeDesktopContainer(raw desktopContainer, allowNewID bool) (desktopCo
 		normalizedLayout := normalizeGridLayout(*raw.Layout)
 		layout = &normalizedLayout
 	}
-	icon, err := validateDesktopIcon(raw.Icon)
-	if err != nil {
-		return desktopContainer{}, err
-	}
-	return desktopContainer{ID: id, Name: name, CreatedAt: createdAtText, UpdatedAt: updatedAtText, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt, Layout: layout, Icon: icon}, nil
+	return desktopContainer{ID: id, Name: name, CreatedAt: createdAtText, UpdatedAt: updatedAtText, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt, Layout: layout}, nil
 }
 
 func normalizeDesktopState(raw desktopState) desktopState {

@@ -183,12 +183,8 @@ func TestDesktopIconRoundTrip(t *testing.T) {
 	if doc.Items[0].Icon == nil || doc.Items[0].Icon.Color != "#8FA99B" {
 		t.Fatalf("unexpected folder icon: %#v", doc.Items[0].Icon)
 	}
-	doc, err = svc.saveDesktopIcon("container", "box", &desktopIcon{Kind: "color", Color: "#8FA6B8"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if doc.Containers[0].Icon == nil || doc.Containers[0].Icon.Color != "#8FA6B8" {
-		t.Fatalf("unexpected container icon: %#v", doc.Containers[0].Icon)
+	if _, err := svc.saveDesktopIcon("container", "box", &desktopIcon{Kind: "color", Color: "#8FA6B8"}); err == nil {
+		t.Fatal("expected container icon customization to fail")
 	}
 	if _, err := svc.saveDesktopIcon("folder", "one", &desktopIcon{Kind: "color", Color: "#FF0000"}); err == nil {
 		t.Fatal("expected unsupported icon color to fail")

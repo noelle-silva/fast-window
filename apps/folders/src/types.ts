@@ -38,7 +38,6 @@ export type DesktopContainer = {
   createdAtMs: number
   updatedAtMs: number
   layout?: FolderGridLayout
-  icon?: DesktopIcon
 }
 
 export type DesktopAssetKind = 'icon' | 'wallpaper'
@@ -94,7 +93,7 @@ export type GroupFormState = { id: string; name: string }
 
 export type ContainerFormState = { id: string; name: string; itemIds: string[] }
 
-export type IconEditorState = { kind: DesktopEntryKind; id: string; label: string; icon?: DesktopIcon } | null
+export type IconEditorState = { id: string; label: string; icon?: DesktopIcon } | null
 
 export type ConfirmState = { kind: 'folder' | 'group' | 'container'; id: string; label: string } | null
 

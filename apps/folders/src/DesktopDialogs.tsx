@@ -1,11 +1,10 @@
 import * as React from 'react'
-import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import FolderCopyRoundedIcon from '@mui/icons-material/FolderCopyRounded'
 import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
-import { Box, Button, Checkbox, Dialog, DialogContent, Divider, Paper, Stack, TextField, Typography, alpha } from '@mui/material'
+import { Box, Button, Checkbox, Dialog, DialogContent, Divider, Stack, TextField, Typography, alpha } from '@mui/material'
 import { DESKTOP_ICON_COLORS } from './folder-grid/desktopIconTokens'
-import type { ContainerFormState, DesktopContainer, FolderItem, FoldersDoc, IconEditorState } from './types'
+import type { ContainerFormState, DesktopContainer, FoldersDoc, IconEditorState } from './types'
 
 export function ContainerDialog(props: {
   busy: boolean
@@ -23,8 +22,8 @@ export function ContainerDialog(props: {
       <DialogContent sx={{ p: 3 }}>
         <Stack spacing={2.25}>
           <Box>
-            <Typography variant="h2">{props.editing ? '编辑收纳盒' : '创建收纳盒'}</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>收纳盒会作为桌面图标显示，内部文件夹可以随时移回桌面。</Typography>
+            <Typography variant="h2">{props.editing ? '编辑收纳夹' : '创建收纳夹'}</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>收纳夹会作为桌面图标显示，内部文件夹可以随时移回桌面。</Typography>
           </Box>
           <TextField label="名称" value={props.form.name} onChange={event => props.onChange({ ...props.form, name: event.target.value })} placeholder="例如：AI 工具" autoFocus fullWidth />
           <Stack spacing={1}>
@@ -49,46 +48,6 @@ export function ContainerDialog(props: {
           <Stack direction="row" spacing={1} justifyContent="flex-end">
             <Button onClick={props.onClose}>取消</Button>
             <Button variant="contained" onClick={props.onSave} disabled={props.busy}>{props.editing ? '保存' : '创建'}</Button>
-          </Stack>
-        </Stack>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-export function ContainerViewDialog(props: {
-  container: DesktopContainer | null
-  doc: FoldersDoc
-  onClose(): void
-  onEdit(container: DesktopContainer): void
-  onOpenFolder(item: FolderItem): void
-  onRemoveItem(item: FolderItem): void
-}) {
-  const items = props.container ? props.doc.items.filter(item => item.containerId === props.container?.id) : []
-  return (
-    <Dialog open={Boolean(props.container)} onClose={props.onClose} fullWidth maxWidth="sm">
-      <DialogContent sx={{ p: 3 }}>
-        <Stack spacing={2.25}>
-          <Box>
-            <Typography variant="h2">{props.container?.name || '收纳盒'}</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{items.length} 个文件夹</Typography>
-          </Box>
-          <Stack spacing={1} sx={{ maxHeight: 360, overflow: 'auto' }}>
-            {items.length ? items.map(item => (
-              <Paper key={item.id} elevation={0} sx={{ p: 1.25, borderRadius: 2.5, bgcolor: theme => alpha(theme.palette.primary.main, 0.06), display: 'flex', alignItems: 'center', gap: 1 }}>
-                <FolderCopyRoundedIcon fontSize="small" />
-                <Box sx={{ minWidth: 0, flex: 1 }}>
-                  <Typography noWrap fontWeight={900}>{item.name}</Typography>
-                  <Typography variant="caption" color="text.secondary" noWrap>{item.path}</Typography>
-                </Box>
-                <Button onClick={() => props.onOpenFolder(item)}>打开</Button>
-                <Button onClick={() => props.onRemoveItem(item)}>移出</Button>
-              </Paper>
-            )) : <Typography color="text.secondary">这个收纳盒还是空的。</Typography>}
-          </Stack>
-          <Stack direction="row" spacing={1} justifyContent="flex-end">
-            {props.container ? <Button startIcon={<EditRoundedIcon />} onClick={() => props.onEdit(props.container!)}>编辑</Button> : null}
-            <Button variant="contained" onClick={props.onClose}>完成</Button>
           </Stack>
         </Stack>
       </DialogContent>
