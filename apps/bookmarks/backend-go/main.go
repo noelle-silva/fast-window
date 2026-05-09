@@ -26,9 +26,15 @@ const (
 	defaultGroupID    = "default"
 	dataSchemaVersion = 1
 	dataVersion       = 1
+	maxLayoutCoord    = 2000
 	metaFile          = "_meta.json"
 	migrationsFile    = "_migrations.json"
 )
+
+type bookmarkLayout struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+}
 
 type bookmarkGroup struct {
 	ID        string `json:"id"`
@@ -37,14 +43,15 @@ type bookmarkGroup struct {
 }
 
 type bookmarkItem struct {
-	ID           string `json:"id"`
-	Title        string `json:"title"`
-	URL          string `json:"url"`
-	IconURL      string `json:"iconUrl,omitempty"`
-	GroupID      string `json:"groupId"`
-	CreatedAt    int64  `json:"createdAt"`
-	UpdatedAt    int64  `json:"updatedAt"`
-	LastOpenedAt *int64 `json:"lastOpenedAt"`
+	ID           string          `json:"id"`
+	Title        string          `json:"title"`
+	URL          string          `json:"url"`
+	IconURL      string          `json:"iconUrl,omitempty"`
+	GroupID      string          `json:"groupId"`
+	Layout       *bookmarkLayout `json:"layout,omitempty"`
+	CreatedAt    int64           `json:"createdAt"`
+	UpdatedAt    int64           `json:"updatedAt"`
+	LastOpenedAt *int64          `json:"lastOpenedAt"`
 }
 
 type bookmarkData struct {
@@ -75,15 +82,25 @@ type migrationEntry struct {
 }
 
 type rawBookmarkItem struct {
-	ID           any `json:"id"`
-	Title        any `json:"title"`
-	URL          any `json:"url"`
-	IconURL      any `json:"iconUrl"`
-	IconDataURL  any `json:"iconDataUrl"`
-	GroupID      any `json:"groupId"`
-	CreatedAt    any `json:"createdAt"`
-	UpdatedAt    any `json:"updatedAt"`
-	LastOpenedAt any `json:"lastOpenedAt"`
+	ID           any             `json:"id"`
+	Title        any             `json:"title"`
+	URL          any             `json:"url"`
+	IconURL      any             `json:"iconUrl"`
+	IconDataURL  any             `json:"iconDataUrl"`
+	GroupID      any             `json:"groupId"`
+	Layout       *bookmarkLayout `json:"layout"`
+	CreatedAt    any             `json:"createdAt"`
+	UpdatedAt    any             `json:"updatedAt"`
+	LastOpenedAt any             `json:"lastOpenedAt"`
+}
+
+type saveLayoutPayload struct {
+	Items []layoutPatch `json:"items"`
+}
+
+type layoutPatch struct {
+	ID     string          `json:"id"`
+	Layout *bookmarkLayout `json:"layout"`
 }
 
 type rawBookmarkGroup struct {
@@ -227,6 +244,8 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return svc.openBookmark(params)
 	case "bookmarks.refreshIcon":
 		return svc.refreshIcon(params)
+	case "bookmarks.layout.save":
+		return svc.saveLayout(params)
 	case "bookmarks.addGroup":
 		return svc.addGroup(params)
 	case "bookmarks.renameGroup":
@@ -378,6 +397,7 @@ func normalizeData(raw *rawBookmarkData) bookmarkData {
 			URL:          itemURL,
 			IconURL:      iconURL,
 			GroupID:      groupID,
+			Layout:       normalizeLayout(item.Layout),
 			CreatedAt:    asInt64Or(item.CreatedAt, now),
 			UpdatedAt:    asInt64Or(item.UpdatedAt, now),
 			LastOpenedAt: lastOpened,
@@ -394,7 +414,7 @@ func normalizeDataFromData(data bookmarkData) bookmarkData {
 		raw.Groups = append(raw.Groups, rawBookmarkGroup{ID: group.ID, Name: group.Name, CreatedAt: group.CreatedAt})
 	}
 	for _, item := range data.Items {
-		raw.Items = append(raw.Items, rawBookmarkItem{ID: item.ID, Title: item.Title, URL: item.URL, IconURL: item.IconURL, GroupID: item.GroupID, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt, LastOpenedAt: item.LastOpenedAt})
+		raw.Items = append(raw.Items, rawBookmarkItem{ID: item.ID, Title: item.Title, URL: item.URL, IconURL: item.IconURL, GroupID: item.GroupID, Layout: item.Layout, CreatedAt: item.CreatedAt, UpdatedAt: item.UpdatedAt, LastOpenedAt: item.LastOpenedAt})
 	}
 	return normalizeData(&raw)
 }
@@ -555,6 +575,49 @@ func (svc *service) refreshIcon(params json.RawMessage) (bookmarkData, error) {
 	return svc.load()
 }
 
+func (svc *service) saveLayout(params json.RawMessage) (bookmarkData, error) {
+	var payload saveLayoutPayload
+	if err := json.Unmarshal(params, &payload); err != nil {
+		return bookmarkData{}, err
+	}
+	data, err := svc.load()
+	if err != nil {
+		return data, err
+	}
+	if len(payload.Items) == 0 {
+		return data, nil
+	}
+
+	seen := map[string]bool{}
+	for _, patch := range payload.Items {
+		id := strings.TrimSpace(patch.ID)
+		if id == "" {
+			return data, errors.New("布局条目 ID 不能为空")
+		}
+		if seen[id] {
+			return data, fmt.Errorf("布局条目重复：%s", id)
+		}
+		seen[id] = true
+		if patch.Layout == nil {
+			return data, fmt.Errorf("布局条目缺少坐标：%s", id)
+		}
+		layout, err := validateLayout(*patch.Layout)
+		if err != nil {
+			return data, err
+		}
+		idx := findItem(data.Items, id)
+		if idx < 0 {
+			return data, fmt.Errorf("布局条目不存在：%s", id)
+		}
+		data.Items[idx].Layout = &layout
+	}
+
+	if err := svc.save(data); err != nil {
+		return data, err
+	}
+	return svc.load()
+}
+
 func (svc *service) addGroup(params json.RawMessage) (bookmarkData, error) {
 	payload := map[string]any{}
 	_ = json.Unmarshal(params, &payload)
@@ -668,6 +731,30 @@ func findGroup(groups []bookmarkGroup, id string) int {
 		}
 	}
 	return -1
+}
+
+func normalizeLayout(layout *bookmarkLayout) *bookmarkLayout {
+	if layout == nil {
+		return nil
+	}
+	return &bookmarkLayout{X: clampInt(layout.X, 0, maxLayoutCoord), Y: clampInt(layout.Y, 0, maxLayoutCoord)}
+}
+
+func validateLayout(layout bookmarkLayout) (bookmarkLayout, error) {
+	if layout.X < 0 || layout.X > maxLayoutCoord || layout.Y < 0 || layout.Y > maxLayoutCoord {
+		return bookmarkLayout{}, fmt.Errorf("布局坐标超出范围：x=%d y=%d", layout.X, layout.Y)
+	}
+	return layout, nil
+}
+
+func clampInt(value int, min int, max int) int {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
 }
 
 func normalizeURL(raw any) string {

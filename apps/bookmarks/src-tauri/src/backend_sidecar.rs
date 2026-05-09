@@ -33,6 +33,17 @@ impl Drop for BackendState {
 }
 
 impl BackendState {
+    pub(crate) async fn stop(&self) {
+        let child = {
+            let mut guard = self.child.lock().await;
+            guard.take()
+        };
+        if let Some(mut ch) = child {
+            let _ = ch.start_kill();
+            let _ = ch.wait().await;
+        }
+    }
+
     pub(crate) fn stop_sync(&self) {
         if let Ok(mut child) = self.child.try_lock() {
             if let Some(mut ch) = child.take() {

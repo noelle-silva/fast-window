@@ -69,6 +69,32 @@ async fn pick_data_dir(
     Ok(Some(data_dir::data_dir_status(&app, None)))
 }
 
+#[tauri::command]
+async fn restart_backend(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<BackendState>>,
+) -> Result<DataDirStatus, String> {
+    state.stop().await;
+    state.clear_runtime_state();
+    let state_inner = state.inner().clone();
+    if let Err(error) = start_backend(app.clone(), state_inner).await {
+        state.set_runtime_error(error.clone());
+        return Err(error);
+    }
+    Ok(data_dir::data_dir_status(&app, None))
+}
+
+#[tauri::command]
+fn hide_to_tray(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<FwWindowState>>,
+) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "主窗口不存在".to_string())?;
+    fw_window::hide_to_tray(&window, &state).map_err(|e| format!("隐藏窗口失败: {e}"))
+}
+
 fn main() {
     let fw_args = parse_fw_args();
     let desktop_identifier = desktop_identifier().to_string();
@@ -99,6 +125,8 @@ fn main() {
             backend_endpoint,
             data_dir_status,
             pick_data_dir,
+            restart_backend,
+            hide_to_tray,
             app_ready,
             fw_initial_command,
             fw_launch_info
