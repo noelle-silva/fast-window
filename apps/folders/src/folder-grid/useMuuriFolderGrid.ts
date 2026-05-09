@@ -8,6 +8,7 @@ import Muuri, {
   type LayoutFunction,
 } from 'muuri'
 import type { FolderGridLayout } from '../types'
+import { useTransientDragLayouts } from '../shared/desktop-grid/drag/useTransientDragLayouts'
 import {
   buildFolderGridLayoutMap,
   diffFolderGridLayouts,
@@ -162,22 +163,27 @@ export function useMuuriFolderGrid(options: Options) {
   const [gridNode, setGridNode] = React.useState<HTMLDivElement | null>(null)
   const [containerWidth, setContainerWidth] = React.useState(0)
   const [draggingId, setDraggingId] = React.useState<string | null>(null)
-  const [previewLayouts, setPreviewLayouts] = React.useState<FolderGridLayoutMap | null>(null)
   const gridInstanceRef = React.useRef<Muuri | null>(null)
   const dragSessionRef = React.useRef<DragSession | null>(null)
   const previewFrameRef = React.useRef<number | null>(null)
   const pendingPreviewRef = React.useRef<PendingPreview | null>(null)
   const latestPreviewRef = React.useRef<FolderGridLayoutMap | null>(null)
-  const activeLayoutsRef = React.useRef<FolderGridLayoutMap>(new Map())
   const metricsRef = React.useRef(metrics)
   const suppressClickRef = React.useRef<string | null>(null)
   const pendingDragCommitRef = React.useRef<PendingDragCommit | null>(null)
   metricsRef.current = metrics
-  const layout = React.useMemo(() => createMuuriLayout(activeLayoutsRef, metricsRef), [])
   const columnCount = React.useMemo(() => getFolderGridColumnCount(containerWidth, metrics), [containerWidth, metrics])
   const baseLayouts = React.useMemo(() => buildFolderGridLayoutMap(items, columnCount), [columnCount, items])
-  const activeLayouts = previewLayouts || baseLayouts
-  activeLayoutsRef.current = activeLayouts
+  const {
+    activeLayouts,
+    activeLayoutsRef,
+    clearPreviewLayouts,
+    clearReleaseLayouts,
+    lockReleaseLayouts,
+    resetTransientLayouts,
+    setPreviewLayouts,
+  } = useTransientDragLayouts(baseLayouts)
+  const layout = React.useMemo(() => createMuuriLayout(activeLayoutsRef, metricsRef), [activeLayoutsRef])
   const positionSignature = React.useMemo(
     () => items.map(item => {
       const itemLayout = activeLayouts.get(item.id)
@@ -215,9 +221,9 @@ export function useMuuriFolderGrid(options: Options) {
   React.useEffect(() => {
     latestPreviewRef.current = null
     pendingPreviewRef.current = null
-    setPreviewLayouts(null)
+    resetTransientLayouts()
     setDraggingId(null)
-  }, [baseLayouts, metrics.signature])
+  }, [baseLayouts, metrics.signature, resetTransientLayouts])
 
   const cancelPreviewFrame = React.useCallback(() => {
     if (previewFrameRef.current == null) return
@@ -249,9 +255,9 @@ export function useMuuriFolderGrid(options: Options) {
     latestPreviewRef.current = null
     pendingDragCommitRef.current = null
     dragSessionRef.current = null
-    setPreviewLayouts(null)
+    resetTransientLayouts()
     setDraggingId(null)
-  }, [cancelPreviewFrame])
+  }, [cancelPreviewFrame, resetTransientLayouts])
 
   const commitReleasedDrag = React.useCallback((itemId: string) => {
     const commit = pendingDragCommitRef.current
@@ -265,8 +271,11 @@ export function useMuuriFolderGrid(options: Options) {
         if (suppressClickRef.current === itemId) suppressClickRef.current = null
       }, 180)
     }
+    if (!commit.patches.length) {
+      clearReleaseLayouts()
+    }
     setDraggingId(current => current === itemId ? null : current)
-  }, [])
+  }, [clearReleaseLayouts])
 
   React.useEffect(() => {
     if (!gridNode) return
@@ -294,6 +303,7 @@ export function useMuuriFolderGrid(options: Options) {
       const itemId = String(element?.dataset.entryKey || '').trim()
       if (!element || !itemId) return
 
+      clearReleaseLayouts()
       const rect = element.getBoundingClientRect()
       const session = {
         itemId,
@@ -335,15 +345,18 @@ export function useMuuriFolderGrid(options: Options) {
       const patches = diffFolderGridLayouts(current.baseLayouts, nextLayouts)
       const dragEvent = dragSession ? toDragEvent(dragSession, event.clientX, event.clientY) : null
       if (dragSession && dragEvent) {
+        lockReleaseLayouts(nextLayouts)
+        grid.layout()
         pendingDragCommitRef.current = { itemId: dragSession.itemId, event: dragEvent, patches, suppressClick: true }
       } else if (patches.length) {
+        clearReleaseLayouts()
         current.onCommit(patches)
       }
 
       pendingPreviewRef.current = null
       latestPreviewRef.current = null
       dragSessionRef.current = null
-      setPreviewLayouts(null)
+      clearPreviewLayouts()
       if (!dragSession) setDraggingId(null)
     }
 
@@ -378,7 +391,7 @@ export function useMuuriFolderGrid(options: Options) {
       grid.destroy()
       gridInstanceRef.current = null
     }
-  }, [cancelDrag, commitReleasedDrag, flushPreview, gridNode, layout, schedulePreview])
+  }, [cancelDrag, clearPreviewLayouts, clearReleaseLayouts, commitReleasedDrag, flushPreview, gridNode, layout, lockReleaseLayouts, schedulePreview])
 
   React.useLayoutEffect(() => {
     const grid = gridInstanceRef.current

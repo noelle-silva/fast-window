@@ -19,6 +19,7 @@ import {
   type DesktopGridLayoutMap,
   type DesktopGridLayoutSource,
 } from '../core/layout'
+import { useTransientDragLayouts } from './useTransientDragLayouts'
 
 const MUURI_ITEM_CLASS = 'desktop-grid-muuri-item'
 const MUURI_ITEM_SELECTOR = `.${MUURI_ITEM_CLASS}`
@@ -143,20 +144,25 @@ export function useMuuriDesktopGrid(options: Options) {
   const [gridNode, setGridNode] = React.useState<HTMLDivElement | null>(null)
   const [containerWidth, setContainerWidth] = React.useState(0)
   const [draggingId, setDraggingId] = React.useState<string | null>(null)
-  const [previewLayouts, setPreviewLayouts] = React.useState<DesktopGridLayoutMap | null>(null)
   const gridInstanceRef = React.useRef<Muuri | null>(null)
   const dragSessionRef = React.useRef<DragSession | null>(null)
   const previewFrameRef = React.useRef<number | null>(null)
   const pendingPreviewRef = React.useRef<PendingPreview | null>(null)
   const latestPreviewRef = React.useRef<DesktopGridLayoutMap | null>(null)
-  const activeLayoutsRef = React.useRef<DesktopGridLayoutMap>(new Map())
   const suppressClickRef = React.useRef<string | null>(null)
   const pendingDragCommitRef = React.useRef<PendingDragCommit | null>(null)
-  const layout = React.useMemo(() => createMuuriLayout(activeLayoutsRef), [])
   const columnCount = React.useMemo(() => getDesktopGridColumnCount(containerWidth), [containerWidth])
   const baseLayouts = React.useMemo(() => buildDesktopGridLayoutMap(items, columnCount), [columnCount, items])
-  const activeLayouts = previewLayouts || baseLayouts
-  activeLayoutsRef.current = activeLayouts
+  const {
+    activeLayouts,
+    activeLayoutsRef,
+    clearPreviewLayouts,
+    clearReleaseLayouts,
+    lockReleaseLayouts,
+    resetTransientLayouts,
+    setPreviewLayouts,
+  } = useTransientDragLayouts(baseLayouts)
+  const layout = React.useMemo(() => createMuuriLayout(activeLayoutsRef), [activeLayoutsRef])
   const positionSignature = React.useMemo(
     () => items.map(item => {
       const itemLayout = activeLayouts.get(item.id)
@@ -194,9 +200,9 @@ export function useMuuriDesktopGrid(options: Options) {
   React.useEffect(() => {
     latestPreviewRef.current = null
     pendingPreviewRef.current = null
-    setPreviewLayouts(null)
+    resetTransientLayouts()
     setDraggingId(null)
-  }, [baseLayouts])
+  }, [baseLayouts, resetTransientLayouts])
 
   const cancelPreviewFrame = React.useCallback(() => {
     if (previewFrameRef.current == null) return
@@ -228,9 +234,9 @@ export function useMuuriDesktopGrid(options: Options) {
     latestPreviewRef.current = null
     pendingDragCommitRef.current = null
     dragSessionRef.current = null
-    setPreviewLayouts(null)
+    resetTransientLayouts()
     setDraggingId(null)
-  }, [cancelPreviewFrame])
+  }, [cancelPreviewFrame, resetTransientLayouts])
 
   const commitReleasedDrag = React.useCallback((itemId: string) => {
     const commit = pendingDragCommitRef.current
@@ -244,8 +250,11 @@ export function useMuuriDesktopGrid(options: Options) {
         if (suppressClickRef.current === itemId) suppressClickRef.current = null
       }, 180)
     }
+    if (!commit.patches.length) {
+      clearReleaseLayouts()
+    }
     setDraggingId(current => current === itemId ? null : current)
-  }, [])
+  }, [clearReleaseLayouts])
 
   React.useEffect(() => {
     if (!gridNode) return
@@ -269,6 +278,7 @@ export function useMuuriDesktopGrid(options: Options) {
       const itemId = String(element?.dataset.entryKey || '').trim()
       if (!element || !itemId) return
 
+      clearReleaseLayouts()
       const rect = element.getBoundingClientRect()
       const session = { itemId, offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top }
       dragSessionRef.current = session
@@ -305,15 +315,18 @@ export function useMuuriDesktopGrid(options: Options) {
       const patches = diffDesktopGridLayouts(current.baseLayouts, nextLayouts)
       const dragEvent = dragSession ? toDragEvent(dragSession, event.clientX, event.clientY) : null
       if (dragSession && dragEvent) {
+        lockReleaseLayouts(nextLayouts)
+        grid.layout()
         pendingDragCommitRef.current = { itemId: dragSession.itemId, event: dragEvent, patches, suppressClick: true }
       } else if (patches.length) {
+        clearReleaseLayouts()
         current.onCommit(patches)
       }
 
       pendingPreviewRef.current = null
       latestPreviewRef.current = null
       dragSessionRef.current = null
-      setPreviewLayouts(null)
+      clearPreviewLayouts()
       if (!dragSession) setDraggingId(null)
     }
 
@@ -348,7 +361,7 @@ export function useMuuriDesktopGrid(options: Options) {
       grid.destroy()
       gridInstanceRef.current = null
     }
-  }, [cancelDrag, commitReleasedDrag, flushPreview, gridNode, layout, schedulePreview])
+  }, [cancelDrag, clearPreviewLayouts, clearReleaseLayouts, commitReleasedDrag, flushPreview, gridNode, layout, lockReleaseLayouts, schedulePreview])
 
   React.useLayoutEffect(() => {
     const grid = gridInstanceRef.current
