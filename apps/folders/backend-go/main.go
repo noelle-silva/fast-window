@@ -107,6 +107,12 @@ type containerItemsPlacement struct {
 	Items       []containerLayoutPatch `json:"items"`
 }
 
+type createContainerFromItemsPayload struct {
+	SourceItemID string           `json:"sourceItemId"`
+	TargetItemID string           `json:"targetItemId"`
+	Layout       folderGridLayout `json:"layout"`
+}
+
 type desktopIcon struct {
 	Kind    string `json:"kind"`
 	Color   string `json:"color,omitempty"`
@@ -362,6 +368,12 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 			return nil, fmt.Errorf("invalid container payload: %w", err)
 		}
 		return svc.addContainer(payload)
+	case "folders.containers.create-from-items":
+		var payload createContainerFromItemsPayload
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid create container payload: %w", err)
+		}
+		return svc.createContainerFromItems(payload)
 	case "folders.containers.update":
 		var payload desktopContainer
 		if err := json.Unmarshal(params, &payload); err != nil {
@@ -719,6 +731,76 @@ func (svc *service) addContainer(payload desktopContainer) (foldersDoc, error) {
 		}
 	}
 	doc.Containers = append([]desktopContainer{container}, doc.Containers...)
+	if err := svc.writeFolders(doc); err != nil {
+		return foldersDoc{}, err
+	}
+	return svc.readFolders()
+}
+
+func (svc *service) createContainerFromItems(payload createContainerFromItemsPayload) (foldersDoc, error) {
+	doc, err := svc.readFolders()
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	sourceItemID := strings.TrimSpace(payload.SourceItemID)
+	targetItemID := strings.TrimSpace(payload.TargetItemID)
+	if sourceItemID == "" || targetItemID == "" {
+		return foldersDoc{}, errors.New("source and target folder ids are required")
+	}
+	if sourceItemID == targetItemID {
+		return foldersDoc{}, errors.New("source and target folder ids must be different")
+	}
+
+	sourceIndex := -1
+	targetIndex := -1
+	for i := range doc.Items {
+		switch doc.Items[i].ID {
+		case sourceItemID:
+			sourceIndex = i
+		case targetItemID:
+			targetIndex = i
+		}
+	}
+	if sourceIndex < 0 {
+		return foldersDoc{}, fmt.Errorf("folder not found: %s", sourceItemID)
+	}
+	if targetIndex < 0 {
+		return foldersDoc{}, fmt.Errorf("folder not found: %s", targetItemID)
+	}
+	if doc.Items[sourceIndex].ContainerID != "" || doc.Items[targetIndex].ContainerID != "" {
+		return foldersDoc{}, errors.New("only desktop folders can create a container")
+	}
+
+	now := time.Now().UnixMilli()
+	nowString := nowText()
+	layout := normalizeGridLayout(payload.Layout)
+	containerID := uniqueContainerID(doc.Containers, now)
+	containerLayout := layout
+	doc.Containers = append([]desktopContainer{{
+		ID:          containerID,
+		Name:        nextContainerName(doc.Containers),
+		CreatedAt:   nowString,
+		UpdatedAt:   nowString,
+		CreatedAtMS: now,
+		UpdatedAtMS: now,
+		Layout:      &containerLayout,
+	}}, doc.Containers...)
+
+	for i := range doc.Items {
+		if doc.Items[i].ID != targetItemID && doc.Items[i].ID != sourceItemID {
+			continue
+		}
+		doc.Items[i].ContainerID = containerID
+		doc.Items[i].Layout = nil
+		doc.Items[i].UpdatedAtMS = now
+		doc.Items[i].UpdatedAt = nowString
+		layoutCopy := folderGridLayout{X: 0, Y: 0}
+		if doc.Items[i].ID == sourceItemID {
+			layoutCopy = folderGridLayout{X: 1, Y: 0}
+		}
+		doc.Items[i].ContainerLayout = &layoutCopy
+	}
+
 	if err := svc.writeFolders(doc); err != nil {
 		return foldersDoc{}, err
 	}
@@ -1560,6 +1642,28 @@ func hasContainer(containers []desktopContainer, id string) bool {
 		}
 	}
 	return false
+}
+
+func uniqueContainerID(containers []desktopContainer, seed int64) string {
+	for offset := int64(0); ; offset++ {
+		id := fmt.Sprintf("container-%d", seed+offset)
+		if !hasContainer(containers, id) {
+			return id
+		}
+	}
+}
+
+func nextContainerName(containers []desktopContainer) string {
+	existing := make(map[string]bool, len(containers))
+	for _, container := range containers {
+		existing[strings.TrimSpace(container.Name)] = true
+	}
+	for index := 1; ; index++ {
+		name := fmt.Sprintf("新建收纳夹（%d）", index)
+		if !existing[name] {
+			return name
+		}
+	}
 }
 
 func isSupportedIconColor(color string) bool {

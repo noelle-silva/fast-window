@@ -7,6 +7,7 @@ import {
   type DesktopGridLayoutSource,
 } from '../core/layout'
 import type {
+  DesktopGridDragEndResult,
   DesktopGridDragEvent,
   DesktopGridEntry,
   DesktopGridLayoutPatch,
@@ -18,10 +19,11 @@ import { useMuuriDesktopGrid, type MuuriDesktopGridDragEvent } from '../drag/use
 type Props<TEntry extends DesktopGridEntry, TContainerItem> = {
   allEntries?: TEntry[]
   ariaLabel?: string
+  enableOverlayDrag?: boolean
   entries: TEntry[]
   getContainerPreviewItems?(entry: TEntry): TContainerItem[]
   onDragCancel?(event: DesktopGridDragEvent<TEntry>): void
-  onDragEnd?(event: DesktopGridDragEvent<TEntry>, patches: DesktopGridLayoutPatch[]): boolean | void
+  onDragEnd?(event: DesktopGridDragEvent<TEntry>, patches: DesktopGridLayoutPatch[]): DesktopGridDragEndResult | void
   onDragMove?(event: DesktopGridDragEvent<TEntry>): void
   onDragStart?(event: DesktopGridDragEvent<TEntry>): void
   onLayoutCommit(patches: DesktopGridLayoutPatch[]): void
@@ -39,6 +41,7 @@ export function DesktopGridCanvas<TEntry extends DesktopGridEntry, TContainerIte
   const gridNodeRef = React.useRef<HTMLDivElement | null>(null)
   const hoverLayoutsRef = React.useRef<DesktopGridLayoutMap>(new Map())
   const editor = useMuuriDesktopGrid({
+    enableOverlayDrag: props.enableOverlayDrag,
     items: layoutItems,
     renderedItemIds,
     onCommit: props.onLayoutCommit,

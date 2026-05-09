@@ -8,6 +8,8 @@ import Muuri, {
   type LayoutFunction,
 } from 'muuri'
 import type { FolderGridLayout } from '../types'
+import type { DesktopGridDragMode, DesktopGridDragModifiers, DesktopGridDragEndResult } from '../shared/desktop-grid/core/dragTypes'
+import { getDesktopGridDragMode, getDesktopGridDragModifiers, useDesktopGridDragModifierState } from '../shared/desktop-grid/drag/dragModifiers'
 import { useTransientDragLayouts } from '../shared/desktop-grid/drag/useTransientDragLayouts'
 import {
   buildFolderGridLayoutMap,
@@ -15,6 +17,7 @@ import {
   getFolderGridColumnCount,
   getFolderGridLayoutFromPixel,
   getFolderGridPixelRect,
+  resolveFolderGridOverlayLayout,
   resolveFolderGridDragLayout,
   type FolderGridLayoutMap,
   type FolderGridLayoutPatch,
@@ -31,12 +34,14 @@ export type FolderGridDragEvent = {
   clientY: number
   offsetX: number
   offsetY: number
+  dragMode: DesktopGridDragMode
+  modifiers: DesktopGridDragModifiers
   targetLayout?: FolderGridLayout
 }
 
-type DragSession = { itemId: string; offsetX: number; offsetY: number }
+type DragSession = { itemId: string; offsetX: number; offsetY: number; dragMode: DesktopGridDragMode; modifiers: DesktopGridDragModifiers }
 
-type PendingPreview = { itemId: string; targetLayout: FolderGridLayout }
+type PendingPreview = { itemId: string; dragMode: DesktopGridDragMode; targetLayout: FolderGridLayout }
 
 type PendingDragCommit = {
   itemId: string
@@ -45,13 +50,16 @@ type PendingDragCommit = {
   suppressClick: boolean
 }
 
+export type FolderGridDragEndResult = DesktopGridDragEndResult
+
 type Options = {
+  enableOverlayDrag?: boolean
   items: FolderGridLayoutSource[]
   metrics?: FolderGridMetrics
   renderedItemIds?: string[]
   onCommit(patches: FolderGridLayoutPatch[]): void
   onDragCancel?(event: FolderGridDragEvent): void
-  onDragEnd?(event: FolderGridDragEvent, patches: FolderGridLayoutPatch[]): boolean | void
+  onDragEnd?(event: FolderGridDragEvent, patches: FolderGridLayoutPatch[]): FolderGridDragEndResult | void
   onDragMove?(event: FolderGridDragEvent): void
   onDragStart?(event: FolderGridDragEvent): void
 }
@@ -153,12 +161,31 @@ function toDragEvent(session: DragSession, clientX: number, clientY: number, tar
     clientY,
     offsetX: session.offsetX,
     offsetY: session.offsetY,
+    dragMode: session.dragMode,
+    modifiers: session.modifiers,
     targetLayout,
   }
 }
 
+function resolvePreviewLayouts(
+  items: FolderGridLayoutSource[],
+  baseLayouts: FolderGridLayoutMap,
+  itemId: string,
+  dragMode: DesktopGridDragMode,
+  targetLayout: FolderGridLayout,
+  columnCount: number,
+): FolderGridLayoutMap {
+  if (dragMode === 'overlay') return resolveFolderGridOverlayLayout(baseLayouts, itemId, targetLayout, columnCount)
+  return resolveFolderGridDragLayout(items, baseLayouts, itemId, targetLayout, columnCount)
+}
+
+function normalizeDragEndResult(result: FolderGridDragEndResult | void): { handled: boolean; clearReleaseLayouts: boolean } {
+  if (typeof result === 'object' && result) return { handled: result.handled, clearReleaseLayouts: Boolean(result.clearReleaseLayouts) }
+  return { handled: result === true, clearReleaseLayouts: false }
+}
+
 export function useMuuriFolderGrid(options: Options) {
-  const { items, renderedItemIds, onCommit, onDragCancel, onDragEnd, onDragMove, onDragStart } = options
+  const { enableOverlayDrag = false, items, renderedItemIds, onCommit, onDragCancel, onDragEnd, onDragMove, onDragStart } = options
   const metrics = options.metrics || DEFAULT_FOLDER_GRID_METRICS
   const [gridNode, setGridNode] = React.useState<HTMLDivElement | null>(null)
   const [containerWidth, setContainerWidth] = React.useState(0)
@@ -169,6 +196,7 @@ export function useMuuriFolderGrid(options: Options) {
   const pendingPreviewRef = React.useRef<PendingPreview | null>(null)
   const latestPreviewRef = React.useRef<FolderGridLayoutMap | null>(null)
   const metricsRef = React.useRef(metrics)
+  const keyboardModifiersRef = useDesktopGridDragModifierState()
   const suppressClickRef = React.useRef<string | null>(null)
   const pendingDragCommitRef = React.useRef<PendingDragCommit | null>(null)
   metricsRef.current = metrics
@@ -193,8 +221,8 @@ export function useMuuriFolderGrid(options: Options) {
   )
   const itemSignature = React.useMemo(() => items.map(item => item.id).join('|'), [items])
   const renderedItemSignature = React.useMemo(() => (renderedItemIds || items.map(item => item.id)).join('|'), [items, renderedItemIds])
-  const liveRef = React.useRef({ items, columnCount, baseLayouts, metrics, onCommit, onDragCancel, onDragEnd, onDragMove, onDragStart })
-  liveRef.current = { items, columnCount, baseLayouts, metrics, onCommit, onDragCancel, onDragEnd, onDragMove, onDragStart }
+  const liveRef = React.useRef({ enableOverlayDrag, items, columnCount, baseLayouts, metrics, onCommit, onDragCancel, onDragEnd, onDragMove, onDragStart })
+  liveRef.current = { enableOverlayDrag, items, columnCount, baseLayouts, metrics, onCommit, onDragCancel, onDragEnd, onDragMove, onDragStart }
 
   React.useLayoutEffect(() => {
     if (!gridNode) {
@@ -238,13 +266,14 @@ export function useMuuriFolderGrid(options: Options) {
     if (!pending) return
 
     const current = liveRef.current
-    const nextPreview = resolveFolderGridDragLayout(current.items, current.baseLayouts, pending.itemId, pending.targetLayout, current.columnCount)
+    const dragMode = current.enableOverlayDrag ? pending.dragMode : 'reflow'
+    const nextPreview = resolvePreviewLayouts(current.items, current.baseLayouts, pending.itemId, dragMode, pending.targetLayout, current.columnCount)
     latestPreviewRef.current = nextPreview
     setPreviewLayouts(nextPreview)
   }, [])
 
-  const schedulePreview = React.useCallback((itemId: string, targetLayout: FolderGridLayout) => {
-    pendingPreviewRef.current = { itemId, targetLayout }
+  const schedulePreview = React.useCallback((itemId: string, dragMode: DesktopGridDragMode, targetLayout: FolderGridLayout) => {
+    pendingPreviewRef.current = { itemId, dragMode, targetLayout }
     if (previewFrameRef.current != null) return
     previewFrameRef.current = window.requestAnimationFrame(flushPreview)
   }, [flushPreview])
@@ -263,15 +292,15 @@ export function useMuuriFolderGrid(options: Options) {
     const commit = pendingDragCommitRef.current
     if (!commit || commit.itemId !== itemId) return
     pendingDragCommitRef.current = null
-    const handled = liveRef.current.onDragEnd?.(commit.event, commit.patches) === true
-    if (!handled && commit.patches.length) liveRef.current.onCommit(commit.patches)
+    const result = normalizeDragEndResult(liveRef.current.onDragEnd?.(commit.event, commit.patches))
+    if (!result.handled && commit.patches.length) liveRef.current.onCommit(commit.patches)
     if (commit.suppressClick) {
       suppressClickRef.current = itemId
       window.setTimeout(() => {
         if (suppressClickRef.current === itemId) suppressClickRef.current = null
       }, 180)
     }
-    if (!commit.patches.length) {
+    if (result.clearReleaseLayouts || !commit.patches.length) {
       clearReleaseLayouts()
     }
     setDraggingId(current => current === itemId ? null : current)
@@ -305,10 +334,14 @@ export function useMuuriFolderGrid(options: Options) {
 
       clearReleaseLayouts()
       const rect = element.getBoundingClientRect()
+      const current = liveRef.current
+      const modifiers = getDesktopGridDragModifiers(event, keyboardModifiersRef.current)
       const session = {
         itemId,
         offsetX: event.clientX - rect.left,
         offsetY: event.clientY - rect.top,
+        modifiers,
+        dragMode: current.enableOverlayDrag ? getDesktopGridDragMode(modifiers) : 'reflow',
       }
       dragSessionRef.current = session
       setDraggingId(itemId)
@@ -321,6 +354,8 @@ export function useMuuriFolderGrid(options: Options) {
 
       autoScrollDuringDrag(gridNode, event.clientY)
       const current = liveRef.current
+      const modifiers = getDesktopGridDragModifiers(event, keyboardModifiersRef.current)
+      const dragMode = current.enableOverlayDrag ? getDesktopGridDragMode(modifiers) : 'reflow'
       const gridRect = gridNode.getBoundingClientRect()
       const itemRect = item.getElement()?.getBoundingClientRect()
       const targetLayout = getFolderGridLayoutFromPixel(
@@ -329,8 +364,10 @@ export function useMuuriFolderGrid(options: Options) {
         current.columnCount,
         current.metrics,
       )
+      dragSession.dragMode = dragMode
+      dragSession.modifiers = modifiers
       liveRef.current.onDragMove?.(toDragEvent(dragSession, event.clientX, event.clientY, targetLayout))
-      schedulePreview(dragSession.itemId, targetLayout)
+      schedulePreview(dragSession.itemId, dragMode, targetLayout)
     }
 
     const handleDragEnd = (event: DraggerEndEvent) => {
@@ -343,6 +380,11 @@ export function useMuuriFolderGrid(options: Options) {
       const current = liveRef.current
       const nextLayouts = latestPreviewRef.current || current.baseLayouts
       const patches = diffFolderGridLayouts(current.baseLayouts, nextLayouts)
+      if (dragSession) {
+        const modifiers = getDesktopGridDragModifiers(event, keyboardModifiersRef.current)
+        dragSession.modifiers = modifiers
+        dragSession.dragMode = current.enableOverlayDrag ? getDesktopGridDragMode(modifiers) : 'reflow'
+      }
       const dragEvent = dragSession ? toDragEvent(dragSession, event.clientX, event.clientY) : null
       if (dragSession && dragEvent) {
         lockReleaseLayouts(nextLayouts)

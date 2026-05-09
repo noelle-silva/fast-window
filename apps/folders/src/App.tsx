@@ -47,7 +47,9 @@ import type { SelectChangeEvent } from '@mui/material/Select'
 import { createDirectClient } from './backendClient'
 import { ContainerFolderOverlay } from './ContainerFolderOverlay'
 import { ContainerDialog, IconEditorDialog } from './DesktopDialogs'
+import { DesktopDragHint } from './DesktopDragHint'
 import { DesktopWallpaper } from './DesktopWallpaper'
+import type { DesktopDragDropIntent, DesktopDragState } from './desktopDragState'
 import type { ContainerGridApi, ContainerGridPlacement } from './folder-grid/ContainerGridCanvas'
 import { buildDesktopGridEntries, filterDesktopGridEntries } from './folder-grid/desktopEntries'
 import type {
@@ -102,8 +104,6 @@ import {
 const appWindow = getCurrentWindow()
 const ERROR_AUTO_HIDE_MS = 4200
 const CONTAINER_HOVER_OPEN_MS = 520
-
-type DesktopDragState = { item: FolderItem; hoverContainerId?: string; targetContainerId?: string } | null
 
 export function App() {
   const [launchInfo, setLaunchInfo] = React.useState<FwLaunchInfo>(DEFAULT_LAUNCH_INFO)
@@ -298,6 +298,19 @@ export function App() {
     finally { setBusy(false) }
   }
 
+  async function createContainerFromItems(sourceItemId: string, targetItemId: string, layout: NonNullable<FolderItem['layout']>) {
+    if (!client) return
+    setBusy(true); setError(null)
+    try {
+      const nextDoc = await client.request<FoldersDoc>('folders.containers.create-from-items', { sourceItemId, targetItemId, layout })
+      setDoc(nextDoc)
+      const movedItem = nextDoc.items.find(item => item.id === sourceItemId)
+      const nextContainer = movedItem?.containerId ? nextDoc.containers.find(container => container.id === movedItem.containerId) : null
+      if (nextContainer) setContainerView(nextContainer)
+    } catch (e) { setError(errorMessage(e, '自动创建收纳夹失败')) }
+    finally { setBusy(false) }
+  }
+
   async function placeContainerItems(containerId: string, movedId: string | null, placements: ContainerGridPlacement[]) {
     if (!client || !placements.length) return
     const previousDoc = doc
@@ -368,20 +381,28 @@ export function App() {
   function handleDesktopDragStart(event: DesktopGridDragEvent) {
     clearHoverOpenTimer()
     if (event.entry.kind !== 'folder' || !event.entry.item) return
-    setDesktopDragState({ item: event.entry.item })
+    setDesktopDragState({ item: event.entry.item, mode: event.dragMode })
   }
 
   function handleDesktopDragMove(event: DesktopGridDragEvent) {
     if (event.entry.kind !== 'folder' || !event.entry.item) return
     const hoverContainer = event.hoverContainer?.container
-    setDesktopDragState(current => current && current.item.id === event.entry.id ? { ...current, hoverContainerId: hoverContainer?.id } : current)
-    if (!hoverContainer) {
+    const hoverTarget = event.hoverTarget
+    const dropIntent = getDesktopDropIntent(event)
+    setDesktopDragState(current => current && current.item.id === event.entry.id ? {
+      ...current,
+      mode: event.dragMode,
+      hoverTargetId: hoverTarget?.entry.id,
+      hoverTargetKind: hoverTarget?.entry.kind,
+      dropIntent,
+    } : current)
+    if (event.dragMode !== 'overlay' || !hoverContainer) {
       clearHoverOpenTimer()
       return
     }
     if (containerView?.id === hoverContainer.id) {
       clearHoverOpenTimer()
-      setDesktopDragState(current => current && current.item.id === event.entry.id ? { ...current, targetContainerId: hoverContainer.id } : current)
+      setDesktopDragState(current => current && current.item.id === event.entry.id ? { ...current, dropIntent: { kind: 'container', containerId: hoverContainer.id } } : current)
       return
     }
     if (hoverOpenTargetIdRef.current === hoverContainer.id) return
@@ -391,20 +412,33 @@ export function App() {
       hoverOpenTimerRef.current = null
       hoverOpenTargetIdRef.current = null
       setContainerView(hoverContainer)
-      setDesktopDragState(current => current && current.item.id === event.entry.id ? { ...current, targetContainerId: hoverContainer.id } : current)
+      setDesktopDragState(current => current && current.item.id === event.entry.id ? { ...current, dropIntent: { kind: 'container', containerId: hoverContainer.id } } : current)
     }, CONTAINER_HOVER_OPEN_MS)
   }
 
   function handleDesktopDragEnd(event: DesktopGridDragEvent, patches: DesktopGridLayoutPatch[]) {
     clearHoverOpenTimer()
     const drag = desktopDragRef.current
-    const targetContainerId = drag?.targetContainerId
-    const dropLayout = targetContainerId ? containerGridApiRef.current?.layoutFromClientPoint(event.clientX, event.clientY, event.offsetX, event.offsetY) : null
-    if (targetContainerId && drag && dropLayout && event.entry.kind === 'folder') {
+    const dropIntent = event.dragMode === 'overlay' ? getDesktopDropIntent(event) || drag?.dropIntent : undefined
+    if (dropIntent?.kind === 'container' && drag && event.entry.kind === 'folder') {
+      const dropLayout = containerGridApiRef.current?.layoutFromClientPoint(event.clientX, event.clientY, event.offsetX, event.offsetY)
+      if (!dropLayout) {
+        setDesktopDragState(null)
+        return { handled: true, clearReleaseLayouts: true }
+      }
       const nextPlacements = containerGridApiRef.current?.placementsForDrop(drag.item.id, dropLayout) || []
-      void placeContainerItems(targetContainerId, drag.item.id, nextPlacements)
+      void placeContainerItems(dropIntent.containerId, drag.item.id, nextPlacements)
       setDesktopDragState(null)
-      return true
+      return { handled: true, clearReleaseLayouts: true }
+    }
+    if (dropIntent?.kind === 'new-container' && drag && event.entry.kind === 'folder') {
+      void createContainerFromItems(drag.item.id, dropIntent.targetItemId, dropIntent.layout)
+      setDesktopDragState(null)
+      return { handled: true, clearReleaseLayouts: true }
+    }
+    if (event.dragMode === 'overlay') {
+      setDesktopDragState(null)
+      return { handled: true, clearReleaseLayouts: true }
     }
     setDesktopDragState(null)
     if (patches.length) void saveDesktopLayouts(patches)
@@ -414,6 +448,15 @@ export function App() {
   function handleDesktopDragCancel() {
     clearHoverOpenTimer()
     setDesktopDragState(null)
+  }
+
+  function getDesktopDropIntent(event: DesktopGridDragEvent): DesktopDragDropIntent | undefined {
+    if (event.dragMode !== 'overlay') return undefined
+    const hoverTarget = event.hoverTarget
+    if (!hoverTarget) return undefined
+    if (hoverTarget.entry.kind === 'container') return { kind: 'container', containerId: hoverTarget.entry.id }
+    if (hoverTarget.entry.kind === 'folder' && hoverTarget.entry.item) return { kind: 'new-container', targetItemId: hoverTarget.entry.item.id, layout: hoverTarget.layout }
+    return undefined
   }
 
   function openGroupEditor(group?: FolderGroup) {
@@ -619,6 +662,8 @@ export function App() {
         onDragStart={handleDesktopDragStart}
       />
 
+      <DesktopDragHint drag={desktopDrag} />
+
       {error && phase === 'ready' ? <Alert severity="error" sx={{ mx: { xs: 1.5, sm: 2 }, mb: 1.5 }}>{error}</Alert> : null}
 
       <FolderContextMenu
@@ -688,7 +733,7 @@ export function App() {
       <ContainerFolderOverlay
         assetUrl={client?.assetUrl}
         container={containerView}
-        dropTargetActive={Boolean(desktopDrag?.targetContainerId && desktopDrag.targetContainerId === containerView?.id)}
+        dropTargetActive={desktopDrag?.dropIntent?.kind === 'container' && desktopDrag.dropIntent.containerId === containerView?.id}
         doc={doc}
         onClose={() => setContainerView(null)}
         onEdit={container => { setContainerView(null); openEditContainer(container) }}

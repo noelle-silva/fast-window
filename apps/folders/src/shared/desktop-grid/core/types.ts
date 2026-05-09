@@ -1,4 +1,5 @@
 import type * as React from 'react'
+import type { DesktopGridDragEndResult, DesktopGridDragMode, DesktopGridDragModifiers } from './dragTypes'
 
 export type DesktopGridLayout = {
   x: number
@@ -35,10 +36,15 @@ export type DesktopGridDragEvent<TEntry extends DesktopGridEntry = DesktopGridEn
   clientY: number
   offsetX: number
   offsetY: number
+  dragMode: DesktopGridDragMode
+  modifiers: DesktopGridDragModifiers
   targetLayout?: DesktopGridLayout
   entry: TEntry
   hoverContainer?: TEntry
+  hoverEntry?: TEntry
 }
+
+export type { DesktopGridDragEndResult }
 
 export type DesktopGridRenderItemState = {
   dragging: boolean

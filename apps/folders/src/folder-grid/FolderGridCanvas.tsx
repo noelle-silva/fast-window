@@ -2,12 +2,12 @@ import * as React from 'react'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import DriveFolderUploadRoundedIcon from '@mui/icons-material/DriveFolderUploadRounded'
 import { Box, Button, Paper, Stack, Typography, alpha } from '@mui/material'
-import type { ContextMenuState, DesktopGridEntry, DesktopIconLayout, FoldersDoc, Phase } from '../types'
+import type { ContextMenuState, DesktopGridEntry, DesktopIconLayout, FolderGridLayout, FoldersDoc, Phase } from '../types'
 import { DesktopGridIcon } from './DesktopGridIcon'
 import { desktopEntryKey, parseDesktopEntryKey, type DesktopGridLayoutPatch } from './desktopEntries'
 import { createFolderGridMetrics, type FolderGridMetrics } from './iconLayout'
 import { getFolderGridCanvasHeight, getFolderGridPixelRect, type FolderGridLayoutMap, type FolderGridLayoutPatch, type FolderGridLayoutSource } from './layout'
-import { useMuuriFolderGrid, type FolderGridDragEvent } from './useMuuriFolderGrid'
+import { useMuuriFolderGrid, type FolderGridDragEndResult, type FolderGridDragEvent } from './useMuuriFolderGrid'
 
 type Props = {
   doc: FoldersDoc
@@ -23,13 +23,14 @@ type Props = {
   onContextMenu(menu: ContextMenuState): void
   onLayoutCommit(patches: DesktopGridLayoutPatch[]): void
   onDragCancel?(event: DesktopGridDragEvent): void
-  onDragEnd?(event: DesktopGridDragEvent, patches: DesktopGridLayoutPatch[]): boolean | void
+  onDragEnd?(event: DesktopGridDragEvent, patches: DesktopGridLayoutPatch[]): FolderGridDragEndResult | void
   onDragMove?(event: DesktopGridDragEvent): void
   onDragStart?(event: DesktopGridDragEvent): void
 }
 
 export type { DesktopGridLayoutPatch }
-export type DesktopGridDragEvent = FolderGridDragEvent & { entry: DesktopGridEntry; hoverContainer?: DesktopGridEntry }
+export type DesktopGridHoverTarget = { entry: DesktopGridEntry; layout: FolderGridLayout }
+export type DesktopGridDragEvent = FolderGridDragEvent & { entry: DesktopGridEntry; hoverContainer?: DesktopGridEntry; hoverTarget?: DesktopGridHoverTarget }
 
 export function FolderGridCanvas(props: Props): React.ReactNode {
   const layoutItems = React.useMemo<FolderGridLayoutSource[]>(() => props.allEntries.map(entry => ({ id: desktopEntryKey(entry.kind, entry.id), layout: entry.layout })), [props.allEntries])
@@ -41,6 +42,7 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
   const metrics = React.useMemo(() => createFolderGridMetrics(props.iconLayout), [props.iconLayout])
 
   const editor = useMuuriFolderGrid({
+    enableOverlayDrag: true,
     items: layoutItems,
     metrics,
     renderedItemIds,
@@ -131,21 +133,22 @@ function toDesktopGridLayoutPatch(patch: FolderGridLayoutPatch): DesktopGridLayo
 function toDesktopDragEvent(event: FolderGridDragEvent, entries: Map<string, DesktopGridEntry>, hoverEntries: Map<string, DesktopGridEntry>, gridNode: HTMLDivElement | null, layouts: FolderGridLayoutMap, metrics: FolderGridMetrics): DesktopGridDragEvent {
   const entry = entries.get(event.itemId)
   if (!entry) throw new Error(`desktop drag entry not found: ${event.itemId}`)
-  const hoverContainer = findHoverContainer(event, entry, hoverEntries, gridNode, layouts, metrics)
-  return { ...event, entry, hoverContainer }
+  const hoverTarget = findHoverTarget(event, entry, hoverEntries, gridNode, layouts, metrics)
+  const hoverContainer = hoverTarget?.entry.kind === 'container' ? hoverTarget.entry : undefined
+  return { ...event, entry, hoverContainer, hoverTarget }
 }
 
-function findHoverContainer(event: FolderGridDragEvent, activeEntry: DesktopGridEntry, entries: Map<string, DesktopGridEntry>, gridNode: HTMLDivElement | null, layouts: FolderGridLayoutMap, metrics: FolderGridMetrics): DesktopGridEntry | undefined {
+function findHoverTarget(event: FolderGridDragEvent, activeEntry: DesktopGridEntry, entries: Map<string, DesktopGridEntry>, gridNode: HTMLDivElement | null, layouts: FolderGridLayoutMap, metrics: FolderGridMetrics): DesktopGridHoverTarget | undefined {
   if (!gridNode) return undefined
   const gridRect = gridNode.getBoundingClientRect()
   const x = event.clientX - gridRect.left
   const y = event.clientY - gridRect.top
   for (const entry of entries.values()) {
-    if (entry.kind !== 'container' || entry.id === activeEntry.id) continue
+    if (entry.id === activeEntry.id) continue
     const layout = layouts.get(desktopEntryKey(entry.kind, entry.id))
     if (!layout) continue
     const rect = getFolderGridPixelRect(layout, metrics)
-    if (x >= rect.left && x <= rect.left + rect.width && y >= rect.top && y <= rect.top + rect.height) return entry
+    if (x >= rect.left && x <= rect.left + rect.width && y >= rect.top && y <= rect.top + rect.height) return { entry, layout }
   }
   return undefined
 }

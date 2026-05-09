@@ -101,6 +101,26 @@ export function resolveDesktopGridDragLayout(
   return nextLayouts
 }
 
+export function resolveDesktopGridOverlayLayout(
+  baseLayouts: DesktopGridLayoutMap,
+  activeId: string,
+  targetLayout: DesktopGridLayout,
+  columnCount: number,
+): DesktopGridLayoutMap {
+  const nextLayouts = new Map(baseLayouts)
+  nextLayouts.set(activeId, normalizeDesktopGridLayout(targetLayout, columnCount))
+  return nextLayouts
+}
+
+export function isDesktopGridLayoutOccupied(layouts: DesktopGridLayoutMap, activeId: string, targetLayout: DesktopGridLayout, columnCount: number): boolean {
+  const targetSlot = desktopGridSlot(normalizeDesktopGridLayout(targetLayout, columnCount), columnCount)
+  for (const [id, layout] of layouts) {
+    if (id === activeId) continue
+    if (desktopGridSlot(layout, columnCount) === targetSlot) return true
+  }
+  return false
+}
+
 export function getDesktopGridPixelRect(layout: DesktopGridLayout): DesktopGridPixelRect {
   return {
     left: DESKTOP_GRID_PADDING + layout.x * DESKTOP_GRID_CELL_WIDTH,

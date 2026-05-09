@@ -95,6 +95,17 @@ export function resolveFolderGridDragLayout(
   return nextLayouts
 }
 
+export function resolveFolderGridOverlayLayout(
+  baseLayouts: FolderGridLayoutMap,
+  activeId: string,
+  targetLayout: FolderGridLayout,
+  columnCount: number,
+): FolderGridLayoutMap {
+  const nextLayouts = new Map(baseLayouts)
+  nextLayouts.set(activeId, normalizeFolderGridLayout(targetLayout, columnCount))
+  return nextLayouts
+}
+
 export function getFolderGridPixelRect(layout: FolderGridLayout, metrics: FolderGridMetrics = DEFAULT_FOLDER_GRID_METRICS): FolderGridPixelRect {
   return {
     left: metrics.padding + layout.x * metrics.cellWidth,

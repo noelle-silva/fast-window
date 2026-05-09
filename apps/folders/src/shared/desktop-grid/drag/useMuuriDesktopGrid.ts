@@ -8,6 +8,7 @@ import Muuri, {
   type LayoutFunction,
 } from 'muuri'
 import { DESKTOP_GRID_MIN_HEIGHT, DESKTOP_GRID_PADDING } from '../core/constants'
+import type { DesktopGridDragEndResult, DesktopGridDragMode, DesktopGridDragModifiers } from '../core/dragTypes'
 import type { DesktopGridLayout, DesktopGridLayoutPatch } from '../core/types'
 import {
   buildDesktopGridLayoutMap,
@@ -15,10 +16,12 @@ import {
   getDesktopGridColumnCount,
   getDesktopGridLayoutFromPixel,
   getDesktopGridPixelRect,
+  resolveDesktopGridOverlayLayout,
   resolveDesktopGridDragLayout,
   type DesktopGridLayoutMap,
   type DesktopGridLayoutSource,
 } from '../core/layout'
+import { getDesktopGridDragMode, getDesktopGridDragModifiers, useDesktopGridDragModifierState } from './dragModifiers'
 import { useTransientDragLayouts } from './useTransientDragLayouts'
 
 const MUURI_ITEM_CLASS = 'desktop-grid-muuri-item'
@@ -30,19 +33,22 @@ export type MuuriDesktopGridDragEvent = {
   clientY: number
   offsetX: number
   offsetY: number
+  dragMode: DesktopGridDragMode
+  modifiers: DesktopGridDragModifiers
   targetLayout?: DesktopGridLayout
 }
 
-type DragSession = { itemId: string; offsetX: number; offsetY: number }
-type PendingPreview = { itemId: string; targetLayout: DesktopGridLayout }
+type DragSession = { itemId: string; offsetX: number; offsetY: number; dragMode: DesktopGridDragMode; modifiers: DesktopGridDragModifiers }
+type PendingPreview = { itemId: string; dragMode: DesktopGridDragMode; targetLayout: DesktopGridLayout }
 type PendingDragCommit = { itemId: string; event: MuuriDesktopGridDragEvent; patches: DesktopGridLayoutPatch[]; suppressClick: boolean }
 
 type Options = {
+  enableOverlayDrag?: boolean
   items: DesktopGridLayoutSource[]
   renderedItemIds?: string[]
   onCommit(patches: DesktopGridLayoutPatch[]): void
   onDragCancel?(event: MuuriDesktopGridDragEvent): void
-  onDragEnd?(event: MuuriDesktopGridDragEvent, patches: DesktopGridLayoutPatch[]): boolean | void
+  onDragEnd?(event: MuuriDesktopGridDragEvent, patches: DesktopGridLayoutPatch[]): DesktopGridDragEndResult | void
   onDragMove?(event: MuuriDesktopGridDragEvent): void
   onDragStart?(event: MuuriDesktopGridDragEvent): void
 }
@@ -136,11 +142,28 @@ function autoScrollDuringDrag(containerNode: HTMLElement, clientY: number): void
 }
 
 function toDragEvent(session: DragSession, clientX: number, clientY: number, targetLayout?: DesktopGridLayout): MuuriDesktopGridDragEvent {
-  return { itemId: session.itemId, clientX, clientY, offsetX: session.offsetX, offsetY: session.offsetY, targetLayout }
+  return { itemId: session.itemId, clientX, clientY, offsetX: session.offsetX, offsetY: session.offsetY, dragMode: session.dragMode, modifiers: session.modifiers, targetLayout }
+}
+
+function resolvePreviewLayouts(
+  items: DesktopGridLayoutSource[],
+  baseLayouts: DesktopGridLayoutMap,
+  itemId: string,
+  dragMode: DesktopGridDragMode,
+  targetLayout: DesktopGridLayout,
+  columnCount: number,
+): DesktopGridLayoutMap {
+  if (dragMode === 'overlay') return resolveDesktopGridOverlayLayout(baseLayouts, itemId, targetLayout, columnCount)
+  return resolveDesktopGridDragLayout(items, baseLayouts, itemId, targetLayout, columnCount)
+}
+
+function normalizeDragEndResult(result: DesktopGridDragEndResult | void): { handled: boolean; clearReleaseLayouts: boolean } {
+  if (typeof result === 'object' && result) return { handled: result.handled, clearReleaseLayouts: Boolean(result.clearReleaseLayouts) }
+  return { handled: result === true, clearReleaseLayouts: false }
 }
 
 export function useMuuriDesktopGrid(options: Options) {
-  const { items, renderedItemIds, onCommit, onDragCancel, onDragEnd, onDragMove, onDragStart } = options
+  const { enableOverlayDrag = false, items, renderedItemIds, onCommit, onDragCancel, onDragEnd, onDragMove, onDragStart } = options
   const [gridNode, setGridNode] = React.useState<HTMLDivElement | null>(null)
   const [containerWidth, setContainerWidth] = React.useState(0)
   const [draggingId, setDraggingId] = React.useState<string | null>(null)
@@ -149,6 +172,7 @@ export function useMuuriDesktopGrid(options: Options) {
   const previewFrameRef = React.useRef<number | null>(null)
   const pendingPreviewRef = React.useRef<PendingPreview | null>(null)
   const latestPreviewRef = React.useRef<DesktopGridLayoutMap | null>(null)
+  const keyboardModifiersRef = useDesktopGridDragModifierState()
   const suppressClickRef = React.useRef<string | null>(null)
   const pendingDragCommitRef = React.useRef<PendingDragCommit | null>(null)
   const columnCount = React.useMemo(() => getDesktopGridColumnCount(containerWidth), [containerWidth])
@@ -172,8 +196,8 @@ export function useMuuriDesktopGrid(options: Options) {
   )
   const itemSignature = React.useMemo(() => items.map(item => item.id).join('|'), [items])
   const renderedItemSignature = React.useMemo(() => (renderedItemIds || items.map(item => item.id)).join('|'), [items, renderedItemIds])
-  const liveRef = React.useRef({ items, columnCount, baseLayouts, onCommit, onDragCancel, onDragEnd, onDragMove, onDragStart })
-  liveRef.current = { items, columnCount, baseLayouts, onCommit, onDragCancel, onDragEnd, onDragMove, onDragStart }
+  const liveRef = React.useRef({ enableOverlayDrag, items, columnCount, baseLayouts, onCommit, onDragCancel, onDragEnd, onDragMove, onDragStart })
+  liveRef.current = { enableOverlayDrag, items, columnCount, baseLayouts, onCommit, onDragCancel, onDragEnd, onDragMove, onDragStart }
 
   React.useLayoutEffect(() => {
     if (!gridNode) {
@@ -217,13 +241,14 @@ export function useMuuriDesktopGrid(options: Options) {
     if (!pending) return
 
     const current = liveRef.current
-    const nextPreview = resolveDesktopGridDragLayout(current.items, current.baseLayouts, pending.itemId, pending.targetLayout, current.columnCount)
+    const dragMode = current.enableOverlayDrag ? pending.dragMode : 'reflow'
+    const nextPreview = resolvePreviewLayouts(current.items, current.baseLayouts, pending.itemId, dragMode, pending.targetLayout, current.columnCount)
     latestPreviewRef.current = nextPreview
     setPreviewLayouts(nextPreview)
   }, [])
 
-  const schedulePreview = React.useCallback((itemId: string, targetLayout: DesktopGridLayout) => {
-    pendingPreviewRef.current = { itemId, targetLayout }
+  const schedulePreview = React.useCallback((itemId: string, dragMode: DesktopGridDragMode, targetLayout: DesktopGridLayout) => {
+    pendingPreviewRef.current = { itemId, dragMode, targetLayout }
     if (previewFrameRef.current != null) return
     previewFrameRef.current = window.requestAnimationFrame(flushPreview)
   }, [flushPreview])
@@ -242,15 +267,15 @@ export function useMuuriDesktopGrid(options: Options) {
     const commit = pendingDragCommitRef.current
     if (!commit || commit.itemId !== itemId) return
     pendingDragCommitRef.current = null
-    const handled = liveRef.current.onDragEnd?.(commit.event, commit.patches) === true
-    if (!handled && commit.patches.length) liveRef.current.onCommit(commit.patches)
+    const result = normalizeDragEndResult(liveRef.current.onDragEnd?.(commit.event, commit.patches))
+    if (!result.handled && commit.patches.length) liveRef.current.onCommit(commit.patches)
     if (commit.suppressClick) {
       suppressClickRef.current = itemId
       window.setTimeout(() => {
         if (suppressClickRef.current === itemId) suppressClickRef.current = null
       }, 180)
     }
-    if (!commit.patches.length) {
+    if (result.clearReleaseLayouts || !commit.patches.length) {
       clearReleaseLayouts()
     }
     setDraggingId(current => current === itemId ? null : current)
@@ -280,7 +305,9 @@ export function useMuuriDesktopGrid(options: Options) {
 
       clearReleaseLayouts()
       const rect = element.getBoundingClientRect()
-      const session = { itemId, offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top }
+      const current = liveRef.current
+      const modifiers = getDesktopGridDragModifiers(event, keyboardModifiersRef.current)
+      const session = { itemId, offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top, modifiers, dragMode: current.enableOverlayDrag ? getDesktopGridDragMode(modifiers) : 'reflow' }
       dragSessionRef.current = session
       setDraggingId(itemId)
       liveRef.current.onDragStart?.(toDragEvent(session, event.clientX, event.clientY))
@@ -292,6 +319,8 @@ export function useMuuriDesktopGrid(options: Options) {
 
       autoScrollDuringDrag(gridNode, event.clientY)
       const current = liveRef.current
+      const modifiers = getDesktopGridDragModifiers(event, keyboardModifiersRef.current)
+      const dragMode = current.enableOverlayDrag ? getDesktopGridDragMode(modifiers) : 'reflow'
       const gridRect = gridNode.getBoundingClientRect()
       const itemRect = item.getElement()?.getBoundingClientRect()
       const targetLayout = getDesktopGridLayoutFromPixel(
@@ -299,8 +328,10 @@ export function useMuuriDesktopGrid(options: Options) {
         (itemRect?.top ?? event.clientY - dragSession.offsetY) - gridRect.top,
         current.columnCount,
       )
+      dragSession.modifiers = modifiers
+      dragSession.dragMode = dragMode
       liveRef.current.onDragMove?.(toDragEvent(dragSession, event.clientX, event.clientY, targetLayout))
-      schedulePreview(dragSession.itemId, targetLayout)
+      schedulePreview(dragSession.itemId, dragMode, targetLayout)
     }
 
     const handleDragEnd = (event: DraggerEndEvent) => {
@@ -313,6 +344,11 @@ export function useMuuriDesktopGrid(options: Options) {
       const current = liveRef.current
       const nextLayouts = latestPreviewRef.current || current.baseLayouts
       const patches = diffDesktopGridLayouts(current.baseLayouts, nextLayouts)
+      if (dragSession) {
+        const modifiers = getDesktopGridDragModifiers(event, keyboardModifiersRef.current)
+        dragSession.modifiers = modifiers
+        dragSession.dragMode = current.enableOverlayDrag ? getDesktopGridDragMode(modifiers) : 'reflow'
+      }
       const dragEvent = dragSession ? toDragEvent(dragSession, event.clientX, event.clientY) : null
       if (dragSession && dragEvent) {
         lockReleaseLayouts(nextLayouts)
