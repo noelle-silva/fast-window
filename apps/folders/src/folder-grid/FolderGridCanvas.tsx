@@ -2,11 +2,11 @@ import * as React from 'react'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import DriveFolderUploadRoundedIcon from '@mui/icons-material/DriveFolderUploadRounded'
 import { Box, Button, Paper, Stack, Typography, alpha } from '@mui/material'
-import type { ContextMenuState, DesktopGridEntry, DesktopIconLayout, FolderGridLayout, FoldersDoc, Phase } from '../types'
+import type { ContextMenuState, DesktopGridEntry, DesktopIconLayout, FolderGridLayout, FolderItem, FoldersDoc, Phase } from '../types'
 import { DesktopGridIcon } from './DesktopGridIcon'
 import { desktopEntryKey, parseDesktopEntryKey, type DesktopGridLayoutPatch } from './desktopEntries'
 import { createFolderGridMetrics, type FolderGridMetrics } from './iconLayout'
-import { getFolderGridCanvasHeight, getFolderGridPixelRect, type FolderGridLayoutMap, type FolderGridLayoutPatch, type FolderGridLayoutSource } from './layout'
+import { diffFolderGridLayouts, getFolderGridCanvasHeight, getFolderGridLayoutFromPixel, getFolderGridPixelRect, resolveFolderGridDragLayout, type FolderGridLayoutMap, type FolderGridLayoutPatch, type FolderGridLayoutSource } from './layout'
 import { useMuuriFolderGrid, type FolderGridDragEndResult, type FolderGridDragEvent } from './useMuuriFolderGrid'
 
 type Props = {
@@ -26,11 +26,17 @@ type Props = {
   onDragEnd?(event: DesktopGridDragEvent, patches: DesktopGridLayoutPatch[]): FolderGridDragEndResult | void
   onDragMove?(event: DesktopGridDragEvent): void
   onDragStart?(event: DesktopGridDragEvent): void
+  onReady?(api: DesktopGridApi | null): void
+  externalDropPreview?: DesktopGridExternalFolderDrop | null
 }
 
 export type { DesktopGridLayoutPatch }
 export type DesktopGridHoverTarget = { entry: DesktopGridEntry; layout: FolderGridLayout }
 export type DesktopGridDragEvent = FolderGridDragEvent & { entry: DesktopGridEntry; hoverContainer?: DesktopGridEntry; hoverTarget?: DesktopGridHoverTarget }
+export type DesktopGridExternalFolderDrop = { item: FolderItem; clientX: number; clientY: number; offsetX: number; offsetY: number }
+export type DesktopGridApi = {
+  patchesForExternalFolderDrop(drop: DesktopGridExternalFolderDrop): DesktopGridLayoutPatch[] | null
+}
 
 export function FolderGridCanvas(props: Props): React.ReactNode {
   const layoutItems = React.useMemo<FolderGridLayoutSource[]>(() => props.allEntries.map(entry => ({ id: desktopEntryKey(entry.kind, entry.id), layout: entry.layout })), [props.allEntries])
@@ -57,8 +63,26 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
   })
   gridNodeRef.current = editor.gridNode
   hoverLayoutsRef.current = editor.baseLayouts
+  const externalDropPreview = React.useMemo(() => {
+    if (!props.externalDropPreview || !editor.gridNode) return null
+    return resolveExternalFolderDrop(props.externalDropPreview, layoutItems, editor.baseLayouts, editor.columnCount, editor.gridNode, metrics)
+  }, [editor.baseLayouts, editor.columnCount, editor.gridNode, layoutItems, metrics, props.externalDropPreview])
+  const displayLayouts = externalDropPreview?.layouts || editor.activeLayouts
 
-  if (!props.entries.length) {
+  React.useLayoutEffect(() => {
+    if (!props.onReady) return undefined
+    const gridNode = editor.gridNode
+    if (!gridNode) {
+      props.onReady(null)
+      return undefined
+    }
+    props.onReady({
+      patchesForExternalFolderDrop: drop => resolveExternalFolderDrop(drop, layoutItems, editor.baseLayouts, editor.columnCount, gridNode, metrics)?.patches || null,
+    })
+    return () => props.onReady?.(null)
+  }, [editor.baseLayouts, editor.columnCount, editor.gridNode, layoutItems, metrics, props.onReady])
+
+  if (!props.entries.length && !props.externalDropPreview) {
     return (
       <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: { xs: 1.5, sm: 2 }, pt: 1 }}>
         <EmptyState phase={props.phase} search={props.search} onAdd={props.onAdd} />
@@ -66,7 +90,7 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
     )
   }
 
-  const canvasHeight = getFolderGridCanvasHeight(editor.activeLayouts.values(), metrics)
+  const canvasHeight = getFolderGridCanvasHeight(displayLayouts.values(), metrics)
 
   return (
     <Box
@@ -83,7 +107,7 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
       >
         {props.entries.map(entry => {
           const key = desktopEntryKey(entry.kind, entry.id)
-          const layout = editor.activeLayouts.get(key)
+          const layout = displayLayouts.get(key)
           if (!layout) return null
           const rect = getFolderGridPixelRect(layout, metrics)
           return (
@@ -136,6 +160,25 @@ function toDesktopDragEvent(event: FolderGridDragEvent, entries: Map<string, Des
   const hoverTarget = findHoverTarget(event, entry, hoverEntries, gridNode, layouts, metrics)
   const hoverContainer = hoverTarget?.entry.kind === 'container' ? hoverTarget.entry : undefined
   return { ...event, entry, hoverContainer, hoverTarget }
+}
+
+function resolveExternalFolderDrop(
+  drop: DesktopGridExternalFolderDrop,
+  baseItems: FolderGridLayoutSource[],
+  baseLayouts: FolderGridLayoutMap,
+  columnCount: number,
+  gridNode: HTMLDivElement,
+  metrics: FolderGridMetrics,
+): { layouts: FolderGridLayoutMap; patches: DesktopGridLayoutPatch[] } | null {
+  const gridRect = gridNode.getBoundingClientRect()
+  const boundsRect = gridNode.parentElement?.getBoundingClientRect() || gridRect
+  if (drop.clientX < boundsRect.left || drop.clientX > boundsRect.right || drop.clientY < boundsRect.top || drop.clientY > boundsRect.bottom) return null
+  const activeId = desktopEntryKey('folder', drop.item.id)
+  const targetLayout = getFolderGridLayoutFromPixel(drop.clientX - gridRect.left - drop.offsetX, drop.clientY - gridRect.top - drop.offsetY, columnCount, metrics)
+  const nextItems = baseItems.some(item => item.id === activeId) ? baseItems : [...baseItems, { id: activeId }]
+  const layouts = resolveFolderGridDragLayout(nextItems, baseLayouts, activeId, targetLayout, columnCount)
+  const patches = diffFolderGridLayouts(baseLayouts, layouts).map(toDesktopGridLayoutPatch).filter((patch): patch is DesktopGridLayoutPatch => Boolean(patch))
+  return { layouts, patches }
 }
 
 function findHoverTarget(event: FolderGridDragEvent, activeEntry: DesktopGridEntry, entries: Map<string, DesktopGridEntry>, gridNode: HTMLDivElement | null, layouts: FolderGridLayoutMap, metrics: FolderGridMetrics): DesktopGridHoverTarget | undefined {

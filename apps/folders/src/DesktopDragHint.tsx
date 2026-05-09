@@ -1,13 +1,16 @@
 import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded'
 import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded'
 import { Box, Chip, Paper, Stack, Typography, alpha } from '@mui/material'
+import type { ContainerExtractDragState } from './containerExtractDragState'
 import type { DesktopDragState } from './desktopDragState'
 
 type Props = {
+  containerExtractDrag?: ContainerExtractDragState
   drag: DesktopDragState
 }
 
 export function DesktopDragHint(props: Props): React.ReactNode {
+  if (props.containerExtractDrag) return <ContainerExtractDragHint drag={props.containerExtractDrag} />
   const drag = props.drag
   if (!drag) return null
 
@@ -24,7 +27,25 @@ export function DesktopDragHint(props: Props): React.ReactNode {
         ? '拖到收纳夹或另一个图标上方松手，即可完成收纳。'
         : '普通拖拽只调整位置；按住 Ctrl 拖到收纳夹或图标上才会收纳。'
   const Icon = isCreateDrop ? CreateNewFolderRoundedIcon : Inventory2RoundedIcon
+  const color = isOverlayMode ? 'primary' : 'warning'
 
+  return <DragHintShell chip="Ctrl" color={color} description={description} icon={<Icon fontSize="small" />} title={title} />
+}
+
+function ContainerExtractDragHint(props: { drag: NonNullable<ContainerExtractDragState> }) {
+  const isDesktopMode = props.drag.mode === 'desktop'
+  return (
+    <DragHintShell
+      color={isDesktopMode ? 'success' : 'info'}
+      icon={<Inventory2RoundedIcon fontSize="small" />}
+      title={isDesktopMode ? '松手移到桌面' : '拖出收纳夹'}
+      chip={isDesktopMode ? 'Desktop' : 'Move'}
+      description={isDesktopMode ? `“${props.drag.item.name}”会离开收纳夹，并落到当前桌面位置。` : '拖出收纳夹面板后，桌面会接管落点预览。'}
+    />
+  )
+}
+
+function DragHintShell(props: { chip: string; color: 'info' | 'primary' | 'success' | 'warning'; description: string; icon: React.ReactNode; title: string }) {
   return (
     <Box
       sx={{
@@ -47,9 +68,9 @@ export function DesktopDragHint(props: Props): React.ReactNode {
           py: 1.25,
           borderRadius: 5,
           color: '#0f172a',
-          bgcolor: 'rgba(255, 255, 255, 0.88)',
-          border: theme => `1px solid ${alpha(isOverlayMode ? theme.palette.primary.main : theme.palette.warning.main, 0.24)}`,
-          boxShadow: isOverlayMode ? '0 18px 44px rgba(37, 99, 235, 0.2)' : '0 18px 44px rgba(245, 158, 11, 0.18)',
+          bgcolor: 'rgba(255, 255, 255, 0.9)',
+          border: theme => `1px solid ${alpha(theme.palette[props.color].main, 0.24)}`,
+          boxShadow: theme => `0 18px 44px ${alpha(theme.palette[props.color].main, 0.2)}`,
           backdropFilter: 'blur(18px) saturate(1.12)',
           WebkitBackdropFilter: 'blur(18px) saturate(1.12)',
         }}
@@ -63,18 +84,18 @@ export function DesktopDragHint(props: Props): React.ReactNode {
             display: 'grid',
             placeItems: 'center',
             color: '#FFFFFF',
-            bgcolor: isOverlayMode ? 'primary.main' : 'warning.main',
-            boxShadow: isOverlayMode ? '0 12px 24px rgba(37, 99, 235, 0.24)' : '0 12px 24px rgba(245, 158, 11, 0.24)',
+            bgcolor: `${props.color}.main`,
+            boxShadow: theme => `0 12px 24px ${alpha(theme.palette[props.color].main, 0.24)}`,
           }}
         >
-          <Icon fontSize="small" />
+          {props.icon}
         </Box>
         <Box sx={{ minWidth: 0 }}>
           <Stack direction="row" alignItems="center" spacing={0.85} sx={{ minWidth: 0 }}>
-            <Typography fontWeight={950} noWrap>{title}</Typography>
-            <Chip size="small" label="Ctrl" color={isOverlayMode ? 'primary' : 'warning'} sx={{ height: 22, fontWeight: 950 }} />
+            <Typography fontWeight={950} noWrap>{props.title}</Typography>
+            <Chip size="small" label={props.chip} color={props.color} sx={{ height: 22, fontWeight: 950 }} />
           </Stack>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>{description}</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>{props.description}</Typography>
         </Box>
       </Paper>
     </Box>

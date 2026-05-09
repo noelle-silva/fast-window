@@ -46,9 +46,12 @@ import {
 import type { SelectChangeEvent } from '@mui/material/Select'
 import { createDirectClient } from './backendClient'
 import { ContainerFolderOverlay } from './ContainerFolderOverlay'
+import type { ContainerFolderDragEvent } from './ContainerFolderOverlay'
 import { ContainerDialog, IconEditorDialog } from './DesktopDialogs'
 import { DesktopDragHint } from './DesktopDragHint'
 import { DesktopWallpaper } from './DesktopWallpaper'
+import type { ContainerExtractDragState } from './containerExtractDragState'
+import { applyContainerItemDesktopExtraction, isContainerSoftClosedForExtractDrag, resolveContainerExtractDragMode } from './containerExtractDragState'
 import type { DesktopDragState } from './desktopDragState'
 import { isContainerDropTargetActive, resolveDesktopDragMode, resolveDesktopDropIntent } from './desktopDragState'
 import type { ContainerGridApi, ContainerGridPlacement } from './folder-grid/ContainerGridCanvas'
@@ -75,7 +78,7 @@ import type {
   IconEditorState,
   Phase,
 } from './types'
-import { FolderGridCanvas, type DesktopGridDragEvent, type DesktopGridLayoutPatch } from './folder-grid/FolderGridCanvas'
+import { FolderGridCanvas, type DesktopGridApi, type DesktopGridDragEvent, type DesktopGridExternalFolderDrop, type DesktopGridLayoutPatch } from './folder-grid/FolderGridCanvas'
 import {
   DESKTOP_ICON_GAP_MAX,
   DESKTOP_ICON_GAP_MIN,
@@ -130,14 +133,21 @@ export function App() {
   const [confirm, setConfirm] = React.useState<ConfirmState>(null)
   const [contextMenu, setContextMenu] = React.useState<ContextMenuState>(null)
   const [desktopDrag, setDesktopDrag] = React.useState<DesktopDragState>(null)
+  const [containerExtractDrag, setContainerExtractDrag] = React.useState<ContainerExtractDragState>(null)
   const desktopDragRef = React.useRef<DesktopDragState>(null)
   const containerGridApiRef = React.useRef<ContainerGridApi | null>(null)
+  const desktopGridApiRef = React.useRef<DesktopGridApi | null>(null)
+  const containerExtractDragRef = React.useRef<ContainerExtractDragState>(null)
   const hoverOpenTimerRef = React.useRef<number | null>(null)
   const hoverOpenTargetIdRef = React.useRef<string | null>(null)
   const readyRef = React.useRef(false)
 
   const handleContainerGridReady = React.useCallback((api: ContainerGridApi | null) => {
     containerGridApiRef.current = api
+  }, [])
+
+  const handleDesktopGridReady = React.useCallback((api: DesktopGridApi | null) => {
+    desktopGridApiRef.current = api
   }, [])
 
   const refreshStatus = React.useCallback(async () => {
@@ -370,6 +380,30 @@ export function App() {
     }
   }
 
+  async function extractContainerItemToDesktop(containerId: string, itemId: string, patches: DesktopGridLayoutPatch[]) {
+    if (!client || patches.length === 0) return
+    const previousDoc = doc
+    const previousContainerView = containerView
+    setError(null)
+    let optimisticDoc: FoldersDoc
+    try {
+      optimisticDoc = applyContainerItemDesktopExtraction(doc, containerId, itemId, patches)
+    } catch (e) {
+      setError(errorMessage(e, '移出到桌面失败'))
+      return
+    }
+    setContainerView(null)
+    setDoc(optimisticDoc)
+    try {
+      const nextDoc = await client.request<FoldersDoc>('folders.container.item.extract-to-desktop', { containerId, itemId, items: patches })
+      setDoc(nextDoc)
+    } catch (e) {
+      setDoc(previousDoc)
+      setContainerView(previousContainerView)
+      setError(errorMessage(e, '移出到桌面失败'))
+    }
+  }
+
   function clearHoverOpenTimer() {
     if (hoverOpenTimerRef.current == null) return
     window.clearTimeout(hoverOpenTimerRef.current)
@@ -381,6 +415,12 @@ export function App() {
     const resolved = typeof next === 'function' ? next(desktopDragRef.current) : next
     desktopDragRef.current = resolved
     setDesktopDrag(resolved)
+  }
+
+  function setContainerExtractDragState(next: ContainerExtractDragState | ((current: ContainerExtractDragState) => ContainerExtractDragState)) {
+    const resolved = typeof next === 'function' ? next(containerExtractDragRef.current) : next
+    containerExtractDragRef.current = resolved
+    setContainerExtractDrag(resolved)
   }
 
   function handleDesktopDragStart(event: DesktopGridDragEvent) {
@@ -468,6 +508,55 @@ export function App() {
   function handleDesktopDragCancel() {
     clearHoverOpenTimer()
     setDesktopDragState(null)
+  }
+
+  function handleContainerItemDragStart(event: ContainerFolderDragEvent) {
+    if (!containerView) return
+    if (event.item.containerId !== containerView.id) {
+      setError(`文件夹不在当前收纳夹中：${event.item.name}`)
+      return
+    }
+    setContainerExtractDragState({ containerId: containerView.id, item: event.item, mode: 'container' })
+  }
+
+  function handleContainerItemDragMove(event: ContainerFolderDragEvent) {
+    if (!containerView) return
+    const mode = resolveContainerExtractDragMode(event, event.boundary)
+    setContainerExtractDragState(current => current && current.item.id === event.item.id ? {
+      ...current,
+      desktopDrop: mode === 'desktop' ? toDesktopExternalDrop(event) : undefined,
+      mode,
+    } : current)
+  }
+
+  function handleContainerItemDragEnd(event: ContainerFolderDragEvent, patches: ContainerGridPlacement[]) {
+    const drag = containerExtractDragRef.current
+    if (!drag || !containerView || drag.item.id !== event.item.id) {
+      setContainerExtractDragState(null)
+      return undefined
+    }
+    const mode = resolveContainerExtractDragMode(event, event.boundary)
+    if (mode !== 'desktop') {
+      setContainerExtractDragState(null)
+      return undefined
+    }
+    const desktopPatches = desktopGridApiRef.current?.patchesForExternalFolderDrop(toDesktopExternalDrop(event))
+    if (!desktopPatches?.length) {
+      setError('桌面投放位置不可用，请重新拖出')
+      setContainerExtractDragState(null)
+      return { handled: true, clearReleaseLayouts: true }
+    }
+    void extractContainerItemToDesktop(drag.containerId, drag.item.id, desktopPatches)
+    setContainerExtractDragState(null)
+    return { handled: true, clearReleaseLayouts: true }
+  }
+
+  function handleContainerItemDragCancel() {
+    setContainerExtractDragState(null)
+  }
+
+  function toDesktopExternalDrop(event: ContainerFolderDragEvent): DesktopGridExternalFolderDrop {
+    return { item: event.item, clientX: event.clientX, clientY: event.clientY, offsetX: event.offsetX, offsetY: event.offsetY }
   }
 
   function openGroupEditor(group?: FolderGroup) {
@@ -610,6 +699,8 @@ export function App() {
   const allDesktopEntries = React.useMemo(() => buildDesktopGridEntries(doc), [doc])
   const filteredEntries = React.useMemo(() => filterDesktopGridEntries(doc, allDesktopEntries, groupId, search), [allDesktopEntries, doc, groupId, search])
   const visibleIconLayout = iconLayoutDraft || doc.desktop.iconLayout
+  const externalDesktopDropPreview = containerExtractDrag?.mode === 'desktop' ? containerExtractDrag.desktopDrop : null
+  const containerSoftClosed = isContainerSoftClosedForExtractDrag(containerExtractDrag, containerView)
   const selectedGroup = doc.groups.find(group => group.id === groupId)
   const editableGroups = doc.groups.filter(group => group.id !== DEFAULT_GROUP_ID)
 
@@ -661,6 +752,7 @@ export function App() {
         groupCount={doc.groups.length}
         iconLayout={visibleIconLayout}
         entries={filteredEntries}
+        externalDropPreview={externalDesktopDropPreview}
         phase={phase}
         search={search}
         onAdd={openAdd}
@@ -671,9 +763,10 @@ export function App() {
         onDragEnd={handleDesktopDragEnd}
         onDragMove={handleDesktopDragMove}
         onDragStart={handleDesktopDragStart}
+        onReady={handleDesktopGridReady}
       />
 
-      <DesktopDragHint drag={desktopDrag} />
+      <DesktopDragHint containerExtractDrag={containerExtractDrag} drag={desktopDrag} />
 
       {error && phase === 'ready' ? <Alert severity="error" sx={{ mx: { xs: 1.5, sm: 2 }, mb: 1.5 }}>{error}</Alert> : null}
 
@@ -749,9 +842,14 @@ export function App() {
         onClose={() => setContainerView(null)}
         onEdit={container => { setContainerView(null); openEditContainer(container) }}
         onGridReady={handleContainerGridReady}
+        onItemDragCancel={handleContainerItemDragCancel}
+        onItemDragEnd={handleContainerItemDragEnd}
+        onItemDragMove={handleContainerItemDragMove}
+        onItemDragStart={handleContainerItemDragStart}
         onLayoutCommit={patches => containerView ? void placeContainerItems(containerView.id, null, patches) : undefined}
         onOpenFolder={item => void openFolder(item)}
         onRemoveItem={item => void saveItemContainer([item.id], '')}
+        softClosed={containerSoftClosed}
       />
 
       <IconEditorDialog

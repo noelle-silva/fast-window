@@ -12,7 +12,7 @@ import {
   type FolderGridLayoutPatch,
   type FolderGridLayoutSource,
 } from './layout'
-import { useMuuriFolderGrid } from './useMuuriFolderGrid'
+import { useMuuriFolderGrid, type FolderGridDragEndResult, type FolderGridDragEvent } from './useMuuriFolderGrid'
 
 type ContainerGridPlacement = { id: string; layout: FolderGridLayout }
 
@@ -21,10 +21,16 @@ type Props = {
   dropTargetActive?: boolean
   items: FolderItem[]
   onLayoutCommit(patches: ContainerGridPlacement[]): void
+  onDragCancel?(event: ContainerGridDragEvent): void
+  onDragEnd?(event: ContainerGridDragEvent, patches: ContainerGridPlacement[]): FolderGridDragEndResult | void
+  onDragMove?(event: ContainerGridDragEvent): void
+  onDragStart?(event: ContainerGridDragEvent): void
   onOpenFolder(item: FolderItem): void
   onRemoveItem(item: FolderItem): void
   onReady?(api: ContainerGridApi | null): void
 }
+
+type ContainerGridDragEvent = FolderGridDragEvent & { item: FolderItem }
 
 type ContainerGridApi = {
   currentPlacements(): ContainerGridPlacement[]
@@ -32,7 +38,7 @@ type ContainerGridApi = {
   layoutFromClientPoint(clientX: number, clientY: number, offsetX?: number, offsetY?: number): FolderGridLayout | null
 }
 
-export type { ContainerGridApi, ContainerGridPlacement }
+export type { ContainerGridApi, ContainerGridDragEvent, ContainerGridPlacement }
 
 export function ContainerGridCanvas(props: Props): React.ReactNode {
   const layoutItems = React.useMemo<FolderGridLayoutSource[]>(() => props.items.map(item => ({ id: item.id, layout: item.containerLayout })), [props.items])
@@ -40,6 +46,10 @@ export function ContainerGridCanvas(props: Props): React.ReactNode {
   const editor = useMuuriFolderGrid({
     items: layoutItems,
     onCommit: patches => props.onLayoutCommit(toContainerPlacements(patches)),
+    onDragCancel: event => props.onDragCancel?.(toContainerDragEvent(event, itemById)),
+    onDragEnd: (event, patches) => props.onDragEnd?.(toContainerDragEvent(event, itemById), toContainerPlacements(patches)),
+    onDragMove: event => props.onDragMove?.(toContainerDragEvent(event, itemById)),
+    onDragStart: event => props.onDragStart?.(toContainerDragEvent(event, itemById)),
   })
   const canvasHeight = getFolderGridCanvasHeight(editor.activeLayouts.values())
 
@@ -185,6 +195,12 @@ function ContainerGridItem(props: { assetUrl?(assetId: string): string; dragging
 
 function toContainerPlacements(patches: FolderGridLayoutPatch[]): ContainerGridPlacement[] {
   return patches.map(patch => ({ id: patch.id, layout: patch.layout }))
+}
+
+function toContainerDragEvent(event: FolderGridDragEvent, itemById: Map<string, FolderItem>): ContainerGridDragEvent {
+  const item = itemById.get(event.itemId)
+  if (!item) throw new Error(`container drag item not found: ${event.itemId}`)
+  return { ...event, item }
 }
 
 function currentPlacements(layouts: Map<string, FolderGridLayout>): ContainerGridPlacement[] {

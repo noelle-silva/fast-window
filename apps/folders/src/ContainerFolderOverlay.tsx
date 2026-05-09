@@ -2,7 +2,8 @@ import * as React from 'react'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import { Box, Button, IconButton, Stack, Typography } from '@mui/material'
-import { ContainerGridCanvas, type ContainerGridApi, type ContainerGridPlacement } from './folder-grid/ContainerGridCanvas'
+import { ContainerGridCanvas, type ContainerGridApi, type ContainerGridDragEvent, type ContainerGridPlacement } from './folder-grid/ContainerGridCanvas'
+import type { FolderGridDragEndResult } from './folder-grid/useMuuriFolderGrid'
 import { DESKTOP_ICON_TITLE_SHADOW } from './folder-grid/desktopIconTokens'
 import type { DesktopContainer, FolderGridLayout, FolderItem, FoldersDoc } from './types'
 
@@ -13,25 +14,33 @@ type Props = {
   doc: FoldersDoc
   onClose(): void
   onEdit(container: DesktopContainer): void
+  onItemDragCancel?(event: ContainerFolderDragEvent): void
+  onItemDragEnd?(event: ContainerFolderDragEvent, patches: ContainerGridPlacement[]): FolderGridDragEndResult | void
+  onItemDragMove?(event: ContainerFolderDragEvent): void
+  onItemDragStart?(event: ContainerFolderDragEvent): void
   onLayoutCommit(patches: ContainerGridPlacement[]): void
   onOpenFolder(item: FolderItem): void
   onRemoveItem(item: FolderItem): void
   onGridReady?(api: ContainerGridApi | null): void
+  softClosed?: boolean
 }
+
+export type ContainerFolderDragEvent = ContainerGridDragEvent & { boundary: DOMRect | null }
 
 export function ContainerFolderOverlay(props: Props): React.ReactNode {
   const container = props.container
   const { onClose } = props
+  const panelRef = React.useRef<HTMLDivElement | null>(null)
   const items = React.useMemo(() => (container ? props.doc.items.filter(item => item.containerId === container.id) : []), [container, props.doc.items])
 
   React.useEffect(() => {
     if (!container) return
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape' && !props.softClosed) onClose()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [container, onClose])
+  }, [container, onClose, props.softClosed])
 
   if (!container) return null
 
@@ -53,6 +62,9 @@ export function ContainerFolderOverlay(props: Props): React.ReactNode {
         background: 'rgba(2, 6, 23, 0.56)',
         backdropFilter: 'blur(10px) saturate(0.82)',
         WebkitBackdropFilter: 'blur(10px) saturate(0.82)',
+        opacity: props.softClosed ? 0 : 1,
+        pointerEvents: props.softClosed ? 'none' : 'auto',
+        transition: 'opacity .16s ease',
       }}
     >
       <Stack direction="row" alignItems="center" justifyContent="center" sx={{ position: 'relative', minHeight: 64 }}>
@@ -89,6 +101,7 @@ export function ContainerFolderOverlay(props: Props): React.ReactNode {
       </Stack>
 
       <Box
+        ref={panelRef}
         onClick={event => event.stopPropagation()}
         sx={{
           alignSelf: 'center',
@@ -112,6 +125,10 @@ export function ContainerFolderOverlay(props: Props): React.ReactNode {
             assetUrl={props.assetUrl}
             dropTargetActive={props.dropTargetActive}
             items={items}
+            onDragCancel={event => props.onItemDragCancel?.(withBoundary(event, panelRef.current))}
+            onDragEnd={(event, patches) => props.onItemDragEnd?.(withBoundary(event, panelRef.current), patches)}
+            onDragMove={event => props.onItemDragMove?.(withBoundary(event, panelRef.current))}
+            onDragStart={event => props.onItemDragStart?.(withBoundary(event, panelRef.current))}
             onLayoutCommit={props.onLayoutCommit}
             onOpenFolder={props.onOpenFolder}
             onRemoveItem={props.onRemoveItem}
@@ -126,4 +143,8 @@ export function ContainerFolderOverlay(props: Props): React.ReactNode {
       </Box>
     </Box>
   )
+}
+
+function withBoundary(event: ContainerGridDragEvent, panel: HTMLDivElement | null): ContainerFolderDragEvent {
+  return { ...event, boundary: panel?.getBoundingClientRect() || null }
 }

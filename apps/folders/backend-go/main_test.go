@@ -333,6 +333,94 @@ func TestContainerItemsPlacementRoundTrip(t *testing.T) {
 	}
 }
 
+func TestExtractContainerItemToDesktopRoundTrip(t *testing.T) {
+	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
+	svc, err := newService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ensureReady(); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []folderItem{
+		{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID},
+		{ID: "two", Name: "Two", Path: `E:\Two`, GroupID: defaultGroupID, Layout: &folderGridLayout{X: 1, Y: 0}},
+	} {
+		if _, err := svc.addFolder(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box", Layout: &folderGridLayout{X: 0, Y: 0}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.saveItemContainer([]string{"one"}, "box"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.placeContainerItems(containerItemsPlacement{ContainerID: "box", Items: []containerLayoutPatch{{ID: "one", Layout: folderGridLayout{X: 0, Y: 0}}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	doc, err := svc.extractContainerItemToDesktop(extractContainerItemToDesktopPayload{
+		ContainerID: "box",
+		ItemID:      "one",
+		Items: []desktopLayoutPatch{
+			{Kind: "folder", ID: "one", Layout: folderGridLayout{X: 2, Y: 1}},
+			{Kind: "folder", ID: "two", Layout: folderGridLayout{X: 3, Y: 1}},
+			{Kind: "container", ID: "box", Layout: folderGridLayout{X: 0, Y: 2}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containerIDByItem(doc, "one") != "" || containerLayoutByItem(doc, "one") != nil {
+		t.Fatalf("expected extracted item on desktop: %#v", itemByID(doc, "one"))
+	}
+	if itemByID(doc, "one").Layout == nil || itemByID(doc, "one").Layout.X != 2 || itemByID(doc, "one").Layout.Y != 1 {
+		t.Fatalf("unexpected extracted layout: %#v", itemByID(doc, "one"))
+	}
+	if itemByID(doc, "two").Layout == nil || itemByID(doc, "two").Layout.X != 3 || itemByID(doc, "two").Layout.Y != 1 {
+		t.Fatalf("unexpected desktop sibling layout: %#v", itemByID(doc, "two"))
+	}
+	if doc.Containers[0].Layout == nil || doc.Containers[0].Layout.Y != 2 {
+		t.Fatalf("unexpected container layout: %#v", doc.Containers[0].Layout)
+	}
+}
+
+func TestExtractContainerItemToDesktopRejectsInvalidPatches(t *testing.T) {
+	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
+	svc, err := newService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ensureReady(); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []folderItem{
+		{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID},
+		{ID: "two", Name: "Two", Path: `E:\Two`, GroupID: defaultGroupID},
+	} {
+		if _, err := svc.addFolder(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.saveItemContainer([]string{"one", "two"}, "box"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.extractContainerItemToDesktop(extractContainerItemToDesktopPayload{ContainerID: "box", ItemID: "one", Items: []desktopLayoutPatch{{Kind: "folder", ID: "two", Layout: folderGridLayout{X: 1, Y: 0}}}}); err == nil {
+		t.Fatal("expected missing moved folder layout to fail")
+	}
+	if _, err := svc.extractContainerItemToDesktop(extractContainerItemToDesktopPayload{ContainerID: "box", ItemID: "one", Items: []desktopLayoutPatch{{Kind: "folder", ID: "one", Layout: folderGridLayout{X: 1, Y: 0}}, {Kind: "folder", ID: "two", Layout: folderGridLayout{X: 2, Y: 0}}}}); err == nil || !strings.Contains(err.Error(), "folder is not on desktop") {
+		t.Fatalf("expected contained sibling desktop layout to fail, got %v", err)
+	}
+	if _, err := svc.extractContainerItemToDesktop(extractContainerItemToDesktopPayload{ContainerID: "box", ItemID: "missing", Items: []desktopLayoutPatch{{Kind: "folder", ID: "missing", Layout: folderGridLayout{X: 1, Y: 0}}}}); err == nil || !strings.Contains(err.Error(), "folder not found") {
+		t.Fatalf("expected missing folder to fail, got %v", err)
+	}
+}
+
 func TestDesktopIconRoundTrip(t *testing.T) {
 	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
 	svc, err := newService()

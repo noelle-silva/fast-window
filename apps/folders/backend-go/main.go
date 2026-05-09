@@ -113,6 +113,12 @@ type createContainerFromItemsPayload struct {
 	Layout       folderGridLayout `json:"layout"`
 }
 
+type extractContainerItemToDesktopPayload struct {
+	ContainerID string               `json:"containerId"`
+	ItemID      string               `json:"itemId"`
+	Items       []desktopLayoutPatch `json:"items"`
+}
+
 type desktopIcon struct {
 	Kind    string `json:"kind"`
 	Color   string `json:"color,omitempty"`
@@ -403,6 +409,12 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 			return nil, fmt.Errorf("invalid container placement payload: %w", err)
 		}
 		return svc.placeContainerItems(payload)
+	case "folders.container.item.extract-to-desktop":
+		var payload extractContainerItemToDesktopPayload
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid container extraction payload: %w", err)
+		}
+		return svc.extractContainerItemToDesktop(payload)
 	case "folders.icon.save":
 		var payload struct {
 			Kind string       `json:"kind"`
@@ -985,6 +997,103 @@ func (svc *service) placeContainerItems(payload containerItemsPlacement) (folder
 	for id := range placements {
 		if !found[id] {
 			return foldersDoc{}, fmt.Errorf("folder not found: %s", id)
+		}
+	}
+
+	if err := svc.writeFolders(doc); err != nil {
+		return foldersDoc{}, err
+	}
+	return svc.readFolders()
+}
+
+func (svc *service) extractContainerItemToDesktop(payload extractContainerItemToDesktopPayload) (foldersDoc, error) {
+	containerID := strings.TrimSpace(payload.ContainerID)
+	itemID := strings.TrimSpace(payload.ItemID)
+	if containerID == "" {
+		return foldersDoc{}, errors.New("container id is required")
+	}
+	if itemID == "" {
+		return foldersDoc{}, errors.New("folder id is required")
+	}
+	if len(payload.Items) == 0 {
+		return foldersDoc{}, errors.New("desktop layout patches are required")
+	}
+
+	doc, err := svc.readFolders()
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	if !hasContainer(doc.Containers, containerID) {
+		return foldersDoc{}, fmt.Errorf("container not found: %s", containerID)
+	}
+
+	updates := make(map[string]desktopLayoutPatch, len(payload.Items))
+	for _, patch := range payload.Items {
+		kind := normalizeDesktopEntryKind(patch.Kind)
+		id := strings.TrimSpace(patch.ID)
+		if kind == "" || id == "" {
+			return foldersDoc{}, errors.New("desktop layout kind and id are required")
+		}
+		key := kind + ":" + id
+		if _, exists := updates[key]; exists {
+			return foldersDoc{}, fmt.Errorf("duplicate desktop layout patch: %s", key)
+		}
+		updates[key] = desktopLayoutPatch{Kind: kind, ID: id, Layout: normalizeGridLayout(patch.Layout)}
+	}
+	itemPatch, ok := updates["folder:"+itemID]
+	if !ok {
+		return foldersDoc{}, errors.New("moved folder desktop layout is required")
+	}
+
+	found := map[string]bool{}
+	movedFound := false
+	now := time.Now().UnixMilli()
+	nowString := nowText()
+	for i := range doc.Items {
+		key := "folder:" + doc.Items[i].ID
+		patch, shouldUpdate := updates[key]
+		if doc.Items[i].ID == itemID {
+			if doc.Items[i].ContainerID != containerID {
+				return foldersDoc{}, fmt.Errorf("folder is not in container %s: %s", containerID, itemID)
+			}
+			doc.Items[i].ContainerID = ""
+			doc.Items[i].ContainerLayout = nil
+			doc.Items[i].Layout = layoutPtr(itemPatch.Layout)
+			doc.Items[i].UpdatedAtMS = now
+			doc.Items[i].UpdatedAt = nowString
+			found[key] = true
+			movedFound = true
+			continue
+		}
+		if !shouldUpdate {
+			continue
+		}
+		if doc.Items[i].ContainerID != "" {
+			return foldersDoc{}, fmt.Errorf("folder is not on desktop: %s", doc.Items[i].ID)
+		}
+		doc.Items[i].Layout = layoutPtr(patch.Layout)
+		doc.Items[i].UpdatedAtMS = now
+		doc.Items[i].UpdatedAt = nowString
+		found[key] = true
+	}
+	if !movedFound {
+		return foldersDoc{}, fmt.Errorf("folder not found: %s", itemID)
+	}
+
+	for i := range doc.Containers {
+		key := "container:" + doc.Containers[i].ID
+		patch, shouldUpdate := updates[key]
+		if !shouldUpdate {
+			continue
+		}
+		doc.Containers[i].Layout = layoutPtr(patch.Layout)
+		doc.Containers[i].UpdatedAtMS = now
+		doc.Containers[i].UpdatedAt = nowString
+		found[key] = true
+	}
+	for key := range updates {
+		if !found[key] {
+			return foldersDoc{}, fmt.Errorf("desktop entry not found: %s", key)
 		}
 	}
 
@@ -1624,6 +1733,11 @@ func validateGridLayout(raw folderGridLayout) (folderGridLayout, error) {
 		return folderGridLayout{}, fmt.Errorf("layout y must be between 0 and %d", maxLayoutCoord)
 	}
 	return raw, nil
+}
+
+func layoutPtr(layout folderGridLayout) *folderGridLayout {
+	copy := layout
+	return &copy
 }
 
 func hasGroup(groups []folderGroup, id string) bool {
