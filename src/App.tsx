@@ -42,6 +42,7 @@ import type { AppRegistrationEditRequest, AppStatus, RegisteredApp } from './app
 import { usePlugins } from './usePlugins'
 import { useWallpaper, getWallpaperView } from './useWallpaper'
 import { useSearch } from './useSearch'
+import { blockShortcutActivationLeak } from './shortcutActivationGuard'
 import type { Plugin } from './constants'
 import { APP_TITLE } from './constants'
 import { makeThumbnailPngDataUrl, movePluginById, pickImageFile } from './utils'
@@ -596,6 +597,10 @@ function App() {
   const activePluginKeepAlive = activePlugin?.manifest?.ui?.keepAlive === true
   const ActivePluginComponent = activePlugin ? activePlugin.component : null
   const onBackFromPlugin = () => setActivePlugin(null)
+  const blockListShortcutActivationLeak = useCallback((e: React.KeyboardEvent) => {
+    if (showPluginView) return
+    blockShortcutActivationLeak(e)
+  }, [showPluginView])
   const renderKeepAliveUiPluginIds =
     activePluginKeepAlive && activePluginId && !keepAliveUiPluginIds.includes(activePluginId)
       ? keepAliveUiPluginIds.concat(activePluginId)
@@ -648,7 +653,13 @@ function App() {
   // Loading state
   if (loading) {
     return (
-      <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
+      <Box
+        onKeyDown={handleKeyDown}
+        onKeyDownCapture={blockListShortcutActivationLeak}
+        onKeyUpCapture={blockListShortcutActivationLeak}
+        tabIndex={0}
+        sx={shellRootSx}
+      >
         <Box
           sx={[
             shellContainerSx,
@@ -685,7 +696,13 @@ function App() {
   }
 
   return (
-    <Box onKeyDown={handleKeyDown} tabIndex={0} sx={shellRootSx}>
+    <Box
+      onKeyDown={handleKeyDown}
+      onKeyDownCapture={blockListShortcutActivationLeak}
+      onKeyUpCapture={blockListShortcutActivationLeak}
+      tabIndex={0}
+      sx={shellRootSx}
+    >
       <Box
         sx={[
           shellContainerSx,
