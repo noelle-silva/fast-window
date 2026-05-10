@@ -30,6 +30,10 @@ pub(crate) fn app_plugins_dir(app: &tauri::AppHandle) -> PathBuf {
     app_local_base_dir(app).join("plugins")
 }
 
+pub(crate) fn app_apps_dir(app: &tauri::AppHandle) -> PathBuf {
+    app_local_base_dir(app).join("apps")
+}
+
 pub(crate) fn resolve_plugin_output_dir(app: &tauri::AppHandle, plugin_id: &str) -> PathBuf {
     // 配置优先；若不可用则回退到默认目录（避免破坏用户空间）
     if let Some(p) = crate::config_store::read_plugin_output_dir_from_config(app, plugin_id) {

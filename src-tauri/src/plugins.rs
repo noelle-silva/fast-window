@@ -1,6 +1,5 @@
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
-use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::engine::general_purpose;
@@ -8,13 +7,9 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use tauri::Manager;
 use tokio::io::AsyncWriteExt;
 
-use crate::plugin_backend_runtime::PluginBackendManagerState;
-use crate::plugin_backend_runtimes::{
-    is_supported_backend_runtime, supported_backend_runtime_label,
-};
+use crate::install_fs::replace_dir_from_tmp;
 use crate::{
     app_data_dir, app_local_base_dir, app_plugins_dir, is_https_url, normalize_zip_name, now_ms,
     open_dir_in_file_manager, parse_sha256_hex_32, rand_u32, read_plugin_auto_update_prefs,
@@ -42,108 +37,6 @@ fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-#[cfg(debug_assertions)]
-fn copy_dir_entries(src: &Path, dst: &Path, entries: &[&str]) -> std::io::Result<()> {
-    std::fs::create_dir_all(dst)?;
-    for name in entries {
-        let from = src.join(name);
-        if !from.exists() {
-            continue;
-        }
-        let to = dst.join(name);
-        if from.is_dir() {
-            copy_dir_all(&from, &to)?;
-        } else if from.is_file() {
-            if let Some(parent) = to.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            std::fs::copy(&from, &to)?;
-        }
-    }
-    Ok(())
-}
-
-#[cfg(debug_assertions)]
-fn cleanup_stale_dev_sync_dirs(parent: &Path, plugin_id: &str) {
-    let prefix = format!(".tmp-dev-sync-{plugin_id}-");
-    let Ok(entries) = std::fs::read_dir(parent) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let Ok(ty) = entry.file_type() else { continue };
-        if !ty.is_dir() {
-            continue;
-        }
-        let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with(&prefix) {
-            let _ = std::fs::remove_dir_all(entry.path());
-        }
-    }
-}
-
-fn replace_dir_from_tmp(dst: &Path, tmp: &Path, tag: &str) -> Result<(), String> {
-    let Some(parent) = dst.parent() else {
-        let _ = std::fs::remove_dir_all(tmp);
-        return Err("目标目录没有父目录".to_string());
-    };
-
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_millis(0))
-        .as_millis();
-
-    let safe_tag: String = tag
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    let bak = parent.join(format!(".bak-{safe_tag}-{stamp}"));
-
-    // Windows 上 remove_dir_all 可能“删到一半失败”（文件被占用），会留下空壳目录。
-    // 这里用 rename 交换：要么完整替换成功，要么原目录保持不动。
-    if dst.exists() {
-        if let Err(e) = std::fs::rename(dst, &bak) {
-            let _ = std::fs::remove_dir_all(tmp);
-            return Err(format!("重命名旧目录失败（可能被占用）: {e}"));
-        }
-    }
-
-    if let Err(e) = std::fs::rename(tmp, dst) {
-        // 回滚：尽力把旧目录改回去
-        if bak.exists() {
-            let _ = std::fs::rename(&bak, dst);
-        }
-        let _ = std::fs::remove_dir_all(tmp);
-        return Err(format!("替换目录失败: {e}"));
-    }
-
-    if bak.exists() {
-        let _ = std::fs::remove_dir_all(&bak);
-    }
-    Ok(())
-}
-
-async fn stop_plugin_backend_before_replace(
-    app: &tauri::AppHandle,
-    plugin_id: &str,
-) -> Result<(), String> {
-    let manager = app
-        .try_state::<Arc<PluginBackendManagerState>>()
-        .map(|state| state.inner().clone());
-    let Some(manager) = manager else {
-        return Ok(());
-    };
-
-    crate::plugin_backend_runtime::plugin_backend_stop_and_wait(manager, plugin_id.to_string())
-        .await
-        .map_err(|e| format!("停止插件后台失败，无法更新插件: {e}"))
-}
-
 fn is_valid_manifest_capability(cap: &str) -> bool {
     let s = cap.trim();
     if s.is_empty() || s.len() > 256 || s.contains('\n') || s.contains('\r') {
@@ -161,22 +54,8 @@ fn is_valid_manifest_capability(cap: &str) -> bool {
 }
 
 const LEGACY_PLUGIN_API_VERSION: u64 = 2;
-const SYSTEM_BACKEND_PLUGIN_API_VERSION: u64 = 3;
-const TRUSTED_LOCAL_APP_PLUGIN_API_VERSION: u64 = 4;
 const PLUGIN_PACKAGE_MAX_FILES: usize = 512;
 const PLUGIN_PACKAGE_MAX_BYTES: usize = 120 * 1024 * 1024;
-
-const SUPPORTED_PLUGIN_API_VERSIONS: [u64; 3] = [
-    LEGACY_PLUGIN_API_VERSION,
-    SYSTEM_BACKEND_PLUGIN_API_VERSION,
-    TRUSTED_LOCAL_APP_PLUGIN_API_VERSION,
-];
-
-struct PluginManifestPolicy {
-    require_description: bool,
-    require_requires: bool,
-    require_ui_type: bool,
-}
 
 struct StoreManifestSummary {
     plugin_id: String,
@@ -186,14 +65,6 @@ struct StoreManifestSummary {
     local_icon: Option<PathBuf>,
 }
 
-fn resolve_manifest_policy(api_version: u64) -> PluginManifestPolicy {
-    PluginManifestPolicy {
-        require_description: api_version < TRUSTED_LOCAL_APP_PLUGIN_API_VERSION,
-        require_requires: api_version < TRUSTED_LOCAL_APP_PLUGIN_API_VERSION,
-        require_ui_type: api_version < TRUSTED_LOCAL_APP_PLUGIN_API_VERSION,
-    }
-}
-
 fn manifest_string(manifest: &Value, field: &str) -> String {
     manifest
         .get(field)
@@ -201,14 +72,6 @@ fn manifest_string(manifest: &Value, field: &str) -> String {
         .unwrap_or("")
         .trim()
         .to_string()
-}
-
-fn is_trusted_local_app_manifest(manifest: &Value) -> bool {
-    manifest
-        .get("apiVersion")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(LEGACY_PLUGIN_API_VERSION)
-        >= TRUSTED_LOCAL_APP_PLUGIN_API_VERSION
 }
 
 fn is_supported_icon_file_path(rel: &str) -> bool {
@@ -302,10 +165,13 @@ fn manifest_api_version(manifest: &Value) -> Result<u64, String> {
         .get("apiVersion")
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
-    if SUPPORTED_PLUGIN_API_VERSIONS.contains(&api_version) {
+    if api_version == LEGACY_PLUGIN_API_VERSION {
         Ok(api_version)
     } else {
-        Err("manifest.apiVersion 必须为 2、3 或 4".to_string())
+        Err(
+            "manifest.apiVersion 必须为 2；v3/v4 是已移除的过渡契约，v5 请使用独立应用包"
+                .to_string(),
+        )
     }
 }
 
@@ -412,17 +278,12 @@ fn validate_store_manifest(
         ));
     }
 
-    let api_version = manifest_api_version(manifest)?;
-    let policy = resolve_manifest_policy(api_version);
-    validate_manifest_optional_string(
-        manifest,
-        &format!("{label}.description"),
-        policy.require_description,
-    )?;
-    validate_manifest_ui_type(manifest, policy.require_ui_type)?;
+    manifest_api_version(manifest)?;
+    validate_manifest_optional_string(manifest, &format!("{label}.description"), true)?;
+    validate_manifest_ui_type(manifest, true)?;
 
-    let requires = parse_manifest_requires(manifest, policy.require_requires, label)?;
-    if policy.require_requires && expected_requires.is_some() {
+    let requires = parse_manifest_requires(manifest, true, label)?;
+    if expected_requires.is_some() {
         let expected_requires = expected_requires.expect("checked is_some");
         validate_manifest_requires_match(&requires, expected_requires, label)?;
     }
@@ -446,17 +307,24 @@ fn validate_store_manifest(
         None
     };
 
-    if let Some(runtime) = manifest
-        .get("background")
-        .and_then(|v| v.as_object())
-        .and_then(|obj| obj.get("runtime"))
-    {
-        let runtime = runtime.as_str().unwrap_or("").trim();
-        if !is_supported_backend_runtime(runtime) {
+    if let Some(background) = manifest.get("background") {
+        let Some(background) = background.as_object() else {
+            return Err(format!("{label}.background 必须是对象"));
+        };
+        if background.contains_key("lifecycle") {
             return Err(format!(
-                "{label}.background.runtime 必须为 {}",
-                supported_backend_runtime_label()
+                "{label}.background.lifecycle 属于已移除的 v3/v4 过渡契约"
             ));
+        }
+        if background.contains_key("runtime") {
+            return Err(format!(
+                "{label}.background.runtime 属于已移除的 v3/v4 过渡契约"
+            ));
+        }
+        if let Some(auto_start) = background.get("autoStart") {
+            if !auto_start.is_boolean() {
+                return Err(format!("{label}.background.autoStart 必须是布尔值"));
+            }
         }
     }
 
@@ -547,86 +415,7 @@ pub(crate) async fn plugin_dev_sync(app: tauri::AppHandle) -> Result<bool, Strin
             Ok(out)
         }
 
-        fn sync_v4_runtime_plugin_dir(
-            src: &Path,
-            dst: &Path,
-            plugin_id: &str,
-        ) -> Result<(), String> {
-            let Some(parent) = dst.parent() else {
-                return Err("目标插件目录没有父目录".to_string());
-            };
-            std::fs::create_dir_all(parent).map_err(|e| format!("创建插件目录失败: {e}"))?;
-            cleanup_stale_dev_sync_dirs(parent, plugin_id);
-
-            let stamp = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_else(|_| Duration::from_millis(0))
-                .as_millis();
-            let tmp = parent.join(format!(".tmp-dev-sync-{plugin_id}-{stamp}"));
-            if tmp.exists() {
-                let _ = std::fs::remove_dir_all(&tmp);
-            }
-
-            copy_dir_entries(
-                src,
-                &tmp,
-                &[
-                    "manifest.json",
-                    "package.json",
-                    "assets",
-                    "ui",
-                    "backend",
-                    "shared",
-                ],
-            )
-            .map_err(|e| format!("复制 v4 插件运行目录失败: {e}"))?;
-            replace_dir_from_tmp(dst, &tmp, &format!("dev-sync-{plugin_id}"))
-        }
-
-        fn dev_background_manifest_override(src: &Path, manifest: &Value) -> Option<Value> {
-            let pkg_path = src.join("package.json");
-            let raw = std::fs::read_to_string(pkg_path).ok()?;
-            let pkg: Value = serde_json::from_str(&raw).ok()?;
-            let dev = pkg
-                .get("fastWindowPlugin")?
-                .get("background")?
-                .get("dev")?
-                .as_object()?;
-
-            let main = dev.get("main")?.as_str()?.trim();
-            if main.is_empty() || safe_relative_path_no_curdir(main).is_err() {
-                return None;
-            }
-
-            let mut out = manifest.clone();
-            let Some(obj) = out.as_object_mut() else {
-                return None;
-            };
-            let mut background = obj
-                .get("background")
-                .and_then(|v| v.as_object())
-                .cloned()
-                .unwrap_or_default();
-            background.insert("main".to_string(), Value::String(main.to_string()));
-            if let Some(runtime) = dev.get("runtime").and_then(|v| v.as_str()) {
-                let runtime = runtime.trim();
-                if !runtime.is_empty() {
-                    background.insert("runtime".to_string(), Value::String(runtime.to_string()));
-                }
-            }
-            obj.insert("background".to_string(), Value::Object(background));
-            Some(out)
-        }
-
-        fn write_dev_manifest_override(dst: &Path, manifest: &Value) -> Result<(), String> {
-            let text = serde_json::to_string_pretty(manifest)
-                .map_err(|e| format!("序列化 dev manifest 失败: {e}"))?;
-            std::fs::write(dst.join("manifest.json"), format!("{text}\n"))
-                .map_err(|e| format!("写入 dev manifest 失败: {e}"))
-        }
-
         async fn sync_repo_plugins_into(
-            app: &tauri::AppHandle,
             repo_plugins: &Path,
             plugins_dir: &Path,
         ) -> Result<(), String> {
@@ -660,33 +449,20 @@ pub(crate) async fn plugin_dev_sync(app: tauri::AppHandle) -> Result<bool, Strin
                 };
 
                 let dst = plugins_dir.join(&plugin_id);
-                if is_trusted_local_app_manifest(&manifest) {
-                    // v4 开发同步只复制运行产物目录，避免 node_modules/src/dev-docs 等开发目录拖慢宿主启动。
-                    stop_plugin_backend_before_replace(app, &plugin_id).await?;
-                    sync_v4_runtime_plugin_dir(&src, &dst, &plugin_id).and_then(|_| {
-                        if let Some(dev_manifest) =
-                            dev_background_manifest_override(&src, &manifest)
-                        {
-                            write_dev_manifest_override(&dst, &dev_manifest)?;
-                        }
-                        Ok(())
-                    })?;
-                } else {
-                    let files = match collect_referenced_seed_files(&manifest) {
-                        Ok(v) => v,
-                        Err(_) => vec!["manifest.json".to_string()],
-                    };
+                let files = match collect_referenced_seed_files(&manifest) {
+                    Ok(v) => v,
+                    Err(_) => vec!["manifest.json".to_string()],
+                };
 
-                    let _ = std::fs::create_dir_all(&dst);
-                    for rel in files {
-                        let from = src.join(&rel);
-                        let to = dst.join(&rel);
-                        if let Some(parent) = to.parent() {
-                            let _ = std::fs::create_dir_all(parent);
-                        }
-                        // dev 同步：尽力覆盖写入；失败不阻断其它插件（不破坏用户空间）
-                        let _ = std::fs::copy(&from, &to);
+                let _ = std::fs::create_dir_all(&dst);
+                for rel in files {
+                    let from = src.join(&rel);
+                    let to = dst.join(&rel);
+                    if let Some(parent) = to.parent() {
+                        let _ = std::fs::create_dir_all(parent);
                     }
+                    // dev 同步：仅同步 v2 插件运行所需文件；失败不阻断其它插件（不破坏用户空间）。
+                    let _ = std::fs::copy(&from, &to);
                 }
             }
 
@@ -701,8 +477,8 @@ pub(crate) async fn plugin_dev_sync(app: tauri::AppHandle) -> Result<bool, Strin
         let plugins_dir = app_plugins_dir(&app);
         std::fs::create_dir_all(&plugins_dir).map_err(|e| format!("创建插件目录失败: {e}"))?;
         if repo_plugins.is_dir() && !crate::same_path(&repo_plugins, &plugins_dir) {
-            // 开发同步：v4 以完整插件包为单位；旧插件保留最小运行时文件同步，避免 node_modules 等大目录拖慢/失败。
-            sync_repo_plugins_into(&app, &repo_plugins, &plugins_dir).await?;
+            // 开发同步：v2 legacy 插件只同步运行所需文件，避免 node_modules 等开发目录拖慢/失败。
+            sync_repo_plugins_into(&repo_plugins, &plugins_dir).await?;
             return Ok(true);
         }
         Ok(false)
@@ -1065,8 +841,6 @@ pub(crate) async fn install_plugin_files(
         return Err(e);
     }
 
-    stop_plugin_backend_before_replace(&app, &plugin_id).await?;
-
     if let Err(e) = replace_dir_from_tmp(&plugin_dir, &tmp_dir, &format!("install-{plugin_id}")) {
         return Err(format!("安装插件失败: {e}"));
     }
@@ -1202,8 +976,6 @@ pub(crate) async fn plugin_store_install(
             to_hex_lower(actual.as_slice())
         ));
     }
-
-    stop_plugin_backend_before_replace(&app, &expected_id).await?;
 
     let plugins_dir2 = plugins_dir.clone();
     let zip_path2 = tmp_zip.clone();

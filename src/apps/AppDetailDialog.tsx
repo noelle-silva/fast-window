@@ -118,6 +118,10 @@ export default function AppDetailDialog({ app, status, onClose }: AppDetailDialo
               <Typography sx={{ ...valueSx, wordBreak: 'break-all' }}>{app.path || '(未知)'}</Typography>
             </Box>
             <Box sx={fieldRowSx}>
+              <Typography sx={labelSx}>版本</Typography>
+              <Typography sx={valueSx}>{app.version || '(未记录)'}</Typography>
+            </Box>
+            <Box sx={fieldRowSx}>
               <Typography sx={labelSx}>显示模式</Typography>
               <Typography sx={valueSx}>{displayModeLabels[app.displayMode] || app.displayMode}</Typography>
             </Box>

@@ -7,6 +7,7 @@ function applyRegisteredAppPatch(app: RegisteredApp, patch: RegisteredAppUpdateP
   if (patch.name !== undefined) next.name = patch.name
   if (patch.icon !== undefined) next.icon = patch.icon
   if (patch.path !== undefined) next.path = patch.path
+  if (patch.version !== undefined) next.version = patch.version
   if (patch.displayMode !== undefined) next.displayMode = patch.displayMode
   if (patch.commands !== undefined) next.commands = patch.commands
   if (patch.autoStart !== undefined) next.autoStart = patch.autoStart

@@ -6,7 +6,7 @@ mod writable;
 
 pub(crate) use open::{open_absolute_existing_dir, open_plugin_output_dir};
 pub(crate) use paths::{
-    app_data_dir, app_local_base_dir, app_plugins_dir, resolve_plugin_library_dir,
+    app_apps_dir, app_data_dir, app_local_base_dir, app_plugins_dir, resolve_plugin_library_dir,
     resolve_plugin_output_dir,
 };
 pub(crate) use v2_files::{

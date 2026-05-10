@@ -5,12 +5,11 @@ import {
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import type { Plugin } from './constants'
 import { isDataImageUrl } from './utils'
-import { resolveBackendLifecycle, BackendStatusPanel } from './plugins/backendSupervisor'
+import { resolveBackendLifecycle } from './plugins/backendSupervisor'
 
 interface PluginDetailDialogProps {
   plugin: Plugin | null
   pluginsDir: string
-  backendStatusById: Record<string, any>
   onClose: () => void
 }
 
@@ -18,7 +17,7 @@ const fieldRowSx = { display: 'grid', gridTemplateColumns: '120px 1fr', gap: 1, 
 const labelSx = { color: 'text.secondary', fontSize: 13 } as const
 const valueSx = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 13 } as const
 
-export default function PluginDetailDialog({ plugin, pluginsDir, backendStatusById, onClose }: PluginDetailDialogProps) {
+export default function PluginDetailDialog({ plugin, pluginsDir, onClose }: PluginDetailDialogProps) {
   return (
     <Dialog open={!!plugin} onClose={onClose} fullWidth maxWidth="sm">
       <DialogTitle sx={{ pr: 6 }}>
@@ -48,7 +47,6 @@ export default function PluginDetailDialog({ plugin, pluginsDir, backendStatusBy
           const backgroundAutoStart = hasBackground ? (m!.background!.autoStart !== false) : undefined
           const resolvedBg = resolveBackendLifecycle(m)
           const backgroundMain = hasBackground ? ((m!.background!.main || '').trim() || main || '(未指定)') : undefined
-          const backendStatus = id ? backendStatusById[id] : undefined
           const pluginPath = pluginsDir && id ? `${pluginsDir}\\${id}` : ''
 
           return (
@@ -110,8 +108,6 @@ export default function PluginDetailDialog({ plugin, pluginsDir, backendStatusBy
                     : '未启用'}
                 </Typography>
               </Box>
-              {hasBackground ? <BackendStatusPanel status={backendStatus} labelSx={labelSx} valueSx={valueSx} fieldRowSx={fieldRowSx} /> : null}
-
               <Box sx={{ mt: 1 }}>
                 <Typography sx={{ color: 'text.secondary', fontSize: 13, mb: 0.5 }}>描述</Typography>
                 <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>

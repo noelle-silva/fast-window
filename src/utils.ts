@@ -1,23 +1,4 @@
-import type { Plugin, RegistryIndex, RegistryPluginItem, Semver } from './constants'
-
-export function parseSemverStrict(raw: string): Semver | null {
-  const s = String(raw || '').trim()
-  const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(s)
-  if (!m) return null
-  const major = Number(m[1])
-  const minor = Number(m[2])
-  const patch = Number(m[3])
-  if (!Number.isSafeInteger(major) || !Number.isSafeInteger(minor) || !Number.isSafeInteger(patch)) return null
-  if (major < 0 || minor < 0 || patch < 0) return null
-  return { major, minor, patch }
-}
-
-export function cmpSemver(a: Semver, b: Semver): number {
-  if (a.major !== b.major) return a.major < b.major ? -1 : 1
-  if (a.minor !== b.minor) return a.minor < b.minor ? -1 : 1
-  if (a.patch !== b.patch) return a.patch < b.patch ? -1 : 1
-  return 0
-}
+import type { Plugin } from './constants'
 
 export function isSafeId(id: string): boolean {
   return /^[A-Za-z0-9_-]+$/.test(id)
@@ -36,51 +17,6 @@ export function normalizeCapabilityList(value: unknown): string[] {
     if (uniq.length === 0 || uniq[uniq.length - 1] !== s) uniq.push(s)
   }
   return uniq
-}
-
-export function normalizeRegistry(raw: unknown): RegistryIndex {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('index.json 格式不合法')
-  const obj = raw as any
-  if (obj.registry_version !== 1) throw new Error('不支持的 registry_version（仅支持 1）')
-  if (!Array.isArray(obj.plugins)) throw new Error('index.json.plugins 必须是数组')
-
-  const out: RegistryPluginItem[] = []
-  for (const item of obj.plugins) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) continue
-    const id = String((item as any).id || '').trim()
-    const name = String((item as any).name || '').trim()
-    const description = String((item as any).description || '')
-    const version = String((item as any).version || '').trim()
-    const download_url = String((item as any).download_url || '').trim()
-    const sha256 = String((item as any).sha256 || '').trim()
-    const requires = normalizeCapabilityList((item as any).requires)
-
-    if (!id || !isSafeId(id)) continue
-    if (!name) continue
-    if (!version || !parseSemverStrict(version)) continue
-    if (!download_url) continue
-    if (!sha256) continue
-
-    out.push({ id, name, description, version, download_url, sha256, requires })
-  }
-
-  out.sort((a, b) => a.name.localeCompare(b.name))
-  return { registry_version: 1, plugins: out }
-}
-
-export async function fetchRegistryIndex(url: string, timeoutMs: number): Promise<RegistryIndex> {
-  const u = String(url || '').trim()
-  if (!u) throw new Error('indexUrl 不能为空')
-  const ctrl = new AbortController()
-  const timer = window.setTimeout(() => ctrl.abort(), Math.max(1_000, timeoutMs))
-  try {
-    const resp = await fetch(u, { cache: 'no-store', signal: ctrl.signal })
-    if (!resp.ok) throw new Error(`拉取 index.json 失败：HTTP ${resp.status}`)
-    const raw = await resp.json()
-    return normalizeRegistry(raw)
-  } finally {
-    window.clearTimeout(timer)
-  }
 }
 
 export function normalizeBrowseLayout(value: unknown): import('./constants').PluginBrowseLayout {

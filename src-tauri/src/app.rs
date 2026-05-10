@@ -8,8 +8,8 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-use crate::app_launcher::AppLauncherState;
 use crate::app_autostart::schedule_registered_app_auto_start;
+use crate::app_launcher::AppLauncherState;
 use crate::app_shortcuts::{refresh_registered_app_shortcuts, RegisteredAppShortcutState};
 use crate::browser_stack::{
     browser_stack_bar_height_px, browser_stack_hide, browser_stack_hide_to_main,
@@ -19,7 +19,6 @@ use crate::browser_stack::{
 use crate::clipboard_watch::ClipboardWatchManagerState;
 use crate::http_api::HttpStreamManagerState;
 use crate::plugin_assets::plugin_asset_protocol_response;
-use crate::plugin_backend_runtime::PluginBackendManagerState;
 use crate::process_runtime::ProcessManagerState;
 use crate::sqlite_gateway::SqliteConnManager;
 use crate::tasks::TaskManagerState;
@@ -136,7 +135,6 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
             app.manage(Arc::new(HttpStreamManagerState::default()));
             app.manage(Arc::new(SqliteConnManager::default()));
             app.manage(Arc::new(ProcessManagerState::default()));
-            app.manage(Arc::new(PluginBackendManagerState::default()));
             app.manage(Arc::new(AppLauncherState::default()));
             app.manage(RegisteredAppShortcutState::default());
             app.manage(BrowserWindowState::default());

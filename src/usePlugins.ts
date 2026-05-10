@@ -4,14 +4,15 @@ import type { Plugin, PluginBrowseLayout } from './constants'
 import {
   APP_STORAGE_ID, PLUGIN_ORDER_KEY, DISABLED_PLUGINS_KEY, PLUGIN_BROWSE_LAYOUT_KEY,
   PLUGIN_AUTO_UPDATE_LAST_CHECK_KEY, PLUGIN_AUTO_UPDATE_MIN_INTERVAL_MS,
-  DEFAULT_STORE_INDEX_URL, MAX_AUTO_UPDATE_PER_RUN,
+  DEFAULT_APP_STORE_CATALOG_URL, MAX_AUTO_UPDATE_PER_RUN,
 } from './constants'
 import { loadAllPluginsReport, loadPluginById, type PluginLoadRejection } from './plugins/pluginLoader'
 import { pluginStoreInstall } from './plugins/pluginStore'
+import { fetchStoreCatalog } from './appStore/catalogClient'
+import { parseSemverStrict, cmpSemver } from './appStore/semver'
 import {
-  parseSemverStrict, cmpSemver,
   normalizeCapabilityList, normalizeDisabledPlugins, normalizeOrder, normalizeBrowseLayout,
-  applyPluginOrder, fetchRegistryIndex, normalizeRegistry, pickImageFile, makeThumbnailPngDataUrl,
+  applyPluginOrder, pickImageFile, makeThumbnailPngDataUrl,
 } from './utils'
 
 interface ToastFn {
@@ -198,18 +199,18 @@ export function usePlugins(toast: ToastFn) {
     const lastMs = typeof lastRaw === 'number' && Number.isFinite(lastRaw) ? lastRaw : 0
     if (now - lastMs < PLUGIN_AUTO_UPDATE_MIN_INTERVAL_MS) return
 
-    let registry: ReturnType<typeof normalizeRegistry> | null = null
+    let catalog: Awaited<ReturnType<typeof fetchStoreCatalog>> | null = null
     try {
-      registry = await fetchRegistryIndex(DEFAULT_STORE_INDEX_URL, 15_000)
+      catalog = await fetchStoreCatalog(DEFAULT_APP_STORE_CATALOG_URL, 15_000)
     } catch (e) {
-      console.warn('[auto-update] failed to load store index:', e)
+      console.warn('[auto-update] failed to load app store catalog:', e)
       return
     } finally {
       void invoke('storage_set', { pluginId: APP_STORAGE_ID, key: PLUGIN_AUTO_UPDATE_LAST_CHECK_KEY, value: now }).catch(() => {})
     }
 
-    if (!registry) return
-    const remoteById = new Map(registry.plugins.map(p => [p.id, p]))
+    if (!catalog) return
+    const remoteById = new Map(catalog.plugins.map(p => [p.id, p]))
 
     let updated = 0
     let skippedPermChanged = 0
@@ -239,7 +240,7 @@ export function usePlugins(toast: ToastFn) {
 
       try {
         await pluginStoreInstall({
-          url: remote.download_url,
+          url: remote.downloadUrl,
           expectedSha256: remote.sha256,
           expectedId: remote.id,
           expectedVersion: remote.version,

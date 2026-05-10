@@ -101,12 +101,32 @@ pub(crate) fn load_registered_app_record(
         .find(|item| app_id_from_value(item) == Some(id)))
 }
 
+pub(crate) fn upsert_registered_app_record(
+    app: &AppHandle,
+    app_record: Value,
+) -> Result<(), String> {
+    let id = validate_app_value(&app_record)?;
+    let mut registry = load_registered_app_records(app)?;
+    if let Some(existing) = registry
+        .iter_mut()
+        .find(|item| app_id_from_value(item) == Some(id.as_str()))
+    {
+        *existing = app_record;
+    } else {
+        registry.push(app_record);
+    }
+    save_registry_and_refresh_shortcuts(app, registry)
+}
+
 fn save_registry_array(app: &AppHandle, items: Vec<Value>) -> Result<(), String> {
     let path = crate::storage_value_path(app, crate::APP_STORAGE_ID, REGISTRY_KEY)?;
     crate::write_json_value(&path, &Value::Array(items))
 }
 
-fn save_registry_and_refresh_shortcuts(app: &AppHandle, registry: Vec<Value>) -> Result<(), String> {
+fn save_registry_and_refresh_shortcuts(
+    app: &AppHandle,
+    registry: Vec<Value>,
+) -> Result<(), String> {
     for item in &registry {
         validate_app_value(item)?;
     }
@@ -245,17 +265,7 @@ pub(crate) fn app_registry_save(app: AppHandle, apps: Vec<Value>) -> Result<(), 
 
 #[tauri::command]
 pub(crate) fn app_registry_add(app: AppHandle, app_record: Value) -> Result<(), String> {
-    let id = validate_app_value(&app_record)?;
-    let mut registry = load_registered_app_records(&app)?;
-    if let Some(existing) = registry
-        .iter_mut()
-        .find(|item| app_id_from_value(item) == Some(id.as_str()))
-    {
-        *existing = app_record;
-    } else {
-        registry.push(app_record);
-    }
-    save_registry_and_refresh_shortcuts(&app, registry)
+    upsert_registered_app_record(&app, app_record)
 }
 
 #[tauri::command]

@@ -1,10 +1,7 @@
 import {
-  type PluginApiVersion,
   type PluginCapability,
   type PluginManifest,
   SUPPORTED_PLUGIN_API_VERSIONS,
-  SYSTEM_BACKEND_PLUGIN_API_VERSION,
-  TRUSTED_LOCAL_APP_PLUGIN_API_VERSION,
   isSupportedPluginApiVersion,
   isValidPluginCapability,
 } from '../pluginContract'
@@ -13,32 +10,12 @@ export type ManifestParseResult =
   | { ok: true; manifest: PluginManifest; warnings: string[] }
   | { ok: false; reason: string }
 
-const BACKEND_LIFECYCLES = new Set(['on_demand', 'resident', 'short_lived'] as const)
-const BACKEND_RUNTIMES = ['node', 'python', 'deno', 'bun', 'direct'] as const
-const BACKEND_RUNTIME_SET = new Set<string>(BACKEND_RUNTIMES)
-
-type ManifestVersionPolicy = {
-  requireDescription: boolean
-  requireRequires: boolean
-  requireUiType: boolean
-  systemBackend: boolean
-}
-
 function isSafePluginId(id: string) {
   return /^[A-Za-z0-9_-]+$/.test(id)
 }
 
 function normalizeText(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
-}
-
-function resolveManifestPolicy(apiVersion: PluginApiVersion): ManifestVersionPolicy {
-  return {
-    requireDescription: apiVersion < TRUSTED_LOCAL_APP_PLUGIN_API_VERSION,
-    requireRequires: apiVersion < TRUSTED_LOCAL_APP_PLUGIN_API_VERSION,
-    requireUiType: apiVersion < TRUSTED_LOCAL_APP_PLUGIN_API_VERSION,
-    systemBackend: apiVersion >= SYSTEM_BACKEND_PLUGIN_API_VERSION,
-  }
 }
 
 function parseOptionalStringField(value: unknown, fieldName: string, required: boolean): ManifestParseResult | null {
@@ -82,13 +59,12 @@ export function parsePluginManifest(pluginId: string, manifestContent: string): 
   if (!isSupportedPluginApiVersion(raw?.apiVersion)) {
     return {
       ok: false,
-      reason: `unsupported apiVersion: plugin=${String(raw?.apiVersion)}, supported=${SUPPORTED_PLUGIN_API_VERSIONS.join(',')}`,
+      reason: `unsupported plugin apiVersion: plugin=${String(raw?.apiVersion)}, supported=${SUPPORTED_PLUGIN_API_VERSIONS.join(',')}. v3/v4 were transition contracts; v5 apps must use the registered app package contract.`,
     }
   }
-  const apiVersion = raw.apiVersion as PluginApiVersion
-  const policy = resolveManifestPolicy(apiVersion)
+  const apiVersion = raw.apiVersion
 
-  const uiTypeResult = validateUiType(raw?.ui?.type, policy.requireUiType)
+  const uiTypeResult = validateUiType(raw?.ui?.type, true)
   if (uiTypeResult) return uiTypeResult
 
   const name = normalizeText(raw?.name)
@@ -98,51 +74,22 @@ export function parsePluginManifest(pluginId: string, manifestContent: string): 
   if (!version) return { ok: false, reason: 'manifest.version is required' }
 
   const description = raw?.description
-  const descriptionResult = parseOptionalStringField(description, 'manifest.description', policy.requireDescription)
+  const descriptionResult = parseOptionalStringField(description, 'manifest.description', true)
   if (descriptionResult) return descriptionResult
 
-  const requiresResult = parseRequires(raw?.requires, policy.requireRequires)
+  const requiresResult = parseRequires(raw?.requires, true)
   if (!requiresResult.ok) return requiresResult
-  if (
-    apiVersion >= TRUSTED_LOCAL_APP_PLUGIN_API_VERSION &&
-    requiresResult.requires.some(item => item === 'cap:background.invoke' || item === 'cap:background.*')
-  ) {
-    warnings.push('apiVersion=4 uses the v4.5 direct runtime; background.invoke is legacy only')
-  }
 
   const main = normalizeText(raw?.main)
   if (!main) return { ok: false, reason: 'manifest.main is required' }
 
-  // 系统级后台从 v3 开始使用 lifecycle；v2 保留 autoStart legacy 兼容。
   const bg = raw?.background
   if (bg) {
-    const lc = bg?.lifecycle
-    const autoStart = bg?.autoStart
-
-    if (policy.systemBackend) {
-      if (autoStart !== undefined) {
-        return { ok: false, reason: `apiVersion=${apiVersion} does not allow background.autoStart; use background.lifecycle` }
-      }
-      const bgMain = normalizeText(bg?.main)
-      if (!bgMain) {
-        return { ok: false, reason: `apiVersion=${apiVersion} requires background.main for system backend process` }
-      }
-      if (!BACKEND_LIFECYCLES.has(lc)) {
-        return { ok: false, reason: `apiVersion=${apiVersion} requires background.lifecycle: on_demand | resident | short_lived` }
-      }
-      const runtime = bg?.runtime
-      if (runtime !== undefined && !BACKEND_RUNTIME_SET.has(runtime)) {
-        return { ok: false, reason: `background.runtime must be one of: ${BACKEND_RUNTIMES.join(' | ')}` }
-      }
-    } else {
-      // v2：允许 lifecycle（便于前向迁移），但它与 autoStart 同时存在时，以 lifecycle 为准。
-      if (lc !== undefined && !BACKEND_LIFECYCLES.has(lc)) {
-        return { ok: false, reason: `unknown background.lifecycle "${String(lc)}"` }
-      }
-      if (lc !== undefined && autoStart !== undefined) {
-        warnings.push('background.autoStart is ignored because background.lifecycle is present (v2 compat)')
-      }
-    }
+    if (!bg || typeof bg !== 'object' || Array.isArray(bg)) return { ok: false, reason: 'manifest.background must be an object when provided' }
+    if (bg.lifecycle !== undefined) return { ok: false, reason: 'background.lifecycle belongs to removed v3/v4 transition contracts' }
+    if (bg.runtime !== undefined) return { ok: false, reason: 'background.runtime belongs to removed v3/v4 transition contracts' }
+    if (bg.autoStart !== undefined && typeof bg.autoStart !== 'boolean') return { ok: false, reason: 'background.autoStart must be a boolean when provided' }
+    if (bg.main !== undefined && typeof bg.main !== 'string') return { ok: false, reason: 'background.main must be a string when provided' }
   }
 
   const manifest: PluginManifest = {

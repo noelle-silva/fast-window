@@ -3,7 +3,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window'
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow'
-import { usePluginBackendStatuses, usePluginBackendSupervisor, resolveBackendLifecycle } from './plugins/backendSupervisor'
+import { usePluginBackendSupervisor } from './plugins/backendSupervisor'
 import { alpha } from '@mui/material/styles'
 import {
   Alert, Box, Button, CircularProgress, Snackbar, TextField,
@@ -13,7 +13,7 @@ import {
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import StorefrontRoundedIcon from '@mui/icons-material/StorefrontRounded'
 import SettingsView from './components/SettingsView'
-import PluginStoreView from './components/PluginStoreView'
+import AppStoreView from './components/AppStoreView'
 import ImportPluginDialog from './components/ImportPluginDialog'
 import BrowserBarWindow from './components/BrowserBarWindow'
 import TitleBar from './TitleBar'
@@ -59,11 +59,11 @@ const settingsPlugin: Plugin = {
 const storePlugin: Plugin = {
   id: '__store',
   name: '应用商店',
-  description: '从 GitHub 安装与更新插件',
+  description: '安装 v5 应用与 legacy v2 插件',
   icon: '🛒',
   keyword: 'store',
   disabled: false,
-  component: PluginStoreView,
+  component: AppStoreView,
 }
 
 function App() {
@@ -137,11 +137,10 @@ function App() {
   const pendingActivatePluginIdRef = useRef<string | null>(null)
 
   // Backend
-  const { backgroundHosts, controller: backendController } = usePluginBackendSupervisor({
+  const { backgroundHosts } = usePluginBackendSupervisor({
     plugins: allPlugins,
     activePluginId: activePlugin?.id ?? null,
   })
-  const backendStatusById = usePluginBackendStatuses(allPlugins)
 
   // === Effects ===
 
@@ -596,13 +595,6 @@ function App() {
   const activePluginId = activePlugin?.id || ''
   const activePluginKeepAlive = activePlugin?.manifest?.ui?.keepAlive === true
   const ActivePluginComponent = activePlugin ? activePlugin.component : null
-  const activeBackendLifecycle = activePlugin ? resolveBackendLifecycle(activePlugin.manifest) : null
-  const activePluginNeedsProcessBackend = Boolean(
-    activePlugin &&
-    Number(activePlugin.manifest?.apiVersion ?? 2) >= 3 &&
-    String(activePlugin.manifest?.background?.main || '').trim(),
-  )
-  const activePluginBackendReady = !activePluginNeedsProcessBackend || backendController.isReady(activePluginId)
   const onBackFromPlugin = () => setActivePlugin(null)
   const renderKeepAliveUiPluginIds =
     activePluginKeepAlive && activePluginId && !keepAliveUiPluginIds.includes(activePluginId)
@@ -680,7 +672,7 @@ function App() {
           actions={pluginMenuActions}
           onClose={closePluginMenu}
         />
-        <PluginDetailDialog plugin={pluginDetail} pluginsDir={pluginsDir} backendStatusById={backendStatusById} onClose={() => setPluginDetail(null)} />
+        <PluginDetailDialog plugin={pluginDetail} pluginsDir={pluginsDir} onClose={() => setPluginDetail(null)} />
         <AppDetailDialog app={appDetail} status={appDetail ? registeredAppStatuses[appDetail.id] : undefined} onClose={() => setAppDetailId(null)} />
         <ImportPluginDialog
           open={importOpen}
@@ -739,7 +731,7 @@ function App() {
               )
             })}
 
-            {showPluginView && ActivePluginComponent && !activePluginKeepAlive && activePluginBackendReady ? (
+            {showPluginView && ActivePluginComponent && !activePluginKeepAlive ? (
               <Box sx={{ height: '100%', overflow: 'hidden' }}>
                 {activeRegisteredApp ? (
                   <AppActivationView
@@ -759,16 +751,6 @@ function App() {
                 ) : (
                   <ActivePluginComponent onBack={onBackFromPlugin} />
                 )}
-              </Box>
-            ) : null}
-            {showPluginView && ActivePluginComponent && !activePluginKeepAlive && !activePluginBackendReady ? (
-              <Box sx={{ height: '100%', display: 'grid', placeItems: 'center', p: 3 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, color: 'text.secondary' }}>
-                  <CircularProgress size={18} />
-                  <Typography variant="body2">
-                    正在启动插件后台{activeBackendLifecycle ? `（${activeBackendLifecycle.lifecycle}）` : ''}...
-                  </Typography>
-                </Box>
               </Box>
             ) : null}
           </Box>
@@ -892,7 +874,7 @@ function App() {
           </Button>
         </DialogActions>
       </Dialog>
-      <PluginDetailDialog plugin={pluginDetail} pluginsDir={pluginsDir} backendStatusById={backendStatusById} onClose={() => setPluginDetail(null)} />
+      <PluginDetailDialog plugin={pluginDetail} pluginsDir={pluginsDir} onClose={() => setPluginDetail(null)} />
       <AppDetailDialog app={appDetail} status={appDetail ? registeredAppStatuses[appDetail.id] : undefined} onClose={() => setAppDetailId(null)} />
       <ImportPluginDialog
         open={importOpen}

@@ -3,7 +3,6 @@ import { createPluginContext } from './pluginApi'
 import { toBridgeError } from './pluginBridge'
 import type { PluginApiVersion, PluginCapability } from './pluginContract'
 import { dispatchPluginMethod } from './pluginMethods'
-import type { PluginRuntimeProfile } from './pluginProfiles'
 import { buildPluginShellSrcDoc } from './pluginSandbox'
 
 export type PluginFrameViewProps = {
@@ -12,7 +11,6 @@ export type PluginFrameViewProps = {
   apiVersion: PluginApiVersion
   requires?: PluginCapability[]
   runtime: 'ui' | 'background'
-  runtimeProfile: PluginRuntimeProfile
   buildSdkCode: (token: string) => string
   assetBaseUrl?: string
   onBack?: () => void
@@ -43,7 +41,7 @@ function hashPluginCode(code: string) {
 }
 
 export default function PluginFrameView(props: PluginFrameViewProps) {
-  const { pluginId, pluginCode, apiVersion, requires, runtime, runtimeProfile, buildSdkCode, assetBaseUrl, onBack, title, hidden } = props
+  const { pluginId, pluginCode, apiVersion, requires, runtime, buildSdkCode, assetBaseUrl, onBack, title, hidden } = props
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const ctx = useMemo(() => createPluginContext(pluginId, apiVersion, requires ?? []), [apiVersion, pluginId, requires])
   const portRef = useRef<MessagePort | null>(null)
@@ -103,7 +101,7 @@ export default function PluginFrameView(props: PluginFrameViewProps) {
         }
 
         Promise.resolve()
-          .then(() => dispatchPluginMethod(ctx, String(method), args, { runtime, rpcProfile: runtimeProfile.rpcProfile, onBack, postStream }))
+          .then(() => dispatchPluginMethod(ctx, String(method), args, { runtime, onBack, postStream }))
           .then(result => reply({ ok: true, result }))
           .catch(err => {
             const e = toBridgeError(err)

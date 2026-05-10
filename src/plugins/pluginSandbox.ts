@@ -1,14 +1,11 @@
 import type { PluginApiVersion } from './pluginContract'
-import { V3_METHOD } from './hostApi/v3/methodNames'
-import type { PluginSdkProfile } from './pluginProfiles'
-import { resolveLegacyPluginSdkProfile } from './pluginProfiles'
 
 export type PluginRuntime = 'ui' | 'background'
 
 function buildLegacyTauriSdkCode() {
   return `
     fastWindow.host = {
-      back: () => call(${JSON.stringify(V3_METHOD.host.back)}, []),
+      back: () => call('host.back', []),
     };
     fastWindow.tauri = {
       invoke: (spec) => call('tauri.invoke', [ensureSpecTimeoutMs(spec)]),
@@ -23,204 +20,14 @@ function buildLegacyTauriSdkCode() {
   `
 }
 
-function buildHostInteractionSdkCode() {
-  const v3 = V3_METHOD
-  return `
-    fastWindow.host = {
-      back: () => call(${JSON.stringify(v3.host.back)}, []),
-      toast: (message) => call(${JSON.stringify(v3.host.toast)}, [message]),
-      activatePlugin: (targetPluginId) => call(${JSON.stringify(v3.host.activatePlugin)}, [targetPluginId]),
-      startDragging: () => call(${JSON.stringify(v3.host.startDragging)}, []),
-    };
-  `
-}
-
-function buildV3PrimitiveSdkCode() {
-  const v3 = V3_METHOD
-  return `
-    fastWindow.host.getInfo = () => call(${JSON.stringify(v3.host.getInfo)}, []);
-    fastWindow.process = {
-      openExternalUrl: (req) => call(${JSON.stringify(v3.process.openExternalUrl)}, [req || {}]),
-      openExternalUri: (req) => call(${JSON.stringify(v3.process.openExternalUri)}, [req || {}]),
-      openBrowserWindow: (req) => call(${JSON.stringify(v3.process.openBrowserWindow)}, [req || {}]),
-      run: (req) => call(${JSON.stringify(v3.process.run)}, [req || {}]),
-      spawn: (req) => call(${JSON.stringify(v3.process.spawn)}, [req || {}]),
-      kill: (req) => call(${JSON.stringify(v3.process.kill)}, [req || {}]),
-      wait: (req) => call(${JSON.stringify(v3.process.wait)}, [req || {}]),
-    };
-    fastWindow.task = {
-      create: (req) => call(${JSON.stringify(v3.task.create)}, [req || {}]),
-      get: (taskId) => call(${JSON.stringify(v3.task.get)}, [taskId]),
-      list: (req) => call(${JSON.stringify(v3.task.list)}, [req || {}]),
-      cancel: (taskId) => call(${JSON.stringify(v3.task.cancel)}, [taskId]),
-    };
-    fastWindow.workspace = {
-      getPaths: () => call(${JSON.stringify(v3.workspace.getPaths)}, []),
-      openOutputDir: () => call(${JSON.stringify(v3.workspace.openOutputDir)}, []),
-      openDir: (dir) => call(${JSON.stringify(v3.workspace.openDir)}, [dir]),
-      fs: {
-        readText: (req) => call(${JSON.stringify(v3.workspace.fs.readText)}, [req || {}]),
-        writeText: (req) => call(${JSON.stringify(v3.workspace.fs.writeText)}, [req || {}]),
-        readBytes: async (req) => {
-          const r = await call(${JSON.stringify(v3.workspace.fs.readBytes)}, [req || {}]);
-          return createStream(String((r && r.streamId) || ''), ${JSON.stringify(v3.workspace.fs.readBytesCancel)});
-        },
-        writeBytes: (req, source) => writeByteStream(req || {}, source),
-        listDir: (req) => call(${JSON.stringify(v3.workspace.fs.listDir)}, [req || {}]),
-        mkdir: (req) => call(${JSON.stringify(v3.workspace.fs.mkdir)}, [req || {}]),
-        remove: (req) => call(${JSON.stringify(v3.workspace.fs.remove)}, [req || {}]),
-        stat: (req) => call(${JSON.stringify(v3.workspace.fs.stat)}, [req || {}]),
-        rename: (req) => call(${JSON.stringify(v3.workspace.fs.rename)}, [req || {}]),
-        copy: (req) => call(${JSON.stringify(v3.workspace.fs.copy)}, [req || {}]),
-      },
-    };
-    fastWindow.dialog = {
-      pickDir: () => call(${JSON.stringify(v3.dialog.pickDir)}, []),
-      pickOutputDir: () => call(${JSON.stringify(v3.dialog.pickOutputDir)}, []),
-      pickLibraryDir: () => call(${JSON.stringify(v3.dialog.pickLibraryDir)}, []),
-      pickImages: (req) => call(${JSON.stringify(v3.dialog.pickImages)}, [req || {}]),
-      confirm: (req) => call(${JSON.stringify(v3.dialog.confirm)}, [req || {}]),
-    };
-    fastWindow.clipboard = {
-      readText: () => call(${JSON.stringify(v3.clipboard.readText)}, []),
-      writeText: (text) => call(${JSON.stringify(v3.clipboard.writeText)}, [text]),
-      readImageDataUrl: () => call(${JSON.stringify(v3.clipboard.readImageDataUrl)}, []),
-      writeImageDataUrl: (dataUrl) => call(${JSON.stringify(v3.clipboard.writeImageDataUrl)}, [dataUrl]),
-      watch: (req) => call(${JSON.stringify(v3.clipboard.watch)}, [req || {}]),
-      getWatch: (watchId) => call(${JSON.stringify(v3.clipboard.getWatch)}, [watchId]),
-      unwatch: (watchId) => call(${JSON.stringify(v3.clipboard.unwatch)}, [watchId]),
-    };
-  `
-}
-
-function buildBackgroundInvokeSdkCode() {
-  const v3 = V3_METHOD
-  return `
-    fastWindow.background = {
-      invoke: (method, params, options) => call(${JSON.stringify(v3.background.invoke)}, [{ method, params: params === undefined ? null : params, timeoutMs: options && options.timeoutMs }]),
-    };
-  `
-}
-
-function buildBackgroundEndpointSdkCode() {
-  const v3 = V3_METHOD
-  return `
-    fastWindow.background = {
-      endpoint: () => call(${JSON.stringify(v3.background.endpoint)}, []),
-      connect: async () => {
-        const endpoint = await call(${JSON.stringify(v3.background.endpoint)}, []);
-        const url = String(endpoint && endpoint.url || '');
-        const sep = url.includes('?') ? '&' : '?';
-        return new WebSocket(url + sep + 'token=' + encodeURIComponent(String(endpoint && endpoint.token || '')));
-      },
-    };
-  `
-}
-
-function shouldUseBackgroundEndpoint(profile: PluginSdkProfile) {
-  return profile === 'v4-direct'
-}
-
-function buildSdkSurfaceCode(profile: PluginSdkProfile) {
-  if (profile === 'legacy') return buildLegacyTauriSdkCode()
-  const primitiveCode = profile === 'v3' ? buildV3PrimitiveSdkCode() : ''
-  const backgroundCode = shouldUseBackgroundEndpoint(profile) ? buildBackgroundEndpointSdkCode() : buildBackgroundInvokeSdkCode()
-  return `${buildHostInteractionSdkCode()}${primitiveCode}${backgroundCode}`
-}
-
-function buildDirectPluginSdkCode(opts: {
-  pluginId: string
-  token: string
-  runtime: PluginRuntime
-  apiVersion: PluginApiVersion
-}) {
-  const { pluginId, token, runtime, apiVersion } = opts
-  return `
-(() => {
-  const pluginId = ${JSON.stringify(pluginId)};
-  const apiVersion = ${JSON.stringify(apiVersion)};
-  const token = ${JSON.stringify(token)};
-  const runtime = ${JSON.stringify(runtime)};
-
-  let seq = 0;
-  const pending = new Map();
-  const MAX_PENDING = 128;
-  const DEFAULT_TIMEOUT_MS = 8000;
-
-  const port = globalThis.__fastWindowPort;
-  if (!port || typeof port.postMessage !== 'function') throw new Error('fastWindow MessagePort is not ready');
-
-  function call(method, args) {
-    const id = ++seq;
-    return new Promise((resolve, reject) => {
-      if (pending.size >= MAX_PENDING) {
-        reject(new Error('Too many in-flight requests'));
-        return;
-      }
-
-      const timer = setTimeout(() => {
-        pending.delete(id);
-        reject(new Error('Request timeout'));
-      }, DEFAULT_TIMEOUT_MS);
-
-      pending.set(id, { resolve, reject, timer });
-      port.postMessage({ __fastWindowRequest: true, pluginId, apiVersion, token, id, method, args });
-    });
-  }
-
-  port.onmessage = (e) => {
-    const msg = e && e.data;
-    if (!msg || msg.__fastWindowResponse !== true) return;
-    if (msg.pluginId !== pluginId) return;
-    if (msg.token !== token) return;
-    const entry = pending.get(msg.id);
-    if (!entry) return;
-    pending.delete(msg.id);
-    clearTimeout(entry.timer);
-    if (msg.ok) entry.resolve(msg.result);
-    else {
-      const err = new Error(msg.error || 'Unknown error');
-      if (msg.code) err.code = msg.code;
-      if (msg.data !== undefined) err.data = msg.data;
-      entry.reject(err);
-    }
-  };
-
-  window.fastWindow = {
-    host: {
-      back: () => call(${JSON.stringify(V3_METHOD.host.back)}, []),
-      toast: (message) => call(${JSON.stringify(V3_METHOD.host.toast)}, [message]),
-      activatePlugin: (targetPluginId) => call(${JSON.stringify(V3_METHOD.host.activatePlugin)}, [targetPluginId]),
-      startDragging: () => call(${JSON.stringify(V3_METHOD.host.startDragging)}, []),
-    },
-    background: {
-      endpoint: () => call(${JSON.stringify(V3_METHOD.background.endpoint)}, []),
-      connect: async () => {
-        const endpoint = await call(${JSON.stringify(V3_METHOD.background.endpoint)}, []);
-        const url = String(endpoint && endpoint.url || '');
-        const sep = url.includes('?') ? '&' : '?';
-        return new WebSocket(url + sep + 'token=' + encodeURIComponent(String(endpoint && endpoint.token || '')));
-      },
-    },
-  };
-})();`
-}
-
 export function buildPluginSdkCode(opts: {
   pluginId: string
   token: string
   runtime: PluginRuntime
   apiVersion: PluginApiVersion
-  sdkProfile?: PluginSdkProfile
-  exposeMeta?: boolean
 }) {
   const { pluginId, token, runtime, apiVersion } = opts
-  const sdkProfile = opts.sdkProfile ?? resolveLegacyPluginSdkProfile(apiVersion)
-  if (sdkProfile === 'v4-direct') return buildDirectPluginSdkCode({ pluginId, token, runtime, apiVersion })
-
-  const exposeMeta = opts.exposeMeta ?? true
-  const metaSdkCode = exposeMeta ? `__meta: { pluginId, apiVersion, runtime },` : ''
-  const sdkSurfaceCode = buildSdkSurfaceCode(sdkProfile)
+  const sdkSurfaceCode = buildLegacyTauriSdkCode()
 
   const sendExpr = `(() => {
   const p = globalThis.__fastWindowPort;
@@ -329,37 +136,6 @@ export function buildPluginSdkCode(opts: {
     pendingStreamEvents.delete(streamId);
     for (const ev of list) st._push(ev);
     return st;
-  }
-
-  function normalizeBytes(value) {
-    if (value instanceof Uint8Array) return value;
-    if (value instanceof ArrayBuffer) return new Uint8Array(value);
-    if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-    if (Array.isArray(value)) return new Uint8Array(value);
-    throw new Error('bytes must be Uint8Array, ArrayBuffer, or number[]');
-  }
-
-  async function writeByteStream(openReq, source) {
-    const opened = await call(${JSON.stringify(V3_METHOD.workspace.fs.writeBytes)}, [openReq || {}]);
-    const writeId = String((opened && (opened.writeId || opened.write_id)) || '');
-    if (!writeId) throw new Error('writeId is required');
-    try {
-      if (source && typeof source[Symbol.asyncIterator] === 'function') {
-        for await (const chunk of source) {
-          await call(${JSON.stringify(V3_METHOD.workspace.fs.writeBytesChunk)}, [{ writeId, bytes: Array.from(normalizeBytes(chunk)) }]);
-        }
-      } else if (source && typeof source[Symbol.iterator] === 'function' && !(source instanceof Uint8Array) && !(source instanceof ArrayBuffer) && !ArrayBuffer.isView(source)) {
-        for (const chunk of source) {
-          await call(${JSON.stringify(V3_METHOD.workspace.fs.writeBytesChunk)}, [{ writeId, bytes: Array.from(normalizeBytes(chunk)) }]);
-        }
-      } else {
-        await call(${JSON.stringify(V3_METHOD.workspace.fs.writeBytesChunk)}, [{ writeId, bytes: Array.from(normalizeBytes(source)) }]);
-      }
-      await call(${JSON.stringify(V3_METHOD.workspace.fs.writeBytesClose)}, [writeId]);
-    } catch (err) {
-      await call(${JSON.stringify(V3_METHOD.workspace.fs.writeBytesCancel)}, [writeId]).catch(() => {});
-      throw err;
-    }
   }
 
   function resolveTimeoutMs(method, args) {
@@ -494,7 +270,7 @@ export function buildPluginSdkCode(opts: {
   ${listenExpr};
 
   const fastWindow = {
-    ${metaSdkCode}
+    __meta: { pluginId, apiVersion, runtime },
   };
 
   ${sdkSurfaceCode}

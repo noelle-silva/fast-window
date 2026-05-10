@@ -2,9 +2,6 @@ import type { PluginCapability, SupportedPluginApiVersion } from './capabilities
 
 export type PluginUiType = 'iframe'
 
-export type PluginBackgroundLifecycle = 'on_demand' | 'resident' | 'short_lived'
-export type PluginBackgroundRuntime = 'node' | 'python' | 'deno' | 'bun' | 'direct'
-
 export interface PluginManifest {
   id: string
   name: string
@@ -23,12 +20,6 @@ export interface PluginManifest {
   }
   background?: {
     main?: string
-    /**
-     * legacy（v2）：历史“自启动”开关。
-     * - 系统级后台插件不再接受该字段：请使用 lifecycle 表达清晰的生命周期档位。
-     */
     autoStart?: boolean
-    lifecycle?: PluginBackgroundLifecycle
-    runtime?: PluginBackgroundRuntime
   }
 }

@@ -45,6 +45,19 @@ pub(crate) fn pick_folder(app: &tauri::AppHandle, title: &str) -> Option<PathBuf
     })
 }
 
+pub(crate) fn pick_folder_with_default(
+    app: &tauri::AppHandle,
+    title: &str,
+    default_dir: &PathBuf,
+) -> Option<PathBuf> {
+    with_main_window_dialog_focus(app, || {
+        rfd::FileDialog::new()
+            .set_title(title)
+            .set_directory(default_dir)
+            .pick_folder()
+    })
+}
+
 pub(crate) fn pick_image_files(app: &tauri::AppHandle, title: &str) -> Option<Vec<PathBuf>> {
     with_main_window_dialog_focus(app, || {
         rfd::FileDialog::new()

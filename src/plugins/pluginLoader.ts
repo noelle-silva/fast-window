@@ -5,9 +5,7 @@ import {
   PluginManifest,
 } from './pluginContract'
 import IframePluginView from './IframePluginView'
-import TrustedPluginView from './TrustedPluginView'
 import { parsePluginManifest } from './manifest/parsePluginManifest'
-import { isTrustedLocalApp, usesSystemBackend } from './pluginProfiles'
 import { getPluginAssetMime, isDataImageUrl, resolveLocalPluginIconPath } from './pluginIcon'
 
 export interface LoadedPlugin {
@@ -66,7 +64,7 @@ export async function loadPluginById(pluginId: string): Promise<{ plugin: Loaded
     const code = await invoke<string>('read_plugin_file', { pluginId, path: manifest.main })
 
     let backgroundCode = ''
-    if (manifest.background && !usesSystemBackend(apiVersion)) {
+    if (manifest.background) {
       const bgMain = String(manifest.background.main || '').trim()
       if (bgMain) {
         backgroundCode = await invoke<string>('read_plugin_file', { pluginId, path: bgMain }).catch(() => '')
@@ -75,12 +73,10 @@ export async function loadPluginById(pluginId: string): Promise<{ plugin: Loaded
       }
     }
 
-    const View = isTrustedLocalApp(apiVersion) ? TrustedPluginView : IframePluginView
     const component: ComponentType<{ onBack: () => void }> = ({ onBack }) =>
-      React.createElement(View, {
+      React.createElement(IframePluginView, {
         pluginId: manifest.id,
         pluginCode: code,
-        pluginMain: manifest.main,
         apiVersion,
         requires: manifest.requires,
         onBack,

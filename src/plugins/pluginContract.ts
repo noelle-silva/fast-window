@@ -1,8 +1,5 @@
 export {
-  REGISTERED_APP_API_VERSION,
   LEGACY_PLUGIN_API_VERSION,
-  SYSTEM_BACKEND_PLUGIN_API_VERSION,
-  TRUSTED_LOCAL_APP_PLUGIN_API_VERSION,
   LATEST_PLUGIN_API_VERSION,
   PLUGIN_API_VERSION,
   SUPPORTED_PLUGIN_API_VERSIONS,
@@ -16,8 +13,6 @@ export type {
 } from './contract/capabilities'
 
 export type {
-  PluginBackgroundLifecycle,
-  PluginBackgroundRuntime,
   PluginManifest,
   PluginUiType,
 } from './contract/manifest'

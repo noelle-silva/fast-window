@@ -258,7 +258,9 @@ struct AppControlResponse {
     available_commands: Vec<crate::app_registry::AppReportedCommand>,
 }
 
-fn available_commands_from_response(response: &str) -> Vec<crate::app_registry::AppReportedCommand> {
+fn available_commands_from_response(
+    response: &str,
+) -> Vec<crate::app_registry::AppReportedCommand> {
     let Some((_, body)) = response.split_once("\r\n\r\n") else {
         return Vec::new();
     };
@@ -274,9 +276,10 @@ async fn send_control_action_async(
 ) -> Result<Vec<crate::app_registry::AppReportedCommand>, String> {
     let endpoint = wait_control_endpoint(&entry).await?;
 
-    let response = tokio::task::spawn_blocking(move || send_control_action(endpoint, action, command))
-        .await
-        .map_err(|e| format!("应用控制任务失败: {e}"))??;
+    let response =
+        tokio::task::spawn_blocking(move || send_control_action(endpoint, action, command))
+            .await
+            .map_err(|e| format!("应用控制任务失败: {e}"))??;
     Ok(available_commands_from_response(&response))
 }
 
@@ -652,6 +655,13 @@ async fn app_stop_with_mode(
     }
 
     Ok(result)
+}
+
+pub(crate) async fn stop_registered_app_for_update(
+    state: &Arc<AppLauncherState>,
+    app_id: &str,
+) -> Result<AppStopResult, String> {
+    app_stop_with_mode(state, app_id.to_string(), AppStopMode::Graceful).await
 }
 
 #[tauri::command]

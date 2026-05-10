@@ -9,7 +9,7 @@ export const PLUGIN_BROWSE_LAYOUT_KEY = 'pluginBrowseLayout'
 export const DISABLED_PLUGINS_KEY = 'disabledPlugins'
 export const PLUGIN_AUTO_UPDATE_LAST_CHECK_KEY = 'pluginAutoUpdateLastCheckMs'
 export const PLUGIN_AUTO_UPDATE_MIN_INTERVAL_MS = 6 * 60 * 60 * 1000
-export const DEFAULT_STORE_INDEX_URL = 'https://raw.githubusercontent.com/noelle-silva/fast-window-plugins-download/main/index.json'
+export const DEFAULT_APP_STORE_CATALOG_URL = 'https://raw.githubusercontent.com/noelle-silva/fast-window-plugins-download/main/catalog.json'
 export const MAX_AUTO_UPDATE_PER_RUN = 8
 
 export interface Plugin {
@@ -30,24 +30,3 @@ export interface Plugin {
 }
 
 export type PluginBrowseLayout = 'list' | 'grid' | 'icon'
-
-export interface RegistryPluginItem {
-  id: string
-  name: string
-  description: string
-  version: string
-  download_url: string
-  sha256: string
-  requires?: string[]
-}
-
-export interface RegistryIndex {
-  registry_version: number
-  plugins: RegistryPluginItem[]
-}
-
-export interface Semver {
-  major: number
-  minor: number
-  patch: number
-}

@@ -14,8 +14,9 @@ use tauri::{Emitter, EventTarget, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 mod app;
-mod app_launcher;
 mod app_autostart;
+mod app_installer;
+mod app_launcher;
 mod app_registry;
 mod app_shortcuts;
 mod browser_stack;
@@ -27,15 +28,10 @@ mod core;
 mod host_dialog;
 mod host_primitives;
 mod http_api;
+mod install_fs;
 mod migrations;
 mod os_actions;
 mod plugin_assets;
-mod plugin_backend_commands;
-mod plugin_backend_endpoint;
-mod plugin_backend_ipc;
-mod plugin_backend_runtime;
-mod plugin_backend_runtimes;
-mod plugin_backend_state;
 mod plugin_files;
 mod plugin_files_delete_tree;
 mod plugins;
@@ -97,7 +93,7 @@ pub(crate) use os_actions::{open_dir_in_file_manager, open_external_uri, open_ex
 pub(crate) use plugins::{is_safe_id, query_get_param, safe_relative_path};
 use windowing::*;
 pub(crate) use workspace::{
-    app_data_dir, app_local_base_dir, app_plugins_dir, ensure_writable_dir,
+    app_apps_dir, app_data_dir, app_local_base_dir, app_plugins_dir, ensure_writable_dir,
     resolve_existing_file_in_scope, resolve_plugin_files_root, resolve_plugin_library_dir,
     resolve_plugin_output_dir, resolve_write_path_in_scope,
 };
@@ -2590,6 +2586,11 @@ fn main() {
         read_plugins_dir,
         install_plugin_files,
         plugin_store_install,
+        app_installer::get_apps_dir,
+        app_installer::open_apps_dir,
+        app_installer::pick_app_install_dir,
+        app_installer::app_store_install,
+        app_installer::app_store_update,
         // v3 稳定 process 命令入口（v2 旧命令仍保留在后面）
         process_commands::process_open_external_url,
         process_commands::process_open_external_uri,
@@ -2598,12 +2599,6 @@ fn main() {
         process_commands::process_spawn,
         process_commands::process_kill,
         process_commands::process_wait,
-        plugin_backend_commands::plugin_backend_start,
-        plugin_backend_commands::plugin_backend_stop,
-        plugin_backend_commands::plugin_backend_status,
-        plugin_backend_commands::plugin_backend_status_many,
-        plugin_backend_commands::plugin_backend_endpoint,
-        plugin_backend_commands::plugin_backend_invoke,
         app_launcher::app_launch,
         app_launcher::app_force_stop,
         app_launcher::app_stop,

@@ -13,6 +13,7 @@ export interface RegisteredApp {
   name: string
   icon: string
   path: string
+  version?: string
   hotkey?: string
   displayMode: AppDisplayMode
   commands: RegisteredAppCommand[]
