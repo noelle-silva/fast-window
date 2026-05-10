@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -28,7 +29,7 @@ import (
 
 const (
 	dataSchemaVersion      = 1
-	dataVersion            = 2
+	dataVersion            = 3
 	dataFile               = "data.json"
 	metaFile               = "_meta.json"
 	assetsDir              = "assets"
@@ -73,7 +74,8 @@ type folderItem struct {
 	ID              string            `json:"id"`
 	Name            string            `json:"name"`
 	Path            string            `json:"path"`
-	GroupIDs        []string          `json:"groupIds"`
+	GroupID         string            `json:"groupId"`
+	PageOrder       int64             `json:"pageOrder"`
 	ContainerID     string            `json:"containerId,omitempty"`
 	CreatedAt       string            `json:"createdAt"`
 	UpdatedAt       string            `json:"updatedAt"`
@@ -93,6 +95,16 @@ type desktopLayoutPatch struct {
 	Kind   string           `json:"kind"`
 	ID     string           `json:"id"`
 	Layout folderGridLayout `json:"layout"`
+}
+
+type desktopLayoutSavePayload struct {
+	GroupID string               `json:"groupId"`
+	Items   []desktopLayoutPatch `json:"items"`
+}
+
+type folderGroupTransferPayload struct {
+	ID      string `json:"id"`
+	GroupID string `json:"groupId"`
 }
 
 type containerLayoutPatch struct {
@@ -127,6 +139,8 @@ type desktopIcon struct {
 type desktopContainer struct {
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
+	GroupID     string            `json:"groupId"`
+	PageOrder   int64             `json:"pageOrder"`
 	CreatedAt   string            `json:"createdAt"`
 	UpdatedAt   string            `json:"updatedAt"`
 	CreatedAtMS int64             `json:"createdAtMs"`
@@ -341,23 +355,24 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 			return nil, fmt.Errorf("invalid remove payload: %w", err)
 		}
 		return svc.removeFolder(payload.ID)
-	case "folders.folder.groups.save":
-		var payload struct {
-			ID       string   `json:"id"`
-			GroupIDs []string `json:"groupIds"`
-		}
+	case "folders.folder.move-to-group":
+		var payload folderGroupTransferPayload
 		if err := json.Unmarshal(params, &payload); err != nil {
-			return nil, fmt.Errorf("invalid folder groups payload: %w", err)
+			return nil, fmt.Errorf("invalid folder group move payload: %w", err)
 		}
-		return svc.saveFolderGroups(payload.ID, payload.GroupIDs)
+		return svc.moveFolderToGroup(payload)
+	case "folders.folder.copy-to-group":
+		var payload folderGroupTransferPayload
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid folder group copy payload: %w", err)
+		}
+		return svc.copyFolderToGroup(payload)
 	case "folders.desktop.layout.save":
-		var payload struct {
-			Items []desktopLayoutPatch `json:"items"`
-		}
+		var payload desktopLayoutSavePayload
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid desktop layout payload: %w", err)
 		}
-		return svc.saveDesktopLayouts(payload.Items)
+		return svc.saveDesktopLayouts(payload)
 	case "folders.assets.import":
 		var payload struct {
 			Kind       string `json:"kind"`
@@ -559,7 +574,8 @@ func (svc *service) addFolder(payload folderItem) (foldersDoc, error) {
 	if err != nil {
 		return foldersDoc{}, err
 	}
-	doc.Items = append([]folderItem{item}, doc.Items...)
+	item.PageOrder = nextPageOrder(doc, item.GroupID)
+	doc.Items = append(doc.Items, item)
 	if err := svc.writeFolders(doc); err != nil {
 		return foldersDoc{}, err
 	}
@@ -582,12 +598,17 @@ func (svc *service) updateFolder(payload folderItem) (foldersDoc, error) {
 		if doc.Items[i].ID == item.ID {
 			item.CreatedAtMS = doc.Items[i].CreatedAtMS
 			item.CreatedAt = doc.Items[i].CreatedAt
-			item.ContainerID = doc.Items[i].ContainerID
-			if item.Layout == nil {
-				item.Layout = doc.Items[i].Layout
-			}
-			if item.ContainerLayout == nil {
-				item.ContainerLayout = doc.Items[i].ContainerLayout
+			if item.GroupID == doc.Items[i].GroupID {
+				item.PageOrder = doc.Items[i].PageOrder
+				item.ContainerID = doc.Items[i].ContainerID
+				if item.Layout == nil {
+					item.Layout = doc.Items[i].Layout
+				}
+				if item.ContainerLayout == nil {
+					item.ContainerLayout = doc.Items[i].ContainerLayout
+				}
+			} else {
+				item.PageOrder = nextPageOrder(doc, item.GroupID)
 			}
 			if item.Icon == nil {
 				item.Icon = doc.Items[i].Icon
@@ -630,38 +651,94 @@ func (svc *service) removeFolder(id string) (foldersDoc, error) {
 	return svc.readFolders()
 }
 
-func (svc *service) saveFolderGroups(id string, groupIDs []string) (foldersDoc, error) {
+func (svc *service) moveFolderToGroup(payload folderGroupTransferPayload) (foldersDoc, error) {
 	doc, err := svc.readFolders()
 	if err != nil {
 		return foldersDoc{}, err
 	}
-	id = strings.TrimSpace(id)
+	id := strings.TrimSpace(payload.ID)
 	if id == "" {
 		return foldersDoc{}, errors.New("folder id is required")
 	}
-	normalizedGroupIDs, err := normalizeGroupIDs(groupIDs, doc.Groups)
+	targetGroupID, err := normalizeGroupID(payload.GroupID, doc.Groups)
 	if err != nil {
 		return foldersDoc{}, err
 	}
 	for i := range doc.Items {
-		if doc.Items[i].ID == id {
-			doc.Items[i].GroupIDs = normalizedGroupIDs
-			doc.Items[i].UpdatedAtMS = time.Now().UnixMilli()
-			doc.Items[i].UpdatedAt = nowText()
-			if err := svc.writeFolders(doc); err != nil {
-				return foldersDoc{}, err
-			}
-			return svc.readFolders()
+		if doc.Items[i].ID != id {
+			continue
 		}
+		if doc.Items[i].GroupID == targetGroupID {
+			return doc, nil
+		}
+		now := time.Now().UnixMilli()
+		nowString := nowText()
+		doc.Items[i].GroupID = targetGroupID
+		doc.Items[i].PageOrder = nextPageOrder(doc, targetGroupID)
+		doc.Items[i].ContainerID = ""
+		doc.Items[i].ContainerLayout = nil
+		doc.Items[i].Layout = nil
+		doc.Items[i].UpdatedAtMS = now
+		doc.Items[i].UpdatedAt = nowString
+		if err := svc.writeFolders(doc); err != nil {
+			return foldersDoc{}, err
+		}
+		return svc.readFolders()
 	}
 	return foldersDoc{}, fmt.Errorf("folder not found: %s", id)
 }
 
-func (svc *service) saveDesktopLayouts(patches []desktopLayoutPatch) (foldersDoc, error) {
-	if len(patches) == 0 {
+func (svc *service) copyFolderToGroup(payload folderGroupTransferPayload) (foldersDoc, error) {
+	doc, err := svc.readFolders()
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	id := strings.TrimSpace(payload.ID)
+	if id == "" {
+		return foldersDoc{}, errors.New("folder id is required")
+	}
+	targetGroupID, err := normalizeGroupID(payload.GroupID, doc.Groups)
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	for _, item := range doc.Items {
+		if item.ID != id {
+			continue
+		}
+		if item.GroupID == targetGroupID {
+			return foldersDoc{}, errors.New("target group must be different")
+		}
+		now := time.Now().UnixMilli()
+		nowString := nowText()
+		copy := item
+		copy.ID = uniqueFolderID(doc.Items, now)
+		copy.GroupID = targetGroupID
+		copy.PageOrder = nextPageOrder(doc, targetGroupID)
+		copy.ContainerID = ""
+		copy.ContainerLayout = nil
+		copy.Layout = nil
+		copy.CreatedAtMS = now
+		copy.UpdatedAtMS = now
+		copy.CreatedAt = nowString
+		copy.UpdatedAt = nowString
+		doc.Items = append(doc.Items, copy)
+		if err := svc.writeFolders(doc); err != nil {
+			return foldersDoc{}, err
+		}
+		return svc.readFolders()
+	}
+	return foldersDoc{}, fmt.Errorf("folder not found: %s", id)
+}
+
+func (svc *service) saveDesktopLayouts(payload desktopLayoutSavePayload) (foldersDoc, error) {
+	if len(payload.Items) == 0 {
 		return svc.readFolders()
 	}
 	doc, err := svc.readFolders()
+	if err != nil {
+		return foldersDoc{}, err
+	}
+	groupID, err := normalizeGroupID(payload.GroupID, doc.Groups)
 	if err != nil {
 		return foldersDoc{}, err
 	}
@@ -671,8 +748,8 @@ func (svc *service) saveDesktopLayouts(patches []desktopLayoutPatch) (foldersDoc
 		id     string
 		layout folderGridLayout
 	}
-	updates := make([]layoutUpdate, 0, len(patches))
-	for _, patch := range patches {
+	updates := make([]layoutUpdate, 0, len(payload.Items))
+	for _, patch := range payload.Items {
 		kind := normalizeDesktopEntryKind(patch.Kind)
 		id := strings.TrimSpace(patch.ID)
 		if kind == "" || id == "" {
@@ -689,7 +766,7 @@ func (svc *service) saveDesktopLayouts(patches []desktopLayoutPatch) (foldersDoc
 		switch update.kind {
 		case "folder":
 			for i := range doc.Items {
-				if doc.Items[i].ID != update.id {
+				if doc.Items[i].ID != update.id || doc.Items[i].GroupID != groupID || doc.Items[i].ContainerID != "" {
 					continue
 				}
 				layoutCopy := update.layout
@@ -701,7 +778,7 @@ func (svc *service) saveDesktopLayouts(patches []desktopLayoutPatch) (foldersDoc
 			}
 		case "container":
 			for i := range doc.Containers {
-				if doc.Containers[i].ID != update.id {
+				if doc.Containers[i].ID != update.id || doc.Containers[i].GroupID != groupID {
 					continue
 				}
 				layoutCopy := update.layout
@@ -720,6 +797,7 @@ func (svc *service) saveDesktopLayouts(patches []desktopLayoutPatch) (foldersDoc
 			return foldersDoc{}, fmt.Errorf("desktop entry not found: %s", key)
 		}
 	}
+	renumberPageOrder(&doc, groupID)
 
 	if err := svc.writeFolders(doc); err != nil {
 		return foldersDoc{}, err
@@ -732,7 +810,7 @@ func (svc *service) addContainer(payload desktopContainer) (foldersDoc, error) {
 	if err != nil {
 		return foldersDoc{}, err
 	}
-	container, err := normalizeDesktopContainer(payload, true)
+	container, err := normalizeDesktopContainer(payload, doc.Groups, true)
 	if err != nil {
 		return foldersDoc{}, err
 	}
@@ -741,7 +819,8 @@ func (svc *service) addContainer(payload desktopContainer) (foldersDoc, error) {
 			return foldersDoc{}, fmt.Errorf("container already exists: %s", container.ID)
 		}
 	}
-	doc.Containers = append([]desktopContainer{container}, doc.Containers...)
+	container.PageOrder = nextPageOrder(doc, container.GroupID)
+	doc.Containers = append(doc.Containers, container)
 	if err := svc.writeFolders(doc); err != nil {
 		return foldersDoc{}, err
 	}
@@ -781,15 +860,21 @@ func (svc *service) createContainerFromItems(payload createContainerFromItemsPay
 	if doc.Items[targetIndex].ContainerID != "" {
 		return foldersDoc{}, errors.New("target folder must be on desktop")
 	}
+	if doc.Items[sourceIndex].GroupID != doc.Items[targetIndex].GroupID {
+		return foldersDoc{}, errors.New("source and target folders must be in the same group")
+	}
 
 	now := time.Now().UnixMilli()
 	nowString := nowText()
 	layout := normalizeGridLayout(payload.Layout)
 	containerID := uniqueContainerID(doc.Containers, now)
 	containerLayout := layout
+	containerGroupID := doc.Items[targetIndex].GroupID
 	doc.Containers = append([]desktopContainer{{
 		ID:          containerID,
 		Name:        nextContainerName(doc.Containers),
+		GroupID:     containerGroupID,
+		PageOrder:   nextPageOrder(doc, containerGroupID),
 		CreatedAt:   nowString,
 		UpdatedAt:   nowString,
 		CreatedAtMS: now,
@@ -823,7 +908,7 @@ func (svc *service) updateContainer(payload desktopContainer) (foldersDoc, error
 	if err != nil {
 		return foldersDoc{}, err
 	}
-	container, err := normalizeDesktopContainer(payload, false)
+	container, err := normalizeDesktopContainer(payload, doc.Groups, false)
 	if err != nil {
 		return foldersDoc{}, err
 	}
@@ -833,6 +918,8 @@ func (svc *service) updateContainer(payload desktopContainer) (foldersDoc, error
 		}
 		container.CreatedAt = doc.Containers[i].CreatedAt
 		container.CreatedAtMS = doc.Containers[i].CreatedAtMS
+		container.GroupID = doc.Containers[i].GroupID
+		container.PageOrder = doc.Containers[i].PageOrder
 		if container.Layout == nil {
 			container.Layout = doc.Containers[i].Layout
 		}
@@ -892,8 +979,13 @@ func (svc *service) saveItemContainer(ids []string, containerID string) (folders
 		return foldersDoc{}, err
 	}
 	containerID = strings.TrimSpace(containerID)
-	if containerID != "" && !hasContainer(doc.Containers, containerID) {
-		return foldersDoc{}, fmt.Errorf("container not found: %s", containerID)
+	targetGroupID := ""
+	if containerID != "" {
+		container, ok := findContainer(doc.Containers, containerID)
+		if !ok {
+			return foldersDoc{}, fmt.Errorf("container not found: %s", containerID)
+		}
+		targetGroupID = container.GroupID
 	}
 	updates := map[string]bool{}
 	for _, id := range ids {
@@ -909,6 +1001,9 @@ func (svc *service) saveItemContainer(ids []string, containerID string) (folders
 	for i := range doc.Items {
 		if !updates[doc.Items[i].ID] {
 			continue
+		}
+		if targetGroupID != "" && doc.Items[i].GroupID != targetGroupID {
+			return foldersDoc{}, fmt.Errorf("folder group mismatch for container %s: %s", containerID, doc.Items[i].ID)
 		}
 		if doc.Items[i].ContainerID != containerID {
 			doc.Items[i].ContainerLayout = nil
@@ -946,7 +1041,8 @@ func (svc *service) placeContainerItems(payload containerItemsPlacement) (folder
 	if err != nil {
 		return foldersDoc{}, err
 	}
-	if !hasContainer(doc.Containers, containerID) {
+	container, ok := findContainer(doc.Containers, containerID)
+	if !ok {
 		return foldersDoc{}, fmt.Errorf("container not found: %s", containerID)
 	}
 
@@ -974,6 +1070,9 @@ func (svc *service) placeContainerItems(payload containerItemsPlacement) (folder
 	for i := range doc.Items {
 		id := doc.Items[i].ID
 		if id == movedID {
+			if doc.Items[i].GroupID != container.GroupID {
+				return foldersDoc{}, fmt.Errorf("folder group mismatch for container %s: %s", containerID, id)
+			}
 			doc.Items[i].ContainerID = containerID
 			movedFound = true
 		}
@@ -983,6 +1082,9 @@ func (svc *service) placeContainerItems(payload containerItemsPlacement) (folder
 		}
 		if doc.Items[i].ContainerID != containerID {
 			return foldersDoc{}, fmt.Errorf("folder is not in container %s: %s", containerID, id)
+		}
+		if doc.Items[i].GroupID != container.GroupID {
+			return foldersDoc{}, fmt.Errorf("folder group mismatch for container %s: %s", containerID, id)
 		}
 		layoutCopy := layout
 		doc.Items[i].ContainerLayout = &layoutCopy
@@ -1022,7 +1124,8 @@ func (svc *service) extractContainerItemToDesktop(payload extractContainerItemTo
 	if err != nil {
 		return foldersDoc{}, err
 	}
-	if !hasContainer(doc.Containers, containerID) {
+	container, ok := findContainer(doc.Containers, containerID)
+	if !ok {
 		return foldersDoc{}, fmt.Errorf("container not found: %s", containerID)
 	}
 
@@ -1054,6 +1157,9 @@ func (svc *service) extractContainerItemToDesktop(payload extractContainerItemTo
 		if doc.Items[i].ID == itemID {
 			if doc.Items[i].ContainerID != containerID {
 				return foldersDoc{}, fmt.Errorf("folder is not in container %s: %s", containerID, itemID)
+			}
+			if doc.Items[i].GroupID != container.GroupID {
+				return foldersDoc{}, fmt.Errorf("folder group mismatch for container %s: %s", containerID, itemID)
 			}
 			doc.Items[i].ContainerID = ""
 			doc.Items[i].ContainerLayout = nil
@@ -1326,15 +1432,33 @@ func (svc *service) removeGroup(id string) (foldersDoc, error) {
 	if !removed {
 		return foldersDoc{}, fmt.Errorf("group not found: %s", id)
 	}
+	nextOrder := nextPageOrder(doc, defaultGroupID)
+	now := time.Now().UnixMilli()
+	nowString := nowText()
 	for i := range doc.Items {
-		nextGroupIDs, changed := removeGroupID(doc.Items[i].GroupIDs, id)
-		if changed {
-			doc.Items[i].GroupIDs = nextGroupIDs
-			doc.Items[i].UpdatedAtMS = time.Now().UnixMilli()
-			doc.Items[i].UpdatedAt = nowText()
+		if doc.Items[i].GroupID == id {
+			doc.Items[i].GroupID = defaultGroupID
+			doc.Items[i].PageOrder = nextOrder
+			doc.Items[i].ContainerID = ""
+			doc.Items[i].ContainerLayout = nil
+			doc.Items[i].Layout = nil
+			doc.Items[i].UpdatedAtMS = now
+			doc.Items[i].UpdatedAt = nowString
+			nextOrder++
+		}
+	}
+	for i := range doc.Containers {
+		if doc.Containers[i].GroupID == id {
+			doc.Containers[i].GroupID = defaultGroupID
+			doc.Containers[i].PageOrder = nextOrder
+			doc.Containers[i].Layout = nil
+			doc.Containers[i].UpdatedAtMS = now
+			doc.Containers[i].UpdatedAt = nowString
+			nextOrder++
 		}
 	}
 	doc.Groups = nextGroups
+	renumberPageOrder(&doc, defaultGroupID)
 	if err := svc.writeFolders(doc); err != nil {
 		return foldersDoc{}, err
 	}
@@ -1461,8 +1585,9 @@ func normalizeFoldersDoc(doc foldersDoc) (foldersDoc, error) {
 
 	containers := make([]desktopContainer, 0, len(doc.Containers))
 	containerIDs := map[string]bool{}
+	containerGroupByID := map[string]string{}
 	for i, raw := range doc.Containers {
-		container, err := normalizeDesktopContainer(raw, false)
+		container, err := normalizeDesktopContainer(raw, groups, false)
 		if err != nil {
 			return foldersDoc{}, fmt.Errorf("containers[%d]: %w", i, err)
 		}
@@ -1471,6 +1596,7 @@ func normalizeFoldersDoc(doc foldersDoc) (foldersDoc, error) {
 		}
 		containers = append(containers, container)
 		containerIDs[container.ID] = true
+		containerGroupByID[container.ID] = container.GroupID
 	}
 
 	items := make([]folderItem, 0, len(doc.Items))
@@ -1485,6 +1611,9 @@ func normalizeFoldersDoc(doc foldersDoc) (foldersDoc, error) {
 		}
 		if item.ContainerID != "" && !containerIDs[item.ContainerID] {
 			return foldersDoc{}, fmt.Errorf("items[%d]: container not found: %s", i, item.ContainerID)
+		}
+		if item.ContainerID != "" && containerGroupByID[item.ContainerID] != item.GroupID {
+			return foldersDoc{}, fmt.Errorf("items[%d]: container group mismatch: %s", i, item.ContainerID)
 		}
 		if item.ContainerID == "" && item.ContainerLayout != nil {
 			return foldersDoc{}, fmt.Errorf("items[%d]: containerLayout requires containerId", i)
@@ -1543,9 +1672,13 @@ func normalizeFolderItem(raw folderItem, groups []folderGroup, allowNewID bool) 
 			return folderItem{}, errors.New("folder name is required")
 		}
 	}
-	groupIDs, err := normalizeGroupIDs(raw.GroupIDs, groups)
+	groupID, err := normalizeGroupID(raw.GroupID, groups)
 	if err != nil {
 		return folderItem{}, err
+	}
+	pageOrder := raw.PageOrder
+	if pageOrder < 0 {
+		return folderItem{}, errors.New("folder pageOrder must be non-negative")
 	}
 	createdAt := raw.CreatedAtMS
 	if createdAt <= 0 {
@@ -1583,10 +1716,10 @@ func normalizeFolderItem(raw folderItem, groups []folderGroup, allowNewID bool) 
 	if err != nil {
 		return folderItem{}, err
 	}
-	return folderItem{ID: id, Name: name, Path: path, GroupIDs: groupIDs, ContainerID: strings.TrimSpace(raw.ContainerID), CreatedAt: createdAtText, UpdatedAt: updatedAtText, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt, Layout: itemLayout, ContainerLayout: containerLayout, Icon: icon}, nil
+	return folderItem{ID: id, Name: name, Path: path, GroupID: groupID, PageOrder: pageOrder, ContainerID: strings.TrimSpace(raw.ContainerID), CreatedAt: createdAtText, UpdatedAt: updatedAtText, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt, Layout: itemLayout, ContainerLayout: containerLayout, Icon: icon}, nil
 }
 
-func normalizeDesktopContainer(raw desktopContainer, allowNewID bool) (desktopContainer, error) {
+func normalizeDesktopContainer(raw desktopContainer, groups []folderGroup, allowNewID bool) (desktopContainer, error) {
 	now := time.Now().UnixMilli()
 	nowString := nowText()
 	id := strings.TrimSpace(raw.ID)
@@ -1599,6 +1732,14 @@ func normalizeDesktopContainer(raw desktopContainer, allowNewID bool) (desktopCo
 	name := trimMax(raw.Name, 80)
 	if name == "" {
 		return desktopContainer{}, errors.New("container name is required")
+	}
+	groupID, err := normalizeGroupID(raw.GroupID, groups)
+	if err != nil {
+		return desktopContainer{}, err
+	}
+	pageOrder := raw.PageOrder
+	if pageOrder < 0 {
+		return desktopContainer{}, errors.New("container pageOrder must be non-negative")
 	}
 	createdAt := raw.CreatedAtMS
 	if createdAt <= 0 {
@@ -1624,7 +1765,7 @@ func normalizeDesktopContainer(raw desktopContainer, allowNewID bool) (desktopCo
 		}
 		layout = &normalizedLayout
 	}
-	return desktopContainer{ID: id, Name: name, CreatedAt: createdAtText, UpdatedAt: updatedAtText, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt, Layout: layout}, nil
+	return desktopContainer{ID: id, Name: name, GroupID: groupID, PageOrder: pageOrder, CreatedAt: createdAtText, UpdatedAt: updatedAtText, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt, Layout: layout}, nil
 }
 
 func normalizeDesktopState(raw desktopState) (desktopState, error) {
@@ -1749,46 +1890,74 @@ func hasGroup(groups []folderGroup, id string) bool {
 	return false
 }
 
-func normalizeGroupIDs(raw []string, groups []folderGroup) ([]string, error) {
-	if len(raw) == 0 {
-		return nil, errors.New("at least one group id is required")
+func normalizeGroupID(raw string, groups []folderGroup) (string, error) {
+	id := safeID(raw, 32)
+	if id == "" || !hasGroup(groups, id) {
+		return "", errors.New("valid group id is required")
 	}
-	normalized := make([]string, 0, len(raw))
-	seen := make(map[string]bool, len(raw))
-	for _, groupID := range raw {
-		id := safeID(groupID, 32)
-		if id == "" || !hasGroup(groups, id) {
-			return nil, errors.New("valid group id is required")
-		}
-		if seen[id] {
-			continue
-		}
-		normalized = append(normalized, id)
-		seen[id] = true
-	}
-	if len(normalized) == 0 {
-		return nil, errors.New("at least one group id is required")
-	}
-	return normalized, nil
+	return id, nil
 }
 
-func removeGroupID(groupIDs []string, removedID string) ([]string, bool) {
-	next := make([]string, 0, len(groupIDs))
-	changed := false
-	for _, groupID := range groupIDs {
-		if groupID == removedID {
-			changed = true
-			continue
+func nextPageOrder(doc foldersDoc, groupID string) int64 {
+	maxOrder := int64(-1)
+	for _, item := range doc.Items {
+		if item.GroupID == groupID && item.PageOrder > maxOrder {
+			maxOrder = item.PageOrder
 		}
-		next = append(next, groupID)
 	}
-	if !changed {
-		return groupIDs, false
+	for _, container := range doc.Containers {
+		if container.GroupID == groupID && container.PageOrder > maxOrder {
+			maxOrder = container.PageOrder
+		}
 	}
-	if len(next) == 0 {
-		next = []string{defaultGroupID}
+	return maxOrder + 1
+}
+
+func renumberPageOrder(doc *foldersDoc, groupID string) {
+	type entryRef struct {
+		kind  string
+		index int
+		order int64
 	}
-	return next, true
+	entries := []entryRef{}
+	for i, item := range doc.Items {
+		if item.GroupID == groupID && item.ContainerID == "" {
+			entries = append(entries, entryRef{kind: "folder", index: i, order: item.PageOrder})
+		}
+	}
+	for i, container := range doc.Containers {
+		if container.GroupID == groupID {
+			entries = append(entries, entryRef{kind: "container", index: i, order: container.PageOrder})
+		}
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		return entries[i].order < entries[j].order
+	})
+	for order, entry := range entries {
+		if entry.kind == "folder" {
+			doc.Items[entry.index].PageOrder = int64(order)
+		} else {
+			doc.Containers[entry.index].PageOrder = int64(order)
+		}
+	}
+}
+
+func uniqueFolderID(items []folderItem, seed int64) string {
+	for offset := int64(0); ; offset++ {
+		id := fmt.Sprintf("%d-copy-%d", seed, offset)
+		if !hasFolder(items, id) {
+			return id
+		}
+	}
+}
+
+func hasFolder(items []folderItem, id string) bool {
+	for _, item := range items {
+		if item.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func hasContainer(containers []desktopContainer, id string) bool {
@@ -1798,6 +1967,15 @@ func hasContainer(containers []desktopContainer, id string) bool {
 		}
 	}
 	return false
+}
+
+func findContainer(containers []desktopContainer, id string) (desktopContainer, bool) {
+	for _, container := range containers {
+		if container.ID == id {
+			return container, true
+		}
+	}
+	return desktopContainer{}, false
 }
 
 func uniqueContainerID(containers []desktopContainer, seed int64) string {

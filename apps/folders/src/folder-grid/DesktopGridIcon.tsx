@@ -2,7 +2,6 @@ import * as React from 'react'
 import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
 import { Box, ButtonBase, IconButton, Typography } from '@mui/material'
 import type { DesktopGridEntry, FoldersDoc } from '../types'
-import { folderGroupLabel } from '../groupMembership'
 import { DesktopIconVisual } from './DesktopIconVisual'
 import type { FolderGridMetrics } from './iconLayout'
 import {
@@ -16,7 +15,6 @@ type Props = {
   doc: FoldersDoc
   dragging: boolean
   entry: DesktopGridEntry
-  groupCount: number
   metrics: FolderGridMetrics
   onOpen(): void
   onContextMenu(x: number, y: number): void
@@ -26,8 +24,7 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
   const icon = props.entry.icon
   const color = icon?.kind === 'color' ? icon.color : undefined
   const palette = getDesktopIconPalette(`${props.entry.kind}:${props.entry.id}:${props.entry.name}`, color)
-  const groupLabel = props.entry.kind === 'folder' && props.groupCount > 1 && props.entry.item ? folderGroupLabel(props.doc, props.entry.item) : null
-  const detailLabel = props.entry.kind === 'folder' ? groupLabel : null
+  const detailLabel = props.entry.kind === 'container' ? `${props.entry.itemCount || 0} 个文件夹` : null
   const containerItems = props.entry.kind === 'container' ? props.doc.items.filter(item => item.containerId === props.entry.id).slice(0, 4) : []
   const surfaceShadow = props.entry.kind === 'container' ? '0 18px 34px rgba(15, 23, 42, 0.18)' : palette.shadow
 

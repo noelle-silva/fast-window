@@ -42,6 +42,8 @@ function container(id) {
   return {
     id,
     name: id,
+    groupId: 'default',
+    pageOrder: 0,
     createdAt: '',
     updatedAt: '',
     createdAtMs: 1,
@@ -54,7 +56,8 @@ function folderItem(id) {
     id,
     name: id,
     path: `E:/${id}`,
-    groupIds: ['default'],
+    groupId: 'default',
+    pageOrder: 0,
     createdAt: '',
     updatedAt: '',
     createdAtMs: 1,
@@ -65,7 +68,7 @@ function folderItem(id) {
 function foldersDoc() {
   return {
     schemaVersion: 1,
-    dataVersion: 2,
+    dataVersion: 3,
     groups: [{ id: 'default', name: '默认' }],
     items: [
       { ...folderItem('inside'), containerId: 'container-a', containerLayout: { x: 0, y: 0 } },

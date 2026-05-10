@@ -49,6 +49,8 @@ export type DesktopState = { wallpaper?: DesktopWallpaper; iconLayout: DesktopIc
 export type DesktopContainer = {
   id: string
   name: string
+  groupId: string
+  pageOrder: number
   createdAt: string
   updatedAt: string
   createdAtMs: number
@@ -64,7 +66,8 @@ export type FolderItem = {
   id: string
   name: string
   path: string
-  groupIds: string[]
+  groupId: string
+  pageOrder: number
   containerId?: string
   createdAt: string
   updatedAt: string
@@ -102,7 +105,7 @@ export type Phase = 'starting' | 'ready' | 'data-error' | 'failed'
 export type FolderFormState = {
   name: string
   path: string
-  groupIds: string[]
+  groupId: string
   newGroupName: string
 }
 

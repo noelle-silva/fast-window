@@ -4,7 +4,6 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -47,7 +46,7 @@ func TestEnsureReadyDoesNotFailForInvalidExistingData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invalid := `{"schemaVersion":1,"dataVersion":2,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":-2,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	invalid := `{"schemaVersion":1,"dataVersion":3,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":-2,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
 	if err := os.MkdirAll(svc.dataDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +100,7 @@ func TestFoldersRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	doc, err := svc.addFolder(folderItem{ID: "one", Name: "Projects", Path: `E:\Projects`, GroupIDs: []string{defaultGroupID}})
+	doc, err := svc.addFolder(folderItem{ID: "one", Name: "Projects", Path: `E:\Projects`, GroupID: defaultGroupID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +108,7 @@ func TestFoldersRoundTrip(t *testing.T) {
 		t.Fatalf("unexpected add result: %#v", doc.Items)
 	}
 
-	doc, err = svc.updateFolder(folderItem{ID: "one", Name: "Code", Path: `E:\Code`, GroupIDs: []string{defaultGroupID}})
+	doc, err = svc.updateFolder(folderItem{ID: "one", Name: "Code", Path: `E:\Code`, GroupID: defaultGroupID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,17 +134,17 @@ func TestDesktopLayoutRoundTrip(t *testing.T) {
 	if err := svc.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.addFolder(folderItem{ID: "one", Name: "One", Path: `E:\One`, GroupIDs: []string{defaultGroupID}}); err != nil {
+	if _, err := svc.addFolder(folderItem{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box"}); err != nil {
+	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box", GroupID: defaultGroupID}); err != nil {
 		t.Fatal(err)
 	}
 
-	doc, err := svc.saveDesktopLayouts([]desktopLayoutPatch{
+	doc, err := svc.saveDesktopLayouts(desktopLayoutSavePayload{GroupID: defaultGroupID, Items: []desktopLayoutPatch{
 		{Kind: "folder", ID: "one", Layout: folderGridLayout{X: 2, Y: 1}},
 		{Kind: "container", ID: "box", Layout: folderGridLayout{X: -2, Y: 3000}},
-	})
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +154,7 @@ func TestDesktopLayoutRoundTrip(t *testing.T) {
 	if doc.Containers[0].Layout == nil || doc.Containers[0].Layout.X != 0 || doc.Containers[0].Layout.Y != maxLayoutCoord {
 		t.Fatalf("unexpected container layout: %#v", doc.Containers[0].Layout)
 	}
-	doc, err = svc.updateFolder(folderItem{ID: "one", Name: "One Renamed", Path: `E:\One`, GroupIDs: []string{defaultGroupID}})
+	doc, err = svc.updateFolder(folderItem{ID: "one", Name: "One Renamed", Path: `E:\One`, GroupID: defaultGroupID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,13 +172,13 @@ func TestDesktopContainerRoundTrip(t *testing.T) {
 	if err := svc.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.addFolder(folderItem{ID: "one", Name: "One", Path: `E:\One`, GroupIDs: []string{defaultGroupID}}); err != nil {
+	if _, err := svc.addFolder(folderItem{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.addFolder(folderItem{ID: "two", Name: "Two", Path: `E:\Two`, GroupIDs: []string{defaultGroupID}}); err != nil {
+	if _, err := svc.addFolder(folderItem{ID: "two", Name: "Two", Path: `E:\Two`, GroupID: defaultGroupID}); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box"})
+	doc, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box", GroupID: defaultGroupID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,8 +211,8 @@ func TestCreateContainerFromItemsRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, item := range []folderItem{
-		{ID: "one", Name: "One", Path: `E:\One`, GroupIDs: []string{defaultGroupID}, Layout: &folderGridLayout{X: 2, Y: 0}},
-		{ID: "two", Name: "Two", Path: `E:\Two`, GroupIDs: []string{defaultGroupID}, Layout: &folderGridLayout{X: 4, Y: 0}},
+		{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID, Layout: &folderGridLayout{X: 2, Y: 0}},
+		{ID: "two", Name: "Two", Path: `E:\Two`, GroupID: defaultGroupID, Layout: &folderGridLayout{X: 4, Y: 0}},
 	} {
 		if _, err := svc.addFolder(item); err != nil {
 			t.Fatal(err)
@@ -254,14 +253,14 @@ func TestCreateContainerFromExtractedSourceItem(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, item := range []folderItem{
-		{ID: "one", Name: "One", Path: `E:\One`, GroupIDs: []string{defaultGroupID}},
-		{ID: "two", Name: "Two", Path: `E:\Two`, GroupIDs: []string{defaultGroupID}, Layout: &folderGridLayout{X: 3, Y: 0}},
+		{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID},
+		{ID: "two", Name: "Two", Path: `E:\Two`, GroupID: defaultGroupID, Layout: &folderGridLayout{X: 3, Y: 0}},
 	} {
 		if _, err := svc.addFolder(item); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box"}); err != nil {
+	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box", GroupID: defaultGroupID}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.saveItemContainer([]string{"one"}, "box"); err != nil {
@@ -299,14 +298,14 @@ func TestCreateContainerFromItemsUsesNextName(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, item := range []folderItem{
-		{ID: "one", Name: "One", Path: `E:\One`, GroupIDs: []string{defaultGroupID}},
-		{ID: "two", Name: "Two", Path: `E:\Two`, GroupIDs: []string{defaultGroupID}},
+		{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID},
+		{ID: "two", Name: "Two", Path: `E:\Two`, GroupID: defaultGroupID},
 	} {
 		if _, err := svc.addFolder(item); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "新建收纳夹（1）"}); err != nil {
+	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "新建收纳夹（1）", GroupID: defaultGroupID}); err != nil {
 		t.Fatal(err)
 	}
 	doc, err := svc.createContainerFromItems(createContainerFromItemsPayload{SourceItemID: "one", TargetItemID: "two", Layout: folderGridLayout{X: 1, Y: 1}})
@@ -328,14 +327,14 @@ func TestContainerItemsPlacementRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, item := range []folderItem{
-		{ID: "one", Name: "One", Path: `E:\One`, GroupIDs: []string{defaultGroupID}},
-		{ID: "two", Name: "Two", Path: `E:\Two`, GroupIDs: []string{defaultGroupID}},
+		{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID},
+		{ID: "two", Name: "Two", Path: `E:\Two`, GroupID: defaultGroupID},
 	} {
 		if _, err := svc.addFolder(item); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box"}); err != nil {
+	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box", GroupID: defaultGroupID}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.saveItemContainer([]string{"one"}, "box"); err != nil {
@@ -389,14 +388,14 @@ func TestExtractContainerItemToDesktopRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, item := range []folderItem{
-		{ID: "one", Name: "One", Path: `E:\One`, GroupIDs: []string{defaultGroupID}},
-		{ID: "two", Name: "Two", Path: `E:\Two`, GroupIDs: []string{defaultGroupID}, Layout: &folderGridLayout{X: 1, Y: 0}},
+		{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID},
+		{ID: "two", Name: "Two", Path: `E:\Two`, GroupID: defaultGroupID, Layout: &folderGridLayout{X: 1, Y: 0}},
 	} {
 		if _, err := svc.addFolder(item); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box", Layout: &folderGridLayout{X: 0, Y: 0}}); err != nil {
+	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box", GroupID: defaultGroupID, Layout: &folderGridLayout{X: 0, Y: 0}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.saveItemContainer([]string{"one"}, "box"); err != nil {
@@ -442,14 +441,14 @@ func TestExtractContainerItemToDesktopRejectsInvalidPatches(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, item := range []folderItem{
-		{ID: "one", Name: "One", Path: `E:\One`, GroupIDs: []string{defaultGroupID}},
-		{ID: "two", Name: "Two", Path: `E:\Two`, GroupIDs: []string{defaultGroupID}},
+		{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID},
+		{ID: "two", Name: "Two", Path: `E:\Two`, GroupID: defaultGroupID},
 	} {
 		if _, err := svc.addFolder(item); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box"}); err != nil {
+	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box", GroupID: defaultGroupID}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := svc.saveItemContainer([]string{"one", "two"}, "box"); err != nil {
@@ -476,10 +475,10 @@ func TestDesktopIconRoundTrip(t *testing.T) {
 	if err := svc.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.addFolder(folderItem{ID: "one", Name: "One", Path: `E:\One`, GroupIDs: []string{defaultGroupID}}); err != nil {
+	if _, err := svc.addFolder(folderItem{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box"}); err != nil {
+	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box", GroupID: defaultGroupID}); err != nil {
 		t.Fatal(err)
 	}
 	doc, err := svc.saveDesktopIcon("folder", "one", &desktopIcon{Kind: "color", Color: "#8fa99b"})
@@ -568,7 +567,7 @@ func TestInvalidPersistedDataIsDiagnosedAfterStartup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invalid := `{"schemaVersion":1,"dataVersion":2,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":-2,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	invalid := `{"schemaVersion":1,"dataVersion":3,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":-2,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
 	if err := os.MkdirAll(svc.dataDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -592,7 +591,7 @@ func TestMissingCurrentBaselineFieldIsDiagnosedAfterStartup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invalid := `{"schemaVersion":1,"dataVersion":2,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	invalid := `{"schemaVersion":1,"dataVersion":3,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38}},"updatedAt":"2026-01-01T00:00:00Z"}`
 	if err := os.MkdirAll(svc.dataDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -620,7 +619,7 @@ func TestCurrentBaselineRejectsInvalidReferencesAndDuplicates(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	invalidContainerRef := `{"schemaVersion":1,"dataVersion":2,"groups":[{"id":"default","name":"默认"}],"items":[{"id":"one","name":"One","path":"E:/One","groupIds":["default"],"containerId":"missing","createdAtMs":1,"updatedAtMs":1}],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	invalidContainerRef := `{"schemaVersion":1,"dataVersion":3,"groups":[{"id":"default","name":"默认"}],"items":[{"id":"one","name":"One","path":"E:/One","groupId":"default","containerId":"missing","createdAtMs":1,"updatedAtMs":1}],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
 	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(invalidContainerRef), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -628,7 +627,7 @@ func TestCurrentBaselineRejectsInvalidReferencesAndDuplicates(t *testing.T) {
 		t.Fatalf("expected missing container error, got %v", err)
 	}
 
-	duplicateItem := `{"schemaVersion":1,"dataVersion":2,"groups":[{"id":"default","name":"默认"}],"items":[{"id":"one","name":"One","path":"E:/One","groupIds":["default"],"createdAtMs":1,"updatedAtMs":1},{"id":"one","name":"Two","path":"E:/Two","groupIds":["default"],"createdAtMs":2,"updatedAtMs":2}],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	duplicateItem := `{"schemaVersion":1,"dataVersion":3,"groups":[{"id":"default","name":"默认"}],"items":[{"id":"one","name":"One","path":"E:/One","groupId":"default","createdAtMs":1,"updatedAtMs":1},{"id":"one","name":"Two","path":"E:/Two","groupId":"default","createdAtMs":2,"updatedAtMs":2}],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
 	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(duplicateItem), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -636,7 +635,7 @@ func TestCurrentBaselineRejectsInvalidReferencesAndDuplicates(t *testing.T) {
 		t.Fatalf("expected duplicate folder error, got %v", err)
 	}
 
-	invalidLayout := `{"schemaVersion":1,"dataVersion":2,"groups":[{"id":"default","name":"默认"}],"items":[{"id":"one","name":"One","path":"E:/One","groupIds":["default"],"createdAtMs":1,"updatedAtMs":1,"layout":{"x":-1,"y":0}}],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	invalidLayout := `{"schemaVersion":1,"dataVersion":3,"groups":[{"id":"default","name":"默认"}],"items":[{"id":"one","name":"One","path":"E:/One","groupId":"default","createdAtMs":1,"updatedAtMs":1,"layout":{"x":-1,"y":0}}],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
 	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(invalidLayout), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -725,13 +724,13 @@ func TestFolderValidationRequiresNamePathAndValidGroup(t *testing.T) {
 	if err := svc.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.addFolder(folderItem{ID: "one", Path: `E:\Projects`, GroupIDs: []string{defaultGroupID}}); err == nil {
+	if _, err := svc.addFolder(folderItem{ID: "one", Path: `E:\Projects`, GroupID: defaultGroupID}); err == nil {
 		t.Fatal("expected missing name to fail")
 	}
-	if _, err := svc.addFolder(folderItem{ID: "one", Name: "Projects", GroupIDs: []string{defaultGroupID}}); err == nil {
+	if _, err := svc.addFolder(folderItem{ID: "one", Name: "Projects", GroupID: defaultGroupID}); err == nil {
 		t.Fatal("expected missing path to fail")
 	}
-	if _, err := svc.addFolder(folderItem{ID: "one", Name: "Projects", Path: `E:\Projects`, GroupIDs: []string{"missing"}}); err == nil {
+	if _, err := svc.addFolder(folderItem{ID: "one", Name: "Projects", Path: `E:\Projects`, GroupID: "missing"}); err == nil {
 		t.Fatal("expected missing group to fail")
 	}
 }
@@ -752,7 +751,7 @@ func TestGroupsRoundTripAndDeleteMovesItemsToDefault(t *testing.T) {
 	if len(doc.Groups) != 2 {
 		t.Fatalf("expected group added: %#v", doc.Groups)
 	}
-	doc, err = svc.addFolder(folderItem{ID: "one", Name: "Projects", Path: `E:\Projects`, GroupIDs: []string{"work"}})
+	doc, err = svc.addFolder(folderItem{ID: "one", Name: "Projects", Path: `E:\Projects`, GroupID: "work"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -767,7 +766,7 @@ func TestGroupsRoundTripAndDeleteMovesItemsToDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(doc.Groups) != 1 || len(doc.Items[0].GroupIDs) != 1 || doc.Items[0].GroupIDs[0] != defaultGroupID {
+	if len(doc.Groups) != 1 || doc.Items[0].GroupID != defaultGroupID {
 		t.Fatalf("expected item moved to default: %#v", doc)
 	}
 	if _, err := svc.removeGroup(defaultGroupID); err == nil {
@@ -775,7 +774,7 @@ func TestGroupsRoundTripAndDeleteMovesItemsToDefault(t *testing.T) {
 	}
 }
 
-func TestFolderGroupsCanContainMultipleGroups(t *testing.T) {
+func TestFolderGroupTransferUsesSingleOwnership(t *testing.T) {
 	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
 	svc, err := newService()
 	if err != nil {
@@ -790,26 +789,39 @@ func TestFolderGroupsCanContainMultipleGroups(t *testing.T) {
 	if _, err := svc.addGroup(folderGroup{ID: "design", Name: "设计"}); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := svc.addFolder(folderItem{ID: "one", Name: "Projects", Path: `E:\Projects`, GroupIDs: []string{defaultGroupID, "work"}})
+	doc, err := svc.addFolder(folderItem{ID: "one", Name: "Projects", Path: `E:\Projects`, GroupID: defaultGroupID, Layout: &folderGridLayout{X: 2, Y: 0}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(doc.Items[0].GroupIDs, []string{defaultGroupID, "work"}) {
-		t.Fatalf("expected multiple groups on add: %#v", doc.Items[0].GroupIDs)
-	}
-	doc, err = svc.saveFolderGroups("one", []string{"work", "design", "work"})
+	doc, err = svc.moveFolderToGroup(folderGroupTransferPayload{ID: "one", GroupID: "work"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(doc.Items[0].GroupIDs, []string{"work", "design"}) {
-		t.Fatalf("expected deduplicated group ids: %#v", doc.Items[0].GroupIDs)
+	if itemByID(doc, "one").GroupID != "work" || itemByID(doc, "one").Layout != nil {
+		t.Fatalf("expected moved item to have single work ownership and cleared desktop layout: %#v", itemByID(doc, "one"))
 	}
-	if _, err := svc.saveFolderGroups("one", []string{}); err == nil {
-		t.Fatal("expected empty group list to fail")
+	doc, err = svc.copyFolderToGroup(folderGroupTransferPayload{ID: "one", GroupID: "design"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Items) != 2 {
+		t.Fatalf("expected copied item to create an independent folder: %#v", doc.Items)
+	}
+	var copied *folderItem
+	for i := range doc.Items {
+		if doc.Items[i].ID != "one" {
+			copied = &doc.Items[i]
+		}
+	}
+	if copied == nil || copied.GroupID != "design" || copied.ContainerID != "" || copied.Layout != nil || copied.ContainerLayout != nil {
+		t.Fatalf("expected copied item to have isolated design ownership: %#v", copied)
+	}
+	if _, err := svc.copyFolderToGroup(folderGroupTransferPayload{ID: "one", GroupID: "work"}); err == nil {
+		t.Fatal("expected copying to the same group to fail")
 	}
 }
 
-func TestRemovingGroupKeepsOtherMemberships(t *testing.T) {
+func TestRemovingGroupMovesDesktopObjectsToDefault(t *testing.T) {
 	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
 	svc, err := newService()
 	if err != nil {
@@ -824,15 +836,27 @@ func TestRemovingGroupKeepsOtherMemberships(t *testing.T) {
 	if _, err := svc.addGroup(folderGroup{ID: "design", Name: "设计"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.addFolder(folderItem{ID: "one", Name: "Projects", Path: `E:\Projects`, GroupIDs: []string{"work", "design"}}); err != nil {
+	if _, err := svc.addFolder(folderItem{ID: "one", Name: "Projects", Path: `E:\Projects`, GroupID: "work", Layout: &folderGridLayout{X: 1, Y: 0}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box", GroupID: "work", Layout: &folderGridLayout{X: 2, Y: 0}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.saveItemContainer([]string{"one"}, "box"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.placeContainerItems(containerItemsPlacement{ContainerID: "box", Items: []containerLayoutPatch{{ID: "one", Layout: folderGridLayout{X: 0, Y: 0}}}}); err != nil {
 		t.Fatal(err)
 	}
 	doc, err := svc.removeGroup("work")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(doc.Items[0].GroupIDs, []string{"design"}) {
-		t.Fatalf("expected remaining group to be preserved: %#v", doc.Items[0].GroupIDs)
+	if itemByID(doc, "one").GroupID != defaultGroupID || itemByID(doc, "one").ContainerID != "" || itemByID(doc, "one").ContainerLayout != nil || itemByID(doc, "one").Layout != nil {
+		t.Fatalf("expected removed group item to return to default desktop cleanly: %#v", itemByID(doc, "one"))
+	}
+	if doc.Containers[0].GroupID != defaultGroupID || doc.Containers[0].Layout != nil {
+		t.Fatalf("expected removed group container to return to default desktop cleanly: %#v", doc.Containers[0])
 	}
 }
 

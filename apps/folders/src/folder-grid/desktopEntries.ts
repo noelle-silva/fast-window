@@ -1,6 +1,5 @@
 import { folderMatchesGroup } from '../groupMembership'
 import type { DesktopGridEntry, DesktopEntryKind, FolderGridLayout, FoldersDoc } from '../types'
-import { ALL_GROUP_ID } from '../utils'
 
 export type DesktopGridLayoutPatch = { kind: DesktopEntryKind; id: string; layout: FolderGridLayout }
 
@@ -17,7 +16,7 @@ export function parseDesktopEntryKey(key: string): { kind: DesktopEntryKind; id:
   return { kind, id }
 }
 
-export function buildDesktopGridEntries(doc: FoldersDoc): DesktopGridEntry[] {
+export function buildDesktopGridEntries(doc: FoldersDoc, groupId: string): DesktopGridEntry[] {
   const containedItemCount = new Map<string, number>()
   doc.items.forEach(item => {
     if (!item.containerId) return
@@ -25,7 +24,7 @@ export function buildDesktopGridEntries(doc: FoldersDoc): DesktopGridEntry[] {
   })
 
   return [
-    ...doc.containers.map(container => ({
+    ...doc.containers.filter(container => container.groupId === groupId).map(container => ({
       kind: 'container' as const,
       id: container.id,
       name: container.name,
@@ -33,7 +32,7 @@ export function buildDesktopGridEntries(doc: FoldersDoc): DesktopGridEntry[] {
       container,
       itemCount: containedItemCount.get(container.id) || 0,
     })),
-    ...doc.items.filter(item => !item.containerId).map(item => ({
+    ...doc.items.filter(item => item.groupId === groupId && !item.containerId).map(item => ({
       kind: 'folder' as const,
       id: item.id,
       name: item.name,
@@ -41,7 +40,7 @@ export function buildDesktopGridEntries(doc: FoldersDoc): DesktopGridEntry[] {
       icon: item.icon,
       item,
     })),
-  ]
+  ].sort((left, right) => entryPageOrder(left) - entryPageOrder(right) || left.name.localeCompare(right.name, 'zh-Hans-CN'))
 }
 
 export function filterDesktopGridEntries(doc: FoldersDoc, entries: DesktopGridEntry[], groupId: string, search: string): DesktopGridEntry[] {
@@ -51,9 +50,12 @@ export function filterDesktopGridEntries(doc: FoldersDoc, entries: DesktopGridEn
     const childItems = doc.items.filter(item => item.containerId === entry.id)
     const matchesContainerName = !q || entry.name.toLowerCase().includes(q)
     const matchesChildren = childItems.some(item => matchesFolder(item, groupId, q))
-    if (groupId === ALL_GROUP_ID && !q) return true
     return matchesContainerName || matchesChildren
   })
+}
+
+function entryPageOrder(entry: DesktopGridEntry): number {
+  return entry.kind === 'container' ? entry.container?.pageOrder ?? 0 : entry.item?.pageOrder ?? 0
 }
 
 function matchesFolder(item: NonNullable<DesktopGridEntry['item']>, groupId: string, q: string): boolean {

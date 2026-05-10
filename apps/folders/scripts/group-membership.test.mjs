@@ -2,21 +2,32 @@ import { strict as assert } from 'node:assert'
 import { describe, it } from 'node:test'
 
 import {
-  excludeGroupId,
-  folderGroupLabel,
   folderMatchesGroup,
-  groupIdsForFilter,
+  groupContainerCount,
+  groupIdForPage,
   groupItemCount,
-  includeGroupId,
-  sameGroupIds,
 } from '../src/groupMembership.ts'
 
-function item(id, groupIds) {
+function item(id, groupId) {
   return {
     id,
     name: id,
     path: `E:/${id}`,
-    groupIds,
+    groupId,
+    pageOrder: 0,
+    createdAt: '',
+    updatedAt: '',
+    createdAtMs: 1,
+    updatedAtMs: 1,
+  }
+}
+
+function container(id, groupId) {
+  return {
+    id,
+    name: id,
+    groupId,
+    pageOrder: 0,
     createdAt: '',
     updatedAt: '',
     createdAtMs: 1,
@@ -27,50 +38,43 @@ function item(id, groupIds) {
 function doc() {
   return {
     schemaVersion: 1,
-    dataVersion: 2,
+    dataVersion: 3,
     groups: [
       { id: 'default', name: '默认' },
       { id: 'work', name: '工作' },
       { id: 'design', name: '设计' },
     ],
     items: [
-      item('one', ['default', 'work']),
-      item('two', ['design']),
-      item('three', ['work', 'design']),
+      item('one', 'default'),
+      item('two', 'design'),
+      item('three', 'work'),
     ],
-    containers: [],
+    containers: [
+      container('box-a', 'work'),
+      container('box-b', 'design'),
+    ],
     desktop: { iconLayout: { rowGap: 38, columnGap: 38, iconScale: 1 } },
     updatedAt: '',
   }
 }
 
-describe('group membership', () => {
-  it('uses current filter as the default group selection for new folders', () => {
-    assert.deepEqual(groupIdsForFilter('__all__'), ['default'])
-    assert.deepEqual(groupIdsForFilter('work'), ['work'])
+describe('group page ownership', () => {
+  it('uses default group when page id is empty', () => {
+    assert.equal(groupIdForPage(''), 'default')
+    assert.equal(groupIdForPage('work'), 'work')
   })
 
-  it('adds and removes group ids without duplicating memberships', () => {
-    assert.deepEqual(includeGroupId(['default'], 'work'), ['default', 'work'])
-    assert.deepEqual(includeGroupId(['default', 'work'], 'work'), ['default', 'work'])
-    assert.deepEqual(excludeGroupId(['default', 'work'], 'default'), ['work'])
+  it('matches folders by single page ownership', () => {
+    assert.equal(folderMatchesGroup(item('one', 'work'), 'work'), true)
+    assert.equal(folderMatchesGroup(item('one', 'work'), 'design'), false)
+    assert.equal(folderMatchesGroup(item('one', 'default'), ''), true)
   })
 
-  it('compares group sets without depending on order', () => {
-    assert.equal(sameGroupIds(['work', 'design'], ['design', 'work']), true)
-    assert.equal(sameGroupIds(['work'], ['work', 'design']), false)
-  })
-
-  it('matches folders by containing the selected group', () => {
-    assert.equal(folderMatchesGroup(item('one', ['default', 'work']), 'work'), true)
-    assert.equal(folderMatchesGroup(item('one', ['default', 'work']), 'design'), false)
-    assert.equal(folderMatchesGroup(item('one', ['default', 'work']), '__all__'), true)
-  })
-
-  it('counts and labels folders with multiple group memberships', () => {
+  it('counts folders and containers per independent page', () => {
     const foldersDoc = doc()
-    assert.equal(groupItemCount(foldersDoc, 'work'), 2)
-    assert.equal(groupItemCount(foldersDoc, 'design'), 2)
-    assert.equal(folderGroupLabel(foldersDoc, foldersDoc.items[0]), '默认、工作')
+    assert.equal(groupItemCount(foldersDoc, 'work'), 1)
+    assert.equal(groupItemCount(foldersDoc, 'design'), 1)
+    assert.equal(groupContainerCount(foldersDoc, 'work'), 1)
+    assert.equal(groupContainerCount(foldersDoc, 'design'), 1)
   })
 })

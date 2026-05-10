@@ -24,7 +24,6 @@ type Props = {
   doc: FoldersDoc
   entries: DesktopGridEntry[]
   allEntries: DesktopGridEntry[]
-  groupCount: number
   iconLayout: DesktopIconLayout
   phase: Phase
   search: string
@@ -157,7 +156,6 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
                 doc={props.doc}
                 dragging={editor.draggingId === key}
                 entry={entry}
-                groupCount={props.groupCount}
                 metrics={metrics}
                 onOpen={() => {
                   if (!editor.consumeSuppressedClick(key)) props.onOpen(entry)

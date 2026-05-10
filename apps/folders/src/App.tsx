@@ -4,8 +4,10 @@ import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
+import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
+import DriveFileMoveRoundedIcon from '@mui/icons-material/DriveFileMoveRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import HorizontalRuleRoundedIcon from '@mui/icons-material/HorizontalRuleRounded'
 import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
@@ -50,7 +52,6 @@ import type { ContainerFolderDragEvent } from './ContainerFolderOverlay'
 import { ContainerDialog, IconEditorDialog } from './DesktopDialogs'
 import { DesktopDragHint } from './DesktopDragHint'
 import { DesktopWallpaper } from './DesktopWallpaper'
-import { GroupMembershipControl } from './GroupMembershipControl'
 import { ScrollArea } from './shared/scroll-area'
 import type { ContainerExtractDragState } from './containerExtractDragState'
 import { applyContainerItemDesktopExtraction, extractedItemIdForContainerView, isContainerSoftClosedForExtractDrag, resolveContainerExtractDragMode, resolveContainerExtractNextDragMode } from './containerExtractDragState'
@@ -58,7 +59,7 @@ import type { DesktopDragState } from './desktopDragState'
 import { isContainerDropTargetActive, resolveDesktopDragMode, resolveDesktopDropIntent } from './desktopDragState'
 import type { ContainerGridApi, ContainerGridPlacement } from './folder-grid/ContainerGridCanvas'
 import { buildDesktopGridEntries, filterDesktopGridEntries } from './folder-grid/desktopEntries'
-import { groupIdsForFilter, groupItemCount, includeGroupId, sameGroupIds } from './groupMembership'
+import { groupContainerCount, groupIdForPage, groupItemCount } from './groupMembership'
 import type {
   ConfirmState,
   ContainerFormState,
@@ -93,7 +94,6 @@ import {
   normalizeDesktopIconLayout,
 } from './folder-grid/iconLayout'
 import {
-  ALL_GROUP_ID,
   DEFAULT_DOC,
   DEFAULT_GROUP_ID,
   DEFAULT_LAUNCH_INFO,
@@ -120,9 +120,9 @@ export function App() {
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [search, setSearch] = React.useState('')
-  const [groupId, setGroupId] = React.useState(ALL_GROUP_ID)
+  const [groupId, setGroupId] = React.useState(DEFAULT_GROUP_ID)
   const [editing, setEditing] = React.useState<FolderItem | null>(null)
-  const [form, setForm] = React.useState<FolderFormState>({ name: '', path: '', groupIds: [DEFAULT_GROUP_ID], newGroupName: '' })
+  const [form, setForm] = React.useState<FolderFormState>({ name: '', path: '', groupId: DEFAULT_GROUP_ID, newGroupName: '' })
   const [settingsOpen, setSettingsOpen] = React.useState(false)
   const [groupEditorOpen, setGroupEditorOpen] = React.useState(false)
   const [groupForm, setGroupForm] = React.useState<GroupFormState>(EMPTY_GROUP_FORM)
@@ -224,6 +224,9 @@ export function App() {
     return () => window.clearTimeout(timer)
   }, [error, phase])
   React.useEffect(() => {
+    if (!doc.groups.some(group => group.id === groupId)) setGroupId(DEFAULT_GROUP_ID)
+  }, [doc.groups, groupId])
+  React.useEffect(() => {
     const close = () => setContextMenu(null)
     window.addEventListener('resize', close)
     window.addEventListener('scroll', close, true)
@@ -238,13 +241,13 @@ export function App() {
   }
 
   function openAdd() {
-    const selectedGroupIds = groupIdsForFilter(groupId)
-    setEditing(folderTemplate(selectedGroupIds))
-    setForm({ name: '', path: '', groupIds: selectedGroupIds, newGroupName: '' })
+    const selectedGroupId = groupIdForPage(groupId)
+    setEditing(folderTemplate(selectedGroupId))
+    setForm({ name: '', path: '', groupId: selectedGroupId, newGroupName: '' })
   }
 
   function openEdit(item: FolderItem) {
-    setEditing(item); setForm({ name: item.name, path: item.path, groupIds: item.groupIds, newGroupName: '' }); setContextMenu(null)
+    setEditing(item); setForm({ name: item.name, path: item.path, groupId: item.groupId, newGroupName: '' }); setContextMenu(null)
   }
 
   function openAddContainer() {
@@ -267,7 +270,7 @@ export function App() {
     if (!name || !path) { setError('名称和路径都不能为空'); return }
     setBusy(true); setError(null)
     try {
-      let targetGroupIds = [...form.groupIds]
+      let targetGroupId = groupIdForPage(form.groupId)
       const newGroupName = form.newGroupName.trim()
       if (newGroupName) {
         const newGroupId = groupIdFromName(newGroupName)
@@ -276,13 +279,13 @@ export function App() {
           const afterGroupAdd = await client.request<FoldersDoc>('folders.groups.add', { id: newGroupId, name: newGroupName })
           setDoc(afterGroupAdd)
         }
-        targetGroupIds = includeGroupId(targetGroupIds, newGroupId)
+        targetGroupId = newGroupId
       }
-      if (!targetGroupIds.length) { setError('至少选择一个分组'); return }
+      if (!newGroupName && !doc.groups.some(group => group.id === targetGroupId)) { setError('请选择有效分类'); return }
       const now = Date.now()
       const nowText = new Date(now).toISOString()
       const payload: FolderItem = {
-        id: editing.id || createID(), name, path, groupIds: targetGroupIds,
+        id: editing.id || createID(), name, path, groupId: targetGroupId, pageOrder: editing.pageOrder,
         containerId: editing.containerId,
         createdAt: editing.createdAt || nowText, updatedAt: nowText,
         createdAtMs: editing.createdAtMs || now, updatedAtMs: now,
@@ -291,6 +294,7 @@ export function App() {
       }
       const nextDoc = await client.request<FoldersDoc>(editing.id ? 'folders.update' : 'folders.add', payload)
       setDoc(nextDoc); setEditing(null)
+      if (newGroupName) setGroupId(targetGroupId)
     } catch (e) { setError(errorMessage(e, '保存文件夹失败')) } finally { setBusy(false) }
   }
 
@@ -310,11 +314,19 @@ export function App() {
     finally { setBusy(false) }
   }
 
-  async function saveFolderGroups(item: FolderItem, nextGroupIds: string[]) {
-    if (!client || sameGroupIds(item.groupIds, nextGroupIds)) return
+  async function moveFolderToGroup(item: FolderItem, targetGroupId: string) {
+    if (!client || item.groupId === targetGroupId) return
     setBusy(true); setError(null)
-    try { setDoc(await client.request<FoldersDoc>('folders.folder.groups.save', { id: item.id, groupIds: nextGroupIds })) }
-    catch (e) { setError(errorMessage(e, '保存文件夹分组失败')) }
+    try { setDoc(await client.request<FoldersDoc>('folders.folder.move-to-group', { id: item.id, groupId: targetGroupId })); setContextMenu(null) }
+    catch (e) { setError(errorMessage(e, '移动到分类失败')) }
+    finally { setBusy(false) }
+  }
+
+  async function copyFolderToGroup(item: FolderItem, targetGroupId: string) {
+    if (!client || item.groupId === targetGroupId) return
+    setBusy(true); setError(null)
+    try { setDoc(await client.request<FoldersDoc>('folders.folder.copy-to-group', { id: item.id, groupId: targetGroupId })); setContextMenu(null) }
+    catch (e) { setError(errorMessage(e, '复制到分类失败')) }
     finally { setBusy(false) }
   }
 
@@ -386,7 +398,7 @@ export function App() {
       }),
     }))
     try {
-      const nextDoc = await client.request<FoldersDoc>('folders.desktop.layout.save', { items: patches })
+      const nextDoc = await client.request<FoldersDoc>('folders.desktop.layout.save', { groupId, items: patches })
       setDoc(nextDoc)
     } catch (e) {
       setDoc(previousDoc)
@@ -697,7 +709,7 @@ export function App() {
     try {
       const nextDoc = await client.request<FoldersDoc>('folders.groups.remove', { id: group.id })
       setDoc(nextDoc); setConfirm(null); setGroupEditorOpen(false)
-      if (groupId === group.id) setGroupId(ALL_GROUP_ID)
+      if (groupId === group.id) setGroupId(DEFAULT_GROUP_ID)
     } catch (e) { setError(errorMessage(e, '删除分组失败')) } finally { setBusy(false) }
   }
 
@@ -713,6 +725,8 @@ export function App() {
       const payload: DesktopContainer = {
         id,
         name,
+        groupId: editingContainer?.groupId || groupIdForPage(groupId),
+        pageOrder: editingContainer?.pageOrder || 0,
         createdAt: editingContainer?.createdAt || nowText,
         updatedAt: nowText,
         createdAtMs: editingContainer?.createdAtMs || now,
@@ -810,13 +824,13 @@ export function App() {
     } catch (e) { setError(errorMessage(e, '选择文件夹失败')) }
   }
 
-  const allDesktopEntries = React.useMemo(() => buildDesktopGridEntries(doc), [doc])
+  const allDesktopEntries = React.useMemo(() => buildDesktopGridEntries(doc, groupId), [doc, groupId])
   const filteredEntries = React.useMemo(() => filterDesktopGridEntries(doc, allDesktopEntries, groupId, search), [allDesktopEntries, doc, groupId, search])
   const visibleIconLayout = iconLayoutDraft || doc.desktop.iconLayout
   const externalDesktopDragPreview = containerExtractDrag?.mode === 'desktop' ? containerExtractDrag.desktopDrag : null
   const containerSoftClosed = isContainerSoftClosedForExtractDrag(containerExtractDrag, containerView)
   const dropContainerHiddenItemId = extractedItemIdForContainerView(containerExtractDrag, containerDropView)
-  const selectedGroup = doc.groups.find(group => group.id === groupId)
+  const selectedGroup = doc.groups.find(group => group.id === groupId) || doc.groups.find(group => group.id === DEFAULT_GROUP_ID)
   const editableGroups = doc.groups.filter(group => group.id !== DEFAULT_GROUP_ID)
 
   return (
@@ -864,7 +878,6 @@ export function App() {
         doc={doc}
         allEntries={allDesktopEntries}
         assetUrl={client?.assetUrl}
-        groupCount={doc.groups.length}
         iconLayout={visibleIconLayout}
         entries={filteredEntries}
         externalDragPreview={externalDesktopDragPreview}
@@ -898,7 +911,8 @@ export function App() {
         onEditContainer={openEditContainer}
         onEditIcon={entry => entry.item ? setIconEditor({ id: entry.item.id, label: entry.item.name, icon: entry.item.icon }) : undefined}
         onMoveToContainer={(item, containerId) => void saveItemContainer([item.id], containerId)}
-        onChangeGroups={(item, nextGroupIds) => void saveFolderGroups(item, nextGroupIds)}
+        onCopyToGroup={(item, targetGroupId) => void copyFolderToGroup(item, targetGroupId)}
+        onMoveToGroup={(item, targetGroupId) => void moveFolderToGroup(item, targetGroupId)}
         onDelete={entry => setConfirm({ kind: entry.kind, id: entry.id, label: entry.name })}
       />
 
@@ -1114,7 +1128,6 @@ function GroupFilterSelect(props: { doc: FoldersDoc; groupId: string; onGroupCha
           setOpen(false)
         }}
       >
-        <MenuItem value={ALL_GROUP_ID}>全部分组</MenuItem>
         {props.doc.groups.map(group => <MenuItem key={group.id} value={group.id}>{group.name}</MenuItem>)}
       </Select>
     </FormControl>
@@ -1182,13 +1195,15 @@ function FolderContextMenu(props: {
   onEdit(item: FolderItem): void
   onEditContainer(container: DesktopContainer): void
   onEditIcon(entry: DesktopGridEntry): void
-  onChangeGroups(item: FolderItem, groupIds: string[]): void
+  onCopyToGroup(item: FolderItem, groupId: string): void
+  onMoveToGroup(item: FolderItem, groupId: string): void
   onMoveToContainer(item: FolderItem, containerId: string): void
   onDelete(entry: DesktopGridEntry): void
 }) {
   const entry = props.menu?.entry
   const folder = entry?.kind === 'folder' ? props.doc.items.find(item => item.id === entry.id) || entry.item : null
   const container = entry?.kind === 'container' ? entry.container : null
+  const targetGroups = folder ? props.groups.filter(group => group.id !== folder.groupId) : []
   return (
     <Menu
       open={Boolean(props.menu)}
@@ -1214,16 +1229,31 @@ function FolderContextMenu(props: {
           <ListItemIcon><ImageRoundedIcon fontSize="small" /></ListItemIcon>
           <ListItemText>图标外观</ListItemText>
         </MenuItem> : null,
-        folder ? <Box key="move" sx={{ px: 2, py: 1, minWidth: 240 }}>
-          <GroupMembershipControl
-            dense
-            disabled={props.busy}
-            groups={props.groups}
-            helperText="至少保留一个分组"
-            label="所属分组"
-            value={folder.groupIds}
-            onChange={nextGroupIds => props.onChangeGroups(folder, nextGroupIds)}
-          />
+        folder ? <Box key="group-actions" sx={{ px: 2, py: 1, minWidth: 240, display: 'grid', gap: 1 }}>
+          <FormControl variant="filled" fullWidth size="small" disabled={props.busy || !targetGroups.length}>
+            <InputLabel id="context-move-group-label">移动到分类</InputLabel>
+            <Select
+              variant="filled"
+              labelId="context-move-group-label"
+              label="移动到分类"
+              value=""
+              onChange={event => props.onMoveToGroup(folder, event.target.value)}
+            >
+              {targetGroups.map(group => <MenuItem key={group.id} value={group.id}><ListItemIcon><DriveFileMoveRoundedIcon fontSize="small" /></ListItemIcon>{group.name}</MenuItem>)}
+            </Select>
+          </FormControl>
+          <FormControl variant="filled" fullWidth size="small" disabled={props.busy || !targetGroups.length}>
+            <InputLabel id="context-copy-group-label">复制到分类</InputLabel>
+            <Select
+              variant="filled"
+              labelId="context-copy-group-label"
+              label="复制到分类"
+              value=""
+              onChange={event => props.onCopyToGroup(folder, event.target.value)}
+            >
+              {targetGroups.map(group => <MenuItem key={group.id} value={group.id}><ListItemIcon><ContentCopyRoundedIcon fontSize="small" /></ListItemIcon>{group.name}</MenuItem>)}
+            </Select>
+          </FormControl>
         </Box> : null,
         folder ? <Box key="container" sx={{ px: 2, py: 1, minWidth: 220 }}>
           <FormControl variant="filled" fullWidth size="small">
@@ -1236,7 +1266,7 @@ function FolderContextMenu(props: {
               onChange={event => props.onMoveToContainer(folder, event.target.value)}
             >
               <MenuItem value="">桌面</MenuItem>
-              {props.doc.containers.map(current => <MenuItem key={current.id} value={current.id}>{current.name}</MenuItem>)}
+              {props.doc.containers.filter(current => current.groupId === folder.groupId).map(current => <MenuItem key={current.id} value={current.id}>{current.name}</MenuItem>)}
             </Select>
           </FormControl>
         </Box> : null,
@@ -1287,14 +1317,18 @@ function FolderDialog(props: {
             <Button variant="text" startIcon={<LaunchRoundedIcon />} onClick={props.onPickPath} sx={{ minWidth: 96 }}>选择</Button>
           </Stack>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} alignItems="flex-start">
-            <GroupMembershipControl
-              disabled={props.busy}
-              groups={props.doc.groups}
-              helperText="一个文件夹可以同时属于多个分组"
-              label="所属分组"
-              value={props.form.groupIds}
-              onChange={groupIds => props.onChange({ ...props.form, groupIds })}
-            />
+            <FormControl variant="filled" fullWidth size="small" disabled={props.busy}>
+              <InputLabel id="folder-dialog-group-label">所属分类页</InputLabel>
+              <Select
+                variant="filled"
+                labelId="folder-dialog-group-label"
+                label="所属分类页"
+                value={props.form.groupId}
+                onChange={event => props.onChange({ ...props.form, groupId: event.target.value })}
+              >
+                {props.doc.groups.map(group => <MenuItem key={group.id} value={group.id}>{group.name}</MenuItem>)}
+              </Select>
+            </FormControl>
             <TextField
               label="新分组（可选）"
               value={props.form.newGroupName}
@@ -1303,7 +1337,7 @@ function FolderDialog(props: {
               fullWidth
             />
           </Stack>
-          <Typography variant="caption" color="text.secondary">图标布局会自动吸附格子；右键或点更多菜单可打开、编辑、移动或删除。</Typography>
+          <Typography variant="caption" color="text.secondary">每个文件夹只属于一个分类页；右键或点更多菜单可打开、编辑、移动、复制或删除。</Typography>
           <Stack direction="row" spacing={1} justifyContent="flex-end">
             <Button onClick={props.onClose}>取消</Button>
             <Button variant="contained" onClick={props.onSave} disabled={props.busy}>{props.editing?.id ? '保存' : '添加'}</Button>
@@ -1355,7 +1389,7 @@ function GroupDialog(props: {
                     sx={{ justifyContent: 'space-between', bgcolor: group.id === props.form.id ? undefined : theme => alpha(theme.palette.primary.main, 0.06) }}
                   >
                     <span>{group.name}</span>
-                    <Chip size="small" label={`${groupItemCount(props.doc, group.id)} 个文件夹`} />
+                    <Chip size="small" label={`${groupItemCount(props.doc, group.id)} 个文件夹 · ${groupContainerCount(props.doc, group.id)} 个收纳夹`} />
                   </Button>
                 ))}
               </ScrollArea>
