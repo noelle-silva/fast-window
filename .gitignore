@@ -25,6 +25,7 @@ apps/*/backend-go/*.exe
 # Legacy generated dirs (已废弃的随包插件种子机制遗留；保持忽略，避免误提交)
 src-tauri/plugin-seeds/
 src-tauri/plugins/
+src-tauri/runtimes/
 
 # IDE
 .vscode/*
