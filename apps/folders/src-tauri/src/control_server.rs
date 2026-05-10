@@ -129,10 +129,7 @@ pub(crate) fn start_control_server(
                         server_id,
                     ),
                     Err(error) => {
-                        eprintln!(
-                            "[folders] {} connection failed: {error}",
-                            server_name
-                        );
+                        eprintln!("[folders] {} connection failed: {error}", server_name);
                         break;
                     }
                 }

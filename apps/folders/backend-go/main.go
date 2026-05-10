@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/sha1"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -40,6 +41,7 @@ const (
 	defaultCategoryID     = "folder"
 	maxLayoutCoord        = 2000
 	maxIconAssetBytes     = 12 * 1024 * 1024
+	maxDataURLAssetBytes  = maxIconAssetBytes
 	defaultDesktopIconGap = 0
 	minDesktopIconGap     = 0
 	maxDesktopIconGap     = 64
@@ -348,6 +350,13 @@ type desktopAsset struct {
 	Kind string `json:"kind"`
 }
 
+type assetImportSource struct {
+	Name  string
+	Ext   string
+	Bytes []byte
+	Size  int64
+}
+
 type metaDoc struct {
 	SchemaVersion int    `json:"schemaVersion"`
 	DataVersion   int    `json:"dataVersion"`
@@ -471,11 +480,12 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		var payload struct {
 			Kind       string `json:"kind"`
 			SourcePath string `json:"sourcePath"`
+			DataURL    string `json:"dataUrl"`
 		}
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid asset import payload: %w", err)
 		}
-		return svc.importAsset(payload.Kind, payload.SourcePath)
+		return svc.importAsset(payload.Kind, payload.SourcePath, payload.DataURL)
 	case "collections.items.add":
 		var payload itemPayload
 		if err := json.Unmarshal(params, &payload); err != nil {
@@ -1533,7 +1543,7 @@ func (svc *service) removeCollectionGroup(categoryID string, id string) (categor
 	})
 }
 
-func (svc *service) importAsset(kind string, sourcePath string) (desktopAsset, error) {
+func (svc *service) importAsset(kind string, sourcePath string, dataURL string) (desktopAsset, error) {
 	kind = strings.TrimSpace(kind)
 	assetSubdir := ""
 	var maxAssetBytes int64
@@ -1547,53 +1557,36 @@ func (svc *service) importAsset(kind string, sourcePath string) (desktopAsset, e
 		return desktopAsset{}, errors.New("asset kind must be icon or wallpaper")
 	}
 
-	sourcePath = strings.TrimSpace(sourcePath)
-	if sourcePath == "" {
-		return desktopAsset{}, errors.New("asset source path is required")
-	}
-	ext := strings.ToLower(filepath.Ext(sourcePath))
-	if !isSupportedImageExt(ext) {
-		return desktopAsset{}, errors.New("asset must be a png, jpg, jpeg, webp, or gif image")
-	}
-	file, err := os.Open(sourcePath)
+	source, err := loadAssetImportSource(strings.TrimSpace(sourcePath), strings.TrimSpace(dataURL))
 	if err != nil {
-		return desktopAsset{}, fmt.Errorf("open asset source failed: %w", err)
+		return desktopAsset{}, err
 	}
-	defer file.Close()
-
-	stat, err := file.Stat()
-	if err != nil {
-		return desktopAsset{}, fmt.Errorf("stat asset source failed: %w", err)
-	}
-	if stat.Size() <= 0 {
+	if source.Size <= 0 {
 		return desktopAsset{}, errors.New("asset file is empty")
 	}
-	if maxAssetBytes > 0 && stat.Size() > maxAssetBytes {
+	if maxAssetBytes > 0 && source.Size > maxAssetBytes {
 		return desktopAsset{}, fmt.Errorf("%s asset file is too large: max %d bytes", kind, maxAssetBytes)
 	}
-	if err := validateAssetImageContent(file, ext); err != nil {
+	if err := validateAssetImageContent(source.Bytes, source.Ext); err != nil {
 		return desktopAsset{}, err
 	}
 
 	hasher := sha1.New()
-	if _, err := io.Copy(hasher, file); err != nil {
+	if _, err := io.Copy(hasher, bytes.NewReader(source.Bytes)); err != nil {
 		return desktopAsset{}, fmt.Errorf("hash asset source failed: %w", err)
 	}
-	assetName := hex.EncodeToString(hasher.Sum(nil)) + ext
+	assetName := hex.EncodeToString(hasher.Sum(nil)) + source.Ext
 	assetID := filepath.ToSlash(filepath.Join(assetSubdir, assetName))
 	targetPath := filepath.Join(svc.dataDir, assetsDir, assetSubdir, assetName)
 	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
 		return desktopAsset{}, err
 	}
 	if _, err := os.Stat(targetPath); errors.Is(err, os.ErrNotExist) {
-		if _, err := file.Seek(0, 0); err != nil {
-			return desktopAsset{}, fmt.Errorf("rewind asset source failed: %w", err)
-		}
 		out, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if err != nil {
 			return desktopAsset{}, fmt.Errorf("create asset target failed: %w", err)
 		}
-		_, copyErr := io.Copy(out, file)
+		_, copyErr := io.Copy(out, bytes.NewReader(source.Bytes))
 		closeErr := out.Close()
 		if copyErr != nil {
 			_ = os.Remove(targetPath)
@@ -1607,6 +1600,59 @@ func (svc *service) importAsset(kind string, sourcePath string) (desktopAsset, e
 		return desktopAsset{}, err
 	}
 	return desktopAsset{ID: assetID, Kind: kind}, nil
+}
+
+func loadAssetImportSource(sourcePath string, dataURL string) (assetImportSource, error) {
+	if sourcePath == "" && dataURL == "" {
+		return assetImportSource{}, errors.New("asset source path or data URL is required")
+	}
+	if sourcePath != "" && dataURL != "" {
+		return assetImportSource{}, errors.New("asset import accepts exactly one source")
+	}
+	if dataURL != "" {
+		return dataURLAssetImportSource(dataURL)
+	}
+	return fileAssetImportSource(sourcePath)
+}
+
+func fileAssetImportSource(sourcePath string) (assetImportSource, error) {
+	ext := strings.ToLower(filepath.Ext(sourcePath))
+	if !isSupportedImageExt(ext) {
+		return assetImportSource{}, errors.New("asset must be a png, jpg, jpeg, webp, or gif image")
+	}
+	payload, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return assetImportSource{}, fmt.Errorf("read asset source failed: %w", err)
+	}
+	return newAssetImportSource(filepath.Base(sourcePath), ext, payload)
+}
+
+func dataURLAssetImportSource(dataURL string) (assetImportSource, error) {
+	mediaType, payload, ok := strings.Cut(dataURL, ",")
+	if !ok || !strings.HasPrefix(strings.ToLower(mediaType), "data:image/") || !strings.HasSuffix(strings.ToLower(mediaType), ";base64") {
+		return assetImportSource{}, errors.New("asset data URL must be a base64 image")
+	}
+	ext, err := imageExtFromDataURLMediaType(mediaType)
+	if err != nil {
+		return assetImportSource{}, err
+	}
+	if int64(len(payload)) > maxDataURLAssetBytes*2 {
+		return assetImportSource{}, fmt.Errorf("asset data URL is too large: max %d bytes", maxDataURLAssetBytes)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		return assetImportSource{}, fmt.Errorf("decode asset data URL failed: %w", err)
+	}
+	return newAssetImportSource("data-url"+ext, ext, decoded)
+}
+
+func newAssetImportSource(name string, ext string, payload []byte) (assetImportSource, error) {
+	ext = strings.ToLower(ext)
+	if !isSupportedImageExt(ext) {
+		return assetImportSource{}, errors.New("asset must be a png, jpg, jpeg, webp, or gif image")
+	}
+	bytes := append([]byte(nil), payload...)
+	return assetImportSource{Name: name, Ext: ext, Bytes: bytes, Size: int64(len(bytes))}, nil
 }
 
 func (svc *service) serveAsset(w http.ResponseWriter, r *http.Request) {
@@ -2331,24 +2377,32 @@ func isSupportedImageExt(ext string) bool {
 	}
 }
 
-func validateAssetImageContent(file *os.File, ext string) error {
-	if _, err := file.Seek(0, 0); err != nil {
-		return fmt.Errorf("rewind asset source failed: %w", err)
+func imageExtFromDataURLMediaType(mediaType string) (string, error) {
+	mediaType = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(mediaType, "data:")))
+	mediaType = strings.TrimSuffix(mediaType, ";base64")
+	switch mediaType {
+	case "image/png":
+		return ".png", nil
+	case "image/jpeg", "image/jpg":
+		return ".jpg", nil
+	case "image/webp":
+		return ".webp", nil
+	case "image/gif":
+		return ".gif", nil
+	default:
+		return "", errors.New("asset data URL image type is not supported")
 	}
+}
+
+func validateAssetImageContent(payload []byte, ext string) error {
 	if ext == ".webp" {
-		header := make([]byte, 12)
-		n, err := io.ReadFull(file, header)
-		if err != nil || n != len(header) || string(header[:4]) != "RIFF" || string(header[8:12]) != "WEBP" {
+		if len(payload) < 12 || string(payload[:4]) != "RIFF" || string(payload[8:12]) != "WEBP" {
 			return errors.New("asset content is not a supported image")
 		}
-		_, err = file.Seek(0, 0)
-		return err
+		return nil
 	}
-	if _, _, err := image.DecodeConfig(file); err != nil {
+	if _, _, err := image.DecodeConfig(bytes.NewReader(payload)); err != nil {
 		return errors.New("asset content is not a supported image")
-	}
-	if _, err := file.Seek(0, 0); err != nil {
-		return fmt.Errorf("rewind asset source failed: %w", err)
 	}
 	return nil
 }

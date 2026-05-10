@@ -1,6 +1,6 @@
 import type { DesktopGridLayoutPatch } from './folder-grid/desktopEntries'
 import type { DesktopGridDragModifiers } from './shared/desktop-grid/core/dragTypes'
-import type { CategoryWorkspace, CollectionContainer, CollectionItem } from './types'
+import type { CategoryWorkspace, CategoryWorkspaceView, CollectionContainer, CollectionItem } from './types'
 
 export type ContainerExtractDragMode = 'container' | 'desktop'
 
@@ -85,6 +85,14 @@ export function applyContainerItemDesktopExtraction(workspace: CategoryWorkspace
     if (!appliedPatchKeys.has(key)) throw new Error(`desktop entry not found: ${key}`)
   }
   return nextWorkspace
+}
+
+export function applyContainerItemDesktopExtractionView(workspace: CategoryWorkspaceView, containerId: string, itemId: string, patches: DesktopGridLayoutPatch[]): CategoryWorkspaceView {
+  return {
+    ...applyContainerItemDesktopExtraction(workspace, containerId, itemId, patches),
+    schemaVersion: workspace.schemaVersion,
+    dataVersion: workspace.dataVersion,
+  }
 }
 
 function buildDesktopPatchMap(patches: DesktopGridLayoutPatch[]): Map<string, DesktopGridLayoutPatch> {

@@ -13,6 +13,9 @@ serde_json = "1.0"
 tokio = { version = "1", features = ["process", "io-util", "time", "macros"] }
 rfd = "0.14"
 getrandom = "0.3"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Com", "Win32_UI_Shell"] }
 
 [features]
 default = ["custom-protocol"]

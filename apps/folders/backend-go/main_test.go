@@ -484,7 +484,7 @@ func TestImportAssetCopiesImagesAndRejectsInvalidContent(t *testing.T) {
 	if err := os.WriteFile(sourcePath, mustTinyPNG(t), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	asset, err := svc.importAsset("icon", sourcePath)
+	asset, err := svc.importAsset("icon", sourcePath, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -502,15 +502,46 @@ func TestImportAssetCopiesImagesAndRejectsInvalidContent(t *testing.T) {
 	if err := os.WriteFile(badPath, []byte("not a png"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.importAsset("icon", badPath); err == nil {
+	if _, err := svc.importAsset("icon", badPath, ""); err == nil {
 		t.Fatal("expected invalid image content to fail")
 	}
-	wallpaper, err := svc.importAsset("wallpaper", sourcePath)
+	wallpaper, err := svc.importAsset("wallpaper", sourcePath, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if wallpaper.Kind != "wallpaper" || !strings.HasPrefix(wallpaper.ID, wallpaperAssetsDir+"/") {
 		t.Fatalf("unexpected wallpaper asset: %#v", wallpaper)
+	}
+}
+
+func TestImportAssetAcceptsDataURLAsFirstClassSource(t *testing.T) {
+	svc := readyService(t)
+	payload := mustTinyPNG(t)
+	dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(payload)
+
+	asset, err := svc.importAsset("icon", "", dataURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asset.Kind != "icon" || !strings.HasPrefix(asset.ID, iconAssetsDir+"/") || !strings.HasSuffix(asset.ID, ".png") {
+		t.Fatalf("unexpected data URL asset: %#v", asset)
+	}
+	targetPath, err := svc.assetPath(asset.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := os.ReadFile(targetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(stored) != string(payload) {
+		t.Fatal("expected stored asset to match decoded data URL payload")
+	}
+	if _, err := svc.importAsset("icon", "", "data:text/plain;base64,Zm9v"); err == nil {
+		t.Fatal("expected non-image data URL to fail")
+	}
+	if _, err := svc.importAsset("icon", targetPath, dataURL); err == nil {
+		t.Fatal("expected mixed asset sources to fail")
 	}
 }
 
@@ -522,10 +553,10 @@ func TestWallpaperImportHasNoFileSizeLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := svc.importAsset("icon", sourcePath); err == nil {
+	if _, err := svc.importAsset("icon", sourcePath, ""); err == nil {
 		t.Fatal("expected oversized icon asset to fail")
 	}
-	wallpaper, err := svc.importAsset("wallpaper", sourcePath)
+	wallpaper, err := svc.importAsset("wallpaper", sourcePath, "")
 	if err != nil {
 		t.Fatal(err)
 	}

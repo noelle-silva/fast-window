@@ -56,9 +56,10 @@ import { ContainerDialog, IconEditorDialog } from './DesktopDialogs'
 import { DesktopDragHint } from './DesktopDragHint'
 import { DesktopWallpaper } from './DesktopWallpaper'
 import { DesktopWallpaperSettings } from './DesktopWallpaperSettings'
+import { createIconEditorState, importedIconCandidateId, systemIconCandidateId, upsertIconCandidate } from './iconEditorModel'
 import { ScrollArea } from './shared/scroll-area'
 import type { ContainerExtractDragState } from './containerExtractDragState'
-import { applyContainerItemDesktopExtraction, extractedItemIdForContainerView, isContainerSoftClosedForExtractDrag, resolveContainerExtractDragMode, resolveContainerExtractNextDragMode } from './containerExtractDragState'
+import { applyContainerItemDesktopExtractionView, extractedItemIdForContainerView, isContainerSoftClosedForExtractDrag, resolveContainerExtractDragMode, resolveContainerExtractNextDragMode } from './containerExtractDragState'
 import type { DesktopDragState } from './desktopDragState'
 import { wallpaperDeckFromWorkspace, wallpaperDeckWithWorkspace } from './desktopWallpaperDeck'
 import { createDesktopWallpaperPreset, upsertDesktopWallpaperPresetView } from './desktopWallpaperPresets'
@@ -463,7 +464,7 @@ export function App() {
     setError(null)
     let optimisticDoc: CategoryWorkspaceView
     try {
-      optimisticDoc = applyContainerItemDesktopExtraction(doc, containerId, itemId, patches)
+      optimisticDoc = applyContainerItemDesktopExtractionView(doc, containerId, itemId, patches)
     } catch (e) {
       setError(errorMessage(e, '移出到桌面失败'))
       return
@@ -828,6 +829,30 @@ export function App() {
     finally { setBusy(false) }
   }
 
+  function updateIconEditorDraft(icon: DesktopIcon | null) {
+    setIconEditor(current => current ? { ...current, draftIcon: icon } : current)
+  }
+
+  async function fetchSystemIcon() {
+    if (!client || !iconEditor) return
+    const item = doc.items.find(current => current.id === iconEditor.id)
+    if (!item) return
+    const target = itemTargetValue(item)
+    if (!target) { setError('当前项目没有可读取图标的目标路径'); return }
+    setBusy(true); setError(null)
+    try {
+      const dataUrl = await invoke<string>('system_icon_data_url', { path: target })
+      const asset = await client.request<DesktopAsset>('collections.assets.import', { kind: 'icon', dataUrl })
+      const icon: DesktopIcon = { kind: 'image', assetId: asset.id }
+      setIconEditor(current => current ? {
+        ...current,
+        draftIcon: icon,
+        candidates: upsertIconCandidate(current.candidates, { id: systemIconCandidateId(item), label: '系统图标', icon }),
+      } : current)
+    } catch (e) { setError(errorMessage(e, '获取系统图标失败')) }
+    finally { setBusy(false) }
+  }
+
   async function pickIconImage() {
     if (!client || !iconEditor) return
     setBusy(true); setError(null)
@@ -835,8 +860,12 @@ export function App() {
       const sourcePath = await invoke<string | null>('pick_image_path')
       if (!sourcePath) return
       const asset = await client.request<DesktopAsset>('collections.assets.import', { kind: 'icon', sourcePath })
-      setDoc(await client.request<CategoryWorkspaceView>('collections.icon.save', requestParams({ id: iconEditor.id, icon: { kind: 'image', assetId: asset.id } })))
-      setIconEditor(null)
+      const icon: DesktopIcon = { kind: 'image', assetId: asset.id }
+      setIconEditor(current => current ? {
+        ...current,
+        draftIcon: icon,
+        candidates: upsertIconCandidate(current.candidates, { id: importedIconCandidateId(asset.id), label: '导入图片', icon }),
+      } : current)
     } catch (e) { setError(errorMessage(e, '导入图标图片失败')) }
     finally { setBusy(false) }
   }
@@ -1015,7 +1044,7 @@ export function App() {
         onOpen={openDesktopEntry}
         onEdit={openEdit}
         onEditContainer={openEditContainer}
-        onEditIcon={entry => entry.item ? setIconEditor({ id: entry.item.id, label: entry.item.name, icon: entry.item.icon }) : undefined}
+        onEditIcon={entry => entry.item ? setIconEditor(createIconEditorState(entry.item)) : undefined}
         onMoveToContainer={(item, containerId) => void saveItemContainer([item.id], containerId)}
         onCopyToGroup={(item, targetGroupId) => void copyItemToGroup(item, targetGroupId)}
         onMoveToGroup={(item, targetGroupId) => void moveItemToGroup(item, targetGroupId)}
@@ -1116,12 +1145,15 @@ export function App() {
       />
 
       <IconEditorDialog
+        assetUrl={client?.assetUrl}
         busy={busy}
         state={iconEditor}
+        onChangeDraft={updateIconEditorDraft}
         onClose={() => setIconEditor(null)}
+        onFetchSystemIcon={() => void fetchSystemIcon()}
         onPickImage={() => void pickIconImage()}
         onReset={() => iconEditor ? void saveItemIcon(iconEditor.id, null) : undefined}
-        onSaveColor={color => iconEditor ? void saveItemIcon(iconEditor.id, { kind: 'color', color }) : undefined}
+        onSave={() => iconEditor ? void saveItemIcon(iconEditor.id, iconEditor.draftIcon) : undefined}
       />
 
       <ConfirmDialog

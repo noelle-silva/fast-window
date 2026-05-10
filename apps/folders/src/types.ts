@@ -139,7 +139,15 @@ export type GroupFormState = { id: string; name: string }
 
 export type ContainerFormState = { id: string; name: string }
 
-export type IconEditorState = { id: string; label: string; icon?: DesktopIcon } | null
+export type IconEditorCandidate = { id: string; label: string; icon: DesktopIcon }
+
+export type IconEditorState = {
+  id: string
+  label: string
+  target: CollectionTarget
+  draftIcon: DesktopIcon | null
+  candidates: IconEditorCandidate[]
+} | null
 
 export type ConfirmState = { kind: 'item' | 'group' | 'container' | 'data-reset'; id: string; label: string } | null
 

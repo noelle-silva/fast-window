@@ -7,6 +7,7 @@ mod fw_window;
 mod shutdown;
 mod single_instance;
 mod standalone_tray;
+mod system_icon;
 
 use backend_sidecar::{start_backend, BackendEndpoint, BackendState};
 use control_server::{
@@ -168,6 +169,7 @@ fn main() {
             pick_image_path,
             restart_backend,
             hide_to_tray,
+            system_icon::system_icon_data_url,
             app_ready,
             fw_initial_command,
             fw_launch_info
