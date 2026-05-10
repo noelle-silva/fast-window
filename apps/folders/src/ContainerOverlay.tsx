@@ -5,31 +5,31 @@ import { ContainerGridCanvas, type ContainerGridApi, type ContainerGridDragEvent
 import { ScrollArea } from './shared/scroll-area'
 import type { FolderGridDragEndResult } from './folder-grid/useMuuriFolderGrid'
 import { DESKTOP_ICON_TITLE_SHADOW } from './folder-grid/desktopIconTokens'
-import type { DesktopContainer, FolderItem, FoldersDoc } from './types'
+import type { CategoryWorkspaceView, CollectionContainer, CollectionItem } from './types'
 
 type Props = {
   assetUrl?(assetId: string): string
-  container: DesktopContainer | null
+  container: CollectionContainer | null
   closeDisabled?: boolean
   dropTargetActive?: boolean
-  doc: FoldersDoc
+  doc: CategoryWorkspaceView
   hiddenItemId?: string
   onClose(): void
-  onItemDragCancel?(event: ContainerFolderDragEvent): void
-  onItemDragEnd?(event: ContainerFolderDragEvent, patches: ContainerGridPlacement[]): FolderGridDragEndResult | void
-  onItemDragMove?(event: ContainerFolderDragEvent): void
-  onItemDragStart?(event: ContainerFolderDragEvent): void
+  onItemDragCancel?(event: ContainerItemDragEvent): void
+  onItemDragEnd?(event: ContainerItemDragEvent, patches: ContainerGridPlacement[]): FolderGridDragEndResult | void
+  onItemDragMove?(event: ContainerItemDragEvent): void
+  onItemDragStart?(event: ContainerItemDragEvent): void
   onLayoutCommit(patches: ContainerGridPlacement[]): void
-  onOpenFolder(item: FolderItem): void
-  onRemoveItem(item: FolderItem): void
-  onRename(container: DesktopContainer, name: string): Promise<void> | void
+  onOpenItem(item: CollectionItem): void
+  onRemoveItem(item: CollectionItem): void
+  onRename(container: CollectionContainer, name: string): Promise<void> | void
   onGridReady?(containerId: string, instanceId: string, api: ContainerGridApi | null): void
   softClosed?: boolean
 }
 
-export type ContainerFolderDragEvent = ContainerGridDragEvent & { boundary: DOMRect | null }
+export type ContainerItemDragEvent = ContainerGridDragEvent & { boundary: DOMRect | null }
 
-export function ContainerFolderOverlay(props: Props): React.ReactNode {
+export function ContainerOverlay(props: Props): React.ReactNode {
   const container = props.container
   const { onClose } = props
   const instanceId = React.useId()
@@ -84,7 +84,7 @@ export function ContainerFolderOverlay(props: Props): React.ReactNode {
     <Box
       role="dialog"
       aria-modal="true"
-      aria-labelledby="container-folder-overlay-title"
+      aria-labelledby="container-overlay-title"
       onClick={requestClose}
       sx={{
         position: 'fixed',
@@ -106,7 +106,7 @@ export function ContainerFolderOverlay(props: Props): React.ReactNode {
       <Stack direction="row" alignItems="center" justifyContent="center" sx={{ position: 'relative', minHeight: 64 }}>
         {editingName ? (
           <TextField
-            id="container-folder-overlay-title"
+            id="container-overlay-title"
             value={draftName}
             autoFocus
             disabled={savingName}
@@ -137,7 +137,7 @@ export function ContainerFolderOverlay(props: Props): React.ReactNode {
           />
         ) : (
           <Typography
-            id="container-folder-overlay-title"
+            id="container-overlay-title"
             component="button"
             type="button"
             aria-label="点击修改收纳夹名称"
@@ -212,14 +212,14 @@ export function ContainerFolderOverlay(props: Props): React.ReactNode {
             onDragMove={event => props.onItemDragMove?.(withBoundary(event, panelRef.current))}
             onDragStart={event => props.onItemDragStart?.(withBoundary(event, panelRef.current))}
             onLayoutCommit={props.onLayoutCommit}
-            onOpenFolder={props.onOpenFolder}
+            onOpenItem={props.onOpenItem}
             onRemoveItem={props.onRemoveItem}
             onReady={api => props.onGridReady?.(container.id, instanceId, api)}
           />
         ) : (
           <Stack spacing={1.5} alignItems="center" justifyContent="center" sx={{ minHeight: 220, textAlign: 'center' }}>
             <Typography variant="h2" color="text.primary">这个收纳夹还是空的</Typography>
-            <Typography color="text.secondary">把桌面文件夹拖到这个收纳夹上停留，即可展开并放入。</Typography>
+            <Typography color="text.secondary">把桌面收藏项拖到这个收纳夹上停留，即可展开并放入。</Typography>
           </Stack>
         )}
       </ScrollArea>
@@ -227,6 +227,6 @@ export function ContainerFolderOverlay(props: Props): React.ReactNode {
   )
 }
 
-function withBoundary(event: ContainerGridDragEvent, panel: HTMLDivElement | null): ContainerFolderDragEvent {
+function withBoundary(event: ContainerGridDragEvent, panel: HTMLDivElement | null): ContainerItemDragEvent {
   return { ...event, boundary: panel?.getBoundingClientRect() || null }
 }

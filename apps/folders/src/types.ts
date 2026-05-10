@@ -16,25 +16,27 @@ export type BackendEndpoint = {
   protocolVersion: number
 }
 
-export type FoldersDataHealth = {
+export type CollectionsDataHealth = {
   ok: boolean
   error?: string
   schemaVersion?: number
   dataVersion?: number
 }
 
-export type FoldersHealth = {
+export type CollectionsHealth = {
   ok: boolean
   dataDir: string
   time: string
-  data: FoldersDataHealth
+  data: CollectionsDataHealth
 }
 
-export type FolderGroup = { id: string; name: string }
+export type CollectionCategoryId = 'folder' | 'url' | 'file'
 
-export type FolderGridLayout = { x: number; y: number }
+export type CollectionGroup = { id: string; name: string }
 
-export type DesktopEntryKind = 'folder' | 'container'
+export type CollectionGridLayout = { x: number; y: number }
+
+export type DesktopEntryKind = 'item' | 'container'
 
 export type DesktopIcon =
   | { kind: 'color'; color: string }
@@ -48,9 +50,9 @@ export type DesktopWallpaper = { activeId: string; presets: DesktopWallpaperPres
 
 export type DesktopIconLayout = { rowGap: number; columnGap: number; iconScale: number }
 
-export type DesktopState = { wallpaper?: DesktopWallpaper; iconLayout: DesktopIconLayout }
+export type CollectionDesktopState = { wallpaper?: DesktopWallpaper; iconLayout: DesktopIconLayout }
 
-export type DesktopContainer = {
+export type CollectionContainer = {
   id: string
   name: string
   groupId: string
@@ -59,17 +61,22 @@ export type DesktopContainer = {
   updatedAt: string
   createdAtMs: number
   updatedAtMs: number
-  layout?: FolderGridLayout
+  layout?: CollectionGridLayout
 }
 
 export type DesktopAssetKind = 'icon' | 'wallpaper'
 
 export type DesktopAsset = { id: string; kind: DesktopAssetKind }
 
-export type FolderItem = {
+export type CollectionTarget =
+  | { kind: 'folder'; path: string }
+  | { kind: 'url'; url: string }
+  | { kind: 'file'; path: string }
+
+export type CollectionItem = {
   id: string
   name: string
-  path: string
+  target: CollectionTarget
   groupId: string
   pageOrder: number
   containerId?: string
@@ -77,18 +84,29 @@ export type FolderItem = {
   updatedAt: string
   createdAtMs: number
   updatedAtMs: number
-  layout?: FolderGridLayout
-  containerLayout?: FolderGridLayout
+  layout?: CollectionGridLayout
+  containerLayout?: CollectionGridLayout
   icon?: DesktopIcon
 }
 
-export type FoldersDoc = {
+export type CategoryWorkspace = {
+  id: CollectionCategoryId
+  groups: CollectionGroup[]
+  items: CollectionItem[]
+  containers: CollectionContainer[]
+  desktop: CollectionDesktopState
+}
+
+export type CategoryWorkspaceView = CategoryWorkspace & {
   schemaVersion: number
   dataVersion: number
-  groups: FolderGroup[]
-  items: FolderItem[]
-  containers: DesktopContainer[]
-  desktop: DesktopState
+}
+
+export type CollectionsDoc = {
+  schemaVersion: number
+  dataVersion: number
+  activeCategoryId: CollectionCategoryId
+  categories: CategoryWorkspace[]
   updatedAt: string
 }
 
@@ -106,9 +124,9 @@ export type DirectClient = {
 
 export type Phase = 'starting' | 'ready' | 'data-error' | 'failed'
 
-export type FolderFormState = {
+export type CollectionItemFormState = {
   name: string
-  path: string
+  target: string
   groupId: string
   newGroupName: string
 }
@@ -119,17 +137,20 @@ export type ContainerFormState = { id: string; name: string }
 
 export type IconEditorState = { id: string; label: string; icon?: DesktopIcon } | null
 
-export type ConfirmState = { kind: 'folder' | 'group' | 'container' | 'data-reset'; id: string; label: string } | null
+export type ConfirmState = { kind: 'item' | 'group' | 'container' | 'data-reset'; id: string; label: string } | null
 
 export type DesktopGridEntry = {
   kind: DesktopEntryKind
   id: string
   name: string
-  layout?: FolderGridLayout
+  layout?: CollectionGridLayout
   icon?: DesktopIcon
-  item?: FolderItem
-  container?: DesktopContainer
+  item?: CollectionItem
+  container?: CollectionContainer
   itemCount?: number
 }
 
 export type ContextMenuState = { entry: DesktopGridEntry; x: number; y: number } | null
+
+// Compatibility alias for visual grid modules that still describe square icon layout geometry.
+export type FolderGridLayout = CollectionGridLayout

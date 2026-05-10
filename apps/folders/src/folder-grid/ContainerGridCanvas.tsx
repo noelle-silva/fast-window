@@ -1,7 +1,8 @@
 import * as React from 'react'
 import RemoveCircleOutlineRoundedIcon from '@mui/icons-material/RemoveCircleOutlineRounded'
 import { Box, ButtonBase, IconButton, Stack, Typography } from '@mui/material'
-import type { FolderGridLayout, FolderItem } from '../types'
+import { itemTargetValue } from '../categoryRegistry'
+import type { CollectionGridLayout, CollectionItem } from '../types'
 import { DesktopIconVisual } from './DesktopIconVisual'
 import {
   getFolderGridCanvasHeight,
@@ -14,28 +15,28 @@ import {
 } from './layout'
 import { useMuuriFolderGrid, type FolderGridDragEndResult, type FolderGridDragEvent } from './useMuuriFolderGrid'
 
-type ContainerGridPlacement = { id: string; layout: FolderGridLayout }
+type ContainerGridPlacement = { id: string; layout: CollectionGridLayout }
 
 type Props = {
   assetUrl?(assetId: string): string
   dropTargetActive?: boolean
-  items: FolderItem[]
+  items: CollectionItem[]
   onLayoutCommit(patches: ContainerGridPlacement[]): void
   onDragCancel?(event: ContainerGridDragEvent): void
   onDragEnd?(event: ContainerGridDragEvent, patches: ContainerGridPlacement[]): FolderGridDragEndResult | void
   onDragMove?(event: ContainerGridDragEvent): void
   onDragStart?(event: ContainerGridDragEvent): void
-  onOpenFolder(item: FolderItem): void
-  onRemoveItem(item: FolderItem): void
+  onOpenItem(item: CollectionItem): void
+  onRemoveItem(item: CollectionItem): void
   onReady?(api: ContainerGridApi | null): void
 }
 
-type ContainerGridDragEvent = FolderGridDragEvent & { item: FolderItem }
+type ContainerGridDragEvent = FolderGridDragEvent & { item: CollectionItem }
 
 type ContainerGridApi = {
   currentPlacements(): ContainerGridPlacement[]
-  placementsForDrop(itemId: string, layout: FolderGridLayout): ContainerGridPlacement[]
-  layoutFromClientPoint(clientX: number, clientY: number, offsetX?: number, offsetY?: number): FolderGridLayout | null
+  placementsForDrop(itemId: string, layout: CollectionGridLayout): ContainerGridPlacement[]
+  layoutFromClientPoint(clientX: number, clientY: number, offsetX?: number, offsetY?: number): CollectionGridLayout | null
 }
 
 export type { ContainerGridApi, ContainerGridDragEvent, ContainerGridPlacement }
@@ -107,7 +108,7 @@ export function ContainerGridCanvas(props: Props): React.ReactNode {
               dragging={editor.draggingId === item.id}
               item={itemById.get(item.id) || item}
               onOpen={() => {
-                if (!editor.consumeSuppressedClick(item.id)) props.onOpenFolder(item)
+                if (!editor.consumeSuppressedClick(item.id)) props.onOpenItem(item)
               }}
               onRemove={() => props.onRemoveItem(item)}
             />
@@ -118,7 +119,8 @@ export function ContainerGridCanvas(props: Props): React.ReactNode {
   )
 }
 
-function ContainerGridItem(props: { assetUrl?(assetId: string): string; dragging: boolean; item: FolderItem; onOpen(): void; onRemove(): void }) {
+function ContainerGridItem(props: { assetUrl?(assetId: string): string; dragging: boolean; item: CollectionItem; onOpen(): void; onRemove(): void }) {
+  const target = itemTargetValue(props.item)
   return (
     <Box
       sx={{
@@ -156,16 +158,17 @@ function ContainerGridItem(props: { assetUrl?(assetId: string): string; dragging
         <DesktopIconVisual
           assetUrl={props.assetUrl}
           icon={props.item.icon}
-          seed={`folder:${props.item.id}:${props.item.name}`}
+          seed={`${props.item.target.kind}:${props.item.id}:${props.item.name}`}
           size={86}
           radius={24}
+          targetKind={props.item.target.kind}
         />
         <Stack spacing={0.25} sx={{ minWidth: 0, width: '100%' }}>
           <Typography noWrap fontWeight={850} title={props.item.name} sx={{ color: 'text.primary', fontSize: 15 }}>
             {props.item.name}
           </Typography>
-          <Typography noWrap title={props.item.path} variant="caption" sx={{ display: 'block', color: 'rgba(15, 23, 42, 0.45)' }}>
-            {props.item.path}
+          <Typography noWrap title={target} variant="caption" sx={{ display: 'block', color: 'rgba(15, 23, 42, 0.45)' }}>
+            {target}
           </Typography>
         </Stack>
       </ButtonBase>
@@ -197,17 +200,17 @@ function toContainerPlacements(patches: FolderGridLayoutPatch[]): ContainerGridP
   return patches.map(patch => ({ id: patch.id, layout: patch.layout }))
 }
 
-function toContainerDragEvent(event: FolderGridDragEvent, itemById: Map<string, FolderItem>): ContainerGridDragEvent {
+function toContainerDragEvent(event: FolderGridDragEvent, itemById: Map<string, CollectionItem>): ContainerGridDragEvent {
   const item = itemById.get(event.itemId)
   if (!item) throw new Error(`container drag item not found: ${event.itemId}`)
   return { ...event, item }
 }
 
-function currentPlacements(layouts: Map<string, FolderGridLayout>): ContainerGridPlacement[] {
+function currentPlacements(layouts: Map<string, CollectionGridLayout>): ContainerGridPlacement[] {
   return Array.from(layouts, ([id, layout]) => ({ id, layout }))
 }
 
-function currentPlacementsForDrop(items: FolderGridLayoutSource[], baseLayouts: FolderGridLayoutMap, itemId: string, layout: FolderGridLayout, columnCount: number): ContainerGridPlacement[] {
+function currentPlacementsForDrop(items: FolderGridLayoutSource[], baseLayouts: FolderGridLayoutMap, itemId: string, layout: CollectionGridLayout, columnCount: number): ContainerGridPlacement[] {
   const hasItem = items.some(item => item.id === itemId)
   const nextItems = hasItem ? items : [...items, { id: itemId }]
   const nextBaseLayouts = new Map(baseLayouts)

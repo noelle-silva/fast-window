@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Box, ButtonBase, Typography } from '@mui/material'
-import type { DesktopGridEntry, FoldersDoc } from '../types'
+import { itemTargetValue } from '../categoryRegistry'
+import type { CategoryWorkspace, DesktopGridEntry } from '../types'
 import { DesktopIconVisual } from './DesktopIconVisual'
 import type { FolderGridMetrics } from './iconLayout'
 import {
@@ -11,7 +12,7 @@ import {
 
 type Props = {
   assetUrl?(assetId: string): string
-  doc: FoldersDoc
+  workspace: CategoryWorkspace
   dragging: boolean
   entry: DesktopGridEntry
   metrics: FolderGridMetrics
@@ -23,9 +24,10 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
   const icon = props.entry.icon
   const color = icon?.kind === 'color' ? icon.color : undefined
   const palette = getDesktopIconPalette(`${props.entry.kind}:${props.entry.id}:${props.entry.name}`, color)
-  const detailLabel = props.entry.kind === 'container' ? `${props.entry.itemCount || 0} 个文件夹` : null
-  const containerItems = props.entry.kind === 'container' ? props.doc.items.filter(item => item.containerId === props.entry.id).slice(0, 4) : []
+  const detailLabel = props.entry.kind === 'container' ? `${props.entry.itemCount || 0} 个项目` : null
+  const containerItems = props.entry.kind === 'container' ? props.workspace.items.filter(item => item.containerId === props.entry.id).slice(0, 4) : []
   const surfaceShadow = props.entry.kind === 'container' ? '0 18px 34px rgba(15, 23, 42, 0.18)' : palette.shadow
+  const title = props.entry.item ? itemTargetValue(props.entry.item) : props.entry.name
 
   return (
     <Box
@@ -50,7 +52,7 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
         disableRipple
         onClick={props.onOpen}
         aria-label={`打开：${props.entry.name}`}
-        title={props.entry.item?.path || props.entry.name}
+        title={title}
         sx={{
           width: props.metrics.itemWidth,
           height: props.metrics.itemHeight,
@@ -91,8 +93,9 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
             dragging={props.dragging}
             icon={icon}
             radius={props.metrics.iconRadius}
-            seed={`folder:${props.entry.id}:${props.entry.name}`}
+            seed={`${props.entry.item?.target.kind || 'folder'}:${props.entry.id}:${props.entry.name}`}
             size={props.metrics.iconSize}
+            targetKind={props.entry.item?.target.kind}
           />
         )}
         <Box sx={{ width: '100%', minWidth: 0, display: 'grid', justifyItems: 'center', gap: 0.35 }}>
@@ -173,9 +176,10 @@ function ContainerFolderPreview(props: { assetUrl?(assetId: string): string; dra
           glyphSize={Math.round(props.metrics.containerPreviewSize * 0.62)}
           icon={item.icon}
           radius={Math.max(8, Math.round(props.metrics.containerPreviewSize * 0.3))}
-          seed={`folder:${item.id}:${item.name}`}
+          seed={`${item.target.kind}:${item.id}:${item.name}`}
           shadow={false}
           size={props.metrics.containerPreviewSize}
+          targetKind={item.target.kind}
         />
       ) : <Box key={`empty-${index}`} sx={{ width: props.metrics.containerPreviewSize, height: props.metrics.containerPreviewSize }} />)}
     </Box>

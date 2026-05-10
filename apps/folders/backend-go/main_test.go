@@ -2,21 +2,15 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestServiceCreatesFoldersDataFiles(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
-	}
+func TestServiceCreatesCollectionsDataFiles(t *testing.T) {
+	svc := readyService(t)
 
 	for _, name := range []string{dataFile, metaFile} {
 		if _, err := os.Stat(filepath.Join(svc.dataDir, name)); err != nil {
@@ -26,173 +20,161 @@ func TestServiceCreatesFoldersDataFiles(t *testing.T) {
 }
 
 func TestHealthReportsCurrentBaselineData(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
-	}
+	svc := readyService(t)
 	health := svc.health()
 	if !health.OK || !health.Data.OK || health.Data.DataVersion != dataVersion || health.Data.SchemaVersion != dataSchemaVersion {
 		t.Fatalf("unexpected health: %#v", health)
 	}
 }
 
-func TestEnsureReadyDoesNotFailForInvalidExistingData(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
+func TestCollectionTargetOpenCommands(t *testing.T) {
+	urlCommand, err := openCommandForCollectionTarget(collectionTarget{Kind: "url", URL: "https://example.com/docs"}, "windows")
 	if err != nil {
 		t.Fatal(err)
 	}
-	invalid := `{"schemaVersion":1,"dataVersion":4,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":-2,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
-	if err := os.MkdirAll(svc.dataDir, 0o755); err != nil {
+	if urlCommand.Name != "rundll32" || len(urlCommand.Args) != 2 || urlCommand.Args[0] != "url.dll,FileProtocolHandler" || urlCommand.Args[1] != "https://example.com/docs" {
+		t.Fatalf("unexpected windows url open command: %#v", urlCommand)
+	}
+
+	fileCommand, err := openCommandForCollectionTarget(collectionTarget{Kind: "file", Path: `E:\Docs\note.txt`}, "windows")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(invalid), 0o644); err != nil {
+	if fileCommand.Name != "rundll32" || len(fileCommand.Args) != 2 || fileCommand.Args[0] != "url.dll,FileProtocolHandler" || fileCommand.Args[1] != `E:\Docs\note.txt` {
+		t.Fatalf("unexpected windows file open command: %#v", fileCommand)
+	}
+
+	folderCommand, err := openCommandForCollectionTarget(folderTarget(`E:\Projects`), "windows")
+	if err != nil {
 		t.Fatal(err)
 	}
+	if folderCommand.Name != "explorer" || len(folderCommand.Args) != 1 || folderCommand.Args[0] != `E:\Projects` {
+		t.Fatalf("unexpected windows folder open command: %#v", folderCommand)
+	}
+}
+
+func TestEnsureReadyDiagnosesUnsupportedExistingData(t *testing.T) {
+	svc := newTestService(t)
+	legacy := `{"schemaVersion":1,"dataVersion":4,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":-2,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	writeRawData(t, svc, legacy)
 	if err := svc.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
 	health := svc.health()
-	if health.Data.OK || !strings.Contains(health.Data.Error, "desktop icon row gap") {
-		t.Fatalf("expected data health error, got %#v", health)
+	if health.Data.OK || !strings.Contains(health.Data.Error, "dataVersion 4") {
+		t.Fatalf("expected unsupported baseline health error, got %#v", health)
 	}
 }
 
-func TestResetFoldersDataReplacesInvalidDataWithCurrentBaseline(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	invalid := `{"schemaVersion":1,"dataVersion":2,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38}},"updatedAt":"2026-01-01T00:00:00Z"}`
-	if err := os.MkdirAll(svc.dataDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(invalid), 0o644); err != nil {
-		t.Fatal(err)
-	}
+func TestResetCollectionWorkspaceReplacesInvalidDataWithCurrentBaseline(t *testing.T) {
+	svc := newTestService(t)
+	legacy := `{"schemaVersion":1,"dataVersion":2,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	writeRawData(t, svc, legacy)
 	if err := svc.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := svc.resetFoldersData()
+	doc, err := svc.resetWorkspaceView("folder")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.DataVersion != dataVersion || doc.Desktop.IconLayout.RowGap != defaultDesktopIconGap || doc.Desktop.IconLayout.ColumnGap != defaultDesktopIconGap || doc.Desktop.IconLayout.IconScale != defaultDesktopIconScale {
-		t.Fatalf("expected reset current baseline doc: %#v", doc)
-	}
+	assertDefaultWorkspaceView(t, doc, "folder")
 	if health := svc.health(); !health.Data.OK {
 		t.Fatalf("expected healthy data after reset: %#v", health)
 	}
 }
 
-func TestFoldersRoundTrip(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
+func TestDefaultCollectionsDocHasIndependentWorkspaces(t *testing.T) {
+	svc := readyService(t)
+	doc, err := svc.readCollections()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
+	if doc.ActiveCategoryID != defaultCategoryID || len(doc.Categories) != 3 {
+		t.Fatalf("unexpected default collections doc: %#v", doc)
+	}
+	for _, id := range []string{"folder", "url", "file"} {
+		workspace, _, err := workspaceByID(doc, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(workspace.Groups) != 1 || workspace.Groups[0].ID != defaultGroupID || len(workspace.Items) != 0 || len(workspace.Containers) != 0 {
+			t.Fatalf("unexpected default workspace %s: %#v", id, workspace)
+		}
+	}
+}
+
+func TestCollectionsItemsRoundTripAndCategoryIsolation(t *testing.T) {
+	svc := readyService(t)
+
+	folderDoc := addCollectionItem(t, svc, "folder", collectionItem{ID: "one", Name: "Projects", Target: folderTarget(`E:\Projects`), GroupID: defaultGroupID})
+	if len(folderDoc.Items) != 1 || folderDoc.Items[0].Name != "Projects" || folderDoc.Items[0].Target.Path != `E:\Projects` {
+		t.Fatalf("unexpected folder add result: %#v", folderDoc.Items)
 	}
 
-	doc, err := svc.addFolder(folderItem{ID: "one", Name: "Projects", Path: `E:\Projects`, GroupID: defaultGroupID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(doc.Items) != 1 || doc.Items[0].Name != "Projects" {
-		t.Fatalf("unexpected add result: %#v", doc.Items)
+	urlDoc := addCollectionItem(t, svc, "url", collectionItem{ID: "site", Name: "Example", Target: urlTarget("https://example.com"), GroupID: defaultGroupID})
+	if len(urlDoc.Items) != 1 || urlDoc.Items[0].Target.URL != "https://example.com" {
+		t.Fatalf("unexpected url add result: %#v", urlDoc.Items)
 	}
 
-	doc, err = svc.updateFolder(folderItem{ID: "one", Name: "Code", Path: `E:\Code`, GroupID: defaultGroupID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if doc.Items[0].Name != "Code" || doc.Items[0].Path != `E:\Code` {
-		t.Fatalf("unexpected update result: %#v", doc.Items[0])
+	folderDoc = updateCollectionItem(t, svc, "folder", collectionItem{ID: "one", Name: "Code", Target: folderTarget(`E:\Code`), GroupID: defaultGroupID})
+	if folderDoc.Items[0].Name != "Code" || folderDoc.Items[0].Target.Path != `E:\Code` {
+		t.Fatalf("unexpected update result: %#v", folderDoc.Items[0])
 	}
 
-	doc, err = svc.removeFolder("one")
+	urlDoc, err := svc.readWorkspaceView("url")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(doc.Items) != 0 {
-		t.Fatalf("expected empty items, got %#v", doc.Items)
+	if len(urlDoc.Items) != 1 || urlDoc.Items[0].ID != "site" {
+		t.Fatalf("url workspace should be isolated from folder updates: %#v", urlDoc.Items)
+	}
+
+	folderDoc, err = svc.removeItem("folder", "one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(folderDoc.Items) != 0 {
+		t.Fatalf("expected empty folder items, got %#v", folderDoc.Items)
 	}
 }
 
 func TestDesktopLayoutRoundTrip(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.addFolder(folderItem{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box", GroupID: defaultGroupID}); err != nil {
-		t.Fatal(err)
-	}
+	svc := readyService(t)
+	addCollectionItem(t, svc, "folder", collectionItem{ID: "one", Name: "One", Target: folderTarget(`E:\One`), GroupID: defaultGroupID})
+	addCollectionContainer(t, svc, "folder", desktopContainer{ID: "box", Name: "Box", GroupID: defaultGroupID})
 
-	doc, err := svc.saveDesktopLayouts(desktopLayoutSavePayload{GroupID: defaultGroupID, Items: []desktopLayoutPatch{
-		{Kind: "folder", ID: "one", Layout: folderGridLayout{X: 2, Y: 1}},
+	doc, err := svc.saveCollectionDesktopLayouts(categoryDesktopLayoutSavePayload{CategoryID: "folder", GroupID: defaultGroupID, Items: []desktopLayoutPatch{
+		{Kind: "item", ID: "one", Layout: folderGridLayout{X: 2, Y: 1}},
 		{Kind: "container", ID: "box", Layout: folderGridLayout{X: -2, Y: 3000}},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.Items[0].Layout == nil || doc.Items[0].Layout.X != 2 || doc.Items[0].Layout.Y != 1 {
-		t.Fatalf("unexpected folder layout: %#v", doc.Items[0].Layout)
+	if itemByID(doc, "one").Layout == nil || itemByID(doc, "one").Layout.X != 2 || itemByID(doc, "one").Layout.Y != 1 {
+		t.Fatalf("unexpected item layout: %#v", itemByID(doc, "one").Layout)
 	}
 	if doc.Containers[0].Layout == nil || doc.Containers[0].Layout.X != 0 || doc.Containers[0].Layout.Y != maxLayoutCoord {
 		t.Fatalf("unexpected container layout: %#v", doc.Containers[0].Layout)
 	}
-	doc, err = svc.updateFolder(folderItem{ID: "one", Name: "One Renamed", Path: `E:\One`, GroupID: defaultGroupID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if doc.Items[0].Layout == nil || doc.Items[0].Layout.X != 2 || doc.Items[0].Layout.Y != 1 {
-		t.Fatalf("folder update should preserve desktop layout: %#v", doc.Items[0].Layout)
+	doc = updateCollectionItem(t, svc, "folder", collectionItem{ID: "one", Name: "One Renamed", Target: folderTarget(`E:\One`), GroupID: defaultGroupID})
+	if itemByID(doc, "one").Layout == nil || itemByID(doc, "one").Layout.X != 2 || itemByID(doc, "one").Layout.Y != 1 {
+		t.Fatalf("item update should preserve desktop layout: %#v", itemByID(doc, "one").Layout)
 	}
 }
 
 func TestDesktopContainerRoundTrip(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.addFolder(folderItem{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.addFolder(folderItem{ID: "two", Name: "Two", Path: `E:\Two`, GroupID: defaultGroupID}); err != nil {
-		t.Fatal(err)
-	}
-	doc, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box", GroupID: defaultGroupID})
-	if err != nil {
-		t.Fatal(err)
-	}
+	svc := readyService(t)
+	addCollectionItem(t, svc, "folder", collectionItem{ID: "one", Name: "One", Target: folderTarget(`E:\One`), GroupID: defaultGroupID})
+	addCollectionItem(t, svc, "folder", collectionItem{ID: "two", Name: "Two", Target: folderTarget(`E:\Two`), GroupID: defaultGroupID})
+	doc := addCollectionContainer(t, svc, "folder", desktopContainer{ID: "box", Name: "Box", GroupID: defaultGroupID})
 	if len(doc.Containers) != 1 || doc.Containers[0].ID != "box" {
 		t.Fatalf("unexpected container add: %#v", doc.Containers)
 	}
-	doc, err = svc.saveItemContainer([]string{"one"}, "box")
-	if err != nil {
-		t.Fatal(err)
-	}
+	doc = saveCollectionItemContainer(t, svc, "folder", []string{"one"}, "box")
 	if containerIDByItem(doc, "one") != "box" || containerIDByItem(doc, "two") != "" {
 		t.Fatalf("unexpected item containers: %#v", doc.Items)
 	}
-	doc, err = svc.removeContainer("box")
+	doc, err := svc.removeCollectionContainer("folder", "box")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,75 +184,29 @@ func TestDesktopContainerRoundTrip(t *testing.T) {
 }
 
 func TestCreateContainerFromItemsRoundTrip(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range []folderItem{
-		{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID, Layout: &folderGridLayout{X: 2, Y: 0}},
-		{ID: "two", Name: "Two", Path: `E:\Two`, GroupID: defaultGroupID, Layout: &folderGridLayout{X: 4, Y: 0}},
-	} {
-		if _, err := svc.addFolder(item); err != nil {
-			t.Fatal(err)
-		}
-	}
+	svc := readyService(t)
+	addCollectionItem(t, svc, "folder", collectionItem{ID: "one", Name: "One", Target: folderTarget(`E:\One`), GroupID: defaultGroupID, Layout: &folderGridLayout{X: 2, Y: 0}})
+	addCollectionItem(t, svc, "folder", collectionItem{ID: "two", Name: "Two", Target: folderTarget(`E:\Two`), GroupID: defaultGroupID, Layout: &folderGridLayout{X: 4, Y: 0}})
 
-	doc, err := svc.createContainerFromItems(createContainerFromItemsPayload{SourceItemID: "one", TargetItemID: "two", Layout: folderGridLayout{X: 4, Y: 0}})
+	doc, err := svc.createCollectionContainerFromItems(categoryCreateContainerFromItemsPayload{CategoryID: "folder", SourceItemID: "one", TargetItemID: "two", Layout: folderGridLayout{X: 4, Y: 0}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(doc.Containers) != 1 || doc.Containers[0].Name != "新建收纳夹（1）" {
-		t.Fatalf("unexpected created container: %#v", doc.Containers)
-	}
-	if doc.Containers[0].Layout == nil || doc.Containers[0].Layout.X != 4 || doc.Containers[0].Layout.Y != 0 {
-		t.Fatalf("unexpected created container layout: %#v", doc.Containers[0].Layout)
-	}
-	if containerIDByItem(doc, "one") != doc.Containers[0].ID || containerIDByItem(doc, "two") != doc.Containers[0].ID {
-		t.Fatalf("expected both items in new container: %#v", doc.Items)
-	}
-	if itemByID(doc, "one").Layout != nil || itemByID(doc, "two").Layout != nil {
-		t.Fatalf("expected desktop layouts cleared: %#v", doc.Items)
-	}
-	if containerLayoutByItem(doc, "two") == nil || containerLayoutByItem(doc, "two").X != 0 || containerLayoutByItem(doc, "one") == nil || containerLayoutByItem(doc, "one").X != 1 {
-		t.Fatalf("unexpected container item layouts: %#v", doc.Items)
-	}
-	if _, err := svc.createContainerFromItems(createContainerFromItemsPayload{SourceItemID: "one", TargetItemID: "two", Layout: folderGridLayout{}}); err == nil {
-		t.Fatal("expected contained target folder to be rejected")
+	assertCreatedContainerFromItems(t, doc, "one", "two", 4)
+	if _, err := svc.createCollectionContainerFromItems(categoryCreateContainerFromItemsPayload{CategoryID: "folder", SourceItemID: "one", TargetItemID: "two", Layout: folderGridLayout{}}); err == nil {
+		t.Fatal("expected contained target item to be rejected")
 	}
 }
 
 func TestCreateContainerFromExtractedSourceItem(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range []folderItem{
-		{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID},
-		{ID: "two", Name: "Two", Path: `E:\Two`, GroupID: defaultGroupID, Layout: &folderGridLayout{X: 3, Y: 0}},
-	} {
-		if _, err := svc.addFolder(item); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box", GroupID: defaultGroupID}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.saveItemContainer([]string{"one"}, "box"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.placeContainerItems(containerItemsPlacement{ContainerID: "box", Items: []containerLayoutPatch{{ID: "one", Layout: folderGridLayout{X: 0, Y: 0}}}}); err != nil {
-		t.Fatal(err)
-	}
+	svc := readyService(t)
+	addCollectionItem(t, svc, "folder", collectionItem{ID: "one", Name: "One", Target: folderTarget(`E:\One`), GroupID: defaultGroupID})
+	addCollectionItem(t, svc, "folder", collectionItem{ID: "two", Name: "Two", Target: folderTarget(`E:\Two`), GroupID: defaultGroupID, Layout: &folderGridLayout{X: 3, Y: 0}})
+	addCollectionContainer(t, svc, "folder", desktopContainer{ID: "box", Name: "Box", GroupID: defaultGroupID})
+	saveCollectionItemContainer(t, svc, "folder", []string{"one"}, "box")
+	placeCollectionContainerItems(t, svc, "folder", categoryContainerItemsPlacement{ContainerID: "box", Items: []containerLayoutPatch{{ID: "one", Layout: folderGridLayout{X: 0, Y: 0}}}})
 
-	doc, err := svc.createContainerFromItems(createContainerFromItemsPayload{SourceItemID: "one", TargetItemID: "two", Layout: folderGridLayout{X: 3, Y: 0}})
+	doc, err := svc.createCollectionContainerFromItems(categoryCreateContainerFromItemsPayload{CategoryID: "folder", SourceItemID: "one", TargetItemID: "two", Layout: folderGridLayout{X: 3, Y: 0}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,26 +225,11 @@ func TestCreateContainerFromExtractedSourceItem(t *testing.T) {
 }
 
 func TestCreateContainerFromItemsUsesNextName(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range []folderItem{
-		{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID},
-		{ID: "two", Name: "Two", Path: `E:\Two`, GroupID: defaultGroupID},
-	} {
-		if _, err := svc.addFolder(item); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "新建收纳夹（1）", GroupID: defaultGroupID}); err != nil {
-		t.Fatal(err)
-	}
-	doc, err := svc.createContainerFromItems(createContainerFromItemsPayload{SourceItemID: "one", TargetItemID: "two", Layout: folderGridLayout{X: 1, Y: 1}})
+	svc := readyService(t)
+	addCollectionItem(t, svc, "folder", collectionItem{ID: "one", Name: "One", Target: folderTarget(`E:\One`), GroupID: defaultGroupID})
+	addCollectionItem(t, svc, "folder", collectionItem{ID: "two", Name: "Two", Target: folderTarget(`E:\Two`), GroupID: defaultGroupID})
+	addCollectionContainer(t, svc, "folder", desktopContainer{ID: "box", Name: "新建收纳夹（1）", GroupID: defaultGroupID})
+	doc, err := svc.createCollectionContainerFromItems(categoryCreateContainerFromItemsPayload{CategoryID: "folder", SourceItemID: "one", TargetItemID: "two", Layout: folderGridLayout{X: 1, Y: 1}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -318,102 +239,39 @@ func TestCreateContainerFromItemsUsesNextName(t *testing.T) {
 }
 
 func TestContainerItemsPlacementRoundTrip(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range []folderItem{
-		{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID},
-		{ID: "two", Name: "Two", Path: `E:\Two`, GroupID: defaultGroupID},
-	} {
-		if _, err := svc.addFolder(item); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box", GroupID: defaultGroupID}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.saveItemContainer([]string{"one"}, "box"); err != nil {
-		t.Fatal(err)
-	}
+	svc := readyService(t)
+	addCollectionItem(t, svc, "folder", collectionItem{ID: "one", Name: "One", Target: folderTarget(`E:\One`), GroupID: defaultGroupID})
+	addCollectionItem(t, svc, "folder", collectionItem{ID: "two", Name: "Two", Target: folderTarget(`E:\Two`), GroupID: defaultGroupID})
+	addCollectionContainer(t, svc, "folder", desktopContainer{ID: "box", Name: "Box", GroupID: defaultGroupID})
+	saveCollectionItemContainer(t, svc, "folder", []string{"one"}, "box")
 
-	doc, err := svc.placeContainerItems(containerItemsPlacement{
-		ContainerID: "box",
-		Items:       []containerLayoutPatch{{ID: "one", Layout: folderGridLayout{X: 2, Y: 1}}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	doc := placeCollectionContainerItems(t, svc, "folder", categoryContainerItemsPlacement{ContainerID: "box", Items: []containerLayoutPatch{{ID: "one", Layout: folderGridLayout{X: 2, Y: 1}}}})
 	if containerLayoutByItem(doc, "one") == nil || containerLayoutByItem(doc, "one").X != 2 || containerLayoutByItem(doc, "one").Y != 1 {
 		t.Fatalf("unexpected container layout: %#v", itemByID(doc, "one"))
 	}
 
-	doc, err = svc.placeContainerItems(containerItemsPlacement{
-		ContainerID: "box",
-		MovedID:     "two",
-		Items: []containerLayoutPatch{
-			{ID: "one", Layout: folderGridLayout{X: 0, Y: 0}},
-			{ID: "two", Layout: folderGridLayout{X: 1, Y: 0}},
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	doc = placeCollectionContainerItems(t, svc, "folder", categoryContainerItemsPlacement{ContainerID: "box", MovedID: "two", Items: []containerLayoutPatch{{ID: "one", Layout: folderGridLayout{X: 0, Y: 0}}, {ID: "two", Layout: folderGridLayout{X: 1, Y: 0}}}})
 	if containerIDByItem(doc, "two") != "box" || containerLayoutByItem(doc, "two") == nil || containerLayoutByItem(doc, "two").X != 1 {
 		t.Fatalf("expected moved item to be placed atomically: %#v", itemByID(doc, "two"))
 	}
-	if _, err := svc.placeContainerItems(containerItemsPlacement{ContainerID: "box", Items: []containerLayoutPatch{{ID: "missing", Layout: folderGridLayout{}}}}); err == nil {
-		t.Fatal("expected missing folder placement to fail")
+	if _, err := svc.placeCollectionContainerItems(categoryContainerItemsPlacement{CategoryID: "folder", ContainerID: "box", Items: []containerLayoutPatch{{ID: "missing", Layout: folderGridLayout{}}}}); err == nil {
+		t.Fatal("expected missing item placement to fail")
 	}
-	doc, err = svc.saveItemContainer([]string{"one"}, "")
-	if err != nil {
-		t.Fatal(err)
-	}
+	doc = saveCollectionItemContainer(t, svc, "folder", []string{"one"}, "")
 	if containerLayoutByItem(doc, "one") != nil {
 		t.Fatalf("expected moving out to clear container layout: %#v", itemByID(doc, "one"))
 	}
 }
 
 func TestExtractContainerItemToDesktopRoundTrip(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range []folderItem{
-		{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID},
-		{ID: "two", Name: "Two", Path: `E:\Two`, GroupID: defaultGroupID, Layout: &folderGridLayout{X: 1, Y: 0}},
-	} {
-		if _, err := svc.addFolder(item); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box", GroupID: defaultGroupID, Layout: &folderGridLayout{X: 0, Y: 0}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.saveItemContainer([]string{"one"}, "box"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.placeContainerItems(containerItemsPlacement{ContainerID: "box", Items: []containerLayoutPatch{{ID: "one", Layout: folderGridLayout{X: 0, Y: 0}}}}); err != nil {
-		t.Fatal(err)
-	}
+	svc := readyService(t)
+	addCollectionItem(t, svc, "folder", collectionItem{ID: "one", Name: "One", Target: folderTarget(`E:\One`), GroupID: defaultGroupID})
+	addCollectionItem(t, svc, "folder", collectionItem{ID: "two", Name: "Two", Target: folderTarget(`E:\Two`), GroupID: defaultGroupID, Layout: &folderGridLayout{X: 1, Y: 0}})
+	addCollectionContainer(t, svc, "folder", desktopContainer{ID: "box", Name: "Box", GroupID: defaultGroupID, Layout: &folderGridLayout{X: 0, Y: 0}})
+	saveCollectionItemContainer(t, svc, "folder", []string{"one"}, "box")
+	placeCollectionContainerItems(t, svc, "folder", categoryContainerItemsPlacement{ContainerID: "box", Items: []containerLayoutPatch{{ID: "one", Layout: folderGridLayout{X: 0, Y: 0}}}})
 
-	doc, err := svc.extractContainerItemToDesktop(extractContainerItemToDesktopPayload{
-		ContainerID: "box",
-		ItemID:      "one",
-		Items: []desktopLayoutPatch{
-			{Kind: "folder", ID: "one", Layout: folderGridLayout{X: 2, Y: 1}},
-			{Kind: "folder", ID: "two", Layout: folderGridLayout{X: 3, Y: 1}},
-			{Kind: "container", ID: "box", Layout: folderGridLayout{X: 0, Y: 2}},
-		},
-	})
+	doc, err := svc.extractCollectionContainerItemToDesktop(categoryExtractContainerItemToDesktopPayload{CategoryID: "folder", ContainerID: "box", ItemID: "one", Items: []desktopLayoutPatch{{Kind: "item", ID: "one", Layout: folderGridLayout{X: 2, Y: 1}}, {Kind: "item", ID: "two", Layout: folderGridLayout{X: 3, Y: 1}}, {Kind: "container", ID: "box", Layout: folderGridLayout{X: 0, Y: 2}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,108 +290,68 @@ func TestExtractContainerItemToDesktopRoundTrip(t *testing.T) {
 }
 
 func TestExtractContainerItemToDesktopRejectsInvalidPatches(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
-	}
-	for _, item := range []folderItem{
-		{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID},
-		{ID: "two", Name: "Two", Path: `E:\Two`, GroupID: defaultGroupID},
-	} {
-		if _, err := svc.addFolder(item); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box", GroupID: defaultGroupID}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.saveItemContainer([]string{"one", "two"}, "box"); err != nil {
-		t.Fatal(err)
-	}
+	svc := readyService(t)
+	addCollectionItem(t, svc, "folder", collectionItem{ID: "one", Name: "One", Target: folderTarget(`E:\One`), GroupID: defaultGroupID})
+	addCollectionItem(t, svc, "folder", collectionItem{ID: "two", Name: "Two", Target: folderTarget(`E:\Two`), GroupID: defaultGroupID})
+	addCollectionContainer(t, svc, "folder", desktopContainer{ID: "box", Name: "Box", GroupID: defaultGroupID})
+	saveCollectionItemContainer(t, svc, "folder", []string{"one", "two"}, "box")
 
-	if _, err := svc.extractContainerItemToDesktop(extractContainerItemToDesktopPayload{ContainerID: "box", ItemID: "one", Items: []desktopLayoutPatch{{Kind: "folder", ID: "two", Layout: folderGridLayout{X: 1, Y: 0}}}}); err == nil {
-		t.Fatal("expected missing moved folder layout to fail")
+	if _, err := svc.extractCollectionContainerItemToDesktop(categoryExtractContainerItemToDesktopPayload{CategoryID: "folder", ContainerID: "box", ItemID: "one", Items: []desktopLayoutPatch{{Kind: "item", ID: "two", Layout: folderGridLayout{X: 1, Y: 0}}}}); err == nil {
+		t.Fatal("expected missing moved item layout to fail")
 	}
-	if _, err := svc.extractContainerItemToDesktop(extractContainerItemToDesktopPayload{ContainerID: "box", ItemID: "one", Items: []desktopLayoutPatch{{Kind: "folder", ID: "one", Layout: folderGridLayout{X: 1, Y: 0}}, {Kind: "folder", ID: "two", Layout: folderGridLayout{X: 2, Y: 0}}}}); err == nil || !strings.Contains(err.Error(), "folder is not on desktop") {
+	if _, err := svc.extractCollectionContainerItemToDesktop(categoryExtractContainerItemToDesktopPayload{CategoryID: "folder", ContainerID: "box", ItemID: "one", Items: []desktopLayoutPatch{{Kind: "item", ID: "one", Layout: folderGridLayout{X: 1, Y: 0}}, {Kind: "item", ID: "two", Layout: folderGridLayout{X: 2, Y: 0}}}}); err == nil || !strings.Contains(err.Error(), "item is not on desktop") {
 		t.Fatalf("expected contained sibling desktop layout to fail, got %v", err)
 	}
-	if _, err := svc.extractContainerItemToDesktop(extractContainerItemToDesktopPayload{ContainerID: "box", ItemID: "missing", Items: []desktopLayoutPatch{{Kind: "folder", ID: "missing", Layout: folderGridLayout{X: 1, Y: 0}}}}); err == nil || !strings.Contains(err.Error(), "folder not found") {
-		t.Fatalf("expected missing folder to fail, got %v", err)
+	if _, err := svc.extractCollectionContainerItemToDesktop(categoryExtractContainerItemToDesktopPayload{CategoryID: "folder", ContainerID: "box", ItemID: "missing", Items: []desktopLayoutPatch{{Kind: "item", ID: "missing", Layout: folderGridLayout{X: 1, Y: 0}}}}); err == nil || !strings.Contains(err.Error(), "item not found") {
+		t.Fatalf("expected missing item to fail, got %v", err)
 	}
 }
 
 func TestDesktopIconRoundTrip(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.addFolder(folderItem{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box", GroupID: defaultGroupID}); err != nil {
-		t.Fatal(err)
-	}
-	doc, err := svc.saveDesktopIcon("folder", "one", &desktopIcon{Kind: "color", Color: "#8fa99b"})
+	svc := readyService(t)
+	addCollectionItem(t, svc, "folder", collectionItem{ID: "one", Name: "One", Target: folderTarget(`E:\One`), GroupID: defaultGroupID})
+	doc, err := svc.saveCollectionItemIcon("folder", "one", &desktopIcon{Kind: "color", Color: "#8fa99b"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if doc.Items[0].Icon == nil || doc.Items[0].Icon.Color != "#8FA99B" {
-		t.Fatalf("unexpected folder icon: %#v", doc.Items[0].Icon)
+		t.Fatalf("unexpected item icon: %#v", doc.Items[0].Icon)
 	}
-	if _, err := svc.saveDesktopIcon("container", "box", &desktopIcon{Kind: "color", Color: "#8FA6B8"}); err == nil {
-		t.Fatal("expected container icon customization to fail")
+	if _, err := svc.saveCollectionItemIcon("folder", "missing", &desktopIcon{Kind: "color", Color: "#8FA6B8"}); err == nil {
+		t.Fatal("expected missing item icon customization to fail")
 	}
-	if _, err := svc.saveDesktopIcon("folder", "one", &desktopIcon{Kind: "color", Color: "#FF0000"}); err == nil {
+	if _, err := svc.saveCollectionItemIcon("folder", "one", &desktopIcon{Kind: "color", Color: "#FF0000"}); err == nil {
 		t.Fatal("expected unsupported icon color to fail")
 	}
 }
 
 func TestDesktopWallpaperRoundTrip(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
-	}
+	svc := readyService(t)
+	wallpaperAsset := wallpaperAssetsDir + "/0123456789abcdef0123456789abcdef01234567.png"
+	iconAsset := iconAssetsDir + "/0123456789abcdef0123456789abcdef01234567.png"
 
-	doc, err := svc.saveDesktopWallpaper(&desktopWallpaper{
-		ActiveID: "main",
-		Presets: []desktopWallpaperPreset{{
-			ID:      "main",
-			Name:    "主壁纸",
-			AssetID: wallpaperAssetsDir + "/0123456789abcdef0123456789abcdef01234567.png",
-			View:    desktopWallpaperView{X: 40.123, Y: 60.456, Scale: 1.234},
-		}},
-	})
+	doc, err := svc.saveCollectionDesktopWallpaper("folder", wallpaperWithPreset("main", wallpaperAsset, desktopWallpaperView{X: 40.123, Y: 60.456, Scale: 1.234}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if doc.Desktop.Wallpaper == nil || doc.Desktop.Wallpaper.ActiveID != "main" || len(doc.Desktop.Wallpaper.Presets) != 1 {
 		t.Fatalf("unexpected wallpaper: %#v", doc.Desktop.Wallpaper)
 	}
-	if doc.Desktop.Wallpaper.Presets[0].AssetID != wallpaperAssetsDir+"/0123456789abcdef0123456789abcdef01234567.png" || doc.Desktop.Wallpaper.Presets[0].View.Scale != 1.23 {
+	if doc.Desktop.Wallpaper.Presets[0].AssetID != wallpaperAsset || doc.Desktop.Wallpaper.Presets[0].View.Scale != 1.23 {
 		t.Fatalf("unexpected wallpaper preset normalization: %#v", doc.Desktop.Wallpaper.Presets[0])
 	}
-	if _, err := svc.saveDesktopWallpaper(&desktopWallpaper{ActiveID: "bad", Presets: []desktopWallpaperPreset{{ID: "bad", Name: "Bad", AssetID: iconAssetsDir + "/0123456789abcdef0123456789abcdef01234567.png", View: desktopWallpaperView{X: 50, Y: 50, Scale: 1}}}}); err == nil {
+	if _, err := svc.saveCollectionDesktopWallpaper("folder", wallpaperWithPreset("bad", iconAsset, desktopWallpaperView{X: 50, Y: 50, Scale: 1})); err == nil {
 		t.Fatal("expected icon asset id to fail for wallpaper")
 	}
-	if _, err := svc.saveDesktopWallpaper(&desktopWallpaper{ActiveID: "missing", Presets: []desktopWallpaperPreset{{ID: "main", Name: "主壁纸", AssetID: wallpaperAssetsDir + "/0123456789abcdef0123456789abcdef01234567.png", View: desktopWallpaperView{X: 50, Y: 50, Scale: 1}}}}); err == nil {
+	missingActive := wallpaperWithPreset("main", wallpaperAsset, desktopWallpaperView{X: 50, Y: 50, Scale: 1})
+	missingActive.ActiveID = "missing"
+	if _, err := svc.saveCollectionDesktopWallpaper("folder", missingActive); err == nil {
 		t.Fatal("expected missing active wallpaper preset to fail")
 	}
-	if _, err := svc.saveDesktopWallpaper(&desktopWallpaper{ActiveID: "main", Presets: []desktopWallpaperPreset{{ID: "main", Name: "主壁纸", AssetID: wallpaperAssetsDir + "/0123456789abcdef0123456789abcdef01234567.png", View: desktopWallpaperView{X: -1, Y: 50, Scale: 1}}}}); err == nil {
+	if _, err := svc.saveCollectionDesktopWallpaper("folder", wallpaperWithPreset("main", wallpaperAsset, desktopWallpaperView{X: -1, Y: 50, Scale: 1})); err == nil {
 		t.Fatal("expected invalid wallpaper view to fail")
 	}
-	doc, err = svc.saveDesktopWallpaper(nil)
+	doc, err = svc.saveCollectionDesktopWallpaper("folder", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -543,16 +361,8 @@ func TestDesktopWallpaperRoundTrip(t *testing.T) {
 }
 
 func TestDesktopIconLayoutRoundTrip(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
-	}
-
-	doc, err := svc.readFolders()
+	svc := readyService(t)
+	doc, err := svc.readWorkspaceView("folder")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -560,41 +370,33 @@ func TestDesktopIconLayoutRoundTrip(t *testing.T) {
 		t.Fatalf("expected default desktop icon layout: %#v", doc.Desktop.IconLayout)
 	}
 
-	doc, err = svc.saveDesktopIconLayout(desktopIconLayout{RowGap: 52, ColumnGap: 64, IconScale: 1.2})
+	doc, err = svc.saveCollectionDesktopIconLayout("folder", desktopIconLayout{RowGap: 52, ColumnGap: 64, IconScale: 1.2})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if doc.Desktop.IconLayout.RowGap != 52 || doc.Desktop.IconLayout.ColumnGap != 64 || doc.Desktop.IconLayout.IconScale != 1.2 {
 		t.Fatalf("unexpected desktop icon layout: %#v", doc.Desktop.IconLayout)
 	}
-	if _, err := svc.saveDesktopIconLayout(desktopIconLayout{RowGap: -2, ColumnGap: 38, IconScale: 1}); err == nil {
+	if _, err := svc.saveCollectionDesktopIconLayout("folder", desktopIconLayout{RowGap: -2, ColumnGap: 38, IconScale: 1}); err == nil {
 		t.Fatal("expected negative row gap to fail")
 	}
-	if _, err := svc.saveDesktopIconLayout(desktopIconLayout{RowGap: 38, ColumnGap: 80, IconScale: 1}); err == nil {
+	if _, err := svc.saveCollectionDesktopIconLayout("folder", desktopIconLayout{RowGap: 38, ColumnGap: 80, IconScale: 1}); err == nil {
 		t.Fatal("expected too large column gap to fail")
 	}
-	if _, err := svc.saveDesktopIconLayout(desktopIconLayout{RowGap: 38, ColumnGap: 38, IconScale: 2}); err == nil {
+	if _, err := svc.saveCollectionDesktopIconLayout("folder", desktopIconLayout{RowGap: 38, ColumnGap: 38, IconScale: 2}); err == nil {
 		t.Fatal("expected too large icon scale to fail")
 	}
 }
 
 func TestInvalidPersistedDataIsDiagnosedAfterStartup(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	invalid := `{"schemaVersion":1,"dataVersion":4,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":-2,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
-	if err := os.MkdirAll(svc.dataDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(invalid), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	svc := newTestService(t)
+	doc := defaultCollectionsDoc()
+	doc.Categories[0].Desktop.IconLayout.RowGap = -2
+	writeRawDoc(t, svc, doc)
 	if err := svc.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.readFolders(); err == nil || !strings.Contains(err.Error(), "desktop icon row gap") {
+	if _, err := svc.readCollections(); err == nil || !strings.Contains(err.Error(), "desktop icon row gap") {
 		t.Fatalf("expected row gap read error, got %v", err)
 	}
 	if health := svc.health(); health.Data.OK || !strings.Contains(health.Data.Error, "desktop icon row gap") {
@@ -603,22 +405,13 @@ func TestInvalidPersistedDataIsDiagnosedAfterStartup(t *testing.T) {
 }
 
 func TestMissingCurrentBaselineFieldIsDiagnosedAfterStartup(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	invalid := `{"schemaVersion":1,"dataVersion":4,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38}},"updatedAt":"2026-01-01T00:00:00Z"}`
-	if err := os.MkdirAll(svc.dataDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(invalid), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	svc := newTestService(t)
+	missingIconScale := `{"schemaVersion":1,"dataVersion":5,"activeCategoryId":"folder","categories":[{"id":"folder","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0}}},{"id":"url","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}},{"id":"file","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}}],"updatedAt":"2026-01-01T00:00:00Z"}`
+	writeRawData(t, svc, missingIconScale)
 	if err := svc.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.readFolders(); err == nil || !strings.Contains(err.Error(), "desktop.iconLayout.iconScale") {
+	if _, err := svc.readCollections(); err == nil || !strings.Contains(err.Error(), "desktop.iconLayout.iconScale") {
 		t.Fatalf("expected missing icon scale read error, got %v", err)
 	}
 	if health := svc.health(); health.Data.OK || !strings.Contains(health.Data.Error, "desktop.iconLayout.iconScale") {
@@ -627,49 +420,32 @@ func TestMissingCurrentBaselineFieldIsDiagnosedAfterStartup(t *testing.T) {
 }
 
 func TestCurrentBaselineRejectsInvalidReferencesAndDuplicates(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
-	}
+	svc := readyService(t)
 
-	invalidContainerRef := `{"schemaVersion":1,"dataVersion":4,"groups":[{"id":"default","name":"默认"}],"items":[{"id":"one","name":"One","path":"E:/One","groupId":"default","containerId":"missing","createdAtMs":1,"updatedAtMs":1}],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
-	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(invalidContainerRef), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.readFolders(); err == nil || !strings.Contains(err.Error(), "container not found") {
+	invalidContainerRef := defaultCollectionsDoc()
+	invalidContainerRef.Categories[0].Items = []collectionItem{{ID: "one", Name: "One", Target: folderTarget("E:/One"), GroupID: defaultGroupID, ContainerID: "missing", CreatedAtMS: 1, UpdatedAtMS: 1}}
+	writeRawDoc(t, svc, invalidContainerRef)
+	if _, err := svc.readCollections(); err == nil || !strings.Contains(err.Error(), "container not found") {
 		t.Fatalf("expected missing container error, got %v", err)
 	}
 
-	duplicateItem := `{"schemaVersion":1,"dataVersion":4,"groups":[{"id":"default","name":"默认"}],"items":[{"id":"one","name":"One","path":"E:/One","groupId":"default","createdAtMs":1,"updatedAtMs":1},{"id":"one","name":"Two","path":"E:/Two","groupId":"default","createdAtMs":2,"updatedAtMs":2}],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
-	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(duplicateItem), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.readFolders(); err == nil || !strings.Contains(err.Error(), "duplicate folder id") {
-		t.Fatalf("expected duplicate folder error, got %v", err)
+	duplicateItem := defaultCollectionsDoc()
+	duplicateItem.Categories[0].Items = []collectionItem{{ID: "one", Name: "One", Target: folderTarget("E:/One"), GroupID: defaultGroupID, CreatedAtMS: 1, UpdatedAtMS: 1}, {ID: "one", Name: "Two", Target: folderTarget("E:/Two"), GroupID: defaultGroupID, CreatedAtMS: 2, UpdatedAtMS: 2}}
+	writeRawDoc(t, svc, duplicateItem)
+	if _, err := svc.readCollections(); err == nil || !strings.Contains(err.Error(), "duplicate item id") {
+		t.Fatalf("expected duplicate item error, got %v", err)
 	}
 
-	invalidLayout := `{"schemaVersion":1,"dataVersion":4,"groups":[{"id":"default","name":"默认"}],"items":[{"id":"one","name":"One","path":"E:/One","groupId":"default","createdAtMs":1,"updatedAtMs":1,"layout":{"x":-1,"y":0}}],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
-	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(invalidLayout), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.readFolders(); err == nil || !strings.Contains(err.Error(), "layout x") {
+	invalidLayout := defaultCollectionsDoc()
+	invalidLayout.Categories[0].Items = []collectionItem{{ID: "one", Name: "One", Target: folderTarget("E:/One"), GroupID: defaultGroupID, CreatedAtMS: 1, UpdatedAtMS: 1, Layout: &folderGridLayout{X: -1, Y: 0}}}
+	writeRawDoc(t, svc, invalidLayout)
+	if _, err := svc.readCollections(); err == nil || !strings.Contains(err.Error(), "layout x") {
 		t.Fatalf("expected invalid layout error, got %v", err)
 	}
 }
 
 func TestImportAssetCopiesImagesAndRejectsInvalidContent(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
-	}
+	svc := readyService(t)
 	sourcePath := filepath.Join(t.TempDir(), "icon.png")
 	if err := os.WriteFile(sourcePath, mustTinyPNG(t), 0o644); err != nil {
 		t.Fatal(err)
@@ -705,15 +481,7 @@ func TestImportAssetCopiesImagesAndRejectsInvalidContent(t *testing.T) {
 }
 
 func TestWallpaperImportHasNoFileSizeLimit(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
-	}
-
+	svc := readyService(t)
 	largeImage := append(mustTinyPNG(t), make([]byte, maxIconAssetBytes+1)...)
 	sourcePath := filepath.Join(t.TempDir(), "large-wallpaper.png")
 	if err := os.WriteFile(sourcePath, largeImage, 0o644); err != nil {
@@ -732,99 +500,75 @@ func TestWallpaperImportHasNoFileSizeLimit(t *testing.T) {
 	}
 }
 
-func TestFolderValidationRequiresNamePathAndValidGroup(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
+func TestCollectionItemValidationRequiresTargetAndValidGroup(t *testing.T) {
+	svc := readyService(t)
+	if _, err := svc.addItem("folder", collectionItem{ID: "one", Name: "Projects", Target: collectionTarget{Kind: "folder"}, GroupID: defaultGroupID}); err == nil {
+		t.Fatal("expected missing folder path to fail")
 	}
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.addFolder(folderItem{ID: "one", Path: `E:\Projects`, GroupID: defaultGroupID}); err == nil {
-		t.Fatal("expected missing name to fail")
-	}
-	if _, err := svc.addFolder(folderItem{ID: "one", Name: "Projects", GroupID: defaultGroupID}); err == nil {
-		t.Fatal("expected missing path to fail")
-	}
-	if _, err := svc.addFolder(folderItem{ID: "one", Name: "Projects", Path: `E:\Projects`, GroupID: "missing"}); err == nil {
+	if _, err := svc.addItem("folder", collectionItem{ID: "one", Name: "Projects", Target: folderTarget(`E:\Projects`), GroupID: "missing"}); err == nil {
 		t.Fatal("expected missing group to fail")
+	}
+	if _, err := svc.addItem("url", collectionItem{ID: "site", Name: "Bad", Target: collectionTarget{Kind: "url", URL: "ftp://example.com"}, GroupID: defaultGroupID}); err == nil {
+		t.Fatal("expected unsupported url protocol to fail")
+	}
+	if _, err := svc.addItem("folder", collectionItem{ID: "site", Name: "Wrong", Target: urlTarget("https://example.com"), GroupID: defaultGroupID}); err == nil {
+		t.Fatal("expected category and target mismatch to fail")
 	}
 }
 
 func TestGroupsRoundTripAndDeleteMovesItemsToDefault(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := svc.ensureReady(); err != nil {
-		t.Fatal(err)
-	}
-	doc, err := svc.addGroup(folderGroup{ID: "work", Name: "工作"})
+	svc := readyService(t)
+	doc, err := svc.addCollectionGroup("folder", collectionGroup{ID: "work", Name: "工作"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(doc.Groups) != 2 {
 		t.Fatalf("expected group added: %#v", doc.Groups)
 	}
-	doc, err = svc.addFolder(folderItem{ID: "one", Name: "Projects", Path: `E:\Projects`, GroupID: "work"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc, err = svc.updateGroup(folderGroup{ID: "work", Name: "项目"})
+	doc = addCollectionItem(t, svc, "folder", collectionItem{ID: "one", Name: "Projects", Target: folderTarget(`E:\Projects`), GroupID: "work"})
+	doc, err = svc.updateCollectionGroup("folder", collectionGroup{ID: "work", Name: "项目"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if doc.Groups[1].Name != "项目" {
 		t.Fatalf("expected group rename: %#v", doc.Groups[1])
 	}
-	doc, err = svc.removeGroup("work")
+	doc, err = svc.removeCollectionGroup("folder", "work")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(doc.Groups) != 1 || doc.Items[0].GroupID != defaultGroupID {
+	if len(doc.Groups) != 1 || itemByID(doc, "one").GroupID != defaultGroupID {
 		t.Fatalf("expected item moved to default: %#v", doc)
 	}
-	if _, err := svc.removeGroup(defaultGroupID); err == nil {
+	if _, err := svc.removeCollectionGroup("folder", defaultGroupID); err == nil {
 		t.Fatal("expected default group removal to fail")
 	}
 }
 
-func TestFolderGroupTransferUsesSingleOwnership(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
+func TestItemGroupTransferUsesSingleOwnership(t *testing.T) {
+	svc := readyService(t)
+	if _, err := svc.addCollectionGroup("folder", collectionGroup{ID: "work", Name: "工作"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.ensureReady(); err != nil {
+	if _, err := svc.addCollectionGroup("folder", collectionGroup{ID: "design", Name: "设计"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.addGroup(folderGroup{ID: "work", Name: "工作"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.addGroup(folderGroup{ID: "design", Name: "设计"}); err != nil {
-		t.Fatal(err)
-	}
-	doc, err := svc.addFolder(folderItem{ID: "one", Name: "Projects", Path: `E:\Projects`, GroupID: defaultGroupID, Layout: &folderGridLayout{X: 2, Y: 0}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	doc, err = svc.moveFolderToGroup(folderGroupTransferPayload{ID: "one", GroupID: "work"})
+	doc := addCollectionItem(t, svc, "folder", collectionItem{ID: "one", Name: "Projects", Target: folderTarget(`E:\Projects`), GroupID: defaultGroupID, Layout: &folderGridLayout{X: 2, Y: 0}})
+	doc, err := svc.moveItemToGroup(itemGroupTransferPayload{CategoryID: "folder", ID: "one", GroupID: "work"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if itemByID(doc, "one").GroupID != "work" || itemByID(doc, "one").Layout != nil {
 		t.Fatalf("expected moved item to have single work ownership and cleared desktop layout: %#v", itemByID(doc, "one"))
 	}
-	doc, err = svc.copyFolderToGroup(folderGroupTransferPayload{ID: "one", GroupID: "design"})
+	doc, err = svc.copyItemToGroup(itemGroupTransferPayload{CategoryID: "folder", ID: "one", GroupID: "design"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(doc.Items) != 2 {
-		t.Fatalf("expected copied item to create an independent folder: %#v", doc.Items)
+		t.Fatalf("expected copied item to create an independent item: %#v", doc.Items)
 	}
-	var copied *folderItem
+	var copied *collectionItem
 	for i := range doc.Items {
 		if doc.Items[i].ID != "one" {
 			copied = &doc.Items[i]
@@ -833,39 +577,24 @@ func TestFolderGroupTransferUsesSingleOwnership(t *testing.T) {
 	if copied == nil || copied.GroupID != "design" || copied.ContainerID != "" || copied.Layout != nil || copied.ContainerLayout != nil {
 		t.Fatalf("expected copied item to have isolated design ownership: %#v", copied)
 	}
-	if _, err := svc.copyFolderToGroup(folderGroupTransferPayload{ID: "one", GroupID: "work"}); err == nil {
+	if _, err := svc.copyItemToGroup(itemGroupTransferPayload{CategoryID: "folder", ID: "one", GroupID: "work"}); err == nil {
 		t.Fatal("expected copying to the same group to fail")
 	}
 }
 
 func TestRemovingGroupMovesDesktopObjectsToDefault(t *testing.T) {
-	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
-	svc, err := newService()
-	if err != nil {
+	svc := readyService(t)
+	if _, err := svc.addCollectionGroup("folder", collectionGroup{ID: "work", Name: "工作"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.ensureReady(); err != nil {
+	if _, err := svc.addCollectionGroup("folder", collectionGroup{ID: "design", Name: "设计"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.addGroup(folderGroup{ID: "work", Name: "工作"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.addGroup(folderGroup{ID: "design", Name: "设计"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.addFolder(folderItem{ID: "one", Name: "Projects", Path: `E:\Projects`, GroupID: "work", Layout: &folderGridLayout{X: 1, Y: 0}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box", GroupID: "work", Layout: &folderGridLayout{X: 2, Y: 0}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.saveItemContainer([]string{"one"}, "box"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.placeContainerItems(containerItemsPlacement{ContainerID: "box", Items: []containerLayoutPatch{{ID: "one", Layout: folderGridLayout{X: 0, Y: 0}}}}); err != nil {
-		t.Fatal(err)
-	}
-	doc, err := svc.removeGroup("work")
+	addCollectionItem(t, svc, "folder", collectionItem{ID: "one", Name: "Projects", Target: folderTarget(`E:\Projects`), GroupID: "work", Layout: &folderGridLayout{X: 1, Y: 0}})
+	addCollectionContainer(t, svc, "folder", desktopContainer{ID: "box", Name: "Box", GroupID: "work", Layout: &folderGridLayout{X: 2, Y: 0}})
+	saveCollectionItemContainer(t, svc, "folder", []string{"one"}, "box")
+	placeCollectionContainerItems(t, svc, "folder", categoryContainerItemsPlacement{ContainerID: "box", Items: []containerLayoutPatch{{ID: "one", Layout: folderGridLayout{X: 0, Y: 0}}}})
+	doc, err := svc.removeCollectionGroup("folder", "work")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -877,16 +606,151 @@ func TestRemovingGroupMovesDesktopObjectsToDefault(t *testing.T) {
 	}
 }
 
-func containerIDByItem(doc foldersDoc, id string) string {
-	for _, item := range doc.Items {
-		if item.ID == id {
-			return item.ContainerID
-		}
+func newTestService(t *testing.T) *service {
+	t.Helper()
+	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
+	svc, err := newService()
+	if err != nil {
+		t.Fatal(err)
 	}
-	return ""
+	return svc
 }
 
-func containerLayoutByItem(doc foldersDoc, id string) *folderGridLayout {
+func readyService(t *testing.T) *service {
+	t.Helper()
+	svc := newTestService(t)
+	if err := svc.ensureReady(); err != nil {
+		t.Fatal(err)
+	}
+	return svc
+}
+
+func assertDefaultWorkspaceView(t *testing.T, doc categoryWorkspaceView, id string) {
+	t.Helper()
+	if doc.ID != id || doc.DataVersion != dataVersion || doc.SchemaVersion != dataSchemaVersion {
+		t.Fatalf("unexpected workspace identity: %#v", doc)
+	}
+	if len(doc.Groups) != 1 || doc.Groups[0].ID != defaultGroupID || len(doc.Items) != 0 || len(doc.Containers) != 0 {
+		t.Fatalf("unexpected default workspace data: %#v", doc)
+	}
+	if doc.Desktop.IconLayout.RowGap != defaultDesktopIconGap || doc.Desktop.IconLayout.ColumnGap != defaultDesktopIconGap || doc.Desktop.IconLayout.IconScale != defaultDesktopIconScale {
+		t.Fatalf("unexpected default icon layout: %#v", doc.Desktop.IconLayout)
+	}
+}
+
+func assertCreatedContainerFromItems(t *testing.T, doc categoryWorkspaceView, sourceID string, targetID string, layoutX int) {
+	t.Helper()
+	if len(doc.Containers) != 1 || doc.Containers[0].Name != "新建收纳夹（1）" {
+		t.Fatalf("unexpected created container: %#v", doc.Containers)
+	}
+	if doc.Containers[0].Layout == nil || doc.Containers[0].Layout.X != layoutX || doc.Containers[0].Layout.Y != 0 {
+		t.Fatalf("unexpected created container layout: %#v", doc.Containers[0].Layout)
+	}
+	if containerIDByItem(doc, sourceID) != doc.Containers[0].ID || containerIDByItem(doc, targetID) != doc.Containers[0].ID {
+		t.Fatalf("expected both items in new container: %#v", doc.Items)
+	}
+	if itemByID(doc, sourceID).Layout != nil || itemByID(doc, targetID).Layout != nil {
+		t.Fatalf("expected desktop layouts cleared: %#v", doc.Items)
+	}
+	if containerLayoutByItem(doc, targetID) == nil || containerLayoutByItem(doc, targetID).X != 0 || containerLayoutByItem(doc, sourceID) == nil || containerLayoutByItem(doc, sourceID).X != 1 {
+		t.Fatalf("unexpected container item layouts: %#v", doc.Items)
+	}
+}
+
+func addCollectionItem(t *testing.T, svc *service, categoryID string, item collectionItem) categoryWorkspaceView {
+	t.Helper()
+	doc, err := svc.addItem(categoryID, item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return doc
+}
+
+func updateCollectionItem(t *testing.T, svc *service, categoryID string, item collectionItem) categoryWorkspaceView {
+	t.Helper()
+	doc, err := svc.updateItem(categoryID, item)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return doc
+}
+
+func addCollectionContainer(t *testing.T, svc *service, categoryID string, container desktopContainer) categoryWorkspaceView {
+	t.Helper()
+	doc, err := svc.addCollectionContainer(categoryID, container)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return doc
+}
+
+func saveCollectionItemContainer(t *testing.T, svc *service, categoryID string, ids []string, containerID string) categoryWorkspaceView {
+	t.Helper()
+	doc, err := svc.saveCollectionItemContainer(categoryID, ids, containerID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return doc
+}
+
+func placeCollectionContainerItems(t *testing.T, svc *service, categoryID string, payload categoryContainerItemsPlacement) categoryWorkspaceView {
+	t.Helper()
+	payload.CategoryID = categoryID
+	doc, err := svc.placeCollectionContainerItems(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return doc
+}
+
+func folderTarget(path string) collectionTarget {
+	return collectionTarget{Kind: "folder", Path: path}
+}
+
+func urlTarget(rawURL string) collectionTarget {
+	return collectionTarget{Kind: "url", URL: rawURL}
+}
+
+func wallpaperWithPreset(id string, assetID string, view desktopWallpaperView) *desktopWallpaper {
+	return &desktopWallpaper{
+		ActiveID: id,
+		Presets: []desktopWallpaperPreset{{
+			ID:      id,
+			Name:    "主壁纸",
+			AssetID: assetID,
+			View:    view,
+		}},
+	}
+}
+
+func writeRawData(t *testing.T, svc *service, data string) {
+	t.Helper()
+	if err := os.MkdirAll(svc.dataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(data), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeRawDoc(t *testing.T, svc *service, doc collectionsDoc) {
+	t.Helper()
+	payload, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRawData(t, svc, string(payload))
+}
+
+func containerIDByItem(doc categoryWorkspaceView, id string) string {
+	item := itemByID(doc, id)
+	if item == nil {
+		return ""
+	}
+	return item.ContainerID
+}
+
+func containerLayoutByItem(doc categoryWorkspaceView, id string) *folderGridLayout {
 	item := itemByID(doc, id)
 	if item == nil {
 		return nil
@@ -894,7 +758,7 @@ func containerLayoutByItem(doc foldersDoc, id string) *folderGridLayout {
 	return item.ContainerLayout
 }
 
-func itemByID(doc foldersDoc, id string) *folderItem {
+func itemByID(doc categoryWorkspaceView, id string) *collectionItem {
 	for i := range doc.Items {
 		if doc.Items[i].ID == id {
 			return &doc.Items[i]

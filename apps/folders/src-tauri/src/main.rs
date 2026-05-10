@@ -71,6 +71,16 @@ fn pick_folder_path(app: tauri::AppHandle) -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
+fn pick_file_path(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let window = main_window(&app)?;
+    Ok(rfd::FileDialog::new()
+        .set_parent(&window)
+        .set_title("选择要收藏的文件")
+        .pick_file()
+        .map(|path| path.display().to_string()))
+}
+
+#[tauri::command]
 fn pick_image_path(app: tauri::AppHandle) -> Result<Option<String>, String> {
     let window = main_window(&app)?;
     Ok(rfd::FileDialog::new()
@@ -154,6 +164,7 @@ fn main() {
             data_dir_status,
             pick_data_dir,
             pick_folder_path,
+            pick_file_path,
             pick_image_path,
             restart_backend,
             hide_to_tray,

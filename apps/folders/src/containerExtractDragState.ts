@@ -1,18 +1,18 @@
 import type { DesktopGridLayoutPatch } from './folder-grid/desktopEntries'
 import type { DesktopGridDragModifiers } from './shared/desktop-grid/core/dragTypes'
-import type { DesktopContainer, FolderItem, FoldersDoc } from './types'
+import type { CategoryWorkspace, CollectionContainer, CollectionItem } from './types'
 
 export type ContainerExtractDragMode = 'container' | 'desktop'
 
 export type ContainerExtractDragState = {
   containerId: string
   desktopDrag?: ContainerExtractDesktopDrag
-  item: FolderItem
+  item: CollectionItem
   mode: ContainerExtractDragMode
 } | null
 
 export type ContainerExtractDesktopDrag = {
-  item: FolderItem
+  item: CollectionItem
   clientX: number
   clientY: number
   offsetX: number
@@ -42,49 +42,49 @@ export function resolveContainerExtractNextDragMode(currentMode: ContainerExtrac
   return resolveContainerExtractDragMode(point, boundary)
 }
 
-export function isContainerSoftClosedForExtractDrag(drag: ContainerExtractDragState, container: DesktopContainer | null): boolean {
+export function isContainerSoftClosedForExtractDrag(drag: ContainerExtractDragState, container: CollectionContainer | null): boolean {
   return Boolean(drag && container && drag.containerId === container.id && drag.mode === 'desktop')
 }
 
-export function extractedItemIdForContainerView(drag: ContainerExtractDragState, container: DesktopContainer | null): string | undefined {
+export function extractedItemIdForContainerView(drag: ContainerExtractDragState, container: CollectionContainer | null): string | undefined {
   if (!drag || !container || drag.containerId !== container.id) return undefined
   return drag.item.id
 }
 
-export function applyContainerItemDesktopExtraction(doc: FoldersDoc, containerId: string, itemId: string, patches: DesktopGridLayoutPatch[]): FoldersDoc {
+export function applyContainerItemDesktopExtraction(workspace: CategoryWorkspace, containerId: string, itemId: string, patches: DesktopGridLayoutPatch[]): CategoryWorkspace {
   const desktopPatchByKey = buildDesktopPatchMap(patches)
-  const movedPatch = desktopPatchByKey.get(`folder:${itemId}`)
-  if (!movedPatch) throw new Error(`desktop extraction layout missing for folder: ${itemId}`)
+  const movedPatch = desktopPatchByKey.get(`item:${itemId}`)
+  if (!movedPatch) throw new Error(`desktop extraction layout missing for item: ${itemId}`)
   const appliedPatchKeys = new Set<string>()
   let movedFound = false
 
-  const nextDoc = {
-    ...doc,
-    items: doc.items.map(item => {
-      const key = `folder:${item.id}`
+  const nextWorkspace = {
+    ...workspace,
+    items: workspace.items.map(item => {
+      const key = `item:${item.id}`
       const patch = desktopPatchByKey.get(key)
       if (item.id === itemId) {
-        if (item.containerId !== containerId) throw new Error(`folder is not in container ${containerId}: ${item.id}`)
+        if (item.containerId !== containerId) throw new Error(`item is not in container ${containerId}: ${item.id}`)
         movedFound = true
         appliedPatchKeys.add(key)
         return moveItemToDesktop(item, movedPatch.layout)
       }
-      if (patch && item.containerId) throw new Error(`folder is not on desktop: ${item.id}`)
+      if (patch && item.containerId) throw new Error(`item is not on desktop: ${item.id}`)
       if (patch) appliedPatchKeys.add(key)
       return patch ? { ...item, layout: patch.layout } : item
     }),
-    containers: doc.containers.map(container => {
+    containers: workspace.containers.map(container => {
       const key = `container:${container.id}`
       const patch = desktopPatchByKey.get(key)
       if (patch) appliedPatchKeys.add(key)
       return patch ? { ...container, layout: patch.layout } : container
     }),
   }
-  if (!movedFound) throw new Error(`folder not found: ${itemId}`)
+  if (!movedFound) throw new Error(`item not found: ${itemId}`)
   for (const key of desktopPatchByKey.keys()) {
     if (!appliedPatchKeys.has(key)) throw new Error(`desktop entry not found: ${key}`)
   }
-  return nextDoc
+  return nextWorkspace
 }
 
 function buildDesktopPatchMap(patches: DesktopGridLayoutPatch[]): Map<string, DesktopGridLayoutPatch> {
@@ -97,7 +97,7 @@ function buildDesktopPatchMap(patches: DesktopGridLayoutPatch[]): Map<string, De
   return patchByKey
 }
 
-function moveItemToDesktop(item: FolderItem, layout: FolderItem['layout']): FolderItem {
+function moveItemToDesktop(item: CollectionItem, layout: CollectionItem['layout']): CollectionItem {
   const nextItem = { ...item, layout }
   delete nextItem.containerId
   delete nextItem.containerLayout

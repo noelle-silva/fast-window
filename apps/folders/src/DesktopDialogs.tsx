@@ -3,11 +3,11 @@ import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
 import { Box, Button, Dialog, DialogContent, Divider, Stack, TextField, Typography } from '@mui/material'
 import { DESKTOP_ICON_COLORS } from './folder-grid/desktopIconTokens'
-import type { ContainerFormState, DesktopContainer, IconEditorState } from './types'
+import type { CollectionContainer, ContainerFormState, IconEditorState } from './types'
 
 export function ContainerDialog(props: {
   busy: boolean
-  editing: DesktopContainer | null
+  editing: CollectionContainer | null
   form: ContainerFormState
   open: boolean
   onChange(form: ContainerFormState): void
@@ -23,7 +23,7 @@ export function ContainerDialog(props: {
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>收纳夹会作为桌面图标显示；内容通过拖拽放入，内部位置也会直接保存。</Typography>
           </Box>
           <TextField label="名称" value={props.form.name} onChange={event => props.onChange({ ...props.form, name: event.target.value })} placeholder="例如：AI 工具" autoFocus fullWidth />
-          <Typography variant="caption" color="text.secondary">把桌面文件夹拖到收纳夹上停留即可展开并放入；打开收纳夹后也可以直接拖动内部图标排序。</Typography>
+          <Typography variant="caption" color="text.secondary">把桌面收藏项拖到收纳夹上停留即可展开并放入；打开收纳夹后也可以直接拖动内部图标排序。</Typography>
           <Stack direction="row" spacing={1} justifyContent="flex-end">
             <Button onClick={props.onClose}>取消</Button>
             <Button variant="contained" onClick={props.onSave} disabled={props.busy}>{props.editing ? '保存' : '创建'}</Button>

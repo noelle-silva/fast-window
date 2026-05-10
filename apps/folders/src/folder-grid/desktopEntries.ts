@@ -1,7 +1,8 @@
-import { folderMatchesGroup } from '../groupMembership'
-import type { DesktopGridEntry, DesktopEntryKind, FolderGridLayout, FoldersDoc } from '../types'
+import { itemTargetValue } from '../categoryRegistry'
+import { itemMatchesGroup } from '../groupMembership'
+import type { CategoryWorkspace, CollectionGridLayout, DesktopEntryKind, DesktopGridEntry } from '../types'
 
-export type DesktopGridLayoutPatch = { kind: DesktopEntryKind; id: string; layout: FolderGridLayout }
+export type DesktopGridLayoutPatch = { kind: DesktopEntryKind; id: string; layout: CollectionGridLayout }
 
 export function desktopEntryKey(kind: DesktopEntryKind, id: string): string {
   return `${kind}:${id}`
@@ -12,19 +13,19 @@ export function parseDesktopEntryKey(key: string): { kind: DesktopEntryKind; id:
   if (index <= 0) return null
   const kind = key.slice(0, index)
   const id = key.slice(index + 1)
-  if ((kind !== 'folder' && kind !== 'container') || !id) return null
+  if ((kind !== 'item' && kind !== 'container') || !id) return null
   return { kind, id }
 }
 
-export function buildDesktopGridEntries(doc: FoldersDoc, groupId: string): DesktopGridEntry[] {
+export function buildDesktopGridEntries(workspace: CategoryWorkspace, groupId: string): DesktopGridEntry[] {
   const containedItemCount = new Map<string, number>()
-  doc.items.forEach(item => {
+  workspace.items.forEach(item => {
     if (!item.containerId) return
     containedItemCount.set(item.containerId, (containedItemCount.get(item.containerId) || 0) + 1)
   })
 
   return [
-    ...doc.containers.filter(container => container.groupId === groupId).map(container => ({
+    ...workspace.containers.filter(container => container.groupId === groupId).map(container => ({
       kind: 'container' as const,
       id: container.id,
       name: container.name,
@@ -32,8 +33,8 @@ export function buildDesktopGridEntries(doc: FoldersDoc, groupId: string): Deskt
       container,
       itemCount: containedItemCount.get(container.id) || 0,
     })),
-    ...doc.items.filter(item => item.groupId === groupId && !item.containerId).map(item => ({
-      kind: 'folder' as const,
+    ...workspace.items.filter(item => item.groupId === groupId && !item.containerId).map(item => ({
+      kind: 'item' as const,
       id: item.id,
       name: item.name,
       layout: item.layout,
@@ -43,13 +44,13 @@ export function buildDesktopGridEntries(doc: FoldersDoc, groupId: string): Deskt
   ].sort((left, right) => entryPageOrder(left) - entryPageOrder(right) || left.name.localeCompare(right.name, 'zh-Hans-CN'))
 }
 
-export function filterDesktopGridEntries(doc: FoldersDoc, entries: DesktopGridEntry[], groupId: string, search: string): DesktopGridEntry[] {
+export function filterDesktopGridEntries(workspace: CategoryWorkspace, entries: DesktopGridEntry[], groupId: string, search: string): DesktopGridEntry[] {
   const q = search.trim().toLowerCase()
   return entries.filter(entry => {
-    if (entry.kind === 'folder') return matchesFolder(entry.item!, groupId, q)
-    const childItems = doc.items.filter(item => item.containerId === entry.id)
+    if (entry.kind === 'item') return matchesItem(entry.item!, groupId, q)
+    const childItems = workspace.items.filter(item => item.containerId === entry.id)
     const matchesContainerName = !q || entry.name.toLowerCase().includes(q)
-    const matchesChildren = childItems.some(item => matchesFolder(item, groupId, q))
+    const matchesChildren = childItems.some(item => matchesItem(item, groupId, q))
     return matchesContainerName || matchesChildren
   })
 }
@@ -58,7 +59,7 @@ function entryPageOrder(entry: DesktopGridEntry): number {
   return entry.kind === 'container' ? entry.container?.pageOrder ?? 0 : entry.item?.pageOrder ?? 0
 }
 
-function matchesFolder(item: NonNullable<DesktopGridEntry['item']>, groupId: string, q: string): boolean {
-  if (!folderMatchesGroup(item, groupId)) return false
-  return !q || item.name.toLowerCase().includes(q) || item.path.toLowerCase().includes(q)
+function matchesItem(item: NonNullable<DesktopGridEntry['item']>, groupId: string, q: string): boolean {
+  if (!itemMatchesGroup(item, groupId)) return false
+  return !q || item.name.toLowerCase().includes(q) || itemTargetValue(item).toLowerCase().includes(q)
 }

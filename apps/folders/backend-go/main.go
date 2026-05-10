@@ -15,6 +15,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,13 +30,14 @@ import (
 
 const (
 	dataSchemaVersion     = 1
-	dataVersion           = 4
+	dataVersion           = 5
 	dataFile              = "data.json"
 	metaFile              = "_meta.json"
 	assetsDir             = "assets"
 	iconAssetsDir         = "icons"
 	wallpaperAssetsDir    = "wallpapers"
 	defaultGroupID        = "default"
+	defaultCategoryID     = "folder"
 	maxLayoutCoord        = 2000
 	maxIconAssetBytes     = 12 * 1024 * 1024
 	defaultDesktopIconGap = 0
@@ -67,15 +69,21 @@ type responseFrame struct {
 	Error  map[string]any `json:"error,omitempty"`
 }
 
-type folderGroup struct {
+type collectionGroup struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
-type folderItem struct {
+type collectionTarget struct {
+	Kind string `json:"kind"`
+	Path string `json:"path,omitempty"`
+	URL  string `json:"url,omitempty"`
+}
+
+type collectionItem struct {
 	ID              string            `json:"id"`
 	Name            string            `json:"name"`
-	Path            string            `json:"path"`
+	Target          collectionTarget  `json:"target"`
 	GroupID         string            `json:"groupId"`
 	PageOrder       int64             `json:"pageOrder"`
 	ContainerID     string            `json:"containerId,omitempty"`
@@ -102,11 +110,6 @@ type desktopLayoutPatch struct {
 type desktopLayoutSavePayload struct {
 	GroupID string               `json:"groupId"`
 	Items   []desktopLayoutPatch `json:"items"`
-}
-
-type folderGroupTransferPayload struct {
-	ID      string `json:"id"`
-	GroupID string `json:"groupId"`
 }
 
 type containerLayoutPatch struct {
@@ -190,38 +193,143 @@ type desktopStateInput struct {
 	IconLayout *desktopIconLayoutInput `json:"iconLayout"`
 }
 
-type foldersDoc struct {
+type categoryWorkspace struct {
+	ID         string             `json:"id"`
+	Groups     []collectionGroup  `json:"groups"`
+	Items      []collectionItem   `json:"items"`
+	Containers []desktopContainer `json:"containers"`
+	Desktop    desktopState       `json:"desktop"`
+}
+
+type categoryWorkspaceInput struct {
+	ID         *string             `json:"id"`
+	Groups     *[]collectionGroup  `json:"groups"`
+	Items      *[]collectionItem   `json:"items"`
+	Containers *[]desktopContainer `json:"containers"`
+	Desktop    *desktopStateInput  `json:"desktop"`
+}
+
+type collectionsDoc struct {
+	SchemaVersion    int                 `json:"schemaVersion"`
+	DataVersion      int                 `json:"dataVersion"`
+	ActiveCategoryID string              `json:"activeCategoryId"`
+	Categories       []categoryWorkspace `json:"categories"`
+	UpdatedAt        string              `json:"updatedAt"`
+
+	Groups     []collectionGroup  `json:"-"`
+	Items      []collectionItem   `json:"-"`
+	Containers []desktopContainer `json:"-"`
+	Desktop    desktopState       `json:"-"`
+}
+
+type collectionsDocInput struct {
+	SchemaVersion    *int                      `json:"schemaVersion"`
+	DataVersion      *int                      `json:"dataVersion"`
+	ActiveCategoryID *string                   `json:"activeCategoryId"`
+	Categories       *[]categoryWorkspaceInput `json:"categories"`
+	UpdatedAt        *string                   `json:"updatedAt"`
+}
+
+type categoryWorkspaceView struct {
 	SchemaVersion int                `json:"schemaVersion"`
 	DataVersion   int                `json:"dataVersion"`
-	Groups        []folderGroup      `json:"groups"`
-	Items         []folderItem       `json:"items"`
+	ID            string             `json:"id"`
+	Groups        []collectionGroup  `json:"groups"`
+	Items         []collectionItem   `json:"items"`
 	Containers    []desktopContainer `json:"containers"`
 	Desktop       desktopState       `json:"desktop"`
-	UpdatedAt     string             `json:"updatedAt"`
 }
 
-type foldersDocInput struct {
-	SchemaVersion *int                `json:"schemaVersion"`
-	DataVersion   *int                `json:"dataVersion"`
-	Groups        *[]folderGroup      `json:"groups"`
-	Items         *[]folderItem       `json:"items"`
-	Containers    *[]desktopContainer `json:"containers"`
-	Desktop       *desktopStateInput  `json:"desktop"`
-	UpdatedAt     *string             `json:"updatedAt"`
+type categoryPayload struct {
+	CategoryID string `json:"categoryId"`
 }
 
-type foldersDataHealth struct {
+type itemPayload struct {
+	CategoryID string         `json:"categoryId"`
+	Item       collectionItem `json:"item"`
+}
+
+type itemIconPayload struct {
+	CategoryID string       `json:"categoryId"`
+	ID         string       `json:"id"`
+	Icon       *desktopIcon `json:"icon"`
+}
+
+type containerPayload struct {
+	CategoryID string           `json:"categoryId"`
+	Container  desktopContainer `json:"container"`
+}
+
+type removePayload struct {
+	CategoryID string `json:"categoryId"`
+	ID         string `json:"id"`
+}
+
+type groupPayload struct {
+	CategoryID string          `json:"categoryId"`
+	Group      collectionGroup `json:"group"`
+}
+
+type groupRemovePayload struct {
+	CategoryID string `json:"categoryId"`
+	ID         string `json:"id"`
+}
+
+type itemGroupTransferPayload struct {
+	CategoryID string `json:"categoryId"`
+	ID         string `json:"id"`
+	GroupID    string `json:"groupId"`
+}
+
+type categoryDesktopLayoutSavePayload struct {
+	CategoryID string               `json:"categoryId"`
+	GroupID    string               `json:"groupId"`
+	Items      []desktopLayoutPatch `json:"items"`
+}
+
+type categoryWallpaperPayload struct {
+	CategoryID string            `json:"categoryId"`
+	Wallpaper  *desktopWallpaper `json:"wallpaper"`
+}
+
+type categoryIconLayoutPayload struct {
+	CategoryID string            `json:"categoryId"`
+	IconLayout desktopIconLayout `json:"iconLayout"`
+}
+
+type categoryContainerItemsPlacement struct {
+	CategoryID  string                 `json:"categoryId"`
+	ContainerID string                 `json:"containerId"`
+	MovedID     string                 `json:"movedId,omitempty"`
+	Items       []containerLayoutPatch `json:"items"`
+}
+
+type categoryCreateContainerFromItemsPayload struct {
+	CategoryID   string           `json:"categoryId"`
+	SourceItemID string           `json:"sourceItemId"`
+	TargetItemID string           `json:"targetItemId"`
+	Layout       folderGridLayout `json:"layout"`
+}
+
+type categoryExtractContainerItemToDesktopPayload struct {
+	CategoryID  string               `json:"categoryId"`
+	ContainerID string               `json:"containerId"`
+	ItemID      string               `json:"itemId"`
+	Items       []desktopLayoutPatch `json:"items"`
+}
+
+type collectionsDataHealth struct {
 	OK            bool   `json:"ok"`
 	Error         string `json:"error,omitempty"`
 	SchemaVersion int    `json:"schemaVersion,omitempty"`
 	DataVersion   int    `json:"dataVersion,omitempty"`
 }
 
-type foldersHealth struct {
-	OK      bool              `json:"ok"`
-	DataDir string            `json:"dataDir"`
-	Time    string            `json:"time"`
-	Data    foldersDataHealth `json:"data"`
+type collectionsHealth struct {
+	OK      bool                  `json:"ok"`
+	DataDir string                `json:"dataDir"`
+	Time    string                `json:"time"`
+	Data    collectionsDataHealth `json:"data"`
 }
 
 type desktopAsset struct {
@@ -331,65 +439,22 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 	defer svc.mu.Unlock()
 
 	switch method {
-	case "folders.health":
+	case "collections.health":
 		return svc.health(), nil
-	case "folders.echo":
-		var payload any
-		if len(params) > 0 {
-			_ = json.Unmarshal(params, &payload)
-		}
-		return map[string]any{"echo": payload}, nil
-	case "folders.list":
-		return svc.readFolders()
-	case "folders.getData":
-		return svc.readFolders()
-	case "folders.saveData":
-		var payload foldersDoc
+	case "collections.category.get":
+		var payload categoryPayload
 		if err := json.Unmarshal(params, &payload); err != nil {
-			return nil, fmt.Errorf("invalid data payload: %w", err)
+			return nil, fmt.Errorf("invalid category payload: %w", err)
 		}
-		return svc.saveFoldersData(payload)
-	case "folders.data.reset":
-		return svc.resetFoldersData()
-	case "folders.add":
-		var payload folderItem
-		if err := json.Unmarshal(params, &payload); err != nil {
-			return nil, fmt.Errorf("invalid folder payload: %w", err)
+		return svc.readWorkspaceView(payload.CategoryID)
+	case "collections.data.reset":
+		var payload categoryPayload
+		_ = json.Unmarshal(params, &payload)
+		if normalizeCategoryID(payload.CategoryID) == "" {
+			payload.CategoryID = defaultCategoryID
 		}
-		return svc.addFolder(payload)
-	case "folders.update":
-		var payload folderItem
-		if err := json.Unmarshal(params, &payload); err != nil {
-			return nil, fmt.Errorf("invalid folder payload: %w", err)
-		}
-		return svc.updateFolder(payload)
-	case "folders.remove":
-		var payload struct {
-			ID string `json:"id"`
-		}
-		if err := json.Unmarshal(params, &payload); err != nil {
-			return nil, fmt.Errorf("invalid remove payload: %w", err)
-		}
-		return svc.removeFolder(payload.ID)
-	case "folders.folder.move-to-group":
-		var payload folderGroupTransferPayload
-		if err := json.Unmarshal(params, &payload); err != nil {
-			return nil, fmt.Errorf("invalid folder group move payload: %w", err)
-		}
-		return svc.moveFolderToGroup(payload)
-	case "folders.folder.copy-to-group":
-		var payload folderGroupTransferPayload
-		if err := json.Unmarshal(params, &payload); err != nil {
-			return nil, fmt.Errorf("invalid folder group copy payload: %w", err)
-		}
-		return svc.copyFolderToGroup(payload)
-	case "folders.desktop.layout.save":
-		var payload desktopLayoutSavePayload
-		if err := json.Unmarshal(params, &payload); err != nil {
-			return nil, fmt.Errorf("invalid desktop layout payload: %w", err)
-		}
-		return svc.saveDesktopLayouts(payload)
-	case "folders.assets.import":
+		return svc.resetWorkspaceView(payload.CategoryID)
+	case "collections.assets.import":
 		var payload struct {
 			Kind       string `json:"kind"`
 			SourcePath string `json:"sourcePath"`
@@ -398,107 +463,130 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 			return nil, fmt.Errorf("invalid asset import payload: %w", err)
 		}
 		return svc.importAsset(payload.Kind, payload.SourcePath)
-	case "folders.containers.add":
-		var payload desktopContainer
+	case "collections.items.add":
+		var payload itemPayload
 		if err := json.Unmarshal(params, &payload); err != nil {
-			return nil, fmt.Errorf("invalid container payload: %w", err)
+			return nil, fmt.Errorf("invalid item payload: %w", err)
 		}
-		return svc.addContainer(payload)
-	case "folders.containers.create-from-items":
-		var payload createContainerFromItemsPayload
+		return svc.addItem(payload.CategoryID, payload.Item)
+	case "collections.items.update":
+		var payload itemPayload
 		if err := json.Unmarshal(params, &payload); err != nil {
-			return nil, fmt.Errorf("invalid create container payload: %w", err)
+			return nil, fmt.Errorf("invalid item payload: %w", err)
 		}
-		return svc.createContainerFromItems(payload)
-	case "folders.containers.update":
-		var payload desktopContainer
+		return svc.updateItem(payload.CategoryID, payload.Item)
+	case "collections.items.remove":
+		var payload removePayload
 		if err := json.Unmarshal(params, &payload); err != nil {
-			return nil, fmt.Errorf("invalid container payload: %w", err)
+			return nil, fmt.Errorf("invalid remove item payload: %w", err)
 		}
-		return svc.updateContainer(payload)
-	case "folders.containers.remove":
+		return svc.removeItem(payload.CategoryID, payload.ID)
+	case "collections.items.open":
+		var payload removePayload
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid open item payload: %w", err)
+		}
+		return svc.openItem(payload.CategoryID, payload.ID)
+	case "collections.items.move-to-group":
+		var payload itemGroupTransferPayload
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid item group move payload: %w", err)
+		}
+		return svc.moveItemToGroup(payload)
+	case "collections.items.copy-to-group":
+		var payload itemGroupTransferPayload
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid item group copy payload: %w", err)
+		}
+		return svc.copyItemToGroup(payload)
+	case "collections.items.container.save":
 		var payload struct {
-			ID string `json:"id"`
-		}
-		if err := json.Unmarshal(params, &payload); err != nil {
-			return nil, fmt.Errorf("invalid remove container payload: %w", err)
-		}
-		return svc.removeContainer(payload.ID)
-	case "folders.items.container.save":
-		var payload struct {
+			CategoryID  string   `json:"categoryId"`
 			IDs         []string `json:"ids"`
 			ContainerID string   `json:"containerId"`
 		}
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid item container payload: %w", err)
 		}
-		return svc.saveItemContainer(payload.IDs, payload.ContainerID)
-	case "folders.container.items.place":
-		var payload containerItemsPlacement
+		return svc.saveCollectionItemContainer(payload.CategoryID, payload.IDs, payload.ContainerID)
+	case "collections.containers.add":
+		var payload containerPayload
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid container payload: %w", err)
+		}
+		return svc.addCollectionContainer(payload.CategoryID, payload.Container)
+	case "collections.containers.update":
+		var payload containerPayload
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid container payload: %w", err)
+		}
+		return svc.updateCollectionContainer(payload.CategoryID, payload.Container)
+	case "collections.containers.remove":
+		var payload removePayload
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid remove container payload: %w", err)
+		}
+		return svc.removeCollectionContainer(payload.CategoryID, payload.ID)
+	case "collections.containers.create-from-items":
+		var payload categoryCreateContainerFromItemsPayload
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid create container payload: %w", err)
+		}
+		return svc.createCollectionContainerFromItems(payload)
+	case "collections.container.items.place":
+		var payload categoryContainerItemsPlacement
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid container placement payload: %w", err)
 		}
-		return svc.placeContainerItems(payload)
-	case "folders.container.item.extract-to-desktop":
-		var payload extractContainerItemToDesktopPayload
+		return svc.placeCollectionContainerItems(payload)
+	case "collections.container.item.extract-to-desktop":
+		var payload categoryExtractContainerItemToDesktopPayload
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid container extraction payload: %w", err)
 		}
-		return svc.extractContainerItemToDesktop(payload)
-	case "folders.icon.save":
-		var payload struct {
-			Kind string       `json:"kind"`
-			ID   string       `json:"id"`
-			Icon *desktopIcon `json:"icon"`
-		}
+		return svc.extractCollectionContainerItemToDesktop(payload)
+	case "collections.icon.save":
+		var payload itemIconPayload
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid icon payload: %w", err)
 		}
-		return svc.saveDesktopIcon(payload.Kind, payload.ID, payload.Icon)
-	case "folders.desktop.wallpaper.save":
-		var payload struct {
-			Wallpaper *desktopWallpaper `json:"wallpaper"`
+		return svc.saveCollectionItemIcon(payload.CategoryID, payload.ID, payload.Icon)
+	case "collections.desktop.layout.save":
+		var payload categoryDesktopLayoutSavePayload
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid desktop layout payload: %w", err)
 		}
+		return svc.saveCollectionDesktopLayouts(payload)
+	case "collections.desktop.wallpaper.save":
+		var payload categoryWallpaperPayload
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid wallpaper payload: %w", err)
 		}
-		return svc.saveDesktopWallpaper(payload.Wallpaper)
-	case "folders.desktop.icon-layout.save":
-		var payload struct {
-			IconLayout desktopIconLayout `json:"iconLayout"`
-		}
+		return svc.saveCollectionDesktopWallpaper(payload.CategoryID, payload.Wallpaper)
+	case "collections.desktop.icon-layout.save":
+		var payload categoryIconLayoutPayload
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid desktop icon layout payload: %w", err)
 		}
-		return svc.saveDesktopIconLayout(payload.IconLayout)
-	case "folders.groups.add":
-		var payload folderGroup
+		return svc.saveCollectionDesktopIconLayout(payload.CategoryID, payload.IconLayout)
+	case "collections.groups.add":
+		var payload groupPayload
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid group payload: %w", err)
 		}
-		return svc.addGroup(payload)
-	case "folders.groups.update":
-		var payload folderGroup
+		return svc.addCollectionGroup(payload.CategoryID, payload.Group)
+	case "collections.groups.update":
+		var payload groupPayload
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid group payload: %w", err)
 		}
-		return svc.updateGroup(payload)
-	case "folders.groups.remove":
-		var payload struct {
-			ID string `json:"id"`
-		}
+		return svc.updateCollectionGroup(payload.CategoryID, payload.Group)
+	case "collections.groups.remove":
+		var payload groupRemovePayload
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid remove group payload: %w", err)
 		}
-		return svc.removeGroup(payload.ID)
-	case "folders.open-folder":
-		var payload struct {
-			ID string `json:"id"`
-		}
-		if err := json.Unmarshal(params, &payload); err != nil {
-			return nil, fmt.Errorf("invalid open payload: %w", err)
-		}
-		return svc.openFolder(payload.ID)
+		return svc.removeCollectionGroup(payload.CategoryID, payload.ID)
 	default:
 		return nil, fmt.Errorf("unknown method: %s", method)
 	}
@@ -515,7 +603,7 @@ func (svc *service) ensureReady() error {
 		return err
 	}
 	if _, err := os.Stat(filepath.Join(svc.dataDir, dataFile)); errors.Is(err, os.ErrNotExist) {
-		return svc.writeFolders(defaultFoldersDoc())
+		return svc.writeCollections(defaultCollectionsDoc())
 	} else if err != nil {
 		return err
 	}
@@ -526,16 +614,16 @@ func (svc *service) writeMeta() error {
 	return writeJSON(filepath.Join(svc.dataDir, metaFile), metaDoc{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, UpdatedAt: nowText()})
 }
 
-func (svc *service) readFolders() (foldersDoc, error) {
+func (svc *service) readCollections() (collectionsDoc, error) {
 	bytes, err := os.ReadFile(filepath.Join(svc.dataDir, dataFile))
 	if err != nil {
-		return foldersDoc{}, err
+		return collectionsDoc{}, err
 	}
-	return decodeCurrentFoldersDoc(bytes)
+	return decodeCurrentCollectionsDoc(bytes)
 }
 
-func (svc *service) writeFolders(doc foldersDoc) error {
-	normalized, err := normalizeFoldersDoc(doc)
+func (svc *service) writeCollections(doc collectionsDoc) error {
+	normalized, err := normalizeCollectionsDoc(doc)
 	if err != nil {
 		return err
 	}
@@ -544,30 +632,9 @@ func (svc *service) writeFolders(doc foldersDoc) error {
 	return writeJSON(filepath.Join(svc.dataDir, dataFile), doc)
 }
 
-func (svc *service) saveFoldersData(payload foldersDoc) (foldersDoc, error) {
-	doc, err := normalizeFoldersDoc(payload)
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	if len(doc.Groups) == 0 || doc.Groups[0].ID != defaultGroupID {
-		return foldersDoc{}, errors.New("default group is required")
-	}
-	if err := svc.writeFolders(doc); err != nil {
-		return foldersDoc{}, err
-	}
-	return svc.readFolders()
-}
-
-func (svc *service) resetFoldersData() (foldersDoc, error) {
-	if err := svc.writeFolders(defaultFoldersDoc()); err != nil {
-		return foldersDoc{}, err
-	}
-	return svc.readFolders()
-}
-
-func (svc *service) health() foldersHealth {
-	health := foldersHealth{OK: true, DataDir: svc.dataDir, Time: nowText(), Data: foldersDataHealth{OK: true}}
-	doc, err := svc.readFolders()
+func (svc *service) health() collectionsHealth {
+	health := collectionsHealth{OK: true, DataDir: svc.dataDir, Time: nowText(), Data: collectionsDataHealth{OK: true}}
+	doc, err := svc.readCollections()
 	if err != nil {
 		health.Data.OK = false
 		health.Data.Error = err.Error()
@@ -578,187 +645,286 @@ func (svc *service) health() foldersHealth {
 	return health
 }
 
-func (svc *service) addFolder(payload folderItem) (foldersDoc, error) {
-	doc, err := svc.readFolders()
+func (svc *service) readWorkspaceView(categoryID string) (categoryWorkspaceView, error) {
+	doc, err := svc.readCollections()
 	if err != nil {
-		return foldersDoc{}, err
+		return categoryWorkspaceView{}, err
 	}
-	if strings.TrimSpace(payload.Name) == "" {
-		return foldersDoc{}, errors.New("folder name is required")
-	}
-	item, err := normalizeFolderItem(payload, doc.Groups, true)
+	workspace, _, err := workspaceByID(doc, categoryID)
 	if err != nil {
-		return foldersDoc{}, err
+		return categoryWorkspaceView{}, err
 	}
-	item.PageOrder = nextPageOrder(doc, item.GroupID)
-	doc.Items = append(doc.Items, item)
-	if err := svc.writeFolders(doc); err != nil {
-		return foldersDoc{}, err
-	}
-	return svc.readFolders()
+	return workspaceView(doc, workspace), nil
 }
 
-func (svc *service) updateFolder(payload folderItem) (foldersDoc, error) {
-	doc, err := svc.readFolders()
+func (svc *service) resetWorkspaceView(categoryID string) (categoryWorkspaceView, error) {
+	if err := svc.writeCollections(defaultCollectionsDoc()); err != nil {
+		return categoryWorkspaceView{}, err
+	}
+	return svc.readWorkspaceView(categoryID)
+}
+
+func (svc *service) updateWorkspace(categoryID string, mutate func(workspace *categoryWorkspace) error) (categoryWorkspaceView, error) {
+	doc, err := svc.readCollections()
 	if err != nil {
-		return foldersDoc{}, err
+		return categoryWorkspaceView{}, err
 	}
-	if strings.TrimSpace(payload.Name) == "" {
-		return foldersDoc{}, errors.New("folder name is required")
-	}
-	item, err := normalizeFolderItem(payload, doc.Groups, false)
+	workspace, index, err := workspaceByID(doc, categoryID)
 	if err != nil {
-		return foldersDoc{}, err
+		return categoryWorkspaceView{}, err
 	}
-	for i := range doc.Items {
-		if doc.Items[i].ID == item.ID {
-			item.CreatedAtMS = doc.Items[i].CreatedAtMS
-			item.CreatedAt = doc.Items[i].CreatedAt
-			if item.GroupID == doc.Items[i].GroupID {
-				item.PageOrder = doc.Items[i].PageOrder
-				item.ContainerID = doc.Items[i].ContainerID
+	if err := mutate(&workspace); err != nil {
+		return categoryWorkspaceView{}, err
+	}
+	doc.Categories[index] = workspace
+	doc.ActiveCategoryID = workspace.ID
+	if err := svc.writeCollections(doc); err != nil {
+		return categoryWorkspaceView{}, err
+	}
+	return svc.readWorkspaceView(workspace.ID)
+}
+
+func workspaceView(doc collectionsDoc, workspace categoryWorkspace) categoryWorkspaceView {
+	return categoryWorkspaceView{SchemaVersion: doc.SchemaVersion, DataVersion: doc.DataVersion, ID: workspace.ID, Groups: workspace.Groups, Items: workspace.Items, Containers: workspace.Containers, Desktop: workspace.Desktop}
+}
+
+func workspaceByID(doc collectionsDoc, categoryID string) (categoryWorkspace, int, error) {
+	categoryID = normalizeCategoryID(categoryID)
+	for i, workspace := range doc.Categories {
+		if workspace.ID == categoryID {
+			return workspace, i, nil
+		}
+	}
+	return categoryWorkspace{}, -1, fmt.Errorf("category not found: %s", categoryID)
+}
+
+func normalizeCategoryID(categoryID string) string {
+	switch strings.TrimSpace(categoryID) {
+	case "folder", "url", "file":
+		return strings.TrimSpace(categoryID)
+	default:
+		return ""
+	}
+}
+
+func categoryOrder(categoryID string) int {
+	switch categoryID {
+	case "folder":
+		return 0
+	case "url":
+		return 1
+	case "file":
+		return 2
+	default:
+		return 99
+	}
+}
+
+func (svc *service) addItem(categoryID string, payload collectionItem) (categoryWorkspaceView, error) {
+	return svc.updateWorkspace(categoryID, func(workspace *categoryWorkspace) error {
+		item, err := normalizeWorkspaceItem(payload, *workspace, true)
+		if err != nil {
+			return err
+		}
+		doc := workspaceDoc(*workspace)
+		item.PageOrder = nextPageOrder(doc, item.GroupID)
+		workspace.Items = append(workspace.Items, item)
+		return nil
+	})
+}
+
+func (svc *service) updateItem(categoryID string, payload collectionItem) (categoryWorkspaceView, error) {
+	return svc.updateWorkspace(categoryID, func(workspace *categoryWorkspace) error {
+		item, err := normalizeWorkspaceItem(payload, *workspace, false)
+		if err != nil {
+			return err
+		}
+		doc := workspaceDoc(*workspace)
+		for i := range workspace.Items {
+			if workspace.Items[i].ID != item.ID {
+				continue
+			}
+			item.CreatedAtMS = workspace.Items[i].CreatedAtMS
+			item.CreatedAt = workspace.Items[i].CreatedAt
+			if item.GroupID == workspace.Items[i].GroupID {
+				item.PageOrder = workspace.Items[i].PageOrder
+				item.ContainerID = workspace.Items[i].ContainerID
 				if item.Layout == nil {
-					item.Layout = doc.Items[i].Layout
+					item.Layout = workspace.Items[i].Layout
 				}
 				if item.ContainerLayout == nil {
-					item.ContainerLayout = doc.Items[i].ContainerLayout
+					item.ContainerLayout = workspace.Items[i].ContainerLayout
 				}
 			} else {
 				item.PageOrder = nextPageOrder(doc, item.GroupID)
 			}
 			if item.Icon == nil {
-				item.Icon = doc.Items[i].Icon
+				item.Icon = workspace.Items[i].Icon
 			}
-			doc.Items[i] = item
-			if err := svc.writeFolders(doc); err != nil {
-				return foldersDoc{}, err
-			}
-			return svc.readFolders()
+			workspace.Items[i] = item
+			return nil
 		}
-	}
-	return foldersDoc{}, fmt.Errorf("folder not found: %s", item.ID)
+		return fmt.Errorf("item not found: %s", item.ID)
+	})
 }
 
-func (svc *service) removeFolder(id string) (foldersDoc, error) {
-	doc, err := svc.readFolders()
+func (svc *service) removeItem(categoryID string, id string) (categoryWorkspaceView, error) {
+	return svc.updateWorkspace(categoryID, func(workspace *categoryWorkspace) error {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return errors.New("item id is required")
+		}
+		next := workspace.Items[:0]
+		removed := false
+		for _, item := range workspace.Items {
+			if item.ID == id {
+				removed = true
+				continue
+			}
+			next = append(next, item)
+		}
+		if !removed {
+			return fmt.Errorf("item not found: %s", id)
+		}
+		workspace.Items = next
+		return nil
+	})
+}
+
+func (svc *service) openItem(categoryID string, id string) (map[string]any, error) {
+	workspaceView, err := svc.readWorkspaceView(categoryID)
 	if err != nil {
-		return foldersDoc{}, err
+		return nil, err
 	}
 	id = strings.TrimSpace(id)
-	if id == "" {
-		return foldersDoc{}, errors.New("folder id is required")
-	}
-	next := doc.Items[:0]
-	removed := false
-	for _, item := range doc.Items {
-		if item.ID == id {
-			removed = true
-			continue
-		}
-		next = append(next, item)
-	}
-	if !removed {
-		return foldersDoc{}, fmt.Errorf("folder not found: %s", id)
-	}
-	doc.Items = next
-	if err := svc.writeFolders(doc); err != nil {
-		return foldersDoc{}, err
-	}
-	return svc.readFolders()
-}
-
-func (svc *service) moveFolderToGroup(payload folderGroupTransferPayload) (foldersDoc, error) {
-	doc, err := svc.readFolders()
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	id := strings.TrimSpace(payload.ID)
-	if id == "" {
-		return foldersDoc{}, errors.New("folder id is required")
-	}
-	targetGroupID, err := normalizeGroupID(payload.GroupID, doc.Groups)
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	for i := range doc.Items {
-		if doc.Items[i].ID != id {
-			continue
-		}
-		if doc.Items[i].GroupID == targetGroupID {
-			return doc, nil
-		}
-		now := time.Now().UnixMilli()
-		nowString := nowText()
-		doc.Items[i].GroupID = targetGroupID
-		doc.Items[i].PageOrder = nextPageOrder(doc, targetGroupID)
-		doc.Items[i].ContainerID = ""
-		doc.Items[i].ContainerLayout = nil
-		doc.Items[i].Layout = nil
-		doc.Items[i].UpdatedAtMS = now
-		doc.Items[i].UpdatedAt = nowString
-		if err := svc.writeFolders(doc); err != nil {
-			return foldersDoc{}, err
-		}
-		return svc.readFolders()
-	}
-	return foldersDoc{}, fmt.Errorf("folder not found: %s", id)
-}
-
-func (svc *service) copyFolderToGroup(payload folderGroupTransferPayload) (foldersDoc, error) {
-	doc, err := svc.readFolders()
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	id := strings.TrimSpace(payload.ID)
-	if id == "" {
-		return foldersDoc{}, errors.New("folder id is required")
-	}
-	targetGroupID, err := normalizeGroupID(payload.GroupID, doc.Groups)
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	for _, item := range doc.Items {
+	for _, item := range workspaceView.Items {
 		if item.ID != id {
 			continue
 		}
-		if item.GroupID == targetGroupID {
-			return foldersDoc{}, errors.New("target group must be different")
+		if err := openCollectionTarget(item.Target); err != nil {
+			return nil, err
 		}
-		now := time.Now().UnixMilli()
-		nowString := nowText()
-		copy := item
-		copy.ID = uniqueFolderID(doc.Items, now)
-		copy.GroupID = targetGroupID
-		copy.PageOrder = nextPageOrder(doc, targetGroupID)
-		copy.ContainerID = ""
-		copy.ContainerLayout = nil
-		copy.Layout = nil
-		copy.CreatedAtMS = now
-		copy.UpdatedAtMS = now
-		copy.CreatedAt = nowString
-		copy.UpdatedAt = nowString
-		doc.Items = append(doc.Items, copy)
-		if err := svc.writeFolders(doc); err != nil {
-			return foldersDoc{}, err
-		}
-		return svc.readFolders()
+		return map[string]any{"ok": true, "target": item.Target}, nil
 	}
-	return foldersDoc{}, fmt.Errorf("folder not found: %s", id)
+	return nil, fmt.Errorf("item not found: %s", id)
 }
 
-func (svc *service) saveDesktopLayouts(payload desktopLayoutSavePayload) (foldersDoc, error) {
-	if len(payload.Items) == 0 {
-		return svc.readFolders()
-	}
-	doc, err := svc.readFolders()
+func (svc *service) moveItemToGroup(payload itemGroupTransferPayload) (categoryWorkspaceView, error) {
+	return svc.updateWorkspace(payload.CategoryID, func(workspace *categoryWorkspace) error {
+		id := strings.TrimSpace(payload.ID)
+		if id == "" {
+			return errors.New("item id is required")
+		}
+		targetGroupID, err := normalizeGroupID(payload.GroupID, workspace.Groups)
+		if err != nil {
+			return err
+		}
+		doc := workspaceDoc(*workspace)
+		for i := range workspace.Items {
+			if workspace.Items[i].ID != id {
+				continue
+			}
+			if workspace.Items[i].GroupID == targetGroupID {
+				return nil
+			}
+			now := time.Now().UnixMilli()
+			nowString := nowText()
+			workspace.Items[i].GroupID = targetGroupID
+			workspace.Items[i].PageOrder = nextPageOrder(doc, targetGroupID)
+			workspace.Items[i].ContainerID = ""
+			workspace.Items[i].ContainerLayout = nil
+			workspace.Items[i].Layout = nil
+			workspace.Items[i].UpdatedAtMS = now
+			workspace.Items[i].UpdatedAt = nowString
+			return nil
+		}
+		return fmt.Errorf("item not found: %s", id)
+	})
+}
+
+func (svc *service) copyItemToGroup(payload itemGroupTransferPayload) (categoryWorkspaceView, error) {
+	return svc.updateWorkspace(payload.CategoryID, func(workspace *categoryWorkspace) error {
+		id := strings.TrimSpace(payload.ID)
+		if id == "" {
+			return errors.New("item id is required")
+		}
+		targetGroupID, err := normalizeGroupID(payload.GroupID, workspace.Groups)
+		if err != nil {
+			return err
+		}
+		doc := workspaceDoc(*workspace)
+		for _, item := range workspace.Items {
+			if item.ID != id {
+				continue
+			}
+			if item.GroupID == targetGroupID {
+				return errors.New("target group must be different")
+			}
+			now := time.Now().UnixMilli()
+			nowString := nowText()
+			copy := item
+			copy.ID = uniqueCollectionItemID(workspace.Items, now)
+			copy.GroupID = targetGroupID
+			copy.PageOrder = nextPageOrder(doc, targetGroupID)
+			copy.ContainerID = ""
+			copy.ContainerLayout = nil
+			copy.Layout = nil
+			copy.CreatedAtMS = now
+			copy.UpdatedAtMS = now
+			copy.CreatedAt = nowString
+			copy.UpdatedAt = nowString
+			workspace.Items = append(workspace.Items, copy)
+			return nil
+		}
+		return fmt.Errorf("item not found: %s", id)
+	})
+}
+
+func workspaceDoc(workspace categoryWorkspace) collectionsDoc {
+	return collectionsDoc{Groups: workspace.Groups, Items: workspace.Items, Containers: workspace.Containers, Desktop: workspace.Desktop}
+}
+
+func applyWorkspaceDoc(workspace *categoryWorkspace, doc collectionsDoc) {
+	workspace.Groups = doc.Groups
+	workspace.Items = doc.Items
+	workspace.Containers = doc.Containers
+	workspace.Desktop = doc.Desktop
+}
+
+func normalizeWorkspaceItem(payload collectionItem, workspace categoryWorkspace, allowNewID bool) (collectionItem, error) {
+	item, err := normalizeCollectionItem(payload, workspace.Groups, allowNewID)
 	if err != nil {
-		return foldersDoc{}, err
+		return collectionItem{}, err
+	}
+	if item.Target.Kind != workspace.ID {
+		return collectionItem{}, fmt.Errorf("item target kind must match category %s", workspace.ID)
+	}
+	return item, nil
+}
+
+func (svc *service) saveCollectionDesktopLayouts(payload categoryDesktopLayoutSavePayload) (categoryWorkspaceView, error) {
+	if len(payload.Items) == 0 {
+		return svc.readWorkspaceView(payload.CategoryID)
+	}
+	return svc.updateWorkspace(payload.CategoryID, func(workspace *categoryWorkspace) error {
+		doc := workspaceDoc(*workspace)
+		view, err := applyDesktopLayouts(doc, desktopLayoutSavePayload{GroupID: payload.GroupID, Items: payload.Items})
+		if err != nil {
+			return err
+		}
+		applyWorkspaceDoc(workspace, view)
+		return nil
+	})
+}
+
+func applyDesktopLayouts(doc collectionsDoc, payload desktopLayoutSavePayload) (collectionsDoc, error) {
+	if len(payload.Items) == 0 {
+		return doc, nil
 	}
 	groupID, err := normalizeGroupID(payload.GroupID, doc.Groups)
 	if err != nil {
-		return foldersDoc{}, err
+		return collectionsDoc{}, err
 	}
-
 	type layoutUpdate struct {
 		kind   string
 		id     string
@@ -769,18 +935,17 @@ func (svc *service) saveDesktopLayouts(payload desktopLayoutSavePayload) (folder
 		kind := normalizeDesktopEntryKind(patch.Kind)
 		id := strings.TrimSpace(patch.ID)
 		if kind == "" || id == "" {
-			return foldersDoc{}, errors.New("desktop layout kind and id are required")
+			return collectionsDoc{}, errors.New("desktop layout kind and id are required")
 		}
 		updates = append(updates, layoutUpdate{kind: kind, id: id, layout: normalizeGridLayout(patch.Layout)})
 	}
-
 	found := make(map[string]bool, len(updates))
 	now := time.Now().UnixMilli()
 	nowString := nowText()
 	for _, update := range updates {
 		key := update.kind + ":" + update.id
 		switch update.kind {
-		case "folder":
+		case "item":
 			for i := range doc.Items {
 				if doc.Items[i].ID != update.id || doc.Items[i].GroupID != groupID || doc.Items[i].ContainerID != "" {
 					continue
@@ -806,57 +971,111 @@ func (svc *service) saveDesktopLayouts(payload desktopLayoutSavePayload) (folder
 			}
 		}
 	}
-
 	for _, update := range updates {
 		key := update.kind + ":" + update.id
 		if !found[key] {
-			return foldersDoc{}, fmt.Errorf("desktop entry not found: %s", key)
+			return collectionsDoc{}, fmt.Errorf("desktop entry not found: %s", key)
 		}
 	}
 	renumberPageOrder(&doc, groupID)
-
-	if err := svc.writeFolders(doc); err != nil {
-		return foldersDoc{}, err
-	}
-	return svc.readFolders()
+	return doc, nil
 }
 
-func (svc *service) addContainer(payload desktopContainer) (foldersDoc, error) {
-	doc, err := svc.readFolders()
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	container, err := normalizeDesktopContainer(payload, doc.Groups, true)
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	for _, current := range doc.Containers {
-		if current.ID == container.ID {
-			return foldersDoc{}, fmt.Errorf("container already exists: %s", container.ID)
+func (svc *service) addCollectionContainer(categoryID string, payload desktopContainer) (categoryWorkspaceView, error) {
+	return svc.updateWorkspace(categoryID, func(workspace *categoryWorkspace) error {
+		container, err := normalizeDesktopContainer(payload, workspace.Groups, true)
+		if err != nil {
+			return err
 		}
-	}
-	container.PageOrder = nextPageOrder(doc, container.GroupID)
-	doc.Containers = append(doc.Containers, container)
-	if err := svc.writeFolders(doc); err != nil {
-		return foldersDoc{}, err
-	}
-	return svc.readFolders()
+		for _, current := range workspace.Containers {
+			if current.ID == container.ID {
+				return fmt.Errorf("container already exists: %s", container.ID)
+			}
+		}
+		container.PageOrder = nextPageOrder(workspaceDoc(*workspace), container.GroupID)
+		workspace.Containers = append(workspace.Containers, container)
+		return nil
+	})
 }
 
-func (svc *service) createContainerFromItems(payload createContainerFromItemsPayload) (foldersDoc, error) {
-	doc, err := svc.readFolders()
-	if err != nil {
-		return foldersDoc{}, err
-	}
+func (svc *service) updateCollectionContainer(categoryID string, payload desktopContainer) (categoryWorkspaceView, error) {
+	return svc.updateWorkspace(categoryID, func(workspace *categoryWorkspace) error {
+		container, err := normalizeDesktopContainer(payload, workspace.Groups, false)
+		if err != nil {
+			return err
+		}
+		for i := range workspace.Containers {
+			if workspace.Containers[i].ID != container.ID {
+				continue
+			}
+			container.CreatedAt = workspace.Containers[i].CreatedAt
+			container.CreatedAtMS = workspace.Containers[i].CreatedAtMS
+			container.GroupID = workspace.Containers[i].GroupID
+			container.PageOrder = workspace.Containers[i].PageOrder
+			if container.Layout == nil {
+				container.Layout = workspace.Containers[i].Layout
+			}
+			workspace.Containers[i] = container
+			return nil
+		}
+		return fmt.Errorf("container not found: %s", container.ID)
+	})
+}
+
+func (svc *service) removeCollectionContainer(categoryID string, id string) (categoryWorkspaceView, error) {
+	return svc.updateWorkspace(categoryID, func(workspace *categoryWorkspace) error {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return errors.New("container id is required")
+		}
+		nextContainers := workspace.Containers[:0]
+		removed := false
+		for _, container := range workspace.Containers {
+			if container.ID == id {
+				removed = true
+				continue
+			}
+			nextContainers = append(nextContainers, container)
+		}
+		if !removed {
+			return fmt.Errorf("container not found: %s", id)
+		}
+		now := time.Now().UnixMilli()
+		nowString := nowText()
+		for i := range workspace.Items {
+			if workspace.Items[i].ContainerID == id {
+				workspace.Items[i].ContainerID = ""
+				workspace.Items[i].ContainerLayout = nil
+				workspace.Items[i].UpdatedAtMS = now
+				workspace.Items[i].UpdatedAt = nowString
+			}
+		}
+		workspace.Containers = nextContainers
+		return nil
+	})
+}
+
+func (svc *service) createCollectionContainerFromItems(payload categoryCreateContainerFromItemsPayload) (categoryWorkspaceView, error) {
+	return svc.updateWorkspace(payload.CategoryID, func(workspace *categoryWorkspace) error {
+		doc := workspaceDoc(*workspace)
+		view, err := createContainerFromItemsInDoc(doc, createContainerFromItemsPayload{SourceItemID: payload.SourceItemID, TargetItemID: payload.TargetItemID, Layout: payload.Layout})
+		if err != nil {
+			return err
+		}
+		applyWorkspaceDoc(workspace, view)
+		return nil
+	})
+}
+
+func createContainerFromItemsInDoc(doc collectionsDoc, payload createContainerFromItemsPayload) (collectionsDoc, error) {
 	sourceItemID := strings.TrimSpace(payload.SourceItemID)
 	targetItemID := strings.TrimSpace(payload.TargetItemID)
 	if sourceItemID == "" || targetItemID == "" {
-		return foldersDoc{}, errors.New("source and target folder ids are required")
+		return collectionsDoc{}, errors.New("source and target item ids are required")
 	}
 	if sourceItemID == targetItemID {
-		return foldersDoc{}, errors.New("source and target folder ids must be different")
+		return collectionsDoc{}, errors.New("source and target item ids must be different")
 	}
-
 	sourceIndex := -1
 	targetIndex := -1
 	for i := range doc.Items {
@@ -868,18 +1087,17 @@ func (svc *service) createContainerFromItems(payload createContainerFromItemsPay
 		}
 	}
 	if sourceIndex < 0 {
-		return foldersDoc{}, fmt.Errorf("folder not found: %s", sourceItemID)
+		return collectionsDoc{}, fmt.Errorf("item not found: %s", sourceItemID)
 	}
 	if targetIndex < 0 {
-		return foldersDoc{}, fmt.Errorf("folder not found: %s", targetItemID)
+		return collectionsDoc{}, fmt.Errorf("item not found: %s", targetItemID)
 	}
 	if doc.Items[targetIndex].ContainerID != "" {
-		return foldersDoc{}, errors.New("target folder must be on desktop")
+		return collectionsDoc{}, errors.New("target item must be on desktop")
 	}
 	if doc.Items[sourceIndex].GroupID != doc.Items[targetIndex].GroupID {
-		return foldersDoc{}, errors.New("source and target folders must be in the same group")
+		return collectionsDoc{}, errors.New("source and target items must be in the same group")
 	}
-
 	now := time.Now().UnixMilli()
 	nowString := nowText()
 	layout := normalizeGridLayout(payload.Layout)
@@ -897,7 +1115,6 @@ func (svc *service) createContainerFromItems(payload createContainerFromItemsPay
 		UpdatedAtMS: now,
 		Layout:      &containerLayout,
 	}}, doc.Containers...)
-
 	for i := range doc.Items {
 		if doc.Items[i].ID != targetItemID && doc.Items[i].ID != sourceItemID {
 			continue
@@ -912,94 +1129,31 @@ func (svc *service) createContainerFromItems(payload createContainerFromItemsPay
 		}
 		doc.Items[i].ContainerLayout = &layoutCopy
 	}
-
-	if err := svc.writeFolders(doc); err != nil {
-		return foldersDoc{}, err
-	}
-	return svc.readFolders()
+	return doc, nil
 }
 
-func (svc *service) updateContainer(payload desktopContainer) (foldersDoc, error) {
-	doc, err := svc.readFolders()
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	container, err := normalizeDesktopContainer(payload, doc.Groups, false)
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	for i := range doc.Containers {
-		if doc.Containers[i].ID != container.ID {
-			continue
-		}
-		container.CreatedAt = doc.Containers[i].CreatedAt
-		container.CreatedAtMS = doc.Containers[i].CreatedAtMS
-		container.GroupID = doc.Containers[i].GroupID
-		container.PageOrder = doc.Containers[i].PageOrder
-		if container.Layout == nil {
-			container.Layout = doc.Containers[i].Layout
-		}
-		doc.Containers[i] = container
-		if err := svc.writeFolders(doc); err != nil {
-			return foldersDoc{}, err
-		}
-		return svc.readFolders()
-	}
-	return foldersDoc{}, fmt.Errorf("container not found: %s", container.ID)
-}
-
-func (svc *service) removeContainer(id string) (foldersDoc, error) {
-	doc, err := svc.readFolders()
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	id = strings.TrimSpace(id)
-	if id == "" {
-		return foldersDoc{}, errors.New("container id is required")
-	}
-	nextContainers := doc.Containers[:0]
-	removed := false
-	for _, container := range doc.Containers {
-		if container.ID == id {
-			removed = true
-			continue
-		}
-		nextContainers = append(nextContainers, container)
-	}
-	if !removed {
-		return foldersDoc{}, fmt.Errorf("container not found: %s", id)
-	}
-	now := time.Now().UnixMilli()
-	nowString := nowText()
-	for i := range doc.Items {
-		if doc.Items[i].ContainerID == id {
-			doc.Items[i].ContainerID = ""
-			doc.Items[i].ContainerLayout = nil
-			doc.Items[i].UpdatedAtMS = now
-			doc.Items[i].UpdatedAt = nowString
-		}
-	}
-	doc.Containers = nextContainers
-	if err := svc.writeFolders(doc); err != nil {
-		return foldersDoc{}, err
-	}
-	return svc.readFolders()
-}
-
-func (svc *service) saveItemContainer(ids []string, containerID string) (foldersDoc, error) {
+func (svc *service) saveCollectionItemContainer(categoryID string, ids []string, containerID string) (categoryWorkspaceView, error) {
 	if len(ids) == 0 {
-		return svc.readFolders()
+		return svc.readWorkspaceView(categoryID)
 	}
-	doc, err := svc.readFolders()
-	if err != nil {
-		return foldersDoc{}, err
-	}
+	return svc.updateWorkspace(categoryID, func(workspace *categoryWorkspace) error {
+		doc := workspaceDoc(*workspace)
+		view, err := saveItemContainerInDoc(doc, ids, containerID)
+		if err != nil {
+			return err
+		}
+		applyWorkspaceDoc(workspace, view)
+		return nil
+	})
+}
+
+func saveItemContainerInDoc(doc collectionsDoc, ids []string, containerID string) (collectionsDoc, error) {
 	containerID = strings.TrimSpace(containerID)
 	targetGroupID := ""
 	if containerID != "" {
 		container, ok := findContainer(doc.Containers, containerID)
 		if !ok {
-			return foldersDoc{}, fmt.Errorf("container not found: %s", containerID)
+			return collectionsDoc{}, fmt.Errorf("container not found: %s", containerID)
 		}
 		targetGroupID = container.GroupID
 	}
@@ -1007,7 +1161,7 @@ func (svc *service) saveItemContainer(ids []string, containerID string) (folders
 	for _, id := range ids {
 		id = strings.TrimSpace(id)
 		if id == "" {
-			return foldersDoc{}, errors.New("folder id is required")
+			return collectionsDoc{}, errors.New("item id is required")
 		}
 		updates[id] = true
 	}
@@ -1019,7 +1173,7 @@ func (svc *service) saveItemContainer(ids []string, containerID string) (folders
 			continue
 		}
 		if targetGroupID != "" && doc.Items[i].GroupID != targetGroupID {
-			return foldersDoc{}, fmt.Errorf("folder group mismatch for container %s: %s", containerID, doc.Items[i].ID)
+			return collectionsDoc{}, fmt.Errorf("item group mismatch for container %s: %s", containerID, doc.Items[i].ID)
 		}
 		if doc.Items[i].ContainerID != containerID {
 			doc.Items[i].ContainerLayout = nil
@@ -1031,54 +1185,56 @@ func (svc *service) saveItemContainer(ids []string, containerID string) (folders
 	}
 	for id := range updates {
 		if !found[id] {
-			return foldersDoc{}, fmt.Errorf("folder not found: %s", id)
+			return collectionsDoc{}, fmt.Errorf("item not found: %s", id)
 		}
 	}
-	if err := svc.writeFolders(doc); err != nil {
-		return foldersDoc{}, err
-	}
-	return svc.readFolders()
+	return doc, nil
 }
 
-func (svc *service) placeContainerItems(payload containerItemsPlacement) (foldersDoc, error) {
+func (svc *service) placeCollectionContainerItems(payload categoryContainerItemsPlacement) (categoryWorkspaceView, error) {
+	return svc.updateWorkspace(payload.CategoryID, func(workspace *categoryWorkspace) error {
+		doc := workspaceDoc(*workspace)
+		view, err := placeContainerItemsInDoc(doc, containerItemsPlacement{ContainerID: payload.ContainerID, MovedID: payload.MovedID, Items: payload.Items})
+		if err != nil {
+			return err
+		}
+		applyWorkspaceDoc(workspace, view)
+		return nil
+	})
+}
+
+func placeContainerItemsInDoc(doc collectionsDoc, payload containerItemsPlacement) (collectionsDoc, error) {
 	containerID := strings.TrimSpace(payload.ContainerID)
 	movedID := strings.TrimSpace(payload.MovedID)
 	if containerID == "" {
-		return foldersDoc{}, errors.New("container id is required")
+		return collectionsDoc{}, errors.New("container id is required")
 	}
 	if len(payload.Items) == 0 {
 		if movedID == "" {
-			return svc.readFolders()
+			return doc, nil
 		}
-		return foldersDoc{}, errors.New("moved folder layout is required")
-	}
-
-	doc, err := svc.readFolders()
-	if err != nil {
-		return foldersDoc{}, err
+		return collectionsDoc{}, errors.New("moved item layout is required")
 	}
 	container, ok := findContainer(doc.Containers, containerID)
 	if !ok {
-		return foldersDoc{}, fmt.Errorf("container not found: %s", containerID)
+		return collectionsDoc{}, fmt.Errorf("container not found: %s", containerID)
 	}
-
 	placements := make(map[string]folderGridLayout, len(payload.Items))
 	for _, item := range payload.Items {
 		id := strings.TrimSpace(item.ID)
 		if id == "" {
-			return foldersDoc{}, errors.New("folder id is required")
+			return collectionsDoc{}, errors.New("item id is required")
 		}
 		if _, exists := placements[id]; exists {
-			return foldersDoc{}, fmt.Errorf("duplicate folder placement: %s", id)
+			return collectionsDoc{}, fmt.Errorf("duplicate item placement: %s", id)
 		}
 		placements[id] = normalizeGridLayout(item.Layout)
 	}
 	if movedID != "" {
 		if _, exists := placements[movedID]; !exists {
-			return foldersDoc{}, errors.New("moved folder layout is required")
+			return collectionsDoc{}, errors.New("moved item layout is required")
 		}
 	}
-
 	now := time.Now().UnixMilli()
 	nowString := nowText()
 	found := make(map[string]bool, len(placements))
@@ -1087,7 +1243,7 @@ func (svc *service) placeContainerItems(payload containerItemsPlacement) (folder
 		id := doc.Items[i].ID
 		if id == movedID {
 			if doc.Items[i].GroupID != container.GroupID {
-				return foldersDoc{}, fmt.Errorf("folder group mismatch for container %s: %s", containerID, id)
+				return collectionsDoc{}, fmt.Errorf("item group mismatch for container %s: %s", containerID, id)
 			}
 			doc.Items[i].ContainerID = containerID
 			movedFound = true
@@ -1097,10 +1253,10 @@ func (svc *service) placeContainerItems(payload containerItemsPlacement) (folder
 			continue
 		}
 		if doc.Items[i].ContainerID != containerID {
-			return foldersDoc{}, fmt.Errorf("folder is not in container %s: %s", containerID, id)
+			return collectionsDoc{}, fmt.Errorf("item is not in container %s: %s", containerID, id)
 		}
 		if doc.Items[i].GroupID != container.GroupID {
-			return foldersDoc{}, fmt.Errorf("folder group mismatch for container %s: %s", containerID, id)
+			return collectionsDoc{}, fmt.Errorf("item group mismatch for container %s: %s", containerID, id)
 		}
 		layoutCopy := layout
 		doc.Items[i].ContainerLayout = &layoutCopy
@@ -1109,73 +1265,74 @@ func (svc *service) placeContainerItems(payload containerItemsPlacement) (folder
 		found[id] = true
 	}
 	if !movedFound {
-		return foldersDoc{}, fmt.Errorf("folder not found: %s", movedID)
+		return collectionsDoc{}, fmt.Errorf("item not found: %s", movedID)
 	}
 	for id := range placements {
 		if !found[id] {
-			return foldersDoc{}, fmt.Errorf("folder not found: %s", id)
+			return collectionsDoc{}, fmt.Errorf("item not found: %s", id)
 		}
 	}
-
-	if err := svc.writeFolders(doc); err != nil {
-		return foldersDoc{}, err
-	}
-	return svc.readFolders()
+	return doc, nil
 }
 
-func (svc *service) extractContainerItemToDesktop(payload extractContainerItemToDesktopPayload) (foldersDoc, error) {
+func (svc *service) extractCollectionContainerItemToDesktop(payload categoryExtractContainerItemToDesktopPayload) (categoryWorkspaceView, error) {
+	return svc.updateWorkspace(payload.CategoryID, func(workspace *categoryWorkspace) error {
+		doc := workspaceDoc(*workspace)
+		view, err := extractContainerItemToDesktopInDoc(doc, extractContainerItemToDesktopPayload{ContainerID: payload.ContainerID, ItemID: payload.ItemID, Items: payload.Items})
+		if err != nil {
+			return err
+		}
+		applyWorkspaceDoc(workspace, view)
+		return nil
+	})
+}
+
+func extractContainerItemToDesktopInDoc(doc collectionsDoc, payload extractContainerItemToDesktopPayload) (collectionsDoc, error) {
 	containerID := strings.TrimSpace(payload.ContainerID)
 	itemID := strings.TrimSpace(payload.ItemID)
 	if containerID == "" {
-		return foldersDoc{}, errors.New("container id is required")
+		return collectionsDoc{}, errors.New("container id is required")
 	}
 	if itemID == "" {
-		return foldersDoc{}, errors.New("folder id is required")
+		return collectionsDoc{}, errors.New("item id is required")
 	}
 	if len(payload.Items) == 0 {
-		return foldersDoc{}, errors.New("desktop layout patches are required")
-	}
-
-	doc, err := svc.readFolders()
-	if err != nil {
-		return foldersDoc{}, err
+		return collectionsDoc{}, errors.New("desktop layout patches are required")
 	}
 	container, ok := findContainer(doc.Containers, containerID)
 	if !ok {
-		return foldersDoc{}, fmt.Errorf("container not found: %s", containerID)
+		return collectionsDoc{}, fmt.Errorf("container not found: %s", containerID)
 	}
-
 	updates := make(map[string]desktopLayoutPatch, len(payload.Items))
 	for _, patch := range payload.Items {
 		kind := normalizeDesktopEntryKind(patch.Kind)
 		id := strings.TrimSpace(patch.ID)
 		if kind == "" || id == "" {
-			return foldersDoc{}, errors.New("desktop layout kind and id are required")
+			return collectionsDoc{}, errors.New("desktop layout kind and id are required")
 		}
 		key := kind + ":" + id
 		if _, exists := updates[key]; exists {
-			return foldersDoc{}, fmt.Errorf("duplicate desktop layout patch: %s", key)
+			return collectionsDoc{}, fmt.Errorf("duplicate desktop layout patch: %s", key)
 		}
 		updates[key] = desktopLayoutPatch{Kind: kind, ID: id, Layout: normalizeGridLayout(patch.Layout)}
 	}
-	itemPatch, ok := updates["folder:"+itemID]
+	itemPatch, ok := updates["item:"+itemID]
 	if !ok {
-		return foldersDoc{}, errors.New("moved folder desktop layout is required")
+		return collectionsDoc{}, errors.New("moved item desktop layout is required")
 	}
-
 	found := map[string]bool{}
 	movedFound := false
 	now := time.Now().UnixMilli()
 	nowString := nowText()
 	for i := range doc.Items {
-		key := "folder:" + doc.Items[i].ID
+		key := "item:" + doc.Items[i].ID
 		patch, shouldUpdate := updates[key]
 		if doc.Items[i].ID == itemID {
 			if doc.Items[i].ContainerID != containerID {
-				return foldersDoc{}, fmt.Errorf("folder is not in container %s: %s", containerID, itemID)
+				return collectionsDoc{}, fmt.Errorf("item is not in container %s: %s", containerID, itemID)
 			}
 			if doc.Items[i].GroupID != container.GroupID {
-				return foldersDoc{}, fmt.Errorf("folder group mismatch for container %s: %s", containerID, itemID)
+				return collectionsDoc{}, fmt.Errorf("item group mismatch for container %s: %s", containerID, itemID)
 			}
 			doc.Items[i].ContainerID = ""
 			doc.Items[i].ContainerLayout = nil
@@ -1190,7 +1347,7 @@ func (svc *service) extractContainerItemToDesktop(payload extractContainerItemTo
 			continue
 		}
 		if doc.Items[i].ContainerID != "" {
-			return foldersDoc{}, fmt.Errorf("folder is not on desktop: %s", doc.Items[i].ID)
+			return collectionsDoc{}, fmt.Errorf("item is not on desktop: %s", doc.Items[i].ID)
 		}
 		doc.Items[i].Layout = layoutPtr(patch.Layout)
 		doc.Items[i].UpdatedAtMS = now
@@ -1198,9 +1355,8 @@ func (svc *service) extractContainerItemToDesktop(payload extractContainerItemTo
 		found[key] = true
 	}
 	if !movedFound {
-		return foldersDoc{}, fmt.Errorf("folder not found: %s", itemID)
+		return collectionsDoc{}, fmt.Errorf("item not found: %s", itemID)
 	}
-
 	for i := range doc.Containers {
 		key := "container:" + doc.Containers[i].ID
 		patch, shouldUpdate := updates[key]
@@ -1214,80 +1370,142 @@ func (svc *service) extractContainerItemToDesktop(payload extractContainerItemTo
 	}
 	for key := range updates {
 		if !found[key] {
-			return foldersDoc{}, fmt.Errorf("desktop entry not found: %s", key)
+			return collectionsDoc{}, fmt.Errorf("desktop entry not found: %s", key)
 		}
 	}
-
-	if err := svc.writeFolders(doc); err != nil {
-		return foldersDoc{}, err
-	}
-	return svc.readFolders()
+	return doc, nil
 }
 
-func (svc *service) saveDesktopIcon(kind string, id string, icon *desktopIcon) (foldersDoc, error) {
-	doc, err := svc.readFolders()
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	kind = normalizeDesktopEntryKind(kind)
-	id = strings.TrimSpace(id)
-	if kind == "" || id == "" {
-		return foldersDoc{}, errors.New("desktop icon kind and id are required")
-	}
-	normalizedIcon, err := validateDesktopIcon(icon)
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	now := time.Now().UnixMilli()
-	nowString := nowText()
-	if kind != "folder" {
-		return foldersDoc{}, errors.New("only folder icons can be customized")
-	}
-	for i := range doc.Items {
-		if doc.Items[i].ID != id {
-			continue
+func (svc *service) saveCollectionItemIcon(categoryID string, id string, icon *desktopIcon) (categoryWorkspaceView, error) {
+	return svc.updateWorkspace(categoryID, func(workspace *categoryWorkspace) error {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return errors.New("item id is required")
 		}
-		doc.Items[i].Icon = normalizedIcon
-		doc.Items[i].UpdatedAtMS = now
-		doc.Items[i].UpdatedAt = nowString
-		if err := svc.writeFolders(doc); err != nil {
-			return foldersDoc{}, err
+		normalizedIcon, err := validateDesktopIcon(icon)
+		if err != nil {
+			return err
 		}
-		return svc.readFolders()
-	}
-	return foldersDoc{}, fmt.Errorf("desktop entry not found: %s:%s", kind, id)
+		now := time.Now().UnixMilli()
+		nowString := nowText()
+		for i := range workspace.Items {
+			if workspace.Items[i].ID != id {
+				continue
+			}
+			workspace.Items[i].Icon = normalizedIcon
+			workspace.Items[i].UpdatedAtMS = now
+			workspace.Items[i].UpdatedAt = nowString
+			return nil
+		}
+		return fmt.Errorf("item not found: %s", id)
+	})
 }
 
-func (svc *service) saveDesktopWallpaper(wallpaper *desktopWallpaper) (foldersDoc, error) {
-	doc, err := svc.readFolders()
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	normalized, err := validateDesktopWallpaper(wallpaper)
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	doc.Desktop.Wallpaper = normalized
-	if err := svc.writeFolders(doc); err != nil {
-		return foldersDoc{}, err
-	}
-	return svc.readFolders()
+func (svc *service) saveCollectionDesktopWallpaper(categoryID string, wallpaper *desktopWallpaper) (categoryWorkspaceView, error) {
+	return svc.updateWorkspace(categoryID, func(workspace *categoryWorkspace) error {
+		normalized, err := validateDesktopWallpaper(wallpaper)
+		if err != nil {
+			return err
+		}
+		workspace.Desktop.Wallpaper = normalized
+		return nil
+	})
 }
 
-func (svc *service) saveDesktopIconLayout(iconLayout desktopIconLayout) (foldersDoc, error) {
-	doc, err := svc.readFolders()
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	normalized, err := normalizeDesktopIconLayout(iconLayout)
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	doc.Desktop.IconLayout = normalized
-	if err := svc.writeFolders(doc); err != nil {
-		return foldersDoc{}, err
-	}
-	return svc.readFolders()
+func (svc *service) saveCollectionDesktopIconLayout(categoryID string, iconLayout desktopIconLayout) (categoryWorkspaceView, error) {
+	return svc.updateWorkspace(categoryID, func(workspace *categoryWorkspace) error {
+		normalized, err := normalizeDesktopIconLayout(iconLayout)
+		if err != nil {
+			return err
+		}
+		workspace.Desktop.IconLayout = normalized
+		return nil
+	})
+}
+
+func (svc *service) addCollectionGroup(categoryID string, payload collectionGroup) (categoryWorkspaceView, error) {
+	return svc.updateWorkspace(categoryID, func(workspace *categoryWorkspace) error {
+		group, err := normalizeGroup(payload, true)
+		if err != nil {
+			return err
+		}
+		if hasGroup(workspace.Groups, group.ID) {
+			return fmt.Errorf("group already exists: %s", group.ID)
+		}
+		workspace.Groups = append(workspace.Groups, group)
+		return nil
+	})
+}
+
+func (svc *service) updateCollectionGroup(categoryID string, payload collectionGroup) (categoryWorkspaceView, error) {
+	return svc.updateWorkspace(categoryID, func(workspace *categoryWorkspace) error {
+		group, err := normalizeGroup(payload, false)
+		if err != nil {
+			return err
+		}
+		for i := range workspace.Groups {
+			if workspace.Groups[i].ID == group.ID {
+				workspace.Groups[i].Name = group.Name
+				return nil
+			}
+		}
+		return fmt.Errorf("group not found: %s", group.ID)
+	})
+}
+
+func (svc *service) removeCollectionGroup(categoryID string, id string) (categoryWorkspaceView, error) {
+	return svc.updateWorkspace(categoryID, func(workspace *categoryWorkspace) error {
+		id = safeID(id, 32)
+		if id == "" {
+			return errors.New("group id is required")
+		}
+		if id == defaultGroupID {
+			return errors.New("default group cannot be removed")
+		}
+		nextGroups := workspace.Groups[:0]
+		removed := false
+		for _, group := range workspace.Groups {
+			if group.ID == id {
+				removed = true
+				continue
+			}
+			nextGroups = append(nextGroups, group)
+		}
+		if !removed {
+			return fmt.Errorf("group not found: %s", id)
+		}
+		doc := workspaceDoc(*workspace)
+		nextOrder := nextPageOrder(doc, defaultGroupID)
+		now := time.Now().UnixMilli()
+		nowString := nowText()
+		for i := range workspace.Items {
+			if workspace.Items[i].GroupID == id {
+				workspace.Items[i].GroupID = defaultGroupID
+				workspace.Items[i].PageOrder = nextOrder
+				workspace.Items[i].ContainerID = ""
+				workspace.Items[i].ContainerLayout = nil
+				workspace.Items[i].Layout = nil
+				workspace.Items[i].UpdatedAtMS = now
+				workspace.Items[i].UpdatedAt = nowString
+				nextOrder++
+			}
+		}
+		for i := range workspace.Containers {
+			if workspace.Containers[i].GroupID == id {
+				workspace.Containers[i].GroupID = defaultGroupID
+				workspace.Containers[i].PageOrder = nextOrder
+				workspace.Containers[i].Layout = nil
+				workspace.Containers[i].UpdatedAtMS = now
+				workspace.Containers[i].UpdatedAt = nowString
+				nextOrder++
+			}
+		}
+		workspace.Groups = nextGroups
+		nextDoc := workspaceDoc(*workspace)
+		renumberPageOrder(&nextDoc, defaultGroupID)
+		applyWorkspaceDoc(workspace, nextDoc)
+		return nil
+	})
 }
 
 func (svc *service) importAsset(kind string, sourcePath string) (desktopAsset, error) {
@@ -1384,290 +1602,246 @@ func (svc *service) assetPath(assetID string) (string, error) {
 	return filepath.Join(svc.dataDir, assetsDir, filepath.FromSlash(assetID)), nil
 }
 
-func (svc *service) addGroup(payload folderGroup) (foldersDoc, error) {
-	doc, err := svc.readFolders()
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	group, err := normalizeGroup(payload, true)
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	if hasGroup(doc.Groups, group.ID) {
-		return foldersDoc{}, fmt.Errorf("group already exists: %s", group.ID)
-	}
-	doc.Groups = append(doc.Groups, group)
-	if err := svc.writeFolders(doc); err != nil {
-		return foldersDoc{}, err
-	}
-	return svc.readFolders()
-}
-
-func (svc *service) updateGroup(payload folderGroup) (foldersDoc, error) {
-	doc, err := svc.readFolders()
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	group, err := normalizeGroup(payload, false)
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	for i := range doc.Groups {
-		if doc.Groups[i].ID == group.ID {
-			doc.Groups[i].Name = group.Name
-			if err := svc.writeFolders(doc); err != nil {
-				return foldersDoc{}, err
-			}
-			return svc.readFolders()
-		}
-	}
-	return foldersDoc{}, fmt.Errorf("group not found: %s", group.ID)
-}
-
-func (svc *service) removeGroup(id string) (foldersDoc, error) {
-	doc, err := svc.readFolders()
-	if err != nil {
-		return foldersDoc{}, err
-	}
-	id = safeID(id, 32)
-	if id == "" {
-		return foldersDoc{}, errors.New("group id is required")
-	}
-	if id == defaultGroupID {
-		return foldersDoc{}, errors.New("default group cannot be removed")
-	}
-	nextGroups := doc.Groups[:0]
-	removed := false
-	for _, group := range doc.Groups {
-		if group.ID == id {
-			removed = true
-			continue
-		}
-		nextGroups = append(nextGroups, group)
-	}
-	if !removed {
-		return foldersDoc{}, fmt.Errorf("group not found: %s", id)
-	}
-	nextOrder := nextPageOrder(doc, defaultGroupID)
-	now := time.Now().UnixMilli()
-	nowString := nowText()
-	for i := range doc.Items {
-		if doc.Items[i].GroupID == id {
-			doc.Items[i].GroupID = defaultGroupID
-			doc.Items[i].PageOrder = nextOrder
-			doc.Items[i].ContainerID = ""
-			doc.Items[i].ContainerLayout = nil
-			doc.Items[i].Layout = nil
-			doc.Items[i].UpdatedAtMS = now
-			doc.Items[i].UpdatedAt = nowString
-			nextOrder++
-		}
-	}
-	for i := range doc.Containers {
-		if doc.Containers[i].GroupID == id {
-			doc.Containers[i].GroupID = defaultGroupID
-			doc.Containers[i].PageOrder = nextOrder
-			doc.Containers[i].Layout = nil
-			doc.Containers[i].UpdatedAtMS = now
-			doc.Containers[i].UpdatedAt = nowString
-			nextOrder++
-		}
-	}
-	doc.Groups = nextGroups
-	renumberPageOrder(&doc, defaultGroupID)
-	if err := svc.writeFolders(doc); err != nil {
-		return foldersDoc{}, err
-	}
-	return svc.readFolders()
-}
-
-func (svc *service) openFolder(id string) (map[string]any, error) {
-	doc, err := svc.readFolders()
-	if err != nil {
-		return nil, err
-	}
-	id = strings.TrimSpace(id)
-	for _, item := range doc.Items {
-		if item.ID == id {
-			if err := openPath(item.Path); err != nil {
-				return nil, err
-			}
-			return map[string]any{"ok": true, "path": item.Path}, nil
-		}
-	}
-	return nil, fmt.Errorf("folder not found: %s", id)
-}
-
-func defaultFoldersDoc() foldersDoc {
-	return foldersDoc{
-		SchemaVersion: dataSchemaVersion,
-		DataVersion:   dataVersion,
-		Groups:        []folderGroup{{ID: defaultGroupID, Name: "默认"}},
-		Items:         []folderItem{},
-		Containers:    []desktopContainer{},
-		Desktop:       desktopState{IconLayout: defaultDesktopIconLayout()},
-		UpdatedAt:     nowText(),
+func defaultCollectionsDoc() collectionsDoc {
+	categories := []categoryWorkspace{defaultCategoryWorkspace("folder"), defaultCategoryWorkspace("url"), defaultCategoryWorkspace("file")}
+	active := categories[0]
+	return collectionsDoc{
+		SchemaVersion:    dataSchemaVersion,
+		DataVersion:      dataVersion,
+		ActiveCategoryID: defaultCategoryID,
+		Categories:       categories,
+		UpdatedAt:        nowText(),
+		Groups:           active.Groups,
+		Items:            active.Items,
+		Containers:       active.Containers,
+		Desktop:          active.Desktop,
 	}
 }
 
-func decodeCurrentFoldersDoc(payload []byte) (foldersDoc, error) {
+func defaultCategoryWorkspace(id string) categoryWorkspace {
+	return categoryWorkspace{ID: id, Groups: []collectionGroup{{ID: defaultGroupID, Name: "默认"}}, Items: []collectionItem{}, Containers: []desktopContainer{}, Desktop: desktopState{IconLayout: defaultDesktopIconLayout()}}
+}
+
+func decodeCurrentCollectionsDoc(payload []byte) (collectionsDoc, error) {
 	if len(bytes.TrimSpace(payload)) == 0 {
-		return foldersDoc{}, errors.New("folders data file is empty")
+		return collectionsDoc{}, errors.New("collections data file is empty")
 	}
-	var input foldersDocInput
+	var input collectionsDocInput
 	if err := json.Unmarshal(payload, &input); err != nil {
-		return foldersDoc{}, fmt.Errorf("parse folders data failed: %w", err)
+		return collectionsDoc{}, fmt.Errorf("parse collections data failed: %w", err)
 	}
 	if input.SchemaVersion == nil {
-		return foldersDoc{}, errors.New("folders data schemaVersion is required")
+		return collectionsDoc{}, errors.New("collections data schemaVersion is required")
 	}
 	if *input.SchemaVersion != dataSchemaVersion {
-		return foldersDoc{}, fmt.Errorf("folders data schemaVersion %d is not supported; expected %d", *input.SchemaVersion, dataSchemaVersion)
+		return collectionsDoc{}, fmt.Errorf("collections data schemaVersion %d is not supported; expected %d", *input.SchemaVersion, dataSchemaVersion)
 	}
 	if input.DataVersion == nil {
-		return foldersDoc{}, errors.New("folders data dataVersion is required")
+		return collectionsDoc{}, errors.New("collections data dataVersion is required")
 	}
 	if *input.DataVersion != dataVersion {
-		return foldersDoc{}, fmt.Errorf("folders dataVersion %d is not supported in this development baseline; reset data or export it before switching versions", *input.DataVersion)
+		return collectionsDoc{}, fmt.Errorf("collections dataVersion %d is not supported in this development baseline; reset data or export it before switching versions", *input.DataVersion)
 	}
-	if input.Groups == nil {
-		return foldersDoc{}, errors.New("folders data groups is required")
+	if input.ActiveCategoryID == nil {
+		return collectionsDoc{}, errors.New("collections data activeCategoryId is required")
 	}
-	if input.Items == nil {
-		return foldersDoc{}, errors.New("folders data items is required")
+	if input.Categories == nil {
+		return collectionsDoc{}, errors.New("collections data categories is required")
 	}
-	if input.Containers == nil {
-		return foldersDoc{}, errors.New("folders data containers is required")
-	}
-	if input.Desktop == nil {
-		return foldersDoc{}, errors.New("folders data desktop is required")
-	}
-	if input.Desktop.IconLayout == nil {
-		return foldersDoc{}, errors.New("folders data desktop.iconLayout is required")
-	}
-	iconLayout, err := decodeDesktopIconLayout(*input.Desktop.IconLayout)
-	if err != nil {
-		return foldersDoc{}, err
+	categories := make([]categoryWorkspace, 0, len(*input.Categories))
+	for index, raw := range *input.Categories {
+		workspace, err := decodeCategoryWorkspace(raw)
+		if err != nil {
+			return collectionsDoc{}, fmt.Errorf("categories[%d]: %w", index, err)
+		}
+		categories = append(categories, workspace)
 	}
 	updatedAt := ""
 	if input.UpdatedAt != nil {
 		updatedAt = *input.UpdatedAt
 	}
-	doc := foldersDoc{
-		SchemaVersion: *input.SchemaVersion,
-		DataVersion:   *input.DataVersion,
-		Groups:        *input.Groups,
-		Items:         *input.Items,
-		Containers:    *input.Containers,
-		Desktop:       desktopState{Wallpaper: input.Desktop.Wallpaper, IconLayout: iconLayout},
-		UpdatedAt:     updatedAt,
+	doc := collectionsDoc{
+		SchemaVersion:    *input.SchemaVersion,
+		DataVersion:      *input.DataVersion,
+		ActiveCategoryID: *input.ActiveCategoryID,
+		Categories:       categories,
+		UpdatedAt:        updatedAt,
 	}
-	return normalizeFoldersDoc(doc)
+	return normalizeCollectionsDoc(doc)
+}
+
+func decodeCategoryWorkspace(input categoryWorkspaceInput) (categoryWorkspace, error) {
+	if input.ID == nil {
+		return categoryWorkspace{}, errors.New("category id is required")
+	}
+	if input.Groups == nil {
+		return categoryWorkspace{}, errors.New("groups is required")
+	}
+	if input.Items == nil {
+		return categoryWorkspace{}, errors.New("items is required")
+	}
+	if input.Containers == nil {
+		return categoryWorkspace{}, errors.New("containers is required")
+	}
+	if input.Desktop == nil {
+		return categoryWorkspace{}, errors.New("desktop is required")
+	}
+	if input.Desktop.IconLayout == nil {
+		return categoryWorkspace{}, errors.New("desktop.iconLayout is required")
+	}
+	iconLayout, err := decodeDesktopIconLayout(*input.Desktop.IconLayout)
+	if err != nil {
+		return categoryWorkspace{}, err
+	}
+	return categoryWorkspace{ID: *input.ID, Groups: *input.Groups, Items: *input.Items, Containers: *input.Containers, Desktop: desktopState{Wallpaper: input.Desktop.Wallpaper, IconLayout: iconLayout}}, nil
 }
 
 func decodeDesktopIconLayout(input desktopIconLayoutInput) (desktopIconLayout, error) {
 	if input.RowGap == nil {
-		return desktopIconLayout{}, errors.New("folders data desktop.iconLayout.rowGap is required")
+		return desktopIconLayout{}, errors.New("collections data desktop.iconLayout.rowGap is required")
 	}
 	if input.ColumnGap == nil {
-		return desktopIconLayout{}, errors.New("folders data desktop.iconLayout.columnGap is required")
+		return desktopIconLayout{}, errors.New("collections data desktop.iconLayout.columnGap is required")
 	}
 	if input.IconScale == nil {
-		return desktopIconLayout{}, errors.New("folders data desktop.iconLayout.iconScale is required")
+		return desktopIconLayout{}, errors.New("collections data desktop.iconLayout.iconScale is required")
 	}
 	return normalizeDesktopIconLayout(desktopIconLayout{RowGap: *input.RowGap, ColumnGap: *input.ColumnGap, IconScale: *input.IconScale})
 }
 
-func normalizeFoldersDoc(doc foldersDoc) (foldersDoc, error) {
-	if len(doc.Groups) == 0 {
-		return foldersDoc{}, errors.New("default group is required")
+func normalizeCollectionsDoc(doc collectionsDoc) (collectionsDoc, error) {
+	activeCategoryID := normalizeCategoryID(doc.ActiveCategoryID)
+	if activeCategoryID == "" {
+		return collectionsDoc{}, errors.New("valid activeCategoryId is required")
 	}
-	groups := make([]folderGroup, 0, len(doc.Groups))
+	if len(doc.Categories) != 3 {
+		return collectionsDoc{}, errors.New("folder, url, and file collection categories are required")
+	}
+	categories := make([]categoryWorkspace, 0, len(doc.Categories))
+	seenCategories := map[string]bool{}
+	for i, raw := range doc.Categories {
+		workspace, err := normalizeCategoryWorkspace(raw)
+		if err != nil {
+			return collectionsDoc{}, fmt.Errorf("categories[%d]: %w", i, err)
+		}
+		if seenCategories[workspace.ID] {
+			return collectionsDoc{}, fmt.Errorf("duplicate category id: %s", workspace.ID)
+		}
+		seenCategories[workspace.ID] = true
+		categories = append(categories, workspace)
+	}
+	for _, required := range []string{"folder", "url", "file"} {
+		if !seenCategories[required] {
+			return collectionsDoc{}, fmt.Errorf("category is required: %s", required)
+		}
+	}
+	sort.SliceStable(categories, func(i, j int) bool { return categoryOrder(categories[i].ID) < categoryOrder(categories[j].ID) })
+	active, _, err := workspaceByID(collectionsDoc{Categories: categories}, activeCategoryID)
+	if err != nil {
+		return collectionsDoc{}, err
+	}
+	return collectionsDoc{
+		SchemaVersion:    dataSchemaVersion,
+		DataVersion:      dataVersion,
+		ActiveCategoryID: activeCategoryID,
+		Categories:       categories,
+		UpdatedAt:        firstNonEmpty(doc.UpdatedAt, nowText()),
+		Groups:           active.Groups,
+		Items:            active.Items,
+		Containers:       active.Containers,
+		Desktop:          active.Desktop,
+	}, nil
+}
+
+func normalizeCategoryWorkspace(raw categoryWorkspace) (categoryWorkspace, error) {
+	categoryID := normalizeCategoryID(raw.ID)
+	if categoryID == "" {
+		return categoryWorkspace{}, errors.New("valid category id is required")
+	}
+	if len(raw.Groups) == 0 {
+		return categoryWorkspace{}, errors.New("default group is required")
+	}
+	groups := make([]collectionGroup, 0, len(raw.Groups))
 	seen := map[string]bool{}
-	for i, group := range doc.Groups {
+	for i, group := range raw.Groups {
 		normalized, err := normalizeGroup(group, false)
 		if err != nil {
-			return foldersDoc{}, fmt.Errorf("groups[%d]: %w", i, err)
+			return categoryWorkspace{}, fmt.Errorf("groups[%d]: %w", i, err)
 		}
 		if i == 0 && normalized.ID != defaultGroupID {
-			return foldersDoc{}, errors.New("default group must be first")
+			return categoryWorkspace{}, errors.New("default group must be first")
 		}
 		if seen[normalized.ID] {
-			return foldersDoc{}, fmt.Errorf("duplicate group id: %s", normalized.ID)
+			return categoryWorkspace{}, fmt.Errorf("duplicate group id: %s", normalized.ID)
 		}
 		groups = append(groups, normalized)
 		seen[normalized.ID] = true
 	}
 
-	containers := make([]desktopContainer, 0, len(doc.Containers))
+	containers := make([]desktopContainer, 0, len(raw.Containers))
 	containerIDs := map[string]bool{}
 	containerGroupByID := map[string]string{}
-	for i, raw := range doc.Containers {
-		container, err := normalizeDesktopContainer(raw, groups, false)
+	for i, containerRaw := range raw.Containers {
+		container, err := normalizeDesktopContainer(containerRaw, groups, false)
 		if err != nil {
-			return foldersDoc{}, fmt.Errorf("containers[%d]: %w", i, err)
+			return categoryWorkspace{}, fmt.Errorf("containers[%d]: %w", i, err)
 		}
 		if containerIDs[container.ID] {
-			return foldersDoc{}, fmt.Errorf("duplicate container id: %s", container.ID)
+			return categoryWorkspace{}, fmt.Errorf("duplicate container id: %s", container.ID)
 		}
 		containers = append(containers, container)
 		containerIDs[container.ID] = true
 		containerGroupByID[container.ID] = container.GroupID
 	}
 
-	items := make([]folderItem, 0, len(doc.Items))
+	items := make([]collectionItem, 0, len(raw.Items))
 	itemIDs := map[string]bool{}
-	for i, raw := range doc.Items {
-		item, err := normalizeFolderItem(raw, groups, false)
+	for i, itemRaw := range raw.Items {
+		item, err := normalizeCollectionItem(itemRaw, groups, false)
 		if err != nil {
-			return foldersDoc{}, fmt.Errorf("items[%d]: %w", i, err)
+			return categoryWorkspace{}, fmt.Errorf("items[%d]: %w", i, err)
+		}
+		if item.Target.Kind != categoryID {
+			return categoryWorkspace{}, fmt.Errorf("items[%d]: target kind must match category %s", i, categoryID)
 		}
 		if itemIDs[item.ID] {
-			return foldersDoc{}, fmt.Errorf("duplicate folder id: %s", item.ID)
+			return categoryWorkspace{}, fmt.Errorf("duplicate item id: %s", item.ID)
 		}
 		if item.ContainerID != "" && !containerIDs[item.ContainerID] {
-			return foldersDoc{}, fmt.Errorf("items[%d]: container not found: %s", i, item.ContainerID)
+			return categoryWorkspace{}, fmt.Errorf("items[%d]: container not found: %s", i, item.ContainerID)
 		}
 		if item.ContainerID != "" && containerGroupByID[item.ContainerID] != item.GroupID {
-			return foldersDoc{}, fmt.Errorf("items[%d]: container group mismatch: %s", i, item.ContainerID)
+			return categoryWorkspace{}, fmt.Errorf("items[%d]: container group mismatch: %s", i, item.ContainerID)
 		}
 		if item.ContainerID == "" && item.ContainerLayout != nil {
-			return foldersDoc{}, fmt.Errorf("items[%d]: containerLayout requires containerId", i)
+			return categoryWorkspace{}, fmt.Errorf("items[%d]: containerLayout requires containerId", i)
 		}
 		items = append(items, item)
 		itemIDs[item.ID] = true
 	}
-	desktop, err := normalizeDesktopState(doc.Desktop)
+	desktop, err := normalizeDesktopState(raw.Desktop)
 	if err != nil {
-		return foldersDoc{}, err
+		return categoryWorkspace{}, err
 	}
-	return foldersDoc{
-		SchemaVersion: dataSchemaVersion,
-		DataVersion:   dataVersion,
-		Groups:        groups,
-		Items:         items,
-		Containers:    containers,
-		Desktop:       desktop,
-		UpdatedAt:     firstNonEmpty(doc.UpdatedAt, nowText()),
-	}, nil
+	return categoryWorkspace{ID: categoryID, Groups: groups, Items: items, Containers: containers, Desktop: desktop}, nil
 }
 
-func normalizeGroup(raw folderGroup, allowGeneratedID bool) (folderGroup, error) {
+func normalizeGroup(raw collectionGroup, allowGeneratedID bool) (collectionGroup, error) {
 	name := trimMax(raw.Name, 40)
 	id := safeID(raw.ID, 32)
 	if id == "" && allowGeneratedID {
 		id = safeID(name, 32)
 	}
 	if id == "" {
-		return folderGroup{}, errors.New("group id is required")
+		return collectionGroup{}, errors.New("group id is required")
 	}
 	if name == "" {
-		return folderGroup{}, errors.New("group name is required")
+		return collectionGroup{}, errors.New("group name is required")
 	}
-	return folderGroup{ID: id, Name: name}, nil
+	return collectionGroup{ID: id, Name: name}, nil
 }
 
-func normalizeFolderItem(raw folderItem, groups []folderGroup, allowNewID bool) (folderItem, error) {
+func normalizeCollectionItem(raw collectionItem, groups []collectionGroup, allowNewID bool) (collectionItem, error) {
 	now := time.Now().UnixMilli()
 	nowString := nowText()
 	id := strings.TrimSpace(raw.ID)
@@ -1675,26 +1849,26 @@ func normalizeFolderItem(raw folderItem, groups []folderGroup, allowNewID bool) 
 		id = fmt.Sprintf("%d", now)
 	}
 	if id == "" {
-		return folderItem{}, errors.New("folder id is required")
+		return collectionItem{}, errors.New("item id is required")
 	}
-	path := strings.TrimSpace(raw.Path)
-	if path == "" {
-		return folderItem{}, errors.New("folder path is required")
+	target, err := normalizeCollectionTarget(raw.Target)
+	if err != nil {
+		return collectionItem{}, err
 	}
 	name := trimMax(raw.Name, 80)
 	if name == "" {
-		name = trimMax(filepath.Base(filepath.Clean(path)), 80)
+		name = trimMax(defaultItemName(target), 80)
 		if name == "" || name == "." {
-			return folderItem{}, errors.New("folder name is required")
+			return collectionItem{}, errors.New("item name is required")
 		}
 	}
 	groupID, err := normalizeGroupID(raw.GroupID, groups)
 	if err != nil {
-		return folderItem{}, err
+		return collectionItem{}, err
 	}
 	pageOrder := raw.PageOrder
 	if pageOrder < 0 {
-		return folderItem{}, errors.New("folder pageOrder must be non-negative")
+		return collectionItem{}, errors.New("item pageOrder must be non-negative")
 	}
 	createdAt := raw.CreatedAtMS
 	if createdAt <= 0 {
@@ -1716,7 +1890,7 @@ func normalizeFolderItem(raw folderItem, groups []folderGroup, allowNewID bool) 
 	if raw.Layout != nil {
 		normalizedLayout, err := validateGridLayout(*raw.Layout)
 		if err != nil {
-			return folderItem{}, err
+			return collectionItem{}, err
 		}
 		itemLayout = &normalizedLayout
 	}
@@ -1724,18 +1898,59 @@ func normalizeFolderItem(raw folderItem, groups []folderGroup, allowNewID bool) 
 	if raw.ContainerLayout != nil {
 		normalizedLayout, err := validateGridLayout(*raw.ContainerLayout)
 		if err != nil {
-			return folderItem{}, err
+			return collectionItem{}, err
 		}
 		containerLayout = &normalizedLayout
 	}
 	icon, err := validateDesktopIcon(raw.Icon)
 	if err != nil {
-		return folderItem{}, err
+		return collectionItem{}, err
 	}
-	return folderItem{ID: id, Name: name, Path: path, GroupID: groupID, PageOrder: pageOrder, ContainerID: strings.TrimSpace(raw.ContainerID), CreatedAt: createdAtText, UpdatedAt: updatedAtText, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt, Layout: itemLayout, ContainerLayout: containerLayout, Icon: icon}, nil
+	return collectionItem{ID: id, Name: name, Target: target, GroupID: groupID, PageOrder: pageOrder, ContainerID: strings.TrimSpace(raw.ContainerID), CreatedAt: createdAtText, UpdatedAt: updatedAtText, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt, Layout: itemLayout, ContainerLayout: containerLayout, Icon: icon}, nil
 }
 
-func normalizeDesktopContainer(raw desktopContainer, groups []folderGroup, allowNewID bool) (desktopContainer, error) {
+func normalizeCollectionTarget(raw collectionTarget) (collectionTarget, error) {
+	switch strings.TrimSpace(raw.Kind) {
+	case "folder":
+		path := strings.TrimSpace(raw.Path)
+		if path == "" {
+			return collectionTarget{}, errors.New("folder path is required")
+		}
+		return collectionTarget{Kind: "folder", Path: path}, nil
+	case "file":
+		path := strings.TrimSpace(raw.Path)
+		if path == "" {
+			return collectionTarget{}, errors.New("file path is required")
+		}
+		return collectionTarget{Kind: "file", Path: path}, nil
+	case "url":
+		rawURL := strings.TrimSpace(raw.URL)
+		parsed, err := url.ParseRequestURI(rawURL)
+		if err != nil || parsed == nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+			return collectionTarget{}, errors.New("valid http or https url is required")
+		}
+		return collectionTarget{Kind: "url", URL: rawURL}, nil
+	default:
+		return collectionTarget{}, errors.New("target kind must be folder, url, or file")
+	}
+}
+
+func defaultItemName(target collectionTarget) string {
+	switch target.Kind {
+	case "url":
+		parsed, err := url.Parse(target.URL)
+		if err == nil && parsed.Host != "" {
+			return parsed.Host
+		}
+		return target.URL
+	case "folder", "file":
+		return filepath.Base(filepath.Clean(target.Path))
+	default:
+		return ""
+	}
+}
+
+func normalizeDesktopContainer(raw desktopContainer, groups []collectionGroup, allowNewID bool) (desktopContainer, error) {
 	now := time.Now().UnixMilli()
 	nowString := nowText()
 	id := strings.TrimSpace(raw.ID)
@@ -1911,8 +2126,8 @@ func validateDesktopIcon(raw *desktopIcon) (*desktopIcon, error) {
 
 func normalizeDesktopEntryKind(kind string) string {
 	switch strings.TrimSpace(kind) {
-	case "folder":
-		return "folder"
+	case "item":
+		return "item"
 	case "container":
 		return "container"
 	default:
@@ -1953,7 +2168,7 @@ func layoutPtr(layout folderGridLayout) *folderGridLayout {
 	return &copy
 }
 
-func hasGroup(groups []folderGroup, id string) bool {
+func hasGroup(groups []collectionGroup, id string) bool {
 	for _, group := range groups {
 		if group.ID == id {
 			return true
@@ -1962,7 +2177,7 @@ func hasGroup(groups []folderGroup, id string) bool {
 	return false
 }
 
-func normalizeGroupID(raw string, groups []folderGroup) (string, error) {
+func normalizeGroupID(raw string, groups []collectionGroup) (string, error) {
 	id := safeID(raw, 32)
 	if id == "" || !hasGroup(groups, id) {
 		return "", errors.New("valid group id is required")
@@ -1970,7 +2185,7 @@ func normalizeGroupID(raw string, groups []folderGroup) (string, error) {
 	return id, nil
 }
 
-func nextPageOrder(doc foldersDoc, groupID string) int64 {
+func nextPageOrder(doc collectionsDoc, groupID string) int64 {
 	maxOrder := int64(-1)
 	for _, item := range doc.Items {
 		if item.GroupID == groupID && item.PageOrder > maxOrder {
@@ -1985,7 +2200,7 @@ func nextPageOrder(doc foldersDoc, groupID string) int64 {
 	return maxOrder + 1
 }
 
-func renumberPageOrder(doc *foldersDoc, groupID string) {
+func renumberPageOrder(doc *collectionsDoc, groupID string) {
 	type entryRef struct {
 		kind  string
 		index int
@@ -1994,7 +2209,7 @@ func renumberPageOrder(doc *foldersDoc, groupID string) {
 	entries := []entryRef{}
 	for i, item := range doc.Items {
 		if item.GroupID == groupID && item.ContainerID == "" {
-			entries = append(entries, entryRef{kind: "folder", index: i, order: item.PageOrder})
+			entries = append(entries, entryRef{kind: "item", index: i, order: item.PageOrder})
 		}
 	}
 	for i, container := range doc.Containers {
@@ -2006,7 +2221,7 @@ func renumberPageOrder(doc *foldersDoc, groupID string) {
 		return entries[i].order < entries[j].order
 	})
 	for order, entry := range entries {
-		if entry.kind == "folder" {
+		if entry.kind == "item" {
 			doc.Items[entry.index].PageOrder = int64(order)
 		} else {
 			doc.Containers[entry.index].PageOrder = int64(order)
@@ -2014,16 +2229,16 @@ func renumberPageOrder(doc *foldersDoc, groupID string) {
 	}
 }
 
-func uniqueFolderID(items []folderItem, seed int64) string {
+func uniqueCollectionItemID(items []collectionItem, seed int64) string {
 	for offset := int64(0); ; offset++ {
 		id := fmt.Sprintf("%d-copy-%d", seed, offset)
-		if !hasFolder(items, id) {
+		if !hasCollectionItem(items, id) {
 			return id
 		}
 	}
 }
 
-func hasFolder(items []folderItem, id string) bool {
+func hasCollectionItem(items []collectionItem, id string) bool {
 	for _, item := range items {
 		if item.ID == id {
 			return true
@@ -2141,19 +2356,81 @@ func isSafeAssetID(assetID string) bool {
 }
 
 func openPath(path string) error {
-	if strings.TrimSpace(path) == "" {
-		return errors.New("folder path is required")
+	command, err := openCommandForPath(path, runtime.GOOS, false)
+	if err != nil {
+		return err
 	}
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("explorer", path)
-	case "darwin":
-		cmd = exec.Command("open", path)
+	return command.start()
+}
+
+type systemOpenCommand struct {
+	Name string
+	Args []string
+}
+
+func (command systemOpenCommand) start() error {
+	if strings.TrimSpace(command.Name) == "" {
+		return errors.New("open command is required")
+	}
+	return exec.Command(command.Name, command.Args...).Start()
+}
+
+func openCollectionTarget(target collectionTarget) error {
+	command, err := openCommandForCollectionTarget(target, runtime.GOOS)
+	if err != nil {
+		return err
+	}
+	return command.start()
+}
+
+func openCommandForCollectionTarget(target collectionTarget, goos string) (systemOpenCommand, error) {
+	normalized, err := normalizeCollectionTarget(target)
+	if err != nil {
+		return systemOpenCommand{}, err
+	}
+	switch normalized.Kind {
+	case "folder":
+		return openCommandForPath(normalized.Path, goos, true)
+	case "file":
+		return openCommandForPath(normalized.Path, goos, false)
+	case "url":
+		return openCommandForURL(normalized.URL, goos)
 	default:
-		cmd = exec.Command("xdg-open", path)
+		return systemOpenCommand{}, fmt.Errorf("unsupported target kind: %s", normalized.Kind)
 	}
-	return cmd.Start()
+}
+
+func openCommandForPath(path string, goos string, folder bool) (systemOpenCommand, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return systemOpenCommand{}, errors.New("path is required")
+	}
+	switch goos {
+	case "windows":
+		if folder {
+			return systemOpenCommand{Name: "explorer", Args: []string{path}}, nil
+		}
+		return systemOpenCommand{Name: "rundll32", Args: []string{"url.dll,FileProtocolHandler", path}}, nil
+	case "darwin":
+		return systemOpenCommand{Name: "open", Args: []string{path}}, nil
+	default:
+		return systemOpenCommand{Name: "xdg-open", Args: []string{path}}, nil
+	}
+}
+
+func openCommandForURL(rawURL string, goos string) (systemOpenCommand, error) {
+	target, err := normalizeCollectionTarget(collectionTarget{Kind: "url", URL: rawURL})
+	if err != nil {
+		return systemOpenCommand{}, err
+	}
+	switch goos {
+	case "windows":
+		return systemOpenCommand{Name: "rundll32", Args: []string{"url.dll,FileProtocolHandler", target.URL}}, nil
+	case "darwin":
+		return systemOpenCommand{Name: "open", Args: []string{target.URL}}, nil
+	default:
+		return systemOpenCommand{Name: "xdg-open", Args: []string{target.URL}}, nil
+	}
 }
 
 func writeReady(port int) {

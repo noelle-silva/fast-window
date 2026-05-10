@@ -1,7 +1,7 @@
 import * as React from 'react'
-import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
 import { Box } from '@mui/material'
-import type { DesktopIcon } from '../types'
+import { categoryDefinition } from '../categoryRegistry'
+import type { CollectionCategoryId, DesktopIcon } from '../types'
 import {
   DESKTOP_ICON_DRAG_SHADOW,
   DESKTOP_ICON_SURFACE_RADIUS,
@@ -19,6 +19,7 @@ type Props = {
   seed: string
   shadow?: string | false
   size?: number
+  targetKind?: CollectionCategoryId
 }
 
 export function DesktopIconVisual(props: Props): React.ReactNode {
@@ -29,6 +30,7 @@ export function DesktopIconVisual(props: Props): React.ReactNode {
   const palette = getDesktopIconPalette(props.seed, color)
   const imageSrc = props.icon?.kind === 'image' && props.assetUrl ? props.assetUrl(props.icon.assetId) : null
   const shadow = props.shadow === false ? 'none' : props.dragging ? DESKTOP_ICON_DRAG_SHADOW : props.shadow ?? palette.shadow
+  const GlyphIcon = categoryDefinition(props.targetKind || 'folder').icon
 
   return (
     <Box
@@ -51,7 +53,7 @@ export function DesktopIconVisual(props: Props): React.ReactNode {
       {imageSrc ? (
         <Box component="img" src={imageSrc} alt="" draggable={false} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
       ) : (
-        <FolderRoundedIcon sx={{ fontSize: glyphSize, filter: 'drop-shadow(0 3px 7px rgba(15, 23, 42, 0.22))' }} />
+        <GlyphIcon sx={{ fontSize: glyphSize, filter: 'drop-shadow(0 3px 7px rgba(15, 23, 42, 0.22))' }} />
       )}
     </Box>
   )

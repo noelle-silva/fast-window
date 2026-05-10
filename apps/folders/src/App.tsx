@@ -42,13 +42,16 @@ import {
   Stack,
   TextField,
   Tooltip,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
   alpha,
 } from '@mui/material'
 import type { SelectChangeEvent } from '@mui/material/Select'
 import { createDirectClient } from './backendClient'
-import { ContainerFolderOverlay } from './ContainerFolderOverlay'
-import type { ContainerFolderDragEvent } from './ContainerFolderOverlay'
+import { CATEGORY_DEFINITIONS, categoryDefinition, itemTargetValue, type CategoryDefinition } from './categoryRegistry'
+import { ContainerOverlay } from './ContainerOverlay'
+import type { ContainerItemDragEvent } from './ContainerOverlay'
 import { ContainerDialog, IconEditorDialog } from './DesktopDialogs'
 import { DesktopDragHint } from './DesktopDragHint'
 import { DesktopWallpaper } from './DesktopWallpaper'
@@ -67,25 +70,26 @@ import type {
   ContainerFormState,
   ContextMenuState,
   DataDirStatus,
+  CollectionCategoryId,
   DesktopAsset,
-  DesktopContainer,
+  CategoryWorkspaceView,
+  CollectionContainer,
   DesktopGridEntry,
   DesktopIcon,
   DesktopIconLayout,
   DesktopWallpaper as DesktopWallpaperState,
   DesktopWallpaperView,
   DirectClient,
-  FolderFormState,
-  FolderGroup,
-  FoldersHealth,
-  FolderItem,
-  FoldersDoc,
+  CollectionItemFormState,
+  CollectionGroup,
+  CollectionsHealth,
+  CollectionItem,
   FwLaunchInfo,
   GroupFormState,
   IconEditorState,
   Phase,
 } from './types'
-import { FolderGridCanvas, type DesktopGridApi, type DesktopGridDragEvent, type DesktopGridExternalFolderDrag, type DesktopGridLayoutPatch } from './folder-grid/FolderGridCanvas'
+import { FolderGridCanvas, type DesktopGridApi, type DesktopGridDragEvent, type DesktopGridExternalItemDrag, type DesktopGridLayoutPatch } from './folder-grid/FolderGridCanvas'
 import {
   DESKTOP_ICON_GAP_MAX,
   DESKTOP_ICON_GAP_MIN,
@@ -97,15 +101,17 @@ import {
   normalizeDesktopIconLayout,
 } from './folder-grid/iconLayout'
 import {
-  DEFAULT_DOC,
+  DEFAULT_CATEGORY_ID,
   DEFAULT_GROUP_ID,
+  DEFAULT_WORKSPACE_VIEW,
+  EMPTY_ITEM_FORM,
   DEFAULT_LAUNCH_INFO,
   EMPTY_CONTAINER_FORM,
   EMPTY_GROUP_FORM,
   createID,
-  deriveNameFromPath,
+  deriveNameFromTarget,
   errorMessage,
-  folderTemplate,
+  itemTemplate,
   groupIdFromName,
   isInteractiveTarget,
 } from './utils'
@@ -118,22 +124,23 @@ export function App() {
   const [launchInfo, setLaunchInfo] = React.useState<FwLaunchInfo>(DEFAULT_LAUNCH_INFO)
   const [status, setStatus] = React.useState<DataDirStatus | null>(null)
   const [client, setClient] = React.useState<DirectClient | null>(null)
-  const [doc, setDoc] = React.useState<FoldersDoc>(DEFAULT_DOC)
+  const [doc, setDoc] = React.useState<CategoryWorkspaceView>(DEFAULT_WORKSPACE_VIEW)
+  const [activeCategoryId, setActiveCategoryId] = React.useState<CollectionCategoryId>(DEFAULT_CATEGORY_ID)
   const [phase, setPhase] = React.useState<Phase>('starting')
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [search, setSearch] = React.useState('')
   const [groupId, setGroupId] = React.useState(DEFAULT_GROUP_ID)
-  const [editing, setEditing] = React.useState<FolderItem | null>(null)
-  const [form, setForm] = React.useState<FolderFormState>({ name: '', path: '', groupId: DEFAULT_GROUP_ID, newGroupName: '' })
+  const [editing, setEditing] = React.useState<CollectionItem | null>(null)
+  const [form, setForm] = React.useState<CollectionItemFormState>(EMPTY_ITEM_FORM)
   const [settingsOpen, setSettingsOpen] = React.useState(false)
   const [groupEditorOpen, setGroupEditorOpen] = React.useState(false)
   const [groupForm, setGroupForm] = React.useState<GroupFormState>(EMPTY_GROUP_FORM)
   const [containerEditorOpen, setContainerEditorOpen] = React.useState(false)
   const [containerForm, setContainerForm] = React.useState<ContainerFormState>(EMPTY_CONTAINER_FORM)
-  const [editingContainer, setEditingContainer] = React.useState<DesktopContainer | null>(null)
-  const [containerView, setContainerView] = React.useState<DesktopContainer | null>(null)
-  const [containerDropView, setContainerDropView] = React.useState<DesktopContainer | null>(null)
+  const [editingContainer, setEditingContainer] = React.useState<CollectionContainer | null>(null)
+  const [containerView, setContainerView] = React.useState<CollectionContainer | null>(null)
+  const [containerDropView, setContainerDropView] = React.useState<CollectionContainer | null>(null)
   const [iconEditor, setIconEditor] = React.useState<IconEditorState>(null)
   const [iconLayoutDraft, setIconLayoutDraft] = React.useState<DesktopIconLayout | null>(null)
   const [confirm, setConfirm] = React.useState<ConfirmState>(null)
@@ -144,10 +151,29 @@ export function App() {
   const containerGridApiByIdRef = React.useRef<Map<string, Map<string, ContainerGridApi>>>(new Map())
   const desktopGridApiRef = React.useRef<DesktopGridApi | null>(null)
   const containerExtractDragRef = React.useRef<ContainerExtractDragState>(null)
-  const containerDropViewRef = React.useRef<DesktopContainer | null>(null)
+  const containerDropViewRef = React.useRef<CollectionContainer | null>(null)
   const hoverOpenTimerRef = React.useRef<number | null>(null)
   const hoverOpenTargetIdRef = React.useRef<string | null>(null)
   const readyRef = React.useRef(false)
+  const activeCategory = categoryDefinition(activeCategoryId)
+  const requestParams = React.useCallback((params?: Record<string, unknown>) => ({ categoryId: activeCategoryId, ...(params || {}) }), [activeCategoryId])
+
+  const loadCategory = React.useCallback(async (categoryId: CollectionCategoryId, nextClient = client) => {
+    if (!nextClient) return
+    setBusy(true); setError(null)
+    try {
+      const nextDoc = await nextClient.request<CategoryWorkspaceView>('collections.category.get', { categoryId })
+      setDoc(nextDoc)
+      setGroupId(DEFAULT_GROUP_ID)
+      setSearch('')
+      setEditing(null)
+      setContainerView(null)
+      setContainerDropViewState(null)
+      setContextMenu(null)
+    } catch (e) {
+      setError(errorMessage(e, '切换类别失败'))
+    } finally { setBusy(false) }
+  }, [client])
 
   const handleContainerGridReady = React.useCallback((containerId: string, instanceId: string, api: ContainerGridApi | null) => {
     const apis = containerGridApiByIdRef.current.get(containerId) || new Map<string, ContainerGridApi>()
@@ -176,17 +202,17 @@ export function App() {
     try {
       if (options?.restartBackend) await invoke('restart_backend')
       const nextClient = await createDirectClient()
-      const health = await nextClient.request<FoldersHealth>('folders.health')
+      const health = await nextClient.request<CollectionsHealth>('collections.health')
       if (!health.data.ok) {
         setClient(nextClient); setPhase('data-error'); setError(health.data.error || '数据文件不符合当前开发基线'); await refreshStatus()
         return
       }
-      const nextDoc = await nextClient.request<FoldersDoc>('folders.getData')
+      const nextDoc = await nextClient.request<CategoryWorkspaceView>('collections.category.get', { categoryId: activeCategoryId })
       setClient(nextClient); setDoc(nextDoc); setPhase('ready'); await refreshStatus()
     } catch (e) {
       setPhase('failed'); setError(errorMessage(e, '启动文件夹收藏后台失败')); await refreshStatus()
     } finally { setBusy(false) }
-  }, [client, refreshStatus])
+  }, [activeCategoryId, client, refreshStatus])
 
   React.useEffect(() => {
     if (!readyRef.current) { readyRef.current = true; void invoke('app_ready').catch(() => {}) }
@@ -245,12 +271,12 @@ export function App() {
 
   function openAdd() {
     const selectedGroupId = groupIdForPage(groupId)
-    setEditing(folderTemplate(selectedGroupId))
-    setForm({ name: '', path: '', groupId: selectedGroupId, newGroupName: '' })
+    setEditing(itemTemplate(activeCategoryId, selectedGroupId))
+    setForm({ name: '', target: '', groupId: selectedGroupId, newGroupName: '' })
   }
 
-  function openEdit(item: FolderItem) {
-    setEditing(item); setForm({ name: item.name, path: item.path, groupId: item.groupId, newGroupName: '' }); setContextMenu(null)
+  function openEdit(item: CollectionItem) {
+    setEditing(item); setForm({ name: item.name, target: itemTargetValue(item), groupId: item.groupId, newGroupName: '' }); setContextMenu(null)
   }
 
   function openAddContainer() {
@@ -259,18 +285,20 @@ export function App() {
     setContainerEditorOpen(true)
   }
 
-  function openEditContainer(container: DesktopContainer) {
+  function openEditContainer(container: CollectionContainer) {
     setEditingContainer(container)
     setContainerForm({ id: container.id, name: container.name })
     setContainerEditorOpen(true)
     setContextMenu(null)
   }
 
-  async function saveFolder() {
+  async function saveItem() {
     if (!client || !editing) return
-    const path = form.path.trim()
-    const name = (form.name.trim() || deriveNameFromPath(path)).trim()
-    if (!name || !path) { setError('名称和路径都不能为空'); return }
+    const targetValue = form.target.trim()
+    const targetError = activeCategory.validateTarget(targetValue)
+    if (targetError) { setError(targetError); return }
+    const name = (form.name.trim() || deriveNameFromTarget(targetValue)).trim()
+    if (!name) { setError('名称不能为空'); return }
     setBusy(true); setError(null)
     try {
       let targetGroupId = groupIdForPage(form.groupId)
@@ -279,7 +307,7 @@ export function App() {
         const newGroupId = groupIdFromName(newGroupName)
         if (!newGroupId) throw new Error('新分组名不合法')
         if (!doc.groups.some(group => group.id === newGroupId)) {
-          const afterGroupAdd = await client.request<FoldersDoc>('folders.groups.add', { id: newGroupId, name: newGroupName })
+          const afterGroupAdd = await client.request<CategoryWorkspaceView>('collections.groups.add', requestParams({ group: { id: newGroupId, name: newGroupName } }))
           setDoc(afterGroupAdd)
         }
         targetGroupId = newGroupId
@@ -287,48 +315,49 @@ export function App() {
       if (!newGroupName && !doc.groups.some(group => group.id === targetGroupId)) { setError('请选择有效分类'); return }
       const now = Date.now()
       const nowText = new Date(now).toISOString()
-      const payload: FolderItem = {
-        id: editing.id || createID(), name, path, groupId: targetGroupId, pageOrder: editing.pageOrder,
+      const payload: CollectionItem = {
+        id: editing.id || createID(), name, target: activeCategory.buildTarget(targetValue), groupId: targetGroupId, pageOrder: editing.pageOrder,
         containerId: editing.containerId,
         createdAt: editing.createdAt || nowText, updatedAt: nowText,
         createdAtMs: editing.createdAtMs || now, updatedAtMs: now,
         layout: editing.layout,
         icon: editing.icon,
       }
-      const nextDoc = await client.request<FoldersDoc>(editing.id ? 'folders.update' : 'folders.add', payload)
+      const nextDoc = await client.request<CategoryWorkspaceView>(editing.id ? 'collections.items.update' : 'collections.items.add', requestParams({ item: payload }))
       setDoc(nextDoc); setEditing(null)
       if (newGroupName) setGroupId(targetGroupId)
-    } catch (e) { setError(errorMessage(e, '保存文件夹失败')) } finally { setBusy(false) }
+    } catch (e) { setError(errorMessage(e, `保存${activeCategory.singularLabel}失败`)) } finally { setBusy(false) }
   }
 
-  async function removeFolder(item: FolderItem) {
+  async function removeItem(item: CollectionItem) {
     if (!client) return
     setBusy(true); setError(null)
-    try { setDoc(await client.request<FoldersDoc>('folders.remove', { id: item.id })); setConfirm(null); setContextMenu(null) }
-    catch (e) { setError(errorMessage(e, '删除文件夹失败')) }
+    try { setDoc(await client.request<CategoryWorkspaceView>('collections.items.remove', requestParams({ id: item.id }))); setConfirm(null); setContextMenu(null) }
+    catch (e) { setError(errorMessage(e, `删除${activeCategory.singularLabel}失败`)) }
     finally { setBusy(false) }
   }
 
-  async function openFolder(item: FolderItem) {
+  async function openItem(item: CollectionItem) {
     if (!client) return
     setBusy(true); setError(null); setContextMenu(null)
-    try { await client.request('folders.open-folder', { id: item.id }) }
-    catch (e) { setError(errorMessage(e, '打开文件夹失败')) }
+    const itemCategory = categoryDefinition(item.target.kind)
+    try { await client.request('collections.items.open', requestParams({ categoryId: item.target.kind, id: item.id })) }
+    catch (e) { setError(errorMessage(e, itemCategory.openError)) }
     finally { setBusy(false) }
   }
 
-  async function moveFolderToGroup(item: FolderItem, targetGroupId: string) {
+  async function moveItemToGroup(item: CollectionItem, targetGroupId: string) {
     if (!client || item.groupId === targetGroupId) return
     setBusy(true); setError(null)
-    try { setDoc(await client.request<FoldersDoc>('folders.folder.move-to-group', { id: item.id, groupId: targetGroupId })); setContextMenu(null) }
+    try { setDoc(await client.request<CategoryWorkspaceView>('collections.items.move-to-group', requestParams({ id: item.id, groupId: targetGroupId }))); setContextMenu(null) }
     catch (e) { setError(errorMessage(e, '移动到分类失败')) }
     finally { setBusy(false) }
   }
 
-  async function copyFolderToGroup(item: FolderItem, targetGroupId: string) {
+  async function copyItemToGroup(item: CollectionItem, targetGroupId: string) {
     if (!client || item.groupId === targetGroupId) return
     setBusy(true); setError(null)
-    try { setDoc(await client.request<FoldersDoc>('folders.folder.copy-to-group', { id: item.id, groupId: targetGroupId })); setContextMenu(null) }
+    try { setDoc(await client.request<CategoryWorkspaceView>('collections.items.copy-to-group', requestParams({ id: item.id, groupId: targetGroupId }))); setContextMenu(null) }
     catch (e) { setError(errorMessage(e, '复制到分类失败')) }
     finally { setBusy(false) }
   }
@@ -336,16 +365,16 @@ export function App() {
   async function saveItemContainer(ids: string[], containerId: string) {
     if (!client || !ids.length) return
     setBusy(true); setError(null)
-    try { setDoc(await client.request<FoldersDoc>('folders.items.container.save', { ids, containerId })); setContextMenu(null) }
+    try { setDoc(await client.request<CategoryWorkspaceView>('collections.items.container.save', requestParams({ ids, containerId }))); setContextMenu(null) }
     catch (e) { setError(errorMessage(e, '移动到收纳夹失败')) }
     finally { setBusy(false) }
   }
 
-  async function createContainerFromItems(sourceItemId: string, targetItemId: string, layout: NonNullable<FolderItem['layout']>) {
+  async function createContainerFromItems(sourceItemId: string, targetItemId: string, layout: NonNullable<CollectionItem['layout']>) {
     if (!client) return
     setBusy(true); setError(null)
     try {
-      const nextDoc = await client.request<FoldersDoc>('folders.containers.create-from-items', { sourceItemId, targetItemId, layout })
+      const nextDoc = await client.request<CategoryWorkspaceView>('collections.containers.create-from-items', requestParams({ sourceItemId, targetItemId, layout }))
       setDoc(nextDoc)
       const movedItem = nextDoc.items.find(item => item.id === sourceItemId)
       const nextContainer = movedItem?.containerId ? nextDoc.containers.find(container => container.id === movedItem.containerId) : null
@@ -372,7 +401,7 @@ export function App() {
       }),
     }))
     try {
-      const nextDoc = await client.request<FoldersDoc>('folders.container.items.place', { containerId, movedId: movedId || undefined, items: placements })
+      const nextDoc = await client.request<CategoryWorkspaceView>('collections.container.items.place', requestParams({ containerId, movedId: movedId || undefined, items: placements }))
       setDoc(nextDoc)
     } catch (e) {
       setDoc(previousDoc)
@@ -381,7 +410,7 @@ export function App() {
   }
 
   function openDesktopEntry(entry: DesktopGridEntry) {
-    if (entry.kind === 'folder' && entry.item) void openFolder(entry.item)
+    if (entry.kind === 'item' && entry.item) void openItem(entry.item)
     if (entry.kind === 'container' && entry.container) { setContainerDropViewState(null); setContainerView(entry.container); setContextMenu(null) }
   }
 
@@ -392,7 +421,7 @@ export function App() {
     setDoc(current => ({
       ...current,
       items: current.items.map(item => {
-        const patch = patches.find(currentPatch => currentPatch.kind === 'folder' && currentPatch.id === item.id)
+        const patch = patches.find(currentPatch => currentPatch.kind === 'item' && currentPatch.id === item.id)
         return patch ? { ...item, layout: patch.layout } : item
       }),
       containers: current.containers.map(container => {
@@ -401,7 +430,7 @@ export function App() {
       }),
     }))
     try {
-      const nextDoc = await client.request<FoldersDoc>('folders.desktop.layout.save', { groupId, items: patches })
+      const nextDoc = await client.request<CategoryWorkspaceView>('collections.desktop.layout.save', requestParams({ groupId, items: patches }))
       setDoc(nextDoc)
     } catch (e) {
       setDoc(previousDoc)
@@ -414,7 +443,7 @@ export function App() {
     const previousDoc = doc
     const previousContainerView = containerView
     setError(null)
-    let optimisticDoc: FoldersDoc
+    let optimisticDoc: CategoryWorkspaceView
     try {
       optimisticDoc = applyContainerItemDesktopExtraction(doc, containerId, itemId, patches)
     } catch (e) {
@@ -425,7 +454,7 @@ export function App() {
     setContainerView(null)
     setDoc(optimisticDoc)
     try {
-      const nextDoc = await client.request<FoldersDoc>('folders.container.item.extract-to-desktop', { containerId, itemId, items: patches })
+      const nextDoc = await client.request<CategoryWorkspaceView>('collections.container.item.extract-to-desktop', requestParams({ containerId, itemId, items: patches }))
       setDoc(nextDoc)
     } catch (e) {
       setDoc(previousDoc)
@@ -453,19 +482,19 @@ export function App() {
     setContainerExtractDrag(resolved)
   }
 
-  function setContainerDropViewState(next: DesktopContainer | null) {
+  function setContainerDropViewState(next: CollectionContainer | null) {
     containerDropViewRef.current = next
     setContainerDropView(next)
   }
 
   function handleDesktopDragStart(event: DesktopGridDragEvent) {
     clearHoverOpenTimer()
-    if (event.entry.kind !== 'folder' || !event.entry.item) return
+    if (event.entry.kind !== 'item' || !event.entry.item) return
     setDesktopDragState({ item: event.entry.item, mode: event.dragMode })
   }
 
   function handleDesktopDragMove(event: DesktopGridDragEvent) {
-    if (event.entry.kind !== 'folder' || !event.entry.item) return
+    if (event.entry.kind !== 'item' || !event.entry.item) return
     updateDesktopDragFromEvent(event)
   }
 
@@ -483,7 +512,7 @@ export function App() {
           dropIntent: resolvedDropIntent,
         }
       }
-      return event.entry.kind === 'folder' && event.entry.item ? {
+      return event.entry.kind === 'item' && event.entry.item ? {
         item: event.entry.item,
         mode: nextMode,
         hoverTargetId: hoverTarget?.entry.id,
@@ -511,11 +540,11 @@ export function App() {
     }, CONTAINER_HOVER_OPEN_MS)
   }
 
-  function activeDropContainer(): DesktopContainer | null {
+  function activeDropContainer(): CollectionContainer | null {
     return containerExtractDragRef.current?.mode === 'desktop' ? containerDropViewRef.current : containerView
   }
 
-  function openDropContainer(container: DesktopContainer) {
+  function openDropContainer(container: CollectionContainer) {
     if (containerExtractDragRef.current?.mode === 'desktop') setContainerDropViewState(container)
     else setContainerView(container)
   }
@@ -524,7 +553,7 @@ export function App() {
     clearHoverOpenTimer()
     const drag = desktopDragRef.current
     const dropIntent = resolveDesktopDropIntent(event, drag, activeDropContainer())
-    if (dropIntent?.kind === 'container' && drag && event.entry.kind === 'folder') {
+    if (dropIntent?.kind === 'container' && drag && event.entry.kind === 'item') {
       const nextPlacements = resolveContainerDropPlacements(dropIntent.containerId, event, drag.item.id)
       if (!nextPlacements) {
         setDesktopDragState(null)
@@ -534,7 +563,7 @@ export function App() {
       setDesktopDragState(null)
       return { handled: true, clearReleaseLayouts: true }
     }
-    if (dropIntent?.kind === 'new-container' && drag && event.entry.kind === 'folder') {
+    if (dropIntent?.kind === 'new-container' && drag && event.entry.kind === 'item') {
       void createContainerFromItems(drag.item.id, dropIntent.targetItemId, dropIntent.layout)
       setDesktopDragState(null)
       return { handled: true, clearReleaseLayouts: true }
@@ -576,10 +605,10 @@ export function App() {
     setDesktopDragState(null)
   }
 
-  function handleContainerItemDragStart(event: ContainerFolderDragEvent) {
+  function handleContainerItemDragStart(event: ContainerItemDragEvent) {
     if (!containerView) return
     if (event.item.containerId !== containerView.id) {
-      setError(`文件夹不在当前收纳夹中：${event.item.name}`)
+      setError(`收藏项不在当前收纳夹中：${event.item.name}`)
       return
     }
     setContainerDropViewState(null)
@@ -587,12 +616,12 @@ export function App() {
     setContainerExtractDragState({ containerId: containerView.id, item: event.item, mode: 'container' })
   }
 
-  function handleContainerItemDragMove(event: ContainerFolderDragEvent) {
+  function handleContainerItemDragMove(event: ContainerItemDragEvent) {
     if (!containerView) return
     const previousDrag = containerExtractDragRef.current
     const mode = resolveContainerExtractNextDragMode(previousDrag?.mode, event, event.boundary)
     const desktopDrag = mode === 'desktop' ? toDesktopExternalDrag(event) : undefined
-    const projection = desktopDrag ? desktopGridApiRef.current?.projectExternalFolderDrag(desktopDrag, desktopDragRef.current, activeDropContainer()) : null
+    const projection = desktopDrag ? desktopGridApiRef.current?.projectExternalItemDrag(desktopDrag, desktopDragRef.current, activeDropContainer()) : null
     setContainerExtractDragState(current => current && current.item.id === event.item.id ? {
       ...current,
       desktopDrag,
@@ -611,7 +640,7 @@ export function App() {
     }
   }
 
-  function handleContainerItemDragEnd(event: ContainerFolderDragEvent, patches: ContainerGridPlacement[]) {
+  function handleContainerItemDragEnd(event: ContainerItemDragEvent, patches: ContainerGridPlacement[]) {
     const drag = containerExtractDragRef.current
     if (!drag || !containerView || drag.item.id !== event.item.id) {
       setContainerExtractDragState(null)
@@ -624,7 +653,7 @@ export function App() {
       setDesktopDragState(null)
       return undefined
     }
-    const projection = desktopGridApiRef.current?.projectExternalFolderDrag(toDesktopExternalDrag(event), desktopDragRef.current, activeDropContainer())
+    const projection = desktopGridApiRef.current?.projectExternalItemDrag(toDesktopExternalDrag(event), desktopDragRef.current, activeDropContainer())
     if (!projection) {
       setError('桌面投放位置不可用，请重新拖出')
       setContainerExtractDragState(null)
@@ -684,11 +713,11 @@ export function App() {
     setDesktopDragState(null)
   }
 
-  function toDesktopExternalDrag(event: ContainerFolderDragEvent): DesktopGridExternalFolderDrag {
+  function toDesktopExternalDrag(event: ContainerItemDragEvent): DesktopGridExternalItemDrag {
     return { item: event.item, clientX: event.clientX, clientY: event.clientY, offsetX: event.offsetX, offsetY: event.offsetY, modifiers: event.modifiers }
   }
 
-  function openGroupEditor(group?: FolderGroup) {
+  function openGroupEditor(group?: CollectionGroup) {
     setGroupForm(group ? { id: group.id, name: group.name } : EMPTY_GROUP_FORM); setGroupEditorOpen(true)
   }
 
@@ -700,17 +729,17 @@ export function App() {
     if (!id) { setError('分组名称不合法'); return }
     setBusy(true); setError(null)
     try {
-      const method = groupForm.id ? 'folders.groups.update' : 'folders.groups.add'
-      setDoc(await client.request<FoldersDoc>(method, { id, name }))
+      const method = groupForm.id ? 'collections.groups.update' : 'collections.groups.add'
+      setDoc(await client.request<CategoryWorkspaceView>(method, requestParams({ group: { id, name } })))
       setGroupEditorOpen(false)
     } catch (e) { setError(errorMessage(e, '保存分组失败')) } finally { setBusy(false) }
   }
 
-  async function removeGroup(group: FolderGroup) {
+  async function removeGroup(group: CollectionGroup) {
     if (!client) return
     setBusy(true); setError(null)
     try {
-      const nextDoc = await client.request<FoldersDoc>('folders.groups.remove', { id: group.id })
+      const nextDoc = await client.request<CategoryWorkspaceView>('collections.groups.remove', requestParams({ id: group.id }))
       setDoc(nextDoc); setConfirm(null); setGroupEditorOpen(false)
       if (groupId === group.id) setGroupId(DEFAULT_GROUP_ID)
     } catch (e) { setError(errorMessage(e, '删除分组失败')) } finally { setBusy(false) }
@@ -725,7 +754,7 @@ export function App() {
       const id = editingContainer?.id || createID()
       const now = Date.now()
       const nowText = new Date(now).toISOString()
-      const payload: DesktopContainer = {
+      const payload: CollectionContainer = {
         id,
         name,
         groupId: editingContainer?.groupId || groupIdForPage(groupId),
@@ -736,12 +765,12 @@ export function App() {
         updatedAtMs: now,
         layout: editingContainer?.layout,
       }
-      const nextDoc = await client.request<FoldersDoc>(editingContainer ? 'folders.containers.update' : 'folders.containers.add', payload)
+      const nextDoc = await client.request<CategoryWorkspaceView>(editingContainer ? 'collections.containers.update' : 'collections.containers.add', requestParams({ container: payload }))
       setDoc(nextDoc); setContainerEditorOpen(false); setEditingContainer(null)
     } catch (e) { setError(errorMessage(e, '保存收纳夹失败')) } finally { setBusy(false) }
   }
 
-  async function renameContainer(container: DesktopContainer, name: string) {
+  async function renameContainer(container: CollectionContainer, name: string) {
     if (!client) throw new Error('后台未连接')
     const nextName = name.trim()
     if (!nextName) throw new Error('收纳夹名称不能为空')
@@ -749,12 +778,12 @@ export function App() {
     setBusy(true); setError(null)
     try {
       const now = Date.now()
-      const nextDoc = await client.request<FoldersDoc>('folders.containers.update', {
+      const nextDoc = await client.request<CategoryWorkspaceView>('collections.containers.update', requestParams({ container: {
         ...container,
         name: nextName,
         updatedAt: new Date(now).toISOString(),
         updatedAtMs: now,
-      })
+      } }))
       setDoc(nextDoc)
       setContainerView(current => current?.id === container.id ? nextDoc.containers.find(item => item.id === container.id) || null : current)
       setContainerDropViewState(containerDropViewRef.current?.id === container.id ? nextDoc.containers.find(item => item.id === container.id) || null : containerDropViewRef.current)
@@ -765,18 +794,18 @@ export function App() {
     } finally { setBusy(false) }
   }
 
-  async function removeContainer(container: DesktopContainer) {
+  async function removeContainer(container: CollectionContainer) {
     if (!client) return
     setBusy(true); setError(null)
-    try { setDoc(await client.request<FoldersDoc>('folders.containers.remove', { id: container.id })); setConfirm(null); setContainerView(null); setContextMenu(null) }
+    try { setDoc(await client.request<CategoryWorkspaceView>('collections.containers.remove', requestParams({ id: container.id }))); setConfirm(null); setContainerView(null); setContextMenu(null) }
     catch (e) { setError(errorMessage(e, '删除收纳夹失败')) }
     finally { setBusy(false) }
   }
 
-  async function saveFolderIcon(id: string, icon: DesktopIcon | null) {
+  async function saveItemIcon(id: string, icon: DesktopIcon | null) {
     if (!client) return
     setBusy(true); setError(null)
-    try { setDoc(await client.request<FoldersDoc>('folders.icon.save', { kind: 'folder', id, icon })); setIconEditor(null); setContextMenu(null) }
+    try { setDoc(await client.request<CategoryWorkspaceView>('collections.icon.save', requestParams({ id, icon }))); setIconEditor(null); setContextMenu(null) }
     catch (e) { setError(errorMessage(e, '保存图标失败')) }
     finally { setBusy(false) }
   }
@@ -787,8 +816,8 @@ export function App() {
     try {
       const sourcePath = await invoke<string | null>('pick_image_path')
       if (!sourcePath) return
-      const asset = await client.request<DesktopAsset>('folders.assets.import', { kind: 'icon', sourcePath })
-      setDoc(await client.request<FoldersDoc>('folders.icon.save', { kind: 'folder', id: iconEditor.id, icon: { kind: 'image', assetId: asset.id } }))
+      const asset = await client.request<DesktopAsset>('collections.assets.import', { kind: 'icon', sourcePath })
+      setDoc(await client.request<CategoryWorkspaceView>('collections.icon.save', requestParams({ id: iconEditor.id, icon: { kind: 'image', assetId: asset.id } })))
       setIconEditor(null)
     } catch (e) { setError(errorMessage(e, '导入图标图片失败')) }
     finally { setBusy(false) }
@@ -797,7 +826,7 @@ export function App() {
   async function saveDesktopWallpaper(wallpaper: DesktopWallpaperState | null) {
     if (!client) return
     setBusy(true); setError(null)
-    try { setDoc(await client.request<FoldersDoc>('folders.desktop.wallpaper.save', { wallpaper })) }
+    try { setDoc(await client.request<CategoryWorkspaceView>('collections.desktop.wallpaper.save', requestParams({ wallpaper }))) }
     catch (e) { setError(errorMessage(e, '保存壁纸失败')) }
     finally { setBusy(false) }
   }
@@ -825,7 +854,7 @@ export function App() {
     if (!client) return
     setBusy(true); setError(null)
     try {
-      const nextDoc = await client.request<FoldersDoc>('folders.desktop.icon-layout.save', { iconLayout: normalizeDesktopIconLayout(iconLayout) })
+      const nextDoc = await client.request<CategoryWorkspaceView>('collections.desktop.icon-layout.save', requestParams({ iconLayout: normalizeDesktopIconLayout(iconLayout) }))
       setDoc(nextDoc)
       setIconLayoutDraft(nextDoc.desktop.iconLayout)
     }
@@ -839,10 +868,10 @@ export function App() {
     try {
       const sourcePath = await invoke<string | null>('pick_image_path')
       if (!sourcePath) return
-      const asset = await client.request<DesktopAsset>('folders.assets.import', { kind: 'wallpaper', sourcePath })
-      const preset = createDesktopWallpaperPreset({ id: createID(), name: deriveNameFromPath(sourcePath), assetId: asset.id })
+      const asset = await client.request<DesktopAsset>('collections.assets.import', { kind: 'wallpaper', sourcePath })
+      const preset = createDesktopWallpaperPreset({ id: createID(), name: deriveNameFromTarget(sourcePath), assetId: asset.id })
       const presets = [...(doc.desktop.wallpaper?.presets || []), preset]
-      setDoc(await client.request<FoldersDoc>('folders.desktop.wallpaper.save', { wallpaper: { activeId: preset.id, presets } }))
+      setDoc(await client.request<CategoryWorkspaceView>('collections.desktop.wallpaper.save', requestParams({ wallpaper: { activeId: preset.id, presets } })))
     } catch (e) { setError(errorMessage(e, '导入壁纸失败')) }
     finally { setBusy(false) }
   }
@@ -858,18 +887,20 @@ export function App() {
     if (!client) return
     setBusy(true); setError(null)
     try {
-      const nextDoc = await client.request<FoldersDoc>('folders.data.reset')
+      const nextDoc = await client.request<CategoryWorkspaceView>('collections.data.reset', requestParams())
       setDoc(nextDoc); setPhase('ready'); setConfirm(null); await refreshStatus()
     } catch (e) { setError(errorMessage(e, '重置数据失败')) }
     finally { setBusy(false) }
   }
 
-  async function pickFolderPath() {
+  async function pickItemTarget() {
+    const pickCommand = activeCategory.pickCommand
+    if (!pickCommand) return
     setError(null)
     try {
-      const path = await invoke<string | null>('pick_folder_path')
-      if (path) setForm(current => ({ ...current, path, name: current.name || deriveNameFromPath(path) }))
-    } catch (e) { setError(errorMessage(e, '选择文件夹失败')) }
+      const target = await invoke<string | null>(pickCommand)
+      if (target) setForm(current => ({ ...current, target, name: current.name || deriveNameFromTarget(target) }))
+    } catch (e) { setError(errorMessage(e, activeCategory.pickError)) }
   }
 
   const allDesktopEntries = React.useMemo(() => buildDesktopGridEntries(doc, groupId), [doc, groupId])
@@ -897,6 +928,7 @@ export function App() {
       <DesktopWallpaper wallpaper={doc.desktop.wallpaper} assetUrl={client?.assetUrl} />
       <Box sx={{ position: 'relative', zIndex: 1, minHeight: 0, height: '100%', display: 'flex', flexDirection: 'column' }}>
       <TopBar
+        activeCategoryId={activeCategoryId}
         busy={busy}
         doc={doc}
         groupId={groupId}
@@ -904,6 +936,7 @@ export function App() {
         phase={phase}
         search={search}
         selectedGroup={selectedGroup}
+        onCategoryChange={categoryId => { setActiveCategoryId(categoryId); void loadCategory(categoryId) }}
         onAdd={openAdd}
         onAddContainer={openAddContainer}
         onGroupChange={setGroupId}
@@ -923,7 +956,8 @@ export function App() {
       />
 
       <FolderGridCanvas
-        doc={doc}
+        category={activeCategory}
+        workspace={doc}
         allEntries={allDesktopEntries}
         assetUrl={client?.assetUrl}
         iconLayout={visibleIconLayout}
@@ -948,7 +982,7 @@ export function App() {
 
       {error && phase === 'ready' ? <Alert severity="error" sx={{ mx: { xs: 1.5, sm: 2 }, mb: 1.5 }}>{error}</Alert> : null}
 
-      <FolderContextMenu
+      <CollectionContextMenu
         busy={busy}
         menu={contextMenu}
         groups={doc.groups}
@@ -959,20 +993,21 @@ export function App() {
         onEditContainer={openEditContainer}
         onEditIcon={entry => entry.item ? setIconEditor({ id: entry.item.id, label: entry.item.name, icon: entry.item.icon }) : undefined}
         onMoveToContainer={(item, containerId) => void saveItemContainer([item.id], containerId)}
-        onCopyToGroup={(item, targetGroupId) => void copyFolderToGroup(item, targetGroupId)}
-        onMoveToGroup={(item, targetGroupId) => void moveFolderToGroup(item, targetGroupId)}
+        onCopyToGroup={(item, targetGroupId) => void copyItemToGroup(item, targetGroupId)}
+        onMoveToGroup={(item, targetGroupId) => void moveItemToGroup(item, targetGroupId)}
         onDelete={entry => setConfirm({ kind: entry.kind, id: entry.id, label: entry.name })}
       />
 
-      <FolderDialog
+      <ItemDialog
+        category={activeCategory}
         busy={busy}
         doc={doc}
         editing={editing}
         form={form}
         onChange={setForm}
         onClose={() => setEditing(null)}
-        onPickPath={() => void pickFolderPath()}
-        onSave={() => void saveFolder()}
+        onPickTarget={() => void pickItemTarget()}
+        onSave={() => void saveItem()}
       />
 
       <GroupDialog
@@ -1017,7 +1052,7 @@ export function App() {
         onSave={() => void saveContainer()}
       />
 
-      <ContainerFolderOverlay
+      <ContainerOverlay
         assetUrl={client?.assetUrl}
         closeDisabled={Boolean(containerExtractDrag)}
         container={containerView}
@@ -1030,13 +1065,13 @@ export function App() {
         onItemDragMove={handleContainerItemDragMove}
         onItemDragStart={handleContainerItemDragStart}
         onLayoutCommit={patches => containerView ? void placeContainerItems(containerView.id, null, patches) : undefined}
-        onOpenFolder={item => void openFolder(item)}
+        onOpenItem={item => void openItem(item)}
         onRemoveItem={item => void saveItemContainer([item.id], '')}
         onRename={(container, name) => renameContainer(container, name)}
         softClosed={containerSoftClosed}
       />
 
-      <ContainerFolderOverlay
+      <ContainerOverlay
         assetUrl={client?.assetUrl}
         closeDisabled={Boolean(containerExtractDrag)}
         container={containerDropView}
@@ -1050,7 +1085,7 @@ export function App() {
         onItemDragMove={undefined}
         onItemDragStart={undefined}
         onLayoutCommit={patches => containerDropView ? void placeContainerItems(containerDropView.id, null, patches) : undefined}
-        onOpenFolder={item => void openFolder(item)}
+        onOpenItem={item => void openItem(item)}
         onRemoveItem={item => void saveItemContainer([item.id], '')}
         onRename={(container, name) => renameContainer(container, name)}
         softClosed={false}
@@ -1061,12 +1096,13 @@ export function App() {
         state={iconEditor}
         onClose={() => setIconEditor(null)}
         onPickImage={() => void pickIconImage()}
-        onReset={() => iconEditor ? void saveFolderIcon(iconEditor.id, null) : undefined}
-        onSaveColor={color => iconEditor ? void saveFolderIcon(iconEditor.id, { kind: 'color', color }) : undefined}
+        onReset={() => iconEditor ? void saveItemIcon(iconEditor.id, null) : undefined}
+        onSaveColor={color => iconEditor ? void saveItemIcon(iconEditor.id, { kind: 'color', color }) : undefined}
       />
 
       <ConfirmDialog
         busy={busy}
+        category={activeCategory}
         confirm={confirm}
         doc={doc}
         onClose={() => setConfirm(null)}
@@ -1077,7 +1113,7 @@ export function App() {
           if (confirm.kind === 'group') void removeGroup({ id: confirm.id, name: confirm.label })
           else if (confirm.kind === 'container' && container) void removeContainer(container)
           else if (confirm.kind === 'data-reset') void resetData()
-          else if (confirm.kind === 'folder' && item) void removeFolder(item)
+          else if (confirm.kind === 'item' && item) void removeItem(item)
           else setConfirm(null)
         }}
       />
@@ -1087,13 +1123,15 @@ export function App() {
 }
 
 function TopBar(props: {
+  activeCategoryId: CollectionCategoryId
   busy: boolean
-  doc: FoldersDoc
+  doc: CategoryWorkspaceView
   groupId: string
   launchInfo: FwLaunchInfo
   phase: Phase
   search: string
-  selectedGroup: FolderGroup | undefined
+  selectedGroup: CollectionGroup | undefined
+  onCategoryChange(categoryId: CollectionCategoryId): void
   onAdd(): void
   onAddContainer(): void
   onGroupChange(groupId: string): void
@@ -1136,6 +1174,24 @@ function TopBar(props: {
         sx={{ flex: { xs: '1 1 100%', sm: '0 1 130px' }, minWidth: { xs: '100%', sm: 110 }, maxWidth: { xs: '100%', sm: 130 } }}
         InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment> }}
       />
+      <ToggleButtonGroup
+        exclusive
+        size="small"
+        value={props.activeCategoryId}
+        onChange={(_, value: CollectionCategoryId | null) => { if (value) props.onCategoryChange(value) }}
+        aria-label="收藏类别"
+        sx={{
+          bgcolor: 'rgba(255,255,255,0.64)',
+          borderRadius: 3,
+          p: 0.35,
+          '& .MuiToggleButton-root': { border: 0, borderRadius: 2.5, px: 1.35, fontWeight: 900 },
+        }}
+      >
+        {CATEGORY_DEFINITIONS.map(category => {
+          const CategoryIcon = category.icon
+          return <ToggleButton key={category.id} value={category.id} aria-label={category.label}><CategoryIcon fontSize="small" sx={{ mr: 0.6 }} />{category.label}</ToggleButton>
+        })}
+      </ToggleButtonGroup>
       <GroupFilterSelect doc={props.doc} groupId={props.groupId} onGroupChange={props.onGroupChange} />
       {props.phase !== 'ready' ? <Chip color={statusColor} size="small" label={statusText} icon={props.phase === 'starting' ? <CircularProgress size={12} color="inherit" /> : undefined} /> : null}
       <Button variant="text" startIcon={<SettingsRoundedIcon />} onClick={props.onOpenSettings}>设置</Button>
@@ -1155,7 +1211,7 @@ function TopBar(props: {
   )
 }
 
-function GroupFilterSelect(props: { doc: FoldersDoc; groupId: string; onGroupChange(groupId: string): void }) {
+function GroupFilterSelect(props: { doc: CategoryWorkspaceView; groupId: string; onGroupChange(groupId: string): void }) {
   const [open, setOpen] = React.useState(false)
 
   return (
@@ -1236,25 +1292,25 @@ function StatusNotice(props: { busy: boolean; error: string | null; phase: Phase
   )
 }
 
-function FolderContextMenu(props: {
+function CollectionContextMenu(props: {
   busy: boolean
   menu: ContextMenuState
-  groups: FolderGroup[]
-  doc: FoldersDoc
+  groups: CollectionGroup[]
+  doc: CategoryWorkspaceView
   onClose(): void
   onOpen(entry: DesktopGridEntry): void
-  onEdit(item: FolderItem): void
-  onEditContainer(container: DesktopContainer): void
+  onEdit(item: CollectionItem): void
+  onEditContainer(container: CollectionContainer): void
   onEditIcon(entry: DesktopGridEntry): void
-  onCopyToGroup(item: FolderItem, groupId: string): void
-  onMoveToGroup(item: FolderItem, groupId: string): void
-  onMoveToContainer(item: FolderItem, containerId: string): void
+  onCopyToGroup(item: CollectionItem, groupId: string): void
+  onMoveToGroup(item: CollectionItem, groupId: string): void
+  onMoveToContainer(item: CollectionItem, containerId: string): void
   onDelete(entry: DesktopGridEntry): void
 }) {
   const entry = props.menu?.entry
-  const folder = entry?.kind === 'folder' ? props.doc.items.find(item => item.id === entry.id) || entry.item : null
+  const item = entry?.kind === 'item' ? props.doc.items.find(current => current.id === entry.id) || entry.item : null
   const container = entry?.kind === 'container' ? entry.container : null
-  const targetGroups = folder ? props.groups.filter(group => group.id !== folder.groupId) : []
+  const targetGroups = item ? props.groups.filter(group => group.id !== item.groupId) : []
   return (
     <Menu
       open={Boolean(props.menu)}
@@ -1268,7 +1324,7 @@ function FolderContextMenu(props: {
           <ListItemIcon><OpenInNewRoundedIcon fontSize="small" /></ListItemIcon>
           <ListItemText>打开</ListItemText>
         </MenuItem>,
-        folder ? <MenuItem key="edit" onClick={() => props.onEdit(folder)}>
+        item ? <MenuItem key="edit" onClick={() => props.onEdit(item)}>
           <ListItemIcon><EditRoundedIcon fontSize="small" /></ListItemIcon>
           <ListItemText>编辑</ListItemText>
         </MenuItem> : null,
@@ -1276,11 +1332,11 @@ function FolderContextMenu(props: {
           <ListItemIcon><Inventory2RoundedIcon fontSize="small" /></ListItemIcon>
           <ListItemText>编辑收纳夹</ListItemText>
         </MenuItem> : null,
-        folder ? <MenuItem key="icon" onClick={() => props.onEditIcon(entry)}>
+        item ? <MenuItem key="icon" onClick={() => props.onEditIcon(entry)}>
           <ListItemIcon><ImageRoundedIcon fontSize="small" /></ListItemIcon>
           <ListItemText>图标外观</ListItemText>
         </MenuItem> : null,
-        folder ? <Box key="group-actions" sx={{ px: 2, py: 1, minWidth: 240, display: 'grid', gap: 1 }}>
+        item ? <Box key="group-actions" sx={{ px: 2, py: 1, minWidth: 240, display: 'grid', gap: 1 }}>
           <FormControl variant="filled" fullWidth size="small" disabled={props.busy || !targetGroups.length}>
             <InputLabel id="context-move-group-label">移动到分类</InputLabel>
             <Select
@@ -1288,7 +1344,7 @@ function FolderContextMenu(props: {
               labelId="context-move-group-label"
               label="移动到分类"
               value=""
-              onChange={event => props.onMoveToGroup(folder, event.target.value)}
+              onChange={event => props.onMoveToGroup(item, event.target.value)}
             >
               {targetGroups.map(group => <MenuItem key={group.id} value={group.id}><ListItemIcon><DriveFileMoveRoundedIcon fontSize="small" /></ListItemIcon>{group.name}</MenuItem>)}
             </Select>
@@ -1300,24 +1356,24 @@ function FolderContextMenu(props: {
               labelId="context-copy-group-label"
               label="复制到分类"
               value=""
-              onChange={event => props.onCopyToGroup(folder, event.target.value)}
+              onChange={event => props.onCopyToGroup(item, event.target.value)}
             >
               {targetGroups.map(group => <MenuItem key={group.id} value={group.id}><ListItemIcon><ContentCopyRoundedIcon fontSize="small" /></ListItemIcon>{group.name}</MenuItem>)}
             </Select>
           </FormControl>
         </Box> : null,
-        folder ? <Box key="container" sx={{ px: 2, py: 1, minWidth: 220 }}>
+        item ? <Box key="container" sx={{ px: 2, py: 1, minWidth: 220 }}>
           <FormControl variant="filled" fullWidth size="small">
             <InputLabel id="context-container-label">收纳夹</InputLabel>
             <Select
               variant="filled"
               labelId="context-container-label"
               label="收纳夹"
-              value={folder.containerId || ''}
-              onChange={event => props.onMoveToContainer(folder, event.target.value)}
+              value={item.containerId || ''}
+              onChange={event => props.onMoveToContainer(item, event.target.value)}
             >
               <MenuItem value="">桌面</MenuItem>
-              {props.doc.containers.filter(current => current.groupId === folder.groupId).map(current => <MenuItem key={current.id} value={current.id}>{current.name}</MenuItem>)}
+              {props.doc.containers.filter(current => current.groupId === item.groupId).map(current => <MenuItem key={current.id} value={current.id}>{current.name}</MenuItem>)}
             </Select>
           </FormControl>
         </Box> : null,
@@ -1330,14 +1386,15 @@ function FolderContextMenu(props: {
   )
 }
 
-function FolderDialog(props: {
+function ItemDialog(props: {
   busy: boolean
-  doc: FoldersDoc
-  editing: FolderItem | null
-  form: FolderFormState
-  onChange(form: FolderFormState): void
+  category: CategoryDefinition
+  doc: CategoryWorkspaceView
+  editing: CollectionItem | null
+  form: CollectionItemFormState
+  onChange(form: CollectionItemFormState): void
   onClose(): void
-  onPickPath(): void
+  onPickTarget(): void
   onSave(): void
 }) {
   const open = Boolean(props.editing)
@@ -1346,8 +1403,8 @@ function FolderDialog(props: {
       <DialogContent sx={{ p: 3 }}>
         <Stack spacing={2.25}>
           <Box>
-            <Typography variant="h2">{props.editing?.id ? '编辑文件夹' : '添加文件夹'}</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>保存常用目录，之后可以一键打开。</Typography>
+            <Typography variant="h2">{props.editing?.id ? `编辑${props.category.singularLabel}` : props.category.addLabel}</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>保存常用{props.category.singularLabel}，之后可以一键打开。</Typography>
           </Box>
           <TextField
             label="名称"
@@ -1359,13 +1416,13 @@ function FolderDialog(props: {
           />
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
             <TextField
-              label="路径"
-              value={props.form.path}
-              onChange={event => props.onChange({ ...props.form, path: event.target.value })}
-              placeholder="选择或粘贴文件夹绝对路径"
+              label={props.category.targetLabel}
+              value={props.form.target}
+              onChange={event => props.onChange({ ...props.form, target: event.target.value })}
+              placeholder={props.category.targetPlaceholder}
               fullWidth
             />
-            <Button variant="text" startIcon={<LaunchRoundedIcon />} onClick={props.onPickPath} sx={{ minWidth: 96 }}>选择</Button>
+            {props.category.pickCommand ? <Button variant="text" startIcon={<LaunchRoundedIcon />} onClick={props.onPickTarget} sx={{ minWidth: 96 }}>选择</Button> : null}
           </Stack>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} alignItems="flex-start">
             <FormControl variant="filled" fullWidth size="small" disabled={props.busy}>
@@ -1388,7 +1445,7 @@ function FolderDialog(props: {
               fullWidth
             />
           </Stack>
-          <Typography variant="caption" color="text.secondary">每个文件夹只属于一个分类页；右键可打开、编辑、移动、复制或删除。</Typography>
+          <Typography variant="caption" color="text.secondary">每个{props.category.singularLabel}只属于一个分组页；右键可打开、编辑、移动、复制或删除。</Typography>
           <Stack direction="row" spacing={1} justifyContent="flex-end">
             <Button onClick={props.onClose}>取消</Button>
             <Button variant="contained" onClick={props.onSave} disabled={props.busy}>{props.editing?.id ? '保存' : '添加'}</Button>
@@ -1401,13 +1458,13 @@ function FolderDialog(props: {
 
 function GroupDialog(props: {
   busy: boolean
-  doc: FoldersDoc
-  editableGroups: FolderGroup[]
+  doc: CategoryWorkspaceView
+  editableGroups: CollectionGroup[]
   open: boolean
   form: GroupFormState
   onChange(form: GroupFormState): void
   onClose(): void
-  onDelete(group: FolderGroup): void
+  onDelete(group: CollectionGroup): void
   onNew(): void
   onSave(): void
 }) {
@@ -1440,7 +1497,7 @@ function GroupDialog(props: {
                     sx={{ justifyContent: 'space-between', bgcolor: group.id === props.form.id ? undefined : theme => alpha(theme.palette.primary.main, 0.06) }}
                   >
                     <span>{group.name}</span>
-                    <Chip size="small" label={`${groupItemCount(props.doc, group.id)} 个文件夹 · ${groupContainerCount(props.doc, group.id)} 个收纳夹`} />
+                    <Chip size="small" label={`${groupItemCount(props.doc, group.id)} 个项目 · ${groupContainerCount(props.doc, group.id)} 个收纳夹`} />
                   </Button>
                 ))}
               </ScrollArea>
@@ -1461,7 +1518,7 @@ function GroupDialog(props: {
 function SettingsDialog(props: {
   assetUrl?(assetId: string): string
   busy: boolean
-  doc: FoldersDoc
+  doc: CategoryWorkspaceView
   iconLayout: DesktopIconLayout
   open: boolean
   status: DataDirStatus | null
@@ -1614,16 +1671,16 @@ function InfoBlock(props: { label: string; value: string; mono?: boolean }) {
   )
 }
 
-function ConfirmDialog(props: { busy: boolean; confirm: ConfirmState; doc: FoldersDoc; onClose(): void; onConfirm(): void }) {
+function ConfirmDialog(props: { busy: boolean; category: CategoryDefinition; confirm: ConfirmState; doc: CategoryWorkspaceView; onClose(): void; onConfirm(): void }) {
   const matchingGroupItemCount = props.confirm?.kind === 'group' ? groupItemCount(props.doc, props.confirm.id) : 0
   const containerItemCount = props.confirm?.kind === 'container' ? props.doc.items.filter(item => item.containerId === props.confirm?.id).length : 0
   const message = props.confirm?.kind === 'group'
-    ? `删除分组“${props.confirm.label}”？${matchingGroupItemCount} 个文件夹会取消该分组；没有其它分组的文件夹会回到默认分组。`
+    ? `删除分组“${props.confirm.label}”？${matchingGroupItemCount} 个${props.category.singularLabel}会取消该分组；没有其它分组的${props.category.singularLabel}会回到默认分组。`
     : props.confirm?.kind === 'container'
-      ? `删除收纳夹“${props.confirm.label}”？夹内 ${containerItemCount} 个文件夹会移回桌面。`
+      ? `删除收纳夹“${props.confirm.label}”？夹内 ${containerItemCount} 个项目会移回桌面。`
       : props.confirm?.kind === 'data-reset'
         ? '重置会把当前数据目录的 data.json 写成新的空白开发基线；这不是自动修复，请确认旧数据可以丢弃。'
-        : `删除文件夹“${props.confirm?.label || ''}”？`
+        : `删除${props.category.singularLabel}“${props.confirm?.label || ''}”？`
   const title = props.confirm?.kind === 'data-reset' ? '确认重置数据' : '确认删除'
   const confirmLabel = props.confirm?.kind === 'data-reset' ? '确认重置' : '确认删除'
   return (

@@ -1,19 +1,19 @@
 import * as React from 'react'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
-import DriveFolderUploadRoundedIcon from '@mui/icons-material/DriveFolderUploadRounded'
 import { Box, Button, Paper, Stack, Typography, alpha } from '@mui/material'
-import type { ContextMenuState, DesktopContainer, DesktopGridEntry, DesktopIconLayout, FolderGridLayout, FolderItem, FoldersDoc, Phase } from '../types'
+import type { CategoryDefinition } from '../categoryRegistry'
+import type { CategoryWorkspace, CollectionContainer, DesktopGridEntry, DesktopIconLayout, Phase } from '../types'
 import type { DesktopDragState } from '../desktopDragState'
 import { DesktopGridIcon } from './DesktopGridIcon'
 import { ScrollArea } from '../shared/scroll-area'
 import { desktopEntryKey, type DesktopGridLayoutPatch } from './desktopEntries'
 import {
-  projectExternalFolderDrag,
+  projectExternalItemDrag,
   toDesktopDragEvent,
   toDesktopGridLayoutPatch,
   type DesktopGridDragEvent,
   type DesktopGridExternalDragProjection,
-  type DesktopGridExternalFolderDrag,
+  type DesktopGridExternalItemDrag,
   type DesktopGridHoverTarget,
 } from './desktopDragProjection'
 import { createFolderGridMetrics, type FolderGridMetrics } from './iconLayout'
@@ -21,7 +21,8 @@ import { getFolderGridCanvasHeight, getFolderGridPixelRect, type FolderGridLayou
 import { useMuuriFolderGrid, type FolderGridDragEndResult, type FolderGridDragEvent } from './useMuuriFolderGrid'
 
 type Props = {
-  doc: FoldersDoc
+  category: CategoryDefinition
+  workspace: CategoryWorkspace
   entries: DesktopGridEntry[]
   allEntries: DesktopGridEntry[]
   iconLayout: DesktopIconLayout
@@ -37,15 +38,15 @@ type Props = {
   onDragMove?(event: DesktopGridDragEvent): void
   onDragStart?(event: DesktopGridDragEvent): void
   onReady?(api: DesktopGridApi | null): void
-  externalDragPreview?: DesktopGridExternalFolderDrag | null
+  externalDragPreview?: DesktopGridExternalItemDrag | null
   externalDragState?: DesktopDragState
-  openContainer?: DesktopContainer | null
+  openContainer?: CollectionContainer | null
 }
 
 export type { DesktopGridLayoutPatch }
-export type { DesktopGridDragEvent, DesktopGridExternalDragProjection, DesktopGridExternalFolderDrag, DesktopGridHoverTarget }
+export type { DesktopGridDragEvent, DesktopGridExternalDragProjection, DesktopGridExternalItemDrag, DesktopGridHoverTarget }
 export type DesktopGridApi = {
-  projectExternalFolderDrag(drag: DesktopGridExternalFolderDrag, currentDrag: DesktopDragState, openContainer: DesktopContainer | null): DesktopGridExternalDragProjection | null
+  projectExternalItemDrag(drag: DesktopGridExternalItemDrag, currentDrag: DesktopDragState, openContainer: CollectionContainer | null): DesktopGridExternalDragProjection | null
 }
 
 export function FolderGridCanvas(props: Props): React.ReactNode {
@@ -77,7 +78,7 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
     if (!props.externalDragPreview || !editor.gridNode) return null
     const gridRect = editor.gridNode.getBoundingClientRect()
     const boundsRect = editor.gridNode.parentElement?.getBoundingClientRect() || gridRect
-    return projectExternalFolderDrag(props.externalDragPreview, props.externalDragState || null, props.openContainer || null, layoutItems, editor.baseLayouts, editor.columnCount, gridRect, boundsRect, entryByKey, visibleEntryByKey, metrics)
+    return projectExternalItemDrag(props.externalDragPreview, props.externalDragState || null, props.openContainer || null, layoutItems, editor.baseLayouts, editor.columnCount, gridRect, boundsRect, entryByKey, visibleEntryByKey, metrics)
   }, [editor.baseLayouts, editor.columnCount, editor.gridNode, entryByKey, layoutItems, metrics, props.externalDragPreview, props.externalDragState, props.openContainer, visibleEntryByKey])
   const displayLayouts = editor.activeLayouts
   const setProjectedLayouts = editor.setProjectedLayouts
@@ -94,10 +95,10 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
       return undefined
     }
     props.onReady({
-      projectExternalFolderDrag: (drag, currentDrag, openContainer) => {
+      projectExternalItemDrag: (drag, currentDrag, openContainer) => {
         const gridRect = gridNode.getBoundingClientRect()
         const boundsRect = gridNode.parentElement?.getBoundingClientRect() || gridRect
-        return projectExternalFolderDrag(drag, currentDrag, openContainer, layoutItems, editor.baseLayouts, editor.columnCount, gridRect, boundsRect, entryByKey, visibleEntryByKey, metrics)
+        return projectExternalItemDrag(drag, currentDrag, openContainer, layoutItems, editor.baseLayouts, editor.columnCount, gridRect, boundsRect, entryByKey, visibleEntryByKey, metrics)
       },
     })
     return () => props.onReady?.(null)
@@ -106,7 +107,7 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
   if (!props.entries.length && !props.externalDragPreview) {
     return (
       <ScrollArea sx={{ flex: 1, minHeight: 0 }} viewportSx={{ p: { xs: 1.5, sm: 2 }, pt: 1 }}>
-        <EmptyState phase={props.phase} search={props.search} onAdd={props.onAdd} />
+        <EmptyState category={props.category} phase={props.phase} search={props.search} onAdd={props.onAdd} />
       </ScrollArea>
     )
   }
@@ -116,7 +117,7 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
   return (
     <ScrollArea
       component="section"
-      ariaLabel="收藏文件夹图标布局"
+      ariaLabel={`${props.category.label}收藏图标布局`}
       sx={{ flex: 1, minHeight: 0 }}
       viewportSx={{ px: { xs: 1, sm: 1.5 }, pb: { xs: 1.5, sm: 2 }, pt: 1 }}
     >
@@ -153,10 +154,10 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
             >
               <DesktopGridIcon
                 assetUrl={props.assetUrl}
-                doc={props.doc}
                 dragging={editor.draggingId === key}
                 entry={entry}
                 metrics={metrics}
+                workspace={props.workspace}
                 onOpen={() => {
                   if (!editor.consumeSuppressedClick(key)) props.onOpen(entry)
                 }}
@@ -170,16 +171,17 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
   )
 }
 
-function EmptyState(props: { phase: Phase; search: string; onAdd(): void }) {
+function EmptyState(props: { category: CategoryDefinition; phase: Phase; search: string; onAdd(): void }) {
+  const EmptyIcon = props.category.icon
   return (
     <Paper sx={{ minHeight: '100%', p: { xs: 3, sm: 5 }, borderRadius: 4, display: 'grid', placeItems: 'center', textAlign: 'center', bgcolor: 'background.paper' }}>
       <Stack spacing={1.5} alignItems="center" sx={{ maxWidth: 420 }}>
         <Box sx={{ width: 72, height: 72, borderRadius: 4, display: 'grid', placeItems: 'center', color: 'primary.main', bgcolor: theme => alpha(theme.palette.primary.main, 0.1) }}>
-          <DriveFolderUploadRoundedIcon fontSize="large" />
+          <EmptyIcon fontSize="large" />
         </Box>
-        <Typography variant="h2">{props.search ? '未找到匹配的文件夹' : '暂无收藏文件夹'}</Typography>
-        <Typography color="text.secondary">{props.search ? '换个关键词试试，或者把这个目录添加到收藏。' : '添加常用目录后，可以从这里一键打开、分组管理和快速搜索。'}</Typography>
-        <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={props.onAdd} disabled={props.phase !== 'ready'}>添加文件夹</Button>
+        <Typography variant="h2">{props.search ? `未找到匹配的${props.category.label}` : props.category.emptyTitle}</Typography>
+        <Typography color="text.secondary">{props.search ? '换个关键词试试，或者添加新的收藏项目。' : props.category.emptyDescription}</Typography>
+        <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={props.onAdd} disabled={props.phase !== 'ready'}>{props.category.addLabel}</Button>
       </Stack>
     </Paper>
   )

@@ -1,7 +1,7 @@
 import { resolveDesktopDragMode, resolveDesktopDropIntent } from '../desktopDragState'
 import type { DesktopDragDropIntent, DesktopDragState } from '../desktopDragState'
 import { getDesktopGridDragMode } from '../shared/desktop-grid/drag/dragModifiers'
-import type { DesktopContainer, DesktopGridEntry, FolderGridLayout, FolderItem } from '../types'
+import type { CollectionContainer, CollectionGridLayout, CollectionItem, DesktopGridEntry } from '../types'
 import { desktopEntryKey, parseDesktopEntryKey, type DesktopGridLayoutPatch } from './desktopEntries'
 import type { FolderGridMetrics } from './iconLayout'
 import {
@@ -23,9 +23,9 @@ type RectLike = {
   top: number
 }
 
-export type DesktopGridHoverTarget = { entry: DesktopGridEntry; layout: FolderGridLayout }
+export type DesktopGridHoverTarget = { entry: DesktopGridEntry; layout: CollectionGridLayout }
 export type DesktopGridDragEvent = FolderGridDragEvent & { entry: DesktopGridEntry; hoverContainer?: DesktopGridEntry; hoverTarget?: DesktopGridHoverTarget }
-export type DesktopGridExternalFolderDrag = { item: FolderItem; clientX: number; clientY: number; offsetX: number; offsetY: number; modifiers: FolderGridDragEvent['modifiers'] }
+export type DesktopGridExternalItemDrag = { item: CollectionItem; clientX: number; clientY: number; offsetX: number; offsetY: number; modifiers: FolderGridDragEvent['modifiers'] }
 export type DesktopGridExternalDragProjection = { dropIntent?: DesktopDragDropIntent; event: DesktopGridDragEvent; layouts: FolderGridLayoutMap; patches: DesktopGridLayoutPatch[] }
 
 export function toDesktopGridLayoutPatch(patch: FolderGridLayoutPatch): DesktopGridLayoutPatch | null {
@@ -41,10 +41,10 @@ export function toDesktopDragEvent(event: FolderGridDragEvent, entries: Map<stri
   return { ...event, entry, hoverContainer, hoverTarget }
 }
 
-export function projectExternalFolderDrag(
-  drag: DesktopGridExternalFolderDrag,
+export function projectExternalItemDrag(
+  drag: DesktopGridExternalItemDrag,
   currentDrag: DesktopDragState,
-  openContainer: DesktopContainer | null,
+  openContainer: CollectionContainer | null,
   baseItems: FolderGridLayoutSource[],
   baseLayouts: FolderGridLayoutMap,
   columnCount: number,
@@ -55,7 +55,7 @@ export function projectExternalFolderDrag(
   metrics: FolderGridMetrics,
 ): DesktopGridExternalDragProjection | null {
   if (drag.clientX < boundsRect.left || drag.clientX > boundsRect.right || drag.clientY < boundsRect.top || drag.clientY > boundsRect.bottom) return null
-  const activeId = desktopEntryKey('folder', drag.item.id)
+  const activeId = desktopEntryKey('item', drag.item.id)
   const targetLayout = getFolderGridLayoutFromPixel(drag.clientX - gridRect.left - drag.offsetX, drag.clientY - gridRect.top - drag.offsetY, columnCount, metrics)
   const nextItems = baseItems.some(item => item.id === activeId) ? baseItems : [...baseItems, { id: activeId }]
   const dragMode = getDesktopGridDragMode(drag.modifiers)
@@ -71,9 +71,9 @@ export function projectExternalFolderDrag(
 }
 
 function buildExternalDesktopDragEvent(
-  drag: DesktopGridExternalFolderDrag,
+  drag: DesktopGridExternalItemDrag,
   activeId: string,
-  targetLayout: FolderGridLayout,
+  targetLayout: CollectionGridLayout,
   dragMode: FolderGridDragEvent['dragMode'],
   allEntries: Map<string, DesktopGridEntry>,
   hoverEntries: Map<string, DesktopGridEntry>,
@@ -82,7 +82,7 @@ function buildExternalDesktopDragEvent(
   metrics: FolderGridMetrics,
 ): DesktopGridDragEvent {
   const entry = allEntries.get(activeId) || {
-    kind: 'folder' as const,
+    kind: 'item' as const,
     id: drag.item.id,
     name: drag.item.name,
     item: drag.item,
