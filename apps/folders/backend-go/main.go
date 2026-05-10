@@ -240,6 +240,17 @@ type categoryWorkspaceView struct {
 	Desktop       desktopState       `json:"desktop"`
 }
 
+type categoryDesktopWallpaper struct {
+	CategoryID string            `json:"categoryId"`
+	Wallpaper  *desktopWallpaper `json:"wallpaper,omitempty"`
+}
+
+type desktopWallpaperDeck struct {
+	SchemaVersion int                        `json:"schemaVersion"`
+	DataVersion   int                        `json:"dataVersion"`
+	Categories    []categoryDesktopWallpaper `json:"categories"`
+}
+
 type categoryPayload struct {
 	CategoryID string `json:"categoryId"`
 }
@@ -447,6 +458,8 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 			return nil, fmt.Errorf("invalid category payload: %w", err)
 		}
 		return svc.readWorkspaceView(payload.CategoryID)
+	case "collections.desktop.wallpaper.deck":
+		return svc.readDesktopWallpaperDeck()
 	case "collections.data.reset":
 		var payload categoryPayload
 		_ = json.Unmarshal(params, &payload)
@@ -655,6 +668,18 @@ func (svc *service) readWorkspaceView(categoryID string) (categoryWorkspaceView,
 		return categoryWorkspaceView{}, err
 	}
 	return workspaceView(doc, workspace), nil
+}
+
+func (svc *service) readDesktopWallpaperDeck() (desktopWallpaperDeck, error) {
+	doc, err := svc.readCollections()
+	if err != nil {
+		return desktopWallpaperDeck{}, err
+	}
+	categories := make([]categoryDesktopWallpaper, 0, len(doc.Categories))
+	for _, workspace := range doc.Categories {
+		categories = append(categories, categoryDesktopWallpaper{CategoryID: workspace.ID, Wallpaper: workspace.Desktop.Wallpaper})
+	}
+	return desktopWallpaperDeck{SchemaVersion: doc.SchemaVersion, DataVersion: doc.DataVersion, Categories: categories}, nil
 }
 
 func (svc *service) resetWorkspaceView(categoryID string) (categoryWorkspaceView, error) {
@@ -1591,6 +1616,7 @@ func (svc *service) serveAsset(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	http.ServeFile(w, r, path)
 }
 

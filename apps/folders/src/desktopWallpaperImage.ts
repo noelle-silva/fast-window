@@ -1,7 +1,8 @@
+import type { CSSProperties } from 'react'
 import { normalizeDesktopWallpaperView } from './desktopWallpaperPresets'
 import type { DesktopWallpaperView } from './types'
 
-export function desktopWallpaperImageSx(view: DesktopWallpaperView) {
+export function desktopWallpaperImageStyle(view: DesktopWallpaperView): CSSProperties {
   const normalized = normalizeDesktopWallpaperView(view)
   return {
     objectFit: 'cover',
@@ -9,5 +10,9 @@ export function desktopWallpaperImageSx(view: DesktopWallpaperView) {
     transform: `scale(${normalized.scale})`,
     transformOrigin: `${normalized.x}% ${normalized.y}%`,
     userSelect: 'none',
-  } as const
+  }
+}
+
+export function desktopWallpaperImageSx(view: DesktopWallpaperView) {
+  return desktopWallpaperImageStyle(view)
 }

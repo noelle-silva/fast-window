@@ -60,6 +60,7 @@ import { ScrollArea } from './shared/scroll-area'
 import type { ContainerExtractDragState } from './containerExtractDragState'
 import { applyContainerItemDesktopExtraction, extractedItemIdForContainerView, isContainerSoftClosedForExtractDrag, resolveContainerExtractDragMode, resolveContainerExtractNextDragMode } from './containerExtractDragState'
 import type { DesktopDragState } from './desktopDragState'
+import { wallpaperDeckFromWorkspace, wallpaperDeckWithWorkspace } from './desktopWallpaperDeck'
 import { createDesktopWallpaperPreset, upsertDesktopWallpaperPresetView } from './desktopWallpaperPresets'
 import { isContainerDropTargetActive, resolveDesktopDragMode, resolveDesktopDropIntent } from './desktopDragState'
 import type { ContainerGridApi, ContainerGridPlacement } from './folder-grid/ContainerGridCanvas'
@@ -78,6 +79,7 @@ import type {
   DesktopIcon,
   DesktopIconLayout,
   DesktopWallpaper as DesktopWallpaperState,
+  DesktopWallpaperDeck,
   DesktopWallpaperView,
   DirectClient,
   CollectionItemFormState,
@@ -125,6 +127,7 @@ export function App() {
   const [status, setStatus] = React.useState<DataDirStatus | null>(null)
   const [client, setClient] = React.useState<DirectClient | null>(null)
   const [doc, setDoc] = React.useState<CategoryWorkspaceView>(DEFAULT_WORKSPACE_VIEW)
+  const [wallpaperDeck, setWallpaperDeck] = React.useState<DesktopWallpaperDeck | null>(null)
   const [activeCategoryId, setActiveCategoryId] = React.useState<CollectionCategoryId>(DEFAULT_CATEGORY_ID)
   const [phase, setPhase] = React.useState<Phase>('starting')
   const [busy, setBusy] = React.useState(false)
@@ -158,22 +161,37 @@ export function App() {
   const activeCategory = categoryDefinition(activeCategoryId)
   const requestParams = React.useCallback((params?: Record<string, unknown>) => ({ categoryId: activeCategoryId, ...(params || {}) }), [activeCategoryId])
 
+  const refreshWallpaperDeck = React.useCallback(async (nextClient = client) => {
+    if (!nextClient) return
+    try {
+      setWallpaperDeck(await nextClient.request<DesktopWallpaperDeck>('collections.desktop.wallpaper.deck'))
+    } catch (e) {
+      setError(errorMessage(e, '加载壁纸预设失败'))
+    }
+  }, [client])
+
+  const updateWallpaperDeckCategory = React.useCallback((workspace: CategoryWorkspaceView) => {
+    setWallpaperDeck(current => wallpaperDeckWithWorkspace(current, workspace))
+  }, [])
+
   const loadCategory = React.useCallback(async (categoryId: CollectionCategoryId, nextClient = client) => {
     if (!nextClient) return
     setBusy(true); setError(null)
     try {
       const nextDoc = await nextClient.request<CategoryWorkspaceView>('collections.category.get', { categoryId })
       setDoc(nextDoc)
+      updateWallpaperDeckCategory(nextDoc)
       setGroupId(DEFAULT_GROUP_ID)
       setSearch('')
       setEditing(null)
       setContainerView(null)
       setContainerDropViewState(null)
       setContextMenu(null)
+      void refreshWallpaperDeck(nextClient)
     } catch (e) {
       setError(errorMessage(e, '切换类别失败'))
     } finally { setBusy(false) }
-  }, [client])
+  }, [client, refreshWallpaperDeck, updateWallpaperDeckCategory])
 
   const handleContainerGridReady = React.useCallback((containerId: string, instanceId: string, api: ContainerGridApi | null) => {
     const apis = containerGridApiByIdRef.current.get(containerId) || new Map<string, ContainerGridApi>()
@@ -198,7 +216,7 @@ export function App() {
   }, [])
 
   const connect = React.useCallback(async (options?: { restartBackend?: boolean }) => {
-    setBusy(true); setError(null); setPhase('starting'); client?.close(); setClient(null)
+    setBusy(true); setError(null); setPhase('starting'); client?.close(); setClient(null); setWallpaperDeck(null)
     try {
       if (options?.restartBackend) await invoke('restart_backend')
       const nextClient = await createDirectClient()
@@ -208,11 +226,11 @@ export function App() {
         return
       }
       const nextDoc = await nextClient.request<CategoryWorkspaceView>('collections.category.get', { categoryId: activeCategoryId })
-      setClient(nextClient); setDoc(nextDoc); setPhase('ready'); await refreshStatus()
+      setClient(nextClient); setDoc(nextDoc); setWallpaperDeck(wallpaperDeckFromWorkspace(nextDoc)); setPhase('ready'); await refreshStatus(); void refreshWallpaperDeck(nextClient)
     } catch (e) {
       setPhase('failed'); setError(errorMessage(e, '启动文件夹收藏后台失败')); await refreshStatus()
     } finally { setBusy(false) }
-  }, [activeCategoryId, client, refreshStatus])
+  }, [activeCategoryId, client, refreshStatus, refreshWallpaperDeck])
 
   React.useEffect(() => {
     if (!readyRef.current) { readyRef.current = true; void invoke('app_ready').catch(() => {}) }
@@ -826,7 +844,11 @@ export function App() {
   async function saveDesktopWallpaper(wallpaper: DesktopWallpaperState | null) {
     if (!client) return
     setBusy(true); setError(null)
-    try { setDoc(await client.request<CategoryWorkspaceView>('collections.desktop.wallpaper.save', requestParams({ wallpaper }))) }
+    try {
+      const nextDoc = await client.request<CategoryWorkspaceView>('collections.desktop.wallpaper.save', requestParams({ wallpaper }))
+      setDoc(nextDoc)
+      updateWallpaperDeckCategory(nextDoc)
+    }
     catch (e) { setError(errorMessage(e, '保存壁纸失败')) }
     finally { setBusy(false) }
   }
@@ -871,7 +893,9 @@ export function App() {
       const asset = await client.request<DesktopAsset>('collections.assets.import', { kind: 'wallpaper', sourcePath })
       const preset = createDesktopWallpaperPreset({ id: createID(), name: deriveNameFromTarget(sourcePath), assetId: asset.id })
       const presets = [...(doc.desktop.wallpaper?.presets || []), preset]
-      setDoc(await client.request<CategoryWorkspaceView>('collections.desktop.wallpaper.save', requestParams({ wallpaper: { activeId: preset.id, presets } })))
+      const nextDoc = await client.request<CategoryWorkspaceView>('collections.desktop.wallpaper.save', requestParams({ wallpaper: { activeId: preset.id, presets } }))
+      setDoc(nextDoc)
+      updateWallpaperDeckCategory(nextDoc)
     } catch (e) { setError(errorMessage(e, '导入壁纸失败')) }
     finally { setBusy(false) }
   }
@@ -888,7 +912,7 @@ export function App() {
     setBusy(true); setError(null)
     try {
       const nextDoc = await client.request<CategoryWorkspaceView>('collections.data.reset', requestParams())
-      setDoc(nextDoc); setPhase('ready'); setConfirm(null); await refreshStatus()
+      setDoc(nextDoc); setWallpaperDeck(wallpaperDeckFromWorkspace(nextDoc)); setPhase('ready'); setConfirm(null); await refreshStatus()
     } catch (e) { setError(errorMessage(e, '重置数据失败')) }
     finally { setBusy(false) }
   }
@@ -925,7 +949,7 @@ export function App() {
         bgcolor: 'background.default',
       }}
     >
-      <DesktopWallpaper wallpaper={doc.desktop.wallpaper} assetUrl={client?.assetUrl} />
+      <DesktopWallpaper activeCategoryId={activeCategoryId} assetUrl={client?.assetUrl} deck={wallpaperDeck} />
       <Box sx={{ position: 'relative', zIndex: 1, minHeight: 0, height: '100%', display: 'flex', flexDirection: 'column' }}>
       <TopBar
         activeCategoryId={activeCategoryId}

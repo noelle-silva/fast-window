@@ -48,6 +48,10 @@ export type DesktopWallpaperPreset = { id: string; name: string; assetId: string
 
 export type DesktopWallpaper = { activeId: string; presets: DesktopWallpaperPreset[] }
 
+export type CategoryDesktopWallpaper = { categoryId: CollectionCategoryId; wallpaper?: DesktopWallpaper }
+
+export type DesktopWallpaperDeck = { schemaVersion: number; dataVersion: number; categories: CategoryDesktopWallpaper[] }
+
 export type DesktopIconLayout = { rowGap: number; columnGap: number; iconScale: number }
 
 export type CollectionDesktopState = { wallpaper?: DesktopWallpaper; iconLayout: DesktopIconLayout }

@@ -174,7 +174,7 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
 function EmptyState(props: { category: CategoryDefinition; phase: Phase; search: string; onAdd(): void }) {
   const EmptyIcon = props.category.icon
   return (
-    <Paper sx={{ minHeight: '100%', p: { xs: 3, sm: 5 }, borderRadius: 4, display: 'grid', placeItems: 'center', textAlign: 'center', bgcolor: 'background.paper' }}>
+    <Paper elevation={0} sx={{ minHeight: '100%', p: { xs: 3, sm: 5 }, borderRadius: 4, display: 'grid', placeItems: 'center', textAlign: 'center', bgcolor: 'transparent', boxShadow: 'none' }}>
       <Stack spacing={1.5} alignItems="center" sx={{ maxWidth: 420 }}>
         <Box sx={{ width: 72, height: 72, borderRadius: 4, display: 'grid', placeItems: 'center', color: 'primary.main', bgcolor: theme => alpha(theme.palette.primary.main, 0.1) }}>
           <EmptyIcon fontSize="large" />

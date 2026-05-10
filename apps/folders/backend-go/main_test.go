@@ -360,6 +360,40 @@ func TestDesktopWallpaperRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDesktopWallpaperDeckIncludesAllCategories(t *testing.T) {
+	svc := readyService(t)
+	folderAsset := wallpaperAssetsDir + "/0123456789abcdef0123456789abcdef01234567.png"
+	urlAsset := wallpaperAssetsDir + "/fedcba9876543210fedcba9876543210fedcba98.png"
+
+	if _, err := svc.saveCollectionDesktopWallpaper("folder", wallpaperWithPreset("folder-main", folderAsset, desktopWallpaperView{X: 50, Y: 50, Scale: 1})); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.saveCollectionDesktopWallpaper("url", wallpaperWithPreset("url-main", urlAsset, desktopWallpaperView{X: 40, Y: 60, Scale: 1.2})); err != nil {
+		t.Fatal(err)
+	}
+
+	deck, err := svc.readDesktopWallpaperDeck()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deck.SchemaVersion != dataSchemaVersion || deck.DataVersion != dataVersion || len(deck.Categories) != 3 {
+		t.Fatalf("unexpected wallpaper deck metadata: %#v", deck)
+	}
+	wallpapers := map[string]*desktopWallpaper{}
+	for _, category := range deck.Categories {
+		wallpapers[category.CategoryID] = category.Wallpaper
+	}
+	if wallpapers["folder"] == nil || wallpapers["folder"].ActiveID != "folder-main" {
+		t.Fatalf("expected folder wallpaper in deck: %#v", wallpapers["folder"])
+	}
+	if wallpapers["url"] == nil || wallpapers["url"].ActiveID != "url-main" {
+		t.Fatalf("expected url wallpaper in deck: %#v", wallpapers["url"])
+	}
+	if wallpapers["file"] != nil {
+		t.Fatalf("expected empty file wallpaper: %#v", wallpapers["file"])
+	}
+}
+
 func TestDesktopIconLayoutRoundTrip(t *testing.T) {
 	svc := readyService(t)
 	doc, err := svc.readWorkspaceView("folder")
