@@ -63,7 +63,7 @@ async function loadCatalog(catalogPath) {
 
 async function main() {
   const opts = parseArgs(process.argv)
-  const config = getV5AppConfig(opts.appId)
+  const config = await getV5AppConfig(opts.appId)
   const result = await buildV5AppPackage(config, opts)
   const catalog = upsertStoreApp(await loadCatalog(opts.catalogPath), result.catalogEntry)
   await writeV5StoreCatalog(opts.catalogPath, catalog)

@@ -2,70 +2,21 @@ import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import fssync from 'node:fs'
 import path from 'node:path'
+import process from 'node:process'
 import { spawn } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import {
+  compareSemverStrict,
+  isSafeId,
+  loadV5AppPackageConfig,
+  normalizeRel,
+  parseSemverStrict,
+  readJson,
+  rootDir,
+} from './v5-app-package-manifest.mjs'
 
-const __filename = fileURLToPath(import.meta.url)
-const __dirname = path.dirname(__filename)
+export { compareSemverStrict, isSafeId, normalizeRel, parseSemverStrict, readJson, rootDir }
 
-export const rootDir = path.resolve(__dirname, '..', '..')
 export const DEFAULT_V5_APP_OUT_DIR = path.join(rootDir, '.tmp', 'dist-v5-apps')
-
-export const V5_APP_PACKAGES = {
-  'clipboard-history': {
-    appDir: path.join(rootDir, 'apps', 'clipboard-history'),
-    id: 'clipboard-history',
-    name: '剪贴板历史',
-    description: '剪贴板历史 v5 canary 测试应用',
-    versionSource: 'src-tauri/tauri.conf.json',
-    executable: 'clipboard-history-app.exe',
-    files: [
-      { from: 'src-tauri/target/release/clipboard-history-app.exe', to: 'clipboard-history-app.exe' },
-      { from: 'src-tauri/target/release/clipboard-history-backend.exe', to: 'clipboard-history-backend.exe' },
-      { from: 'src-tauri/target/release/assets', to: 'assets' },
-      { from: 'src-tauri/target/release/resources', to: 'resources' },
-    ],
-    icon: 'assets/icon.svg',
-    catalogIcon: { type: 'emoji', value: '📋' },
-    displayMode: 'default',
-    commands: [
-      { id: 'open', title: '打开剪贴板历史' },
-      { id: 'folders', title: '打开收藏夹' },
-      { id: 'settings', title: '打开设置' },
-    ],
-    buildCommand: ['pnpm', ['build:exe:no-bundle']],
-  },
-}
-
-export function isSafeId(id) {
-  return /^[A-Za-z0-9_-]+$/.test(String(id || '').trim())
-}
-
-export function parseSemverStrict(raw) {
-  const s = String(raw || '').trim()
-  return /^\d+\.\d+\.\d+$/.test(s) ? s : ''
-}
-
-export function compareSemverStrict(aRaw, bRaw) {
-  const a = String(aRaw || '').trim().split('.').map(Number)
-  const b = String(bRaw || '').trim().split('.').map(Number)
-  if (a.length !== 3 || b.length !== 3 || !parseSemverStrict(aRaw) || !parseSemverStrict(bRaw)) {
-    throw new Error(`版本号必须是 x.y.z 格式: ${aRaw} / ${bRaw}`)
-  }
-  for (let i = 0; i < 3; i++) {
-    if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1
-  }
-  return 0
-}
-
-export function normalizeRel(raw, field) {
-  const rel = String(raw || '').trim().replaceAll('\\', '/')
-  if (!rel) throw new Error(`${field} 不能为空`)
-  if (path.isAbsolute(rel)) throw new Error(`${field} 不允许是绝对路径: ${rel}`)
-  const parts = rel.split('/')
-  if (parts.some(part => !part || part === '.' || part === '..')) throw new Error(`${field} 不安全: ${rel}`)
-  return rel
-}
 
 export async function exists(filePath) {
   try {
@@ -76,18 +27,32 @@ export async function exists(filePath) {
   }
 }
 
-export async function readJson(filePath) {
-  return JSON.parse(await fs.readFile(filePath, 'utf8'))
-}
-
 export async function writeJson(filePath, value) {
   await fs.mkdir(path.dirname(filePath), { recursive: true })
   await fs.writeFile(filePath, JSON.stringify(value, null, 2) + '\n', 'utf8')
 }
 
+function cmdQuote(value) {
+  const raw = String(value)
+  if (!raw) return '""'
+  if (!/[\s"^&|<>%]/.test(raw)) return raw
+  return `"${raw.replaceAll('%', '%%').replace(/["^]/g, match => `^${match}`)}"`
+}
+
+function resolveSpawnSpec(command, args) {
+  if (process.platform === 'win32' && command === 'pnpm') {
+    return {
+      command: process.env.ComSpec || 'cmd.exe',
+      args: ['/d', '/s', '/c', ['pnpm.cmd', ...args].map(cmdQuote).join(' ')],
+    }
+  }
+  return { command, args }
+}
+
 export function run(command, args, cwd) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, stdio: 'inherit', shell: false })
+    const spec = resolveSpawnSpec(command, args)
+    const child = spawn(spec.command, spec.args, { cwd, stdio: 'inherit', shell: false })
     child.on('error', reject)
     child.on('exit', code => {
       if ((code ?? 0) === 0) resolve()
@@ -127,12 +92,8 @@ async function zipDir(parentDir, dirName, zipPath) {
   await run('tar', ['-a', '-c', '-f', zipPath, dirName], parentDir)
 }
 
-export function getV5AppConfig(appId) {
-  const id = String(appId || '').trim()
-  if (!isSafeId(id)) throw new Error(`app id 不合法: ${id}`)
-  const config = V5_APP_PACKAGES[id]
-  if (!config) throw new Error(`未知 v5 app: ${id}`)
-  return config
+export async function getV5AppConfig(appId) {
+  return loadV5AppPackageConfig(appId)
 }
 
 export async function loadV5AppVersion(config) {
@@ -162,8 +123,7 @@ export async function buildV5AppPackage(config, opts) {
   if (!baseUrl.startsWith('https://')) throw new Error('baseUrl 必须是 https:// URL')
 
   if (!opts?.noBuild) {
-    const [command, args] = config.buildCommand
-    await run(command, args, config.appDir)
+    await run(config.buildCommand.command, config.buildCommand.args, config.appDir)
   }
 
   const version = await loadV5AppVersion(config)

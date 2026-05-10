@@ -277,7 +277,7 @@ async function main() {
   const opts = parseArgs(process.argv)
   const authToken = pickToken()
   if (!opts.dryRun) await assertWritableToken(opts, authToken)
-  const config = getV5AppConfig(opts.appId)
+  const config = await getV5AppConfig(opts.appId)
   const version = await loadV5AppVersion(config)
   const tag = `v${opts.appId}-${version}`
   const baseUrl = `https://github.com/${opts.owner}/${opts.repo}/releases/download/${tag}`
