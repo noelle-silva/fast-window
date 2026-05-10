@@ -1,4 +1,3 @@
-const DEFAULT_EDGE_SCROLL_MAX_STEP = 24
 const WHEEL_DELTA_LINE = 1
 const WHEEL_DELTA_PAGE = 2
 
@@ -13,23 +12,6 @@ export function findScrollableParent(el: HTMLElement): HTMLElement | null {
     current = current.parentElement
   }
   return null
-}
-
-export function autoScrollDuringDrag(containerNode: HTMLElement, clientY: number, maxStep = DEFAULT_EDGE_SCROLL_MAX_STEP): void {
-  const scrollEl = findScrollableParent(containerNode)
-  if (!scrollEl) return
-
-  const rect = scrollEl.getBoundingClientRect()
-  const edgeSize = Math.min(120, Math.max(64, rect.height * 0.18))
-  let delta = 0
-
-  if (clientY > rect.bottom - edgeSize) {
-    delta = ((clientY - (rect.bottom - edgeSize)) / edgeSize) * maxStep
-  } else if (clientY < rect.top + edgeSize) {
-    delta = -(((rect.top + edgeSize) - clientY) / edgeSize) * maxStep
-  }
-
-  if (delta) scrollEl.scrollTop += Math.trunc(delta)
 }
 
 export function scrollDuringDragWheel(containerNode: HTMLElement, event: WheelEvent): boolean {

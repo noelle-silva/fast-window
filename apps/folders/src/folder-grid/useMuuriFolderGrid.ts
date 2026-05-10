@@ -10,7 +10,7 @@ import Muuri, {
 import type { FolderGridLayout } from '../types'
 import type { DesktopGridDragMode, DesktopGridDragModifiers, DesktopGridDragEndResult } from '../shared/desktop-grid/core/dragTypes'
 import { getDesktopGridDragMode, getDesktopGridDragModifiers, useDesktopGridDragModifierState } from '../shared/desktop-grid/drag/dragModifiers'
-import { autoScrollDuringDrag, clearDragWheelTarget, projectDragWheel, setDragWheelTarget, type DragWheelTarget } from '../shared/desktop-grid/drag/dragScroll'
+import { clearDragWheelTarget, projectDragWheel, setDragWheelTarget, type DragWheelTarget } from '../shared/desktop-grid/drag/dragScroll'
 import { useTransientDragLayouts } from '../shared/desktop-grid/drag/useTransientDragLayouts'
 import {
   buildFolderGridLayoutMap,
@@ -356,7 +356,6 @@ export function useMuuriFolderGrid(options: Options) {
       if (!dragSession || !gridNode) return
 
       setDragWheelTarget(dragWheelTargetRef, item, event.clientX, event.clientY)
-      autoScrollDuringDrag(gridNode, event.clientY, 12)
       const modifiers = getDesktopGridDragModifiers(event, keyboardModifiersRef.current)
       updateDragProjection(item, event.clientX, event.clientY, modifiers)
     }

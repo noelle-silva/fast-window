@@ -22,7 +22,7 @@ import {
   type DesktopGridLayoutSource,
 } from '../core/layout'
 import { getDesktopGridDragMode, getDesktopGridDragModifiers, useDesktopGridDragModifierState } from './dragModifiers'
-import { autoScrollDuringDrag, clearDragWheelTarget, projectDragWheel, setDragWheelTarget, type DragWheelTarget } from './dragScroll'
+import { clearDragWheelTarget, projectDragWheel, setDragWheelTarget, type DragWheelTarget } from './dragScroll'
 import { useTransientDragLayouts } from './useTransientDragLayouts'
 
 const MUURI_ITEM_CLASS = 'desktop-grid-muuri-item'
@@ -314,7 +314,6 @@ export function useMuuriDesktopGrid(options: Options) {
       if (!dragSession || !gridNode) return
 
       setDragWheelTarget(dragWheelTargetRef, item, event.clientX, event.clientY)
-      autoScrollDuringDrag(gridNode, event.clientY, 34)
       const modifiers = getDesktopGridDragModifiers(event, keyboardModifiersRef.current)
       updateDragProjection(item, event.clientX, event.clientY, modifiers)
     }
