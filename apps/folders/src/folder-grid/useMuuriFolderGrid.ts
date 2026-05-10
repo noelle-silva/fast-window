@@ -10,6 +10,7 @@ import Muuri, {
 import type { FolderGridLayout } from '../types'
 import type { DesktopGridDragMode, DesktopGridDragModifiers, DesktopGridDragEndResult } from '../shared/desktop-grid/core/dragTypes'
 import { getDesktopGridDragMode, getDesktopGridDragModifiers, useDesktopGridDragModifierState } from '../shared/desktop-grid/drag/dragModifiers'
+import { autoScrollDuringDrag, clearDragWheelTarget, projectDragWheel, setDragWheelTarget, type DragWheelTarget } from '../shared/desktop-grid/drag/dragScroll'
 import { useTransientDragLayouts } from '../shared/desktop-grid/drag/useTransientDragLayouts'
 import {
   buildFolderGridLayoutMap,
@@ -126,34 +127,6 @@ function syncMuuriItemsWithRenderedElements(grid: Muuri, containerNode: HTMLDivE
   if (addedElements.length) grid.add(addedElements, { layout: false })
 }
 
-function findScrollableParent(el: HTMLElement): HTMLElement | null {
-  let current = el.parentElement
-  while (current) {
-    const style = window.getComputedStyle(current)
-    if (/(auto|scroll)/.test(style.overflowY)) return current
-    current = current.parentElement
-  }
-  return null
-}
-
-function autoScrollDuringDrag(containerNode: HTMLElement, clientY: number): void {
-  const scrollEl = findScrollableParent(containerNode)
-  if (!scrollEl) return
-
-  const rect = scrollEl.getBoundingClientRect()
-  const edgeSize = Math.min(120, Math.max(64, rect.height * 0.18))
-  const maxStep = 12
-  let delta = 0
-
-  if (clientY > rect.bottom - edgeSize) {
-    delta = ((clientY - (rect.bottom - edgeSize)) / edgeSize) * maxStep
-  } else if (clientY < rect.top + edgeSize) {
-    delta = -(((rect.top + edgeSize) - clientY) / edgeSize) * maxStep
-  }
-
-  if (delta) scrollEl.scrollTop += Math.trunc(delta)
-}
-
 function toDragEvent(session: DragSession, clientX: number, clientY: number, targetLayout?: FolderGridLayout): FolderGridDragEvent {
   return {
     itemId: session.itemId,
@@ -199,6 +172,7 @@ export function useMuuriFolderGrid(options: Options) {
   const keyboardModifiersRef = useDesktopGridDragModifierState()
   const suppressClickRef = React.useRef<string | null>(null)
   const pendingDragCommitRef = React.useRef<PendingDragCommit | null>(null)
+  const dragWheelTargetRef = React.useRef<DragWheelTarget<MuuriItem> | null>(null)
   metricsRef.current = metrics
   const columnCount = React.useMemo(() => getFolderGridColumnCount(containerWidth, metrics), [containerWidth, metrics])
   const baseLayouts = React.useMemo(() => buildFolderGridLayoutMap(items, columnCount), [columnCount, items])
@@ -250,6 +224,7 @@ export function useMuuriFolderGrid(options: Options) {
   React.useEffect(() => {
     latestPreviewRef.current = null
     pendingPreviewRef.current = null
+    clearDragWheelTarget(dragWheelTargetRef)
     resetTransientLayouts()
     setDraggingId(null)
   }, [baseLayouts, metrics.signature, resetTransientLayouts])
@@ -290,6 +265,7 @@ export function useMuuriFolderGrid(options: Options) {
     latestPreviewRef.current = null
     pendingDragCommitRef.current = null
     dragSessionRef.current = null
+    clearDragWheelTarget(dragWheelTargetRef)
     resetTransientLayouts()
     setDraggingId(null)
   }, [cancelPreviewFrame, resetTransientLayouts])
@@ -350,30 +326,46 @@ export function useMuuriFolderGrid(options: Options) {
         dragMode: current.enableOverlayDrag ? getDesktopGridDragMode(modifiers) : 'reflow',
       }
       dragSessionRef.current = session
+      setDragWheelTarget(dragWheelTargetRef, item, event.clientX, event.clientY)
       setDraggingId(itemId)
       liveRef.current.onDragStart?.(toDragEvent(session, event.clientX, event.clientY))
+    }
+
+    const updateDragProjection = (item: MuuriItem, clientX: number, clientY: number, modifiers: DesktopGridDragModifiers) => {
+      const dragSession = dragSessionRef.current
+      if (!dragSession || !gridNode) return
+
+      const current = liveRef.current
+      const dragMode = current.enableOverlayDrag ? getDesktopGridDragMode(modifiers) : 'reflow'
+      const gridRect = gridNode.getBoundingClientRect()
+      const itemRect = item.getElement()?.getBoundingClientRect()
+      const targetLayout = getFolderGridLayoutFromPixel(
+        (itemRect?.left ?? clientX - dragSession.offsetX) - gridRect.left,
+        (itemRect?.top ?? clientY - dragSession.offsetY) - gridRect.top,
+        current.columnCount,
+        current.metrics,
+      )
+      dragSession.dragMode = dragMode
+      dragSession.modifiers = modifiers
+      liveRef.current.onDragMove?.(toDragEvent(dragSession, clientX, clientY, targetLayout))
+      schedulePreview(dragSession.itemId, dragMode, targetLayout)
     }
 
     const handleDragMove = (item: MuuriItem, event: DraggerMoveEvent) => {
       const dragSession = dragSessionRef.current
       if (!dragSession || !gridNode) return
 
-      autoScrollDuringDrag(gridNode, event.clientY)
-      const current = liveRef.current
+      setDragWheelTarget(dragWheelTargetRef, item, event.clientX, event.clientY)
+      autoScrollDuringDrag(gridNode, event.clientY, 12)
       const modifiers = getDesktopGridDragModifiers(event, keyboardModifiersRef.current)
-      const dragMode = current.enableOverlayDrag ? getDesktopGridDragMode(modifiers) : 'reflow'
-      const gridRect = gridNode.getBoundingClientRect()
-      const itemRect = item.getElement()?.getBoundingClientRect()
-      const targetLayout = getFolderGridLayoutFromPixel(
-        (itemRect?.left ?? event.clientX - dragSession.offsetX) - gridRect.left,
-        (itemRect?.top ?? event.clientY - dragSession.offsetY) - gridRect.top,
-        current.columnCount,
-        current.metrics,
-      )
-      dragSession.dragMode = dragMode
-      dragSession.modifiers = modifiers
-      liveRef.current.onDragMove?.(toDragEvent(dragSession, event.clientX, event.clientY, targetLayout))
-      schedulePreview(dragSession.itemId, dragMode, targetLayout)
+      updateDragProjection(item, event.clientX, event.clientY, modifiers)
+    }
+
+    const handleDragWheel = (event: WheelEvent) => {
+      if (!dragSessionRef.current || !gridNode) return
+      projectDragWheel(gridNode, dragWheelTargetRef.current, event, (item, clientX, clientY, wheelEvent) => {
+        updateDragProjection(item, clientX, clientY, getDesktopGridDragModifiers(wheelEvent, keyboardModifiersRef.current))
+      })
     }
 
     const handleDragEnd = (event: DraggerEndEvent) => {
@@ -404,6 +396,7 @@ export function useMuuriFolderGrid(options: Options) {
       pendingPreviewRef.current = null
       latestPreviewRef.current = null
       dragSessionRef.current = null
+      clearDragWheelTarget(dragWheelTargetRef)
       clearPreviewLayouts()
       if (!dragSession) setDraggingId(null)
     }
@@ -428,6 +421,7 @@ export function useMuuriFolderGrid(options: Options) {
     grid.on('dragMove', handleDragMove)
     grid.on('dragEnd', handleDragEndEvent)
     grid.on('dragReleaseEnd', handleDragReleaseEnd)
+    document.addEventListener('wheel', handleDragWheel, { capture: true, passive: false })
     gridInstanceRef.current = grid
 
     return () => {
@@ -435,6 +429,7 @@ export function useMuuriFolderGrid(options: Options) {
       grid.off('dragMove', handleDragMove)
       grid.off('dragEnd', handleDragEndEvent)
       grid.off('dragReleaseEnd', handleDragReleaseEnd)
+      document.removeEventListener('wheel', handleDragWheel, { capture: true })
       cancelDrag()
       grid.destroy()
       gridInstanceRef.current = null

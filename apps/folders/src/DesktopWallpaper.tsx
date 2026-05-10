@@ -11,8 +11,9 @@ type Props = {
 
 export function DesktopWallpaper(props: Props): React.ReactNode {
   const preset = activeDesktopWallpaperPreset(props.wallpaper)
-  const src = preset?.assetId && props.assetUrl ? props.assetUrl(preset.assetId) : null
-  if (!src) return null
+  if (!preset || !props.assetUrl) return null
+
+  const src = props.assetUrl(preset.assetId)
 
   return (
     <Box
