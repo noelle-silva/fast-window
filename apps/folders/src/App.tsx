@@ -1190,6 +1190,53 @@ function TopBar(props: {
         py: { xs: 1, md: 0.75 },
       }}
     >
+      <TopBarTools
+        activeCategoryId={props.activeCategoryId}
+        busy={props.busy}
+        canEdit={canEdit}
+        doc={props.doc}
+        groupActionLabel={groupActionLabel}
+        groupId={props.groupId}
+        phase={props.phase}
+        search={props.search}
+        selectedGroup={props.selectedGroup}
+        statusColor={statusColor}
+        statusText={statusText}
+        onAdd={props.onAdd}
+        onAddContainer={props.onAddContainer}
+        onCategoryChange={props.onCategoryChange}
+        onGroupChange={props.onGroupChange}
+        onOpenGroupEditor={props.onOpenGroupEditor}
+        onOpenSettings={props.onOpenSettings}
+        onSearchChange={props.onSearchChange}
+      />
+      <WindowControlsDock standalone={props.launchInfo.standalone} />
+    </Paper>
+  )
+}
+
+function TopBarTools(props: {
+  activeCategoryId: CollectionCategoryId
+  busy: boolean
+  canEdit: boolean
+  doc: CategoryWorkspaceView
+  groupActionLabel: string
+  groupId: string
+  phase: Phase
+  search: string
+  selectedGroup: CollectionGroup | undefined
+  statusColor: 'error' | 'warning'
+  statusText: string
+  onAdd(): void
+  onAddContainer(): void
+  onCategoryChange(categoryId: CollectionCategoryId): void
+  onGroupChange(groupId: string): void
+  onOpenGroupEditor(): void
+  onOpenSettings(): void
+  onSearchChange(search: string): void
+}) {
+  return (
+    <Stack direction="row" spacing={1.25} alignItems="center" sx={{ flex: '1 1 auto', minWidth: 0, flexWrap: { xs: 'wrap', md: 'nowrap' } }}>
       <TextField
         value={props.search}
         onChange={event => props.onSearchChange(event.target.value)}
@@ -1217,21 +1264,55 @@ function TopBar(props: {
         })}
       </ToggleButtonGroup>
       <GroupFilterSelect doc={props.doc} groupId={props.groupId} onGroupChange={props.onGroupChange} />
-      {props.phase !== 'ready' ? <Chip color={statusColor} size="small" label={statusText} icon={props.phase === 'starting' ? <CircularProgress size={12} color="inherit" /> : undefined} /> : null}
+      {props.phase !== 'ready' ? <Chip color={props.statusColor} size="small" label={props.statusText} icon={props.phase === 'starting' ? <CircularProgress size={12} color="inherit" /> : undefined} /> : null}
+      <TopBarActions
+        busy={props.busy}
+        canEdit={props.canEdit}
+        groupActionLabel={props.groupActionLabel}
+        selectedGroup={props.selectedGroup}
+        onAdd={props.onAdd}
+        onAddContainer={props.onAddContainer}
+        onOpenGroupEditor={props.onOpenGroupEditor}
+        onOpenSettings={props.onOpenSettings}
+      />
+    </Stack>
+  )
+}
+
+function TopBarActions(props: {
+  busy: boolean
+  canEdit: boolean
+  groupActionLabel: string
+  selectedGroup: CollectionGroup | undefined
+  onAdd(): void
+  onAddContainer(): void
+  onOpenGroupEditor(): void
+  onOpenSettings(): void
+}) {
+  return (
+    <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: '0 0 auto' }}>
       <Button variant="text" startIcon={<SettingsRoundedIcon />} onClick={props.onOpenSettings}>设置</Button>
-      <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={props.onAdd} disabled={!canEdit || props.busy}>新增</Button>
-      <Button variant="text" startIcon={<Inventory2RoundedIcon />} onClick={props.onAddContainer} disabled={!canEdit || props.busy}>收纳夹</Button>
+      <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={props.onAdd} disabled={!props.canEdit || props.busy}>新增</Button>
+      <Button variant="text" startIcon={<Inventory2RoundedIcon />} onClick={props.onAddContainer} disabled={!props.canEdit || props.busy}>收纳夹</Button>
       <Button
         variant="text"
         startIcon={props.selectedGroup && props.selectedGroup.id !== DEFAULT_GROUP_ID ? <EditRoundedIcon /> : <CreateNewFolderRoundedIcon />}
         onClick={props.onOpenGroupEditor}
-        disabled={!canEdit}
+        disabled={!props.canEdit}
         sx={{ minWidth: 108 }}
       >
-        {groupActionLabel}
+        {props.groupActionLabel}
       </Button>
-      {props.launchInfo.standalone ? <WindowControls /> : null}
-    </Paper>
+    </Stack>
+  )
+}
+
+function WindowControlsDock(props: { standalone: boolean }) {
+  if (!props.standalone) return null
+  return (
+    <Box sx={{ ml: 'auto', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', flex: '0 0 auto' }}>
+      <WindowControls />
+    </Box>
   )
 }
 
