@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "ai-once",
+  "name": "AI Once",
+  "description": "一次性 AI 提问与 Prompt 工作流 v5 应用",
+  "versionSource": "src-tauri/tauri.conf.json",
+  "build": {
+    "command": "pnpm",
+    "args": ["tauri", "build", "--no-bundle"]
+  },
+  "package": {
+    "windowsExecutable": "ai-once.exe",
+    "icon": "assets/icon.svg",
+    "files": [
+      { "from": "src-tauri/target/release/ai-once.exe", "to": "ai-once.exe" },
+      { "from": "src-tauri/target/release/ai-once-backend.exe", "to": "ai-once-backend.exe" },
+      { "from": "src-tauri/target/release/assets", "to": "assets" },
+      { "from": "src-tauri/target/release/resources", "to": "resources" }
+    ]
+  },
+  "catalogIcon": { "type": "emoji", "value": "⚡" },
+  "displayMode": "default",
+  "commands": [
+    { "id": "open-settings", "title": "打开 AI Once 设置" },
+    { "id": "ask-once", "title": "一次性 AI 提问" },
+    { "id": "new-prompt", "title": "新建一次性 Prompt" }
+  ]
+}

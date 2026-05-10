@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "ai-draw",
+  "name": "AI Draw",
+  "description": "AI 绘图 v5 应用，支持绘图供应商与设置入口",
+  "versionSource": "src-tauri/tauri.conf.json",
+  "build": {
+    "command": "pnpm",
+    "args": ["tauri", "build", "--no-bundle"]
+  },
+  "package": {
+    "windowsExecutable": "ai-draw-app.exe",
+    "icon": "assets/icon.svg",
+    "files": [
+      { "from": "src-tauri/target/release/ai-draw-app.exe", "to": "ai-draw-app.exe" },
+      { "from": "src-tauri/target/release/ai-draw-backend.exe", "to": "ai-draw-backend.exe" },
+      { "from": "src-tauri/target/release/assets", "to": "assets" },
+      { "from": "src-tauri/target/release/resources", "to": "resources" }
+    ]
+  },
+  "catalogIcon": { "type": "emoji", "value": "🎨" },
+  "displayMode": "default",
+  "commands": [
+    { "id": "open-settings", "title": "打开设置" },
+    { "id": "provider-settings", "title": "绘图供应商设置" }
+  ]
+}

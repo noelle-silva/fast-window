@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "clipboard-history",
+  "name": "剪贴板历史",
+  "description": "剪贴板历史 v5 canary 测试应用",
+  "versionSource": "src-tauri/tauri.conf.json",
+  "build": {
+    "command": "pnpm",
+    "args": ["build:exe:no-bundle"]
+  },
+  "package": {
+    "windowsExecutable": "clipboard-history-app.exe",
+    "icon": "assets/icon.svg",
+    "files": [
+      { "from": "src-tauri/target/release/clipboard-history-app.exe", "to": "clipboard-history-app.exe" },
+      { "from": "src-tauri/target/release/clipboard-history-backend.exe", "to": "clipboard-history-backend.exe" },
+      { "from": "src-tauri/target/release/assets", "to": "assets" },
+      { "from": "src-tauri/target/release/resources", "to": "resources" }
+    ]
+  },
+  "catalogIcon": { "type": "emoji", "value": "📋" },
+  "displayMode": "default",
+  "commands": [
+    { "id": "open", "title": "打开剪贴板历史" },
+    { "id": "folders", "title": "打开收藏夹" },
+    { "id": "settings", "title": "打开设置" }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "id": "hypercortex",
+  "name": "HyperCortex",
+  "description": "HyperCortex v5 知识库、笔记与附件工作台",
+  "versionSource": "src-tauri/tauri.conf.json",
+  "build": {
+    "command": "pnpm",
+    "args": ["tauri", "build", "--no-bundle"]
+  },
+  "package": {
+    "windowsExecutable": "hypercortex-app.exe",
+    "icon": "assets/icon.svg",
+    "files": [
+      { "from": "src-tauri/target/release/hypercortex-app.exe", "to": "hypercortex-app.exe" },
+      { "from": "src-tauri/target/release/hypercortex-backend.exe", "to": "hypercortex-backend.exe" },
+      { "from": "src-tauri/target/release/assets", "to": "assets" },
+      { "from": "src-tauri/target/release/resources", "to": "resources" },
+      { "from": "src-tauri/target/release/bin", "to": "bin" }
+    ]
+  },
+  "catalogIcon": { "type": "emoji", "value": "🧬" },
+  "displayMode": "default",
+  "commands": [
+    { "id": "new-note", "title": "新建笔记" },
+    { "id": "open-hypercortex", "title": "打开 HyperCortex" },
+    { "id": "quick-search", "title": "搜索 HyperCortex" },
+    { "id": "open-settings", "title": "打开设置" },
+    { "id": "open-assets", "title": "打开附件库" }
+  ]
+}
