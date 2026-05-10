@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { Box } from '@mui/material'
+import { ScrollArea } from '../../scroll-area'
 import {
   getDesktopGridCanvasHeight,
   getDesktopGridPixelRect,
@@ -58,7 +59,7 @@ export function DesktopGridCanvas<TEntry extends DesktopGridEntry, TContainerIte
   const canvasHeight = getDesktopGridCanvasHeight(editor.activeLayouts.values())
 
   return (
-    <Box component="section" aria-label={props.ariaLabel || 'Desktop icon grid'} sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: { xs: 1, sm: 1.5 }, pb: { xs: 1.5, sm: 2 }, pt: 1 }}>
+    <ScrollArea component="section" ariaLabel={props.ariaLabel || 'Desktop icon grid'} sx={{ flex: 1, minHeight: 0 }} viewportSx={{ px: { xs: 1, sm: 1.5 }, pb: { xs: 1.5, sm: 2 }, pt: 1 }}>
       <Box ref={editor.setGridNode} sx={{ position: 'relative', minHeight: canvasHeight }}>
         {props.entries.map(entry => {
           const layout = editor.activeLayouts.get(entry.id)
@@ -94,7 +95,7 @@ export function DesktopGridCanvas<TEntry extends DesktopGridEntry, TContainerIte
           )
         })}
       </Box>
-    </Box>
+    </ScrollArea>
   )
 }
 

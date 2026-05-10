@@ -3,6 +3,7 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import { Box, Button, IconButton, Stack, Typography } from '@mui/material'
 import { ContainerGridCanvas, type ContainerGridApi, type ContainerGridDragEvent, type ContainerGridPlacement } from './folder-grid/ContainerGridCanvas'
+import { ScrollArea } from './shared/scroll-area'
 import type { FolderGridDragEndResult } from './folder-grid/useMuuriFolderGrid'
 import { DESKTOP_ICON_TITLE_SHADOW } from './folder-grid/desktopIconTokens'
 import type { DesktopContainer, FolderGridLayout, FolderItem, FoldersDoc } from './types'
@@ -107,7 +108,7 @@ export function ContainerFolderOverlay(props: Props): React.ReactNode {
         </Stack>
       </Stack>
 
-      <Box
+      <ScrollArea
         ref={panelRef}
         onClick={event => event.stopPropagation()}
         sx={{
@@ -116,9 +117,6 @@ export function ContainerFolderOverlay(props: Props): React.ReactNode {
           width: 'min(92vw, 1478px)',
           minHeight: { xs: 350, sm: 334 },
           maxHeight: 'calc(100vh - 170px)',
-          overflow: 'auto',
-          px: { xs: 2.5, sm: 7, lg: 10 },
-          py: { xs: 3, sm: 6 },
           borderRadius: { xs: 8, sm: '58px' },
           background: 'rgba(246, 249, 250, 0.92)',
           border: '1px solid rgba(255, 255, 255, 0.72)',
@@ -126,6 +124,7 @@ export function ContainerFolderOverlay(props: Props): React.ReactNode {
           backdropFilter: 'blur(28px) saturate(1.04)',
           WebkitBackdropFilter: 'blur(28px) saturate(1.04)',
         }}
+        viewportSx={{ px: { xs: 2.5, sm: 7, lg: 10 }, py: { xs: 3, sm: 6 } }}
       >
         {items.length || props.dropTargetActive ? (
           <ContainerGridCanvas
@@ -147,7 +146,7 @@ export function ContainerFolderOverlay(props: Props): React.ReactNode {
             <Typography color="text.secondary">把桌面文件夹拖到这个收纳夹上停留，即可展开并放入。</Typography>
           </Stack>
         )}
-      </Box>
+      </ScrollArea>
     </Box>
   )
 }

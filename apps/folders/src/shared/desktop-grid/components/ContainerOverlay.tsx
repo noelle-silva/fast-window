@@ -2,6 +2,7 @@ import * as React from 'react'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import { Box, Button, IconButton, Stack, Typography } from '@mui/material'
+import { ScrollArea } from '../../scroll-area'
 import { DESKTOP_GRID_ICON_TITLE_SHADOW } from '../visual/iconTokens'
 
 type Props = {
@@ -83,7 +84,7 @@ export function ContainerOverlay(props: Props): React.ReactNode {
         </Stack>
       </Stack>
 
-      <Box
+      <ScrollArea
         onClick={event => event.stopPropagation()}
         sx={{
           alignSelf: 'center',
@@ -91,9 +92,6 @@ export function ContainerOverlay(props: Props): React.ReactNode {
           width: 'min(92vw, 1478px)',
           minHeight: { xs: 350, sm: 334 },
           maxHeight: 'calc(100vh - 170px)',
-          overflow: 'auto',
-          px: { xs: 2.5, sm: 7, lg: 10 },
-          py: { xs: 3, sm: 6 },
           borderRadius: { xs: 8, sm: '58px' },
           background: 'rgba(246, 249, 250, 0.92)',
           border: '1px solid rgba(255, 255, 255, 0.72)',
@@ -101,9 +99,10 @@ export function ContainerOverlay(props: Props): React.ReactNode {
           backdropFilter: 'blur(28px) saturate(1.04)',
           WebkitBackdropFilter: 'blur(28px) saturate(1.04)',
         }}
+        viewportSx={{ px: { xs: 2.5, sm: 7, lg: 10 }, py: { xs: 3, sm: 6 } }}
       >
         {props.children || props.empty}
-      </Box>
+      </ScrollArea>
     </Box>
   )
 }

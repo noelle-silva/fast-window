@@ -1,5 +1,6 @@
-import { ALL_GROUP_ID } from '../utils'
+import { folderMatchesGroup } from '../groupMembership'
 import type { DesktopGridEntry, DesktopEntryKind, FolderGridLayout, FoldersDoc } from '../types'
+import { ALL_GROUP_ID } from '../utils'
 
 export type DesktopGridLayoutPatch = { kind: DesktopEntryKind; id: string; layout: FolderGridLayout }
 
@@ -56,6 +57,6 @@ export function filterDesktopGridEntries(doc: FoldersDoc, entries: DesktopGridEn
 }
 
 function matchesFolder(item: NonNullable<DesktopGridEntry['item']>, groupId: string, q: string): boolean {
-  if (groupId !== ALL_GROUP_ID && item.groupId !== groupId) return false
+  if (!folderMatchesGroup(item, groupId)) return false
   return !q || item.name.toLowerCase().includes(q) || item.path.toLowerCase().includes(q)
 }

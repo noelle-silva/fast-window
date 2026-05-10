@@ -64,7 +64,7 @@ export type FolderItem = {
   id: string
   name: string
   path: string
-  groupId: string
+  groupIds: string[]
   containerId?: string
   createdAt: string
   updatedAt: string
@@ -102,7 +102,7 @@ export type Phase = 'starting' | 'ready' | 'data-error' | 'failed'
 export type FolderFormState = {
   name: string
   path: string
-  groupId: string
+  groupIds: string[]
   newGroupName: string
 }
 

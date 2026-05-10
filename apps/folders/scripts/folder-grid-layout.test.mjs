@@ -16,7 +16,7 @@ function item(id, x, y) {
     id,
     name: id,
     path: `E:/${id}`,
-    groupId: 'default',
+    groupIds: ['default'],
     createdAt: '',
     updatedAt: '',
     createdAtMs: 1,

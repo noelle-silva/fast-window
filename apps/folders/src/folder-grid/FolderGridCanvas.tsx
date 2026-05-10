@@ -5,6 +5,7 @@ import { Box, Button, Paper, Stack, Typography, alpha } from '@mui/material'
 import type { ContextMenuState, DesktopContainer, DesktopGridEntry, DesktopIconLayout, FolderGridLayout, FolderItem, FoldersDoc, Phase } from '../types'
 import type { DesktopDragState } from '../desktopDragState'
 import { DesktopGridIcon } from './DesktopGridIcon'
+import { ScrollArea } from '../shared/scroll-area'
 import { desktopEntryKey, type DesktopGridLayoutPatch } from './desktopEntries'
 import {
   projectExternalFolderDrag,
@@ -105,19 +106,20 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
 
   if (!props.entries.length && !props.externalDragPreview) {
     return (
-      <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: { xs: 1.5, sm: 2 }, pt: 1 }}>
+      <ScrollArea sx={{ flex: 1, minHeight: 0 }} viewportSx={{ p: { xs: 1.5, sm: 2 }, pt: 1 }}>
         <EmptyState phase={props.phase} search={props.search} onAdd={props.onAdd} />
-      </Box>
+      </ScrollArea>
     )
   }
 
   const canvasHeight = getFolderGridCanvasHeight(displayLayouts.values(), metrics)
 
   return (
-    <Box
+    <ScrollArea
       component="section"
-      aria-label="收藏文件夹图标布局"
-      sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: { xs: 1, sm: 1.5 }, pb: { xs: 1.5, sm: 2 }, pt: 1 }}
+      ariaLabel="收藏文件夹图标布局"
+      sx={{ flex: 1, minHeight: 0 }}
+      viewportSx={{ px: { xs: 1, sm: 1.5 }, pb: { xs: 1.5, sm: 2 }, pt: 1 }}
     >
       <Box
         ref={editor.setGridNode}
@@ -166,7 +168,7 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
           )
         })}
       </Box>
-    </Box>
+    </ScrollArea>
   )
 }
 

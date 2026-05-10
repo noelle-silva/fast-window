@@ -28,7 +28,7 @@ import (
 
 const (
 	dataSchemaVersion      = 1
-	dataVersion            = 1
+	dataVersion            = 2
 	dataFile               = "data.json"
 	metaFile               = "_meta.json"
 	assetsDir              = "assets"
@@ -37,7 +37,6 @@ const (
 	defaultGroupID         = "default"
 	maxLayoutCoord         = 2000
 	maxIconAssetBytes      = 12 * 1024 * 1024
-	maxWallpaperAssetBytes = 32 * 1024 * 1024
 	defaultDesktopIconGap  = 38
 	minDesktopIconGap      = 0
 	maxDesktopIconGap      = 64
@@ -74,7 +73,7 @@ type folderItem struct {
 	ID              string            `json:"id"`
 	Name            string            `json:"name"`
 	Path            string            `json:"path"`
-	GroupID         string            `json:"groupId"`
+	GroupIDs        []string          `json:"groupIds"`
 	ContainerID     string            `json:"containerId,omitempty"`
 	CreatedAt       string            `json:"createdAt"`
 	UpdatedAt       string            `json:"updatedAt"`
@@ -342,15 +341,15 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 			return nil, fmt.Errorf("invalid remove payload: %w", err)
 		}
 		return svc.removeFolder(payload.ID)
-	case "folders.move":
+	case "folders.folder.groups.save":
 		var payload struct {
-			ID      string `json:"id"`
-			GroupID string `json:"groupId"`
+			ID       string   `json:"id"`
+			GroupIDs []string `json:"groupIds"`
 		}
 		if err := json.Unmarshal(params, &payload); err != nil {
-			return nil, fmt.Errorf("invalid move payload: %w", err)
+			return nil, fmt.Errorf("invalid folder groups payload: %w", err)
 		}
-		return svc.moveFolder(payload.ID, payload.GroupID)
+		return svc.saveFolderGroups(payload.ID, payload.GroupIDs)
 	case "folders.desktop.layout.save":
 		var payload struct {
 			Items []desktopLayoutPatch `json:"items"`
@@ -631,22 +630,22 @@ func (svc *service) removeFolder(id string) (foldersDoc, error) {
 	return svc.readFolders()
 }
 
-func (svc *service) moveFolder(id string, groupID string) (foldersDoc, error) {
+func (svc *service) saveFolderGroups(id string, groupIDs []string) (foldersDoc, error) {
 	doc, err := svc.readFolders()
 	if err != nil {
 		return foldersDoc{}, err
 	}
 	id = strings.TrimSpace(id)
-	groupID = safeID(groupID, 32)
 	if id == "" {
 		return foldersDoc{}, errors.New("folder id is required")
 	}
-	if groupID == "" || !hasGroup(doc.Groups, groupID) {
-		return foldersDoc{}, errors.New("valid group id is required")
+	normalizedGroupIDs, err := normalizeGroupIDs(groupIDs, doc.Groups)
+	if err != nil {
+		return foldersDoc{}, err
 	}
 	for i := range doc.Items {
 		if doc.Items[i].ID == id {
-			doc.Items[i].GroupID = groupID
+			doc.Items[i].GroupIDs = normalizedGroupIDs
 			doc.Items[i].UpdatedAtMS = time.Now().UnixMilli()
 			doc.Items[i].UpdatedAt = nowText()
 			if err := svc.writeFolders(doc); err != nil {
@@ -1172,13 +1171,13 @@ func (svc *service) saveDesktopIconLayout(iconLayout desktopIconLayout) (folders
 func (svc *service) importAsset(kind string, sourcePath string) (desktopAsset, error) {
 	kind = strings.TrimSpace(kind)
 	assetSubdir := ""
-	maxAssetBytes := int64(maxIconAssetBytes)
+	var maxAssetBytes int64
 	switch kind {
 	case "icon":
 		assetSubdir = iconAssetsDir
+		maxAssetBytes = maxIconAssetBytes
 	case "wallpaper":
 		assetSubdir = wallpaperAssetsDir
-		maxAssetBytes = maxWallpaperAssetBytes
 	default:
 		return desktopAsset{}, errors.New("asset kind must be icon or wallpaper")
 	}
@@ -1204,7 +1203,7 @@ func (svc *service) importAsset(kind string, sourcePath string) (desktopAsset, e
 	if stat.Size() <= 0 {
 		return desktopAsset{}, errors.New("asset file is empty")
 	}
-	if stat.Size() > maxAssetBytes {
+	if maxAssetBytes > 0 && stat.Size() > maxAssetBytes {
 		return desktopAsset{}, fmt.Errorf("%s asset file is too large: max %d bytes", kind, maxAssetBytes)
 	}
 	if err := validateAssetImageContent(file, ext); err != nil {
@@ -1328,8 +1327,9 @@ func (svc *service) removeGroup(id string) (foldersDoc, error) {
 		return foldersDoc{}, fmt.Errorf("group not found: %s", id)
 	}
 	for i := range doc.Items {
-		if doc.Items[i].GroupID == id {
-			doc.Items[i].GroupID = defaultGroupID
+		nextGroupIDs, changed := removeGroupID(doc.Items[i].GroupIDs, id)
+		if changed {
+			doc.Items[i].GroupIDs = nextGroupIDs
 			doc.Items[i].UpdatedAtMS = time.Now().UnixMilli()
 			doc.Items[i].UpdatedAt = nowText()
 		}
@@ -1543,9 +1543,9 @@ func normalizeFolderItem(raw folderItem, groups []folderGroup, allowNewID bool) 
 			return folderItem{}, errors.New("folder name is required")
 		}
 	}
-	groupID := safeID(raw.GroupID, 32)
-	if groupID == "" || !hasGroup(groups, groupID) {
-		return folderItem{}, errors.New("valid group id is required")
+	groupIDs, err := normalizeGroupIDs(raw.GroupIDs, groups)
+	if err != nil {
+		return folderItem{}, err
 	}
 	createdAt := raw.CreatedAtMS
 	if createdAt <= 0 {
@@ -1583,7 +1583,7 @@ func normalizeFolderItem(raw folderItem, groups []folderGroup, allowNewID bool) 
 	if err != nil {
 		return folderItem{}, err
 	}
-	return folderItem{ID: id, Name: name, Path: path, GroupID: groupID, ContainerID: strings.TrimSpace(raw.ContainerID), CreatedAt: createdAtText, UpdatedAt: updatedAtText, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt, Layout: itemLayout, ContainerLayout: containerLayout, Icon: icon}, nil
+	return folderItem{ID: id, Name: name, Path: path, GroupIDs: groupIDs, ContainerID: strings.TrimSpace(raw.ContainerID), CreatedAt: createdAtText, UpdatedAt: updatedAtText, CreatedAtMS: createdAt, UpdatedAtMS: updatedAt, Layout: itemLayout, ContainerLayout: containerLayout, Icon: icon}, nil
 }
 
 func normalizeDesktopContainer(raw desktopContainer, allowNewID bool) (desktopContainer, error) {
@@ -1747,6 +1747,48 @@ func hasGroup(groups []folderGroup, id string) bool {
 		}
 	}
 	return false
+}
+
+func normalizeGroupIDs(raw []string, groups []folderGroup) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, errors.New("at least one group id is required")
+	}
+	normalized := make([]string, 0, len(raw))
+	seen := make(map[string]bool, len(raw))
+	for _, groupID := range raw {
+		id := safeID(groupID, 32)
+		if id == "" || !hasGroup(groups, id) {
+			return nil, errors.New("valid group id is required")
+		}
+		if seen[id] {
+			continue
+		}
+		normalized = append(normalized, id)
+		seen[id] = true
+	}
+	if len(normalized) == 0 {
+		return nil, errors.New("at least one group id is required")
+	}
+	return normalized, nil
+}
+
+func removeGroupID(groupIDs []string, removedID string) ([]string, bool) {
+	next := make([]string, 0, len(groupIDs))
+	changed := false
+	for _, groupID := range groupIDs {
+		if groupID == removedID {
+			changed = true
+			continue
+		}
+		next = append(next, groupID)
+	}
+	if !changed {
+		return groupIDs, false
+	}
+	if len(next) == 0 {
+		next = []string{defaultGroupID}
+	}
+	return next, true
 }
 
 func hasContainer(containers []desktopContainer, id string) bool {
