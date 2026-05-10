@@ -1,21 +1,23 @@
 import type { DesktopGridLayoutPatch } from './folder-grid/desktopEntries'
+import type { DesktopGridDragModifiers } from './shared/desktop-grid/core/dragTypes'
 import type { DesktopContainer, FolderItem, FoldersDoc } from './types'
 
 export type ContainerExtractDragMode = 'container' | 'desktop'
 
 export type ContainerExtractDragState = {
   containerId: string
-  desktopDrop?: ContainerExtractDesktopDrop
+  desktopDrag?: ContainerExtractDesktopDrag
   item: FolderItem
   mode: ContainerExtractDragMode
 } | null
 
-export type ContainerExtractDesktopDrop = {
+export type ContainerExtractDesktopDrag = {
   item: FolderItem
   clientX: number
   clientY: number
   offsetX: number
   offsetY: number
+  modifiers: DesktopGridDragModifiers
 }
 
 type PointLike = {
@@ -35,8 +37,18 @@ export function resolveContainerExtractDragMode(point: PointLike, boundary: Rect
   return point.clientX < boundary.left || point.clientX > boundary.right || point.clientY < boundary.top || point.clientY > boundary.bottom ? 'desktop' : 'container'
 }
 
+export function resolveContainerExtractNextDragMode(currentMode: ContainerExtractDragMode | undefined, point: PointLike, boundary: RectLike | null): ContainerExtractDragMode {
+  if (currentMode === 'desktop') return 'desktop'
+  return resolveContainerExtractDragMode(point, boundary)
+}
+
 export function isContainerSoftClosedForExtractDrag(drag: ContainerExtractDragState, container: DesktopContainer | null): boolean {
   return Boolean(drag && container && drag.containerId === container.id && drag.mode === 'desktop')
+}
+
+export function extractedItemIdForContainerView(drag: ContainerExtractDragState, container: DesktopContainer | null): string | undefined {
+  if (!drag || !container || drag.containerId !== container.id) return undefined
+  return drag.item.id
 }
 
 export function applyContainerItemDesktopExtraction(doc: FoldersDoc, containerId: string, itemId: string, patches: DesktopGridLayoutPatch[]): FoldersDoc {

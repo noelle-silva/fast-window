@@ -779,8 +779,8 @@ func (svc *service) createContainerFromItems(payload createContainerFromItemsPay
 	if targetIndex < 0 {
 		return foldersDoc{}, fmt.Errorf("folder not found: %s", targetItemID)
 	}
-	if doc.Items[sourceIndex].ContainerID != "" || doc.Items[targetIndex].ContainerID != "" {
-		return foldersDoc{}, errors.New("only desktop folders can create a container")
+	if doc.Items[targetIndex].ContainerID != "" {
+		return foldersDoc{}, errors.New("target folder must be on desktop")
 	}
 
 	now := time.Now().UnixMilli()

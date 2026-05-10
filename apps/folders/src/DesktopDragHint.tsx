@@ -10,7 +10,7 @@ type Props = {
 }
 
 export function DesktopDragHint(props: Props): React.ReactNode {
-  if (props.containerExtractDrag) return <ContainerExtractDragHint drag={props.containerExtractDrag} />
+  if (props.containerExtractDrag?.mode === 'container') return <ContainerExtractDragHint drag={props.containerExtractDrag} />
   const drag = props.drag
   if (!drag) return null
 
@@ -33,14 +33,13 @@ export function DesktopDragHint(props: Props): React.ReactNode {
 }
 
 function ContainerExtractDragHint(props: { drag: NonNullable<ContainerExtractDragState> }) {
-  const isDesktopMode = props.drag.mode === 'desktop'
   return (
     <DragHintShell
-      color={isDesktopMode ? 'success' : 'info'}
+      color="info"
       icon={<Inventory2RoundedIcon fontSize="small" />}
-      title={isDesktopMode ? '松手移到桌面' : '拖出收纳夹'}
-      chip={isDesktopMode ? 'Desktop' : 'Move'}
-      description={isDesktopMode ? `“${props.drag.item.name}”会离开收纳夹，并落到当前桌面位置。` : '拖出收纳夹面板后，桌面会接管落点预览。'}
+      title="拖出收纳夹"
+      chip="Move"
+      description="拖出收纳夹面板后，会切换成普通桌面图标拖拽。"
     />
   )
 }

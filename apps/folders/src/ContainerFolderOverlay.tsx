@@ -10,8 +10,10 @@ import type { DesktopContainer, FolderGridLayout, FolderItem, FoldersDoc } from 
 type Props = {
   assetUrl?(assetId: string): string
   container: DesktopContainer | null
+  closeDisabled?: boolean
   dropTargetActive?: boolean
   doc: FoldersDoc
+  hiddenItemId?: string
   onClose(): void
   onEdit(container: DesktopContainer): void
   onItemDragCancel?(event: ContainerFolderDragEvent): void
@@ -21,7 +23,7 @@ type Props = {
   onLayoutCommit(patches: ContainerGridPlacement[]): void
   onOpenFolder(item: FolderItem): void
   onRemoveItem(item: FolderItem): void
-  onGridReady?(api: ContainerGridApi | null): void
+  onGridReady?(containerId: string, instanceId: string, api: ContainerGridApi | null): void
   softClosed?: boolean
 }
 
@@ -30,17 +32,21 @@ export type ContainerFolderDragEvent = ContainerGridDragEvent & { boundary: DOMR
 export function ContainerFolderOverlay(props: Props): React.ReactNode {
   const container = props.container
   const { onClose } = props
+  const instanceId = React.useId()
   const panelRef = React.useRef<HTMLDivElement | null>(null)
-  const items = React.useMemo(() => (container ? props.doc.items.filter(item => item.containerId === container.id) : []), [container, props.doc.items])
+  const items = React.useMemo(() => (container ? props.doc.items.filter(item => item.containerId === container.id && item.id !== props.hiddenItemId) : []), [container, props.doc.items, props.hiddenItemId])
+  const requestClose = React.useCallback(() => {
+    if (!props.closeDisabled) onClose()
+  }, [onClose, props.closeDisabled])
 
   React.useEffect(() => {
     if (!container) return
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !props.softClosed) onClose()
+      if (event.key === 'Escape' && !props.softClosed) requestClose()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [container, onClose, props.softClosed])
+  }, [container, props.softClosed, requestClose])
 
   if (!container) return null
 
@@ -49,7 +55,7 @@ export function ContainerFolderOverlay(props: Props): React.ReactNode {
       role="dialog"
       aria-modal="true"
       aria-labelledby="container-folder-overlay-title"
-      onClick={props.onClose}
+      onClick={requestClose}
       sx={{
         position: 'fixed',
         inset: 0,
@@ -92,7 +98,8 @@ export function ContainerFolderOverlay(props: Props): React.ReactNode {
           </Button>
           <IconButton
             aria-label="关闭收纳夹"
-            onClick={event => { event.stopPropagation(); props.onClose() }}
+            disabled={props.closeDisabled}
+            onClick={event => { event.stopPropagation(); requestClose() }}
             sx={{ color: '#FFFFFF', bgcolor: 'rgba(255,255,255,0.12)', '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' } }}
           >
             <CloseRoundedIcon />
@@ -132,7 +139,7 @@ export function ContainerFolderOverlay(props: Props): React.ReactNode {
             onLayoutCommit={props.onLayoutCommit}
             onOpenFolder={props.onOpenFolder}
             onRemoveItem={props.onRemoveItem}
-            onReady={props.onGridReady}
+            onReady={api => props.onGridReady?.(container.id, instanceId, api)}
           />
         ) : (
           <Stack spacing={1.5} alignItems="center" justifyContent="center" sx={{ minHeight: 220, textAlign: 'center' }}>

@@ -23,9 +23,9 @@ export function resolveDesktopDropIntent(
   currentDrag: DesktopDragState,
   openContainer: DesktopContainer | null,
 ): DesktopDragDropIntent | undefined {
+  if (event.dragMode !== 'overlay') return undefined
   const openContainerIntent = resolveOpenContainerDropIntent(currentDrag, openContainer)
   if (openContainerIntent) return openContainerIntent
-  if (event.dragMode !== 'overlay') return undefined
   return resolveDesktopHoverDropIntent(event)
 }
 
@@ -42,7 +42,7 @@ function resolveOpenContainerDropIntent(
   openContainer: DesktopContainer | null,
 ): Extract<DesktopDragDropIntent, { kind: 'container' }> | undefined {
   const intent = currentDrag?.dropIntent
-  if (!openContainer || intent?.kind !== 'container') return undefined
+  if (!openContainer || currentDrag?.mode !== 'overlay' || intent?.kind !== 'container') return undefined
   return intent.containerId === openContainer.id ? intent : undefined
 }
 

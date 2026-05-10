@@ -209,6 +209,7 @@ export function useMuuriFolderGrid(options: Options) {
     clearReleaseLayouts,
     lockReleaseLayouts,
     resetTransientLayouts,
+    setProjectedLayouts: setTransientProjectedLayouts,
     setPreviewLayouts,
   } = useTransientDragLayouts(baseLayouts)
   const layout = React.useMemo(() => createMuuriLayout(activeLayoutsRef, metricsRef), [activeLayoutsRef])
@@ -258,6 +259,11 @@ export function useMuuriFolderGrid(options: Options) {
     window.cancelAnimationFrame(previewFrameRef.current)
     previewFrameRef.current = null
   }, [])
+
+  const setProjectedLayouts = React.useCallback((layouts: FolderGridLayoutMap | null) => {
+    setTransientProjectedLayouts(layouts)
+    gridInstanceRef.current?.layout()
+  }, [setTransientProjectedLayouts])
 
   const flushPreview = React.useCallback(() => {
     previewFrameRef.current = null
@@ -463,6 +469,7 @@ export function useMuuriFolderGrid(options: Options) {
     gridNode,
     muuriItemClassName: MUURI_ITEM_CLASS,
     setGridNode,
+    setProjectedLayouts,
     consumeSuppressedClick,
   }
 }

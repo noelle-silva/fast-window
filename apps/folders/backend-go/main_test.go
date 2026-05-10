@@ -239,7 +239,52 @@ func TestCreateContainerFromItemsRoundTrip(t *testing.T) {
 		t.Fatalf("unexpected container item layouts: %#v", doc.Items)
 	}
 	if _, err := svc.createContainerFromItems(createContainerFromItemsPayload{SourceItemID: "one", TargetItemID: "two", Layout: folderGridLayout{}}); err == nil {
-		t.Fatal("expected contained folders to be rejected")
+		t.Fatal("expected contained target folder to be rejected")
+	}
+}
+
+func TestCreateContainerFromExtractedSourceItem(t *testing.T) {
+	t.Setenv("FW_APP_DATA_DIR", t.TempDir())
+	svc, err := newService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ensureReady(); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []folderItem{
+		{ID: "one", Name: "One", Path: `E:\One`, GroupID: defaultGroupID},
+		{ID: "two", Name: "Two", Path: `E:\Two`, GroupID: defaultGroupID, Layout: &folderGridLayout{X: 3, Y: 0}},
+	} {
+		if _, err := svc.addFolder(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := svc.addContainer(desktopContainer{ID: "box", Name: "Box"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.saveItemContainer([]string{"one"}, "box"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.placeContainerItems(containerItemsPlacement{ContainerID: "box", Items: []containerLayoutPatch{{ID: "one", Layout: folderGridLayout{X: 0, Y: 0}}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	doc, err := svc.createContainerFromItems(createContainerFromItemsPayload{SourceItemID: "one", TargetItemID: "two", Layout: folderGridLayout{X: 3, Y: 0}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Containers) != 2 || doc.Containers[0].Name != "新建收纳夹（1）" {
+		t.Fatalf("unexpected created container: %#v", doc.Containers)
+	}
+	if containerIDByItem(doc, "one") != doc.Containers[0].ID || containerIDByItem(doc, "two") != doc.Containers[0].ID {
+		t.Fatalf("expected source and target in new container: %#v", doc.Items)
+	}
+	if itemByID(doc, "one").Layout != nil || itemByID(doc, "two").Layout != nil {
+		t.Fatalf("expected desktop layouts cleared: %#v", doc.Items)
+	}
+	if containerLayoutByItem(doc, "one") == nil || containerLayoutByItem(doc, "one").X != 1 || containerLayoutByItem(doc, "two") == nil || containerLayoutByItem(doc, "two").X != 0 {
+		t.Fatalf("unexpected container layouts: %#v", doc.Items)
 	}
 }
 
