@@ -142,7 +142,7 @@ function autoScrollDuringDrag(containerNode: HTMLElement, clientY: number): void
 
   const rect = scrollEl.getBoundingClientRect()
   const edgeSize = Math.min(120, Math.max(64, rect.height * 0.18))
-  const maxStep = 34
+  const maxStep = 12
   let delta = 0
 
   if (clientY > rect.bottom - edgeSize) {

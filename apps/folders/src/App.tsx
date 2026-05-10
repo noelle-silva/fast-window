@@ -52,10 +52,12 @@ import type { ContainerFolderDragEvent } from './ContainerFolderOverlay'
 import { ContainerDialog, IconEditorDialog } from './DesktopDialogs'
 import { DesktopDragHint } from './DesktopDragHint'
 import { DesktopWallpaper } from './DesktopWallpaper'
+import { DesktopWallpaperSettings } from './DesktopWallpaperSettings'
 import { ScrollArea } from './shared/scroll-area'
 import type { ContainerExtractDragState } from './containerExtractDragState'
 import { applyContainerItemDesktopExtraction, extractedItemIdForContainerView, isContainerSoftClosedForExtractDrag, resolveContainerExtractDragMode, resolveContainerExtractNextDragMode } from './containerExtractDragState'
 import type { DesktopDragState } from './desktopDragState'
+import { createDesktopWallpaperPreset, upsertDesktopWallpaperPresetView } from './desktopWallpaperPresets'
 import { isContainerDropTargetActive, resolveDesktopDragMode, resolveDesktopDropIntent } from './desktopDragState'
 import type { ContainerGridApi, ContainerGridPlacement } from './folder-grid/ContainerGridCanvas'
 import { buildDesktopGridEntries, filterDesktopGridEntries } from './folder-grid/desktopEntries'
@@ -71,6 +73,7 @@ import type {
   DesktopIcon,
   DesktopIconLayout,
   DesktopWallpaper as DesktopWallpaperState,
+  DesktopWallpaperView,
   DirectClient,
   FolderFormState,
   FolderGroup,
@@ -738,6 +741,30 @@ export function App() {
     } catch (e) { setError(errorMessage(e, '保存收纳夹失败')) } finally { setBusy(false) }
   }
 
+  async function renameContainer(container: DesktopContainer, name: string) {
+    if (!client) throw new Error('后台未连接')
+    const nextName = name.trim()
+    if (!nextName) throw new Error('收纳夹名称不能为空')
+    if (nextName === container.name) return
+    setBusy(true); setError(null)
+    try {
+      const now = Date.now()
+      const nextDoc = await client.request<FoldersDoc>('folders.containers.update', {
+        ...container,
+        name: nextName,
+        updatedAt: new Date(now).toISOString(),
+        updatedAtMs: now,
+      })
+      setDoc(nextDoc)
+      setContainerView(current => current?.id === container.id ? nextDoc.containers.find(item => item.id === container.id) || null : current)
+      setContainerDropViewState(containerDropViewRef.current?.id === container.id ? nextDoc.containers.find(item => item.id === container.id) || null : containerDropViewRef.current)
+    } catch (e) {
+      const message = errorMessage(e, '重命名收纳夹失败')
+      setError(message)
+      throw new Error(message)
+    } finally { setBusy(false) }
+  }
+
   async function removeContainer(container: DesktopContainer) {
     if (!client) return
     setBusy(true); setError(null)
@@ -775,6 +802,25 @@ export function App() {
     finally { setBusy(false) }
   }
 
+  async function selectDesktopWallpaperPreset(presetId: string) {
+    if (!doc.desktop.wallpaper || doc.desktop.wallpaper.activeId === presetId) return
+    await saveDesktopWallpaper({ ...doc.desktop.wallpaper, activeId: presetId })
+  }
+
+  async function removeDesktopWallpaperPreset(presetId: string) {
+    const wallpaper = doc.desktop.wallpaper
+    if (!wallpaper) return
+    const presets = wallpaper.presets.filter(preset => preset.id !== presetId)
+    const activeId = wallpaper.activeId === presetId ? presets[0]?.id || '' : wallpaper.activeId
+    await saveDesktopWallpaper(presets.length ? { activeId, presets } : null)
+  }
+
+  async function saveDesktopWallpaperPresetView(presetId: string, view: DesktopWallpaperView) {
+    const wallpaper = doc.desktop.wallpaper
+    if (!wallpaper) return
+    await saveDesktopWallpaper(upsertDesktopWallpaperPresetView(wallpaper, presetId, view))
+  }
+
   async function saveDesktopIconLayout(iconLayout: DesktopIconLayout) {
     if (!client) return
     setBusy(true); setError(null)
@@ -794,7 +840,9 @@ export function App() {
       const sourcePath = await invoke<string | null>('pick_image_path')
       if (!sourcePath) return
       const asset = await client.request<DesktopAsset>('folders.assets.import', { kind: 'wallpaper', sourcePath })
-      setDoc(await client.request<FoldersDoc>('folders.desktop.wallpaper.save', { wallpaper: { assetId: asset.id } }))
+      const preset = createDesktopWallpaperPreset({ id: createID(), name: deriveNameFromPath(sourcePath), assetId: asset.id })
+      const presets = [...(doc.desktop.wallpaper?.presets || []), preset]
+      setDoc(await client.request<FoldersDoc>('folders.desktop.wallpaper.save', { wallpaper: { activeId: preset.id, presets } }))
     } catch (e) { setError(errorMessage(e, '导入壁纸失败')) }
     finally { setBusy(false) }
   }
@@ -945,15 +993,18 @@ export function App() {
         doc={doc}
         open={settingsOpen}
         status={status}
-        hasWallpaper={Boolean(doc.desktop.wallpaper)}
         iconLayout={visibleIconLayout}
+        assetUrl={client?.assetUrl}
         onClearWallpaper={() => void saveDesktopWallpaper(null)}
         onClose={() => setSettingsOpen(false)}
         onPickDataDir={pickDataDir}
         onPickWallpaper={() => void pickWallpaperImage()}
         onPreviewIconLayout={layout => setIconLayoutDraft(normalizeDesktopIconLayout(layout))}
+        onRemoveWallpaperPreset={id => void removeDesktopWallpaperPreset(id)}
         onRestart={() => void connect({ restartBackend: true })}
         onSaveIconLayout={layout => void saveDesktopIconLayout(layout)}
+        onSaveWallpaperPresetView={(id, view) => void saveDesktopWallpaperPresetView(id, view)}
+        onSelectWallpaperPreset={id => void selectDesktopWallpaperPreset(id)}
       />
 
       <ContainerDialog
@@ -973,7 +1024,6 @@ export function App() {
         dropTargetActive={isContainerDropTargetActive(desktopDrag, containerView)}
         doc={doc}
         onClose={() => setContainerView(null)}
-        onEdit={container => { setContainerView(null); openEditContainer(container) }}
         onGridReady={handleContainerGridReady}
         onItemDragCancel={handleContainerItemDragCancel}
         onItemDragEnd={handleContainerItemDragEnd}
@@ -982,6 +1032,7 @@ export function App() {
         onLayoutCommit={patches => containerView ? void placeContainerItems(containerView.id, null, patches) : undefined}
         onOpenFolder={item => void openFolder(item)}
         onRemoveItem={item => void saveItemContainer([item.id], '')}
+        onRename={(container, name) => renameContainer(container, name)}
         softClosed={containerSoftClosed}
       />
 
@@ -993,7 +1044,6 @@ export function App() {
         doc={doc}
         hiddenItemId={dropContainerHiddenItemId}
         onClose={() => setContainerDropViewState(null)}
-        onEdit={container => { setContainerDropViewState(null); openEditContainer(container) }}
         onGridReady={handleContainerGridReady}
         onItemDragCancel={undefined}
         onItemDragEnd={undefined}
@@ -1002,6 +1052,7 @@ export function App() {
         onLayoutCommit={patches => containerDropView ? void placeContainerItems(containerDropView.id, null, patches) : undefined}
         onOpenFolder={item => void openFolder(item)}
         onRemoveItem={item => void saveItemContainer([item.id], '')}
+        onRename={(container, name) => renameContainer(container, name)}
         softClosed={false}
       />
 
@@ -1066,11 +1117,11 @@ function TopBar(props: {
         display: 'flex',
         alignItems: 'center',
         gap: 1.25,
-        bgcolor: 'rgba(255, 255, 255, 0.72)',
+        bgcolor: 'rgba(255, 255, 255, 0.48)',
         backdropFilter: 'blur(18px) saturate(1.18)',
         WebkitBackdropFilter: 'blur(18px) saturate(1.18)',
-        borderBottom: '1px solid rgba(255, 255, 255, 0.46)',
-        boxShadow: '0 12px 30px rgba(15, 23, 42, 0.1)',
+        borderBottom: '1px solid rgba(255, 255, 255, 0.34)',
+        boxShadow: '0 12px 30px rgba(15, 23, 42, 0.06)',
         userSelect: 'none',
         flexShrink: 0,
         flexWrap: { xs: 'wrap', md: 'nowrap' },
@@ -1337,7 +1388,7 @@ function FolderDialog(props: {
               fullWidth
             />
           </Stack>
-          <Typography variant="caption" color="text.secondary">每个文件夹只属于一个分类页；右键或点更多菜单可打开、编辑、移动、复制或删除。</Typography>
+          <Typography variant="caption" color="text.secondary">每个文件夹只属于一个分类页；右键可打开、编辑、移动、复制或删除。</Typography>
           <Stack direction="row" spacing={1} justifyContent="flex-end">
             <Button onClick={props.onClose}>取消</Button>
             <Button variant="contained" onClick={props.onSave} disabled={props.busy}>{props.editing?.id ? '保存' : '添加'}</Button>
@@ -1408,9 +1459,9 @@ function GroupDialog(props: {
 }
 
 function SettingsDialog(props: {
+  assetUrl?(assetId: string): string
   busy: boolean
   doc: FoldersDoc
-  hasWallpaper: boolean
   iconLayout: DesktopIconLayout
   open: boolean
   status: DataDirStatus | null
@@ -1419,8 +1470,11 @@ function SettingsDialog(props: {
   onPickDataDir(): void
   onPickWallpaper(): void
   onPreviewIconLayout(layout: DesktopIconLayout): void
+  onRemoveWallpaperPreset(id: string): void
   onRestart(): void
   onSaveIconLayout(layout: DesktopIconLayout): void
+  onSaveWallpaperPresetView(id: string, view: DesktopWallpaperView): void
+  onSelectWallpaperPreset(id: string): void
 }) {
   const iconLayout = normalizeDesktopIconLayout(props.iconLayout)
   const updateDraftIconLayout = (patch: Partial<DesktopIconLayout>) => props.onPreviewIconLayout(normalizeDesktopIconLayout({ ...iconLayout, ...patch }))
@@ -1440,7 +1494,7 @@ function SettingsDialog(props: {
                 <Typography fontWeight={900}>桌面图标布局</Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>控制桌面图标之间的行列间距，以及图标整体显示大小。</Typography>
               </Box>
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' }, gap: 2 }}>
+              <Box sx={{ display: 'grid', gap: 2 }}>
                 <Box>
                   <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
                     <Typography fontWeight={800}>图标行间距</Typography>
@@ -1454,7 +1508,6 @@ function SettingsDialog(props: {
                     step={DESKTOP_ICON_GAP_STEP}
                     marks={[
                       { value: DESKTOP_ICON_GAP_MIN, label: `${DESKTOP_ICON_GAP_MIN}px` },
-                      { value: DEFAULT_DESKTOP_ICON_LAYOUT.rowGap, label: `${DEFAULT_DESKTOP_ICON_LAYOUT.rowGap}px` },
                       { value: DESKTOP_ICON_GAP_MAX, label: `${DESKTOP_ICON_GAP_MAX}px` },
                     ]}
                     valueLabelDisplay="auto"
@@ -1477,7 +1530,6 @@ function SettingsDialog(props: {
                     step={DESKTOP_ICON_GAP_STEP}
                     marks={[
                       { value: DESKTOP_ICON_GAP_MIN, label: `${DESKTOP_ICON_GAP_MIN}px` },
-                      { value: DEFAULT_DESKTOP_ICON_LAYOUT.columnGap, label: `${DEFAULT_DESKTOP_ICON_LAYOUT.columnGap}px` },
                       { value: DESKTOP_ICON_GAP_MAX, label: `${DESKTOP_ICON_GAP_MAX}px` },
                     ]}
                     valueLabelDisplay="auto"
@@ -1525,16 +1577,16 @@ function SettingsDialog(props: {
               </Stack>
             </Stack>
           </Paper>
-          <Paper elevation={0} sx={{ p: 2, borderRadius: 3, bgcolor: theme => alpha(theme.palette.primary.main, 0.06) }}>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', sm: 'center' }}>
-              <Box sx={{ minWidth: 0, flex: 1 }}>
-                <Typography fontWeight={900}>桌面壁纸</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>选择一张图片作为桌面背景；不会叠加灰色蒙版。</Typography>
-              </Box>
-              <Button startIcon={<ImageRoundedIcon />} onClick={props.onPickWallpaper} disabled={props.busy}>选择壁纸</Button>
-              <Button startIcon={<RestartAltRoundedIcon />} onClick={props.onClearWallpaper} disabled={props.busy || !props.hasWallpaper}>清除壁纸</Button>
-            </Stack>
-          </Paper>
+          <DesktopWallpaperSettings
+            assetUrl={props.assetUrl}
+            busy={props.busy}
+            wallpaper={props.doc.desktop.wallpaper}
+            onAddWallpaper={props.onPickWallpaper}
+            onClearWallpaper={props.onClearWallpaper}
+            onRemovePreset={props.onRemoveWallpaperPreset}
+            onSavePresetView={props.onSaveWallpaperPresetView}
+            onSelectPreset={props.onSelectWallpaperPreset}
+          />
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 1.5 }}>
             <InfoBlock label="当前数据目录" value={props.status?.dataDir || '读取中'} mono />
             <InfoBlock label="默认数据目录" value={props.status?.defaultDataDir || '读取中'} mono />

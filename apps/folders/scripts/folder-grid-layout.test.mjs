@@ -1,7 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { describe, it } from 'node:test'
 
-import { FOLDER_GRID_CELL_WIDTH, FOLDER_GRID_ITEM_WIDTH, FOLDER_GRID_PADDING } from '../src/folder-grid/constants.ts'
 import { createFolderGridMetrics } from '../src/folder-grid/iconLayout.ts'
 import {
   buildFolderGridLayoutMap,
@@ -27,8 +26,8 @@ function item(id, x, y) {
 }
 
 function canvasWidthForColumns(columnCount, metrics) {
-  if (metrics) return metrics.padding * 2 + metrics.itemWidth + metrics.cellWidth * (columnCount - 1)
-  return FOLDER_GRID_PADDING * 2 + FOLDER_GRID_ITEM_WIDTH + FOLDER_GRID_CELL_WIDTH * (columnCount - 1)
+  const resolvedMetrics = metrics || createFolderGridMetrics()
+  return resolvedMetrics.padding * 2 + resolvedMetrics.itemWidth + resolvedMetrics.cellWidth * (columnCount - 1)
 }
 
 describe('folder grid layout', () => {
@@ -51,10 +50,11 @@ describe('folder grid layout', () => {
   })
 
   it('converts horizontal pixels into grid columns', () => {
-    const columns = getFolderGridColumnCount(canvasWidthForColumns(4))
-    assert.equal(getFolderGridLayoutFromPixel(FOLDER_GRID_PADDING, FOLDER_GRID_PADDING, columns).x, 0)
-    assert.equal(getFolderGridLayoutFromPixel(FOLDER_GRID_PADDING + FOLDER_GRID_CELL_WIDTH, FOLDER_GRID_PADDING, columns).x, 1)
-    assert.equal(getFolderGridLayoutFromPixel(FOLDER_GRID_PADDING + FOLDER_GRID_CELL_WIDTH * 2, FOLDER_GRID_PADDING, columns).x, 2)
+    const metrics = createFolderGridMetrics()
+    const columns = getFolderGridColumnCount(canvasWidthForColumns(4, metrics), metrics)
+    assert.equal(getFolderGridLayoutFromPixel(metrics.padding, metrics.padding, columns, metrics).x, 0)
+    assert.equal(getFolderGridLayoutFromPixel(metrics.padding + metrics.cellWidth, metrics.padding, columns, metrics).x, 1)
+    assert.equal(getFolderGridLayoutFromPixel(metrics.padding + metrics.cellWidth * 2, metrics.padding, columns, metrics).x, 2)
   })
 
   it('keeps persisted positions before filling empty slots', () => {

@@ -16,9 +16,9 @@ export const DESKTOP_ICON_SCALE_MAX = 1.35
 export const DESKTOP_ICON_SCALE_STEP = 0.05
 
 export const DEFAULT_DESKTOP_ICON_LAYOUT: DesktopIconLayout = {
-  rowGap: FOLDER_GRID_GAP,
-  columnGap: FOLDER_GRID_GAP,
-  iconScale: 1,
+  rowGap: DESKTOP_ICON_GAP_MIN,
+  columnGap: DESKTOP_ICON_GAP_MIN,
+  iconScale: DESKTOP_ICON_SCALE_MIN,
 }
 
 export type FolderGridMetrics = {
@@ -37,12 +37,8 @@ export type FolderGridMetrics = {
   itemHeight: number
   itemWidth: number
   columnGap: number
-  menuRight: number
-  menuSize: number
-  menuTop: number
   minHeight: number
   padding: number
-  removeRight: number
   rowGap: number
   signature: string
   titleFontSize: number
@@ -86,7 +82,6 @@ export function createFolderGridMetrics(layout: Partial<DesktopIconLayout> | nul
   const cellWidth = itemWidth + normalized.columnGap
   const cellHeight = itemHeight + normalized.rowGap
   const minHeight = Math.max(FOLDER_GRID_MIN_HEIGHT, padding * 2 + itemHeight)
-  const menuSize = scaled(28, scale, 22)
 
   return {
     cellHeight,
@@ -104,12 +99,8 @@ export function createFolderGridMetrics(layout: Partial<DesktopIconLayout> | nul
     itemHeight,
     itemWidth,
     columnGap: normalized.columnGap,
-    menuRight: scaled(18, scale, 8),
-    menuSize,
-    menuTop: scaled(4, scale, 3),
     minHeight,
     padding,
-    removeRight: scaled(18, scale, 8),
     rowGap: normalized.rowGap,
     signature: `${normalized.rowGap}:${normalized.columnGap}:${scale}:${itemWidth}:${itemHeight}:${cellWidth}:${cellHeight}:${minHeight}`,
     titleFontSize: round(clamp(13.5 * scale, 11, 18), 1),

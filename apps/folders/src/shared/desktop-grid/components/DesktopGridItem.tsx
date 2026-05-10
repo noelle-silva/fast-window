@@ -1,6 +1,5 @@
 import * as React from 'react'
-import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
-import { Box, ButtonBase, IconButton, Typography } from '@mui/material'
+import { Box, ButtonBase, Typography } from '@mui/material'
 import { DESKTOP_GRID_ITEM_HEIGHT, DESKTOP_GRID_ITEM_WIDTH } from '../core/constants'
 import { DESKTOP_GRID_ICON_DRAG_SHADOW, DESKTOP_GRID_ICON_TITLE_SHADOW } from '../visual/iconTokens'
 
@@ -8,7 +7,6 @@ type Props = {
   detail?: string | null
   dragging?: boolean
   icon: React.ReactNode
-  menuLabel?: string
   name: string
   onContextMenu?(x: number, y: number): void
   onOpen(): void
@@ -34,11 +32,6 @@ export function DesktopGridItem(props: Props): React.ReactNode {
         transition: props.dragging ? 'none' : 'transform .16s ease, filter .16s ease',
         transform: props.dragging ? 'scale(1.06)' : 'scale(1)',
         filter: props.dragging ? `drop-shadow(${DESKTOP_GRID_ICON_DRAG_SHADOW})` : 'none',
-        '&:hover .desktop-grid-item-menu, &:focus-within .desktop-grid-item-menu': {
-          opacity: 1,
-          pointerEvents: 'auto',
-          transform: 'translateY(0) scale(1)',
-        },
       }}
     >
       <ButtonBase
@@ -113,36 +106,6 @@ export function DesktopGridItem(props: Props): React.ReactNode {
           ) : null}
         </Box>
       </ButtonBase>
-      {props.onContextMenu ? (
-        <IconButton
-          className="desktop-grid-item-menu"
-          data-desktop-grid-no-drag="1"
-          aria-label={props.menuLabel || `More actions for ${props.name}`}
-          onClick={event => {
-            event.stopPropagation()
-            const rect = event.currentTarget.getBoundingClientRect()
-            props.onContextMenu?.(rect.left, rect.bottom + 4)
-          }}
-          sx={{
-            position: 'absolute',
-            top: 4,
-            right: 18,
-            width: 28,
-            height: 28,
-            opacity: 0,
-            pointerEvents: 'none',
-            transform: 'translateY(-2px) scale(0.92)',
-            transition: 'opacity .16s ease, transform .16s ease, background-color .16s ease',
-            color: 'text.primary',
-            bgcolor: 'rgba(255, 255, 255, 0.9)',
-            boxShadow: '0 8px 18px rgba(15, 23, 42, 0.12)',
-            '&:hover': { color: 'primary.main', bgcolor: 'rgba(255, 255, 255, 0.96)' },
-            '@media (hover: none)': { opacity: 0.92, pointerEvents: 'auto', transform: 'translateY(0) scale(1)' },
-          }}
-        >
-          <MoreVertRoundedIcon fontSize="small" />
-        </IconButton>
-      ) : null}
     </Box>
   )
 }

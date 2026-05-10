@@ -68,14 +68,14 @@ function folderItem(id) {
 function foldersDoc() {
   return {
     schemaVersion: 1,
-    dataVersion: 3,
+    dataVersion: 4,
     groups: [{ id: 'default', name: '默认' }],
     items: [
       { ...folderItem('inside'), containerId: 'container-a', containerLayout: { x: 0, y: 0 } },
       { ...folderItem('desktop'), layout: { x: 1, y: 0 } },
     ],
     containers: [{ ...container('container-a'), layout: { x: 0, y: 0 } }],
-    desktop: { iconLayout: { rowGap: 38, columnGap: 38, iconScale: 1 } },
+    desktop: { iconLayout: { rowGap: 0, columnGap: 0, iconScale: 0.75 } },
     updatedAt: '',
   }
 }

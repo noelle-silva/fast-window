@@ -28,22 +28,24 @@ import (
 )
 
 const (
-	dataSchemaVersion      = 1
-	dataVersion            = 3
-	dataFile               = "data.json"
-	metaFile               = "_meta.json"
-	assetsDir              = "assets"
-	iconAssetsDir          = "icons"
-	wallpaperAssetsDir     = "wallpapers"
-	defaultGroupID         = "default"
-	maxLayoutCoord         = 2000
-	maxIconAssetBytes      = 12 * 1024 * 1024
-	defaultDesktopIconGap  = 38
-	minDesktopIconGap      = 0
-	maxDesktopIconGap      = 64
-	minDesktopIconScale    = 0.75
-	maxDesktopIconScale    = 1.35
+	dataSchemaVersion     = 1
+	dataVersion           = 4
+	dataFile              = "data.json"
+	metaFile              = "_meta.json"
+	assetsDir             = "assets"
+	iconAssetsDir         = "icons"
+	wallpaperAssetsDir    = "wallpapers"
+	defaultGroupID        = "default"
+	maxLayoutCoord        = 2000
+	maxIconAssetBytes     = 12 * 1024 * 1024
+	defaultDesktopIconGap = 0
+	minDesktopIconGap     = 0
+	maxDesktopIconGap     = 64
+	minDesktopIconScale   = 0.75
+	maxDesktopIconScale   = 1.35
 )
+
+const defaultDesktopIconScale = minDesktopIconScale
 
 type service struct {
 	dataDir string
@@ -149,7 +151,21 @@ type desktopContainer struct {
 }
 
 type desktopWallpaper struct {
-	AssetID string `json:"assetId"`
+	ActiveID string                   `json:"activeId"`
+	Presets  []desktopWallpaperPreset `json:"presets"`
+}
+
+type desktopWallpaperPreset struct {
+	ID      string               `json:"id"`
+	Name    string               `json:"name"`
+	AssetID string               `json:"assetId"`
+	View    desktopWallpaperView `json:"view"`
+}
+
+type desktopWallpaperView struct {
+	X     float64 `json:"x"`
+	Y     float64 `json:"y"`
+	Scale float64 `json:"scale"`
 }
 
 type desktopIconLayout struct {
@@ -1781,7 +1797,7 @@ func normalizeDesktopState(raw desktopState) (desktopState, error) {
 }
 
 func defaultDesktopIconLayout() desktopIconLayout {
-	return desktopIconLayout{RowGap: defaultDesktopIconGap, ColumnGap: defaultDesktopIconGap, IconScale: 1}
+	return desktopIconLayout{RowGap: defaultDesktopIconGap, ColumnGap: defaultDesktopIconGap, IconScale: defaultDesktopIconScale}
 }
 
 func normalizeDesktopIconLayout(raw desktopIconLayout) (desktopIconLayout, error) {
@@ -1804,11 +1820,67 @@ func validateDesktopWallpaper(raw *desktopWallpaper) (*desktopWallpaper, error) 
 	if raw == nil {
 		return nil, nil
 	}
+	activeID := strings.TrimSpace(raw.ActiveID)
+	if activeID == "" {
+		return nil, errors.New("active wallpaper preset id is required")
+	}
+	if len(raw.Presets) == 0 {
+		return nil, errors.New("wallpaper presets are required")
+	}
+	presets := make([]desktopWallpaperPreset, 0, len(raw.Presets))
+	seen := map[string]bool{}
+	hasActive := false
+	for index, preset := range raw.Presets {
+		normalized, err := validateDesktopWallpaperPreset(preset)
+		if err != nil {
+			return nil, fmt.Errorf("wallpaper presets[%d]: %w", index, err)
+		}
+		if seen[normalized.ID] {
+			return nil, fmt.Errorf("duplicate wallpaper preset id: %s", normalized.ID)
+		}
+		if normalized.ID == activeID {
+			hasActive = true
+		}
+		seen[normalized.ID] = true
+		presets = append(presets, normalized)
+	}
+	if !hasActive {
+		return nil, fmt.Errorf("active wallpaper preset not found: %s", activeID)
+	}
+	return &desktopWallpaper{ActiveID: activeID, Presets: presets}, nil
+}
+
+func validateDesktopWallpaperPreset(raw desktopWallpaperPreset) (desktopWallpaperPreset, error) {
+	id := strings.TrimSpace(raw.ID)
+	if id == "" {
+		return desktopWallpaperPreset{}, errors.New("wallpaper preset id is required")
+	}
+	name := trimMax(raw.Name, 80)
+	if name == "" {
+		return desktopWallpaperPreset{}, errors.New("wallpaper preset name is required")
+	}
 	assetID := strings.TrimSpace(filepath.ToSlash(raw.AssetID))
 	if !isSafeAssetID(assetID) || !strings.HasPrefix(assetID, wallpaperAssetsDir+"/") {
-		return nil, errors.New("valid wallpaper asset id is required")
+		return desktopWallpaperPreset{}, errors.New("valid wallpaper asset id is required")
 	}
-	return &desktopWallpaper{AssetID: assetID}, nil
+	view, err := validateDesktopWallpaperView(raw.View)
+	if err != nil {
+		return desktopWallpaperPreset{}, err
+	}
+	return desktopWallpaperPreset{ID: id, Name: name, AssetID: assetID, View: view}, nil
+}
+
+func validateDesktopWallpaperView(raw desktopWallpaperView) (desktopWallpaperView, error) {
+	if raw.X < 0 || raw.X > 100 {
+		return desktopWallpaperView{}, errors.New("wallpaper view x must be between 0 and 100")
+	}
+	if raw.Y < 0 || raw.Y > 100 {
+		return desktopWallpaperView{}, errors.New("wallpaper view y must be between 0 and 100")
+	}
+	if raw.Scale < 1 || raw.Scale > 4 {
+		return desktopWallpaperView{}, errors.New("wallpaper view scale must be between 1 and 4")
+	}
+	return desktopWallpaperView{X: roundFloat(raw.X, 2), Y: roundFloat(raw.Y, 2), Scale: roundFloat(raw.Scale, 2)}, nil
 }
 
 func validateDesktopIcon(raw *desktopIcon) (*desktopIcon, error) {
@@ -2142,6 +2214,24 @@ func safeID(value string, max int) string {
 		}
 	}
 	return trimMax(b.String(), max)
+}
+
+func clampFloat(value float64, min float64, max float64) float64 {
+	if value < min {
+		return min
+	}
+	if value > max {
+		return max
+	}
+	return value
+}
+
+func roundFloat(value float64, precision int) float64 {
+	factor := 1.0
+	for i := 0; i < precision; i++ {
+		factor *= 10
+	}
+	return float64(int(value*factor+0.5)) / factor
 }
 
 func firstNonEmpty(values ...string) string {

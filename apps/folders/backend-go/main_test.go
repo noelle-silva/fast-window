@@ -46,7 +46,7 @@ func TestEnsureReadyDoesNotFailForInvalidExistingData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invalid := `{"schemaVersion":1,"dataVersion":3,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":-2,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	invalid := `{"schemaVersion":1,"dataVersion":4,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":-2,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
 	if err := os.MkdirAll(svc.dataDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestResetFoldersDataReplacesInvalidDataWithCurrentBaseline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.DataVersion != dataVersion || doc.Desktop.IconLayout.RowGap != defaultDesktopIconGap || doc.Desktop.IconLayout.ColumnGap != defaultDesktopIconGap || doc.Desktop.IconLayout.IconScale != 1 {
+	if doc.DataVersion != dataVersion || doc.Desktop.IconLayout.RowGap != defaultDesktopIconGap || doc.Desktop.IconLayout.ColumnGap != defaultDesktopIconGap || doc.Desktop.IconLayout.IconScale != defaultDesktopIconScale {
 		t.Fatalf("expected reset current baseline doc: %#v", doc)
 	}
 	if health := svc.health(); !health.Data.OK {
@@ -506,15 +506,32 @@ func TestDesktopWallpaperRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	doc, err := svc.saveDesktopWallpaper(&desktopWallpaper{AssetID: wallpaperAssetsDir + "/0123456789abcdef0123456789abcdef01234567.png"})
+	doc, err := svc.saveDesktopWallpaper(&desktopWallpaper{
+		ActiveID: "main",
+		Presets: []desktopWallpaperPreset{{
+			ID:      "main",
+			Name:    "主壁纸",
+			AssetID: wallpaperAssetsDir + "/0123456789abcdef0123456789abcdef01234567.png",
+			View:    desktopWallpaperView{X: 40.123, Y: 60.456, Scale: 1.234},
+		}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.Desktop.Wallpaper == nil || doc.Desktop.Wallpaper.AssetID != wallpaperAssetsDir+"/0123456789abcdef0123456789abcdef01234567.png" {
+	if doc.Desktop.Wallpaper == nil || doc.Desktop.Wallpaper.ActiveID != "main" || len(doc.Desktop.Wallpaper.Presets) != 1 {
 		t.Fatalf("unexpected wallpaper: %#v", doc.Desktop.Wallpaper)
 	}
-	if _, err := svc.saveDesktopWallpaper(&desktopWallpaper{AssetID: iconAssetsDir + "/0123456789abcdef0123456789abcdef01234567.png"}); err == nil {
+	if doc.Desktop.Wallpaper.Presets[0].AssetID != wallpaperAssetsDir+"/0123456789abcdef0123456789abcdef01234567.png" || doc.Desktop.Wallpaper.Presets[0].View.Scale != 1.23 {
+		t.Fatalf("unexpected wallpaper preset normalization: %#v", doc.Desktop.Wallpaper.Presets[0])
+	}
+	if _, err := svc.saveDesktopWallpaper(&desktopWallpaper{ActiveID: "bad", Presets: []desktopWallpaperPreset{{ID: "bad", Name: "Bad", AssetID: iconAssetsDir + "/0123456789abcdef0123456789abcdef01234567.png", View: desktopWallpaperView{X: 50, Y: 50, Scale: 1}}}}); err == nil {
 		t.Fatal("expected icon asset id to fail for wallpaper")
+	}
+	if _, err := svc.saveDesktopWallpaper(&desktopWallpaper{ActiveID: "missing", Presets: []desktopWallpaperPreset{{ID: "main", Name: "主壁纸", AssetID: wallpaperAssetsDir + "/0123456789abcdef0123456789abcdef01234567.png", View: desktopWallpaperView{X: 50, Y: 50, Scale: 1}}}}); err == nil {
+		t.Fatal("expected missing active wallpaper preset to fail")
+	}
+	if _, err := svc.saveDesktopWallpaper(&desktopWallpaper{ActiveID: "main", Presets: []desktopWallpaperPreset{{ID: "main", Name: "主壁纸", AssetID: wallpaperAssetsDir + "/0123456789abcdef0123456789abcdef01234567.png", View: desktopWallpaperView{X: -1, Y: 50, Scale: 1}}}}); err == nil {
+		t.Fatal("expected invalid wallpaper view to fail")
 	}
 	doc, err = svc.saveDesktopWallpaper(nil)
 	if err != nil {
@@ -539,7 +556,7 @@ func TestDesktopIconLayoutRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.Desktop.IconLayout.RowGap != defaultDesktopIconGap || doc.Desktop.IconLayout.ColumnGap != defaultDesktopIconGap || doc.Desktop.IconLayout.IconScale != 1 {
+	if doc.Desktop.IconLayout.RowGap != defaultDesktopIconGap || doc.Desktop.IconLayout.ColumnGap != defaultDesktopIconGap || doc.Desktop.IconLayout.IconScale != defaultDesktopIconScale {
 		t.Fatalf("expected default desktop icon layout: %#v", doc.Desktop.IconLayout)
 	}
 
@@ -567,7 +584,7 @@ func TestInvalidPersistedDataIsDiagnosedAfterStartup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invalid := `{"schemaVersion":1,"dataVersion":3,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":-2,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	invalid := `{"schemaVersion":1,"dataVersion":4,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":-2,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
 	if err := os.MkdirAll(svc.dataDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -591,7 +608,7 @@ func TestMissingCurrentBaselineFieldIsDiagnosedAfterStartup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invalid := `{"schemaVersion":1,"dataVersion":3,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	invalid := `{"schemaVersion":1,"dataVersion":4,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38}},"updatedAt":"2026-01-01T00:00:00Z"}`
 	if err := os.MkdirAll(svc.dataDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -619,7 +636,7 @@ func TestCurrentBaselineRejectsInvalidReferencesAndDuplicates(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	invalidContainerRef := `{"schemaVersion":1,"dataVersion":3,"groups":[{"id":"default","name":"默认"}],"items":[{"id":"one","name":"One","path":"E:/One","groupId":"default","containerId":"missing","createdAtMs":1,"updatedAtMs":1}],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	invalidContainerRef := `{"schemaVersion":1,"dataVersion":4,"groups":[{"id":"default","name":"默认"}],"items":[{"id":"one","name":"One","path":"E:/One","groupId":"default","containerId":"missing","createdAtMs":1,"updatedAtMs":1}],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
 	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(invalidContainerRef), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -627,7 +644,7 @@ func TestCurrentBaselineRejectsInvalidReferencesAndDuplicates(t *testing.T) {
 		t.Fatalf("expected missing container error, got %v", err)
 	}
 
-	duplicateItem := `{"schemaVersion":1,"dataVersion":3,"groups":[{"id":"default","name":"默认"}],"items":[{"id":"one","name":"One","path":"E:/One","groupId":"default","createdAtMs":1,"updatedAtMs":1},{"id":"one","name":"Two","path":"E:/Two","groupId":"default","createdAtMs":2,"updatedAtMs":2}],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	duplicateItem := `{"schemaVersion":1,"dataVersion":4,"groups":[{"id":"default","name":"默认"}],"items":[{"id":"one","name":"One","path":"E:/One","groupId":"default","createdAtMs":1,"updatedAtMs":1},{"id":"one","name":"Two","path":"E:/Two","groupId":"default","createdAtMs":2,"updatedAtMs":2}],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
 	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(duplicateItem), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -635,7 +652,7 @@ func TestCurrentBaselineRejectsInvalidReferencesAndDuplicates(t *testing.T) {
 		t.Fatalf("expected duplicate folder error, got %v", err)
 	}
 
-	invalidLayout := `{"schemaVersion":1,"dataVersion":3,"groups":[{"id":"default","name":"默认"}],"items":[{"id":"one","name":"One","path":"E:/One","groupId":"default","createdAtMs":1,"updatedAtMs":1,"layout":{"x":-1,"y":0}}],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	invalidLayout := `{"schemaVersion":1,"dataVersion":4,"groups":[{"id":"default","name":"默认"}],"items":[{"id":"one","name":"One","path":"E:/One","groupId":"default","createdAtMs":1,"updatedAtMs":1,"layout":{"x":-1,"y":0}}],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
 	if err := os.WriteFile(filepath.Join(svc.dataDir, dataFile), []byte(invalidLayout), 0o644); err != nil {
 		t.Fatal(err)
 	}

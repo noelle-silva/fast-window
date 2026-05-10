@@ -1,12 +1,11 @@
 import * as React from 'react'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
-import EditRoundedIcon from '@mui/icons-material/EditRounded'
-import { Box, Button, IconButton, Stack, Typography } from '@mui/material'
+import { Box, IconButton, Stack, TextField, Typography } from '@mui/material'
 import { ContainerGridCanvas, type ContainerGridApi, type ContainerGridDragEvent, type ContainerGridPlacement } from './folder-grid/ContainerGridCanvas'
 import { ScrollArea } from './shared/scroll-area'
 import type { FolderGridDragEndResult } from './folder-grid/useMuuriFolderGrid'
 import { DESKTOP_ICON_TITLE_SHADOW } from './folder-grid/desktopIconTokens'
-import type { DesktopContainer, FolderGridLayout, FolderItem, FoldersDoc } from './types'
+import type { DesktopContainer, FolderItem, FoldersDoc } from './types'
 
 type Props = {
   assetUrl?(assetId: string): string
@@ -16,7 +15,6 @@ type Props = {
   doc: FoldersDoc
   hiddenItemId?: string
   onClose(): void
-  onEdit(container: DesktopContainer): void
   onItemDragCancel?(event: ContainerFolderDragEvent): void
   onItemDragEnd?(event: ContainerFolderDragEvent, patches: ContainerGridPlacement[]): FolderGridDragEndResult | void
   onItemDragMove?(event: ContainerFolderDragEvent): void
@@ -24,6 +22,7 @@ type Props = {
   onLayoutCommit(patches: ContainerGridPlacement[]): void
   onOpenFolder(item: FolderItem): void
   onRemoveItem(item: FolderItem): void
+  onRename(container: DesktopContainer, name: string): Promise<void> | void
   onGridReady?(containerId: string, instanceId: string, api: ContainerGridApi | null): void
   softClosed?: boolean
 }
@@ -35,10 +34,18 @@ export function ContainerFolderOverlay(props: Props): React.ReactNode {
   const { onClose } = props
   const instanceId = React.useId()
   const panelRef = React.useRef<HTMLDivElement | null>(null)
+  const [editingName, setEditingName] = React.useState(false)
+  const [draftName, setDraftName] = React.useState('')
+  const [savingName, setSavingName] = React.useState(false)
   const items = React.useMemo(() => (container ? props.doc.items.filter(item => item.containerId === container.id && item.id !== props.hiddenItemId) : []), [container, props.doc.items, props.hiddenItemId])
   const requestClose = React.useCallback(() => {
     if (!props.closeDisabled) onClose()
   }, [onClose, props.closeDisabled])
+
+  React.useEffect(() => {
+    setEditingName(false)
+    setDraftName(container?.name || '')
+  }, [container?.id, container?.name])
 
   React.useEffect(() => {
     if (!container) return
@@ -50,6 +57,28 @@ export function ContainerFolderOverlay(props: Props): React.ReactNode {
   }, [container, props.softClosed, requestClose])
 
   if (!container) return null
+
+  const cancelNameEdit = () => {
+    setDraftName(container.name)
+    setEditingName(false)
+  }
+
+  const commitNameEdit = async () => {
+    const name = draftName.trim()
+    if (!name || name === container.name) {
+      cancelNameEdit()
+      return
+    }
+    setSavingName(true)
+    try {
+      await props.onRename(container, name)
+      setEditingName(false)
+    } catch {
+      setDraftName(name)
+    } finally {
+      setSavingName(false)
+    }
+  }
 
   return (
     <Box
@@ -75,28 +104,75 @@ export function ContainerFolderOverlay(props: Props): React.ReactNode {
       }}
     >
       <Stack direction="row" alignItems="center" justifyContent="center" sx={{ position: 'relative', minHeight: 64 }}>
-        <Typography
-          id="container-folder-overlay-title"
-          variant="h1"
-          sx={{
-            color: '#FFFFFF',
-            fontSize: { xs: 28, sm: 40 },
-            fontWeight: 950,
-            letterSpacing: '-0.035em',
-            textAlign: 'center',
-            textShadow: DESKTOP_ICON_TITLE_SHADOW,
-          }}
-        >
-          {container.name}
-        </Typography>
-        <Stack direction="row" spacing={1} sx={{ position: 'absolute', right: 0 }}>
-          <Button
-            startIcon={<EditRoundedIcon />}
-            onClick={event => { event.stopPropagation(); props.onEdit(container) }}
-            sx={{ color: '#FFFFFF', bgcolor: 'rgba(255,255,255,0.12)', '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' } }}
+        {editingName ? (
+          <TextField
+            id="container-folder-overlay-title"
+            value={draftName}
+            autoFocus
+            disabled={savingName}
+            onBlur={() => { void commitNameEdit() }}
+            onChange={event => setDraftName(event.target.value)}
+            onClick={event => event.stopPropagation()}
+            onFocus={event => event.currentTarget.select()}
+            onKeyDown={event => {
+              if (event.key === 'Escape') {
+                event.preventDefault()
+                cancelNameEdit()
+              }
+              if (event.key === 'Enter' && !(event.nativeEvent as KeyboardEvent).isComposing) {
+                event.preventDefault()
+                void commitNameEdit()
+              }
+            }}
+            inputProps={{ 'aria-label': '收纳夹名称' }}
+            variant="standard"
+            sx={{
+              width: 'min(78vw, 680px)',
+              '& .MuiInputBase-root': { color: '#FFFFFF', fontSize: { xs: 28, sm: 40 }, fontWeight: 950, letterSpacing: '-0.035em' },
+              '& .MuiInput-input': { textAlign: 'center', textShadow: DESKTOP_ICON_TITLE_SHADOW, pb: 0.4 },
+              '& .MuiInput-underline:before': { borderBottomColor: 'rgba(255,255,255,0.46)' },
+              '& .MuiInput-underline:hover:before': { borderBottomColor: 'rgba(255,255,255,0.76)' },
+              '& .MuiInput-underline:after': { borderBottomColor: '#FFFFFF' },
+            }}
+          />
+        ) : (
+          <Typography
+            id="container-folder-overlay-title"
+            component="button"
+            type="button"
+            aria-label="点击修改收纳夹名称"
+            title="点击修改名称"
+            onClick={event => { event.stopPropagation(); setEditingName(true) }}
+            onKeyDown={event => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                setEditingName(true)
+              }
+            }}
+            sx={{
+              p: 0,
+              border: 0,
+              background: 'transparent',
+              color: '#FFFFFF',
+              cursor: 'text',
+              font: 'inherit',
+              fontSize: { xs: 28, sm: 40 },
+              fontWeight: 950,
+              letterSpacing: '-0.035em',
+              lineHeight: 1.18,
+              textAlign: 'center',
+              textShadow: DESKTOP_ICON_TITLE_SHADOW,
+              '&:focus-visible': {
+                outline: '2px solid rgba(255,255,255,0.92)',
+                outlineOffset: 8,
+                borderRadius: 2,
+              },
+            }}
           >
-            编辑
-          </Button>
+            {container.name}
+          </Typography>
+        )}
+        <Stack direction="row" spacing={1} sx={{ position: 'absolute', right: 0 }}>
           <IconButton
             aria-label="关闭收纳夹"
             disabled={props.closeDisabled}

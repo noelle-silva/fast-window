@@ -38,7 +38,7 @@ function container(id, groupId) {
 function doc() {
   return {
     schemaVersion: 1,
-    dataVersion: 3,
+    dataVersion: 4,
     groups: [
       { id: 'default', name: '默认' },
       { id: 'work', name: '工作' },
@@ -53,7 +53,7 @@ function doc() {
       container('box-a', 'work'),
       container('box-b', 'design'),
     ],
-    desktop: { iconLayout: { rowGap: 38, columnGap: 38, iconScale: 1 } },
+    desktop: { iconLayout: { rowGap: 0, columnGap: 0, iconScale: 0.75 } },
     updatedAt: '',
   }
 }

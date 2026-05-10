@@ -40,7 +40,11 @@ export type DesktopIcon =
   | { kind: 'color'; color: string }
   | { kind: 'image'; assetId: string }
 
-export type DesktopWallpaper = { assetId: string }
+export type DesktopWallpaperView = { x: number; y: number; scale: number }
+
+export type DesktopWallpaperPreset = { id: string; name: string; assetId: string; view: DesktopWallpaperView }
+
+export type DesktopWallpaper = { activeId: string; presets: DesktopWallpaperPreset[] }
 
 export type DesktopIconLayout = { rowGap: number; columnGap: number; iconScale: number }
 

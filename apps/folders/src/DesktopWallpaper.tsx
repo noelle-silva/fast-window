@@ -1,5 +1,7 @@
 import * as React from 'react'
 import { Box } from '@mui/material'
+import { desktopWallpaperImageSx } from './desktopWallpaperImage'
+import { activeDesktopWallpaperPreset } from './desktopWallpaperPresets'
 import type { DesktopWallpaper as DesktopWallpaperState } from './types'
 
 type Props = {
@@ -8,7 +10,8 @@ type Props = {
 }
 
 export function DesktopWallpaper(props: Props): React.ReactNode {
-  const src = props.wallpaper?.assetId && props.assetUrl ? props.assetUrl(props.wallpaper.assetId) : null
+  const preset = activeDesktopWallpaperPreset(props.wallpaper)
+  const src = preset?.assetId && props.assetUrl ? props.assetUrl(preset.assetId) : null
   if (!src) return null
 
   return (
@@ -31,8 +34,7 @@ export function DesktopWallpaper(props: Props): React.ReactNode {
           width: '100%',
           height: '100%',
           display: 'block',
-          objectFit: 'cover',
-          userSelect: 'none',
+          ...desktopWallpaperImageSx(preset.view),
         }}
       />
     </Box>

@@ -1,6 +1,5 @@
 import * as React from 'react'
-import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
-import { Box, ButtonBase, IconButton, Typography } from '@mui/material'
+import { Box, ButtonBase, Typography } from '@mui/material'
 import type { DesktopGridEntry, FoldersDoc } from '../types'
 import { DesktopIconVisual } from './DesktopIconVisual'
 import type { FolderGridMetrics } from './iconLayout'
@@ -45,11 +44,6 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
         transition: props.dragging ? 'none' : 'transform .16s ease, filter .16s ease',
         transform: props.dragging ? 'scale(1.06)' : 'scale(1)',
         filter: props.dragging ? `drop-shadow(${DESKTOP_ICON_DRAG_SHADOW})` : 'none',
-        '&:hover .desktop-grid-icon-menu, &:focus-within .desktop-grid-icon-menu': {
-          opacity: 1,
-          pointerEvents: 'auto',
-          transform: 'translateY(0) scale(1)',
-        },
       }}
     >
       <ButtonBase
@@ -146,41 +140,6 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
           ) : null}
         </Box>
       </ButtonBase>
-      <IconButton
-        className="desktop-grid-icon-menu"
-        data-folder-grid-no-drag="1"
-        aria-label={`更多操作：${props.entry.name}`}
-        onClick={event => {
-          event.stopPropagation()
-          const rect = event.currentTarget.getBoundingClientRect()
-          props.onContextMenu(rect.left, rect.bottom + 4)
-        }}
-        sx={{
-          position: 'absolute',
-          top: props.metrics.menuTop,
-          right: props.metrics.menuRight,
-          width: props.metrics.menuSize,
-          height: props.metrics.menuSize,
-          opacity: 0,
-          pointerEvents: 'none',
-          transform: 'translateY(-2px) scale(0.92)',
-          transition: 'opacity .16s ease, transform .16s ease, background-color .16s ease',
-          color: 'text.primary',
-          bgcolor: 'rgba(255, 255, 255, 0.9)',
-          boxShadow: '0 8px 18px rgba(15, 23, 42, 0.12)',
-          '&:hover': {
-            color: 'primary.main',
-            bgcolor: 'rgba(255, 255, 255, 0.96)',
-          },
-          '@media (hover: none)': {
-            opacity: 0.92,
-            pointerEvents: 'auto',
-            transform: 'translateY(0) scale(1)',
-          },
-        }}
-      >
-        <MoreVertRoundedIcon fontSize="small" />
-      </IconButton>
     </Box>
   )
 }
