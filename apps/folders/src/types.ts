@@ -72,6 +72,24 @@ export type DesktopAssetKind = 'icon' | 'wallpaper'
 
 export type DesktopAsset = { id: string; kind: DesktopAssetKind }
 
+export type WebIconCandidate = {
+  id: string
+  label: string
+  source: string
+  url: string
+  mediaType: string
+  sizes?: string
+  width?: number
+  height?: number
+  dataUrl: string
+}
+
+export type WebIconDiscoveryResult = {
+  url: string
+  candidates: WebIconCandidate[]
+  warnings?: string[]
+}
+
 export type CollectionTarget =
   | { kind: 'folder'; path: string }
   | { kind: 'url'; url: string }
@@ -128,10 +146,12 @@ export type DirectClient = {
 
 export type Phase = 'starting' | 'ready' | 'data-error' | 'failed'
 
-export type IconAppearanceCandidate = { id: string; label: string; icon: DesktopIcon }
+export type IconAppearanceCandidate = { id: string; label: string; icon?: DesktopIcon; dataUrl?: string }
 
 export type IconAppearanceState = {
   draftIcon: DesktopIcon | null
+  draftCandidateId?: string
+  draftDataUrl?: string
   candidates: IconAppearanceCandidate[]
 }
 

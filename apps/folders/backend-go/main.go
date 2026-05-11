@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"image"
@@ -511,6 +512,14 @@ func (svc *service) dispatchSafe(method string, params json.RawMessage) (result 
 }
 
 func (svc *service) dispatch(method string, params json.RawMessage) (any, error) {
+	if method == "collections.web-icons.discover" {
+		var payload webIconDiscoveryPayload
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid web icon discovery payload: %w", err)
+		}
+		return discoverWebIcons(payload.URL)
+	}
+
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
 
@@ -1733,7 +1742,7 @@ func loadAssetImportSource(sourcePath string, dataURL string) (assetImportSource
 func fileAssetImportSource(sourcePath string) (assetImportSource, error) {
 	ext := strings.ToLower(filepath.Ext(sourcePath))
 	if !isSupportedImageExt(ext) {
-		return assetImportSource{}, errors.New("asset must be a png, jpg, jpeg, webp, or gif image")
+		return assetImportSource{}, errors.New("asset must be a png, jpg, jpeg, webp, gif, ico, or svg image")
 	}
 	payload, err := os.ReadFile(sourcePath)
 	if err != nil {
@@ -1764,7 +1773,7 @@ func dataURLAssetImportSource(dataURL string) (assetImportSource, error) {
 func newAssetImportSource(name string, ext string, payload []byte) (assetImportSource, error) {
 	ext = strings.ToLower(ext)
 	if !isSupportedImageExt(ext) {
-		return assetImportSource{}, errors.New("asset must be a png, jpg, jpeg, webp, or gif image")
+		return assetImportSource{}, errors.New("asset must be a png, jpg, jpeg, webp, gif, ico, or svg image")
 	}
 	bytes := append([]byte(nil), payload...)
 	return assetImportSource{Name: name, Ext: ext, Bytes: bytes, Size: int64(len(bytes))}, nil
@@ -2485,7 +2494,7 @@ func isSupportedIconColor(color string) bool {
 
 func isSupportedImageExt(ext string) bool {
 	switch strings.ToLower(ext) {
-	case ".png", ".jpg", ".jpeg", ".webp", ".gif":
+	case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".ico", ".svg":
 		return true
 	default:
 		return false
@@ -2504,22 +2513,145 @@ func imageExtFromDataURLMediaType(mediaType string) (string, error) {
 		return ".webp", nil
 	case "image/gif":
 		return ".gif", nil
+	case "image/x-icon", "image/vnd.microsoft.icon", "image/ico":
+		return ".ico", nil
+	case "image/svg+xml":
+		return ".svg", nil
 	default:
 		return "", errors.New("asset data URL image type is not supported")
 	}
 }
 
 func validateAssetImageContent(payload []byte, ext string) error {
-	if ext == ".webp" {
+	switch ext {
+	case ".webp":
 		if len(payload) < 12 || string(payload[:4]) != "RIFF" || string(payload[8:12]) != "WEBP" {
 			return errors.New("asset content is not a supported image")
 		}
 		return nil
+	case ".ico":
+		return validateICOImageContent(payload)
+	case ".svg":
+		return validateSVGImageContent(payload)
 	}
 	if _, _, err := image.DecodeConfig(bytes.NewReader(payload)); err != nil {
 		return errors.New("asset content is not a supported image")
 	}
 	return nil
+}
+
+func validateICOImageContent(payload []byte) error {
+	if len(payload) < 22 || payload[0] != 0 || payload[1] != 0 || payload[2] != 1 || payload[3] != 0 {
+		return errors.New("asset content is not a supported image")
+	}
+	count := int(payload[4]) | int(payload[5])<<8
+	if count <= 0 || count > 64 || len(payload) < 6+count*16 {
+		return errors.New("asset content is not a supported image")
+	}
+	for index := 0; index < count; index++ {
+		entry := 6 + index*16
+		size := int(payload[entry+8]) | int(payload[entry+9])<<8 | int(payload[entry+10])<<16 | int(payload[entry+11])<<24
+		offset := int(payload[entry+12]) | int(payload[entry+13])<<8 | int(payload[entry+14])<<16 | int(payload[entry+15])<<24
+		if size <= 0 || offset < 6+count*16 || offset > len(payload) || size > len(payload)-offset {
+			return errors.New("asset content is not a supported image")
+		}
+		if !isValidICOImagePayload(payload[offset : offset+size]) {
+			return errors.New("asset content is not a supported image")
+		}
+	}
+	return nil
+}
+
+func isValidICOImagePayload(payload []byte) bool {
+	if len(payload) >= 8 && bytes.Equal(payload[:8], []byte("\x89PNG\r\n\x1a\n")) {
+		_, _, err := image.DecodeConfig(bytes.NewReader(payload))
+		return err == nil
+	}
+	if len(payload) < 16 {
+		return false
+	}
+	headerSize := int(payload[0]) | int(payload[1])<<8 | int(payload[2])<<16 | int(payload[3])<<24
+	if headerSize != 40 && headerSize != 108 && headerSize != 124 {
+		return false
+	}
+	if len(payload) < headerSize {
+		return false
+	}
+	width := int(payload[4]) | int(payload[5])<<8 | int(payload[6])<<16 | int(payload[7])<<24
+	height := int(payload[8]) | int(payload[9])<<8 | int(payload[10])<<16 | int(payload[11])<<24
+	planes := int(payload[12]) | int(payload[13])<<8
+	bitsPerPixel := int(payload[14]) | int(payload[15])<<8
+	return width > 0 && height > 0 && planes == 1 && bitsPerPixel > 0
+}
+
+func validateSVGImageContent(payload []byte) error {
+	if len(bytes.TrimSpace(payload)) == 0 {
+		return errors.New("asset content is not a supported image")
+	}
+	decoder := xml.NewDecoder(bytes.NewReader(payload))
+	rootSeen := false
+	for {
+		token, err := decoder.Token()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return errors.New("asset content is not a supported image")
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		name := strings.ToLower(start.Name.Local)
+		if !rootSeen {
+			if name != "svg" {
+				return errors.New("asset content is not a supported image")
+			}
+			rootSeen = true
+		}
+		if isUnsafeSVGElement(name) {
+			return errors.New("asset svg contains unsupported active content")
+		}
+		for _, attr := range start.Attr {
+			if isUnsafeSVGAttribute(attr) {
+				return errors.New("asset svg contains unsupported external content")
+			}
+		}
+	}
+	if !rootSeen {
+		return errors.New("asset content is not a supported image")
+	}
+	return nil
+}
+
+func isUnsafeSVGElement(name string) bool {
+	switch name {
+	case "script", "foreignobject", "iframe", "object", "embed", "audio", "video", "canvas":
+		return true
+	default:
+		return false
+	}
+}
+
+func isUnsafeSVGAttribute(attr xml.Attr) bool {
+	name := strings.ToLower(attr.Name.Local)
+	value := strings.ToLower(strings.TrimSpace(attr.Value))
+	if strings.HasPrefix(name, "on") {
+		return true
+	}
+	if strings.Contains(value, "javascript:") {
+		return true
+	}
+	if strings.Contains(value, "url(") && !strings.Contains(value, "url(#") {
+		return true
+	}
+	if name == "href" || name == "src" {
+		return value != "" && !strings.HasPrefix(value, "#")
+	}
+	if name == "style" {
+		return strings.Contains(value, "url(")
+	}
+	return false
 }
 
 func isSafeAssetID(assetID string) bool {

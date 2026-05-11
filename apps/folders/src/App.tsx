@@ -55,7 +55,7 @@ import { ContainerDialog, IconAppearancePanel } from './DesktopDialogs'
 import { DesktopDragHint } from './DesktopDragHint'
 import { DesktopWallpaper } from './DesktopWallpaper'
 import { DesktopWallpaperSettings } from './DesktopWallpaperSettings'
-import { importedIconCandidateId, systemIconCandidateIdForTarget, upsertIconCandidate } from './iconAppearanceModel'
+import { importedIconCandidateId, systemIconCandidateIdForTarget, upsertIconCandidate, upsertIconCandidates, webIconCandidateIdForData, webIconCandidateLabel } from './iconAppearanceModel'
 import { ScrollArea } from './shared/scroll-area'
 import type { ContainerExtractDragState } from './containerExtractDragState'
 import { applyContainerItemDesktopExtractionView, extractedItemIdForContainerView, isContainerSoftClosedForExtractDrag, resolveContainerExtractDragMode, resolveContainerExtractNextDragMode } from './containerExtractDragState'
@@ -86,9 +86,11 @@ import type {
   CollectionGroup,
   CollectionsHealth,
   CollectionItem,
+  IconAppearanceCandidate,
   FwLaunchInfo,
   GroupFormState,
   Phase,
+  WebIconDiscoveryResult,
 } from './types'
 
 type CollectionItemFormPayload = Omit<CollectionItem, 'icon'> & { icon: DesktopIcon | null }
@@ -335,13 +337,14 @@ export function App() {
       if (!newGroupName && !doc.groups.some(group => group.id === targetGroupId)) { setError('请选择有效分类'); return }
       const now = Date.now()
       const nowText = new Date(now).toISOString()
+      const draftIcon = await resolveFormDraftIcon()
       const payload: CollectionItemFormPayload = {
         id: editing.id || createID(), name, target: activeCategory.buildTarget(targetValue), groupId: targetGroupId, pageOrder: editing.pageOrder,
         containerId: editing.containerId,
         createdAt: editing.createdAt || nowText, updatedAt: nowText,
         createdAtMs: editing.createdAtMs || now, updatedAtMs: now,
         layout: editing.layout,
-        icon: form.icon.draftIcon,
+        icon: draftIcon,
       }
       const nextDoc = await client.request<CategoryWorkspaceView>(editing.id ? 'collections.items.update' : 'collections.items.add', requestParams({ item: payload }))
       setDoc(nextDoc); setEditing(null)
@@ -823,7 +826,25 @@ export function App() {
   }
 
   function updateFormIconDraft(icon: DesktopIcon | null) {
-    setForm(current => ({ ...current, icon: { ...current.icon, draftIcon: icon } }))
+    setForm(current => ({ ...current, icon: { ...current.icon, draftIcon: icon, draftCandidateId: undefined, draftDataUrl: undefined } }))
+  }
+
+  function selectFormIconCandidate(candidate: IconAppearanceCandidate) {
+    setForm(current => ({
+      ...current,
+      icon: {
+        ...current.icon,
+        draftIcon: candidate.icon || null,
+        draftCandidateId: candidate.id,
+        draftDataUrl: candidate.dataUrl,
+      },
+    }))
+  }
+
+  async function resolveFormDraftIcon(): Promise<DesktopIcon | null> {
+    if (!client || !form.icon.draftDataUrl) return form.icon.draftIcon
+    const asset = await client.request<DesktopAsset>('collections.assets.import', { kind: 'icon', dataUrl: form.icon.draftDataUrl })
+    return { kind: 'image', assetId: asset.id }
   }
 
   async function fetchFormSystemIcon() {
@@ -844,6 +865,24 @@ export function App() {
         },
       }))
     } catch (e) { setError(errorMessage(e, '获取系统图标失败')) }
+    finally { setBusy(false) }
+  }
+
+  async function fetchFormWebIcons() {
+    if (!client || !editing) return
+    const target = form.target.trim()
+    const targetError = activeCategory.validateTarget(target)
+    if (targetError) { setError(targetError); return }
+    setBusy(true); setError(null)
+    try {
+      const result = await client.request<WebIconDiscoveryResult>('collections.web-icons.discover', { url: target })
+      if (!result.candidates.length) throw new Error('未发现可用网页图标')
+      const iconCandidates: IconAppearanceCandidate[] = result.candidates.map(candidate => ({ id: webIconCandidateIdForData(candidate), label: webIconCandidateLabel(candidate), dataUrl: candidate.dataUrl }))
+      setForm(current => {
+        const candidates = upsertIconCandidates(current.icon.candidates, iconCandidates)
+        return { ...current, icon: { ...current.icon, draftIcon: null, draftCandidateId: iconCandidates[0].id, draftDataUrl: iconCandidates[0].dataUrl, candidates } }
+      })
+    } catch (e) { setError(errorMessage(e, '获取网页图标失败')) }
     finally { setBusy(false) }
   }
 
@@ -1057,10 +1096,12 @@ export function App() {
         onChangeIconDraft={updateFormIconDraft}
         onClose={() => setEditing(null)}
         onFetchSystemIcon={() => void fetchFormSystemIcon()}
+        onFetchWebIcons={() => void fetchFormWebIcons()}
         onPickIconImage={() => void pickFormIconImage()}
         onPickTarget={() => void pickItemTarget()}
         onResetIcon={() => updateFormIconDraft(null)}
         onSave={() => void saveItem()}
+        onSelectIconCandidate={selectFormIconCandidate}
       />
 
       <GroupDialog
@@ -1516,16 +1557,18 @@ function ItemDialog(props: {
   onChangeIconDraft(icon: DesktopIcon | null): void
   onChange(form: CollectionItemFormState): void
   onClose(): void
+  onFetchWebIcons(): void
   onFetchSystemIcon(): void
   onPickIconImage(): void
   onPickTarget(): void
   onResetIcon(): void
   onSave(): void
+  onSelectIconCandidate(candidate: IconAppearanceCandidate): void
 }) {
   const open = Boolean(props.editing)
   const targetValue = props.form.target.trim()
-  const canFetchSystemIcon = Boolean(targetValue) && !props.category.validateTarget(targetValue) && props.category.id !== 'url'
-  const systemIconDisabledText = props.category.id === 'url' ? '网址图标需要 favicon 机制，不能走本地系统图标' : '请先填写有效路径'
+  const canFetchIcon = Boolean(targetValue) && !props.category.validateTarget(targetValue)
+  const iconDisabledText = props.category.id === 'url' ? '请先填写有效网址' : '请先填写有效路径'
   return (
     <Dialog open={open} onClose={props.onClose} fullWidth maxWidth="sm">
       <DialogContent sx={{ p: 3 }}>
@@ -1578,13 +1621,15 @@ function ItemDialog(props: {
             busy={props.busy}
             icon={props.form.icon}
             seed={props.editing?.id || props.form.target || props.form.name || 'item-icon'}
-            systemIconDisabledText={systemIconDisabledText}
-            systemIconEnabled={canFetchSystemIcon}
+            systemIconDisabledText={iconDisabledText}
+            systemIconEnabled={canFetchIcon}
             targetKind={props.category.id}
             onChangeDraft={props.onChangeIconDraft}
             onFetchSystemIcon={props.onFetchSystemIcon}
+            onFetchWebIcons={props.onFetchWebIcons}
             onPickImage={props.onPickIconImage}
             onReset={props.onResetIcon}
+            onSelectCandidate={props.onSelectIconCandidate}
           />
           <Typography variant="caption" color="text.secondary">每个{props.category.singularLabel}只属于一个分组页；右键可打开、编辑、移动、复制或删除。</Typography>
           <Stack direction="row" spacing={1} justifyContent="flex-end">

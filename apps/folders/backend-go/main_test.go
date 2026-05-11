@@ -3,6 +3,9 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -563,6 +566,88 @@ func TestImportAssetAcceptsDataURLAsFirstClassSource(t *testing.T) {
 	}
 	if _, err := svc.importAsset("icon", targetPath, dataURL); err == nil {
 		t.Fatal("expected mixed asset sources to fail")
+	}
+}
+
+func TestWebIconDiscoveryReturnsMultipleLocalizableCandidates(t *testing.T) {
+	png := mustTinyPNG(t)
+	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#8FA99B"/></svg>`)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprintf(w, `<html><head><link rel="icon" sizes="16x16" href="/favicon.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple.png"><link rel="manifest" href="/manifest.json"></head></html>`)
+		case "/favicon.png", "/apple.png", "/manifest-icon.png", "/favicon.ico":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(png)
+		case "/manifest-vector.svg":
+			w.Header().Set("Content-Type", "image/svg+xml")
+			_, _ = w.Write(svg)
+		case "/manifest.json":
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"icons":[{"src":"/manifest-icon.png","sizes":"512x512","type":"image/png"},{"src":"/manifest-vector.svg","sizes":"64x64","type":"image/svg+xml"}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	result, err := discoverWebIcons(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Candidates) != 2 {
+		t.Fatalf("expected two distinct icon candidates after duplicate payload dedupe, got %#v", result.Candidates)
+	}
+	mediaTypes := map[string]bool{}
+	for _, candidate := range result.Candidates {
+		if candidate.DataURL == "" || !strings.HasPrefix(candidate.DataURL, "data:image/") {
+			t.Fatalf("expected localizable data URL candidate, got %#v", candidate)
+		}
+		if candidate.URL == "" || candidate.Source == "" {
+			t.Fatalf("expected candidate provenance, got %#v", candidate)
+		}
+		mediaTypes[candidate.MediaType] = true
+	}
+	if !mediaTypes["image/png"] || !mediaTypes["image/svg+xml"] {
+		t.Fatalf("expected png and svg candidates, got %#v", result.Candidates)
+	}
+}
+
+func TestSelectedWebIconCandidateCanBeImportedAsLocalAsset(t *testing.T) {
+	svc := readyService(t)
+	png := mustTinyPNG(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/":
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprintf(w, `<link rel="icon" sizes="16x16" href="/favicon.png">`)
+		case "/favicon.png", "/favicon.ico":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(png)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	result, err := discoverWebIcons(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asset, err := svc.importAsset("icon", "", result.Candidates[0].DataURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if asset.Kind != "icon" || !strings.HasPrefix(asset.ID, iconAssetsDir+"/") {
+		t.Fatalf("unexpected web icon asset: %#v", asset)
+	}
+	stored, err := os.ReadFile(filepath.Join(svc.dataDir, assetsDir, filepath.FromSlash(asset.ID)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(stored) != string(png) {
+		t.Fatal("expected selected web icon bytes to be stored locally")
 	}
 }
 
