@@ -1,5 +1,6 @@
 import * as React from 'react'
 import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
+import ContentPasteRoundedIcon from '@mui/icons-material/ContentPasteRounded'
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
 import TravelExploreRoundedIcon from '@mui/icons-material/TravelExploreRounded'
 import { Box, Button, Dialog, DialogContent, Paper, Stack, TextField, Typography, alpha } from '@mui/material'
@@ -48,6 +49,7 @@ export function IconAppearancePanel(props: {
   onChangeDraft(icon: DesktopIcon | null): void
   onFetchWebIcons?(): void
   onFetchSystemIcon(): void
+  onPasteImage(): void
   onPickImage(): void
   onReset(): void
   onSelectCandidate(candidate: IconAppearanceCandidate): void
@@ -88,6 +90,7 @@ export function IconAppearancePanel(props: {
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               <Button startIcon={<TravelExploreRoundedIcon />} onClick={handleFetchIcon} disabled={props.busy || !iconFetchEnabled} title={iconFetchTitle}>{iconFetchLabel}</Button>
               <Button startIcon={<ImageRoundedIcon />} onClick={props.onPickImage} disabled={props.busy}>选择图片</Button>
+              <Button startIcon={<ContentPasteRoundedIcon />} onClick={props.onPasteImage} disabled={props.busy}>粘贴图片</Button>
               <Button startIcon={<RestartAltRoundedIcon />} onClick={() => props.onChangeDraft(defaultDesktopIcon)} disabled={props.busy}>默认图标</Button>
               <Button onClick={props.onReset} disabled={props.busy}>清除自定义</Button>
             </Stack>

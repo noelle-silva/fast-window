@@ -49,6 +49,7 @@ import {
 import type { SelectChangeEvent } from '@mui/material/Select'
 import { createDirectClient } from './backendClient'
 import { CATEGORY_DEFINITIONS, categoryDefinition, type CategoryDefinition } from './categoryRegistry'
+import { clipboardImageDataUrlFromClipboard, clipboardImageDataUrlFromPasteEvent } from './clipboardImage'
 import { ContainerOverlay } from './ContainerOverlay'
 import type { ContainerItemDragEvent } from './ContainerOverlay'
 import { ContainerDialog, IconAppearancePanel } from './DesktopDialogs'
@@ -277,6 +278,22 @@ export function App() {
   React.useEffect(() => {
     if (!doc.groups.some(group => group.id === groupId)) setGroupId(DEFAULT_GROUP_ID)
   }, [doc.groups, groupId])
+  React.useEffect(() => {
+    if (!editing || !client) return
+    const onPaste = (event: ClipboardEvent) => {
+      void (async () => {
+        const dataUrl = await clipboardImageDataUrlFromPasteEvent(event)
+        if (!dataUrl) return
+        event.preventDefault()
+        setBusy(true); setError(null)
+        try { await importIconDataUrl(dataUrl, '剪贴板图片') }
+        catch (e) { setError(errorMessage(e, '粘贴剪贴板图片失败')) }
+        finally { setBusy(false) }
+      })()
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [client, editing])
   React.useEffect(() => {
     const close = () => setContextMenu(null)
     window.addEventListener('resize', close)
@@ -847,6 +864,29 @@ export function App() {
     return { kind: 'image', assetId: asset.id }
   }
 
+  async function importIconDataUrl(dataUrl: string, label: string) {
+    if (!client || !editing) return
+    const asset = await client.request<DesktopAsset>('collections.assets.import', { kind: 'icon', dataUrl })
+    const icon: DesktopIcon = { kind: 'image', assetId: asset.id }
+    setForm(current => ({
+      ...current,
+      icon: {
+        draftIcon: icon,
+        candidates: upsertIconCandidate(current.icon.candidates, { id: importedIconCandidateId(asset.id), label, icon }),
+      },
+    }))
+  }
+
+  async function pasteFormIconImage() {
+    if (!client || !editing) return
+    setBusy(true); setError(null)
+    try {
+      const dataUrl = await clipboardImageDataUrlFromClipboard()
+      await importIconDataUrl(dataUrl, '剪贴板图片')
+    } catch (e) { setError(errorMessage(e, '粘贴剪贴板图片失败')) }
+    finally { setBusy(false) }
+  }
+
   async function fetchFormSystemIcon() {
     if (!client || !editing) return
     const target = form.target.trim()
@@ -1097,6 +1137,7 @@ export function App() {
         onClose={() => setEditing(null)}
         onFetchSystemIcon={() => void fetchFormSystemIcon()}
         onFetchWebIcons={() => void fetchFormWebIcons()}
+        onPasteIconImage={() => void pasteFormIconImage()}
         onPickIconImage={() => void pickFormIconImage()}
         onPickTarget={() => void pickItemTarget()}
         onResetIcon={() => updateFormIconDraft(null)}
@@ -1559,6 +1600,7 @@ function ItemDialog(props: {
   onClose(): void
   onFetchWebIcons(): void
   onFetchSystemIcon(): void
+  onPasteIconImage(): void
   onPickIconImage(): void
   onPickTarget(): void
   onResetIcon(): void
@@ -1627,6 +1669,7 @@ function ItemDialog(props: {
             onChangeDraft={props.onChangeIconDraft}
             onFetchSystemIcon={props.onFetchSystemIcon}
             onFetchWebIcons={props.onFetchWebIcons}
+            onPasteImage={props.onPasteIconImage}
             onPickImage={props.onPickIconImage}
             onReset={props.onResetIcon}
             onSelectCandidate={props.onSelectIconCandidate}

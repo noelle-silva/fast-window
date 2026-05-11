@@ -614,6 +614,45 @@ func TestWebIconDiscoveryReturnsMultipleLocalizableCandidates(t *testing.T) {
 	}
 }
 
+func TestWebIconDiscoveryReturnsImportantLogoAndAvatarCandidates(t *testing.T) {
+	png := mustTinyPNG(t)
+	logoSVG := []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><circle cx="48" cy="48" r="44" fill="#0EA5E9"/></svg>`)
+	inlineSVG := []byte(`<svg class="brand-logo" xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#7C3AED"/></svg>`)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprintf(w, `<html><body><header><img class="site-logo" alt="Example Logo" src="/brand-logo.svg">%s</header><main><img class="channel-avatar" alt="Creator Avatar" srcset="/avatar-small.png 64w, /avatar-large.png 128w"></main></body></html>`, inlineSVG)
+		case "/brand-logo.svg":
+			w.Header().Set("Content-Type", "image/svg+xml")
+			_, _ = w.Write(logoSVG)
+		case "/avatar-small.png", "/avatar-large.png", "/favicon.ico":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(png)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	result, err := discoverWebIcons(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sources := map[string]bool{}
+	for _, candidate := range result.Candidates {
+		if candidate.DataURL == "" || !strings.HasPrefix(candidate.DataURL, "data:image/") {
+			t.Fatalf("expected localizable important candidate, got %#v", candidate)
+		}
+		sources[candidate.Source] = true
+	}
+	for _, source := range []string{"inline-svg", "brand-logo", "avatar"} {
+		if !sources[source] {
+			t.Fatalf("expected %s candidate, got %#v", source, result.Candidates)
+		}
+	}
+}
+
 func TestSelectedWebIconCandidateCanBeImportedAsLocalAsset(t *testing.T) {
 	svc := readyService(t)
 	png := mustTinyPNG(t)

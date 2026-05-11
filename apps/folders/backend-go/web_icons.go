@@ -24,6 +24,7 @@ import (
 const (
 	maxWebIconHTMLBytes     = 1024 * 1024
 	maxWebIconManifestBytes = 512 * 1024
+	maxInlineSVGIconBytes   = 160 * 1024
 	maxWebIconCandidates    = 24
 	maxWebIconFetchRefs     = 48
 	webIconRequestTimeout   = 12 * time.Second
@@ -153,7 +154,8 @@ func discoverWebIconRefs(client *http.Client, pageURL *url.URL, html string) ([]
 	baseURL := *pageURL
 	baseSeen := false
 	order := 0
-	for _, tag := range scanHTMLTags(html) {
+	tags := scanHTMLTags(html)
+	for _, tag := range tags {
 		switch tag.Name {
 		case "base":
 			if baseSeen {
@@ -181,8 +183,16 @@ func discoverWebIconRefs(client *http.Client, pageURL *url.URL, html string) ([]
 			metaRefs := webIconRefsFromMetaTag(&baseURL, tag, order)
 			refs = append(refs, metaRefs...)
 			order += len(metaRefs)
+		case "img", "source":
+			imageRefs := webIconRefsFromImageTag(&baseURL, tag, order)
+			refs = append(refs, imageRefs...)
+			order += len(imageRefs)
 		}
 	}
+	inlineSVGRefs := webIconRefsFromInlineSVG(html, order)
+	refs = append(refs, inlineSVGRefs...)
+	order += len(inlineSVGRefs)
+	refs = append(refs, commonLogoPathRefs(pageURL, order)...)
 	return refs, warnings
 }
 
@@ -221,11 +231,107 @@ func webIconRefsFromMetaTag(baseURL *url.URL, tag htmlTag, order int) []webIconR
 		return []webIconRef{{URL: resolved, Label: "Windows 磁贴图标", Source: "meta", Priority: 42, Order: order}}
 	}
 	switch name {
-	case "og:image", "twitter:image", "twitter:image:src":
-		return []webIconRef{{URL: resolved, Label: "分享图候选", Source: "meta", Priority: 95, Order: order}}
+	case "avatar", "author:image", "profile:image", "profile:avatar", "twitter:creator:image", "twitter:site:image":
+		return []webIconRef{{URL: resolved, Label: "作者头像", Source: "avatar", Priority: 13, Order: order}}
 	default:
 		return nil
 	}
+}
+
+func webIconRefsFromImageTag(baseURL *url.URL, tag htmlTag, order int) []webIconRef {
+	semantic := htmlTagSemanticText(tag)
+	label := ""
+	source := ""
+	priority := 0
+	if hasLogoSemantic(semantic) {
+		label = "网站 Logo"
+		source = "brand-logo"
+		priority = 12
+	} else if hasAvatarSemantic(semantic) {
+		label = "作者头像"
+		source = "avatar"
+		priority = 13
+	} else {
+		return nil
+	}
+	imageURL := imageURLFromTag(tag)
+	if imageURL == "" {
+		return nil
+	}
+	resolved, ok := resolveWebIconURL(baseURL, imageURL)
+	if !ok {
+		return nil
+	}
+	return []webIconRef{{URL: resolved, Label: label, Source: source, MediaType: strings.TrimSpace(tag.Attrs["type"]), Sizes: imageTagSizes(tag), Priority: priority, Order: order}}
+}
+
+func imageTagSizes(tag htmlTag) string {
+	if sizes := strings.TrimSpace(tag.Attrs["sizes"]); sizes != "" {
+		return sizes
+	}
+	width := strings.TrimSpace(tag.Attrs["width"])
+	height := strings.TrimSpace(tag.Attrs["height"])
+	if width == "" || height == "" {
+		return ""
+	}
+	return width + "x" + height
+}
+
+func webIconRefsFromInlineSVG(html string, order int) []webIconRef {
+	refs := []webIconRef{}
+	searchFrom := 0
+	for searchFrom < len(html) {
+		startOffset := strings.Index(strings.ToLower(html[searchFrom:]), "<svg")
+		if startOffset < 0 {
+			break
+		}
+		start := searchFrom + startOffset
+		startEnd := htmlTagEnd(html, start+1)
+		if startEnd < 0 {
+			break
+		}
+		name, attrs := parseHTMLTagContent(html[start+1 : startEnd])
+		if name != "svg" {
+			searchFrom = startEnd + 1
+			continue
+		}
+		closeOffset := strings.Index(strings.ToLower(html[startEnd+1:]), "</svg>")
+		if closeOffset < 0 {
+			searchFrom = startEnd + 1
+			continue
+		}
+		end := startEnd + 1 + closeOffset + len("</svg>")
+		markup := html[start:end]
+		searchFrom = end
+		if len(markup) > maxInlineSVGIconBytes || !hasLogoSemantic(htmlTagSemanticText(htmlTag{Name: "svg", Attrs: attrs})) {
+			continue
+		}
+		dataURL := "data:image/svg+xml;base64," + base64.StdEncoding.EncodeToString([]byte(markup))
+		refs = append(refs, webIconRef{URL: dataURL, Label: "内联 SVG Logo", Source: "inline-svg", MediaType: "image/svg+xml", Priority: 11, Order: order + len(refs)})
+	}
+	return refs
+}
+
+func commonLogoPathRefs(pageURL *url.URL, order int) []webIconRef {
+	paths := []string{
+		"/logo.svg",
+		"/logo.png",
+		"/brand.svg",
+		"/brand.png",
+		"/assets/logo.svg",
+		"/assets/logo.png",
+		"/static/logo.svg",
+		"/static/logo.png",
+	}
+	refs := make([]webIconRef, 0, len(paths))
+	for index, path := range paths {
+		base := *pageURL
+		base.Path = path
+		base.RawQuery = ""
+		base.Fragment = ""
+		refs = append(refs, webIconRef{URL: base.String(), Label: "站点 Logo", Source: "site-logo", Priority: 64 + index, Order: order + index})
+	}
+	return refs
 }
 
 func classifyLinkIconRel(tokens map[string]bool) (label string, source string, priority int, ok bool) {
@@ -241,6 +347,90 @@ func classifyLinkIconRel(tokens map[string]bool) (label string, source string, p
 	default:
 		return "", "", 0, false
 	}
+}
+
+func htmlTagSemanticText(tag htmlTag) string {
+	keys := []string{"id", "class", "alt", "title", "aria-label", "itemprop", "property", "name", "role", "src", "srcset", "href", "data-src", "data-lazy-src", "data-original"}
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		if value := strings.TrimSpace(tag.Attrs[key]); value != "" {
+			parts = append(parts, value)
+		}
+	}
+	return strings.ToLower(strings.Join(parts, " "))
+}
+
+func hasLogoSemantic(text string) bool {
+	if text == "" {
+		return false
+	}
+	if containsAny(text, []string{"logo", "brand", "site-logo", "site_logo", "navbar-brand", "header-logo", "masthead", "wordmark"}) {
+		return true
+	}
+	return false
+}
+
+func hasAvatarSemantic(text string) bool {
+	if text == "" {
+		return false
+	}
+	if containsAny(text, []string{"avatar", "author", "creator", "channel", "profile", "userpic", "user-pic", "headshot", "face"}) {
+		return true
+	}
+	return false
+}
+
+func containsAny(text string, needles []string) bool {
+	for _, needle := range needles {
+		if strings.Contains(text, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func imageURLFromTag(tag htmlTag) string {
+	for _, key := range []string{"src", "data-src", "data-lazy-src", "data-original", "data-url"} {
+		if value := strings.TrimSpace(tag.Attrs[key]); value != "" {
+			return value
+		}
+	}
+	return bestSrcSetURL(firstNonEmpty(tag.Attrs["srcset"], tag.Attrs["data-srcset"]))
+}
+
+func bestSrcSetURL(srcset string) string {
+	type srcsetCandidate struct {
+		url   string
+		score float64
+	}
+	best := srcsetCandidate{}
+	for _, rawPart := range strings.Split(srcset, ",") {
+		part := strings.TrimSpace(rawPart)
+		if part == "" {
+			continue
+		}
+		fields := strings.Fields(part)
+		if len(fields) == 0 {
+			continue
+		}
+		score := 1.0
+		if len(fields) > 1 {
+			descriptor := strings.TrimSpace(fields[1])
+			if strings.HasSuffix(descriptor, "w") {
+				if width, err := strconv.ParseFloat(strings.TrimSuffix(descriptor, "w"), 64); err == nil {
+					score = width
+				}
+			} else if strings.HasSuffix(descriptor, "x") {
+				if density, err := strconv.ParseFloat(strings.TrimSuffix(descriptor, "x"), 64); err == nil {
+					score = density * 1000
+				}
+			}
+		}
+		if fields[0] != "" && score >= best.score {
+			best = srcsetCandidate{url: fields[0], score: score}
+		}
+	}
+	return best.url
 }
 
 func discoverWebManifestIconRefs(client *http.Client, manifestURL string, order int) ([]webIconRef, []string) {
