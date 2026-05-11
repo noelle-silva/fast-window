@@ -94,7 +94,7 @@ function App() {
 
   // Registered Apps (v5)
   const registeredAppsCtx = useRegisteredApps()
-  const { apps: registeredApps, load: loadRegisteredApps, add: addRegisteredApp, remove: removeRegisteredApp, update: updateRegisteredApp } = registeredAppsCtx
+  const { apps: registeredApps, load: loadRegisteredApps, add: addRegisteredApp, replace: replaceRegisteredApp, remove: removeRegisteredApp, update: updateRegisteredApp } = registeredAppsCtx
   const [registeredAppStatuses, setRegisteredAppStatuses] = useState<Record<string, AppStatus>>({})
 
   // Search
@@ -760,6 +760,7 @@ function App() {
                     onBack={onBackFromPlugin}
                     registeredApps={registeredApps}
                     onAddRegisteredApp={addRegisteredApp}
+                    onReplaceRegisteredApp={replaceRegisteredApp}
                     onRemoveRegisteredApp={removeRegisteredApp}
                     onUpdateRegisteredApp={updateRegisteredApp}
                     appRegistrationEditRequest={appRegistrationEditRequest}

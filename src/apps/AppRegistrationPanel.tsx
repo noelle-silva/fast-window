@@ -13,13 +13,14 @@ import AppCardView from './AppCardView'
 import AppCommandEditor from './AppCommandEditor'
 import { getAppStatus } from './appLauncher'
 import { appStopToastMessage, stopRegisteredApp } from './appStop'
-import { generateSafeId } from './ids'
+import { inspectInstalledApp } from './installedAppInfo'
 import { hostToast } from '../host/hostPrimitives'
 import { buildShortcutFromEvent, pauseShortcutRecordingGuards, resumeShortcutRecordingGuards } from '../shortcuts'
 
 interface AppRegistrationPanelProps {
   apps: RegisteredApp[]
   onAdd: (app: RegisteredApp) => void | Promise<void>
+  onReplace: (previousId: string, app: RegisteredApp) => void | Promise<void>
   onRemove: (id: string) => void | Promise<void>
   onUpdate: (id: string, patch: RegisteredAppUpdatePatch) => void | Promise<void>
   onClose?: () => void
@@ -47,6 +48,7 @@ async function readAppIcon(path: string) {
 export default function AppRegistrationPanel({
   apps,
   onAdd,
+  onReplace,
   onRemove,
   onUpdate,
   onClose,
@@ -64,6 +66,7 @@ export default function AppRegistrationPanel({
   const [displayMode, setDisplayMode] = useState<AppDisplayMode>('default')
   const [commands, setCommands] = useState<RegisteredAppCommand[]>([])
   const [availableCommands, setAvailableCommands] = useState<RegisteredAppCommand[]>([])
+  const [commandsEdited, setCommandsEdited] = useState(false)
   const [saving, setSaving] = useState(false)
   const [pickingPath, setPickingPath] = useState(false)
   const [removingId, setRemovingId] = useState<string | null>(null)
@@ -93,6 +96,7 @@ export default function AppRegistrationPanel({
     setDisplayMode('default')
     setCommands([])
     setAvailableCommands([])
+    setCommandsEdited(false)
     setPickingPath(false)
     closeEditMenu()
     setEditOpen(true)
@@ -108,6 +112,7 @@ export default function AppRegistrationPanel({
     setDisplayMode(app.displayMode)
     setCommands(Array.isArray(app.commands) ? app.commands : [])
     setAvailableCommands(Array.isArray(app.availableCommands) ? app.availableCommands : [])
+    setCommandsEdited(true)
     setPickingPath(false)
     closeEditMenu()
     setEditOpen(true)
@@ -128,11 +133,16 @@ export default function AppRegistrationPanel({
     try {
       const picked = await invoke<string | null>('host_dialog_pick_app_executable')
       if (!picked) return
-      setPath(picked)
-      const nextIcon = await readAppIcon(picked)
-      if (nextIcon) setIcon(nextIcon)
+      const info = await inspectInstalledApp(picked)
+      setName(info.name)
+      setPath(info.path)
+      setIcon(info.icon || await readAppIcon(info.path))
+      setDisplayMode(info.displayMode)
+      setCommands(info.commands)
+      setAvailableCommands(info.commands)
+      setCommandsEdited(false)
     } catch (error: any) {
-      await hostToast(String(error?.message || error || '选择应用文件失败'))
+      await hostToast(String(error?.message || error || '选择的文件不是有效 v5 应用'))
     } finally {
       setPickingPath(false)
     }
@@ -182,29 +192,51 @@ export default function AppRegistrationPanel({
   const save = async () => {
     const n = name.trim()
     const p = path.trim()
-    if (!n || !p) return
+    if (!p) return
 
     setSaving(true)
     try {
-      const id = editingId ?? generateSafeId(n)
+      const info = await inspectInstalledApp(p)
+      const nextName = n || info.name
       const existingApp = editingId ? apps.find(app => app.id === editingId) : null
-      const nextIcon = await readAppIcon(p) || icon || existingApp?.icon || ''
+      const nextIcon = info.icon || icon || existingApp?.icon || await readAppIcon(info.path) || ''
       const nextHotkey = hotkey.trim()
       const nextCommands = normalizedCommands()
+      const commandsToSave = commandsEdited ? nextCommands : (nextCommands.length ? nextCommands : info.commands)
+      const nextApp: RegisteredApp = {
+        id: info.id,
+        name: nextName,
+        icon: nextIcon,
+        path: info.path,
+        version: info.version,
+        hotkey: nextHotkey || undefined,
+        displayMode,
+        commands: commandsToSave,
+        availableCommands: info.commands,
+        autoStart: existingApp?.autoStart ?? false,
+        windowWidth: existingApp?.windowWidth,
+        windowHeight: existingApp?.windowHeight,
+        windowX: existingApp?.windowX,
+        windowY: existingApp?.windowY,
+      }
 
       if (editingId) {
-        await onUpdate(editingId, { name: n, path: p, icon: nextIcon, hotkey: nextHotkey || null, displayMode, commands: nextCommands })
+        if (editingId === info.id) {
+          await onUpdate(editingId, {
+            name: nextApp.name,
+            path: nextApp.path,
+            version: nextApp.version,
+            icon: nextIcon,
+            hotkey: nextHotkey || null,
+            displayMode,
+            commands: commandsToSave,
+            availableCommands: info.commands,
+          })
+        } else {
+          await onReplace(editingId, nextApp)
+        }
       } else {
-        await onAdd({
-          id,
-          name: n,
-          icon: nextIcon,
-          path: p,
-          hotkey: nextHotkey || undefined,
-          displayMode,
-          commands: nextCommands,
-          autoStart: false,
-        })
+        await onAdd(nextApp)
       }
       setHotkeyRecording(false)
       closeEditMenu()
@@ -356,7 +388,14 @@ export default function AppRegistrationPanel({
               <ToggleButton value="top">置顶</ToggleButton>
             </ToggleButtonGroup>
           </Box>
-          <AppCommandEditor commands={commands} availableCommands={availableCommands} onChange={setCommands} />
+          <AppCommandEditor
+            commands={commands}
+            availableCommands={availableCommands}
+            onChange={nextCommands => {
+              setCommandsEdited(true)
+              setCommands(nextCommands)
+            }}
+          />
         </DialogContent>
         <DialogActions>
           <Button disabled={saving} onClick={closeEditDialog}>取消</Button>

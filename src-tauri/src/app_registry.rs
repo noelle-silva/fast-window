@@ -118,6 +118,43 @@ pub(crate) fn upsert_registered_app_record(
     save_registry_and_refresh_shortcuts(app, registry)
 }
 
+pub(crate) fn replace_registered_app_record(
+    app: &AppHandle,
+    previous_id: &str,
+    app_record: Value,
+) -> Result<(), String> {
+    let previous_id = previous_id.trim();
+    if !crate::is_safe_id(previous_id) {
+        return Err("previousAppId 不合法".to_string());
+    }
+
+    let next_id = validate_app_value(&app_record)?;
+    let mut registry = load_registered_app_records(app)?;
+    let mut replaced = false;
+    let mut next = Vec::with_capacity(registry.len());
+
+    for item in registry.drain(..) {
+        let item_id = app_id_from_value(&item);
+        if item_id == Some(previous_id) {
+            if !replaced {
+                next.push(app_record.clone());
+                replaced = true;
+            }
+            continue;
+        }
+        if item_id == Some(next_id.as_str()) {
+            continue;
+        }
+        next.push(item);
+    }
+
+    if !replaced {
+        next.push(app_record);
+    }
+
+    save_registry_and_refresh_shortcuts(app, next)
+}
+
 fn save_registry_array(app: &AppHandle, items: Vec<Value>) -> Result<(), String> {
     let path = crate::storage_value_path(app, crate::APP_STORAGE_ID, REGISTRY_KEY)?;
     crate::write_json_value(&path, &Value::Array(items))
@@ -266,6 +303,15 @@ pub(crate) fn app_registry_save(app: AppHandle, apps: Vec<Value>) -> Result<(), 
 #[tauri::command]
 pub(crate) fn app_registry_add(app: AppHandle, app_record: Value) -> Result<(), String> {
     upsert_registered_app_record(&app, app_record)
+}
+
+#[tauri::command]
+pub(crate) fn app_registry_replace(
+    app: AppHandle,
+    previous_app_id: String,
+    app_record: Value,
+) -> Result<(), String> {
+    replace_registered_app_record(&app, &previous_app_id, app_record)
 }
 
 #[tauri::command]

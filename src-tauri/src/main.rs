@@ -2589,6 +2589,8 @@ fn main() {
         app_installer::get_apps_dir,
         app_installer::open_apps_dir,
         app_installer::pick_app_install_dir,
+        app_installer::inspect_installed_app,
+        app_installer::inspect_local_store_app,
         app_installer::app_store_install,
         app_installer::app_store_update,
         // v3 稳定 process 命令入口（v2 旧命令仍保留在后面）
@@ -2608,6 +2610,7 @@ fn main() {
         app_registry::app_registry_load,
         app_registry::app_registry_save,
         app_registry::app_registry_add,
+        app_registry::app_registry_replace,
         app_registry::app_registry_remove,
         app_registry::app_registry_update,
         app_shortcuts::pause_registered_app_shortcuts,

@@ -76,9 +76,33 @@ pub(crate) struct AppStoreInstallResult {
     path: String,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct InstalledAppInfo {
+    id: String,
+    name: String,
+    version: String,
+    path: String,
+    icon: String,
+    display_mode: String,
+    commands: Vec<AppPackageCommand>,
+}
+
 struct ExtractedAppPackage {
     tmp_dir: PathBuf,
     manifest: AppPackageManifest,
+}
+
+struct ResolvedInstalledApp {
+    app_root: PathBuf,
+    exe_path: PathBuf,
+    manifest: AppPackageManifest,
+}
+
+struct RegisteredInstalledApp {
+    registry_id: String,
+    record: Value,
+    installed: ResolvedInstalledApp,
 }
 
 impl Drop for ExtractedAppPackage {
@@ -115,12 +139,30 @@ pub(crate) fn pick_app_install_dir(app: AppHandle) -> Result<Option<String>, Str
 }
 
 #[tauri::command]
+pub(crate) fn inspect_installed_app(exe_path: String) -> Result<InstalledAppInfo, String> {
+    let exe_path = PathBuf::from(exe_path.trim());
+    let installed = resolve_installed_app_from_exe(&exe_path)?.ok_or_else(|| {
+        "无法定位已安装应用的 fw-app.json，拒绝注册".to_string()
+    })?;
+    installed_app_info(&installed)
+}
+
+#[tauri::command]
+pub(crate) fn inspect_local_store_app(exe_path: String) -> Result<Option<InstalledAppInfo>, String> {
+    let exe_path = PathBuf::from(exe_path.trim());
+    let Some(installed) = resolve_installed_app_from_exe(&exe_path)? else {
+        return Ok(None);
+    };
+    installed_app_info(&installed).map(Some)
+}
+
+#[tauri::command]
 pub(crate) async fn app_store_install(
     app: AppHandle,
     req: AppStoreInstallRequest,
 ) -> Result<AppStoreInstallResult, String> {
     let req = normalize_install_request(req)?;
-    if crate::app_registry::load_registered_app_record(&app, &req.expected_id)?.is_some() {
+    if find_registered_app_by_store_id(&app, &req.expected_id)?.is_some() {
         return Err("应用已注册，请使用更新操作".to_string());
     }
     let install_root = PathBuf::from(req.install_dir.trim());
@@ -140,9 +182,9 @@ pub(crate) async fn app_store_update(
     req: AppStoreUpdateRequest,
 ) -> Result<AppStoreInstallResult, String> {
     let req = normalize_update_request(req)?;
-    let existing = crate::app_registry::load_registered_app_record(&app, &req.expected_id)?
+    let existing = find_registered_app_by_store_id(&app, &req.expected_id)?
         .ok_or_else(|| format!("注册应用不存在: {}", req.expected_id))?;
-    let (dst_dir, _existing_path) = resolve_installed_app_target(&existing, &req.expected_id)?;
+    let dst_dir = existing.installed.app_root.clone();
     if !dst_dir.is_dir() {
         return Err("已注册应用安装目录不存在，拒绝更新".to_string());
     }
@@ -159,8 +201,8 @@ pub(crate) async fn app_store_update(
             .to_string(),
     };
     let package = download_and_extract_app_package(&install_req).await?;
-    let _ = stop_registered_app_for_update(state.inner(), &install_req.expected_id).await?;
-    install_extracted_app_package(&app, package, dst_dir, Some(existing)).await
+    let _ = stop_registered_app_for_update(state.inner(), &existing.registry_id).await?;
+    install_extracted_app_package(&app, package, dst_dir, Some(existing.record)).await
 }
 
 fn normalize_install_request(
@@ -271,35 +313,125 @@ fn registered_app_path(value: &Value) -> Result<PathBuf, String> {
     Ok(p)
 }
 
-fn resolve_installed_app_target(
-    value: &Value,
-    expected_id: &str,
-) -> Result<(PathBuf, PathBuf), String> {
-    let exe_path = registered_app_path(value)?;
+fn registered_app_id(value: &Value) -> Result<String, String> {
+    let id = value
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .ok_or_else(|| "已注册应用缺少 id".to_string())?;
+    normalize_app_id(id, "appId")
+}
+
+fn manifest_identity(manifest: &AppPackageManifest) -> Result<(String, String), String> {
+    let id = normalize_app_id(&manifest.id, "fw-app.id")?;
+    let version = normalize_version(&manifest.version, "fw-app.version")?;
+    Ok((id, version))
+}
+
+fn validate_manifest_against_self(manifest: &AppPackageManifest) -> Result<(String, String), String> {
+    let (id, version) = manifest_identity(manifest)?;
+    validate_package_manifest(manifest, &id, &version)?;
+    Ok((id, version))
+}
+
+fn resolve_installed_app_from_exe(exe_path: &Path) -> Result<Option<ResolvedInstalledApp>, String> {
+    if !exe_path.is_file() {
+        return Err(format!("应用文件不存在: {}", exe_path.display()));
+    }
+
     let mut dir = exe_path
         .parent()
         .map(Path::to_path_buf)
-        .ok_or_else(|| "已注册应用路径没有父目录".to_string())?;
+        .ok_or_else(|| "应用路径没有父目录".to_string())?;
 
     loop {
         let manifest_path = dir.join(FW_APP_MANIFEST);
         if manifest_path.is_file() {
             let manifest = read_installed_manifest(&manifest_path)?;
-            validate_package_manifest(&manifest, expected_id, &manifest.version)?;
-            let rel = safe_relative_path_no_curdir(&manifest.windows_executable)?;
-            let declared_exe = dir.join(rel);
-            if !same_path(&declared_exe, &exe_path) {
+            validate_manifest_against_self(&manifest)?;
+            let declared_exe = dir.join(safe_relative_path_no_curdir(&manifest.windows_executable)?);
+            if !same_path(&declared_exe, exe_path) {
                 return Err(
-                    "已注册应用 path 与 fw-app.json 的 windowsExecutable 不一致，拒绝更新"
+                    "所选应用文件不是 fw-app.json 声明的 windowsExecutable，拒绝注册"
                         .to_string(),
                 );
             }
-            return Ok((dir, exe_path));
+            validate_extracted_app(&dir, &manifest)?;
+            return Ok(Some(ResolvedInstalledApp {
+                app_root: dir,
+                exe_path: declared_exe,
+                manifest,
+            }));
         }
         if !dir.pop() {
-            return Err("无法定位已安装应用的 fw-app.json，拒绝商店更新".to_string());
+            return Ok(None);
         }
     }
+}
+
+fn installed_app_info(installed: &ResolvedInstalledApp) -> Result<InstalledAppInfo, String> {
+    let (id, version) = validate_manifest_against_self(&installed.manifest)?;
+    Ok(InstalledAppInfo {
+        id,
+        name: installed.manifest.name.trim().to_string(),
+        version,
+        path: installed.exe_path.to_string_lossy().to_string(),
+        icon: resolve_app_icon(&installed.manifest, &installed.app_root, &installed.exe_path)?,
+        display_mode: installed
+            .manifest
+            .display_mode
+            .as_deref()
+            .map(str::trim)
+            .filter(|mode| !mode.is_empty())
+            .unwrap_or("default")
+            .to_string(),
+        commands: installed.manifest.commands.clone(),
+    })
+}
+
+fn registered_record_as_installed_app(value: Value) -> Result<RegisteredInstalledApp, String> {
+    let registry_id = registered_app_id(&value)?;
+    let exe_path = registered_app_path(&value)?;
+    let installed = resolve_installed_app_from_exe(&exe_path)?.ok_or_else(|| {
+        "无法定位已安装应用的 fw-app.json，拒绝商店更新".to_string()
+    })?;
+    Ok(RegisteredInstalledApp {
+        registry_id,
+        record: value,
+        installed,
+    })
+}
+
+fn find_registered_app_by_store_id(
+    app: &AppHandle,
+    expected_id: &str,
+) -> Result<Option<RegisteredInstalledApp>, String> {
+    let mut matches = Vec::new();
+    for record in crate::app_registry::load_registered_app_records(app)? {
+        let registry_id = registered_app_id(&record)?;
+        let exact_registry_id = registry_id == expected_id;
+        let installed = match registered_record_as_installed_app(record) {
+            Ok(installed) => installed,
+            Err(error) if exact_registry_id => return Err(error),
+            Err(_) => continue,
+        };
+
+        let (app_id, _) = manifest_identity(&installed.installed.manifest)?;
+        if app_id == expected_id {
+            matches.push(installed);
+        } else if exact_registry_id {
+            return Err(format!(
+                "注册应用 id 与 fw-app.id 不一致：registered={}, manifest={}",
+                expected_id, app_id
+            ));
+        }
+    }
+
+    if matches.len() > 1 {
+        return Err(format!("多个注册应用指向同一个商店应用: {expected_id}"));
+    }
+    Ok(matches.pop())
 }
 
 fn read_installed_manifest(path: &Path) -> Result<AppPackageManifest, String> {
@@ -651,7 +783,15 @@ async fn install_extracted_app_package(
     let record =
         build_registered_app_record(&package.manifest, &dst_dir, &exe_path, existing.as_ref())?;
 
-    if let Err(error) = crate::app_registry::upsert_registered_app_record(app, record) {
+    let registry_result = match existing.as_ref() {
+        Some(existing) => {
+            let previous_id = registered_app_id(existing)?;
+            crate::app_registry::replace_registered_app_record(app, &previous_id, record)
+        }
+        None => crate::app_registry::upsert_registered_app_record(app, record),
+    };
+
+    if let Err(error) = registry_result {
         let rollback = replacement.rollback().err();
         return Err(match rollback {
             Some(rollback_error) => format!("注册应用失败: {error}; 回滚失败: {rollback_error}"),
@@ -722,6 +862,10 @@ fn build_registered_app_record(
                 .map_err(|e| format!("序列化应用命令失败: {e}"))?,
         );
     }
+    record.insert(
+        "availableCommands".to_string(),
+        serde_json::to_value(&manifest.commands).map_err(|e| format!("序列化应用命令失败: {e}"))?,
+    );
     if !record.contains_key("autoStart") {
         record.insert("autoStart".to_string(), Value::Bool(false));
     }

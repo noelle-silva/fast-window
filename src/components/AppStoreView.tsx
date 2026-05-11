@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { alpha } from '@mui/material/styles'
 import {
@@ -27,8 +27,8 @@ import { appStoreInstall, appStoreUpdate, getAppsDir, pickAppInstallDir } from '
 import { fetchStoreCatalog } from '../appStore/catalogClient'
 import type { LegacyPluginStoreEntry, StoreAppEntry, StoreCatalog } from '../appStore/catalogTypes'
 import { isStoreImageIcon, storeIconToDisplay } from '../appStore/icon'
+import { loadLocalStoreApps, type LocalStoreApp } from '../appStore/localApps'
 import { cmpSemver, parseSemverStrict } from '../appStore/semver'
-import type { RegisteredApp } from '../apps/types'
 import { loadRegistry } from '../apps/appRegistry'
 import { pluginStoreInstall } from '../plugins/pluginStore'
 import { getPluginAssetMime, isDataImageUrl, resolveLocalPluginIconPath } from '../plugins/pluginIcon'
@@ -127,7 +127,7 @@ export default function AppStoreView(props: Props) {
 
   const [wallpaper, setWallpaper] = useState<WallpaperSettings | null>(null)
   const [catalog, setCatalog] = useState<StoreCatalog | null>(null)
-  const [registeredApps, setRegisteredApps] = useState<RegisteredApp[]>([])
+  const [localApps, setLocalApps] = useState<Map<string, LocalStoreApp>>(new Map())
   const [localPlugins, setLocalPlugins] = useState<LocalPluginMeta>({ versions: new Map(), icons: new Map() })
   const [defaultAppsDir, setDefaultAppsDir] = useState('')
   const [loading, setLoading] = useState(false)
@@ -136,12 +136,6 @@ export default function AppStoreView(props: Props) {
   const [busy, setBusy] = useState<BusyState | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const requestSeqRef = useRef(0)
-
-  const registeredById = useMemo(() => {
-    const out = new Map<string, RegisteredApp>()
-    for (const app of registeredApps) out.set(app.id, app)
-    return out
-  }, [registeredApps])
 
   useEffect(() => {
     void getWallpaperSettings()
@@ -161,7 +155,8 @@ export default function AppStoreView(props: Props) {
       loadLocalPluginMeta(),
       getAppsDir().catch(() => ''),
     ])
-    setRegisteredApps(apps)
+    const localStoreApps = await loadLocalStoreApps(apps)
+    setLocalApps(localStoreApps)
     setLocalPlugins(pluginMeta)
     setDefaultAppsDir(appsDir)
   }, [])
@@ -299,7 +294,7 @@ export default function AppStoreView(props: Props) {
             <>
               <StoreAppSection
                 items={catalog.apps}
-                registeredById={registeredById}
+                localApps={localApps}
                 busy={busy}
                 defaultAppsDir={defaultAppsDir}
                 panelSx={panelSx}
@@ -343,14 +338,14 @@ function StoreLoading() {
 
 function StoreAppSection(props: {
   items: StoreAppEntry[]
-  registeredById: Map<string, RegisteredApp>
+  localApps: Map<string, LocalStoreApp>
   busy: BusyState | null
   defaultAppsDir: string
   panelSx: (theme: any) => any
   wallpaperEnabled: boolean
   onAction: (item: StoreAppEntry, action: 'install' | 'update') => void
 }) {
-  const { items, registeredById, busy, defaultAppsDir, panelSx, wallpaperEnabled, onAction } = props
+  const { items, localApps, busy, defaultAppsDir, panelSx, wallpaperEnabled, onAction } = props
   return (
     <Box sx={panelSx}>
       <Typography variant="body2" sx={{ fontWeight: 800, mb: 0.5 }}>v5 应用（{items.length}）</Typography>
@@ -360,7 +355,7 @@ function StoreAppSection(props: {
       {items.length === 0 ? <EmptyText text="catalog.apps 中未发现有效条目" /> : (
         <StoreGrid>
           {items.map(item => {
-            const local = registeredById.get(item.id)
+            const local = localApps.get(item.id)
             const localVersion = installedVersion(local?.version)
             const compare = localVersion ? compareVersions(item.version, localVersion) : null
             const needsUpdate = !!local && (!localVersion || compare == null || compare > 0)

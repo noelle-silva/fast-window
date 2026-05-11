@@ -15,6 +15,10 @@ export async function addApp(app: RegisteredApp): Promise<void> {
   await invoke('app_registry_add', { appRecord: app })
 }
 
+export async function replaceApp(previousId: string, app: RegisteredApp): Promise<void> {
+  await invoke('app_registry_replace', { previousAppId: previousId, appRecord: app })
+}
+
 export async function removeApp(id: string): Promise<void> {
   await invoke('app_registry_remove', { appId: id })
 }

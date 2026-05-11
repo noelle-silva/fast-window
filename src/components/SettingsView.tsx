@@ -198,6 +198,7 @@ export default function SettingsView(props: {
   onBack: () => void
   registeredApps?: RegisteredApp[]
   onAddRegisteredApp?: (app: RegisteredApp) => void
+  onReplaceRegisteredApp?: (previousId: string, app: RegisteredApp) => void
   onRemoveRegisteredApp?: (id: string) => void
   onUpdateRegisteredApp?: (id: string, patch: RegisteredAppUpdatePatch) => void
   appRegistrationEditRequest?: AppRegistrationEditRequest | null
@@ -207,6 +208,7 @@ export default function SettingsView(props: {
     onBack,
     registeredApps = [],
     onAddRegisteredApp = () => {},
+    onReplaceRegisteredApp = () => {},
     onRemoveRegisteredApp = () => {},
     onUpdateRegisteredApp = () => {},
     appRegistrationEditRequest = null,
@@ -1301,6 +1303,7 @@ export default function SettingsView(props: {
               embedded
               apps={registeredApps}
               onAdd={onAddRegisteredApp}
+              onReplace={onReplaceRegisteredApp}
               onRemove={onRemoveRegisteredApp}
               onUpdate={onUpdateRegisteredApp}
               editRequest={appRegistrationEditRequest}

@@ -8,6 +8,16 @@ export interface RegisteredAppCommand {
   hotkey?: string
 }
 
+export interface InstalledAppInfo {
+  id: string
+  name: string
+  version: string
+  path: string
+  icon: string
+  displayMode: AppDisplayMode
+  commands: RegisteredAppCommand[]
+}
+
 export interface RegisteredApp {
   id: string
   name: string
