@@ -1,5 +1,7 @@
 import type { CategoryWorkspace, CategoryWorkspaceView, CollectionCategoryId, CollectionItem, CollectionItemFormState, CollectionsDoc, ContainerFormState, FwLaunchInfo, GroupFormState } from './types'
 import { DEFAULT_DESKTOP_ICON_LAYOUT } from './folder-grid/iconLayout'
+import { emptyIconAppearanceState, iconAppearanceStateForItem } from './iconAppearanceModel'
+import { itemTargetValue } from './categoryRegistry'
 
 export const DEFAULT_GROUP_ID = 'default'
 export const DEFAULT_CATEGORY_ID: CollectionCategoryId = 'folder'
@@ -19,7 +21,7 @@ export const DEFAULT_WORKSPACE_VIEW: CategoryWorkspaceView = {
   dataVersion: DEFAULT_DOC.dataVersion,
 }
 
-export const EMPTY_ITEM_FORM: CollectionItemFormState = { name: '', target: '', groupId: DEFAULT_GROUP_ID, newGroupName: '' }
+export const EMPTY_ITEM_FORM: CollectionItemFormState = createEmptyItemForm()
 export const EMPTY_GROUP_FORM: GroupFormState = { id: '', name: '' }
 export const EMPTY_CONTAINER_FORM: ContainerFormState = { id: '', name: '' }
 
@@ -31,6 +33,14 @@ export function createDefaultWorkspace(id: CollectionCategoryId): CategoryWorksp
     containers: [],
     desktop: { iconLayout: DEFAULT_DESKTOP_ICON_LAYOUT },
   }
+}
+
+export function createEmptyItemForm(groupId = DEFAULT_GROUP_ID): CollectionItemFormState {
+  return { name: '', target: '', groupId, newGroupName: '', icon: emptyIconAppearanceState() }
+}
+
+export function itemFormFromItem(item: CollectionItem): CollectionItemFormState {
+  return { name: item.name, target: itemTargetValue(item), groupId: item.groupId, newGroupName: '', icon: iconAppearanceStateForItem(item) }
 }
 
 export function errorMessage(error: unknown, fallback: string): string {

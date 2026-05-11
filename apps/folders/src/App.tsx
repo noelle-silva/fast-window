@@ -10,7 +10,6 @@ import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import DriveFileMoveRoundedIcon from '@mui/icons-material/DriveFileMoveRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import HorizontalRuleRoundedIcon from '@mui/icons-material/HorizontalRuleRounded'
-import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
 import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded'
 import LaunchRoundedIcon from '@mui/icons-material/LaunchRounded'
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
@@ -49,14 +48,14 @@ import {
 } from '@mui/material'
 import type { SelectChangeEvent } from '@mui/material/Select'
 import { createDirectClient } from './backendClient'
-import { CATEGORY_DEFINITIONS, categoryDefinition, itemTargetValue, type CategoryDefinition } from './categoryRegistry'
+import { CATEGORY_DEFINITIONS, categoryDefinition, type CategoryDefinition } from './categoryRegistry'
 import { ContainerOverlay } from './ContainerOverlay'
 import type { ContainerItemDragEvent } from './ContainerOverlay'
-import { ContainerDialog, IconEditorDialog } from './DesktopDialogs'
+import { ContainerDialog, IconAppearancePanel } from './DesktopDialogs'
 import { DesktopDragHint } from './DesktopDragHint'
 import { DesktopWallpaper } from './DesktopWallpaper'
 import { DesktopWallpaperSettings } from './DesktopWallpaperSettings'
-import { createIconEditorState, importedIconCandidateId, systemIconCandidateId, upsertIconCandidate } from './iconEditorModel'
+import { importedIconCandidateId, systemIconCandidateIdForTarget, upsertIconCandidate } from './iconAppearanceModel'
 import { ScrollArea } from './shared/scroll-area'
 import type { ContainerExtractDragState } from './containerExtractDragState'
 import { applyContainerItemDesktopExtractionView, extractedItemIdForContainerView, isContainerSoftClosedForExtractDrag, resolveContainerExtractDragMode, resolveContainerExtractNextDragMode } from './containerExtractDragState'
@@ -89,9 +88,10 @@ import type {
   CollectionItem,
   FwLaunchInfo,
   GroupFormState,
-  IconEditorState,
   Phase,
 } from './types'
+
+type CollectionItemFormPayload = Omit<CollectionItem, 'icon'> & { icon: DesktopIcon | null }
 import { FolderGridCanvas, type DesktopGridApi, type DesktopGridDragEvent, type DesktopGridExternalItemDrag, type DesktopGridLayoutPatch } from './folder-grid/FolderGridCanvas'
 import {
   DESKTOP_ICON_GAP_MAX,
@@ -111,9 +111,11 @@ import {
   DEFAULT_LAUNCH_INFO,
   EMPTY_CONTAINER_FORM,
   EMPTY_GROUP_FORM,
+  createEmptyItemForm,
   createID,
   deriveNameFromTarget,
   errorMessage,
+  itemFormFromItem,
   itemTemplate,
   groupIdFromName,
   isInteractiveTarget,
@@ -145,7 +147,6 @@ export function App() {
   const [editingContainer, setEditingContainer] = React.useState<CollectionContainer | null>(null)
   const [containerView, setContainerView] = React.useState<CollectionContainer | null>(null)
   const [containerDropView, setContainerDropView] = React.useState<CollectionContainer | null>(null)
-  const [iconEditor, setIconEditor] = React.useState<IconEditorState>(null)
   const [iconLayoutDraft, setIconLayoutDraft] = React.useState<DesktopIconLayout | null>(null)
   const [confirm, setConfirm] = React.useState<ConfirmState>(null)
   const [contextMenu, setContextMenu] = React.useState<ContextMenuState>(null)
@@ -291,11 +292,11 @@ export function App() {
   function openAdd() {
     const selectedGroupId = groupIdForPage(groupId)
     setEditing(itemTemplate(activeCategoryId, selectedGroupId))
-    setForm({ name: '', target: '', groupId: selectedGroupId, newGroupName: '' })
+    setForm(createEmptyItemForm(selectedGroupId))
   }
 
   function openEdit(item: CollectionItem) {
-    setEditing(item); setForm({ name: item.name, target: itemTargetValue(item), groupId: item.groupId, newGroupName: '' }); setContextMenu(null)
+    setEditing(item); setForm(itemFormFromItem(item)); setContextMenu(null)
   }
 
   function openAddContainer() {
@@ -334,13 +335,13 @@ export function App() {
       if (!newGroupName && !doc.groups.some(group => group.id === targetGroupId)) { setError('请选择有效分类'); return }
       const now = Date.now()
       const nowText = new Date(now).toISOString()
-      const payload: CollectionItem = {
+      const payload: CollectionItemFormPayload = {
         id: editing.id || createID(), name, target: activeCategory.buildTarget(targetValue), groupId: targetGroupId, pageOrder: editing.pageOrder,
         containerId: editing.containerId,
         createdAt: editing.createdAt || nowText, updatedAt: nowText,
         createdAtMs: editing.createdAtMs || now, updatedAtMs: now,
         layout: editing.layout,
-        icon: editing.icon,
+        icon: form.icon.draftIcon,
       }
       const nextDoc = await client.request<CategoryWorkspaceView>(editing.id ? 'collections.items.update' : 'collections.items.add', requestParams({ item: payload }))
       setDoc(nextDoc); setEditing(null)
@@ -821,51 +822,46 @@ export function App() {
     finally { setBusy(false) }
   }
 
-  async function saveItemIcon(id: string, icon: DesktopIcon | null) {
-    if (!client) return
-    setBusy(true); setError(null)
-    try { setDoc(await client.request<CategoryWorkspaceView>('collections.icon.save', requestParams({ id, icon }))); setIconEditor(null); setContextMenu(null) }
-    catch (e) { setError(errorMessage(e, '保存图标失败')) }
-    finally { setBusy(false) }
+  function updateFormIconDraft(icon: DesktopIcon | null) {
+    setForm(current => ({ ...current, icon: { ...current.icon, draftIcon: icon } }))
   }
 
-  function updateIconEditorDraft(icon: DesktopIcon | null) {
-    setIconEditor(current => current ? { ...current, draftIcon: icon } : current)
-  }
-
-  async function fetchSystemIcon() {
-    if (!client || !iconEditor) return
-    const item = doc.items.find(current => current.id === iconEditor.id)
-    if (!item) return
-    const target = itemTargetValue(item)
-    if (!target) { setError('当前项目没有可读取图标的目标路径'); return }
+  async function fetchFormSystemIcon() {
+    if (!client || !editing) return
+    const target = form.target.trim()
+    const targetError = activeCategory.validateTarget(target)
+    if (targetError) { setError(targetError); return }
     setBusy(true); setError(null)
     try {
       const dataUrl = await invoke<string>('system_icon_data_url', { path: target })
       const asset = await client.request<DesktopAsset>('collections.assets.import', { kind: 'icon', dataUrl })
       const icon: DesktopIcon = { kind: 'image', assetId: asset.id }
-      setIconEditor(current => current ? {
+      setForm(current => ({
         ...current,
-        draftIcon: icon,
-        candidates: upsertIconCandidate(current.candidates, { id: systemIconCandidateId(item), label: '系统图标', icon }),
-      } : current)
+        icon: {
+          draftIcon: icon,
+          candidates: upsertIconCandidate(current.icon.candidates, { id: systemIconCandidateIdForTarget(target), label: '系统图标', icon }),
+        },
+      }))
     } catch (e) { setError(errorMessage(e, '获取系统图标失败')) }
     finally { setBusy(false) }
   }
 
-  async function pickIconImage() {
-    if (!client || !iconEditor) return
+  async function pickFormIconImage() {
+    if (!client || !editing) return
     setBusy(true); setError(null)
     try {
       const sourcePath = await invoke<string | null>('pick_image_path')
       if (!sourcePath) return
       const asset = await client.request<DesktopAsset>('collections.assets.import', { kind: 'icon', sourcePath })
       const icon: DesktopIcon = { kind: 'image', assetId: asset.id }
-      setIconEditor(current => current ? {
+      setForm(current => ({
         ...current,
-        draftIcon: icon,
-        candidates: upsertIconCandidate(current.candidates, { id: importedIconCandidateId(asset.id), label: '导入图片', icon }),
-      } : current)
+        icon: {
+          draftIcon: icon,
+          candidates: upsertIconCandidate(current.icon.candidates, { id: importedIconCandidateId(asset.id), label: '导入图片', icon }),
+        },
+      }))
     } catch (e) { setError(errorMessage(e, '导入图标图片失败')) }
     finally { setBusy(false) }
   }
@@ -1044,7 +1040,6 @@ export function App() {
         onOpen={openDesktopEntry}
         onEdit={openEdit}
         onEditContainer={openEditContainer}
-        onEditIcon={entry => entry.item ? setIconEditor(createIconEditorState(entry.item)) : undefined}
         onMoveToContainer={(item, containerId) => void saveItemContainer([item.id], containerId)}
         onCopyToGroup={(item, targetGroupId) => void copyItemToGroup(item, targetGroupId)}
         onMoveToGroup={(item, targetGroupId) => void moveItemToGroup(item, targetGroupId)}
@@ -1057,9 +1052,14 @@ export function App() {
         doc={doc}
         editing={editing}
         form={form}
+        assetUrl={client?.assetUrl}
         onChange={setForm}
+        onChangeIconDraft={updateFormIconDraft}
         onClose={() => setEditing(null)}
+        onFetchSystemIcon={() => void fetchFormSystemIcon()}
+        onPickIconImage={() => void pickFormIconImage()}
         onPickTarget={() => void pickItemTarget()}
+        onResetIcon={() => updateFormIconDraft(null)}
         onSave={() => void saveItem()}
       />
 
@@ -1142,18 +1142,6 @@ export function App() {
         onRemoveItem={item => void saveItemContainer([item.id], '')}
         onRename={(container, name) => renameContainer(container, name)}
         softClosed={false}
-      />
-
-      <IconEditorDialog
-        assetUrl={client?.assetUrl}
-        busy={busy}
-        state={iconEditor}
-        onChangeDraft={updateIconEditorDraft}
-        onClose={() => setIconEditor(null)}
-        onFetchSystemIcon={() => void fetchSystemIcon()}
-        onPickImage={() => void pickIconImage()}
-        onReset={() => iconEditor ? void saveItemIcon(iconEditor.id, null) : undefined}
-        onSave={() => iconEditor ? void saveItemIcon(iconEditor.id, iconEditor.draftIcon) : undefined}
       />
 
       <ConfirmDialog
@@ -1438,7 +1426,6 @@ function CollectionContextMenu(props: {
   onOpen(entry: DesktopGridEntry): void
   onEdit(item: CollectionItem): void
   onEditContainer(container: CollectionContainer): void
-  onEditIcon(entry: DesktopGridEntry): void
   onCopyToGroup(item: CollectionItem, groupId: string): void
   onMoveToGroup(item: CollectionItem, groupId: string): void
   onMoveToContainer(item: CollectionItem, containerId: string): void
@@ -1468,10 +1455,6 @@ function CollectionContextMenu(props: {
         container ? <MenuItem key="edit-container" onClick={() => props.onEditContainer(container)}>
           <ListItemIcon><Inventory2RoundedIcon fontSize="small" /></ListItemIcon>
           <ListItemText>编辑收纳夹</ListItemText>
-        </MenuItem> : null,
-        item ? <MenuItem key="icon" onClick={() => props.onEditIcon(entry)}>
-          <ListItemIcon><ImageRoundedIcon fontSize="small" /></ListItemIcon>
-          <ListItemText>图标外观</ListItemText>
         </MenuItem> : null,
         item ? <Box key="group-actions" sx={{ px: 2, py: 1, minWidth: 240, display: 'grid', gap: 1 }}>
           <FormControl variant="filled" fullWidth size="small" disabled={props.busy || !targetGroups.length}>
@@ -1524,17 +1507,25 @@ function CollectionContextMenu(props: {
 }
 
 function ItemDialog(props: {
+  assetUrl?(assetId: string): string
   busy: boolean
   category: CategoryDefinition
   doc: CategoryWorkspaceView
   editing: CollectionItem | null
   form: CollectionItemFormState
+  onChangeIconDraft(icon: DesktopIcon | null): void
   onChange(form: CollectionItemFormState): void
   onClose(): void
+  onFetchSystemIcon(): void
+  onPickIconImage(): void
   onPickTarget(): void
+  onResetIcon(): void
   onSave(): void
 }) {
   const open = Boolean(props.editing)
+  const targetValue = props.form.target.trim()
+  const canFetchSystemIcon = Boolean(targetValue) && !props.category.validateTarget(targetValue) && props.category.id !== 'url'
+  const systemIconDisabledText = props.category.id === 'url' ? '网址图标需要 favicon 机制，不能走本地系统图标' : '请先填写有效路径'
   return (
     <Dialog open={open} onClose={props.onClose} fullWidth maxWidth="sm">
       <DialogContent sx={{ p: 3 }}>
@@ -1582,6 +1573,19 @@ function ItemDialog(props: {
               fullWidth
             />
           </Stack>
+          <IconAppearancePanel
+            assetUrl={props.assetUrl}
+            busy={props.busy}
+            icon={props.form.icon}
+            seed={props.editing?.id || props.form.target || props.form.name || 'item-icon'}
+            systemIconDisabledText={systemIconDisabledText}
+            systemIconEnabled={canFetchSystemIcon}
+            targetKind={props.category.id}
+            onChangeDraft={props.onChangeIconDraft}
+            onFetchSystemIcon={props.onFetchSystemIcon}
+            onPickImage={props.onPickIconImage}
+            onReset={props.onResetIcon}
+          />
           <Typography variant="caption" color="text.secondary">每个{props.category.singularLabel}只属于一个分组页；右键可打开、编辑、移动、复制或删除。</Typography>
           <Stack direction="row" spacing={1} justifyContent="flex-end">
             <Button onClick={props.onClose}>取消</Button>

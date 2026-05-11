@@ -128,26 +128,24 @@ export type DirectClient = {
 
 export type Phase = 'starting' | 'ready' | 'data-error' | 'failed'
 
+export type IconAppearanceCandidate = { id: string; label: string; icon: DesktopIcon }
+
+export type IconAppearanceState = {
+  draftIcon: DesktopIcon | null
+  candidates: IconAppearanceCandidate[]
+}
+
 export type CollectionItemFormState = {
   name: string
   target: string
   groupId: string
   newGroupName: string
+  icon: IconAppearanceState
 }
 
 export type GroupFormState = { id: string; name: string }
 
 export type ContainerFormState = { id: string; name: string }
-
-export type IconEditorCandidate = { id: string; label: string; icon: DesktopIcon }
-
-export type IconEditorState = {
-  id: string
-  label: string
-  target: CollectionTarget
-  draftIcon: DesktopIcon | null
-  candidates: IconEditorCandidate[]
-} | null
 
 export type ConfirmState = { kind: 'item' | 'group' | 'container' | 'data-reset'; id: string; label: string } | null
 

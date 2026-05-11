@@ -98,6 +98,62 @@ type collectionItem struct {
 	Icon            *desktopIcon      `json:"icon,omitempty"`
 }
 
+type collectionItemInput struct {
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	Target          collectionTarget  `json:"target"`
+	GroupID         string            `json:"groupId"`
+	PageOrder       int64             `json:"pageOrder"`
+	ContainerID     string            `json:"containerId,omitempty"`
+	CreatedAt       string            `json:"createdAt"`
+	UpdatedAt       string            `json:"updatedAt"`
+	CreatedAtMS     int64             `json:"createdAtMs"`
+	UpdatedAtMS     int64             `json:"updatedAtMs"`
+	Layout          *folderGridLayout `json:"layout,omitempty"`
+	ContainerLayout *folderGridLayout `json:"containerLayout,omitempty"`
+	Icon            *desktopIcon      `json:"icon"`
+	IconSet         bool              `json:"-"`
+}
+
+func (input *collectionItemInput) UnmarshalJSON(payload []byte) error {
+	type alias collectionItemInput
+	var raw alias
+	if err := json.Unmarshal(payload, &raw); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &fields); err != nil {
+		return err
+	}
+	raw.IconSet = false
+	for key := range fields {
+		if key == "icon" {
+			raw.IconSet = true
+			break
+		}
+	}
+	*input = collectionItemInput(raw)
+	return nil
+}
+
+func (input collectionItemInput) collectionItem() collectionItem {
+	return collectionItem{
+		ID:              input.ID,
+		Name:            input.Name,
+		Target:          input.Target,
+		GroupID:         input.GroupID,
+		PageOrder:       input.PageOrder,
+		ContainerID:     input.ContainerID,
+		CreatedAt:       input.CreatedAt,
+		UpdatedAt:       input.UpdatedAt,
+		CreatedAtMS:     input.CreatedAtMS,
+		UpdatedAtMS:     input.UpdatedAtMS,
+		Layout:          input.Layout,
+		ContainerLayout: input.ContainerLayout,
+		Icon:            input.Icon,
+	}
+}
+
 type folderGridLayout struct {
 	X int `json:"x"`
 	Y int `json:"y"`
@@ -258,8 +314,8 @@ type categoryPayload struct {
 }
 
 type itemPayload struct {
-	CategoryID string         `json:"categoryId"`
-	Item       collectionItem `json:"item"`
+	CategoryID string              `json:"categoryId"`
+	Item       collectionItemInput `json:"item"`
 }
 
 type itemIconPayload struct {
@@ -491,13 +547,13 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid item payload: %w", err)
 		}
-		return svc.addItem(payload.CategoryID, payload.Item)
+		return svc.addItemInput(payload.CategoryID, payload.Item)
 	case "collections.items.update":
 		var payload itemPayload
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid item payload: %w", err)
 		}
-		return svc.updateItem(payload.CategoryID, payload.Item)
+		return svc.updateItemInput(payload.CategoryID, payload.Item)
 	case "collections.items.remove":
 		var payload removePayload
 		if err := json.Unmarshal(params, &payload); err != nil {
@@ -768,6 +824,19 @@ func (svc *service) addItem(categoryID string, payload collectionItem) (category
 	})
 }
 
+func (svc *service) addItemInput(categoryID string, payload collectionItemInput) (categoryWorkspaceView, error) {
+	return svc.updateWorkspace(categoryID, func(workspace *categoryWorkspace) error {
+		item, _, err := normalizeWorkspaceItemInput(payload, *workspace, true)
+		if err != nil {
+			return err
+		}
+		doc := workspaceDoc(*workspace)
+		item.PageOrder = nextPageOrder(doc, item.GroupID)
+		workspace.Items = append(workspace.Items, item)
+		return nil
+	})
+}
+
 func (svc *service) updateItem(categoryID string, payload collectionItem) (categoryWorkspaceView, error) {
 	return svc.updateWorkspace(categoryID, func(workspace *categoryWorkspace) error {
 		item, err := normalizeWorkspaceItem(payload, *workspace, false)
@@ -794,6 +863,41 @@ func (svc *service) updateItem(categoryID string, payload collectionItem) (categ
 				item.PageOrder = nextPageOrder(doc, item.GroupID)
 			}
 			if item.Icon == nil {
+				item.Icon = workspace.Items[i].Icon
+			}
+			workspace.Items[i] = item
+			return nil
+		}
+		return fmt.Errorf("item not found: %s", item.ID)
+	})
+}
+
+func (svc *service) updateItemInput(categoryID string, payload collectionItemInput) (categoryWorkspaceView, error) {
+	return svc.updateWorkspace(categoryID, func(workspace *categoryWorkspace) error {
+		item, iconSet, err := normalizeWorkspaceItemInput(payload, *workspace, false)
+		if err != nil {
+			return err
+		}
+		doc := workspaceDoc(*workspace)
+		for i := range workspace.Items {
+			if workspace.Items[i].ID != item.ID {
+				continue
+			}
+			item.CreatedAtMS = workspace.Items[i].CreatedAtMS
+			item.CreatedAt = workspace.Items[i].CreatedAt
+			if item.GroupID == workspace.Items[i].GroupID {
+				item.PageOrder = workspace.Items[i].PageOrder
+				item.ContainerID = workspace.Items[i].ContainerID
+				if item.Layout == nil {
+					item.Layout = workspace.Items[i].Layout
+				}
+				if item.ContainerLayout == nil {
+					item.ContainerLayout = workspace.Items[i].ContainerLayout
+				}
+			} else {
+				item.PageOrder = nextPageOrder(doc, item.GroupID)
+			}
+			if !iconSet {
 				item.Icon = workspace.Items[i].Icon
 			}
 			workspace.Items[i] = item
@@ -935,6 +1039,17 @@ func normalizeWorkspaceItem(payload collectionItem, workspace categoryWorkspace,
 		return collectionItem{}, fmt.Errorf("item target kind must match category %s", workspace.ID)
 	}
 	return item, nil
+}
+
+func normalizeWorkspaceItemInput(payload collectionItemInput, workspace categoryWorkspace, allowNewID bool) (collectionItem, bool, error) {
+	item, err := normalizeCollectionItem(payload.collectionItem(), workspace.Groups, allowNewID)
+	if err != nil {
+		return collectionItem{}, false, err
+	}
+	if item.Target.Kind != workspace.ID {
+		return collectionItem{}, false, fmt.Errorf("item target kind must match category %s", workspace.ID)
+	}
+	return item, payload.IconSet, nil
 }
 
 func (svc *service) saveCollectionDesktopLayouts(payload categoryDesktopLayoutSavePayload) (categoryWorkspaceView, error) {

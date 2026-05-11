@@ -325,6 +325,27 @@ func TestDesktopIconRoundTrip(t *testing.T) {
 	}
 }
 
+func TestItemUpdateInputClearsIconWhenIconIsExplicitNull(t *testing.T) {
+	svc := readyService(t)
+	addCollectionItem(t, svc, "folder", collectionItem{ID: "one", Name: "One", Target: folderTarget(`E:\One`), GroupID: defaultGroupID, Icon: &desktopIcon{Kind: "color", Color: "#8FA99B"}})
+
+	payload := []byte(`{"id":"one","name":"One","target":{"kind":"folder","path":"E:\\One"},"groupId":"default","pageOrder":0,"createdAt":"","updatedAt":"","createdAtMs":1,"updatedAtMs":1,"icon":null}`)
+	var input collectionItemInput
+	if err := json.Unmarshal(payload, &input); err != nil {
+		t.Fatal(err)
+	}
+	if !input.IconSet || input.Icon != nil {
+		t.Fatalf("expected explicit null icon to be tracked, got iconSet=%v icon=%#v", input.IconSet, input.Icon)
+	}
+	doc, err := svc.updateItemInput("folder", input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Items[0].Icon != nil {
+		t.Fatalf("expected icon to be cleared, got %#v", doc.Items[0].Icon)
+	}
+}
+
 func TestDesktopWallpaperRoundTrip(t *testing.T) {
 	svc := readyService(t)
 	wallpaperAsset := wallpaperAssetsDir + "/0123456789abcdef0123456789abcdef01234567.png"

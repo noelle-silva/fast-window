@@ -2,11 +2,11 @@ import * as React from 'react'
 import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
 import TravelExploreRoundedIcon from '@mui/icons-material/TravelExploreRounded'
-import { Box, Button, Dialog, DialogContent, Divider, Stack, TextField, Typography, alpha } from '@mui/material'
+import { Box, Button, Dialog, DialogContent, Paper, Stack, TextField, Typography, alpha } from '@mui/material'
 import { DESKTOP_ICON_COLORS } from './folder-grid/desktopIconTokens'
 import { DesktopIconVisual } from './folder-grid/DesktopIconVisual'
-import { defaultIconCandidate, sameDesktopIcon } from './iconEditorModel'
-import type { CollectionContainer, ContainerFormState, DesktopIcon, IconEditorCandidate, IconEditorState } from './types'
+import { defaultIconCandidate, sameDesktopIcon } from './iconAppearanceModel'
+import type { CollectionCategoryId, CollectionContainer, ContainerFormState, DesktopIcon, IconAppearanceCandidate, IconAppearanceState } from './types'
 
 export function ContainerDialog(props: {
   busy: boolean
@@ -37,79 +37,75 @@ export function ContainerDialog(props: {
   )
 }
 
-export function IconEditorDialog(props: {
+export function IconAppearancePanel(props: {
   assetUrl?(assetId: string): string
   busy: boolean
-  state: IconEditorState
+  icon: IconAppearanceState
+  seed: string
+  systemIconDisabledText?: string
+  systemIconEnabled: boolean
+  targetKind: CollectionCategoryId
   onChangeDraft(icon: DesktopIcon | null): void
-  onClose(): void
   onFetchSystemIcon(): void
   onPickImage(): void
   onReset(): void
-  onSave(): void
 }) {
-  const draftIcon = props.state?.draftIcon || null
+  const draftIcon = props.icon.draftIcon
   const defaultSelected = draftIcon?.kind === 'color' || !draftIcon
+  const hasSystemIcon = props.icon.candidates.some(candidate => candidate.id.startsWith('system-icon:'))
 
   return (
-    <Dialog open={Boolean(props.state)} onClose={props.onClose} fullWidth maxWidth="sm">
-      <DialogContent sx={{ p: 3 }}>
-        <Stack spacing={2.25}>
-          <Box>
-            <Typography variant="h2">图标外观</Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{props.state?.label || ''}</Typography>
+    <Paper elevation={0} sx={theme => ({ p: 2, borderRadius: 3, bgcolor: alpha(theme.palette.primary.main, 0.045), border: `1px solid ${alpha(theme.palette.primary.main, 0.12)}` })}>
+      <Stack spacing={1.75}>
+        <Box>
+          <Typography fontWeight={900}>图标外观</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>图标会随当前收藏项一起保存；真实系统图标获取失败时会直接提示原因。</Typography>
+        </Box>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '132px 1fr' }, gap: 2, alignItems: 'stretch' }}>
+          <Box sx={theme => ({ borderRadius: 4, p: 2, display: 'grid', placeItems: 'center', bgcolor: alpha(theme.palette.primary.main, 0.07), border: `1px solid ${alpha(theme.palette.primary.main, 0.14)}` })}>
+            <DesktopIconVisual assetUrl={props.assetUrl} icon={draftIcon || defaultIconCandidate.icon} seed={props.seed || 'icon'} targetKind={props.targetKind} size={92} radius={28} />
           </Box>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '132px 1fr' }, gap: 2, alignItems: 'stretch' }}>
-            <Box sx={theme => ({ borderRadius: 4, p: 2, display: 'grid', placeItems: 'center', bgcolor: alpha(theme.palette.primary.main, 0.07), border: `1px solid ${alpha(theme.palette.primary.main, 0.14)}` })}>
-              <DesktopIconVisual assetUrl={props.assetUrl} icon={draftIcon || defaultIconCandidate.icon} seed={props.state?.id || 'icon'} targetKind={props.state?.target.kind} size={92} radius={28} />
-            </Box>
-            <Stack spacing={1.25}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>备选图标组</Typography>
-              <IconCandidateGrid
-                assetUrl={props.assetUrl}
-                candidates={props.state?.candidates || []}
-                disabled={props.busy}
-                selectedIcon={draftIcon}
-                seed={props.state?.id || 'icon'}
-                targetKind={props.state?.target.kind}
-                onSelect={props.onChangeDraft}
-              />
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                <Button startIcon={<TravelExploreRoundedIcon />} onClick={props.onFetchSystemIcon} disabled={props.busy || !props.state}>获取图标</Button>
-                <Button startIcon={<ImageRoundedIcon />} onClick={props.onPickImage} disabled={props.busy || !props.state}>选择图片</Button>
-                <Button startIcon={<RestartAltRoundedIcon />} onClick={() => props.onChangeDraft(defaultIconCandidate.icon)} disabled={props.busy || !props.state}>默认图标</Button>
-              </Stack>
+          <Stack spacing={1.25}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>备选图标组</Typography>
+            <IconCandidateGrid
+              assetUrl={props.assetUrl}
+              candidates={props.icon.candidates}
+              disabled={props.busy}
+              selectedIcon={draftIcon}
+              seed={props.seed || 'icon'}
+              targetKind={props.targetKind}
+              onSelect={props.onChangeDraft}
+            />
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              <Button startIcon={<TravelExploreRoundedIcon />} onClick={props.onFetchSystemIcon} disabled={props.busy || !props.systemIconEnabled} title={props.systemIconEnabled ? undefined : props.systemIconDisabledText}>{hasSystemIcon ? '刷新图标' : '获取图标'}</Button>
+              <Button startIcon={<ImageRoundedIcon />} onClick={props.onPickImage} disabled={props.busy}>选择图片</Button>
+              <Button startIcon={<RestartAltRoundedIcon />} onClick={() => props.onChangeDraft(defaultIconCandidate.icon)} disabled={props.busy}>默认图标</Button>
+              <Button onClick={props.onReset} disabled={props.busy}>清除自定义</Button>
             </Stack>
-          </Box>
-          {defaultSelected ? (
-            <Box>
-              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 900 }}>默认图标颜色</Typography>
-              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1 }}>
-                {DESKTOP_ICON_COLORS.map(color => (
-                  <Button key={color} aria-label={`使用颜色 ${color}`} onClick={() => props.onChangeDraft({ kind: 'color', color })} disabled={props.busy} sx={{ height: 48, borderRadius: 3, bgcolor: color, minWidth: 0, outline: draftIcon?.kind === 'color' && draftIcon.color.toUpperCase() === color ? '3px solid rgba(15, 23, 42, 0.24)' : 'none', '&:hover': { bgcolor: color } }} />
-                ))}
-              </Box>
-            </Box>
-          ) : null}
-          <Divider />
-          <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap">
-            <Button onClick={props.onReset} disabled={props.busy}>清除自定义</Button>
-            <Button onClick={props.onClose}>取消</Button>
-            <Button variant="contained" onClick={props.onSave} disabled={props.busy || !props.state}>保存</Button>
           </Stack>
-        </Stack>
-      </DialogContent>
-    </Dialog>
+        </Box>
+        {defaultSelected ? (
+          <Box>
+            <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 900 }}>默认图标颜色</Typography>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1 }}>
+              {DESKTOP_ICON_COLORS.map(color => (
+                <Button key={color} aria-label={`使用颜色 ${color}`} onClick={() => props.onChangeDraft({ kind: 'color', color })} disabled={props.busy} sx={{ height: 48, borderRadius: 3, bgcolor: color, minWidth: 0, outline: draftIcon?.kind === 'color' && draftIcon.color.toUpperCase() === color ? '3px solid rgba(15, 23, 42, 0.24)' : 'none', '&:hover': { bgcolor: color } }} />
+              ))}
+            </Box>
+          </Box>
+        ) : null}
+      </Stack>
+    </Paper>
   )
 }
 
 function IconCandidateGrid(props: {
   assetUrl?(assetId: string): string
-  candidates: IconEditorCandidate[]
+  candidates: IconAppearanceCandidate[]
   disabled: boolean
   selectedIcon: DesktopIcon | null
   seed: string
-  targetKind?: 'folder' | 'url' | 'file'
+  targetKind: CollectionCategoryId
   onSelect(icon: DesktopIcon): void
 }) {
   return (
