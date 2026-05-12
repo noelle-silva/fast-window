@@ -14,6 +14,8 @@ import type { CollectionItemNode, CollectionNode } from '../../shared/types'
 import { EmptyState } from '../components/EmptyState'
 import {
   resolveSortMovePosition,
+  SortableDropTarget,
+  type SortableDropTargetRenderArgs,
   SortableItem,
   type SortableItemRenderArgs,
   SortableRoot,
@@ -25,9 +27,77 @@ type FoldersViewProps = {
   controller: ClipboardHistoryController
 }
 
+type FolderListProps = FoldersViewProps & {
+  folderChildren: CollectionNode[]
+  childIds: string[]
+}
+
+type DropVisualState = Pick<SortableDropTargetRenderArgs, 'dragMode' | 'isDropCandidate' | 'isDropTarget'>
+
+const dropTargetSx = (drop: DropVisualState) => ({
+  bgcolor: drop.isDropTarget ? 'primary.main' : drop.isDropCandidate ? 'action.hover' : undefined,
+  color: drop.isDropTarget ? 'primary.contrastText' : undefined,
+  outline: drop.isDropTarget ? '2px solid' : undefined,
+  outlineColor: drop.isDropTarget ? 'primary.dark' : undefined,
+  outlineOffset: drop.isDropTarget ? -2 : undefined,
+  boxShadow: drop.isDropTarget ? 'inset 0 0 0 1px rgba(255,255,255,0.35)' : undefined,
+  transition: drop.dragMode === 'drop' ? 'background-color 120ms ease, color 120ms ease, outline-color 120ms ease' : undefined,
+})
+
 export function FoldersView(props: FoldersViewProps) {
   const { controller } = props
   const { state, bootStatus, bootError } = controller
+  const folderChildren = state.collections && bootStatus === 'ready' ? controller.listChildren(state.currentFolderId) : []
+  const sourceChildIds = React.useMemo(() => folderChildren.map(node => node.id), [folderChildren])
+  const [optimisticChildIds, setOptimisticChildIds] = React.useState<string[] | null>(null)
+  const childIds = optimisticChildIds || sourceChildIds
+
+  React.useEffect(() => {
+    setOptimisticChildIds(null)
+  }, [state.currentFolderId, sourceChildIds.join('\n')])
+
+  const canDropIntoFolder = React.useCallback((activeId: string, targetId: string) => {
+    const active = controller.getNode(activeId)
+    const target = controller.getNode(targetId)
+    if (targetId === state.currentFolderId && childIds.includes(activeId)) return false
+    return !!active && target?.type === 'folder' && controller.canMoveInto(targetId, activeId)
+  }, [childIds, controller, state.currentFolderId])
+
+  const handleMove = React.useCallback((activeId: string, overId: string) => {
+    const position = resolveSortMovePosition(childIds, activeId, overId)
+    if (!position) return
+    const movingIndex = childIds.indexOf(activeId)
+    let toIndex = childIds.indexOf(overId)
+    if (movingIndex < 0 || toIndex < 0) return
+    if (position === 'after') toIndex += 1
+    if (movingIndex < toIndex) toIndex -= 1
+    if (toIndex === movingIndex) return
+    const nextIds = moveId(childIds, activeId, toIndex)
+    setOptimisticChildIds(nextIds)
+    void controller.moveNode(activeId, state.currentFolderId, toIndex)
+      .catch(error => {
+        setOptimisticChildIds(null)
+        void controller.host.toast(String((error as any)?.message || error || '移动失败'))
+      })
+  }, [childIds, controller, state.currentFolderId])
+
+  const handleDropIntoFolder = React.useCallback((activeId: string, targetFolderId: string) => {
+    if (!canDropIntoFolder(activeId, targetFolderId)) return
+    setOptimisticChildIds(childIds.filter(id => id !== activeId))
+    void controller.moveNode(activeId, targetFolderId)
+      .then(() => {
+        void controller.host.toast(`已移动到：${controller.folderLabelById(targetFolderId)}`)
+      })
+      .catch(error => {
+        setOptimisticChildIds(null)
+        void controller.host.toast(String((error as any)?.message || error || '移动失败'))
+      })
+  }, [canDropIntoFolder, childIds, controller])
+
+  const folderDrop = React.useMemo(() => ({
+    canDrop: canDropIntoFolder,
+    onDrop: handleDropIntoFolder,
+  }), [canDropIntoFolder, handleDropIntoFolder])
 
   if (bootStatus !== 'ready') {
     return <EmptyState message={bootStatus === 'error' ? bootError || '剪贴板历史启动失败' : '剪贴板历史正在启动...'} />
@@ -36,10 +106,12 @@ export function FoldersView(props: FoldersViewProps) {
   if (!state.collections) return null
 
   return (
-    <Stack spacing={1.25} sx={{ position: 'relative' }}>
-      <FoldersSubbar controller={controller} />
-      <FolderList controller={controller} />
-    </Stack>
+    <SortableRoot onMove={handleMove} drop={folderDrop}>
+      <Stack spacing={1.25} sx={{ position: 'relative' }}>
+        <FoldersSubbar controller={controller} />
+        <FolderList controller={controller} folderChildren={folderChildren} childIds={childIds} />
+      </Stack>
+    </SortableRoot>
   )
 }
 
@@ -65,9 +137,28 @@ function FoldersSubbar(props: FoldersViewProps) {
             const node = controller.getNode(id)
             const name = node?.type === 'folder' ? node.name : ''
             return (
-              <Button key={id} size="small" onClick={() => controller.navigateFolder(id)} sx={{ borderRadius: 999 }}>
-                {name}
-              </Button>
+              <SortableDropTarget key={id} id={`breadcrumb:${id}`} targetId={id} disabled={node?.type !== 'folder'}>
+                {(drop) => (
+                  <Button
+                    ref={drop.setNodeRef}
+                    size="small"
+                    onClick={(event) => {
+                      if (drop.shouldSuppressClick()) {
+                        event.preventDefault()
+                        return
+                      }
+                      controller.navigateFolder(id)
+                    }}
+                    sx={{
+                      borderRadius: 999,
+                      ...dropTargetSx(drop),
+                      '&:hover': { bgcolor: drop.isDropTarget ? 'primary.main' : 'action.hover' },
+                    }}
+                  >
+                    {name}
+                  </Button>
+                )}
+              </SortableDropTarget>
             )
           })}
         </Breadcrumbs>
@@ -88,62 +179,13 @@ function FoldersSubbar(props: FoldersViewProps) {
   )
 }
 
-function FolderList(props: FoldersViewProps) {
-  const { controller } = props
+function FolderList(props: FolderListProps) {
+  const { controller, childIds } = props
   const { state } = controller
   const query = state.folderSearchQuery.trim()
   const results = query ? controller.searchItems(query, state.folderSearchScope) : []
-  const children = query ? [] : controller.listChildren(state.currentFolderId)
-  const sourceChildIds = React.useMemo(() => children.map(node => node.id), [children])
-  const [optimisticChildIds, setOptimisticChildIds] = React.useState<string[] | null>(null)
-  const childIds = optimisticChildIds || sourceChildIds
-  const sortedChildren = React.useMemo(() => orderNodesByIds(children, childIds), [childIds, children])
-
-  React.useEffect(() => {
-    setOptimisticChildIds(null)
-  }, [state.currentFolderId, sourceChildIds.join('\n')])
-
-  const handleMove = React.useCallback((activeId: string, overId: string) => {
-    const position = resolveSortMovePosition(childIds, activeId, overId)
-    if (!position) return
-    const movingIndex = childIds.indexOf(activeId)
-    let toIndex = childIds.indexOf(overId)
-    if (movingIndex < 0 || toIndex < 0) return
-    if (position === 'after') toIndex += 1
-    if (movingIndex < toIndex) toIndex -= 1
-    if (toIndex === movingIndex) return
-    const nextIds = moveId(childIds, activeId, toIndex)
-    setOptimisticChildIds(nextIds)
-    void controller.moveNode(activeId, state.currentFolderId, toIndex)
-      .catch(error => {
-        setOptimisticChildIds(null)
-        void controller.host.toast(String((error as any)?.message || error || '移动失败'))
-      })
-  }, [childIds, controller, state.currentFolderId])
-
-  const canDropIntoFolder = React.useCallback((activeId: string, targetId: string) => {
-    const active = controller.getNode(activeId)
-    const target = controller.getNode(targetId)
-    return !!active && target?.type === 'folder' && controller.canMoveInto(targetId, activeId)
-  }, [controller])
-
-  const handleDropIntoFolder = React.useCallback((activeId: string, targetFolderId: string) => {
-    if (!canDropIntoFolder(activeId, targetFolderId)) return
-    setOptimisticChildIds(childIds.filter(id => id !== activeId))
-    void controller.moveNode(activeId, targetFolderId)
-      .then(() => {
-        void controller.host.toast(`已移动到：${controller.folderLabelById(targetFolderId)}`)
-      })
-      .catch(error => {
-        setOptimisticChildIds(null)
-        void controller.host.toast(String((error as any)?.message || error || '移动失败'))
-      })
-  }, [canDropIntoFolder, childIds, controller])
-
-  const folderDrop = React.useMemo(() => ({
-    canDrop: canDropIntoFolder,
-    onDrop: handleDropIntoFolder,
-  }), [canDropIntoFolder, handleDropIntoFolder])
+  const folderChildren = query ? [] : props.folderChildren
+  const sortedChildren = React.useMemo(() => orderNodesByIds(folderChildren, childIds), [childIds, folderChildren])
 
   if (query) {
     if (!results.length) return <EmptyState message="没有匹配的内容" />
@@ -158,21 +200,19 @@ function FolderList(props: FoldersViewProps) {
     )
   }
 
-  if (!children.length) return <EmptyState message="当前收藏夹为空" />
+  if (!folderChildren.length) return <EmptyState message="当前收藏夹为空" />
 
   return (
     <Paper sx={{ borderRadius: 1.5, overflow: 'hidden', boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)' }}>
-      <SortableRoot onMove={handleMove} drop={folderDrop}>
-        <SortableSection items={childIds}>
-          <Stack spacing={0.25}>
-            {sortedChildren.map(node => (
-              <SortableItem key={node.id} id={node.id}>
-                {(sortable) => <FolderCard node={node} controller={controller} sortable={sortable} />}
-              </SortableItem>
-            ))}
-          </Stack>
-        </SortableSection>
-      </SortableRoot>
+      <SortableSection items={childIds}>
+        <Stack spacing={0.25}>
+          {sortedChildren.map(node => (
+            <SortableItem key={node.id} id={node.id}>
+              {(sortable) => <FolderCard node={node} controller={controller} sortable={sortable} />}
+            </SortableItem>
+          ))}
+        </Stack>
+      </SortableSection>
     </Paper>
   )
 }
@@ -225,6 +265,7 @@ function FolderCard(props: {
 }) {
   const { node, controller, sortable } = props
   const armed = controller.isDeleteArmed(node.id)
+  const dropSx = dropTargetSx(sortable)
 
   return (
     <Box
@@ -248,21 +289,10 @@ function FolderCard(props: {
       sx={{
         p: 1.25,
         cursor: 'pointer',
-        bgcolor: sortable.isDropTarget
-          ? 'primary.main'
-          : sortable.isDropCandidate
-            ? 'action.hover'
-            : sortable.isDragging
-              ? 'action.selected'
-              : undefined,
-        color: sortable.isDropTarget ? 'primary.contrastText' : undefined,
+        ...dropSx,
+        bgcolor: sortable.isDragging && !sortable.isDropTarget && !sortable.isDropCandidate ? 'action.selected' : dropSx.bgcolor,
         opacity: sortable.isDragging ? 0.82 : 1,
         position: 'relative',
-        outline: sortable.isDropTarget ? '2px solid' : undefined,
-        outlineColor: sortable.isDropTarget ? 'primary.dark' : undefined,
-        outlineOffset: sortable.isDropTarget ? -2 : undefined,
-        boxShadow: sortable.isDropTarget ? 'inset 0 0 0 1px rgba(255,255,255,0.35)' : undefined,
-        transition: sortable.dragMode === 'drop' ? 'background-color 120ms ease, color 120ms ease, outline-color 120ms ease' : undefined,
         '&:hover': { bgcolor: sortable.isDropTarget ? 'primary.main' : 'action.hover' },
       }}
     >

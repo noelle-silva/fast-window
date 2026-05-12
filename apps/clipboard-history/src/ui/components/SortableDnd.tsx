@@ -6,6 +6,7 @@ import {
   closestCenter,
   pointerWithin,
   rectIntersection,
+  useDroppable,
   useSensor,
   useSensors,
   type CollisionDetection,
@@ -33,7 +34,7 @@ type SortableDragState = {
   startedFromHandle: boolean
 }
 
-type SortableDropConfig = {
+export type SortableDropConfig = {
   canDrop: (activeId: string, targetId: string) => boolean
   onDrop: (activeId: string, targetId: string) => void
 }
@@ -59,6 +60,16 @@ export type SortableItemRenderArgs = {
   style: React.CSSProperties
 }
 
+export type SortableDropTargetRenderArgs = {
+  setNodeRef: (node: HTMLElement | null) => void
+  dragMode: SortableDragMode | null
+  activeId: string
+  overId: string
+  isDropCandidate: boolean
+  isDropTarget: boolean
+  shouldSuppressClick: () => boolean
+}
+
 type SortableRootProps = {
   children: React.ReactNode
   onMove: (activeId: string, overId: string) => void
@@ -78,6 +89,13 @@ type SortableItemProps = {
   children: (args: SortableItemRenderArgs) => React.ReactNode
 }
 
+type SortableDropTargetProps = {
+  id: string
+  targetId?: string
+  disabled?: boolean
+  children: (args: SortableDropTargetRenderArgs) => React.ReactNode
+}
+
 const SortableRootContext = React.createContext<SortableRootContextValue>({
   dragState: null,
   drop: null,
@@ -85,6 +103,8 @@ const SortableRootContext = React.createContext<SortableRootContextValue>({
 })
 
 const sortableDragHandleAttribute = 'data-sortable-drag-handle'
+const sortableDroppableRole = 'sortable-item'
+const standaloneDropTargetRole = 'standalone-drop-target'
 const postDragClickSuppressionMs = 260
 
 function hasCtrlKey(event: Event | undefined | null): boolean {
@@ -115,6 +135,11 @@ function createDropActivatorProps(listeners: Record<string, any> | undefined | n
   }
 }
 
+function droppableTargetId(droppable: { id: unknown; data?: { current?: Record<string, unknown> } } | null | undefined): string {
+  const targetId = droppable?.data?.current?.targetId
+  return String(targetId || droppable?.id || '').trim()
+}
+
 export function resolveSortMovePosition(items: string[], activeId: string, overId: string): SortMovePosition | null {
   const fromIndex = items.indexOf(activeId)
   const toIndex = items.indexOf(overId)
@@ -126,7 +151,7 @@ export function SortableRoot(props: SortableRootProps) {
   const { children, onMove, drop = null, collisionDetection = closestCenter } = props
   const [dragState, setDragState] = React.useState<SortableDragState | null>(null)
   const dragStateRef = React.useRef<SortableDragState | null>(null)
-  const clickSuppressionRef = React.useRef({ id: '', until: 0 })
+  const clickSuppressionRef = React.useRef({ ids: [] as string[], until: 0 })
   const suppressClickTimerRef = React.useRef<number | null>(null)
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -146,14 +171,15 @@ export function SortableRoot(props: SortableRootProps) {
     setCurrentDragState(next)
   }, [setCurrentDragState])
 
-  const suppressNextClick = React.useCallback((activeId: string) => {
-    if (!activeId) return
+  const suppressNextClick = React.useCallback((...ids: string[]) => {
+    const nextIds = Array.from(new Set(ids.map(id => String(id || '').trim()).filter(Boolean)))
+    if (!nextIds.length) return
     if (suppressClickTimerRef.current !== null) window.clearTimeout(suppressClickTimerRef.current)
     const until = Date.now() + postDragClickSuppressionMs
-    clickSuppressionRef.current = { id: activeId, until }
+    clickSuppressionRef.current = { ids: nextIds, until }
     suppressClickTimerRef.current = window.setTimeout(() => {
-      if (clickSuppressionRef.current.id === activeId && clickSuppressionRef.current.until === until) {
-        clickSuppressionRef.current = { id: '', until: 0 }
+      if (clickSuppressionRef.current.until === until) {
+        clickSuppressionRef.current = { ids: [], until: 0 }
       }
       suppressClickTimerRef.current = null
     }, postDragClickSuppressionMs)
@@ -161,7 +187,7 @@ export function SortableRoot(props: SortableRootProps) {
 
   const shouldSuppressClick = React.useCallback((id: string) => {
     const current = clickSuppressionRef.current
-    return !!id && current.id === id && Date.now() <= current.until
+    return !!id && current.ids.includes(id) && Date.now() <= current.until
   }, [])
 
   React.useEffect(() => {
@@ -188,10 +214,13 @@ export function SortableRoot(props: SortableRootProps) {
 
   const resolveCollision = React.useCallback<CollisionDetection>((args) => {
     const current = dragStateRef.current
-    if (current?.mode !== 'drop' || !drop) return collisionDetection(args)
+    if (current?.mode !== 'drop' || !drop) {
+      const sortableContainers = args.droppableContainers.filter(container => container.data.current?.role !== standaloneDropTargetRole)
+      return collisionDetection({ ...args, droppableContainers: sortableContainers })
+    }
     const activeId = String(args.active.id || '').trim()
     const droppableContainers = args.droppableContainers.filter(container => {
-      const targetId = String(container.id || '').trim()
+      const targetId = droppableTargetId(container)
       return !!targetId && drop.canDrop(activeId, targetId)
     })
     if (!droppableContainers.length) return []
@@ -213,16 +242,17 @@ export function SortableRoot(props: SortableRootProps) {
   }, [setCurrentDragState])
 
   const handleDragOver = React.useCallback((event: DragOverEvent) => {
-    updateCurrentDragState({ overId: String(event.over?.id || '').trim() })
+    updateCurrentDragState({ overId: droppableTargetId(event.over) })
   }, [updateCurrentDragState])
 
   const handleDragEnd = React.useCallback(
     (event: DragEndEvent) => {
       const activeId = String(event.active.id || '').trim()
-      const overId = String(event.over?.id || '').trim()
+      const overContainerId = String(event.over?.id || '').trim()
+      const overId = droppableTargetId(event.over)
       const mode = dragStateRef.current?.mode || 'sort'
       setCurrentDragState(null)
-      suppressNextClick(activeId)
+      suppressNextClick(activeId, overContainerId, overId)
       if (!activeId || !overId || activeId === overId) return
       if (mode === 'drop') {
         if (drop?.canDrop(activeId, overId)) drop.onDrop(activeId, overId)
@@ -273,7 +303,11 @@ export function SortableSection(props: SortableSectionProps) {
 export function SortableItem(props: SortableItemProps) {
   const { id, disabled = false, children } = props
   const { dragState, drop, shouldSuppressClick } = React.useContext(SortableRootContext)
-  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id, disabled })
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
+    id,
+    disabled,
+    data: { role: sortableDroppableRole },
+  })
   const dragMode = dragState?.mode || null
   const activeId = dragState?.activeId || ''
   const overId = dragState?.overId || ''
@@ -303,6 +337,28 @@ export function SortableItem(props: SortableItemProps) {
     isDropTarget,
     shouldSuppressClick: () => shouldSuppressClick(id),
     style,
+  })}</>
+}
+
+export function SortableDropTarget(props: SortableDropTargetProps) {
+  const { id, targetId = id, disabled = false, children } = props
+  const { dragState, drop, shouldSuppressClick } = React.useContext(SortableRootContext)
+  const { setNodeRef } = useDroppable({ id, disabled: disabled || !drop, data: { role: standaloneDropTargetRole, targetId } })
+  const dragMode = dragState?.mode || null
+  const activeId = dragState?.activeId || ''
+  const overId = dragState?.overId || ''
+  const isDropMode = dragMode === 'drop'
+  const isDropCandidate = !!activeId && isDropMode && !!drop?.canDrop(activeId, targetId)
+  const isDropTarget = isDropCandidate && overId === targetId
+
+  return <>{children({
+    setNodeRef,
+    dragMode,
+    activeId,
+    overId,
+    isDropCandidate,
+    isDropTarget,
+    shouldSuppressClick: () => shouldSuppressClick(id) || shouldSuppressClick(targetId),
   })}</>
 }
 
