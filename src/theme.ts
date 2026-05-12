@@ -28,13 +28,6 @@ export const appTheme = createTheme({
       defaultProps: { elevation: 0 },
       styleOverrides: { root: { backgroundImage: 'none' } },
     },
-    MuiListItemButton: {
-      styleOverrides: {
-        root: {
-          borderRadius: 12,
-        },
-      },
-    },
   },
 })
 

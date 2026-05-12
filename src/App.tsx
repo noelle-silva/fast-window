@@ -97,9 +97,17 @@ function App() {
   const { apps: registeredApps, load: loadRegisteredApps, add: addRegisteredApp, replace: replaceRegisteredApp, remove: removeRegisteredApp, update: updateRegisteredApp } = registeredAppsCtx
   const [registeredAppStatuses, setRegisteredAppStatuses] = useState<Record<string, AppStatus>>({})
 
+  const registeredAppPlugins: Plugin[] = useMemo(() => {
+    return buildRegisteredAppListItems(registeredApps, registeredAppStatuses)
+  }, [registeredApps, registeredAppStatuses])
+
+  const homeItems: Plugin[] = useMemo(() => {
+    return [...registeredAppPlugins, ...plugins]
+  }, [registeredAppPlugins, plugins])
+
   // Search
-  const search = useSearch(plugins)
-  const { query, setQuery, filtered, activeIndex, setActiveIndex } = search
+  const search = useSearch(homeItems)
+  const { query, setQuery, filtered: displayItems } = search
 
   // Active plugin
   const [activePlugin, setActivePlugin] = useState<Plugin | null>(null)
@@ -316,20 +324,6 @@ function App() {
 
   // === Handlers ===
 
-  const registeredAppPlugins: Plugin[] = useMemo(() => {
-    return buildRegisteredAppListItems(registeredApps, registeredAppStatuses)
-  }, [registeredApps, registeredAppStatuses])
-
-  const displayItems: Plugin[] = useMemo(() => {
-    const all = [...registeredAppPlugins, ...filtered]
-    const q = query.trim().toLowerCase()
-    if (!q) return all
-    return all.filter(p => {
-      const keyword = p.keyword?.toLowerCase() || ''
-      return p.name.toLowerCase().includes(q) || keyword.includes(q)
-    })
-  }, [registeredAppPlugins, filtered, query])
-
   const activateListItem = useCallback((plugin: Plugin) => {
     const selection = parseRegisteredAppListItemId(plugin.id)
     if (selection.type === 'appCommand') {
@@ -468,38 +462,24 @@ function App() {
     ]
   }, [changeMenuItemIcon, loading, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, requestAppRegistrationEdit, resetMenuItemIcon])
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      setActiveIndex(i => Math.min(i + 1, displayItems.length - 1))
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      setActiveIndex(i => Math.max(i - 1, 0))
-    } else if (e.key === 'Enter' && displayItems[activeIndex]) {
-      e.preventDefault()
-      if (reorderMode) return
-      activateListItem(displayItems[activeIndex])
-    } else if (e.key === 'Escape') {
+  const handleShellKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
       if (activePlugin) {
         setActivePlugin(null)
       } else {
         getCurrentWindow().hide()
       }
     }
-  }, [displayItems, activeIndex, activePlugin, reorderMode, setActiveIndex, activateListItem])
+  }, [activePlugin])
 
-  const handlePluginSelect = useCallback((plugin: Plugin, index: number) => {
-    if (reorderMode) {
-      setActiveIndex(index)
-      return
-    }
+  const handlePluginActivate = useCallback((plugin: Plugin) => {
+    if (reorderMode) return
     if (dragMovedRef.current) {
       dragMovedRef.current = false
       return
     }
-    setActiveIndex(index)
     activateListItem(plugin)
-  }, [reorderMode, setActiveIndex, activateListItem])
+  }, [reorderMode, activateListItem])
 
   const handleContextMenu = useCallback((e: React.MouseEvent, plugin: Plugin) => {
     e.preventDefault()
@@ -654,7 +634,7 @@ function App() {
   if (loading) {
     return (
       <Box
-        onKeyDown={handleKeyDown}
+        onKeyDown={handleShellKeyDown}
         onKeyDownCapture={blockListShortcutActivationLeak}
         onKeyUpCapture={blockListShortcutActivationLeak}
         tabIndex={0}
@@ -697,7 +677,7 @@ function App() {
 
   return (
     <Box
-      onKeyDown={handleKeyDown}
+      onKeyDown={handleShellKeyDown}
       onKeyDownCapture={blockListShortcutActivationLeak}
       onKeyUpCapture={blockListShortcutActivationLeak}
       tabIndex={0}
@@ -779,7 +759,7 @@ function App() {
                 fullWidth autoFocus
                 value={query}
                 onChange={e => setQuery(e.target.value)}
-                placeholder="输入关键词搜索插件..."
+                placeholder="输入关键词搜索应用或插件..."
                 variant="outlined"
                 disabled={reorderMode}
                 sx={{
@@ -796,14 +776,14 @@ function App() {
                     <InputAdornment position="start"><SearchRoundedIcon fontSize="small" /></InputAdornment>
                   ),
                 }}
-                inputProps={{ 'aria-label': '搜索插件', autoComplete: 'off' }}
+                inputProps={{ 'aria-label': '搜索应用或插件', autoComplete: 'off' }}
               />
             </Box>
 
             <Box sx={{ flex: 1, overflow: 'auto', p: 1 }}>
               {displayItems.length === 0 ? (
                 <Box sx={{ py: 4, textAlign: 'center' }}>
-                  <Typography variant="body2" color="text.secondary">没有找到插件</Typography>
+                  <Typography variant="body2" color="text.secondary">没有找到应用或插件</Typography>
                   {pluginsDir ? (
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, px: 2, fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       插件目录：{pluginsDir}
@@ -846,14 +826,12 @@ function App() {
               ) : (
                 <PluginListView
                   plugins={displayItems}
-                  activeIndex={activeIndex}
-                  activePlugin={activePlugin}
                   browseLayout={browseLayout}
                   reorderMode={reorderMode}
                   draggingId={draggingId}
                   dragOverId={dragOverId}
                   dragOverAfter={dragOverAfter}
-                  onSelect={handlePluginSelect}
+                  onActivate={handlePluginActivate}
                   onContextMenu={handleContextMenu}
                   onPointerDown={handlePointerDown}
                   onPointerMove={handlePointerMove}

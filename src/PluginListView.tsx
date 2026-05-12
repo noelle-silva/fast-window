@@ -1,17 +1,25 @@
-import { Box, List, ListItemButton } from '@mui/material'
+import { useRef } from 'react'
+import { Box } from '@mui/material'
 import type { Plugin, PluginBrowseLayout } from './constants'
-import { PluginCardContent, getCardDragStyles, getCardSx } from './PluginCard'
+import { PluginCardContent, getCardDragSx, getCardPointerSurfaceSx, getCardSx } from './PluginCard'
+
+const POINTER_ACTIVATION_MOVE_LIMIT_PX = 8
+
+type PointerActivation = {
+  pluginId: string
+  pointerId: number
+  x: number
+  y: number
+}
 
 export interface PluginListViewProps {
   plugins: Plugin[]
-  activeIndex: number
-  activePlugin: Plugin | null
   browseLayout: PluginBrowseLayout
   reorderMode: boolean
   draggingId: string | null
   dragOverId: string | null
   dragOverAfter: boolean
-  onSelect: (plugin: Plugin, index: number) => void
+  onActivate: (plugin: Plugin) => void
   onContextMenu: (e: React.MouseEvent, plugin: Plugin) => void
   onPointerDown: (e: React.PointerEvent, pluginId: string) => void
   onPointerMove: (e: React.PointerEvent) => void
@@ -20,78 +28,76 @@ export interface PluginListViewProps {
 
 export default function PluginListView(props: PluginListViewProps) {
   const {
-    plugins, activeIndex, browseLayout,
+    plugins, browseLayout,
     reorderMode, draggingId, dragOverId, dragOverAfter,
-    onSelect, onContextMenu, onPointerDown, onPointerMove, onPointerUp,
+    onActivate, onContextMenu, onPointerDown, onPointerMove, onPointerUp,
   } = props
+  const pointerActivationRef = useRef<PointerActivation | null>(null)
+
+  const beginPointerActivation = (e: React.PointerEvent, pluginId: string) => {
+    if (e.button !== 0) return
+    pointerActivationRef.current = {
+      pluginId,
+      pointerId: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+    }
+  }
+
+  const updatePointerActivation = (e: React.PointerEvent) => {
+    const current = pointerActivationRef.current
+    if (!current || current.pointerId !== e.pointerId) return
+    const moved = Math.hypot(e.clientX - current.x, e.clientY - current.y)
+    if (moved > POINTER_ACTIVATION_MOVE_LIMIT_PX) pointerActivationRef.current = null
+  }
+
+  const finishPointerActivation = (e: React.PointerEvent, plugin: Plugin) => {
+    const current = pointerActivationRef.current
+    pointerActivationRef.current = null
+    if (!current || current.pointerId !== e.pointerId || current.pluginId !== plugin.id) return
+    if (e.button !== 0) return
+    onActivate(plugin)
+  }
+
+  const clearPointerActivation = () => {
+    pointerActivationRef.current = null
+  }
+
+  const renderItem = (plugin: Plugin) => (
+    <Box
+      key={plugin.id}
+      component="li"
+      data-plugin-id={plugin.id}
+      onContextMenu={e => onContextMenu(e, plugin)}
+      onPointerDown={e => reorderMode ? onPointerDown(e, plugin.id) : beginPointerActivation(e, plugin.id)}
+      onPointerMove={e => reorderMode ? onPointerMove(e) : updatePointerActivation(e)}
+      onPointerUp={e => reorderMode ? onPointerUp() : finishPointerActivation(e, plugin)}
+      onPointerCancel={() => reorderMode ? onPointerUp() : clearPointerActivation()}
+      sx={[getCardSx(browseLayout), getCardPointerSurfaceSx(), getCardDragSx(draggingId, dragOverId, dragOverAfter, reorderMode, plugin.id)]}
+    >
+      <PluginCardContent plugin={plugin} layout={browseLayout} />
+    </Box>
+  )
 
   if (browseLayout === 'grid') {
     return (
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 1, p: 0.5 }}>
-        {plugins.map((plugin, index) => (
-          <ListItemButton
-            key={plugin.id}
-            data-plugin-id={plugin.id}
-            selected={index === activeIndex}
-            onContextMenu={e => onContextMenu(e, plugin)}
-            onPointerDown={reorderMode ? (e => onPointerDown(e, plugin.id)) : undefined}
-            onPointerMove={reorderMode ? onPointerMove : undefined}
-            onPointerUp={reorderMode ? onPointerUp : undefined}
-            onPointerCancel={reorderMode ? onPointerUp : undefined}
-            onClick={() => onSelect(plugin, index)}
-            sx={getCardSx('grid')}
-            style={getCardDragStyles(draggingId, dragOverId, dragOverAfter, reorderMode, plugin.id) as any}
-          >
-            <PluginCardContent plugin={plugin} layout="grid" />
-          </ListItemButton>
-        ))}
+      <Box component="ul" sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 1, p: 0.5, m: 0 }}>
+        {plugins.map(renderItem)}
       </Box>
     )
   }
 
   if (browseLayout === 'icon') {
     return (
-      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 1, p: 0.5 }}>
-        {plugins.map((plugin, index) => (
-          <ListItemButton
-            key={plugin.id}
-            data-plugin-id={plugin.id}
-            selected={index === activeIndex}
-            onContextMenu={e => onContextMenu(e, plugin)}
-            onPointerDown={reorderMode ? (e => onPointerDown(e, plugin.id)) : undefined}
-            onPointerMove={reorderMode ? onPointerMove : undefined}
-            onPointerUp={reorderMode ? onPointerUp : undefined}
-            onPointerCancel={reorderMode ? onPointerUp : undefined}
-            onClick={() => onSelect(plugin, index)}
-            sx={getCardSx('icon')}
-            style={getCardDragStyles(draggingId, dragOverId, dragOverAfter, reorderMode, plugin.id) as any}
-          >
-            <PluginCardContent plugin={plugin} layout="icon" />
-          </ListItemButton>
-        ))}
+      <Box component="ul" sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(96px, 1fr))', gap: 1, p: 0.5, m: 0 }}>
+        {plugins.map(renderItem)}
       </Box>
     )
   }
 
   return (
-    <List disablePadding sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-      {plugins.map((plugin, index) => (
-        <ListItemButton
-          key={plugin.id}
-          data-plugin-id={plugin.id}
-          selected={index === activeIndex}
-          onContextMenu={e => onContextMenu(e, plugin)}
-          onPointerDown={reorderMode ? (e => onPointerDown(e, plugin.id)) : undefined}
-          onPointerMove={reorderMode ? onPointerMove : undefined}
-          onPointerUp={reorderMode ? onPointerUp : undefined}
-          onPointerCancel={reorderMode ? onPointerUp : undefined}
-          onClick={() => onSelect(plugin, index)}
-          sx={getCardSx('list')}
-          style={getCardDragStyles(draggingId, dragOverId, dragOverAfter, reorderMode, plugin.id) as any}
-        >
-          <PluginCardContent plugin={plugin} layout="list" />
-        </ListItemButton>
-      ))}
-    </List>
+    <Box component="ul" sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, p: 0, m: 0 }}>
+      {plugins.map(renderItem)}
+    </Box>
   )
 }

@@ -2,21 +2,8 @@ import { Box, Avatar, Typography } from '@mui/material'
 import type { Plugin, PluginBrowseLayout } from './constants'
 import { isDataImageUrl } from './utils'
 
-export interface PluginCardProps {
-  plugin: Plugin
-  layout: PluginBrowseLayout
-  selected: boolean
-  dragging: boolean
-  dragOverId: string | null
-  dragOverAfter: boolean
-  reorderMode: boolean
-  onPointerDown?: (e: React.PointerEvent) => void
-  onPointerMove?: (e: React.PointerEvent) => void
-  onPointerUp?: () => void
-  onPointerCancel?: () => void
-}
-
 const gridCardSx = {
+  display: 'flex',
   borderRadius: 2,
   alignItems: 'stretch',
   flexDirection: 'column',
@@ -24,11 +11,10 @@ const gridCardSx = {
   py: 1.25,
   px: 1.25,
   border: 'none',
-  '&.Mui-selected': { bgcolor: 'transparent' },
-  '&.Mui-selected:hover': { bgcolor: 'action.hover' },
 } as const
 
 const iconCardSx = {
+  display: 'flex',
   borderRadius: 2,
   flexDirection: 'column',
   alignItems: 'center',
@@ -36,15 +22,23 @@ const iconCardSx = {
   py: 1.25,
   px: 1,
   gap: 0.75,
-  '&.Mui-selected': { bgcolor: 'transparent' },
-  '&.Mui-selected:hover': { bgcolor: 'action.hover' },
 } as const
 
 const listCardSx = {
+  display: 'flex',
+  alignItems: 'center',
+  borderRadius: 2,
   py: 1,
   px: 1.25,
-  '&.Mui-selected': { bgcolor: 'transparent' },
-  '&.Mui-selected:hover': { bgcolor: 'action.hover' },
+} as const
+
+const cardPointerSurfaceSx = {
+  listStyle: 'none',
+  cursor: 'pointer',
+  userSelect: 'none',
+  transition: 'background-color 120ms ease, transform 120ms ease',
+  '&:hover': { bgcolor: 'action.hover' },
+  '&:active': { transform: 'scale(0.995)' },
 } as const
 
 export function PluginCardContent(props: { plugin: Plugin; layout: PluginBrowseLayout }) {
@@ -188,7 +182,7 @@ export function PluginCardContent(props: { plugin: Plugin; layout: PluginBrowseL
   )
 }
 
-export function getCardDragStyles(draggingId: string | null, dragOverId: string | null, dragOverAfter: boolean, reorderMode: boolean, pluginId: string) {
+export function getCardDragSx(draggingId: string | null, dragOverId: string | null, dragOverAfter: boolean, reorderMode: boolean, pluginId: string) {
   return {
     cursor: reorderMode ? (draggingId ? 'grabbing' : 'grab') : undefined,
     opacity: draggingId === pluginId ? 0.6 : 1,
@@ -208,4 +202,8 @@ export function getCardSx(layout: PluginBrowseLayout) {
   if (layout === 'grid') return gridCardSx
   if (layout === 'icon') return iconCardSx
   return listCardSx
+}
+
+export function getCardPointerSurfaceSx() {
+  return cardPointerSurfaceSx
 }
