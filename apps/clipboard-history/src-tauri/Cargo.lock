@@ -510,7 +510,7 @@ dependencies = [
 
 [[package]]
 name = "clipboard-history-app"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "getrandom 0.3.4",
  "rfd",
