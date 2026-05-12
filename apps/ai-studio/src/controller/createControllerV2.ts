@@ -200,7 +200,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // ============================================================
   // 2. UI CORE
   // ============================================================
-  const { emit, subscribe, getVer } = createUiCore()
+  const uiCore = createUiCore()
+  const { emit, subscribe, getVer } = uiCore
   const ver = getVer
 
   // ============================================================
@@ -819,7 +820,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     syncActiveGroupChatsFromStorage,
     save,
   })
-  const { startUiPollers, uiPollTick, syncActiveRoleChatsFromStorage, syncActiveTargetChatsFromStorage, syncChatByIdFromStorage, syncGroupChatByIdFromStorage, applyChatUpdatedNoticeOnce, reapplyUiStreamCache } = uiPolling
+  const { startUiPollers, stopUiPollers, uiPollTick, syncActiveRoleChatsFromStorage, syncActiveTargetChatsFromStorage, syncChatByIdFromStorage, syncGroupChatByIdFromStorage, applyChatUpdatedNoticeOnce, reapplyUiStreamCache } = uiPolling
 
   // ============================================================
   // 19. EVENT HANDLERS
@@ -1897,6 +1898,11 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     render()
   }
 
+  function dispose() {
+    stopUiPollers()
+    uiCore.dispose()
+  }
+
   // ============================================================
   // 22. CONTROLLER
   // ============================================================
@@ -1916,6 +1922,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     getProvider,
     renderAssistantInto,
     actions,
+    dispose,
   }
 
   return { controller, init }

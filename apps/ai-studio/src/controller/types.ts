@@ -16,5 +16,6 @@ export type AiChatController = {
   getProvider: (providerId: any) => any
   renderAssistantInto: (el: unknown, text: unknown, options?: any) => void
   actions: Record<string, any>
+  dispose: () => void
 }
 

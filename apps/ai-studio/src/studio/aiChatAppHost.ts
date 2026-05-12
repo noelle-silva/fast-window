@@ -27,23 +27,40 @@ export type AiChatAppHostOptions = {
 export async function createAiChatAppRuntime(options: AiChatAppHostOptions): Promise<AiChatAppRuntime> {
   const baseApi = createAiStudioHostApi(options)
   const { api, directClient } = await createDirectCapabilitiesAdapter(baseApi)
-  const capabilities = createAiChatCapabilitiesFromHostApi(api, AI_STUDIO_APP_ID)
-  const aiGateway = createAiChatDirectGateway(directClient)
-  const { controller, init } = createAiChatControllerV2({ capabilities, aiGateway })
-  const bootstrap = await directClient.invoke('studio.bootstrap').catch(() => null)
+  let controllerToDispose: AiChatController | null = null
 
-  await init()
-  ;(window as any)[AI_STUDIO_CONTROLLER_KEY] = controller
+  try {
+    const capabilities = createAiChatCapabilitiesFromHostApi(api, AI_STUDIO_APP_ID)
+    const aiGateway = createAiChatDirectGateway(directClient)
+    const created = createAiChatControllerV2({ capabilities, aiGateway })
+    const controller = created.controller
+    controllerToDispose = controller
+    const bootstrap = await directClient.invoke('studio.bootstrap').catch(() => null)
 
-  return {
-    controller,
-    bootstrap,
-    dispose() {
-      if ((window as any)[AI_STUDIO_CONTROLLER_KEY] === controller) {
-        delete (window as any)[AI_STUDIO_CONTROLLER_KEY]
-      }
+    await created.init()
+    ;(window as any)[AI_STUDIO_CONTROLLER_KEY] = controller
+
+    return {
+      controller,
+      bootstrap,
+      dispose() {
+        try {
+          if ((window as any)[AI_STUDIO_CONTROLLER_KEY] === controller) {
+            delete (window as any)[AI_STUDIO_CONTROLLER_KEY]
+          }
+          controller.dispose()
+        } finally {
+          directClient.close()
+        }
+      },
+    }
+  } catch (error) {
+    try {
+      controllerToDispose?.dispose()
+    } finally {
       directClient.close()
-    },
+    }
+    throw error
   }
 }
 

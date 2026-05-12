@@ -5,5 +5,6 @@ export function createUiCore() {
     emit: () => { ver++; subs.forEach(fn => { try { fn() } catch (_) {} }) },
     subscribe: (fn: () => void) => { subs.add(fn); return () => subs.delete(fn) },
     getVer: () => ver,
+    dispose: () => { subs.clear() },
   }
 }

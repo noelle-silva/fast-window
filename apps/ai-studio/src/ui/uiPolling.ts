@@ -31,6 +31,7 @@ export function createUiPolling(deps: {
   const uiStreamCache = new Map()
   let uiChatSyncing = false
   let uiLastChatUpdatedNoticeId = ''
+  let uiPollingDisposed = false
 
   async function syncActiveRoleChatsFromStorage(metaOverride?: any) {
     const state = deps.getState()
@@ -236,6 +237,7 @@ export function createUiPolling(deps: {
   }
 
   async function uiPollTick() {
+    if (uiPollingDisposed) return
     const state = deps.getState()
     if (state.loading || !state.data) return
 
@@ -333,14 +335,25 @@ export function createUiPolling(deps: {
   }
 
   function startUiPollers() {
+    if (uiPollingDisposed) return
     if (uiPollTimer) return
     uiPollTimer = window.setInterval(() => {
       uiPollTick().catch(() => {})
     }, 350)
   }
 
+  function stopUiPollers() {
+    uiPollingDisposed = true
+    if (uiPollTimer) {
+      window.clearInterval(uiPollTimer)
+      uiPollTimer = 0
+    }
+    uiStreamCache.clear()
+  }
+
   return {
     startUiPollers,
+    stopUiPollers,
     uiPollTick,
     syncActiveRoleChatsFromStorage,
     syncActiveTargetChatsFromStorage,

@@ -654,6 +654,10 @@ export function createAiChatController(deps: { capabilities: AiChatCapabilities;
     return () => subs.delete(fn)
   }
 
+  function disposeSubscriptions() {
+    subs.clear()
+  }
+
   let splitMetaCache = null
 
   function safeDirName(input, fallback) {
@@ -6041,6 +6045,15 @@ export function createAiChatController(deps: { capabilities: AiChatCapabilities;
     }, 350)
   }
 
+  function stopUiPollers() {
+    if (uiPollTimer) {
+      window.clearInterval(uiPollTimer)
+      uiPollTimer = 0
+    }
+    uiStreamCache.clear()
+    disposeSubscriptions()
+  }
+
   async function uiPollTick() {
     if (state.loading || !state.data) return
 
@@ -7538,6 +7551,7 @@ export function createAiChatController(deps: { capabilities: AiChatCapabilities;
     activeChat,
     getProvider,
     renderAssistantInto,
+    dispose: stopUiPollers,
     actions: {
       emit,
       setSideTab: (tab) => {

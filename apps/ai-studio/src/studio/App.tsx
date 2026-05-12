@@ -59,6 +59,8 @@ export function App() {
   const [toast, setToast] = React.useState<ToastMessage | null>(null)
   const [launchInfo, setLaunchInfo] = React.useState<FwLaunchInfo>({ launched: false, standalone: true, mode: 'standalone' })
   const runtimeRef = React.useRef<AiChatAppRuntime | null>(null)
+  const runtimeVersionRef = React.useRef(0)
+  const mountedRef = React.useRef(false)
   const toastSeqRef = React.useRef(0)
 
   const showToast = React.useCallback((message: unknown) => {
@@ -67,31 +69,56 @@ export function App() {
     setToast({ id: ++toastSeqRef.current, text })
   }, [])
 
-  const refreshDataDirStatus = React.useCallback(async () => {
+  const refreshDataDirStatus = React.useCallback(async (isCancelled: () => boolean = () => false) => {
     const status = await invoke<DataDirStatus>('data_dir_status').catch(error => ({
       dataDir: '',
       defaultDataDir: '',
       writable: false,
       error: String((error as any)?.message || error || '读取数据目录状态失败'),
     }))
-    setDataDirStatus(status)
+    if (!isCancelled()) setDataDirStatus(status)
     return status
   }, [])
 
-  const connectBackend = React.useCallback(async () => {
+  const connectBackend = React.useCallback(async (isCancelled: () => boolean = () => false) => {
+    if (isCancelled()) return null
+    const runtimeVersion = runtimeVersionRef.current + 1
+    runtimeVersionRef.current = runtimeVersion
     runtimeRef.current?.dispose()
     runtimeRef.current = null
     setController(null)
-    const runtime = await createAiChatAppRuntime({
-      showToast,
-      onBack: () => getCurrentWindow().hide(),
-    })
-    runtimeRef.current = runtime
-    setController(runtime.controller)
-    setBootStatus('ready')
-    setBootError('')
-    return runtime
+    if (isCancelled()) return null
+    try {
+      const runtime = await createAiChatAppRuntime({
+        showToast,
+        onBack: () => getCurrentWindow().hide(),
+      })
+      if (isCancelled() || runtimeVersionRef.current !== runtimeVersion) {
+        runtime.dispose()
+        return null
+      }
+      runtimeRef.current = runtime
+      setController(runtime.controller)
+      setBootStatus('ready')
+      setBootError('')
+      return runtime
+    } catch (error) {
+      if (isCancelled() || runtimeVersionRef.current !== runtimeVersion) {
+        return null
+      }
+      throw error
+    }
   }, [showToast])
+
+  const isAppUnmounted = React.useCallback(() => !mountedRef.current, [])
+
+  const refreshMountedDataDirStatus = React.useCallback(() => {
+    return refreshDataDirStatus(isAppUnmounted)
+  }, [isAppUnmounted, refreshDataDirStatus])
+
+  const connectMountedBackend = React.useCallback(async () => {
+    return connectBackend(isAppUnmounted)
+  }, [connectBackend, isAppUnmounted])
 
   const handleCommand = React.useCallback((command: string | null | undefined) => {
     const id = String(command || '').trim()
@@ -120,23 +147,33 @@ export function App() {
   React.useEffect(() => {
     let disposed = false
     let unlisten: (() => void) | null = null
+    mountedRef.current = true
 
     async function boot() {
       try {
         const info = await invoke<FwLaunchInfo>('fw_launch_info').catch(() => null)
+        if (disposed) return
         if (!disposed && info) setLaunchInfo(normalizeLaunchInfo(info))
         const command = await invoke<string | null>('fw_initial_command').catch(() => null)
+        if (disposed) return
         if (!disposed) handleCommand(command)
-        unlisten = await listen<{ command?: string }>('fw-app-command', event => handleCommand(event.payload?.command))
+        const removeCommandListener = await listen<{ command?: string }>('fw-app-command', event => handleCommand(event.payload?.command))
+        if (disposed) {
+          removeCommandListener()
+          return
+        }
+        unlisten = removeCommandListener
         await invoke('app_ready').catch(() => {})
-        await refreshDataDirStatus()
+        if (disposed) return
+        await refreshDataDirStatus(() => disposed)
+        if (disposed) return
         if (!disposed) setBootStatus('booting')
-        await connectBackend()
+        await connectBackend(() => disposed)
       } catch (error: any) {
         if (disposed) return
         setBootStatus('error')
         setBootError(String(error?.message || error || 'AI Studio 启动失败'))
-        await refreshDataDirStatus()
+        await refreshDataDirStatus(() => disposed)
         await invoke('app_ready').catch(() => {})
       }
     }
@@ -144,7 +181,9 @@ export function App() {
     boot()
     return () => {
       disposed = true
+      mountedRef.current = false
       if (unlisten) unlisten()
+      runtimeVersionRef.current += 1
       runtimeRef.current?.dispose()
       runtimeRef.current = null
     }
@@ -157,23 +196,26 @@ export function App() {
   }, [toast])
 
   async function pickDataDir() {
+    if (!mountedRef.current) return
     const previousStatus = bootStatus
     try {
       setDataDirBusy(true)
       setBootError('')
       const picked = await invoke<DataDirStatus | null>('pick_data_dir')
+      if (!mountedRef.current) return
       if (!picked) {
         setBootStatus(controller ? 'ready' : previousStatus)
         return
       }
       setDataDirStatus(picked)
-      await connectBackend()
+      await connectMountedBackend()
     } catch (error: any) {
+      if (!mountedRef.current) return
       setBootStatus('error')
       setBootError(String(error?.message || error || '选择数据目录失败'))
-      await refreshDataDirStatus()
+      await refreshMountedDataDirStatus()
     } finally {
-      setDataDirBusy(false)
+      if (mountedRef.current) setDataDirBusy(false)
     }
   }
 
