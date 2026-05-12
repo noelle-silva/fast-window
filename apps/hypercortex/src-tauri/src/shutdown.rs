@@ -30,11 +30,11 @@ impl ShutdownState {
     }
 
     pub(crate) fn is_shutting_down(&self) -> bool {
-        self.shutting_down.load(Ordering::SeqCst)
+        self.shutting_down.load(Ordering::Acquire)
     }
 
     pub(crate) fn shutdown(&self, app: tauri::AppHandle) {
-        if self.shutting_down.swap(true, Ordering::SeqCst) {
+        if self.shutting_down.swap(true, Ordering::AcqRel) {
             return;
         }
         if let Some(window) = app.get_webview_window("main") {

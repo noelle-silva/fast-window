@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod backend_sidecar;
+mod backend_lifecycle;
 mod control_server;
 mod data_dir;
 mod fw_window;
@@ -29,8 +30,14 @@ struct PickedDir {
 
 #[tauri::command]
 async fn backend_endpoint(
+    app: tauri::AppHandle,
     state: tauri::State<'_, Arc<BackendState>>,
 ) -> Result<BackendEndpoint, String> {
+    let state_inner = state.inner().clone();
+    if let Err(error) = start_backend(app, state_inner).await {
+        state.set_runtime_error(error.clone());
+        return Err(error);
+    }
     state.endpoint().await
 }
 
