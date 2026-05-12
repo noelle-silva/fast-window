@@ -121,6 +121,30 @@ function FolderList(props: FoldersViewProps) {
       })
   }, [childIds, controller, state.currentFolderId])
 
+  const canDropIntoFolder = React.useCallback((activeId: string, targetId: string) => {
+    const active = controller.getNode(activeId)
+    const target = controller.getNode(targetId)
+    return !!active && target?.type === 'folder' && controller.canMoveInto(targetId, activeId)
+  }, [controller])
+
+  const handleDropIntoFolder = React.useCallback((activeId: string, targetFolderId: string) => {
+    if (!canDropIntoFolder(activeId, targetFolderId)) return
+    setOptimisticChildIds(childIds.filter(id => id !== activeId))
+    void controller.moveNode(activeId, targetFolderId)
+      .then(() => {
+        void controller.host.toast(`已移动到：${controller.folderLabelById(targetFolderId)}`)
+      })
+      .catch(error => {
+        setOptimisticChildIds(null)
+        void controller.host.toast(String((error as any)?.message || error || '移动失败'))
+      })
+  }, [canDropIntoFolder, childIds, controller])
+
+  const folderDrop = React.useMemo(() => ({
+    canDrop: canDropIntoFolder,
+    onDrop: handleDropIntoFolder,
+  }), [canDropIntoFolder, handleDropIntoFolder])
+
   if (query) {
     if (!results.length) return <EmptyState message="没有匹配的内容" />
     return (
@@ -138,7 +162,7 @@ function FolderList(props: FoldersViewProps) {
 
   return (
     <Paper sx={{ borderRadius: 1.5, overflow: 'hidden', boxShadow: '0 10px 28px rgba(15, 23, 42, 0.06)' }}>
-      <SortableRoot onMove={handleMove}>
+      <SortableRoot onMove={handleMove} drop={folderDrop}>
         <SortableSection items={childIds}>
           <Stack spacing={0.25}>
             {sortedChildren.map(node => (
@@ -208,21 +232,38 @@ function FolderCard(props: {
       role="button"
       tabIndex={0}
       style={sortable.style}
+      {...sortable.dropActivatorProps}
       onContextMenu={(event) => {
         event.preventDefault()
         controller.setContextMenu(true, node.id, event.clientX, event.clientY)
       }}
-      onClick={() => {
+      onClick={(event) => {
+        if (sortable.shouldSuppressClick()) {
+          event.preventDefault()
+          return
+        }
         if (node.type === 'folder') controller.navigateFolder(node.id)
         else void controller.copyFolderItem(node.id)
       }}
       sx={{
         p: 1.25,
         cursor: 'pointer',
-        bgcolor: sortable.isDragging ? 'action.selected' : undefined,
+        bgcolor: sortable.isDropTarget
+          ? 'primary.main'
+          : sortable.isDropCandidate
+            ? 'action.hover'
+            : sortable.isDragging
+              ? 'action.selected'
+              : undefined,
+        color: sortable.isDropTarget ? 'primary.contrastText' : undefined,
         opacity: sortable.isDragging ? 0.82 : 1,
         position: 'relative',
-        '&:hover': { bgcolor: 'action.hover' },
+        outline: sortable.isDropTarget ? '2px solid' : undefined,
+        outlineColor: sortable.isDropTarget ? 'primary.dark' : undefined,
+        outlineOffset: sortable.isDropTarget ? -2 : undefined,
+        boxShadow: sortable.isDropTarget ? 'inset 0 0 0 1px rgba(255,255,255,0.35)' : undefined,
+        transition: sortable.dragMode === 'drop' ? 'background-color 120ms ease, color 120ms ease, outline-color 120ms ease' : undefined,
+        '&:hover': { bgcolor: sortable.isDropTarget ? 'primary.main' : 'action.hover' },
       }}
     >
       <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: node.type === 'item' ? 0.75 : 0 }}>
