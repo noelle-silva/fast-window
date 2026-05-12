@@ -14,8 +14,7 @@
     "files": [
       { "from": "src-tauri/target/release/ai-studio-app.exe", "to": "ai-studio-app.exe" },
       { "from": "src-tauri/target/release/ai-studio-backend.exe", "to": "ai-studio-backend.exe" },
-      { "from": "src-tauri/target/release/assets", "to": "assets" },
-      { "from": "src-tauri/target/release/resources", "to": "resources" }
+      { "from": "src-tauri/target/resources/assets", "to": "assets" }
     ]
   },
   "catalogIcon": { "type": "emoji", "value": "🧠" },

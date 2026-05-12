@@ -12,6 +12,8 @@
     "build:ui": "pnpm build:backend && vite build && pnpm build:resources",
     "build:exe:dev": "pnpm build:ui && cargo build --manifest-path src-tauri/Cargo.toml",
     "build:exe": "pnpm build:ui && pnpm tauri build",
+    "build:app": "node ../../scripts/stage-v5-app.mjs",
+    "build:app:exe": "node ../../scripts/sync-v5-app-exe.mjs",
     "apps:version:check": "node ../../scripts/bump-v5-app-version.mjs --check",
     "apps:bump:dry": "node ../../scripts/bump-v5-app-version.mjs --dry-run",
     "apps:bump": "node ../../scripts/bump-v5-app-version.mjs",

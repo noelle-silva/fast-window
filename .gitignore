@@ -5,6 +5,7 @@ node_modules/
 # Build outputs
 dist/
 dist-ssr/
+apps/*/dist-app/
 *.local
 
 # Local temp / artifacts

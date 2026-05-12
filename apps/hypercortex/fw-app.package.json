@@ -14,9 +14,8 @@
     "files": [
       { "from": "src-tauri/target/release/hypercortex-app.exe", "to": "hypercortex-app.exe" },
       { "from": "src-tauri/target/release/hypercortex-backend.exe", "to": "hypercortex-backend.exe" },
-      { "from": "src-tauri/target/release/assets", "to": "assets" },
-      { "from": "src-tauri/target/release/resources", "to": "resources" },
-      { "from": "src-tauri/target/release/bin", "to": "bin" }
+      { "from": "src-tauri/target/resources/assets", "to": "assets" },
+      { "from": "src-tauri/target/resources/bin", "to": "bin" }
     ]
   },
   "catalogIcon": { "type": "emoji", "value": "🧬" },

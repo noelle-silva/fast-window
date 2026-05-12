@@ -108,6 +108,14 @@ pnpm tauri build
 - 插件构建：`pnpm plugins:build` / 开发监听：`pnpm plugins:watch`（可用 `pnpm dev:all` 同时跑监听与前端 dev）
 - `pnpm tauri`：已接入 `plugins:build`，确保打包/运行前插件产物是最新
 
+## v5 App 开发
+
+- v5 App 标准样板、构建链路、注册目录、快速同步 exe、正式打包：见 `apps/v5-reference-app-go/README.md`
+- 完整本地可注册目录：`apps/<app-id>/dist-app/v5-windows/`
+- 本地完整生成：`pnpm --dir apps/<app-id> build:app`
+- 只替换已存在注册目录里的入口 exe：`pnpm --dir apps/<app-id> build:app:exe`
+- 正式打包：`pnpm apps:package:v5 -- --app <app-id>`
+
 ## 发布插件到商店（分发仓库）
 
 要求：准备一个 Fine-grained Token（最小权限：对 `fast-window-plugins-download` 的 Contents/Release 读写），并配置环境变量：
