@@ -51,6 +51,7 @@ Go sidecar 版本的 Fast Window v5 App 模范实现。
 - `backend_endpoint` 的语义：调用时负责恢复后端可用性，而不是只读取缓存 endpoint。
 - WebSocket 恢复策略：断线后 reject 当前 pending request，后续请求重新连接；睡眠/锁屏恢复时强制刷新旧 WebSocket 并重新取 endpoint。
 - direct client 公开 API 的绑定语义：公开函数必须脱离对象仍可调用，允许被 React props、回调、变量解构传递。
+- direct client 创建生命周期：工厂函数只有在初次连接成功后才能返回 client；初次连接或握手失败时必须关闭 client、清理恢复监听和 pending request，并原样抛出错误。
 - `build:ui` 作为所有构建入口的前置步骤。
 - 数据目录可写检测。
 - migration runner 和 ledger 概念。
@@ -89,6 +90,7 @@ pnpm --dir apps/v5-reference-app-go build:exe:dev
 - 电脑睡眠或锁屏恢复后，前端能重新连接 sidecar，后续 RPC 不长期停留在 WebSocket closed 状态。
 - sidecar 被系统或外部原因结束后，再次调用 `backend_endpoint` 能启动新 sidecar 并返回新 endpoint。
 - direct client 的公开方法被作为 props 或回调传递后仍能工作，不允许因为 `this` 丢失导致白屏。
+- direct client 初次连接失败时不残留 `visibilitychange`、`focus`、`online` 或 interval 恢复监听。
 
 ## 不应加入模范 App 的内容
 
@@ -102,3 +104,4 @@ pnpm --dir apps/v5-reference-app-go build:exe:dev
 - 只在前端吞掉 WebSocket 错误但不重连的兜底。
 - 只缓存 endpoint、不确认 sidecar 存活的 `backend_endpoint`。
 - 依赖 class prototype 方法作为公开 client API，导致函数脱离对象后丢失 `this`。
+- direct client 工厂函数在初次连接失败后不关闭半成品 client，导致恢复监听或定时器残留。

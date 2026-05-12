@@ -243,8 +243,13 @@ class ReferenceDirectClient implements DirectClient {
 
 async function createDirectClient(): Promise<DirectClient> {
   const client = new ReferenceDirectClient()
-  await client.open()
-  return client
+  try {
+    await client.open()
+    return client
+  } catch (error) {
+    client.close()
+    throw error
+  }
 }
 
 function isInteractiveTarget(target: EventTarget | null): boolean {
