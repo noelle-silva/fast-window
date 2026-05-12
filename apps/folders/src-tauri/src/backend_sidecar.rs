@@ -1,13 +1,11 @@
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::Manager;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{Child, Command};
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::process::{Child, ChildStdout, Command};
 
+use crate::backend_lifecycle::BackendProcessState;
 use crate::control_server::random_token;
 use crate::data_dir;
 
@@ -26,69 +24,32 @@ pub(crate) struct BackendEndpoint {
 
 #[derive(Default)]
 pub(crate) struct BackendState {
-    child: AsyncMutex<Option<Child>>,
-    endpoint: Mutex<Option<BackendEndpoint>>,
-    last_error: Mutex<Option<String>>,
-}
-
-impl Drop for BackendState {
-    fn drop(&mut self) {
-        self.stop_sync();
-    }
+    process: BackendProcessState<BackendEndpoint>,
 }
 
 impl BackendState {
     pub(crate) async fn stop(&self) {
-        let child = {
-            let mut guard = self.child.lock().await;
-            guard.take()
-        };
-        if let Some(mut ch) = child {
-            let _ = ch.start_kill();
-            let _ = ch.wait().await;
-        }
+        self.process.stop().await;
     }
 
     pub(crate) fn stop_sync(&self) {
-        if let Ok(mut child) = self.child.try_lock() {
-            if let Some(mut ch) = child.take() {
-                let _ = ch.start_kill();
-            }
-        }
+        self.process.stop_sync();
     }
 
     pub(crate) fn runtime_error(&self) -> Option<String> {
-        self.last_error.lock().ok().and_then(|value| value.clone())
+        self.process.runtime_error()
     }
 
     pub(crate) fn clear_runtime_state(&self) {
-        if let Ok(mut endpoint) = self.endpoint.lock() {
-            *endpoint = None;
-        }
-        if let Ok(mut error) = self.last_error.lock() {
-            *error = None;
-        }
+        self.process.clear_runtime_state();
     }
 
     pub(crate) fn set_runtime_error(&self, value: String) {
-        if let Ok(mut error) = self.last_error.lock() {
-            *error = Some(value);
-        }
+        self.process.set_runtime_error(value);
     }
 
     pub(crate) async fn endpoint(&self) -> Result<BackendEndpoint, String> {
-        for _ in 0..100 {
-            if let Some(error) = self.runtime_error() {
-                return Err(error);
-            }
-            if let Ok(endpoint) = self.endpoint.lock() {
-                if let Some(endpoint) = endpoint.clone() {
-                    return Ok(endpoint);
-                }
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        Err("文件夹收藏后台未就绪".to_string())
+        self.process.endpoint("文件夹收藏后台未就绪").await
     }
 }
 
@@ -97,11 +58,25 @@ pub(crate) async fn start_backend(
     state: Arc<BackendState>,
 ) -> Result<(), String> {
     let session_token = random_token("folders-backend");
-    let data_dir = data_dir::resolve_data_dir(&app);
+    let spawn_token = session_token.clone();
+    state
+        .process
+        .start(
+            move || spawn_backend_child(&app, &spawn_token),
+            move |value| backend_endpoint_from_ready(value, &session_token),
+        )
+        .await
+}
+
+fn spawn_backend_child(
+    app: &tauri::AppHandle,
+    session_token: &str,
+) -> Result<(Child, ChildStdout), String> {
+    let data_dir = data_dir::resolve_data_dir(app);
     data_dir::ensure_writable_dir(&data_dir)?;
 
-    let mut cmd = Command::new(resolve_backend_sidecar(&app)?);
-    cmd.env("FW_APP_SESSION_TOKEN", &session_token);
+    let mut cmd = Command::new(resolve_backend_sidecar(app)?);
+    cmd.env("FW_APP_SESSION_TOKEN", session_token);
     cmd.env("FW_APP_DATA_DIR", &data_dir);
     cmd.stdin(std::process::Stdio::null());
     cmd.stdout(std::process::Stdio::piped());
@@ -116,45 +91,26 @@ pub(crate) async fn start_backend(
         .stdout
         .take()
         .ok_or_else(|| "文件夹收藏后台 stdout 不可用".to_string())?;
-    {
-        let mut guard = state.child.lock().await;
-        *guard = Some(child);
+    Ok((child, stdout))
+}
+
+fn backend_endpoint_from_ready(value: serde_json::Value, session_token: &str) -> Option<BackendEndpoint> {
+    if value.get("type").and_then(|v| v.as_str()) != Some("ready") {
+        return None;
     }
-
-    let state_for_stdout = state.clone();
-    tauri::async_runtime::spawn(async move {
-        let mut lines = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
-                continue;
-            };
-            if value.get("type").and_then(|v| v.as_str()) != Some("ready") {
-                continue;
-            }
-            let Some(ipc) = value.get("ipc") else {
-                continue;
-            };
-            let Some(url) = ipc
-                .get("url")
-                .and_then(|v| v.as_str())
-                .filter(|url| url.starts_with("ws://127.0.0.1:"))
-                .map(|s| s.to_string())
-            else {
-                continue;
-            };
-            if let Ok(mut endpoint) = state_for_stdout.endpoint.lock() {
-                *endpoint = Some(BackendEndpoint {
-                    mode: "direct",
-                    transport: "local-websocket",
-                    url,
-                    token: session_token.clone(),
-                    protocol_version: 1,
-                });
-            }
-        }
-    });
-
-    Ok(())
+    let ipc = value.get("ipc")?;
+    let url = ipc
+        .get("url")
+        .and_then(|v| v.as_str())
+        .filter(|url| url.starts_with("ws://127.0.0.1:"))?
+        .to_string();
+    Some(BackendEndpoint {
+        mode: "direct",
+        transport: "local-websocket",
+        url,
+        token: session_token.to_string(),
+        protocol_version: 1,
+    })
 }
 
 fn hide_backend_console(cmd: &mut Command) {
