@@ -23,7 +23,7 @@ Go sidecar 版本的 Fast Window v5 App 模范实现。
 - 前端 direct client 对外方法必须可安全传递：`request`、`close` 等公开 API 应使用函数属性或闭包对象，不能依赖会在 props/回调传递中丢失的 `this`。
 - Go 侧 `schemaVersion`、`dataVersion`、`_migrations.json`、`_meta.json` 骨架。
 - 前端加载态、错误态、数据目录选择、运行中 command 接收演示。
-- 标准构建脚本：`build:backend`、`build:resources`、`build:ui`、`build:exe:dev`、`build:exe`、`build:app`、`build:app:exe`。
+- 标准构建脚本：`build:backend`、`build:resources`、`build:ui`、`build:exe:dev`、`build:exe`、`build:app`、`build:app:dev`、`build:app:exe`、`build:app:exe:dev`。
 - 标准 v5 App 包声明：`fw-app.package.json`，统一生成 `dist-app/v5-windows/` 本地可注册目录。
 - 标准版本脚本：`apps:version:check`、`apps:bump`、`apps:bump:dry`，所有 App 版本目标必须一致后才允许升版。
 
@@ -57,7 +57,8 @@ Go sidecar 版本的 Fast Window v5 App 模范实现。
 - direct client 公开 API 的绑定语义：公开函数必须脱离对象仍可调用，允许被 React props、回调、变量解构传递。
 - direct client 创建生命周期：工厂函数只有在初次连接成功后才能返回 client；初次连接或握手失败时必须关闭 client、清理恢复监听和 pending request，并原样抛出错误。
 - `build:ui` 作为所有构建入口的前置步骤。
-- `build:app` 是本地注册的标准入口，输出 `dist-app/v5-windows/`，不得用裸 `target/release` 目录注册 v5 App。
+- `build:app` 是本地 release 注册的标准入口，输出 `dist-app/v5-windows/`，不得用裸 `target/release` 目录注册 v5 App。
+- `build:app:dev` 是本地 dev 注册的标准入口，输出 `dist-app/v5-windows-dev/`，不得用裸 `target/debug` 目录注册 v5 App。
 - `build:app:exe` 只替换已存在 `dist-app/v5-windows/` 中的入口 exe；资源、图标、命令或 package 声明变化时必须跑 `build:app`。
 - `apps:bump` 只能调用根目录统一版本脚本；不得在单个 App 内复制升版逻辑。
 - `package.json`、`src-tauri/tauri.conf.json`、`src-tauri/tauri.conf.dev.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 的 App 自身版本必须保持一致。
@@ -71,10 +72,16 @@ v5 App 的本地产物、快速更新和正式发布必须共用同一套 stagin
 
 ### 核心目录
 
-每个 v5 App 的完整本地产物目录固定为：
+每个 v5 App 的完整 release 本地产物目录固定为：
 
 ```txt
 apps/<app-id>/dist-app/v5-windows/
+```
+
+dev 本地产物目录固定为：
+
+```txt
+apps/<app-id>/dist-app/v5-windows-dev/
 ```
 
 这个目录必须等同于正式 zip 解压后的 app 根目录，至少包含：
@@ -82,9 +89,9 @@ apps/<app-id>/dist-app/v5-windows/
 - `fw-app.json`
 - `fw-app.json.windowsExecutable` 指向的入口 exe
 - `fw-app.json.icon` 指向的图标文件或资源
-- `fw-app.package.json.package.files` 声明的所有资源
+- 当前 profile 的 `profiles.<profile>.files` 声明的所有资源
 
-注册 v5 App 时，应从 `apps/<app-id>/dist-app/v5-windows/` 里选择入口 exe。
+注册 release v5 App 时，应从 `apps/<app-id>/dist-app/v5-windows/` 里选择入口 exe；注册 dev v5 App 时，应从 `apps/<app-id>/dist-app/v5-windows-dev/` 里选择入口 exe。
 
 ### 命令职责
 
@@ -92,9 +99,13 @@ apps/<app-id>/dist-app/v5-windows/
 |---|---|---|
 | `pnpm build:exe` | 裸 Tauri exe 构建，保留给底层验证和旧习惯 | `src-tauri/target/release/` |
 | `pnpm build:app` | 完整生成本地可注册 v5 App 目录 | `dist-app/v5-windows/` |
+| `pnpm build:app:dev` | 完整生成本地可注册 dev v5 App 目录 | `dist-app/v5-windows-dev/` |
 | `pnpm build:app:exe` | 只重建并同步入口 exe 到已存在的 staging 目录 | 替换 `dist-app/v5-windows/<entry>.exe` |
+| `pnpm build:app:exe:dev` | 只重建并同步入口 exe 到已存在的 dev staging 目录 | 替换 `dist-app/v5-windows-dev/<entry>.exe` |
 | `pnpm apps:stage:v5 -- --app <id>` | 根目录统一 staging 入口 | `apps/<id>/dist-app/v5-windows/` |
+| `pnpm apps:stage:v5:dev -- --app <id>` | 根目录统一 dev staging 入口 | `apps/<id>/dist-app/v5-windows-dev/` |
 | `pnpm apps:sync-exe:v5 -- --app <id>` | 根目录统一入口 exe 同步 | 替换 `apps/<id>/dist-app/v5-windows/<entry>.exe` |
+| `pnpm apps:sync-exe:v5:dev -- --app <id>` | 根目录统一 dev 入口 exe 同步 | 替换 `apps/<id>/dist-app/v5-windows-dev/<entry>.exe` |
 | `pnpm apps:package:v5 -- --app <id>` | 从同一 staging 目录生成正式 zip 和 catalog | `.tmp/dist-v5-apps/` |
 
 ### 推荐工作流
@@ -105,10 +116,22 @@ apps/<app-id>/dist-app/v5-windows/
 pnpm --dir apps/<app-id> build:app
 ```
 
+首次本地注册 dev 版，或 dev 版资源、图标、命令、打包清单变化后：
+
+```powershell
+pnpm --dir apps/<app-id> build:app:dev
+```
+
 只改了入口 exe 代码，希望保留注册路径并快速替换：
 
 ```powershell
 pnpm --dir apps/<app-id> build:app:exe
+```
+
+只改了入口 exe 代码，希望保留 dev 注册路径并快速替换：
+
+```powershell
+pnpm --dir apps/<app-id> build:app:exe:dev
 ```
 
 正式发布前生成 zip 和 catalog：
@@ -122,10 +145,15 @@ pnpm apps:package:v5 -- --app <app-id>
 ```mermaid
 flowchart TD
     A[fw-app.package.json] --> B[统一 staging 核心]
-    B --> C[执行 build.command]
-    C --> D[复制 package.files]
+    B --> C[选择 profile]
+    C --> P{profile}
+    P -->|release| R[执行 profiles.release.build]
+    P -->|dev| V[执行 profiles.dev.build]
+    R --> D[复制 profiles.release.files]
+    V --> M[复制 profiles.dev.files]
+    M --> E[生成 fw-app.json]
     D --> E[生成 fw-app.json]
-    E --> F[校验 dist-app/v5-windows]
+    E --> F[校验对应 staging 目录]
 
     F --> G[build:app]
     G --> H[本地注册]
@@ -139,19 +167,21 @@ flowchart TD
 
 ### 约束
 
-- `build:app:exe` 要求 `dist-app/v5-windows/fw-app.json` 与当前 `fw-app.package.json` 生成结果一致；不一致时必须先跑 `build:app`。
-- `build:app:exe` 只同步 `package.windowsExecutable` 对应的文件，不同步资源和 manifest。
+- `build:app:exe` 要求对应 staging 目录里的 `fw-app.json` 与当前 `fw-app.package.json` 生成结果一致；不一致时必须先跑完整 `build:app` 或 `build:app:dev`。
+- `build:app:exe` / `build:app:exe:dev` 只同步 `package.windowsExecutable` 对应的文件，不同步资源和 manifest。
 - 如果 app 正在运行导致 Windows 锁定 exe，命令应失败；先停止 app，再重新执行。
-- 新 v5 App 必须提供 `fw-app.package.json`，并接入 `build:app` / `build:app:exe`。
+- 新 v5 App 必须提供 schema 2 的 `fw-app.package.json`，并接入 `build:app` / `build:app:dev` / `build:app:exe` / `build:app:exe:dev`。
 - 正式发布不得绕过 staging 目录；zip 必须从 `dist-app/v5-windows/` 复制生成。
 
 ### 新 App 接入清单
 
-- 在 `apps/<app-id>/fw-app.package.json` 声明 `build`、`package.windowsExecutable`、`package.icon`、`package.files`、`commands`。
+- 在 `apps/<app-id>/fw-app.package.json` 声明 `profiles.release`、`profiles.dev`、`package.windowsExecutable`、`package.icon`、`commands`。
 - 在 `apps/<app-id>/package.json` 增加：
   - `"build:app": "node ../../scripts/stage-v5-app.mjs"`
+  - `"build:app:dev": "node ../../scripts/stage-v5-app.mjs --profile dev"`
   - `"build:app:exe": "node ../../scripts/sync-v5-app-exe.mjs"`
-- 确保 `package.files` 中有一条 `to` 等于 `package.windowsExecutable` 的入口 exe 映射。
+  - `"build:app:exe:dev": "node ../../scripts/sync-v5-app-exe.mjs --profile dev"`
+- 确保每个 `profiles.<profile>.files` 中都有一条 `to` 等于 `package.windowsExecutable` 的入口 exe 映射。
 - 确保 `commands` 与 app 运行时上报的 available commands 保持一致。
 
 ## 验收命令
@@ -167,6 +197,8 @@ pnpm --dir apps/v5-reference-app-go exec tsc --noEmit
 pnpm --dir apps/v5-reference-app-go exec vite build
 pnpm --dir apps/v5-reference-app-go build:exe:dev
 pnpm --dir apps/v5-reference-app-go build:app
+pnpm --dir apps/v5-reference-app-go build:app:dev
+pnpm --dir apps/v5-reference-app-go build:app:exe:dev
 ```
 
 `go test ./...` 需要在 `apps/v5-reference-app-go/backend-go` 目录执行，或使用等价的 `go test ./apps/v5-reference-app-go/backend-go/...` 风格命令。

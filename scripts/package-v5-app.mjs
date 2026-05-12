@@ -1,10 +1,12 @@
 import path from 'node:path'
 import {
+  DEFAULT_V5_APP_PROFILE,
   DEFAULT_V5_APP_OUT_DIR,
   buildV5AppPackage,
   exists,
   getV5AppConfig,
   isSafeId,
+  normalizeV5AppProfile,
   readJson,
   rootDir,
   upsertStoreApp,
@@ -19,6 +21,7 @@ function parseArgs(argv) {
     outDir: DEFAULT_V5_APP_OUT_DIR,
     baseUrl: DEFAULT_BASE_URL,
     noBuild: false,
+    profile: DEFAULT_V5_APP_PROFILE,
     catalogPath: '',
   }
   const args = argv.slice(2)
@@ -40,13 +43,19 @@ function parseArgs(argv) {
       out.catalogPath = path.resolve(rootDir, String(args[++i] || '').trim())
       continue
     }
+    if (arg === '--profile' && i + 1 < args.length) {
+      out.profile = normalizeV5AppProfile(args[++i])
+      continue
+    }
     if (arg === '--no-build') {
       out.noBuild = true
       continue
     }
+    throw new Error(`未知参数: ${arg}`)
   }
   if (!out.appId) throw new Error('Usage: node scripts/package-v5-app.mjs --app <id> [--no-build] [--out <dir>] [--base-url <https-url>]')
   if (!isSafeId(out.appId)) throw new Error(`app id 不合法: ${out.appId}`)
+  if (out.profile !== DEFAULT_V5_APP_PROFILE) throw new Error('apps:package:v5 只允许 release profile')
   if (!out.baseUrl.startsWith('https://')) throw new Error('--base-url 必须是 https:// URL')
   if (!out.catalogPath) out.catalogPath = path.join(out.outDir, 'catalog.staging.json')
   return out

@@ -113,7 +113,9 @@ pnpm tauri build
 - v5 App 标准样板、构建链路、注册目录、快速同步 exe、正式打包：见 `apps/v5-reference-app-go/README.md`
 - 完整本地可注册目录：`apps/<app-id>/dist-app/v5-windows/`
 - 本地完整生成：`pnpm --dir apps/<app-id> build:app`
+- 本地 dev 版完整生成：`pnpm --dir apps/<app-id> build:app:dev`
 - 只替换已存在注册目录里的入口 exe：`pnpm --dir apps/<app-id> build:app:exe`
+- 只替换已存在 dev 注册目录里的入口 exe：`pnpm --dir apps/<app-id> build:app:exe:dev`
 - 正式打包：`pnpm apps:package:v5 -- --app <app-id>`
 
 ## 发布插件到商店（分发仓库）

@@ -1,21 +1,32 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "folders",
   "name": "文件夹收藏",
   "description": "文件夹收藏 v5 应用，支持收藏文件夹、分组与桌面视图",
   "versionSource": "src-tauri/tauri.conf.json",
-  "build": {
-    "command": "pnpm",
-    "args": ["tauri", "build", "--no-bundle"]
+  "profiles": {
+    "release": {
+      "build": { "command": "pnpm", "args": ["tauri", "build", "--no-bundle"] },
+      "stageDir": "dist-app/v5-windows",
+      "files": [
+        { "from": "src-tauri/target/release/folders.exe", "to": "folders.exe" },
+        { "from": "src-tauri/target/release/folders-backend.exe", "to": "folders-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    },
+    "dev": {
+      "build": { "command": "pnpm", "args": ["build:exe:dev"] },
+      "stageDir": "dist-app/v5-windows-dev",
+      "files": [
+        { "from": "src-tauri/target/debug/folders.exe", "to": "folders.exe" },
+        { "from": "src-tauri/target/debug/folders-backend.exe", "to": "folders-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    }
   },
   "package": {
     "windowsExecutable": "folders.exe",
-    "icon": "assets/icon.svg",
-    "files": [
-      { "from": "src-tauri/target/release/folders.exe", "to": "folders.exe" },
-      { "from": "src-tauri/target/release/folders-backend.exe", "to": "folders-backend.exe" },
-      { "from": "src-tauri/target/resources/assets", "to": "assets" }
-    ]
+    "icon": "assets/icon.svg"
   },
   "catalogIcon": { "type": "emoji", "value": "📁" },
   "displayMode": "default",

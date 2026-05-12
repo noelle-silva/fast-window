@@ -1,22 +1,34 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "hypercortex",
   "name": "HyperCortex",
   "description": "HyperCortex v5 知识库、笔记与附件工作台",
   "versionSource": "src-tauri/tauri.conf.json",
-  "build": {
-    "command": "pnpm",
-    "args": ["tauri", "build", "--no-bundle"]
+  "profiles": {
+    "release": {
+      "build": { "command": "pnpm", "args": ["tauri", "build", "--no-bundle"] },
+      "stageDir": "dist-app/v5-windows",
+      "files": [
+        { "from": "src-tauri/target/release/hypercortex-app.exe", "to": "hypercortex-app.exe" },
+        { "from": "src-tauri/target/release/hypercortex-backend.exe", "to": "hypercortex-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" },
+        { "from": "src-tauri/target/resources/bin", "to": "bin" }
+      ]
+    },
+    "dev": {
+      "build": { "command": "pnpm", "args": ["build:exe:dev"] },
+      "stageDir": "dist-app/v5-windows-dev",
+      "files": [
+        { "from": "src-tauri/target/debug/hypercortex-app.exe", "to": "hypercortex-app.exe" },
+        { "from": "src-tauri/target/debug/hypercortex-backend.exe", "to": "hypercortex-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" },
+        { "from": "src-tauri/target/resources/bin", "to": "bin" }
+      ]
+    }
   },
   "package": {
     "windowsExecutable": "hypercortex-app.exe",
-    "icon": "assets/icon.svg",
-    "files": [
-      { "from": "src-tauri/target/release/hypercortex-app.exe", "to": "hypercortex-app.exe" },
-      { "from": "src-tauri/target/release/hypercortex-backend.exe", "to": "hypercortex-backend.exe" },
-      { "from": "src-tauri/target/resources/assets", "to": "assets" },
-      { "from": "src-tauri/target/resources/bin", "to": "bin" }
-    ]
+    "icon": "assets/icon.svg"
   },
   "catalogIcon": { "type": "emoji", "value": "🧬" },
   "displayMode": "default",

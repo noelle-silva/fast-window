@@ -5,7 +5,9 @@ import path from 'node:path'
 import process from 'node:process'
 import { spawn } from 'node:child_process'
 import {
+  DEFAULT_V5_APP_PROFILE,
   compareSemverStrict,
+  isV5AppProfile,
   isSafeId,
   loadV5AppPackageConfig,
   normalizeRel,
@@ -14,10 +16,9 @@ import {
   rootDir,
 } from './v5-app-package-manifest.mjs'
 
-export { compareSemverStrict, isSafeId, normalizeRel, parseSemverStrict, readJson, rootDir }
+export { DEFAULT_V5_APP_PROFILE, compareSemverStrict, isSafeId, normalizeRel, parseSemverStrict, readJson, rootDir }
 
 export const DEFAULT_V5_APP_OUT_DIR = path.join(rootDir, '.tmp', 'dist-v5-apps')
-export const DEFAULT_V5_APP_STAGE_DIR = path.join('dist-app', 'v5-windows')
 
 export async function exists(filePath) {
   try {
@@ -134,8 +135,21 @@ export async function loadV5AppVersion(config) {
   return version
 }
 
-export function defaultV5AppStageDir(config) {
-  return path.join(config.appDir, DEFAULT_V5_APP_STAGE_DIR)
+export function normalizeV5AppProfile(profile = DEFAULT_V5_APP_PROFILE) {
+  const id = String(profile || DEFAULT_V5_APP_PROFILE).trim()
+  if (!isV5AppProfile(id)) throw new Error(`v5 app profile 不受支持: ${id || '(empty)'}`)
+  return id
+}
+
+export function getV5AppProfile(config, profile = DEFAULT_V5_APP_PROFILE) {
+  const id = normalizeV5AppProfile(profile)
+  const profileConfig = config.profiles?.[id]
+  if (!profileConfig) throw new Error(`v5 app profile 缺失: ${id}`)
+  return { id, ...profileConfig }
+}
+
+export function defaultV5AppStageDir(config, profile = DEFAULT_V5_APP_PROFILE) {
+  return path.join(config.appDir, getV5AppProfile(config, profile).stageDir)
 }
 
 function validateCommands(commands) {
@@ -176,10 +190,10 @@ async function writeRuntimeManifest(packageRoot, manifest) {
   await fs.writeFile(path.join(packageRoot, 'fw-app.json'), JSON.stringify(manifest, null, 2) + '\n', 'utf8')
 }
 
-async function populateV5AppStageDir(config, packageRoot, version) {
+async function populateV5AppStageDir(config, profileConfig, packageRoot, version) {
   await fs.mkdir(packageRoot, { recursive: true })
 
-  for (const file of config.files) {
+  for (const file of profileConfig.files) {
     const fromRel = normalizeRel(file.from, 'files.from')
     const toRel = normalizeRel(file.to, 'files.to')
     await copyEntry(path.join(config.appDir, fromRel), path.join(packageRoot, toRel))
@@ -192,12 +206,13 @@ async function populateV5AppStageDir(config, packageRoot, version) {
 }
 
 export async function stageV5AppPackage(config, opts = {}) {
+  const profile = getV5AppProfile(config, opts.profile)
   if (!opts.noBuild) {
-    await run(config.buildCommand.command, config.buildCommand.args, config.appDir)
+    await run(profile.buildCommand.command, profile.buildCommand.args, config.appDir)
   }
 
   const version = await loadV5AppVersion(config)
-  const stageDir = path.resolve(config.appDir, String(opts.stageDir || defaultV5AppStageDir(config)))
+  const stageDir = path.resolve(config.appDir, String(opts.stageDir || defaultV5AppStageDir(config, profile.id)))
   const parent = path.dirname(stageDir)
   const base = path.basename(stageDir)
   const tmpDir = path.join(parent, `.tmp-stage-${base}-${Date.now()}`)
@@ -205,11 +220,12 @@ export async function stageV5AppPackage(config, opts = {}) {
   await fs.mkdir(tmpDir, { recursive: true })
 
   try {
-    const manifest = await populateV5AppStageDir(config, tmpDir, version)
+    const manifest = await populateV5AppStageDir(config, profile, tmpDir, version)
     await fs.mkdir(parent, { recursive: true })
     await replaceDirAtomic(tmpDir, stageDir)
     return {
       appId: config.id,
+      profile: profile.id,
       version,
       stageDir,
       executablePath: path.join(stageDir, manifest.windowsExecutable),
@@ -222,10 +238,10 @@ export async function stageV5AppPackage(config, opts = {}) {
   }
 }
 
-function findExecutableFileMapping(config) {
+function findExecutableFileMapping(config, profileConfig) {
   const executable = normalizeRel(config.executable, 'executable')
-  const match = config.files.find(file => normalizeRel(file.to, 'files.to') === executable)
-  if (!match) throw new Error(`package.files 必须包含 windowsExecutable 的来源映射: ${executable}`)
+  const match = profileConfig.files.find(file => normalizeRel(file.to, 'files.to') === executable)
+  if (!match) throw new Error(`profiles.${profileConfig.id}.files 必须包含 windowsExecutable 的来源映射: ${executable}`)
   return {
     from: normalizeRel(match.from, 'files.from'),
     to: executable,
@@ -237,12 +253,13 @@ function sameJson(a, b) {
 }
 
 export async function syncV5AppExecutable(config, opts = {}) {
+  const profile = getV5AppProfile(config, opts.profile)
   if (!opts.noBuild) {
-    await run(config.buildCommand.command, config.buildCommand.args, config.appDir)
+    await run(profile.buildCommand.command, profile.buildCommand.args, config.appDir)
   }
 
   const version = await loadV5AppVersion(config)
-  const stageDir = path.resolve(config.appDir, String(opts.stageDir || defaultV5AppStageDir(config)))
+  const stageDir = path.resolve(config.appDir, String(opts.stageDir || defaultV5AppStageDir(config, profile.id)))
   if (!(await exists(stageDir))) throw new Error(`v5 app staging 目录不存在，请先运行 build:app: ${stageDir}`)
 
   const expectedManifest = buildRuntimeManifest(config, version)
@@ -254,8 +271,8 @@ export async function syncV5AppExecutable(config, opts = {}) {
     throw new Error('staging fw-app.json 与当前发布声明不一致，请先运行 build:app 完整刷新应用目录')
   }
 
-  const executable = findExecutableFileMapping(config)
-  const src = path.join(config.appDir, executable.from)
+  const executable = findExecutableFileMapping(config, profile)
+  const src = path.join(config.appDir, normalizeRel(executable.from, 'files.from'))
   const dst = path.join(stageDir, executable.to)
   if (!(await exists(src))) throw new Error(`windowsExecutable 构建产物不存在: ${executable.from}`)
 
@@ -271,6 +288,7 @@ export async function syncV5AppExecutable(config, opts = {}) {
   await validateStagedV5App(stageDir, expectedManifest)
   return {
     appId: config.id,
+    profile: profile.id,
     version,
     stageDir,
     executablePath: dst,
@@ -279,11 +297,14 @@ export async function syncV5AppExecutable(config, opts = {}) {
 }
 
 export async function buildV5AppPackage(config, opts) {
+  const profile = normalizeV5AppProfile(opts?.profile)
+  if (profile !== DEFAULT_V5_APP_PROFILE) throw new Error('v5 app 正式打包只允许 release profile')
   const baseUrl = String(opts?.baseUrl || '').trim().replace(/\/+$/, '')
   if (!baseUrl.startsWith('https://')) throw new Error('baseUrl 必须是 https:// URL')
 
   const staged = await stageV5AppPackage(config, {
     noBuild: opts?.noBuild,
+    profile,
     stageDir: opts?.stageDir,
   })
   const { version } = staged

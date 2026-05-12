@@ -1,21 +1,32 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "v5-reference-app-go",
   "name": "v5 Reference App Go",
   "description": "Fast Window v5 Go sidecar 模范应用",
   "versionSource": "src-tauri/tauri.conf.json",
-  "build": {
-    "command": "pnpm",
-    "args": ["tauri", "build", "--no-bundle"]
+  "profiles": {
+    "release": {
+      "build": { "command": "pnpm", "args": ["tauri", "build", "--no-bundle"] },
+      "stageDir": "dist-app/v5-windows",
+      "files": [
+        { "from": "src-tauri/target/release/v5-reference-app-go.exe", "to": "v5-reference-app-go.exe" },
+        { "from": "src-tauri/target/release/v5-reference-app-go-backend.exe", "to": "v5-reference-app-go-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    },
+    "dev": {
+      "build": { "command": "pnpm", "args": ["build:exe:dev"] },
+      "stageDir": "dist-app/v5-windows-dev",
+      "files": [
+        { "from": "src-tauri/target/debug/v5-reference-app-go.exe", "to": "v5-reference-app-go.exe" },
+        { "from": "src-tauri/target/debug/v5-reference-app-go-backend.exe", "to": "v5-reference-app-go-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    }
   },
   "package": {
     "windowsExecutable": "v5-reference-app-go.exe",
-    "icon": "assets/icon.svg",
-    "files": [
-      { "from": "src-tauri/target/release/v5-reference-app-go.exe", "to": "v5-reference-app-go.exe" },
-      { "from": "src-tauri/target/release/v5-reference-app-go-backend.exe", "to": "v5-reference-app-go-backend.exe" },
-      { "from": "src-tauri/target/resources/assets", "to": "assets" }
-    ]
+    "icon": "assets/icon.svg"
   },
   "catalogIcon": { "type": "emoji", "value": "🧪" },
   "displayMode": "default",

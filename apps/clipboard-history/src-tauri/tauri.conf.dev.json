@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "pnpm build:backend:dev && pnpm build:resources && pnpm dev",
     "devUrl": "http://127.0.0.1:1433",
-    "beforeBuildCommand": "pnpm build:backend:release && vite build && pnpm build:resources",
+    "beforeBuildCommand": "pnpm build:backend:dev && vite build && pnpm build:resources",
     "frontendDist": "../dist"
   },
   "app": {

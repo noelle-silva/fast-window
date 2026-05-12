@@ -1,8 +1,10 @@
 import path from 'node:path'
 import process from 'node:process'
 import {
+  DEFAULT_V5_APP_PROFILE,
   getV5AppConfig,
   isSafeId,
+  normalizeV5AppProfile,
   rootDir,
   stageV5AppPackage,
 } from './lib/v5-app-packaging.mjs'
@@ -11,13 +13,13 @@ import { inferV5AppIdFromCwd } from './lib/v5-app-versioning.mjs'
 function usage() {
   console.log([
     'Usage:',
-    '  node scripts/stage-v5-app.mjs --app <id> [--no-build] [--stage-dir <dir>]',
-    '  node ../../scripts/stage-v5-app.mjs [--no-build]   # from apps/<id>',
+    '  node scripts/stage-v5-app.mjs --app <id> [--profile release|dev] [--no-build] [--stage-dir <dir>]',
+    '  node ../../scripts/stage-v5-app.mjs [--profile release|dev] [--no-build]   # from apps/<id>',
   ].join('\n'))
 }
 
 function parseArgs(argv) {
-  const out = { appId: '', noBuild: false, stageDir: '' }
+  const out = { appId: '', noBuild: false, profile: DEFAULT_V5_APP_PROFILE, stageDir: '' }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     if (arg === '--') continue
@@ -33,6 +35,10 @@ function parseArgs(argv) {
       const stageDir = String(argv[++i] || '').trim()
       if (!stageDir) throw new Error('--stage-dir 不能为空')
       out.stageDir = path.resolve(process.cwd(), stageDir)
+      continue
+    }
+    if (arg === '--profile' && i + 1 < argv.length) {
+      out.profile = normalizeV5AppProfile(argv[++i])
       continue
     }
     if (arg === '--no-build') {
@@ -52,10 +58,12 @@ async function main() {
   const config = await getV5AppConfig(opts.appId)
   const result = await stageV5AppPackage(config, {
     noBuild: opts.noBuild,
+    profile: opts.profile,
     ...(opts.stageDir ? { stageDir: opts.stageDir } : {}),
   })
   console.log(JSON.stringify({
     appId: result.appId,
+    profile: result.profile,
     version: result.version,
     stageDir: result.stageDir,
     executablePath: result.executablePath,

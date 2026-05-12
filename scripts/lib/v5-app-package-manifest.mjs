@@ -7,13 +7,19 @@ const __dirname = path.dirname(__filename)
 
 export const rootDir = path.resolve(__dirname, '..', '..')
 export const V5_APP_PACKAGE_MANIFEST_FILE = 'fw-app.package.json'
-export const V5_APP_PACKAGE_SCHEMA_VERSION = 1
+export const V5_APP_PACKAGE_SCHEMA_VERSION = 2
+export const DEFAULT_V5_APP_PROFILE = 'release'
+export const V5_APP_PROFILE_IDS = ['release', 'dev']
 
 const APP_DISPLAY_MODES = new Set(['default', 'window', 'top'])
 const CATALOG_ICON_TYPES = new Set(['emoji', 'url', 'data'])
 
 export function isSafeId(id) {
   return /^[A-Za-z0-9_-]+$/.test(String(id || '').trim())
+}
+
+export function isV5AppProfile(profile) {
+  return V5_APP_PROFILE_IDS.includes(String(profile || '').trim())
 }
 
 export function parseSemverStrict(raw) {
@@ -133,6 +139,34 @@ function validatePackageFiles(value, field) {
   })
 }
 
+function validatePackageProfile(value, field) {
+  const profile = assertPlainObject(value, field)
+  assertKnownKeys(profile, field, ['build', 'stageDir', 'files'])
+  return {
+    buildCommand: validateBuildCommand(profile.build, `${field}.build`),
+    stageDir: normalizeRel(requiredString(profile.stageDir, `${field}.stageDir`, 240), `${field}.stageDir`),
+    files: validatePackageFiles(profile.files, `${field}.files`),
+  }
+}
+
+function validatePackageProfiles(value, field) {
+  const profiles = assertPlainObject(value, field)
+  assertKnownKeys(profiles, field, V5_APP_PROFILE_IDS)
+  const out = {}
+  for (const profileId of V5_APP_PROFILE_IDS) {
+    if (!(profileId in profiles)) throw new Error(`${field}.${profileId} 缺失`)
+    out[profileId] = validatePackageProfile(profiles[profileId], `${field}.${profileId}`)
+  }
+  return out
+}
+
+function validateProfileExecutableMappings(profiles, executable) {
+  for (const [profileId, profile] of Object.entries(profiles)) {
+    const hasExecutable = profile.files.some(file => file.to === executable)
+    if (!hasExecutable) throw new Error(`profiles.${profileId}.files 必须包含 package.windowsExecutable 的来源映射: ${executable}`)
+  }
+}
+
 function normalizePackageManifest(raw, { appDir, expectedId, manifestPath }) {
   const manifest = assertPlainObject(raw, manifestPath)
   assertKnownKeys(manifest, manifestPath, [
@@ -141,7 +175,7 @@ function normalizePackageManifest(raw, { appDir, expectedId, manifestPath }) {
     'name',
     'description',
     'versionSource',
-    'build',
+    'profiles',
     'package',
     'catalogIcon',
     'displayMode',
@@ -156,9 +190,11 @@ function normalizePackageManifest(raw, { appDir, expectedId, manifestPath }) {
   if (id !== expectedId) throw new Error(`发布声明 id 与 --app 不一致: manifest=${id}, app=${expectedId}`)
 
   const pkg = assertPlainObject(manifest.package, 'package')
-  assertKnownKeys(pkg, 'package', ['windowsExecutable', 'icon', 'files'])
+  assertKnownKeys(pkg, 'package', ['windowsExecutable', 'icon'])
   const executable = normalizeRel(requiredString(pkg.windowsExecutable, 'package.windowsExecutable', 240), 'package.windowsExecutable')
   if (!executable.toLowerCase().endsWith('.exe')) throw new Error('package.windowsExecutable 必须指向 .exe')
+  const profiles = validatePackageProfiles(manifest.profiles, 'profiles')
+  validateProfileExecutableMappings(profiles, executable)
 
   return {
     appDir,
@@ -167,10 +203,9 @@ function normalizePackageManifest(raw, { appDir, expectedId, manifestPath }) {
     name: requiredString(manifest.name, 'name', 120),
     description: requiredString(manifest.description, 'description', 500),
     versionSource: normalizeRel(requiredString(manifest.versionSource, 'versionSource', 240), 'versionSource'),
-    buildCommand: validateBuildCommand(manifest.build, 'build'),
+    profiles,
     executable,
     icon: normalizeRel(requiredString(pkg.icon, 'package.icon', 240), 'package.icon'),
-    files: validatePackageFiles(pkg.files, 'package.files'),
     catalogIcon: validateCatalogIcon(manifest.catalogIcon, 'catalogIcon'),
     displayMode: validateDisplayMode(manifest.displayMode, 'displayMode'),
     commands: validateCommands(manifest.commands, 'commands'),

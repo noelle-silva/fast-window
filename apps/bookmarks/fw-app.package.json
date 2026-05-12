@@ -1,21 +1,32 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "bookmarks",
   "name": "网站收藏",
   "description": "网站收藏 v5 应用，支持收藏管理与设置入口",
   "versionSource": "src-tauri/tauri.conf.json",
-  "build": {
-    "command": "pnpm",
-    "args": ["tauri", "build", "--no-bundle"]
+  "profiles": {
+    "release": {
+      "build": { "command": "pnpm", "args": ["tauri", "build", "--no-bundle"] },
+      "stageDir": "dist-app/v5-windows",
+      "files": [
+        { "from": "src-tauri/target/release/bookmarks-app.exe", "to": "bookmarks-app.exe" },
+        { "from": "src-tauri/target/release/bookmarks-backend.exe", "to": "bookmarks-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    },
+    "dev": {
+      "build": { "command": "pnpm", "args": ["build:exe:dev"] },
+      "stageDir": "dist-app/v5-windows-dev",
+      "files": [
+        { "from": "src-tauri/target/debug/bookmarks-app.exe", "to": "bookmarks-app.exe" },
+        { "from": "src-tauri/target/debug/bookmarks-backend.exe", "to": "bookmarks-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    }
   },
   "package": {
     "windowsExecutable": "bookmarks-app.exe",
-    "icon": "assets/icon.svg",
-    "files": [
-      { "from": "src-tauri/target/release/bookmarks-app.exe", "to": "bookmarks-app.exe" },
-      { "from": "src-tauri/target/release/bookmarks-backend.exe", "to": "bookmarks-backend.exe" },
-      { "from": "src-tauri/target/resources/assets", "to": "assets" }
-    ]
+    "icon": "assets/icon.svg"
   },
   "catalogIcon": { "type": "emoji", "value": "🔖" },
   "displayMode": "default",

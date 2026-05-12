@@ -1,21 +1,32 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "ai-once",
   "name": "AI Once",
   "description": "一次性 AI 提问与 Prompt 工作流 v5 应用",
   "versionSource": "src-tauri/tauri.conf.json",
-  "build": {
-    "command": "pnpm",
-    "args": ["tauri", "build", "--no-bundle"]
+  "profiles": {
+    "release": {
+      "build": { "command": "pnpm", "args": ["tauri", "build", "--no-bundle"] },
+      "stageDir": "dist-app/v5-windows",
+      "files": [
+        { "from": "src-tauri/target/release/ai-once.exe", "to": "ai-once.exe" },
+        { "from": "src-tauri/target/release/ai-once-backend.exe", "to": "ai-once-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    },
+    "dev": {
+      "build": { "command": "pnpm", "args": ["build:exe:dev"] },
+      "stageDir": "dist-app/v5-windows-dev",
+      "files": [
+        { "from": "src-tauri/target/debug/ai-once.exe", "to": "ai-once.exe" },
+        { "from": "src-tauri/target/debug/ai-once-backend.exe", "to": "ai-once-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    }
   },
   "package": {
     "windowsExecutable": "ai-once.exe",
-    "icon": "assets/icon.svg",
-    "files": [
-      { "from": "src-tauri/target/release/ai-once.exe", "to": "ai-once.exe" },
-      { "from": "src-tauri/target/release/ai-once-backend.exe", "to": "ai-once-backend.exe" },
-      { "from": "src-tauri/target/resources/assets", "to": "assets" }
-    ]
+    "icon": "assets/icon.svg"
   },
   "catalogIcon": { "type": "emoji", "value": "⚡" },
   "displayMode": "default",
