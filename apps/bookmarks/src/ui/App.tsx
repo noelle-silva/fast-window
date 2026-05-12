@@ -51,8 +51,7 @@ export function App(): React.ReactNode {
     client?.close()
     setClient(null)
     try {
-      const endpoint = await invoke<{ url: string; token: string }>('backend_endpoint')
-      const nextClient = await createDirectBackgroundClient(endpoint)
+      const nextClient = await createDirectBackgroundClient(() => invoke<{ url: string; token: string }>('backend_endpoint'))
       const nextData = await nextClient.invoke<BookmarkData>('bookmarks.list')
       setClient(nextClient)
       setData(nextData)
