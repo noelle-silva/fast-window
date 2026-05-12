@@ -2,7 +2,7 @@ import { normalizeImageDataUrlOrBase64 } from '../core/images'
 import { AI_DRAW_DIRECT_EVENT, AI_DRAW_DIRECT_METHOD, type AiDrawDirectEvent } from '../shared/protocol'
 import type { AiDrawGenerationEvent } from '../shared/domain'
 import { createToast } from './createToast'
-import { createDirectAiDrawClientFromEndpoint } from './directClient'
+import { createDirectAiDrawClientWithEndpointLoader } from './directClient'
 import type { AiDrawGateway, AiDrawPickedImage } from './types'
 
 export type AiDrawDirectGatewayHost = {
@@ -68,7 +68,7 @@ function mapGenerationEvent(event: AiDrawDirectEvent): AiDrawGenerationEvent | n
 }
 
 export async function createAiDrawDirectGateway(options: AiDrawDirectGatewayOptions): Promise<AiDrawGateway> {
-  const direct = await createDirectAiDrawClientFromEndpoint(await options.loadEndpoint())
+  const direct = await createDirectAiDrawClientWithEndpointLoader(options.loadEndpoint)
   const hostApi = options.host || {}
   const toast = typeof hostApi.toast === 'function' ? (message: string) => hostApi.toast!(String(message || '')) : createToast()
   const generationListeners = new Set<(event: AiDrawGenerationEvent) => void>()
