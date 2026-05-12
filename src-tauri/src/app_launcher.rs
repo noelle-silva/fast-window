@@ -64,6 +64,8 @@ enum AppStopMode {
     Force,
 }
 
+type AppStopOutcome = Result<AppStopResult, String>;
+
 impl Drop for AppLauncherState {
     fn drop(&mut self) {
         let entries: Vec<Arc<AppProcessEntry>> = self
@@ -662,6 +664,33 @@ pub(crate) async fn stop_registered_app_for_update(
     app_id: &str,
 ) -> Result<AppStopResult, String> {
     app_stop_with_mode(state, app_id.to_string(), AppStopMode::Graceful).await
+}
+
+pub(crate) async fn stop_all_running_apps(
+    state: &Arc<AppLauncherState>,
+) -> Vec<(String, AppStopOutcome)> {
+    let app_ids: Vec<String> = state
+        .processes
+        .lock()
+        .map(|g| {
+            g.iter()
+                .filter_map(|(id, entry)| {
+                    entry
+                        .exit_code
+                        .lock()
+                        .ok()
+                        .and_then(|code| code.is_none().then(|| id.clone()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let mut results = Vec::with_capacity(app_ids.len());
+    for app_id in app_ids {
+        let result = app_stop_with_mode(state, app_id.clone(), AppStopMode::Graceful).await;
+        results.push((app_id, result));
+    }
+    results
 }
 
 #[tauri::command]

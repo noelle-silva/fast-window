@@ -26,6 +26,7 @@ mod clipboard_watch;
 mod config_store;
 mod core;
 mod host_dialog;
+mod host_lifecycle;
 mod host_primitives;
 mod http_api;
 mod install_fs;
@@ -2713,6 +2714,14 @@ fn main() {
         host_primitives::host_activate_plugin
     ]);
     app::builder_tail(builder)
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                if !host_lifecycle::host_shutdown_in_progress(app_handle) {
+                    api.prevent_exit();
+                    host_lifecycle::request_host_shutdown(app_handle.clone());
+                }
+            }
+        });
 }

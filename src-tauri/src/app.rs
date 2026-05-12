@@ -17,6 +17,7 @@ use crate::browser_stack::{
     browser_stack_should_suppress_hide,
 };
 use crate::clipboard_watch::ClipboardWatchManagerState;
+use crate::host_lifecycle::{host_shutdown_in_progress, request_host_shutdown, HostLifecycleState};
 use crate::http_api::HttpStreamManagerState;
 use crate::plugin_assets::plugin_asset_protocol_response;
 use crate::process_runtime::ProcessManagerState;
@@ -136,6 +137,7 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
             app.manage(Arc::new(SqliteConnManager::default()));
             app.manage(Arc::new(ProcessManagerState::default()));
             app.manage(Arc::new(AppLauncherState::default()));
+            app.manage(Arc::new(HostLifecycleState::default()));
             app.manage(RegisteredAppShortcutState::default());
             app.manage(BrowserWindowState::default());
 
@@ -218,12 +220,7 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "quit" => {
-                        if let Some(w) = app.get_webview_window("main") {
-                            let state = app.state::<WindowState>();
-                            save_bounds_if_valid(&w, &state);
-                            persist_main_window_bounds(app, &state);
-                        }
-                        app.exit(0);
+                        request_host_shutdown(app.clone());
                     }
                     "show" => {
                         show_main_window(&app);
@@ -405,6 +402,9 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
             }
 
             if let WindowEvent::CloseRequested { api, .. } = event {
+                if host_shutdown_in_progress(window.app_handle()) {
+                    return;
+                }
                 api.prevent_close();
                 let app = window.app_handle().clone();
                 let state = app.state::<WindowState>();
