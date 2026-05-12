@@ -176,6 +176,11 @@ class AiOnceDirectClient implements DirectClient {
 
 export async function createDirectClient(): Promise<DirectClient> {
   const client = new AiOnceDirectClient()
-  await client.open()
-  return client
+  try {
+    await client.open()
+    return client
+  } catch (error) {
+    client.close()
+    throw error
+  }
 }
