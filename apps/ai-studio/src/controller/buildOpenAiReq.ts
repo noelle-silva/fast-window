@@ -15,6 +15,7 @@ import {
   limitHistory,
   looksLikeImageDataUrl,
 } from '../domain/textProcessing'
+import { isAssistantGenerating } from '../domain/assistantRunState'
 import { trimSlash, isHttpBaseUrl, clampTemp, normImagePaths } from '../core/utils'
 import { normalizeData } from '../domain/dataNormalizers'
 import { loadProvidersFromStorage, loadSplitMetaSnapshot } from '../storage/splitIndexes'
@@ -122,7 +123,7 @@ export function createBuildOpenAiReq(deps: {
         seen.add(cur)
         const m = byId.get(cur) || null
         if (!m) break
-        if (!(m && m.role === 'assistant' && m.pending)) chain.push(m)
+        if (!isAssistantGenerating(m)) chain.push(m)
         cur = String((m as any)?.parentMid || '').trim()
       }
       chain.reverse()
@@ -133,7 +134,7 @@ export function createBuildOpenAiReq(deps: {
         const idx = msgs0.findIndex((m: any) => String(m?.id || '') === cutoffMid)
         if (idx >= 0) baseMsgs0 = msgs0.slice(0, idx)
       }
-      historySource = baseMsgs0.filter((m: any) => !(m && m.role === 'assistant' && m.pending))
+      historySource = baseMsgs0.filter((m: any) => !isAssistantGenerating(m))
     }
 
     const history = limitHistory(historySource, 40)
@@ -278,7 +279,7 @@ export function createBuildOpenAiReq(deps: {
         seen.add(cur)
         const m = byId.get(cur) || null
         if (!m) break
-        if (!(m && m.role === 'assistant' && m.pending)) chain.push(m)
+        if (!isAssistantGenerating(m)) chain.push(m)
         cur = String((m as any)?.parentMid || '').trim()
       }
       chain.reverse()
@@ -289,7 +290,7 @@ export function createBuildOpenAiReq(deps: {
         const idx = msgs0.findIndex((m: any) => String(m?.id || '') === cutoffMid)
         if (idx >= 0) baseMsgs0 = msgs0.slice(0, idx)
       }
-      historySource = baseMsgs0.filter((m: any) => !(m && m.role === 'assistant' && m.pending))
+      historySource = baseMsgs0.filter((m: any) => !isAssistantGenerating(m))
     }
 
     const history = limitHistory(historySource, 40)

@@ -1,6 +1,7 @@
 import { now, uid, trimSlash, isHttpBaseUrl, clampTemp, normImagePaths } from '../core/utils'
 import { CHAT_DEFAULT_BRANCH_ID, CHAT_ATTACHMENT_KINDS } from '../domain/constants'
 import { normalizeMessageAttachments } from '../domain/message'
+import { isAssistantGenerating } from '../domain/assistantRunState'
 import {
   normalizeBranchId,
   normalizeChatBranching,
@@ -150,7 +151,7 @@ export function buildOpenAiChatReqFromStorage(deps: RequestBuilderDeps, job: unk
         seen.add(cur)
         const m = byId.get(cur) || null
         if (!m) break
-        if (!(m.role === 'assistant' && m.pending)) chain.push(m)
+        if (!isAssistantGenerating(m)) chain.push(m)
         cur = String(m?.parentMid || '').trim()
       }
       chain.reverse()
@@ -161,7 +162,7 @@ export function buildOpenAiChatReqFromStorage(deps: RequestBuilderDeps, job: unk
         const idx = msgs0.findIndex((m: any) => String(m?.id || '') === cutoffMid)
         if (idx >= 0) baseMsgs0 = msgs0.slice(0, idx)
       }
-      historySource = baseMsgs0.filter((m: any) => !(m?.role === 'assistant' && m?.pending))
+      historySource = baseMsgs0.filter((m: any) => !isAssistantGenerating(m))
     }
 
     const history = limitHistory(historySource, 40)
@@ -289,7 +290,7 @@ export function buildOpenAiGroupChatReqFromStorage(deps: RequestBuilderDeps, job
         seen.add(cur)
         const m = byId.get(cur) || null
         if (!m) break
-        if (!(m.role === 'assistant' && m.pending)) chain.push(m)
+        if (!isAssistantGenerating(m)) chain.push(m)
         cur = String(m?.parentMid || '').trim()
       }
       chain.reverse()
@@ -300,7 +301,7 @@ export function buildOpenAiGroupChatReqFromStorage(deps: RequestBuilderDeps, job
         const idx = msgs0.findIndex((m: any) => String(m?.id || '') === cutoffMid)
         if (idx >= 0) baseMsgs0 = msgs0.slice(0, idx)
       }
-      historySource = baseMsgs0.filter((m: any) => !(m?.role === 'assistant' && m?.pending))
+      historySource = baseMsgs0.filter((m: any) => !isAssistantGenerating(m))
     }
 
     const history = limitHistory(historySource, 40)

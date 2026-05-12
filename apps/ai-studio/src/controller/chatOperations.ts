@@ -23,6 +23,15 @@ import { buildMessageModelRef, normalizeChatModelOverride } from '../domain/mode
 import { createStateAccessors } from '../state/stateAccessors'
 import type { AiChatInternalGateway } from '../gateway/types'
 import { groupChatImageRelPath, roleFolderName, roleChatImageRelPath } from '../domain/storageKeys'
+import {
+  beginAssistantRun,
+  checkpointAssistantRun,
+  finishAssistantRun,
+  isAssistantRunSignalCurrent,
+  isAssistantGenerating,
+  normalizeAssistantRunSignal,
+  ASSISTANT_RUNNING_CONTENT,
+} from '../domain/assistantRunState'
 
 type ChatAttachmentItem = {
   id: string
@@ -65,11 +74,31 @@ export function createChatOperations(deps: {
   renderComposer: () => void
   scrollToBottomSoon: () => void
   extractTextFromFile: (file: File, kind: string) => Promise<string>
-  uiStreamCache: Map<string, string>
+  uiStreamCache: Map<string, any>
 }) {
   const { getState, aiGateway, filesImages, filesPickImages, loadSplitMeta, showToast, save, ensureActiveChatLoaded, emit, render, renderComposer, scrollToBottomSoon, extractTextFromFile, uiStreamCache } = deps
 
   const sa = createStateAccessors({ getState })
+
+  function beginAssistantMessageRun(message: any, streamEnabled: boolean, mode: 'new' | 'regenerate' | 'tool-followup' = 'new') {
+    return beginAssistantRun(message, {
+      mode,
+      stream: streamEnabled,
+      resetContent: true,
+    })
+  }
+
+  function assistantGenerationId(message: any) {
+    return String(message?.assistantRun?.generationId || '').trim()
+  }
+
+  function checkpointAssistantMessage(message: any, content: unknown) {
+    return checkpointAssistantRun(message, content, now())
+  }
+
+  function finishAssistantMessage(message: any, content: unknown, status: 'succeeded' | 'failed' | 'canceled' = 'succeeded') {
+    return finishAssistantRun(message, content, status, now())
+  }
 
   async function submitChatCompletion(input: any) {
     const kind = String(input?.target?.kind || '').trim() === 'group' ? 'group' : 'role'
@@ -92,7 +121,7 @@ export function createChatOperations(deps: {
     const msgs = Array.isArray(chat?.messages) ? chat.messages : []
     for (const m of msgs) {
       if (!m || typeof m !== 'object') continue
-      if (m.role === 'assistant' && m.pending) return true
+      if (isAssistantGenerating(m)) return true
     }
     return false
   }
@@ -103,7 +132,7 @@ export function createChatOperations(deps: {
     const msgs = Array.isArray(chat?.messages) ? chat.messages : []
     for (const m of msgs) {
       if (!m || typeof m !== 'object') continue
-      if (m.role !== 'assistant' || !m.pending) continue
+      if (m.role !== 'assistant' || !isAssistantGenerating(m)) continue
       const mid = String((m as any)?.id || '').trim()
       if (ex && mid === ex) continue
       const mb = normalizeBranchId((m as any)?.branchId || CHAT_DEFAULT_BRANCH_ID)
@@ -117,7 +146,7 @@ export function createChatOperations(deps: {
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i]
       if (!m || typeof m !== 'object') continue
-      if (m.role === 'assistant' && m.pending) return m
+      if (isAssistantGenerating(m)) return m
     }
     return null
   }
@@ -128,7 +157,7 @@ export function createChatOperations(deps: {
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i]
       if (!m || typeof m !== 'object') continue
-      if (m.role !== 'assistant' || !m.pending) continue
+      if (m.role !== 'assistant' || !isAssistantGenerating(m)) continue
       const mb = normalizeBranchId((m as any)?.branchId || CHAT_DEFAULT_BRANCH_ID)
       if (mb === bid) return m
     }
@@ -430,14 +459,15 @@ export function createChatOperations(deps: {
       chat.messages.push({
         id: assistantMid,
         role: 'assistant',
-        content: '（生成中…）',
+        content: ASSISTANT_RUNNING_CONTENT,
         branchId: activeBranchId,
         parentMid,
-        pending: true,
-        streaming: streamEnabled,
         createdAt: now(),
         modelRef: messageModelRef,
       })
+      const assistantMsg = chat.messages[chat.messages.length - 1]
+      beginAssistantMessageRun(assistantMsg, streamEnabled, 'new')
+      const generationId = assistantGenerationId(assistantMsg)
       chat.updatedAt = now()
       setChatBranchHeadMid(chat, activeBranchId, assistantMid)
       repairChatLinearBranching(chat)
@@ -449,6 +479,7 @@ export function createChatOperations(deps: {
         roleId: String(role.id || ''),
         chatId: String(chat.id || ''),
         assistantMid,
+        generationId,
         branchId: activeBranchId,
         stream: streamEnabled,
       }
@@ -459,6 +490,7 @@ export function createChatOperations(deps: {
           chatId: String(chat.id || ''),
           branchId: activeBranchId,
           assistantMid,
+          generationId,
         } as any,
         stream: streamEnabled,
         jobStub,
@@ -468,9 +500,7 @@ export function createChatOperations(deps: {
       const items = Array.isArray(chat?.messages) ? chat.messages : []
       const am = assistantMid ? items.find((m: any) => String(m?.id || '') === assistantMid) : null
       if (am) {
-        am.content = `（请求失败：${msg}）`
-        am.pending = false
-        am.streaming = false
+        finishAssistantMessage(am, `（请求失败：${msg}）`, 'failed')
       }
       save().catch(() => {})
       showToast?.(msg)
@@ -603,7 +633,7 @@ export function createChatOperations(deps: {
     })()
 
     let chat: any = null
-    let assistantMids: Array<{ roleId: string; mid: string }> = []
+    let assistantMids: Array<{ roleId: string; mid: string; generationId: string }> = []
 
     try {
       if (draftImages.length && typeof filesImages?.writeBase64 !== 'function') {
@@ -796,19 +826,20 @@ export function createChatOperations(deps: {
         const picked = pickChatModelRef(speakerRole, null)
         const messageModelRef = buildMessageModelRef(picked.providerId, picked.modelId)
         const mid = uid('m')
-        assistantMids.push({ roleId: rid0, mid })
+        assistantMids.push({ roleId: rid0, mid, generationId: '' })
         chat.messages.push({
           id: mid,
           role: 'assistant',
           speakerRoleId: rid0,
-          content: '（生成中…）',
+          content: ASSISTANT_RUNNING_CONTENT,
           branchId: activeBranchId,
           parentMid,
-          pending: true,
-          streaming: streamEnabled,
           createdAt: now(),
           modelRef: messageModelRef,
         })
+        const assistantMsg = chat.messages[chat.messages.length - 1]
+        beginAssistantMessageRun(assistantMsg, streamEnabled, 'new')
+        assistantMids[assistantMids.length - 1].generationId = assistantGenerationId(assistantMsg)
         parentMid = mid
       }
 
@@ -823,6 +854,7 @@ export function createChatOperations(deps: {
           .map((it: any) => {
             const assistantMid = String(it?.mid || '').trim()
             const roleId = String(it?.roleId || '').trim()
+            const generationId = String(it?.generationId || '').trim()
             if (!assistantMid || !roleId) return null
             const jobStub: any = {
               kind: 'openai.chat.completions',
@@ -831,6 +863,7 @@ export function createChatOperations(deps: {
               roleId,
               chatId: String(chat.id || ''),
               assistantMid,
+              generationId,
               branchId: activeBranchId,
               stream: streamEnabled,
             }
@@ -842,6 +875,7 @@ export function createChatOperations(deps: {
                 chatId: String(chat.id || ''),
                 branchId: activeBranchId,
                 assistantMid,
+                generationId,
               } as any,
               stream: streamEnabled,
               jobStub,
@@ -855,9 +889,7 @@ export function createChatOperations(deps: {
       for (const it of assistantMids) {
         const am = it?.mid ? items.find((m: any) => String(m?.id || '') === String(it.mid || '')) : null
         if (!am) continue
-        am.content = `（请求失败：${msg}）`
-        am.pending = false
-        am.streaming = false
+        finishAssistantMessage(am, `（请求失败：${msg}）`, 'failed')
       }
       save().catch(() => {})
       showToast?.(msg)
@@ -905,19 +937,17 @@ export function createChatOperations(deps: {
       const m = msgs.find((x: any) => String(x?.id || '') === mid) || null
       if (!text) {
         try {
-          const cached = (uiStreamCache as any)?.get?.(mid)
-          if (typeof cached === 'string' && cached) text = cached
+          const cached = normalizeAssistantRunSignal((uiStreamCache as any)?.get?.(mid))
+          if (m && cached && isAssistantRunSignalCurrent(m, cached) && cached.text) text = cached.text
         } catch (_) {}
       }
       if (!text && m) {
         const cur = String((m as any)?.content || '').trim()
-        if (cur && cur !== '（生成中…）') text = cur
+        if (cur && cur !== ASSISTANT_RUNNING_CONTENT) text = cur
       }
       const finalOut = text || '（已停止）'
       if (m) {
-        m.content = finalOut
-        m.pending = false
-        m.streaming = false
+        finishAssistantMessage(m, finalOut, 'canceled')
       }
       if (chat) {
         chat.updatedAt = now()
@@ -975,7 +1005,7 @@ export function createChatOperations(deps: {
 
       const target = msgs[aiIndex]
       if (!target || target.role !== 'assistant') throw new Error('只能重新生成 AI 回复')
-      if (target.pending) throw new Error('该消息正在生成中')
+      if (isAssistantGenerating(target)) throw new Error('该消息正在生成中')
       const branching = ensureChatBranching(chat)
       const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
       const branchId = normalizeBranchId((target as any)?.branchId || activeBranchId)
@@ -998,9 +1028,8 @@ export function createChatOperations(deps: {
       }
 
       const streamEnabled = !!state.data?.settings?.streamEnabled
-      target.content = '（生成中…）'
-      target.pending = true
-      target.streaming = streamEnabled
+      beginAssistantMessageRun(target, streamEnabled, 'regenerate')
+      const generationId = assistantGenerationId(target)
       target.modelRef = buildMessageModelRef(providerId, modelId)
       chat.updatedAt = now()
       repairChatLinearBranching(chat)
@@ -1016,6 +1045,7 @@ export function createChatOperations(deps: {
         roleId: String(role.id || ''),
         chatId: String(chat.id || ''),
         assistantMid: mid,
+        generationId,
         cutoffMid: mid,
         branchId,
         stream: streamEnabled,
@@ -1027,6 +1057,7 @@ export function createChatOperations(deps: {
           chatId: String(chat.id || ''),
           branchId,
           assistantMid: mid,
+          generationId,
         } as any,
         stream: streamEnabled,
         jobStub,
@@ -1036,9 +1067,7 @@ export function createChatOperations(deps: {
       const items = Array.isArray(chat.messages) ? chat.messages : []
       const am = mid ? items.find((m: any) => String(m?.id || '') === mid) : null
       if (am) {
-        am.content = `（请求失败：${msg}）`
-        am.pending = false
-        am.streaming = false
+        finishAssistantMessage(am, `（请求失败：${msg}）`, 'failed')
       }
       save().catch(() => {})
       showToast?.(msg)
@@ -1083,7 +1112,7 @@ export function createChatOperations(deps: {
 
       const target = msgs[aiIndex]
       if (!target || target.role !== 'assistant') throw new Error('只能重新生成 AI 回复')
-      if (target.pending) throw new Error('该消息正在生成中')
+      if (isAssistantGenerating(target)) throw new Error('该消息正在生成中')
       const branching = ensureChatBranching(chat)
       const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
       const branchId = normalizeBranchId((target as any)?.branchId || activeBranchId)
@@ -1113,9 +1142,8 @@ export function createChatOperations(deps: {
       if (!modelId) throw new Error(`请先为「${String((speakerRole as any).name || '角色')}」选择模型ID`)
 
       const streamEnabled = !!state.data?.settings?.streamEnabled
-      target.content = '（生成中…）'
-      target.pending = true
-      target.streaming = streamEnabled
+      beginAssistantMessageRun(target, streamEnabled, 'regenerate')
+      const generationId = assistantGenerationId(target)
       ;(target as any).speakerRoleId = speakerRoleId
       ;(target as any).modelRef = buildMessageModelRef(providerId, modelId)
       chat.updatedAt = now()
@@ -1134,6 +1162,7 @@ export function createChatOperations(deps: {
         roleId: String(speakerRoleId || ''),
         chatId,
         assistantMid: mid,
+        generationId,
         cutoffMid: mid,
         branchId,
         stream: streamEnabled,
@@ -1146,6 +1175,7 @@ export function createChatOperations(deps: {
           chatId,
           branchId,
           assistantMid: mid,
+          generationId,
         } as any,
         stream: streamEnabled,
         jobStub,
@@ -1156,9 +1186,7 @@ export function createChatOperations(deps: {
         const items = Array.isArray((chat as any)?.messages) ? (chat as any).messages : []
         const am = mid ? items.find((m: any) => String(m?.id || '') === mid) : null
         if (am) {
-          am.content = `（请求失败：${msg}）`
-          am.pending = false
-          am.streaming = false
+          finishAssistantMessage(am, `（请求失败：${msg}）`, 'failed')
         }
       } catch (_) {}
       save().catch(() => {})
@@ -1225,14 +1253,14 @@ export function createChatOperations(deps: {
       msgs.splice(userIndex + 1, 0, {
         id: assistantMid,
         role: 'assistant',
-        content: '（生成中…）',
+        content: ASSISTANT_RUNNING_CONTENT,
         branchId: activeBranchId,
         parentMid: mid,
-        pending: true,
-        streaming: streamEnabled,
         createdAt: now(),
         modelRef: messageModelRef,
       })
+      beginAssistantMessageRun(msgs[userIndex + 1], streamEnabled, 'new')
+      const generationId = assistantGenerationId(msgs[userIndex + 1])
       chat.messages = msgs
       chat.updatedAt = now()
       setChatBranchHeadMid(chat, activeBranchId, assistantMid)
@@ -1245,6 +1273,7 @@ export function createChatOperations(deps: {
         roleId: String(role.id || ''),
         chatId: String(chat.id || ''),
         assistantMid,
+        generationId,
         cutoffMid: assistantMid,
         branchId: activeBranchId,
         stream: streamEnabled,
@@ -1256,6 +1285,7 @@ export function createChatOperations(deps: {
           chatId: String(chat.id || ''),
           branchId: activeBranchId,
           assistantMid,
+          generationId,
         } as any,
         stream: streamEnabled,
         jobStub,
@@ -1265,9 +1295,7 @@ export function createChatOperations(deps: {
       const items = Array.isArray(chat?.messages) ? chat.messages : []
       const am = assistantMid ? items.find((m: any) => String(m?.id || '') === assistantMid) : null
       if (am) {
-        am.content = `（请求失败：${msg}）`
-        am.pending = false
-        am.streaming = false
+        finishAssistantMessage(am, `（请求失败：${msg}）`, 'failed')
       }
       save().catch(() => {})
       showToast?.(msg)
@@ -1445,14 +1473,13 @@ export function createChatOperations(deps: {
           id: assistantMid,
           role: 'assistant',
           speakerRoleId: rid0,
-          content: '（生成中…）',
+          content: ASSISTANT_RUNNING_CONTENT,
           branchId: desiredBranchId,
           parentMid,
-          pending: true,
-          streaming: streamEnabled,
           createdAt: now(),
           modelRef: messageModelRef,
         })
+        beginAssistantMessageRun(toInsert[toInsert.length - 1], streamEnabled, 'new')
         parentMid = assistantMid
       }
 
@@ -1471,6 +1498,7 @@ export function createChatOperations(deps: {
           .map((am: any) => {
             const assistantMid = String(am?.id || '').trim()
             const roleId = String(am?.speakerRoleId || '').trim()
+            const generationId = assistantGenerationId(am)
             if (!assistantMid || !roleId) return null
             const jobStub: any = {
               kind: 'openai.chat.completions',
@@ -1479,6 +1507,7 @@ export function createChatOperations(deps: {
               roleId,
               chatId,
               assistantMid,
+              generationId,
               cutoffMid: assistantMid,
               branchId: desiredBranchId,
               stream: streamEnabled,
@@ -1491,6 +1520,7 @@ export function createChatOperations(deps: {
                 chatId,
                 branchId: desiredBranchId,
                 assistantMid,
+                generationId,
               } as any,
               stream: streamEnabled,
               jobStub,
@@ -1526,7 +1556,7 @@ export function createChatOperations(deps: {
     const msgs = Array.isArray(chat.messages) ? chat.messages : []
     const target = msgs.find((m: any) => String(m?.id || '') === mid) || null
     if (!target || target.role !== 'assistant') return showToast?.('只能从 AI 消息新建分支')
-    if (target.pending) return showToast?.('该消息正在生成中')
+    if (isAssistantGenerating(target)) return showToast?.('该消息正在生成中')
 
     const userMid0 = String((target as any)?.parentMid || '').trim()
     const userMsg = userMid0 ? msgs.find((m: any) => String(m?.id || '') === userMid0) || null : null
@@ -1712,7 +1742,7 @@ export function createChatOperations(deps: {
     if (!target) return showToast?.('未找到该消息')
 
     if (target.role === 'assistant') {
-      if (target.pending) return showToast?.('该消息正在生成中，无法删除')
+      if (isAssistantGenerating(target)) return showToast?.('该消息正在生成中，无法删除')
     }
 
     const oldById = new Map<string, any>()
@@ -2002,7 +2032,7 @@ export function createChatOperations(deps: {
     if (!target) return showToast?.('未找到该消息')
 
     if (target.role === 'assistant') {
-      if (target.pending) return showToast?.('该消息正在生成中，无法编辑')
+      if (isAssistantGenerating(target)) return showToast?.('该消息正在生成中，无法编辑')
       try {
         uiStreamCache.delete(mid)
       } catch (_) {}

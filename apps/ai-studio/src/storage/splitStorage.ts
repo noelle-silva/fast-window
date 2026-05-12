@@ -3,6 +3,7 @@ import { VERSION, SPLIT_SCHEMA_VERSION, SPLIT_META_KEY, STICKERS_KEY } from '../
 import { chatMetaFromChat, chatMetaIds, chatMetaUpdatedAtMap, chatMetasFromBox, upsertChatMeta } from '../domain/chatMeta'
 import { normalizeData, defaultData } from '../domain/dataNormalizers'
 import { normalizeFavorites } from '../domain/favorites'
+import { resolveAssistantMessageForMerge } from '../domain/assistantRunState'
 import {
   splitRoleKey,
   splitChatKey,
@@ -19,8 +20,7 @@ import {
   providerFolderName,
 } from '../domain/storageKeys'
 import { loadProvidersFromStorage, loadSplitMetaSnapshot } from './splitIndexes'
-
-type ChatIndexKind = 'role' | 'group'
+import { updateStoredChatIndexEntry, type ChatIndexKind } from './chatIndexUpdater'
 
 let splitMetaCache: any = null
 let splitMetaWriteChain: Promise<void> = Promise.resolve()
@@ -64,9 +64,7 @@ function mergeChatForConcurrentWrite(localChat: any, storedChat: any) {
     if (typeof i !== 'number') continue
     const lm = localMsgs[i]
     if (!lm || typeof lm !== 'object') continue
-    const sp = (sm as any)?.pending === true
-    const lp = (lm as any)?.pending === true
-    if (lp && !sp) localMsgs[i] = sm
+    localMsgs[i] = resolveAssistantMessageForMerge(lm, sm)
   }
 
   try {
@@ -153,51 +151,10 @@ export function createSplitStorage(deps: {
   }
 
   async function updateChatIndexEntry(kind: ChatIndexKind, targetId: any, chatId: any, patch: { chat?: any; updatedAt?: any; title?: any; remove?: boolean }) {
-    const tid = String(targetId || '').trim()
-    const cid = String(chatId || '').trim()
-    if (!tid || !cid) return
     await withSplitMetaWrite(async () => {
       const meta = (await loadSplitMeta()) || splitMetaCache
-      if (!meta) return
-      const folder = kind === 'group' ? String((meta as any).groupFolders?.[tid] || '').trim() : String(meta.roleFolders?.[tid] || '').trim()
-      if (!folder) return
-      const key = kind === 'group' ? splitGroupChatIndexKey(folder) : splitRoleChatIndexKey(folder)
-      const idx = await storage.get(key).catch(() => null)
-      if (!idx || typeof idx !== 'object') return
-      const fallbackTitle = kind === 'group' ? '群聊' : '新聊天'
-      let metas = chatMetasFromBox(idx, fallbackTitle)
-      if (patch.remove) {
-        metas = metas.filter((m: any) => String(m?.id || '') !== cid)
-      } else {
-        const current = metas.find((m: any) => String(m?.id || '') === cid) || null
-        const updatedAt = Number(patch.updatedAt || patch.chat?.updatedAt || current?.updatedAt || now())
-        let chatForMeta = patch.chat
-        if (!chatForMeta && patch.title == null) {
-          const chatKey = kind === 'group' ? splitGroupChatKey(folder, cid) : splitChatKey(folder, cid)
-          const rawChat = await storage.get(chatKey).catch(() => null)
-          chatForMeta = rawChat && typeof rawChat === 'object' ? rawChat : null
-        }
-        const metaItem = chatForMeta
-          ? chatMetaFromChat(chatForMeta, fallbackTitle)
-          : {
-              id: cid,
-              title: String(patch.title ?? current?.title ?? fallbackTitle).replace(/\s+/g, ' ').trim() || fallbackTitle,
-              createdAt: Number(current?.createdAt || updatedAt || now()),
-              updatedAt,
-              lastMessagePreview: String(current?.lastMessagePreview || ''),
-              messageCount: Number(current?.messageCount || 0),
-              hasPending: !!current?.hasPending,
-            }
-        metas = upsertChatMeta(metas, metaItem, fallbackTitle)
-      }
-      ;(idx as any).chatMetas = metas
-      ;(idx as any).chatIds = metas.map((m: any) => String(m?.id || '')).filter(Boolean)
-      ;(idx as any).chatUpdatedAt = chatMetaUpdatedAtMap(metas)
-      if (patch.remove && String((idx as any).activeChatId || '') === cid) (idx as any).activeChatId = String(metas[0]?.id || '')
-      if (!patch.remove && cid && !(idx as any).activeChatId) (idx as any).activeChatId = cid
-      ;(idx as any).updatedAt = now()
-      await storage.set(key, idx)
-      splitMetaCache = meta
+      const nextMeta = await updateStoredChatIndexEntry(storage, kind, targetId, chatId, patch, meta)
+      splitMetaCache = nextMeta || meta
     })
   }
 

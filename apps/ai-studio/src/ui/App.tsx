@@ -86,6 +86,7 @@ import { ImageDialog } from './dialogs/ImageDialog'
 import { RoleAvatarCropper } from './components/avatar/RoleAvatarCropper'
 import { StandaloneWindowControls, type WindowControlActions } from './components/StandaloneWindowControls'
 import { AI_STUDIO_CHAT_ROOT_ID } from '../runtime/aiStudioGlobals'
+import { isAssistantGenerating } from '../domain/assistantRunState'
 
 const MERMAID_COPY_IMAGE_MIN_SCALE = 3
 const MERMAID_COPY_IMAGE_MAX_SCALE = 6
@@ -626,7 +627,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
   const effectiveTreeView = (treeViewOverride || savedTreeView) as 'right' | 'float'
   const isChatGenerating = React.useCallback((chat: any) => {
     const msgs = Array.isArray(chat?.messages) ? chat.messages : []
-    return msgs.some((m: any) => m && m.role === 'assistant' && m.pending)
+    return msgs.some((m: any) => isAssistantGenerating(m))
   }, [])
   const isSendingThisChat = React.useCallback(
     (targetKind: 'role' | 'group', targetId: string, chatId: string) => {
@@ -1547,7 +1548,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
   const lastMsg = renderMessages.length ? renderMessages[renderMessages.length - 1] : null
   const lastMsgId = String(lastMsg?.id || '')
   const lastMsgText = String(lastMsg?.content || '')
-  const isReplying = allMessages.some((m: any) => m && m.role === 'assistant' && m.pending)
+  const isReplying = allMessages.some((m: any) => isAssistantGenerating(m))
   const treeHighlightEdgeKeys = React.useMemo(() => {
     const tr: any = treeRender
     const target = String(lastMsgId || '').trim()
@@ -2838,7 +2839,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
   const msgMenuMsg = msgMenuIndex >= 0 ? msgMenuMessages[msgMenuIndex] : null
   const msgMenuText = String(msgMenuMsg?.content || '')
   const msgMenuIsToolResponse = msgMenuText.startsWith('<<<[TOOL_RESPONSE]>>>')
-  const msgMenuPending = msgMenuMsg ? !!msgMenuMsg?.pending : !!msgMenu.pending
+  const msgMenuPending = msgMenuMsg ? isAssistantGenerating(msgMenuMsg) : !!msgMenu.pending
   const msgMenuCanEdit = !!msgMenuMid && !msgMenuPending && !s.loading && !uiBusy && !chatLocked
 
   let msgMenuRegenMid = msgMenuMid
@@ -2851,7 +2852,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
       if (next.role === 'assistant') {
         msgMenuRegenRole = 'assistant'
         msgMenuRegenMid = String(next?.id || '')
-        msgMenuRegenPending = !!next?.pending
+        msgMenuRegenPending = isAssistantGenerating(next)
         break
       }
     }
@@ -3384,7 +3385,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                            <Paper
                              variant="outlined"
                              data-mid={mid}
-                             onContextMenu={isEditing ? undefined : (e) => onMessageContextMenu(e, mid, 'user', !!m?.pending)}
+                              onContextMenu={isEditing ? undefined : (e) => onMessageContextMenu(e, mid, 'user', isAssistantGenerating(m))}
                               sx={{
                                 width: '100%',
                                 maxWidth: '100%',
@@ -3502,7 +3503,8 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                     const time = controller.fmtTime(Number(m?.createdAt || 0))
                     const imgPaths = isUser ? (Array.isArray(m?.images) ? m.images : []) : []
                     const attMsgs = isUser ? (groupedAttMsgsByRootMid.get(String(m?.id || '').trim()) || []) : []
-                    const canEdit = !isEditing && !m?.pending && !s.loading && !uiBusy && !chatLocked && !!mid
+                    const messageGenerating = isAssistantGenerating(m)
+                    const canEdit = !isEditing && !messageGenerating && !s.loading && !uiBusy && !chatLocked && !!mid
                     const contentLines = userMessageCollapseEnabled && isUser ? content.split(/\r?\n/) : []
                     const canCollapse = userMessageCollapseEnabled && isUser && !isEditing && contentLines.length > userMessageCollapseLines
                     const isExpanded = !canCollapse || expandedUserMsgIds.has(mid)
@@ -3510,7 +3512,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
 
                     let regenRole: 'assistant' | 'user' = isUser ? 'user' : 'assistant'
                     let regenMid = mid
-                    let regenPending = isUser ? false : !!m?.pending
+                    let regenPending = isUser ? false : messageGenerating
                     if (isUser) {
                       const msgs = chatAllMessagesRaw
                       const fullIdx = msgs.findIndex((x: any) => String(x?.id || '') === mid)
@@ -3520,7 +3522,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                         if (next.role === 'assistant') {
                           regenRole = 'assistant'
                           regenMid = String(next?.id || '')
-                          regenPending = !!next?.pending
+                          regenPending = isAssistantGenerating(next)
                           break
                         }
                         if (next.role === 'user') break
@@ -3528,7 +3530,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                     } else {
                       regenRole = 'assistant'
                       regenMid = mid
-                      regenPending = !!m?.pending
+                      regenPending = messageGenerating
                     }
 
                     const branchPrevAiMid = !isUser ? String(prevAiMidByAssistantId.get(mid) || '').trim() : ''
@@ -3540,7 +3542,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                         <Paper
                           variant="outlined"
                           data-mid={mid}
-                          onContextMenu={isEditing ? undefined : (e) => onMessageContextMenu(e, mid, isUser ? 'user' : 'assistant', !!m?.pending)}
+                          onContextMenu={isEditing ? undefined : (e) => onMessageContextMenu(e, mid, isUser ? 'user' : 'assistant', messageGenerating)}
                           sx={{
                             width: isUser ? 'auto' : '100%',
                             maxWidth: isUser ? 920 : '100%',
@@ -3743,7 +3745,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
 
                               <Tooltip title="编辑">
                                 <span>
-                                  <IconButton aria-label="编辑消息" size="small" disabled={!canEdit} onClick={() => startEditMessage(mid, String(m?.content || ''), !!m?.pending)}>
+                                  <IconButton aria-label="编辑消息" size="small" disabled={!canEdit} onClick={() => startEditMessage(mid, String(m?.content || ''), messageGenerating)}>
                                     <EditOutlinedIcon fontSize="inherit" />
                                   </IconButton>
                                 </span>
@@ -3767,7 +3769,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                             </Stack>
                           )}
 
-                          {m?.pending ? (
+                          {messageGenerating ? (
                             <Box sx={{ mt: 1 }}>
                               <Chip size="small" label={m?.streaming ? '生成中（流式）' : '生成中'} />
                             </Box>

@@ -3,6 +3,7 @@ import { createStateAccessors } from '../state/stateAccessors'
 import { createDefaultChatBranching } from '../domain/branching'
 import { chatMetaFromChat, removeChatMeta, upsertChatMeta } from '../domain/chatMeta'
 import { NEW_ROLE_ID, NEW_GROUP_ID, VERSION, DEFAULT_ATTACH_SEND_LIMIT_CHARS, DEFAULT_ATTACH_MAX_FILE_MB, DEFAULT_MERMAID_FIX_SYSTEM_PROMPT, DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT, DEFAULT_STICKER_NAMING_SYSTEM_PROMPT, DEFAULT_TOOL_CALL_SERVER_BASE_URL } from '../domain/constants'
+import { isAssistantGenerating } from '../domain/assistantRunState'
 
 function looksLikeImageDataUrl(s: any): boolean {
   const t = String(s || '')
@@ -54,7 +55,7 @@ function chatHasPendingAssistant(chat: any): boolean {
   const msgs = Array.isArray(chat?.messages) ? chat.messages : []
   for (const m of msgs) {
     if (!m || typeof m !== 'object') continue
-    if (m.role === 'assistant' && m.pending) return true
+    if (isAssistantGenerating(m)) return true
   }
   return false
 }

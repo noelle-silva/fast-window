@@ -22,6 +22,7 @@ import { normalizeFavorites } from './favorites'
 import { chatMetasFromBox } from './chatMeta'
 import { looksLikeImageDataUrl } from './textProcessing'
 import { normalizeChatModelOverride, normalizeMessageModelRef } from './modelRefUtils'
+import { normalizeAssistantRunState } from './assistantRunState'
 import { normalizeToolRequestRenderPresets } from '../core/toolRequestPresets'
 
 export function normalizeRenderSafetyPolicy(v0: unknown) {
@@ -363,21 +364,26 @@ export function normalizeData(raw: any) {
           branching,
           messages: messages
             .filter((m: any) => m && typeof m === 'object')
-            .map((m: any) => ({
-              id: String(m.id || uid('m')),
-              role: m.role === 'assistant' ? 'assistant' : 'user',
-              speakerRoleId: String((m as any).speakerRoleId || '').trim(),
-              content: String(m.content || ''),
-              images: normImagePaths(m.images),
-              attachments: normalizeMessageAttachments((m as any).attachments),
-              ...normalizeMessageGroup(m),
-              branchId: normalizeBranchId((m as any).branchId || activeBranchId),
-              parentMid: String((m as any).parentMid || '').trim(),
-              pending: !!m.pending,
-              streaming: !!m.streaming,
-              createdAt: Number(m.createdAt || now()),
-              modelRef: normalizeMessageModelRef(m),
-            })),
+            .map((m: any) => {
+              const outMsg: any = {
+                id: String(m.id || uid('m')),
+                role: m.role === 'assistant' ? 'assistant' : 'user',
+                speakerRoleId: String((m as any).speakerRoleId || '').trim(),
+                content: String(m.content || ''),
+                images: normImagePaths(m.images),
+                attachments: normalizeMessageAttachments((m as any).attachments),
+                ...normalizeMessageGroup(m),
+                branchId: normalizeBranchId((m as any).branchId || activeBranchId),
+                parentMid: String((m as any).parentMid || '').trim(),
+                pending: !!m.pending,
+                streaming: !!m.streaming,
+                createdAt: Number(m.createdAt || now()),
+                modelRef: normalizeMessageModelRef(m),
+              }
+              const assistantRun = normalizeAssistantRunState((m as any).assistantRun)
+              if (assistantRun) outMsg.assistantRun = assistantRun
+              return outMsg
+            }),
         }
 
         if (modelOverride) out.modelOverride = modelOverride
@@ -508,20 +514,25 @@ export function normalizeData(raw: any) {
           branching,
           messages: messages
             .filter((m: any) => m && typeof m === 'object')
-            .map((m: any) => ({
-              id: String(m.id || uid('m')),
-              role: m.role === 'assistant' ? 'assistant' : 'user',
-              speakerRoleId: String((m as any).speakerRoleId || '').trim(),
-              content: String(m.content || ''),
-              images: normImagePaths(m.images),
-              attachments: normalizeMessageAttachments((m as any).attachments),
-              ...normalizeMessageGroup(m),
-              branchId: normalizeBranchId((m as any).branchId || activeBranchId),
-              parentMid: String((m as any).parentMid || '').trim(),
-              pending: !!m.pending,
-              streaming: !!m.streaming,
-              createdAt: Number(m.createdAt || now()),
-            })),
+            .map((m: any) => {
+              const outMsg: any = {
+                id: String(m.id || uid('m')),
+                role: m.role === 'assistant' ? 'assistant' : 'user',
+                speakerRoleId: String((m as any).speakerRoleId || '').trim(),
+                content: String(m.content || ''),
+                images: normImagePaths(m.images),
+                attachments: normalizeMessageAttachments((m as any).attachments),
+                ...normalizeMessageGroup(m),
+                branchId: normalizeBranchId((m as any).branchId || activeBranchId),
+                parentMid: String((m as any).parentMid || '').trim(),
+                pending: !!m.pending,
+                streaming: !!m.streaming,
+                createdAt: Number(m.createdAt || now()),
+              }
+              const assistantRun = normalizeAssistantRunState((m as any).assistantRun)
+              if (assistantRun) outMsg.assistantRun = assistantRun
+              return outMsg
+            }),
         }
 
         if (modelOverride) out.modelOverride = modelOverride

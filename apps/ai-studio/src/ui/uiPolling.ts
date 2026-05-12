@@ -1,21 +1,29 @@
 // AI Studio UI 轮询模块
-// 提取自 controller/createController.ts
+// 由 V2 controller 组装使用
 // 职责：定时轮询 stream 状态、同步 chat 索引、处理跨 tab 聊天更新通知
 
 import { now } from '../core/utils'
 import { chatMetaFromChat, chatMetasFromBox, upsertChatMeta } from '../domain/chatMeta'
 import { UI_CHAT_UPDATED_NOTICE_KEY } from '../runtime/runtimeKeys'
 import { splitChatKey, splitGroupChatKey } from '../domain/storageKeys'
+import {
+  checkpointAssistantRun,
+  finishAssistantRun,
+  isAssistantGenerating,
+  isAssistantRunSignalCurrent,
+  normalizeAssistantRunSignal,
+} from '../domain/assistantRunState'
 
 export function createUiPolling(deps: {
   getState: () => any
   storage: { get: (key: string) => Promise<any>; set: (key: string, value: any) => Promise<void> }
   rtStorage: { get: (key: string) => Promise<any> }
   aiGateway: {
-    readAssistantStream: (id: string) => Promise<{ text?: string } | null>
-    consumeAssistantFinal: (id: string) => Promise<{ text?: string; expiresAt?: number } | null>
+    readAssistantStream: (id: string) => Promise<{ text?: string; generationId?: string; updatedAt?: number } | null>
+    consumeAssistantFinal: (id: string) => Promise<{ text?: string; generationId?: string; status?: string; expiresAt?: number; finishedAt?: number } | null>
     resetAssistantRuntime: (id: string) => Promise<void>
   }
+  uiStreamCache: Map<string, any>
   loadSplitMeta: () => Promise<any>
   getSplitMetaCache: () => any
   emit: () => void
@@ -28,7 +36,7 @@ export function createUiPolling(deps: {
   let uiPollTimer = 0
   let uiLastMetaCheckMs = 0
   let uiLastMetaUpdatedAt = 0
-  const uiStreamCache = new Map()
+  const uiStreamCache = deps.uiStreamCache
   let uiChatSyncing = false
   let uiLastChatUpdatedNoticeId = ''
   let uiPollingDisposed = false
@@ -225,12 +233,16 @@ export function createUiPolling(deps: {
     const items = Array.isArray(chat.messages) ? chat.messages : []
     let changed = false
     for (const m of items.slice(-30)) {
-      if (!m || !m.pending || !m.streaming) continue
+      if (!m || !isAssistantGenerating(m) || !m.streaming) continue
       const mid = String(m.id || '')
-      const cached = uiStreamCache.get(mid)
-      if (typeof cached !== 'string' || !cached) continue
-      if (String(m.content || '') === cached) continue
-      m.content = cached
+      const cached = normalizeAssistantRunSignal(uiStreamCache.get(mid))
+      if (!cached || !isAssistantRunSignalCurrent(m, cached)) {
+        uiStreamCache.delete(mid)
+        continue
+      }
+      if (!cached.text) continue
+      if (String(m.content || '') === cached.text) continue
+      checkpointAssistantRun(m, cached.text, cached.updatedAt || now())
       changed = true
     }
     return changed
@@ -254,24 +266,25 @@ export function createUiPolling(deps: {
     } catch (_) {}
 
     const items = Array.isArray(chat.messages) ? chat.messages : []
-    const pending = items.filter((m: any) => m && m.role === 'assistant' && m.pending).slice(-8)
+    const pending = items.filter((m: any) => m && m.role === 'assistant' && isAssistantGenerating(m)).slice(-8)
 
     if (pending.length) {
       let changed = false
       for (const m of pending) {
         if (!m.streaming) continue
-        const s = await deps.aiGateway.readAssistantStream(String(m.id || ''))
-        const text = String(s?.text || '')
         const mid = String(m.id || '')
+        const streamSignal = normalizeAssistantRunSignal(await deps.aiGateway.readAssistantStream(mid))
+        if (streamSignal && !isAssistantRunSignalCurrent(m, streamSignal)) continue
+        const text = String(streamSignal?.text || '')
         if (!text) {
           try {
-            const fin = await deps.aiGateway.consumeAssistantFinal(mid)
-            const finText = String(fin?.text || '').trim()
-            const exp = Number(fin?.expiresAt || 0)
-            if (fin && (!exp || exp > now())) {
-              if (finText) m.content = finText
-              m.pending = false
-              m.streaming = false
+            const finSignal = normalizeAssistantRunSignal(await deps.aiGateway.consumeAssistantFinal(mid))
+            const finText = String(finSignal?.text || '').trim()
+            const exp = Number(finSignal?.expiresAt || 0)
+            if (finSignal && isAssistantRunSignalCurrent(m, finSignal) && (!exp || exp > now())) {
+              const status = finSignal.status === 'failed' || finSignal.status === 'canceled' ? finSignal.status : 'succeeded'
+              finishAssistantRun(m, finText || String(m.content || ''), status, finSignal.finishedAt || now())
+              uiStreamCache.delete(mid)
               changed = true
               try {
                 await deps.aiGateway.resetAssistantRuntime(mid)
@@ -280,9 +293,10 @@ export function createUiPolling(deps: {
           } catch (_) {}
           continue
         }
-        if (uiStreamCache.get(mid) === text) continue
-        uiStreamCache.set(mid, text)
-        m.content = text
+        const cached = normalizeAssistantRunSignal(uiStreamCache.get(mid))
+        if (cached && cached.generationId === streamSignal?.generationId && cached.text === text) continue
+        uiStreamCache.set(mid, streamSignal)
+        checkpointAssistantRun(m, text, streamSignal?.updatedAt || now())
         changed = true
       }
       if (changed) {

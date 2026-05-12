@@ -5,6 +5,15 @@ import { createAiChatInternalGateway } from '../gateway/createAiChatInternalGate
 import type { AiChatCapabilities } from '../gateway/capabilities'
 import type { AiChatRun } from '../engine'
 import { buildOpenAiChatReqFromStorage, buildOpenAiGroupChatReqFromStorage, type RequestBuilderDeps } from './requestBuilders'
+import { createPatchOperations } from '../controller/patchOperations'
+import { createChatWriteLock } from '../storage/chatWriteLock'
+import { loadSplitMetaSnapshot } from '../storage/splitIndexes'
+import { updateStoredChatIndexEntry } from '../storage/chatIndexUpdater'
+import { CHAT_DEFAULT_BRANCH_ID, VERSION } from '../domain/constants'
+import { normalizeData } from '../domain/dataNormalizers'
+import { normalizeBranchId, repairChatLinearBranching } from '../domain/branching'
+import { isAssistantGenerating } from '../domain/assistantRunState'
+import { trimSlash } from '../core/utils'
 
 export type AiChatBackendService = {
   dispatch: (method: string, params: unknown) => Promise<unknown>
@@ -31,20 +40,78 @@ export function createAiChatBackendService(opts: {
       : undefined,
   }
 
-  const gateway = createAiChatInternalGateway({
+  const chatWriteLock = createChatWriteLock({ rtStorage: cap.runtimeStorage })
+
+  async function loadToolCallServerConfigFromStorage() {
+    const meta = await loadSplitMetaSnapshot(cap.storage)
+    if (!meta) throw new Error('存储未初始化')
+    const d = normalizeData({
+      version: VERSION,
+      settings: { ...(meta.settings && typeof meta.settings === 'object' ? meta.settings : {}), providers: [{ id: '__fallback__', name: '__fallback__', baseUrl: 'http://', apiKey: '', modelsCache: { items: [], fetchedAt: 0 } }] },
+      roles: [],
+      chatsByRole: {},
+      ui: meta.ui && typeof meta.ui === 'object' ? meta.ui : {},
+    })
+    const tcs = d.settings.toolCallServer && typeof d.settings.toolCallServer === 'object' ? d.settings.toolCallServer : {}
+    return {
+      baseUrl: trimSlash(String((tcs as any).baseUrl || '').trim()),
+      token: String((tcs as any).token || '').trim(),
+      streamEnabled: !!d.settings.streamEnabled,
+    }
+  }
+
+  async function touchChatIndex(kind: 'role' | 'group', targetId: string, chatId: string, updatedAt: number) {
+    await updateStoredChatIndexEntry(cap.storage, kind, targetId, chatId, { updatedAt: Number(updatedAt || 0) })
+  }
+
+  function chatHasPendingAssistantInBranch(chat: any, branchId: string, excludeMid?: string) {
+    const bid = normalizeBranchId(branchId || CHAT_DEFAULT_BRANCH_ID)
+    const ex = String(excludeMid || '').trim()
+    const msgs = Array.isArray(chat?.messages) ? chat.messages : []
+    for (const m of msgs) {
+      if (!m || typeof m !== 'object') continue
+      if (String(m.role || '') !== 'assistant' || !isAssistantGenerating(m)) continue
+      const mid = String(m?.id || '').trim()
+      if (ex && mid === ex) continue
+      if (normalizeBranchId(m?.branchId || CHAT_DEFAULT_BRANCH_ID) === bid) return true
+    }
+    return false
+  }
+
+  let gateway: ReturnType<typeof createAiChatInternalGateway>
+  const patchOps = createPatchOperations({
+    getState: () => ({ data: null }),
+    storage: cap.storage,
+    aiGateway: {
+      submitRoleChatCompletion: (input: any) => gateway.submitRoleChatCompletion(input),
+      submitGroupChatCompletion: (input: any) => gateway.submitGroupChatCompletion(input),
+    } as any,
+    loadSplitMeta: () => loadSplitMetaSnapshot(cap.storage) as any,
+    loadToolCallServerConfig: loadToolCallServerConfigFromStorage,
+    netRequest: (options: any) => cap.net.request(options),
+    withChatWriteLock: chatWriteLock.withChatWriteLock,
+    touchChatUpdatedAt: (rid: string, cid: string, ua: number) => touchChatIndex('role', rid, cid, ua),
+    touchGroupChatUpdatedAt: (gid: string, cid: string, ua: number) => touchChatIndex('group', gid, cid, ua),
+    writeChatUpdatedNotice: chatWriteLock.writeChatUpdatedNotice,
+    chatHasPendingAssistantInBranch,
+    repairChatLinearBranching,
+    emit: () => {},
+  })
+
+  gateway = createAiChatInternalGateway({
     runtime: 'background',
     store: cap.runtimeStorage,
     net: cap.net,
-    onRunFinal: async () => {},
+    onRunFinal: patchOps.onAssistantRunFinal,
     onProgressEvent: async (run: AiChatRun, text: string) => {
       const mid = String(run?.target?.assistantMid || '').trim()
       if (!mid) return
-      emit({ type: 'event', name: AI_CHAT_DIRECT_EVENT.runProgress, payload: { assistantMid: mid, text } })
+      emit({ type: 'event', name: AI_CHAT_DIRECT_EVENT.runProgress, payload: { assistantMid: mid, text, generationId: String(run?.target?.generationId || '') } })
     },
     onFinalEvent: async (run: AiChatRun, finalText: string) => {
       const mid = String(run?.target?.assistantMid || '').trim()
       if (!mid) return
-      emit({ type: 'event', name: AI_CHAT_DIRECT_EVENT.runFinal, payload: { assistantMid: mid, text: finalText, status: String(run?.status || '') } })
+      emit({ type: 'event', name: AI_CHAT_DIRECT_EVENT.runFinal, payload: { assistantMid: mid, text: finalText, status: String(run?.status || ''), generationId: String(run?.target?.generationId || '') } })
     },
     buildRoleReqFromStorage: (jobStub) => buildOpenAiChatReqFromStorage(builderDeps, jobStub),
     buildGroupReqFromStorage: (jobStub) => buildOpenAiGroupChatReqFromStorage(builderDeps, jobStub),

@@ -2,7 +2,6 @@
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import pdfWorkerCode from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?raw'
 import { createAiChatFastWindowApi } from './bridge/tauriCompat'
-import { createAiChatController } from './controller/createController'
 import { createAiChatControllerV2 } from './controller/createControllerV2'
 import { createAiChatCapabilitiesFromHostApi } from './gateway/capabilities'
 import { createDirectCapabilitiesAdapter } from './direct/createDirectCapabilitiesAdapter'
@@ -14,11 +13,9 @@ import { AI_STUDIO_APP_ID, AI_STUDIO_CONTROLLER_KEY } from './runtime/aiStudioGl
   const isDirect = !!fw?.background?.endpoint
 
   let capabilities: ReturnType<typeof createAiChatCapabilitiesFromHostApi>
-  let useV2 = false
   if (isDirect) {
     const { api } = await createDirectCapabilitiesAdapter(fw)
     capabilities = createAiChatCapabilitiesFromHostApi(api, AI_STUDIO_APP_ID)
-    useV2 = true
   } else {
     const api = createAiChatFastWindowApi(fw, AI_STUDIO_APP_ID)
     capabilities = createAiChatCapabilitiesFromHostApi(api, AI_STUDIO_APP_ID)
@@ -31,8 +28,7 @@ import { AI_STUDIO_APP_ID, AI_STUDIO_CONTROLLER_KEY } from './runtime/aiStudioGl
     }
   } catch (_) {}
 
-  const factory = useV2 ? createAiChatControllerV2 : createAiChatController
-  const { controller, init } = factory({ capabilities })
+  const { controller, init } = createAiChatControllerV2({ capabilities })
   ;(window as any)[AI_STUDIO_CONTROLLER_KEY] = controller
 
   init()

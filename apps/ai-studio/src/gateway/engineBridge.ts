@@ -2,7 +2,7 @@ import { now } from '../core/utils'
 import { createAiChatEngine } from '../engine'
 import type { AiChatNetAdapter, AiChatRun, AiChatRuntimeStore } from '../engine'
 import { assistantFinalKey, assistantStreamKey } from '../runtime/runtimeKeys'
-import { clearRunIdForAssistant, getRunIdForAssistant, setRunIdForAssistant } from './runtimeSignalStore'
+import { clearRunIdForAssistant, getRunIdForAssistant, isCurrentRunForAssistant, setRunIdForAssistant } from './runtimeSignalStore'
 
 export function createAiChatEngineBridge(opts: {
   runtime: 'ui' | 'background'
@@ -23,9 +23,11 @@ export function createAiChatEngineBridge(opts: {
     net: opts.net,
     onProgress: async (run: any, text: string) => {
       const mid = String(run?.target?.assistantMid || '').trim()
+      const generationId = String(run?.target?.generationId || '').trim()
       if (!mid) return
+      if (!(await isCurrentRunForAssistant(store, mid, String(run?.id || '')))) return
       try {
-        await store.set(streamKey(mid), { text: String(text || ''), updatedAt: now() })
+        await store.set(streamKey(mid), { text: String(text || ''), generationId, updatedAt: now() })
       } catch (_) {}
       try {
         if (opts.onProgressEvent) await opts.onProgressEvent(run as any, String(text || ''))
@@ -33,11 +35,14 @@ export function createAiChatEngineBridge(opts: {
     },
     onFinal: async (run: any, finalText: string) => {
       const mid = String(run?.target?.assistantMid || '').trim()
+      const generationId = String(run?.target?.generationId || '').trim()
+      if (mid && !(await isCurrentRunForAssistant(store, mid, String(run?.id || '')))) return
       if (mid) {
         try {
           await store.set(finalKey(mid), {
             status: String(run?.status || ''),
             text: String(finalText || ''),
+            generationId,
             finishedAt: now(),
             expiresAt: now() + 10 * 60 * 1000,
           })
@@ -53,7 +58,7 @@ export function createAiChatEngineBridge(opts: {
         try {
           await store.remove(streamKey(mid))
         } catch (_) {}
-        await clearRunIdForAssistant(store, mid)
+        await clearRunIdForAssistant(store, mid, String(run?.id || ''))
       }
     },
   })
@@ -61,7 +66,8 @@ export function createAiChatEngineBridge(opts: {
   async function enqueue(spec: { target: AiChatRun['target']; req: AiChatRun['req']; stream: boolean }) {
     const runId = await engine.enqueue(spec)
     const mid = String(spec?.target?.assistantMid || '').trim()
-    if (mid) await setRunIdForAssistant(store, mid, runId)
+    const generationId = String((spec?.target as any)?.generationId || '').trim()
+    if (mid) await setRunIdForAssistant(store, mid, runId, generationId)
     return runId
   }
 

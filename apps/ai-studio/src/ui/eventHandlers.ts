@@ -1,5 +1,5 @@
 // AI Studio UI 事件处理器
-// 提取自 controller/createController.ts
+// 由 V2 controller 组装使用
 // 职责：click / wheel / mousedown / input / change / keydown / paste 事件委托与分发
 
 import { clamp } from '../core/utils'

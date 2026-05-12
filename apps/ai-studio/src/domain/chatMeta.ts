@@ -1,4 +1,5 @@
 import { now } from '../core/utils'
+import { isAssistantGenerating } from './assistantRunState'
 
 export type ChatMeta = {
   id: string
@@ -45,7 +46,7 @@ export function chatMetaFromChat(chat: any, fallbackTitle = '新聊天'): ChatMe
     updatedAt,
     lastMessagePreview: messagePreview(last),
     messageCount: messages.length,
-    hasPending: messages.some((m: any) => m?.role === 'assistant' && !!m?.pending),
+    hasPending: messages.some((m: any) => isAssistantGenerating(m)),
   }
 }
 

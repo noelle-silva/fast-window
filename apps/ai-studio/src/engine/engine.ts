@@ -39,6 +39,7 @@ export function createAiChatEngine(opts: {
     const chatId = String(target?.chatId || '')
     const branchId = String(target?.branchId || '')
     const assistantMid = String(target?.assistantMid || '')
+    const generationId = String((target as any)?.generationId || '').trim()
     if (!targetId || !chatId || !branchId || !assistantMid) throw new Error('enqueue: target 参数不完整')
     if (!req || typeof req !== 'object') throw new Error('enqueue: req 无效')
 
@@ -63,6 +64,7 @@ export function createAiChatEngine(opts: {
         chatId,
         branchId,
         assistantMid,
+        generationId: generationId || undefined,
         tag: String((target as any)?.tag || '').trim() === 'service' ? 'service' : undefined,
         service: String((target as any)?.service || '').trim() || undefined,
       },

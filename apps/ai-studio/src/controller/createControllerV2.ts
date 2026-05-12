@@ -74,6 +74,7 @@ import {
 import { normalizeMessageAttachments, normalizeMessageGroup } from '../domain/message'
 import { validateFavoriteFolderName } from '../domain/favoriteValidator'
 import { normalizeChatModelOverride, normalizeMessageModelRef, buildMessageModelRef } from '../domain/modelRefUtils'
+import { isAssistantGenerating } from '../domain/assistantRunState'
 import { detectDraftFileKind, addDraftFilePlaceholder, removeDraftFile, removeDraftImage as removeDraftImageFromList, fileExtLower } from '../domain/draftFileUtils'
 import type { DraftFileKind, DraftFileItem, DraftImageItem } from '../domain/draftFileUtils'
 import { validateStickerCategoryName, validateStickerName, imageExtFromDataUrl } from '../domain/stickerValidator'
@@ -291,7 +292,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     const msgs = Array.isArray(chat?.messages) ? chat.messages : []
     for (const m of msgs) {
       if (!m || typeof m !== 'object') continue
-      if (m.role === 'assistant' && m.pending) return true
+      if (isAssistantGenerating(m)) return true
     }
     return false
   }
@@ -302,7 +303,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     const msgs = Array.isArray(chat?.messages) ? chat.messages : []
     for (const m of msgs) {
       if (!m || typeof m !== 'object') continue
-      if (m.role !== 'assistant' || !m.pending) continue
+      if (m.role !== 'assistant' || !isAssistantGenerating(m)) continue
       const mid = String((m as any)?.id || '').trim()
       if (ex && mid === ex) continue
       const mb = normalizeBranchId((m as any)?.branchId || CHAT_DEFAULT_BRANCH_ID)
@@ -422,11 +423,14 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     filesImagesRead: api.files?.images?.read as any || ((() => Promise.resolve('')) as any),
   })
   const { buildOpenAiChatReqFromStorage, buildOpenAiGroupChatReqFromStorage, loadToolCallServerConfigFromStorage } = buildReq
+  let onAssistantRunFinalHandler: (run: any, finalText: string) => Promise<void> | void = async () => {
+    throw new Error('Assistant run final handler 未初始化')
+  }
   const aiGateway = deps.aiGateway || createAiChatInternalGateway({
     runtime,
     store: runtimeStorage,
     net: capabilities.net,
-    onRunFinal: async () => {},
+    onRunFinal: (run, finalText) => onAssistantRunFinalHandler(run, finalText),
     buildRoleReqFromStorage: buildOpenAiChatReqFromStorage,
     buildGroupReqFromStorage: buildOpenAiGroupChatReqFromStorage,
   })
@@ -555,7 +559,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // ============================================================
   // 9. UI CACHES
   // ============================================================
-  const uiStreamCache = new Map<string, string>()
+  const uiStreamCache = new Map<string, any>()
   const uiRefImgCache = new Map<string, string>()
   const uiRefImgPending = new Set<string>()
 
@@ -801,7 +805,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     emit,
     sendChat: (opts?: any) => sendChat(opts),
   })
-  const { patchAssistantMessage, insertMessagesAfterMessageId, onAssistantRunFinal, submitChatCompletion } = patchOps
+  const { onAssistantRunFinal } = patchOps
+  onAssistantRunFinalHandler = onAssistantRunFinal
 
   // ============================================================
   // 18. UI POLLING
@@ -811,6 +816,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     storage,
     rtStorage: runtimeStorage,
     aiGateway,
+    uiStreamCache,
     loadSplitMeta: loadSplitMetaCached,
     getSplitMetaCache,
     emit,
@@ -1894,6 +1900,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   async function init() {
     await ensureRenderer().catch(() => {})
     await load()
+    await aiGateway.startBackgroundWorker(350).catch(() => {})
     startUiPollers()
     render()
   }

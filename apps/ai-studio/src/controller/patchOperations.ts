@@ -8,6 +8,12 @@ import {
 } from '@noelle-silva/eucli-aitoolcall-sdk'
 import type { AiChatInternalGateway } from '../gateway/types'
 import { splitChatKey, splitGroupChatKey } from '../domain/storageKeys'
+import {
+  ASSISTANT_RUNNING_CONTENT,
+  beginAssistantRun,
+  finishAssistantRun,
+  isAssistantGenerating,
+} from '../domain/assistantRunState'
 
 const CHAT_DEFAULT_BRANCH_ID = 'main'
 
@@ -61,6 +67,7 @@ export function createPatchOperations(deps: {
     const groupId = String((job as any)?.groupId || '')
     const chatId = String(job?.chatId || '')
     const mid = String(job?.assistantMid || '')
+    const generationId = String(job?.generationId || '').trim()
     if (!roleId || !chatId || !mid || (kind === 'group' && !groupId)) return
 
     const meta = await loadSplitMeta()
@@ -83,11 +90,10 @@ export function createPatchOperations(deps: {
       const m = msgs.find((x: any) => String(x?.id) === mid)
       if (!m) return
 
-      if (m.pending !== true) return
+      const messageGenerationId = String(m?.assistantRun?.generationId || '').trim()
+      if (!isAssistantGenerating(m) || !generationId || messageGenerationId !== generationId) return
 
-      m.content = String(content || '')
-      m.pending = false
-      m.streaming = false
+      finishAssistantRun(m, String(content || ''), String(job?.status || '') === 'failed' ? 'failed' : String(job?.status || '') === 'canceled' ? 'canceled' : 'succeeded', now())
       chat.updatedAt = now()
       repairChatLinearBranching(chat)
 
@@ -186,6 +192,7 @@ export function createPatchOperations(deps: {
     const chatId = String(run?.target?.chatId || '').trim()
     const branchId = String(run?.target?.branchId || '').trim()
     const assistantMid = String(run?.target?.assistantMid || '').trim()
+    const generationId = String(run?.target?.generationId || '').trim()
     const text = String(finalText || '')
     if (!roleId || !chatId || !assistantMid || (kind === 'group' && !groupId)) return
 
@@ -197,8 +204,10 @@ export function createPatchOperations(deps: {
       chatId,
       branchId,
       assistantMid,
+      generationId,
       cutoffMid: assistantMid,
       stream: !!run?.stream,
+      status: String(run?.status || ''),
     }
 
     try {
@@ -264,16 +273,20 @@ export function createPatchOperations(deps: {
             if (!insertedTool.ok) return
 
             const assistantMid2 = uid('m')
+            const assistantMsg2: any = {
+              id: assistantMid2,
+              role: 'assistant',
+              content: ASSISTANT_RUNNING_CONTENT,
+              createdAt: now(),
+              speakerRoleId: kind === 'group' ? roleId : undefined,
+            }
+            beginAssistantRun(assistantMsg2, {
+              mode: 'tool-followup',
+              stream: !!streamEnabled,
+            })
+            const generationId2 = String(assistantMsg2?.assistantRun?.generationId || '').trim()
             const insertedAssistant = await insertMessagesAfterMessageId(jobLike, toolMid, [
-              {
-                id: assistantMid2,
-                role: 'assistant',
-                content: '（生成中…）',
-                pending: true,
-                streaming: !!streamEnabled,
-                createdAt: now(),
-                speakerRoleId: kind === 'group' ? roleId : undefined,
-              },
+              assistantMsg2,
             ])
             if (!insertedAssistant.ok || !insertedAssistant.insertedAssistant) return
 
@@ -284,6 +297,7 @@ export function createPatchOperations(deps: {
               roleId,
               chatId,
               assistantMid: assistantMid2,
+              generationId: generationId2,
               cutoffMid: assistantMid2,
               branchId,
               stream: !!streamEnabled,
@@ -297,6 +311,7 @@ export function createPatchOperations(deps: {
                 chatId,
                 branchId,
                 assistantMid: assistantMid2,
+                generationId: generationId2,
               } as any,
               stream: !!streamEnabled,
               jobStub: jobStub2,

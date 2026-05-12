@@ -9,6 +9,7 @@ export type AiChatRunTarget = {
   chatId: string
   branchId: string
   assistantMid: string
+  generationId?: string
   tag?: 'chat' | 'service'
   service?: string
 }
@@ -63,6 +64,7 @@ export function createAiChatRequestPipeline(opts: {
         chatId: String(target.chatId || ''),
         branchId: String(target.branchId || ''),
         assistantMid: mid,
+        generationId: String((target as any).generationId || jobStub?.generationId || '').trim() || undefined,
         tag: target.tag === 'service' ? 'service' : undefined,
         service: target.service ? String(target.service || '') : undefined,
       } as any,
@@ -90,6 +92,7 @@ export function createAiChatRequestPipeline(opts: {
         chatId: String(target.chatId || ''),
         branchId: String(target.branchId || ''),
         assistantMid: mid,
+        generationId: String((target as any).generationId || '').trim() || undefined,
         tag: target.tag === 'service' ? 'service' : undefined,
         service: target.service ? String(target.service || '') : undefined,
       } as any,

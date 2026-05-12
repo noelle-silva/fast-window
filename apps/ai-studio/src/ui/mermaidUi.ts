@@ -1,6 +1,7 @@
 import { clamp, now } from '../core/utils'
 import { VIEWER_ZOOM_MIN, MERMAID_VIEWER_ZOOM_MAX } from '../core/viewerZoom'
 import { splitChatKey } from '../domain/storageKeys'
+import { isAssistantGenerating } from '../domain/assistantRunState'
 
 export function createMermaidUi(deps: {
   getState: () => any
@@ -207,7 +208,7 @@ export function createMermaidUi(deps: {
     if (pendingChat) throw new Error('当前会话尚未写入存档，请先发送一条消息后再修复')
     if (chatHasPendingAssistant(chat)) throw new Error('该会话正在生成中，无法编辑')
     if (target.role === 'assistant') {
-      if (target.pending) throw new Error('该消息正在生成中，无法编辑')
+      if (isAssistantGenerating(target)) throw new Error('该消息正在生成中，无法编辑')
       try {
         uiStreamCache.delete(String(messageId || ''))
       } catch (_) {}
