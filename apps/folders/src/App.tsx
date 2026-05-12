@@ -227,7 +227,7 @@ export function App() {
       const nextClient = await createDirectClient()
       const health = await nextClient.request<CollectionsHealth>('collections.health')
       if (!health.data.ok) {
-        setClient(nextClient); setPhase('data-error'); setError(health.data.error || '数据文件不符合当前开发基线'); await refreshStatus()
+        setClient(nextClient); setPhase('data-error'); setError(health.data.error || '数据文件无法迁移到当前版本'); await refreshStatus()
         return
       }
       const nextDoc = await nextClient.request<CategoryWorkspaceView>('collections.category.get', { categoryId: activeCategoryId })
@@ -1011,16 +1011,6 @@ export function App() {
     finally { setBusy(false) }
   }
 
-  async function resetData() {
-    if (!client) return
-    setBusy(true); setError(null)
-    try {
-      const nextDoc = await client.request<CategoryWorkspaceView>('collections.data.reset', requestParams())
-      setDoc(nextDoc); setWallpaperDeck(wallpaperDeckFromWorkspace(nextDoc)); setPhase('ready'); setConfirm(null); await refreshStatus()
-    } catch (e) { setError(errorMessage(e, '重置数据失败')) }
-    finally { setBusy(false) }
-  }
-
   async function pickItemTarget() {
     const pickCommand = activeCategory.pickCommand
     if (!pickCommand) return
@@ -1080,7 +1070,6 @@ export function App() {
         status={status}
         onPickDataDir={pickDataDir}
         onRestart={() => void connect({ restartBackend: true })}
-        onResetData={() => setConfirm({ kind: 'data-reset', id: 'data-reset', label: '当前数据' })}
       />
 
       <FolderGridCanvas
@@ -1238,7 +1227,6 @@ export function App() {
           const container = doc.containers.find(current => current.id === confirm.id)
           if (confirm.kind === 'group') void removeGroup({ id: confirm.id, name: confirm.label })
           else if (confirm.kind === 'container' && container) void removeContainer(container)
-          else if (confirm.kind === 'data-reset') void resetData()
           else if (confirm.kind === 'item' && item) void removeItem(item)
           else setConfirm(null)
         }}
@@ -1458,7 +1446,7 @@ function WindowControls() {
   )
 }
 
-function StatusNotice(props: { busy: boolean; error: string | null; phase: Phase; status: DataDirStatus | null; onPickDataDir(): void; onRestart(): void; onResetData(): void }) {
+function StatusNotice(props: { busy: boolean; error: string | null; phase: Phase; status: DataDirStatus | null; onPickDataDir(): void; onRestart(): void }) {
   if (props.phase === 'starting') {
     return <Alert severity="info" icon={<CircularProgress size={18} />} sx={{ mx: { xs: 1.5, sm: 2 }, mb: 1 }}>正在连接文件夹收藏后台...</Alert>
   }
@@ -1470,13 +1458,12 @@ function StatusNotice(props: { busy: boolean; error: string | null; phase: Phase
         sx={{ mx: { xs: 1.5, sm: 2 }, mb: 1, alignItems: 'flex-start' }}
         action={
           <Stack direction="row" spacing={1}>
-            <Button color="inherit" size="small" onClick={props.onResetData} disabled={props.busy}>重置数据</Button>
             <Button color="inherit" size="small" onClick={props.onPickDataDir} disabled={props.busy}>数据目录</Button>
           </Stack>
         }
       >
-        <Typography fontWeight={900}>数据文件不符合当前开发基线</Typography>
-        <Typography variant="body2">{props.error || '当前数据结构与开发基线不一致。请确认是否重置为新的空白基线。'}</Typography>
+        <Typography fontWeight={900}>数据文件需要处理</Typography>
+        <Typography variant="body2">{props.error || '当前数据无法迁移到此版本。请检查数据目录，或选择其它数据目录。'}</Typography>
       </Alert>
     )
   }
@@ -1907,11 +1894,9 @@ function ConfirmDialog(props: { busy: boolean; category: CategoryDefinition; con
     ? `删除分组“${props.confirm.label}”？${matchingGroupItemCount} 个${props.category.singularLabel}会取消该分组；没有其它分组的${props.category.singularLabel}会回到默认分组。`
     : props.confirm?.kind === 'container'
       ? `删除收纳夹“${props.confirm.label}”？夹内 ${containerItemCount} 个项目会移回桌面。`
-      : props.confirm?.kind === 'data-reset'
-        ? '重置会把当前数据目录的 data.json 写成新的空白开发基线；这不是自动修复，请确认旧数据可以丢弃。'
-        : `删除${props.category.singularLabel}“${props.confirm?.label || ''}”？`
-  const title = props.confirm?.kind === 'data-reset' ? '确认重置数据' : '确认删除'
-  const confirmLabel = props.confirm?.kind === 'data-reset' ? '确认重置' : '确认删除'
+      : `删除${props.category.singularLabel}“${props.confirm?.label || ''}”？`
+  const title = '确认删除'
+  const confirmLabel = '确认删除'
   return (
     <Dialog open={Boolean(props.confirm)} onClose={props.onClose} fullWidth maxWidth="xs">
       <DialogContent sx={{ p: 3 }}>

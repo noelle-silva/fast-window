@@ -15,14 +15,14 @@ import (
 func TestServiceCreatesCollectionsDataFiles(t *testing.T) {
 	svc := readyService(t)
 
-	for _, name := range []string{dataFile, metaFile} {
+	for _, name := range []string{dataFile, metaFile, migrationStateFile} {
 		if _, err := os.Stat(filepath.Join(svc.dataDir, name)); err != nil {
 			t.Fatalf("expected %s to exist: %v", name, err)
 		}
 	}
 }
 
-func TestHealthReportsCurrentBaselineData(t *testing.T) {
+func TestHealthReportsCurrentData(t *testing.T) {
 	svc := readyService(t)
 	health := svc.health()
 	if !health.OK || !health.Data.OK || health.Data.DataVersion != dataVersion || health.Data.SchemaVersion != dataSchemaVersion {
@@ -56,33 +56,169 @@ func TestCollectionTargetOpenCommands(t *testing.T) {
 	}
 }
 
-func TestEnsureReadyDiagnosesUnsupportedExistingData(t *testing.T) {
+func TestEnsureReadyMigratesLegacyFlatWorkspaceToCategories(t *testing.T) {
 	svc := newTestService(t)
-	legacy := `{"schemaVersion":1,"dataVersion":4,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":-2,"columnGap":38,"iconScale":1}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	legacy := `{"schemaVersion":1,"dataVersion":4,"groups":[{"id":"default","name":"默认"},{"id":"work","name":"工作"}],"items":[{"id":"one","name":"Projects","path":"E:\\Projects","groupId":"work","pageOrder":3,"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","createdAtMs":1,"updatedAtMs":2,"layout":{"x":2,"y":1}}],"containers":[{"id":"box","name":"Box","groupId":"work","pageOrder":4,"createdAt":"2026-01-01T00:00:00Z","updatedAt":"2026-01-01T00:00:00Z","createdAtMs":1,"updatedAtMs":2,"layout":{"x":4,"y":1}}],"desktop":{"iconLayout":{"rowGap":38,"columnGap":40}},"updatedAt":"2026-01-01T00:00:00Z"}`
 	writeRawData(t, svc, legacy)
 	if err := svc.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
-	health := svc.health()
-	if health.Data.OK || !strings.Contains(health.Data.Error, "dataVersion 4") {
-		t.Fatalf("expected unsupported baseline health error, got %#v", health)
+
+	doc, err := svc.readCollections()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.SchemaVersion != dataSchemaVersion || doc.DataVersion != dataVersion || doc.ActiveCategoryID != defaultCategoryID || len(doc.Categories) != 3 {
+		t.Fatalf("unexpected migrated doc metadata: %#v", doc)
+	}
+	folder, _, err := workspaceByID(doc, "folder")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(folder.Groups) != 2 || folder.Groups[1].ID != "work" || len(folder.Items) != 1 || len(folder.Containers) != 1 {
+		t.Fatalf("legacy folder workspace was not preserved: %#v", folder)
+	}
+	if folder.Items[0].Target.Kind != "folder" || folder.Items[0].Target.Path != `E:\Projects` || folder.Items[0].GroupID != "work" {
+		t.Fatalf("legacy item was not migrated as folder target: %#v", folder.Items[0])
+	}
+	if folder.Desktop.IconLayout.IconScale != defaultDesktopIconScale || folder.Desktop.IconLayout.RowGap != 38 || folder.Desktop.IconLayout.ColumnGap != 40 {
+		t.Fatalf("legacy icon layout was not normalized: %#v", folder.Desktop.IconLayout)
+	}
+	for _, id := range []string{"url", "file"} {
+		workspace, _, err := workspaceByID(doc, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(workspace.Groups) != 1 || workspace.Groups[0].ID != defaultGroupID || len(workspace.Items) != 0 || len(workspace.Containers) != 0 {
+			t.Fatalf("expected empty %s workspace after migration: %#v", id, workspace)
+		}
+	}
+
+	state := readJSONMap(t, filepath.Join(svc.dataDir, migrationStateFile))
+	applied := state["applied"].([]any)
+	if len(applied) != 1 {
+		t.Fatalf("expected one migration record, got %#v", applied)
+	}
+	entry := applied[0].(map[string]any)
+	if entry["id"] != "2026-05-12-folders-data-v4-to-v5" || int(entry["fromVersion"].(float64)) != 4 || int(entry["toVersion"].(float64)) != dataVersion {
+		t.Fatalf("unexpected migration entry: %#v", entry)
+	}
+	assertSingleRecoveryPackage(t, svc)
+	if health := svc.health(); !health.Data.OK {
+		t.Fatalf("expected healthy migrated data: %#v", health)
 	}
 }
 
-func TestResetCollectionWorkspaceReplacesInvalidDataWithCurrentBaseline(t *testing.T) {
+func TestRunMigrationsIsIdempotent(t *testing.T) {
 	svc := newTestService(t)
 	legacy := `{"schemaVersion":1,"dataVersion":2,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38}},"updatedAt":"2026-01-01T00:00:00Z"}`
 	writeRawData(t, svc, legacy)
 	if err := svc.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
-	doc, err := svc.resetWorkspaceView("folder")
+	if err := svc.ensureReady(); err != nil {
+		t.Fatal(err)
+	}
+	state := readJSONMap(t, filepath.Join(svc.dataDir, migrationStateFile))
+	if applied := state["applied"].([]any); len(applied) != 1 {
+		t.Fatalf("migration should apply once, got %#v", applied)
+	}
+	assertSingleRecoveryPackage(t, svc)
+}
+
+func TestEnsureReadyRejectsNewerDataVersion(t *testing.T) {
+	svc := newTestService(t)
+	writeRawData(t, svc, `{"schemaVersion":1,"dataVersion":6,"activeCategoryId":"folder","categories":[],"updatedAt":"2026-01-01T00:00:00Z"}`)
+	if err := svc.ensureReady(); err == nil || !strings.Contains(err.Error(), "newer than supported") {
+		t.Fatalf("expected newer version error, got %v", err)
+	}
+}
+
+func TestRunMigrationsRejectsLedgerAppliedWithOldData(t *testing.T) {
+	svc := newTestService(t)
+	legacy := `{"schemaVersion":1,"dataVersion":4,"groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":38,"columnGap":38}},"updatedAt":"2026-01-01T00:00:00Z"}`
+	writeRawData(t, svc, legacy)
+	if err := writeJSON(filepath.Join(svc.dataDir, migrationStateFile), map[string]any{
+		"schemaVersion": 1,
+		"updatedAt":     nowMS(),
+		"applied": []migrationStateRecord{{
+			ID:          "2026-05-12-folders-data-v4-to-v5",
+			FromVersion: 4,
+			ToVersion:   dataVersion,
+			Description: "already applied on paper only",
+			AppliedAt:   nowMS(),
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ensureReady(); err == nil || !strings.Contains(err.Error(), "ledger says") {
+		t.Fatalf("expected ledger/data mismatch error, got %v", err)
+	}
+}
+
+func TestEnsureReadyNormalizesLegacyMigrationLedgerTimestamps(t *testing.T) {
+	svc := newTestService(t)
+	writeRawData(t, svc, `{"schemaVersion":1,"dataVersion":5,"activeCategoryId":"folder","categories":[{"id":"folder","groups":[],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}},{"id":"url","groups":[],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}},{"id":"file","groups":[],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}}],"updatedAt":"2026-05-12T14:56:25Z"}`)
+	legacyLedger := `{
+  "schemaVersion": 1,
+  "updatedAt": "2026-05-09T16:57:30Z",
+  "applied": [
+    {
+      "id": "legacy-folders-json-to-data-json",
+      "fromVersion": 0,
+      "toVersion": 1,
+      "description": "migrate folders app data into data.json",
+      "appliedAt": "2026-05-08T06:54:04Z"
+    }
+  ]
+}`
+	if err := os.WriteFile(filepath.Join(svc.dataDir, migrationStateFile), []byte(legacyLedger), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.ensureReady(); err != nil {
+		t.Fatal(err)
+	}
+	state := readJSONMap(t, filepath.Join(svc.dataDir, migrationStateFile))
+	if _, ok := state["updatedAt"].(float64); !ok {
+		t.Fatalf("expected normalized numeric updatedAt, got %#v", state["updatedAt"])
+	}
+	applied := state["applied"].([]any)
+	record := applied[0].(map[string]any)
+	if _, ok := record["appliedAt"].(float64); !ok {
+		t.Fatalf("expected normalized numeric appliedAt, got %#v", record["appliedAt"])
+	}
+}
+
+func TestMigrationRecoveryCopiesDirectoryContents(t *testing.T) {
+	svc := newTestService(t)
+	iconDir := filepath.Join(svc.dataDir, assetsDir, iconAssetsDir)
+	if err := os.MkdirAll(iconDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(iconDir, "one.txt"), []byte("icon"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	migration := dataMigration{
+		ID:          "test recovery directory copy",
+		FromVersion: 1,
+		ToVersion:   dataVersion,
+		Description: "test recovery directory copy",
+		Recovery:    migrationRecoverySpec{AffectedPaths: []string{assetsDir}},
+	}
+	recoveryDir, err := svc.prepareMigrationRecovery(&migration)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertDefaultWorkspaceView(t, doc, "folder")
-	if health := svc.health(); !health.Data.OK {
-		t.Fatalf("expected healthy data after reset: %#v", health)
+	if _, err := os.Stat(filepath.Join(recoveryDir, "files", assetsDir, iconAssetsDir, "one.txt")); err != nil {
+		t.Fatalf("expected nested recovery file copy: %v", err)
+	}
+	plan := readJSONMap(t, filepath.Join(recoveryDir, "plan.json"))
+	copied := jsonStringList(t, plan["copiedPaths"])
+	for _, wanted := range []string{assetsDir + "/", assetsDir + "/" + iconAssetsDir + "/", assetsDir + "/" + iconAssetsDir + "/one.txt"} {
+		if !stringListContains(copied, wanted) {
+			t.Fatalf("expected copiedPaths to contain %s, got %#v", wanted, copied)
+		}
 	}
 }
 
@@ -950,6 +1086,60 @@ func writeRawDoc(t *testing.T, svc *service, doc collectionsDoc) {
 		t.Fatal(err)
 	}
 	writeRawData(t, svc, string(payload))
+}
+
+func readJSONMap(t *testing.T, path string) map[string]any {
+	t.Helper()
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value map[string]any
+	if err := json.Unmarshal(payload, &value); err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func jsonStringList(t *testing.T, value any) []string {
+	t.Helper()
+	items, ok := value.([]any)
+	if !ok {
+		t.Fatalf("expected JSON array of strings, got %#v", value)
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		text, ok := item.(string)
+		if !ok {
+			t.Fatalf("expected JSON string item, got %#v", item)
+		}
+		out = append(out, text)
+	}
+	return out
+}
+
+func stringListContains(items []string, wanted string) bool {
+	for _, item := range items {
+		if item == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func assertSingleRecoveryPackage(t *testing.T, svc *service) {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(svc.dataDir, recoveryDirName))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("expected one recovery package, entries=%d err=%v", len(entries), err)
+	}
+	packageDir := filepath.Join(svc.dataDir, recoveryDirName, entries[0].Name())
+	if _, err := os.Stat(filepath.Join(packageDir, "plan.json")); err != nil {
+		t.Fatalf("expected recovery plan: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(packageDir, "files", dataFile)); err != nil {
+		t.Fatalf("expected data file recovery copy: %v", err)
+	}
 }
 
 func containerIDByItem(doc categoryWorkspaceView, id string) string {

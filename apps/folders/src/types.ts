@@ -167,7 +167,7 @@ export type GroupFormState = { id: string; name: string }
 
 export type ContainerFormState = { id: string; name: string }
 
-export type ConfirmState = { kind: 'item' | 'group' | 'container' | 'data-reset'; id: string; label: string } | null
+export type ConfirmState = { kind: 'item' | 'group' | 'container'; id: string; label: string } | null
 
 export type DesktopGridEntry = {
   kind: DesktopEntryKind

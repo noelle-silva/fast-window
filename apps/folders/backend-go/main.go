@@ -534,13 +534,6 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return svc.readWorkspaceView(payload.CategoryID)
 	case "collections.desktop.wallpaper.deck":
 		return svc.readDesktopWallpaperDeck()
-	case "collections.data.reset":
-		var payload categoryPayload
-		_ = json.Unmarshal(params, &payload)
-		if normalizeCategoryID(payload.CategoryID) == "" {
-			payload.CategoryID = defaultCategoryID
-		}
-		return svc.resetWorkspaceView(payload.CategoryID)
 	case "collections.assets.import":
 		var payload struct {
 			Kind       string `json:"kind"`
@@ -687,7 +680,7 @@ func (svc *service) ensureReady() error {
 	if err := ensureWritable(svc.dataDir); err != nil {
 		return err
 	}
-	if err := svc.writeMeta(); err != nil {
+	if err := svc.runMigrations(); err != nil {
 		return err
 	}
 	if _, err := os.Stat(filepath.Join(svc.dataDir, dataFile)); errors.Is(err, os.ErrNotExist) {
@@ -755,13 +748,6 @@ func (svc *service) readDesktopWallpaperDeck() (desktopWallpaperDeck, error) {
 		categories = append(categories, categoryDesktopWallpaper{CategoryID: workspace.ID, Wallpaper: workspace.Desktop.Wallpaper})
 	}
 	return desktopWallpaperDeck{SchemaVersion: doc.SchemaVersion, DataVersion: doc.DataVersion, Categories: categories}, nil
-}
-
-func (svc *service) resetWorkspaceView(categoryID string) (categoryWorkspaceView, error) {
-	if err := svc.writeCollections(defaultCollectionsDoc()); err != nil {
-		return categoryWorkspaceView{}, err
-	}
-	return svc.readWorkspaceView(categoryID)
 }
 
 func (svc *service) updateWorkspace(categoryID string, mutate func(workspace *categoryWorkspace) error) (categoryWorkspaceView, error) {
@@ -1836,7 +1822,7 @@ func decodeCurrentCollectionsDoc(payload []byte) (collectionsDoc, error) {
 		return collectionsDoc{}, errors.New("collections data dataVersion is required")
 	}
 	if *input.DataVersion != dataVersion {
-		return collectionsDoc{}, fmt.Errorf("collections dataVersion %d is not supported in this development baseline; reset data or export it before switching versions", *input.DataVersion)
+		return collectionsDoc{}, fmt.Errorf("collections dataVersion %d is not supported; expected %d after migrations", *input.DataVersion, dataVersion)
 	}
 	if input.ActiveCategoryID == nil {
 		return collectionsDoc{}, errors.New("collections data activeCategoryId is required")
