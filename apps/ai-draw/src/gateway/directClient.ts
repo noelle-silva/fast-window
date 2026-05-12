@@ -233,10 +233,6 @@ class AiDrawDirectClient implements DirectAiDrawClient {
   }
 }
 
-export async function createDirectAiDrawClientFromEndpoint(rawEndpoint: unknown): Promise<DirectAiDrawClient> {
-  return createDirectAiDrawClientWithEndpointLoader(async () => rawEndpoint)
-}
-
 export async function createDirectAiDrawClientWithEndpointLoader(loadEndpoint: AiDrawEndpointLoader): Promise<DirectAiDrawClient> {
   const client = new AiDrawDirectClient(loadEndpoint)
   try {
