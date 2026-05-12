@@ -192,6 +192,11 @@ class BookmarksDirectBackgroundClient implements DirectBackgroundClient {
 
 export async function createDirectBackgroundClient(loadEndpoint: () => Promise<any>): Promise<DirectBackgroundClient> {
   const client = new BookmarksDirectBackgroundClient(loadEndpoint)
-  await client.open()
-  return client
+  try {
+    await client.open()
+    return client
+  } catch (error) {
+    client.close()
+    throw error
+  }
 }

@@ -66,7 +66,7 @@ async fn pick_data_dir(
         return Ok(None);
     };
     data_dir::save_data_dir(&app, &path)?;
-    state.stop_sync();
+    state.stop().await;
     state.clear_runtime_state();
     let state_inner = state.inner().clone();
     if let Err(error) = start_backend(app.clone(), state_inner).await {
