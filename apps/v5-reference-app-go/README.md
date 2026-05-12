@@ -24,6 +24,7 @@ Go sidecar 版本的 Fast Window v5 App 模范实现。
 - Go 侧 `schemaVersion`、`dataVersion`、`_migrations.json`、`_meta.json` 骨架。
 - 前端加载态、错误态、数据目录选择、运行中 command 接收演示。
 - 标准构建脚本：`build:backend`、`build:resources`、`build:ui`、`build:exe:dev`、`build:exe`。
+- 标准版本脚本：`apps:version:check`、`apps:bump`、`apps:bump:dry`，所有 App 版本目标必须一致后才允许升版。
 
 ## 复制成新 App 时必须替换
 
@@ -40,6 +41,7 @@ Go sidecar 版本的 Fast Window v5 App 模范实现。
 | settings file | `v5-reference-app-go-settings.json` | `<app-id>-settings.json` |
 | Vite port | `1434` | 未占用端口 |
 | commands | `open-reference`、`show-health`、`edit-settings` | App 自己的命令 |
+| apps:bump 脚本 | `--app v5-reference-app-go` | `--app your-app-id` |
 
 ## 复制后保留不变的机制
 
@@ -53,6 +55,8 @@ Go sidecar 版本的 Fast Window v5 App 模范实现。
 - direct client 公开 API 的绑定语义：公开函数必须脱离对象仍可调用，允许被 React props、回调、变量解构传递。
 - direct client 创建生命周期：工厂函数只有在初次连接成功后才能返回 client；初次连接或握手失败时必须关闭 client、清理恢复监听和 pending request，并原样抛出错误。
 - `build:ui` 作为所有构建入口的前置步骤。
+- `apps:bump` 只能调用根目录统一版本脚本；不得在单个 App 内复制升版逻辑。
+- `package.json`、`src-tauri/tauri.conf.json`、`src-tauri/tauri.conf.dev.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 的 App 自身版本必须保持一致。
 - 数据目录可写检测。
 - migration runner 和 ledger 概念。
 - 顶部栏手动拖拽策略。
@@ -61,6 +65,8 @@ Go sidecar 版本的 Fast Window v5 App 模范实现。
 
 ```powershell
 pnpm --dir apps/v5-reference-app-go build:backend
+pnpm --dir apps/v5-reference-app-go apps:version:check
+pnpm --dir apps/v5-reference-app-go apps:bump:dry
 go test ./...
 pnpm --dir apps/v5-reference-app-go build:ui
 cargo check --manifest-path apps/v5-reference-app-go/src-tauri/Cargo.toml

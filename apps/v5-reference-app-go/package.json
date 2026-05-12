@@ -1,7 +1,7 @@
 {
   "name": "@fast-window/app-v5-reference-app-go",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "scripts": {
     "build:backend": "node scripts/build-backend.mjs",
@@ -9,6 +9,9 @@
     "build:ui": "pnpm build:backend && vite build && pnpm build:resources",
     "build:exe:dev": "pnpm build:ui && cargo build --manifest-path src-tauri/Cargo.toml",
     "build:exe": "pnpm build:ui && pnpm tauri build",
+    "apps:bump": "node ../../scripts/bump-v5-app-version.mjs --app v5-reference-app-go",
+    "apps:bump:dry": "node ../../scripts/bump-v5-app-version.mjs --app v5-reference-app-go --dry-run",
+    "apps:version:check": "node ../../scripts/bump-v5-app-version.mjs --app v5-reference-app-go --check",
     "dev": "vite --host 127.0.0.1 --port 1434",
     "tauri": "tauri"
   },
