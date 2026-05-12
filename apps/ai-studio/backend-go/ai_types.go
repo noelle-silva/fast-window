@@ -20,6 +20,7 @@ type aiRunTarget struct {
 	ChatID       string `json:"chatId"`
 	BranchID     string `json:"branchId"`
 	AssistantMid string `json:"assistantMid"`
+	GenerationID string `json:"generationId,omitempty"`
 	Tag          string `json:"tag,omitempty"`
 	Service      string `json:"service,omitempty"`
 }

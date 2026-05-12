@@ -93,6 +93,7 @@ func runJobStubWithTarget(job map[string]any, target aiRunTarget) map[string]any
 	out["chatId"] = target.ChatID
 	out["branchId"] = target.BranchID
 	out["assistantMid"] = target.AssistantMid
+	out["generationId"] = target.GenerationID
 	if target.Kind == "group" {
 		out["targetKind"] = "group"
 		out["groupId"] = target.GroupID
@@ -220,6 +221,9 @@ func (q *aiRunQueue) enqueue(target aiRunTarget, req aiHTTPRequest, stream bool)
 	if target.AssistantMid == "" || target.ChatID == "" || target.BranchID == "" {
 		return nil, errors.New("enqueue: target 参数不完整")
 	}
+	if target.Tag != "service" && target.GenerationID == "" {
+		return nil, errors.New("enqueue: generationId is required")
+	}
 	if target.Kind == "group" {
 		if target.GroupID == "" || target.RoleID == "" {
 			return nil, errors.New("enqueue: group target 参数不完整")
@@ -248,7 +252,7 @@ func (q *aiRunQueue) enqueue(target aiRunTarget, req aiHTTPRequest, stream bool)
 	q.queued = append(q.queued, run)
 	q.mu.Unlock()
 
-	_ = q.svc.storageSetByKey(assistantMidRunStorageKey(target.AssistantMid), map[string]any{"runId": run.ID, "createdAt": now})
+	_ = q.svc.storageSetByKey(assistantMidRunStorageKey(target.AssistantMid), map[string]any{"runId": run.ID, "generationId": target.GenerationID, "createdAt": now})
 	q.pump()
 	return run, nil
 }
@@ -330,7 +334,7 @@ func (q *aiRunQueue) execute(ctx context.Context, run *aiRun) {
 			return
 		}
 		lastFlushAt = nowMs()
-		_ = q.svc.storageSetByKey(assistantStreamStorageKey(run.Target.AssistantMid), map[string]any{"text": text, "updatedAt": nowMs()})
+		_ = q.svc.storageSetByKey(assistantStreamStorageKey(run.Target.AssistantMid), map[string]any{"text": text, "generationId": run.Target.GenerationID, "updatedAt": nowMs()})
 	}
 
 	text, err := runOpenAIRequest(ctx, run.Req, run.Stream, func(delta string) {
@@ -376,17 +380,18 @@ func (q *aiRunQueue) finalize(run *aiRun, status string, text string, errMsg str
 		run.mu.Unlock()
 
 		finalValue := map[string]any{
-			"status":     status,
-			"text":       text,
-			"finishedAt": finishedAt,
-			"expiresAt":  finishedAt + 10*60*1000,
+			"status":       status,
+			"text":         text,
+			"generationId": run.Target.GenerationID,
+			"finishedAt":   finishedAt,
+			"expiresAt":    finishedAt + 10*60*1000,
 		}
 		if errMsg != "" {
 			finalValue["error"] = map[string]any{"message": errMsg}
 		}
 		_ = q.svc.storageSetByKey(assistantFinalStorageKey(run.Target.AssistantMid), finalValue)
 		if strings.TrimSpace(run.Target.Tag) != "service" {
-			_ = q.svc.patchAssistantMessageFinal(run.Target, status, text)
+			_ = q.svc.patchAssistantMessageFinal(run.Target, status, text, finishedAt)
 		}
 		_ = q.svc.storageRemoveByKey(assistantStreamStorageKey(run.Target.AssistantMid))
 		_ = q.svc.storageRemoveByKey(assistantMidRunStorageKey(run.Target.AssistantMid))
@@ -440,6 +445,7 @@ func normalizeRunTarget(target aiRunTarget) aiRunTarget {
 		ChatID:       strings.TrimSpace(target.ChatID),
 		BranchID:     branchID,
 		AssistantMid: strings.TrimSpace(target.AssistantMid),
+		GenerationID: strings.TrimSpace(target.GenerationID),
 		Tag:          strings.TrimSpace(target.Tag),
 		Service:      strings.TrimSpace(target.Service),
 	}

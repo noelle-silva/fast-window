@@ -138,6 +138,7 @@ func TestRunJobStubWithTargetUsesTargetIdentity(t *testing.T) {
 		"chatId":       "stale-chat",
 		"branchId":     "stale-branch",
 		"assistantMid": "stale-mid",
+		"generationId": "stale-gen",
 		"stream":       true,
 	}, aiRunTarget{
 		Kind:         "group",
@@ -146,9 +147,10 @@ func TestRunJobStubWithTargetUsesTargetIdentity(t *testing.T) {
 		ChatID:       "c1",
 		BranchID:     "main",
 		AssistantMid: "m1",
+		GenerationID: "gen-1",
 	})
 
-	if job["roleId"] != "r1" || job["groupId"] != "g1" || job["chatId"] != "c1" || job["branchId"] != "main" || job["assistantMid"] != "m1" {
+	if job["roleId"] != "r1" || job["groupId"] != "g1" || job["chatId"] != "c1" || job["branchId"] != "main" || job["assistantMid"] != "m1" || job["generationId"] != "gen-1" {
 		t.Fatalf("job identity was not normalized from target: %#v", job)
 	}
 	if job["stream"] != true {

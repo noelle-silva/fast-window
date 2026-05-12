@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func (svc *service) patchAssistantMessageFinal(target aiRunTarget, status string, finalText string) error {
+func (svc *service) patchAssistantMessageFinal(target aiRunTarget, status string, finalText string, finishedAt int64) error {
 	meta, err := svc.loadSplitMeta()
 	if err != nil {
 		return err
@@ -20,8 +20,12 @@ func (svc *service) patchAssistantMessageFinal(target aiRunTarget, status string
 	groupID := strings.TrimSpace(target.GroupID)
 	chatID := strings.TrimSpace(target.ChatID)
 	assistantMid := strings.TrimSpace(target.AssistantMid)
+	generationID := strings.TrimSpace(target.GenerationID)
 	if roleID == "" || chatID == "" || assistantMid == "" {
 		return errors.New("patch final: target 参数不完整")
+	}
+	if generationID == "" {
+		return errors.New("patch final: generationId is required")
 	}
 	if kind == "group" && groupID == "" {
 		return errors.New("patch final: groupId is required")
@@ -52,13 +56,11 @@ func (svc *service) patchAssistantMessageFinal(target aiRunTarget, status string
 		if strings.TrimSpace(asString(msg["id"])) != assistantMid {
 			continue
 		}
-		msg["content"] = finalText
-		msg["pending"] = false
-		msg["streaming"] = false
-		if status != "succeeded" {
-			msg["error"] = status
+		if !isAssistantGeneratingGo(msg) || !isAssistantRunCurrentGo(msg, generationID) {
+			return nil
 		}
-		chat["updatedAt"] = nowMs()
+		finishAssistantRunMessageGo(msg, finalText, status, finishedAt)
+		chat["updatedAt"] = finishedAt
 		chat["messages"] = objectListAsAny(messages)
 		if err := svc.storageSetByKey(key, chat); err != nil {
 			return err
