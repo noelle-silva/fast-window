@@ -120,16 +120,6 @@ export function nowId(): string {
   )
 }
 
-export function safeTitleForFile(title: string): string {
-  const raw = String(title || '').trim().replace(/\s+/g, ' ')
-  const base = raw || '未命名'
-  let s = base.replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_')
-  s = s.replace(/[. ]+$/g, '').trim()
-  if (!s) s = '未命名'
-  if (s.length > 60) s = s.slice(0, 60).trim()
-  return s || '未命名'
-}
-
 export function noteMonthFolderFromIdOrNow(id: string): string {
   const s = String(id || '').trim()
   if (/^\d{6,}$/.test(s)) {

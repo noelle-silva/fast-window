@@ -10,11 +10,12 @@ import (
 )
 
 const (
-	currentDataVersion          = 1
+	currentDataVersion          = 2
 	migrationsLedgerFile        = "_migrations.json"
 	migrationRecoveryDir        = "_migration-recovery"
 	migrationRecoveryFile       = "recovery.json"
 	stateLibraryLayoutMigration = "2026-05-06-state-library-layout"
+	noteIDPackageDirMigration   = "2026-05-13-note-id-package-dir"
 )
 
 type dataMigration struct {
@@ -84,6 +85,12 @@ func (svc *service) runDataMigrations() error {
 			FromVersion: 0,
 			ToVersion:   1,
 			Run:         (*service).migrateDataLayout,
+		},
+		{
+			ID:          noteIDPackageDirMigration,
+			FromVersion: 1,
+			ToVersion:   2,
+			Run:         (*service).migrateNotePackageDirsToIDs,
 		},
 	}
 	return svc.runMigrations(migrations)
@@ -227,6 +234,9 @@ func (svc *service) importLegacyData(sourceDir string) (migrationReport, error) 
 			return report, err
 		}
 		report.record(file, copied)
+	}
+	if err := svc.migrateNotePackageDirsToIDs(); err != nil {
+		return report, err
 	}
 	return report, nil
 }

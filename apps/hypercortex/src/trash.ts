@@ -1,8 +1,8 @@
 import { ASSETS_DIR, NOTES_DIR, ensureIndex, saveIndex, type Api, type NoteMeta, type VaultScope } from './core'
+import { TRASH_DIR, canonicalOriginalDirForTrashPackage, normalizeVaultPath, noteDirToTrashDir } from './notePackagePaths'
 import { removeNoteFromRefIndex } from './noteRefs'
 import { NOTE_MANIFEST_FILE, createNoteManifest, type HyperCortexNoteManifestV1 } from './noteSchema'
 
-export const TRASH_DIR = 'Trash'
 const TRASH_META_FILE = 'trash-meta.json'
 
 type TrashMetaV1 = {
@@ -21,24 +21,6 @@ export type HyperCortexTrashItem = {
   originalDir: string
 }
 
-function normalizePath(path: string): string {
-  return String(path || '').trim().replace(/\\/g, '/').replace(/\/+/g, '/').replace(/\/+$/g, '')
-}
-
-function noteDirToTrashDir(noteDir: string): string {
-  const dir = normalizePath(noteDir)
-  const [head, ...rest] = dir.split('/')
-  if (head !== NOTES_DIR) throw new Error('笔记目录不在 Notes 下，无法移入回收站')
-  return [TRASH_DIR, ...rest].join('/')
-}
-
-function trashDirToNoteDir(trashDir: string): string {
-  const dir = normalizePath(trashDir)
-  const [head, ...rest] = dir.split('/')
-  if (head !== TRASH_DIR) throw new Error('回收站目录不在 Trash 下，无法恢复')
-  return [NOTES_DIR, ...rest].join('/')
-}
-
 function noteMetaFromManifest(manifest: HyperCortexNoteManifestV1, packageDir: string): NoteMeta {
   return {
     id: manifest.id,
@@ -51,7 +33,7 @@ function noteMetaFromManifest(manifest: HyperCortexNoteManifestV1, packageDir: s
 }
 
 async function readNoteManifest(api: Api, scope: VaultScope, packageDir: string): Promise<HyperCortexNoteManifestV1> {
-  const dir = normalizePath(packageDir)
+  const dir = normalizeVaultPath(packageDir)
   const raw = await api.files.readText({ scope, path: `${dir}/${NOTE_MANIFEST_FILE}` })
   const parsed = JSON.parse(raw || 'null')
   if (!parsed || typeof parsed !== 'object') throw new Error('笔记 manifest 无效')
@@ -71,7 +53,7 @@ async function readNoteManifest(api: Api, scope: VaultScope, packageDir: string)
 }
 
 async function tryReadTrashMeta(api: Api, scope: VaultScope, dir: string): Promise<TrashMetaV1 | null> {
-  const path = `${normalizePath(dir)}/${TRASH_META_FILE}`
+  const path = `${normalizeVaultPath(dir)}/${TRASH_META_FILE}`
   try {
     const raw = await api.files.readText({ scope, path })
     const parsed = JSON.parse(raw || 'null')
@@ -87,12 +69,12 @@ async function tryReadTrashMeta(api: Api, scope: VaultScope, dir: string): Promi
 }
 
 async function writeTrashMeta(api: Api, scope: VaultScope, dir: string, meta: TrashMetaV1): Promise<void> {
-  const path = `${normalizePath(dir)}/${TRASH_META_FILE}`
+  const path = `${normalizeVaultPath(dir)}/${TRASH_META_FILE}`
   await api.files.writeText({ scope, path, text: JSON.stringify(meta, null, 2), overwrite: true })
 }
 
 async function deleteTrashMetaFileIfExists(api: Api, scope: VaultScope, dir: string): Promise<void> {
-  const path = `${normalizePath(dir)}/${TRASH_META_FILE}`
+  const path = `${normalizeVaultPath(dir)}/${TRASH_META_FILE}`
   await api.files.delete({ scope, path }).catch(() => {})
 }
 
@@ -115,11 +97,11 @@ export async function listTrashItems(api: Api, scope: VaultScope): Promise<Hyper
         const manifest = await readNoteManifest(api, scope, packageDir)
         const meta = await tryReadTrashMeta(api, scope, packageDir)
         const deletedAtMs = meta?.deletedAtMs || entry.modifiedMs || Date.now()
-        const originalDir = normalizePath(meta?.originalDir || trashDirToNoteDir(packageDir))
+        const originalDir = canonicalOriginalDirForTrashPackage(packageDir, meta?.originalDir, manifest.id)
         out.push({
           id: manifest.id,
           title: manifest.title || '未命名',
-          dir: normalizePath(packageDir),
+          dir: normalizeVaultPath(packageDir),
           createdAtMs: Number(manifest.createdAtMs) || 0,
           updatedAtMs: Number(manifest.updatedAtMs) || 0,
           deletedAtMs,
@@ -137,7 +119,7 @@ export async function listTrashItems(api: Api, scope: VaultScope): Promise<Hyper
 export async function moveNoteToTrash(api: Api, scope: VaultScope, note: NoteMeta): Promise<{ trashDir: string }> {
   if (scope !== 'library') throw new Error('回收站仅支持 library scope')
   await ensureTrashDir(api, scope)
-  const fromDir = normalizePath(note.dir)
+  const fromDir = normalizeVaultPath(note.dir)
   if (!fromDir) throw new Error('笔记目录为空，无法移入回收站')
   const toDir = noteDirToTrashDir(fromDir)
 
@@ -159,7 +141,7 @@ export async function moveNoteToTrash(api: Api, scope: VaultScope, note: NoteMet
 
 export async function permanentlyDeleteNoteDir(api: Api, scope: VaultScope, noteId: string, dir: string): Promise<void> {
   const nid = String(noteId || '').trim()
-  const d = normalizePath(dir)
+  const d = normalizeVaultPath(dir)
   if (!nid) throw new Error('noteId 不能为空')
   if (!d) throw new Error('dir 不能为空')
   if (d === NOTES_DIR || d === ASSETS_DIR || d === TRASH_DIR) throw new Error('禁止删除根目录')
@@ -177,8 +159,8 @@ export async function permanentlyDeleteNoteDir(api: Api, scope: VaultScope, note
 
 export async function restoreTrashItem(api: Api, scope: VaultScope, item: HyperCortexTrashItem): Promise<{ meta: NoteMeta }> {
   if (scope !== 'library') throw new Error('回收站仅支持 library scope')
-  const fromDir = normalizePath(item.dir)
-  const desired = normalizePath(item.originalDir || trashDirToNoteDir(fromDir))
+  const fromDir = normalizeVaultPath(item.dir)
+  const desired = canonicalOriginalDirForTrashPackage(fromDir, item.originalDir, item.id)
 
   await api.files.rename({ scope, from: fromDir, to: desired, overwrite: false })
   await deleteTrashMetaFileIfExists(api, scope, desired).catch(() => {})

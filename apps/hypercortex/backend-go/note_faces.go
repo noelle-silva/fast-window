@@ -91,7 +91,10 @@ func (svc *service) saveNoteFace(scope string, raw json.RawMessage) (any, error)
 	}
 	title := nonEmpty(asString(input["title"]), "未命名")
 	currentDir := strings.TrimSpace(asString(input["packageDir"]))
-	desiredDir := notePackageDirForID(id, title)
+	desiredDir, err := notePackageDirForID(id)
+	if err != nil {
+		return nil, err
+	}
 	if currentDir != "" && filepath.ToSlash(currentDir) != desiredDir {
 		if err := svc.renamePackageIfNeeded(scope, currentDir, desiredDir); err != nil {
 			return nil, err

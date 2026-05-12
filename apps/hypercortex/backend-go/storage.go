@@ -230,9 +230,9 @@ func (svc *service) listTrash(scope string) ([]trashItem, error) {
 			if deletedAt <= 0 && info != nil {
 				deletedAt = float64(info.ModTime().UnixMilli())
 			}
-			original := strings.TrimSpace(meta.OriginalDir)
-			if original == "" {
-				original = filepath.ToSlash(filepath.Join(notesDir, month.Name(), pkg.Name()))
+			original, err := canonicalOriginalDirForTrashPackage(rel, meta.OriginalDir, manifest.ID)
+			if err != nil {
+				return nil, err
 			}
 			out = append(out, trashItem{ID: manifest.ID, Title: nonEmpty(manifest.Title, "未命名"), Dir: rel, CreatedAtMs: manifest.CreatedAtMs, UpdatedAtMs: manifest.UpdatedAtMs, DeletedAtMs: deletedAt, OriginalDir: original})
 		}
@@ -257,11 +257,10 @@ func (svc *service) moveNoteToTrash(scope string, raw json.RawMessage) (any, err
 	if err != nil {
 		return nil, err
 	}
-	parts := strings.Split(filepath.ToSlash(cleanFrom), "/")
-	if len(parts) < 2 || parts[0] != notesDir {
-		return nil, errors.New("笔记目录不在 Notes 下，无法移入回收站")
+	toRel, err := trashPackageDirForNoteDir(cleanFrom)
+	if err != nil {
+		return nil, err
 	}
-	toRel := filepath.ToSlash(filepath.Join(append([]string{trashDir}, parts[1:]...)...))
 	from, err := svc.resolvePath(scope, fromRel)
 	if err != nil {
 		return nil, err
@@ -326,9 +325,9 @@ func (svc *service) restoreTrashItem(scope string, raw json.RawMessage) (any, er
 	if err != nil {
 		return nil, err
 	}
-	desired := strings.TrimSpace(item.OriginalDir)
-	if desired == "" {
-		desired = strings.Replace(filepath.ToSlash(item.Dir), trashDir+"/", notesDir+"/", 1)
+	desired, err := canonicalOriginalDirForTrashPackage(item.Dir, item.OriginalDir, item.ID)
+	if err != nil {
+		return nil, err
 	}
 	to, err := svc.resolvePath(scope, desired)
 	if err != nil {

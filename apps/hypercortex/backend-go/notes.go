@@ -101,7 +101,10 @@ func (svc *service) saveNotePackage(scope string, raw json.RawMessage) (any, err
 	description := strings.TrimSpace(asString(input["description"]))
 	body := strings.ReplaceAll(asString(input["body"]), "\r\n", "\n")
 	currentDir := strings.TrimSpace(asString(input["packageDir"]))
-	desiredDir := notePackageDirForID(id, title)
+	desiredDir, err := notePackageDirForID(id)
+	if err != nil {
+		return nil, err
+	}
 
 	if currentDir != "" && filepath.ToSlash(currentDir) != desiredDir {
 		if err := svc.renamePackageIfNeeded(scope, currentDir, desiredDir); err != nil {

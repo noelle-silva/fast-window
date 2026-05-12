@@ -6,12 +6,11 @@ import {
   NOTES_DIR,
   ensureIndex,
   ensureVaultDirs,
-  noteMonthFolderFromIdOrNow,
   nowId,
-  safeTitleForFile,
   saveIndex,
   tryLoadIndex,
 } from './core'
+import { notePackageDirForId, notePathInPackage } from './notePackagePaths'
 import { renderNoteDisplayHtml } from './noteRender'
 import { updateRefsForNote } from './noteRefs'
 import {
@@ -60,22 +59,6 @@ export type HyperCortexNoteFaceDoc = {
   createdAtMs: number
   updatedAtMs: number
   schemaVersion: number
-}
-
-function notePackageFolderNameForTitleAndId(title: string, id: string): string {
-  const safeTitle = safeTitleForFile(title)
-  const noteId = String(id || '').trim()
-  return `${safeTitle}_${noteId}`
-}
-
-export function notePackageDirForId(id: string, title?: string): string {
-  const noteId = String(id || '').trim()
-  const t = String(title ?? '').trim() || '未命名'
-  return `${NOTES_DIR}/${noteMonthFolderFromIdOrNow(noteId)}/${notePackageFolderNameForTitleAndId(t, noteId)}`
-}
-
-function notePathInPackage(packageDir: string, file: string): string {
-  return `${String(packageDir || '').replace(/\/+$/g, '')}/${file}`
 }
 
 function noteMetaFromDoc(doc: HyperCortexNoteDocData): NoteMeta {
@@ -231,7 +214,7 @@ export async function saveNotePackage(
   const id = String(input.id || '').trim() || nowId()
   const title = String(input.title ?? '').trim() || '未命名'
   const description = String(input.description ?? '').trim()
-  const desiredDir = notePackageDirForId(id, title)
+  const desiredDir = notePackageDirForId(id)
   const currentDir = String(input.packageDir || '').trim()
 
   if (currentDir && currentDir !== desiredDir) {
@@ -320,7 +303,7 @@ export async function saveNoteFace(
   await ensureVaultDirs(api, scope)
   const id = String(input.id || '').trim() || nowId()
   const title = String(input.title ?? '').trim() || '未命名'
-  const desiredDir = notePackageDirForId(id, title)
+  const desiredDir = notePackageDirForId(id)
   const currentDir = String(input.packageDir || '').trim()
 
   if (currentDir && currentDir !== desiredDir) {

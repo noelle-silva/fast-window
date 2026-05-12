@@ -323,50 +323,8 @@ func listDir(path string) ([]fileEntry, error) {
 	return out, nil
 }
 
-func safeTitleForFile(title string) string {
-	s := strings.TrimSpace(strings.Join(strings.Fields(title), " "))
-	if s == "" {
-		s = "未命名"
-	}
-	replacer := strings.NewReplacer("<", "_", ">", "_", ":", "_", "\"", "_", "/", "_", "\\", "_", "|", "_", "?", "_", "*", "_")
-	s = replacer.Replace(s)
-	s = strings.Trim(s, ". ")
-	if s == "" {
-		s = "未命名"
-	}
-	if len([]rune(s)) > 60 {
-		r := []rune(s)
-		s = strings.TrimSpace(string(r[:60]))
-	}
-	return s
-}
-
-func noteMonthFolderFromID(id string) string {
-	s := strings.TrimSpace(id)
-	if len(s) >= 6 {
-		y, m := s[:4], s[4:6]
-		if allDigits(y) && allDigits(m) && m >= "01" && m <= "12" {
-			return y + "-" + m
-		}
-	}
-	return time.Now().Format("2006-01")
-}
-
-func allDigits(s string) bool {
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return s != ""
-}
-
 func noteID() string {
 	return time.Now().Format("20060102150405") + fmt.Sprintf("%03d", time.Now().Nanosecond()/1e6)
-}
-
-func notePackageDirForID(id string, title string) string {
-	return filepath.ToSlash(filepath.Join(notesDir, noteMonthFolderFromID(id), fmt.Sprintf("%s_%s", safeTitleForFile(title), strings.TrimSpace(id))))
 }
 
 func renderMarkdownLite(body string) string {
