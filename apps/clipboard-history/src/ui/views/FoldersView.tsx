@@ -14,6 +14,8 @@ import type { CollectionItemNode, CollectionNode } from '../../shared/types'
 import { EmptyState } from '../components/EmptyState'
 import {
   resolveSortMovePosition,
+  SortableDragStatus,
+  type SortableDragStatusRenderArgs,
   SortableDropTarget,
   type SortableDropTargetRenderArgs,
   SortableItem,
@@ -43,6 +45,26 @@ const dropTargetSx = (drop: DropVisualState) => ({
   boxShadow: drop.isDropTarget ? 'inset 0 0 0 1px rgba(255,255,255,0.35)' : undefined,
   transition: drop.dragMode === 'drop' ? 'background-color 120ms ease, color 120ms ease, outline-color 120ms ease' : undefined,
 })
+
+const dragHintSx = (status: SortableDragStatusRenderArgs) => ({
+  px: 1.25,
+  py: 0.5,
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: 700,
+  lineHeight: 1.35,
+  whiteSpace: 'nowrap',
+  color: status.isDropMode ? 'primary.contrastText' : 'text.secondary',
+  bgcolor: status.isDropMode ? 'primary.main' : status.isDragging ? 'action.selected' : 'action.hover',
+  boxShadow: status.isDropMode ? '0 10px 24px rgba(14, 116, 144, 0.22)' : 'none',
+  transition: 'background-color 120ms ease, color 120ms ease, box-shadow 120ms ease',
+})
+
+function dragHintText(status: SortableDragStatusRenderArgs): string {
+  if (!status.isDragging) return '提示：按住 Ctrl 拖拽，可直接移动到收藏夹或路径栏'
+  if (status.isDropMode) return status.overId ? '松手移动到高亮收藏夹' : '拖到收藏夹或路径栏节点即可移动'
+  return '拖拽排序中；按住 Ctrl 可切换为移动到收藏夹'
+}
 
 export function FoldersView(props: FoldersViewProps) {
   const { controller } = props
@@ -168,6 +190,13 @@ function FoldersSubbar(props: FoldersViewProps) {
         <IconButton size="small" title="前进" disabled={!state.navForward.length} onClick={controller.navigateForward}>
           <ArrowForwardRoundedIcon fontSize="small" />
         </IconButton>
+        <SortableDragStatus>
+          {(status) => (
+            <Box role="status" aria-live="polite" sx={dragHintSx(status)}>
+              {dragHintText(status)}
+            </Box>
+          )}
+        </SortableDragStatus>
         <Button startIcon={<CreateNewFolderRoundedIcon fontSize="small" />} onClick={() => controller.setShowFolderEditor(true)}>
           新建收藏夹
         </Button>

@@ -70,6 +70,14 @@ export type SortableDropTargetRenderArgs = {
   shouldSuppressClick: () => boolean
 }
 
+export type SortableDragStatusRenderArgs = {
+  dragMode: SortableDragMode | null
+  activeId: string
+  overId: string
+  isDragging: boolean
+  isDropMode: boolean
+}
+
 type SortableRootProps = {
   children: React.ReactNode
   onMove: (activeId: string, overId: string) => void
@@ -94,6 +102,10 @@ type SortableDropTargetProps = {
   targetId?: string
   disabled?: boolean
   children: (args: SortableDropTargetRenderArgs) => React.ReactNode
+}
+
+type SortableDragStatusProps = {
+  children: (args: SortableDragStatusRenderArgs) => React.ReactNode
 }
 
 const SortableRootContext = React.createContext<SortableRootContextValue>({
@@ -361,6 +373,22 @@ export function SortableDropTarget(props: SortableDropTargetProps) {
     isDropCandidate,
     isDropTarget,
     shouldSuppressClick: () => shouldSuppressClick(id) || shouldSuppressClick(targetId),
+  })}</>
+}
+
+export function SortableDragStatus(props: SortableDragStatusProps) {
+  const { children } = props
+  const { dragState } = React.useContext(SortableRootContext)
+  const dragMode = dragState?.mode || null
+  const activeId = dragState?.activeId || ''
+  const overId = dragState?.overId || ''
+
+  return <>{children({
+    dragMode,
+    activeId,
+    overId,
+    isDragging: !!activeId,
+    isDropMode: dragMode === 'drop',
   })}</>
 }
 
