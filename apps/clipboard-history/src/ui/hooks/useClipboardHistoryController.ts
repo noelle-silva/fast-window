@@ -206,9 +206,11 @@ export function useClipboardHistoryController(): ClipboardHistoryController {
 
   const connectGateway = React.useCallback(async () => {
     closeGateway()
-    const endpoint = await invoke('backend_endpoint').catch(() => null)
-    if (!endpoint) throw new Error('剪贴板历史后台未就绪')
-    const gateway = await createClipboardHistoryGateway(endpoint)
+    const gateway = await createClipboardHistoryGateway(async () => {
+      const endpoint = await invoke('backend_endpoint').catch(() => null)
+      if (!endpoint) throw new Error('剪贴板历史后台未就绪')
+      return endpoint
+    })
     gatewayRef.current = gateway
     snapshotUnsubscribeRef.current = gateway.onSnapshot((snapshot) => applySnapshot(snapshot))
     return gateway

@@ -2,9 +2,8 @@ import { ClipboardHistoryRpc } from '../shared/rpcMethods'
 import { createDirectBackgroundClient } from '../ui/directClient'
 import type { ClipboardHistoryGateway } from './types'
 
-export async function createDirectBackgroundGateway(endpoint: any): Promise<Omit<ClipboardHistoryGateway, 'host'>> {
-  const imageEndpoint = validateImageEndpoint(endpoint)
-  const client = await createDirectBackgroundClient(endpoint)
+export async function createDirectBackgroundGateway(loadEndpoint: () => Promise<any>): Promise<Omit<ClipboardHistoryGateway, 'host'>> {
+  const client = await createDirectBackgroundClient(loadEndpoint)
   return {
     state: {
       load: () => client.invoke(ClipboardHistoryRpc.state.load),
@@ -18,7 +17,7 @@ export async function createDirectBackgroundGateway(endpoint: any): Promise<Omit
     },
     images: {
       readOutputImage: path => client.invoke(ClipboardHistoryRpc.images.readOutput, { path }),
-      outputImageUrl: (reference, cacheKey) => imageEndpoint.outputImageUrl(reference, cacheKey),
+      outputImageUrl: (reference, cacheKey) => validateImageEndpoint(client.endpoint()).outputImageUrl(reference, cacheKey),
       scanOrphanImages: () => client.invoke(ClipboardHistoryRpc.images.scanOrphans),
       deleteOrphanImages: () => client.invoke(ClipboardHistoryRpc.images.deleteOrphans),
     },
