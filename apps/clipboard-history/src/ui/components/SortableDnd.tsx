@@ -274,10 +274,12 @@ export function SortableRoot(props: SortableRootProps) {
     drop,
     shouldSuppressClick,
   }), [drop, dragState, shouldSuppressClick])
+  const autoScroll = dragState?.mode !== 'drop'
 
   return (
     <SortableRootContext.Provider value={contextValue}>
       <DndContext
+        autoScroll={autoScroll}
         sensors={sensors}
         collisionDetection={resolveCollision}
         onDragStart={handleDragStart}
