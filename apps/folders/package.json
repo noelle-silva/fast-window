@@ -12,6 +12,9 @@
     "build:ui": "pnpm build:backend && vite build && pnpm build:resources",
     "build:exe:dev": "pnpm build:ui && cargo build --manifest-path src-tauri/Cargo.toml",
     "build:exe": "pnpm build:ui && pnpm tauri build",
+    "apps:version:check": "node ../../scripts/bump-v5-app-version.mjs --check",
+    "apps:bump:dry": "node ../../scripts/bump-v5-app-version.mjs --dry-run",
+    "apps:bump": "node ../../scripts/bump-v5-app-version.mjs",
     "dev": "vite --host 127.0.0.1 --port 1435",
     "tauri": "tauri"
   },

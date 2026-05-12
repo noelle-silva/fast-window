@@ -41,7 +41,7 @@ Go sidecar 版本的 Fast Window v5 App 模范实现。
 | settings file | `v5-reference-app-go-settings.json` | `<app-id>-settings.json` |
 | Vite port | `1434` | 未占用端口 |
 | commands | `open-reference`、`show-health`、`edit-settings` | App 自己的命令 |
-| apps:bump 脚本 | `--app v5-reference-app-go` | `--app your-app-id` |
+| apps:bump 脚本 | `node ../../scripts/bump-v5-app-version.mjs` | 保持相同命令，由 cwd 自动识别 App ID |
 
 ## 复制后保留不变的机制
 
