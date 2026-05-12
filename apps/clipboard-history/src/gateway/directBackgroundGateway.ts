@@ -1,9 +1,19 @@
 import { ClipboardHistoryRpc } from '../shared/rpcMethods'
-import { createDirectBackgroundClient } from '../ui/directClient'
+import { createDirectBackgroundClient, type DirectBackgroundClient } from '../ui/directClient'
 import type { ClipboardHistoryGateway } from './types'
 
 export async function createDirectBackgroundGateway(loadEndpoint: () => Promise<any>): Promise<Omit<ClipboardHistoryGateway, 'host'>> {
   const client = await createDirectBackgroundClient(loadEndpoint)
+  try {
+    validateImageEndpoint(client.endpoint())
+    return createGatewayFromClient(client)
+  } catch (error) {
+    client.close()
+    throw error
+  }
+}
+
+function createGatewayFromClient(client: DirectBackgroundClient): Omit<ClipboardHistoryGateway, 'host'> {
   return {
     state: {
       load: () => client.invoke(ClipboardHistoryRpc.state.load),

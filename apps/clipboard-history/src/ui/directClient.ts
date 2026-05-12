@@ -136,6 +136,7 @@ class ClipboardHistoryDirectBackgroundClient implements DirectBackgroundClient {
     this.listeners.clear()
     const ws = this.ws
     this.ws = null
+    this.activeEndpoint = null
     if (ws && ws.readyState !== WebSocket.CLOSED) ws.close()
   }
 
@@ -151,7 +152,6 @@ class ClipboardHistoryDirectBackgroundClient implements DirectBackgroundClient {
     const endpoint = await this.loadEndpoint()
     const ws = new WebSocket(endpointUrlWithToken(endpoint))
     this.ws = ws
-    this.activeEndpoint = endpoint
     ws.addEventListener('message', event => this.handleMessage(event))
     ws.addEventListener('close', () => this.markDisconnected(ws, new Error('剪贴板历史后台连接已关闭')))
     ws.addEventListener('error', () => this.markDisconnected(ws, new Error('剪贴板历史后台连接异常')))
@@ -166,6 +166,7 @@ class ClipboardHistoryDirectBackgroundClient implements DirectBackgroundClient {
       ws.close()
       throw new Error('剪贴板历史后台连接已关闭')
     }
+    this.activeEndpoint = endpoint
   }
 
   private handleMessage(event: MessageEvent) {
@@ -224,6 +225,11 @@ class ClipboardHistoryDirectBackgroundClient implements DirectBackgroundClient {
 
 export async function createDirectBackgroundClient(loadEndpoint: () => Promise<any>): Promise<DirectBackgroundClient> {
   const client = new ClipboardHistoryDirectBackgroundClient(loadEndpoint)
-  await client.open()
-  return client
+  try {
+    await client.open()
+    return client
+  } catch (error) {
+    client.close()
+    throw error
+  }
 }
