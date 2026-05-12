@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod backend_sidecar;
+mod backend_lifecycle;
 mod control_server;
 mod data_dir;
 mod fw_window;
@@ -23,8 +24,14 @@ use tauri::{Manager, WindowEvent};
 
 #[tauri::command]
 async fn backend_endpoint(
+    app: tauri::AppHandle,
     state: tauri::State<'_, Arc<BackendState>>,
 ) -> Result<BackendEndpoint, String> {
+    let state_inner = state.inner().clone();
+    if let Err(error) = start_backend(app, state_inner).await {
+        state.set_runtime_error(error.clone());
+        return Err(error);
+    }
     state.endpoint().await
 }
 
@@ -48,7 +55,7 @@ async fn pick_data_dir(
         return Ok(None);
     };
     data_dir::save_data_dir(&app, &path)?;
-    state.stop_sync();
+    state.stop().await;
     state.clear_runtime_state();
     let state_inner = state.inner().clone();
     if let Err(error) = start_backend(app.clone(), state_inner).await {
@@ -102,6 +109,7 @@ fn main() {
         desktop_identifier.clone(),
     );
     let shutdown_state_setup = shutdown_state.clone();
+    let shutdown_state_for_run = shutdown_state.clone();
 
     tauri::Builder::default()
         .manage(backend_state)
@@ -177,6 +185,14 @@ fn main() {
             });
             Ok(())
         })
-        .run(context)
-        .expect("error while running AI Studio app");
+        .build(context)
+        .expect("error while building AI Studio app")
+        .run(move |app, event| {
+            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+                if !shutdown_state_for_run.is_shutting_down() {
+                    api.prevent_exit();
+                    shutdown_state_for_run.shutdown(app.clone());
+                }
+            }
+        });
 }

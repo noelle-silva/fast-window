@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use tauri::Manager;
@@ -11,6 +12,7 @@ pub(crate) struct ShutdownState {
     backend: Arc<BackendState>,
     window: Arc<FwWindowState>,
     desktop_identifier: Arc<String>,
+    shutting_down: Arc<AtomicBool>,
 }
 
 impl ShutdownState {
@@ -23,10 +25,18 @@ impl ShutdownState {
             backend,
             window,
             desktop_identifier: Arc::new(desktop_identifier),
+            shutting_down: Arc::new(AtomicBool::new(false)),
         }
     }
 
+    pub(crate) fn is_shutting_down(&self) -> bool {
+        self.shutting_down.load(Ordering::Acquire)
+    }
+
     pub(crate) fn shutdown(&self, app: tauri::AppHandle) {
+        if self.shutting_down.swap(true, Ordering::AcqRel) {
+            return;
+        }
         if let Some(window) = app.get_webview_window("main") {
             report_current_window_bounds(&window, &self.window);
         }
