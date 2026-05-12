@@ -22,37 +22,43 @@ struct ClipboardHistorySettings {
     data_dir: Option<String>,
 }
 
-pub(crate) fn default_data_dir(app: &tauri::AppHandle) -> PathBuf {
-    resource_or_exe_dir(app).join("data")
+pub(crate) fn default_data_dir() -> Result<PathBuf, String> {
+    crate::app_layout::default_data_dir()
 }
 
-pub(crate) fn resolve_data_dir(app: &tauri::AppHandle) -> PathBuf {
-    load_settings(app)
+pub(crate) fn resolve_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if let Some(configured) = load_settings(app)?
         .data_dir
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty())
-        .unwrap_or_else(|| default_data_dir(app))
+    {
+        return Ok(configured);
+    }
+    default_data_dir()
 }
 
 pub(crate) fn data_dir_status(
     app: &tauri::AppHandle,
     runtime_error: Option<String>,
-) -> DataDirStatus {
-    let settings = load_settings(app);
+) -> Result<DataDirStatus, String> {
+    let settings = load_settings(app)?;
     let configured = settings
         .data_dir
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty());
-    let data_dir = configured.clone().unwrap_or_else(|| default_data_dir(app));
+    let default_data_dir = default_data_dir()?;
+    let data_dir = configured
+        .clone()
+        .unwrap_or_else(|| default_data_dir.clone());
     let writable_result = ensure_writable_dir(&data_dir);
     let writable_error = writable_result.as_ref().err().cloned();
-    DataDirStatus {
+    Ok(DataDirStatus {
         data_dir: data_dir.display().to_string(),
-        default_data_dir: default_data_dir(app).display().to_string(),
+        default_data_dir: default_data_dir.display().to_string(),
         configured_data_dir: configured.map(|path| path.display().to_string()),
         writable: writable_result.is_ok() && runtime_error.is_none(),
         error: runtime_error.or(writable_error),
-    }
+    })
 }
 
 pub(crate) fn save_data_dir(app: &tauri::AppHandle, data_dir: &Path) -> Result<(), String> {
@@ -80,14 +86,13 @@ pub(crate) fn ensure_writable_dir(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn load_settings(app: &tauri::AppHandle) -> ClipboardHistorySettings {
-    let Ok(path) = settings_path(app) else {
-        return ClipboardHistorySettings::default();
-    };
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return ClipboardHistorySettings::default();
-    };
-    serde_json::from_str(&text).unwrap_or_default()
+fn load_settings(app: &tauri::AppHandle) -> Result<ClipboardHistorySettings, String> {
+    let path = settings_path(app)?;
+    if !path.is_file() {
+        return Ok(ClipboardHistorySettings::default());
+    }
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("读取数据目录配置失败: {e}"))?;
+    serde_json::from_str(&text).map_err(|e| format!("解析数据目录配置失败: {e}"))
 }
 
 fn settings_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -95,16 +100,4 @@ fn settings_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .app_config_dir()
         .map(|dir| dir.join(CONFIG_FILE))
         .map_err(|e| format!("读取 App 配置目录失败: {e}"))
-}
-
-fn resource_or_exe_dir(app: &tauri::AppHandle) -> PathBuf {
-    app.path()
-        .resource_dir()
-        .ok()
-        .or_else(|| {
-            std::env::current_exe()
-                .ok()
-                .and_then(|p| p.parent().map(Path::to_path_buf))
-        })
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
 }

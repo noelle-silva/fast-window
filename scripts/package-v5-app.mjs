@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { scriptArgs } from './lib/v5-cli-args.mjs'
 import {
   DEFAULT_V5_APP_PROFILE,
   DEFAULT_V5_APP_OUT_DIR,
@@ -24,7 +25,7 @@ function parseArgs(argv) {
     profile: DEFAULT_V5_APP_PROFILE,
     catalogPath: '',
   }
-  const args = argv.slice(2)
+  const args = scriptArgs(argv)
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
     if (arg === '--app' && i + 1 < args.length) {

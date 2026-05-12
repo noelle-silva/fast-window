@@ -1,5 +1,6 @@
 import path from 'node:path'
 import process from 'node:process'
+import { scriptArgs } from './lib/v5-cli-args.mjs'
 import {
   DEFAULT_V5_APP_PROFILE,
   getV5AppConfig,
@@ -22,7 +23,6 @@ function parseArgs(argv) {
   const out = { appId: '', noBuild: false, profile: DEFAULT_V5_APP_PROFILE, stageDir: '' }
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
-    if (arg === '--') continue
     if (arg === '-h' || arg === '--help') {
       usage()
       process.exit(0)
@@ -54,7 +54,7 @@ function parseArgs(argv) {
 }
 
 async function main() {
-  const opts = parseArgs(process.argv.slice(2))
+  const opts = parseArgs(scriptArgs(process.argv))
   const config = await getV5AppConfig(opts.appId)
   const result = await syncV5AppExecutable(config, {
     noBuild: opts.noBuild,
@@ -66,6 +66,7 @@ async function main() {
     profile: result.profile,
     version: result.version,
     stageDir: result.stageDir,
+    packageDir: result.packageDir,
     executablePath: result.executablePath,
     manifestPath: result.manifestPath,
   }, null, 2))

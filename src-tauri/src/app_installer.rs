@@ -94,7 +94,8 @@ struct ExtractedAppPackage {
 }
 
 struct ResolvedInstalledApp {
-    app_root: PathBuf,
+    app_container: PathBuf,
+    manifest_dir: PathBuf,
     exe_path: PathBuf,
     manifest: AppPackageManifest,
 }
@@ -141,14 +142,15 @@ pub(crate) fn pick_app_install_dir(app: AppHandle) -> Result<Option<String>, Str
 #[tauri::command]
 pub(crate) fn inspect_installed_app(exe_path: String) -> Result<InstalledAppInfo, String> {
     let exe_path = PathBuf::from(exe_path.trim());
-    let installed = resolve_installed_app_from_exe(&exe_path)?.ok_or_else(|| {
-        "无法定位已安装应用的 fw-app.json，拒绝注册".to_string()
-    })?;
+    let installed = resolve_installed_app_from_exe(&exe_path)?
+        .ok_or_else(|| "无法定位已安装应用的 fw-app.json，拒绝注册".to_string())?;
     installed_app_info(&installed)
 }
 
 #[tauri::command]
-pub(crate) fn inspect_local_store_app(exe_path: String) -> Result<Option<InstalledAppInfo>, String> {
+pub(crate) fn inspect_local_store_app(
+    exe_path: String,
+) -> Result<Option<InstalledAppInfo>, String> {
     let exe_path = PathBuf::from(exe_path.trim());
     let Some(installed) = resolve_installed_app_from_exe(&exe_path)? else {
         return Ok(None);
@@ -168,11 +170,11 @@ pub(crate) async fn app_store_install(
     let install_root = PathBuf::from(req.install_dir.trim());
     ensure_writable_dir(&install_root)?;
 
-    let dst_dir = install_root.join(&req.expected_id);
-    validate_install_target_available(&dst_dir)?;
+    let app_container = crate::app_layout::app_container_dir(&install_root, &req.expected_id);
+    validate_install_target_available(&app_container)?;
 
     let package = download_and_extract_app_package(&req).await?;
-    install_extracted_app_package(&app, package, dst_dir, None).await
+    install_extracted_app_package(&app, package, app_container, None).await
 }
 
 #[tauri::command]
@@ -184,8 +186,8 @@ pub(crate) async fn app_store_update(
     let req = normalize_update_request(req)?;
     let existing = find_registered_app_by_store_id(&app, &req.expected_id)?
         .ok_or_else(|| format!("注册应用不存在: {}", req.expected_id))?;
-    let dst_dir = existing.installed.app_root.clone();
-    if !dst_dir.is_dir() {
+    let app_container = existing.installed.app_container.clone();
+    if !app_container.is_dir() {
         return Err("已注册应用安装目录不存在，拒绝更新".to_string());
     }
 
@@ -194,7 +196,7 @@ pub(crate) async fn app_store_update(
         expected_sha256: req.expected_sha256,
         expected_id: req.expected_id,
         expected_version: req.expected_version,
-        install_dir: dst_dir
+        install_dir: app_container
             .parent()
             .ok_or_else(|| "已注册应用安装目录没有父目录".to_string())?
             .to_string_lossy()
@@ -202,7 +204,7 @@ pub(crate) async fn app_store_update(
     };
     let package = download_and_extract_app_package(&install_req).await?;
     let _ = stop_registered_app_for_update(state.inner(), &existing.registry_id).await?;
-    install_extracted_app_package(&app, package, dst_dir, Some(existing.record)).await
+    install_extracted_app_package(&app, package, app_container, Some(existing.record)).await
 }
 
 fn normalize_install_request(
@@ -293,7 +295,11 @@ fn validate_install_target_available(dst_dir: &Path) -> Result<(), String> {
     if !dst_dir.is_dir() {
         return Err("目标应用路径已存在但不是目录，拒绝覆盖".to_string());
     }
-    if dst_dir.join(FW_APP_MANIFEST).is_file() {
+    if dst_dir.join(FW_APP_MANIFEST).is_file()
+        || crate::app_layout::app_package_dir(dst_dir)
+            .join(FW_APP_MANIFEST)
+            .is_file()
+    {
         return Err("目标应用已存在，请使用更新操作".to_string());
     }
     Err("目标应用目录已存在但不是 Fast Window v5 应用，拒绝覆盖".to_string())
@@ -329,7 +335,9 @@ fn manifest_identity(manifest: &AppPackageManifest) -> Result<(String, String), 
     Ok((id, version))
 }
 
-fn validate_manifest_against_self(manifest: &AppPackageManifest) -> Result<(String, String), String> {
+fn validate_manifest_against_self(
+    manifest: &AppPackageManifest,
+) -> Result<(String, String), String> {
     let (id, version) = manifest_identity(manifest)?;
     validate_package_manifest(manifest, &id, &version)?;
     Ok((id, version))
@@ -350,16 +358,18 @@ fn resolve_installed_app_from_exe(exe_path: &Path) -> Result<Option<ResolvedInst
         if manifest_path.is_file() {
             let manifest = read_installed_manifest(&manifest_path)?;
             validate_manifest_against_self(&manifest)?;
-            let declared_exe = dir.join(safe_relative_path_no_curdir(&manifest.windows_executable)?);
+            let declared_exe =
+                dir.join(safe_relative_path_no_curdir(&manifest.windows_executable)?);
             if !same_path(&declared_exe, exe_path) {
                 return Err(
-                    "所选应用文件不是 fw-app.json 声明的 windowsExecutable，拒绝注册"
-                        .to_string(),
+                    "所选应用文件不是 fw-app.json 声明的 windowsExecutable，拒绝注册".to_string(),
                 );
             }
             validate_extracted_app(&dir, &manifest)?;
+            let app_container = crate::app_layout::app_container_dir_from_manifest_dir(&dir)?;
             return Ok(Some(ResolvedInstalledApp {
-                app_root: dir,
+                app_container,
+                manifest_dir: dir,
                 exe_path: declared_exe,
                 manifest,
             }));
@@ -377,7 +387,11 @@ fn installed_app_info(installed: &ResolvedInstalledApp) -> Result<InstalledAppIn
         name: installed.manifest.name.trim().to_string(),
         version,
         path: installed.exe_path.to_string_lossy().to_string(),
-        icon: resolve_app_icon(&installed.manifest, &installed.app_root, &installed.exe_path)?,
+        icon: resolve_app_icon(
+            &installed.manifest,
+            &installed.manifest_dir,
+            &installed.exe_path,
+        )?,
         display_mode: installed
             .manifest
             .display_mode
@@ -393,9 +407,8 @@ fn installed_app_info(installed: &ResolvedInstalledApp) -> Result<InstalledAppIn
 fn registered_record_as_installed_app(value: Value) -> Result<RegisteredInstalledApp, String> {
     let registry_id = registered_app_id(&value)?;
     let exe_path = registered_app_path(&value)?;
-    let installed = resolve_installed_app_from_exe(&exe_path)?.ok_or_else(|| {
-        "无法定位已安装应用的 fw-app.json，拒绝商店更新".to_string()
-    })?;
+    let installed = resolve_installed_app_from_exe(&exe_path)?
+        .ok_or_else(|| "无法定位已安装应用的 fw-app.json，拒绝商店更新".to_string())?;
     Ok(RegisteredInstalledApp {
         registry_id,
         record: value,
@@ -770,18 +783,33 @@ fn validate_extracted_app(root: &Path, manifest: &AppPackageManifest) -> Result<
 async fn install_extracted_app_package(
     app: &AppHandle,
     package: ExtractedAppPackage,
-    dst_dir: PathBuf,
+    app_container: PathBuf,
     existing: Option<Value>,
 ) -> Result<AppStoreInstallResult, String> {
     let app_id = package.manifest.id.trim().to_string();
-    let tag = format!("app-{app_id}");
-    let replacement = begin_replace_dir_from_tmp(&dst_dir, &package.tmp_dir, &tag)
-        .map_err(|e| format!("安装应用失败: {e}"))?;
-
+    let package_dir = crate::app_layout::app_package_dir(&app_container);
     let exe_rel = safe_relative_path_no_curdir(&package.manifest.windows_executable)?;
-    let exe_path = dst_dir.join(exe_rel);
-    let record =
-        build_registered_app_record(&package.manifest, &dst_dir, &exe_path, existing.as_ref())?;
+    let exe_path = package_dir.join(exe_rel);
+    let icon_exe_path = package.tmp_dir.join(safe_relative_path_no_curdir(
+        &package.manifest.windows_executable,
+    )?);
+    let record = build_registered_app_record(
+        &package.manifest,
+        &package.tmp_dir,
+        &exe_path,
+        &icon_exe_path,
+        existing.as_ref(),
+    )?;
+
+    let created_container = prepare_app_container(&app_container)?;
+    let tag = format!("app-package-{app_id}");
+    let replacement = match begin_replace_dir_from_tmp(&package_dir, &package.tmp_dir, &tag) {
+        Ok(replacement) => replacement,
+        Err(error) => {
+            cleanup_created_app_container(&app_container, created_container)?;
+            return Err(format!("安装应用失败: {error}"));
+        }
+    };
 
     let registry_result = match existing.as_ref() {
         Some(existing) => {
@@ -793,9 +821,13 @@ async fn install_extracted_app_package(
 
     if let Err(error) = registry_result {
         let rollback = replacement.rollback().err();
+        let cleanup = cleanup_created_app_container(&app_container, created_container).err();
         return Err(match rollback {
-            Some(rollback_error) => format!("注册应用失败: {error}; 回滚失败: {rollback_error}"),
-            None => format!("注册应用失败: {error}"),
+            Some(rollback_error) => format_with_cleanup_error(
+                format!("注册应用失败: {error}; 回滚失败: {rollback_error}"),
+                cleanup,
+            ),
+            None => format_with_cleanup_error(format!("注册应用失败: {error}"), cleanup),
         });
     }
     replacement.commit()?;
@@ -807,10 +839,40 @@ async fn install_extracted_app_package(
     })
 }
 
+fn prepare_app_container(app_container: &Path) -> Result<bool, String> {
+    if app_container.exists() {
+        if app_container.is_dir() {
+            return Ok(false);
+        }
+        return Err("应用安装路径已存在但不是目录，拒绝安装".to_string());
+    }
+    std::fs::create_dir_all(app_container).map_err(|e| format!("创建应用容器目录失败: {e}"))?;
+    Ok(true)
+}
+
+fn cleanup_created_app_container(app_container: &Path, created: bool) -> Result<(), String> {
+    if !created {
+        return Ok(());
+    }
+    match std::fs::remove_dir(app_container) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("清理应用容器目录失败: {e}")),
+    }
+}
+
+fn format_with_cleanup_error(message: String, cleanup: Option<String>) -> String {
+    match cleanup {
+        Some(cleanup_error) => format!("{message}; {cleanup_error}"),
+        None => message,
+    }
+}
+
 fn build_registered_app_record(
     manifest: &AppPackageManifest,
-    app_root: &Path,
-    exe_path: &Path,
+    manifest_dir: &Path,
+    registry_exe_path: &Path,
+    icon_exe_path: &Path,
     existing: Option<&Value>,
 ) -> Result<Value, String> {
     let mut record = existing
@@ -829,7 +891,7 @@ fn build_registered_app_record(
     }
     record.insert(
         "path".to_string(),
-        Value::String(exe_path.to_string_lossy().to_string()),
+        Value::String(registry_exe_path.to_string_lossy().to_string()),
     );
     record.insert(
         "version".to_string(),
@@ -838,7 +900,7 @@ fn build_registered_app_record(
     if !record.contains_key("icon") {
         record.insert(
             "icon".to_string(),
-            Value::String(resolve_app_icon(manifest, app_root, exe_path)?),
+            Value::String(resolve_app_icon(manifest, manifest_dir, icon_exe_path)?),
         );
     }
     if !record.contains_key("displayMode") {

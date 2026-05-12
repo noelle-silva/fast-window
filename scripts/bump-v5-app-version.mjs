@@ -1,4 +1,5 @@
 import process from 'node:process'
+import { scriptArgs } from './lib/v5-cli-args.mjs'
 import {
   bumpV5AppVersion,
   checkV5AppVersion,
@@ -35,7 +36,6 @@ function parseArgs(argv) {
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
-    if (arg === '--') continue
     if (arg === '-h' || arg === '--help') {
       usage()
       process.exit(0)
@@ -85,7 +85,7 @@ function printResult(prefix, result) {
 }
 
 async function main() {
-  const opts = parseArgs(process.argv.slice(2))
+  const opts = parseArgs(scriptArgs(process.argv))
   if (opts.check) {
     const result = await checkV5AppVersion(opts.appId)
     printResult('[CHECK]', result)

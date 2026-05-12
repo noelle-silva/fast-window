@@ -17,6 +17,7 @@ mod app;
 mod app_autostart;
 mod app_installer;
 mod app_launcher;
+mod app_layout;
 mod app_registry;
 mod app_shortcuts;
 mod browser_stack;

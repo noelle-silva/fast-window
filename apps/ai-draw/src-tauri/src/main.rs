@@ -1,7 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod backend_sidecar;
+mod app_layout;
 mod backend_lifecycle;
+mod backend_sidecar;
 mod control_server;
 mod data_dir;
 mod fw_window;
@@ -46,14 +47,16 @@ fn data_dir_status(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<BackendState>>,
 ) -> Result<DataDirStatus, String> {
-    Ok(data_dir::data_dir_status(&app, state.runtime_error()))
+    data_dir::data_dir_status(&app, state.runtime_error())
 }
 
 fn clear_backend_runtime_error_if_data_dir_ok(app: &tauri::AppHandle, state: &BackendState) {
     if state.runtime_error().is_none() {
         return;
     }
-    let data_dir = data_dir::resolve_data_dir(app);
+    let Ok(data_dir) = data_dir::resolve_data_dir(app) else {
+        return;
+    };
     if data_dir::ensure_writable_dir(&data_dir).is_ok() {
         state.clear_runtime_state();
     }
@@ -78,7 +81,7 @@ async fn pick_data_dir(
         state.set_runtime_error(error.clone());
         return Err(error);
     }
-    Ok(Some(data_dir::data_dir_status(&app, None)))
+    Ok(Some(data_dir::data_dir_status(&app, None)?))
 }
 
 #[tauri::command]
@@ -93,7 +96,7 @@ async fn restart_backend(
         state.set_runtime_error(error.clone());
         return Err(error);
     }
-    Ok(data_dir::data_dir_status(&app, None))
+    data_dir::data_dir_status(&app, None)
 }
 
 fn desktop_identifier() -> &'static str {
@@ -230,7 +233,7 @@ fn main() {
                         if let Some(window) = app_handle_for_window_close.get_webview_window("main")
                         {
                             let _ =
-                            fw_window::hide_to_tray(&window, &window_state_for_window_close);
+                                fw_window::hide_to_tray(&window, &window_state_for_window_close);
                         }
                     } else {
                         api.prevent_close();

@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
+import { scriptArgs } from './lib/v5-cli-args.mjs'
 import {
   DEFAULT_V5_APP_OUT_DIR,
   buildV5AppPackage,
@@ -32,7 +33,7 @@ function parseArgs(argv) {
     force: false,
     message: 'Update catalog.json',
   }
-  const args = argv.slice(2)
+  const args = scriptArgs(argv)
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
     if (arg === '--app' && i + 1 < args.length) out.appId = String(args[++i] || '').trim()

@@ -6,6 +6,7 @@ import path from 'node:path'
 import process from 'node:process'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { scriptArgs } from './lib/v5-cli-args.mjs'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -13,7 +14,7 @@ const rootDir = path.resolve(__dirname, '..')
 
 function parseArgs(argv) {
   const out = { zip: '', catalog: '', appId: '', expectFailure: '', mutateCatalogSha: false }
-  const args = argv.slice(2)
+  const args = scriptArgs(argv)
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
     if (arg === '--zip' && i + 1 < args.length) {

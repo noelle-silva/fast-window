@@ -10,6 +10,7 @@ export const V5_APP_PACKAGE_MANIFEST_FILE = 'fw-app.package.json'
 export const V5_APP_PACKAGE_SCHEMA_VERSION = 2
 export const DEFAULT_V5_APP_PROFILE = 'release'
 export const V5_APP_PROFILE_IDS = ['release', 'dev']
+const RESERVED_STAGE_ENTRY_NAMES = new Set(['package', 'data'])
 
 const APP_DISPLAY_MODES = new Set(['default', 'window', 'top'])
 const CATALOG_ICON_TYPES = new Set(['emoji', 'url', 'data'])
@@ -45,6 +46,26 @@ export function normalizeRel(raw, field) {
   if (path.isAbsolute(rel)) throw new Error(`${field} 不允许是绝对路径: ${rel}`)
   const parts = rel.split('/')
   if (parts.some(part => !part || part === '.' || part === '..')) throw new Error(`${field} 不安全: ${rel}`)
+  return rel
+}
+
+function pathStartsWithReservedStageEntry(rel) {
+  const first = String(rel || '').split('/')[0]
+  return RESERVED_STAGE_ENTRY_NAMES.has(first)
+}
+
+function assertNotReservedPackagePath(rel, field) {
+  if (pathStartsWithReservedStageEntry(rel)) {
+    throw new Error(`${field} 不允许写入 staging 容器保留目录: ${rel}`)
+  }
+}
+
+function normalizeStageDir(raw, field) {
+  const rel = normalizeRel(raw, field)
+  const last = rel.split('/').at(-1)
+  if (RESERVED_STAGE_ENTRY_NAMES.has(last)) {
+    throw new Error(`${field} 必须是 app 容器目录，不能以保留目录 ${last} 结尾`)
+  }
   return rel
 }
 
@@ -133,6 +154,7 @@ function validatePackageFiles(value, field) {
     const from = normalizeRel(requiredString(item.from, `${field}[${index}].from`, 300), `${field}[${index}].from`)
     const to = normalizeRel(requiredString(item.to, `${field}[${index}].to`, 300), `${field}[${index}].to`)
     if (to === 'fw-app.json') throw new Error(`${field}[${index}].to 不能覆盖 fw-app.json`)
+    assertNotReservedPackagePath(to, `${field}[${index}].to`)
     if (seenTo.has(to)) throw new Error(`${field}[${index}].to 重复: ${to}`)
     seenTo.add(to)
     return { from, to }
@@ -144,7 +166,7 @@ function validatePackageProfile(value, field) {
   assertKnownKeys(profile, field, ['build', 'stageDir', 'files'])
   return {
     buildCommand: validateBuildCommand(profile.build, `${field}.build`),
-    stageDir: normalizeRel(requiredString(profile.stageDir, `${field}.stageDir`, 240), `${field}.stageDir`),
+    stageDir: normalizeStageDir(requiredString(profile.stageDir, `${field}.stageDir`, 240), `${field}.stageDir`),
     files: validatePackageFiles(profile.files, `${field}.files`),
   }
 }
@@ -167,7 +189,7 @@ function validateProfileExecutableMappings(profiles, executable) {
   }
 }
 
-function normalizePackageManifest(raw, { appDir, expectedId, manifestPath }) {
+export function normalizeV5AppPackageManifest(raw, { appDir, expectedId, manifestPath }) {
   const manifest = assertPlainObject(raw, manifestPath)
   assertKnownKeys(manifest, manifestPath, [
     'schemaVersion',
@@ -192,6 +214,7 @@ function normalizePackageManifest(raw, { appDir, expectedId, manifestPath }) {
   const pkg = assertPlainObject(manifest.package, 'package')
   assertKnownKeys(pkg, 'package', ['windowsExecutable', 'icon'])
   const executable = normalizeRel(requiredString(pkg.windowsExecutable, 'package.windowsExecutable', 240), 'package.windowsExecutable')
+  assertNotReservedPackagePath(executable, 'package.windowsExecutable')
   if (!executable.toLowerCase().endsWith('.exe')) throw new Error('package.windowsExecutable 必须指向 .exe')
   const profiles = validatePackageProfiles(manifest.profiles, 'profiles')
   validateProfileExecutableMappings(profiles, executable)
@@ -205,7 +228,11 @@ function normalizePackageManifest(raw, { appDir, expectedId, manifestPath }) {
     versionSource: normalizeRel(requiredString(manifest.versionSource, 'versionSource', 240), 'versionSource'),
     profiles,
     executable,
-    icon: normalizeRel(requiredString(pkg.icon, 'package.icon', 240), 'package.icon'),
+    icon: (() => {
+      const icon = normalizeRel(requiredString(pkg.icon, 'package.icon', 240), 'package.icon')
+      assertNotReservedPackagePath(icon, 'package.icon')
+      return icon
+    })(),
     catalogIcon: validateCatalogIcon(manifest.catalogIcon, 'catalogIcon'),
     displayMode: validateDisplayMode(manifest.displayMode, 'displayMode'),
     commands: validateCommands(manifest.commands, 'commands'),
@@ -224,5 +251,5 @@ export async function loadV5AppPackageConfig(appId) {
     if (error?.code === 'ENOENT') throw new Error(`缺少 v5 app 发布声明: ${manifestPath}`)
     throw error
   }
-  return normalizePackageManifest(manifest, { appDir, expectedId: id, manifestPath })
+  return normalizeV5AppPackageManifest(manifest, { appDir, expectedId: id, manifestPath })
 }

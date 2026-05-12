@@ -1,7 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod backend_sidecar;
+mod app_layout;
 mod backend_lifecycle;
+mod backend_sidecar;
 mod control_server;
 mod data_dir;
 mod fw_window;
@@ -41,7 +42,7 @@ fn data_dir_status(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<BackendState>>,
 ) -> Result<DataDirStatus, String> {
-    Ok(data_dir::data_dir_status(&app, state.runtime_error()))
+    data_dir::data_dir_status(&app, state.runtime_error())
 }
 
 #[tauri::command]
@@ -65,7 +66,7 @@ async fn pick_data_dir(
         state.set_runtime_error(error.clone());
         return Err(error);
     }
-    Ok(Some(data_dir::data_dir_status(&app, None)))
+    Ok(Some(data_dir::data_dir_status(&app, None)?))
 }
 
 #[tauri::command]
@@ -116,7 +117,7 @@ async fn restart_backend(
         state.set_runtime_error(error.clone());
         return Err(error);
     }
-    Ok(data_dir::data_dir_status(&app, None))
+    data_dir::data_dir_status(&app, None)
 }
 
 #[tauri::command]

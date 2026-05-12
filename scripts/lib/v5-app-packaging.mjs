@@ -19,6 +19,12 @@ import {
 export { DEFAULT_V5_APP_PROFILE, compareSemverStrict, isSafeId, normalizeRel, parseSemverStrict, readJson, rootDir }
 
 export const DEFAULT_V5_APP_OUT_DIR = path.join(rootDir, '.tmp', 'dist-v5-apps')
+const V5_APP_PACKAGE_DIR_NAME = 'package'
+const V5_APP_DATA_DIR_NAME = 'data'
+
+export function v5AppStagePackageDir(stageDir) {
+  return path.join(stageDir, V5_APP_PACKAGE_DIR_NAME)
+}
 
 export async function exists(filePath) {
   try {
@@ -108,13 +114,58 @@ async function replaceDirAtomic(srcDir, dstDir) {
   try {
     await fs.rename(srcDir, dstDir)
   } catch (error) {
+    let restoreError = null
     if (backedUp) {
-      await fs.rename(backupDir, dstDir).catch(() => {})
+      try {
+        await fs.rename(backupDir, dstDir)
+      } catch (e) {
+        restoreError = e
+      }
     }
-    throw new Error(`写入 v5 app staging 目录失败: ${dstDir} (${error.message})`)
+    const restoreMessage = restoreError ? `；恢复旧目录失败: ${restoreError.message}` : ''
+    throw new Error(`写入 v5 app staging 目录失败: ${dstDir} (${error.message})${restoreMessage}`)
   }
 
   if (backedUp) await fs.rm(backupDir, { recursive: true, force: true })
+}
+
+function isInternalStageTempEntry(name) {
+  return name.startsWith('.tmp-stage-package-') || name.startsWith('.tmp-backup-package-')
+}
+
+async function prepareStageContainer(stageDir) {
+  if (!(await exists(stageDir))) {
+    await fs.mkdir(stageDir, { recursive: true })
+    return
+  }
+
+  const stat = await fs.stat(stageDir)
+  if (!stat.isDirectory()) throw new Error(`v5 app staging 路径已存在但不是目录: ${stageDir}`)
+
+  const entries = await fs.readdir(stageDir, { withFileTypes: true })
+  const hasLegacyManifest = entries.some(entry => entry.isFile() && entry.name === 'fw-app.json')
+  if (hasLegacyManifest) {
+    for (const entry of entries) {
+      if (entry.name === V5_APP_DATA_DIR_NAME) continue
+      await fs.rm(path.join(stageDir, entry.name), { recursive: true, force: true })
+    }
+    return
+  }
+
+  for (const entry of entries) {
+    if (entry.name === V5_APP_PACKAGE_DIR_NAME || entry.name === V5_APP_DATA_DIR_NAME) continue
+    if (isInternalStageTempEntry(entry.name)) {
+      await fs.rm(path.join(stageDir, entry.name), { recursive: true, force: true })
+      continue
+    }
+    throw new Error(`v5 app staging 容器存在未知顶层条目，拒绝覆盖: ${path.join(stageDir, entry.name)}`)
+  }
+}
+
+async function assertNoReservedPackageDataDir(packageRoot) {
+  if (await exists(path.join(packageRoot, V5_APP_DATA_DIR_NAME))) {
+    throw new Error(`程序包根目录不允许包含保留数据目录: ${V5_APP_DATA_DIR_NAME}`)
+  }
 }
 
 async function zipDir(parentDir, dirName, zipPath) {
@@ -184,6 +235,7 @@ async function validateStagedV5App(packageRoot, manifest) {
   if (!(await exists(path.join(packageRoot, executable)))) throw new Error(`windowsExecutable 不存在: ${executable}`)
   if (!(await exists(path.join(packageRoot, icon)))) throw new Error(`icon 不存在: ${icon}`)
   if (!(await exists(path.join(packageRoot, 'fw-app.json')))) throw new Error('staging 目录缺少 fw-app.json')
+  await assertNoReservedPackageDataDir(packageRoot)
 }
 
 async function writeRuntimeManifest(packageRoot, manifest) {
@@ -215,21 +267,24 @@ export async function stageV5AppPackage(config, opts = {}) {
   const stageDir = path.resolve(config.appDir, String(opts.stageDir || defaultV5AppStageDir(config, profile.id)))
   const parent = path.dirname(stageDir)
   const base = path.basename(stageDir)
-  const tmpDir = path.join(parent, `.tmp-stage-${base}-${Date.now()}`)
+  const packageDir = v5AppStagePackageDir(stageDir)
+  const tmpDir = path.join(stageDir, `.tmp-stage-package-${base}-${Date.now()}`)
+  await fs.mkdir(parent, { recursive: true })
+  await prepareStageContainer(stageDir)
   await fs.rm(tmpDir, { recursive: true, force: true })
   await fs.mkdir(tmpDir, { recursive: true })
 
   try {
     const manifest = await populateV5AppStageDir(config, profile, tmpDir, version)
-    await fs.mkdir(parent, { recursive: true })
-    await replaceDirAtomic(tmpDir, stageDir)
+    await replaceDirAtomic(tmpDir, packageDir)
     return {
       appId: config.id,
       profile: profile.id,
       version,
       stageDir,
-      executablePath: path.join(stageDir, manifest.windowsExecutable),
-      manifestPath: path.join(stageDir, 'fw-app.json'),
+      packageDir,
+      executablePath: path.join(packageDir, manifest.windowsExecutable),
+      manifestPath: path.join(packageDir, 'fw-app.json'),
       manifest,
     }
   } catch (error) {
@@ -260,10 +315,11 @@ export async function syncV5AppExecutable(config, opts = {}) {
 
   const version = await loadV5AppVersion(config)
   const stageDir = path.resolve(config.appDir, String(opts.stageDir || defaultV5AppStageDir(config, profile.id)))
-  if (!(await exists(stageDir))) throw new Error(`v5 app staging 目录不存在，请先运行 build:app: ${stageDir}`)
+  const packageDir = v5AppStagePackageDir(stageDir)
+  if (!(await exists(packageDir))) throw new Error(`v5 app staging package 目录不存在，请先运行 build:app: ${packageDir}`)
 
   const expectedManifest = buildRuntimeManifest(config, version)
-  const manifestPath = path.join(stageDir, 'fw-app.json')
+  const manifestPath = path.join(packageDir, 'fw-app.json')
   const currentManifest = await readJson(manifestPath).catch(error => {
     throw new Error(`读取 staging fw-app.json 失败，请先运行 build:app: ${error.message}`)
   })
@@ -273,7 +329,7 @@ export async function syncV5AppExecutable(config, opts = {}) {
 
   const executable = findExecutableFileMapping(config, profile)
   const src = path.join(config.appDir, normalizeRel(executable.from, 'files.from'))
-  const dst = path.join(stageDir, executable.to)
+  const dst = path.join(packageDir, executable.to)
   if (!(await exists(src))) throw new Error(`windowsExecutable 构建产物不存在: ${executable.from}`)
 
   const tmp = path.join(path.dirname(dst), `.tmp-${path.basename(dst)}-${Date.now()}`)
@@ -285,12 +341,13 @@ export async function syncV5AppExecutable(config, opts = {}) {
     throw new Error(`替换 staging 入口 exe 失败，可能应用仍在运行: ${dst} (${error.message})`)
   }
 
-  await validateStagedV5App(stageDir, expectedManifest)
+  await validateStagedV5App(packageDir, expectedManifest)
   return {
     appId: config.id,
     profile: profile.id,
     version,
     stageDir,
+    packageDir,
     executablePath: dst,
     manifestPath,
   }
@@ -316,7 +373,7 @@ export async function buildV5AppPackage(config, opts) {
   await fs.mkdir(stageParent, { recursive: true })
 
   try {
-    await copyEntry(staged.stageDir, packageRoot)
+    await copyEntry(staged.packageDir, packageRoot)
 
     const zipName = `${config.id}-${version}-windows.zip`
     const zipPath = path.join(outDir, zipName)

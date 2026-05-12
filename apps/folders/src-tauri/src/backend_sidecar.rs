@@ -72,7 +72,7 @@ fn spawn_backend_child(
     app: &tauri::AppHandle,
     session_token: &str,
 ) -> Result<(Child, ChildStdout), String> {
-    let data_dir = data_dir::resolve_data_dir(app);
+    let data_dir = data_dir::resolve_data_dir(app)?;
     data_dir::ensure_writable_dir(&data_dir)?;
 
     let mut cmd = Command::new(resolve_backend_sidecar(app)?);
@@ -94,7 +94,10 @@ fn spawn_backend_child(
     Ok((child, stdout))
 }
 
-fn backend_endpoint_from_ready(value: serde_json::Value, session_token: &str) -> Option<BackendEndpoint> {
+fn backend_endpoint_from_ready(
+    value: serde_json::Value,
+    session_token: &str,
+) -> Option<BackendEndpoint> {
     if value.get("type").and_then(|v| v.as_str()) != Some("ready") {
         return None;
     }
