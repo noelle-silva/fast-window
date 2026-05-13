@@ -14,6 +14,7 @@ import { Box, Breadcrumbs, Button, Chip, IconButton, Paper, Stack, Typography } 
 import { itemText } from '../../shared/collectionsDomain'
 import type { CollectionImageContent, CollectionItemNode, CollectionNode } from '../../shared/types'
 import { EmptyState } from '../components/EmptyState'
+import { LazyImagePreview } from '../components/LazyImagePreview'
 import {
   resolveSortMovePosition,
   SortableDragStatus,
@@ -385,14 +386,7 @@ function CollectionImagePreview(props: { image: CollectionImageContent; controll
   const directSrc = React.useMemo(() => controller.collectionImageUrl(image), [controller, image])
   return (
     <Stack alignItems="flex-start" spacing={0.75}>
-      <Box
-        component="img"
-        src={directSrc}
-        alt={image.sourceName || '收藏图片'}
-        decoding="async"
-        loading="lazy"
-        sx={{ display: 'block', maxWidth: '100%', maxHeight: 220, objectFit: 'contain', borderRadius: 1.25, bgcolor: 'action.hover' }}
-      />
+      <LazyImagePreview src={directSrc} alt={image.sourceName || '收藏图片'} minHeight={120} maxHeight={220} align="start" />
       <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
         <Chip size="small" icon={<ImageRoundedIcon fontSize="small" />} label="图片" />
         <Chip size="small" label={`${image.width} x ${image.height}`} />

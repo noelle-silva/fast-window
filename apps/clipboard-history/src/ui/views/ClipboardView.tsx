@@ -9,11 +9,11 @@ import { Box, Button, Chip, IconButton, Paper, Stack, Typography } from '@mui/ma
 import { CLIPBOARD_PAGE_SIZE } from '../../shared/constants'
 import type { ClipboardHistoryItem } from '../../shared/types'
 import { EmptyState } from '../components/EmptyState'
+import { LazyImagePreview } from '../components/LazyImagePreview'
 import { formatTime, historyKey, shouldShowFoldButton } from '../clipboardUiUtils'
 import type { ClipboardHistoryController } from '../hooks/useClipboardHistoryController'
 
 const LIST_PRELOAD_ROOT_MARGIN = '1400px 0px'
-const IMAGE_PRELOAD_ROOT_MARGIN = '1800px 0px'
 
 type ClipboardViewProps = {
   controller: ClipboardHistoryController
@@ -183,73 +183,14 @@ function TextClipboardContent(props: { item: ClipboardHistoryItem; controller: C
 
 function ImageClipboardContent(props: { item: ClipboardHistoryItem; controller: ClipboardHistoryController; armed: boolean }) {
   const { item, controller, armed } = props
-  const key = historyKey(item)
   const directSrc = React.useMemo(() => controller.clipboardImageUrl(item), [controller, item])
-  const [src, setSrc] = React.useState('')
-  const [error, setError] = React.useState('')
-  const imgRef = React.useRef<HTMLImageElement | null>(null)
-
-  React.useEffect(() => {
-    setSrc('')
-    setError('')
-  }, [key, directSrc])
-
-  React.useEffect(() => {
-    if (!directSrc) {
-      setError('图片不可用')
-      return
-    }
-    const img = imgRef.current
-    if (!img) return
-    const root = document.querySelector('[data-area="content"]')
-    const observer = new IntersectionObserver(
-      entries => {
-        if (!entries[0]?.isIntersecting) return
-        observer.disconnect()
-        setSrc(directSrc)
-      },
-      { root: root instanceof HTMLElement ? root : null, rootMargin: IMAGE_PRELOAD_ROOT_MARGIN, threshold: 0 },
-    )
-    observer.observe(img)
-    return () => observer.disconnect()
-  }, [directSrc])
 
   return (
-    <Stack alignItems="center" spacing={1} sx={{ position: 'relative', minHeight: src ? 0 : 120 }}>
+    <Stack alignItems="center" spacing={1} sx={{ position: 'relative' }}>
       <Box sx={{ position: 'absolute', top: 0, right: 0 }}>
         <ClipboardTools item={item} controller={controller} armed={armed} />
       </Box>
-      {!src ? (
-        <Box
-          ref={imgRef}
-          sx={{
-            width: '100%',
-            minHeight: 120,
-            borderRadius: 1.25,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'text.secondary',
-            bgcolor: 'action.hover',
-          }}
-        >
-          {error || '加载中...'}
-        </Box>
-      ) : (
-        <Box
-          component="img"
-          ref={imgRef}
-          src={src}
-          alt="剪贴板图片"
-          decoding="async"
-          loading="eager"
-          onError={() => {
-            setSrc('')
-            setError('图片加载失败')
-          }}
-          sx={{ display: 'block', maxWidth: '100%', maxHeight: 220, objectFit: 'contain', borderRadius: 1.25 }}
-        />
-      )}
+      <LazyImagePreview src={directSrc} alt="剪贴板图片" minHeight={120} maxHeight={220} />
       <Chip size="small" icon={<ImageRoundedIcon fontSize="small" />} label="图片" />
     </Stack>
   )
