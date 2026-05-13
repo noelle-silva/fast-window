@@ -36,9 +36,26 @@ pub enum CollectionNode {
     Item {
         id: String,
         title: String,
-        content: String,
+        content: CollectionItemContent,
         created_at: u64,
         updated_at: u64,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum CollectionItemContent {
+    #[serde(rename = "text", rename_all = "camelCase")]
+    Text { text: String },
+    #[serde(rename = "image", rename_all = "camelCase")]
+    Image {
+        reference: String,
+        path: String,
+        mime: String,
+        width: u32,
+        height: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source_name: Option<String>,
     },
 }
 
@@ -95,6 +112,15 @@ pub struct OrphanImageCleanupReport {
     pub deleted_bytes: u64,
     pub failed: Vec<OrphanImageDeleteFailure>,
     pub remaining: OrphanImageReport,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipboardImageDraft {
+    pub data_url: String,
+    pub mime: String,
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Clone, Debug)]

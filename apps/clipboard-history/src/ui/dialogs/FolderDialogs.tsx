@@ -3,9 +3,11 @@ import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import DriveFileMoveRoundedIcon from '@mui/icons-material/DriveFileMoveRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
+import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
 import NoteAddRoundedIcon from '@mui/icons-material/NoteAddRounded'
-import { Box, Button, ClickAwayListener, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItemButton, ListItemIcon, ListItemText, Paper, Stack, TextField, Typography } from '@mui/material'
-import type { CollectionFolderNode } from '../../shared/types'
+import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded'
+import { Box, Button, Chip, ClickAwayListener, Dialog, DialogActions, DialogContent, DialogTitle, List, ListItemButton, ListItemIcon, ListItemText, Paper, Stack, TextField, Typography } from '@mui/material'
+import type { ClipboardImageDraft, CollectionFolderNode } from '../../shared/types'
 import type { ClipboardHistoryController } from '../hooks/useClipboardHistoryController'
 
 type FolderDialogsProps = {
@@ -83,6 +85,15 @@ function CreateItemDialog(props: FolderDialogsProps) {
   const { controller } = props
   const { state } = controller
 
+  const handlePaste = React.useCallback((event: React.ClipboardEvent) => {
+    const file = Array.from(event.clipboardData.files || []).find((item) => item.type.startsWith('image/'))
+    if (!file) return
+    event.preventDefault()
+    void imageDraftFromFile(file).then(controller.setDraftImage).catch(error => {
+      void controller.host.toast(String((error as any)?.message || error || '读取粘贴图片失败'))
+    })
+  }, [controller])
+
   return (
     <Dialog
       open={state.showItemEditor}
@@ -96,7 +107,7 @@ function CreateItemDialog(props: FolderDialogsProps) {
         <NoteAddRoundedIcon fontSize="small" />
         新建条目
       </DialogTitle>
-      <DialogContent>
+      <DialogContent onPaste={handlePaste}>
         <Stack spacing={1.25} sx={{ mt: 1 }}>
           <TextField
             autoFocus
@@ -106,24 +117,100 @@ function CreateItemDialog(props: FolderDialogsProps) {
             value={state.draftTitle}
             onChange={(event) => controller.setDraftTitle(event.target.value)}
           />
-          <TextField
-            multiline
-            minRows={6}
-            fullWidth
-            label="正文"
-            placeholder="输入要收藏的纯文本内容"
-            value={state.draftContent}
-            onChange={(event) => controller.setDraftContent(event.target.value)}
+          {state.draftImage ? (
+            <ImageDraftPreview image={state.draftImage} controller={controller} onClear={() => controller.setDraftImage(null)} />
+          ) : (
+            <TextField
+              multiline
+              minRows={6}
+              fullWidth
+              label="正文"
+              placeholder="输入文本，或直接 Ctrl+V 粘贴图片"
+              value={state.draftContent}
+              onChange={(event) => controller.setDraftContent(event.target.value)}
+            />
+          )}
+          <ImageDraftActions
+            image={state.draftImage}
+            onPaste={() => void controller.pasteDraftImage()}
+            onPick={() => void controller.pickDraftImage()}
+            onClear={() => controller.setDraftImage(null)}
           />
-          <Typography variant="caption" color="text.secondary">提示：条目卡片点击即可复制，拖拽卡片可排序。</Typography>
+          <Typography variant="caption" color="text.secondary">提示：条目卡片点击即可复制，拖拽卡片可排序。图片会保存为托管资源，不会塞进文本正文。</Typography>
         </Stack>
       </DialogContent>
       <DialogActions>
         <Button onClick={controller.resetItemDraft}>取消</Button>
-        <Button variant="contained" onClick={() => void controller.createItem(state.draftTitle, state.draftContent)}>添加</Button>
+        <Button variant="contained" onClick={() => void controller.createItem()}>添加</Button>
       </DialogActions>
     </Dialog>
   )
+}
+
+function ImageDraftPreview(props: { image: ClipboardImageDraft; controller: ClipboardHistoryController; onClear: () => void }) {
+  const { image, controller, onClear } = props
+  const src = image.dataUrl || (image.reference || image.path ? controller.collectionImageUrl({
+    type: 'image',
+    reference: image.reference || '',
+    path: image.path || '',
+    mime: image.mime,
+    width: image.width,
+    height: image.height,
+    sourceName: image.sourceName,
+  }) : '')
+  return (
+    <Paper variant="outlined" sx={{ p: 1.25, bgcolor: 'action.hover' }}>
+      <Stack spacing={1} alignItems="center">
+        {src ? (
+          <Box component="img" src={src} alt="待收藏图片预览" sx={{ display: 'block', maxWidth: '100%', maxHeight: 260, objectFit: 'contain', borderRadius: 1 }} />
+        ) : (
+          <Box sx={{ width: '100%', minHeight: 160, display: 'grid', placeItems: 'center', color: 'text.secondary' }}>已保存图片</Box>
+        )}
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap justifyContent="center">
+          <Chip size="small" icon={<ImageRoundedIcon fontSize="small" />} label="图片" />
+          <Chip size="small" label={`${image.width} x ${image.height}`} />
+          {image.sourceName ? <Chip size="small" label={image.sourceName} /> : null}
+          <Button size="small" onClick={onClear}>清除图片</Button>
+        </Stack>
+      </Stack>
+    </Paper>
+  )
+}
+
+function ImageDraftActions(props: { image: ClipboardImageDraft | null; onPaste: () => void; onPick: () => void; onClear: () => void }) {
+  const { image, onPaste, onPick, onClear } = props
+  return (
+    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+      <Button variant="outlined" startIcon={<ImageRoundedIcon fontSize="small" />} onClick={onPaste}>
+        粘贴图片
+      </Button>
+      <Button variant="outlined" startIcon={<UploadFileRoundedIcon fontSize="small" />} onClick={onPick}>
+        选择图片
+      </Button>
+      {image ? <Button onClick={onClear}>改为文本</Button> : null}
+    </Stack>
+  )
+}
+
+function imageDraftFromFile(file: File): Promise<ClipboardImageDraft> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(new Error('读取图片失败'))
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '')
+      const img = new Image()
+      img.onload = () => resolve({
+        dataUrl,
+        mime: file.type || 'image/png',
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+        sourceName: file.name,
+      })
+      img.onerror = () => reject(new Error('图片尺寸读取失败'))
+      img.src = dataUrl
+    }
+    reader.readAsDataURL(file)
+  })
 }
 
 function FolderContextMenu(props: FolderDialogsProps) {
@@ -181,6 +268,7 @@ function EditNodeDialog(props: FolderDialogsProps) {
   const { editDialog } = controller.state
   const node = editDialog.open ? controller.getNode(editDialog.nodeId) : null
   const isFolder = node?.type === 'folder'
+  const itemImage = !isFolder ? editDialog.itemImage : null
 
   return (
     <Dialog open={!!editDialog.open && !!node} onClose={controller.closeDialogs} fullWidth maxWidth="sm">
@@ -204,13 +292,23 @@ function EditNodeDialog(props: FolderDialogsProps) {
               value={editDialog.itemTitle}
               onChange={(event) => controller.setEditDialogDraft({ itemTitle: event.target.value })}
             />
-            <TextField
-              multiline
-              minRows={5}
-              fullWidth
-              label="正文内容（不能为空）"
-              value={editDialog.itemContent}
-              onChange={(event) => controller.setEditDialogDraft({ itemContent: event.target.value })}
+            {itemImage ? (
+              <ImageDraftPreview image={itemImage} controller={controller} onClear={() => controller.setEditDialogDraft({ itemImage: null, itemContent: '' })} />
+            ) : (
+              <TextField
+                multiline
+                minRows={5}
+                fullWidth
+                label="正文内容（不能为空）"
+                value={editDialog.itemContent}
+                onChange={(event) => controller.setEditDialogDraft({ itemContent: event.target.value })}
+              />
+            )}
+            <ImageDraftActions
+              image={itemImage}
+              onPaste={() => void controller.pasteEditDialogImage()}
+              onPick={() => void controller.pickEditDialogImage()}
+              onClear={() => controller.setEditDialogDraft({ itemImage: null, itemContent: '' })}
             />
           </Stack>
         )}

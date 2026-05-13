@@ -2,6 +2,7 @@ mod clipboard;
 mod data_contract;
 mod domain;
 mod http_util;
+mod image_codec;
 mod image_http;
 mod image_store;
 mod legacy_import;

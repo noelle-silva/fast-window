@@ -11,6 +11,7 @@ mod single_instance;
 mod standalone_tray;
 
 use backend_sidecar::{start_backend, BackendEndpoint, BackendState};
+use base64::Engine as _;
 use control_server::{
     available_commands, start_control_server, ControlServerConfig, CLIPBOARD_HISTORY_APP_ID,
 };
@@ -20,6 +21,7 @@ use fw_window::{
     parse_fw_args, report_available_commands, take_shutdown_requested, FwWindowState,
 };
 use shutdown::ShutdownState;
+use std::fs;
 use std::sync::Arc;
 use tauri::{Manager, RunEvent, WindowEvent};
 
@@ -45,8 +47,14 @@ fn data_dir_status(
 }
 
 #[tauri::command]
-fn pick_legacy_data_dir() -> Result<Option<PickedDir>, String> {
+fn pick_legacy_data_dir(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<FwWindowState>>,
+) -> Result<Option<PickedDir>, String> {
+    let window = main_window(&app)?;
+    let _native_dialog = fw_window::enter_native_dialog(state.inner().clone());
     let Some(path) = rfd::FileDialog::new()
+        .set_parent(&window)
         .set_title("选择旧剪贴板历史数据目录")
         .pick_folder()
     else {
@@ -57,31 +65,80 @@ fn pick_legacy_data_dir() -> Result<Option<PickedDir>, String> {
     }))
 }
 
+#[tauri::command]
+fn pick_image_file(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, Arc<FwWindowState>>,
+) -> Result<Option<PickedImage>, String> {
+    let window = main_window(&app)?;
+    let _native_dialog = fw_window::enter_native_dialog(state.inner().clone());
+    let Some(path) = rfd::FileDialog::new()
+        .set_parent(&window)
+        .set_title("选择要收藏的图片")
+        .add_filter("图片", &["png", "jpg", "jpeg", "webp", "gif"])
+        .pick_file()
+    else {
+        return Ok(None);
+    };
+    let bytes = fs::read(&path).map_err(|e| format!("读取图片失败: {e}"))?;
+    let mime = image_mime_from_path(&path)?;
+    let data_url = format!(
+        "data:{mime};base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    );
+    Ok(Some(PickedImage {
+        data_url,
+        mime,
+        source_name: path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("图片")
+            .to_string(),
+    }))
+}
+
 #[derive(serde::Serialize)]
 struct PickedDir {
     dir: String,
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PickedImage {
+    data_url: String,
+    mime: &'static str,
+    source_name: String,
+}
+
 #[tauri::command]
 async fn pick_data_dir(
     app: tauri::AppHandle,
-    state: tauri::State<'_, Arc<BackendState>>,
+    backend_state: tauri::State<'_, Arc<BackendState>>,
+    window_state: tauri::State<'_, Arc<FwWindowState>>,
 ) -> Result<Option<DataDirStatus>, String> {
+    let window = main_window(&app)?;
+    let _native_dialog = fw_window::enter_native_dialog(window_state.inner().clone());
     let Some(path) = rfd::FileDialog::new()
+        .set_parent(&window)
         .set_title("选择剪贴板历史数据目录")
         .pick_folder()
     else {
         return Ok(None);
     };
     data_dir::save_data_dir(&app, &path)?;
-    state.stop().await;
-    state.clear_runtime_state();
-    let state_inner = state.inner().clone();
+    backend_state.stop().await;
+    backend_state.clear_runtime_state();
+    let state_inner = backend_state.inner().clone();
     if let Err(error) = start_backend(app.clone(), state_inner).await {
-        state.set_runtime_error(error.clone());
+        backend_state.set_runtime_error(error.clone());
         return Err(error);
     }
     Ok(Some(data_dir::data_dir_status(&app, None)?))
+}
+
+fn main_window(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
+    app.get_webview_window("main")
+        .ok_or_else(|| "主窗口不存在".to_string())
 }
 
 fn main() {
@@ -116,6 +173,7 @@ fn main() {
             data_dir_status,
             pick_data_dir,
             pick_legacy_data_dir,
+            pick_image_file,
             hide_to_tray,
             app_ready,
             fw_initial_command,
@@ -193,6 +251,22 @@ fn main() {
                 }
             }
         });
+}
+
+fn image_mime_from_path(path: &std::path::Path) -> Result<&'static str, String> {
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "png" => Ok("image/png"),
+        "jpg" | "jpeg" => Ok("image/jpeg"),
+        "webp" => Ok("image/webp"),
+        "gif" => Ok("image/gif"),
+        _ => Err("请选择 PNG、JPG、WEBP 或 GIF 图片".to_string()),
+    }
 }
 
 fn desktop_identifier() -> &'static str {

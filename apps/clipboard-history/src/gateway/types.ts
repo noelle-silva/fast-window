@@ -2,6 +2,8 @@ import type {
   ClipboardHistoryItem,
   ClipboardHistorySettings,
   ClipboardHistorySnapshot,
+  ClipboardImageDraft,
+  CollectionItemContentInput,
   CollectionsDoc,
   LegacyDataImportResult,
   OrphanImageCleanupReport,
@@ -24,6 +26,7 @@ export type ClipboardGateway = {
 
 export type ImageGateway = {
   readOutputImage(path: string): Promise<string>
+  readClipboardImage(): Promise<ClipboardImageDraft>
   outputImageUrl(reference: string, cacheKey?: string | number): string
   scanOrphanImages(): Promise<OrphanImageReport>
   deleteOrphanImages(): Promise<OrphanImageCleanupReport>
@@ -38,9 +41,9 @@ export type ClipboardHistoryStateGateway = {
 
 export type ClipboardHistoryCollectionsGateway = {
   createFolder(parentId: string, name: string): Promise<ClipboardHistorySnapshot>
-  createItem(parentId: string, title: string, content: string): Promise<ClipboardHistorySnapshot>
+  createItem(parentId: string, title: string, content: CollectionItemContentInput): Promise<ClipboardHistorySnapshot>
   updateFolder(folderId: string, name: string): Promise<ClipboardHistorySnapshot>
-  updateItem(itemId: string, title: string, content: string): Promise<ClipboardHistorySnapshot>
+  updateItem(itemId: string, title: string, content: CollectionItemContentInput): Promise<ClipboardHistorySnapshot>
   moveNode(movingId: string, toParentId: string, toIndex?: number): Promise<ClipboardHistorySnapshot>
   copyItem(itemId: string, toParentId: string): Promise<ClipboardHistorySnapshot>
   deleteNode(nodeId: string): Promise<ClipboardHistorySnapshot>

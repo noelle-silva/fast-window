@@ -1,12 +1,13 @@
+use crate::image_codec::{
+    decode_image_data_url as decode_data_url_image, encode_rgba_to_png_bytes,
+};
 use arboard::ImageData;
-use base64::Engine as _;
-use image::codecs::png::PngEncoder;
-use image::{ColorType, ImageEncoder};
 use std::borrow::Cow;
 
 pub struct ClipboardImageSnapshot {
-    pub hash: u32,
     pub png: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
 }
 
 pub fn read_text_clipboard() -> Result<String, String> {
@@ -32,13 +33,15 @@ pub fn read_image_clipboard() -> Result<Option<ClipboardImageSnapshot>, String> 
     let rgba = image.bytes.as_ref();
     let png = encode_rgba_to_png_bytes(rgba, image.width as u32, image.height as u32)?;
     Ok(Some(ClipboardImageSnapshot {
-        hash: hash32_sampled_bytes(rgba),
         png,
+        width: image.width as u32,
+        height: image.height as u32,
     }))
 }
 
 pub fn write_image_clipboard_from_data_url(data_url: &str) -> Result<(), String> {
-    let bytes = decode_image_data_url(data_url)?;
+    let bytes =
+        decode_data_url_image(data_url).map_err(|e| e.replace("图片需要", "图片剪贴板写入需要"))?;
     write_image_clipboard_from_bytes(&bytes)
 }
 
@@ -55,53 +58,4 @@ pub fn write_image_clipboard_from_bytes(bytes: &[u8]) -> Result<(), String> {
     clipboard
         .set_image(image)
         .map_err(|e| format!("写入图片剪贴板失败: {e}"))
-}
-
-fn decode_image_data_url(data_url: &str) -> Result<Vec<u8>, String> {
-    let raw = data_url.trim();
-    if !raw.starts_with("data:image/") {
-        return Err("图片剪贴板写入需要 data:image URL".to_string());
-    }
-    let Some((meta, data)) = raw.split_once(',') else {
-        return Err("图片 data URL 无效".to_string());
-    };
-    if !meta.to_ascii_lowercase().contains(";base64") {
-        return Err("图片 data URL 必须使用 base64".to_string());
-    }
-    base64::engine::general_purpose::STANDARD
-        .decode(data.as_bytes())
-        .map_err(|e| format!("图片 base64 解码失败: {e}"))
-}
-
-fn encode_rgba_to_png_bytes(rgba: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
-    if width == 0 || height == 0 {
-        return Err("图片尺寸无效".to_string());
-    }
-    let expect = width as usize * height as usize * 4;
-    if rgba.len() != expect {
-        return Err("图片数据长度无效".to_string());
-    }
-    let mut png = Vec::new();
-    PngEncoder::new(&mut png)
-        .write_image(rgba, width, height, ColorType::Rgba8.into())
-        .map_err(|e| format!("PNG 编码失败: {e}"))?;
-    Ok(png)
-}
-
-fn hash32_sampled_bytes(bytes: &[u8]) -> u32 {
-    let mut h: u32 = 5381;
-    let n = bytes.len();
-    if n > 4096 {
-        for &b in &bytes[..2048] {
-            h = ((h << 5).wrapping_add(h)) ^ (b as u32);
-        }
-        for &b in &bytes[(n - 2048)..] {
-            h = ((h << 5).wrapping_add(h)) ^ (b as u32);
-        }
-        return h;
-    }
-    for &b in bytes {
-        h = ((h << 5).wrapping_add(h)) ^ (b as u32);
-    }
-    h
 }

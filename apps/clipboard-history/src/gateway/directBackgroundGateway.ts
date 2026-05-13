@@ -27,6 +27,7 @@ function createGatewayFromClient(client: DirectBackgroundClient): Omit<Clipboard
     },
     images: {
       readOutputImage: path => client.invoke(ClipboardHistoryRpc.images.readOutput, { path }),
+      readClipboardImage: () => client.invoke(ClipboardHistoryRpc.images.readClipboard),
       outputImageUrl: (reference, cacheKey) => validateImageEndpoint(client.endpoint()).outputImageUrl(reference, cacheKey),
       scanOrphanImages: () => client.invoke(ClipboardHistoryRpc.images.scanOrphans),
       deleteOrphanImages: () => client.invoke(ClipboardHistoryRpc.images.deleteOrphans),

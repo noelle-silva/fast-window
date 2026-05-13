@@ -3,16 +3,17 @@ use crate::clipboard::{
     write_text_clipboard,
 };
 use crate::domain::*;
+use crate::image_codec::{decode_image_data_url, image_data_url, normalize_image_bytes_to_png};
 use crate::image_store::{
-    delete_managed_output_image, delete_orphan_managed_images,
-    delete_unreferenced_managed_history_images, read_output_image, scan_orphan_managed_images,
-    write_clipboard_image,
+    delete_orphan_managed_images, delete_unreferenced_managed_collection_images,
+    delete_unreferenced_managed_history_images, managed_image_reference_from_reference,
+    read_output_image, scan_orphan_managed_images, write_managed_png_image,
 };
 use crate::legacy_import::import_legacy_data;
 use crate::model::*;
 use crate::store::Store;
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 
 const RPC_STATE_LOAD: &str = "clipboardHistory.state.load";
@@ -22,6 +23,7 @@ const RPC_STATE_DELETE_HISTORY_ITEM: &str = "clipboardHistory.state.deleteHistor
 const RPC_CLIPBOARD_WRITE_TEXT: &str = "clipboardHistory.clipboard.writeText";
 const RPC_CLIPBOARD_WRITE_IMAGE: &str = "clipboardHistory.clipboard.writeImage";
 const RPC_IMAGES_READ_OUTPUT: &str = "clipboardHistory.images.readOutput";
+const RPC_IMAGES_READ_CLIPBOARD: &str = "clipboardHistory.images.readClipboard";
 const RPC_IMAGES_SCAN_ORPHANS: &str = "clipboardHistory.images.scanOrphans";
 const RPC_IMAGES_DELETE_ORPHANS: &str = "clipboardHistory.images.deleteOrphans";
 const RPC_COLLECTIONS_CREATE_FOLDER: &str = "clipboardHistory.collections.createFolder";
@@ -124,14 +126,17 @@ impl ClipboardHistoryService {
                 params.get("path").and_then(Value::as_str).unwrap_or(""),
             )
             .map(Value::String),
+            RPC_IMAGES_READ_CLIPBOARD => self.read_clipboard_image_draft(),
             RPC_IMAGES_SCAN_ORPHANS => serde_json::to_value(scan_orphan_managed_images(
                 &self.output_root,
                 &self.history,
+                &self.collections,
             )?)
             .map_err(|e| e.to_string()),
             RPC_IMAGES_DELETE_ORPHANS => serde_json::to_value(delete_orphan_managed_images(
                 &self.output_root,
                 &self.history,
+                &self.collections,
             )?)
             .map_err(|e| e.to_string()),
             RPC_COLLECTIONS_CREATE_FOLDER => {
@@ -142,15 +147,7 @@ impl ClipboardHistoryService {
                 );
                 self.save_collections_and_emit()
             }
-            RPC_COLLECTIONS_CREATE_ITEM => {
-                create_item(
-                    &mut self.collections,
-                    str_param(&params, "parentId"),
-                    str_param(&params, "title"),
-                    str_param(&params, "content"),
-                );
-                self.save_collections_and_emit()
-            }
+            RPC_COLLECTIONS_CREATE_ITEM => self.create_collection_item(params),
             RPC_COLLECTIONS_UPDATE_FOLDER => {
                 update_folder_name(
                     &mut self.collections,
@@ -159,15 +156,7 @@ impl ClipboardHistoryService {
                 );
                 self.save_collections_and_emit()
             }
-            RPC_COLLECTIONS_UPDATE_ITEM => {
-                update_item(
-                    &mut self.collections,
-                    str_param(&params, "itemId"),
-                    str_param(&params, "title"),
-                    str_param(&params, "content"),
-                );
-                self.save_collections_and_emit()
-            }
+            RPC_COLLECTIONS_UPDATE_ITEM => self.update_collection_item(params),
             RPC_COLLECTIONS_MOVE_NODE => {
                 let index = params
                     .get("toIndex")
@@ -190,8 +179,9 @@ impl ClipboardHistoryService {
                 self.save_collections_and_emit()
             }
             RPC_COLLECTIONS_DELETE_NODE => {
+                let previous = self.collections.clone();
                 delete_node(&mut self.collections, str_param(&params, "nodeId"));
-                self.save_collections_and_emit()
+                self.save_collections_and_emit_after(previous)
             }
             RPC_COLLECTIONS_SAVE_RECENT_FOLDER => {
                 let folder_id = str_param(&params, "folderId");
@@ -233,18 +223,19 @@ impl ClipboardHistoryService {
         let Some(image) = image else {
             return;
         };
-        let Ok((content, path)) = write_clipboard_image(&self.output_root, image.hash, &image.png)
+        let Ok(asset) =
+            write_managed_png_image(&self.output_root, &image.png, image.width, image.height)
         else {
             return;
         };
-        if content == self.current_image {
+        if asset.reference == self.current_image {
             return;
         }
         let item = ClipboardHistoryItem {
             item_type: "image".to_string(),
-            content,
+            content: asset.reference,
             time: now_ms(),
-            path: Some(path),
+            path: Some(asset.path),
         };
         let _ = self.handle_monitor_change(item);
     }
@@ -301,15 +292,7 @@ impl ClipboardHistoryService {
     }
 
     fn clear_history(&mut self) -> Result<Value, String> {
-        for item in &self.history {
-            if item.item_type == "image" {
-                delete_managed_output_image(
-                    &self.output_root,
-                    item.path.as_deref().unwrap_or(&item.content),
-                );
-            }
-        }
-        self.history.clear();
+        self.replace_history(Vec::new());
         self.save_clipboard()?;
         self.emit_snapshot();
         serde_json::to_value(self.snapshot()).map_err(|e| e.to_string())
@@ -321,14 +304,9 @@ impl ClipboardHistoryService {
             .and_then(|v| normalize_history_item(v, now_ms()))
         {
             self.deleted.insert(history_uniq_key(&item), now_ms());
-            self.history
-                .retain(|entry| history_uniq_key(entry) != history_uniq_key(&item));
-            if item.item_type == "image" {
-                delete_managed_output_image(
-                    &self.output_root,
-                    item.path.as_deref().unwrap_or(&item.content),
-                );
-            }
+            let mut next = self.history.clone();
+            next.retain(|entry| history_uniq_key(entry) != history_uniq_key(&item));
+            self.replace_history(next);
             self.save_clipboard()?;
             self.emit_snapshot();
         }
@@ -365,14 +343,22 @@ impl ClipboardHistoryService {
             .trim();
         let (content, item_path) = if !data_url.is_empty() {
             write_image_clipboard_from_data_url(data_url)?;
-            match read_image_clipboard()? {
-                Some(image) => write_clipboard_image(&self.output_root, image.hash, &image.png)?,
-                None => (data_url.to_string(), String::new()),
-            }
+            let bytes = decode_image_data_url(data_url)?;
+            let encoded = normalize_image_bytes_to_png(&bytes)?;
+            let asset = write_managed_png_image(
+                &self.output_root,
+                &encoded.png,
+                encoded.width,
+                encoded.height,
+            )?;
+            (asset.reference, asset.path)
         } else if !path.is_empty() {
             let data_url = read_output_image(&self.output_root, path)?;
             write_image_clipboard_from_data_url(&data_url)?;
-            (path.to_string(), path.to_string())
+            (
+                managed_image_reference_from_reference(path).unwrap_or_else(|| path.to_string()),
+                path.to_string(),
+            )
         } else {
             return Err("图片剪贴板写入需要 dataUrl 或 path".to_string());
         };
@@ -401,6 +387,72 @@ impl ClipboardHistoryService {
         self.save_collections_state()?;
         self.emit_snapshot();
         serde_json::to_value(self.snapshot()).map_err(|e| e.to_string())
+    }
+
+    fn save_collections_and_emit_after(
+        &mut self,
+        previous: CollectionsDoc,
+    ) -> Result<Value, String> {
+        delete_unreferenced_managed_collection_images(
+            &self.output_root,
+            &previous,
+            &self.history,
+            &self.collections,
+        );
+        self.save_collections_and_emit()
+    }
+
+    fn read_clipboard_image_draft(&mut self) -> Result<Value, String> {
+        let Some(image) = read_image_clipboard()? else {
+            return Err("剪贴板中没有图片".to_string());
+        };
+        serde_json::to_value(ClipboardImageDraft {
+            data_url: image_data_url("image/png", &image.png),
+            mime: "image/png".to_string(),
+            width: image.width,
+            height: image.height,
+        })
+        .map_err(|e| e.to_string())
+    }
+
+    fn create_collection_item(&mut self, params: Value) -> Result<Value, String> {
+        let parent_id = str_param(&params, "parentId");
+        let title = str_param(&params, "title");
+        let content = collection_content_param(&self.output_root, &params)?;
+        match content {
+            CollectionItemContent::Text { text } => {
+                create_text_item(&mut self.collections, parent_id, title, &text);
+                self.save_collections_and_emit()
+            }
+            image @ CollectionItemContent::Image { .. } => {
+                let default_title = collection_item_text(&image);
+                create_image_item(
+                    &mut self.collections,
+                    parent_id,
+                    title,
+                    image,
+                    &default_title,
+                );
+                self.save_collections_and_emit()
+            }
+        }
+    }
+
+    fn update_collection_item(&mut self, params: Value) -> Result<Value, String> {
+        let previous = self.collections.clone();
+        let item_id = str_param(&params, "itemId");
+        let title = str_param(&params, "title");
+        let content = collection_content_param(&self.output_root, &params)?;
+        match content {
+            CollectionItemContent::Text { text } => {
+                update_text_item(&mut self.collections, item_id, title, &text);
+            }
+            image @ CollectionItemContent::Image { .. } => {
+                let default_title = collection_item_text(&image);
+                update_image_item(&mut self.collections, item_id, title, image, &default_title);
+            }
+        }
+        self.save_collections_and_emit_after(previous)
     }
 
     fn import_legacy(&mut self, source_dir: &str) -> Result<Value, String> {
@@ -441,7 +493,12 @@ impl ClipboardHistoryService {
 
     fn replace_history(&mut self, next_history: Vec<ClipboardHistoryItem>) {
         let previous = std::mem::replace(&mut self.history, next_history);
-        delete_unreferenced_managed_history_images(&self.output_root, &previous, &self.history);
+        delete_unreferenced_managed_history_images(
+            &self.output_root,
+            &previous,
+            &self.history,
+            &self.collections,
+        );
     }
 
     fn save_collections_state(&self) -> Result<(), String> {
@@ -462,4 +519,111 @@ impl ClipboardHistoryService {
 
 fn str_param<'a>(params: &'a Value, key: &str) -> &'a str {
     params.get(key).and_then(Value::as_str).unwrap_or("")
+}
+
+fn collection_content_param(
+    output_root: &Path,
+    params: &Value,
+) -> Result<CollectionItemContent, String> {
+    let content = params
+        .get("content")
+        .ok_or_else(|| "收藏条目内容不能为空".to_string())?;
+    let content_type = content
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    match content_type {
+        "text" => {
+            let text = content
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim();
+            if text.is_empty() {
+                return Err("正文内容不能为空".to_string());
+            }
+            Ok(CollectionItemContent::Text {
+                text: text.to_string(),
+            })
+        }
+        "image" => collection_image_content_param(output_root, content),
+        _ => Err("收藏条目类型无效".to_string()),
+    }
+}
+
+fn collection_image_content_param(
+    output_root: &Path,
+    content: &Value,
+) -> Result<CollectionItemContent, String> {
+    let data_url = content
+        .get("dataUrl")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    let source_name = content
+        .get("sourceName")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned);
+
+    if !data_url.is_empty() {
+        let bytes = decode_image_data_url(data_url)?;
+        let encoded = normalize_image_bytes_to_png(&bytes)?;
+        let asset =
+            write_managed_png_image(output_root, &encoded.png, encoded.width, encoded.height)?;
+        return Ok(CollectionItemContent::Image {
+            reference: asset.reference,
+            path: asset.path,
+            mime: asset.mime,
+            width: asset.width,
+            height: asset.height,
+            source_name,
+        });
+    }
+
+    let reference = content
+        .get("reference")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    let path = content
+        .get("path")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim();
+    let lookup = if path.is_empty() { reference } else { path };
+    if lookup.is_empty() {
+        return Err("图片内容不能为空".to_string());
+    }
+    let managed_reference = managed_image_reference_from_reference(lookup)
+        .or_else(|| managed_image_reference_from_reference(reference))
+        .ok_or_else(|| "图片引用必须来自托管图片仓库".to_string())?;
+    read_output_image(output_root, lookup)?;
+    let width = content
+        .get("width")
+        .and_then(Value::as_u64)
+        .filter(|v| *v > 0)
+        .ok_or_else(|| "图片宽度无效".to_string())? as u32;
+    let height = content
+        .get("height")
+        .and_then(Value::as_u64)
+        .filter(|v| *v > 0)
+        .ok_or_else(|| "图片高度无效".to_string())? as u32;
+    let mime = content
+        .get("mime")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| value.starts_with("image/"))
+        .unwrap_or("image/png")
+        .to_string();
+    Ok(CollectionItemContent::Image {
+        reference: managed_reference,
+        path: lookup.to_string(),
+        mime,
+        width,
+        height,
+        source_name,
+    })
 }

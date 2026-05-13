@@ -11,6 +11,7 @@ export const ClipboardHistoryRpc = {
   },
   images: {
     readOutput: 'clipboardHistory.images.readOutput',
+    readClipboard: 'clipboardHistory.images.readClipboard',
     scanOrphans: 'clipboardHistory.images.scanOrphans',
     deleteOrphans: 'clipboardHistory.images.deleteOrphans',
   },

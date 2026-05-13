@@ -33,7 +33,13 @@ struct MigrationStep {
     apply: fn(&Path) -> Result<(), String>,
 }
 
-const MIGRATION_STEPS: &[MigrationStep] = &[];
+const MIGRATION_STEPS: &[MigrationStep] = &[MigrationStep {
+    id: "collections-item-content-v2",
+    from_version: 1,
+    to_version: 2,
+    description: "将收藏条目正文升级为显式文本/图片内容模型",
+    apply: migrate_collections_item_content_v2,
+}];
 
 pub fn ensure_ready(root: &Path) -> Result<(), String> {
     fs::create_dir_all(root).map_err(|e| format!("创建数据目录失败: {e}"))?;
@@ -108,10 +114,7 @@ fn read_meta(root: &Path) -> Result<StoreMeta, String> {
         .get("schemaVersion")
         .and_then(Value::as_u64)
         .unwrap_or(STORAGE_SCHEMA_VERSION);
-    let data_version = raw
-        .get("dataVersion")
-        .and_then(Value::as_u64)
-        .unwrap_or(DATA_VERSION);
+    let data_version = raw.get("dataVersion").and_then(Value::as_u64).unwrap_or(1);
     let updated_at = raw.get("updatedAt").and_then(Value::as_u64).unwrap_or(0);
     Ok(StoreMeta {
         schema_version,
@@ -123,9 +126,51 @@ fn read_meta(root: &Path) -> Result<StoreMeta, String> {
 fn current_meta() -> StoreMeta {
     StoreMeta {
         schema_version: STORAGE_SCHEMA_VERSION,
-        data_version: DATA_VERSION,
+        data_version: 1,
         updated_at: now_ms(),
     }
+}
+
+fn migrate_collections_item_content_v2(root: &Path) -> Result<(), String> {
+    let path = root.join("collections.json");
+    let Ok(text) = fs::read_to_string(&path) else {
+        return Ok(());
+    };
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+
+    let mut value: Value =
+        serde_json::from_str(trimmed).map_err(|e| format!("解析 collections.json 失败: {e}"))?;
+    let Some(doc) = value.as_object_mut() else {
+        return Ok(());
+    };
+    let Some(nodes) = doc.get_mut("nodes").and_then(Value::as_object_mut) else {
+        return Ok(());
+    };
+
+    for node in nodes.values_mut() {
+        let Some(node_obj) = node.as_object_mut() else {
+            continue;
+        };
+        if node_obj.get("type").and_then(Value::as_str) != Some("item") {
+            continue;
+        }
+        let Some(content) = node_obj.get_mut("content") else {
+            continue;
+        };
+        if let Some(content_obj) = content.as_object_mut() {
+            if !content_obj.contains_key("type") && content_obj.contains_key("text") {
+                content_obj.insert("type".to_string(), Value::from("text"));
+            }
+            continue;
+        }
+        let text = content.as_str().unwrap_or_default().trim().to_string();
+        *content = serde_json::json!({ "type": "text", "text": text });
+    }
+    doc.insert("version".to_string(), Value::from(2));
+    atomic_write_json(&path, &value)
 }
 
 fn read_meta_object(path: &Path) -> Option<Map<String, Value>> {

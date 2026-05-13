@@ -1,9 +1,10 @@
 use crate::data_contract::{FALLBACK_IMAGES_DIR_NAME, OUTPUT_IMAGES_DIR_NAME};
+use crate::image_codec::image_data_url;
 use crate::model::{
-    ClipboardHistoryItem, OrphanImageCleanupReport, OrphanImageDeleteFailure, OrphanImageEntry,
-    OrphanImageReport,
+    ClipboardHistoryItem, CollectionItemContent, CollectionNode, CollectionsDoc,
+    OrphanImageCleanupReport, OrphanImageDeleteFailure, OrphanImageEntry, OrphanImageReport,
 };
-use base64::Engine as _;
+use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,30 +12,45 @@ use std::path::{Path, PathBuf};
 const MANAGED_IMAGE_PREFIX: &str = "clipboard-image-";
 const MANAGED_IMAGE_SUFFIX: &str = ".png";
 
-pub fn write_clipboard_image(
+pub struct ManagedImageAsset {
+    pub reference: String,
+    pub path: String,
+    pub mime: String,
+    pub width: u32,
+    pub height: u32,
+}
+
+pub fn write_managed_png_image(
     output_root: &Path,
-    hash: u32,
     png: &[u8],
-) -> Result<(String, String), String> {
+    width: u32,
+    height: u32,
+) -> Result<ManagedImageAsset, String> {
+    if png.is_empty() {
+        return Err("图片数据为空".to_string());
+    }
+    if width == 0 || height == 0 {
+        return Err("图片尺寸无效".to_string());
+    }
+
     fs::create_dir_all(output_root).map_err(|e| format!("创建图片目录失败: {e}"))?;
-    let hash_hex = format!("{hash:08x}");
-    let filename = format!("clipboard-image-{hash_hex}.png");
+    let hash = sha256_hex(png);
+    let filename = format!("{MANAGED_IMAGE_PREFIX}{hash}{MANAGED_IMAGE_SUFFIX}");
     let full = output_root.join(&filename);
     fs::write(&full, png).map_err(|e| format!("写入图片失败: {e}"))?;
-    Ok((
-        format!("img:{hash_hex}"),
-        full.to_string_lossy().to_string(),
-    ))
+    Ok(ManagedImageAsset {
+        reference: format!("img:{hash}"),
+        path: full.to_string_lossy().to_string(),
+        mime: "image/png".to_string(),
+        width,
+        height,
+    })
 }
 
 pub fn read_output_image(output_root: &Path, requested: &str) -> Result<String, String> {
     let path = resolve_output_image_path(output_root, requested)?;
     let bytes = fs::read(&path).map_err(|e| format!("读取图片失败: {e}"))?;
-    let mime = output_image_mime(&path);
-    Ok(format!(
-        "data:{mime};base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(bytes)
-    ))
+    Ok(image_data_url(output_image_mime(&path), &bytes))
 }
 
 pub fn resolve_output_image_path(output_root: &Path, requested: &str) -> Result<PathBuf, String> {
@@ -60,47 +76,43 @@ pub fn output_image_mime(path: &Path) -> &'static str {
     }
 }
 
-pub fn delete_managed_output_image(output_root: &Path, requested: &str) {
-    if managed_clipboard_image_file_name_from_reference(requested).is_none() {
-        return;
-    }
-    if let Ok(path) = resolve_output_path(output_root, requested) {
-        let _ = fs::remove_file(path);
-    }
-}
-
 pub fn delete_unreferenced_managed_history_images(
     output_root: &Path,
     previous: &[ClipboardHistoryItem],
     current: &[ClipboardHistoryItem],
+    collections: &CollectionsDoc,
 ) {
-    let live_paths = referenced_managed_image_paths(output_root, current);
+    let live_paths = referenced_managed_image_paths(output_root, current, collections);
     let mut seen = BTreeSet::new();
     for item in previous {
         if item.item_type != "image" {
             continue;
         }
-        for reference in image_item_references(item) {
-            if managed_clipboard_image_file_name_from_reference(&reference).is_none() {
-                continue;
-            }
-            let Ok(path) = resolve_output_path(output_root, &reference) else {
-                continue;
-            };
-            let key = path_key(&path);
-            if live_paths.contains(&key) || !seen.insert(key) {
-                continue;
-            }
-            let _ = fs::remove_file(path);
+        for reference in history_image_references(item) {
+            delete_reference_if_unreferenced(output_root, &reference, &live_paths, &mut seen);
         }
+    }
+}
+
+pub fn delete_unreferenced_managed_collection_images(
+    output_root: &Path,
+    previous: &CollectionsDoc,
+    history: &[ClipboardHistoryItem],
+    current: &CollectionsDoc,
+) {
+    let live_paths = referenced_managed_image_paths(output_root, history, current);
+    let mut seen = BTreeSet::new();
+    for reference in collection_image_references(previous) {
+        delete_reference_if_unreferenced(output_root, &reference, &live_paths, &mut seen);
     }
 }
 
 pub fn scan_orphan_managed_images(
     output_root: &Path,
     history: &[ClipboardHistoryItem],
+    collections: &CollectionsDoc,
 ) -> Result<OrphanImageReport, String> {
-    let referenced_paths = referenced_managed_image_paths(output_root, history);
+    let referenced_paths = referenced_managed_image_paths(output_root, history, collections);
     let mut scanned_files = 0;
     let mut orphan_bytes = 0;
     let mut orphans = Vec::new();
@@ -148,8 +160,9 @@ pub fn scan_orphan_managed_images(
 pub fn delete_orphan_managed_images(
     output_root: &Path,
     history: &[ClipboardHistoryItem],
+    collections: &CollectionsDoc,
 ) -> Result<OrphanImageCleanupReport, String> {
-    let detected = scan_orphan_managed_images(output_root, history)?;
+    let detected = scan_orphan_managed_images(output_root, history, collections)?;
     let mut deleted_count = 0;
     let mut deleted_bytes = 0;
     let mut failed = Vec::new();
@@ -171,7 +184,7 @@ pub fn delete_orphan_managed_images(
         }
     }
 
-    let remaining = scan_orphan_managed_images(output_root, history)?;
+    let remaining = scan_orphan_managed_images(output_root, history, collections)?;
     Ok(OrphanImageCleanupReport {
         detected,
         deleted_count,
@@ -183,6 +196,33 @@ pub fn delete_orphan_managed_images(
 
 pub fn managed_clipboard_image_file_name_from_reference(reference: &str) -> Option<String> {
     managed_clipboard_image_file_name(reference).or_else(|| image_file_name_from_token(reference))
+}
+
+pub fn managed_image_reference_from_reference(reference: &str) -> Option<String> {
+    let file_name = managed_clipboard_image_file_name_from_reference(reference)?;
+    let hash = file_name
+        .strip_prefix(MANAGED_IMAGE_PREFIX)?
+        .strip_suffix(MANAGED_IMAGE_SUFFIX)?;
+    Some(format!("img:{hash}"))
+}
+
+fn delete_reference_if_unreferenced(
+    output_root: &Path,
+    reference: &str,
+    live_paths: &BTreeSet<String>,
+    seen: &mut BTreeSet<String>,
+) {
+    if managed_clipboard_image_file_name_from_reference(reference).is_none() {
+        return;
+    }
+    let Ok(path) = resolve_output_path(output_root, reference) else {
+        return;
+    };
+    let key = path_key(&path);
+    if live_paths.contains(&key) || !seen.insert(key) {
+        return;
+    }
+    let _ = fs::remove_file(path);
 }
 
 fn resolve_output_path(output_root: &Path, requested: &str) -> Result<PathBuf, String> {
@@ -217,25 +257,33 @@ fn resolve_output_path(output_root: &Path, requested: &str) -> Result<PathBuf, S
 fn referenced_managed_image_paths(
     output_root: &Path,
     history: &[ClipboardHistoryItem],
+    collections: &CollectionsDoc,
 ) -> BTreeSet<String> {
     let mut out = BTreeSet::new();
     for item in history {
         if item.item_type != "image" {
             continue;
         }
-        for reference in image_item_references(item) {
-            if managed_clipboard_image_file_name_from_reference(&reference).is_none() {
-                continue;
-            }
-            if let Ok(path) = resolve_output_path(output_root, &reference) {
-                out.insert(path_key(&path));
-            }
+        for reference in history_image_references(item) {
+            insert_managed_reference_path(output_root, &reference, &mut out);
         }
+    }
+    for reference in collection_image_references(collections) {
+        insert_managed_reference_path(output_root, &reference, &mut out);
     }
     out
 }
 
-fn image_item_references(item: &ClipboardHistoryItem) -> Vec<String> {
+fn insert_managed_reference_path(output_root: &Path, reference: &str, out: &mut BTreeSet<String>) {
+    if managed_clipboard_image_file_name_from_reference(reference).is_none() {
+        return;
+    }
+    if let Ok(path) = resolve_output_path(output_root, reference) {
+        out.insert(path_key(&path));
+    }
+}
+
+fn history_image_references(item: &ClipboardHistoryItem) -> Vec<String> {
     let mut refs = Vec::new();
     if let Some(path) = item
         .path
@@ -248,6 +296,30 @@ fn image_item_references(item: &ClipboardHistoryItem) -> Vec<String> {
     let content = item.content.trim();
     if !content.is_empty() && !refs.iter().any(|item| item == content) {
         refs.push(content.to_string());
+    }
+    refs
+}
+
+fn collection_image_references(collections: &CollectionsDoc) -> Vec<String> {
+    let mut refs = Vec::new();
+    for node in collections.nodes.values() {
+        let CollectionNode::Item { content, .. } = node else {
+            continue;
+        };
+        let CollectionItemContent::Image {
+            reference, path, ..
+        } = content
+        else {
+            continue;
+        };
+        let trimmed_path = path.trim();
+        if !trimmed_path.is_empty() {
+            refs.push(trimmed_path.to_string());
+        }
+        let trimmed_reference = reference.trim();
+        if !trimmed_reference.is_empty() && !refs.iter().any(|item| item == trimmed_reference) {
+            refs.push(trimmed_reference.to_string());
+        }
     }
     refs
 }
@@ -289,8 +361,8 @@ fn is_path_inside_allowed_roots(output_root: &Path, full: &Path) -> bool {
 }
 
 fn image_file_name_from_token(value: &str) -> Option<String> {
-    let hash = value.trim().strip_prefix("img:")?;
-    is_8_hex(hash).then(|| format!("{MANAGED_IMAGE_PREFIX}{hash}{MANAGED_IMAGE_SUFFIX}"))
+    let hash = value.trim().strip_prefix("img:")?.to_ascii_lowercase();
+    is_managed_hash(&hash).then(|| format!("{MANAGED_IMAGE_PREFIX}{hash}{MANAGED_IMAGE_SUFFIX}"))
 }
 
 fn managed_clipboard_image_file_name(path: &str) -> Option<String> {
@@ -299,13 +371,21 @@ fn managed_clipboard_image_file_name(path: &str) -> Option<String> {
     if !name.starts_with(MANAGED_IMAGE_PREFIX) || !name.ends_with(MANAGED_IMAGE_SUFFIX) {
         return None;
     }
-    if name.len() != "clipboard-image-00000000.png".len() {
-        return None;
-    }
-    let hash = &name[MANAGED_IMAGE_PREFIX.len().."clipboard-image-00000000".len()];
-    is_8_hex(hash).then_some(name)
+    let hash = name
+        .strip_prefix(MANAGED_IMAGE_PREFIX)?
+        .strip_suffix(MANAGED_IMAGE_SUFFIX)?;
+    is_managed_hash(hash).then_some(name)
 }
 
-fn is_8_hex(value: &str) -> bool {
-    value.len() == 8 && value.bytes().all(|b| b.is_ascii_hexdigit())
+fn is_managed_hash(value: &str) -> bool {
+    matches!(value.len(), 8 | 64) && value.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut out = String::with_capacity(64);
+    for byte in digest {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
 }

@@ -2,6 +2,7 @@ import { CLIPBOARD_PAGE_SIZE, DEFAULT_SETTINGS } from '../shared/constants'
 import type {
   ClipboardHistoryItem,
   ClipboardHistorySettings,
+  ClipboardImageDraft,
   CollectionsDoc,
   DeletedHistoryMap,
   LegacyDataImportReport,
@@ -32,6 +33,7 @@ export type ClipboardHistoryUiState = {
   showItemEditor: boolean
   draftTitle: string
   draftContent: string
+  draftImage: ClipboardImageDraft | null
   showFolderEditor: boolean
   draftFolderName: string
   deleteArmedId: string
@@ -40,7 +42,7 @@ export type ClipboardHistoryUiState = {
   navForward: string[]
   ctxMenu: { open: boolean; x: number; y: number; nodeId: string }
   movePicker: { open: boolean; movingId: string; query: string; action: MovePickerAction }
-  editDialog: { open: boolean; nodeId: string; folderName: string; itemTitle: string; itemContent: string }
+  editDialog: { open: boolean; nodeId: string; folderName: string; itemTitle: string; itemContent: string; itemImage: ClipboardImageDraft | null }
   legacyImportReport: LegacyDataImportReport | null
 }
 
@@ -70,6 +72,7 @@ export function createClipboardHistoryUiState(): ClipboardHistoryUiState {
     showItemEditor: false,
     draftTitle: '',
     draftContent: '',
+    draftImage: null,
 
     showFolderEditor: false,
     draftFolderName: '',
@@ -82,7 +85,7 @@ export function createClipboardHistoryUiState(): ClipboardHistoryUiState {
 
     ctxMenu: { open: false, x: 0, y: 0, nodeId: '' },
     movePicker: { open: false, movingId: '', query: '', action: 'move' },
-    editDialog: { open: false, nodeId: '', folderName: '', itemTitle: '', itemContent: '' },
+    editDialog: { open: false, nodeId: '', folderName: '', itemTitle: '', itemContent: '', itemImage: null },
     legacyImportReport: null,
   }
 }

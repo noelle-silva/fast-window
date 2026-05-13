@@ -7,10 +7,12 @@ import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import DragIndicatorRoundedIcon from '@mui/icons-material/DragIndicatorRounded'
 import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
+import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
 import NoteAddRoundedIcon from '@mui/icons-material/NoteAddRounded'
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
 import { Box, Breadcrumbs, Button, Chip, IconButton, Paper, Stack, Typography } from '@mui/material'
-import type { CollectionItemNode, CollectionNode } from '../../shared/types'
+import { itemText } from '../../shared/collectionsDomain'
+import type { CollectionImageContent, CollectionItemNode, CollectionNode } from '../../shared/types'
 import { EmptyState } from '../components/EmptyState'
 import {
   resolveSortMovePosition,
@@ -269,7 +271,7 @@ function SearchResultCard(props: { item: CollectionItemNode; folderId: string; p
       sx={{ p: 1.25, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
     >
       <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mb: 0.75 }} onClick={(event) => event.stopPropagation()}>
-        <Chip size="small" label="文本" />
+        <Chip size="small" label={item.content.type === 'image' ? '图片' : '文本'} />
         <Chip size="small" label={path} />
         <Box sx={{ flex: 1 }} />
         <IconButton size="small" title="打开所在收藏夹" onClick={() => {
@@ -282,7 +284,7 @@ function SearchResultCard(props: { item: CollectionItemNode; folderId: string; p
           <ContentCopyRoundedIcon fontSize="small" />
         </IconButton>
       </Stack>
-      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.55 }}>{item.content || ''}</Typography>
+      <ItemContentPreview content={item.content} controller={controller} />
     </Box>
   )
 }
@@ -345,7 +347,7 @@ function FolderCard(props: {
           </>
         ) : (
           <>
-            <Chip size="small" label="文本" />
+            <Chip size="small" icon={node.content.type === 'image' ? <ImageRoundedIcon fontSize="small" /> : undefined} label={node.content.type === 'image' ? '图片' : '文本'} />
             <Chip size="small" label={node.title || ''} />
           </>
         )}
@@ -366,8 +368,36 @@ function FolderCard(props: {
         </IconButton>
       </Stack>
       {node.type === 'item' ? (
-        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.55 }}>{node.content || ''}</Typography>
+        <ItemContentPreview content={node.content} controller={controller} />
       ) : null}
     </Box>
+  )
+}
+
+function ItemContentPreview(props: { content: CollectionItemNode['content']; controller: ClipboardHistoryController }) {
+  const { content, controller } = props
+  if (content.type === 'image') return <CollectionImagePreview image={content} controller={controller} />
+  return <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.55 }}>{itemText(content)}</Typography>
+}
+
+function CollectionImagePreview(props: { image: CollectionImageContent; controller: ClipboardHistoryController }) {
+  const { image, controller } = props
+  const directSrc = React.useMemo(() => controller.collectionImageUrl(image), [controller, image])
+  return (
+    <Stack alignItems="flex-start" spacing={0.75}>
+      <Box
+        component="img"
+        src={directSrc}
+        alt={image.sourceName || '收藏图片'}
+        decoding="async"
+        loading="lazy"
+        sx={{ display: 'block', maxWidth: '100%', maxHeight: 220, objectFit: 'contain', borderRadius: 1.25, bgcolor: 'action.hover' }}
+      />
+      <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+        <Chip size="small" icon={<ImageRoundedIcon fontSize="small" />} label="图片" />
+        <Chip size="small" label={`${image.width} x ${image.height}`} />
+        {image.sourceName ? <Chip size="small" label={image.sourceName} /> : null}
+      </Stack>
+    </Stack>
   )
 }

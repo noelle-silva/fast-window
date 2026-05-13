@@ -1,8 +1,8 @@
 use crate::model::{
-    ClipboardHistoryItem, ClipboardHistorySettings, CollectionNode, CollectionsDoc,
-    DeletedHistoryMap, InternalCopyMarker,
+    ClipboardHistoryItem, ClipboardHistorySettings, CollectionItemContent, CollectionNode,
+    CollectionsDoc, DeletedHistoryMap, InternalCopyMarker,
 };
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -200,11 +200,12 @@ pub fn ensure_collections(raw: Option<Value>) -> CollectionsDoc {
         },
     );
     let empty = CollectionsDoc {
-        version: 1,
+        version: 2,
         root_id: root_id.clone(),
         nodes,
     };
     let Some(value) = raw else { return empty };
+    let value = normalize_collections_value(value);
     let Ok(doc) = serde_json::from_value::<CollectionsDoc>(value) else {
         return empty;
     };
@@ -215,6 +216,38 @@ pub fn ensure_collections(raw: Option<Value>) -> CollectionsDoc {
         return empty;
     }
     doc
+}
+
+fn normalize_collections_value(mut value: Value) -> Value {
+    let Some(doc) = value.as_object_mut() else {
+        return value;
+    };
+    if doc.get("version").and_then(Value::as_u64).unwrap_or(1) < 2 {
+        doc.insert("version".to_string(), Value::from(2));
+    }
+    let Some(nodes) = doc.get_mut("nodes").and_then(Value::as_object_mut) else {
+        return value;
+    };
+    for node in nodes.values_mut() {
+        let Some(node_obj) = node.as_object_mut() else {
+            continue;
+        };
+        if node_obj.get("type").and_then(Value::as_str) != Some("item") {
+            continue;
+        }
+        let Some(content) = node_obj.get_mut("content") else {
+            continue;
+        };
+        if let Some(content_obj) = content.as_object_mut() {
+            if !content_obj.contains_key("type") && content_obj.contains_key("text") {
+                content_obj.insert("type".to_string(), Value::from("text"));
+            }
+            continue;
+        }
+        let text = content.as_str().unwrap_or_default().trim().to_string();
+        *content = json!({ "type": "text", "text": text });
+    }
+    value
 }
 
 pub fn get_node<'a>(doc: &'a CollectionsDoc, id: &str) -> Option<&'a CollectionNode> {
@@ -311,18 +344,53 @@ pub fn create_folder(doc: &mut CollectionsDoc, parent_id: &str, name: &str) {
     insert_child(doc, parent_id, &id, None);
 }
 
-pub fn create_item(doc: &mut CollectionsDoc, parent_id: &str, title: &str, content: &str) {
+pub fn create_text_item(doc: &mut CollectionsDoc, parent_id: &str, title: &str, text: &str) {
     if !is_folder(doc, parent_id) {
         return;
     }
-    let safe_content = content.trim();
-    if safe_content.is_empty() {
+    let safe_text = text.trim();
+    if safe_text.is_empty() {
+        return;
+    }
+    create_item_with_content(
+        doc,
+        parent_id,
+        title,
+        CollectionItemContent::Text {
+            text: safe_text.to_string(),
+        },
+        safe_text,
+    );
+}
+
+pub fn create_image_item(
+    doc: &mut CollectionsDoc,
+    parent_id: &str,
+    title: &str,
+    content: CollectionItemContent,
+    default_title_source: &str,
+) {
+    if !matches!(content, CollectionItemContent::Image { .. }) {
+        return;
+    }
+    create_item_with_content(doc, parent_id, title, content, default_title_source);
+}
+
+fn create_item_with_content(
+    doc: &mut CollectionsDoc,
+    parent_id: &str,
+    title: &str,
+    content: CollectionItemContent,
+    default_title_source: &str,
+) {
+    if !is_folder(doc, parent_id) {
         return;
     }
     let now = now_ms();
     let id = make_id();
     let safe_title = title.trim();
-    let default_title = safe_content
+    let default_title = default_title_source
+        .trim()
         .lines()
         .next()
         .unwrap_or("未命名条目")
@@ -338,7 +406,7 @@ pub fn create_item(doc: &mut CollectionsDoc, parent_id: &str, title: &str, conte
             } else {
                 safe_title.to_string()
             },
-            content: safe_content.to_string(),
+            content,
             created_at: now,
             updated_at: now,
         },
@@ -364,34 +432,67 @@ pub fn update_folder_name(doc: &mut CollectionsDoc, folder_id: &str, name: &str)
     }
 }
 
-pub fn update_item(doc: &mut CollectionsDoc, item_id: &str, title: &str, content: &str) {
-    let safe_content = content.trim();
-    if safe_content.is_empty() {
+pub fn update_text_item(doc: &mut CollectionsDoc, item_id: &str, title: &str, text: &str) {
+    let safe_text = text.trim();
+    if safe_text.is_empty() {
         return;
     }
-    if let Some(CollectionNode::Item {
+    update_item_content(
+        doc,
+        item_id,
+        title,
+        CollectionItemContent::Text {
+            text: safe_text.to_string(),
+        },
+        safe_text,
+    );
+}
+
+pub fn update_image_item(
+    doc: &mut CollectionsDoc,
+    item_id: &str,
+    title: &str,
+    content: CollectionItemContent,
+    default_title_source: &str,
+) {
+    if !matches!(content, CollectionItemContent::Image { .. }) {
+        return;
+    }
+    update_item_content(doc, item_id, title, content, default_title_source);
+}
+
+fn update_item_content(
+    doc: &mut CollectionsDoc,
+    item_id: &str,
+    title: &str,
+    content: CollectionItemContent,
+    default_title_source: &str,
+) {
+    let Some(CollectionNode::Item {
         title: item_title,
         content: item_content,
         updated_at,
         ..
     }) = get_node_mut(doc, item_id)
-    {
-        let safe_title = title.trim();
-        let default_title = safe_content
-            .lines()
-            .next()
-            .unwrap_or("未命名条目")
-            .chars()
-            .take(24)
-            .collect::<String>();
-        *item_title = if safe_title.is_empty() {
-            default_title
-        } else {
-            safe_title.to_string()
-        };
-        *item_content = safe_content.to_string();
-        *updated_at = now_ms();
-    }
+    else {
+        return;
+    };
+    let safe_title = title.trim();
+    let default_title = default_title_source
+        .trim()
+        .lines()
+        .next()
+        .unwrap_or("未命名条目")
+        .chars()
+        .take(24)
+        .collect::<String>();
+    *item_title = if safe_title.is_empty() {
+        default_title
+    } else {
+        safe_title.to_string()
+    };
+    *item_content = content;
+    *updated_at = now_ms();
 }
 
 pub fn move_node(
@@ -435,7 +536,28 @@ pub fn copy_item(doc: &mut CollectionsDoc, item_id: &str, to_parent_id: &str) {
     let Some(CollectionNode::Item { title, content, .. }) = doc.nodes.get(item_id).cloned() else {
         return;
     };
-    create_item(doc, to_parent_id, &title, &content);
+    let default_title_source = collection_item_title_source(&content);
+    create_item_with_content(doc, to_parent_id, &title, content, &default_title_source);
+}
+
+pub fn collection_item_text(content: &CollectionItemContent) -> String {
+    match content {
+        CollectionItemContent::Text { text } => text.clone(),
+        CollectionItemContent::Image { source_name, .. } => source_name
+            .clone()
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| "图片收藏".to_string()),
+    }
+}
+
+fn collection_item_title_source(content: &CollectionItemContent) -> String {
+    match content {
+        CollectionItemContent::Text { text } => text.clone(),
+        CollectionItemContent::Image { source_name, .. } => source_name
+            .clone()
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| "图片收藏".to_string()),
+    }
 }
 
 pub fn empty_internal_copy() -> InternalCopyMarker {

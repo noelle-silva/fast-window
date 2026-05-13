@@ -37,19 +37,54 @@ export type CollectionFolderNode = {
   updatedAt: number
 }
 
+export type CollectionTextContent = {
+  type: 'text'
+  text: string
+}
+
+export type CollectionImageContent = {
+  type: 'image'
+  reference: string
+  path: string
+  mime: string
+  width: number
+  height: number
+  sourceName?: string
+}
+
+export type CollectionItemContent = CollectionTextContent | CollectionImageContent
+
+export type CollectionItemContentInput =
+  | CollectionTextContent
+  | (Partial<CollectionImageContent> & {
+      type: 'image'
+      dataUrl?: string
+      sourceName?: string
+    })
+
 export type CollectionItemNode = {
   id: string
   type: 'item'
   title: string
-  content: string
+  content: CollectionItemContent
   createdAt: number
   updatedAt: number
+}
+
+export type ClipboardImageDraft = {
+  dataUrl?: string
+  reference?: string
+  path?: string
+  mime: string
+  width: number
+  height: number
+  sourceName?: string
 }
 
 export type CollectionNode = CollectionFolderNode | CollectionItemNode
 
 export type CollectionsDoc = {
-  version: 1
+  version: 2
   rootId: string
   nodes: Record<string, CollectionNode>
 }
