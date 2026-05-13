@@ -170,9 +170,6 @@ importers:
       '@mui/material':
         specifier: ^7.3.6
         version: 7.3.7(@emotion/react@11.14.0(@types/react@18.3.27)(react@18.3.1))(@emotion/styled@11.14.1(@emotion/react@11.14.0(@types/react@18.3.27)(react@18.3.1))(@types/react@18.3.27)(react@18.3.1))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      '@noelle-silva/eucli-aitoolcall-sdk':
-        specifier: ^0.1.6
-        version: 0.1.6
       '@tauri-apps/api':
         specifier: ^2.11.0
         version: 2.11.0

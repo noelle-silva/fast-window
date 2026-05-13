@@ -24,7 +24,6 @@
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^7.3.6",
     "@mui/material": "^7.3.6",
-    "@noelle-silva/eucli-aitoolcall-sdk": "^0.1.6",
     "@tauri-apps/api": "^2.11.0",
     "dompurify": "^3.0.11",
     "jszip": "^3.10.1",

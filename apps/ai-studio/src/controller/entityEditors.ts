@@ -2,7 +2,7 @@ import { now, uid, clamp, clampTemp, normImagePaths } from '../core/utils'
 import { createStateAccessors } from '../state/stateAccessors'
 import { createDefaultChatBranching } from '../domain/branching'
 import { chatMetaFromChat, removeChatMeta, upsertChatMeta } from '../domain/chatMeta'
-import { NEW_ROLE_ID, NEW_GROUP_ID, VERSION, DEFAULT_ATTACH_SEND_LIMIT_CHARS, DEFAULT_ATTACH_MAX_FILE_MB, DEFAULT_MERMAID_FIX_SYSTEM_PROMPT, DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT, DEFAULT_STICKER_NAMING_SYSTEM_PROMPT, DEFAULT_TOOL_CALL_SERVER_BASE_URL } from '../domain/constants'
+import { NEW_ROLE_ID, NEW_GROUP_ID, VERSION, DEFAULT_ATTACH_SEND_LIMIT_CHARS, DEFAULT_ATTACH_MAX_FILE_MB, DEFAULT_MERMAID_FIX_SYSTEM_PROMPT, DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT, DEFAULT_STICKER_NAMING_SYSTEM_PROMPT } from '../domain/constants'
 import { isAssistantGenerating } from '../domain/assistantRunState'
 
 function looksLikeImageDataUrl(s: any): boolean {
@@ -110,8 +110,6 @@ export function createEntityEditors(deps: {
         composerOpacity: 86,
         composerBlur: 10,
         branchTree: { dir: 'lr', view: 'float', followSelected: true, modalHotkey: '' },
-        toolRequestRenderPreset: 'classic',
-        toolRequestRenderPresets: [],
         renderSafetyPolicy: 'original',
         userMessageCollapseEnabled: false,
         userMessageCollapseLines: 8,
@@ -148,10 +146,6 @@ export function createEntityEditors(deps: {
             customModelId: '',
             systemPrompt: DEFAULT_STICKER_NAMING_SYSTEM_PROMPT,
           },
-        },
-        toolCallServer: {
-          baseUrl: DEFAULT_TOOL_CALL_SERVER_BASE_URL,
-          token: '',
         },
         providers: [{
           id: pid,

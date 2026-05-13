@@ -1,6 +1,5 @@
 import { esc } from '../core/utils'
 import './vendor'
-import type { ToolRequestRenderPreset } from '../core/toolRequestPresets'
 import { enhanceCodeBlocks } from './copy'
 import { createMarkdownRenderer, preprocessHtmlIndentation } from './markdown'
 import { createMermaidSupport } from './mermaid'
@@ -8,7 +7,6 @@ import { preprocessAssistantContent } from './preprocess'
 import { REF_IMG_PLACEHOLDER, createRefImageHydrator, markPreviewImages } from './refImages'
 import { createHtmlSanitizer, sanitizeSvg } from './sanitize'
 import { hydrateStickerSizes } from './stickers'
-import { ensureToolReqCssOnce, ensureToolRequestToggleHandlerOnce, renderToolRequestHtml } from './toolRequestUi'
 import type { BoolRef } from './types'
 import { enhanceMathCopyButtons } from './mathCopy'
 import type { AiChatCapabilities } from '../gateway/capabilities'
@@ -25,7 +23,6 @@ export type AssistantRenderEngine = {
     options?: {
       stickersEnabled?: boolean
       getStickerPath?: (category: string, name: string) => string
-      toolRequestPreset?: ToolRequestRenderPreset | null
       renderSafetyPolicy?: RenderSafetyPolicy
     },
   ) => void
@@ -36,7 +33,6 @@ export function createDefaultAssistantRenderEngine(capabilities: AiChatCapabilit
   const domPurifyHooked: BoolRef = { value: false }
   const mermaidInited: BoolRef = { value: false }
   const markedConfigured: BoolRef = { value: false }
-  const toolReqCssInited: BoolRef = { value: false }
 
   const mermaidSvgCache = new Map<string, string>()
   const refImgCache = new Map<string, string>()
@@ -64,20 +60,17 @@ export function createDefaultAssistantRenderEngine(capabilities: AiChatCapabilit
     options?: {
       stickersEnabled?: boolean
       getStickerPath?: (category: string, name: string) => string
-      toolRequestPreset?: ToolRequestRenderPreset | null
       renderSafetyPolicy?: RenderSafetyPolicy
     },
   ) {
     if (!(el instanceof HTMLElement)) return
     ensureRenderer().catch(() => {})
-    ensureToolReqCssOnce(toolReqCssInited)
     const raw = String(text || '')
     let html = ''
     const renderSafetyPolicy: RenderSafetyPolicy =
       options?.renderSafetyPolicy === 'unsafe' ? 'unsafe' : options?.renderSafetyPolicy === 'baseline' ? 'baseline' : 'original'
 
     const noIndent = preprocessHtmlIndentation(raw)
-    const toolReqPreset = (options as any)?.toolRequestPreset
     const pre = preprocessAssistantContent(noIndent, { stickersEnabled: !!options?.stickersEnabled })
     const src = String(pre.text || '')
     const getStickerPath = typeof options?.getStickerPath === 'function' ? options.getStickerPath : null
@@ -97,17 +90,6 @@ export function createDefaultAssistantRenderEngine(capabilities: AiChatCapabilit
       safe = safe.replace(/@@MERMAID_(\d+)@@/g, (_m: string, id: string) => {
         const code = pre.mermaid[Number(id)] ?? ''
         return `<pre><code class="language-mermaid">${esc(code)}</code></pre>`
-      })
-    }
-    if (Array.isArray(pre.toolRequests) && pre.toolRequests.length) {
-      safe = safe.replace(/@@TOOL_REQUEST_(\d+)@@/g, (_m: string, id: string) => {
-        const it = pre.toolRequests[Number(id)] || null
-        if (!it) return ''
-
-        const toolNames = Array.isArray(it.toolNames) ? it.toolNames : []
-        const summary = toolNames.length ? toolNames.map((n: unknown) => esc(String(n || '').trim() || '(无 tool_name)')).join('<br/>') : esc('(工具调用解析失败)')
-        const detailText = String(it.detailText || '')
-        return renderToolRequestHtml(toolReqPreset, summary, detailText)
       })
     }
     if (Array.isArray(pre.stickers) && pre.stickers.length) {
@@ -130,7 +112,6 @@ export function createDefaultAssistantRenderEngine(capabilities: AiChatCapabilit
     enhanceCodeBlocks(el)
     mermaidSupport.ensureMermaidErrorCopyHandlerOnce(el)
     mermaidSupport.ensureMermaidErrorAiFixHandlerOnce(el)
-    ensureToolRequestToggleHandlerOnce(el)
     markPreviewImages(el)
     hydrateStickerSizes(el)
     refImages.hydrateRefImages(el)

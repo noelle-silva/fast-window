@@ -5,7 +5,6 @@ import {
   DEFAULT_ATTACH_MAX_FILE_MB,
   MAX_ATTACH_MAX_FILE_MB,
   DEFAULT_ATTACH_SEND_LIMIT_CHARS,
-  DEFAULT_TOOL_CALL_SERVER_BASE_URL,
   DEFAULT_MERMAID_FIX_SYSTEM_PROMPT,
   DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT,
   DEFAULT_STICKER_NAMING_SYSTEM_PROMPT,
@@ -23,7 +22,6 @@ import { chatMetasFromBox } from './chatMeta'
 import { looksLikeImageDataUrl } from './textProcessing'
 import { normalizeChatModelOverride, normalizeMessageModelRef } from './modelRefUtils'
 import { normalizeAssistantRunState } from './assistantRunState'
-import { normalizeToolRequestRenderPresets } from '../core/toolRequestPresets'
 
 export function normalizeRenderSafetyPolicy(v0: unknown) {
   const v = String(v0 || '').trim()
@@ -85,8 +83,6 @@ export function defaultData() {
       composerOpacity: 86,
       composerBlur: 10,
       branchTree: { dir: 'lr', view: 'float', followSelected: true, modalHotkey: '' },
-      toolRequestRenderPreset: 'classic',
-      toolRequestRenderPresets: [],
       renderSafetyPolicy: 'original',
       userMessageCollapseEnabled: false,
       userMessageCollapseLines: 8,
@@ -127,10 +123,6 @@ export function defaultData() {
           customModelId: '',
           systemPrompt: DEFAULT_STICKER_NAMING_SYSTEM_PROMPT,
         },
-      },
-      toolCallServer: {
-        baseUrl: DEFAULT_TOOL_CALL_SERVER_BASE_URL,
-        token: '',
       },
       providers: [
         {
@@ -193,8 +185,6 @@ export function normalizeData(raw: any) {
   if (typeof btree.followSelected !== 'boolean') btree.followSelected = true
   if (typeof btree.modalHotkey !== 'string') btree.modalHotkey = ''
   btree.modalHotkey = String(btree.modalHotkey || '').trim().slice(0, 80)
-  if (typeof d.settings.toolRequestRenderPreset !== 'string') d.settings.toolRequestRenderPreset = 'classic'
-  ;(d.settings as any).toolRequestRenderPresets = normalizeToolRequestRenderPresets((d.settings as any).toolRequestRenderPresets)
   ;(d.settings as any).renderSafetyPolicy = normalizeRenderSafetyPolicy((d.settings as any).renderSafetyPolicy)
   if (typeof d.settings.userMessageCollapseEnabled !== 'boolean') d.settings.userMessageCollapseEnabled = false
   if (typeof d.settings.userMessageCollapseLines !== 'number' || !isFinite(d.settings.userMessageCollapseLines)) d.settings.userMessageCollapseLines = 8
@@ -210,7 +200,6 @@ export function normalizeData(raw: any) {
   d.settings.topbarBlur = clamp(Math.round(Number(d.settings.topbarBlur || 0)), 0, 24)
   d.settings.composerOpacity = clamp(Math.round(Number(d.settings.composerOpacity || 0)), 40, 100)
   d.settings.composerBlur = clamp(Math.round(Number(d.settings.composerBlur || 0)), 0, 24)
-  d.settings.toolRequestRenderPreset = String(d.settings.toolRequestRenderPreset || '').trim().slice(0, 60) || 'classic'
   ;(d.settings as any).renderSafetyPolicy = normalizeRenderSafetyPolicy((d.settings as any).renderSafetyPolicy)
   d.settings.userMessageCollapseLines = clamp(Math.round(Number(d.settings.userMessageCollapseLines || 8)), 1, 50)
   at.sendLimitChars = clamp(Math.round(Number(at.sendLimitChars || DEFAULT_ATTACH_SEND_LIMIT_CHARS)), 1000, 2_000_000)
@@ -293,12 +282,6 @@ export function normalizeData(raw: any) {
   if (typeof sn.modelId !== 'string') sn.modelId = ''
   if (typeof sn.customModelId !== 'string') sn.customModelId = ''
   if (typeof sn.systemPrompt !== 'string') sn.systemPrompt = DEFAULT_STICKER_NAMING_SYSTEM_PROMPT
-
-  if (!d.settings.toolCallServer || typeof d.settings.toolCallServer !== 'object') d.settings.toolCallServer = {}
-  const tcs = d.settings.toolCallServer
-  if (typeof tcs.baseUrl !== 'string') tcs.baseUrl = DEFAULT_TOOL_CALL_SERVER_BASE_URL
-  tcs.baseUrl = String(tcs.baseUrl || '').trim() || DEFAULT_TOOL_CALL_SERVER_BASE_URL
-  if (typeof tcs.token !== 'string') tcs.token = ''
 
   for (const p of d.settings.providers) {
     if (!p || typeof p !== 'object') continue

@@ -2,21 +2,6 @@
 import { now, uid, esc, trimSlash, isHttpBaseUrl, clampTemp, normImagePaths, clamp } from '../core/utils'
 import { extractOpenAiDelta } from '../core/sse'
 import { createDefaultAssistantRenderEngine } from '../render/assistantEngineDefault'
-import {
-  BUILTIN_TOOL_REQUEST_PRESETS,
-  findBuiltinToolRequestPreset,
-  normalizeToolRequestRenderPresets,
-  resolveToolRequestRenderPreset,
-  stringifyToolRequestRenderPreset,
-  validateToolRequestRenderPreset,
-} from '../core/toolRequestPresets'
-import {
-  createToolRequestStreamTruncator,
-  executeToolCallsOnServer,
-  formatToolResponseBlock,
-  mapParsedCallsToServerCalls,
-  parseToolRequestCalls,
-} from '@noelle-silva/eucli-aitoolcall-sdk'
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import mammoth from 'mammoth/mammoth.browser'
 import { extractPptMarkdown } from '../core/ppt'
@@ -43,7 +28,6 @@ import {
   DEFAULT_ATTACH_MAX_FILE_MB,
   MAX_ATTACH_MAX_FILE_MB,
   DEFAULT_ATTACH_SEND_LIMIT_CHARS,
-  DEFAULT_TOOL_CALL_SERVER_BASE_URL,
   REF_IMG_PLACEHOLDER,
   NEW_ROLE_ID,
   NEW_GROUP_ID,
@@ -392,15 +376,11 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // ============================================================
   function renderAssistantInto(el: unknown, text: unknown, options?: any) {
     const enabled = !!state.data?.settings?.stickers?.enabled
-    const activeId = String(state.data?.settings?.toolRequestRenderPreset || 'classic')
-    const userPresets = (state.data?.settings as any)?.toolRequestRenderPresets
-    const resolved = resolveToolRequestRenderPreset(activeId, userPresets)
     const renderSafetyPolicy = currentRenderSafetyPolicy()
     renderAssistantIntoRaw(el, text, {
       ...(options || {}),
       stickersEnabled: enabled,
       getStickerPath: getStickerRelPath,
-      toolRequestPreset: resolved,
       renderSafetyPolicy,
     })
   }
@@ -422,7 +402,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     storage,
     filesImagesRead: api.files?.images?.read as any || ((() => Promise.resolve('')) as any),
   })
-  const { buildOpenAiChatReqFromStorage, buildOpenAiGroupChatReqFromStorage, loadToolCallServerConfigFromStorage } = buildReq
+  const { buildOpenAiChatReqFromStorage, buildOpenAiGroupChatReqFromStorage } = buildReq
   let onAssistantRunFinalHandler: (run: any, finalText: string) => Promise<void> | void = async () => {
     throw new Error('Assistant run final handler 未初始化')
   }
@@ -632,7 +612,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     chatHasPendingAssistant,
     activeRole,
     getStickerRelPath,
-    resolveToolRequestRenderPreset,
     uiStreamCache,
   })
   const {
@@ -792,18 +771,12 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const patchOps = createPatchOperations({
     getState: () => state,
     storage,
-    aiGateway,
     loadSplitMeta: loadSplitMetaCached,
-    loadToolCallServerConfig: loadToolCallServerConfigFromStorage,
-    netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
     withChatWriteLock,
     touchChatUpdatedAt,
     touchGroupChatUpdatedAt,
     writeChatUpdatedNotice,
-    chatHasPendingAssistantInBranch,
     repairChatLinearBranching,
-    emit,
-    sendChat: (opts?: any) => sendChat(opts),
   })
   const { onAssistantRunFinal } = patchOps
   onAssistantRunFinalHandler = onAssistantRunFinal
@@ -977,13 +950,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (commit) save().catch(() => {})
       emit()
     },
-    setToolRequestRenderPreset: (preset: any) => {
-      if (!state.data) return
-      const v = String(preset || '').trim().slice(0, 60)
-      state.data.settings.toolRequestRenderPreset = v || 'classic'
-      save().catch(() => {})
-      emit()
-    },
     requestSetRenderSafetyPolicy: (policy: any) => {
       if (!state.data) return
       const raw = String(policy || '').trim()
@@ -1040,91 +1006,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       ;(state.data.settings as any).branchTree.modalHotkey = v
       save().catch(() => {})
       emit()
-    },
-    cloneToolRequestRenderPreset: (sourceId: any) => {
-      if (!state.data) return
-      const sid = String(sourceId || '').trim()
-      if (!sid) return
-
-      const userPresets = (state.data.settings as any).toolRequestRenderPresets
-      const list = Array.isArray(userPresets) ? userPresets : []
-
-      const builtin = findBuiltinToolRequestPreset(sid)
-      const fromUser = list.find((x: any) => x && typeof x === 'object' && String(x?.id || '').trim() === sid) || null
-      const src = builtin || fromUser
-      if (!src) return api.ui?.showToast?.('未找到预设')
-
-      const base = stringifyToolRequestRenderPreset(src)
-      let obj: any = null
-      try { obj = JSON.parse(base || '{}') } catch (_) {}
-      if (!obj || typeof obj !== 'object') return api.ui?.showToast?.('复制失败（预设异常）')
-
-      const genId = () => {
-        const id = uid('tp').slice(0, 60)
-        return id.replace(/[^a-zA-Z0-9._-]/g, '_')
-      }
-      const existingIds = new Set<string>([...BUILTIN_TOOL_REQUEST_PRESETS.map((x) => x.id), ...list.map((x: any) => String(x?.id || '').trim())])
-      let nextId = ''
-      for (let i = 0; i < 8; i++) {
-        const tryId = genId()
-        if (!existingIds.has(tryId)) { nextId = tryId; break }
-      }
-      if (!nextId) return api.ui?.showToast?.('复制失败（id 冲突）')
-
-      obj.id = nextId
-      obj.name = `${String(obj.name || '预设').trim() || '预设'}（副本）`.slice(0, 60)
-
-      const v = validateToolRequestRenderPreset(obj)
-      if (!v.ok || !v.preset) return api.ui?.showToast?.(v.error || '复制失败（预设无效）')
-
-      ;(state.data.settings as any).toolRequestRenderPresets = normalizeToolRequestRenderPresets(list.concat([v.preset]))
-      state.data.settings.toolRequestRenderPreset = v.preset.id
-      save().catch(() => {})
-      emit()
-      api.ui?.showToast?.('已复制预设')
-    },
-    deleteToolRequestRenderPreset: (presetId: any) => {
-      if (!state.data) return
-      const id = String(presetId || '').trim()
-      if (!id) return
-      const list = Array.isArray((state.data.settings as any).toolRequestRenderPresets) ? ((state.data.settings as any).toolRequestRenderPresets as any[]) : []
-      const next = list.filter((x: any) => String(x?.id || '').trim() !== id)
-      ;(state.data.settings as any).toolRequestRenderPresets = normalizeToolRequestRenderPresets(next)
-      if (String(state.data.settings.toolRequestRenderPreset || '').trim() === id) state.data.settings.toolRequestRenderPreset = 'classic'
-      save().catch(() => {})
-      emit()
-      api.ui?.showToast?.('已删除预设')
-    },
-    importToolRequestRenderPresetJson: (jsonText: any) => {
-      if (!state.data) return
-      const raw = String(jsonText || '').trim()
-      if (!raw) return api.ui?.showToast?.('请输入 JSON')
-
-      let parsed: any = null
-      try { parsed = JSON.parse(raw) } catch (e: any) {
-        return api.ui?.showToast?.(`JSON 解析失败：${String(e?.message || e || 'unknown')}`)
-      }
-
-      const items = Array.isArray(parsed) ? parsed : parsed && Array.isArray(parsed.presets) ? parsed.presets : [parsed]
-      if (!items.length) return api.ui?.showToast?.('JSON 里没有预设')
-
-      const list = Array.isArray((state.data.settings as any).toolRequestRenderPresets) ? ((state.data.settings as any).toolRequestRenderPresets as any[]) : []
-      const map = new Map<string, any>(list.map((x: any) => [String(x?.id || '').trim(), x]))
-
-      let ok = 0
-      let bad = 0
-      for (const it of items) {
-        const v = validateToolRequestRenderPreset(it)
-        if (!v.ok || !v.preset) { bad++; continue }
-        map.set(v.preset.id, v.preset)
-        ok++
-        if (ok >= 60) break
-      }
-
-      ;(state.data.settings as any).toolRequestRenderPresets = normalizeToolRequestRenderPresets(Array.from(map.values()))
-      save().catch(() => {})
-      emit()
-      api.ui?.showToast?.(bad ? `导入完成：成功 ${ok}，失败 ${bad}` : `导入完成：成功 ${ok}`)
     },
     toggleUserMessageCollapse: () => {
       if (!state.data) return
@@ -1489,22 +1370,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (!state.data.settings.aiServices.stickerNaming || typeof state.data.settings.aiServices.stickerNaming !== 'object') state.data.settings.aiServices.stickerNaming = {} as any
       state.data.settings.aiServices.stickerNaming.systemPrompt = DEFAULT_STICKER_NAMING_SYSTEM_PROMPT
       save().catch(() => {})
-      emit()
-    },
-    setToolCallServerBaseUrl: (baseUrl: any) => {
-      if (!state.data) return
-      const v = String(baseUrl ?? '').trim()
-      if (!state.data.settings.toolCallServer || typeof state.data.settings.toolCallServer !== 'object') state.data.settings.toolCallServer = {} as any
-      state.data.settings.toolCallServer.baseUrl = v || DEFAULT_TOOL_CALL_SERVER_BASE_URL
-      saveMetaOnly().catch(() => {})
-      emit()
-    },
-    setToolCallServerToken: (token: any) => {
-      if (!state.data) return
-      const v = typeof token === 'string' ? token : String(token ?? '')
-      if (!state.data.settings.toolCallServer || typeof state.data.settings.toolCallServer !== 'object') state.data.settings.toolCallServer = {} as any
-      state.data.settings.toolCallServer.token = v
-      saveMetaOnly().catch(() => {})
       emit()
     },
     closeModal: () => closeModal(),

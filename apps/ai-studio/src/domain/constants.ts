@@ -9,7 +9,6 @@ export const MAX_DRAFT_FILE_BYTES = 10 * 1024 * 1024
 export const DEFAULT_ATTACH_MAX_FILE_MB = Math.round(MAX_DRAFT_FILE_BYTES / 1024 / 1024)
 export const MAX_ATTACH_MAX_FILE_MB = 2048
 export const DEFAULT_ATTACH_SEND_LIMIT_CHARS = 80_000
-export const DEFAULT_TOOL_CALL_SERVER_BASE_URL = 'http://localhost:9083'
 export const REF_IMG_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA='
 export const NEW_ROLE_ID = '__new__'
 export const NEW_GROUP_ID = '__new_group__'

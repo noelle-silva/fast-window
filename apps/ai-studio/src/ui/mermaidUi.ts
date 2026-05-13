@@ -15,7 +15,6 @@ export function createMermaidUi(deps: {
   chatHasPendingAssistant: (chat: any) => boolean
   activeRole: () => any
   getStickerRelPath: (cat: string, name: string) => string
-  resolveToolRequestRenderPreset: (presetName: string, userPresets?: any) => any
   uiStreamCache: Map<string, any>
 }) {
   const {
@@ -29,7 +28,6 @@ export function createMermaidUi(deps: {
     chatHasPendingAssistant,
     activeRole,
     getStickerRelPath,
-    resolveToolRequestRenderPreset,
     uiStreamCache,
   } = deps
 
@@ -44,14 +42,10 @@ export function createMermaidUi(deps: {
   function renderAssistantInto(el: HTMLElement, text: string) {
     const s = getState()
     const enabled = !!s.data?.settings?.stickers?.enabled
-    const activeId = String(s.data?.settings?.toolRequestRenderPreset || 'classic')
-    const userPresets = (s.data?.settings as any)?.toolRequestRenderPresets
-    const resolved = resolveToolRequestRenderPreset(activeId, userPresets)
     const renderSafetyPolicy = currentRenderSafetyPolicy()
     renderAssistantIntoRaw(el, text, {
       stickersEnabled: enabled,
       getStickerPath: getStickerRelPath,
-      toolRequestPreset: resolved,
       renderSafetyPolicy,
     })
   }

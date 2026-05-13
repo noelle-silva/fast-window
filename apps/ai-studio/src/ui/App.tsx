@@ -66,17 +66,13 @@ import StarBorderRoundedIcon from '@mui/icons-material/StarBorderRounded'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import DriveFileMoveOutlinedIcon from '@mui/icons-material/DriveFileMoveOutlined'
 import UnfoldLessIcon from '@mui/icons-material/UnfoldLess'
-import { BUILTIN_TOOL_REQUEST_PRESETS, stringifyToolRequestRenderPreset } from '../core/toolRequestPresets'
 import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from '../core/viewerZoom'
 import { ApiKeyField } from './components/fields/ApiKeyField'
-import { SecretField } from './components/fields/SecretField'
 import { useAiChatState } from './hooks/useAiChatState'
 import { useEvent } from './hooks/useEvent'
 import { findAtMentionTrigger } from './utils/mention'
-import { ToolRequestPresetsDialog } from './dialogs/ToolRequestPresetsDialog'
 import { ProvidersDialog } from './dialogs/ProvidersDialog'
 import { RoleDialog } from './dialogs/RoleDialog'
-import { ToolServerToolsDialog } from './dialogs/ToolServerToolsDialog'
 import { GroupDialog } from './dialogs/GroupDialog'
 
 const isRenderableNode = (node: React.ReactNode): node is Exclude<React.ReactNode, null> => node !== null
@@ -94,7 +90,7 @@ const MERMAID_COPY_IMAGE_DPR_FACTOR = 3
 const MERMAID_COPY_IMAGE_MAX_SIDE = 12288
 const MERMAID_COPY_IMAGE_BG = '#ffffff'
 
-type SettingsTab = 'appearance' | 'attachments' | 'data' | 'groups' | 'roles' | 'providers' | 'services' | 'toolServer' | 'stickers'
+type SettingsTab = 'appearance' | 'attachments' | 'data' | 'groups' | 'roles' | 'providers' | 'services' | 'stickers'
 
 type DataDirectoryStatus = {
   dataDir: string
@@ -334,17 +330,16 @@ function AssistantContent(props: {
   className?: string
   text: string
   mid: string
-  toolRequestPresetKey: string
   renderSafetyPolicyKey: string
   chatRootRef: React.RefObject<HTMLElement | null>
 }) {
-  const { controller, className, text, mid, toolRequestPresetKey, renderSafetyPolicyKey, chatRootRef } = props
+  const { controller, className, text, mid, renderSafetyPolicyKey, chatRootRef } = props
   const ref = React.useRef<HTMLDivElement | null>(null)
 
   React.useLayoutEffect(() => {
     if (!ref.current) return
     controller.renderAssistantInto(ref.current, text)
-  }, [controller, text, toolRequestPresetKey, renderSafetyPolicyKey])
+  }, [controller, text, renderSafetyPolicyKey])
 
   const onClick = useEvent((e: React.MouseEvent) => {
     const t = e.target as any
@@ -544,18 +539,9 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
   const topbarBlur = clampNum(Number(data?.settings?.topbarBlur ?? 0), 0, 24)
   const composerOpacity = clampNum(Number(data?.settings?.composerOpacity ?? 86), 40, 100)
   const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
-  const toolRequestRenderPreset = String((data?.settings as any)?.toolRequestRenderPreset || 'classic')
   const renderSafetyPolicy = (() => {
     const v = String((data?.settings as any)?.renderSafetyPolicy || 'original').trim()
     return v === 'unsafe' ? 'unsafe' : v === 'baseline' ? 'baseline' : 'original'
-  })()
-  const toolRequestRenderPresetsKey = (() => {
-    const list = (data?.settings as any)?.toolRequestRenderPresets
-    try {
-      return JSON.stringify(list && typeof list === 'object' ? list : [])
-    } catch (_) {
-      return ''
-    }
   })()
   const userMessageCollapseEnabled = !!data?.settings?.userMessageCollapseEnabled
   const userMessageCollapseLines = clampNum(Number(data?.settings?.userMessageCollapseLines ?? 8), 1, 50)
@@ -3191,14 +3177,6 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                   </Button>
                   <Button
                     size="small"
-                    variant={settingsTab === 'toolServer' ? 'contained' : 'outlined'}
-                    onClick={() => setSettingsTab('toolServer')}
-                    sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
-                  >
-                    工具服务器
-                  </Button>
-                  <Button
-                    size="small"
                     variant={settingsTab === 'stickers' ? 'contained' : 'outlined'}
                     onClick={() => setSettingsTab('stickers')}
                     sx={{ borderRadius: 999, minWidth: 0, px: 1.25, py: 0.25 }}
@@ -3664,7 +3642,6 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                               className="prose"
                               text={content}
                               mid={mid}
-                              toolRequestPresetKey={`${toolRequestRenderPreset}|${toolRequestRenderPresetsKey}`}
                               renderSafetyPolicyKey={renderSafetyPolicy}
                               chatRootRef={chatRootRef}
                             />
@@ -6617,17 +6594,6 @@ function PluginSettingsPage(props: {
   dataDirectory?: AiChatDataDirectory
 }) {
   const { controller, loading, data, roles, groups, providers, models, draft, activeRoleId, tab, dataDirectory } = props
-  const [toolServerTest, setToolServerTest] = React.useState(() => ({ loading: false, ok: null as null | boolean, msg: '', detail: '' }))
-  const [toolServerTools, setToolServerTools] = React.useState(() => ({
-    open: false,
-    loading: false,
-    ok: null as null | boolean,
-    msg: '',
-    detail: '',
-    tools: [] as any[],
-    count: 0,
-  }))
-  const [toolReqPresetsOpen, setToolReqPresetsOpen] = React.useState(false)
   const [treeHotkeyRecording, setTreeHotkeyRecording] = React.useState(false)
 
   React.useEffect(() => {
@@ -6669,145 +6635,6 @@ function PluginSettingsPage(props: {
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [treeHotkeyRecording, controller])
 
-  const runToolServerTest = useEvent(async (baseUrlRaw: string, tokenRaw: string) => {
-    const api = controller?.capabilities
-    const toast = (s: string) => api?.ui?.showToast?.(s)
-
-    const base = String(baseUrlRaw || '').trim().replace(/\/+$/g, '')
-    const token = String(tokenRaw || '').trim()
-
-    if (!base) {
-      setToolServerTest({ loading: false, ok: false, msg: 'Base URL 为空', detail: '' })
-      toast('请先填写 Base URL')
-      return
-    }
-    if (!/^https?:\/\//i.test(base)) {
-      setToolServerTest({ loading: false, ok: false, msg: 'Base URL 无效（需 http/https）', detail: base })
-      toast('Base URL 无效（需 http/https）')
-      return
-    }
-    if (typeof api?.net?.request !== 'function') {
-      setToolServerTest({ loading: false, ok: false, msg: '未授权：net.request', detail: '' })
-      toast('未授权：net.request')
-      return
-    }
-
-    setToolServerTest({ loading: true, ok: null, msg: '测试中…', detail: '' })
-
-    try {
-      const r1 = await api.net.request({ method: 'GET', url: `${base}/health`, timeoutMs: 8000 })
-      const s1 = Number(r1?.status || 0)
-      const b1 = String(r1?.body || '')
-      let j1: any = null
-      try {
-        j1 = JSON.parse(b1 || '{}')
-      } catch (_) {}
-      const healthOk = s1 >= 200 && s1 < 300 && String(j1?.status || '').trim().toLowerCase() === 'ok'
-      if (!healthOk) {
-        const msg = s1 ? `健康检查失败（HTTP ${s1}）` : '健康检查失败'
-        setToolServerTest({ loading: false, ok: false, msg, detail: b1 || '' })
-        toast(msg)
-        return
-      }
-
-      // 可选：如果用户填了 token，则顺便测一下鉴权接口是否通过（空 calls 不会执行任何工具）。
-      if (token) {
-        const r2 = await api.net.request({
-          method: 'POST',
-          url: `${base}/internal/tool-call/execute`,
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ timeout_ms: 1, calls: [] }),
-          timeoutMs: 8000,
-        })
-        const s2 = Number(r2?.status || 0)
-        const b2 = String(r2?.body || '')
-        if (s2 < 200 || s2 >= 300) {
-          const msg = `连通 OK，但鉴权失败（HTTP ${s2}）`
-          setToolServerTest({ loading: false, ok: false, msg, detail: b2 || '' })
-          toast(msg)
-          return
-        }
-
-        setToolServerTest({ loading: false, ok: true, msg: '连通 OK，鉴权 OK', detail: '' })
-        toast('工具服务器连接正常')
-        return
-      }
-
-      setToolServerTest({ loading: false, ok: true, msg: '连通 OK', detail: '' })
-      toast('工具服务器连接正常')
-    } catch (e: any) {
-      const msg = String(e?.message || e || '测试失败')
-      setToolServerTest({ loading: false, ok: false, msg: '测试失败', detail: msg })
-      toast(msg || '测试失败')
-    }
-  })
-
-  const runToolServerFetchTools = useEvent(async (baseUrlRaw: string, tokenRaw: string) => {
-    const api = controller?.capabilities
-    const toast = (s: string) => api?.ui?.showToast?.(s)
-
-    const base = String(baseUrlRaw || '').trim().replace(/\/+$/g, '')
-    const token = String(tokenRaw || '').trim()
-
-    if (!base) {
-      setToolServerTools((p) => ({ ...p, loading: false, ok: false, msg: 'Base URL 为空', detail: '', tools: [], count: 0 }))
-      toast('请先填写 Base URL')
-      return
-    }
-    if (!/^https?:\/\//i.test(base)) {
-      setToolServerTools((p) => ({ ...p, loading: false, ok: false, msg: 'Base URL 无效（需 http/https）', detail: base, tools: [], count: 0 }))
-      toast('Base URL 无效（需 http/https）')
-      return
-    }
-    if (typeof api?.net?.request !== 'function') {
-      setToolServerTools((p) => ({ ...p, loading: false, ok: false, msg: '未授权：net.request', detail: '', tools: [], count: 0 }))
-      toast('未授权：net.request')
-      return
-    }
-
-    setToolServerTools((p) => ({ ...p, loading: true, ok: null, msg: '加载中…', detail: '' }))
-
-    try {
-      const r = await api.net.request({
-        method: 'GET',
-        url: `${base}/api/tools`,
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        timeoutMs: 8000,
-      })
-      const s = Number(r?.status || 0)
-      const b = String(r?.body || '')
-      let j: any = null
-      try {
-        j = JSON.parse(b || '{}')
-      } catch (_) {}
-
-      if (s < 200 || s >= 300) {
-        const code = String(j?.error || '').trim()
-        const detail =
-          code === 'ui_key_not_set'
-            ? '服务端未设置 TOOL_CALL_SERVER_UI_KEY（/api/* 管理接口需要这个 Key）。'
-            : b || ''
-        const msg = `获取工具列表失败（HTTP ${s}）`
-        setToolServerTools((p) => ({ ...p, loading: false, ok: false, msg, detail, tools: [], count: 0 }))
-        toast(msg)
-        return
-      }
-
-      const tools = Array.isArray(j?.tools) ? j.tools : []
-      const count = Number.isFinite(Number(j?.count)) ? Number(j.count) : tools.length
-      setToolServerTools((p) => ({ ...p, loading: false, ok: true, msg: '获取成功', detail: '', tools, count }))
-      toast('已获取工具列表')
-    } catch (e: any) {
-      const msg = String(e?.message || e || '请求失败')
-      setToolServerTools((p) => ({ ...p, loading: false, ok: false, msg: '请求失败', detail: msg, tools: [], count: 0 }))
-      toast(msg || '请求失败')
-    }
-  })
-
-  React.useEffect(() => {
-    setToolServerTest({ loading: false, ok: null, msg: '', detail: '' })
-  }, [String((data?.settings?.toolCallServer as any)?.baseUrl || ''), String((data?.settings?.toolCallServer as any)?.token || '')])
-
   if (!data) {
     return (
       <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
@@ -6825,8 +6652,6 @@ function PluginSettingsPage(props: {
   const topbarBlur = clampNum(Number(data?.settings?.topbarBlur ?? 0), 0, 24)
   const composerOpacity = clampNum(Number(data?.settings?.composerOpacity ?? 86), 40, 100)
   const composerBlur = clampNum(Number(data?.settings?.composerBlur ?? 10), 0, 24)
-  const toolRequestRenderPreset = String((data?.settings as any)?.toolRequestRenderPreset || 'classic')
-  const toolRequestRenderPresets = Array.isArray((data?.settings as any)?.toolRequestRenderPresets) ? ((data?.settings as any).toolRequestRenderPresets as any[]) : []
   const renderSafetyPolicy = (() => {
     const v = String((data?.settings as any)?.renderSafetyPolicy || 'original').trim()
     return v === 'unsafe' ? 'unsafe' : v === 'baseline' ? 'baseline' : 'original'
@@ -7112,77 +6937,6 @@ function PluginSettingsPage(props: {
             “右侧面板”会挤压聊天内容；“悬浮模态窗”会覆盖在当前界面上方。
           </Typography>
         </Box>
-
-        <Divider />
-
-        <Box>
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
-            <Typography variant="body2" sx={{ fontWeight: 900 }}>
-              工具调用渲染预设
-            </Typography>
-          </Stack>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <FormControl size="small" sx={{ flex: 1, minWidth: 0 }}>
-              <InputLabel id="toolreq-preset">预设</InputLabel>
-              <Select
-                labelId="toolreq-preset"
-                label="预设"
-                value={toolRequestRenderPreset}
-                onChange={(e) => controller.actions.setToolRequestRenderPreset?.(String(e.target.value || ''))}
-                disabled={loading}
-              >
-                {(() => {
-                  const out: any[] = []
-                  const builtinIds = new Set<string>(BUILTIN_TOOL_REQUEST_PRESETS.map((x) => String(x?.id || '').trim()).filter((x) => !!x))
-                  const userItems = toolRequestRenderPresets
-                    .map((x: any) => ({ id: String(x?.id || '').trim(), name: String(x?.name || '').trim() }))
-                    .filter((x: any) => x.id && x.name && !builtinIds.has(x.id))
-                    .slice(0, 60)
-
-                  const active = String(toolRequestRenderPreset || '').trim()
-                  const hasActive =
-                    !active ||
-                    BUILTIN_TOOL_REQUEST_PRESETS.some((x) => String(x?.id || '').trim() === active) ||
-                    userItems.some((x: any) => x.id === active)
-                  if (active && !hasActive) out.push(<MenuItem key="missing" value={active}>{`（未找到）${active}`}</MenuItem>)
-
-                  for (const p of BUILTIN_TOOL_REQUEST_PRESETS) {
-                    const id = String((p as any)?.id || '').trim()
-                    if (!id) continue
-                    out.push(
-                      <MenuItem key={`builtin:${id}`} value={id}>
-                        {`（内置）${String((p as any)?.name || id)}`}
-                      </MenuItem>,
-                    )
-                  }
-                  for (const p of userItems) {
-                    out.push(
-                      <MenuItem key={`user:${p.id}`} value={p.id}>
-                        {`（自定义）${p.name}`}
-                      </MenuItem>,
-                    )
-                  }
-                  return out
-                })()}
-              </Select>
-            </FormControl>
-            <Button size="small" variant="outlined" onClick={() => setToolReqPresetsOpen(true)} disabled={loading}>
-              管理…
-            </Button>
-          </Stack>
-          <Typography variant="caption" color="text.secondary">
-            仅影响 AI 回复中 TOOL_REQUEST 工具调用块的展示样式。
-          </Typography>
-          <ToolRequestPresetsDialog
-            open={toolReqPresetsOpen}
-            onClose={() => setToolReqPresetsOpen(false)}
-            controller={controller}
-            loading={loading}
-            userPresets={toolRequestRenderPresets}
-          />
-        </Box>
-
-        <Divider />
 
         <Box>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
@@ -7494,90 +7248,6 @@ function PluginSettingsPage(props: {
 
   if (tab === 'stickers') {
     return <StickersSettingsPanel controller={controller} loading={loading} data={data} />
-  }
-
-  if (tab === 'toolServer') {
-    const cfg = (data?.settings?.toolCallServer && typeof data.settings.toolCallServer === 'object') ? data.settings.toolCallServer : {}
-    const baseUrl = String((cfg as any).baseUrl || '')
-    const token = String((cfg as any).token || '')
-
-    return (
-      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
-        <Paper variant="outlined" sx={{ p: 1.5 }}>
-          <Stack spacing={1.5}>
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Typography sx={{ fontWeight: 900 }}>工具服务器</Typography>
-              <Box sx={{ flex: 1 }} />
-            </Stack>
-            <Divider />
-            <Stack spacing={1.25}>
-              <TextField
-                size="small"
-                label="Base URL"
-                value={baseUrl}
-                onChange={(e) => controller.actions.setToolCallServerBaseUrl?.(e.target.value)}
-                placeholder="http://localhost:9083"
-                fullWidth
-                disabled={loading}
-              />
-              <SecretField label="鉴权 Key" value={token} onValueChange={(next) => controller.actions.setToolCallServerToken?.(next)} />
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-                <Button size="small" variant="outlined" onClick={() => runToolServerTest(baseUrl, token)} disabled={loading || toolServerTest.loading}>
-                  {toolServerTest.loading ? '测试中…' : '测试连接'}
-                </Button>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => {
-                    setToolServerTools((p) => ({ ...p, open: true }))
-                    runToolServerFetchTools(baseUrl, token)
-                  }}
-                  disabled={loading || toolServerTools.loading}
-                >
-                  {toolServerTools.loading ? '加载工具…' : '查看工具列表'}
-                </Button>
-                {toolServerTest.ok === true ? <Chip size="small" color="success" label="连接正常" /> : null}
-                {toolServerTest.ok === false ? <Chip size="small" color="error" label="连接失败" /> : null}
-                {toolServerTest.ok === null ? <Chip size="small" variant="outlined" label="未测试" /> : null}
-                {toolServerTest.msg ? (
-                  <Typography variant="caption" color="text.secondary" sx={{ minWidth: 0 }} noWrap>
-                    {toolServerTest.msg}
-                  </Typography>
-                ) : null}
-              </Stack>
-              {toolServerTest.detail ? (
-                <Typography
-                  variant="caption"
-                  sx={{
-                    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-                    whiteSpace: 'pre-wrap',
-                    overflowWrap: 'anywhere',
-                    wordBreak: 'break-word',
-                    color: 'text.secondary',
-                  }}
-                >
-                  {toolServerTest.detail}
-                </Typography>
-              ) : null}
-              <Typography variant="caption" color="text.secondary">
-                用于执行 AI 工具调用（ai-tool-call-server）。鉴权 Key 会保存在 AI Studio 数据中。
-              </Typography>
-            </Stack>
-          </Stack>
-        </Paper>
-        <ToolServerToolsDialog
-          open={toolServerTools.open}
-          loading={toolServerTools.loading}
-          ok={toolServerTools.ok}
-          msg={toolServerTools.msg}
-          detail={toolServerTools.detail}
-          tools={toolServerTools.tools}
-          count={toolServerTools.count}
-          onClose={() => setToolServerTools((p) => ({ ...p, open: false }))}
-          onRefresh={() => runToolServerFetchTools(baseUrl, token)}
-        />
-      </Box>
-    )
   }
 
   if (tab === 'services') {

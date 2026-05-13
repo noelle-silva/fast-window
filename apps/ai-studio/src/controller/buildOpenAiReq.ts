@@ -370,28 +370,8 @@ export function createBuildOpenAiReq(deps: {
     }
   }
 
-  async function loadToolCallServerConfigFromStorage() {
-    const meta = await loadSplitMeta()
-    if (!meta) throw new Error('存储未初始化')
-
-    const d = normalizeData({
-      version: VERSION,
-      settings: { ...(meta.settings && typeof meta.settings === 'object' ? meta.settings : {}), providers: [{ id: '__fallback__', name: '__fallback__', baseUrl: 'http://', apiKey: '', modelsCache: { items: [], fetchedAt: 0 } }] },
-      roles: [],
-      chatsByRole: {},
-      ui: meta.ui && typeof meta.ui === 'object' ? meta.ui : {},
-    })
-
-    const tcs = d.settings.toolCallServer && typeof d.settings.toolCallServer === 'object' ? d.settings.toolCallServer : {}
-    const baseUrl = trimSlash(String((tcs as any).baseUrl || '').trim())
-    const token = String((tcs as any).token || '').trim()
-    const streamEnabled = !!d.settings.streamEnabled
-    return { baseUrl, token, streamEnabled }
-  }
-
   return {
     buildOpenAiChatReqFromStorage,
     buildOpenAiGroupChatReqFromStorage,
-    loadToolCallServerConfigFromStorage,
   }
 }
