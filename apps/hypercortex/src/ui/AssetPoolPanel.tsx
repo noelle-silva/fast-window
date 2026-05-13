@@ -5,12 +5,12 @@ import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import ImageSearchRoundedIcon from '@mui/icons-material/ImageSearchRounded'
-import { type VaultScope, acceptString, kindFromMime, mimeFromExt } from '../core'
+import { type VaultScope, kindFromMime, mimeFromExt } from '../core'
 import { pickAssetDisplayName } from '../assetDisplayName'
 import type { AssetEntry } from '../assetTypes'
-import { readFileAsDataUrl } from './fileDataUrl'
 import { getAssetPreviewDescriptor, isAssetOpenableInTab } from './assetPreview/registry'
 import type { HyperCortexGateway } from '../gateway'
+import { importPickedLocalAssets } from '../services/localAssetImport'
 
 /* ------------------------------------------------------------------ */
 /*  类型                                                               */
@@ -279,7 +279,6 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   const [rebuildingThumbnails, setRebuildingThumbnails] = React.useState(false)
   const [category, setCategory] = React.useState<AssetCategory>('image')
   const [thumbLoadTick, setThumbLoadTick] = React.useState(0)
-  const fileInputRef = React.useRef<HTMLInputElement>(null)
 
   /* ---- 加载资源列表 ---- */
   const loadAssets = React.useCallback(async () => {
@@ -349,27 +348,20 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   }, [gateway, scope, thumbLoadTick, category, assets.length])
 
   /* ---- 文件选择 & 导入 ---- */
-  const handleFileSelect = React.useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files || !files.length) return
+  const handleImportFiles = React.useCallback(async () => {
+    if (importing) return
     setImporting(true)
     try {
-      const inputs: { name?: string; dataUrl: string }[] = []
-      for (let i = 0; i < files.length; i++) {
-        const f = files[i]
-        const dataUrl = await readFileAsDataUrl(f)
-        inputs.push({ name: f.name, dataUrl })
-      }
-      await gateway.assets.importFiles(scope, inputs)
-      gateway.host.toast(`已导入 ${inputs.length} 个文件`)
+      const imported = await importPickedLocalAssets(gateway, scope)
+      if (!imported.length) return
+      gateway.host.toast(`已导入 ${imported.length} 个文件`)
       await loadAssets()
     } catch (err: any) {
       gateway.host.toast(`导入失败：${String(err?.message || err || '未知错误')}`)
     } finally {
       setImporting(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
     }
-  }, [gateway, scope, loadAssets])
+  }, [gateway, importing, scope, loadAssets])
 
   /* ---- 删除资源 ---- */
   const handleDelete = React.useCallback(async (asset: AssetEntry) => {
@@ -499,20 +491,12 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
             </span>
           </Tooltip>
 
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept={acceptString()}
-            onChange={handleFileSelect}
-            style={{ display: 'none' }}
-          />
           <Button
             variant="outlined"
             size="small"
             startIcon={importing ? <CircularProgress size={16} /> : <AddRoundedIcon />}
             disabled={importing}
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => void handleImportFiles()}
             sx={{
               textTransform: 'none',
               borderRadius: 2,

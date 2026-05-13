@@ -1,5 +1,5 @@
 export type BackgroundClient = {
-  invoke<T = unknown>(method: string, params?: unknown): Promise<T>
+  invoke<T = unknown>(method: string, params?: unknown, options?: InvokeOptions): Promise<T>
   close(): void
 }
 
@@ -12,7 +12,11 @@ const RESUME_CHECK_INTERVAL_MS = 10_000
 type PendingRequest = {
   resolve: (value: unknown) => void
   reject: (error: Error) => void
-  timer: ReturnType<typeof setTimeout>
+  timer: ReturnType<typeof setTimeout> | null
+}
+
+type InvokeOptions = {
+  timeoutMs?: number | null
 }
 
 function endpointUrlWithToken(endpoint: any) {
@@ -89,7 +93,7 @@ class HyperCortexBackgroundClient implements BackgroundClient {
     await this.ensureConnected()
   }
 
-  invoke = async <T = unknown,>(method: string, params?: unknown): Promise<T> => {
+  invoke = async <T = unknown,>(method: string, params?: unknown, options?: InvokeOptions): Promise<T> => {
     await this.ensureConnected()
     const ws = this.ws
     if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -101,16 +105,19 @@ class HyperCortexBackgroundClient implements BackgroundClient {
     if (!active || active.readyState !== WebSocket.OPEN) throw new Error('HyperCortex 后台未连接')
     const id = `hc-${Date.now()}-${++this.seq}`
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id)
-        reject(new Error('HyperCortex 后台请求超时'))
-      }, REQUEST_TIMEOUT_MS)
+      const timeoutMs = options?.timeoutMs === null ? 0 : Number(options?.timeoutMs || REQUEST_TIMEOUT_MS)
+      const timer = timeoutMs > 0
+        ? setTimeout(() => {
+            this.pending.delete(id)
+            reject(new Error('HyperCortex 后台请求超时'))
+          }, timeoutMs)
+        : null
       this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer })
       try {
         active.send(JSON.stringify({ id, type: 'request', method, params: params ?? {} }))
       } catch {
         this.pending.delete(id)
-        clearTimeout(timer)
+        if (timer) clearTimeout(timer)
         this.markDisconnected(active, new Error('HyperCortex 后台连接已关闭'))
         reject(new Error('HyperCortex 后台连接已关闭'))
       }
@@ -162,7 +169,7 @@ class HyperCortexBackgroundClient implements BackgroundClient {
     const entry = this.pending.get(id)
     if (!entry) return
     this.pending.delete(id)
-    clearTimeout(entry.timer)
+    if (entry.timer) clearTimeout(entry.timer)
     if (frame.ok) entry.resolve(frame.result)
     else entry.reject(new Error(String(frame.error?.message || 'HyperCortex 后台请求失败')))
   }
@@ -196,7 +203,7 @@ class HyperCortexBackgroundClient implements BackgroundClient {
 
   private rejectPending(error: Error) {
     for (const entry of this.pending.values()) {
-      clearTimeout(entry.timer)
+      if (entry.timer) clearTimeout(entry.timer)
       entry.reject(error)
     }
     this.pending.clear()

@@ -1,8 +1,3 @@
-export function mimeFromDataUrl(dataUrl: string): string {
-  const m = /^data:([^;]+);base64,/.exec(String(dataUrl || '').trim())
-  return m ? String(m[1] || '').toLowerCase() : ''
-}
-
 export function extFromMime(mime: string): string {
   const m = String(mime || '').toLowerCase()
   if (m === 'image/jpeg') return 'jpg'
@@ -76,7 +71,3 @@ export function kindFromMime(mime: string): string {
 export const ACCEPTED_FILE_EXTENSIONS = [
   'jpg', 'png', 'webp', 'gif', 'svg', 'mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'mp4', 'm4v', 'webm', 'mov', 'ogv', 'pdf', 'txt', 'csv', 'zip', 'docx', 'xlsx', 'pptx',
 ] as const
-
-export function acceptString(): string {
-  return ACCEPTED_FILE_EXTENSIONS.map(ext => `.${ext}`).join(',')
-}

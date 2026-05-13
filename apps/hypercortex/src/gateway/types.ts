@@ -60,7 +60,7 @@ export type NotesService = {
 export type AssetsService = {
   ensureAssetsIndex: (scope: VaultScope) => Promise<HyperCortexAssetsIndexV1>
   listAssets: (scope: VaultScope) => Promise<AssetPoolItem[]>
-  importFiles: (scope: VaultScope, inputs: { name?: string; dataUrl: string }[]) => Promise<HyperCortexNoteResourceRef[]>
+  importLocalFiles: (scope: VaultScope, files: LocalAssetFile[]) => Promise<HyperCortexNoteResourceRef[]>
   readAssetDataUrl: (scope: VaultScope, assetId: string, ext?: string) => Promise<string>
   deleteAsset: (scope: VaultScope, assetId: string, ext?: string) => Promise<void>
   getThumbnail: (scope: VaultScope, assetId: string, ext?: string, width?: number, height?: number) => Promise<ThumbnailResult>
@@ -68,6 +68,11 @@ export type AssetsService = {
   rebuildAllThumbnails: (scope: VaultScope, width?: number, height?: number) => Promise<ThumbnailRebuildReport>
   getVideoThumbnail: (scope: VaultScope, path: string, width?: number, height?: number) => Promise<string>
   getAssetBlobUrl: (scope: VaultScope, assetId: string, ext: string) => Promise<string>
+}
+
+export type LocalAssetFile = {
+  path: string
+  displayName?: string
 }
 
 export type ThumbnailResult = {

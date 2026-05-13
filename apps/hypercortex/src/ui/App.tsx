@@ -13,7 +13,6 @@ import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded'
 import {
-  acceptString,
   kindFromMime,
   mimeFromExt,
   type HyperCortexHtmlFaceDisplayModeV1,
@@ -44,7 +43,7 @@ import { DataDirSettingsPanel } from './DataDirSettingsPanel'
 import { TrashPanel } from './TrashPanel'
 import { QuickSearchPopover } from './QuickSearchPopover'
 import { StandaloneWindowControls, type WindowControlActions } from './StandaloneWindowControls'
-import { readFileAsDataUrl } from './fileDataUrl'
+import { importPickedLocalAssets } from '../services/localAssetImport'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
 import { applyActiveWorkspacePatch, buildWorkspacesMetadataSnapshot, normalizeOpenTabKeys } from './workspaceModel'
@@ -441,8 +440,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   const [currentFolderId, setCurrentFolderId] = React.useState<string>('root')
   const [indexEditMode, setIndexEditMode] = React.useState(false)
   const [assetPoolIndex, setAssetPoolIndex] = React.useState<Record<string, any> | null>(null)
-  const indexAssetInputRef = React.useRef<HTMLInputElement | null>(null)
-  const indexAssetTargetFolderIdRef = React.useRef('root')
   const [allNotesLayout, setAllNotesLayout] = React.useState<AllNotesLayout>('list')
   const [allNotes, setAllNotes] = React.useState<NoteMeta[]>([])
   const [allNotesLoading, setAllNotesLoading] = React.useState(false)
@@ -1445,27 +1442,15 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     [gateway],
   )
 
-  const handleImportAssetsIntoIndex = React.useCallback((folderId: string) => {
-    indexAssetTargetFolderIdRef.current = String(folderId || '').trim() || 'root'
-    indexAssetInputRef.current?.click()
-  }, [])
-
-  const handleIndexAssetFileSelect = React.useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files
-      if (!files || !files.length) return
-      const fid = indexAssetTargetFolderIdRef.current || 'root'
+  const handleImportAssetsIntoIndex = React.useCallback(
+    async (folderId: string) => {
+      const fid = String(folderId || '').trim() || 'root'
       const baseDoc = favoritesDoc
       if (!baseDoc) return
 
       try {
-        const inputs: { name?: string; dataUrl: string }[] = []
-        for (let i = 0; i < files.length; i++) {
-          const f = files[i]
-          inputs.push({ name: f.name, dataUrl: await readFileAsDataUrl(f) })
-        }
-
-        const imported = await gateway.assets.importFiles('library', inputs)
+        const imported = await importPickedLocalAssets(gateway, 'library')
+        if (!imported.length) return
         let nextDoc = baseDoc
         let addedCount = 0
         for (const resource of imported) {
@@ -1480,11 +1465,9 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         if (nextDoc !== baseDoc) handleFavoritesDocChange(nextDoc)
         const nextAssetIndex = await gateway.assets.ensureAssetsIndex('library').catch(() => null)
         if (nextAssetIndex) setAssetPoolIndex(nextAssetIndex as any)
-        void gateway.host.toast(addedCount > 0 ? `已上传并添加 ${addedCount} 个附件` : '附件已上传，但没有新增索引卡片')
+        void gateway.host.toast(addedCount > 0 ? `已导入并添加 ${addedCount} 个附件` : '附件已导入，但没有新增索引卡片')
       } catch (err: any) {
-        void gateway.host.toast(`上传附件失败：${String(err?.message || err || '未知错误')}`)
-      } finally {
-        if (indexAssetInputRef.current) indexAssetInputRef.current.value = ''
+        void gateway.host.toast(`导入附件失败：${String(err?.message || err || '未知错误')}`)
       }
     },
     [favoritesDoc, gateway, handleFavoritesDocChange],
@@ -2365,14 +2348,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <input
-        ref={indexAssetInputRef}
-        type="file"
-        multiple
-        accept={acceptString()}
-        onChange={handleIndexAssetFileSelect}
-        style={{ display: 'none' }}
-      />
       <GlobalStyles
         styles={{
           html: { height: '100%' },

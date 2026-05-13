@@ -1,9 +1,6 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -351,30 +348,58 @@ func htmlEscape(value string) string {
 
 func mimeFromExt(ext string) string {
 	ext = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(ext)), ".")
-	if ext == "jpg" {
-		return "image/jpeg"
-	}
-	if m := mime.TypeByExtension("." + ext); m != "" {
-		return strings.Split(m, ";")[0]
-	}
 	switch ext {
+	case "jpg", "jpeg":
+		return "image/jpeg"
+	case "png":
+		return "image/png"
 	case "webp":
 		return "image/webp"
-	case "m4v":
-		return "video/x-m4v"
-	case "mov":
-		return "video/quicktime"
+	case "gif":
+		return "image/gif"
+	case "svg":
+		return "image/svg+xml"
+	case "mp3":
+		return "audio/mpeg"
+	case "wav":
+		return "audio/wav"
+	case "ogg":
+		return "audio/ogg"
+	case "flac":
+		return "audio/flac"
+	case "aac":
+		return "audio/aac"
 	case "m4a":
 		return "audio/mp4"
+	case "mp4":
+		return "video/mp4"
+	case "m4v":
+		return "video/x-m4v"
+	case "webm":
+		return "video/webm"
+	case "mov":
+		return "video/quicktime"
+	case "ogv":
+		return "video/ogg"
+	case "pdf":
+		return "application/pdf"
+	case "txt":
+		return "text/plain"
+	case "csv":
+		return "text/csv"
+	case "zip":
+		return "application/zip"
 	case "docx":
 		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 	case "xlsx":
 		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 	case "pptx":
 		return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-	default:
-		return "application/octet-stream"
 	}
+	if m := mime.TypeByExtension("." + ext); m != "" {
+		return strings.Split(m, ";")[0]
+	}
+	return "application/octet-stream"
 }
 
 func extFromMime(m string) string {
@@ -392,20 +417,40 @@ func extFromMime(m string) string {
 		return "svg"
 	case "video/mp4":
 		return "mp4"
+	case "video/x-m4v":
+		return "m4v"
 	case "video/webm":
 		return "webm"
 	case "video/quicktime":
 		return "mov"
+	case "video/ogg":
+		return "ogv"
 	case "audio/mpeg":
 		return "mp3"
+	case "audio/wav":
+		return "wav"
+	case "audio/ogg":
+		return "ogg"
+	case "audio/flac":
+		return "flac"
+	case "audio/aac":
+		return "aac"
+	case "audio/mp4":
+		return "m4a"
 	case "application/pdf":
 		return "pdf"
 	case "text/plain":
 		return "txt"
+	case "text/csv":
+		return "csv"
 	case "application/zip":
 		return "zip"
 	case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
 		return "docx"
+	case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+		return "xlsx"
+	case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+		return "pptx"
 	default:
 		exts, _ := mime.ExtensionsByType(m)
 		if len(exts) > 0 {
@@ -438,41 +483,6 @@ func categoryFromKind(kind string) string {
 	default:
 		return "docs"
 	}
-}
-
-func dataURLParts(input string) (string, []byte, error) {
-	s := strings.TrimSpace(input)
-	mimeType := "application/octet-stream"
-	payload := s
-	if strings.HasPrefix(s, "data:") {
-		comma := strings.Index(s, ",")
-		if comma < 0 {
-			return "", nil, errors.New("data URL 无效")
-		}
-		head := s[5:comma]
-		payload = s[comma+1:]
-		if semi := strings.Index(head, ";"); semi >= 0 {
-			mimeType = strings.ToLower(head[:semi])
-		} else if head != "" {
-			mimeType = strings.ToLower(head)
-		}
-	}
-	payload = strings.Map(func(r rune) rune {
-		if r == '\r' || r == '\n' || r == ' ' || r == '\t' {
-			return -1
-		}
-		return r
-	}, payload)
-	data, err := base64.StdEncoding.DecodeString(payload)
-	if err != nil {
-		return "", nil, errors.New("base64 数据无效")
-	}
-	return mimeType, data, nil
-}
-
-func sha256Hex(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
 }
 
 func parseAssetFileName(name string) (string, string) {

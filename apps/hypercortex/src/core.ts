@@ -1,5 +1,5 @@
 import type { HyperCortexShortcutBindingsV1 } from './shortcuts'
-export { acceptString, extFromMime, kindFromMime, mimeFromDataUrl, mimeFromExt } from './assetFileTypes'
+export { ACCEPTED_FILE_EXTENSIONS, extFromMime, kindFromMime, mimeFromExt } from './assetFileTypes'
 
 export type VaultScope = 'library' | 'data'
 
@@ -23,12 +23,9 @@ export type Api = {
     >
     readText: (req: { scope: VaultScope; path: string }) => Promise<string>
     writeText: (req: { scope: VaultScope; path: string; text: string; overwrite?: boolean | null }) => Promise<string>
-    readBase64: (req: { scope: VaultScope; path: string }) => Promise<string>
-    writeBase64: (req: { scope: VaultScope; path: string; dataUrlOrBase64: string; overwrite?: boolean | null }) => Promise<string>
     rename: (req: { scope: VaultScope; from: string; to: string; overwrite?: boolean | null }) => Promise<void>
     delete: (req: { scope: VaultScope; path: string }) => Promise<void>
     deleteTree: (req: { scope: VaultScope; path: string }) => Promise<void>
-    pickImages: (maxCount?: number | null) => Promise<{ name: string; dataUrl: string }[]>
   }
 }
 

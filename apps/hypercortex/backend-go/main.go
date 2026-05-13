@@ -218,8 +218,8 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return svc.ensureAssetIndex(requireScope(params))
 	case "hypercortex.assets.list":
 		return svc.listAssets(requireScope(params))
-	case "hypercortex.assets.importFiles":
-		return svc.importFiles(requireScope(params), rawField(params, "inputs"))
+	case "hypercortex.assets.importLocalFiles":
+		return svc.importLocalFiles(requireScope(params), rawField(params, "files"))
 	case "hypercortex.assets.readDataUrl":
 		return svc.readAssetDataURL(requireScope(params), stringField(params, "assetId"), optionalStringField(params, "ext"))
 	case "hypercortex.assets.delete":

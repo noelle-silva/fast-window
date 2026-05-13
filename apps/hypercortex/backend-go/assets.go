@@ -2,13 +2,11 @@ package main
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 )
 
 func (svc *service) ensureAssetIndex(scope string) (assetIndex, error) {
@@ -80,49 +78,6 @@ func (svc *service) listAssets(scope string) ([]assetPoolItem, error) {
 	}
 	_ = svc.saveAssetIndex(scope, idx)
 	sort.Slice(out, func(i, j int) bool { return out[i].ModifiedMs > out[j].ModifiedMs })
-	return out, nil
-}
-
-func (svc *service) importFiles(scope string, raw json.RawMessage) ([]resourceRef, error) {
-	var inputs []struct {
-		Name    string `json:"name"`
-		DataURL string `json:"dataUrl"`
-	}
-	if err := json.Unmarshal(raw, &inputs); err != nil {
-		return nil, err
-	}
-	idx, _ := svc.ensureAssetIndex(scope)
-	out := []resourceRef{}
-	for _, input := range inputs {
-		mimeType, data, err := dataURLParts(input.DataURL)
-		if err != nil {
-			return nil, err
-		}
-		assetID := sha256Hex(data)
-		ext := extFromMime(mimeType)
-		kind := kindFromMime(mimeType)
-		month := time.Now().Format("2006-01")
-		fileName := assetKey(assetID, ext)
-		rel := filepath.ToSlash(filepath.Join(assetsDir, categoryFromKind(kind), month, fileName))
-		target, err := svc.resolvePath(scope, rel)
-		if err != nil {
-			return nil, err
-		}
-		if err := writeFileAtomic(target, data); err != nil {
-			return nil, err
-		}
-		info, _ := os.Stat(target)
-		entry := assetIndexEntry{Path: rel, Kind: kind, DisplayName: strings.TrimSpace(input.Name)}
-		if info != nil {
-			entry.Size = info.Size()
-			entry.ModifiedMs = float64(info.ModTime().UnixMilli())
-		}
-		idx.Assets[fileName] = entry
-		out = append(out, resourceRef{AssetID: assetID, Mime: mimeType, Ext: ext, Kind: kind, Name: strings.TrimSpace(input.Name)})
-	}
-	if err := svc.saveAssetIndex(scope, idx); err != nil {
-		return nil, err
-	}
 	return out, nil
 }
 

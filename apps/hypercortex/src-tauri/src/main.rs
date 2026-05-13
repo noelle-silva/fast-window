@@ -29,6 +29,13 @@ struct PickedDir {
     dir: String,
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PickedFile {
+    path: String,
+    name: String,
+}
+
 #[tauri::command]
 async fn backend_endpoint(
     app: tauri::AppHandle,
@@ -98,6 +105,35 @@ fn pick_legacy_data_dir() -> Result<Option<PickedDir>, String> {
 }
 
 #[tauri::command]
+fn pick_asset_files(extensions: Vec<String>) -> Result<Vec<PickedFile>, String> {
+    let normalized: Vec<String> = extensions
+        .into_iter()
+        .map(|ext| ext.trim().trim_start_matches('.').to_ascii_lowercase())
+        .filter(|ext| !ext.is_empty() && ext.chars().all(|ch| ch.is_ascii_alphanumeric()))
+        .collect();
+    if normalized.is_empty() {
+        return Err("附件类型列表为空".to_string());
+    }
+
+    let picked = rfd::FileDialog::new()
+        .set_title("选择附件文件")
+        .add_filter("支持的附件", &normalized)
+        .pick_files()
+        .unwrap_or_default();
+
+    Ok(picked
+        .into_iter()
+        .map(|path| PickedFile {
+            name: path
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_default(),
+            path: path.display().to_string(),
+        })
+        .collect())
+}
+
+#[tauri::command]
 fn hide_to_tray(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<FwWindowState>>,
@@ -159,6 +195,7 @@ fn main() {
             pick_data_dir,
             restart_backend,
             pick_legacy_data_dir,
+            pick_asset_files,
             hide_to_tray,
             write_clipboard_text,
             app_ready,
