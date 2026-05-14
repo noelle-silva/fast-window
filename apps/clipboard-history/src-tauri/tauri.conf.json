@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "剪贴板历史",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "identifier": "com.fastwindow.clipboardhistory",
   "build": {
     "beforeDevCommand": "pnpm build:backend:dev && pnpm build:resources && pnpm dev",

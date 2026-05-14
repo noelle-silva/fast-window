@@ -1,7 +1,7 @@
 {
   "name": "@fast-window/app-hypercortex",
   "private": true,
-  "version": "0.1.3",
+  "version": "0.1.4",
   "type": "module",
   "scripts": {
     "build:backend": "node scripts/build-backend.mjs",
