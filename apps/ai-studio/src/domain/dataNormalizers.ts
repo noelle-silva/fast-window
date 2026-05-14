@@ -67,7 +67,7 @@ export function normalizeSplitMeta(raw: any) {
 
 export function defaultData() {
   const providerName = '默认供应商（OpenAI 兼容）'
-  const pid = providerName
+  const pid = uid('p')
   const rid = uid('r')
   const cid = uid('c')
   const t = now()

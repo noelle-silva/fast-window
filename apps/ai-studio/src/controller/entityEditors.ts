@@ -2,8 +2,9 @@ import { now, uid, clamp, clampTemp, normImagePaths } from '../core/utils'
 import { createStateAccessors } from '../state/stateAccessors'
 import { createDefaultChatBranching } from '../domain/branching'
 import { chatMetaFromChat, removeChatMeta, upsertChatMeta } from '../domain/chatMeta'
-import { NEW_ROLE_ID, NEW_GROUP_ID, VERSION, DEFAULT_ATTACH_SEND_LIMIT_CHARS, DEFAULT_ATTACH_MAX_FILE_MB, DEFAULT_MERMAID_FIX_SYSTEM_PROMPT, DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT, DEFAULT_STICKER_NAMING_SYSTEM_PROMPT } from '../domain/constants'
+import { NEW_ROLE_ID, NEW_GROUP_ID } from '../domain/constants'
 import { isAssistantGenerating } from '../domain/assistantRunState'
+import { defaultData } from '../domain/dataNormalizers'
 
 function looksLikeImageDataUrl(s: any): boolean {
   const t = String(s || '')
@@ -90,92 +91,6 @@ export function createEntityEditors(deps: {
 
   function scrollToBottomSoon() {
     // UI 负责滚动逻辑（React）
-  }
-
-  function defaultData() {
-    const providerName = '默认供应商（OpenAI 兼容）'
-    const pid = providerName
-    const rid = uid('r')
-    const cid = uid('c')
-    const t = now()
-    return {
-      version: VERSION,
-      settings: {
-        streamEnabled: true,
-        transparentChatBg: false,
-        chatBgOpacity: 0,
-        chatBgBlur: 0,
-        topbarOpacity: 100,
-        topbarBlur: 0,
-        composerOpacity: 86,
-        composerBlur: 10,
-        branchTree: { dir: 'lr', view: 'float', followSelected: true, modalHotkey: '' },
-        renderSafetyPolicy: 'original',
-        userMessageCollapseEnabled: false,
-        userMessageCollapseLines: 8,
-        attachments: {
-          sendLimitChars: DEFAULT_ATTACH_SEND_LIMIT_CHARS,
-          maxFileSizeMbByKind: {
-            txt: DEFAULT_ATTACH_MAX_FILE_MB,
-            md: DEFAULT_ATTACH_MAX_FILE_MB,
-            pdf: DEFAULT_ATTACH_MAX_FILE_MB,
-            docx: DEFAULT_ATTACH_MAX_FILE_MB,
-            ppt: DEFAULT_ATTACH_MAX_FILE_MB,
-          },
-        },
-        stickers: { enabled: false, categories: [], map: {} },
-        aiServices: {
-          mermaidFix: {
-            enabled: false,
-            providerId: pid,
-            modelId: '',
-            customModelId: '',
-            systemPrompt: DEFAULT_MERMAID_FIX_SYSTEM_PROMPT,
-          },
-          chatTitleNaming: {
-            enabled: false,
-            providerId: pid,
-            modelId: '',
-            customModelId: '',
-            systemPrompt: DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT,
-          },
-          stickerNaming: {
-            enabled: false,
-            providerId: pid,
-            modelId: '',
-            customModelId: '',
-            systemPrompt: DEFAULT_STICKER_NAMING_SYSTEM_PROMPT,
-          },
-        },
-        providers: [{
-          id: pid,
-          name: providerName,
-          baseUrl: 'https://api.openai.com/v1',
-          apiKey: '',
-          modelsCache: { items: [], fetchedAt: 0 },
-        }],
-      },
-      favorites: { folders: [], chatRefsByFolderId: {} },
-      roles: [{
-        id: rid,
-        name: '默认角色',
-        avatar: '🤖',
-        systemPrompt: '你是一个严谨、简洁的助手。',
-        temperature: 0.7,
-        modelRef: { providerId: pid, modelId: '' },
-        createdAt: now(),
-        updatedAt: now(),
-      }],
-      chatsByRole: {
-        [rid]: {
-          activeChatId: cid,
-          chats: [{ id: cid, title: '新聊天', createdAt: t, updatedAt: t, branching: createDefaultChatBranching('', t, t), messages: [] }],
-        },
-      },
-      groups: [],
-      chatsByGroup: {},
-      ui: { activeTargetKind: 'role', activeRoleId: rid, activeGroupId: '' },
-    }
   }
 
   // ===== Avatar =====
@@ -589,20 +504,16 @@ export function createEntityEditors(deps: {
       nextName = `${desiredName}（${i}）`
     }
 
-    const oldId = String(p.id || '')
-    p.name = nextName
-    p.id = nextName
-    p.baseUrl = String(state.draft.providerBaseUrl || '').trim() || 'http://'
-    p.apiKey = String(state.draft.providerApiKey || '').trim()
-    p.modelsCache = { items: [], fetchedAt: 0 }
+    const oldBaseUrl = String(p.baseUrl || '').trim()
+    const oldApiKey = String(p.apiKey || '').trim()
+    const nextBaseUrl = String(state.draft.providerBaseUrl || '').trim() || 'http://'
+    const nextApiKey = String(state.draft.providerApiKey || '').trim()
 
-    if (state.data) {
-      for (const r of state.data.roles) {
-        if (!r?.modelRef) continue
-        if (String(r.modelRef.providerId || '') === oldId) r.modelRef.providerId = String(p.id || '')
-      }
-    }
-    if (String(state.draft.roleProviderId || '') === oldId) state.draft.roleProviderId = String(p.id || '')
+    p.name = nextName
+    p.baseUrl = nextBaseUrl
+    p.apiKey = nextApiKey
+    if (oldBaseUrl !== nextBaseUrl || oldApiKey !== nextApiKey) p.modelsCache = { items: [], fetchedAt: 0 }
+
     state.draft.editProviderId = ''
     save().catch(() => {})
     render()
@@ -619,7 +530,7 @@ export function createEntityEditors(deps: {
       while (used.has(`${desiredName}（${i}）`)) i++
       name = `${desiredName}（${i}）`
     }
-    const pid = name
+    const pid = uid('p')
     state.data.settings.providers.unshift({
       id: pid,
       name,

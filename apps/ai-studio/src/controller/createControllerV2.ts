@@ -109,6 +109,7 @@ import { createEntityEditors } from './entityEditors'
 import { createChatOperations } from './chatOperations'
 import { createPatchOperations } from './patchOperations'
 import { createBuildOpenAiReq } from './buildOpenAiReq'
+import { createPersistence } from './persistence'
 
 export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilities; aiGateway?: AiChatInternalGateway }): {
   controller: AiChatController
@@ -436,6 +437,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     renameRoleChat,
     renameGroupChat: renameGroupChatInStore,
     saveMetaOnly,
+    saveSplitData,
   } = splitStore
 
   // Update splitMetaCache on loadSplitMeta (wrapper)
@@ -496,6 +498,16 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   })
   const { syncActiveGroupChatsFromStorage } = groupChatSync
 
+  const persistence = createPersistence({
+    getState: () => state,
+    activeChatFromData,
+    saveMetaOnly,
+    saveSplitData,
+    saveRoleChat,
+    saveGroupChat,
+  })
+  const { saveMeta, saveCurrentChat, saveDataTree } = persistence
+
   // ============================================================
   // 8.1. SAVE & LOAD (bridge to splitStorage)
   // ============================================================
@@ -521,18 +533,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   }
 
   async function save() {
-    if (!state.data) return
-    state.data.ui.activeRoleId = String(state.draft?.activeRoleId || '')
-    ;(state.data.ui as any).activeGroupId = String(state.draft?.activeGroupId || '')
-    ;(state.data.ui as any).activeTargetKind = String(state.draft?.activeTargetKind || '') === 'group' ? 'group' : 'role'
-    await saveMetaOnly()
-    const kind = String(state.draft?.activeTargetKind || '') === 'group' ? 'group' : 'role'
-    const targetId = kind === 'group' ? String(state.draft?.activeGroupId || '') : String(state.draft?.activeRoleId || '')
-    const chat = activeChatFromData()
-    if (targetId && chat) {
-      if (kind === 'group') await saveGroupChat(targetId, chat)
-      else await saveRoleChat(targetId, chat)
-    }
+    await saveCurrentChat()
   }
 
   // ============================================================
@@ -560,7 +561,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     getState: () => state,
     getProvider,
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
-    save,
+    save: saveDataTree,
     emit,
     showToast: api.ui?.showToast,
   })
@@ -571,7 +572,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // ============================================================
   const favOps = createFavoritesOperations({
     getState: () => state,
-    save,
+    save: saveMeta,
     emit,
     showToast: api.ui?.showToast,
     activeTargetKind,
@@ -639,7 +640,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
     filesImagesRead: (api.files?.images?.read as any) || ((() => Promise.resolve('')) as any),
     aiGateway,
-    save,
+    save: saveDataTree,
     emit,
     getProvider,
     getGroupById,
@@ -663,7 +664,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // ============================================================
   const entityEditors = createEntityEditors({
     getState: () => state,
-    save,
+    save: saveDataTree,
     render,
     closeModal,
     showToast: api.ui?.showToast,
@@ -799,7 +800,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // Build placeholder actions object for eventHandlers (circular dep)
   const actionsPlaceholder: Record<string, any> = {
     emit,
-    save: () => save(),
+    save: () => saveMeta(),
     render,
     renderTop: render,
     renderComposer,
@@ -885,7 +886,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       } catch (_) { bad++ }
     }
 
-    if (ok) { save().catch(() => {}); emit() }
+    if (ok) { saveDataTree().catch(() => {}); emit() }
     if (dup) api.ui?.showToast?.(`跳过重名：${dup} 个`)
     if (!ok && bad) api.ui?.showToast?.('导入失败')
   }
@@ -917,7 +918,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       state.draft.activeRoleId = String(roleId || '')
       ensureChatsBoxBare(state.draft.activeRoleId)
       ensureActiveChatLoaded().catch(() => {}).finally(() => emit())
-      saveMetaOnly().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setActiveGroup: (groupId: any) => {
@@ -928,7 +929,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       ;(state.draft as any).activeGroupId = String(groupId || '')
       ensureGroupChatsBoxBare((state.draft as any).activeGroupId)
       ensureActiveChatLoaded().catch(() => {}).finally(() => emit())
-      saveMetaOnly().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setActiveChat: (chatId: any) => {
@@ -938,49 +939,49 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     toggleStream: () => {
       if (!state.data) return
       state.data.settings.streamEnabled = !state.data.settings.streamEnabled
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     toggleTransparentChatBg: () => {
       if (!state.data) return
       state.data.settings.transparentChatBg = !state.data.settings.transparentChatBg
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setChatBgOpacity: (opacity: any, commit: any) => {
       if (!state.data) return
       state.data.settings.chatBgOpacity = clamp(Math.round(Number(opacity || 0)), 0, 100)
-      if (commit) save().catch(() => {})
+      if (commit) saveMeta().catch(() => {})
       emit()
     },
     setChatBgBlur: (blur: any, commit: any) => {
       if (!state.data) return
       state.data.settings.chatBgBlur = clamp(Math.round(Number(blur || 0)), 0, 24)
-      if (commit) save().catch(() => {})
+      if (commit) saveMeta().catch(() => {})
       emit()
     },
     setTopbarOpacity: (opacity: any, commit: any) => {
       if (!state.data) return
       state.data.settings.topbarOpacity = clamp(Math.round(Number(opacity || 0)), 0, 100)
-      if (commit) save().catch(() => {})
+      if (commit) saveMeta().catch(() => {})
       emit()
     },
     setTopbarBlur: (blur: any, commit: any) => {
       if (!state.data) return
       state.data.settings.topbarBlur = clamp(Math.round(Number(blur || 0)), 0, 24)
-      if (commit) save().catch(() => {})
+      if (commit) saveMeta().catch(() => {})
       emit()
     },
     setComposerOpacity: (opacity: any, commit: any) => {
       if (!state.data) return
       state.data.settings.composerOpacity = clamp(Math.round(Number(opacity || 0)), 40, 100)
-      if (commit) save().catch(() => {})
+      if (commit) saveMeta().catch(() => {})
       emit()
     },
     setComposerBlur: (blur: any, commit: any) => {
       if (!state.data) return
       state.data.settings.composerBlur = clamp(Math.round(Number(blur || 0)), 0, 24)
-      if (commit) save().catch(() => {})
+      if (commit) saveMeta().catch(() => {})
       emit()
     },
     requestSetRenderSafetyPolicy: (policy: any) => {
@@ -996,7 +997,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
         return
       }
       ;(state.data.settings as any).renderSafetyPolicy = next
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setBranchTreeDir: (dir: any) => {
@@ -1007,7 +1008,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       const v = String(dir || '').trim()
       const ok = v === 'lr' || v === 'tb' || v === 'bt' || v === 'rl'
       ;(state.data.settings as any).branchTree.dir = ok ? v : 'lr'
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setBranchTreeView: (view: any) => {
@@ -1018,7 +1019,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       const v = String(view || '').trim()
       const ok = v === 'right' || v === 'float'
       ;(state.data.settings as any).branchTree.view = ok ? v : 'right'
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setBranchTreeFollowSelected: (enabled: any) => {
@@ -1027,7 +1028,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (!(state.data.settings as any).branchTree || typeof (state.data.settings as any).branchTree !== 'object')
         (state.data.settings as any).branchTree = { dir: 'lr', view: 'right', followSelected: true, modalHotkey: '' }
       ;(state.data.settings as any).branchTree.followSelected = !!enabled
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setBranchTreeModalHotkey: (hotkey: any) => {
@@ -1037,19 +1038,19 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
         (state.data.settings as any).branchTree = { dir: 'lr', view: 'right', followSelected: true, modalHotkey: '' }
       const v = String(hotkey || '').trim().slice(0, 80)
       ;(state.data.settings as any).branchTree.modalHotkey = v
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     toggleUserMessageCollapse: () => {
       if (!state.data) return
       state.data.settings.userMessageCollapseEnabled = !state.data.settings.userMessageCollapseEnabled
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setUserMessageCollapseLines: (lines: any, commit: any) => {
       if (!state.data) return
       state.data.settings.userMessageCollapseLines = clamp(Math.round(Number(lines || 8)), 1, 50)
-      if (commit) save().catch(() => {})
+      if (commit) saveMeta().catch(() => {})
       emit()
     },
     setAttachmentsSendLimitChars: (chars: any, commit: any) => {
@@ -1059,7 +1060,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       }
       const at = state.data.settings.attachments as any
       at.sendLimitChars = clamp(Math.round(Number(chars || DEFAULT_ATTACH_SEND_LIMIT_CHARS)), 1000, 2_000_000)
-      if (commit) save().catch(() => {})
+      if (commit) saveMeta().catch(() => {})
       emit()
     },
     setAttachmentsMaxFileSizeMb: (kind: any, mb: any, commit: any) => {
@@ -1074,14 +1075,14 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       const n = Number(mb)
       const next = !isFinite(n) ? DEFAULT_ATTACH_MAX_FILE_MB : clamp(Math.round(n), 0, MAX_ATTACH_MAX_FILE_MB)
       at.maxFileSizeMbByKind[k] = next
-      if (commit) save().catch(() => {})
+      if (commit) saveMeta().catch(() => {})
       emit()
     },
     toggleStickersEnabled: () => {
       if (!state.data) return
       if (!state.data.settings.stickers || typeof state.data.settings.stickers !== 'object') state.data.settings.stickers = { enabled: false, categories: [], map: {} }
       state.data.settings.stickers.enabled = !state.data.settings.stickers.enabled
-      save().catch(() => {})
+      saveDataTree().catch(() => {})
       emit()
     },
     createStickerCategory: (categoryName: any) => {
@@ -1097,7 +1098,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       st.categories = st.categories.concat([name]).slice(0, 200)
       if (!st.map || typeof st.map !== 'object') st.map = {}
       if (!st.map[name] || typeof st.map[name] !== 'object') st.map[name] = {}
-      save().catch(() => {})
+      saveDataTree().catch(() => {})
       emit()
     },
     createFavoriteFolder: (name: any, parentId: any) => favOps.createFavoriteFolder(name, parentId),
@@ -1130,7 +1131,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (st.map && typeof st.map === 'object') {
         try { delete st.map[name] } catch (_) {}
       }
-      save().catch(() => {})
+      saveDataTree().catch(() => {})
       emit()
     },
     addSticker: async (categoryName: any, stickerName: any, dataUrl: any) => {
@@ -1153,7 +1154,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
         return api.ui?.showToast?.(String((r as any)?.error?.message || (r as any)?.error || '保存失败'))
       }
 
-      save().catch(() => {})
+      saveDataTree().catch(() => {})
       emit()
     },
     pickStickerImages: (categoryName: any) => pickStickerImages(categoryName),
@@ -1178,7 +1179,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
         try { delete box[name] } catch (_) {}
       }
 
-      save().catch(() => {})
+      saveDataTree().catch(() => {})
       emit()
     },
     renameSticker: (categoryName: any, oldStickerName: any, newStickerName: any) => {
@@ -1216,7 +1217,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       box[name] = next
       try { delete box[oldName] } catch (_) {}
 
-      save().catch(() => {})
+      saveDataTree().catch(() => {})
       emit()
     },
     setMermaidFixEnabled: (on: any) => {
@@ -1224,7 +1225,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {} as any
       if (!state.data.settings.aiServices.mermaidFix || typeof state.data.settings.aiServices.mermaidFix !== 'object') state.data.settings.aiServices.mermaidFix = {} as any
       state.data.settings.aiServices.mermaidFix.enabled = !!on
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setMermaidFixProviderId: (providerId: any) => {
@@ -1233,7 +1234,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {} as any
       if (!state.data.settings.aiServices.mermaidFix || typeof state.data.settings.aiServices.mermaidFix !== 'object') state.data.settings.aiServices.mermaidFix = {} as any
       state.data.settings.aiServices.mermaidFix.providerId = pid
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setMermaidFixModelId: (modelId: any) => {
@@ -1242,7 +1243,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {} as any
       if (!state.data.settings.aiServices.mermaidFix || typeof state.data.settings.aiServices.mermaidFix !== 'object') state.data.settings.aiServices.mermaidFix = {} as any
       state.data.settings.aiServices.mermaidFix.modelId = mid
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setMermaidFixCustomModelId: (customModelId: any) => {
@@ -1251,7 +1252,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {} as any
       if (!state.data.settings.aiServices.mermaidFix || typeof state.data.settings.aiServices.mermaidFix !== 'object') state.data.settings.aiServices.mermaidFix = {} as any
       state.data.settings.aiServices.mermaidFix.customModelId = mid
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setMermaidFixSystemPrompt: (systemPrompt: any) => {
@@ -1260,7 +1261,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {} as any
       if (!state.data.settings.aiServices.mermaidFix || typeof state.data.settings.aiServices.mermaidFix !== 'object') state.data.settings.aiServices.mermaidFix = {} as any
       state.data.settings.aiServices.mermaidFix.systemPrompt = p
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     resetMermaidFixSystemPromptDefault: () => {
@@ -1268,7 +1269,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {} as any
       if (!state.data.settings.aiServices.mermaidFix || typeof state.data.settings.aiServices.mermaidFix !== 'object') state.data.settings.aiServices.mermaidFix = {} as any
       state.data.settings.aiServices.mermaidFix.systemPrompt = DEFAULT_MERMAID_FIX_SYSTEM_PROMPT
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setChatTitleNamingEnabled: (on: any) => {
@@ -1276,7 +1277,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {} as any
       if (!state.data.settings.aiServices.chatTitleNaming || typeof state.data.settings.aiServices.chatTitleNaming !== 'object') state.data.settings.aiServices.chatTitleNaming = {} as any
       state.data.settings.aiServices.chatTitleNaming.enabled = !!on
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setChatTitleNamingProviderId: (providerId: any) => {
@@ -1285,7 +1286,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {} as any
       if (!state.data.settings.aiServices.chatTitleNaming || typeof state.data.settings.aiServices.chatTitleNaming !== 'object') state.data.settings.aiServices.chatTitleNaming = {} as any
       state.data.settings.aiServices.chatTitleNaming.providerId = pid
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setChatTitleNamingModelId: (modelId: any) => {
@@ -1294,7 +1295,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {} as any
       if (!state.data.settings.aiServices.chatTitleNaming || typeof state.data.settings.aiServices.chatTitleNaming !== 'object') state.data.settings.aiServices.chatTitleNaming = {} as any
       state.data.settings.aiServices.chatTitleNaming.modelId = mid
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setChatTitleNamingCustomModelId: (customModelId: any) => {
@@ -1303,7 +1304,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {} as any
       if (!state.data.settings.aiServices.chatTitleNaming || typeof state.data.settings.aiServices.chatTitleNaming !== 'object') state.data.settings.aiServices.chatTitleNaming = {} as any
       state.data.settings.aiServices.chatTitleNaming.customModelId = mid
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setChatTitleNamingSystemPrompt: (systemPrompt: any) => {
@@ -1312,7 +1313,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {} as any
       if (!state.data.settings.aiServices.chatTitleNaming || typeof state.data.settings.aiServices.chatTitleNaming !== 'object') state.data.settings.aiServices.chatTitleNaming = {} as any
       state.data.settings.aiServices.chatTitleNaming.systemPrompt = p
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     resetChatTitleNamingSystemPromptDefault: () => {
@@ -1320,7 +1321,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {} as any
       if (!state.data.settings.aiServices.chatTitleNaming || typeof state.data.settings.aiServices.chatTitleNaming !== 'object') state.data.settings.aiServices.chatTitleNaming = {} as any
       state.data.settings.aiServices.chatTitleNaming.systemPrompt = DEFAULT_CHAT_TITLE_NAMING_SYSTEM_PROMPT
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setStickerNamingEnabled: (on: any) => {
@@ -1328,7 +1329,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {} as any
       if (!state.data.settings.aiServices.stickerNaming || typeof state.data.settings.aiServices.stickerNaming !== 'object') state.data.settings.aiServices.stickerNaming = {} as any
       state.data.settings.aiServices.stickerNaming.enabled = !!on
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setStickerNamingProviderId: (providerId: any) => {
@@ -1337,7 +1338,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {} as any
       if (!state.data.settings.aiServices.stickerNaming || typeof state.data.settings.aiServices.stickerNaming !== 'object') state.data.settings.aiServices.stickerNaming = {} as any
       state.data.settings.aiServices.stickerNaming.providerId = pid
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setStickerNamingModelId: (modelId: any) => {
@@ -1346,7 +1347,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {} as any
       if (!state.data.settings.aiServices.stickerNaming || typeof state.data.settings.aiServices.stickerNaming !== 'object') state.data.settings.aiServices.stickerNaming = {} as any
       state.data.settings.aiServices.stickerNaming.modelId = mid
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setStickerNamingCustomModelId: (customModelId: any) => {
@@ -1355,7 +1356,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {} as any
       if (!state.data.settings.aiServices.stickerNaming || typeof state.data.settings.aiServices.stickerNaming !== 'object') state.data.settings.aiServices.stickerNaming = {} as any
       state.data.settings.aiServices.stickerNaming.customModelId = mid
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     setStickerNamingSystemPrompt: (systemPrompt: any) => {
@@ -1364,7 +1365,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {} as any
       if (!state.data.settings.aiServices.stickerNaming || typeof state.data.settings.aiServices.stickerNaming !== 'object') state.data.settings.aiServices.stickerNaming = {} as any
       state.data.settings.aiServices.stickerNaming.systemPrompt = p
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     resetStickerNamingSystemPromptDefault: () => {
@@ -1372,7 +1373,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (!state.data.settings.aiServices || typeof state.data.settings.aiServices !== 'object') state.data.settings.aiServices = {} as any
       if (!state.data.settings.aiServices.stickerNaming || typeof state.data.settings.aiServices.stickerNaming !== 'object') state.data.settings.aiServices.stickerNaming = {} as any
       state.data.settings.aiServices.stickerNaming.systemPrompt = DEFAULT_STICKER_NAMING_SYSTEM_PROMPT
-      save().catch(() => {})
+      saveMeta().catch(() => {})
       emit()
     },
     closeModal: () => closeModal(),
@@ -1426,7 +1427,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       if (pid) deleteProvider(pid)
       if (nextRenderSafetyPolicy && state.data) {
         ;(state.data.settings as any).renderSafetyPolicy = nextRenderSafetyPolicy
-        save().catch(() => {})
+        saveMeta().catch(() => {})
       }
       emit()
     },

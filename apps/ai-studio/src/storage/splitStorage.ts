@@ -594,7 +594,17 @@ export function createSplitStorage(deps: {
 
     try {
       await storage.set(SPLIT_META_KEY, meta)
-      splitMetaCache = meta
+      splitMetaCache = {
+        ...meta,
+        roleOrder,
+        roleFolders,
+        chatIndexByRole,
+        groupOrder,
+        groupFolders,
+        chatIndexByGroup,
+        providerOrder,
+        providerFolders,
+      }
     } catch (_) {}
 
     if (old) {
@@ -719,6 +729,18 @@ export function createSplitStorage(deps: {
           } catch (_) {}
         }
       }
+
+      const newProviderSet = new Set(providerOrder)
+      const oldProviders = Array.isArray((old as any).providerOrder) ? (old as any).providerOrder : []
+      for (const pid0 of oldProviders) {
+        const pid = String(pid0 || '')
+        if (!pid || newProviderSet.has(pid)) continue
+        const oldFolder = String((oldProviderFolders as any)?.[pid] || '')
+        if (!oldFolder) continue
+        try {
+          await storage.remove(splitProviderKey(oldFolder))
+        } catch (_) {}
+      }
     }
   }
 
@@ -749,7 +771,7 @@ export function createSplitStorage(deps: {
     }
 
     await storage.set(SPLIT_META_KEY, meta)
-    splitMetaCache = meta
+    splitMetaCache = { ...old, ...meta }
   }
 
   async function load() {

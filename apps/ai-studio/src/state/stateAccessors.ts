@@ -1,6 +1,7 @@
 import { now, uid } from '../core/utils'
 import { createDefaultChatBranching } from '../domain/branching'
 import { chatMetaFromChat, chatMetasFromBox, upsertChatMeta } from '../domain/chatMeta'
+import { normalizeChatModelOverride } from '../domain/modelRefUtils'
 
 function ensureBoxShape(box: any, fallbackTitle: string) {
   if (!box || typeof box !== 'object') return { activeChatId: '', chatMetas: [], chats: [] }
@@ -259,12 +260,10 @@ export function createStateAccessors(deps: {
   }
 
   function pickChatModelRef(role: any, chat: any) {
-    const override = chat && typeof chat === 'object' ? chat.modelRef : null
-    const overrideProviderId = String(override?.providerId || '').trim()
-    const overrideModelId = String(override?.modelId || '').trim()
-    if (overrideProviderId && overrideModelId) {
-      const provider = getProvider(overrideProviderId)
-      if (provider) return { providerId: overrideProviderId, modelId: overrideModelId, overridden: true }
+    const override = normalizeChatModelOverride(chat)
+    if (override) {
+      const provider = getProvider(override.providerId)
+      if (provider) return { providerId: override.providerId, modelId: override.modelId, overridden: true }
     }
 
     return {
