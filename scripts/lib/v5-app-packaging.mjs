@@ -428,3 +428,19 @@ export function upsertStoreApp(catalog, appEntry, generatedAt = new Date().toISO
   const plugins = [...catalog.plugins].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
   return { catalogVersion: 2, generatedAt, apps, plugins }
 }
+
+export function removeStoreApp(catalog, appId, generatedAt = new Date().toISOString()) {
+  if (catalog?.catalogVersion !== 2) throw new Error('catalogVersion 必须为 2')
+  if (!Array.isArray(catalog.apps)) throw new Error('catalog.apps 必须是数组')
+  if (!Array.isArray(catalog.plugins)) throw new Error('catalog.plugins 必须是数组')
+  if (!isSafeId(appId)) throw new Error(`app id 不合法: ${appId || '(empty)'}`)
+
+  const removed = catalog.apps.find(app => String(app?.id || '').trim() === appId) || null
+  if (!removed) throw new Error(`远端 catalog 中不存在 v5 app: ${appId}`)
+
+  const apps = catalog.apps
+    .filter(app => String(app?.id || '').trim() !== appId)
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+  const plugins = [...catalog.plugins].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+  return { catalog: { catalogVersion: 2, generatedAt, apps, plugins }, removed }
+}

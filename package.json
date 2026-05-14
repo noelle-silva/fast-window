@@ -17,6 +17,7 @@
     "apps:bump:v5": "node scripts/bump-v5-app-version.mjs",
     "apps:bump:v5:dry": "node scripts/bump-v5-app-version.mjs --dry-run",
     "apps:publish:v5": "node scripts/publish-v5-app-to-download.mjs",
+    "apps:unpublish:v5": "node scripts/unpublish-v5-app-from-download.mjs",
     "dev:all": "node scripts/dev-all.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
