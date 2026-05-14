@@ -80,6 +80,12 @@ export function createAiChatEngine(opts: {
     await runs.patchRun(id, { cancelRequestedAt: now() })
   }
 
+  async function getRun(runId: string) {
+    const id = String(runId || '').trim()
+    if (!id) return null
+    return runs.getRun(id)
+  }
+
   async function finalizeQueuedCanceled(run: AiChatRun) {
     const runId = String(run?.id || '').trim()
     if (!runId) return
@@ -243,5 +249,5 @@ export function createAiChatEngine(opts: {
     }
   }
 
-  return { owner, enqueue, cancel, tick }
+  return { owner, enqueue, cancel, getRun, tick }
 }

@@ -30,6 +30,9 @@ export function createAiChatDirectGateway(directClient: AiChatDirectClient): AiC
     cancelAssistant(assistantMid: string) {
       return directClient.invoke(AI_CHAT_DIRECT_METHOD.cancelAssistant, { assistantMid }, { timeoutMs: ACK_TIMEOUT_MS }).then(() => undefined)
     },
+    getAssistantRuntime(assistantMid: string) {
+      return directClient.invoke(AI_CHAT_DIRECT_METHOD.getAssistantRuntime, { assistantMid }, { timeoutMs: POLL_TIMEOUT_MS })
+    },
     resetAssistantRuntime(assistantMid: string) {
       return directClient.invoke(AI_CHAT_DIRECT_METHOD.resetAssistantRuntime, { assistantMid }, { timeoutMs: ACK_TIMEOUT_MS }).then(() => undefined)
     },

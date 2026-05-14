@@ -71,7 +71,9 @@ export function isAssistantRunActive(run: unknown) {
 export function isAssistantGenerating(message: unknown) {
   const m = message && typeof message === 'object' ? (message as any) : null
   if (!m || m.role !== 'assistant') return false
-  return m.pending === true || isAssistantRunActive(m.assistantRun)
+  const run = normalizeAssistantRunState(m.assistantRun)
+  if (run) return isAssistantRunActive(run)
+  return m.pending === true
 }
 
 export function assistantRunGenerationId(message: unknown) {
@@ -184,8 +186,8 @@ export function resolveAssistantMessageForMerge(localMessage: any, storedMessage
 
   const localRun = normalizeAssistantRunState(local.assistantRun)
   const storedRun = normalizeAssistantRunState(stored.assistantRun)
-  const localActive = local.pending === true || isAssistantRunActive(localRun)
-  const storedActive = stored.pending === true || isAssistantRunActive(storedRun)
+  const localActive = isAssistantGenerating(local)
+  const storedActive = isAssistantGenerating(stored)
 
   if (localRun && storedRun && localRun.generationId === storedRun.generationId) {
     if (!storedActive && localActive) return stored

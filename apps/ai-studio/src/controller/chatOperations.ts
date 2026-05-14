@@ -28,10 +28,10 @@ import {
   checkpointAssistantRun,
   finishAssistantRun,
   isAssistantRunSignalCurrent,
-  isAssistantGenerating,
   normalizeAssistantRunSignal,
   ASSISTANT_RUNNING_CONTENT,
 } from '../domain/assistantRunState'
+import { hasActiveAssistantMessages, listActiveAssistantMessages } from '../domain/chatRunState'
 
 type ChatAttachmentItem = {
   id: string
@@ -119,50 +119,11 @@ export function createChatOperations(deps: {
   }
 
   function chatHasPendingAssistant(chat: any) {
-    const msgs = Array.isArray(chat?.messages) ? chat.messages : []
-    for (const m of msgs) {
-      if (!m || typeof m !== 'object') continue
-      if (isAssistantGenerating(m)) return true
-    }
-    return false
+    return hasActiveAssistantMessages(chat)
   }
 
   function chatHasPendingAssistantInBranch(chat: any, branchId: string, excludeMid?: any) {
-    const bid = normalizeBranchId(branchId || CHAT_DEFAULT_BRANCH_ID)
-    const ex = String(excludeMid || '').trim()
-    const msgs = Array.isArray(chat?.messages) ? chat.messages : []
-    for (const m of msgs) {
-      if (!m || typeof m !== 'object') continue
-      if (m.role !== 'assistant' || !isAssistantGenerating(m)) continue
-      const mid = String((m as any)?.id || '').trim()
-      if (ex && mid === ex) continue
-      const mb = normalizeBranchId((m as any)?.branchId || CHAT_DEFAULT_BRANCH_ID)
-      if (mb === bid) return true
-    }
-    return false
-  }
-
-  function findLastPendingAssistant(chat: any) {
-    const msgs = Array.isArray(chat?.messages) ? chat.messages : []
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      const m = msgs[i]
-      if (!m || typeof m !== 'object') continue
-      if (isAssistantGenerating(m)) return m
-    }
-    return null
-  }
-
-  function findLastPendingAssistantInBranch(chat: any, branchId: string) {
-    const bid = normalizeBranchId(branchId || CHAT_DEFAULT_BRANCH_ID)
-    const msgs = Array.isArray(chat?.messages) ? chat.messages : []
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      const m = msgs[i]
-      if (!m || typeof m !== 'object') continue
-      if (m.role !== 'assistant' || !isAssistantGenerating(m)) continue
-      const mb = normalizeBranchId((m as any)?.branchId || CHAT_DEFAULT_BRANCH_ID)
-      if (mb === bid) return m
-    }
-    return null
+    return hasActiveAssistantMessages(chat, { branchId, excludeMid })
   }
 
   // ============ draft image ============
@@ -944,46 +905,48 @@ export function createChatOperations(deps: {
 
     const branching = ensureChatBranching(chat)
     const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
-    const lastPending = findLastPendingAssistantInBranch(chat, activeBranchId) || findLastPendingAssistant(chat)
-    const mid = String(lastPending?.id || '')
-    if (!mid) return showToast?.('当前会话没有正在生成的消息')
+    const activeRefs = listActiveAssistantMessages(chat, { branchId: activeBranchId })
+    const refs = activeRefs.length ? activeRefs : listActiveAssistantMessages(chat)
+    if (!refs.length) return showToast?.('当前会话没有正在生成的消息')
 
     try {
-      await aiGateway.cancelAssistant(mid)
-    } catch (_) {}
+      await Promise.all(refs.map(({ mid }) => aiGateway.cancelAssistant(mid).catch(() => undefined)))
 
-    if (state.data && chatId && mid && (kind === 'role' ? roleId : groupId)) {
-      let text = ''
-      try {
-        const s = await aiGateway.readAssistantStream(mid)
-        text = String((s as any)?.text || '')
-      } catch (_) {}
-
-      const msgs = Array.isArray(chat?.messages) ? chat.messages : []
-      const m = msgs.find((x: any) => String(x?.id || '') === mid) || null
-      if (!text) {
+      for (const ref of refs) {
+        const mid = ref.mid
+        const m = ref.message
+        let text = ''
         try {
-          const cached = normalizeAssistantRunSignal((uiStreamCache as any)?.get?.(mid))
-          if (m && cached && isAssistantRunSignalCurrent(m, cached) && cached.text) text = cached.text
+          const s = await aiGateway.readAssistantStream(mid)
+          const signal = normalizeAssistantRunSignal(s)
+          if (signal && isAssistantRunSignalCurrent(m, signal)) text = String(signal.text || '')
         } catch (_) {}
+
+        if (!text) {
+          try {
+            const cached = normalizeAssistantRunSignal((uiStreamCache as any)?.get?.(mid))
+            if (cached && isAssistantRunSignalCurrent(m, cached) && cached.text) text = cached.text
+          } catch (_) {}
+        }
+        if (!text) {
+          const cur = String((m as any)?.content || '').trim()
+          if (cur && cur !== ASSISTANT_RUNNING_CONTENT) text = cur
+        }
+
+        finishAssistantMessage(m, text || '（已停止）', 'canceled')
+        uiStreamCache.delete(mid)
+        await aiGateway.resetAssistantRuntime(mid).catch(() => undefined)
       }
-      if (!text && m) {
-        const cur = String((m as any)?.content || '').trim()
-        if (cur && cur !== ASSISTANT_RUNNING_CONTENT) text = cur
-      }
-      const finalOut = text || '（已停止）'
-      if (m) {
-        finishAssistantMessage(m, finalOut, 'canceled')
-      }
-      if (chat) {
-        chat.updatedAt = now()
-        repairChatLinearBranching(chat)
-      }
+
+      chat.updatedAt = now()
+      repairChatLinearBranching(chat)
+      await save()
+    } catch (e) {
+      showToast?.(String((e as any)?.message || e || '停止失败'))
+    } finally {
+      state.sending = false
       emit()
     }
-
-    state.sending = false
-    emit()
   }
 
   // ============ regenerate assistant message ============
@@ -1031,7 +994,7 @@ export function createChatOperations(deps: {
 
       const target = msgs[aiIndex]
       if (!target || target.role !== 'assistant') throw new Error('只能重新生成 AI 回复')
-      if (isAssistantGenerating(target)) throw new Error('该消息正在生成中')
+      if (hasActiveAssistantMessages({ messages: [target] })) throw new Error('该消息正在生成中')
       const branching = ensureChatBranching(chat)
       const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
       const branchId = normalizeBranchId((target as any)?.branchId || activeBranchId)
@@ -1138,7 +1101,7 @@ export function createChatOperations(deps: {
 
       const target = msgs[aiIndex]
       if (!target || target.role !== 'assistant') throw new Error('只能重新生成 AI 回复')
-      if (isAssistantGenerating(target)) throw new Error('该消息正在生成中')
+      if (hasActiveAssistantMessages({ messages: [target] })) throw new Error('该消息正在生成中')
       const branching = ensureChatBranching(chat)
       const activeBranchId = normalizeBranchId((branching as any)?.activeBranchId || CHAT_DEFAULT_BRANCH_ID)
       const branchId = normalizeBranchId((target as any)?.branchId || activeBranchId)
@@ -1582,7 +1545,7 @@ export function createChatOperations(deps: {
     const msgs = Array.isArray(chat.messages) ? chat.messages : []
     const target = msgs.find((m: any) => String(m?.id || '') === mid) || null
     if (!target || target.role !== 'assistant') return showToast?.('只能从 AI 消息新建分支')
-    if (isAssistantGenerating(target)) return showToast?.('该消息正在生成中')
+    if (hasActiveAssistantMessages({ messages: [target] })) return showToast?.('该消息正在生成中')
 
     const userMid0 = String((target as any)?.parentMid || '').trim()
     const userMsg = userMid0 ? msgs.find((m: any) => String(m?.id || '') === userMid0) || null : null
@@ -1768,7 +1731,7 @@ export function createChatOperations(deps: {
     if (!target) return showToast?.('未找到该消息')
 
     if (target.role === 'assistant') {
-      if (isAssistantGenerating(target)) return showToast?.('该消息正在生成中，无法删除')
+      if (hasActiveAssistantMessages({ messages: [target] })) return showToast?.('该消息正在生成中，无法删除')
     }
 
     const oldById = new Map<string, any>()
@@ -2058,7 +2021,7 @@ export function createChatOperations(deps: {
     if (!target) return showToast?.('未找到该消息')
 
     if (target.role === 'assistant') {
-      if (isAssistantGenerating(target)) return showToast?.('该消息正在生成中，无法编辑')
+      if (hasActiveAssistantMessages({ messages: [target] })) return showToast?.('该消息正在生成中，无法编辑')
       try {
         uiStreamCache.delete(mid)
       } catch (_) {}

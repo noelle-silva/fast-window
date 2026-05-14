@@ -11,6 +11,23 @@ export async function getRunIdForAssistant(store: AiChatRuntimeStore, assistantM
   }
 }
 
+export async function getRunSignalForAssistant(store: AiChatRuntimeStore, assistantMid: string) {
+  try {
+    const value = await store.get(assistantMidRunKey(assistantMid))
+    const signal = value && typeof value === 'object' ? (value as any) : null
+    if (!signal) return null
+    const runId = String(signal.runId || '').trim()
+    if (!runId) return null
+    return {
+      runId,
+      generationId: String(signal.generationId || '').trim(),
+      createdAt: Number(signal.createdAt || 0) || 0,
+    }
+  } catch (_) {
+    return null
+  }
+}
+
 export async function isCurrentRunForAssistant(store: AiChatRuntimeStore, assistantMid: string, runId: string) {
   const expectedRunId = String(runId || '').trim()
   if (!expectedRunId) return false

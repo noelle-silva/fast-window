@@ -14,6 +14,7 @@ export type AiChatInternalGateway = {
   submitRawServiceRequest: (input: AiChatRawServiceRequestInput) => Promise<void>
   waitServiceFinal: (assistantMid: string, timeoutMs: number) => Promise<string>
   cancelAssistant: (assistantMid: string) => Promise<void>
+  getAssistantRuntime: (assistantMid: string) => Promise<{ runId: string; generationId: string; status: string; active: boolean } | null>
   resetAssistantRuntime: (assistantMid: string) => Promise<void>
   readAssistantStream: (assistantMid: string) => Promise<any>
   consumeAssistantFinal: (assistantMid: string) => Promise<any>

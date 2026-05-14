@@ -102,6 +102,11 @@ export function createAiChatBackendService(opts: {
         await gateway.cancelAssistant(mid)
         return {}
       }
+      case AI_CHAT_DIRECT_METHOD.getAssistantRuntime: {
+        const mid = String(p?.assistantMid || '').trim()
+        if (!mid) throw new AiChatDirectError('BAD_REQUEST', 'assistantMid is required')
+        return await gateway.getAssistantRuntime(mid)
+      }
       case AI_CHAT_DIRECT_METHOD.readAssistantStream: {
         const mid = String(p?.assistantMid || '').trim()
         if (!mid) throw new AiChatDirectError('BAD_REQUEST', 'assistantMid is required')

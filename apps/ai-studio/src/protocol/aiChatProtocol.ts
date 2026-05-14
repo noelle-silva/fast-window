@@ -1,4 +1,4 @@
-export const AI_CHAT_DIRECT_PROTOCOL_VERSION = 1
+export const AI_CHAT_DIRECT_PROTOCOL_VERSION = 2
 
 export const AI_CHAT_DIRECT_METHOD = {
   healthCheck: 'aiChat.healthCheck',
@@ -7,6 +7,7 @@ export const AI_CHAT_DIRECT_METHOD = {
   submitRawServiceRequest: 'aiChat.submitRawServiceRequest',
   waitServiceFinal: 'aiChat.waitServiceFinal',
   cancelAssistant: 'aiChat.cancelAssistant',
+  getAssistantRuntime: 'aiChat.getAssistantRuntime',
   readAssistantStream: 'aiChat.readAssistantStream',
   consumeAssistantFinal: 'aiChat.consumeAssistantFinal',
   resetAssistantRuntime: 'aiChat.resetAssistantRuntime',

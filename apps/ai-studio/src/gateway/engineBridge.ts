@@ -2,7 +2,7 @@ import { now } from '../core/utils'
 import { createAiChatEngine } from '../engine'
 import type { AiChatNetAdapter, AiChatRun, AiChatRuntimeStore } from '../engine'
 import { assistantFinalKey, assistantStreamKey } from '../runtime/runtimeKeys'
-import { clearRunIdForAssistant, getRunIdForAssistant, isCurrentRunForAssistant, setRunIdForAssistant } from './runtimeSignalStore'
+import { clearRunIdForAssistant, getRunIdForAssistant, getRunSignalForAssistant, isCurrentRunForAssistant, setRunIdForAssistant } from './runtimeSignalStore'
 
 export function createAiChatEngineBridge(opts: {
   runtime: 'ui' | 'background'
@@ -79,6 +79,22 @@ export function createAiChatEngineBridge(opts: {
     await engine.cancel(runId)
   }
 
+  async function getAssistantRuntime(assistantMid: string) {
+    const mid = String(assistantMid || '').trim()
+    if (!mid) return null
+    const signal = await getRunSignalForAssistant(store, mid)
+    if (!signal) return null
+    const run = await engine.getRun(signal.runId)
+    const status = String(run?.status || '').trim()
+    const cancelRequested = typeof (run as any)?.cancelRequestedAt === 'number' && Number((run as any).cancelRequestedAt || 0) > 0
+    return {
+      runId: signal.runId,
+      generationId: signal.generationId,
+      status,
+      active: !cancelRequested && (status === 'queued' || status === 'running'),
+    }
+  }
+
   async function startBackgroundLoop(intervalMs = 350) {
     if (opts.runtime !== 'background') return
     const tick = async () => {
@@ -92,5 +108,5 @@ export function createAiChatEngineBridge(opts: {
     }, Math.max(100, Math.floor(intervalMs || 0)))
   }
 
-  return { enqueue, cancelAssistant, startBackgroundLoop, engineOwner: engine.owner }
+  return { enqueue, cancelAssistant, getAssistantRuntime, startBackgroundLoop, engineOwner: engine.owner }
 }

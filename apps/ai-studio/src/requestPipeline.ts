@@ -1,4 +1,5 @@
 import type { AiChatRuntimeStore } from './engine'
+import { assistantMidRunKey } from './runtime/runtimeKeys'
 
 export type AiChatRunKind = 'role' | 'group'
 
@@ -40,6 +41,9 @@ export function createAiChatRequestPipeline(opts: {
     } catch (_) {}
     try {
       await store.remove(opts.finalKey(mid))
+    } catch (_) {}
+    try {
+      await store.remove(assistantMidRunKey(mid))
     } catch (_) {}
   }
 

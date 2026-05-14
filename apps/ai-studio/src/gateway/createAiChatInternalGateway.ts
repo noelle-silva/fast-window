@@ -74,6 +74,7 @@ export function createAiChatInternalGateway(opts: {
       throw new Error('AI 微服务请求超时（后台可能未启动或已卡住）')
     },
     cancelAssistant: (assistantMid: string) => bridge.cancelAssistant(assistantMid),
+    getAssistantRuntime: (assistantMid: string) => bridge.getAssistantRuntime(assistantMid),
     resetAssistantRuntime: (assistantMid: string) => pipeline.resetAssistantRuntime(assistantMid),
     readAssistantStream: async (assistantMid: string) => {
       const mid = String(assistantMid || '').trim()
