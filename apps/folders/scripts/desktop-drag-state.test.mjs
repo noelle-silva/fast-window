@@ -2,9 +2,10 @@ import { strict as assert } from 'node:assert'
 import { describe, it } from 'node:test'
 
 import { applyContainerItemDesktopExtraction, isContainerSoftClosedForExtractDrag, resolveContainerExtractDragMode, resolveContainerExtractNextDragMode } from '../src/containerExtractDragState.ts'
+import { resolveContainerDropSurface } from '../src/containerDropResolution.ts'
 import { isContainerDropTargetActive, resolveDesktopDragMode, resolveDesktopDropIntent } from '../src/desktopDragState.ts'
 import { desktopEntryKey } from '../src/folder-grid/desktopEntries.ts'
-import { projectExternalFolderDrag } from '../src/folder-grid/desktopDragProjection.ts'
+import { projectExternalItemDrag } from '../src/folder-grid/desktopDragProjection.ts'
 
 function containerEntry(id) {
   return {
@@ -17,7 +18,7 @@ function containerEntry(id) {
 
 function folderEntry(id) {
   return {
-    kind: 'folder',
+    kind: 'item',
     id,
     name: id,
     item: folderItem(id),
@@ -55,7 +56,7 @@ function folderItem(id) {
   return {
     id,
     name: id,
-    path: `E:/${id}`,
+    target: { kind: 'folder', path: `E:/${id}` },
     groupId: 'default',
     pageOrder: 0,
     createdAt: '',
@@ -136,6 +137,18 @@ describe('desktop drag drop intent', () => {
   })
 })
 
+describe('container drop surface', () => {
+  it('uses the container icon as a direct drop surface before hover-open completes', () => {
+    assert.equal(resolveContainerDropSurface('container-a', null, false), 'icon')
+    assert.equal(resolveContainerDropSurface('container-a', container('container-b'), false), 'icon')
+  })
+
+  it('requires the opened container grid once the target container is active', () => {
+    assert.equal(resolveContainerDropSurface('container-a', container('container-a'), false), 'unavailable')
+    assert.equal(resolveContainerDropSurface('container-a', container('container-a'), true), 'grid')
+  })
+})
+
 describe('container extract drag state', () => {
   it('switches to desktop mode only after leaving the container boundary', () => {
     const boundary = { left: 10, right: 110, top: 20, bottom: 120 }
@@ -164,8 +177,8 @@ describe('container extract drag state', () => {
 
   it('applies desktop extraction without mutating unrelated container items', () => {
     const nextDoc = applyContainerItemDesktopExtraction(foldersDoc(), 'container-a', 'inside', [
-      { kind: 'folder', id: 'inside', layout: { x: 2, y: 0 } },
-      { kind: 'folder', id: 'desktop', layout: { x: 3, y: 0 } },
+      { kind: 'item', id: 'inside', layout: { x: 2, y: 0 } },
+      { kind: 'item', id: 'desktop', layout: { x: 3, y: 0 } },
       { kind: 'container', id: 'container-a', layout: { x: 0, y: 1 } },
     ])
 
@@ -180,12 +193,12 @@ describe('container extract drag state', () => {
 
   it('rejects extraction patches for folders that are still in a container', () => {
     assert.throws(() => applyContainerItemDesktopExtraction(foldersDoc(), 'container-a', 'inside', [
-      { kind: 'folder', id: 'inside', layout: { x: 2, y: 0 } },
-      { kind: 'folder', id: 'missing', layout: { x: 3, y: 0 } },
+      { kind: 'item', id: 'inside', layout: { x: 2, y: 0 } },
+      { kind: 'item', id: 'missing', layout: { x: 3, y: 0 } },
     ]), /desktop entry not found/)
     assert.throws(() => applyContainerItemDesktopExtraction(foldersDoc(), 'container-a', 'desktop', [
-      { kind: 'folder', id: 'desktop', layout: { x: 2, y: 0 } },
-    ]), /folder is not in container/)
+      { kind: 'item', id: 'desktop', layout: { x: 2, y: 0 } },
+    ]), /item is not in container/)
   })
 })
 
@@ -212,7 +225,7 @@ describe('container extract desktop projection', () => {
   const entryByKey = new Map(baseEntries.map(entry => [desktopEntryKey(entry.kind, entry.id), entry]))
 
   it('uses reflow projection for a normal extracted desktop drag', () => {
-    const projection = projectExternalFolderDrag({
+    const projection = projectExternalItemDrag({
       item: folderItem('inside'),
       clientX: 214,
       clientY: 28,
@@ -223,13 +236,13 @@ describe('container extract desktop projection', () => {
 
     assert.ok(projection)
     assert.equal(projection.event.dragMode, 'reflow')
-    assert.deepEqual(projection.layouts.get('folder:inside'), { x: 1, y: 0 })
-    assert.deepEqual(projection.layouts.get('folder:desktop-a'), { x: 2, y: 0 })
+    assert.deepEqual(projection.layouts.get('item:inside'), { x: 1, y: 0 })
+    assert.deepEqual(projection.layouts.get('item:desktop-a'), { x: 2, y: 0 })
     assert.equal(projection.dropIntent, undefined)
   })
 
   it('uses overlay projection and container intent for ctrl extracted drags', () => {
-    const projection = projectExternalFolderDrag({
+    const projection = projectExternalItemDrag({
       item: folderItem('inside'),
       clientX: 28,
       clientY: 28,
@@ -241,7 +254,7 @@ describe('container extract desktop projection', () => {
     assert.ok(projection)
     assert.equal(projection.event.dragMode, 'overlay')
     assert.deepEqual(projection.dropIntent, { kind: 'container', containerId: 'container-a' })
-    assert.deepEqual(projection.layouts.get('folder:inside'), { x: 0, y: 0 })
+    assert.deepEqual(projection.layouts.get('item:inside'), { x: 0, y: 0 })
     assert.deepEqual(projection.layouts.get('container:container-a'), { x: 0, y: 0 })
   })
 })

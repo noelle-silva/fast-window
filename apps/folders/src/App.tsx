@@ -58,6 +58,7 @@ import { DesktopWallpaper } from './DesktopWallpaper'
 import { DesktopWallpaperSettings } from './DesktopWallpaperSettings'
 import { iconAppearanceCandidateFromWebIcon, importedIconCandidateId, systemIconCandidateIdForTarget, upsertIconCandidate, upsertIconCandidates } from './iconAppearanceModel'
 import { ScrollArea } from './shared/scroll-area'
+import { resolveContainerDropSurface } from './containerDropResolution'
 import type { ContainerExtractDragState } from './containerExtractDragState'
 import { applyContainerItemDesktopExtractionView, extractedItemIdForContainerView, isContainerSoftClosedForExtractDrag, resolveContainerExtractDragMode, resolveContainerExtractNextDragMode } from './containerExtractDragState'
 import type { DesktopDragState } from './desktopDragState'
@@ -129,6 +130,11 @@ import {
 const appWindow = getCurrentWindow()
 const ERROR_AUTO_HIDE_MS = 4200
 const CONTAINER_HOVER_OPEN_MS = 520
+
+type ContainerDropResolution =
+  | { kind: 'icon' }
+  | { kind: 'grid'; placements: ContainerGridPlacement[] }
+  | { kind: 'invalid' }
 
 export function App() {
   const [launchInfo, setLaunchInfo] = React.useState<FwLaunchInfo>(DEFAULT_LAUNCH_INFO)
@@ -612,12 +618,10 @@ export function App() {
     const drag = desktopDragRef.current
     const dropIntent = resolveDesktopDropIntent(event, drag, activeDropContainer())
     if (dropIntent?.kind === 'container' && drag && event.entry.kind === 'item') {
-      const nextPlacements = resolveContainerDropPlacements(dropIntent.containerId, event, drag.item.id)
-      if (!nextPlacements) {
+      if (!commitItemContainerDrop(dropIntent.containerId, event, drag.item.id, activeDropContainer())) {
         setDesktopDragState(null)
         return { handled: true, clearReleaseLayouts: true }
       }
-      void placeContainerItems(dropIntent.containerId, drag.item.id, nextPlacements)
       setDesktopDragState(null)
       return { handled: true, clearReleaseLayouts: true }
     }
@@ -635,20 +639,33 @@ export function App() {
     return true
   }
 
-  function resolveContainerDropPlacements(containerId: string, event: DesktopGridDragEvent, movedItemId: string): ContainerGridPlacement[] | null {
+  function commitItemContainerDrop(containerId: string, event: DesktopGridDragEvent, movedItemId: string, openContainer: CollectionContainer | null): boolean {
+    const resolution = resolveContainerDrop(containerId, event, movedItemId, openContainer)
+    if (resolution.kind === 'invalid') return false
+    if (resolution.kind === 'icon') {
+      void saveItemContainer([movedItemId], containerId)
+      return true
+    }
+    void placeContainerItems(containerId, movedItemId, resolution.placements)
+    return true
+  }
+
+  function resolveContainerDrop(containerId: string, event: DesktopGridDragEvent, movedItemId: string, openContainer: CollectionContainer | null): ContainerDropResolution {
     const containerGrid = latestContainerGridApi(containerId)
+    const surface = resolveContainerDropSurface(containerId, openContainer, Boolean(containerGrid))
+    if (surface === 'icon') return { kind: 'icon' }
     if (!containerGrid) {
       setError('收纳夹投放区域尚未就绪，请重新拖入')
-      return null
+      return { kind: 'invalid' }
     }
     const dropLayout = containerGrid.layoutFromClientPoint(event.clientX, event.clientY, event.offsetX, event.offsetY)
-    if (!dropLayout) return null
+    if (!dropLayout) return { kind: 'invalid' }
     const placements = containerGrid.placementsForDrop(movedItemId, dropLayout)
     if (!placements.some(placement => placement.id === movedItemId)) {
       setError('收纳夹投放布局缺少当前拖拽图标')
-      return null
+      return { kind: 'invalid' }
     }
-    return placements
+    return { kind: 'grid', placements }
   }
 
   function latestContainerGridApi(containerId: string): ContainerGridApi | null {
@@ -721,15 +738,13 @@ export function App() {
     }
     if (projection.dropIntent?.kind === 'container') {
       const targetContainerId = projection.dropIntent.containerId
-      const nextPlacements = resolveContainerDropPlacements(targetContainerId, projection.event, drag.item.id)
-      if (!nextPlacements) {
+      if (!commitItemContainerDrop(targetContainerId, projection.event, drag.item.id, activeDropContainer())) {
         setContainerExtractDragState(null)
         setContainerDropViewState(null)
         setDesktopDragState(null)
         return { handled: true, clearReleaseLayouts: true }
       }
       const targetContainer = doc.containers.find(container => container.id === targetContainerId) || null
-      void placeContainerItems(targetContainerId, drag.item.id, nextPlacements)
       setContainerView(targetContainer)
       setContainerDropViewState(null)
       setContainerExtractDragState(null)
