@@ -2012,7 +2012,7 @@ func normalizeGroup(raw collectionGroup, allowGeneratedID bool) (collectionGroup
 	name := trimMax(raw.Name, 40)
 	id := safeID(raw.ID, 32)
 	if id == "" && allowGeneratedID {
-		id = safeID(name, 32)
+		id = generatedSafeID("group", 32)
 	}
 	if id == "" {
 		return collectionGroup{}, errors.New("group id is required")
@@ -2804,6 +2804,11 @@ func safeID(value string, max int) string {
 		}
 	}
 	return trimMax(b.String(), max)
+}
+
+func generatedSafeID(prefix string, max int) string {
+	id := fmt.Sprintf("%s-%d", safeID(prefix, 16), time.Now().UnixNano())
+	return trimMax(id, max)
 }
 
 func clampFloat(value float64, min float64, max float64) float64 {

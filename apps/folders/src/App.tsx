@@ -115,12 +115,12 @@ import {
   EMPTY_CONTAINER_FORM,
   EMPTY_GROUP_FORM,
   createEmptyItemForm,
+  createGroupID,
   createID,
   deriveNameFromTarget,
   errorMessage,
   itemFormFromItem,
   itemTemplate,
-  groupIdFromName,
   isInteractiveTarget,
 } from './utils'
 
@@ -343,12 +343,9 @@ export function App() {
       let targetGroupId = groupIdForPage(form.groupId)
       const newGroupName = form.newGroupName.trim()
       if (newGroupName) {
-        const newGroupId = groupIdFromName(newGroupName)
-        if (!newGroupId) throw new Error('新分组名不合法')
-        if (!doc.groups.some(group => group.id === newGroupId)) {
-          const afterGroupAdd = await client.request<CategoryWorkspaceView>('collections.groups.add', requestParams({ group: { id: newGroupId, name: newGroupName } }))
-          setDoc(afterGroupAdd)
-        }
+        const newGroupId = createGroupID()
+        const afterGroupAdd = await client.request<CategoryWorkspaceView>('collections.groups.add', requestParams({ group: { id: newGroupId, name: newGroupName } }))
+        setDoc(afterGroupAdd)
         targetGroupId = newGroupId
       }
       if (!newGroupName && !doc.groups.some(group => group.id === targetGroupId)) { setError('请选择有效分类'); return }
@@ -765,8 +762,7 @@ export function App() {
     if (!client) return
     const name = groupForm.name.trim()
     if (!name) { setError('分组名称不能为空'); return }
-    const id = groupForm.id || groupIdFromName(name)
-    if (!id) { setError('分组名称不合法'); return }
+    const id = groupForm.id || createGroupID()
     setBusy(true); setError(null)
     try {
       const method = groupForm.id ? 'collections.groups.update' : 'collections.groups.add'

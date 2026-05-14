@@ -67,8 +67,10 @@ export function createID(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-export function groupIdFromName(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/-+/g, '-').replace(/^[-_]+|[-_]+$/g, '').slice(0, 32)
+export function createGroupID(): string {
+  const timePart = Date.now().toString(36)
+  const randomPart = Math.random().toString(36).slice(2, 12)
+  return `group-${timePart}-${randomPart}`
 }
 
 export function itemTemplate(categoryId: CollectionCategoryId, groupId: string): CollectionItem {

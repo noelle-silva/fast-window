@@ -891,6 +891,27 @@ func TestGroupsRoundTripAndDeleteMovesItemsToDefault(t *testing.T) {
 	}
 }
 
+func TestGroupIDGenerationDoesNotDependOnDisplayName(t *testing.T) {
+	svc := readyService(t)
+	doc, err := svc.addCollectionGroup("folder", collectionGroup{Name: "项目资料"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Groups) != 2 || doc.Groups[1].Name != "项目资料" || doc.Groups[1].ID == "" {
+		t.Fatalf("expected generated group id with preserved display name: %#v", doc.Groups)
+	}
+	if strings.Contains(doc.Groups[1].ID, "项目") || len(doc.Groups[1].ID) > 32 {
+		t.Fatalf("expected safe generated group id, got %q", doc.Groups[1].ID)
+	}
+	doc, err = svc.addCollectionGroup("folder", collectionGroup{ID: "another-project", Name: "项目资料"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Groups) != 3 || doc.Groups[1].Name != doc.Groups[2].Name || doc.Groups[1].ID == doc.Groups[2].ID {
+		t.Fatalf("expected group identity to be independent from display name: %#v", doc.Groups)
+	}
+}
+
 func TestItemGroupTransferUsesSingleOwnership(t *testing.T) {
 	svc := readyService(t)
 	if _, err := svc.addCollectionGroup("folder", collectionGroup{ID: "work", Name: "工作"}); err != nil {
