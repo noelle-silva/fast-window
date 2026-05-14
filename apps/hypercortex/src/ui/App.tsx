@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { AppBar, Box, Button, ClickAwayListener, CssBaseline, Dialog, DialogActions, DialogContent, DialogTitle, Divider, GlobalStyles, IconButton, InputBase, Menu, MenuItem, Paper, Popper, Switch, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
+import { AppBar, Box, Button, ClickAwayListener, CssBaseline, Dialog, DialogActions, DialogContent, DialogTitle, Divider, GlobalStyles, IconButton, InputBase, Menu, MenuItem, Paper, Popper, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
@@ -35,11 +35,7 @@ import { OpenTabsPanel } from './OpenTabsPanel'
 import { NoteDetailSession, type NoteDetailSessionHandle, type NoteDetailSnapshotV1 } from './NoteDetailSession'
 import { AssetDetailSession } from './AssetDetailSession'
 import { ErrorBoundary } from './ErrorBoundary'
-import { ShortcutSettingsPanel } from './ShortcutSettingsPanel'
-import { TrashSettingsPanel } from './TrashSettingsPanel'
-import { HtmlFaceDisplaySettingsPanel } from './HtmlFaceDisplaySettingsPanel'
-import { SidebarSortSettingsPanel } from './SidebarSortSettingsPanel'
-import { DataDirSettingsPanel } from './DataDirSettingsPanel'
+import { SettingsPage } from './SettingsPage'
 import { TrashPanel } from './TrashPanel'
 import { QuickSearchPopover } from './QuickSearchPopover'
 import { StandaloneWindowControls, type WindowControlActions } from './StandaloneWindowControls'
@@ -2895,47 +2891,28 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                 />
               ) : null}
               {page === 'settings' ? (
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, maxWidth: 760 }}>
-                  <DataDirSettingsPanel
-                    status={dataDirStatus}
-                    onRefresh={refreshDataDirStatus}
-                    onPick={handlePickDataDir}
-                    onImportLegacy={handleImportLegacyData}
-                  />
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-                    <Typography sx={{ fontSize: 18, lineHeight: 1.25, fontWeight: 900, color: '#111' }}>快捷键提示</Typography>
-                    <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.62)' }}>
-                      启用后，顶部栏会出现一个问号按钮，点击即可查看当前已设置的快捷键。
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1, py: 0.75, borderRadius: 2, bgcolor: 'rgba(0,0,0,.02)' }}>
-                      <Typography sx={{ fontSize: 13, fontWeight: 700, color: '#111' }}>显示顶部栏问号</Typography>
-                      <Switch checked={shortcutHintsEnabled} onChange={(_, checked) => handleShortcutHintsEnabledChange(checked)} />
-                    </Box>
-                  </Box>
-
-                  <ShortcutSettingsPanel
-                    bindings={shortcutBindings}
-                    onChange={handleShortcutBindingsChange}
-                    onRecordingChange={handleShortcutRecordingChange}
-                  />
-                  <SidebarSortSettingsPanel
-                    mode={sidebarSortMode}
-                    onChange={handleSidebarSortModeChange}
-                  />
-                  <TrashSettingsPanel
-                    enabled={trashEnabled}
-                    autoDeleteDays={trashAutoDeleteDays}
-                    onEnabledChange={handleTrashEnabledChange}
-                    onAutoDeleteDaysChange={handleTrashAutoDeleteDaysChange}
-                    onOpenTrash={handleOpenTrashPage}
-                  />
-                  <HtmlFaceDisplaySettingsPanel
-                    mode={htmlFaceDisplayMode}
-                    onChange={handleHtmlFaceDisplayModeChange}
-                    fixedScaleDefault={htmlFaceFixedScaleDefault}
-                    onFixedScaleDefaultChange={handleHtmlFaceFixedScaleDefaultChange}
-                  />
-                </Box>
+                <SettingsPage
+                  dataDirStatus={dataDirStatus}
+                  onRefreshDataDirStatus={refreshDataDirStatus}
+                  onPickDataDir={handlePickDataDir}
+                  onImportLegacyData={handleImportLegacyData}
+                  shortcutHintsEnabled={shortcutHintsEnabled}
+                  onShortcutHintsEnabledChange={handleShortcutHintsEnabledChange}
+                  shortcutBindings={shortcutBindings}
+                  onShortcutBindingsChange={handleShortcutBindingsChange}
+                  onShortcutRecordingChange={handleShortcutRecordingChange}
+                  sidebarSortMode={sidebarSortMode}
+                  onSidebarSortModeChange={handleSidebarSortModeChange}
+                  trashEnabled={trashEnabled}
+                  trashAutoDeleteDays={trashAutoDeleteDays}
+                  onTrashEnabledChange={handleTrashEnabledChange}
+                  onTrashAutoDeleteDaysChange={handleTrashAutoDeleteDaysChange}
+                  onOpenTrash={handleOpenTrashPage}
+                  htmlFaceDisplayMode={htmlFaceDisplayMode}
+                  onHtmlFaceDisplayModeChange={handleHtmlFaceDisplayModeChange}
+                  htmlFaceFixedScaleDefault={htmlFaceFixedScaleDefault}
+                  onHtmlFaceFixedScaleDefaultChange={handleHtmlFaceFixedScaleDefaultChange}
+                />
               ) : null}
             </Box>
           </Box>
