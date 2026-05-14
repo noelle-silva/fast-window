@@ -6,6 +6,7 @@ mod backend_sidecar;
 mod control_server;
 mod data_dir;
 mod fw_window;
+mod native_dialog;
 mod shutdown;
 mod single_instance;
 mod standalone_tray;
@@ -50,11 +51,9 @@ async fn pick_data_dir(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<BackendState>>,
 ) -> Result<Option<DataDirStatus>, String> {
-    let window = main_window(&app)?;
-    let Some(path) = rfd::FileDialog::new()
-        .set_parent(&window)
-        .set_title("选择文件夹收藏数据目录")
-        .pick_folder()
+    let Some(path) = native_dialog::run_file_dialog(&app, |dialog| {
+        dialog.set_title("选择文件夹收藏数据目录").pick_folder()
+    })?
     else {
         return Ok(None);
     };
@@ -71,38 +70,29 @@ async fn pick_data_dir(
 
 #[tauri::command]
 fn pick_folder_path(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    let window = main_window(&app)?;
-    Ok(rfd::FileDialog::new()
-        .set_parent(&window)
-        .set_title("选择要收藏的文件夹")
-        .pick_folder()
-        .map(|path| path.display().to_string()))
+    Ok(native_dialog::run_file_dialog(&app, |dialog| {
+        dialog.set_title("选择要收藏的文件夹").pick_folder()
+    })?
+    .map(|path| path.display().to_string()))
 }
 
 #[tauri::command]
 fn pick_file_path(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    let window = main_window(&app)?;
-    Ok(rfd::FileDialog::new()
-        .set_parent(&window)
-        .set_title("选择要收藏的文件")
-        .pick_file()
-        .map(|path| path.display().to_string()))
+    Ok(native_dialog::run_file_dialog(&app, |dialog| {
+        dialog.set_title("选择要收藏的文件").pick_file()
+    })?
+    .map(|path| path.display().to_string()))
 }
 
 #[tauri::command]
 fn pick_image_path(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    let window = main_window(&app)?;
-    Ok(rfd::FileDialog::new()
-        .set_parent(&window)
-        .set_title("选择图片")
-        .add_filter("图片", &["png", "jpg", "jpeg", "webp", "gif"])
-        .pick_file()
-        .map(|path| path.display().to_string()))
-}
-
-fn main_window(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
-    app.get_webview_window("main")
-        .ok_or_else(|| "主窗口不存在".to_string())
+    Ok(native_dialog::run_file_dialog(&app, |dialog| {
+        dialog
+            .set_title("选择图片")
+            .add_filter("图片", &["png", "jpg", "jpeg", "webp", "gif"])
+            .pick_file()
+    })?
+    .map(|path| path.display().to_string()))
 }
 
 #[tauri::command]
@@ -125,9 +115,7 @@ fn hide_to_tray(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<FwWindowState>>,
 ) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "主窗口不存在".to_string())?;
+    let window = native_dialog::main_window(&app)?;
     fw_window::hide_to_tray(&window, &state).map_err(|e| format!("隐藏窗口失败: {e}"))
 }
 

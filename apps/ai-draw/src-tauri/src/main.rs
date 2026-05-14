@@ -6,6 +6,7 @@ mod backend_sidecar;
 mod control_server;
 mod data_dir;
 mod fw_window;
+mod native_dialog;
 mod shutdown;
 mod single_instance;
 mod standalone_tray;
@@ -67,9 +68,9 @@ async fn pick_data_dir(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<BackendState>>,
 ) -> Result<Option<DataDirStatus>, String> {
-    let Some(path) = rfd::FileDialog::new()
-        .set_title("选择 AI 绘图数据目录")
-        .pick_folder()
+    let Some(path) = native_dialog::run_file_dialog(&app, |dialog| {
+        dialog.set_title("选择 AI 绘图数据目录").pick_folder()
+    })?
     else {
         return Ok(None);
     };
@@ -111,10 +112,10 @@ fn desktop_identifier() -> &'static str {
 }
 
 #[tauri::command]
-fn pick_output_dir() -> Result<Option<String>, String> {
-    let Some(path) = rfd::FileDialog::new()
-        .set_title("选择 AI 绘图输出目录")
-        .pick_folder()
+fn pick_output_dir(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let Some(path) = native_dialog::run_file_dialog(&app, |dialog| {
+        dialog.set_title("选择 AI 绘图输出目录").pick_folder()
+    })?
     else {
         return Ok(None);
     };
@@ -165,9 +166,7 @@ fn hide_to_tray(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<FwWindowState>>,
 ) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "主窗口不存在".to_string())?;
+    let window = native_dialog::main_window(&app)?;
     fw_window::hide_to_tray(&window, &state).map_err(|e| format!("隐藏窗口失败: {e}"))
 }
 

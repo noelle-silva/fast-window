@@ -204,7 +204,7 @@ pub(crate) fn install_window_policy(
     let window_for_event = window.clone();
     window.on_window_event(move |event| match event {
         WindowEvent::Focused(false) => {
-            if report_bounds && auto_hide_on_blur {
+            if report_bounds && auto_hide_on_blur && !crate::native_dialog::has_native_dialog() {
                 schedule_hide_if_unfocused(window_for_event.clone(), state.clone());
             }
         }
@@ -337,6 +337,9 @@ fn schedule_hide_if_unfocused(window: WebviewWindow, state: Arc<FwWindowState>) 
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_millis(FOCUS_HIDE_DELAY_MS)).await;
         if !window.is_visible().unwrap_or(false) {
+            return;
+        }
+        if crate::native_dialog::has_native_dialog() {
             return;
         }
         if window.is_focused().unwrap_or(false) {

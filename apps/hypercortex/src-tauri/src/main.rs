@@ -6,6 +6,7 @@ mod backend_sidecar;
 mod control_server;
 mod data_dir;
 mod fw_window;
+mod native_dialog;
 mod shutdown;
 mod single_instance;
 mod standalone_tray;
@@ -62,9 +63,9 @@ async fn pick_data_dir(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<BackendState>>,
 ) -> Result<Option<DataDirStatus>, String> {
-    let Some(path) = rfd::FileDialog::new()
-        .set_title("选择 HyperCortex 数据目录")
-        .pick_folder()
+    let Some(path) = native_dialog::run_file_dialog(&app, |dialog| {
+        dialog.set_title("选择 HyperCortex 数据目录").pick_folder()
+    })?
     else {
         return Ok(None);
     };
@@ -95,17 +96,22 @@ async fn restart_backend(
 }
 
 #[tauri::command]
-fn pick_legacy_data_dir() -> Result<Option<PickedDir>, String> {
-    Ok(rfd::FileDialog::new()
-        .set_title("选择旧版 HyperCortex 数据目录")
-        .pick_folder()
-        .map(|dir| PickedDir {
-            dir: dir.display().to_string(),
-        }))
+fn pick_legacy_data_dir(app: tauri::AppHandle) -> Result<Option<PickedDir>, String> {
+    Ok(native_dialog::run_file_dialog(&app, |dialog| {
+        dialog
+            .set_title("选择旧版 HyperCortex 数据目录")
+            .pick_folder()
+    })?
+    .map(|dir| PickedDir {
+        dir: dir.display().to_string(),
+    }))
 }
 
 #[tauri::command]
-fn pick_asset_files(extensions: Vec<String>) -> Result<Vec<PickedFile>, String> {
+fn pick_asset_files(
+    app: tauri::AppHandle,
+    extensions: Vec<String>,
+) -> Result<Vec<PickedFile>, String> {
     let normalized: Vec<String> = extensions
         .into_iter()
         .map(|ext| ext.trim().trim_start_matches('.').to_ascii_lowercase())
@@ -115,11 +121,13 @@ fn pick_asset_files(extensions: Vec<String>) -> Result<Vec<PickedFile>, String> 
         return Err("附件类型列表为空".to_string());
     }
 
-    let picked = rfd::FileDialog::new()
-        .set_title("选择附件文件")
-        .add_filter("支持的附件", &normalized)
-        .pick_files()
-        .unwrap_or_default();
+    let picked = native_dialog::run_file_dialog(&app, |dialog| {
+        dialog
+            .set_title("选择附件文件")
+            .add_filter("支持的附件", &normalized)
+            .pick_files()
+    })?
+    .unwrap_or_default();
 
     Ok(picked
         .into_iter()

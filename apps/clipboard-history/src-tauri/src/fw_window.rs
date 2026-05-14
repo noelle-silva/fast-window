@@ -1,5 +1,5 @@
 use std::io::Write;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -46,34 +46,7 @@ pub(crate) struct FwWindowState {
     initial_command: Mutex<Option<String>>,
     launch_info: Mutex<Option<FwLaunchInfo>>,
     bounds_report_seq: AtomicU64,
-    native_dialog_depth: AtomicUsize,
     requested_shutdown: Mutex<bool>,
-}
-
-pub(crate) struct NativeDialogGuard {
-    state: Arc<FwWindowState>,
-}
-
-impl Drop for NativeDialogGuard {
-    fn drop(&mut self) {
-        self.state
-            .native_dialog_depth
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |depth| {
-                depth.checked_sub(1)
-            })
-            .ok();
-    }
-}
-
-impl FwWindowState {
-    fn has_native_dialog(&self) -> bool {
-        self.native_dialog_depth.load(Ordering::SeqCst) > 0
-    }
-}
-
-pub(crate) fn enter_native_dialog(state: Arc<FwWindowState>) -> NativeDialogGuard {
-    state.native_dialog_depth.fetch_add(1, Ordering::SeqCst);
-    NativeDialogGuard { state }
 }
 
 #[derive(Clone, Copy)]
@@ -229,7 +202,7 @@ pub(crate) fn install_window_policy(
     let window_for_event = window.clone();
     window.on_window_event(move |event| match event {
         WindowEvent::Focused(false) => {
-            if report_bounds && auto_hide_on_blur && !state.has_native_dialog() {
+            if report_bounds && auto_hide_on_blur && !crate::native_dialog::has_native_dialog() {
                 schedule_hide_if_unfocused(window_for_event.clone(), state.clone());
             }
         }
@@ -364,7 +337,7 @@ fn schedule_hide_if_unfocused(window: WebviewWindow, state: Arc<FwWindowState>) 
         if !window.is_visible().unwrap_or(false) {
             return;
         }
-        if state.has_native_dialog() {
+        if crate::native_dialog::has_native_dialog() {
             return;
         }
         if window.is_focused().unwrap_or(false) {
