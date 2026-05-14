@@ -3,11 +3,11 @@ import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
 import ContentPasteRoundedIcon from '@mui/icons-material/ContentPasteRounded'
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
 import TravelExploreRoundedIcon from '@mui/icons-material/TravelExploreRounded'
-import { Box, Button, Dialog, DialogContent, Paper, Stack, TextField, Typography, alpha } from '@mui/material'
+import { Box, Button, CircularProgress, Dialog, DialogContent, Paper, Stack, TextField, Typography, alpha } from '@mui/material'
 import { DESKTOP_ICON_COLORS } from './folder-grid/desktopIconTokens'
 import { DesktopIconVisual } from './folder-grid/DesktopIconVisual'
 import { defaultDesktopIcon, defaultIconCandidate, sameDesktopIcon } from './iconAppearanceModel'
-import type { CollectionCategoryId, CollectionContainer, ContainerFormState, DesktopIcon, IconAppearanceCandidate, IconAppearanceState } from './types'
+import type { CollectionCategoryId, CollectionContainer, ContainerFormState, DesktopIcon, IconAppearanceCandidate, IconAppearanceState, WebIconDiscoveryProgress } from './types'
 
 export function ContainerDialog(props: {
   busy: boolean
@@ -46,6 +46,7 @@ export function IconAppearancePanel(props: {
   systemIconDisabledText?: string
   systemIconEnabled: boolean
   targetKind: CollectionCategoryId
+  webIconDiscovery: WebIconDiscoveryProgress
   onChangeDraft(icon: DesktopIcon | null): void
   onFetchWebIcons?(): void
   onFetchSystemIcon(): void
@@ -63,6 +64,9 @@ export function IconAppearancePanel(props: {
   const iconFetchEnabled = props.targetKind === 'url' ? Boolean(props.onFetchWebIcons) && props.systemIconEnabled : props.systemIconEnabled
   const iconFetchTitle = iconFetchEnabled ? undefined : props.systemIconDisabledText
   const handleFetchIcon = props.targetKind === 'url' ? props.onFetchWebIcons : props.onFetchSystemIcon
+  const webIconProgressText = props.webIconDiscovery.active
+    ? props.webIconDiscovery.found > 0 ? `已发现 ${props.webIconDiscovery.found} 个网页图标，正在继续解析...` : '正在解析网页图标，发现后会立即显示...'
+    : ''
 
   return (
     <Paper elevation={0} sx={theme => ({ p: 2, borderRadius: 3, bgcolor: alpha(theme.palette.primary.main, 0.045), border: `1px solid ${alpha(theme.palette.primary.main, 0.12)}` })}>
@@ -88,12 +92,13 @@ export function IconAppearancePanel(props: {
               onSelect={props.onSelectCandidate}
             />
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              <Button startIcon={<TravelExploreRoundedIcon />} onClick={handleFetchIcon} disabled={props.busy || !iconFetchEnabled} title={iconFetchTitle}>{iconFetchLabel}</Button>
+              <Button startIcon={props.webIconDiscovery.active ? <CircularProgress size={16} color="inherit" /> : <TravelExploreRoundedIcon />} onClick={handleFetchIcon} disabled={props.busy || !iconFetchEnabled} title={iconFetchTitle}>{iconFetchLabel}</Button>
               <Button startIcon={<ImageRoundedIcon />} onClick={props.onPickImage} disabled={props.busy}>选择图片</Button>
               <Button startIcon={<ContentPasteRoundedIcon />} onClick={props.onPasteImage} disabled={props.busy}>粘贴图片</Button>
               <Button startIcon={<RestartAltRoundedIcon />} onClick={() => props.onChangeDraft(defaultDesktopIcon)} disabled={props.busy}>默认图标</Button>
               <Button onClick={props.onReset} disabled={props.busy}>清除自定义</Button>
             </Stack>
+            {webIconProgressText ? <Typography variant="caption" color="text.secondary">{webIconProgressText}</Typography> : null}
           </Stack>
         </Box>
         {defaultSelected ? (

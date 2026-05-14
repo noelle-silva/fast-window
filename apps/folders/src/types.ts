@@ -90,6 +90,8 @@ export type WebIconDiscoveryResult = {
   warnings?: string[]
 }
 
+export type WebIconDiscoveryProgress = { active: boolean; found: number }
+
 export type CollectionTarget =
   | { kind: 'folder'; path: string }
   | { kind: 'url'; url: string }
@@ -135,11 +137,19 @@ export type CollectionsDoc = {
 export type PendingRequest = {
   resolve: (value: unknown) => void
   reject: (error: Error) => void
-  timer: ReturnType<typeof setTimeout>
+  cancelBackend(): void
+  dispose(): void
+  onProgress?: (event: string, payload: unknown) => void
+  resetTimer(): void
+}
+
+export type RequestOptions = {
+  onProgress?(event: string, payload: unknown): void
+  signal?: AbortSignal
 }
 
 export type DirectClient = {
-  request<T>(method: string, params?: unknown): Promise<T>
+  request<T>(method: string, params?: unknown, options?: RequestOptions): Promise<T>
   assetUrl(assetId: string): string
   close(): void
 }

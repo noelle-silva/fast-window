@@ -49,6 +49,23 @@ export function webIconCandidateLabel(candidate: WebIconCandidate): string {
   return [source, dimensions].filter(Boolean).join(' ')
 }
 
+export function iconAppearanceCandidateFromWebIcon(candidate: unknown): IconAppearanceCandidate {
+  if (!isWebIconCandidate(candidate)) throw new Error('网页图标候选数据无效')
+  return { id: webIconCandidateIdForData(candidate), label: webIconCandidateLabel(candidate), dataUrl: candidate.dataUrl }
+}
+
+function isWebIconCandidate(value: unknown): value is WebIconCandidate {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<WebIconCandidate>
+  return typeof candidate.id === 'string'
+    && typeof candidate.label === 'string'
+    && typeof candidate.source === 'string'
+    && typeof candidate.url === 'string'
+    && typeof candidate.mediaType === 'string'
+    && typeof candidate.dataUrl === 'string'
+    && candidate.dataUrl.startsWith('data:image/')
+}
+
 function webIconSourceLabel(source: string): string {
   switch (source) {
     case 'manifest': return 'Manifest'

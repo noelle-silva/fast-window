@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/hex"
@@ -53,6 +54,8 @@ type webIconCandidate struct {
 	DataURL   string `json:"dataUrl"`
 }
 
+type webIconCandidateHandler func(candidate webIconCandidate) error
+
 type webIconRef struct {
 	URL       string
 	Label     string
@@ -69,20 +72,30 @@ type htmlTag struct {
 }
 
 func discoverWebIcons(rawURL string) (webIconDiscoveryResult, error) {
+	return discoverWebIconsWithProgress(context.Background(), rawURL, nil)
+}
+
+func discoverWebIconsWithProgress(ctx context.Context, rawURL string, onCandidate webIconCandidateHandler) (webIconDiscoveryResult, error) {
 	target, err := normalizeCollectionTarget(collectionTarget{Kind: "url", URL: rawURL})
 	if err != nil {
 		return webIconDiscoveryResult{}, err
 	}
 	client := webIconHTTPClient()
-	htmlPayload, pageURL, err := fetchWebResource(client, target.URL, maxWebIconHTMLBytes, "text/html,application/xhtml+xml;q=0.9,*/*;q=0.6")
+	htmlPayload, pageURL, err := fetchWebResource(ctx, client, target.URL, maxWebIconHTMLBytes, "text/html,application/xhtml+xml;q=0.9,*/*;q=0.6")
 	if err != nil {
 		return webIconDiscoveryResult{}, fmt.Errorf("fetch web page failed: %w", err)
 	}
 
-	refs, warnings := discoverWebIconRefs(client, pageURL, string(htmlPayload))
+	refs, warnings, err := discoverWebIconRefs(ctx, client, pageURL, string(htmlPayload))
+	if err != nil {
+		return webIconDiscoveryResult{}, err
+	}
 	refs = append(refs, conventionalWebIconRefs(pageURL, len(refs))...)
 	refs = normalizeWebIconRefs(refs)
-	candidates, fetchWarnings := fetchWebIconCandidates(client, refs)
+	candidates, fetchWarnings, err := fetchWebIconCandidates(ctx, client, refs, onCandidate)
+	if err != nil {
+		return webIconDiscoveryResult{}, err
+	}
 	warnings = append(warnings, fetchWarnings...)
 	if len(candidates) == 0 {
 		if len(warnings) > 0 {
@@ -108,12 +121,12 @@ func webIconHTTPClient() *http.Client {
 	}
 }
 
-func fetchWebResource(client *http.Client, rawURL string, maxBytes int64, accept string) ([]byte, *url.URL, error) {
+func fetchWebResource(ctx context.Context, client *http.Client, rawURL string, maxBytes int64, accept string) ([]byte, *url.URL, error) {
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil || parsed == nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
 		return nil, nil, errors.New("valid http or https url is required")
 	}
-	req, err := http.NewRequest(http.MethodGet, parsed.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -148,7 +161,7 @@ func readLimited(reader io.Reader, maxBytes int64) ([]byte, error) {
 	return payload, nil
 }
 
-func discoverWebIconRefs(client *http.Client, pageURL *url.URL, html string) ([]webIconRef, []string) {
+func discoverWebIconRefs(ctx context.Context, client *http.Client, pageURL *url.URL, html string) ([]webIconRef, []string, error) {
 	refs := []webIconRef{}
 	warnings := []string{}
 	baseURL := *pageURL
@@ -156,6 +169,9 @@ func discoverWebIconRefs(client *http.Client, pageURL *url.URL, html string) ([]
 	order := 0
 	tags := scanHTMLTags(html)
 	for _, tag := range tags {
+		if err := ctx.Err(); err != nil {
+			return nil, warnings, err
+		}
 		switch tag.Name {
 		case "base":
 			if baseSeen {
@@ -174,7 +190,7 @@ func discoverWebIconRefs(client *http.Client, pageURL *url.URL, html string) ([]
 			refs = append(refs, linkRefs...)
 			order += len(linkRefs)
 			if manifestURL != "" {
-				manifestRefs, manifestWarnings := discoverWebManifestIconRefs(client, manifestURL, order)
+				manifestRefs, manifestWarnings := discoverWebManifestIconRefs(ctx, client, manifestURL, order)
 				refs = append(refs, manifestRefs...)
 				warnings = append(warnings, manifestWarnings...)
 				order += len(manifestRefs)
@@ -193,7 +209,7 @@ func discoverWebIconRefs(client *http.Client, pageURL *url.URL, html string) ([]
 	refs = append(refs, inlineSVGRefs...)
 	order += len(inlineSVGRefs)
 	refs = append(refs, commonLogoPathRefs(pageURL, order)...)
-	return refs, warnings
+	return refs, warnings, nil
 }
 
 func webIconRefsFromLinkTag(baseURL *url.URL, tag htmlTag, order int) ([]webIconRef, string) {
@@ -433,8 +449,8 @@ func bestSrcSetURL(srcset string) string {
 	return best.url
 }
 
-func discoverWebManifestIconRefs(client *http.Client, manifestURL string, order int) ([]webIconRef, []string) {
-	payload, finalURL, err := fetchWebResource(client, manifestURL, maxWebIconManifestBytes, "application/manifest+json,application/json,*/*;q=0.6")
+func discoverWebManifestIconRefs(ctx context.Context, client *http.Client, manifestURL string, order int) ([]webIconRef, []string) {
+	payload, finalURL, err := fetchWebResource(ctx, client, manifestURL, maxWebIconManifestBytes, "application/manifest+json,application/json,*/*;q=0.6")
 	if err != nil {
 		return nil, []string{fmt.Sprintf("manifest %s: %v", manifestURL, err)}
 	}
@@ -541,15 +557,18 @@ func normalizedWebIconRefKey(rawURL string) string {
 	return parsed.String()
 }
 
-func fetchWebIconCandidates(client *http.Client, refs []webIconRef) ([]webIconCandidate, []string) {
+func fetchWebIconCandidates(ctx context.Context, client *http.Client, refs []webIconRef, onCandidate webIconCandidateHandler) ([]webIconCandidate, []string, error) {
 	candidates := []webIconCandidate{}
 	warnings := []string{}
 	seenPayloads := map[string]bool{}
 	for _, ref := range refs {
+		if err := ctx.Err(); err != nil {
+			return nil, warnings, err
+		}
 		if len(candidates) >= maxWebIconCandidates {
 			break
 		}
-		candidate, payloadHash, err := fetchWebIconCandidate(client, ref)
+		candidate, payloadHash, err := fetchWebIconCandidate(ctx, client, ref)
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("%s: %v", ref.URL, err))
 			continue
@@ -559,12 +578,17 @@ func fetchWebIconCandidates(client *http.Client, refs []webIconRef) ([]webIconCa
 		}
 		seenPayloads[payloadHash] = true
 		candidates = append(candidates, candidate)
+		if onCandidate != nil {
+			if err := onCandidate(candidate); err != nil {
+				return nil, warnings, err
+			}
+		}
 	}
-	return candidates, warnings
+	return candidates, warnings, nil
 }
 
-func fetchWebIconCandidate(client *http.Client, ref webIconRef) (webIconCandidate, string, error) {
-	payload, contentType, finalURL, err := fetchWebIconPayload(client, ref.URL)
+func fetchWebIconCandidate(ctx context.Context, client *http.Client, ref webIconRef) (webIconCandidate, string, error) {
+	payload, contentType, finalURL, err := fetchWebIconPayload(ctx, client, ref.URL)
 	if err != nil {
 		return webIconCandidate{}, "", err
 	}
@@ -595,7 +619,10 @@ func fetchWebIconCandidate(client *http.Client, ref webIconRef) (webIconCandidat
 	}, hex.EncodeToString(payloadHash[:]), nil
 }
 
-func fetchWebIconPayload(client *http.Client, rawURL string) ([]byte, string, string, error) {
+func fetchWebIconPayload(ctx context.Context, client *http.Client, rawURL string) ([]byte, string, string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, "", "", err
+	}
 	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(rawURL)), "data:image/") {
 		source, err := dataURLAssetImportSource(rawURL)
 		if err != nil {
@@ -603,7 +630,7 @@ func fetchWebIconPayload(client *http.Client, rawURL string) ([]byte, string, st
 		}
 		return source.Bytes, webIconMediaTypeFromExt(source.Ext), "inline:data-url", nil
 	}
-	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, "", "", err
 	}

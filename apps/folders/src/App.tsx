@@ -56,7 +56,7 @@ import { ContainerDialog, IconAppearancePanel } from './DesktopDialogs'
 import { DesktopDragHint } from './DesktopDragHint'
 import { DesktopWallpaper } from './DesktopWallpaper'
 import { DesktopWallpaperSettings } from './DesktopWallpaperSettings'
-import { importedIconCandidateId, systemIconCandidateIdForTarget, upsertIconCandidate, upsertIconCandidates, webIconCandidateIdForData, webIconCandidateLabel } from './iconAppearanceModel'
+import { iconAppearanceCandidateFromWebIcon, importedIconCandidateId, systemIconCandidateIdForTarget, upsertIconCandidate, upsertIconCandidates } from './iconAppearanceModel'
 import { ScrollArea } from './shared/scroll-area'
 import type { ContainerExtractDragState } from './containerExtractDragState'
 import { applyContainerItemDesktopExtractionView, extractedItemIdForContainerView, isContainerSoftClosedForExtractDrag, resolveContainerExtractDragMode, resolveContainerExtractNextDragMode } from './containerExtractDragState'
@@ -67,6 +67,7 @@ import { isContainerDropTargetActive, resolveDesktopDragMode, resolveDesktopDrop
 import type { ContainerGridApi, ContainerGridPlacement } from './folder-grid/ContainerGridCanvas'
 import { buildDesktopGridEntries, filterDesktopGridEntries } from './folder-grid/desktopEntries'
 import { groupContainerCount, groupIdForPage, groupItemCount } from './groupMembership'
+import { useWebIconDiscoverySession } from './webIconDiscoverySession'
 import type {
   ConfirmState,
   ContainerFormState,
@@ -92,6 +93,7 @@ import type {
   GroupFormState,
   Phase,
   WebIconDiscoveryResult,
+  WebIconDiscoveryProgress,
 } from './types'
 
 type CollectionItemFormPayload = Omit<CollectionItem, 'icon'> & { icon: DesktopIcon | null }
@@ -142,6 +144,7 @@ export function App() {
   const [groupId, setGroupId] = React.useState(DEFAULT_GROUP_ID)
   const [editing, setEditing] = React.useState<CollectionItem | null>(null)
   const [form, setForm] = React.useState<CollectionItemFormState>(EMPTY_ITEM_FORM)
+  const webIconDiscovery = useWebIconDiscoverySession()
   const [settingsOpen, setSettingsOpen] = React.useState(false)
   const [groupEditorOpen, setGroupEditorOpen] = React.useState(false)
   const [groupForm, setGroupForm] = React.useState<GroupFormState>(EMPTY_GROUP_FORM)
@@ -166,6 +169,10 @@ export function App() {
   const activeCategory = categoryDefinition(activeCategoryId)
   const requestParams = React.useCallback((params?: Record<string, unknown>) => ({ categoryId: activeCategoryId, ...(params || {}) }), [activeCategoryId])
 
+  const cancelWebIconDiscovery = React.useCallback(() => {
+    if (webIconDiscovery.cancel()) setBusy(false)
+  }, [webIconDiscovery])
+
   const refreshWallpaperDeck = React.useCallback(async (nextClient = client) => {
     if (!nextClient) return
     try {
@@ -181,6 +188,7 @@ export function App() {
 
   const loadCategory = React.useCallback(async (categoryId: CollectionCategoryId, nextClient = client) => {
     if (!nextClient) return
+    cancelWebIconDiscovery()
     setBusy(true); setError(null)
     try {
       const nextDoc = await nextClient.request<CategoryWorkspaceView>('collections.category.get', { categoryId })
@@ -221,6 +229,7 @@ export function App() {
   }, [])
 
   const connect = React.useCallback(async (options?: { restartBackend?: boolean }) => {
+    cancelWebIconDiscovery()
     setBusy(true); setError(null); setPhase('starting'); client?.close(); setClient(null); setWallpaperDeck(null)
     try {
       if (options?.restartBackend) await invoke('restart_backend')
@@ -305,16 +314,28 @@ export function App() {
   function handleCommand(command: string) {
     if (command === 'open-settings') setSettingsOpen(true)
     if (command === 'add-folder') openAdd()
-    if (command === 'open-folders') { setSettingsOpen(false); setGroupEditorOpen(false); setEditing(null); setContainerView(null); setContainerDropViewState(null) }
+    if (command === 'open-folders') { cancelWebIconDiscovery(); setSettingsOpen(false); setGroupEditorOpen(false); setEditing(null); setContainerView(null); setContainerDropViewState(null) }
+  }
+
+  function closeItemDialog() {
+    cancelWebIconDiscovery()
+    setEditing(null)
+  }
+
+  function updateItemForm(nextForm: CollectionItemFormState) {
+    if (nextForm.target !== form.target) cancelWebIconDiscovery()
+    setForm(nextForm)
   }
 
   function openAdd() {
+    cancelWebIconDiscovery()
     const selectedGroupId = groupIdForPage(groupId)
     setEditing(itemTemplate(activeCategoryId, selectedGroupId))
     setForm(createEmptyItemForm(selectedGroupId))
   }
 
   function openEdit(item: CollectionItem) {
+    cancelWebIconDiscovery()
     setEditing(item); setForm(itemFormFromItem(item)); setContextMenu(null)
   }
 
@@ -909,17 +930,48 @@ export function App() {
     const target = form.target.trim()
     const targetError = activeCategory.validateTarget(target)
     if (targetError) { setError(targetError); return }
+    const session = webIconDiscovery.start()
     setBusy(true); setError(null)
     try {
-      const result = await client.request<WebIconDiscoveryResult>('collections.web-icons.discover', { url: target })
+      let firstCandidateId = ''
+      const result = await client.request<WebIconDiscoveryResult>('collections.web-icons.discover', { url: target }, {
+        signal: session.abortController.signal,
+        onProgress: (event, payload) => {
+          if (event !== 'candidate') throw new Error(`未知网页图标进度事件: ${event}`)
+          if (!webIconDiscovery.isCurrent(session)) return
+          const iconCandidate = iconAppearanceCandidateFromWebIcon(payload)
+          firstCandidateId ||= iconCandidate.id
+          setForm(current => {
+            const candidates = upsertIconCandidate(current.icon.candidates, iconCandidate)
+            const shouldSelectCandidate = !current.icon.draftCandidateId || current.icon.draftCandidateId === firstCandidateId
+            return {
+              ...current,
+              icon: {
+                ...current.icon,
+                draftIcon: shouldSelectCandidate ? null : current.icon.draftIcon,
+                draftCandidateId: shouldSelectCandidate ? iconCandidate.id : current.icon.draftCandidateId,
+                draftDataUrl: shouldSelectCandidate ? iconCandidate.dataUrl : current.icon.draftDataUrl,
+                candidates,
+              },
+            }
+          })
+          webIconDiscovery.reportCandidate(session)
+        },
+      })
+      if (!webIconDiscovery.isCurrent(session)) return
       if (!result.candidates.length) throw new Error('未发现可用网页图标')
-      const iconCandidates: IconAppearanceCandidate[] = result.candidates.map(candidate => ({ id: webIconCandidateIdForData(candidate), label: webIconCandidateLabel(candidate), dataUrl: candidate.dataUrl }))
+      const iconCandidates = result.candidates.map(iconAppearanceCandidateFromWebIcon)
       setForm(current => {
         const candidates = upsertIconCandidates(current.icon.candidates, iconCandidates)
-        return { ...current, icon: { ...current.icon, draftIcon: null, draftCandidateId: iconCandidates[0].id, draftDataUrl: iconCandidates[0].dataUrl, candidates } }
+        const selectedCandidate = iconCandidates.find(candidate => candidate.id === current.icon.draftCandidateId) || iconCandidates[0]
+        return { ...current, icon: { ...current.icon, draftIcon: null, draftCandidateId: selectedCandidate.id, draftDataUrl: selectedCandidate.dataUrl, candidates } }
       })
-    } catch (e) { setError(errorMessage(e, '获取网页图标失败')) }
-    finally { setBusy(false) }
+    } catch (e) {
+      if (webIconDiscovery.isCurrent(session)) setError(errorMessage(e, '获取网页图标失败'))
+    }
+    finally {
+      if (webIconDiscovery.finish(session)) setBusy(false)
+    }
   }
 
   async function pickFormIconImage() {
@@ -1116,10 +1168,11 @@ export function App() {
         doc={doc}
         editing={editing}
         form={form}
+        webIconDiscovery={webIconDiscovery.progress}
         assetUrl={client?.assetUrl}
-        onChange={setForm}
+        onChange={updateItemForm}
         onChangeIconDraft={updateFormIconDraft}
-        onClose={() => setEditing(null)}
+        onClose={closeItemDialog}
         onFetchSystemIcon={() => void fetchFormSystemIcon()}
         onFetchWebIcons={() => void fetchFormWebIcons()}
         onPasteIconImage={() => void pasteFormIconImage()}
@@ -1578,6 +1631,7 @@ function ItemDialog(props: {
   doc: CategoryWorkspaceView
   editing: CollectionItem | null
   form: CollectionItemFormState
+  webIconDiscovery: WebIconDiscoveryProgress
   onChangeIconDraft(icon: DesktopIcon | null): void
   onChange(form: CollectionItemFormState): void
   onClose(): void
@@ -1649,6 +1703,7 @@ function ItemDialog(props: {
             systemIconDisabledText={iconDisabledText}
             systemIconEnabled={canFetchIcon}
             targetKind={props.category.id}
+            webIconDiscovery={props.webIconDiscovery}
             onChangeDraft={props.onChangeIconDraft}
             onFetchSystemIcon={props.onFetchSystemIcon}
             onFetchWebIcons={props.onFetchWebIcons}

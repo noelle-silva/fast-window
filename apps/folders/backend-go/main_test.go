@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -747,6 +748,47 @@ func TestWebIconDiscoveryReturnsMultipleLocalizableCandidates(t *testing.T) {
 	}
 	if !mediaTypes["image/png"] || !mediaTypes["image/svg+xml"] {
 		t.Fatalf("expected png and svg candidates, got %#v", result.Candidates)
+	}
+}
+
+func TestWebIconDiscoveryReportsCandidatesAsTheyAreFetched(t *testing.T) {
+	png := mustTinyPNG(t)
+	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#8FA99B"/></svg>`)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/":
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprintf(w, `<html><head><link rel="icon" sizes="16x16" href="/favicon.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple.svg"></head></html>`)
+		case "/favicon.png", "/favicon.ico":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(png)
+		case "/apple.svg":
+			w.Header().Set("Content-Type", "image/svg+xml")
+			_, _ = w.Write(svg)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	progressCandidates := []webIconCandidate{}
+	result, err := discoverWebIconsWithProgress(context.Background(), server.URL, func(candidate webIconCandidate) error {
+		if candidate.DataURL == "" {
+			t.Fatal("expected progress candidate to be immediately localizable")
+		}
+		progressCandidates = append(progressCandidates, candidate)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(progressCandidates) != len(result.Candidates) {
+		t.Fatalf("expected every final candidate to be reported as progress, progress=%d final=%d", len(progressCandidates), len(result.Candidates))
+	}
+	for index, candidate := range result.Candidates {
+		if progressCandidates[index].ID != candidate.ID {
+			t.Fatalf("progress candidate order should match final result, progress=%#v final=%#v", progressCandidates, result.Candidates)
+		}
 	}
 }
 

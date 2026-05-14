@@ -1,11 +1,15 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { BackendEndpoint, DirectClient, PendingRequest } from './types'
+import type { BackendEndpoint, DirectClient, PendingRequest, RequestOptions } from './types'
 
 const OPEN_TIMEOUT_MS = 15_000
 const REQUEST_TIMEOUT_MS = 30_000
 const RECONNECT_DELAY_MS = 300
 const RESUME_GAP_MS = 45_000
 const RESUME_CHECK_INTERVAL_MS = 10_000
+
+function abortError(): Error {
+  return new Error('后台请求已取消')
+}
 
 function endpointUrlWithToken(endpoint: BackendEndpoint): string {
   if (endpoint.mode !== 'direct') throw new Error('后台 endpoint mode 必须是 direct')
@@ -71,7 +75,8 @@ class FoldersDirectClient implements DirectClient {
     await this.ensureConnected()
   }
 
-  request = async <T,>(method: string, params?: unknown): Promise<T> => {
+  request = async <T,>(method: string, params?: unknown, options?: RequestOptions): Promise<T> => {
+    if (options?.signal?.aborted) throw abortError()
     await this.ensureConnected()
     const ws = this.ws
     if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -83,13 +88,48 @@ class FoldersDirectClient implements DirectClient {
     if (!active || active.readyState !== WebSocket.OPEN) throw new Error('后台未连接')
     const id = `folders-${Date.now()}-${++this.seq}`
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error('后台请求超时')) }, REQUEST_TIMEOUT_MS)
-      this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer })
+      let timer: ReturnType<typeof setTimeout> | null = null
+      const clearTimer = () => { if (timer) window.clearTimeout(timer) }
+      const resetTimer = () => {
+        clearTimer()
+        timer = window.setTimeout(() => {
+          const entry = this.pending.get(id)
+          if (!entry) return
+          this.pending.delete(id)
+          entry.dispose()
+          entry.cancelBackend()
+          reject(new Error('后台请求超时'))
+        }, REQUEST_TIMEOUT_MS)
+      }
+      resetTimer()
+      const cancelBackend = () => {
+        if (active.readyState === WebSocket.OPEN) {
+          try { active.send(JSON.stringify({ id, type: 'cancel' })) } catch {}
+        }
+      }
+      const rejectAbort = () => {
+        const entry = this.pending.get(id)
+        this.pending.delete(id)
+        entry?.dispose()
+        cancelBackend()
+        reject(abortError())
+      }
+      options?.signal?.addEventListener('abort', rejectAbort, { once: true })
+      const dispose = () => {
+        clearTimer()
+        options?.signal?.removeEventListener('abort', rejectAbort)
+      }
+      if (options?.signal?.aborted) {
+        dispose()
+        reject(abortError())
+        return
+      }
+      this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, cancelBackend, dispose, onProgress: options?.onProgress, resetTimer })
       try {
         active.send(JSON.stringify({ id, type: 'request', method, params: params ?? {} }))
       } catch {
         this.pending.delete(id)
-        clearTimeout(timer)
+        dispose()
         this.markDisconnected(active, new Error('后台连接已关闭'))
         reject(new Error('后台连接已关闭'))
       }
@@ -143,12 +183,25 @@ class FoldersDirectClient implements DirectClient {
   private handleMessage(event: MessageEvent) {
     let frame: any = null
     try { frame = JSON.parse(String(event.data)) } catch { return }
-    if (!frame || frame.type !== 'response') return
+    if (!frame) return
     const id = String(frame.id || '')
     const entry = this.pending.get(id)
     if (!entry) return
+    if (frame.type === 'progress') {
+      entry.resetTimer()
+      try {
+        entry.onProgress?.(String(frame.event || ''), frame.payload)
+      } catch (error) {
+        this.pending.delete(id)
+        entry.dispose()
+        entry.cancelBackend()
+        entry.reject(error instanceof Error ? error : new Error(String(error || '后台进度处理失败')))
+      }
+      return
+    }
+    if (frame.type !== 'response') return
     this.pending.delete(id)
-    clearTimeout(entry.timer)
+    entry.dispose()
     if (frame.ok) entry.resolve(frame.result)
     else entry.reject(new Error(String(frame.error?.message || '后台请求失败')))
   }
@@ -182,7 +235,7 @@ class FoldersDirectClient implements DirectClient {
 
   private rejectPending(error: Error) {
     for (const entry of this.pending.values()) {
-      clearTimeout(entry.timer)
+      entry.dispose()
       entry.reject(error)
     }
     this.pending.clear()

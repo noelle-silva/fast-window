@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/hex"
@@ -55,21 +56,6 @@ const defaultDesktopIconScale = minDesktopIconScale
 type service struct {
 	dataDir string
 	mu      sync.Mutex
-}
-
-type requestFrame struct {
-	ID     string          `json:"id"`
-	Type   string          `json:"type"`
-	Method string          `json:"method"`
-	Params json.RawMessage `json:"params"`
-}
-
-type responseFrame struct {
-	ID     string         `json:"id"`
-	Type   string         `json:"type"`
-	OK     bool           `json:"ok"`
-	Result any            `json:"result,omitempty"`
-	Error  map[string]any `json:"error,omitempty"`
 }
 
 type collectionGroup struct {
@@ -484,40 +470,70 @@ func newService() (*service, error) {
 
 func handleConnection(conn *websocket.Conn, svc *service) {
 	defer conn.Close()
+	writer := &connectionWriter{conn: conn}
+	requests := newActiveRequestRegistry()
+	defer requests.cancelAll()
 	for {
 		var frame requestFrame
 		if err := conn.ReadJSON(&frame); err != nil {
 			return
 		}
-		if frame.ID == "" || frame.Type != "request" {
+		if frame.ID == "" {
 			continue
 		}
-
-		result, err := svc.dispatchSafe(frame.Method, frame.Params)
-		response := responseFrame{ID: frame.ID, Type: "response", OK: err == nil, Result: result}
-		if err != nil {
-			response.Error = map[string]any{"message": err.Error()}
+		if frame.Type == "cancel" {
+			requests.cancel(frame.ID)
+			continue
 		}
-		_ = conn.WriteJSON(response)
+		if frame.Type != "request" {
+			continue
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		requests.add(frame.ID, cancel)
+		go handleRequest(ctx, frame, writer, requests, svc)
 	}
 }
 
-func (svc *service) dispatchSafe(method string, params json.RawMessage) (result any, err error) {
+func handleRequest(ctx context.Context, frame requestFrame, writer *connectionWriter, requests *activeRequestRegistry, svc *service) {
+	defer requests.remove(frame.ID)
+	progress := func(event string, payload any) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return writer.writeJSON(progressFrame{ID: frame.ID, Type: "progress", Event: event, Payload: payload})
+	}
+	result, err := svc.dispatchSafe(ctx, frame.Method, frame.Params, progress)
+	if errors.Is(err, context.Canceled) {
+		return
+	}
+	response := responseFrame{ID: frame.ID, Type: "response", OK: err == nil, Result: result}
+	if err != nil {
+		response.Error = map[string]any{"message": err.Error()}
+	}
+	_ = writer.writeJSON(response)
+}
+
+func (svc *service) dispatchSafe(ctx context.Context, method string, params json.RawMessage, progress requestProgress) (result any, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = fmt.Errorf("request handler panic: %v", recovered)
 		}
 	}()
-	return svc.dispatch(method, params)
+	return svc.dispatch(ctx, method, params, progress)
 }
 
-func (svc *service) dispatch(method string, params json.RawMessage) (any, error) {
+func (svc *service) dispatch(ctx context.Context, method string, params json.RawMessage, progress requestProgress) (any, error) {
 	if method == "collections.web-icons.discover" {
 		var payload webIconDiscoveryPayload
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid web icon discovery payload: %w", err)
 		}
-		return discoverWebIcons(payload.URL)
+		return discoverWebIconsWithProgress(ctx, payload.URL, func(candidate webIconCandidate) error {
+			if progress == nil {
+				return nil
+			}
+			return progress("candidate", candidate)
+		})
 	}
 
 	svc.mu.Lock()
