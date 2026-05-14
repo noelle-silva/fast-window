@@ -16,6 +16,8 @@
     "apps:version:check": "node ../../scripts/bump-v5-app-version.mjs --check",
     "apps:bump:dry": "node ../../scripts/bump-v5-app-version.mjs --dry-run",
     "apps:bump": "node ../../scripts/bump-v5-app-version.mjs",
+    "apps:release:dry": "node ../../scripts/release-v5-app.mjs --dry-run",
+    "apps:release": "node ../../scripts/release-v5-app.mjs",
     "dev": "vite --host 127.0.0.1",
     "tauri": "tauri"
   },

@@ -342,17 +342,36 @@ export async function bumpV5AppVersion({ appId, bump = 'patch', to = null, dryRu
   if (newVersion === oldVersion) fail('新版本等于当前版本，拒绝无意义升版')
 
   const changed = []
+  const updates = []
   for (const entry of state.entries) {
     const updated = entry.updateText(entry.text, newVersion)
     if (updated === entry.text) fail(`${entry.label}: 版本写入没有产生变化`)
     if (entry.readVersion(updated) !== newVersion) fail(`${entry.label}: 写入后版本校验失败`)
     changed.push({ label: entry.label, filePath: entry.filePath })
-    if (!dryRun) await fs.writeFile(entry.filePath, updated, 'utf8')
+    updates.push({ ...entry, updated })
   }
 
   if (!dryRun) {
-    const verified = await checkV5AppVersion(state.appId, { repoRoot: state.repoRoot })
-    if (verified.currentVersion !== newVersion) fail(`二次校验失败: expected=${newVersion}, got=${verified.currentVersion}`)
+    const applied = []
+    try {
+      for (const entry of updates) {
+        await fs.writeFile(entry.filePath, entry.updated, 'utf8')
+        applied.push(entry)
+      }
+      const verified = await checkV5AppVersion(state.appId, { repoRoot: state.repoRoot })
+      if (verified.currentVersion !== newVersion) fail(`二次校验失败: expected=${newVersion}, got=${verified.currentVersion}`)
+    } catch (error) {
+      const rollbackErrors = []
+      for (const entry of applied.reverse()) {
+        try {
+          await fs.writeFile(entry.filePath, entry.text, 'utf8')
+        } catch (rollbackError) {
+          rollbackErrors.push(`${entry.label}: ${rollbackError?.message || rollbackError}`)
+        }
+      }
+      if (rollbackErrors.length) fail(`v5 app 升版失败，且版本回滚失败。升版错误: ${error?.message || error}；回滚错误: ${rollbackErrors.join('；')}`)
+      fail(`v5 app 升版失败，已回滚到 ${oldVersion}: ${error?.message || error}`)
+    }
   }
 
   return {
