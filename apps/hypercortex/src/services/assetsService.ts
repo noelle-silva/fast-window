@@ -7,7 +7,11 @@ export function createAssetsService(background: BackgroundClient): AssetsService
   const service: AssetsService = {
     ensureAssetsIndex: scope => background.invoke(HyperCortexRpc.assets.ensureIndex, { scope }),
     listAssets: scope => background.invoke(HyperCortexRpc.assets.list, { scope }),
-    importLocalFiles: (scope, files) => background.invoke(HyperCortexRpc.assets.importLocalFiles, { scope, files }, { timeoutMs: null }),
+    startUpload: (scope, files) => background.invoke(HyperCortexRpc.assets.uploadStart, { scope, files }),
+    listUploadTasks: () => background.invoke(HyperCortexRpc.assets.uploadList, {}),
+    pauseUploadTask: taskId => background.invoke(HyperCortexRpc.assets.uploadPause, { taskId }),
+    resumeUploadTask: taskId => background.invoke(HyperCortexRpc.assets.uploadResume, { taskId }),
+    cancelUploadTask: taskId => background.invoke(HyperCortexRpc.assets.uploadCancel, { taskId }),
     readAssetDataUrl: (scope, assetId, ext) => background.invoke(HyperCortexRpc.assets.readDataUrl, { scope, assetId, ext }),
     deleteAsset: (scope, assetId, ext) => background.invoke(HyperCortexRpc.assets.delete, { scope, assetId, ext }),
     getThumbnail: (scope, assetId, ext, width = 320, height = 180) => background.invoke(HyperCortexRpc.assets.getThumbnail, { scope, assetId, ext, width, height }),

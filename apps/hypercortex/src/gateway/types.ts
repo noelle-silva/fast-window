@@ -60,7 +60,11 @@ export type NotesService = {
 export type AssetsService = {
   ensureAssetsIndex: (scope: VaultScope) => Promise<HyperCortexAssetsIndexV1>
   listAssets: (scope: VaultScope) => Promise<AssetPoolItem[]>
-  importLocalFiles: (scope: VaultScope, files: LocalAssetFile[]) => Promise<HyperCortexNoteResourceRef[]>
+  startUpload: (scope: VaultScope, files: LocalAssetFile[]) => Promise<AssetUploadTaskSnapshot>
+  listUploadTasks: () => Promise<AssetUploadTaskSnapshot[]>
+  pauseUploadTask: (taskId: string) => Promise<AssetUploadTaskSnapshot>
+  resumeUploadTask: (taskId: string) => Promise<AssetUploadTaskSnapshot>
+  cancelUploadTask: (taskId: string) => Promise<AssetUploadTaskSnapshot>
   readAssetDataUrl: (scope: VaultScope, assetId: string, ext?: string) => Promise<string>
   deleteAsset: (scope: VaultScope, assetId: string, ext?: string) => Promise<void>
   getThumbnail: (scope: VaultScope, assetId: string, ext?: string, width?: number, height?: number) => Promise<ThumbnailResult>
@@ -73,6 +77,38 @@ export type AssetsService = {
 export type LocalAssetFile = {
   path: string
   displayName?: string
+}
+
+export type AssetUploadTaskStatus = 'queued' | 'running' | 'paused' | 'completed' | 'failed' | 'canceled'
+export type AssetUploadFileStatus = 'pending' | 'running' | 'completed' | 'failed' | 'canceled'
+
+export type AssetUploadTaskSnapshot = {
+  id: string
+  scope: VaultScope
+  status: AssetUploadTaskStatus
+  files: AssetUploadFileSnapshot[]
+  result?: HyperCortexNoteResourceRef[]
+  error?: string
+  totalBytes: number
+  uploadedBytes: number
+  progress: number
+  currentFileId?: string
+  createdMs: number
+  startedMs?: number
+  updatedMs: number
+  completedMs?: number
+}
+
+export type AssetUploadFileSnapshot = {
+  id: string
+  name: string
+  path: string
+  size: number
+  uploadedBytes: number
+  progress: number
+  status: AssetUploadFileStatus
+  error?: string
+  resource?: HyperCortexNoteResourceRef
 }
 
 export type ThumbnailResult = {

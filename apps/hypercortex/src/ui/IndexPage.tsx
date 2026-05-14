@@ -42,7 +42,7 @@ type Props = {
   onDocChange: (doc: HyperCortexFavoritesDocV1) => void
   onEditModeChange: (editMode: boolean) => void
   onCreateNoteInIndex?: (folderId: string) => Promise<void> | void
-  onImportAssetsInIndex?: (folderId: string) => Promise<void> | void
+  onUploadAssetsInIndex?: (folderId: string) => Promise<void> | void
   onDeleteFolderEntity?: (folderId: string) => void
   onDeleteNoteEntity?: (note: NoteMeta) => void
   onDeleteAssetEntity?: (asset: AssetEntry) => void
@@ -99,7 +99,7 @@ export function IndexPage(props: Props): React.ReactNode {
     onDocChange,
     onEditModeChange,
     onCreateNoteInIndex,
-    onImportAssetsInIndex,
+    onUploadAssetsInIndex,
     onDeleteFolderEntity,
     onDeleteNoteEntity,
     onDeleteAssetEntity,
@@ -177,10 +177,10 @@ export function IndexPage(props: Props): React.ReactNode {
     void onCreateNoteInIndex?.(currentFolderId)
   }, [currentFolderId, onCreateNoteInIndex])
 
-  const importNewAssets = React.useCallback(() => {
+  const uploadNewAssets = React.useCallback(() => {
     closeAddMenus()
-    void onImportAssetsInIndex?.(currentFolderId)
-  }, [currentFolderId, onImportAssetsInIndex])
+    void onUploadAssetsInIndex?.(currentFolderId)
+  }, [currentFolderId, onUploadAssetsInIndex])
 
   const removeOneRef = React.useCallback(
     (refId: string) => {
@@ -572,7 +572,7 @@ export function IndexPage(props: Props): React.ReactNode {
       <Menu open={!!createNewAnchorEl} onClose={closeAddMenus} anchorEl={createNewAnchorEl} PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}>
         <MenuItem onClick={() => openAddDialog('create', 'folder')}>新收藏夹</MenuItem>
         <MenuItem onClick={createNewNote}>新笔记</MenuItem>
-        <MenuItem onClick={importNewAssets}>上传附件</MenuItem>
+        <MenuItem onClick={uploadNewAssets}>上传附件</MenuItem>
       </Menu>
 
       <IndexPageDialogs

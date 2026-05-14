@@ -18,7 +18,11 @@ export const HyperCortexRpc = {
   assets: {
     ensureIndex: 'hypercortex.assets.ensureIndex',
     list: 'hypercortex.assets.list',
-    importLocalFiles: 'hypercortex.assets.importLocalFiles',
+    uploadStart: 'hypercortex.assets.upload.start',
+    uploadList: 'hypercortex.assets.upload.list',
+    uploadPause: 'hypercortex.assets.upload.pause',
+    uploadResume: 'hypercortex.assets.upload.resume',
+    uploadCancel: 'hypercortex.assets.upload.cancel',
     readDataUrl: 'hypercortex.assets.readDataUrl',
     delete: 'hypercortex.assets.delete',
     getThumbnail: 'hypercortex.assets.getThumbnail',

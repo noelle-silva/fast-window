@@ -16,10 +16,11 @@ import (
 )
 
 type service struct {
-	dataDir    string
-	stateDir   string
-	libraryDir string
-	mu         sync.Mutex
+	dataDir     string
+	stateDir    string
+	libraryDir  string
+	mu          sync.Mutex
+	uploadTasks *assetUploadTaskStore
 }
 
 func main() {
@@ -89,7 +90,7 @@ func newService() (*service, error) {
 		return nil, fmt.Errorf("解析状态目录失败: %w", err)
 	}
 
-	return &service{dataDir: dataDir, stateDir: stateDir, libraryDir: libraryDir}, nil
+	return &service{dataDir: dataDir, stateDir: stateDir, libraryDir: libraryDir, uploadTasks: newAssetUploadTaskStore()}, nil
 }
 
 func mustGetwd() string {
@@ -161,6 +162,10 @@ func (svc *service) ensureRoots() error {
 }
 
 func (svc *service) dispatch(method string, params json.RawMessage) (any, error) {
+	if result, handled, err := svc.dispatchAssetUploadTask(method, params); handled {
+		return result, err
+	}
+
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
 
@@ -218,8 +223,6 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return svc.ensureAssetIndex(requireScope(params))
 	case "hypercortex.assets.list":
 		return svc.listAssets(requireScope(params))
-	case "hypercortex.assets.importLocalFiles":
-		return svc.importLocalFiles(requireScope(params), rawField(params, "files"))
 	case "hypercortex.assets.readDataUrl":
 		return svc.readAssetDataURL(requireScope(params), stringField(params, "assetId"), optionalStringField(params, "ext"))
 	case "hypercortex.assets.delete":

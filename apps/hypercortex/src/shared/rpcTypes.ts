@@ -42,7 +42,8 @@ export type SaveFaceParams = ScopeParams & { input: SaveFaceInput }
 export type SaveHtmlFaceParams = ScopeParams & { input: SavePackageInput & { html: string } }
 export type RebuildIndexParams = ScopeParams & { idx: HyperCortexIndexV1 }
 
-export type ImportLocalFilesParams = ScopeParams & { files: { path: string; displayName?: string }[] }
+export type StartAssetUploadParams = ScopeParams & { files: { path: string; displayName?: string }[] }
+export type AssetUploadTaskControlParams = { taskId: string }
 export type ReadAssetDataUrlParams = ScopeParams & { assetId: string; ext?: string }
 export type DeleteAssetParams = ScopeParams & { assetId: string; ext?: string }
 export type GetVideoThumbnailParams = ScopeParams & { path: string; width?: number | null; height?: number | null }

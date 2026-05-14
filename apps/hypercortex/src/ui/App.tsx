@@ -43,7 +43,7 @@ import { DataDirSettingsPanel } from './DataDirSettingsPanel'
 import { TrashPanel } from './TrashPanel'
 import { QuickSearchPopover } from './QuickSearchPopover'
 import { StandaloneWindowControls, type WindowControlActions } from './StandaloneWindowControls'
-import { importPickedLocalAssets } from '../services/localAssetImport'
+import { startPickedLocalAssetUploadTask } from '../services/localAssetUpload'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
 import { applyActiveWorkspacePatch, buildWorkspacesMetadataSnapshot, normalizeOpenTabKeys } from './workspaceModel'
@@ -142,6 +142,12 @@ function assetKeyFromResource(resource: { assetId?: string; ext?: string }): str
   const assetId = String(resource?.assetId || '').trim()
   const ext = String(resource?.ext || '').trim().toLowerCase().replace(/^\./, '')
   return assetId ? (ext ? `${assetId}.${ext}` : assetId) : ''
+}
+
+const ASSET_UPLOAD_WAIT_INTERVAL_MS = 500
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => window.setTimeout(resolve, ms))
 }
 
 function stripDraftTabKeys(value: unknown): string[] {
@@ -1442,14 +1448,31 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     [gateway],
   )
 
-  const handleImportAssetsIntoIndex = React.useCallback(
+  const handleUploadAssetsIntoIndex = React.useCallback(
     async (folderId: string) => {
       const fid = String(folderId || '').trim() || 'root'
       const baseDoc = favoritesDoc
       if (!baseDoc) return
 
       try {
-        const imported = await importPickedLocalAssets(gateway, 'library')
+        const task = await startPickedLocalAssetUploadTask(gateway, 'library')
+        if (!task) return
+        void gateway.host.toast('上传任务已开始，完成后会添加到当前索引')
+
+        let completed = task
+        while (completed.status === 'queued' || completed.status === 'running' || completed.status === 'paused') {
+          await sleep(ASSET_UPLOAD_WAIT_INTERVAL_MS)
+          const tasks = await gateway.assets.listUploadTasks()
+          completed = tasks.find(item => item.id === task.id) || completed
+        }
+
+        if (completed.status === 'failed') throw new Error(completed.error || '上传任务失败')
+        if (completed.status === 'canceled') {
+          void gateway.host.toast('上传任务已取消')
+          return
+        }
+
+        const imported = completed.result || []
         if (!imported.length) return
         let nextDoc = baseDoc
         let addedCount = 0
@@ -1465,9 +1488,9 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         if (nextDoc !== baseDoc) handleFavoritesDocChange(nextDoc)
         const nextAssetIndex = await gateway.assets.ensureAssetsIndex('library').catch(() => null)
         if (nextAssetIndex) setAssetPoolIndex(nextAssetIndex as any)
-        void gateway.host.toast(addedCount > 0 ? `已导入并添加 ${addedCount} 个附件` : '附件已导入，但没有新增索引卡片')
+        void gateway.host.toast(addedCount > 0 ? `已上传并添加 ${addedCount} 个附件` : '附件已上传，但没有新增索引卡片')
       } catch (err: any) {
-        void gateway.host.toast(`导入附件失败：${String(err?.message || err || '未知错误')}`)
+        void gateway.host.toast(`上传附件失败：${String(err?.message || err || '未知错误')}`)
       }
     },
     [favoritesDoc, gateway, handleFavoritesDocChange],
@@ -2841,7 +2864,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                   onDocChange={handleFavoritesDocChange}
                   onEditModeChange={handleIndexEditModeChange}
                   onCreateNoteInIndex={handleCreateNoteInIndex}
-                  onImportAssetsInIndex={handleImportAssetsIntoIndex}
+                  onUploadAssetsInIndex={handleUploadAssetsIntoIndex}
                   onDeleteFolderEntity={handleDeleteFolderEntity}
                   onDeleteNoteEntity={note => void handleDeleteNote({ note, mode: trashEnabled ? 'trash' : 'permanent' })}
                   onDeleteAssetEntity={asset => void handleDeleteAssetEntity(asset)}

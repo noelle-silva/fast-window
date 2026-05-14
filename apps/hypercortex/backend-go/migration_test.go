@@ -11,9 +11,10 @@ func newTestService(t *testing.T) *service {
 	t.Helper()
 	dataDir := t.TempDir()
 	return &service{
-		dataDir:    dataDir,
-		stateDir:   filepath.Join(dataDir, stateDirName),
-		libraryDir: filepath.Join(dataDir, libraryDirName),
+		dataDir:     dataDir,
+		stateDir:    filepath.Join(dataDir, stateDirName),
+		libraryDir:  filepath.Join(dataDir, libraryDirName),
+		uploadTasks: newAssetUploadTaskStore(),
 	}
 }
 

@@ -5,12 +5,16 @@ import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import ImageSearchRoundedIcon from '@mui/icons-material/ImageSearchRounded'
+import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded'
 import { type VaultScope, kindFromMime, mimeFromExt } from '../core'
 import { pickAssetDisplayName } from '../assetDisplayName'
 import type { AssetEntry } from '../assetTypes'
 import { getAssetPreviewDescriptor, isAssetOpenableInTab } from './assetPreview/registry'
 import type { HyperCortexGateway } from '../gateway'
-import { importPickedLocalAssets } from '../services/localAssetImport'
+import { startPickedLocalAssetUploadTask } from '../services/localAssetUpload'
+import { AssetUploadTaskPanel } from './AssetUploadTaskPanel'
+import { type AssetUploadTaskView, isActiveUploadTask } from './assetUploadTasks'
+import { useAssetUploadTasks } from './useAssetUploadTasks'
 
 /* ------------------------------------------------------------------ */
 /*  类型                                                               */
@@ -275,10 +279,13 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   const [assets, setAssets] = React.useState<AssetEntry[]>([])
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
-  const [importing, setImporting] = React.useState(false)
+  const [startingUpload, setStartingUpload] = React.useState(false)
   const [rebuildingThumbnails, setRebuildingThumbnails] = React.useState(false)
   const [category, setCategory] = React.useState<AssetCategory>('image')
   const [thumbLoadTick, setThumbLoadTick] = React.useState(0)
+  const [uploadPanelOpen, setUploadPanelOpen] = React.useState(false)
+  const [uploadTaskView, setUploadTaskView] = React.useState<AssetUploadTaskView>('active')
+  const uploadButtonRef = React.useRef<HTMLButtonElement | null>(null)
 
   /* ---- 加载资源列表 ---- */
   const loadAssets = React.useCallback(async () => {
@@ -318,7 +325,15 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
     return assets.filter(a => categoryFromKind(a.kind) === category)
   }, [assets, category])
 
+  const {
+    tasks: uploadTaskSnapshots,
+    upsertTask: upsertUploadTask,
+    pauseTask: pauseUploadTask,
+    resumeTask: resumeUploadTask,
+    cancelTask: cancelUploadTask,
+  } = useAssetUploadTasks({ gateway, onTasksSettled: loadAssets })
   const thumbnailTargets = React.useMemo(() => visibleAssets.filter(canHaveThumbnail), [visibleAssets])
+  const activeUploadCount = React.useMemo(() => uploadTaskSnapshots.filter(isActiveUploadTask).length, [uploadTaskSnapshots])
 
   /* ---- 加载图片/视频缩略图（后端统一缓存，按需增量生成） ---- */
   React.useEffect(() => {
@@ -347,21 +362,47 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
     return () => { cancelled = true }
   }, [gateway, scope, thumbLoadTick, category, assets.length])
 
-  /* ---- 文件选择 & 导入 ---- */
-  const handleImportFiles = React.useCallback(async () => {
-    if (importing) return
-    setImporting(true)
+  /* ---- 文件选择 & 上传任务 ---- */
+  const handleStartUploadTask = React.useCallback(async () => {
+    if (startingUpload) return
+    setStartingUpload(true)
     try {
-      const imported = await importPickedLocalAssets(gateway, scope)
-      if (!imported.length) return
-      gateway.host.toast(`已导入 ${imported.length} 个文件`)
-      await loadAssets()
+      const task = await startPickedLocalAssetUploadTask(gateway, scope)
+      if (!task) return
+      upsertUploadTask(task)
+      setUploadTaskView('active')
+      setUploadPanelOpen(true)
+      gateway.host.toast('上传任务已开始')
     } catch (err: any) {
-      gateway.host.toast(`导入失败：${String(err?.message || err || '未知错误')}`)
+      gateway.host.toast(`上传失败：${String(err?.message || err || '未知错误')}`)
     } finally {
-      setImporting(false)
+      setStartingUpload(false)
     }
-  }, [gateway, importing, scope, loadAssets])
+  }, [gateway, scope, startingUpload, upsertUploadTask])
+
+  const handlePauseUploadTask = React.useCallback(async (taskId: string) => {
+    try {
+      await pauseUploadTask(taskId)
+    } catch (err: any) {
+      gateway.host.toast(`暂停失败：${String(err?.message || err || '未知错误')}`)
+    }
+  }, [gateway, pauseUploadTask])
+
+  const handleResumeUploadTask = React.useCallback(async (taskId: string) => {
+    try {
+      await resumeUploadTask(taskId)
+    } catch (err: any) {
+      gateway.host.toast(`继续失败：${String(err?.message || err || '未知错误')}`)
+    }
+  }, [gateway, resumeUploadTask])
+
+  const handleCancelUploadTask = React.useCallback(async (taskId: string) => {
+    try {
+      await cancelUploadTask(taskId)
+    } catch (err: any) {
+      gateway.host.toast(`取消失败：${String(err?.message || err || '未知错误')}`)
+    }
+  }, [gateway, cancelUploadTask])
 
   /* ---- 删除资源 ---- */
   const handleDelete = React.useCallback(async (asset: AssetEntry) => {
@@ -448,6 +489,33 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
           附件
         </Typography>
         <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }}>
+          <Tooltip title="上传任务" placement="bottom">
+            <IconButton
+              ref={uploadButtonRef}
+              size="small"
+              aria-label="上传任务"
+              onClick={() => setUploadPanelOpen(open => !open)}
+              sx={{ color: activeUploadCount ? '#4f46e5' : 'rgba(0,0,0,.58)', '&:hover': { bgcolor: 'rgba(79,70,229,.08)', color: '#4f46e5' } }}
+            >
+              <CloudUploadRoundedIcon fontSize="small" />
+              {activeUploadCount ? (
+                <Box sx={{ position: 'absolute', top: 2, right: 2, minWidth: 14, height: 14, px: 0.25, borderRadius: 999, bgcolor: '#ef4444', color: '#fff', fontSize: 9, fontWeight: 900, lineHeight: '14px', textAlign: 'center' }}>
+                  {activeUploadCount > 9 ? '9+' : activeUploadCount}
+                </Box>
+              ) : null}
+            </IconButton>
+          </Tooltip>
+          <AssetUploadTaskPanel
+            anchorEl={uploadButtonRef.current}
+            open={uploadPanelOpen}
+            tasks={uploadTaskSnapshots}
+            view={uploadTaskView}
+            onViewChange={setUploadTaskView}
+            onClose={() => setUploadPanelOpen(false)}
+            onPause={taskId => void handlePauseUploadTask(taskId)}
+            onResume={taskId => void handleResumeUploadTask(taskId)}
+            onCancel={taskId => void handleCancelUploadTask(taskId)}
+          />
           <Tooltip title="刷新" placement="bottom">
             <IconButton
               size="small"
@@ -494,9 +562,9 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
           <Button
             variant="outlined"
             size="small"
-            startIcon={importing ? <CircularProgress size={16} /> : <AddRoundedIcon />}
-            disabled={importing}
-            onClick={() => void handleImportFiles()}
+            startIcon={startingUpload ? <CircularProgress size={16} /> : <AddRoundedIcon />}
+            disabled={startingUpload}
+            onClick={() => void handleStartUploadTask()}
             sx={{
               textTransform: 'none',
               borderRadius: 2,
@@ -505,7 +573,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
               '&:hover': { borderColor: 'rgba(0,0,0,.32)', bgcolor: 'rgba(0,0,0,.02)' },
             }}
           >
-            {importing ? '导入中...' : '添加文件'}
+            {startingUpload ? '启动中...' : '添加文件'}
           </Button>
         </Box>
       </Box>
