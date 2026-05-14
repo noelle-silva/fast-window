@@ -92,6 +92,41 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
+fn normalize_app_id(app_id: impl AsRef<str>) -> Result<String, String> {
+    let id = app_id.as_ref().trim().to_string();
+    if id.is_empty() {
+        return Err("appId 不能为空".to_string());
+    }
+    if id.len() > 128 || id.contains(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_') {
+        return Err("appId 不合法".to_string());
+    }
+    Ok(id)
+}
+
+fn app_executable_path(exe_path: String) -> Result<PathBuf, String> {
+    let raw = exe_path.trim();
+    if raw.is_empty() {
+        return Err("应用文件路径不能为空".to_string());
+    }
+
+    let path = PathBuf::from(raw);
+    if !path.is_file() {
+        return Err(format!("应用文件不存在: {}", path.display()));
+    }
+    Ok(path)
+}
+
+fn app_executable_dir(exe_path: String) -> Result<PathBuf, String> {
+    let path = app_executable_path(exe_path)?;
+    let Some(dir) = path.parent() else {
+        return Err("应用文件没有所在目录".to_string());
+    };
+    if !dir.is_dir() {
+        return Err(format!("应用目录不存在: {}", dir.display()));
+    }
+    Ok(dir.to_path_buf())
+}
+
 fn launch_action(args: &[String]) -> String {
     let mut i = 0;
     while i < args.len() {
@@ -452,6 +487,36 @@ pub(crate) async fn app_launch(
     app_launch_inner(app_handle, state.inner().clone(), app_id, exe_path, args).await
 }
 
+#[tauri::command]
+pub(crate) async fn app_restart(
+    app_handle: AppHandle,
+    state: tauri::State<'_, Arc<AppLauncherState>>,
+    app_id: String,
+    exe_path: String,
+    args: Vec<String>,
+) -> Result<AppStopResult, String> {
+    let id = normalize_app_id(app_id)?;
+    let path = app_executable_path(exe_path)?;
+    let stop_result = app_stop_with_mode(state.inner(), id.clone(), AppStopMode::Graceful).await?;
+
+    app_launch_inner(
+        app_handle,
+        state.inner().clone(),
+        id,
+        path.to_string_lossy().to_string(),
+        args,
+    )
+    .await?;
+
+    Ok(stop_result)
+}
+
+#[tauri::command]
+pub(crate) fn app_open_folder(exe_path: String) -> Result<(), String> {
+    let dir = app_executable_dir(exe_path)?;
+    crate::workspace::open_absolute_existing_dir(&dir)
+}
+
 pub(crate) async fn app_launch_inner(
     app_handle: AppHandle,
     state: Arc<AppLauncherState>,
@@ -459,18 +524,8 @@ pub(crate) async fn app_launch_inner(
     exe_path: String,
     args: Vec<String>,
 ) -> Result<(), String> {
-    let id = app_id.trim().to_string();
-    if id.is_empty() {
-        return Err("appId 不能为空".to_string());
-    }
-    if id.len() > 128 || id.contains(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_') {
-        return Err("appId 不合法".to_string());
-    }
-
-    let path = PathBuf::from(exe_path.trim());
-    if !path.is_file() {
-        return Err(format!("应用文件不存在: {}", path.display()));
-    }
+    let id = normalize_app_id(app_id)?;
+    let path = app_executable_path(exe_path)?;
 
     let running_entry = state
         .processes
@@ -616,10 +671,7 @@ async fn app_stop_with_mode(
     app_id: String,
     mode: AppStopMode,
 ) -> Result<AppStopResult, String> {
-    let id = app_id.trim().to_string();
-    if id.is_empty() {
-        return Err("appId 不能为空".to_string());
-    }
+    let id = normalize_app_id(&app_id)?;
 
     let entry = state
         .processes
@@ -698,10 +750,7 @@ pub(crate) fn app_status(
     state: tauri::State<'_, Arc<AppLauncherState>>,
     app_id: String,
 ) -> Result<AppStatusResult, String> {
-    let id = app_id.trim().to_string();
-    if id.is_empty() {
-        return Err("appId 不能为空".to_string());
-    }
+    let id = normalize_app_id(&app_id)?;
 
     let entry = state
         .processes
@@ -734,10 +783,7 @@ pub(crate) fn app_status_many(
 ) -> Result<HashMap<String, AppStatusResult>, String> {
     let mut out = HashMap::new();
     for id in app_ids {
-        let id = id.trim().to_string();
-        if id.is_empty() {
-            continue;
-        }
+        let id = normalize_app_id(&id)?;
         let status = app_status_inner(&state, &id)?;
         out.insert(id, status);
     }
@@ -746,10 +792,7 @@ pub(crate) fn app_status_many(
 
 #[tauri::command]
 pub(crate) fn app_icon_data_url(exe_path: String) -> Result<String, String> {
-    let path = PathBuf::from(exe_path.trim());
-    if !path.is_file() {
-        return Err(format!("应用文件不存在: {}", path.display()));
-    }
+    let path = app_executable_path(exe_path)?;
     if let Some(svg) = app_svg_icon_data_url(&path)? {
         return Ok(svg);
     }

@@ -2604,6 +2604,8 @@ fn main() {
         process_commands::process_kill,
         process_commands::process_wait,
         app_launcher::app_launch,
+        app_launcher::app_restart,
+        app_launcher::app_open_folder,
         app_launcher::app_force_stop,
         app_launcher::app_stop,
         app_launcher::app_status,

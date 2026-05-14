@@ -23,7 +23,7 @@ import PluginContextMenu, { type ContextMenuAction } from './PluginContextMenu'
 import AppActivationView from './apps/AppActivationView'
 import AppDetailDialog from './apps/AppDetailDialog'
 import { useRegisteredApps } from './apps/useRegisteredApps'
-import { getAppStatuses, launchApp } from './apps/appLauncher'
+import { getAppStatuses, launchApp, openAppFolder, restartApp } from './apps/appLauncher'
 import {
   appStopConfirmLabel,
   appStopDialogDescription,
@@ -429,6 +429,24 @@ function App() {
     }
   }, [refreshRegisteredAppStatuses, showToast, stopAppConfirm?.app, stopAppConfirm?.mode])
 
+  const restartRegisteredAppFromMenu = useCallback(async (app: RegisteredApp) => {
+    try {
+      await restartApp(app, 'show')
+      showToast(`已重启：${app.name}`)
+      window.setTimeout(() => void refreshRegisteredAppStatuses(), 500)
+    } catch (error: any) {
+      showToast(String(error?.message || error || '重启应用失败'))
+    }
+  }, [refreshRegisteredAppStatuses, showToast])
+
+  const openRegisteredAppFolderFromMenu = useCallback(async (app: RegisteredApp) => {
+    try {
+      await openAppFolder(app)
+    } catch (error: any) {
+      showToast(String(error?.message || error || '打开应用文件夹失败'))
+    }
+  }, [showToast])
+
   const pluginMenuActions = useMemo<ContextMenuAction[]>(() => {
     const plugin = pluginMenu?.plugin
     if (!plugin) return []
@@ -444,6 +462,8 @@ function App() {
 
     if (app) {
       return [
+        { id: 'restart-app', label: '重启', onSelect: () => void restartRegisteredAppFromMenu(app) },
+        { id: 'open-app-folder', label: '打开 App 文件夹', onSelect: () => void openRegisteredAppFolderFromMenu(app) },
         { id: 'stop-app', label: appStopMenuLabel('graceful'), color: 'error', onSelect: () => setStopAppConfirm({ app, mode: 'graceful' }) },
         { id: 'force-stop-app', label: appStopMenuLabel('force'), color: 'error', onSelect: () => setStopAppConfirm({ app, mode: 'force' }) },
         { id: 'registration-edit', label: '注册编辑', onSelect: () => requestAppRegistrationEdit(app) },
@@ -460,7 +480,7 @@ function App() {
       },
       ...commonActions,
     ]
-  }, [changeMenuItemIcon, loading, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, requestAppRegistrationEdit, resetMenuItemIcon])
+  }, [changeMenuItemIcon, loading, openRegisteredAppFolderFromMenu, pluginMenu?.plugin, refreshingId, refreshPlugin, registeredAppFromMenuItem, requestAppRegistrationEdit, resetMenuItemIcon, restartRegisteredAppFromMenu])
 
   const handleShellKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {

@@ -25,6 +25,15 @@ export async function launchApp(app: RegisteredApp, action?: AppActivationAction
   await invoke('app_launch', { appId: app.id, exePath: app.path, args })
 }
 
+export async function restartApp(app: RegisteredApp, action: AppActivationAction = 'show'): Promise<AppStopResult> {
+  const args = buildLaunchArgs(app, action)
+  return invoke<AppStopResult>('app_restart', { appId: app.id, exePath: app.path, args })
+}
+
+export async function openAppFolder(app: RegisteredApp): Promise<void> {
+  await invoke('app_open_folder', { exePath: app.path })
+}
+
 export async function stopApp(id: string): Promise<AppStopResult> {
   return invoke<AppStopResult>('app_stop', { appId: id })
 }
