@@ -74,7 +74,7 @@ export function createEntityEditors(deps: {
   render: () => void
   closeModal: () => void
   showToast?: (msg: string) => void
-  pickImages?: (maxCount?: number) => Promise<any[]>
+  pickImageFiles?: (maxCount?: number) => Promise<any[]>
   filesImages: { delete?: (req: any) => Promise<any> }
   ensureChatLoaded?: (rid: string, cid: string) => Promise<any>
   ensureGroupChatLoaded?: (gid: string, cid: string) => Promise<any>
@@ -85,7 +85,7 @@ export function createEntityEditors(deps: {
   cleanupFavoriteRefsForTarget: (kind: string, targetId: string) => void
   cleanupFavoriteRefsForChat: (targetKind: string, targetId: string, chatId: string) => void
 }) {
-  const { getState, save, render, closeModal, showToast, pickImages, filesImages, ensureChatLoaded, ensureGroupChatLoaded, renameRoleChatInStore, renameGroupChatInStore, removeChatInStore, removeLoadedChat, cleanupFavoriteRefsForTarget, cleanupFavoriteRefsForChat } = deps
+  const { getState, save, render, closeModal, showToast, pickImageFiles, filesImages, ensureChatLoaded, ensureGroupChatLoaded, renameRoleChatInStore, renameGroupChatInStore, removeChatInStore, removeLoadedChat, cleanupFavoriteRefsForTarget, cleanupFavoriteRefsForChat } = deps
   const sa = createStateAccessors({ getState })
 
   function scrollToBottomSoon() {
@@ -183,10 +183,10 @@ export function createEntityEditors(deps: {
   async function pickRoleAvatarImage() {
     const state = getState()
     if (state.loading) return
-    if (typeof pickImages !== 'function') return showToast?.('未授权：files.pickImages')
+    if (typeof pickImageFiles !== 'function') return showToast?.('未授权：files.pickImages')
 
     try {
-      const items = await pickImages(1)
+      const items = await pickImageFiles(1)
       const list = Array.isArray(items) ? items : []
       const it = list.length ? list[0] : null
       const u0 = String(it?.dataUrl || '')
@@ -213,10 +213,10 @@ export function createEntityEditors(deps: {
   async function pickGroupAvatarImage() {
     const state = getState()
     if (state.loading) return
-    if (typeof pickImages !== 'function') return showToast?.('未授权：files.pickImages')
+    if (typeof pickImageFiles !== 'function') return showToast?.('未授权：files.pickImages')
 
     try {
-      const items = await pickImages(1)
+      const items = await pickImageFiles(1)
       const list = Array.isArray(items) ? items : []
       const it = list.length ? list[0] : null
       const u0 = String(it?.dataUrl || '')

@@ -2243,7 +2243,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
     sendFromComposer()
   })
   const onStop = useEvent(() => controller.actions.stop?.())
-  const onPickImages = useEvent(() => controller.actions.pickImages())
+  const onPickDraftImages = useEvent(() => controller.actions.pickDraftImages())
   const onPickFilesChanged = useEvent((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files ? Array.from(e.target.files) : []
     e.target.value = ''
@@ -4860,7 +4860,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                     <span>
                       <IconButton
                         aria-label="选择图片"
-                        onClick={onPickImages}
+                        onClick={onPickDraftImages}
                         disabled={s.loading || !activeRole}
                         size="small"
                         sx={{
@@ -6313,15 +6313,9 @@ function StickersSettingsPanel(props: { controller: any; loading: boolean; data:
     controller.actions.createStickerCategory?.(name)
   })
 
-  const onPickImages = useEvent(async () => {
+  const onPickStickerImages = useEvent(() => {
     if (!cat) return api?.ui?.showToast?.('请先选择分类')
-    if (!api?.files?.pickImages) return api?.ui?.showToast?.('未授权：files.pickImages')
-    try {
-      const items = await api.files.pickImages(30)
-      await controller.actions.addStickersFromPickedImages?.(cat, items)
-    } catch (e) {
-      api?.ui?.showToast?.(String((e as any)?.message || e || '选择图片失败'))
-    }
+    controller.actions.pickStickerImages?.(cat)
   })
 
   const onOpenRename = useEvent((oldName: string) => {
@@ -6405,7 +6399,7 @@ function StickersSettingsPanel(props: { controller: any; loading: boolean; data:
           </Stack>
 
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-            <Button startIcon={<ImageIcon />} variant="outlined" onClick={onPickImages} disabled={loading || !cat}>
+            <Button startIcon={<ImageIcon />} variant="outlined" onClick={onPickStickerImages} disabled={loading || !cat}>
               上传
             </Button>
             <Box sx={{ flex: 1 }} />

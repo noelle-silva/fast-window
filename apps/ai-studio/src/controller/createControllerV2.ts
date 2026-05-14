@@ -22,7 +22,6 @@ import {
   VERSION,
   SPLIT_SCHEMA_VERSION,
   SPLIT_META_KEY,
-  MAX_DRAFT_IMAGES,
   MAX_DRAFT_FILES,
   MAX_DRAFT_FILE_BYTES,
   DEFAULT_ATTACH_MAX_FILE_MB,
@@ -394,7 +393,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
 
   const stickerStore = createStickerStorage({
     filesImages: api.files?.images as any,
-    getState: () => state,
+    getState: () => state.data,
   })
   const { addStickerInternal, syncRoleAvatarFile, syncGroupAvatarFile } = stickerStore
 
@@ -552,6 +551,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     uiRefImgPending,
   })
   const { shrinkImageDataUrl, readFileAsDataUrl, hydrateRefImages } = imageUtils
+  const pickImageFiles = api.files?.pickImages as ((maxCount?: number) => Promise<any[]>) | undefined
 
   // ============================================================
   // 11. MODEL REFRESH
@@ -661,16 +661,13 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   // ============================================================
   // 15. ENTITY EDITORS
   // ============================================================
-  // placeholder for pickImages, filled after chatOperations is created
-  let pickImagesFn: (maxCount?: number) => Promise<any[]> = async () => []
-
   const entityEditors = createEntityEditors({
     getState: () => state,
     save,
     render,
     closeModal,
     showToast: api.ui?.showToast,
-    pickImages: async (maxCount?: number) => pickImagesFn(maxCount),
+    pickImageFiles,
     filesImages: api.files?.images as any,
     ensureChatLoaded: (rid: string, cid: string) => ensureChatLoaded('role', rid, cid),
     ensureGroupChatLoaded: (gid: string, cid: string) => ensureChatLoaded('group', gid, cid),
@@ -728,7 +725,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     getState: () => state,
     aiGateway,
     filesImages: api.files?.images as any,
-    filesPickImages: api.files?.pickImages as any || (async () => []),
+    pickImageFiles,
     loadSplitMeta: loadSplitMetaCached,
     showToast: api.ui?.showToast,
     save,
@@ -737,12 +734,13 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     render,
     renderComposer,
     scrollToBottomSoon,
+    readImageFileAsDataUrl: readFileAsDataUrl,
     extractTextFromFile: (file: File, kind: string) => extractTextFromFile(file, kind as DraftFileKind),
     uiStreamCache,
   })
   const {
-    addDraftImage,
-    pickImages,
+    pickDraftImages,
+    addDraftImagesFromFiles,
     addDraftFilesFromFiles,
     sendChat,
     sendGroupChat,
@@ -758,12 +756,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     deleteMessageSubtree,
     editMessage,
   } = chatOps
-
-  // Fill placeholder
-  pickImagesFn = async (maxCount?: number) => {
-    await pickImages()
-    return []
-  }
 
   // ============================================================
   // 17. PATCH OPERATIONS
@@ -842,9 +834,9 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     removeDraftImage: (id: string) => { state.draft.images = removeDraftImageFromList(state.draft.images, String(id || '')); emit(); },
     removeDraftFile: (id: string) => { state.draft.files = removeDraftFile(state.draft.files, String(id || '')); emit(); },
     sendChat: () => sendChat(),
-    pickImages: () => pickImages(),
-    addDraftImagesFromFiles: async () => {},
-    addDraftFilesFromFiles: (files: any) => addDraftFilesFromFiles(files),
+    pickDraftImages: () => pickDraftImages(),
+    addDraftImagesFromFiles: (files: any) => addDraftImagesFromFiles(Array.isArray(files) ? files : []),
+    addDraftFilesFromFiles: (files: any) => addDraftFilesFromFiles(Array.isArray(files) ? files : []),
     stop: () => stopSending().catch(() => {}),
     clearChatModelOverride: () => {},
     setChatModelOverride: () => {},
@@ -863,9 +855,50 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     render,
     showToast: api.ui?.showToast,
     clipboard: api.clipboard,
-    pickImages: api.files?.pickImages as any,
   })
   const { onClick, onWheel, onMouseDown, onInput, onChange, onKeyDown, onPaste, cancelMermaidDrag: evCancelMermaidDrag } = eventHandlers
+
+  async function addStickersFromPickedImages(categoryName: any, pickedItems: any) {
+    if (!state.data) return
+    const list = Array.isArray(pickedItems) ? pickedItems : []
+    if (!list.length) return
+
+    const vCat = validateStickerCategoryName(categoryName)
+    if (!vCat.ok) return api.ui?.showToast?.(vCat.error || '分类名无效')
+    const cat = vCat.name
+
+    let ok = 0
+    let dup = 0
+    let bad = 0
+
+    for (const it of list) {
+      const fn = String(it?.name || '').trim()
+      const base = fn ? fn.replace(/\.[a-zA-Z0-9]+$/, '').trim() : ''
+      const vName = validateStickerName(base || `表情_${uid('n')}`)
+      const name = vName.ok ? vName.name : `表情_${uid('n')}`
+      const dataUrl = String(it?.dataUrl || '')
+      try {
+        const r = await addStickerInternal(cat, name, dataUrl).catch(() => ({ ok: false, kind: 'bad' as const }))
+        if (r && (r as any).ok) ok++
+        else if ((r as any)?.kind === 'dup') dup++
+        else bad++
+      } catch (_) { bad++ }
+    }
+
+    if (ok) { save().catch(() => {}); emit() }
+    if (dup) api.ui?.showToast?.(`跳过重名：${dup} 个`)
+    if (!ok && bad) api.ui?.showToast?.('导入失败')
+  }
+
+  async function pickStickerImages(categoryName: any) {
+    if (typeof pickImageFiles !== 'function') return api.ui?.showToast?.('未授权：files.pickImages')
+    try {
+      const items = await pickImageFiles(30)
+      await addStickersFromPickedImages(categoryName, items)
+    } catch (e) {
+      api.ui?.showToast?.(String((e as any)?.message || e || '选择图片失败'))
+    }
+  }
 
   // ============================================================
   // 20. ACTIONS — complete controller.actions object
@@ -1123,37 +1156,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       save().catch(() => {})
       emit()
     },
-    addStickersFromPickedImages: async (categoryName: any, pickedItems: any) => {
-      if (!state.data) return
-      const list = Array.isArray(pickedItems) ? pickedItems : []
-      if (!list.length) return
-
-      const vCat = validateStickerCategoryName(categoryName)
-      if (!vCat.ok) return api.ui?.showToast?.(vCat.error || '分类名无效')
-      const cat = vCat.name
-
-      let ok = 0
-      let dup = 0
-      let bad = 0
-
-      for (const it of list) {
-        const fn = String(it?.name || '').trim()
-        const base = fn ? fn.replace(/\.[a-zA-Z0-9]+$/, '').trim() : ''
-        const vName = validateStickerName(base || `表情_${uid('n')}`)
-        const name = vName.ok ? vName.name : `表情_${uid('n')}`
-        const dataUrl = String(it?.dataUrl || '')
-        try {
-          const r = await addStickerInternal(cat, name, dataUrl).catch(() => ({ ok: false, kind: 'bad' as const }))
-          if (r && (r as any).ok) ok++
-          else if ((r as any)?.kind === 'dup') dup++
-          else bad++
-        } catch (_) { bad++ }
-      }
-
-      if (ok) { save().catch(() => {}); emit() }
-      if (dup) api.ui?.showToast?.(`跳过重名：${dup} 个`)
-      if (!ok && bad) api.ui?.showToast?.('导入失败')
-    },
+    pickStickerImages: (categoryName: any) => pickStickerImages(categoryName),
     deleteSticker: async (categoryName: any, stickerName: any) => {
       if (!state.data) return
       const st = state.data.settings?.stickers
@@ -1658,19 +1661,9 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       it.sendPct = clamp(Math.round(Number(pct ?? 100)), 0, 100)
       emit()
     },
-    pickImages: () => pickImages(),
+    pickDraftImages: () => pickDraftImages(),
     addDraftImagesFromFiles: async (files: any) => {
-      const list = Array.isArray(files) ? files : []
-      const left = Math.max(0, MAX_DRAFT_IMAGES - (Array.isArray(state.draft.images) ? state.draft.images.length : 0))
-      let added = 0
-      for (const f of list.slice(0, left)) {
-        try {
-          const dataUrl = await readFileAsDataUrl(f)
-          if (addDraftImage(String(f?.name || '图片'), dataUrl)) added++
-        } catch (_) {}
-      }
-      if (!added) api.ui?.showToast?.('未识别到图片')
-      emit()
+      await addDraftImagesFromFiles(Array.isArray(files) ? files : [])
     },
     addDraftFilesFromFiles: async (files: any) => {
       await addDraftFilesFromFiles(Array.isArray(files) ? files : [])
@@ -1754,9 +1747,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     openGroupEditorRaw: (gid: string) => openGroupEditor(gid),
     createChatForActiveTargetRaw: () => createChatForActiveTarget(),
     pickChatForActiveTargetRaw: (cid: string) => pickChatForActiveTarget(cid),
-    addDraftImageFn: addDraftImage,
-    addDraftFilesFromFilesFn: addDraftFilesFromFiles,
-    readFileAsDataUrl,
   }
 
   // ============================================================

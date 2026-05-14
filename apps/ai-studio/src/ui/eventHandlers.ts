@@ -5,8 +5,6 @@
 import { clamp } from '../core/utils'
 import { VIEWER_ZOOM_MIN, MERMAID_VIEWER_ZOOM_MAX } from '../core/viewerZoom'
 
-const MAX_DRAFT_IMAGES = 8
-
 export function createEventHandlers(deps: {
   getState: () => any
   actions: Record<string, any>
@@ -14,7 +12,6 @@ export function createEventHandlers(deps: {
   render: () => void
   showToast?: (msg: any) => void
   clipboard?: { writeText?: (text: string) => Promise<void>; writeImage?: (...args: any[]) => void; readText?: () => Promise<string> }
-  pickImages?: (maxCount?: number) => Promise<any[]> | void
 }) {
   let mermaidDrag: any = null
 
@@ -135,7 +132,7 @@ export function createEventHandlers(deps: {
 
     if (act === 'pick-chat') return deps.actions.pickChatForActiveTarget(String(t.getAttribute('data-id') || ''))
 
-    if (act === 'pick-images') return deps.pickImages?.()
+    if (act === 'pick-images') return deps.actions.pickDraftImages?.()
     if (act === 'rm-draft-img') {
       deps.actions.removeDraftImage(String(t.getAttribute('data-id') || ''))
       deps.actions.renderComposer()
@@ -306,9 +303,6 @@ export function createEventHandlers(deps: {
     const t = e?.target
     if (!(t instanceof HTMLElement)) return
     if (t.getAttribute('data-bind') !== 'input') return
-    const state = deps.getState()
-    if (state.loading || state.sending) return
-
     const dt = e?.clipboardData
     const items = dt?.items ? Array.from(dt.items) : []
     const files: File[] = []
@@ -321,23 +315,10 @@ export function createEventHandlers(deps: {
     }
     if (!files.length) return
 
-    const left = Math.max(0, MAX_DRAFT_IMAGES - (Array.isArray(state.draft.images) ? state.draft.images.length : 0))
-    if (!left) return deps.showToast?.(`最多选择 ${MAX_DRAFT_IMAGES} 张图片`)
-
     e.preventDefault()
     e.stopPropagation()
 
-    ;(async () => {
-      let added = 0
-      for (const f of files.slice(0, left)) {
-        try {
-          const dataUrl = await deps.actions.readFileAsDataUrl(f)
-          if (deps.actions.addDraftImage(String(f?.name || '粘贴图片'), dataUrl)) added++
-        } catch (_) {}
-      }
-      if (!added) deps.showToast?.('未识别到图片')
-      deps.actions.renderComposer()
-    })().catch(() => {})
+    deps.actions.addDraftImagesFromFiles?.(files)
   }
 
   return {

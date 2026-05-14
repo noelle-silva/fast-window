@@ -64,7 +64,7 @@ export function createChatOperations(deps: {
   getState: () => any
   aiGateway: AiChatInternalGateway
   filesImages?: { writeBase64?: (...args: any[]) => Promise<any>; read?: any; delete?: any }
-  filesPickImages?: (maxCount: number) => Promise<any[]>
+  pickImageFiles?: (maxCount: number) => Promise<any[]>
   loadSplitMeta?: () => Promise<any>
   showToast?: (msg: any) => void
   save: () => Promise<void>
@@ -73,10 +73,11 @@ export function createChatOperations(deps: {
   render: () => void
   renderComposer: () => void
   scrollToBottomSoon: () => void
+  readImageFileAsDataUrl: (file: File) => Promise<string>
   extractTextFromFile: (file: File, kind: string) => Promise<string>
   uiStreamCache: Map<string, any>
 }) {
-  const { getState, aiGateway, filesImages, filesPickImages, loadSplitMeta, showToast, save, ensureActiveChatLoaded, emit, render, renderComposer, scrollToBottomSoon, extractTextFromFile, uiStreamCache } = deps
+  const { getState, aiGateway, filesImages, pickImageFiles, loadSplitMeta, showToast, save, ensureActiveChatLoaded, emit, render, renderComposer, scrollToBottomSoon, readImageFileAsDataUrl, extractTextFromFile, uiStreamCache } = deps
 
   const sa = createStateAccessors({ getState })
 
@@ -177,16 +178,16 @@ export function createChatOperations(deps: {
 
   // ============ pick images ============
 
-  async function pickImages() {
+  async function pickDraftImages() {
     const state = getState()
     if (state.loading) return
-    if (typeof filesPickImages !== 'function') return showToast?.('未授权：files.pickImages')
+    if (typeof pickImageFiles !== 'function') return showToast?.('未授权：files.pickImages')
 
     const left = Math.max(0, MAX_DRAFT_IMAGES - (Array.isArray(state.draft.images) ? state.draft.images.length : 0))
     if (!left) return showToast?.(`最多选择 ${MAX_DRAFT_IMAGES} 张图片`)
 
     try {
-      const items = await filesPickImages(left)
+      const items = await pickImageFiles(left)
       const list = Array.isArray(items) ? items : []
       let added = 0
       for (const it of list) {
@@ -200,6 +201,31 @@ export function createChatOperations(deps: {
     } finally {
       renderComposer()
     }
+  }
+
+  async function addDraftImagesFromFiles(files: File[]) {
+    const state = getState()
+    if (state.loading) return
+
+    const list = Array.isArray(files)
+      ? files.filter((f) => f instanceof File && String(f.type || '').startsWith('image/'))
+      : []
+    if (!list.length) return showToast?.('未识别到图片')
+
+    if (!Array.isArray(state.draft.images)) state.draft.images = []
+    const left = Math.max(0, MAX_DRAFT_IMAGES - state.draft.images.length)
+    if (!left) return showToast?.(`最多选择 ${MAX_DRAFT_IMAGES} 张图片`)
+
+    let added = 0
+    for (const f of list.slice(0, left)) {
+      try {
+        const dataUrl = await readImageFileAsDataUrl(f)
+        if (addDraftImage(String(f?.name || '图片'), dataUrl)) added++
+      } catch (_) {}
+    }
+
+    if (!added) showToast?.('未识别到图片')
+    renderComposer()
   }
 
   // ============ add draft files ============
@@ -2055,8 +2081,8 @@ export function createChatOperations(deps: {
   }
 
   return {
-    addDraftImage,
-    pickImages,
+    pickDraftImages,
+    addDraftImagesFromFiles,
     addDraftFilesFromFiles,
     sendChat,
     sendGroupChat,
