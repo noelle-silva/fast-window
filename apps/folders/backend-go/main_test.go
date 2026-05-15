@@ -69,7 +69,7 @@ func TestEnsureReadyMigratesLegacyFlatWorkspaceToCategories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.SchemaVersion != dataSchemaVersion || doc.DataVersion != dataVersion || doc.ActiveCategoryID != defaultCategoryID || len(doc.Categories) != 3 {
+	if doc.SchemaVersion != dataSchemaVersion || doc.DataVersion != dataVersion || doc.ActiveCategoryID != defaultCategoryID || len(doc.Categories) != 3 || !sameStrings(doc.CategoryOrder, defaultCategoryOrder()) {
 		t.Fatalf("unexpected migrated doc metadata: %#v", doc)
 	}
 	folder, _, err := workspaceByID(doc, "folder")
@@ -97,14 +97,18 @@ func TestEnsureReadyMigratesLegacyFlatWorkspaceToCategories(t *testing.T) {
 
 	state := readJSONMap(t, filepath.Join(svc.dataDir, migrationStateFile))
 	applied := state["applied"].([]any)
-	if len(applied) != 1 {
-		t.Fatalf("expected one migration record, got %#v", applied)
+	if len(applied) != 2 {
+		t.Fatalf("expected two migration records, got %#v", applied)
 	}
 	entry := applied[0].(map[string]any)
-	if entry["id"] != "2026-05-12-folders-data-v4-to-v5" || int(entry["fromVersion"].(float64)) != 4 || int(entry["toVersion"].(float64)) != dataVersion {
+	if entry["id"] != "2026-05-12-folders-data-v4-to-v5" || int(entry["fromVersion"].(float64)) != 4 || int(entry["toVersion"].(float64)) != 5 {
 		t.Fatalf("unexpected migration entry: %#v", entry)
 	}
-	assertSingleRecoveryPackage(t, svc)
+	entry = applied[1].(map[string]any)
+	if entry["id"] != "2026-05-15-folders-data-v5-to-v6-category-order" || int(entry["fromVersion"].(float64)) != 5 || int(entry["toVersion"].(float64)) != dataVersion {
+		t.Fatalf("unexpected category order migration entry: %#v", entry)
+	}
+	assertRecoveryPackageCount(t, svc, 2)
 	if health := svc.health(); !health.Data.OK {
 		t.Fatalf("expected healthy migrated data: %#v", health)
 	}
@@ -121,15 +125,15 @@ func TestRunMigrationsIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := readJSONMap(t, filepath.Join(svc.dataDir, migrationStateFile))
-	if applied := state["applied"].([]any); len(applied) != 1 {
+	if applied := state["applied"].([]any); len(applied) != 2 {
 		t.Fatalf("migration should apply once, got %#v", applied)
 	}
-	assertSingleRecoveryPackage(t, svc)
+	assertRecoveryPackageCount(t, svc, 2)
 }
 
 func TestEnsureReadyRejectsNewerDataVersion(t *testing.T) {
 	svc := newTestService(t)
-	writeRawData(t, svc, `{"schemaVersion":1,"dataVersion":6,"activeCategoryId":"folder","categories":[],"updatedAt":"2026-01-01T00:00:00Z"}`)
+	writeRawData(t, svc, `{"schemaVersion":1,"dataVersion":7,"activeCategoryId":"folder","categories":[],"updatedAt":"2026-01-01T00:00:00Z"}`)
 	if err := svc.ensureReady(); err == nil || !strings.Contains(err.Error(), "newer than supported") {
 		t.Fatalf("expected newer version error, got %v", err)
 	}
@@ -145,7 +149,7 @@ func TestRunMigrationsRejectsLedgerAppliedWithOldData(t *testing.T) {
 		"applied": []migrationStateRecord{{
 			ID:          "2026-05-12-folders-data-v4-to-v5",
 			FromVersion: 4,
-			ToVersion:   dataVersion,
+			ToVersion:   5,
 			Description: "already applied on paper only",
 			AppliedAt:   nowMS(),
 		}},
@@ -229,7 +233,7 @@ func TestDefaultCollectionsDocHasIndependentWorkspaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.ActiveCategoryID != defaultCategoryID || len(doc.Categories) != 3 {
+	if doc.ActiveCategoryID != defaultCategoryID || len(doc.Categories) != 3 || !sameStrings(doc.CategoryOrder, defaultCategoryOrder()) {
 		t.Fatalf("unexpected default collections doc: %#v", doc)
 	}
 	for _, id := range []string{"folder", "url", "file"} {
@@ -601,16 +605,41 @@ func TestInvalidPersistedDataIsDiagnosedAfterStartup(t *testing.T) {
 
 func TestMissingCurrentBaselineFieldIsDiagnosedAfterStartup(t *testing.T) {
 	svc := newTestService(t)
-	missingIconScale := `{"schemaVersion":1,"dataVersion":5,"activeCategoryId":"folder","categories":[{"id":"folder","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0}}},{"id":"url","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}},{"id":"file","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}}],"updatedAt":"2026-01-01T00:00:00Z"}`
-	writeRawData(t, svc, missingIconScale)
+	missingCategoryOrder := `{"schemaVersion":1,"dataVersion":6,"activeCategoryId":"folder","categories":[{"id":"folder","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}},{"id":"url","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}},{"id":"file","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}}],"updatedAt":"2026-01-01T00:00:00Z"}`
+	writeRawData(t, svc, missingCategoryOrder)
 	if err := svc.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.readCollections(); err == nil || !strings.Contains(err.Error(), "desktop.iconLayout.iconScale") {
-		t.Fatalf("expected missing icon scale read error, got %v", err)
+	if _, err := svc.readCollections(); err == nil || !strings.Contains(err.Error(), "categoryOrder") {
+		t.Fatalf("expected missing category order read error, got %v", err)
 	}
-	if health := svc.health(); health.Data.OK || !strings.Contains(health.Data.Error, "desktop.iconLayout.iconScale") {
-		t.Fatalf("expected missing icon scale health error, got %#v", health)
+	if health := svc.health(); health.Data.OK || !strings.Contains(health.Data.Error, "categoryOrder") {
+		t.Fatalf("expected missing category order health error, got %#v", health)
+	}
+}
+
+func TestCategoryOrderSavePersistsAndOrdersWorkspaces(t *testing.T) {
+	svc := readyService(t)
+
+	doc, err := svc.saveCategoryOrder([]string{"url", "file", "folder"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameStrings(doc.CategoryOrder, []string{"url", "file", "folder"}) {
+		t.Fatalf("unexpected workspace view category order: %#v", doc.CategoryOrder)
+	}
+	persisted, err := svc.readCollections()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameStrings(persisted.CategoryOrder, []string{"url", "file", "folder"}) {
+		t.Fatalf("unexpected persisted category order: %#v", persisted.CategoryOrder)
+	}
+	if got := []string{persisted.Categories[0].ID, persisted.Categories[1].ID, persisted.Categories[2].ID}; !sameStrings(got, persisted.CategoryOrder) {
+		t.Fatalf("expected categories to follow categoryOrder, got categories=%#v order=%#v", got, persisted.CategoryOrder)
+	}
+	if _, err := svc.saveCategoryOrder([]string{"url", "url", "folder"}); err == nil || !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("expected duplicate category order error, got %v", err)
 	}
 }
 
@@ -1222,19 +1251,52 @@ func stringListContains(items []string, wanted string) bool {
 	return false
 }
 
+func sameStrings(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func assertSingleRecoveryPackage(t *testing.T, svc *service) {
 	t.Helper()
-	entries, err := os.ReadDir(filepath.Join(svc.dataDir, recoveryDirName))
-	if err != nil || len(entries) != 1 {
-		t.Fatalf("expected one recovery package, entries=%d err=%v", len(entries), err)
-	}
-	packageDir := filepath.Join(svc.dataDir, recoveryDirName, entries[0].Name())
+	assertRecoveryPackageCount(t, svc, 1)
+	packageDirs := recoveryPackageDirs(t, svc)
+	packageDir := packageDirs[0]
 	if _, err := os.Stat(filepath.Join(packageDir, "plan.json")); err != nil {
 		t.Fatalf("expected recovery plan: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(packageDir, "files", dataFile)); err != nil {
 		t.Fatalf("expected data file recovery copy: %v", err)
 	}
+}
+
+func assertRecoveryPackageCount(t *testing.T, svc *service, count int) {
+	t.Helper()
+	packageDirs := recoveryPackageDirs(t, svc)
+	if len(packageDirs) != count {
+		t.Fatalf("expected %d recovery packages, got %d", count, len(packageDirs))
+	}
+}
+
+func recoveryPackageDirs(t *testing.T, svc *service) []string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(svc.dataDir, recoveryDirName))
+	if err != nil {
+		t.Fatalf("expected recovery packages: %v", err)
+	}
+	dirs := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			dirs = append(dirs, filepath.Join(svc.dataDir, recoveryDirName, entry.Name()))
+		}
+	}
+	return dirs
 }
 
 func containerIDByItem(doc categoryWorkspaceView, id string) string {

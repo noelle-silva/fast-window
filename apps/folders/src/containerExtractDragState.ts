@@ -92,6 +92,7 @@ export function applyContainerItemDesktopExtractionView(workspace: CategoryWorks
     ...applyContainerItemDesktopExtraction(workspace, containerId, itemId, patches),
     schemaVersion: workspace.schemaVersion,
     dataVersion: workspace.dataVersion,
+    categoryOrder: workspace.categoryOrder,
   }
 }
 

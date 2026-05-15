@@ -146,6 +146,7 @@ func registeredMigrations() []dataMigration {
 		legacyFlatWorkspaceMigration(2),
 		legacyFlatWorkspaceMigration(3),
 		legacyFlatWorkspaceMigration(4),
+		categoryOrderMigration(),
 	}
 }
 
@@ -153,7 +154,7 @@ func legacyFlatWorkspaceMigration(fromVersion int) dataMigration {
 	return dataMigration{
 		ID:          fmt.Sprintf("2026-05-12-folders-data-v%d-to-v5", fromVersion),
 		FromVersion: fromVersion,
-		ToVersion:   dataVersion,
+		ToVersion:   5,
 		Description: "Migrate legacy single-workspace folders data into category workspaces",
 		Recovery: migrationRecoverySpec{
 			AffectedPaths: []string{dataFile, metaFile, migrationStateFile},
@@ -164,6 +165,24 @@ func legacyFlatWorkspaceMigration(fromVersion int) dataMigration {
 		},
 		Apply: func(svc *service) error {
 			return svc.migrateLegacyWorkspaceToCategories(fromVersion)
+		},
+	}
+}
+
+func categoryOrderMigration() dataMigration {
+	return dataMigration{
+		ID:          "2026-05-15-folders-data-v5-to-v6-category-order",
+		FromVersion: 5,
+		ToVersion:   dataVersion,
+		Description: "Add explicit category order settings to folders data",
+		Recovery: migrationRecoverySpec{
+			AffectedPaths: []string{dataFile, metaFile, migrationStateFile},
+			Notes: []string{
+				"The migration preserves all category workspaces and initializes categoryOrder from the canonical folder, url, file order.",
+			},
+		},
+		Apply: func(svc *service) error {
+			return svc.migrateCategoryOrder()
 		},
 	}
 }

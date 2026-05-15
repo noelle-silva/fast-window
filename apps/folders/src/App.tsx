@@ -3,6 +3,8 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
+import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded'
+import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded'
@@ -48,7 +50,7 @@ import {
 } from '@mui/material'
 import type { SelectChangeEvent } from '@mui/material/Select'
 import { createDirectClient } from './backendClient'
-import { CATEGORY_DEFINITIONS, categoryDefinition, type CategoryDefinition } from './categoryRegistry'
+import { categoryDefinition, moveCategoryOrder, orderedCategoryDefinitions, type CategoryDefinition } from './categoryRegistry'
 import { clipboardImageDataUrlFromClipboard, clipboardImageDataUrlFromPasteEvent } from './clipboardImage'
 import { ContainerOverlay } from './ContainerOverlay'
 import type { ContainerItemDragEvent } from './ContainerOverlay'
@@ -99,6 +101,7 @@ import type {
 } from './types'
 
 type CollectionItemFormPayload = Omit<CollectionItem, 'icon'> & { icon: DesktopIcon | null }
+type CategoryWallpaperEntry = DesktopWallpaperDeck['categories'][number]
 import { FolderGridCanvas, type DesktopGridApi, type DesktopGridDragEvent, type DesktopGridExternalItemDrag, type DesktopGridLayoutPatch } from './folder-grid/FolderGridCanvas'
 import {
   DESKTOP_ICON_GAP_MAX,
@@ -131,6 +134,15 @@ import {
 const appWindow = getCurrentWindow()
 const ERROR_AUTO_HIDE_MS = 4200
 const CONTAINER_HOVER_OPEN_MS = 520
+
+function reorderWallpaperDeckCategories(categories: CategoryWallpaperEntry[], categoryOrder: CollectionCategoryId[]): CategoryWallpaperEntry[] {
+  const byId = new Map(categories.map(category => [category.categoryId, category]))
+  return categoryOrder.map(categoryId => {
+    const category = byId.get(categoryId)
+    if (!category) throw new Error(`wallpaper category missing: ${categoryId}`)
+    return category
+  })
+}
 
 type ContainerDropResolution =
   | { kind: 'icon' }
@@ -1077,6 +1089,18 @@ export function App() {
     finally { setBusy(false) }
   }
 
+  async function saveCategoryOrder(categoryOrder: CollectionCategoryId[]) {
+    if (!client) return
+    setBusy(true); setError(null)
+    try {
+      const nextDoc = await client.request<CategoryWorkspaceView>('collections.category-order.save', { categoryOrder })
+      setDoc(nextDoc)
+      setWallpaperDeck(current => current ? { ...current, schemaVersion: nextDoc.schemaVersion, dataVersion: nextDoc.dataVersion, categories: reorderWallpaperDeckCategories(current.categories, nextDoc.categoryOrder) } : wallpaperDeckFromWorkspace(nextDoc))
+    }
+    catch (e) { setError(errorMessage(e, '保存分类顺序失败')) }
+    finally { setBusy(false) }
+  }
+
   async function pickWallpaperImage() {
     if (!client) return
     setBusy(true); setError(null)
@@ -1136,6 +1160,7 @@ export function App() {
       <TopBar
         activeCategoryId={activeCategoryId}
         busy={busy}
+        categories={orderedCategoryDefinitions(doc.categoryOrder)}
         doc={doc}
         groupId={groupId}
         launchInfo={launchInfo}
@@ -1250,6 +1275,7 @@ export function App() {
         onPreviewIconLayout={layout => setIconLayoutDraft(normalizeDesktopIconLayout(layout))}
         onRemoveWallpaperPreset={id => void removeDesktopWallpaperPreset(id)}
         onRestart={() => void connect({ restartBackend: true })}
+        onSaveCategoryOrder={categoryOrder => void saveCategoryOrder(categoryOrder)}
         onSaveIconLayout={layout => void saveDesktopIconLayout(layout)}
         onSaveWallpaperPresetView={(id, view) => void saveDesktopWallpaperPresetView(id, view)}
         onSelectWallpaperPreset={id => void selectDesktopWallpaperPreset(id)}
@@ -1328,6 +1354,7 @@ export function App() {
 function TopBar(props: {
   activeCategoryId: CollectionCategoryId
   busy: boolean
+  categories: CategoryDefinition[]
   doc: CategoryWorkspaceView
   groupId: string
   launchInfo: FwLaunchInfo
@@ -1373,6 +1400,7 @@ function TopBar(props: {
         activeCategoryId={props.activeCategoryId}
         busy={props.busy}
         canEdit={canEdit}
+        categories={props.categories}
         doc={props.doc}
         groupActionLabel={groupActionLabel}
         groupId={props.groupId}
@@ -1398,6 +1426,7 @@ function TopBarTools(props: {
   activeCategoryId: CollectionCategoryId
   busy: boolean
   canEdit: boolean
+  categories: CategoryDefinition[]
   doc: CategoryWorkspaceView
   groupActionLabel: string
   groupId: string
@@ -1437,7 +1466,7 @@ function TopBarTools(props: {
           '& .MuiToggleButton-root': { border: 0, borderRadius: 2.5, px: 1.35, fontWeight: 900 },
         }}
       >
-        {CATEGORY_DEFINITIONS.map(category => {
+        {props.categories.map(category => {
           const CategoryIcon = category.icon
           return <ToggleButton key={category.id} value={category.id} aria-label={category.label}><CategoryIcon fontSize="small" sx={{ mr: 0.6 }} />{category.label}</ToggleButton>
         })}
@@ -1838,13 +1867,16 @@ function SettingsDialog(props: {
   onPreviewIconLayout(layout: DesktopIconLayout): void
   onRemoveWallpaperPreset(id: string): void
   onRestart(): void
+  onSaveCategoryOrder(categoryOrder: CollectionCategoryId[]): void
   onSaveIconLayout(layout: DesktopIconLayout): void
   onSaveWallpaperPresetView(id: string, view: DesktopWallpaperView): void
   onSelectWallpaperPreset(id: string): void
 }) {
   const iconLayout = normalizeDesktopIconLayout(props.iconLayout)
+  const categories = orderedCategoryDefinitions(props.doc.categoryOrder)
   const updateDraftIconLayout = (patch: Partial<DesktopIconLayout>) => props.onPreviewIconLayout(normalizeDesktopIconLayout({ ...iconLayout, ...patch }))
   const saveDraftIconLayout = (patch: Partial<DesktopIconLayout>) => props.onSaveIconLayout(normalizeDesktopIconLayout({ ...iconLayout, ...patch }))
+  const moveCategory = (categoryId: CollectionCategoryId, direction: -1 | 1) => props.onSaveCategoryOrder(moveCategoryOrder(props.doc.categoryOrder, categoryId, direction))
 
   return (
     <Dialog open={props.open} onClose={props.onClose} fullWidth maxWidth="md">
@@ -1854,6 +1886,57 @@ function SettingsDialog(props: {
             <Typography variant="h2">设置</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>管理桌面图标、壁纸、数据目录和后台状态。</Typography>
           </Box>
+          <Paper elevation={0} sx={{ p: 2, borderRadius: 3, bgcolor: theme => alpha(theme.palette.primary.main, 0.06) }}>
+            <Stack spacing={1.5}>
+              <Box>
+                <Typography fontWeight={900}>分类顺序</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>调整顶部收藏类别的展示顺序，保存后会立即同步到主界面。</Typography>
+              </Box>
+              <Stack spacing={1}>
+                {categories.map((category, index) => {
+                  const CategoryIcon = category.icon
+                  return (
+                    <Paper
+                      key={category.id}
+                      elevation={0}
+                      sx={{
+                        p: 1.25,
+                        borderRadius: 2.5,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1.25,
+                        bgcolor: 'rgba(255,255,255,0.72)',
+                      }}
+                    >
+                      <Box sx={{ width: 28, height: 28, borderRadius: 2, display: 'grid', placeItems: 'center', bgcolor: theme => alpha(theme.palette.primary.main, 0.12), color: 'primary.main' }}>
+                        <CategoryIcon fontSize="small" />
+                      </Box>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography fontWeight={900}>{category.label}</Typography>
+                        <Typography variant="caption" color="text.secondary">第 {index + 1} 位</Typography>
+                      </Box>
+                      <Stack direction="row" spacing={0.75}>
+                        <Tooltip title="上移">
+                          <span>
+                            <IconButton aria-label={`上移${category.label}`} size="small" onClick={() => moveCategory(category.id, -1)} disabled={props.busy || index === 0}>
+                              <ArrowUpwardRoundedIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                        <Tooltip title="下移">
+                          <span>
+                            <IconButton aria-label={`下移${category.label}`} size="small" onClick={() => moveCategory(category.id, 1)} disabled={props.busy || index === categories.length - 1}>
+                              <ArrowDownwardRoundedIcon fontSize="small" />
+                            </IconButton>
+                          </span>
+                        </Tooltip>
+                      </Stack>
+                    </Paper>
+                  )
+                })}
+              </Stack>
+            </Stack>
+          </Paper>
           <Paper elevation={0} sx={{ p: 2, borderRadius: 3, bgcolor: theme => alpha(theme.palette.primary.main, 0.06) }}>
             <Stack spacing={1.75}>
               <Box>

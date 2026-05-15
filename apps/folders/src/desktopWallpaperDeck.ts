@@ -1,8 +1,8 @@
-import { CATEGORY_DEFINITIONS } from './categoryRegistry'
+import { orderedCategoryDefinitions } from './categoryRegistry'
 import type { CategoryWorkspaceView, DesktopWallpaperDeck } from './types'
 
 export function wallpaperDeckWithWorkspace(current: DesktopWallpaperDeck | null, workspace: CategoryWorkspaceView): DesktopWallpaperDeck {
-  const categories = (current?.categories.length ? current.categories : CATEGORY_DEFINITIONS.map(category => ({ categoryId: category.id })))
+  const categories = (current?.categories.length ? current.categories : orderedCategoryDefinitions(workspace.categoryOrder).map(category => ({ categoryId: category.id })))
     .map(category => category.categoryId === workspace.id ? { ...category, wallpaper: workspace.desktop.wallpaper } : category)
   return {
     schemaVersion: current?.schemaVersion ?? workspace.schemaVersion,

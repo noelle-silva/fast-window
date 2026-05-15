@@ -84,12 +84,35 @@ export const CATEGORY_DEFINITIONS: CategoryDefinition[] = [
   },
 ]
 
+export const DEFAULT_CATEGORY_ORDER: CollectionCategoryId[] = CATEGORY_DEFINITIONS.map(category => category.id)
+
 const CATEGORY_BY_ID = new Map(CATEGORY_DEFINITIONS.map(category => [category.id, category]))
+const CATEGORY_IDS = new Set<CollectionCategoryId>(DEFAULT_CATEGORY_ORDER)
 
 export function categoryDefinition(id: CollectionCategoryId): CategoryDefinition {
   const definition = CATEGORY_BY_ID.get(id)
   if (!definition) throw new Error(`unknown collection category: ${id}`)
   return definition
+}
+
+export function orderedCategoryDefinitions(order: CollectionCategoryId[]): CategoryDefinition[] {
+  const seen = new Set<CollectionCategoryId>()
+  if (order.length !== DEFAULT_CATEGORY_ORDER.length) throw new Error('category order length is invalid')
+  return order.map(id => {
+    if (!CATEGORY_IDS.has(id) || seen.has(id)) throw new Error(`category order contains invalid category: ${id}`)
+    seen.add(id)
+    return categoryDefinition(id)
+  })
+}
+
+export function moveCategoryOrder(order: CollectionCategoryId[], categoryId: CollectionCategoryId, direction: -1 | 1): CollectionCategoryId[] {
+  const index = order.indexOf(categoryId)
+  const targetIndex = index + direction
+  if (index < 0 || targetIndex < 0 || targetIndex >= order.length) return order
+  const next = [...order]
+  const [item] = next.splice(index, 1)
+  next.splice(targetIndex, 0, item)
+  return next
 }
 
 export function itemTargetValue(item: CollectionItem): string {

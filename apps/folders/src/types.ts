@@ -124,12 +124,14 @@ export type CategoryWorkspace = {
 export type CategoryWorkspaceView = CategoryWorkspace & {
   schemaVersion: number
   dataVersion: number
+  categoryOrder: CollectionCategoryId[]
 }
 
 export type CollectionsDoc = {
   schemaVersion: number
   dataVersion: number
   activeCategoryId: CollectionCategoryId
+  categoryOrder: CollectionCategoryId[]
   categories: CategoryWorkspace[]
   updatedAt: string
 }

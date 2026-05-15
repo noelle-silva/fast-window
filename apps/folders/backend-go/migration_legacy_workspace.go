@@ -10,14 +10,16 @@ import (
 )
 
 type legacyCollectionsDocInput struct {
-	SchemaVersion *int                      `json:"schemaVersion"`
-	DataVersion   *int                      `json:"dataVersion"`
-	Groups        *[]collectionGroup        `json:"groups"`
-	Items         *[]legacyCollectionItem   `json:"items"`
-	Containers    *[]desktopContainer       `json:"containers"`
-	Desktop       *desktopStateInput        `json:"desktop"`
-	UpdatedAt     *string                   `json:"updatedAt"`
-	Categories    *[]categoryWorkspaceInput `json:"categories"`
+	SchemaVersion    *int                      `json:"schemaVersion"`
+	DataVersion      *int                      `json:"dataVersion"`
+	ActiveCategoryID *string                   `json:"activeCategoryId"`
+	CategoryOrder    *[]string                 `json:"categoryOrder"`
+	Groups           *[]collectionGroup        `json:"groups"`
+	Items            *[]legacyCollectionItem   `json:"items"`
+	Containers       *[]desktopContainer       `json:"containers"`
+	Desktop          *desktopStateInput        `json:"desktop"`
+	UpdatedAt        *string                   `json:"updatedAt"`
+	Categories       *[]categoryWorkspaceInput `json:"categories"`
 }
 
 type legacyCollectionItem struct {
@@ -46,7 +48,7 @@ func (svc *service) migrateLegacyWorkspaceToCategories(fromVersion int) error {
 	if err != nil {
 		return err
 	}
-	normalized, err := normalizeCollectionsDoc(legacy)
+	normalized, err := normalizeV5CollectionsDoc(legacy)
 	if err != nil {
 		return err
 	}
@@ -71,7 +73,7 @@ func decodeLegacyFlatWorkspace(payload []byte, fromVersion int) (collectionsDoc,
 	if *input.SchemaVersion != dataSchemaVersion {
 		return collectionsDoc{}, fmt.Errorf("legacy folders data schemaVersion %d is not supported; expected %d", *input.SchemaVersion, dataSchemaVersion)
 	}
-	if fromVersion <= 0 || fromVersion >= dataVersion {
+	if fromVersion <= 0 || fromVersion >= 5 {
 		return collectionsDoc{}, fmt.Errorf("legacy folders migration source version %d is invalid", fromVersion)
 	}
 	if input.DataVersion != nil && *input.DataVersion != fromVersion {
@@ -99,7 +101,62 @@ func decodeLegacyFlatWorkspace(payload []byte, fromVersion int) (collectionsDoc,
 	if input.UpdatedAt != nil {
 		updatedAt = *input.UpdatedAt
 	}
-	return collectionsDoc{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, ActiveCategoryID: defaultCategoryID, Categories: []categoryWorkspace{workspace, defaultCategoryWorkspace("url"), defaultCategoryWorkspace("file")}, UpdatedAt: updatedAt}, nil
+	return collectionsDoc{SchemaVersion: dataSchemaVersion, DataVersion: 5, ActiveCategoryID: defaultCategoryID, Categories: []categoryWorkspace{workspace, defaultCategoryWorkspace("url"), defaultCategoryWorkspace("file")}, UpdatedAt: updatedAt}, nil
+}
+
+func (svc *service) migrateCategoryOrder() error {
+	payload, err := os.ReadFile(filepath.Join(svc.dataDir, dataFile))
+	if err != nil {
+		return fmt.Errorf("read folders data failed: %w", err)
+	}
+	doc, err := decodeV5CollectionsDoc(payload)
+	if err != nil {
+		return err
+	}
+	normalized, err := normalizeCollectionsDoc(doc)
+	if err != nil {
+		return err
+	}
+	normalized.UpdatedAt = nowText()
+	return writeJSON(filepath.Join(svc.dataDir, dataFile), normalized)
+}
+
+func decodeV5CollectionsDoc(payload []byte) (collectionsDoc, error) {
+	if strings.TrimSpace(string(payload)) == "" {
+		return collectionsDoc{}, errors.New("folders data file is empty")
+	}
+	var input legacyCollectionsDocInput
+	if err := json.Unmarshal(payload, &input); err != nil {
+		return collectionsDoc{}, fmt.Errorf("parse folders data failed: %w", err)
+	}
+	if input.SchemaVersion == nil {
+		return collectionsDoc{}, errors.New("folders data schemaVersion is required")
+	}
+	if *input.SchemaVersion != dataSchemaVersion {
+		return collectionsDoc{}, fmt.Errorf("folders data schemaVersion %d is not supported; expected %d", *input.SchemaVersion, dataSchemaVersion)
+	}
+	if input.DataVersion == nil || *input.DataVersion != 5 {
+		return collectionsDoc{}, errors.New("folders dataVersion 5 is required for category order migration")
+	}
+	if input.ActiveCategoryID == nil {
+		return collectionsDoc{}, errors.New("folders data activeCategoryId is required")
+	}
+	if input.Categories == nil {
+		return collectionsDoc{}, errors.New("folders data categories is required")
+	}
+	categories := make([]categoryWorkspace, 0, len(*input.Categories))
+	for index, raw := range *input.Categories {
+		workspace, err := decodeCategoryWorkspace(raw)
+		if err != nil {
+			return collectionsDoc{}, fmt.Errorf("categories[%d]: %w", index, err)
+		}
+		categories = append(categories, workspace)
+	}
+	updatedAt := ""
+	if input.UpdatedAt != nil {
+		updatedAt = *input.UpdatedAt
+	}
+	return collectionsDoc{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, ActiveCategoryID: *input.ActiveCategoryID, CategoryOrder: defaultCategoryOrder(), Categories: categories, UpdatedAt: updatedAt}, nil
 }
 
 func decodeLegacyDesktopState(input desktopStateInput) (desktopState, error) {
