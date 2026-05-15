@@ -1,4 +1,4 @@
-import { Box, Avatar, Typography } from '@mui/material'
+import { Box, Avatar, SvgIcon, Typography } from '@mui/material'
 import type { Plugin, PluginBrowseLayout } from './constants'
 import { isDataImageUrl } from './utils'
 
@@ -44,7 +44,7 @@ const cardPointerSurfaceSx = {
 export function PluginCardContent(props: { plugin: Plugin; layout: PluginBrowseLayout }) {
   const { plugin, layout } = props
   const isRegisteredAppRunning = plugin.appStatus?.type === 'registered-app' && plugin.appStatus.running
-  const avatarWithStatus = (
+  const avatarWithBadges = (
     avatar: React.ReactNode,
     size: number,
   ) => (
@@ -64,15 +64,16 @@ export function PluginCardContent(props: { plugin: Plugin; layout: PluginBrowseL
             bgcolor: theme.palette.success.main,
             boxShadow: `0 0 0 2px ${theme.palette.background.paper}`,
           })}
-        />
-      ) : null}
+          />
+        ) : null}
+      {plugin.iconBadge ? <PluginIconBadgeView badge={plugin.iconBadge} avatarSize={size} /> : null}
     </Box>
   )
 
   if (layout === 'icon') {
     return (
       <>
-        {avatarWithStatus(
+        {avatarWithBadges(
           <Avatar
             src={isDataImageUrl(plugin.icon) ? plugin.icon : undefined}
             imgProps={{ alt: plugin.name }}
@@ -110,7 +111,7 @@ export function PluginCardContent(props: { plugin: Plugin; layout: PluginBrowseL
   if (layout === 'grid') {
     return (
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        {avatarWithStatus(
+        {avatarWithBadges(
           <Avatar
             variant="rounded"
             src={isDataImageUrl(plugin.icon) ? plugin.icon : undefined}
@@ -152,7 +153,7 @@ export function PluginCardContent(props: { plugin: Plugin; layout: PluginBrowseL
   return (
     <>
       <Box component="span" sx={{ minWidth: 44, display: 'inline-flex', flexShrink: 0 }}>
-        {avatarWithStatus(
+        {avatarWithBadges(
           <Avatar
             variant="rounded"
             src={isDataImageUrl(plugin.icon) ? plugin.icon : undefined}
@@ -180,6 +181,43 @@ export function PluginCardContent(props: { plugin: Plugin; layout: PluginBrowseL
       </Box>
     </>
   )
+}
+
+function PluginIconBadgeView(props: { badge: NonNullable<Plugin['iconBadge']>; avatarSize: number }) {
+  const { badge, avatarSize } = props
+
+  if (badge.kind === 'shortcut-command') {
+    const badgeSize = Math.max(14, Math.round(avatarSize * 0.34))
+    const iconSize = Math.max(9, Math.round(badgeSize * 0.68))
+
+    return (
+      <Box
+        title={badge.label}
+        aria-label={badge.label}
+        role="img"
+        sx={theme => ({
+          position: 'absolute',
+          right: -2,
+          bottom: -2,
+          width: badgeSize,
+          height: badgeSize,
+          borderRadius: '999px',
+          display: 'grid',
+          placeItems: 'center',
+          color: theme.palette.common.white,
+          bgcolor: theme.palette.primary.main,
+          boxShadow: `0 0 0 2px ${theme.palette.background.paper}`,
+        })}
+      >
+        <SvgIcon viewBox="0 0 24 24" sx={{ fontSize: iconSize }}>
+          <path d="M13.2 3 5.5 13.4h5.2L9.8 21l8.7-11.4h-5.3L13.2 3Z" />
+        </SvgIcon>
+      </Box>
+    )
+  }
+
+  const exhaustive: never = badge.kind
+  return exhaustive
 }
 
 export function getCardDragSx(draggingId: string | null, dragOverId: string | null, dragOverAfter: boolean, reorderMode: boolean, pluginId: string) {

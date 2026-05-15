@@ -1,9 +1,13 @@
 import type { ComponentType } from 'react'
-import type { Plugin } from '../constants'
+import type { Plugin, PluginIconBadge } from '../constants'
 import type { AppStatus, RegisteredApp } from './types'
 
 const REGISTERED_APP_ITEM_PREFIX = 'app:'
 const REGISTERED_APP_COMMAND_ITEM_PREFIX = 'app-command:'
+const REGISTERED_APP_COMMAND_ICON_BADGE: PluginIconBadge = {
+  kind: 'shortcut-command',
+  label: '快捷指令',
+}
 
 export type RegisteredAppListSelection =
   | { type: 'app'; appId: string }
@@ -74,6 +78,7 @@ export function buildRegisteredAppListItems(
       keyword: `${app.id} ${command.id} ${command.title}`,
       disabled: false,
       component: NullRegisteredAppView,
+      iconBadge: REGISTERED_APP_COMMAND_ICON_BADGE,
     }))
 
     return [appItem, ...commandItems]

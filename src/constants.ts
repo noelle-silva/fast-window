@@ -27,6 +27,12 @@ export interface Plugin {
     type: 'registered-app'
     running: boolean
   }
+  iconBadge?: PluginIconBadge
+}
+
+export type PluginIconBadge = {
+  kind: 'shortcut-command'
+  label: string
 }
 
 export type PluginBrowseLayout = 'list' | 'grid' | 'icon'
