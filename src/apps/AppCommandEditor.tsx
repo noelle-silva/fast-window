@@ -8,6 +8,9 @@ interface AppCommandEditorProps {
   commands: RegisteredAppCommand[]
   availableCommands?: RegisteredAppCommand[]
   onChange: (commands: RegisteredAppCommand[]) => void
+  recordingCommandId?: string | null
+  onStartHotkeyRecording: (commandId: string) => void
+  onClearHotkey: (commandId: string) => void
 }
 
 function uniqueCommandId(title: string, commands: RegisteredAppCommand[]) {
@@ -22,7 +25,14 @@ function uniqueCommandId(title: string, commands: RegisteredAppCommand[]) {
   return `${base}-${Date.now()}`
 }
 
-export default function AppCommandEditor({ commands, availableCommands = [], onChange }: AppCommandEditorProps) {
+export default function AppCommandEditor({
+  commands,
+  availableCommands = [],
+  onChange,
+  recordingCommandId = null,
+  onStartHotkeyRecording,
+  onClearHotkey,
+}: AppCommandEditorProps) {
   const [title, setTitle] = useState('')
   const [selectedCommandId, setSelectedCommandId] = useState('')
 
@@ -57,7 +67,7 @@ export default function AppCommandEditor({ commands, availableCommands = [], onC
   const addSelectedCommand = () => {
     const command = selectableCommands.find(item => item.id === selectedCommandId)
     if (!command) return
-    onChange(commands.concat({ id: command.id, title: command.title }))
+    onChange(commands.concat({ ...command }))
     setSelectedCommandId('')
   }
 
@@ -68,7 +78,7 @@ export default function AppCommandEditor({ commands, availableCommands = [], onC
           应用命令
         </Typography>
         <Typography variant="caption" color="text.secondary">
-          命令会出现在主搜索列表里。命令 ID 会传给 App，优先从 App 上报的可用命令中选择。
+          命令会出现在主搜索列表里。命令 ID 会传给 App；命令快捷键会直接执行对应命令。
         </Typography>
       </Box>
 
@@ -97,13 +107,13 @@ export default function AppCommandEditor({ commands, availableCommands = [], onC
       {commands.length ? (
         <Stack spacing={1}>
           {commands.map(command => (
-            <Box key={command.id} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box key={command.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
               <TextField
                 label="命令名称"
                 value={command.title}
                 onChange={event => updateCommandTitle(command.id, event.target.value)}
                 size="small"
-                fullWidth
+                sx={{ flex: '1 1 220px' }}
               />
               <TextField
                 label="命令 ID"
@@ -112,6 +122,25 @@ export default function AppCommandEditor({ commands, availableCommands = [], onC
                 size="small"
                 sx={{ width: 150, flexShrink: 0 }}
               />
+              <TextField
+                label="命令快捷键"
+                value={command.hotkey || ''}
+                size="small"
+                placeholder="未绑定"
+                InputProps={{ readOnly: true }}
+                sx={{ width: 190, flexShrink: 0 }}
+              />
+              <Button
+                variant={recordingCommandId === command.id ? 'contained' : 'outlined'}
+                color={recordingCommandId === command.id ? 'warning' : 'primary'}
+                onClick={() => onStartHotkeyRecording(command.id)}
+                sx={{ flexShrink: 0 }}
+              >
+                {recordingCommandId === command.id ? '录制中…' : '录制'}
+              </Button>
+              <Button variant="outlined" onClick={() => onClearHotkey(command.id)} sx={{ flexShrink: 0 }}>
+                清空
+              </Button>
               <IconButton size="small" aria-label={`删除命令 ${command.title}`} onClick={() => removeCommand(command.id)}>
                 <DeleteRoundedIcon fontSize="small" />
               </IconButton>

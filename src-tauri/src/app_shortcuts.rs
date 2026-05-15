@@ -16,13 +16,28 @@ pub(crate) struct RegisteredAppShortcutState {
 
 #[derive(Clone)]
 struct RegisteredAppShortcutBinding {
-    app_id: String,
+    target: RegisteredAppShortcutTarget,
     shortcut: Shortcut,
 }
 
+#[derive(Clone)]
 struct RegisteredAppShortcutTarget {
     app_id: String,
+    command_id: Option<String>,
     shortcut: Shortcut,
+}
+
+impl RegisteredAppShortcutTarget {
+    fn label(&self) -> String {
+        match &self.command_id {
+            Some(command_id) => format!("{}/{}", self.app_id, command_id),
+            None => self.app_id.clone(),
+        }
+    }
+
+    fn action(&self) -> &'static str {
+        if self.command_id.is_some() { "show" } else { "toggle" }
+    }
 }
 
 fn shortcut_targets_from_records(
@@ -38,26 +53,59 @@ fn shortcut_targets_from_records(
             .filter(|id| !id.is_empty())
             .ok_or_else(|| "appId 不能为空".to_string())?
             .to_string();
-        let Some(hotkey) = value
+        if let Some(hotkey) = value
             .get("hotkey")
             .and_then(serde_json::Value::as_str)
             .map(str::trim)
             .filter(|hotkey| !hotkey.is_empty())
-        else {
+        {
+            let shortcut = Shortcut::from_str(hotkey)
+                .map_err(|e| format!("{app_id} 的快捷键格式不合法: {e}"))?;
+            targets.push(RegisteredAppShortcutTarget {
+                app_id: app_id.clone(),
+                command_id: None,
+                shortcut,
+            });
+        }
+
+        let Some(commands) = value.get("commands").and_then(serde_json::Value::as_array) else {
             continue;
         };
-
-        let shortcut = Shortcut::from_str(hotkey)
-            .map_err(|e| format!("{app_id} 的快捷键格式不合法: {e}"))?;
-        targets.push(RegisteredAppShortcutTarget { app_id, shortcut });
+        for command in commands {
+            let command_id = command
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| format!("{app_id} 的命令 ID 不能为空"))?
+                .to_string();
+            let Some(hotkey) = command
+                .get("hotkey")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|hotkey| !hotkey.is_empty())
+            else {
+                continue;
+            };
+            let shortcut = Shortcut::from_str(hotkey)
+                .map_err(|e| format!("{app_id}/{command_id} 的命令快捷键格式不合法: {e}"))?;
+            targets.push(RegisteredAppShortcutTarget {
+                app_id: app_id.clone(),
+                command_id: Some(command_id),
+                shortcut,
+            });
+        }
     }
 
     Ok(targets)
 }
 
-async fn activate_registered_app_by_id(app: AppHandle, app_id: String) -> Result<(), String> {
-    let Some(value) = crate::app_registry::load_registered_app_record(&app, &app_id)? else {
-        return Err(format!("注册应用不存在: {app_id}"));
+async fn activate_registered_app_shortcut_target(
+    app: AppHandle,
+    target: RegisteredAppShortcutTarget,
+) -> Result<(), String> {
+    let Some(value) = crate::app_registry::load_registered_app_record(&app, &target.app_id)? else {
+        return Err(format!("注册应用不存在: {}", target.app_id));
     };
     let config: RegisteredAppLaunchConfig = serde_json::from_value(value)
         .map_err(|e| format!("注册应用配置不完整: {e}"))?;
@@ -67,17 +115,17 @@ async fn activate_registered_app_by_id(app: AppHandle, app_id: String) -> Result
         launcher,
         config.id.clone(),
         config.path.clone(),
-        build_registered_app_launch_args(&config, "toggle"),
+        build_registered_app_launch_args(&config, target.action(), target.command_id.as_deref()),
     )
     .await
 }
 
 fn register_app_shortcut(
     app: &AppHandle,
-    app_id: String,
-    shortcut: Shortcut,
+    target: RegisteredAppShortcutTarget,
 ) -> Result<RegisteredAppShortcutBinding, String> {
-    let target_app_id = app_id.clone();
+    let shortcut = target.shortcut;
+    let shortcut_target = target.clone();
     app.global_shortcut()
         .on_shortcut(shortcut, move |app, _shortcut, event| {
             if event.state != ShortcutState::Pressed {
@@ -85,17 +133,18 @@ fn register_app_shortcut(
             }
 
             let app = app.clone();
-            let target_app_id = target_app_id.clone();
+            let shortcut_target = shortcut_target.clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(error) = activate_registered_app_by_id(app.clone(), target_app_id.clone()).await {
-                    eprintln!("[app-shortcuts] failed to activate {target_app_id}: {error}");
+                let target_label = shortcut_target.label();
+                if let Err(error) = activate_registered_app_shortcut_target(app.clone(), shortcut_target).await {
+                    eprintln!("[app-shortcuts] failed to activate {target_label}: {error}");
                     crate::host_primitives::emit_toast(&app, format!("启动应用失败：{error}"));
                 }
             });
         })
         .map_err(|error| error.to_string())?;
 
-    Ok(RegisteredAppShortcutBinding { app_id, shortcut })
+    Ok(RegisteredAppShortcutBinding { target, shortcut })
 }
 
 fn unregister_bindings(app: &AppHandle, bindings: Vec<RegisteredAppShortcutBinding>) {
@@ -122,7 +171,7 @@ fn restore_bindings(app: &AppHandle, bindings: Vec<RegisteredAppShortcutBinding>
     let mut restored = Vec::new();
     let mut errors = Vec::new();
     for binding in bindings {
-        match register_app_shortcut(app, binding.app_id.clone(), binding.shortcut) {
+        match register_app_shortcut(app, binding.target.clone()) {
             Ok(restored_binding) => restored.push(restored_binding),
             Err(error) => {
                 errors.push(format!("{}: {error}", binding.shortcut));
@@ -160,7 +209,7 @@ pub(crate) fn refresh_registered_app_shortcuts(app: &AppHandle) -> Result<(), St
 
     for target in targets {
         let shortcut_text = target.shortcut.to_string();
-        match register_app_shortcut(app, target.app_id, target.shortcut) {
+        match register_app_shortcut(app, target) {
             Ok(binding) => next.push(binding),
             Err(error) => {
                 let message = format!("注册应用快捷键失败：{shortcut_text}（{error}）");

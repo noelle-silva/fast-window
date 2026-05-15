@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tauri::AppHandle;
+use tauri_plugin_global_shortcut::Shortcut;
 use tokio::io::AsyncWriteExt;
 
 use crate::app_launcher::{stop_registered_app_for_update, AppLauncherState};
@@ -699,6 +700,16 @@ fn validate_commands(commands: &[AppPackageCommand]) -> Result<(), String> {
         let title = command.title.trim();
         if title.is_empty() || title.len() > 80 {
             return Err(format!("fw-app.commands.title 不合法: {id}"));
+        }
+        if let Some(hotkey) = command
+            .hotkey
+            .as_deref()
+            .map(str::trim)
+            .filter(|hotkey| !hotkey.is_empty())
+        {
+            hotkey
+                .parse::<Shortcut>()
+                .map_err(|e| format!("fw-app.commands.hotkey 不合法: {id}, {e}"))?;
         }
     }
     Ok(())

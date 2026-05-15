@@ -29,7 +29,7 @@ async fn launch_auto_start_app(app: AppHandle, config: RegisteredAppLaunchConfig
         launcher,
         config.id.clone(),
         config.path.clone(),
-        build_registered_app_launch_args(&config, "hide"),
+        build_registered_app_launch_args(&config, "hide", None),
     )
     .await
 }

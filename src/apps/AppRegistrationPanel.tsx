@@ -63,6 +63,7 @@ export default function AppRegistrationPanel({
   const [icon, setIcon] = useState('')
   const [hotkey, setHotkey] = useState('')
   const [hotkeyRecording, setHotkeyRecording] = useState(false)
+  const [recordingCommandHotkeyId, setRecordingCommandHotkeyId] = useState<string | null>(null)
   const [displayMode, setDisplayMode] = useState<AppDisplayMode>('default')
   const [commands, setCommands] = useState<RegisteredAppCommand[]>([])
   const [availableCommands, setAvailableCommands] = useState<RegisteredAppCommand[]>([])
@@ -82,6 +83,7 @@ export default function AppRegistrationPanel({
 
   const closeEditDialog = () => {
     setHotkeyRecording(false)
+    setRecordingCommandHotkeyId(null)
     closeEditMenu()
     setEditOpen(false)
   }
@@ -93,6 +95,7 @@ export default function AppRegistrationPanel({
     setPath('')
     setIcon('')
     setHotkey('')
+    setRecordingCommandHotkeyId(null)
     setDisplayMode('default')
     setCommands([])
     setAvailableCommands([])
@@ -109,6 +112,7 @@ export default function AppRegistrationPanel({
     setPath(app.path)
     setIcon(app.icon || '')
     setHotkey(app.hotkey ?? '')
+    setRecordingCommandHotkeyId(null)
     setDisplayMode(app.displayMode)
     setCommands(Array.isArray(app.commands) ? app.commands : [])
     setAvailableCommands(Array.isArray(app.availableCommands) ? app.availableCommands : [])
@@ -149,8 +153,8 @@ export default function AppRegistrationPanel({
   }
 
   const normalizedCommands = () => commands
-    .map(command => ({ ...command, title: command.title.trim() }))
-    .filter(command => command.id.trim() && command.title)
+    .map(command => ({ ...command, id: command.id.trim(), title: command.title.trim(), hotkey: command.hotkey?.trim() || undefined }))
+    .filter(command => command.id && command.title)
 
   const openRemoveConfirm = (app: RegisteredApp) => {
     closeEditMenu()
@@ -178,6 +182,7 @@ export default function AppRegistrationPanel({
       await hostToast(`已取消注册：${app.name}`)
       if (editingId === app.id) {
         setHotkeyRecording(false)
+        setRecordingCommandHotkeyId(null)
         setEditOpen(false)
         setEditingId(null)
       }
@@ -239,6 +244,7 @@ export default function AppRegistrationPanel({
         await onAdd(nextApp)
       }
       setHotkeyRecording(false)
+      setRecordingCommandHotkeyId(null)
       closeEditMenu()
       setEditOpen(false)
     } catch (error: any) {
@@ -249,6 +255,7 @@ export default function AppRegistrationPanel({
   }
 
   const startHotkeyRecording = () => {
+    setRecordingCommandHotkeyId(null)
     setHotkeyRecording(true)
   }
 
@@ -261,30 +268,56 @@ export default function AppRegistrationPanel({
     setHotkeyRecording(false)
   }
 
+  const startCommandHotkeyRecording = (commandId: string) => {
+    setHotkeyRecording(false)
+    setRecordingCommandHotkeyId(commandId)
+  }
+
+  const saveCommandHotkey = (commandId: string, next: string) => {
+    setCommandsEdited(true)
+    setCommands(prev => prev.map(command => command.id === commandId ? { ...command, hotkey: next } : command))
+    setRecordingCommandHotkeyId(null)
+  }
+
+  const clearCommandHotkey = (commandId: string) => {
+    setCommandsEdited(true)
+    setCommands(prev => prev.map(command => {
+      if (command.id !== commandId) return command
+      const { hotkey: _hotkey, ...nextCommand } = command
+      return nextCommand
+    }))
+    if (recordingCommandHotkeyId === commandId) setRecordingCommandHotkeyId(null)
+  }
+
   useEffect(() => {
-    if (!hotkeyRecording) return
+    if (!hotkeyRecording && !recordingCommandHotkeyId) return
 
     pauseShortcutRecordingGuards()
 
     return () => {
       resumeShortcutRecordingGuards()
     }
-  }, [hotkeyRecording])
+  }, [hotkeyRecording, recordingCommandHotkeyId])
 
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (!hotkeyRecording) return
+    if (!hotkeyRecording && !recordingCommandHotkeyId) return
     e.preventDefault()
     e.stopPropagation()
     ;(e as any).stopImmediatePropagation?.()
 
     if (e.key === 'Escape') {
-      cancelHotkeyRecording()
+      setHotkeyRecording(false)
+      setRecordingCommandHotkeyId(null)
       return
     }
 
     if (e.repeat) return
     const shot = buildShortcutFromEvent(e.nativeEvent)
     if (!shot) return
+    if (recordingCommandHotkeyId) {
+      saveCommandHotkey(recordingCommandHotkeyId, shot)
+      return
+    }
     saveHotkey(shot)
   }
 
@@ -391,6 +424,9 @@ export default function AppRegistrationPanel({
           <AppCommandEditor
             commands={commands}
             availableCommands={availableCommands}
+            recordingCommandId={recordingCommandHotkeyId}
+            onStartHotkeyRecording={startCommandHotkeyRecording}
+            onClearHotkey={clearCommandHotkey}
             onChange={nextCommands => {
               setCommandsEdited(true)
               setCommands(nextCommands)

@@ -158,6 +158,7 @@ fn launch_command(args: &[String]) -> Option<String> {
 pub(crate) fn build_registered_app_launch_args(
     app: &RegisteredAppLaunchConfig,
     action: &str,
+    command: Option<&str>,
 ) -> Vec<String> {
     let mut args = vec![
         "--fw-launched".to_string(),
@@ -192,6 +193,11 @@ pub(crate) fn build_registered_app_launch_args(
     if let Some(y) = app.window_y {
         args.push("--fw-y".to_string());
         args.push(y.to_string());
+    }
+
+    if let Some(command) = command.map(str::trim).filter(|command| !command.is_empty()) {
+        args.push("--fw-command".to_string());
+        args.push(command.to_string());
     }
 
     args
