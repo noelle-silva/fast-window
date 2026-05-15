@@ -20,7 +20,6 @@ import {
   Stack,
   Typography,
 } from '@mui/material'
-import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import { DEFAULT_APP_STORE_CATALOG_URL } from '../constants'
 import { appStoreInstall, appStoreUpdate, getAppsDir, pickAppInstallDir } from '../appStore/appInstaller'
@@ -34,6 +33,7 @@ import { pluginStoreInstall } from '../plugins/pluginStore'
 import { getPluginAssetMime, isDataImageUrl, resolveLocalPluginIconPath } from '../plugins/pluginIcon'
 import { getWallpaperSettings, type WallpaperSettings } from '../wallpaper'
 import { hostToast } from '../host/hostPrimitives'
+import HostPageHeader from './HostPageHeader'
 
 type Props = {
   onBack: () => void
@@ -260,31 +260,16 @@ export default function AppStoreView(props: Props) {
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <Box
-        data-tauri-drag-region="true"
-        sx={theme => ({
-          height: 44,
-          flexShrink: 0,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1,
-          px: 0.75,
-          bgcolor: wallpaper?.enabled ? alpha(theme.palette.background.paper, 0.62) : theme.palette.background.paper,
-          backdropFilter: wallpaper?.enabled ? 'blur(12px)' : undefined,
-          boxShadow: `inset 0 -1px 0 ${alpha(theme.palette.common.black, wallpaper?.enabled ? 0.04 : 0.06)}`,
-          WebkitAppRegion: 'drag',
-        })}
-      >
-        <IconButton aria-label="返回" size="small" onClick={onBack} data-tauri-drag-region="false" sx={{ WebkitAppRegion: 'no-drag' }}>
-          <ArrowBackRoundedIcon fontSize="small" />
-        </IconButton>
-        <Typography variant="body2" color="text.secondary" sx={{ flex: 1, textAlign: 'center', fontWeight: 700, userSelect: 'none', pointerEvents: 'none' }}>
-          应用商店
-        </Typography>
-        <IconButton aria-label="刷新" size="small" onClick={() => void refresh()} disabled={loading} data-tauri-drag-region="false" sx={{ WebkitAppRegion: 'no-drag' }}>
-          <RefreshRoundedIcon fontSize="small" />
-        </IconButton>
-      </Box>
+      <HostPageHeader
+        title="应用商店"
+        onBack={onBack}
+        translucent={wallpaper?.enabled === true}
+        action={(
+          <IconButton aria-label="刷新" size="small" onClick={() => void refresh()} disabled={loading}>
+            <RefreshRoundedIcon fontSize="small" />
+          </IconButton>
+        )}
+      />
 
       <Box sx={{ p: 2, flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', boxSizing: 'border-box' }}>
         <Stack spacing={1.25}>

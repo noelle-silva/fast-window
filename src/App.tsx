@@ -14,6 +14,7 @@ import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import StorefrontRoundedIcon from '@mui/icons-material/StorefrontRounded'
 import SettingsView from './components/SettingsView'
 import AppStoreView from './components/AppStoreView'
+import AppBackgroundPage from './components/AppBackgroundPage'
 import ImportPluginDialog from './components/ImportPluginDialog'
 import BrowserBarWindow from './components/BrowserBarWindow'
 import TitleBar from './TitleBar'
@@ -47,25 +48,7 @@ import type { Plugin } from './constants'
 import { APP_TITLE } from './constants'
 import { makeThumbnailPngDataUrl, movePluginById, pickImageFile } from './utils'
 
-const settingsPlugin: Plugin = {
-  id: '__settings',
-  name: '设置',
-  description: '配置开机自启与唤醒窗口快捷键',
-  icon: '⚙️',
-  keyword: 'settings',
-  disabled: false,
-  component: SettingsView,
-}
-
-const storePlugin: Plugin = {
-  id: '__store',
-  name: '应用商店',
-  description: '安装 v5 应用与 legacy v2 插件',
-  icon: '🛒',
-  keyword: 'store',
-  disabled: false,
-  component: AppStoreView,
-}
+type HostPageId = 'settings' | 'store' | 'appBackground'
 
 function App() {
   if (WebviewWindow.getCurrent().label === 'browser_bar') {
@@ -111,6 +94,7 @@ function App() {
 
   // Active plugin
   const [activePlugin, setActivePlugin] = useState<Plugin | null>(null)
+  const [activeHostPage, setActiveHostPage] = useState<HostPageId | null>(null)
 
   // Wallpaper
   const wallpaperCtx = useWallpaper()
@@ -271,6 +255,7 @@ function App() {
           showToast(`插件已禁用：${found.name}`)
           return
         }
+        setActiveHostPage(null)
         setActivePlugin(found)
       } else {
         pendingActivatePluginIdRef.current = id
@@ -340,6 +325,7 @@ function App() {
       }
       return
     }
+    setActiveHostPage(null)
     setActivePlugin(plugin)
   }, [registeredApps, refreshRegisteredAppStatuses])
 
@@ -355,7 +341,8 @@ function App() {
   const requestAppRegistrationEdit = useCallback((app: RegisteredApp) => {
     setPluginDetail(null)
     setAppDetailId(null)
-    setActivePlugin(settingsPlugin)
+    setActivePlugin(null)
+    setActiveHostPage('settings')
     setAppRegistrationEditRequest(prev => ({ appId: app.id, requestId: (prev?.requestId ?? 0) + 1 }))
   }, [])
 
@@ -484,13 +471,14 @@ function App() {
 
   const handleShellKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
-      if (activePlugin) {
+      if (activePlugin || activeHostPage) {
         setActivePlugin(null)
+        setActiveHostPage(null)
       } else {
         getCurrentWindow().hide()
       }
     }
-  }, [activePlugin])
+  }, [activeHostPage, activePlugin])
 
   const handlePluginActivate = useCallback((plugin: Plugin) => {
     if (reorderMode) return
@@ -596,11 +584,15 @@ function App() {
   const activePluginId = activePlugin?.id || ''
   const activePluginKeepAlive = activePlugin?.manifest?.ui?.keepAlive === true
   const ActivePluginComponent = activePlugin ? activePlugin.component : null
-  const onBackFromPlugin = () => setActivePlugin(null)
+  const showContentView = showPluginView || !!activeHostPage
+  const closeActiveView = () => {
+    setActivePlugin(null)
+    setActiveHostPage(null)
+  }
   const blockListShortcutActivationLeak = useCallback((e: React.KeyboardEvent) => {
-    if (showPluginView) return
+    if (showContentView) return
     blockShortcutActivationLeak(e)
-  }, [showPluginView])
+  }, [showContentView])
   const renderKeepAliveUiPluginIds =
     activePluginKeepAlive && activePluginId && !keepAliveUiPluginIds.includes(activePluginId)
       ? keepAliveUiPluginIds.concat(activePluginId)
@@ -649,6 +641,37 @@ function App() {
 
   // Handle registered app activation
   const activeRegisteredApp = registeredAppFromListItem(registeredApps, activePluginId)
+  const openHostPage = (page: HostPageId) => {
+    setActivePlugin(null)
+    setActiveHostPage(page)
+  }
+
+  const renderHostPage = (page: HostPageId) => {
+    if (page === 'settings') {
+      return (
+        <SettingsView
+          onBack={closeActiveView}
+          registeredApps={registeredApps}
+          onAddRegisteredApp={addRegisteredApp}
+          onReplaceRegisteredApp={replaceRegisteredApp}
+          onRemoveRegisteredApp={removeRegisteredApp}
+          onUpdateRegisteredApp={updateRegisteredApp}
+          appRegistrationEditRequest={appRegistrationEditRequest}
+          onAppRegistrationEditRequestHandled={handleAppRegistrationEditRequestHandled}
+        />
+      )
+    }
+
+    if (page === 'store') {
+      return <AppStoreView onBack={closeActiveView} />
+    }
+
+    if (page === 'appBackground') {
+      return <AppBackgroundPage onBack={closeActiveView} apps={registeredApps} onUpdateApp={updateRegisteredApp} />
+    }
+
+    return null
+  }
 
   // Loading state
   if (loading) {
@@ -710,7 +733,7 @@ function App() {
         ]}
       >
         {wallpaperLayer}
-        {showPluginView ? null : (
+        {showContentView ? null : (
           <TitleBar
             title={APP_TITLE}
             translucent={hasWallpaper}
@@ -728,14 +751,15 @@ function App() {
             reorderMode={reorderMode}
             onCancelReorder={reorderMode ? cancelReorder : undefined}
             onSaveReorder={reorderMode ? saveReorder : undefined}
-            onSettings={reorderMode ? undefined : () => setActivePlugin(settingsPlugin)}
-            onStore={reorderMode ? undefined : () => setActivePlugin(storePlugin)}
+            onSettings={reorderMode ? undefined : () => openHostPage('settings')}
+            onStore={reorderMode ? undefined : () => openHostPage('store')}
+            onAppBackground={reorderMode ? undefined : () => openHostPage('appBackground')}
             showDivider={false}
           />
         )}
 
         <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-          <Box sx={{ height: '100%', display: showPluginView ? 'block' : 'none', overflow: 'hidden' }}>
+          <Box sx={{ height: '100%', display: showContentView ? 'block' : 'none', overflow: 'hidden' }}>
             {renderKeepAliveUiPluginIds.map(id => {
               const p = allPlugins.find(x => x.id === id) || null
               if (!p || p.disabled || p.manifest?.ui?.keepAlive !== true) return null
@@ -743,37 +767,32 @@ function App() {
               const visible = activePluginId === id
               return (
                 <Box key={id} sx={{ height: '100%', display: visible ? 'block' : 'none', overflow: 'hidden' }}>
-                  <PluginComponent onBack={onBackFromPlugin} />
+                  <PluginComponent onBack={closeActiveView} />
                 </Box>
               )
             })}
+
+            {activeHostPage ? (
+              <Box sx={{ height: '100%', overflow: 'hidden' }}>
+                {renderHostPage(activeHostPage)}
+              </Box>
+            ) : null}
 
             {showPluginView && ActivePluginComponent && !activePluginKeepAlive ? (
               <Box sx={{ height: '100%', overflow: 'hidden' }}>
                 {activeRegisteredApp ? (
                   <AppActivationView
                     app={activeRegisteredApp}
-                    onBack={onBackFromPlugin}
-                  />
-                ) : activePluginId === settingsPlugin.id ? (
-                  <SettingsView
-                    onBack={onBackFromPlugin}
-                    registeredApps={registeredApps}
-                    onAddRegisteredApp={addRegisteredApp}
-                    onReplaceRegisteredApp={replaceRegisteredApp}
-                    onRemoveRegisteredApp={removeRegisteredApp}
-                    onUpdateRegisteredApp={updateRegisteredApp}
-                    appRegistrationEditRequest={appRegistrationEditRequest}
-                    onAppRegistrationEditRequestHandled={handleAppRegistrationEditRequestHandled}
+                    onBack={closeActiveView}
                   />
                 ) : (
-                  <ActivePluginComponent onBack={onBackFromPlugin} />
+                  <ActivePluginComponent onBack={closeActiveView} />
                 )}
               </Box>
             ) : null}
           </Box>
 
-          <Box sx={{ height: '100%', display: showPluginView ? 'none' : 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <Box sx={{ height: '100%', display: showContentView ? 'none' : 'flex', flexDirection: 'column', minHeight: 0 }}>
             <Box sx={{ p: 2, bgcolor: 'transparent' }}>
               <TextField
                 fullWidth autoFocus
@@ -813,7 +832,7 @@ function App() {
                     <Button size="small" variant="outlined" onClick={() => void invoke('open_plugins_dir').catch(() => {})}>
                       打开插件目录
                     </Button>
-                    <Button size="small" variant="contained" onClick={() => setActivePlugin(storePlugin)} disabled={reorderMode} startIcon={<StorefrontRoundedIcon fontSize="small" />} sx={{ boxShadow: 'none' }}>
+                    <Button size="small" variant="contained" onClick={() => openHostPage('store')} disabled={reorderMode} startIcon={<StorefrontRoundedIcon fontSize="small" />} sx={{ boxShadow: 'none' }}>
                       去插件商店
                     </Button>
                     <Button size="small" variant="outlined" onClick={reloadPlugins} disabled={loading}>

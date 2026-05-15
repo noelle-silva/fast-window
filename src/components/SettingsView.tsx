@@ -23,7 +23,6 @@ import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import FiberManualRecordRoundedIcon from '@mui/icons-material/FiberManualRecordRounded'
 import StopRoundedIcon from '@mui/icons-material/StopRounded'
 import BackspaceRoundedIcon from '@mui/icons-material/BackspaceRounded'
-import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import {
   addWallpaperImage,
   DEFAULT_WALLPAPER_VIEW,
@@ -36,11 +35,11 @@ import {
   type WallpaperSettings,
 } from '../wallpaper'
 import WallpaperViewEditorDialog from './WallpaperViewEditorDialog'
+import HostPageHeader from './HostPageHeader'
 import { hostToast } from '../host/hostPrimitives'
 import { buildShortcutFromEvent, pauseShortcutRecordingGuards, resumeShortcutRecordingGuards } from '../shortcuts'
 import { getPluginAssetMime, isDataImageUrl, resolveLocalPluginIconPath } from '../plugins/pluginIcon'
 import AppRegistrationPanel from '../apps/AppRegistrationPanel'
-import AppBackgroundPanel from '../apps/AppBackgroundPanel'
 import type { AppRegistrationEditRequest, RegisteredApp, RegisteredAppUpdatePatch } from '../apps/types'
 
 const DEFAULT_WAKE_SHORTCUT = 'control+alt+Space'
@@ -53,10 +52,9 @@ const TAB_APPEARANCE = 1
 const TAB_DATA = 2
 const TAB_PLUGINS = 3
 const TAB_APP_REGISTRATION = 4
-const TAB_APP_BACKGROUND = 5
-const TAB_SHORTCUT = 6
-const TAB_WEBVIEW = 7
-const TAB_ABOUT = 8
+const TAB_SHORTCUT = 5
+const TAB_WEBVIEW = 6
+const TAB_ABOUT = 7
 
 function toast(message: string) {
   void hostToast(message)
@@ -745,34 +743,7 @@ export default function SettingsView(props: {
 
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <Box
-        data-tauri-drag-region="true"
-        sx={theme => ({
-          height: 44,
-          flexShrink: 0,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1,
-          px: 0.75,
-          bgcolor: wallpaper?.enabled ? alpha(theme.palette.background.paper, 0.62) : theme.palette.background.paper,
-          backdropFilter: wallpaper?.enabled ? 'blur(12px)' : undefined,
-          borderBottom: 1,
-          borderColor: 'divider',
-          WebkitAppRegion: 'drag',
-        })}
-      >
-        <IconButton aria-label="返回" size="small" onClick={onBack} data-tauri-drag-region="false" sx={{ WebkitAppRegion: 'no-drag' }}>
-          <ArrowBackRoundedIcon fontSize="small" />
-        </IconButton>
-        <Typography
-          variant="body2"
-          color="text.secondary"
-          sx={{ flex: 1, textAlign: 'center', fontWeight: 700, userSelect: 'none', pointerEvents: 'none' }}
-        >
-          设置
-        </Typography>
-        <Box aria-hidden sx={{ width: 32, height: 32 }} />
-      </Box>
+      <HostPageHeader title="设置" onBack={onBack} translucent={wallpaper?.enabled === true} />
 
       <Box sx={{ p: 2, flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', boxSizing: 'border-box' }}>
         <Box sx={theme => ({ ...panelSx(theme), p: 0.5, px: 0.75, pt: 0.25, pb: 0.25 })}>
@@ -798,10 +769,9 @@ export default function SettingsView(props: {
             <Tab value={TAB_DATA} label="数据" id="settings-tab-2" aria-controls="settings-tabpanel-2" />
             <Tab value={TAB_PLUGINS} label="插件管理" id="settings-tab-3" aria-controls="settings-tabpanel-3" />
             <Tab value={TAB_APP_REGISTRATION} label="应用注册" id="settings-tab-4" aria-controls="settings-tabpanel-4" />
-            <Tab value={TAB_APP_BACKGROUND} label="应用后台" id="settings-tab-5" aria-controls="settings-tabpanel-5" />
-            <Tab value={TAB_SHORTCUT} label="快捷键" id="settings-tab-6" aria-controls="settings-tabpanel-6" />
-            <Tab value={TAB_WEBVIEW} label="WebView" id="settings-tab-7" aria-controls="settings-tabpanel-7" />
-            <Tab value={TAB_ABOUT} label="关于" id="settings-tab-8" aria-controls="settings-tabpanel-8" />
+            <Tab value={TAB_SHORTCUT} label="快捷键" id="settings-tab-5" aria-controls="settings-tabpanel-5" />
+            <Tab value={TAB_WEBVIEW} label="WebView" id="settings-tab-6" aria-controls="settings-tabpanel-6" />
+            <Tab value={TAB_ABOUT} label="关于" id="settings-tab-7" aria-controls="settings-tabpanel-7" />
           </Tabs>
         </Box>
 
@@ -1313,19 +1283,7 @@ export default function SettingsView(props: {
         ) : null}
       </Box>
 
-      <Box role="tabpanel" hidden={tabIndex !== TAB_APP_BACKGROUND} id="settings-tabpanel-5" aria-labelledby="settings-tab-5" sx={{ pt: 0.5 }}>
-        {tabIndex === TAB_APP_BACKGROUND ? (
-          <Box sx={panelSx}>
-            <AppBackgroundPanel
-              embedded
-              apps={registeredApps}
-              onUpdateApp={onUpdateRegisteredApp}
-            />
-          </Box>
-        ) : null}
-      </Box>
-
-      <Box role="tabpanel" hidden={tabIndex !== TAB_SHORTCUT} id="settings-tabpanel-6" aria-labelledby="settings-tab-6" sx={{ pt: 0.5 }}>
+      <Box role="tabpanel" hidden={tabIndex !== TAB_SHORTCUT} id="settings-tabpanel-5" aria-labelledby="settings-tab-5" sx={{ pt: 0.5 }}>
         {tabIndex === TAB_SHORTCUT ? (
           <Stack spacing={1.25}>
             <Box sx={panelSx}>
@@ -1458,7 +1416,7 @@ export default function SettingsView(props: {
         ) : null}
       </Box>
 
-      <Box role="tabpanel" hidden={tabIndex !== TAB_WEBVIEW} id="settings-tabpanel-7" aria-labelledby="settings-tab-7" sx={{ pt: 0.5 }}>
+      <Box role="tabpanel" hidden={tabIndex !== TAB_WEBVIEW} id="settings-tabpanel-6" aria-labelledby="settings-tab-6" sx={{ pt: 0.5 }}>
         {tabIndex === TAB_WEBVIEW ? (
           <Stack spacing={1.25}>
             <Box sx={panelSx}>
@@ -1635,7 +1593,7 @@ export default function SettingsView(props: {
         ) : null}
       </Box>
 
-      <Box role="tabpanel" hidden={tabIndex !== TAB_ABOUT} id="settings-tabpanel-8" aria-labelledby="settings-tab-8" sx={{ pt: 0.5 }}>
+      <Box role="tabpanel" hidden={tabIndex !== TAB_ABOUT} id="settings-tabpanel-7" aria-labelledby="settings-tab-7" sx={{ pt: 0.5 }}>
         {tabIndex === TAB_ABOUT ? (
           <Stack spacing={1.25}>
             <Box sx={panelSx}>
