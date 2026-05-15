@@ -141,6 +141,9 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
             app.manage(RegisteredAppShortcutState::default());
             app.manage(BrowserWindowState::default());
 
+            // 宿主数据迁移必须早于任何宿主配置读取，避免启动阶段用旧位置/默认值初始化状态。
+            let _ = migrations::migrate_host_files_into_app_dir(app.handle());
+
             // 主窗口行为：三档“焦点模式”（默认：失焦自动隐藏）。
             {
                 let pref = load_main_window_focus_mode_pref(app.handle());
@@ -177,9 +180,8 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
                 };
             }
 
-            // 宿主数据迁移：仅迁移宿主私有存储（__app）。插件数据由插件自行调用 storage.migrate 处理。
+            // 宿主私有 KV 迁移：插件数据由插件自行调用 storage.migrate 处理。
             let _ = migrations::migrate_plugin_storage(app.handle(), APP_STORAGE_ID);
-            let _ = migrations::migrate_host_files_into_app_dir(app.handle());
 
             // Release：把 MSI 随包的内置插件“种子”拷到可写的插件目录（仅拷缺失项，不覆盖用户已有插件）。
             // Release/MSI：不再做任何随包插件初始化（纯净宿主）。

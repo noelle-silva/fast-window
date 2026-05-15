@@ -288,12 +288,13 @@ pub(crate) fn persist_main_window_bounds(app: &tauri::AppHandle, state: &WindowS
         height: size.height,
     };
 
-    let mut map = crate::read_app_config_map(app);
     let Ok(v) = serde_json::to_value(bounds) else {
         return;
     };
-    map.insert(crate::MAIN_WINDOW_BOUNDS_KEY.to_string(), v);
-    if let Err(e) = crate::write_app_config_map(app, &map) {
+    if let Err(e) = crate::update_app_config_map(app, |map| {
+        map.insert(crate::MAIN_WINDOW_BOUNDS_KEY.to_string(), v);
+        Ok(())
+    }) {
         eprintln!("[config] failed to persist main window bounds: {e}");
     }
 }
@@ -351,12 +352,13 @@ pub(crate) fn persist_browser_window_bounds(app: &tauri::AppHandle, state: &Brow
         height: size.height,
     };
 
-    let mut map = crate::read_app_config_map(app);
     let Ok(v) = serde_json::to_value(bounds) else {
         return;
     };
-    map.insert(crate::BROWSER_WINDOW_BOUNDS_KEY.to_string(), v);
-    if let Err(e) = crate::write_app_config_map(app, &map) {
+    if let Err(e) = crate::update_app_config_map(app, |map| {
+        map.insert(crate::BROWSER_WINDOW_BOUNDS_KEY.to_string(), v);
+        Ok(())
+    }) {
         eprintln!("[config] failed to persist browser window bounds: {e}");
     }
 }

@@ -101,6 +101,85 @@ fn read_json_object_map(path: &Path) -> Option<Map<String, Value>> {
     }
 }
 
+fn merge_missing_keys(
+    mut target: Map<String, Value>,
+    legacy: Map<String, Value>,
+) -> (Map<String, Value>, bool) {
+    let mut changed = false;
+    for (key, value) in legacy {
+        if target.contains_key(&key) {
+            continue;
+        }
+        target.insert(key, value);
+        changed = true;
+    }
+    (target, changed)
+}
+
+fn migrate_app_config(app: &tauri::AppHandle) -> Result<bool, String> {
+    let old_cfg = legacy_app_config_path(app);
+    let new_cfg = app_config_path(app);
+    if !old_cfg.is_file() {
+        return Ok(false);
+    }
+
+    ensure_dir(&app_dir(app))?;
+    if !new_cfg.exists() {
+        return try_move_file(&old_cfg, &new_cfg);
+    }
+
+    let Some(legacy_map) = read_json_object_map(&old_cfg) else {
+        return Ok(false);
+    };
+    let Some(next_map) = read_json_object_map(&new_cfg) else {
+        return Ok(false);
+    };
+
+    let (next_map, changed) = merge_missing_keys(next_map, legacy_map);
+
+    if changed {
+        crate::write_json_map(&new_cfg, &next_map)?;
+    }
+    let _ = std::fs::remove_file(&old_cfg);
+    Ok(changed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_missing_keys_preserves_existing_values() {
+        let mut target = Map::new();
+        target.insert(
+            "wakeShortcut".to_string(),
+            Value::String("control+alt+Space".to_string()),
+        );
+
+        let mut legacy = Map::new();
+        legacy.insert(
+            "wakeShortcut".to_string(),
+            Value::String("control+shift+K".to_string()),
+        );
+        legacy.insert(
+            "mainWindowModeShortcut".to_string(),
+            Value::String("control+alt+M".to_string()),
+        );
+
+        let (merged, changed) = merge_missing_keys(target, legacy);
+
+        assert!(changed);
+        assert_eq!(
+            merged.get("wakeShortcut"),
+            Some(&Value::String("control+alt+Space".to_string()))
+        );
+        assert_eq!(
+            merged.get("mainWindowModeShortcut"),
+            Some(&Value::String("control+alt+M".to_string()))
+        );
+    }
+}
+
 fn migrate_wallpaper_config_paths(app: &tauri::AppHandle) -> Result<bool, String> {
     let vp = crate::storage_value_path(app, APP_ID, WALLPAPER_SETTINGS_KEY)?;
     if !vp.is_file() {
@@ -167,14 +246,9 @@ fn migrate_wallpaper_config_paths(app: &tauri::AppHandle) -> Result<bool, String
 pub fn run(app: &tauri::AppHandle) -> Result<bool, String> {
     let mut changed = false;
 
-    // 1) app.json：data/app.json -> data/__app/app.json
-    let old_cfg = legacy_app_config_path(app);
-    let new_cfg = app_config_path(app);
-    if old_cfg.is_file() && !new_cfg.exists() {
-        ensure_dir(&app_dir(app))?;
-        if try_move_file(&old_cfg, &new_cfg)? {
-            changed = true;
-        }
+    // 1) app.json：data/app.json -> data/__app/app.json；若新旧同时存在，只补齐新文件缺失字段。
+    if migrate_app_config(app)? {
+        changed = true;
     }
 
     // 2) wallpaper 文件夹：data/wallpaper -> data/__app/wallpaper（不覆盖已有文件）

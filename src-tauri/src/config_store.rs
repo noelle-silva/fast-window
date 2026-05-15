@@ -31,7 +31,7 @@ fn read_json_map_opt(path: &Path) -> Option<Map<String, Value>> {
     }
 }
 
-pub(crate) fn read_app_config_map(app: &tauri::AppHandle) -> Map<String, Value> {
+fn read_app_config_map_unlocked(app: &tauri::AppHandle) -> Map<String, Value> {
     let p = app_config_path(app);
     if let Some(map) = read_json_map_opt(&p) {
         return map;
@@ -40,12 +40,31 @@ pub(crate) fn read_app_config_map(app: &tauri::AppHandle) -> Map<String, Value> 
     read_json_map_opt(&legacy).unwrap_or_else(Map::new)
 }
 
-pub(crate) fn write_app_config_map(
+fn write_app_config_map_unlocked(
     app: &tauri::AppHandle,
     map: &Map<String, Value>,
 ) -> Result<(), String> {
     let p = app_config_path(app);
     crate::write_json_map(&p, map)
+}
+
+pub(crate) fn read_app_config_map(app: &tauri::AppHandle) -> Map<String, Value> {
+    let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    read_app_config_map_unlocked(app)
+}
+
+pub(crate) fn update_app_config_map<T>(
+    app: &tauri::AppHandle,
+    update: impl FnOnce(&mut Map<String, Value>) -> Result<T, String>,
+) -> Result<T, String> {
+    let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+
+    let mut map = read_app_config_map_unlocked(app);
+    let result = update(&mut map)?;
+    write_app_config_map_unlocked(app, &map)?;
+    Ok(result)
 }
 
 pub(crate) fn read_plugin_auto_update_prefs(app: &tauri::AppHandle) -> BTreeMap<String, bool> {
@@ -151,21 +170,20 @@ pub(crate) fn write_plugin_output_dir_to_config(
     plugin_id: &str,
     dir: &Path,
 ) -> Result<(), String> {
-    let mut map = read_app_config_map(app);
-
-    let v = map
-        .entry(crate::PLUGIN_OUTPUT_DIRS_KEY.to_string())
-        .or_insert_with(|| Value::Object(Map::new()));
-    if !v.is_object() {
-        *v = Value::Object(Map::new());
-    }
-    let obj = v.as_object_mut().unwrap();
-    obj.insert(
-        plugin_id.to_string(),
-        Value::String(dir.to_string_lossy().to_string()),
-    );
-
-    write_app_config_map(app, &map)
+    update_app_config_map(app, |map| {
+        let v = map
+            .entry(crate::PLUGIN_OUTPUT_DIRS_KEY.to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        if !v.is_object() {
+            *v = Value::Object(Map::new());
+        }
+        let obj = v.as_object_mut().unwrap();
+        obj.insert(
+            plugin_id.to_string(),
+            Value::String(dir.to_string_lossy().to_string()),
+        );
+        Ok(())
+    })
 }
 
 pub(crate) fn write_plugin_library_dir_to_config(
@@ -173,19 +191,18 @@ pub(crate) fn write_plugin_library_dir_to_config(
     plugin_id: &str,
     dir: &Path,
 ) -> Result<(), String> {
-    let mut map = read_app_config_map(app);
-
-    let v = map
-        .entry(crate::PLUGIN_LIBRARY_DIRS_KEY.to_string())
-        .or_insert_with(|| Value::Object(Map::new()));
-    if !v.is_object() {
-        *v = Value::Object(Map::new());
-    }
-    let obj = v.as_object_mut().unwrap();
-    obj.insert(
-        plugin_id.to_string(),
-        Value::String(dir.to_string_lossy().to_string()),
-    );
-
-    write_app_config_map(app, &map)
+    update_app_config_map(app, |map| {
+        let v = map
+            .entry(crate::PLUGIN_LIBRARY_DIRS_KEY.to_string())
+            .or_insert_with(|| Value::Object(Map::new()));
+        if !v.is_object() {
+            *v = Value::Object(Map::new());
+        }
+        let obj = v.as_object_mut().unwrap();
+        obj.insert(
+            plugin_id.to_string(),
+            Value::String(dir.to_string_lossy().to_string()),
+        );
+        Ok(())
+    })
 }

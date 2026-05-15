@@ -86,7 +86,7 @@ use crate::wallpaper::{
 use browser_stack::*;
 pub(crate) use config_store::{
     app_config_path, plugin_default_ref_images_dir, read_app_config_map,
-    read_plugin_auto_update_prefs, write_app_config_map, write_plugin_auto_update_prefs,
+    read_plugin_auto_update_prefs, update_app_config_map, write_plugin_auto_update_prefs,
     write_plugin_library_dir_to_config, write_plugin_output_dir_to_config,
 };
 use host_primitives::emit_toast;
@@ -621,11 +621,15 @@ fn migrate_legacy_plugin_store_files(app: &tauri::AppHandle) -> Result<(), Strin
 }
 
 fn write_json_map(path: &Path, map: &Map<String, Value>) -> Result<(), String> {
+    write_json_pretty(path, &Value::Object(map.clone()))
+}
+
+fn write_json_pretty(path: &Path, value: &Value) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("创建配置目录失败: {e}"))?;
     }
-    let content = serde_json::to_string_pretty(&Value::Object(map.clone()))
-        .map_err(|e| format!("序列化配置失败: {e}"))?;
+    let content =
+        serde_json::to_string_pretty(value).map_err(|e| format!("序列化配置失败: {e}"))?;
 
     let parent = path
         .parent()
@@ -667,42 +671,7 @@ fn read_json_value(path: &Path) -> Result<Value, String> {
 }
 
 fn write_json_value(path: &Path, value: &Value) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("创建配置目录失败: {e}"))?;
-    }
-    let content =
-        serde_json::to_string_pretty(value).map_err(|e| format!("序列化配置失败: {e}"))?;
-
-    let parent = path
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."));
-    let name = path
-        .file_name()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "value".to_string());
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_millis(0))
-        .as_millis();
-    let tmp = parent.join(format!(".tmp-{name}-{stamp}.json"));
-
-    std::fs::write(&tmp, &content).map_err(|e| format!("写入临时配置失败: {e}"))?;
-
-    match std::fs::rename(&tmp, path) {
-        Ok(_) => {}
-        Err(_) => {
-            if path.exists() {
-                let _ = std::fs::remove_file(path);
-                if std::fs::rename(&tmp, path).is_ok() {
-                    return Ok(());
-                }
-            }
-            std::fs::copy(&tmp, path).map_err(|e| format!("写入配置失败: {e}"))?;
-            let _ = std::fs::remove_file(&tmp);
-        }
-    }
-    Ok(())
+    write_json_pretty(path, value)
 }
 
 static STORAGE_LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
@@ -942,13 +911,14 @@ fn write_webview_settings(
     app: &tauri::AppHandle,
     settings: WebviewSettings,
 ) -> Result<WebviewSettings, String> {
-    let mut map = read_app_config_map(app);
     let normalized = validate_webview_settings_for_save(settings)?;
-    map.insert(
-        WEBVIEW_SETTINGS_KEY.to_string(),
-        serde_json::to_value(normalized.clone()).map_err(|e| format!("序列化配置失败: {e}"))?,
-    );
-    write_app_config_map(app, &map)?;
+    update_app_config_map(app, |map| {
+        map.insert(
+            WEBVIEW_SETTINGS_KEY.to_string(),
+            serde_json::to_value(normalized.clone()).map_err(|e| format!("序列化配置失败: {e}"))?,
+        );
+        Ok(())
+    })?;
     Ok(normalized)
 }
 
@@ -2174,12 +2144,13 @@ fn set_wake_shortcut(app: tauri::AppHandle, shortcut: String) -> Result<String, 
     let was_paused = state.paused.lock().map(|g| *g).unwrap_or(false);
 
     if prev.id() == next.id() {
-        let mut map = read_app_config_map(&app);
-        map.insert(
-            WAKE_SHORTCUT_KEY.to_string(),
-            Value::String(normalized.clone()),
-        );
-        write_app_config_map(&app, &map)?;
+        update_app_config_map(&app, |map| {
+            map.insert(
+                WAKE_SHORTCUT_KEY.to_string(),
+                Value::String(normalized.clone()),
+            );
+            Ok(())
+        })?;
         *guard = next;
 
         if was_paused {
@@ -2209,12 +2180,13 @@ fn set_wake_shortcut(app: tauri::AppHandle, shortcut: String) -> Result<String, 
         })
         .map_err(|e| format!("注册全局快捷键失败: {e}"))?;
 
-    let mut map = read_app_config_map(&app);
-    map.insert(
-        WAKE_SHORTCUT_KEY.to_string(),
-        Value::String(normalized.clone()),
-    );
-    if let Err(e) = write_app_config_map(&app, &map) {
+    if let Err(e) = update_app_config_map(&app, |map| {
+        map.insert(
+            WAKE_SHORTCUT_KEY.to_string(),
+            Value::String(normalized.clone()),
+        );
+        Ok(())
+    }) {
         let _ = app.global_shortcut().unregister(next);
         return Err(e);
     }
@@ -2301,27 +2273,27 @@ fn persist_main_window_focus_mode(
     app: &tauri::AppHandle,
     mode: MainWindowFocusMode,
 ) -> Result<(), String> {
-    let mut map = read_app_config_map(app);
+    update_app_config_map(app, |map| {
+        // 清理 legacy（上一版 bool key）
+        map.remove("mainWindowKeepVisibleOnBlur");
 
-    // 清理 legacy（上一版 bool key）
-    map.remove("mainWindowKeepVisibleOnBlur");
+        if mode == MainWindowFocusMode::AutoHide {
+            // 默认行为：不写配置（避免污染用户空间）
+            map.remove(MAIN_WINDOW_FOCUS_MODE_KEY);
+        } else {
+            let v = match mode {
+                MainWindowFocusMode::AutoHide => "autoHide",
+                MainWindowFocusMode::Normal => "normal",
+                MainWindowFocusMode::AlwaysOnTop => "alwaysOnTop",
+            };
+            map.insert(
+                MAIN_WINDOW_FOCUS_MODE_KEY.to_string(),
+                Value::String(v.to_string()),
+            );
+        }
 
-    if mode == MainWindowFocusMode::AutoHide {
-        // 默认行为：不写配置（避免污染用户空间）
-        map.remove(MAIN_WINDOW_FOCUS_MODE_KEY);
-    } else {
-        let v = match mode {
-            MainWindowFocusMode::AutoHide => "autoHide",
-            MainWindowFocusMode::Normal => "normal",
-            MainWindowFocusMode::AlwaysOnTop => "alwaysOnTop",
-        };
-        map.insert(
-            MAIN_WINDOW_FOCUS_MODE_KEY.to_string(),
-            Value::String(v.to_string()),
-        );
-    }
-
-    write_app_config_map(app, &map)
+        Ok(())
+    })
 }
 
 fn cycle_main_window_focus_mode_internal(
@@ -2401,9 +2373,10 @@ fn set_main_window_mode_shortcut(
         if let Some(s) = prev {
             let _ = app.global_shortcut().unregister(s);
         }
-        let mut map = read_app_config_map(&app);
-        map.remove(MAIN_WINDOW_MODE_SHORTCUT_KEY);
-        if let Err(e) = write_app_config_map(&app, &map) {
+        if let Err(e) = update_app_config_map(&app, |map| {
+            map.remove(MAIN_WINDOW_MODE_SHORTCUT_KEY);
+            Ok(())
+        }) {
             return Err(e);
         }
 
@@ -2429,12 +2402,13 @@ fn set_main_window_mode_shortcut(
         })
         .map_err(|e| format!("注册全局快捷键失败: {e}"))?;
 
-    let mut map = read_app_config_map(&app);
-    map.insert(
-        MAIN_WINDOW_MODE_SHORTCUT_KEY.to_string(),
-        Value::String(normalized.clone()),
-    );
-    if let Err(e) = write_app_config_map(&app, &map) {
+    if let Err(e) = update_app_config_map(&app, |map| {
+        map.insert(
+            MAIN_WINDOW_MODE_SHORTCUT_KEY.to_string(),
+            Value::String(normalized.clone()),
+        );
+        Ok(())
+    }) {
         let _ = app.global_shortcut().unregister(next);
         return Err(e);
     }
@@ -2543,13 +2517,13 @@ fn set_auto_start(app: tauri::AppHandle, enabled: bool) -> Result<AutoStartStatu
 
     #[cfg(target_os = "windows")]
     {
-        let mut map = read_app_config_map(&app);
-
         let prev_registry = auto_start::is_enabled(AUTO_START_REG_VALUE);
         let next_registry = auto_start::set_enabled(AUTO_START_REG_VALUE, enabled)?;
 
-        map.insert(AUTO_START_KEY.to_string(), Value::Bool(enabled));
-        if let Err(e) = write_app_config_map(&app, &map) {
+        if let Err(e) = update_app_config_map(&app, |map| {
+            map.insert(AUTO_START_KEY.to_string(), Value::Bool(enabled));
+            Ok(())
+        }) {
             let _ = auto_start::set_enabled(AUTO_START_REG_VALUE, prev_registry);
             return Err(e);
         }
