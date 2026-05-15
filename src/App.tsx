@@ -46,7 +46,8 @@ import { useSearch } from './useSearch'
 import { blockShortcutActivationLeak } from './shortcutActivationGuard'
 import type { Plugin } from './constants'
 import { APP_TITLE } from './constants'
-import { makeThumbnailPngDataUrl, movePluginById, pickImageFile } from './utils'
+import { movePluginById } from './utils'
+import { readIconImageDataUrl, type IconImageSource } from './iconImageInput'
 
 type HostPageId = 'settings' | 'store' | 'appBackground'
 
@@ -350,23 +351,18 @@ function App() {
     setAppRegistrationEditRequest(prev => (prev?.requestId === requestId ? null : prev))
   }, [])
 
-  const changeMenuItemIcon = useCallback(async () => {
+  const changeMenuItemIcon = useCallback(async (source: IconImageSource) => {
     const plugin = pluginMenu?.plugin
     if (!plugin) return
     const app = registeredAppFromMenuItem(plugin)
     if (!app) {
-      await changePluginIcon(plugin)
+      await changePluginIcon(plugin, source)
       return
     }
 
     try {
-      const file = await pickImageFile()
-      if (!file) return
-      if (file.size > 50 * 1024 * 1024) {
-        showToast('图片过大（> 50MB）')
-        return
-      }
-      const dataUrl = await makeThumbnailPngDataUrl(file, 128)
+      const dataUrl = await readIconImageDataUrl(source)
+      if (!dataUrl) return
       await updateRegisteredApp(app.id, { icon: dataUrl })
       showToast('图标已更新')
     } catch (error: any) {
@@ -443,7 +439,8 @@ function App() {
       : { id: 'detail', label: '详情', onSelect: () => setPluginDetail(plugin) }
     const commonActions: ContextMenuAction[] = [
       detailAction,
-      { id: 'change-icon', label: '更改图标…', onSelect: () => void changeMenuItemIcon() },
+      { id: 'change-icon', label: '选择图片更改图标…', onSelect: () => void changeMenuItemIcon('file') },
+      { id: 'paste-icon', label: '粘贴图片为图标', onSelect: () => void changeMenuItemIcon('clipboard') },
       { id: 'reset-icon', label: '恢复默认图标', onSelect: () => void resetMenuItemIcon() },
     ]
 

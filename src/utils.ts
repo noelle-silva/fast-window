@@ -29,60 +29,6 @@ export function isDataImageUrl(value: string): boolean {
   return value.startsWith('data:image/')
 }
 
-export async function pickImageFile(): Promise<File | null> {
-  return new Promise(resolve => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.accept = 'image/png,image/jpeg,image/webp'
-    input.onchange = () => {
-      const file = input.files?.[0] ?? null
-      resolve(file)
-      input.remove()
-    }
-    input.oncancel = () => {
-      resolve(null)
-      input.remove()
-    }
-    input.style.position = 'fixed'
-    input.style.left = '-9999px'
-    document.body.appendChild(input)
-    input.click()
-  })
-}
-
-export async function makeThumbnailPngDataUrl(file: File, maxPx: number): Promise<string> {
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onerror = () => reject(new Error('读取图片失败'))
-    reader.onload = () => resolve(String(reader.result || ''))
-    reader.readAsDataURL(file)
-  })
-
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const el = new Image()
-    el.onload = () => resolve(el)
-    el.onerror = () => reject(new Error('加载图片失败'))
-    el.src = dataUrl
-  })
-
-  const w = img.naturalWidth || img.width
-  const h = img.naturalHeight || img.height
-  if (!w || !h) throw new Error('图片尺寸无效')
-
-  const scale = Math.min(1, maxPx / Math.max(w, h))
-  const outW = Math.max(1, Math.round(w * scale))
-  const outH = Math.max(1, Math.round(h * scale))
-
-  const canvas = document.createElement('canvas')
-  canvas.width = outW
-  canvas.height = outH
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('Canvas 不可用')
-  ctx.drawImage(img, 0, 0, outW, outH)
-
-  return canvas.toDataURL('image/png')
-}
-
 export function normalizeOrder(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   const ids: string[] = []

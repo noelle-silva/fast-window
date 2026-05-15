@@ -12,8 +12,9 @@ import { fetchStoreCatalog } from './appStore/catalogClient'
 import { parseSemverStrict, cmpSemver } from './appStore/semver'
 import {
   normalizeCapabilityList, normalizeDisabledPlugins, normalizeOrder, normalizeBrowseLayout,
-  applyPluginOrder, pickImageFile, makeThumbnailPngDataUrl,
+  applyPluginOrder,
 } from './utils'
+import { readIconImageDataUrl, type IconImageSource } from './iconImageInput'
 
 interface ToastFn {
   (message: string): void
@@ -159,15 +160,10 @@ export function usePlugins(toast: ToastFn) {
     })
   }, [])
 
-  const changePluginIcon = useCallback(async (plugin: Plugin) => {
+  const changePluginIcon = useCallback(async (plugin: Plugin, source: IconImageSource) => {
     try {
-      const file = await pickImageFile()
-      if (!file) return
-      if (file.size > 50 * 1024 * 1024) {
-        toast('图片过大（> 50MB）')
-        return
-      }
-      const dataUrl = await makeThumbnailPngDataUrl(file, 128)
+      const dataUrl = await readIconImageDataUrl(source)
+      if (!dataUrl) return
       await invoke('set_plugin_icon_override', { pluginId: plugin.id, dataUrl })
       toast('图标已更新')
       void loadPlugins()
