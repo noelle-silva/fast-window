@@ -169,8 +169,9 @@ fn save_registry_and_refresh_shortcuts(
     for item in &registry {
         validate_app_value(item)?;
     }
-    validate_app_hotkeys(&registry)?;
     validate_app_commands(&registry)?;
+    validate_app_hotkeys(&registry)?;
+    validate_app_hotkey_launch_behaviors(&registry)?;
     crate::app_shortcuts::validate_registered_app_shortcuts_available(app, &registry)?;
 
     {
@@ -268,6 +269,24 @@ fn register_unique_shortcut(
     Ok(())
 }
 
+fn validate_app_hotkey_launch_behaviors(apps: &[Value]) -> Result<(), String> {
+    for item in apps {
+        let app_id = app_id_from_value(item).unwrap_or("");
+        let Some(behavior) = item
+            .get("hotkeyLaunchBehavior")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|behavior| !behavior.is_empty())
+        else {
+            continue;
+        };
+        if !matches!(behavior, "launch" | "runningOnly") {
+            return Err(format!("{app_id} 的快捷键启动方式不合法: {behavior}"));
+        }
+    }
+    Ok(())
+}
+
 fn validate_app_commands(apps: &[Value]) -> Result<(), String> {
     for item in apps {
         let app_id = app_id_from_value(item).unwrap_or("");
@@ -315,7 +334,11 @@ fn validate_command_array(app_id: &str, value: Option<&Value>, label: &str) -> R
 
 fn command_to_value(command: AppReportedCommand) -> Value {
     let mut value = serde_json::json!({ "id": command.id, "title": command.title });
-    if let Some(hotkey) = command.hotkey.map(|hotkey| hotkey.trim().to_string()).filter(|hotkey| !hotkey.is_empty()) {
+    if let Some(hotkey) = command
+        .hotkey
+        .map(|hotkey| hotkey.trim().to_string())
+        .filter(|hotkey| !hotkey.is_empty())
+    {
         value["hotkey"] = Value::String(hotkey);
     }
     value
@@ -328,12 +351,18 @@ fn normalize_reported_commands(commands: Vec<AppReportedCommand>) -> Vec<Value> 
         .filter_map(|command| {
             let id = command.id.trim().to_string();
             let title = command.title.trim().to_string();
-            let hotkey = command.hotkey.as_deref().map(str::trim).filter(|hotkey| !hotkey.is_empty());
+            let hotkey = command
+                .hotkey
+                .as_deref()
+                .map(str::trim)
+                .filter(|hotkey| !hotkey.is_empty());
             if !crate::is_safe_id(&id) || title.is_empty() || title.len() > 80 {
                 return None;
             }
             let hotkey = match hotkey {
-                Some(raw) => Shortcut::from_str(raw).ok().map(|shortcut| shortcut.to_string()),
+                Some(raw) => Shortcut::from_str(raw)
+                    .ok()
+                    .map(|shortcut| shortcut.to_string()),
                 None => None,
             };
             if seen.insert(id.clone(), ()).is_some() {

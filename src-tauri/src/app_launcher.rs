@@ -19,6 +19,17 @@ pub(crate) struct AppLauncherState {
     processes: Mutex<HashMap<String, Arc<AppProcessEntry>>>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AppColdStartPolicy {
+    Allow,
+    Skip,
+}
+
+pub(crate) enum AppLaunchOutcome {
+    Activated,
+    SkippedColdStart,
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RegisteredAppLaunchConfig {
@@ -530,8 +541,27 @@ pub(crate) async fn app_launch_inner(
     exe_path: String,
     args: Vec<String>,
 ) -> Result<(), String> {
+    app_launch_inner_with_cold_start_policy(
+        app_handle,
+        state,
+        app_id,
+        exe_path,
+        args,
+        AppColdStartPolicy::Allow,
+    )
+    .await
+    .map(|_| ())
+}
+
+pub(crate) async fn app_launch_inner_with_cold_start_policy(
+    app_handle: AppHandle,
+    state: Arc<AppLauncherState>,
+    app_id: String,
+    exe_path: String,
+    args: Vec<String>,
+    cold_start_policy: AppColdStartPolicy,
+) -> Result<AppLaunchOutcome, String> {
     let id = normalize_app_id(app_id)?;
-    let path = app_executable_path(exe_path)?;
 
     let running_entry = state
         .processes
@@ -554,8 +584,14 @@ pub(crate) async fn app_launch_inner(
                 available_commands,
             )?;
         }
-        return Ok(());
+        return Ok(AppLaunchOutcome::Activated);
     }
+
+    if cold_start_policy == AppColdStartPolicy::Skip {
+        return Ok(AppLaunchOutcome::SkippedColdStart);
+    }
+
+    let path = app_executable_path(exe_path)?;
 
     let mut cmd = Command::new(&path);
     cmd.args(&args);
@@ -653,7 +689,7 @@ pub(crate) async fn app_launch_inner(
         g.insert(id, entry);
     }
 
-    Ok(())
+    Ok(AppLaunchOutcome::Activated)
 }
 
 #[tauri::command]

@@ -8,7 +8,7 @@ import {
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
-import type { AppDisplayMode, AppRegistrationEditRequest, RegisteredApp, RegisteredAppCommand, RegisteredAppUpdatePatch } from './types'
+import type { AppDisplayMode, AppHotkeyLaunchBehavior, AppRegistrationEditRequest, RegisteredApp, RegisteredAppCommand, RegisteredAppUpdatePatch } from './types'
 import AppCardView from './AppCardView'
 import AppCommandEditor from './AppCommandEditor'
 import { getAppStatus } from './appLauncher'
@@ -62,6 +62,7 @@ export default function AppRegistrationPanel({
   const [path, setPath] = useState('')
   const [icon, setIcon] = useState('')
   const [hotkey, setHotkey] = useState('')
+  const [hotkeyLaunchBehavior, setHotkeyLaunchBehavior] = useState<AppHotkeyLaunchBehavior>('launch')
   const [hotkeyRecording, setHotkeyRecording] = useState(false)
   const [recordingCommandHotkeyId, setRecordingCommandHotkeyId] = useState<string | null>(null)
   const [displayMode, setDisplayMode] = useState<AppDisplayMode>('default')
@@ -95,6 +96,7 @@ export default function AppRegistrationPanel({
     setPath('')
     setIcon('')
     setHotkey('')
+    setHotkeyLaunchBehavior('launch')
     setRecordingCommandHotkeyId(null)
     setDisplayMode('default')
     setCommands([])
@@ -112,6 +114,7 @@ export default function AppRegistrationPanel({
     setPath(app.path)
     setIcon(app.icon || '')
     setHotkey(app.hotkey ?? '')
+    setHotkeyLaunchBehavior(app.hotkeyLaunchBehavior ?? 'launch')
     setRecordingCommandHotkeyId(null)
     setDisplayMode(app.displayMode)
     setCommands(Array.isArray(app.commands) ? app.commands : [])
@@ -206,6 +209,7 @@ export default function AppRegistrationPanel({
       const existingApp = editingId ? apps.find(app => app.id === editingId) : null
       const nextIcon = info.icon || icon || existingApp?.icon || await readAppIcon(info.path) || ''
       const nextHotkey = hotkey.trim()
+      const nextHotkeyLaunchBehavior = nextHotkey ? hotkeyLaunchBehavior : undefined
       const nextCommands = normalizedCommands()
       const commandsToSave = commandsEdited ? nextCommands : (nextCommands.length ? nextCommands : info.commands)
       const nextApp: RegisteredApp = {
@@ -215,6 +219,7 @@ export default function AppRegistrationPanel({
         path: info.path,
         version: info.version,
         hotkey: nextHotkey || undefined,
+        hotkeyLaunchBehavior: nextHotkeyLaunchBehavior,
         displayMode,
         commands: commandsToSave,
         availableCommands: info.commands,
@@ -233,6 +238,7 @@ export default function AppRegistrationPanel({
             version: nextApp.version,
             icon: nextIcon,
             hotkey: nextHotkey || null,
+            hotkeyLaunchBehavior: nextHotkeyLaunchBehavior ?? null,
             displayMode,
             commands: commandsToSave,
             availableCommands: info.commands,
@@ -409,6 +415,23 @@ export default function AppRegistrationPanel({
             </Button>
           </Stack>
           <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>快捷键启动方式</Typography>
+            <ToggleButtonGroup
+              value={hotkeyLaunchBehavior}
+              exclusive
+              onChange={(_, v) => v && setHotkeyLaunchBehavior(v)}
+              size="small"
+              disabled={!hotkey.trim()}
+              aria-label="快捷键启动方式"
+            >
+              <ToggleButton value="launch">可启动未运行应用</ToggleButton>
+              <ToggleButton value="runningOnly">仅控制已运行应用</ToggleButton>
+            </ToggleButtonGroup>
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: 'block' }}>
+              选择“仅控制已运行应用”后，应用未运行时按下快捷键不会唤醒或启动它。
+            </Typography>
+          </Box>
+          <Box>
             <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>显示模式</Typography>
             <ToggleButtonGroup
               value={displayMode}
@@ -421,15 +444,15 @@ export default function AppRegistrationPanel({
               <ToggleButton value="top">置顶</ToggleButton>
             </ToggleButtonGroup>
           </Box>
-          <AppCommandEditor
-            commands={commands}
-            availableCommands={availableCommands}
-            recordingCommandId={recordingCommandHotkeyId}
-            onStartHotkeyRecording={startCommandHotkeyRecording}
-            onClearHotkey={clearCommandHotkey}
-            onChange={nextCommands => {
-              setCommandsEdited(true)
-              setCommands(nextCommands)
+            <AppCommandEditor
+              commands={commands}
+              availableCommands={availableCommands}
+              recordingCommandId={recordingCommandHotkeyId}
+              onStartHotkeyRecording={startCommandHotkeyRecording}
+              onClearHotkey={clearCommandHotkey}
+              onChange={nextCommands => {
+                setCommandsEdited(true)
+                setCommands(nextCommands)
             }}
           />
         </DialogContent>

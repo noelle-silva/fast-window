@@ -22,6 +22,11 @@ const displayModeLabels: Record<RegisteredApp['displayMode'], string> = {
   top: '置顶（不失焦隐藏）',
 }
 
+const hotkeyLaunchBehaviorLabels: Record<NonNullable<RegisteredApp['hotkeyLaunchBehavior']>, string> = {
+  launch: '可启动未运行应用',
+  runningOnly: '仅控制已运行应用',
+}
+
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000))
   if (totalSeconds < 60) return `${totalSeconds} 秒`
@@ -128,6 +133,10 @@ export default function AppDetailDialog({ app, status, onClose }: AppDetailDialo
             <Box sx={fieldRowSx}>
               <Typography sx={labelSx}>全局快捷键</Typography>
               <Typography sx={valueSx}>{app.hotkey || '(无)'}</Typography>
+            </Box>
+            <Box sx={fieldRowSx}>
+              <Typography sx={labelSx}>快捷键启动方式</Typography>
+              <Typography sx={valueSx}>{app.hotkey ? hotkeyLaunchBehaviorLabels[app.hotkeyLaunchBehavior ?? 'launch'] : '(无快捷键)'}</Typography>
             </Box>
             <Box sx={fieldRowSx}>
               <Typography sx={labelSx}>FW 自启</Typography>

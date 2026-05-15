@@ -5,7 +5,8 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use crate::app_launcher::{
-    app_launch_inner, build_registered_app_launch_args, AppLauncherState, RegisteredAppLaunchConfig,
+    app_launch_inner_with_cold_start_policy, build_registered_app_launch_args, AppColdStartPolicy,
+    AppLauncherState, RegisteredAppLaunchConfig,
 };
 
 #[derive(Default)]
@@ -25,6 +26,7 @@ struct RegisteredAppShortcutTarget {
     app_id: String,
     command_id: Option<String>,
     shortcut: Shortcut,
+    cold_start_policy: AppColdStartPolicy,
 }
 
 impl RegisteredAppShortcutTarget {
@@ -36,7 +38,28 @@ impl RegisteredAppShortcutTarget {
     }
 
     fn action(&self) -> &'static str {
-        if self.command_id.is_some() { "show" } else { "toggle" }
+        if self.command_id.is_some() {
+            "show"
+        } else {
+            "toggle"
+        }
+    }
+}
+
+fn cold_start_policy_from_record(
+    value: &serde_json::Value,
+    app_id: &str,
+) -> Result<AppColdStartPolicy, String> {
+    match value
+        .get("hotkeyLaunchBehavior")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|behavior| !behavior.is_empty())
+        .unwrap_or("launch")
+    {
+        "launch" => Ok(AppColdStartPolicy::Allow),
+        "runningOnly" => Ok(AppColdStartPolicy::Skip),
+        value => Err(format!("{app_id} 的快捷键启动方式不合法: {value}")),
     }
 }
 
@@ -61,10 +84,12 @@ fn shortcut_targets_from_records(
         {
             let shortcut = Shortcut::from_str(hotkey)
                 .map_err(|e| format!("{app_id} 的快捷键格式不合法: {e}"))?;
+            let cold_start_policy = cold_start_policy_from_record(value, &app_id)?;
             targets.push(RegisteredAppShortcutTarget {
                 app_id: app_id.clone(),
                 command_id: None,
                 shortcut,
+                cold_start_policy,
             });
         }
 
@@ -93,6 +118,7 @@ fn shortcut_targets_from_records(
                 app_id: app_id.clone(),
                 command_id: Some(command_id),
                 shortcut,
+                cold_start_policy: AppColdStartPolicy::Allow,
             });
         }
     }
@@ -107,17 +133,19 @@ async fn activate_registered_app_shortcut_target(
     let Some(value) = crate::app_registry::load_registered_app_record(&app, &target.app_id)? else {
         return Err(format!("注册应用不存在: {}", target.app_id));
     };
-    let config: RegisteredAppLaunchConfig = serde_json::from_value(value)
-        .map_err(|e| format!("注册应用配置不完整: {e}"))?;
+    let config: RegisteredAppLaunchConfig =
+        serde_json::from_value(value).map_err(|e| format!("注册应用配置不完整: {e}"))?;
     let launcher = app.state::<Arc<AppLauncherState>>().inner().clone();
-    app_launch_inner(
+    app_launch_inner_with_cold_start_policy(
         app.clone(),
         launcher,
         config.id.clone(),
         config.path.clone(),
         build_registered_app_launch_args(&config, target.action(), target.command_id.as_deref()),
+        target.cold_start_policy,
     )
     .await
+    .map(|_| ())
 }
 
 fn register_app_shortcut(
@@ -136,7 +164,9 @@ fn register_app_shortcut(
             let shortcut_target = shortcut_target.clone();
             tauri::async_runtime::spawn(async move {
                 let target_label = shortcut_target.label();
-                if let Err(error) = activate_registered_app_shortcut_target(app.clone(), shortcut_target).await {
+                if let Err(error) =
+                    activate_registered_app_shortcut_target(app.clone(), shortcut_target).await
+                {
                     eprintln!("[app-shortcuts] failed to activate {target_label}: {error}");
                     crate::host_primitives::emit_toast(&app, format!("启动应用失败：{error}"));
                 }
@@ -167,7 +197,10 @@ fn unregister_current(
     previous
 }
 
-fn restore_bindings(app: &AppHandle, bindings: Vec<RegisteredAppShortcutBinding>) -> Result<(), String> {
+fn restore_bindings(
+    app: &AppHandle,
+    bindings: Vec<RegisteredAppShortcutBinding>,
+) -> Result<(), String> {
     let mut restored = Vec::new();
     let mut errors = Vec::new();
     for binding in bindings {
@@ -197,7 +230,13 @@ fn restore_bindings(app: &AppHandle, bindings: Vec<RegisteredAppShortcutBinding>
 
 pub(crate) fn refresh_registered_app_shortcuts(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<RegisteredAppShortcutState>();
-    if state.paused.lock().ok().map(|guard| *guard).unwrap_or(false) {
+    if state
+        .paused
+        .lock()
+        .ok()
+        .map(|guard| *guard)
+        .unwrap_or(false)
+    {
         return Ok(());
     }
 
@@ -241,7 +280,12 @@ pub(crate) fn validate_registered_app_shortcuts_available(
     records: &[serde_json::Value],
 ) -> Result<(), String> {
     let state = app.state::<RegisteredAppShortcutState>();
-    let was_paused = state.paused.lock().ok().map(|guard| *guard).unwrap_or(false);
+    let was_paused = state
+        .paused
+        .lock()
+        .ok()
+        .map(|guard| *guard)
+        .unwrap_or(false);
     let previous = unregister_current(app, &state);
 
     let targets = shortcut_targets_from_records(records);
@@ -253,9 +297,9 @@ pub(crate) fn validate_registered_app_shortcuts_available(
             for target in targets {
                 let shortcut = target.shortcut;
                 let shortcut_text = shortcut.to_string();
-                if let Err(error) =
-                    app.global_shortcut()
-                        .on_shortcut(shortcut, |_app, _shortcut, _event| {})
+                if let Err(error) = app
+                    .global_shortcut()
+                    .on_shortcut(shortcut, |_app, _shortcut, _event| {})
                 {
                     result = Err(format!("注册应用快捷键不可用：{shortcut_text}（{error}）"));
                     break;

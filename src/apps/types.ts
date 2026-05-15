@@ -2,6 +2,8 @@ export type AppDisplayMode = 'default' | 'window' | 'top'
 
 export type AppActivationAction = 'toggle' | 'show' | 'hide' | 'close'
 
+export type AppHotkeyLaunchBehavior = 'launch' | 'runningOnly'
+
 export interface RegisteredAppCommand {
   id: string
   title: string
@@ -25,6 +27,7 @@ export interface RegisteredApp {
   path: string
   version?: string
   hotkey?: string
+  hotkeyLaunchBehavior?: AppHotkeyLaunchBehavior
   displayMode: AppDisplayMode
   commands: RegisteredAppCommand[]
   availableCommands?: RegisteredAppCommand[]
@@ -40,8 +43,9 @@ export interface AppRegistrationEditRequest {
   requestId: number
 }
 
-export type RegisteredAppUpdatePatch = Partial<Omit<RegisteredApp, 'id' | 'hotkey'>> & {
+export type RegisteredAppUpdatePatch = Partial<Omit<RegisteredApp, 'id' | 'hotkey' | 'hotkeyLaunchBehavior'>> & {
   hotkey?: string | null
+  hotkeyLaunchBehavior?: AppHotkeyLaunchBehavior | null
 }
 
 export type AppStatus = {

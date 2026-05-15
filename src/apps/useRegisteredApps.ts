@@ -9,6 +9,10 @@ function applyRegisteredAppPatch(app: RegisteredApp, patch: RegisteredAppUpdateP
   if (patch.path !== undefined) next.path = patch.path
   if (patch.version !== undefined) next.version = patch.version
   if (patch.displayMode !== undefined) next.displayMode = patch.displayMode
+  if (patch.hotkeyLaunchBehavior !== undefined) {
+    if (patch.hotkeyLaunchBehavior) next.hotkeyLaunchBehavior = patch.hotkeyLaunchBehavior
+    else delete next.hotkeyLaunchBehavior
+  }
   if (patch.commands !== undefined) next.commands = patch.commands
   if (patch.availableCommands !== undefined) next.availableCommands = patch.availableCommands
   if (patch.autoStart !== undefined) next.autoStart = patch.autoStart
