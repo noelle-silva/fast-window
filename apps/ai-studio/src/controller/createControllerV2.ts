@@ -58,6 +58,7 @@ import { normalizeMessageAttachments, normalizeMessageGroup } from '../domain/me
 import { validateFavoriteFolderName } from '../domain/favoriteValidator'
 import { normalizeChatModelOverride, normalizeMessageModelRef, buildMessageModelRef } from '../domain/modelRefUtils'
 import { isAssistantGenerating } from '../domain/assistantRunState'
+import { moveListItemById, type ListMovePosition } from '../domain/listOrdering'
 import { detectDraftFileKind, addDraftFilePlaceholder, removeDraftFile, removeDraftImage as removeDraftImageFromList, fileExtLower } from '../domain/draftFileUtils'
 import type { DraftFileKind, DraftFileItem, DraftImageItem } from '../domain/draftFileUtils'
 import { validateStickerCategoryName, validateStickerName, imageExtFromDataUrl } from '../domain/stickerValidator'
@@ -1429,6 +1430,20 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
       emit()
     },
     saveProvider: () => saveProviderInlineEditor(),
+    moveRole: (roleId: any, targetRoleId: any, position: any) => {
+      if (!state.data || !Array.isArray(state.data.roles)) return
+      const rid = String(roleId || '').trim()
+      const targetRid = String(targetRoleId || '').trim()
+      const pos: ListMovePosition = String(position || '').trim() === 'after' ? 'after' : 'before'
+      if (!rid || !targetRid || rid === targetRid) return
+
+      const nextRoles = moveListItemById(state.data.roles, (role: any) => String(role?.id || ''), rid, targetRid, pos)
+      if (nextRoles === state.data.roles) return
+
+      state.data.roles = nextRoles
+      saveDataTree().catch(() => {})
+      emit()
+    },
     askDeleteProvider: (providerId: any) => {
       state.draft.deleteProviderId = String(providerId || '')
       state.draft.deleteRoleId = ''

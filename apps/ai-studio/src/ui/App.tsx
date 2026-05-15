@@ -81,6 +81,7 @@ import { MermaidDialog } from './dialogs/MermaidDialog'
 import { ImageDialog } from './dialogs/ImageDialog'
 import { RoleAvatarCropper } from './components/avatar/RoleAvatarCropper'
 import { StandaloneWindowControls, type WindowControlActions } from './components/StandaloneWindowControls'
+import { RolesSettingsPanel } from './settings/RolesSettingsPanel'
 import { AI_STUDIO_CHAT_ROOT_ID } from '../runtime/aiStudioGlobals'
 import { isAssistantGenerating } from '../domain/assistantRunState'
 
@@ -7165,79 +7166,7 @@ function PluginSettingsPage(props: {
   }
 
   if (tab === 'roles') {
-    return (
-      <Box sx={{ flex: 1, minWidth: 0, minHeight: 0, overflow: 'auto', px: 2, pt: `calc(${TOPBAR_H}px + 16px)`, pb: 2, bgcolor: 'grey.50' }}>
-        <Paper variant="outlined" sx={{ p: 1.5 }}>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Typography sx={{ fontWeight: 900 }}>角色管理</Typography>
-            <Box sx={{ flex: 1 }} />
-            <Button startIcon={<AddIcon />} onClick={() => controller.actions.createRole()} disabled={loading}>
-              新建角色
-            </Button>
-          </Stack>
-          <Divider sx={{ my: 1.5 }} />
-          <Stack spacing={1.25}>
-            {roles.length ? (
-              roles.map((r: any) => {
-                const rid = String(r?.id || '')
-                const isActive = rid && rid === activeRoleId
-                const providerId = String(r?.modelRef?.providerId || '')
-                const modelId = String(r?.modelRef?.modelId || '')
-                return (
-                  <Paper
-                    key={rid}
-                    variant="outlined"
-                    sx={{
-                      p: 1.25,
-                      borderColor: isActive ? 'primary.main' : 'divider',
-                      bgcolor: isActive ? 'rgba(25,118,210,.06)' : 'background.paper',
-                    }}
-                  >
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', sm: 'center' }}>
-                      <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
-                        <Avatar src={String(r?.avatarImage || '') || undefined} sx={{ width: 28, height: 28, fontSize: 14 }}>
-                          {String(r?.avatar || '🙂')}
-                        </Avatar>
-                        <Box sx={{ minWidth: 0 }}>
-                          <Typography sx={{ fontWeight: 900 }} noWrap>
-                            {String(r?.name || '')}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary" noWrap>
-                            {providerId}
-                            {modelId ? ` / ${modelId}` : ''}
-                          </Typography>
-                        </Box>
-                      </Stack>
-
-                      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                        <Button
-                          size="small"
-                          variant={isActive ? 'contained' : 'outlined'}
-                          onClick={() => controller.actions.setActiveRole(rid)}
-                          disabled={!rid}
-                        >
-                          {isActive ? '当前' : '设为当前'}
-                        </Button>
-                        <Button size="small" onClick={() => controller.actions.openRoleEditor(rid)} disabled={!rid}>
-                          编辑
-                        </Button>
-                        <Button size="small" color="error" startIcon={<DeleteOutlineIcon />} onClick={() => controller.actions.askDeleteRole(rid)} disabled={!rid}>
-                          删除
-                        </Button>
-                      </Stack>
-                    </Stack>
-                  </Paper>
-                )
-              })
-            ) : (
-              <Typography variant="body2" color="text.secondary">
-                暂无角色
-              </Typography>
-            )}
-          </Stack>
-        </Paper>
-      </Box>
-    )
+    return <RolesSettingsPanel controller={controller} loading={loading} roles={roles} activeRoleId={activeRoleId} topbarHeight={TOPBAR_H} />
   }
 
   if (tab === 'stickers') {
