@@ -1620,10 +1620,7 @@ func (svc *service) removeCollectionGroup(categoryID string, id string) (categor
 		if id == "" {
 			return errors.New("group id is required")
 		}
-		if id == defaultGroupID {
-			return errors.New("default group cannot be removed")
-		}
-		nextGroups := workspace.Groups[:0]
+		nextGroups := make([]collectionGroup, 0, len(workspace.Groups))
 		removed := false
 		for _, group := range workspace.Groups {
 			if group.ID == id {
@@ -1635,13 +1632,31 @@ func (svc *service) removeCollectionGroup(categoryID string, id string) (categor
 		if !removed {
 			return fmt.Errorf("group not found: %s", id)
 		}
+		targetGroupID := ""
+		if len(nextGroups) > 0 {
+			targetGroupID = nextGroups[0].ID
+		}
+		removedObjectCount := 0
+		for _, item := range workspace.Items {
+			if item.GroupID == id {
+				removedObjectCount++
+			}
+		}
+		for _, container := range workspace.Containers {
+			if container.GroupID == id {
+				removedObjectCount++
+			}
+		}
+		if targetGroupID == "" && removedObjectCount > 0 {
+			return errors.New("cannot remove the last non-empty group")
+		}
 		doc := workspaceDoc(*workspace)
-		nextOrder := nextPageOrder(doc, defaultGroupID)
+		nextOrder := nextPageOrder(doc, targetGroupID)
 		now := time.Now().UnixMilli()
 		nowString := nowText()
 		for i := range workspace.Items {
 			if workspace.Items[i].GroupID == id {
-				workspace.Items[i].GroupID = defaultGroupID
+				workspace.Items[i].GroupID = targetGroupID
 				workspace.Items[i].PageOrder = nextOrder
 				workspace.Items[i].ContainerID = ""
 				workspace.Items[i].ContainerLayout = nil
@@ -1653,7 +1668,7 @@ func (svc *service) removeCollectionGroup(categoryID string, id string) (categor
 		}
 		for i := range workspace.Containers {
 			if workspace.Containers[i].GroupID == id {
-				workspace.Containers[i].GroupID = defaultGroupID
+				workspace.Containers[i].GroupID = targetGroupID
 				workspace.Containers[i].PageOrder = nextOrder
 				workspace.Containers[i].Layout = nil
 				workspace.Containers[i].UpdatedAtMS = now
@@ -1663,7 +1678,9 @@ func (svc *service) removeCollectionGroup(categoryID string, id string) (categor
 		}
 		workspace.Groups = nextGroups
 		nextDoc := workspaceDoc(*workspace)
-		renumberPageOrder(&nextDoc, defaultGroupID)
+		if targetGroupID != "" {
+			renumberPageOrder(&nextDoc, targetGroupID)
+		}
 		applyWorkspaceDoc(workspace, nextDoc)
 		return nil
 	})
@@ -1956,18 +1973,12 @@ func normalizeCategoryWorkspace(raw categoryWorkspace) (categoryWorkspace, error
 	if categoryID == "" {
 		return categoryWorkspace{}, errors.New("valid category id is required")
 	}
-	if len(raw.Groups) == 0 {
-		return categoryWorkspace{}, errors.New("default group is required")
-	}
 	groups := make([]collectionGroup, 0, len(raw.Groups))
 	seen := map[string]bool{}
 	for i, group := range raw.Groups {
 		normalized, err := normalizeGroup(group, false)
 		if err != nil {
 			return categoryWorkspace{}, fmt.Errorf("groups[%d]: %w", i, err)
-		}
-		if i == 0 && normalized.ID != defaultGroupID {
-			return categoryWorkspace{}, errors.New("default group must be first")
 		}
 		if seen[normalized.ID] {
 			return categoryWorkspace{}, fmt.Errorf("duplicate group id: %s", normalized.ID)

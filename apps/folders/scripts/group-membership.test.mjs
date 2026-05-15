@@ -2,10 +2,10 @@ import { strict as assert } from 'node:assert'
 import { describe, it } from 'node:test'
 
 import {
-  folderMatchesGroup,
   groupContainerCount,
   groupIdForPage,
   groupItemCount,
+  itemMatchesGroup,
 } from '../src/groupMembership.ts'
 
 function item(id, groupId) {
@@ -59,15 +59,15 @@ function doc() {
 }
 
 describe('group page ownership', () => {
-  it('uses default group when page id is empty', () => {
-    assert.equal(groupIdForPage(''), 'default')
+  it('normalizes page id without implicit default ownership', () => {
+    assert.equal(groupIdForPage(''), '')
     assert.equal(groupIdForPage('work'), 'work')
   })
 
-  it('matches folders by single page ownership', () => {
-    assert.equal(folderMatchesGroup(item('one', 'work'), 'work'), true)
-    assert.equal(folderMatchesGroup(item('one', 'work'), 'design'), false)
-    assert.equal(folderMatchesGroup(item('one', 'default'), ''), true)
+  it('matches items by explicit single page ownership', () => {
+    assert.equal(itemMatchesGroup(item('one', 'work'), 'work'), true)
+    assert.equal(itemMatchesGroup(item('one', 'work'), 'design'), false)
+    assert.equal(itemMatchesGroup(item('one', 'default'), ''), false)
   })
 
   it('counts folders and containers per independent page', () => {

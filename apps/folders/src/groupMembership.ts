@@ -1,8 +1,7 @@
 import type { CategoryWorkspace, CollectionItem } from './types'
-import { DEFAULT_GROUP_ID } from './utils'
 
 export function groupIdForPage(groupId: string): string {
-  return groupId || DEFAULT_GROUP_ID
+  return groupId.trim()
 }
 
 export function itemHasGroup(item: CollectionItem, groupId: string): boolean {

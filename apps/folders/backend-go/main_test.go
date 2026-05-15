@@ -904,7 +904,7 @@ func TestCollectionItemValidationRequiresTargetAndValidGroup(t *testing.T) {
 	}
 }
 
-func TestGroupsRoundTripAndDeleteMovesItemsToDefault(t *testing.T) {
+func TestGroupsRoundTripAndDeleteMovesItemsToRemainingGroup(t *testing.T) {
 	svc := readyService(t)
 	doc, err := svc.addCollectionGroup("folder", collectionGroup{ID: "work", Name: "工作"})
 	if err != nil {
@@ -928,8 +928,40 @@ func TestGroupsRoundTripAndDeleteMovesItemsToDefault(t *testing.T) {
 	if len(doc.Groups) != 1 || itemByID(doc, "one").GroupID != defaultGroupID {
 		t.Fatalf("expected item moved to default: %#v", doc)
 	}
-	if _, err := svc.removeCollectionGroup("folder", defaultGroupID); err == nil {
-		t.Fatal("expected default group removal to fail")
+	doc, err = svc.addCollectionGroup("folder", collectionGroup{ID: "archive", Name: "归档"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err = svc.removeCollectionGroup("folder", defaultGroupID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Groups) != 1 || doc.Groups[0].ID != "archive" || itemByID(doc, "one").GroupID != "archive" {
+		t.Fatalf("expected default group to be removable and item moved to remaining group: %#v", doc)
+	}
+}
+
+func TestRemovingLastGroupAllowsOnlyEmptyWorkspace(t *testing.T) {
+	svc := readyService(t)
+
+	if _, err := svc.removeCollectionGroup("folder", defaultGroupID); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := svc.readWorkspaceView("folder")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Groups) != 0 {
+		t.Fatalf("expected empty workspace to allow removing the last group: %#v", doc.Groups)
+	}
+
+	doc, err = svc.addCollectionGroup("folder", collectionGroup{ID: "work", Name: "工作"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc = addCollectionItem(t, svc, "folder", collectionItem{ID: "one", Name: "Projects", Target: folderTarget(`E:\Projects`), GroupID: "work"})
+	if _, err := svc.removeCollectionGroup("folder", "work"); err == nil {
+		t.Fatal("expected removing the last non-empty group to fail")
 	}
 }
 
@@ -991,7 +1023,7 @@ func TestItemGroupTransferUsesSingleOwnership(t *testing.T) {
 	}
 }
 
-func TestRemovingGroupMovesDesktopObjectsToDefault(t *testing.T) {
+func TestRemovingGroupMovesDesktopObjectsToFirstRemainingGroup(t *testing.T) {
 	svc := readyService(t)
 	if _, err := svc.addCollectionGroup("folder", collectionGroup{ID: "work", Name: "工作"}); err != nil {
 		t.Fatal(err)
@@ -1008,10 +1040,10 @@ func TestRemovingGroupMovesDesktopObjectsToDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	if itemByID(doc, "one").GroupID != defaultGroupID || itemByID(doc, "one").ContainerID != "" || itemByID(doc, "one").ContainerLayout != nil || itemByID(doc, "one").Layout != nil {
-		t.Fatalf("expected removed group item to return to default desktop cleanly: %#v", itemByID(doc, "one"))
+		t.Fatalf("expected removed group item to return to first remaining desktop cleanly: %#v", itemByID(doc, "one"))
 	}
 	if doc.Containers[0].GroupID != defaultGroupID || doc.Containers[0].Layout != nil {
-		t.Fatalf("expected removed group container to return to default desktop cleanly: %#v", doc.Containers[0])
+		t.Fatalf("expected removed group container to return to first remaining desktop cleanly: %#v", doc.Containers[0])
 	}
 }
 

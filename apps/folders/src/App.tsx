@@ -68,6 +68,7 @@ import { isContainerDropTargetActive, resolveDesktopDragMode, resolveDesktopDrop
 import type { ContainerGridApi, ContainerGridPlacement } from './folder-grid/ContainerGridCanvas'
 import { buildDesktopGridEntries, filterDesktopGridEntries } from './folder-grid/desktopEntries'
 import { groupContainerCount, groupIdForPage, groupItemCount } from './groupMembership'
+import { rememberGroupSelection, resolveGroupSelection, type GroupSelectionByCategory } from './groupSelection'
 import { useWebIconDiscoverySession } from './webIconDiscoverySession'
 import type {
   ConfirmState,
@@ -147,7 +148,8 @@ export function App() {
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [search, setSearch] = React.useState('')
-  const [groupId, setGroupId] = React.useState(DEFAULT_GROUP_ID)
+  const [groupId, setGroupId] = React.useState(resolveGroupSelection(DEFAULT_WORKSPACE_VIEW, DEFAULT_GROUP_ID))
+  const [groupIdByCategory, setGroupIdByCategory] = React.useState<GroupSelectionByCategory>({})
   const [editing, setEditing] = React.useState<CollectionItem | null>(null)
   const [form, setForm] = React.useState<CollectionItemFormState>(EMPTY_ITEM_FORM)
   const webIconDiscovery = useWebIconDiscoverySession()
@@ -200,7 +202,7 @@ export function App() {
       const nextDoc = await nextClient.request<CategoryWorkspaceView>('collections.category.get', { categoryId })
       setDoc(nextDoc)
       updateWallpaperDeckCategory(nextDoc)
-      setGroupId(DEFAULT_GROUP_ID)
+      setGroupId(resolveGroupSelection(nextDoc, groupIdByCategory[categoryId] || ''))
       setSearch('')
       setEditing(null)
       setContainerView(null)
@@ -210,7 +212,25 @@ export function App() {
     } catch (e) {
       setError(errorMessage(e, '切换类别失败'))
     } finally { setBusy(false) }
-  }, [client, refreshWallpaperDeck, updateWallpaperDeckCategory])
+  }, [client, groupIdByCategory, refreshWallpaperDeck, updateWallpaperDeckCategory])
+
+  const selectGroup = React.useCallback((nextGroupId: string) => {
+    const resolvedGroupId = resolveGroupSelection(doc, nextGroupId)
+    setGroupId(resolvedGroupId)
+    setGroupIdByCategory(current => rememberGroupSelection(current, activeCategoryId, resolvedGroupId))
+  }, [activeCategoryId, doc])
+
+  const selectResolvedGroup = React.useCallback((resolvedGroupId: string) => {
+    setGroupId(resolvedGroupId)
+    setGroupIdByCategory(current => rememberGroupSelection(current, activeCategoryId, resolvedGroupId))
+  }, [activeCategoryId])
+
+  const selectCategory = React.useCallback((categoryId: CollectionCategoryId) => {
+    if (categoryId === activeCategoryId) return
+    setGroupIdByCategory(current => rememberGroupSelection(current, activeCategoryId, groupId))
+    setActiveCategoryId(categoryId)
+    void loadCategory(categoryId)
+  }, [activeCategoryId, groupId, loadCategory])
 
   const handleContainerGridReady = React.useCallback((containerId: string, instanceId: string, api: ContainerGridApi | null) => {
     const apis = containerGridApiByIdRef.current.get(containerId) || new Map<string, ContainerGridApi>()
@@ -246,11 +266,11 @@ export function App() {
         return
       }
       const nextDoc = await nextClient.request<CategoryWorkspaceView>('collections.category.get', { categoryId: activeCategoryId })
-      setClient(nextClient); setDoc(nextDoc); setWallpaperDeck(wallpaperDeckFromWorkspace(nextDoc)); setPhase('ready'); await refreshStatus(); void refreshWallpaperDeck(nextClient)
+      setClient(nextClient); setDoc(nextDoc); setGroupId(resolveGroupSelection(nextDoc, groupIdByCategory[activeCategoryId] || groupId)); setWallpaperDeck(wallpaperDeckFromWorkspace(nextDoc)); setPhase('ready'); await refreshStatus(); void refreshWallpaperDeck(nextClient)
     } catch (e) {
       setPhase('failed'); setError(errorMessage(e, '启动文件夹收藏后台失败')); await refreshStatus()
     } finally { setBusy(false) }
-  }, [activeCategoryId, client, refreshStatus, refreshWallpaperDeck])
+  }, [activeCategoryId, client, groupId, groupIdByCategory, refreshStatus, refreshWallpaperDeck])
 
   React.useEffect(() => {
     if (!readyRef.current) { readyRef.current = true; void invoke('app_ready').catch(() => {}) }
@@ -291,8 +311,11 @@ export function App() {
     return () => window.clearTimeout(timer)
   }, [error, phase])
   React.useEffect(() => {
-    if (!doc.groups.some(group => group.id === groupId)) setGroupId(DEFAULT_GROUP_ID)
-  }, [doc.groups, groupId])
+    const resolvedGroupId = resolveGroupSelection(doc, groupId)
+    if (resolvedGroupId === groupId) return
+    setGroupId(resolvedGroupId)
+    setGroupIdByCategory(current => rememberGroupSelection(current, activeCategoryId, resolvedGroupId))
+  }, [activeCategoryId, doc, groupId])
   React.useEffect(() => {
     if (!editing || !client) return
     const onPaste = (event: ClipboardEvent) => {
@@ -335,7 +358,7 @@ export function App() {
 
   function openAdd() {
     cancelWebIconDiscovery()
-    const selectedGroupId = groupIdForPage(groupId)
+    const selectedGroupId = resolveGroupSelection(doc, groupId)
     setEditing(itemTemplate(activeCategoryId, selectedGroupId))
     setForm(createEmptyItemForm(selectedGroupId))
   }
@@ -346,6 +369,7 @@ export function App() {
   }
 
   function openAddContainer() {
+    if (!resolveGroupSelection(doc, groupId)) { setError('请先创建分组，再添加收纳夹'); return }
     setEditingContainer(null)
     setContainerForm({ ...EMPTY_CONTAINER_FORM })
     setContainerEditorOpen(true)
@@ -389,7 +413,7 @@ export function App() {
       }
       const nextDoc = await client.request<CategoryWorkspaceView>(editing.id ? 'collections.items.update' : 'collections.items.add', requestParams({ item: payload }))
       setDoc(nextDoc); setEditing(null)
-      if (newGroupName) setGroupId(targetGroupId)
+      if (newGroupName) selectResolvedGroup(targetGroupId)
     } catch (e) { setError(errorMessage(e, `保存${activeCategory.singularLabel}失败`)) } finally { setBusy(false) }
   }
 
@@ -813,7 +837,7 @@ export function App() {
     try {
       const nextDoc = await client.request<CategoryWorkspaceView>('collections.groups.remove', requestParams({ id: group.id }))
       setDoc(nextDoc); setConfirm(null); setGroupEditorOpen(false)
-      if (groupId === group.id) setGroupId(DEFAULT_GROUP_ID)
+      if (groupId === group.id) selectResolvedGroup(resolveGroupSelection(nextDoc, ''))
     } catch (e) { setError(errorMessage(e, '删除分组失败')) } finally { setBusy(false) }
   }
 
@@ -826,10 +850,12 @@ export function App() {
       const id = editingContainer?.id || createID()
       const now = Date.now()
       const nowText = new Date(now).toISOString()
+      const targetGroupId = editingContainer?.groupId || resolveGroupSelection(doc, groupId)
+      if (!targetGroupId) { setError('请先创建分组，再添加收纳夹'); return }
       const payload: CollectionContainer = {
         id,
         name,
-        groupId: editingContainer?.groupId || groupIdForPage(groupId),
+        groupId: targetGroupId,
         pageOrder: editingContainer?.pageOrder || 0,
         createdAt: editingContainer?.createdAt || nowText,
         updatedAt: nowText,
@@ -1090,8 +1116,7 @@ export function App() {
   const externalDesktopDragPreview = containerExtractDrag?.mode === 'desktop' ? containerExtractDrag.desktopDrag : null
   const containerSoftClosed = isContainerSoftClosedForExtractDrag(containerExtractDrag, containerView)
   const dropContainerHiddenItemId = extractedItemIdForContainerView(containerExtractDrag, containerDropView)
-  const selectedGroup = doc.groups.find(group => group.id === groupId) || doc.groups.find(group => group.id === DEFAULT_GROUP_ID)
-  const editableGroups = doc.groups.filter(group => group.id !== DEFAULT_GROUP_ID)
+  const selectedGroup = doc.groups.find(group => group.id === groupId)
 
   return (
     <Box
@@ -1117,11 +1142,11 @@ export function App() {
         phase={phase}
         search={search}
         selectedGroup={selectedGroup}
-        onCategoryChange={categoryId => { setActiveCategoryId(categoryId); void loadCategory(categoryId) }}
+        onCategoryChange={selectCategory}
         onAdd={openAdd}
         onAddContainer={openAddContainer}
-        onGroupChange={setGroupId}
-        onOpenGroupEditor={() => openGroupEditor(selectedGroup?.id === DEFAULT_GROUP_ID ? undefined : selectedGroup)}
+        onGroupChange={selectGroup}
+        onOpenGroupEditor={() => openGroupEditor(selectedGroup)}
         onOpenSettings={() => setSettingsOpen(true)}
         onSearchChange={setSearch}
       />
@@ -1201,7 +1226,7 @@ export function App() {
       <GroupDialog
         busy={busy}
         doc={doc}
-        editableGroups={editableGroups}
+        editableGroups={doc.groups}
         open={groupEditorOpen}
         form={groupForm}
         onChange={setGroupForm}
@@ -1320,7 +1345,7 @@ function TopBar(props: {
   const statusColor = props.phase === 'failed' ? 'error' : 'warning'
   const statusText = props.phase === 'data-error' ? '数据异常' : props.phase === 'failed' ? '需处理' : '启动中'
   const canEdit = props.phase === 'ready'
-  const groupActionLabel = props.selectedGroup && props.selectedGroup.id !== DEFAULT_GROUP_ID ? '编辑分组' : '新分组'
+  const groupActionLabel = props.selectedGroup ? '编辑分组' : '新分组'
 
   return (
     <Paper
@@ -1422,6 +1447,7 @@ function TopBarTools(props: {
       <TopBarActions
         busy={props.busy}
         canEdit={props.canEdit}
+        canCreateContainer={Boolean(props.selectedGroup)}
         groupActionLabel={props.groupActionLabel}
         selectedGroup={props.selectedGroup}
         onAdd={props.onAdd}
@@ -1436,6 +1462,7 @@ function TopBarTools(props: {
 function TopBarActions(props: {
   busy: boolean
   canEdit: boolean
+  canCreateContainer: boolean
   groupActionLabel: string
   selectedGroup: CollectionGroup | undefined
   onAdd(): void
@@ -1447,10 +1474,10 @@ function TopBarActions(props: {
     <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: '0 0 auto' }}>
       <Button variant="text" startIcon={<SettingsRoundedIcon />} onClick={props.onOpenSettings}>设置</Button>
       <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={props.onAdd} disabled={!props.canEdit || props.busy}>新增</Button>
-      <Button variant="text" startIcon={<Inventory2RoundedIcon />} onClick={props.onAddContainer} disabled={!props.canEdit || props.busy}>收纳夹</Button>
+      <Button variant="text" startIcon={<Inventory2RoundedIcon />} onClick={props.onAddContainer} disabled={!props.canEdit || props.busy || !props.canCreateContainer}>收纳夹</Button>
       <Button
         variant="text"
-        startIcon={props.selectedGroup && props.selectedGroup.id !== DEFAULT_GROUP_ID ? <EditRoundedIcon /> : <CreateNewFolderRoundedIcon />}
+        startIcon={props.selectedGroup ? <EditRoundedIcon /> : <CreateNewFolderRoundedIcon />}
         onClick={props.onOpenGroupEditor}
         disabled={!props.canEdit}
         sx={{ minWidth: 108 }}
@@ -1494,7 +1521,7 @@ function GroupFilterSelect(props: { doc: CategoryWorkspaceView; groupId: string;
           setOpen(false)
         }}
       >
-        {props.doc.groups.map(group => <MenuItem key={group.id} value={group.id}>{group.name}</MenuItem>)}
+        {props.doc.groups.length ? props.doc.groups.map(group => <MenuItem key={group.id} value={group.id}>{group.name}</MenuItem>) : <MenuItem value="" disabled>暂无分组</MenuItem>}
       </Select>
     </FormControl>
   )
@@ -1699,7 +1726,7 @@ function ItemDialog(props: {
                 value={props.form.groupId}
                 onChange={event => props.onChange({ ...props.form, groupId: event.target.value })}
               >
-                {props.doc.groups.map(group => <MenuItem key={group.id} value={group.id}>{group.name}</MenuItem>)}
+                {props.doc.groups.length ? props.doc.groups.map(group => <MenuItem key={group.id} value={group.id}>{group.name}</MenuItem>) : <MenuItem value="" disabled>请先创建分组或填写新分组</MenuItem>}
               </Select>
             </FormControl>
             <TextField
@@ -1955,9 +1982,17 @@ function InfoBlock(props: { label: string; value: string; mono?: boolean }) {
 
 function ConfirmDialog(props: { busy: boolean; category: CategoryDefinition; confirm: ConfirmState; doc: CategoryWorkspaceView; onClose(): void; onConfirm(): void }) {
   const matchingGroupItemCount = props.confirm?.kind === 'group' ? groupItemCount(props.doc, props.confirm.id) : 0
+  const matchingGroupContainerCount = props.confirm?.kind === 'group' ? groupContainerCount(props.doc, props.confirm.id) : 0
+  const remainingGroups = props.confirm?.kind === 'group' ? props.doc.groups.filter(group => group.id !== props.confirm?.id) : []
+  const groupObjectCount = matchingGroupItemCount + matchingGroupContainerCount
+  const groupCannotBeRemoved = props.confirm?.kind === 'group' && groupObjectCount > 0 && remainingGroups.length === 0
   const containerItemCount = props.confirm?.kind === 'container' ? props.doc.items.filter(item => item.containerId === props.confirm?.id).length : 0
   const message = props.confirm?.kind === 'group'
-    ? `删除分组“${props.confirm.label}”？${matchingGroupItemCount} 个${props.category.singularLabel}会取消该分组；没有其它分组的${props.category.singularLabel}会回到默认分组。`
+    ? groupCannotBeRemoved
+      ? `分组“${props.confirm.label}”是最后一个有内容的分组。请先创建另一个分组，或清空里面的 ${matchingGroupItemCount} 个${props.category.singularLabel}和 ${matchingGroupContainerCount} 个收纳夹。`
+      : remainingGroups.length
+        ? `删除分组“${props.confirm.label}”？其中 ${matchingGroupItemCount} 个${props.category.singularLabel}和 ${matchingGroupContainerCount} 个收纳夹会移动到“${remainingGroups[0].name}”。`
+        : `删除空分组“${props.confirm.label}”？删除后当前分类会暂时没有分组。`
     : props.confirm?.kind === 'container'
       ? `删除收纳夹“${props.confirm.label}”？夹内 ${containerItemCount} 个项目会移回桌面。`
       : `删除${props.category.singularLabel}“${props.confirm?.label || ''}”？`
@@ -1975,7 +2010,7 @@ function ConfirmDialog(props: { busy: boolean; category: CategoryDefinition; con
           </Box>
           <Stack direction="row" spacing={1} justifyContent="flex-end">
             <Button onClick={props.onClose}>取消</Button>
-            <Button color="error" variant="contained" onClick={props.onConfirm} disabled={props.busy}>{confirmLabel}</Button>
+            <Button color="error" variant="contained" onClick={props.onConfirm} disabled={props.busy || groupCannotBeRemoved}>{confirmLabel}</Button>
           </Stack>
         </Stack>
       </DialogContent>
