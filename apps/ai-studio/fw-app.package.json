@@ -28,7 +28,6 @@
     "windowsExecutable": "ai-studio-app.exe",
     "icon": "assets/icon.svg"
   },
-  "catalogIcon": { "type": "emoji", "value": "🧠" },
   "displayMode": "default",
   "commands": [
     { "id": "new-chat", "title": "新建对话" },

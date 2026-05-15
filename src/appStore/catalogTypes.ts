@@ -1,9 +1,12 @@
 import type { AppDisplayMode, RegisteredAppCommand } from '../apps/types'
 
-export type StoreIconRef =
-  | { type: 'emoji'; value: string }
+export type StoreImageIconRef =
   | { type: 'url'; url: string }
   | { type: 'data'; dataUrl: string }
+
+export type LegacyPluginStoreIconRef =
+  | { type: 'emoji'; value: string }
+  | StoreImageIconRef
 
 export interface StoreDownloadAsset {
   downloadUrl: string
@@ -16,7 +19,7 @@ export interface StoreAppEntry {
   name: string
   description: string
   version: string
-  icon?: StoreIconRef
+  icon: StoreImageIconRef
   platforms: {
     windows: StoreDownloadAsset
   }
@@ -29,7 +32,7 @@ export interface LegacyPluginStoreEntry {
   name: string
   description: string
   version: string
-  icon?: StoreIconRef
+  icon?: LegacyPluginStoreIconRef
   downloadUrl: string
   sha256: string
   requires: string[]

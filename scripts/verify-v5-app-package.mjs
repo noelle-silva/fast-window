@@ -141,6 +141,13 @@ function validateCommands(commands) {
   }
 }
 
+function validateCatalogIcon(icon) {
+  if (!icon || typeof icon !== 'object' || Array.isArray(icon)) throw new Error('catalog app icon 缺失')
+  if (icon.type !== 'data') throw new Error('catalog app icon 必须由 App 本体图标生成 data:image')
+  const dataUrl = String(icon.dataUrl || '').trim()
+  if (!dataUrl.startsWith('data:image/')) throw new Error('catalog app icon.dataUrl 必须是 data:image')
+}
+
 async function validatePackage(zipPath, appId) {
   const extractDir = await extractZip(zipPath)
   try {
@@ -190,6 +197,7 @@ async function validateCatalog(catalogPath, appId, manifest, zipPath, options = 
   if (String(win.sha256 || '').toLowerCase() !== actualSha) throw new Error('catalog sha256 与 ZIP 实际值不一致')
   const size = (await fs.stat(zipPath)).size
   if (win.sizeBytes !== undefined && win.sizeBytes !== size) throw new Error('catalog sizeBytes 与 ZIP 实际大小不一致')
+  validateCatalogIcon(entry.icon)
   validateCommands(entry.commands || [])
   return { catalog, entry, sha256: actualSha, sizeBytes: size }
 }

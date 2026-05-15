@@ -13,7 +13,6 @@ export const V5_APP_PROFILE_IDS = ['release', 'dev']
 const RESERVED_STAGE_ENTRY_NAMES = new Set(['package', 'data'])
 
 const APP_DISPLAY_MODES = new Set(['default', 'window', 'top'])
-const CATALOG_ICON_TYPES = new Set(['emoji', 'url', 'data'])
 
 export function isSafeId(id) {
   return /^[A-Za-z0-9_-]+$/.test(String(id || '').trim())
@@ -104,26 +103,6 @@ function validateBuildCommand(value, field) {
   }
 }
 
-function validateCatalogIcon(value, field) {
-  const icon = assertPlainObject(value, field)
-  assertKnownKeys(icon, field, ['type', 'value', 'url', 'dataUrl'])
-  const type = requiredString(icon.type, `${field}.type`, 24)
-  if (!CATALOG_ICON_TYPES.has(type)) throw new Error(`${field}.type 必须为 emoji/url/data`)
-  if (type === 'emoji') {
-    const valueText = requiredString(icon.value, `${field}.value`, 8)
-    if (/[\\/.]/.test(valueText)) throw new Error(`${field}.value 不是合法 emoji 文本`)
-    return { type, value: valueText }
-  }
-  if (type === 'url') {
-    const url = requiredString(icon.url, `${field}.url`, 2048)
-    if (!url.startsWith('https://')) throw new Error(`${field}.url 必须是 https:// URL`)
-    return { type, url }
-  }
-  const dataUrl = requiredString(icon.dataUrl, `${field}.dataUrl`, 200_000)
-  if (!dataUrl.startsWith('data:image/')) throw new Error(`${field}.dataUrl 必须是 data:image/ URL`)
-  return { type, dataUrl }
-}
-
 function validateDisplayMode(value, field) {
   const mode = requiredString(value, field, 24)
   if (!APP_DISPLAY_MODES.has(mode)) throw new Error(`${field} 必须为 default/window/top`)
@@ -199,7 +178,6 @@ export function normalizeV5AppPackageManifest(raw, { appDir, expectedId, manifes
     'versionSource',
     'profiles',
     'package',
-    'catalogIcon',
     'displayMode',
     'commands',
   ])
@@ -233,7 +211,6 @@ export function normalizeV5AppPackageManifest(raw, { appDir, expectedId, manifes
       assertNotReservedPackagePath(icon, 'package.icon')
       return icon
     })(),
-    catalogIcon: validateCatalogIcon(manifest.catalogIcon, 'catalogIcon'),
     displayMode: validateDisplayMode(manifest.displayMode, 'displayMode'),
     commands: validateCommands(manifest.commands, 'commands'),
   }

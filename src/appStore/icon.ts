@@ -1,6 +1,6 @@
-import type { StoreIconRef } from './catalogTypes'
+import type { LegacyPluginStoreIconRef, StoreImageIconRef } from './catalogTypes'
 
-export function storeIconToDisplay(icon: StoreIconRef | undefined): string {
+export function storeIconToDisplay(icon: LegacyPluginStoreIconRef | StoreImageIconRef | undefined): string {
   if (!icon) return ''
   if (icon.type === 'emoji') return icon.value
   if (icon.type === 'url') return icon.url

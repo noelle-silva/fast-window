@@ -76,7 +76,6 @@ async function createFakeApp() {
       },
       executable: 'fake.exe',
       icon: 'assets/icon.svg',
-      catalogIcon: { type: 'emoji', value: 'F' },
       displayMode: 'default',
       commands: [{ id: 'open', title: 'Open' }],
     },
@@ -112,7 +111,6 @@ async function writePackageManifest(appDir, overrides = {}) {
       windowsExecutable: overrides.windowsExecutable || 'fake.exe',
       icon: overrides.icon || 'assets/icon.svg',
     },
-    catalogIcon: { type: 'emoji', value: 'F' },
     displayMode: 'default',
     commands: [{ id: 'open', title: 'Open' }],
   }
@@ -186,6 +184,8 @@ test('package zip is built from package only and excludes container data', async
     assert(entries.some(entry => entry.endsWith('/fw-app.json')))
     assert(entries.some(entry => entry.endsWith('/fake.exe')))
     assert(!entries.some(entry => entry.includes('/data/')))
+    assert.equal(result.catalogEntry.icon.type, 'data')
+    assert(result.catalogEntry.icon.dataUrl.startsWith('data:image/svg+xml;base64,'))
     assert.equal(await fs.readFile(dataFile, 'utf8'), 'do not ship')
   } finally {
     await fs.rm(root, { recursive: true, force: true })

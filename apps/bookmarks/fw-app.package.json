@@ -28,7 +28,6 @@
     "windowsExecutable": "bookmarks-app.exe",
     "icon": "assets/icon.svg"
   },
-  "catalogIcon": { "type": "emoji", "value": "🔖" },
   "displayMode": "default",
   "commands": [
     { "id": "add", "title": "新增收藏" },

@@ -30,7 +30,6 @@
     "windowsExecutable": "hypercortex-app.exe",
     "icon": "assets/icon.svg"
   },
-  "catalogIcon": { "type": "emoji", "value": "🧬" },
   "displayMode": "default",
   "commands": [
     { "id": "new-note", "title": "新建笔记" },

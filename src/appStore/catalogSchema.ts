@@ -1,6 +1,13 @@
 import type { AppDisplayMode, RegisteredAppCommand } from '../apps/types'
 import { parseSemverStrict } from './semver'
-import type { LegacyPluginStoreEntry, StoreAppEntry, StoreCatalog, StoreDownloadAsset, StoreIconRef } from './catalogTypes'
+import type {
+  LegacyPluginStoreEntry,
+  LegacyPluginStoreIconRef,
+  StoreAppEntry,
+  StoreCatalog,
+  StoreDownloadAsset,
+  StoreImageIconRef,
+} from './catalogTypes'
 
 const SAFE_ID_RE = /^[A-Za-z0-9_-]+$/
 const SHA256_RE = /^[a-fA-F0-9]{64}$/
@@ -55,7 +62,19 @@ function optionalSizeBytes(value: unknown, field: string): number | undefined {
   return value
 }
 
-function parseIcon(value: unknown, field: string): StoreIconRef | undefined {
+function parseImageIcon(value: unknown, field: string): StoreImageIconRef {
+  if (!isPlainObject(value)) throw new Error(`${field} must be an icon object`)
+  const type = text(value.type, `${field}.type`)
+  if (type === 'url') return { type, url: httpsUrl(value.url, `${field}.url`) }
+  if (type === 'data') {
+    const dataUrl = text(value.dataUrl, `${field}.dataUrl`)
+    if (!dataUrl.startsWith('data:image/')) throw new Error(`${field}.dataUrl must be a data:image URL`)
+    return { type, dataUrl }
+  }
+  throw new Error(`${field}.type must be url | data`)
+}
+
+function parseLegacyPluginIcon(value: unknown, field: string): LegacyPluginStoreIconRef | undefined {
   if (value === undefined) return undefined
   if (!isPlainObject(value)) throw new Error(`${field} must be an icon object`)
   const type = text(value.type, `${field}.type`)
@@ -64,12 +83,7 @@ function parseIcon(value: unknown, field: string): StoreIconRef | undefined {
     if (emoji.length > 8) throw new Error(`${field}.value is too long`)
     return { type, value: emoji }
   }
-  if (type === 'url') return { type, url: httpsUrl(value.url, `${field}.url`) }
-  if (type === 'data') {
-    const dataUrl = text(value.dataUrl, `${field}.dataUrl`)
-    if (!dataUrl.startsWith('data:image/')) throw new Error(`${field}.dataUrl must be a data:image URL`)
-    return { type, dataUrl }
-  }
+  if (type === 'url' || type === 'data') return parseImageIcon(value, field)
   throw new Error(`${field}.type is unsupported`)
 }
 
@@ -109,7 +123,7 @@ function parseAppEntry(value: unknown, index: number): StoreAppEntry {
     name: text(value.name, `${field}.name`),
     description: text(value.description, `${field}.description`),
     version: semver(value.version, `${field}.version`),
-    icon: parseIcon(value.icon, `${field}.icon`),
+    icon: parseImageIcon(value.icon, `${field}.icon`),
     platforms: {
       windows: parseAsset(value.platforms.windows, `${field}.platforms.windows`),
     },
@@ -139,7 +153,7 @@ function parsePluginEntry(value: unknown, index: number): LegacyPluginStoreEntry
     name: text(value.name, `${field}.name`),
     description: text(value.description, `${field}.description`),
     version: semver(value.version, `${field}.version`),
-    icon: parseIcon(value.icon, `${field}.icon`),
+    icon: parseLegacyPluginIcon(value.icon, `${field}.icon`),
     downloadUrl: httpsUrl(value.downloadUrl, `${field}.downloadUrl`),
     sha256: sha256(value.sha256, `${field}.sha256`),
     requires: parseRequires(value.requires, `${field}.requires`),

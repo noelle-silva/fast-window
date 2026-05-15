@@ -28,7 +28,6 @@
     "windowsExecutable": "ai-once.exe",
     "icon": "assets/icon.svg"
   },
-  "catalogIcon": { "type": "emoji", "value": "⚡" },
   "displayMode": "default",
   "commands": [
     { "id": "open-settings", "title": "打开 AI Once 设置" },

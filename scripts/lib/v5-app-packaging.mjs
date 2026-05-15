@@ -21,6 +21,16 @@ export { DEFAULT_V5_APP_PROFILE, compareSemverStrict, isSafeId, normalizeRel, pa
 export const DEFAULT_V5_APP_OUT_DIR = path.join(rootDir, '.tmp', 'dist-v5-apps')
 const V5_APP_PACKAGE_DIR_NAME = 'package'
 const V5_APP_DATA_DIR_NAME = 'data'
+const V5_APP_CATALOG_ICON_MAX_DATA_URL_LENGTH = 200_000
+const V5_APP_ICON_MIME_BY_EXT = new Map([
+  ['.png', 'image/png'],
+  ['.jpg', 'image/jpeg'],
+  ['.jpeg', 'image/jpeg'],
+  ['.webp', 'image/webp'],
+  ['.gif', 'image/gif'],
+  ['.ico', 'image/x-icon'],
+  ['.svg', 'image/svg+xml'],
+])
 
 export function v5AppStagePackageDir(stageDir) {
   return path.join(stageDir, V5_APP_PACKAGE_DIR_NAME)
@@ -168,6 +178,21 @@ async function assertNoReservedPackageDataDir(packageRoot) {
   }
 }
 
+function getV5AppIconMime(iconRel) {
+  return V5_APP_ICON_MIME_BY_EXT.get(path.extname(String(iconRel || '')).toLowerCase()) || ''
+}
+
+async function buildCatalogIconFromPackagedAppIcon(packageRoot, iconRel) {
+  const icon = normalizeRel(iconRel, 'fw-app.icon')
+  const mime = getV5AppIconMime(icon)
+  if (!mime) throw new Error(`fw-app.icon 必须是受支持的图片格式: ${icon}`)
+  const dataUrl = `data:${mime};base64,${(await fs.readFile(path.join(packageRoot, icon))).toString('base64')}`
+  if (dataUrl.length > V5_APP_CATALOG_ICON_MAX_DATA_URL_LENGTH) {
+    throw new Error(`fw-app.icon 转为商店图标后过大: ${icon}`)
+  }
+  return { type: 'data', dataUrl }
+}
+
 async function zipDir(parentDir, dirName, zipPath) {
   await fs.rm(zipPath, { force: true })
   await fs.mkdir(path.dirname(zipPath), { recursive: true })
@@ -234,6 +259,7 @@ async function validateStagedV5App(packageRoot, manifest) {
   const icon = normalizeRel(manifest.icon, 'fw-app.icon')
   if (!(await exists(path.join(packageRoot, executable)))) throw new Error(`windowsExecutable 不存在: ${executable}`)
   if (!(await exists(path.join(packageRoot, icon)))) throw new Error(`icon 不存在: ${icon}`)
+  if (!getV5AppIconMime(icon)) throw new Error(`fw-app.icon 必须是受支持的图片格式: ${icon}`)
   if (!(await exists(path.join(packageRoot, 'fw-app.json')))) throw new Error('staging 目录缺少 fw-app.json')
   await assertNoReservedPackageDataDir(packageRoot)
 }
@@ -374,6 +400,7 @@ export async function buildV5AppPackage(config, opts) {
 
   try {
     await copyEntry(staged.packageDir, packageRoot)
+    const catalogIcon = await buildCatalogIconFromPackagedAppIcon(packageRoot, staged.manifest.icon)
 
     const zipName = `${config.id}-${version}-windows.zip`
     const zipPath = path.join(outDir, zipName)
@@ -398,7 +425,7 @@ export async function buildV5AppPackage(config, opts) {
         name: config.name,
         description: config.description,
         version,
-        icon: config.catalogIcon,
+        icon: catalogIcon,
         platforms: {
           windows: { downloadUrl, sha256, sizeBytes },
         },

@@ -28,7 +28,6 @@
     "windowsExecutable": "v5-reference-app-go.exe",
     "icon": "assets/icon.svg"
   },
-  "catalogIcon": { "type": "emoji", "value": "🧪" },
   "displayMode": "default",
   "commands": [
     { "id": "open-reference", "title": "打开 v5 Go 模范 App" },

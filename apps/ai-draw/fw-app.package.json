@@ -28,7 +28,6 @@
     "windowsExecutable": "ai-draw-app.exe",
     "icon": "assets/icon.svg"
   },
-  "catalogIcon": { "type": "emoji", "value": "🎨" },
   "displayMode": "default",
   "commands": [
     { "id": "open-settings", "title": "打开设置" },
