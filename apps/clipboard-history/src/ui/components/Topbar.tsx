@@ -1,5 +1,6 @@
 import * as React from 'react'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
+import ClearRoundedIcon from '@mui/icons-material/ClearRounded'
 import ContentPasteRoundedIcon from '@mui/icons-material/ContentPasteRounded'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
@@ -74,31 +75,7 @@ export function Topbar(props: TopbarProps) {
       </Box>
 
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.75, minWidth: 0 }}>
-        <TextField
-          data-window-drag-ignore="true"
-          value={isClipboard ? state.clipboardSearchQuery : state.folderSearchQuery}
-          onChange={(event) => {
-            const value = event.target.value
-            if (isClipboard) controller.setClipboardSearchQuery(value)
-            else controller.setFolderSearchQuery(value)
-          }}
-          placeholder={
-            isClipboard
-              ? '搜索文本（图片不参与）'
-              : state.folderSearchScope === 'global'
-                ? '全局搜索（标题/内容）'
-                : '当前收藏夹内搜索（含子收藏夹）'
-          }
-          size="small"
-          sx={{ flex: 1, minWidth: 0, maxWidth: 420 }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchRoundedIcon fontSize="small" />
-              </InputAdornment>
-            ),
-          }}
-        />
+        <TopbarSearchField controller={controller} />
         {isClipboard ? <RecentFoldersMenu controller={controller} /> : null}
       </Box>
 
@@ -120,6 +97,56 @@ export function Topbar(props: TopbarProps) {
         ) : null}
       </Box>
     </Box>
+  )
+}
+
+function TopbarSearchField(props: TopbarProps) {
+  const { controller } = props
+  const { state } = controller
+  const isClipboard = state.view === 'clipboard'
+  const value = isClipboard ? state.clipboardSearchQuery : state.folderSearchQuery
+
+  const setValue = React.useCallback((nextValue: string) => {
+    if (isClipboard) controller.setClipboardSearchQuery(nextValue)
+    else controller.setFolderSearchQuery(nextValue)
+  }, [controller, isClipboard])
+
+  const placeholder = isClipboard
+    ? '搜索文本（图片不参与）'
+    : state.folderSearchScope === 'global'
+      ? '全局搜索（标题/内容）'
+      : '当前收藏夹内搜索（含子收藏夹）'
+
+  return (
+    <TextField
+      data-window-drag-ignore="true"
+      value={value}
+      onChange={(event) => setValue(event.target.value)}
+      placeholder={placeholder}
+      size="small"
+      sx={{ flex: 1, minWidth: 0, maxWidth: 420 }}
+      InputProps={{
+        startAdornment: (
+          <InputAdornment position="start">
+            <SearchRoundedIcon fontSize="small" />
+          </InputAdornment>
+        ),
+        endAdornment: value ? (
+          <InputAdornment position="end">
+            <IconButton
+              aria-label="清空搜索栏"
+              title="清空搜索栏"
+              edge="end"
+              size="small"
+              onClick={() => setValue('')}
+              sx={{ mr: -0.75 }}
+            >
+              <ClearRoundedIcon fontSize="small" />
+            </IconButton>
+          </InputAdornment>
+        ) : null,
+      }}
+    />
   )
 }
 
