@@ -1,8 +1,9 @@
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded'
+import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded'
 import LinkRoundedIcon from '@mui/icons-material/LinkRounded'
 import type { SvgIconComponent } from '@mui/icons-material'
-import type { CollectionCategoryId, CollectionItem, CollectionTarget } from './types'
+import type { CollectionCategoryId, CollectionItem, CollectionTarget, CollectionViewCategoryId } from './types'
 
 export type CategoryDefinition = {
   id: CollectionCategoryId
@@ -84,6 +85,22 @@ export const CATEGORY_DEFINITIONS: CategoryDefinition[] = [
   },
 ]
 
+export type ViewCategoryDefinition = Omit<Pick<CategoryDefinition, 'id' | 'label' | 'singularLabel' | 'emptyTitle' | 'emptyDescription' | 'icon'>, 'id'> & {
+  id: CollectionViewCategoryId
+  aggregate: boolean
+}
+
+export const ALL_VIEW_CATEGORY_ID = 'all' as const
+export const ALL_VIEW_CATEGORY: ViewCategoryDefinition = {
+  id: ALL_VIEW_CATEGORY_ID,
+  label: '全部',
+  singularLabel: '图标',
+  emptyTitle: '暂无全部图标',
+  emptyDescription: '点击顶部“选择图标”，从文件夹、网址和文件分类里挑选要汇总展示的图标。',
+  icon: AppsRoundedIcon,
+  aggregate: true,
+}
+
 export const DEFAULT_CATEGORY_ORDER: CollectionCategoryId[] = CATEGORY_DEFINITIONS.map(category => category.id)
 
 const CATEGORY_BY_ID = new Map(CATEGORY_DEFINITIONS.map(category => [category.id, category]))
@@ -95,6 +112,12 @@ export function categoryDefinition(id: CollectionCategoryId): CategoryDefinition
   return definition
 }
 
+export function viewCategoryDefinition(id: CollectionViewCategoryId): ViewCategoryDefinition {
+  if (id === ALL_VIEW_CATEGORY_ID) return ALL_VIEW_CATEGORY
+  const category = categoryDefinition(id)
+  return { ...category, aggregate: false }
+}
+
 export function orderedCategoryDefinitions(order: CollectionCategoryId[]): CategoryDefinition[] {
   const seen = new Set<CollectionCategoryId>()
   if (order.length !== DEFAULT_CATEGORY_ORDER.length) throw new Error('category order length is invalid')
@@ -103,6 +126,10 @@ export function orderedCategoryDefinitions(order: CollectionCategoryId[]): Categ
     seen.add(id)
     return categoryDefinition(id)
   })
+}
+
+export function orderedViewCategoryDefinitions(order: CollectionCategoryId[]): ViewCategoryDefinition[] {
+  return [ALL_VIEW_CATEGORY, ...orderedCategoryDefinitions(order).map(category => ({ ...category, aggregate: false }))]
 }
 
 export function moveCategoryOrder(order: CollectionCategoryId[], categoryId: CollectionCategoryId, direction: -1 | 1): CollectionCategoryId[] {

@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Box, ButtonBase, Typography } from '@mui/material'
-import { itemTargetValue } from '../categoryRegistry'
+import { categoryDefinition, itemTargetValue } from '../categoryRegistry'
 import type { CategoryWorkspace, DesktopGridEntry } from '../types'
 import { DesktopIconVisual } from './DesktopIconVisual'
 import type { FolderGridMetrics } from './iconLayout'
@@ -25,6 +25,7 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
   const color = icon?.kind === 'color' ? icon.color : undefined
   const palette = getDesktopIconPalette(`${props.entry.kind}:${props.entry.id}:${props.entry.name}`, color)
   const detailLabel = props.entry.kind === 'container' ? `${props.entry.itemCount || 0} 个项目` : null
+  const sourceCategory = props.entry.item?.sourceCategoryId ? categoryDefinition(props.entry.item.sourceCategoryId) : null
   const containerItems = props.entry.kind === 'container' ? props.workspace.items.filter(item => item.containerId === props.entry.id).slice(0, 4) : []
   const surfaceShadow = props.entry.kind === 'container' ? '0 18px 34px rgba(15, 23, 42, 0.18)' : palette.shadow
   const title = props.entry.item ? itemTargetValue(props.entry.item) : props.entry.name
@@ -98,6 +99,7 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
             targetKind={props.entry.item?.target.kind}
           />
         )}
+        {sourceCategory ? <SourceCategoryBadge label={sourceCategory.label} /> : null}
         <Box sx={{ width: '100%', minWidth: 0, display: 'grid', justifyItems: 'center', gap: 0.35 }}>
           <Typography
             component="span"
@@ -143,6 +145,37 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
           ) : null}
         </Box>
       </ButtonBase>
+    </Box>
+  )
+}
+
+function SourceCategoryBadge(props: { label: string }) {
+  return (
+    <Box
+      aria-label={`来源分类：${props.label}`}
+      title={`来源分类：${props.label}`}
+      sx={{
+        position: 'absolute',
+        right: 10,
+        top: 44,
+        maxWidth: 48,
+        px: 0.6,
+        py: 0.18,
+        borderRadius: 999,
+        bgcolor: 'rgba(15, 23, 42, 0.82)',
+        border: '1px solid rgba(255, 255, 255, 0.72)',
+        color: '#FFFFFF',
+        fontSize: 10,
+        fontWeight: 900,
+        lineHeight: 1.25,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        boxShadow: '0 8px 18px rgba(15, 23, 42, 0.28)',
+        pointerEvents: 'none',
+      }}
+    >
+      {props.label}
     </Box>
   )
 }

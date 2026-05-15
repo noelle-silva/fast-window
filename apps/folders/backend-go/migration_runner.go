@@ -147,6 +147,7 @@ func registeredMigrations() []dataMigration {
 		legacyFlatWorkspaceMigration(3),
 		legacyFlatWorkspaceMigration(4),
 		categoryOrderMigration(),
+		allViewMigration(),
 	}
 }
 
@@ -173,7 +174,7 @@ func categoryOrderMigration() dataMigration {
 	return dataMigration{
 		ID:          "2026-05-15-folders-data-v5-to-v6-category-order",
 		FromVersion: 5,
-		ToVersion:   dataVersion,
+		ToVersion:   6,
 		Description: "Add explicit category order settings to folders data",
 		Recovery: migrationRecoverySpec{
 			AffectedPaths: []string{dataFile, metaFile, migrationStateFile},
@@ -183,6 +184,24 @@ func categoryOrderMigration() dataMigration {
 		},
 		Apply: func(svc *service) error {
 			return svc.migrateCategoryOrder()
+		},
+	}
+}
+
+func allViewMigration() dataMigration {
+	return dataMigration{
+		ID:          "2026-05-16-folders-data-v6-to-v7-all-view",
+		FromVersion: 6,
+		ToVersion:   dataVersion,
+		Description: "Add persisted all-category aggregate view settings to folders data",
+		Recovery: migrationRecoverySpec{
+			AffectedPaths: []string{dataFile, metaFile, migrationStateFile},
+			Notes: []string{
+				"The migration preserves all concrete category workspaces and initializes the all-category view as an empty aggregate selection.",
+			},
+		},
+		Apply: func(svc *service) error {
+			return svc.migrateAllView()
 		},
 	}
 }

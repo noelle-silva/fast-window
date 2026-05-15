@@ -44,15 +44,31 @@ export function buildDesktopGridEntries(workspace: CategoryWorkspace, groupId: s
   ].sort((left, right) => entryPageOrder(left) - entryPageOrder(right) || left.name.localeCompare(right.name, 'zh-Hans-CN'))
 }
 
+export function buildAllDesktopGridEntries(workspace: CategoryWorkspace): DesktopGridEntry[] {
+  return workspace.items.map(item => ({
+    kind: 'item' as const,
+    id: item.id,
+    name: item.name,
+    layout: item.layout,
+    icon: item.icon,
+    item,
+  })).sort((left, right) => (left.item?.pageOrder ?? 0) - (right.item?.pageOrder ?? 0) || left.name.localeCompare(right.name, 'zh-Hans-CN'))
+}
+
 export function filterDesktopGridEntries(workspace: CategoryWorkspace, entries: DesktopGridEntry[], groupId: string, search: string): DesktopGridEntry[] {
   const q = search.trim().toLowerCase()
   return entries.filter(entry => {
+    if (workspace.id === 'all') return entry.kind === 'item' && matchesAllViewItem(entry.item!, q)
     if (entry.kind === 'item') return matchesItem(entry.item!, groupId, q)
     const childItems = workspace.items.filter(item => item.containerId === entry.id)
     const matchesContainerName = !q || entry.name.toLowerCase().includes(q)
     const matchesChildren = childItems.some(item => matchesItem(item, groupId, q))
     return matchesContainerName || matchesChildren
   })
+}
+
+function matchesAllViewItem(item: NonNullable<DesktopGridEntry['item']>, q: string): boolean {
+  return !q || item.name.toLowerCase().includes(q) || itemTargetValue(item).toLowerCase().includes(q)
 }
 
 function entryPageOrder(entry: DesktopGridEntry): number {

@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
+import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
 import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded'
 import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
@@ -28,6 +29,7 @@ import {
   Chip,
   CircularProgress,
   Dialog,
+  Checkbox,
   DialogContent,
   FormControl,
   IconButton,
@@ -50,7 +52,7 @@ import {
 } from '@mui/material'
 import type { SelectChangeEvent } from '@mui/material/Select'
 import { createDirectClient } from './backendClient'
-import { categoryDefinition, moveCategoryOrder, orderedCategoryDefinitions, type CategoryDefinition } from './categoryRegistry'
+import { ALL_VIEW_CATEGORY_ID, categoryDefinition, moveCategoryOrder, orderedCategoryDefinitions, orderedViewCategoryDefinitions, viewCategoryDefinition, type CategoryDefinition, type ViewCategoryDefinition } from './categoryRegistry'
 import { clipboardImageDataUrlFromClipboard, clipboardImageDataUrlFromPasteEvent } from './clipboardImage'
 import { ContainerOverlay } from './ContainerOverlay'
 import type { ContainerItemDragEvent } from './ContainerOverlay'
@@ -68,7 +70,7 @@ import { wallpaperDeckFromWorkspace, wallpaperDeckWithWorkspace } from './deskto
 import { createDesktopWallpaperPreset, upsertDesktopWallpaperPresetView } from './desktopWallpaperPresets'
 import { isContainerDropTargetActive, resolveDesktopDragMode, resolveDesktopDropIntent } from './desktopDragState'
 import type { ContainerGridApi, ContainerGridPlacement } from './folder-grid/ContainerGridCanvas'
-import { buildDesktopGridEntries, filterDesktopGridEntries } from './folder-grid/desktopEntries'
+import { buildAllDesktopGridEntries, buildDesktopGridEntries, filterDesktopGridEntries } from './folder-grid/desktopEntries'
 import { groupContainerCount, groupIdForPage, groupItemCount } from './groupMembership'
 import { rememberGroupSelection, resolveGroupSelection, type GroupSelectionByCategory } from './groupSelection'
 import { useWebIconDiscoverySession } from './webIconDiscoverySession'
@@ -78,6 +80,7 @@ import type {
   ContextMenuState,
   DataDirStatus,
   CollectionCategoryId,
+  CollectionViewCategoryId,
   DesktopAsset,
   CategoryWorkspaceView,
   CollectionContainer,
@@ -92,6 +95,7 @@ import type {
   CollectionGroup,
   CollectionsHealth,
   CollectionItem,
+  AllViewItemCandidate,
   IconAppearanceCandidate,
   FwLaunchInfo,
   GroupFormState,
@@ -102,6 +106,7 @@ import type {
 
 type CollectionItemFormPayload = Omit<CollectionItem, 'icon'> & { icon: DesktopIcon | null }
 type CategoryWallpaperEntry = DesktopWallpaperDeck['categories'][number]
+type AllViewSelectionState = Record<string, boolean>
 import { FolderGridCanvas, type DesktopGridApi, type DesktopGridDragEvent, type DesktopGridExternalItemDrag, type DesktopGridLayoutPatch } from './folder-grid/FolderGridCanvas'
 import {
   DESKTOP_ICON_GAP_MAX,
@@ -144,6 +149,18 @@ function reorderWallpaperDeckCategories(categories: CategoryWallpaperEntry[], ca
   })
 }
 
+function allViewSelectionKey(categoryId: CollectionCategoryId, itemId: string): string {
+  return `${categoryId}:${itemId}`
+}
+
+function sourceCategoryIdForItem(item: CollectionItem): CollectionCategoryId {
+  return item.sourceCategoryId || item.target.kind
+}
+
+function sourceItemIdForItem(item: CollectionItem): string {
+  return item.sourceItemId || item.id
+}
+
 type ContainerDropResolution =
   | { kind: 'icon' }
   | { kind: 'grid'; placements: ContainerGridPlacement[] }
@@ -155,7 +172,7 @@ export function App() {
   const [client, setClient] = React.useState<DirectClient | null>(null)
   const [doc, setDoc] = React.useState<CategoryWorkspaceView>(DEFAULT_WORKSPACE_VIEW)
   const [wallpaperDeck, setWallpaperDeck] = React.useState<DesktopWallpaperDeck | null>(null)
-  const [activeCategoryId, setActiveCategoryId] = React.useState<CollectionCategoryId>(DEFAULT_CATEGORY_ID)
+  const [activeCategoryId, setActiveCategoryId] = React.useState<CollectionViewCategoryId>(DEFAULT_CATEGORY_ID)
   const [phase, setPhase] = React.useState<Phase>('starting')
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
@@ -169,6 +186,9 @@ export function App() {
   const [groupEditorOpen, setGroupEditorOpen] = React.useState(false)
   const [groupForm, setGroupForm] = React.useState<GroupFormState>(EMPTY_GROUP_FORM)
   const [containerEditorOpen, setContainerEditorOpen] = React.useState(false)
+  const [allViewSelectorOpen, setAllViewSelectorOpen] = React.useState(false)
+  const [allViewCandidates, setAllViewCandidates] = React.useState<AllViewItemCandidate[]>([])
+  const [allViewSelection, setAllViewSelection] = React.useState<AllViewSelectionState>({})
   const [containerForm, setContainerForm] = React.useState<ContainerFormState>(EMPTY_CONTAINER_FORM)
   const [editingContainer, setEditingContainer] = React.useState<CollectionContainer | null>(null)
   const [containerView, setContainerView] = React.useState<CollectionContainer | null>(null)
@@ -186,7 +206,9 @@ export function App() {
   const hoverOpenTimerRef = React.useRef<number | null>(null)
   const hoverOpenTargetIdRef = React.useRef<string | null>(null)
   const readyRef = React.useRef(false)
-  const activeCategory = categoryDefinition(activeCategoryId)
+  const activeViewCategory = viewCategoryDefinition(activeCategoryId)
+  const activeCategory = activeCategoryId === ALL_VIEW_CATEGORY_ID ? null : categoryDefinition(activeCategoryId)
+  const isAllView = activeCategoryId === ALL_VIEW_CATEGORY_ID
   const requestParams = React.useCallback((params?: Record<string, unknown>) => ({ categoryId: activeCategoryId, ...(params || {}) }), [activeCategoryId])
 
   const cancelWebIconDiscovery = React.useCallback(() => {
@@ -206,7 +228,7 @@ export function App() {
     setWallpaperDeck(current => wallpaperDeckWithWorkspace(current, workspace))
   }, [])
 
-  const loadCategory = React.useCallback(async (categoryId: CollectionCategoryId, nextClient = client) => {
+  const loadCategory = React.useCallback(async (categoryId: CollectionViewCategoryId, nextClient = client) => {
     if (!nextClient) return
     cancelWebIconDiscovery()
     setBusy(true); setError(null)
@@ -237,7 +259,7 @@ export function App() {
     setGroupIdByCategory(current => rememberGroupSelection(current, activeCategoryId, resolvedGroupId))
   }, [activeCategoryId])
 
-  const selectCategory = React.useCallback((categoryId: CollectionCategoryId) => {
+  const selectCategory = React.useCallback((categoryId: CollectionViewCategoryId) => {
     if (categoryId === activeCategoryId) return
     setGroupIdByCategory(current => rememberGroupSelection(current, activeCategoryId, groupId))
     setActiveCategoryId(categoryId)
@@ -369,9 +391,10 @@ export function App() {
   }
 
   function openAdd() {
+    if (!activeCategory) return
     cancelWebIconDiscovery()
     const selectedGroupId = resolveGroupSelection(doc, groupId)
-    setEditing(itemTemplate(activeCategoryId, selectedGroupId))
+    setEditing(itemTemplate(activeCategory.id, selectedGroupId))
     setForm(createEmptyItemForm(selectedGroupId))
   }
 
@@ -381,6 +404,7 @@ export function App() {
   }
 
   function openAddContainer() {
+    if (isAllView) return
     if (!resolveGroupSelection(doc, groupId)) { setError('请先创建分组，再添加收纳夹'); return }
     setEditingContainer(null)
     setContainerForm({ ...EMPTY_CONTAINER_FORM })
@@ -388,6 +412,7 @@ export function App() {
   }
 
   function openEditContainer(container: CollectionContainer) {
+    if (isAllView) return
     setEditingContainer(container)
     setContainerForm({ id: container.id, name: container.name })
     setContainerEditorOpen(true)
@@ -395,7 +420,7 @@ export function App() {
   }
 
   async function saveItem() {
-    if (!client || !editing) return
+    if (!client || !editing || !activeCategory) return
     const targetValue = form.target.trim()
     const targetError = activeCategory.validateTarget(targetValue)
     if (targetError) { setError(targetError); return }
@@ -430,7 +455,7 @@ export function App() {
   }
 
   async function removeItem(item: CollectionItem) {
-    if (!client) return
+    if (!client || !activeCategory) return
     setBusy(true); setError(null)
     try { setDoc(await client.request<CategoryWorkspaceView>('collections.items.remove', requestParams({ id: item.id }))); setConfirm(null); setContextMenu(null) }
     catch (e) { setError(errorMessage(e, `删除${activeCategory.singularLabel}失败`)) }
@@ -440,14 +465,15 @@ export function App() {
   async function openItem(item: CollectionItem) {
     if (!client) return
     setBusy(true); setError(null); setContextMenu(null)
-    const itemCategory = categoryDefinition(item.target.kind)
-    try { await client.request('collections.items.open', requestParams({ categoryId: item.target.kind, id: item.id })) }
+    const sourceCategoryId = sourceCategoryIdForItem(item)
+    const itemCategory = categoryDefinition(sourceCategoryId)
+    try { await client.request('collections.items.open', requestParams({ categoryId: sourceCategoryId, id: sourceItemIdForItem(item) })) }
     catch (e) { setError(errorMessage(e, itemCategory.openError)) }
     finally { setBusy(false) }
   }
 
   async function moveItemToGroup(item: CollectionItem, targetGroupId: string) {
-    if (!client || item.groupId === targetGroupId) return
+    if (!client || isAllView || item.groupId === targetGroupId) return
     setBusy(true); setError(null)
     try { setDoc(await client.request<CategoryWorkspaceView>('collections.items.move-to-group', requestParams({ id: item.id, groupId: targetGroupId }))); setContextMenu(null) }
     catch (e) { setError(errorMessage(e, '移动到分类失败')) }
@@ -455,7 +481,7 @@ export function App() {
   }
 
   async function copyItemToGroup(item: CollectionItem, targetGroupId: string) {
-    if (!client || item.groupId === targetGroupId) return
+    if (!client || isAllView || item.groupId === targetGroupId) return
     setBusy(true); setError(null)
     try { setDoc(await client.request<CategoryWorkspaceView>('collections.items.copy-to-group', requestParams({ id: item.id, groupId: targetGroupId }))); setContextMenu(null) }
     catch (e) { setError(errorMessage(e, '复制到分类失败')) }
@@ -463,7 +489,7 @@ export function App() {
   }
 
   async function saveItemContainer(ids: string[], containerId: string) {
-    if (!client || !ids.length) return
+    if (!client || isAllView || !ids.length) return
     setBusy(true); setError(null)
     try { setDoc(await client.request<CategoryWorkspaceView>('collections.items.container.save', requestParams({ ids, containerId }))); setContextMenu(null) }
     catch (e) { setError(errorMessage(e, '移动到收纳夹失败')) }
@@ -471,7 +497,7 @@ export function App() {
   }
 
   async function createContainerFromItems(sourceItemId: string, targetItemId: string, layout: NonNullable<CollectionItem['layout']>) {
-    if (!client) return
+    if (!client || isAllView) return
     setBusy(true); setError(null)
     try {
       const nextDoc = await client.request<CategoryWorkspaceView>('collections.containers.create-from-items', requestParams({ sourceItemId, targetItemId, layout }))
@@ -831,7 +857,7 @@ export function App() {
   }
 
   async function saveGroup() {
-    if (!client) return
+    if (!client || isAllView) return
     const name = groupForm.name.trim()
     if (!name) { setError('分组名称不能为空'); return }
     const id = groupForm.id || createGroupID()
@@ -844,7 +870,7 @@ export function App() {
   }
 
   async function removeGroup(group: CollectionGroup) {
-    if (!client) return
+    if (!client || isAllView) return
     setBusy(true); setError(null)
     try {
       const nextDoc = await client.request<CategoryWorkspaceView>('collections.groups.remove', requestParams({ id: group.id }))
@@ -854,7 +880,7 @@ export function App() {
   }
 
   async function saveContainer() {
-    if (!client) return
+    if (!client || isAllView) return
     const name = containerForm.name.trim()
     if (!name) { setError('收纳夹名称不能为空'); return }
     setBusy(true); setError(null)
@@ -881,7 +907,7 @@ export function App() {
   }
 
   async function renameContainer(container: CollectionContainer, name: string) {
-    if (!client) throw new Error('后台未连接')
+    if (!client || isAllView) throw new Error('当前视图不支持重命名收纳夹')
     const nextName = name.trim()
     if (!nextName) throw new Error('收纳夹名称不能为空')
     if (nextName === container.name) return
@@ -905,7 +931,7 @@ export function App() {
   }
 
   async function removeContainer(container: CollectionContainer) {
-    if (!client) return
+    if (!client || isAllView) return
     setBusy(true); setError(null)
     try { setDoc(await client.request<CategoryWorkspaceView>('collections.containers.remove', requestParams({ id: container.id }))); setConfirm(null); setContainerView(null); setContextMenu(null) }
     catch (e) { setError(errorMessage(e, '删除收纳夹失败')) }
@@ -958,7 +984,7 @@ export function App() {
   }
 
   async function fetchFormSystemIcon() {
-    if (!client || !editing) return
+    if (!client || !editing || !activeCategory) return
     const target = form.target.trim()
     const targetError = activeCategory.validateTarget(target)
     if (targetError) { setError(targetError); return }
@@ -979,7 +1005,7 @@ export function App() {
   }
 
   async function fetchFormWebIcons() {
-    if (!client || !editing) return
+    if (!client || !editing || !activeCategory) return
     const target = form.target.trim()
     const targetError = activeCategory.validateTarget(target)
     if (targetError) { setError(targetError); return }
@@ -1101,6 +1127,43 @@ export function App() {
     finally { setBusy(false) }
   }
 
+  async function openAllViewSelector() {
+    if (!client) return
+    setBusy(true); setError(null)
+    try {
+      const candidates = await client.request<AllViewItemCandidate[]>('collections.all-view.candidates')
+      setAllViewCandidates(candidates)
+      setAllViewSelection(Object.fromEntries(doc.items.map(item => [allViewSelectionKey(sourceCategoryIdForItem(item), sourceItemIdForItem(item)), true])))
+      setAllViewSelectorOpen(true)
+    } catch (e) { setError(errorMessage(e, '加载可选图标失败')) }
+    finally { setBusy(false) }
+  }
+
+  async function saveAllViewSelection() {
+    if (!client) return
+    const items = allViewCandidates
+      .filter(candidate => allViewSelection[allViewSelectionKey(candidate.categoryId, candidate.item.id)])
+      .map(candidate => ({ categoryId: candidate.categoryId, itemId: candidate.item.id }))
+    setBusy(true); setError(null)
+    try {
+      setDoc(await client.request<CategoryWorkspaceView>('collections.all-view.selection.save', { items }))
+      setAllViewSelectorOpen(false)
+    } catch (e) { setError(errorMessage(e, '保存全部图标选择失败')) }
+    finally { setBusy(false) }
+  }
+
+  async function removeItemFromAllView(item: CollectionItem) {
+    if (!client) return
+    const sourceKey = allViewSelectionKey(sourceCategoryIdForItem(item), sourceItemIdForItem(item))
+    const items = doc.items
+      .filter(current => allViewSelectionKey(sourceCategoryIdForItem(current), sourceItemIdForItem(current)) !== sourceKey)
+      .map(current => ({ categoryId: sourceCategoryIdForItem(current), itemId: sourceItemIdForItem(current) }))
+    setBusy(true); setError(null)
+    try { setDoc(await client.request<CategoryWorkspaceView>('collections.all-view.selection.save', { items })); setConfirm(null); setContextMenu(null) }
+    catch (e) { setError(errorMessage(e, '从全部中移除图标失败')) }
+    finally { setBusy(false) }
+  }
+
   async function pickWallpaperImage() {
     if (!client) return
     setBusy(true); setError(null)
@@ -1125,6 +1188,7 @@ export function App() {
   }
 
   async function pickItemTarget() {
+    if (!activeCategory) return
     const pickCommand = activeCategory.pickCommand
     if (!pickCommand) return
     setError(null)
@@ -1134,7 +1198,7 @@ export function App() {
     } catch (e) { setError(errorMessage(e, activeCategory.pickError)) }
   }
 
-  const allDesktopEntries = React.useMemo(() => buildDesktopGridEntries(doc, groupId), [doc, groupId])
+  const allDesktopEntries = React.useMemo(() => isAllView ? buildAllDesktopGridEntries(doc) : buildDesktopGridEntries(doc, groupId), [doc, groupId, isAllView])
   const filteredEntries = React.useMemo(() => filterDesktopGridEntries(doc, allDesktopEntries, groupId, search), [allDesktopEntries, doc, groupId, search])
   const visibleIconLayout = iconLayoutDraft || doc.desktop.iconLayout
   const externalDesktopDragPreview = containerExtractDrag?.mode === 'desktop' ? containerExtractDrag.desktopDrag : null
@@ -1160,7 +1224,7 @@ export function App() {
       <TopBar
         activeCategoryId={activeCategoryId}
         busy={busy}
-        categories={orderedCategoryDefinitions(doc.categoryOrder)}
+        categories={orderedViewCategoryDefinitions(doc.categoryOrder)}
         doc={doc}
         groupId={groupId}
         launchInfo={launchInfo}
@@ -1170,6 +1234,7 @@ export function App() {
         onCategoryChange={selectCategory}
         onAdd={openAdd}
         onAddContainer={openAddContainer}
+        onOpenAllViewSelector={() => void openAllViewSelector()}
         onGroupChange={selectGroup}
         onOpenGroupEditor={() => openGroupEditor(selectedGroup)}
         onOpenSettings={() => setSettingsOpen(true)}
@@ -1186,7 +1251,7 @@ export function App() {
       />
 
       <FolderGridCanvas
-        category={activeCategory}
+        category={activeViewCategory}
         workspace={doc}
         allEntries={allDesktopEntries}
         assetUrl={client?.assetUrl}
@@ -1227,7 +1292,7 @@ export function App() {
         onDelete={entry => setConfirm({ kind: entry.kind, id: entry.id, label: entry.name })}
       />
 
-      <ItemDialog
+      {activeCategory ? <ItemDialog
         category={activeCategory}
         busy={busy}
         doc={doc}
@@ -1246,7 +1311,7 @@ export function App() {
         onResetIcon={() => updateFormIconDraft(null)}
         onSave={() => void saveItem()}
         onSelectIconCandidate={selectFormIconCandidate}
-      />
+      /> : null}
 
       <GroupDialog
         busy={busy}
@@ -1291,6 +1356,16 @@ export function App() {
         onSave={() => void saveContainer()}
       />
 
+      <AllViewSelectorDialog
+        busy={busy}
+        candidates={allViewCandidates}
+        open={allViewSelectorOpen}
+        selection={allViewSelection}
+        onChange={setAllViewSelection}
+        onClose={() => setAllViewSelectorOpen(false)}
+        onSave={() => void saveAllViewSelection()}
+      />
+
       <ContainerOverlay
         assetUrl={client?.assetUrl}
         closeDisabled={Boolean(containerExtractDrag)}
@@ -1332,7 +1407,7 @@ export function App() {
 
       <ConfirmDialog
         busy={busy}
-        category={activeCategory}
+        category={activeViewCategory}
         confirm={confirm}
         doc={doc}
         onClose={() => setConfirm(null)}
@@ -1342,7 +1417,7 @@ export function App() {
           const container = doc.containers.find(current => current.id === confirm.id)
           if (confirm.kind === 'group') void removeGroup({ id: confirm.id, name: confirm.label })
           else if (confirm.kind === 'container' && container) void removeContainer(container)
-          else if (confirm.kind === 'item' && item) void removeItem(item)
+          else if (confirm.kind === 'item' && item) void (isAllView ? removeItemFromAllView(item) : removeItem(item))
           else setConfirm(null)
         }}
       />
@@ -1352,26 +1427,28 @@ export function App() {
 }
 
 function TopBar(props: {
-  activeCategoryId: CollectionCategoryId
+  activeCategoryId: CollectionViewCategoryId
   busy: boolean
-  categories: CategoryDefinition[]
+  categories: ViewCategoryDefinition[]
   doc: CategoryWorkspaceView
   groupId: string
   launchInfo: FwLaunchInfo
   phase: Phase
   search: string
   selectedGroup: CollectionGroup | undefined
-  onCategoryChange(categoryId: CollectionCategoryId): void
+  onCategoryChange(categoryId: CollectionViewCategoryId): void
   onAdd(): void
   onAddContainer(): void
   onGroupChange(groupId: string): void
   onOpenGroupEditor(): void
+  onOpenAllViewSelector(): void
   onOpenSettings(): void
   onSearchChange(search: string): void
 }) {
   const statusColor = props.phase === 'failed' ? 'error' : 'warning'
   const statusText = props.phase === 'data-error' ? '数据异常' : props.phase === 'failed' ? '需处理' : '启动中'
   const canEdit = props.phase === 'ready'
+  const isAllView = props.activeCategoryId === ALL_VIEW_CATEGORY_ID
   const groupActionLabel = props.selectedGroup ? '编辑分组' : '新分组'
 
   return (
@@ -1404,6 +1481,7 @@ function TopBar(props: {
         doc={props.doc}
         groupActionLabel={groupActionLabel}
         groupId={props.groupId}
+        isAllView={isAllView}
         phase={props.phase}
         search={props.search}
         selectedGroup={props.selectedGroup}
@@ -1414,6 +1492,7 @@ function TopBar(props: {
         onCategoryChange={props.onCategoryChange}
         onGroupChange={props.onGroupChange}
         onOpenGroupEditor={props.onOpenGroupEditor}
+        onOpenAllViewSelector={props.onOpenAllViewSelector}
         onOpenSettings={props.onOpenSettings}
         onSearchChange={props.onSearchChange}
       />
@@ -1423,13 +1502,14 @@ function TopBar(props: {
 }
 
 function TopBarTools(props: {
-  activeCategoryId: CollectionCategoryId
+  activeCategoryId: CollectionViewCategoryId
   busy: boolean
   canEdit: boolean
-  categories: CategoryDefinition[]
+  categories: ViewCategoryDefinition[]
   doc: CategoryWorkspaceView
   groupActionLabel: string
   groupId: string
+  isAllView: boolean
   phase: Phase
   search: string
   selectedGroup: CollectionGroup | undefined
@@ -1437,9 +1517,10 @@ function TopBarTools(props: {
   statusText: string
   onAdd(): void
   onAddContainer(): void
-  onCategoryChange(categoryId: CollectionCategoryId): void
+  onCategoryChange(categoryId: CollectionViewCategoryId): void
   onGroupChange(groupId: string): void
   onOpenGroupEditor(): void
+  onOpenAllViewSelector(): void
   onOpenSettings(): void
   onSearchChange(search: string): void
 }) {
@@ -1457,7 +1538,7 @@ function TopBarTools(props: {
         exclusive
         size="small"
         value={props.activeCategoryId}
-        onChange={(_, value: CollectionCategoryId | null) => { if (value) props.onCategoryChange(value) }}
+        onChange={(_, value: CollectionViewCategoryId | null) => { if (value) props.onCategoryChange(value) }}
         aria-label="收藏类别"
         sx={{
           bgcolor: 'rgba(255,255,255,0.64)',
@@ -1471,16 +1552,18 @@ function TopBarTools(props: {
           return <ToggleButton key={category.id} value={category.id} aria-label={category.label}><CategoryIcon fontSize="small" sx={{ mr: 0.6 }} />{category.label}</ToggleButton>
         })}
       </ToggleButtonGroup>
-      <GroupFilterSelect doc={props.doc} groupId={props.groupId} onGroupChange={props.onGroupChange} />
+      {props.isAllView ? null : <GroupFilterSelect doc={props.doc} groupId={props.groupId} onGroupChange={props.onGroupChange} />}
       {props.phase !== 'ready' ? <Chip color={props.statusColor} size="small" label={props.statusText} icon={props.phase === 'starting' ? <CircularProgress size={12} color="inherit" /> : undefined} /> : null}
       <TopBarActions
         busy={props.busy}
         canEdit={props.canEdit}
-        canCreateContainer={Boolean(props.selectedGroup)}
+        canCreateContainer={!props.isAllView && Boolean(props.selectedGroup)}
+        isAllView={props.isAllView}
         groupActionLabel={props.groupActionLabel}
         selectedGroup={props.selectedGroup}
         onAdd={props.onAdd}
         onAddContainer={props.onAddContainer}
+        onOpenAllViewSelector={props.onOpenAllViewSelector}
         onOpenGroupEditor={props.onOpenGroupEditor}
         onOpenSettings={props.onOpenSettings}
       />
@@ -1493,18 +1576,21 @@ function TopBarActions(props: {
   canEdit: boolean
   canCreateContainer: boolean
   groupActionLabel: string
+  isAllView: boolean
   selectedGroup: CollectionGroup | undefined
   onAdd(): void
   onAddContainer(): void
+  onOpenAllViewSelector(): void
   onOpenGroupEditor(): void
   onOpenSettings(): void
 }) {
   return (
     <Stack direction="row" spacing={1} alignItems="center" sx={{ flex: '0 0 auto' }}>
       <Button variant="text" startIcon={<SettingsRoundedIcon />} onClick={props.onOpenSettings}>设置</Button>
-      <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={props.onAdd} disabled={!props.canEdit || props.busy}>新增</Button>
-      <Button variant="text" startIcon={<Inventory2RoundedIcon />} onClick={props.onAddContainer} disabled={!props.canEdit || props.busy || !props.canCreateContainer}>收纳夹</Button>
-      <Button
+      {props.isAllView ? <Button variant="contained" startIcon={<AppsRoundedIcon />} onClick={props.onOpenAllViewSelector} disabled={!props.canEdit || props.busy}>选择图标</Button> : null}
+      {!props.isAllView ? <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={props.onAdd} disabled={!props.canEdit || props.busy}>新增</Button> : null}
+      {!props.isAllView ? <Button variant="text" startIcon={<Inventory2RoundedIcon />} onClick={props.onAddContainer} disabled={!props.canEdit || props.busy || !props.canCreateContainer}>收纳夹</Button> : null}
+      {!props.isAllView ? <Button
         variant="text"
         startIcon={props.selectedGroup ? <EditRoundedIcon /> : <CreateNewFolderRoundedIcon />}
         onClick={props.onOpenGroupEditor}
@@ -1512,7 +1598,7 @@ function TopBarActions(props: {
         sx={{ minWidth: 108 }}
       >
         {props.groupActionLabel}
-      </Button>
+      </Button> : null}
     </Stack>
   )
 }
@@ -1553,6 +1639,64 @@ function GroupFilterSelect(props: { doc: CategoryWorkspaceView; groupId: string;
         {props.doc.groups.length ? props.doc.groups.map(group => <MenuItem key={group.id} value={group.id}>{group.name}</MenuItem>) : <MenuItem value="" disabled>暂无分组</MenuItem>}
       </Select>
     </FormControl>
+  )
+}
+
+function AllViewSelectorDialog(props: {
+  busy: boolean
+  candidates: AllViewItemCandidate[]
+  open: boolean
+  selection: AllViewSelectionState
+  onChange(selection: AllViewSelectionState): void
+  onClose(): void
+  onSave(): void
+}) {
+  const selectedCount = Object.values(props.selection).filter(Boolean).length
+  const setSelected = (candidate: AllViewItemCandidate, selected: boolean) => {
+    const key = allViewSelectionKey(candidate.categoryId, candidate.item.id)
+    props.onChange({ ...props.selection, [key]: selected })
+  }
+  return (
+    <Dialog open={props.open} onClose={props.onClose} fullWidth maxWidth="md">
+      <DialogContent sx={{ p: 3 }}>
+        <Stack spacing={2.25}>
+          <Box>
+            <Typography variant="h2">选择全部图标</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>从已建立的文件夹、网址和文件图标中选择要显示在“全部”里的项目。</Typography>
+          </Box>
+          <Paper elevation={0} sx={{ p: 1.25, borderRadius: 3, bgcolor: theme => alpha(theme.palette.primary.main, 0.06) }}>
+            <ScrollArea sx={{ maxHeight: 420 }} viewportSx={{ display: 'grid', gap: 1 }}>
+              {props.candidates.length ? props.candidates.map(candidate => {
+                const category = categoryDefinition(candidate.categoryId)
+                const CategoryIcon = category.icon
+                const key = allViewSelectionKey(candidate.categoryId, candidate.item.id)
+                const checked = Boolean(props.selection[key])
+                return (
+                  <Paper key={key} elevation={0} sx={{ p: 1.15, borderRadius: 2.5, display: 'flex', alignItems: 'center', gap: 1.25, bgcolor: checked ? 'rgba(37, 99, 235, 0.11)' : 'rgba(255,255,255,0.72)' }}>
+                    <Checkbox checked={checked} onChange={event => setSelected(candidate, event.target.checked)} disabled={props.busy} inputProps={{ 'aria-label': `选择${candidate.item.name}` }} />
+                    <Box sx={{ width: 32, height: 32, borderRadius: 2, display: 'grid', placeItems: 'center', bgcolor: theme => alpha(theme.palette.primary.main, 0.12), color: 'primary.main', flex: '0 0 auto' }}>
+                      <CategoryIcon fontSize="small" />
+                    </Box>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography fontWeight={900} noWrap>{candidate.item.name}</Typography>
+                      <Typography variant="caption" color="text.secondary" noWrap>{category.label} · {category.targetValue(candidate.item)}</Typography>
+                    </Box>
+                    <Chip size="small" label={category.label} />
+                  </Paper>
+                )
+              }) : <Typography color="text.secondary" sx={{ p: 2 }}>还没有可选择的图标，请先在文件夹、网址或文件分类里新增项目。</Typography>}
+            </ScrollArea>
+          </Paper>
+          <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center">
+            <Chip size="small" label={`已选择 ${selectedCount} 个`} />
+            <Stack direction="row" spacing={1}>
+              <Button onClick={props.onClose}>取消</Button>
+              <Button variant="contained" onClick={props.onSave} disabled={props.busy}>保存选择</Button>
+            </Stack>
+          </Stack>
+        </Stack>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -1623,6 +1767,7 @@ function CollectionContextMenu(props: {
   const entry = props.menu?.entry
   const item = entry?.kind === 'item' ? props.doc.items.find(current => current.id === entry.id) || entry.item : null
   const container = entry?.kind === 'container' ? entry.container : null
+  const isAllView = props.doc.id === ALL_VIEW_CATEGORY_ID
   const targetGroups = item ? props.groups.filter(group => group.id !== item.groupId) : []
   return (
     <Menu
@@ -1637,15 +1782,15 @@ function CollectionContextMenu(props: {
           <ListItemIcon><OpenInNewRoundedIcon fontSize="small" /></ListItemIcon>
           <ListItemText>打开</ListItemText>
         </MenuItem>,
-        item ? <MenuItem key="edit" onClick={() => props.onEdit(item)}>
+        item && !isAllView ? <MenuItem key="edit" onClick={() => props.onEdit(item)}>
           <ListItemIcon><EditRoundedIcon fontSize="small" /></ListItemIcon>
           <ListItemText>编辑</ListItemText>
         </MenuItem> : null,
-        container ? <MenuItem key="edit-container" onClick={() => props.onEditContainer(container)}>
+        container && !isAllView ? <MenuItem key="edit-container" onClick={() => props.onEditContainer(container)}>
           <ListItemIcon><Inventory2RoundedIcon fontSize="small" /></ListItemIcon>
           <ListItemText>编辑收纳夹</ListItemText>
         </MenuItem> : null,
-        item ? <Box key="group-actions" sx={{ px: 2, py: 1, minWidth: 240, display: 'grid', gap: 1 }}>
+        item && !isAllView ? <Box key="group-actions" sx={{ px: 2, py: 1, minWidth: 240, display: 'grid', gap: 1 }}>
           <FormControl variant="filled" fullWidth size="small" disabled={props.busy || !targetGroups.length}>
             <InputLabel id="context-move-group-label">移动到分类</InputLabel>
             <Select
@@ -1671,7 +1816,7 @@ function CollectionContextMenu(props: {
             </Select>
           </FormControl>
         </Box> : null,
-        item ? <Box key="container" sx={{ px: 2, py: 1, minWidth: 220 }}>
+        item && !isAllView ? <Box key="container" sx={{ px: 2, py: 1, minWidth: 220 }}>
           <FormControl variant="filled" fullWidth size="small">
             <InputLabel id="context-container-label">收纳夹</InputLabel>
             <Select
@@ -1688,7 +1833,7 @@ function CollectionContextMenu(props: {
         </Box> : null,
         <MenuItem key="delete" onClick={() => props.onDelete(entry)} sx={{ color: 'error.main' }}>
           <ListItemIcon><DeleteOutlineRoundedIcon fontSize="small" color="error" /></ListItemIcon>
-          <ListItemText>删除</ListItemText>
+          <ListItemText>{isAllView ? '从全部移除' : '删除'}</ListItemText>
         </MenuItem>,
       ] : null}
     </Menu>
@@ -2063,7 +2208,7 @@ function InfoBlock(props: { label: string; value: string; mono?: boolean }) {
   )
 }
 
-function ConfirmDialog(props: { busy: boolean; category: CategoryDefinition; confirm: ConfirmState; doc: CategoryWorkspaceView; onClose(): void; onConfirm(): void }) {
+function ConfirmDialog(props: { busy: boolean; category: ViewCategoryDefinition; confirm: ConfirmState; doc: CategoryWorkspaceView; onClose(): void; onConfirm(): void }) {
   const matchingGroupItemCount = props.confirm?.kind === 'group' ? groupItemCount(props.doc, props.confirm.id) : 0
   const matchingGroupContainerCount = props.confirm?.kind === 'group' ? groupContainerCount(props.doc, props.confirm.id) : 0
   const remainingGroups = props.confirm?.kind === 'group' ? props.doc.groups.filter(group => group.id !== props.confirm?.id) : []

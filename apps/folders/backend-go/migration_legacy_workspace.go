@@ -53,7 +53,13 @@ func (svc *service) migrateLegacyWorkspaceToCategories(fromVersion int) error {
 		return err
 	}
 	normalized.UpdatedAt = nowText()
-	return writeJSON(filepath.Join(svc.dataDir, dataFile), normalized)
+	return writeJSON(filepath.Join(svc.dataDir, dataFile), collectionsDocV5JSON{
+		SchemaVersion:    normalized.SchemaVersion,
+		DataVersion:      normalized.DataVersion,
+		ActiveCategoryID: normalized.ActiveCategoryID,
+		Categories:       normalized.Categories,
+		UpdatedAt:        normalized.UpdatedAt,
+	})
 }
 
 func decodeLegacyFlatWorkspace(payload []byte, fromVersion int) (collectionsDoc, error) {
@@ -113,6 +119,30 @@ func (svc *service) migrateCategoryOrder() error {
 	if err != nil {
 		return err
 	}
+	normalized, err := normalizeCollectionsDocWithOrder(doc, defaultCategoryOrder(), 6)
+	if err != nil {
+		return err
+	}
+	normalized.UpdatedAt = nowText()
+	return writeJSON(filepath.Join(svc.dataDir, dataFile), collectionsDocV6JSON{
+		SchemaVersion:    normalized.SchemaVersion,
+		DataVersion:      normalized.DataVersion,
+		ActiveCategoryID: normalized.ActiveCategoryID,
+		CategoryOrder:    normalized.CategoryOrder,
+		Categories:       normalized.Categories,
+		UpdatedAt:        normalized.UpdatedAt,
+	})
+}
+
+func (svc *service) migrateAllView() error {
+	payload, err := os.ReadFile(filepath.Join(svc.dataDir, dataFile))
+	if err != nil {
+		return fmt.Errorf("read folders data failed: %w", err)
+	}
+	doc, err := decodeV6CollectionsDoc(payload)
+	if err != nil {
+		return err
+	}
 	normalized, err := normalizeCollectionsDoc(doc)
 	if err != nil {
 		return err
@@ -156,7 +186,65 @@ func decodeV5CollectionsDoc(payload []byte) (collectionsDoc, error) {
 	if input.UpdatedAt != nil {
 		updatedAt = *input.UpdatedAt
 	}
-	return collectionsDoc{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, ActiveCategoryID: *input.ActiveCategoryID, CategoryOrder: defaultCategoryOrder(), Categories: categories, UpdatedAt: updatedAt}, nil
+	return collectionsDoc{SchemaVersion: dataSchemaVersion, DataVersion: 6, ActiveCategoryID: *input.ActiveCategoryID, CategoryOrder: defaultCategoryOrder(), Categories: categories, UpdatedAt: updatedAt}, nil
+}
+
+func decodeV6CollectionsDoc(payload []byte) (collectionsDoc, error) {
+	if strings.TrimSpace(string(payload)) == "" {
+		return collectionsDoc{}, errors.New("folders data file is empty")
+	}
+	var input legacyCollectionsDocInput
+	if err := json.Unmarshal(payload, &input); err != nil {
+		return collectionsDoc{}, fmt.Errorf("parse folders data failed: %w", err)
+	}
+	if input.SchemaVersion == nil {
+		return collectionsDoc{}, errors.New("folders data schemaVersion is required")
+	}
+	if *input.SchemaVersion != dataSchemaVersion {
+		return collectionsDoc{}, fmt.Errorf("folders data schemaVersion %d is not supported; expected %d", *input.SchemaVersion, dataSchemaVersion)
+	}
+	if input.DataVersion == nil || *input.DataVersion != 6 {
+		return collectionsDoc{}, errors.New("folders dataVersion 6 is required for all view migration")
+	}
+	if input.ActiveCategoryID == nil {
+		return collectionsDoc{}, errors.New("folders data activeCategoryId is required")
+	}
+	if input.CategoryOrder == nil {
+		return collectionsDoc{}, errors.New("folders data categoryOrder is required")
+	}
+	if input.Categories == nil {
+		return collectionsDoc{}, errors.New("folders data categories is required")
+	}
+	categories := make([]categoryWorkspace, 0, len(*input.Categories))
+	for index, raw := range *input.Categories {
+		workspace, err := decodeCategoryWorkspace(raw)
+		if err != nil {
+			return collectionsDoc{}, fmt.Errorf("categories[%d]: %w", index, err)
+		}
+		categories = append(categories, workspace)
+	}
+	updatedAt := ""
+	if input.UpdatedAt != nil {
+		updatedAt = *input.UpdatedAt
+	}
+	return collectionsDoc{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, ActiveCategoryID: *input.ActiveCategoryID, CategoryOrder: *input.CategoryOrder, Categories: categories, AllView: defaultAllCategoryView(), UpdatedAt: updatedAt}, nil
+}
+
+type collectionsDocV5JSON struct {
+	SchemaVersion    int                 `json:"schemaVersion"`
+	DataVersion      int                 `json:"dataVersion"`
+	ActiveCategoryID string              `json:"activeCategoryId"`
+	Categories       []categoryWorkspace `json:"categories"`
+	UpdatedAt        string              `json:"updatedAt"`
+}
+
+type collectionsDocV6JSON struct {
+	SchemaVersion    int                 `json:"schemaVersion"`
+	DataVersion      int                 `json:"dataVersion"`
+	ActiveCategoryID string              `json:"activeCategoryId"`
+	CategoryOrder    []string            `json:"categoryOrder"`
+	Categories       []categoryWorkspace `json:"categories"`
+	UpdatedAt        string              `json:"updatedAt"`
 }
 
 func decodeLegacyDesktopState(input desktopStateInput) (desktopState, error) {

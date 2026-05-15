@@ -31,6 +31,7 @@ export type CollectionsHealth = {
 }
 
 export type CollectionCategoryId = 'folder' | 'url' | 'file'
+export type CollectionViewCategoryId = CollectionCategoryId | 'all'
 
 export type CollectionGroup = { id: string; name: string }
 
@@ -48,7 +49,7 @@ export type DesktopWallpaperPreset = { id: string; name: string; assetId: string
 
 export type DesktopWallpaper = { activeId: string; presets: DesktopWallpaperPreset[] }
 
-export type CategoryDesktopWallpaper = { categoryId: CollectionCategoryId; wallpaper?: DesktopWallpaper }
+export type CategoryDesktopWallpaper = { categoryId: CollectionViewCategoryId; wallpaper?: DesktopWallpaper }
 
 export type DesktopWallpaperDeck = { schemaVersion: number; dataVersion: number; categories: CategoryDesktopWallpaper[] }
 
@@ -102,6 +103,8 @@ export type CollectionItem = {
   name: string
   target: CollectionTarget
   groupId: string
+  sourceCategoryId?: CollectionCategoryId
+  sourceItemId?: string
   pageOrder: number
   containerId?: string
   createdAt: string
@@ -114,7 +117,7 @@ export type CollectionItem = {
 }
 
 export type CategoryWorkspace = {
-  id: CollectionCategoryId
+  id: CollectionViewCategoryId
   groups: CollectionGroup[]
   items: CollectionItem[]
   containers: CollectionContainer[]
@@ -135,6 +138,8 @@ export type CollectionsDoc = {
   categories: CategoryWorkspace[]
   updatedAt: string
 }
+
+export type AllViewItemCandidate = { categoryId: CollectionCategoryId; item: CollectionItem }
 
 export type PendingRequest = {
   resolve: (value: unknown) => void

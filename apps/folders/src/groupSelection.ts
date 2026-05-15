@@ -1,6 +1,6 @@
-import type { CategoryWorkspace, CollectionCategoryId } from './types'
+import type { CategoryWorkspace, CollectionViewCategoryId } from './types'
 
-export type GroupSelectionByCategory = Partial<Record<CollectionCategoryId, string>>
+export type GroupSelectionByCategory = Partial<Record<CollectionViewCategoryId, string>>
 
 export function resolveGroupSelection(workspace: CategoryWorkspace, preferredGroupId: string): string {
   const preferred = preferredGroupId.trim()
@@ -8,6 +8,6 @@ export function resolveGroupSelection(workspace: CategoryWorkspace, preferredGro
   return workspace.groups[0]?.id || ''
 }
 
-export function rememberGroupSelection(selections: GroupSelectionByCategory, categoryId: CollectionCategoryId, groupId: string): GroupSelectionByCategory {
+export function rememberGroupSelection(selections: GroupSelectionByCategory, categoryId: CollectionViewCategoryId, groupId: string): GroupSelectionByCategory {
   return { ...selections, [categoryId]: groupId.trim() }
 }

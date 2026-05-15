@@ -97,18 +97,22 @@ func TestEnsureReadyMigratesLegacyFlatWorkspaceToCategories(t *testing.T) {
 
 	state := readJSONMap(t, filepath.Join(svc.dataDir, migrationStateFile))
 	applied := state["applied"].([]any)
-	if len(applied) != 2 {
-		t.Fatalf("expected two migration records, got %#v", applied)
+	if len(applied) != 3 {
+		t.Fatalf("expected three migration records, got %#v", applied)
 	}
 	entry := applied[0].(map[string]any)
 	if entry["id"] != "2026-05-12-folders-data-v4-to-v5" || int(entry["fromVersion"].(float64)) != 4 || int(entry["toVersion"].(float64)) != 5 {
 		t.Fatalf("unexpected migration entry: %#v", entry)
 	}
 	entry = applied[1].(map[string]any)
-	if entry["id"] != "2026-05-15-folders-data-v5-to-v6-category-order" || int(entry["fromVersion"].(float64)) != 5 || int(entry["toVersion"].(float64)) != dataVersion {
+	if entry["id"] != "2026-05-15-folders-data-v5-to-v6-category-order" || int(entry["fromVersion"].(float64)) != 5 || int(entry["toVersion"].(float64)) != 6 {
 		t.Fatalf("unexpected category order migration entry: %#v", entry)
 	}
-	assertRecoveryPackageCount(t, svc, 2)
+	entry = applied[2].(map[string]any)
+	if entry["id"] != "2026-05-16-folders-data-v6-to-v7-all-view" || int(entry["fromVersion"].(float64)) != 6 || int(entry["toVersion"].(float64)) != dataVersion {
+		t.Fatalf("unexpected all view migration entry: %#v", entry)
+	}
+	assertRecoveryPackageCount(t, svc, 3)
 	if health := svc.health(); !health.Data.OK {
 		t.Fatalf("expected healthy migrated data: %#v", health)
 	}
@@ -125,15 +129,15 @@ func TestRunMigrationsIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := readJSONMap(t, filepath.Join(svc.dataDir, migrationStateFile))
-	if applied := state["applied"].([]any); len(applied) != 2 {
+	if applied := state["applied"].([]any); len(applied) != 3 {
 		t.Fatalf("migration should apply once, got %#v", applied)
 	}
-	assertRecoveryPackageCount(t, svc, 2)
+	assertRecoveryPackageCount(t, svc, 3)
 }
 
 func TestEnsureReadyRejectsNewerDataVersion(t *testing.T) {
 	svc := newTestService(t)
-	writeRawData(t, svc, `{"schemaVersion":1,"dataVersion":7,"activeCategoryId":"folder","categories":[],"updatedAt":"2026-01-01T00:00:00Z"}`)
+	writeRawData(t, svc, `{"schemaVersion":1,"dataVersion":8,"activeCategoryId":"folder","categories":[],"updatedAt":"2026-01-01T00:00:00Z"}`)
 	if err := svc.ensureReady(); err == nil || !strings.Contains(err.Error(), "newer than supported") {
 		t.Fatalf("expected newer version error, got %v", err)
 	}
@@ -605,16 +609,16 @@ func TestInvalidPersistedDataIsDiagnosedAfterStartup(t *testing.T) {
 
 func TestMissingCurrentBaselineFieldIsDiagnosedAfterStartup(t *testing.T) {
 	svc := newTestService(t)
-	missingCategoryOrder := `{"schemaVersion":1,"dataVersion":6,"activeCategoryId":"folder","categories":[{"id":"folder","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}},{"id":"url","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}},{"id":"file","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}}],"updatedAt":"2026-01-01T00:00:00Z"}`
-	writeRawData(t, svc, missingCategoryOrder)
+	missingAllView := `{"schemaVersion":1,"dataVersion":7,"activeCategoryId":"folder","categoryOrder":["folder","url","file"],"categories":[{"id":"folder","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}},{"id":"url","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}},{"id":"file","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}}],"updatedAt":"2026-01-01T00:00:00Z"}`
+	writeRawData(t, svc, missingAllView)
 	if err := svc.ensureReady(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.readCollections(); err == nil || !strings.Contains(err.Error(), "categoryOrder") {
-		t.Fatalf("expected missing category order read error, got %v", err)
+	if _, err := svc.readCollections(); err == nil || !strings.Contains(err.Error(), "allView") {
+		t.Fatalf("expected missing all view read error, got %v", err)
 	}
-	if health := svc.health(); health.Data.OK || !strings.Contains(health.Data.Error, "categoryOrder") {
-		t.Fatalf("expected missing category order health error, got %#v", health)
+	if health := svc.health(); health.Data.OK || !strings.Contains(health.Data.Error, "allView") {
+		t.Fatalf("expected missing all view health error, got %#v", health)
 	}
 }
 

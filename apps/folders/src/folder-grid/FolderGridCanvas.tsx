@@ -1,7 +1,7 @@
 import * as React from 'react'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import { Box, Button, Paper, Stack, Typography, alpha } from '@mui/material'
-import type { CategoryDefinition } from '../categoryRegistry'
+import type { ViewCategoryDefinition } from '../categoryRegistry'
 import type { CategoryWorkspace, CollectionContainer, ContextMenuState, DesktopGridEntry, DesktopIconLayout, Phase } from '../types'
 import type { DesktopDragState } from '../desktopDragState'
 import { DesktopGridIcon } from './DesktopGridIcon'
@@ -21,7 +21,7 @@ import { getFolderGridCanvasHeight, getFolderGridPixelRect, type FolderGridLayou
 import { useMuuriFolderGrid, type FolderGridDragEndResult, type FolderGridDragEvent } from './useMuuriFolderGrid'
 
 type Props = {
-  category: CategoryDefinition
+  category: ViewCategoryDefinition
   workspace: CategoryWorkspace
   entries: DesktopGridEntry[]
   allEntries: DesktopGridEntry[]
@@ -171,7 +171,7 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
   )
 }
 
-function EmptyState(props: { category: CategoryDefinition; phase: Phase; search: string; onAdd(): void }) {
+function EmptyState(props: { category: ViewCategoryDefinition; phase: Phase; search: string; onAdd(): void }) {
   const EmptyIcon = props.category.icon
   return (
     <Paper elevation={0} sx={{ minHeight: '100%', p: { xs: 3, sm: 5 }, borderRadius: 4, display: 'grid', placeItems: 'center', textAlign: 'center', bgcolor: 'transparent', boxShadow: 'none' }}>
@@ -181,7 +181,7 @@ function EmptyState(props: { category: CategoryDefinition; phase: Phase; search:
         </Box>
         <Typography variant="h2">{props.search ? `未找到匹配的${props.category.label}` : props.category.emptyTitle}</Typography>
         <Typography color="text.secondary">{props.search ? '换个关键词试试，或者添加新的收藏项目。' : props.category.emptyDescription}</Typography>
-        <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={props.onAdd} disabled={props.phase !== 'ready'}>{props.category.addLabel}</Button>
+        {!props.category.aggregate ? <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={props.onAdd} disabled={props.phase !== 'ready'}>添加{props.category.singularLabel}</Button> : null}
       </Stack>
     </Paper>
   )

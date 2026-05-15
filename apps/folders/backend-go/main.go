@@ -33,7 +33,7 @@ import (
 
 const (
 	dataSchemaVersion     = 1
-	dataVersion           = 6
+	dataVersion           = 7
 	dataFile              = "data.json"
 	metaFile              = "_meta.json"
 	assetsDir             = "assets"
@@ -74,6 +74,8 @@ type collectionItem struct {
 	Name            string            `json:"name"`
 	Target          collectionTarget  `json:"target"`
 	GroupID         string            `json:"groupId"`
+	SourceCategoryID string          `json:"sourceCategoryId,omitempty"`
+	SourceItemID     string          `json:"sourceItemId,omitempty"`
 	PageOrder       int64             `json:"pageOrder"`
 	ContainerID     string            `json:"containerId,omitempty"`
 	CreatedAt       string            `json:"createdAt"`
@@ -238,6 +240,30 @@ type desktopStateInput struct {
 	IconLayout *desktopIconLayoutInput `json:"iconLayout"`
 }
 
+type allViewItemReference struct {
+	CategoryID string            `json:"categoryId"`
+	ItemID     string            `json:"itemId"`
+	PageOrder  int64             `json:"pageOrder"`
+	Layout     *folderGridLayout `json:"layout,omitempty"`
+}
+
+type allViewItemReferenceInput struct {
+	CategoryID string            `json:"categoryId"`
+	ItemID     string            `json:"itemId"`
+	PageOrder  int64             `json:"pageOrder"`
+	Layout     *folderGridLayout `json:"layout,omitempty"`
+}
+
+type allCategoryView struct {
+	Items   []allViewItemReference `json:"items"`
+	Desktop desktopState           `json:"desktop"`
+}
+
+type allCategoryViewInput struct {
+	Items   *[]allViewItemReferenceInput `json:"items"`
+	Desktop *desktopStateInput           `json:"desktop"`
+}
+
 type categoryWorkspace struct {
 	ID         string             `json:"id"`
 	Groups     []collectionGroup  `json:"groups"`
@@ -260,6 +286,7 @@ type collectionsDoc struct {
 	ActiveCategoryID string              `json:"activeCategoryId"`
 	CategoryOrder    []string            `json:"categoryOrder"`
 	Categories       []categoryWorkspace `json:"categories"`
+	AllView          allCategoryView     `json:"allView"`
 	UpdatedAt        string              `json:"updatedAt"`
 
 	Groups     []collectionGroup  `json:"-"`
@@ -274,6 +301,7 @@ type collectionsDocInput struct {
 	ActiveCategoryID *string                   `json:"activeCategoryId"`
 	CategoryOrder    *[]string                 `json:"categoryOrder"`
 	Categories       *[]categoryWorkspaceInput `json:"categories"`
+	AllView          *allCategoryViewInput     `json:"allView"`
 	UpdatedAt        *string                   `json:"updatedAt"`
 }
 
@@ -301,6 +329,20 @@ type desktopWallpaperDeck struct {
 
 type categoryPayload struct {
 	CategoryID string `json:"categoryId"`
+}
+
+type allViewSelectionPayload struct {
+	Items []allViewSelectionItem `json:"items"`
+}
+
+type allViewSelectionItem struct {
+	CategoryID string `json:"categoryId"`
+	ItemID     string `json:"itemId"`
+}
+
+type allViewItemCandidate struct {
+	CategoryID string         `json:"categoryId"`
+	Item       collectionItem `json:"item"`
 }
 
 type categoryOrderPayload struct {
@@ -555,6 +597,14 @@ func (svc *service) dispatch(ctx context.Context, method string, params json.Raw
 			return nil, fmt.Errorf("invalid category payload: %w", err)
 		}
 		return svc.readWorkspaceView(payload.CategoryID)
+	case "collections.all-view.candidates":
+		return svc.readAllViewCandidates()
+	case "collections.all-view.selection.save":
+		var payload allViewSelectionPayload
+		if err := json.Unmarshal(params, &payload); err != nil {
+			return nil, fmt.Errorf("invalid all view selection payload: %w", err)
+		}
+		return svc.saveAllViewSelection(payload.Items)
 	case "collections.category-order.save":
 		var payload categoryOrderPayload
 		if err := json.Unmarshal(params, &payload); err != nil {
@@ -666,6 +716,9 @@ func (svc *service) dispatch(ctx context.Context, method string, params json.Raw
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid desktop layout payload: %w", err)
 		}
+		if normalizeViewCategoryID(payload.CategoryID) == "all" {
+			return svc.saveAllViewDesktopLayouts(payload)
+		}
 		return svc.saveCollectionDesktopLayouts(payload)
 	case "collections.desktop.wallpaper.save":
 		var payload categoryWallpaperPayload
@@ -677,6 +730,9 @@ func (svc *service) dispatch(ctx context.Context, method string, params json.Raw
 		var payload categoryIconLayoutPayload
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid desktop icon layout payload: %w", err)
+		}
+		if normalizeViewCategoryID(payload.CategoryID) == "all" {
+			return svc.saveAllViewDesktopIconLayout(payload.IconLayout)
 		}
 		return svc.saveCollectionDesktopIconLayout(payload.CategoryID, payload.IconLayout)
 	case "collections.groups.add":
@@ -760,11 +816,71 @@ func (svc *service) readWorkspaceView(categoryID string) (categoryWorkspaceView,
 	if err != nil {
 		return categoryWorkspaceView{}, err
 	}
+	if normalizeViewCategoryID(categoryID) == "all" {
+		return allWorkspaceView(doc)
+	}
 	workspace, _, err := workspaceByID(doc, categoryID)
 	if err != nil {
 		return categoryWorkspaceView{}, err
 	}
 	return workspaceView(doc, workspace), nil
+}
+
+func (svc *service) readAllViewCandidates() ([]allViewItemCandidate, error) {
+	doc, err := svc.readCollections()
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]allViewItemCandidate, 0)
+	for _, workspace := range orderedCategoryWorkspaces(doc) {
+		items := append([]collectionItem(nil), workspace.Items...)
+		sort.SliceStable(items, func(i, j int) bool { return items[i].PageOrder < items[j].PageOrder || (items[i].PageOrder == items[j].PageOrder && items[i].Name < items[j].Name) })
+		for _, item := range items {
+			candidates = append(candidates, allViewItemCandidate{CategoryID: workspace.ID, Item: item})
+		}
+	}
+	return candidates, nil
+}
+
+func (svc *service) saveAllViewSelection(items []allViewSelectionItem) (categoryWorkspaceView, error) {
+	doc, err := svc.readCollections()
+	if err != nil {
+		return categoryWorkspaceView{}, err
+	}
+	itemByRef := sourceItemByAllViewRef(doc.Categories)
+	existingByRef := map[string]allViewItemReference{}
+	for _, item := range doc.AllView.Items {
+		existingByRef[allViewRefKey(item.CategoryID, item.ItemID)] = item
+	}
+	selected := make([]allViewItemReference, 0, len(items))
+	seen := map[string]bool{}
+	nextOrder := nextAllViewPageOrder(doc.AllView.Items)
+	for _, raw := range items {
+		categoryID := normalizeCategoryID(raw.CategoryID)
+		itemID := strings.TrimSpace(raw.ItemID)
+		key := allViewRefKey(categoryID, itemID)
+		if categoryID == "" || itemID == "" {
+			return categoryWorkspaceView{}, errors.New("all view item categoryId and itemId are required")
+		}
+		if seen[key] {
+			return categoryWorkspaceView{}, fmt.Errorf("duplicate all view item: %s", key)
+		}
+		if _, ok := itemByRef[key]; !ok {
+			return categoryWorkspaceView{}, fmt.Errorf("all view source item not found: %s", key)
+		}
+		item, exists := existingByRef[key]
+		if !exists {
+			item = allViewItemReference{CategoryID: categoryID, ItemID: itemID, PageOrder: nextOrder}
+			nextOrder++
+		}
+		selected = append(selected, item)
+		seen[key] = true
+	}
+	doc.AllView.Items = selected
+	if err := svc.writeCollections(doc); err != nil {
+		return categoryWorkspaceView{}, err
+	}
+	return svc.readWorkspaceView("all")
 }
 
 func (svc *service) readDesktopWallpaperDeck() (desktopWallpaperDeck, error) {
@@ -819,6 +935,64 @@ func workspaceView(doc collectionsDoc, workspace categoryWorkspace) categoryWork
 	return categoryWorkspaceView{SchemaVersion: doc.SchemaVersion, DataVersion: doc.DataVersion, CategoryOrder: append([]string(nil), doc.CategoryOrder...), ID: workspace.ID, Groups: workspace.Groups, Items: workspace.Items, Containers: workspace.Containers, Desktop: workspace.Desktop}
 }
 
+func allWorkspaceView(doc collectionsDoc) (categoryWorkspaceView, error) {
+	workspace, err := buildAllCategoryWorkspace(doc)
+	if err != nil {
+		return categoryWorkspaceView{}, err
+	}
+	return categoryWorkspaceView{SchemaVersion: doc.SchemaVersion, DataVersion: doc.DataVersion, CategoryOrder: append([]string(nil), doc.CategoryOrder...), ID: workspace.ID, Groups: workspace.Groups, Items: workspace.Items, Containers: workspace.Containers, Desktop: workspace.Desktop}, nil
+}
+
+func buildAllCategoryWorkspace(doc collectionsDoc) (categoryWorkspace, error) {
+	itemByRef := sourceItemByAllViewRef(doc.Categories)
+	items := make([]collectionItem, 0, len(doc.AllView.Items))
+	for _, ref := range doc.AllView.Items {
+		item, ok := itemByRef[allViewRefKey(ref.CategoryID, ref.ItemID)]
+		if !ok {
+			return categoryWorkspace{}, fmt.Errorf("all view source item not found: %s", allViewRefKey(ref.CategoryID, ref.ItemID))
+		}
+		item.ID = allViewItemID(ref.CategoryID, ref.ItemID)
+		item.SourceCategoryID = ref.CategoryID
+		item.SourceItemID = ref.ItemID
+		item.GroupID = defaultGroupID
+		item.ContainerID = ""
+		item.ContainerLayout = nil
+		item.Layout = ref.Layout
+		item.PageOrder = ref.PageOrder
+		items = append(items, item)
+	}
+	return categoryWorkspace{ID: "all", Groups: []collectionGroup{{ID: defaultGroupID, Name: "全部"}}, Items: items, Containers: []desktopContainer{}, Desktop: doc.AllView.Desktop}, nil
+}
+
+func sourceItemByAllViewRef(categories []categoryWorkspace) map[string]collectionItem {
+	items := map[string]collectionItem{}
+	for _, workspace := range categories {
+		for _, item := range workspace.Items {
+			items[allViewRefKey(workspace.ID, item.ID)] = item
+		}
+	}
+	return items
+}
+
+func allViewRefKey(categoryID string, itemID string) string {
+	return normalizeCategoryID(categoryID) + ":" + strings.TrimSpace(itemID)
+}
+
+func allViewItemID(categoryID string, itemID string) string {
+	sum := sha1.Sum([]byte(allViewRefKey(categoryID, itemID)))
+	return fmt.Sprintf("all-%s-%s", normalizeCategoryID(categoryID), hex.EncodeToString(sum[:])[:12])
+}
+
+func nextAllViewPageOrder(items []allViewItemReference) int64 {
+	var max int64 = -1
+	for _, item := range items {
+		if item.PageOrder > max {
+			max = item.PageOrder
+		}
+	}
+	return max + 1
+}
+
 func workspaceByID(doc collectionsDoc, categoryID string) (categoryWorkspace, int, error) {
 	categoryID = normalizeCategoryID(categoryID)
 	for i, workspace := range doc.Categories {
@@ -836,6 +1010,13 @@ func normalizeCategoryID(categoryID string) string {
 	default:
 		return ""
 	}
+}
+
+func normalizeViewCategoryID(categoryID string) string {
+	if strings.TrimSpace(categoryID) == "all" {
+		return "all"
+	}
+	return normalizeCategoryID(categoryID)
 }
 
 func categoryOrder(categoryID string) int {
@@ -1151,6 +1332,47 @@ func (svc *service) saveCollectionDesktopLayouts(payload categoryDesktopLayoutSa
 		applyWorkspaceDoc(workspace, view)
 		return nil
 	})
+}
+
+func (svc *service) saveAllViewDesktopLayouts(payload categoryDesktopLayoutSavePayload) (categoryWorkspaceView, error) {
+	if len(payload.Items) == 0 {
+		return svc.readWorkspaceView("all")
+	}
+	groupID := strings.TrimSpace(payload.GroupID)
+	if groupID != defaultGroupID {
+		return categoryWorkspaceView{}, errors.New("all view desktop layout group must be default")
+	}
+	doc, err := svc.readCollections()
+	if err != nil {
+		return categoryWorkspaceView{}, err
+	}
+	refByAllItemID := map[string]int{}
+	for index, item := range doc.AllView.Items {
+		refByAllItemID[allViewItemID(item.CategoryID, item.ItemID)] = index
+	}
+	updated := map[string]bool{}
+	for _, patch := range payload.Items {
+		if normalizeDesktopEntryKind(patch.Kind) != "item" {
+			return categoryWorkspaceView{}, errors.New("all view only supports item desktop layouts")
+		}
+		id := strings.TrimSpace(patch.ID)
+		index, ok := refByAllItemID[id]
+		if !ok {
+			return categoryWorkspaceView{}, fmt.Errorf("all view desktop entry not found: item:%s", id)
+		}
+		layout := normalizeGridLayout(patch.Layout)
+		doc.AllView.Items[index].Layout = &layout
+		updated[id] = true
+	}
+	for _, patch := range payload.Items {
+		if !updated[strings.TrimSpace(patch.ID)] {
+			return categoryWorkspaceView{}, fmt.Errorf("all view desktop entry not found: item:%s", strings.TrimSpace(patch.ID))
+		}
+	}
+	if err := svc.writeCollections(doc); err != nil {
+		return categoryWorkspaceView{}, err
+	}
+	return svc.readWorkspaceView("all")
 }
 
 func applyDesktopLayouts(doc collectionsDoc, payload desktopLayoutSavePayload) (collectionsDoc, error) {
@@ -1659,6 +1881,22 @@ func (svc *service) saveCollectionDesktopIconLayout(categoryID string, iconLayou
 	})
 }
 
+func (svc *service) saveAllViewDesktopIconLayout(iconLayout desktopIconLayout) (categoryWorkspaceView, error) {
+	doc, err := svc.readCollections()
+	if err != nil {
+		return categoryWorkspaceView{}, err
+	}
+	normalized, err := normalizeDesktopIconLayout(iconLayout)
+	if err != nil {
+		return categoryWorkspaceView{}, err
+	}
+	doc.AllView.Desktop.IconLayout = normalized
+	if err := svc.writeCollections(doc); err != nil {
+		return categoryWorkspaceView{}, err
+	}
+	return svc.readWorkspaceView("all")
+}
+
 func (svc *service) addCollectionGroup(categoryID string, payload collectionGroup) (categoryWorkspaceView, error) {
 	return svc.updateWorkspace(categoryID, func(workspace *categoryWorkspace) error {
 		group, err := normalizeGroup(payload, true)
@@ -1901,6 +2139,7 @@ func defaultCollectionsDoc() collectionsDoc {
 		ActiveCategoryID: defaultCategoryID,
 		CategoryOrder:    defaultCategoryOrder(),
 		Categories:       categories,
+		AllView:          defaultAllCategoryView(),
 		UpdatedAt:        nowText(),
 		Groups:           active.Groups,
 		Items:            active.Items,
@@ -1911,6 +2150,10 @@ func defaultCollectionsDoc() collectionsDoc {
 
 func defaultCategoryWorkspace(id string) categoryWorkspace {
 	return categoryWorkspace{ID: id, Groups: []collectionGroup{{ID: defaultGroupID, Name: "默认"}}, Items: []collectionItem{}, Containers: []desktopContainer{}, Desktop: desktopState{IconLayout: defaultDesktopIconLayout()}}
+}
+
+func defaultAllCategoryView() allCategoryView {
+	return allCategoryView{Items: []allViewItemReference{}, Desktop: desktopState{IconLayout: defaultDesktopIconLayout()}}
 }
 
 func decodeCurrentCollectionsDoc(payload []byte) (collectionsDoc, error) {
@@ -1942,6 +2185,9 @@ func decodeCurrentCollectionsDoc(payload []byte) (collectionsDoc, error) {
 	if input.Categories == nil {
 		return collectionsDoc{}, errors.New("collections data categories is required")
 	}
+	if input.AllView == nil {
+		return collectionsDoc{}, errors.New("collections data allView is required")
+	}
 	categories := make([]categoryWorkspace, 0, len(*input.Categories))
 	for index, raw := range *input.Categories {
 		workspace, err := decodeCategoryWorkspace(raw)
@@ -1949,6 +2195,10 @@ func decodeCurrentCollectionsDoc(payload []byte) (collectionsDoc, error) {
 			return collectionsDoc{}, fmt.Errorf("categories[%d]: %w", index, err)
 		}
 		categories = append(categories, workspace)
+	}
+	allView, err := decodeAllCategoryView(*input.AllView)
+	if err != nil {
+		return collectionsDoc{}, err
 	}
 	updatedAt := ""
 	if input.UpdatedAt != nil {
@@ -1960,9 +2210,35 @@ func decodeCurrentCollectionsDoc(payload []byte) (collectionsDoc, error) {
 		ActiveCategoryID: *input.ActiveCategoryID,
 		CategoryOrder:    *input.CategoryOrder,
 		Categories:       categories,
+		AllView:          allView,
 		UpdatedAt:        updatedAt,
 	}
 	return normalizeCollectionsDoc(doc)
+}
+
+func decodeAllCategoryView(input allCategoryViewInput) (allCategoryView, error) {
+	if input.Items == nil {
+		return allCategoryView{}, errors.New("collections data allView.items is required")
+	}
+	if input.Desktop == nil {
+		return allCategoryView{}, errors.New("collections data allView.desktop is required")
+	}
+	if input.Desktop.IconLayout == nil {
+		return allCategoryView{}, errors.New("collections data allView.desktop.iconLayout is required")
+	}
+	iconLayout, err := decodeDesktopIconLayout(*input.Desktop.IconLayout)
+	if err != nil {
+		return allCategoryView{}, err
+	}
+	desktop, err := normalizeDesktopState(desktopState{Wallpaper: input.Desktop.Wallpaper, IconLayout: iconLayout})
+	if err != nil {
+		return allCategoryView{}, err
+	}
+	items := make([]allViewItemReference, 0, len(*input.Items))
+	for _, raw := range *input.Items {
+		items = append(items, allViewItemReference{CategoryID: raw.CategoryID, ItemID: raw.ItemID, PageOrder: raw.PageOrder, Layout: raw.Layout})
+	}
+	return allCategoryView{Items: items, Desktop: desktop}, nil
 }
 
 func decodeCategoryWorkspace(input categoryWorkspaceInput) (categoryWorkspace, error) {
@@ -2051,21 +2327,67 @@ func normalizeCollectionsDocWithOrder(doc collectionsDoc, categoryOrder []string
 	if err != nil {
 		return collectionsDoc{}, err
 	}
+	allView := defaultAllCategoryView()
+	if version >= dataVersion {
+		allView, err = normalizeAllCategoryView(doc.AllView, categories)
+		if err != nil {
+			return collectionsDoc{}, err
+		}
+	}
 	normalized := collectionsDoc{
 		SchemaVersion:    dataSchemaVersion,
 		DataVersion:      version,
 		ActiveCategoryID: activeCategoryID,
 		Categories:       categories,
+		AllView:          allView,
 		UpdatedAt:        firstNonEmpty(doc.UpdatedAt, nowText()),
 		Groups:           active.Groups,
 		Items:            active.Items,
 		Containers:       active.Containers,
 		Desktop:          active.Desktop,
 	}
-	if version >= dataVersion {
+	if version >= 6 {
 		normalized.CategoryOrder = categoryOrder
 	}
 	return normalized, nil
+}
+
+func normalizeAllCategoryView(raw allCategoryView, categories []categoryWorkspace) (allCategoryView, error) {
+	itemByRef := sourceItemByAllViewRef(categories)
+	items := make([]allViewItemReference, 0, len(raw.Items))
+	seen := map[string]bool{}
+	for index, item := range raw.Items {
+		categoryID := normalizeCategoryID(item.CategoryID)
+		itemID := strings.TrimSpace(item.ItemID)
+		key := allViewRefKey(categoryID, itemID)
+		if categoryID == "" || itemID == "" {
+			return allCategoryView{}, fmt.Errorf("allView.items[%d]: categoryId and itemId are required", index)
+		}
+		if seen[key] {
+			return allCategoryView{}, fmt.Errorf("allView.items[%d]: duplicate source item: %s", index, key)
+		}
+		if _, ok := itemByRef[key]; !ok {
+			return allCategoryView{}, fmt.Errorf("allView.items[%d]: source item not found: %s", index, key)
+		}
+		if item.PageOrder < 0 {
+			return allCategoryView{}, fmt.Errorf("allView.items[%d]: pageOrder must be non-negative", index)
+		}
+		var layout *folderGridLayout
+		if item.Layout != nil {
+			normalizedLayout, err := validateGridLayout(*item.Layout)
+			if err != nil {
+				return allCategoryView{}, fmt.Errorf("allView.items[%d]: %w", index, err)
+			}
+			layout = &normalizedLayout
+		}
+		items = append(items, allViewItemReference{CategoryID: categoryID, ItemID: itemID, PageOrder: item.PageOrder, Layout: layout})
+		seen[key] = true
+	}
+	desktop, err := normalizeDesktopState(raw.Desktop)
+	if err != nil {
+		return allCategoryView{}, fmt.Errorf("allView.desktop: %w", err)
+	}
+	return allCategoryView{Items: items, Desktop: desktop}, nil
 }
 
 func normalizeCategoryWorkspace(raw categoryWorkspace) (categoryWorkspace, error) {
