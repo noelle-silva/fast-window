@@ -44,6 +44,7 @@ import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import TaskAltRoundedIcon from '@mui/icons-material/TaskAltRounded'
 import InfoRoundedIcon from '@mui/icons-material/InfoRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
+import ContentPasteRoundedIcon from '@mui/icons-material/ContentPasteRounded'
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded'
 import NavigateBeforeRoundedIcon from '@mui/icons-material/NavigateBeforeRounded'
@@ -1399,6 +1400,14 @@ export function AiDrawApp(props: { gateway: AiDrawGateway; command?: AiDrawRunti
                       onClick={() => void controller.pickEditImage()}
                     >
                       选择底图
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<ContentPasteRoundedIcon fontSize="small" />}
+                      onClick={() => void controller.pasteEditImage()}
+                    >
+                      粘贴为底图
                     </Button>
                     <Button
                       size="small"

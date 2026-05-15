@@ -135,6 +135,7 @@ export type AiDrawController = {
   moveRefLibraryItemInFolder: (folderId: string, path: string, targetPath: string, position: SortDropPosition) => Promise<void>
 
   pickEditImage: () => Promise<void>
+  pasteEditImage: () => Promise<void>
   clearEditImage: () => void
   setEditSelection: (sel: { x: number; y: number; w: number; h: number } | null) => void
 
@@ -1406,16 +1407,12 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     notify()
   }
 
-  async function pickEditImage() {
-    const picked = await referenceImages.pick(1).catch((e: any) => {
-      host.toast(`选择图片失败：${String(e?.message || e)}`)
-      return []
-    })
-    const it = Array.isArray(picked) && picked[0] ? picked[0] : null
-    const name = typeof it?.name === 'string' ? it.name : ''
-    const raw = typeof (it as any)?.dataUrl === 'string' ? (it as any).dataUrl : typeof (it as any)?.data_url === 'string' ? (it as any).data_url : ''
-    const u = normalizeImageDataUrlOrBase64(raw)
-    if (!u.startsWith('data:image/')) return host.toast('图片数据无效（需要 data URL 或 base64）')
+  async function setEditImageFromDataUrl(name: string, rawDataUrl: string) {
+    const u = normalizeImageDataUrlOrBase64(rawDataUrl)
+    if (!u.startsWith('data:image/')) {
+      host.toast('图片数据无效（需要 data URL 或 base64）')
+      return false
+    }
 
     try {
       const img = await loadImageFromDataUrl(u)
@@ -1428,9 +1425,29 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
       state.edit.sel = null
       state.error = ''
       notify()
+      return true
     } catch (e: any) {
       host.toast(`解析图片失败：${String(e?.message || e)}`)
+      return false
     }
+  }
+
+  async function pickEditImage() {
+    const picked = await referenceImages.pick(1).catch((e: any) => {
+      host.toast(`选择图片失败：${String(e?.message || e)}`)
+      return []
+    })
+    const it = Array.isArray(picked) && picked[0] ? picked[0] : null
+    const name = typeof it?.name === 'string' ? it.name : ''
+    const raw = typeof (it as any)?.dataUrl === 'string' ? (it as any).dataUrl : typeof (it as any)?.data_url === 'string' ? (it as any).data_url : ''
+    await setEditImageFromDataUrl(name, raw)
+  }
+
+  async function pasteEditImage() {
+    const image = await clipboard.readImage()
+    if (!image) return host.toast('剪贴板里没有图片')
+    const ok = await setEditImageFromDataUrl(image.name, image.dataUrl)
+    if (ok) host.toast('已粘贴为底图')
   }
 
   async function refreshRefLibrary() {
@@ -2157,6 +2174,7 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     moveRefLibraryItemInFolder,
 
     pickEditImage,
+    pasteEditImage,
     clearEditImage,
     setEditSelection,
 

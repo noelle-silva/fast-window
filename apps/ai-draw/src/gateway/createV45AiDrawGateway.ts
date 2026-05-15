@@ -19,6 +19,7 @@ export async function createV45AiDrawGateway(baseApi: unknown): Promise<AiDrawGa
       back: typeof hostApi.back === 'function' ? () => hostApi.back() : undefined,
       toast: typeof hostApi.toast === 'function' ? (message) => hostApi.toast(String(message || '')) : undefined,
       startDragging: typeof hostApi.startDragging === 'function' ? () => hostApi.startDragging() : undefined,
+      clipboard: hostApi.clipboard && typeof hostApi.clipboard === 'object' ? hostApi.clipboard : undefined,
     },
   })
 }

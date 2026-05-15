@@ -9,6 +9,11 @@ export type AiDrawDirectGatewayHost = {
   back?: () => Promise<void> | void
   toast?: (message: string) => void
   startDragging?: () => Promise<void> | void
+  clipboard?: {
+    writeText?: (text: string) => Promise<void> | void
+    writeImage?: (dataUrl: string) => Promise<void> | void
+    readImage?: () => Promise<AiDrawPickedImage | null>
+  }
   pickOutputDir?: () => Promise<string | null>
   openOutputDir?: (path: string) => Promise<void>
 }
@@ -16,6 +21,18 @@ export type AiDrawDirectGatewayHost = {
 export type AiDrawDirectGatewayOptions = {
   loadEndpoint: () => Promise<unknown>
   host?: AiDrawDirectGatewayHost
+}
+
+function readBlobAsPickedImage(name: string, blob: Blob): Promise<AiDrawPickedImage | null> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = normalizeImageDataUrlOrBase64(reader.result)
+      resolve(dataUrl.startsWith('data:image/') ? { name: String(name || '图片'), dataUrl } : null)
+    }
+    reader.onerror = () => reject(new Error('读取图片失败'))
+    reader.readAsDataURL(blob)
+  })
 }
 
 async function pickImagesByInput(maxCount: number): Promise<AiDrawPickedImage[]> {
@@ -29,15 +46,8 @@ async function pickImagesByInput(maxCount: number): Promise<AiDrawPickedImage[]>
     input.onchange = () => {
       const files = Array.from(input.files || []).slice(0, Math.max(1, maxCount || 1))
       document.body.removeChild(input)
-      Promise.all(files.map((file) => new Promise<AiDrawPickedImage | null>((res) => {
-        const reader = new FileReader()
-        reader.onload = () => {
-          const dataUrl = normalizeImageDataUrlOrBase64(reader.result)
-          res(dataUrl.startsWith('data:image/') ? { name: file.name || '图片', dataUrl } : null)
-        }
-        reader.onerror = () => res(null)
-        reader.readAsDataURL(file)
-      }))).then((items) => resolve(items.filter(Boolean) as AiDrawPickedImage[]))
+      Promise.all(files.map((file) => readBlobAsPickedImage(file.name || '图片', file).catch(() => null)))
+        .then((items) => resolve(items.filter(Boolean) as AiDrawPickedImage[]))
     }
     input.oncancel = () => {
       document.body.removeChild(input)
@@ -91,15 +101,27 @@ export async function createAiDrawDirectGateway(options: AiDrawDirectGatewayOpti
     },
     clipboard: {
       writeText: async (text: string) => {
+        if (typeof hostApi.clipboard?.writeText === 'function') {
+          await hostApi.clipboard.writeText(String(text || ''))
+          return
+        }
         if (!navigator.clipboard?.writeText) throw new Error('当前环境不支持复制文本')
         await navigator.clipboard.writeText(String(text || ''))
       },
       writeImage: async (dataUrl: string) => {
+        if (typeof hostApi.clipboard?.writeImage === 'function') {
+          await hostApi.clipboard.writeImage(dataUrl)
+          return
+        }
         const ClipboardItemCtor = (window as any).ClipboardItem
         if (!navigator.clipboard?.write || !ClipboardItemCtor) throw new Error('当前环境不支持复制图片')
         const res = await fetch(dataUrl)
         const blob = await res.blob()
         await navigator.clipboard.write([new ClipboardItemCtor({ [blob.type || 'image/png']: blob })])
+      },
+      readImage: async () => {
+        if (typeof hostApi.clipboard?.readImage !== 'function') throw new Error('当前宿主未提供原生剪贴板图片读取能力')
+        return hostApi.clipboard.readImage()
       },
     },
     settingsStore: {

@@ -6,6 +6,7 @@ import { AiDrawApp, type AiDrawRuntimeCommand } from '../ui/App'
 import { createAiDrawDirectGateway } from '../gateway/createAiDrawDirectGateway'
 import type { AiDrawGateway, AiDrawWindowControlActions } from '../gateway/types'
 import { AI_DRAW_DIRECT_PROTOCOL_VERSION } from '../shared/protocol'
+import { tauriClipboard } from './tauriClipboard'
 
 type BackendEndpoint = {
   url: string
@@ -86,6 +87,7 @@ export function App() {
         back: () => invoke('hide_to_tray'),
         toast: showToast,
         startDragging: () => getCurrentWindow().startDragging(),
+        clipboard: tauriClipboard,
         pickOutputDir: () => invoke<string | null>('pick_output_dir'),
         openOutputDir: (path) => invoke('open_output_dir', { path }),
       },

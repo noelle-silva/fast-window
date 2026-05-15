@@ -40,6 +40,7 @@ export type AiDrawGateway = {
   clipboard: {
     writeText: (text: string) => Promise<void>
     writeImage: (dataUrl: string) => Promise<void>
+    readImage: () => Promise<AiDrawPickedImage | null>
   }
 
   settingsStore: {
