@@ -7,6 +7,7 @@ export type ImageStore = {
   list(): Promise<string[]>
   read(relativePath: string): Promise<string>
   saveBase64(dataUrlOrBase64: string): Promise<string>
+  exportToDir(relativePaths: string[], targetDir: string): Promise<string[]>
   delete(relativePath: string): Promise<void>
 }
 
@@ -49,9 +50,69 @@ export function createImageStore(rootDir: string, fs: BackendFileSystemPort): Im
       await fs.writeBinary(target, Buffer.from(base64, 'base64'))
       return fileName
     },
+    async exportToDir(relativePaths, targetDir) {
+      const paths = normalizeImagePathList(relativePaths, 5000)
+      if (!paths.length) throw new Error('请选择要导出的图片')
+      const targetDirText = String(targetDir || '').trim()
+      if (!targetDirText || !path.isAbsolute(targetDirText)) throw new Error('导出目录无效')
+      const safeTargetDir = path.resolve(targetDirText)
+      await fs.ensureDir(safeTargetDir)
+      await assertWritableDir(safeTargetDir, fs)
+
+      const exportedPaths: string[] = []
+      for (const relativePath of paths) {
+        const source = assertInsideRoot(rootDir, relativePath)
+        if (!/\.(png|jpg|jpeg|webp|gif)$/i.test(source.relativePath)) throw new Error('只能导出图片文件')
+        const bytes = await fs.readBinary(source.fullPath)
+        const target = await uniqueTargetPath(safeTargetDir, path.basename(source.relativePath), fs)
+        await fs.writeBinaryExclusive(target, bytes)
+        exportedPaths.push(target)
+      }
+      return exportedPaths
+    },
     async delete(relativePath) {
       const safe = assertInsideRoot(rootDir, relativePath)
       await fs.deleteFile(safe.fullPath)
     },
+  }
+}
+
+async function assertWritableDir(targetDir: string, fs: BackendFileSystemPort) {
+  const testPath = path.join(targetDir, `.fw-ai-draw-write-test-${Date.now()}-${Math.random().toString(16).slice(2)}`)
+  await fs.writeBinaryExclusive(testPath, Buffer.from('ok'))
+  await fs.deleteFile(testPath)
+}
+
+function normalizeImagePathList(raw: string[], limit: number) {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const item of Array.isArray(raw) ? raw : []) {
+    const value = String(item || '').trim()
+    if (!value || seen.has(value)) continue
+    seen.add(value)
+    out.push(value)
+    if (limit > 0 && out.length >= limit) break
+  }
+  return out
+}
+
+async function uniqueTargetPath(targetDir: string, fileName: string, fs: BackendFileSystemPort) {
+  const safeName = path.basename(String(fileName || '').trim()) || 'image.png'
+  const ext = path.extname(safeName)
+  const stem = path.basename(safeName, ext) || 'image'
+  const first = path.join(targetDir, safeName)
+  if (!(await fileExists(first, fs))) return first
+  for (let index = 1; ; index++) {
+    const candidate = path.join(targetDir, `${stem}-${index}${ext}`)
+    if (!(await fileExists(candidate, fs))) return candidate
+  }
+}
+
+async function fileExists(targetPath: string, fs: BackendFileSystemPort) {
+  try {
+    await fs.readBinary(targetPath)
+    return true
+  } catch {
+    return false
   }
 }

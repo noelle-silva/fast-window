@@ -123,6 +123,17 @@ fn pick_output_dir(app: tauri::AppHandle) -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
+fn pick_export_dir(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let Some(path) = native_dialog::run_file_dialog(&app, |dialog| {
+        dialog.set_title("选择 AI 绘图图片导出目录").pick_folder()
+    })?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(path.display().to_string()))
+}
+
+#[tauri::command]
 fn open_output_dir(path: String) -> Result<(), String> {
     let path = std::path::PathBuf::from(path.trim());
     if path.as_os_str().is_empty() || !path.is_dir() {
@@ -204,6 +215,7 @@ fn main() {
             pick_data_dir,
             restart_backend,
             pick_output_dir,
+            pick_export_dir,
             open_output_dir,
             hide_to_tray,
             app_ready,

@@ -89,6 +89,8 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return svc.imageRead(params, svc.outputImages)
 	case "outputImages.saveBase64":
 		return svc.imageSave(params, svc.outputImages)
+	case "outputImages.exportToDir":
+		return svc.imageExportToDir(params, svc.outputImages)
 	case "outputImages.delete":
 		return nil, svc.imageDelete(params, svc.outputImages)
 	case "referenceImages.list":
@@ -212,6 +214,15 @@ func (svc *service) imageSave(params json.RawMessage, store *imageStore) (any, e
 	}
 	savedPath, err := store.saveBase64(asString(payload["dataUrlOrBase64"]))
 	return map[string]any{"savedPath": savedPath}, err
+}
+
+func (svc *service) imageExportToDir(params json.RawMessage, store *imageStore) (any, error) {
+	payload, err := decodeMap(params)
+	if err != nil {
+		return nil, err
+	}
+	exportedPaths, err := store.exportToDir(normalizeStringList(payload["paths"]), asString(payload["targetDir"]))
+	return map[string]any{"exportedPaths": exportedPaths}, err
 }
 
 func (svc *service) imageDelete(params json.RawMessage, store *imageStore) error {

@@ -15,6 +15,7 @@ export type AiDrawDirectGatewayHost = {
     readImage?: () => Promise<AiDrawPickedImage | null>
   }
   pickOutputDir?: () => Promise<string | null>
+  pickExportDir?: () => Promise<string | null>
   openOutputDir?: (path: string) => Promise<void>
 }
 
@@ -148,6 +149,10 @@ export async function createAiDrawDirectGateway(options: AiDrawDirectGatewayOpti
         if (!outputDir) return null
         return (await direct.invoke<{ outputDir: string }>(AI_DRAW_DIRECT_METHOD.outputImagesSetOutputDir, { outputDir })).outputDir
       },
+      pickExportDir: async () => {
+        if (typeof hostApi.pickExportDir !== 'function') throw new Error('当前环境暂不支持选择导出目录')
+        return hostApi.pickExportDir()
+      },
       openOutputDir: async () => {
         if (typeof hostApi.openOutputDir !== 'function') {
           toast('当前环境暂不支持打开输出目录')
@@ -159,6 +164,7 @@ export async function createAiDrawDirectGateway(options: AiDrawDirectGatewayOpti
       list: async () => (await direct.invoke<{ paths: string[] }>(AI_DRAW_DIRECT_METHOD.outputImagesList, {})).paths,
       read: async (path) => (await direct.invoke<{ dataUrl: string }>(AI_DRAW_DIRECT_METHOD.outputImagesRead, { path })).dataUrl,
       saveBase64: async (dataUrlOrBase64) => (await direct.invoke<{ savedPath: string }>(AI_DRAW_DIRECT_METHOD.outputImagesSaveBase64, { dataUrlOrBase64 })).savedPath,
+      exportToDir: async (paths, targetDir) => (await direct.invoke<{ exportedPaths: string[] }>(AI_DRAW_DIRECT_METHOD.outputImagesExportToDir, { paths, targetDir })).exportedPaths,
       delete: (path) => direct.invoke(AI_DRAW_DIRECT_METHOD.outputImagesDelete, { path }),
     },
     referenceImages: {

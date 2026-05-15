@@ -67,6 +67,8 @@ export function createAiDrawBackendService(env: AiDrawBackendEnv): AiDrawBackend
         return outputImages.read(params)
       case AI_DRAW_DIRECT_METHOD.outputImagesSaveBase64:
         return outputImages.saveBase64(params)
+      case AI_DRAW_DIRECT_METHOD.outputImagesExportToDir:
+        return outputImages.exportToDir(params)
       case AI_DRAW_DIRECT_METHOD.outputImagesDelete:
         return outputImages.delete(params)
       case AI_DRAW_DIRECT_METHOD.referenceImagesList:

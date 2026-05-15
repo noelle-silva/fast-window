@@ -337,6 +337,7 @@ export function AiDrawApp(props: { gateway: AiDrawGateway; command?: AiDrawRunti
   const [imageGalleryOpen, setImageGalleryOpen] = React.useState(false)
   const [imageGalleryMultiMode, setImageGalleryMultiMode] = React.useState(false)
   const [imageGallerySelectedPaths, setImageGallerySelectedPaths] = React.useState<string[]>([])
+  const [imageGalleryExporting, setImageGalleryExporting] = React.useState(false)
   const [imageGalleryDeleteConfirm, setImageGalleryDeleteConfirm] = React.useState<{ open: boolean; paths: string[] }>({ open: false, paths: [] })
   const [imageGalleryLimit, setImageGalleryLimit] = React.useState(36)
   const imageGalleryScrollRef = React.useRef<HTMLDivElement | null>(null)
@@ -432,6 +433,7 @@ export function AiDrawApp(props: { gateway: AiDrawGateway; command?: AiDrawRunti
     setImageGalleryOpen(false)
     setImageGalleryMultiMode(false)
     setImageGallerySelectedPaths([])
+    setImageGalleryExporting(false)
     setImageGalleryDeleteConfirm({ open: false, paths: [] })
     setImageDetailAnchorEl(null)
     setNormalMoreAnchorEl(null)
@@ -1991,9 +1993,26 @@ export function AiDrawApp(props: { gateway: AiDrawGateway; command?: AiDrawRunti
                     <Button
                       size="small"
                       variant="outlined"
+                      startIcon={<SaveRoundedIcon fontSize="small" />}
+                      disabled={!imageGallerySelectedCount || imageGalleryExporting}
+                      onClick={() => {
+                        const paths = Array.from(imageGallerySelectedSet)
+                        if (!paths.length) return
+                        setImageGalleryExporting(true)
+                        void controller.exportOutputImages(paths).then(
+                          () => clearImageGallerySelection(),
+                          () => {},
+                        ).finally(() => setImageGalleryExporting(false))
+                      }}
+                    >
+                      {imageGalleryExporting ? '导出中…' : '导出'}
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
                       color="error"
                       startIcon={<DeleteRoundedIcon fontSize="small" />}
-                      disabled={!imageGallerySelectedCount}
+                      disabled={!imageGallerySelectedCount || imageGalleryExporting}
                       onClick={() => {
                         const paths = Array.from(imageGallerySelectedSet)
                         if (!paths.length) return

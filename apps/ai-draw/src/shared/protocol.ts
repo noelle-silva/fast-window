@@ -15,6 +15,7 @@ export const AI_DRAW_DIRECT_METHOD = {
   outputImagesList: 'outputImages.list',
   outputImagesRead: 'outputImages.read',
   outputImagesSaveBase64: 'outputImages.saveBase64',
+  outputImagesExportToDir: 'outputImages.exportToDir',
   outputImagesDelete: 'outputImages.delete',
   referenceImagesList: 'referenceImages.list',
   referenceImagesRead: 'referenceImages.read',

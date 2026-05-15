@@ -150,6 +150,7 @@ export type AiDrawController = {
 
   pickOutputDir: () => Promise<void>
   openOutputDir: () => Promise<void>
+  exportOutputImages: (paths: string[]) => Promise<void>
 
   copyImage: () => Promise<void>
   saveImage: () => Promise<void>
@@ -231,6 +232,18 @@ function createDuplicateProviderName(existingProviders: AiDrawProvider[], source
 function getRefItemFolderIdsFromIndex(index: RefLibraryIndexV1, path: string) {
   const raw = index.folderIdsByPath?.[path]
   return Array.isArray(raw) ? raw.map((x) => String(x || '').trim()).filter(Boolean) : []
+}
+
+function normalizeOutputImagePaths(paths: string[]) {
+  const raw = Array.isArray(paths) ? paths : []
+  const uniq: string[] = []
+  for (const x of raw) {
+    const p = String(x || '').trim()
+    if (!p || uniq.includes(p)) continue
+    uniq.push(p)
+    if (uniq.length >= 5000) break
+  }
+  return uniq
 }
 
 export function createAiDrawController(gateway: AiDrawGateway): AiDrawController {
@@ -1669,6 +1682,24 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     await outputImages.openOutputDir().catch((e: any) => host.toast(`打开目录失败：${String(e?.message || e)}`))
   }
 
+  async function exportOutputImages(paths: string[]) {
+    const uniq = normalizeOutputImagePaths(paths)
+    if (!uniq.length) return
+
+    const targetDir = await outputImages.pickExportDir().catch((e: any) => {
+      host.toast(`选择导出目录失败：${String(e?.message || e)}`)
+      return null
+    })
+    if (!targetDir) return
+
+    const exportedPaths = await outputImages.exportToDir(uniq, targetDir).catch((e: any) => {
+      host.toast(`导出失败：${String(e?.message || e)}`)
+      throw e
+    })
+    const count = Array.isArray(exportedPaths) ? exportedPaths.length : 0
+    host.toast(count > 1 ? `已导出 ${count} 张图片` : '已导出图片')
+  }
+
   async function copyImage() {
     if (!state.imageDataUrl) return
     await clipboard.writeImage(state.imageDataUrl).then(
@@ -1725,14 +1756,7 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
   }
 
   async function deleteOutputImages(paths: string[]) {
-    const raw = Array.isArray(paths) ? paths : []
-    const uniq: string[] = []
-    for (const x of raw) {
-      const p = String(x || '').trim()
-      if (!p) continue
-      if (!uniq.includes(p)) uniq.push(p)
-      if (uniq.length >= 5000) break
-    }
+    const uniq = normalizeOutputImagePaths(paths)
     if (!uniq.length) return
 
     const currentPath = String(state.savedPath || '').trim()
@@ -2189,6 +2213,7 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
 
     pickOutputDir,
     openOutputDir,
+    exportOutputImages,
 
     copyImage,
     saveImage,

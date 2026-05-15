@@ -66,10 +66,12 @@ export type AiDrawGateway = {
   outputImages: {
     getOutputDir: () => Promise<string>
     pickOutputDir: () => Promise<string | null>
+    pickExportDir: () => Promise<string | null>
     openOutputDir: () => Promise<void>
     list: () => Promise<string[]>
     read: (path: string) => Promise<string>
     saveBase64: (dataUrlOrBase64: string) => Promise<string>
+    exportToDir: (paths: string[], targetDir: string) => Promise<string[]>
     delete: (path: string) => Promise<void>
   }
 

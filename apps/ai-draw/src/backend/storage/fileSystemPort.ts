@@ -8,6 +8,7 @@ export type BackendFileSystemPort = {
   writeText(targetPath: string, text: string): Promise<void>
   readBinary(targetPath: string): Promise<Uint8Array>
   writeBinary(targetPath: string, bytes: Uint8Array): Promise<void>
+  writeBinaryExclusive(targetPath: string, bytes: Uint8Array): Promise<void>
   deleteFile(targetPath: string): Promise<void>
 }
 
@@ -41,6 +42,15 @@ export function createNodeFileSystemPort(): BackendFileSystemPort {
     async writeBinary(targetPath, bytes) {
       await fs.mkdir(path.dirname(targetPath), { recursive: true })
       await fs.writeFile(targetPath, bytes)
+    },
+    async writeBinaryExclusive(targetPath, bytes) {
+      await fs.mkdir(path.dirname(targetPath), { recursive: true })
+      const handle = await fs.open(targetPath, 'wx')
+      try {
+        await handle.writeFile(bytes)
+      } finally {
+        await handle.close()
+      }
     },
     async deleteFile(targetPath) {
       const stat = await fs.stat(targetPath)

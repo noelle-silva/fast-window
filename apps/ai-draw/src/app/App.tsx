@@ -89,6 +89,7 @@ export function App() {
         startDragging: () => getCurrentWindow().startDragging(),
         clipboard: tauriClipboard,
         pickOutputDir: () => invoke<string | null>('pick_output_dir'),
+        pickExportDir: () => invoke<string | null>('pick_export_dir'),
         openOutputDir: (path) => invoke('open_output_dir', { path }),
       },
     })

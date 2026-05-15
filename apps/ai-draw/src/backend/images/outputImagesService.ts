@@ -6,6 +6,7 @@ export function createOutputImagesService(outputDir: string, store: ImageStore) 
     list: async () => ({ paths: await store.list() }),
     read: async (params: any) => ({ dataUrl: await store.read(String(params?.path || '')) }),
     saveBase64: async (params: any) => ({ savedPath: await store.saveBase64(String(params?.dataUrlOrBase64 || '')) }),
+    exportToDir: async (params: any) => ({ exportedPaths: await store.exportToDir(params?.paths || [], String(params?.targetDir || '')) }),
     delete: async (params: any) => {
       await store.delete(String(params?.path || ''))
       return null

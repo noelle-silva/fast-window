@@ -3,7 +3,9 @@ package main
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -86,6 +88,37 @@ func (store *imageStore) saveBase64(input string) (string, error) {
 	return fileName, nil
 }
 
+func (store *imageStore) exportToDir(relativePaths []string, targetDir string) ([]string, error) {
+	paths := normalizeImagePathList(relativePaths, 5000)
+	if len(paths) == 0 {
+		return nil, newDirectError(errorBadRequest, "请选择要导出的图片")
+	}
+	targetDir = strings.TrimSpace(targetDir)
+	if err := ensureWritableDir(targetDir, "导出目录"); err != nil {
+		return nil, err
+	}
+
+	exported := make([]string, 0, len(paths))
+	for _, relPath := range paths {
+		sourcePath, sourceRel, err := store.safePath(relPath)
+		if err != nil {
+			return nil, err
+		}
+		if !isImageFileName(sourceRel) {
+			return nil, newDirectError(errorBadRequest, "只能导出图片文件")
+		}
+		targetPath, err := uniqueTargetPath(targetDir, filepath.Base(sourceRel))
+		if err != nil {
+			return nil, err
+		}
+		if err := copyFileNoOverwrite(sourcePath, targetPath); err != nil {
+			return nil, newDirectError(errorStorageFailed, fmt.Sprintf("导出图片失败: %v", err))
+		}
+		exported = append(exported, targetPath)
+	}
+	return exported, nil
+}
+
 func (store *imageStore) delete(relativePath string) error {
 	path, _, err := store.safePath(relativePath)
 	if err != nil {
@@ -129,18 +162,93 @@ func (store *imageStore) setRootDir(rootDir string) {
 }
 
 func ensureWritableOutputDir(path string) error {
+	return ensureWritableDir(path, "输出目录")
+}
+
+func ensureWritableDir(path string, label string) error {
 	value := strings.TrimSpace(path)
 	if value == "" || !filepath.IsAbs(value) {
-		return newDirectError(errorBadRequest, "输出目录无效")
+		return newDirectError(errorBadRequest, label+"无效")
 	}
 	if err := os.MkdirAll(value, 0o755); err != nil {
-		return newDirectError(errorStorageFailed, fmt.Sprintf("创建输出目录失败: %v", err))
+		return newDirectError(errorStorageFailed, fmt.Sprintf("创建%s失败: %v", label, err))
 	}
-	testPath := filepath.Join(value, ".fw-ai-draw-output-write-test")
+	testPath := filepath.Join(value, ".fw-ai-draw-write-test")
 	if err := os.WriteFile(testPath, []byte("ok"), 0o644); err != nil {
-		return newDirectError(errorStorageFailed, fmt.Sprintf("输出目录不可写: %v", err))
+		return newDirectError(errorStorageFailed, fmt.Sprintf("%s不可写: %v", label, err))
 	}
 	_ = os.Remove(testPath)
+	return nil
+}
+
+func normalizeImagePathList(raw []string, limit int) []string {
+	out := make([]string, 0, len(raw))
+	seen := make(map[string]bool)
+	for _, item := range raw {
+		path := strings.TrimSpace(item)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func uniqueTargetPath(targetDir string, fileName string) (string, error) {
+	baseName := filepath.Base(strings.TrimSpace(fileName))
+	if baseName == "." || baseName == string(os.PathSeparator) || baseName == "" {
+		baseName = randomImageName("png")
+	}
+	ext := filepath.Ext(baseName)
+	stem := strings.TrimSuffix(baseName, ext)
+	if stem == "" {
+		stem = "image"
+	}
+	path := filepath.Join(targetDir, baseName)
+	if _, err := os.Stat(path); err == nil {
+		// Try suffixed names below.
+	} else if errors.Is(err, os.ErrNotExist) {
+		return path, nil
+	} else {
+		return "", newDirectError(errorStorageFailed, fmt.Sprintf("检查导出文件失败: %v", err))
+	}
+	for i := 1; ; i++ {
+		candidate := filepath.Join(targetDir, fmt.Sprintf("%s-%d%s", stem, i, ext))
+		if _, err := os.Stat(candidate); err == nil {
+			continue
+		} else if errors.Is(err, os.ErrNotExist) {
+			return candidate, nil
+		} else {
+			return "", newDirectError(errorStorageFailed, fmt.Sprintf("检查导出文件失败: %v", err))
+		}
+	}
+}
+
+func copyFileNoOverwrite(sourcePath string, targetPath string) error {
+	input, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+
+	output, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(output, input)
+	closeErr := output.Close()
+	if copyErr != nil {
+		_ = os.Remove(targetPath)
+		return copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(targetPath)
+		return closeErr
+	}
 	return nil
 }
 
