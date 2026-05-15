@@ -389,16 +389,16 @@ function App() {
   }, [])
 
   return (
-    <main className="app-shell">
-      <header className="topbar" onPointerDown={onTopbarPointerDown}>
-        <div className="brand-mark" aria-hidden="true">v5</div>
-        <div className="title-block">
-          <div className="eyebrow">Fast Window Registered App Reference</div>
+    <main className="reference-app">
+      <header className="reference-topbar" onPointerDown={onTopbarPointerDown}>
+        <div className="reference-brand-mark" aria-hidden="true">v5</div>
+        <div className="reference-title-block">
+          <div className="reference-eyebrow">Fast Window Registered App Reference</div>
           <h1>v5 Reference App Go</h1>
         </div>
-        <div className="mode-pill">{launchInfo.standalone ? 'standalone' : `FW ${launchInfo.mode}`}</div>
+        <div className="reference-mode-pill">{launchInfo.standalone ? 'standalone' : `FW ${launchInfo.mode}`}</div>
         {launchInfo.standalone ? (
-          <div className="window-controls" data-window-control>
+          <div className="reference-window-controls" data-window-control>
             <button type="button" onClick={() => appWindow.minimize()} aria-label="最小化">-</button>
             <button type="button" onClick={() => appWindow.toggleMaximize()} aria-label="最大化或还原">□</button>
             <button type="button" onClick={() => invoke('hide_to_tray')} aria-label="隐藏到托盘">×</button>
@@ -406,17 +406,17 @@ function App() {
         ) : null}
       </header>
 
-      <section className="hero-card">
+      <section className="reference-hero-card">
         <div>
-          <p className="eyebrow">模范标准</p>
+          <p className="reference-eyebrow">模范标准</p>
           <h2>只包含 v5 App 通用框架能力</h2>
           <p>这个 App 用来作为 Go sidecar 版本的标准模板：FW 控制、单实例、托盘、数据目录、最小 direct 协议、migration 骨架和构建脚本都在这里。</p>
         </div>
-        <div className={`status-badge ${phase}`}>{phase === 'ready' ? 'Backend Ready' : phase === 'failed' ? 'Needs Attention' : 'Starting'}</div>
+        <div className={`reference-status-badge reference-status-${phase}`}>{phase === 'ready' ? 'Backend Ready' : phase === 'failed' ? 'Needs Attention' : 'Starting'}</div>
       </section>
 
-      <section className="grid">
-        <article className="panel">
+      <section className="reference-grid">
+        <article className="reference-panel">
           <h3>启动信息</h3>
           <dl>
             <dt>启动来源</dt><dd>{launchInfo.launched ? 'FW launched' : 'Standalone'}</dd>
@@ -426,39 +426,39 @@ function App() {
           </dl>
         </article>
 
-        <article className="panel">
+        <article className="reference-panel">
           <h3>数据目录</h3>
           <dl>
             <dt>当前目录</dt><dd>{status?.dataDir || '读取中'}</dd>
             <dt>默认目录</dt><dd>{status?.defaultDataDir || '读取中'}</dd>
             <dt>可写状态</dt><dd>{status?.writable ? '可写' : '不可写或未知'}</dd>
           </dl>
-          {status?.error ? <p className="error-text">{status.error}</p> : null}
-          <div className="actions">
+          {status?.error ? <p className="reference-error-text">{status.error}</p> : null}
+          <div className="reference-actions">
             <button type="button" onClick={pickDataDir} disabled={busy}>选择数据目录</button>
             <button type="button" onClick={() => void connect({ restartBackend: true })} disabled={busy}>重启后台</button>
           </div>
         </article>
 
-        <article className="panel">
+        <article className="reference-panel">
           <h3>后台健康</h3>
           <pre>{JSON.stringify(health, null, 2) || '后台连接中'}</pre>
         </article>
 
-        <article className="panel">
+        <article className="reference-panel">
           <h3>示例设置</h3>
-          <label className="field">
+          <label className="reference-field">
             <span>message</span>
             <input value={message} onChange={event => setMessage(event.target.value)} />
           </label>
-          <div className="actions">
+          <div className="reference-actions">
             <button type="button" onClick={saveSettings} disabled={!client || busy}>保存设置</button>
           </div>
-          <p className="muted">最后保存：{settings?.updatedAt || '尚未保存'}</p>
+          <p className="reference-muted">最后保存：{settings?.updatedAt || '尚未保存'}</p>
         </article>
       </section>
 
-      {error ? <section className="error-card">{error}</section> : null}
+      {error ? <section className="reference-error-card">{error}</section> : null}
     </main>
   )
 }
