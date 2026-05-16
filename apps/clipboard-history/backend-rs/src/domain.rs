@@ -206,7 +206,7 @@ pub fn ensure_collections(raw: Option<Value>) -> CollectionsDoc {
     };
     let Some(value) = raw else { return empty };
     let value = normalize_collections_value(value);
-    let Ok(doc) = serde_json::from_value::<CollectionsDoc>(value) else {
+    let Ok(mut doc) = serde_json::from_value::<CollectionsDoc>(value) else {
         return empty;
     };
     let Some(CollectionNode::Folder { children, .. }) = doc.nodes.get(&doc.root_id) else {
@@ -215,7 +215,17 @@ pub fn ensure_collections(raw: Option<Value>) -> CollectionsDoc {
     if children.iter().any(|id| !doc.nodes.contains_key(id)) {
         return empty;
     }
+    normalize_collection_item_titles(&mut doc);
     doc
+}
+
+fn normalize_collection_item_titles(doc: &mut CollectionsDoc) {
+    for node in doc.nodes.values_mut() {
+        let CollectionNode::Item { title, content, .. } = node else {
+            continue;
+        };
+        *title = resolve_item_title(title, content);
+    }
 }
 
 fn normalize_collections_value(mut value: Value) -> Value {
@@ -359,7 +369,6 @@ pub fn create_text_item(doc: &mut CollectionsDoc, parent_id: &str, title: &str, 
         CollectionItemContent::Text {
             text: safe_text.to_string(),
         },
-        safe_text,
     );
 }
 
@@ -368,12 +377,11 @@ pub fn create_image_item(
     parent_id: &str,
     title: &str,
     content: CollectionItemContent,
-    default_title_source: &str,
 ) {
     if !matches!(content, CollectionItemContent::Image { .. }) {
         return;
     }
-    create_item_with_content(doc, parent_id, title, content, default_title_source);
+    create_item_with_content(doc, parent_id, title, content);
 }
 
 fn create_item_with_content(
@@ -381,31 +389,18 @@ fn create_item_with_content(
     parent_id: &str,
     title: &str,
     content: CollectionItemContent,
-    default_title_source: &str,
 ) {
     if !is_folder(doc, parent_id) {
         return;
     }
     let now = now_ms();
     let id = make_id();
-    let safe_title = title.trim();
-    let default_title = default_title_source
-        .trim()
-        .lines()
-        .next()
-        .unwrap_or("未命名条目")
-        .chars()
-        .take(24)
-        .collect::<String>();
+    let title = resolve_item_title(title, &content);
     doc.nodes.insert(
         id.clone(),
         CollectionNode::Item {
             id: id.clone(),
-            title: if safe_title.is_empty() {
-                default_title
-            } else {
-                safe_title.to_string()
-            },
+            title,
             content,
             created_at: now,
             updated_at: now,
@@ -444,7 +439,6 @@ pub fn update_text_item(doc: &mut CollectionsDoc, item_id: &str, title: &str, te
         CollectionItemContent::Text {
             text: safe_text.to_string(),
         },
-        safe_text,
     );
 }
 
@@ -453,12 +447,11 @@ pub fn update_image_item(
     item_id: &str,
     title: &str,
     content: CollectionItemContent,
-    default_title_source: &str,
 ) {
     if !matches!(content, CollectionItemContent::Image { .. }) {
         return;
     }
-    update_item_content(doc, item_id, title, content, default_title_source);
+    update_item_content(doc, item_id, title, content);
 }
 
 fn update_item_content(
@@ -466,7 +459,6 @@ fn update_item_content(
     item_id: &str,
     title: &str,
     content: CollectionItemContent,
-    default_title_source: &str,
 ) {
     let Some(CollectionNode::Item {
         title: item_title,
@@ -477,20 +469,7 @@ fn update_item_content(
     else {
         return;
     };
-    let safe_title = title.trim();
-    let default_title = default_title_source
-        .trim()
-        .lines()
-        .next()
-        .unwrap_or("未命名条目")
-        .chars()
-        .take(24)
-        .collect::<String>();
-    *item_title = if safe_title.is_empty() {
-        default_title
-    } else {
-        safe_title.to_string()
-    };
+    *item_title = resolve_item_title(title, &content);
     *item_content = content;
     *updated_at = now_ms();
 }
@@ -536,18 +515,7 @@ pub fn copy_item(doc: &mut CollectionsDoc, item_id: &str, to_parent_id: &str) {
     let Some(CollectionNode::Item { title, content, .. }) = doc.nodes.get(item_id).cloned() else {
         return;
     };
-    let default_title_source = collection_item_title_source(&content);
-    create_item_with_content(doc, to_parent_id, &title, content, &default_title_source);
-}
-
-pub fn collection_item_text(content: &CollectionItemContent) -> String {
-    match content {
-        CollectionItemContent::Text { text } => text.clone(),
-        CollectionItemContent::Image { source_name, .. } => source_name
-            .clone()
-            .filter(|name| !name.trim().is_empty())
-            .unwrap_or_else(|| "图片收藏".to_string()),
-    }
+    create_item_with_content(doc, to_parent_id, &title, content);
 }
 
 fn collection_item_title_source(content: &CollectionItemContent) -> String {
@@ -558,6 +526,21 @@ fn collection_item_title_source(content: &CollectionItemContent) -> String {
             .filter(|name| !name.trim().is_empty())
             .unwrap_or_else(|| "图片收藏".to_string()),
     }
+}
+
+fn resolve_item_title(title: &str, content: &CollectionItemContent) -> String {
+    let safe_title = title.trim();
+    if !safe_title.is_empty() {
+        return safe_title.to_string();
+    }
+    collection_item_title_source(content)
+        .trim()
+        .lines()
+        .next()
+        .unwrap_or("未命名条目")
+        .chars()
+        .take(24)
+        .collect::<String>()
 }
 
 pub fn empty_internal_copy() -> InternalCopyMarker {

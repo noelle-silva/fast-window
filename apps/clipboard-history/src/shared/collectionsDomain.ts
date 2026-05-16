@@ -42,7 +42,7 @@ function normalizeCollectionsDoc(doc: CollectionsDoc, nowMs = Date.now()): Colle
       nodes[id] = {
         id: String(node.id || id),
         type: 'item',
-        title: String((node as any).title || '').trim() || itemTitleSource(content).slice(0, 24) || '未命名条目',
+        title: resolveItemTitle((node as any).title, content),
         content,
         createdAt: normalizeTime((node as any).createdAt, nowMs),
         updatedAt: normalizeTime((node as any).updatedAt, nowMs),
@@ -97,6 +97,12 @@ export function itemText(content: CollectionItemContent | null | undefined): str
 export function itemTitleSource(content: CollectionItemContent | null | undefined): string {
   if (!content) return ''
   return content.type === 'text' ? content.text : content.sourceName || '图片收藏'
+}
+
+export function resolveItemTitle(title: string | null | undefined, content: CollectionItemContent | null | undefined): string {
+  const explicitTitle = String(title || '').trim()
+  if (explicitTitle) return explicitTitle
+  return itemTitleSource(content).trim().split(/\r?\n/)[0]?.slice(0, 24) || '未命名条目'
 }
 
 export function getNode(doc: CollectionsDoc | null | undefined, id: string): CollectionNode | null {
@@ -216,8 +222,7 @@ export function createItem(doc: CollectionsDoc | null | undefined, parentId: str
   const safeContent = normalizeItemContent(content)
   if (!safeContent) return ''
   const itemId = makeId()
-  const safeTitle = (title || '').trim() || itemTitleSource(safeContent).split(/\r?\n/)[0].slice(0, 24) || '未命名条目'
-  doc.nodes[itemId] = { id: itemId, type: 'item', title: safeTitle, content: safeContent, createdAt: nowMs, updatedAt: nowMs }
+  doc.nodes[itemId] = { id: itemId, type: 'item', title: resolveItemTitle(title, safeContent), content: safeContent, createdAt: nowMs, updatedAt: nowMs }
   insertChild(doc, parentId, itemId, undefined, nowMs)
   return itemId
 }
@@ -235,7 +240,7 @@ export function updateItem(doc: CollectionsDoc | null | undefined, itemId: strin
   if (!it || it.type !== 'item') return false
   const safeContent = normalizeItemContent(content)
   if (!safeContent) return false
-  it.title = (title || '').trim() || itemTitleSource(safeContent).split(/\r?\n/)[0].slice(0, 24) || '未命名条目'
+  it.title = resolveItemTitle(title, safeContent)
   it.content = safeContent
   it.updatedAt = nowMs
   return true

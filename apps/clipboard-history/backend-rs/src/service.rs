@@ -425,14 +425,7 @@ impl ClipboardHistoryService {
                 self.save_collections_and_emit()
             }
             image @ CollectionItemContent::Image { .. } => {
-                let default_title = collection_item_text(&image);
-                create_image_item(
-                    &mut self.collections,
-                    parent_id,
-                    title,
-                    image,
-                    &default_title,
-                );
+                create_image_item(&mut self.collections, parent_id, title, image);
                 self.save_collections_and_emit()
             }
         }
@@ -448,8 +441,7 @@ impl ClipboardHistoryService {
                 update_text_item(&mut self.collections, item_id, title, &text);
             }
             image @ CollectionItemContent::Image { .. } => {
-                let default_title = collection_item_text(&image);
-                update_image_item(&mut self.collections, item_id, title, image, &default_title);
+                update_image_item(&mut self.collections, item_id, title, image);
             }
         }
         self.save_collections_and_emit_after(previous)
