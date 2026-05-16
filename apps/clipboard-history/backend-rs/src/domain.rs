@@ -206,7 +206,7 @@ pub fn ensure_collections(raw: Option<Value>) -> CollectionsDoc {
     };
     let Some(value) = raw else { return empty };
     let value = normalize_collections_value(value);
-    let Ok(mut doc) = serde_json::from_value::<CollectionsDoc>(value) else {
+    let Ok(doc) = serde_json::from_value::<CollectionsDoc>(value) else {
         return empty;
     };
     let Some(CollectionNode::Folder { children, .. }) = doc.nodes.get(&doc.root_id) else {
@@ -215,17 +215,7 @@ pub fn ensure_collections(raw: Option<Value>) -> CollectionsDoc {
     if children.iter().any(|id| !doc.nodes.contains_key(id)) {
         return empty;
     }
-    normalize_collection_item_titles(&mut doc);
     doc
-}
-
-fn normalize_collection_item_titles(doc: &mut CollectionsDoc) {
-    for node in doc.nodes.values_mut() {
-        let CollectionNode::Item { title, content, .. } = node else {
-            continue;
-        };
-        *title = resolve_item_title(title, content);
-    }
 }
 
 fn normalize_collections_value(mut value: Value) -> Value {
@@ -395,7 +385,7 @@ fn create_item_with_content(
     }
     let now = now_ms();
     let id = make_id();
-    let title = resolve_item_title(title, &content);
+    let title = normalize_item_title(title);
     doc.nodes.insert(
         id.clone(),
         CollectionNode::Item {
@@ -469,7 +459,7 @@ fn update_item_content(
     else {
         return;
     };
-    *item_title = resolve_item_title(title, &content);
+    *item_title = normalize_item_title(title);
     *item_content = content;
     *updated_at = now_ms();
 }
@@ -518,29 +508,8 @@ pub fn copy_item(doc: &mut CollectionsDoc, item_id: &str, to_parent_id: &str) {
     create_item_with_content(doc, to_parent_id, &title, content);
 }
 
-fn collection_item_title_source(content: &CollectionItemContent) -> String {
-    match content {
-        CollectionItemContent::Text { text } => text.clone(),
-        CollectionItemContent::Image { source_name, .. } => source_name
-            .clone()
-            .filter(|name| !name.trim().is_empty())
-            .unwrap_or_else(|| "图片收藏".to_string()),
-    }
-}
-
-fn resolve_item_title(title: &str, content: &CollectionItemContent) -> String {
-    let safe_title = title.trim();
-    if !safe_title.is_empty() {
-        return safe_title.to_string();
-    }
-    collection_item_title_source(content)
-        .trim()
-        .lines()
-        .next()
-        .unwrap_or("未命名条目")
-        .chars()
-        .take(24)
-        .collect::<String>()
+fn normalize_item_title(title: &str) -> String {
+    title.trim().to_string()
 }
 
 pub fn empty_internal_copy() -> InternalCopyMarker {

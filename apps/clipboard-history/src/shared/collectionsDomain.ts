@@ -42,7 +42,7 @@ function normalizeCollectionsDoc(doc: CollectionsDoc, nowMs = Date.now()): Colle
       nodes[id] = {
         id: String(node.id || id),
         type: 'item',
-        title: resolveItemTitle((node as any).title, content),
+        title: String((node as any).title || ''),
         content,
         createdAt: normalizeTime((node as any).createdAt, nowMs),
         updatedAt: normalizeTime((node as any).updatedAt, nowMs),
@@ -94,15 +94,8 @@ export function itemText(content: CollectionItemContent | null | undefined): str
   return content.type === 'text' ? content.text : content.sourceName || '图片收藏'
 }
 
-export function itemTitleSource(content: CollectionItemContent | null | undefined): string {
-  if (!content) return ''
-  return content.type === 'text' ? content.text : content.sourceName || '图片收藏'
-}
-
-export function resolveItemTitle(title: string | null | undefined, content: CollectionItemContent | null | undefined): string {
-  const explicitTitle = String(title || '').trim()
-  if (explicitTitle) return explicitTitle
-  return itemTitleSource(content).trim().split(/\r?\n/)[0]?.slice(0, 24) || '未命名条目'
+export function normalizeItemTitle(title: string | null | undefined): string {
+  return String(title || '').trim()
 }
 
 export function getNode(doc: CollectionsDoc | null | undefined, id: string): CollectionNode | null {
@@ -222,7 +215,7 @@ export function createItem(doc: CollectionsDoc | null | undefined, parentId: str
   const safeContent = normalizeItemContent(content)
   if (!safeContent) return ''
   const itemId = makeId()
-  doc.nodes[itemId] = { id: itemId, type: 'item', title: resolveItemTitle(title, safeContent), content: safeContent, createdAt: nowMs, updatedAt: nowMs }
+  doc.nodes[itemId] = { id: itemId, type: 'item', title: normalizeItemTitle(title), content: safeContent, createdAt: nowMs, updatedAt: nowMs }
   insertChild(doc, parentId, itemId, undefined, nowMs)
   return itemId
 }
@@ -240,7 +233,7 @@ export function updateItem(doc: CollectionsDoc | null | undefined, itemId: strin
   if (!it || it.type !== 'item') return false
   const safeContent = normalizeItemContent(content)
   if (!safeContent) return false
-  it.title = resolveItemTitle(title, safeContent)
+  it.title = normalizeItemTitle(title)
   it.content = safeContent
   it.updatedAt = nowMs
   return true
