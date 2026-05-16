@@ -121,7 +121,7 @@ export async function createAiDrawDirectGateway(options: AiDrawDirectGatewayOpti
         await navigator.clipboard.write([new ClipboardItemCtor({ [blob.type || 'image/png']: blob })])
       },
       readImage: async () => {
-        if (typeof hostApi.clipboard?.readImage !== 'function') throw new Error('当前宿主未提供原生剪贴板图片读取能力')
+        if (typeof hostApi.clipboard?.readImage !== 'function') throw new Error('当前宿主不支持读取剪贴板图片')
         return hostApi.clipboard.readImage()
       },
     },

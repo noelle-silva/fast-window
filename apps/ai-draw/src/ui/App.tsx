@@ -63,7 +63,7 @@ import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import BugReportRoundedIcon from '@mui/icons-material/BugReportRounded'
 import type { AiDrawGateway } from '../gateway/types'
-import { createAiDrawController } from '../controller/createController'
+import { createAiDrawController, type AiDrawImageImportTarget } from '../controller/createController'
 import { UI_MODE_LOCAL_EDIT, UI_MODE_NORMAL, type AiDrawProvider, type UiMode } from '../core/schema'
 import type { AiDrawTaskHistoryItem } from '../core/taskHistory'
 import { createClaudeTheme } from './theme'
@@ -971,7 +971,8 @@ export function AiDrawApp(props: { gateway: AiDrawGateway; command?: AiDrawRunti
     }
     if (!files.length) return
     e.preventDefault()
-    void controller.addRefImagesFromFiles(files)
+    const target: AiDrawImageImportTarget = 'reference'
+    void controller.importImagesFromFiles(files, target)
   }
 
   return (
@@ -1407,9 +1408,9 @@ export function AiDrawApp(props: { gateway: AiDrawGateway; command?: AiDrawRunti
                       size="small"
                       variant="outlined"
                       startIcon={<ContentPasteRoundedIcon fontSize="small" />}
-                      onClick={() => void controller.pasteEditImage()}
+                      onClick={() => void controller.importClipboardImageAsEditBase()}
                     >
-                      粘贴为底图
+                      粘贴底图
                     </Button>
                     <Button
                       size="small"

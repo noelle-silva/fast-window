@@ -102,6 +102,13 @@ export type AiDrawControllerState = {
 
 type Listener = () => void
 type SortDropPosition = 'before' | 'after'
+export type AiDrawImageImportTarget = 'reference' | 'editBase'
+type ImportableImage = {
+  name?: string
+  dataUrl?: string
+  data_url?: string
+  base64?: string
+}
 
 export type AiDrawController = {
   getState: () => AiDrawControllerState
@@ -116,7 +123,8 @@ export type AiDrawController = {
   setUiMode: (mode: UiMode) => Promise<void>
 
   pickRefImages: () => Promise<void>
-  addRefImagesFromFiles: (files: File[]) => Promise<void>
+  importImagesFromFiles: (files: File[], target: AiDrawImageImportTarget) => Promise<void>
+  importClipboardImageAsEditBase: () => Promise<void>
   removeRefImage: (refId: string) => void
   clearRefImages: () => void
   refreshRefLibrary: () => Promise<void>
@@ -135,7 +143,6 @@ export type AiDrawController = {
   moveRefLibraryItemInFolder: (folderId: string, path: string, targetPath: string, position: SortDropPosition) => Promise<void>
 
   pickEditImage: () => Promise<void>
-  pasteEditImage: () => Promise<void>
   clearEditImage: () => void
   setEditSelection: (sel: { x: number; y: number; w: number; h: number } | null) => void
 
@@ -1367,57 +1374,41 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
       host.toast(`选择图片失败：${String(e?.message || e)}`)
       return []
     })
-    const list = Array.isArray(picked) ? picked : []
-    const out: PickedImage[] = []
-    for (const it of list) {
-      const name = typeof (it as any)?.name === 'string' ? (it as any).name : ''
-      const raw =
-        typeof (it as any)?.dataUrl === 'string'
-          ? (it as any).dataUrl
-          : typeof (it as any)?.data_url === 'string'
-            ? (it as any).data_url
-            : typeof (it as any)?.base64 === 'string'
-              ? (it as any).base64
-              : ''
-      const u = normalizeImageDataUrlOrBase64(raw)
-      if (!u.startsWith('data:image/')) continue
-      out.push({ id: id('ref'), name: String(name || ''), dataUrl: u })
-      if (out.length >= remaining) break
-    }
-
-    if (!out.length) return
-    const merged = state.refImages.concat(out).slice(0, MAX_REF_IMAGES)
-    if (merged.length < state.refImages.length + out.length) host.toast(`参考图最多 ${MAX_REF_IMAGES} 张`)
-    state.refImages = merged
-    notify()
+    await importNormalizedImages(Array.isArray(picked) ? picked : [], 'reference')
   }
 
-  async function addRefImagesFromFiles(files: File[]) {
+  async function importImagesFromFiles(files: File[], target: AiDrawImageImportTarget) {
     const list = Array.isArray(files) ? files : []
-    const remaining = MAX_REF_IMAGES - (Array.isArray(state.refImages) ? state.refImages.length : 0)
-    if (remaining <= 0) {
-      host.toast(`参考图最多 ${MAX_REF_IMAGES} 张`)
-      return
-    }
+    const maxCount = target === 'reference' ? Math.max(0, MAX_REF_IMAGES - (Array.isArray(state.refImages) ? state.refImages.length : 0)) : 1
+    if (target === 'reference' && maxCount <= 0) return host.toast(`参考图最多 ${MAX_REF_IMAGES} 张`)
 
-    const out: PickedImage[] = []
-    for (const f of list.slice(0, remaining)) {
+    const out: ImportableImage[] = []
+    for (const f of list.slice(0, maxCount)) {
       try {
         const dataUrl = await readFileAsDataUrl(f)
-        const u = normalizeImageDataUrlOrBase64(dataUrl)
-        if (!u.startsWith('data:image/')) continue
-        out.push({ id: id('ref'), name: String(f?.name || '图片'), dataUrl: u })
+        out.push({ name: String(f?.name || '图片'), dataUrl })
       } catch (_) {}
     }
-    if (!out.length) {
-      host.toast('未识别到图片')
-      return
-    }
+    await importNormalizedImages(out, target, { emptyMessage: '未识别到图片' })
+  }
 
-    const merged = state.refImages.concat(out).slice(0, MAX_REF_IMAGES)
-    if (merged.length < state.refImages.length + out.length) host.toast(`参考图最多 ${MAX_REF_IMAGES} 张`)
-    state.refImages = merged
-    notify()
+  async function importClipboardImageAsEditBase() {
+    const image = await clipboard.readImage()
+    const ok = await importNormalizedImages(image ? [image] : [], 'editBase', { emptyMessage: '剪贴板里没有图片' })
+    if (ok) host.toast('已粘贴为底图')
+  }
+
+  function normalizeImportableImage(image: ImportableImage): PickedImage | null {
+    const raw =
+      typeof image?.dataUrl === 'string'
+        ? image.dataUrl
+        : typeof image?.data_url === 'string'
+          ? image.data_url
+          : typeof image?.base64 === 'string'
+            ? image.base64
+            : ''
+    const u = normalizeImageDataUrlOrBase64(raw)
+    return u.startsWith('data:image/') ? { id: id('img'), name: String(image?.name || '图片'), dataUrl: u } : null
   }
 
   async function setEditImageFromDataUrl(name: string, rawDataUrl: string) {
@@ -1445,22 +1436,37 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     }
   }
 
+  async function importNormalizedImages(images: ImportableImage[], target: AiDrawImageImportTarget, options?: { emptyMessage?: string }) {
+    const normalized = (Array.isArray(images) ? images : []).map(normalizeImportableImage).filter(Boolean) as PickedImage[]
+    if (!normalized.length) {
+      if (options?.emptyMessage) host.toast(options.emptyMessage)
+      return false
+    }
+
+    if (target === 'editBase') {
+      const image = normalized[0]
+      return setEditImageFromDataUrl(image.name, image.dataUrl)
+    }
+
+    const remaining = MAX_REF_IMAGES - (Array.isArray(state.refImages) ? state.refImages.length : 0)
+    if (remaining <= 0) {
+      host.toast(`参考图最多 ${MAX_REF_IMAGES} 张`)
+      return false
+    }
+
+    const out = normalized.slice(0, remaining).map((image) => ({ ...image, id: id('ref') }))
+    state.refImages = state.refImages.concat(out)
+    if (out.length < normalized.length) host.toast(`参考图最多 ${MAX_REF_IMAGES} 张`)
+    notify()
+    return true
+  }
+
   async function pickEditImage() {
     const picked = await referenceImages.pick(1).catch((e: any) => {
       host.toast(`选择图片失败：${String(e?.message || e)}`)
       return []
     })
-    const it = Array.isArray(picked) && picked[0] ? picked[0] : null
-    const name = typeof it?.name === 'string' ? it.name : ''
-    const raw = typeof (it as any)?.dataUrl === 'string' ? (it as any).dataUrl : typeof (it as any)?.data_url === 'string' ? (it as any).data_url : ''
-    await setEditImageFromDataUrl(name, raw)
-  }
-
-  async function pasteEditImage() {
-    const image = await clipboard.readImage()
-    if (!image) return host.toast('剪贴板里没有图片')
-    const ok = await setEditImageFromDataUrl(image.name, image.dataUrl)
-    if (ok) host.toast('已粘贴为底图')
+    await importNormalizedImages(Array.isArray(picked) ? picked : [], 'editBase')
   }
 
   async function refreshRefLibrary() {
@@ -2171,7 +2177,8 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     setUiMode,
 
     pickRefImages,
-    addRefImagesFromFiles,
+    importImagesFromFiles,
+    importClipboardImageAsEditBase,
     removeRefImage: (refId: string) => {
       const rid = String(refId || '').trim()
       if (!rid) return
@@ -2198,7 +2205,6 @@ export function createAiDrawController(gateway: AiDrawGateway): AiDrawController
     moveRefLibraryItemInFolder,
 
     pickEditImage,
-    pasteEditImage,
     clearEditImage,
     setEditSelection,
 
