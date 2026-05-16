@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { Box, ButtonBase, Typography } from '@mui/material'
+import type { SvgIconComponent } from '@mui/icons-material'
 import { categoryDefinition, itemTargetValue } from '../categoryRegistry'
 import type { CategoryWorkspace, DesktopGridEntry } from '../types'
 import { DesktopIconVisual } from './DesktopIconVisual'
@@ -70,7 +71,15 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
             transform: 'translateY(-3px)',
             boxShadow: surfaceShadow,
           },
+          '&:hover .desktop-grid-source-badge': {
+            transform: 'translateY(-3px) scale(1.08)',
+            bgcolor: 'rgba(37, 99, 235, 0.92)',
+            boxShadow: '0 12px 24px rgba(37, 99, 235, 0.28), 0 8px 18px rgba(15, 23, 42, 0.24)',
+          },
           '&:active .desktop-grid-icon-surface': {
+            transform: 'translateY(0) scale(0.98)',
+          },
+          '&:active .desktop-grid-source-badge': {
             transform: 'translateY(0) scale(0.98)',
           },
           '&:focus-visible': {
@@ -99,7 +108,7 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
             targetKind={props.entry.item?.target.kind}
           />
         )}
-        {sourceCategory ? <SourceCategoryBadge label={sourceCategory.label} /> : null}
+        {sourceCategory ? <SourceCategoryBadge icon={sourceCategory.icon} label={sourceCategory.label} /> : null}
         <Box sx={{ width: '100%', minWidth: 0, display: 'grid', justifyItems: 'center', gap: 0.35 }}>
           <Typography
             component="span"
@@ -149,33 +158,34 @@ export function DesktopGridIcon(props: Props): React.ReactNode {
   )
 }
 
-function SourceCategoryBadge(props: { label: string }) {
+function SourceCategoryBadge(props: { icon: SvgIconComponent; label: string }) {
+  const BadgeIcon = props.icon
   return (
     <Box
+      className="desktop-grid-source-badge"
       aria-label={`来源分类：${props.label}`}
       title={`来源分类：${props.label}`}
       sx={{
         position: 'absolute',
-        right: 10,
-        top: 44,
-        maxWidth: 48,
-        px: 0.6,
-        py: 0.18,
-        borderRadius: 999,
-        bgcolor: 'rgba(15, 23, 42, 0.82)',
+        right: 12,
+        top: 42,
+        width: 24,
+        height: 24,
+        display: 'grid',
+        placeItems: 'center',
+        borderRadius: '50%',
+        bgcolor: 'rgba(15, 23, 42, 0.76)',
         border: '1px solid rgba(255, 255, 255, 0.72)',
         color: '#FFFFFF',
-        fontSize: 10,
-        fontWeight: 900,
-        lineHeight: 1.25,
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
         boxShadow: '0 8px 18px rgba(15, 23, 42, 0.28)',
         pointerEvents: 'none',
+        backdropFilter: 'blur(12px) saturate(1.12)',
+        WebkitBackdropFilter: 'blur(12px) saturate(1.12)',
+        transform: 'translateY(0) scale(1)',
+        transition: 'transform .18s ease, background-color .18s ease, box-shadow .18s ease',
       }}
     >
-      {props.label}
+      <BadgeIcon sx={{ fontSize: 15, filter: 'drop-shadow(0 1px 2px rgba(15, 23, 42, 0.42))' }} />
     </Box>
   )
 }

@@ -143,7 +143,33 @@ func (svc *service) migrateAllView() error {
 	if err != nil {
 		return err
 	}
-	normalized, err := normalizeCollectionsDoc(doc)
+	categoryOrder, err := normalizeConcreteCategoryOrder(doc.CategoryOrder)
+	if err != nil {
+		return err
+	}
+	normalized, err := normalizeCollectionsDocWithOrder(doc, categoryOrder, 7)
+	if err != nil {
+		return err
+	}
+	normalized.UpdatedAt = nowText()
+	return writeJSON(filepath.Join(svc.dataDir, dataFile), normalized)
+}
+
+func (svc *service) migrateViewCategoryOrder() error {
+	payload, err := os.ReadFile(filepath.Join(svc.dataDir, dataFile))
+	if err != nil {
+		return fmt.Errorf("read folders data failed: %w", err)
+	}
+	doc, err := decodeV7CollectionsDoc(payload)
+	if err != nil {
+		return err
+	}
+	concreteOrder, err := normalizeConcreteCategoryOrder(doc.CategoryOrder)
+	if err != nil {
+		return err
+	}
+	viewOrder := append([]string{"all"}, concreteOrder...)
+	normalized, err := normalizeCollectionsDocWithOrder(doc, viewOrder, dataVersion)
 	if err != nil {
 		return err
 	}
@@ -228,6 +254,54 @@ func decodeV6CollectionsDoc(payload []byte) (collectionsDoc, error) {
 		updatedAt = *input.UpdatedAt
 	}
 	return collectionsDoc{SchemaVersion: dataSchemaVersion, DataVersion: dataVersion, ActiveCategoryID: *input.ActiveCategoryID, CategoryOrder: *input.CategoryOrder, Categories: categories, AllView: defaultAllCategoryView(), UpdatedAt: updatedAt}, nil
+}
+
+func decodeV7CollectionsDoc(payload []byte) (collectionsDoc, error) {
+	if strings.TrimSpace(string(payload)) == "" {
+		return collectionsDoc{}, errors.New("folders data file is empty")
+	}
+	var input collectionsDocInput
+	if err := json.Unmarshal(payload, &input); err != nil {
+		return collectionsDoc{}, fmt.Errorf("parse folders data failed: %w", err)
+	}
+	if input.SchemaVersion == nil {
+		return collectionsDoc{}, errors.New("folders data schemaVersion is required")
+	}
+	if *input.SchemaVersion != dataSchemaVersion {
+		return collectionsDoc{}, fmt.Errorf("folders data schemaVersion %d is not supported; expected %d", *input.SchemaVersion, dataSchemaVersion)
+	}
+	if input.DataVersion == nil || *input.DataVersion != 7 {
+		return collectionsDoc{}, errors.New("folders dataVersion 7 is required for view category order migration")
+	}
+	if input.ActiveCategoryID == nil {
+		return collectionsDoc{}, errors.New("folders data activeCategoryId is required")
+	}
+	if input.CategoryOrder == nil {
+		return collectionsDoc{}, errors.New("folders data categoryOrder is required")
+	}
+	if input.Categories == nil {
+		return collectionsDoc{}, errors.New("folders data categories is required")
+	}
+	if input.AllView == nil {
+		return collectionsDoc{}, errors.New("folders data allView is required")
+	}
+	categories := make([]categoryWorkspace, 0, len(*input.Categories))
+	for index, raw := range *input.Categories {
+		workspace, err := decodeCategoryWorkspace(raw)
+		if err != nil {
+			return collectionsDoc{}, fmt.Errorf("categories[%d]: %w", index, err)
+		}
+		categories = append(categories, workspace)
+	}
+	allView, err := decodeAllCategoryView(*input.AllView)
+	if err != nil {
+		return collectionsDoc{}, err
+	}
+	updatedAt := ""
+	if input.UpdatedAt != nil {
+		updatedAt = *input.UpdatedAt
+	}
+	return collectionsDoc{SchemaVersion: dataSchemaVersion, DataVersion: 7, ActiveCategoryID: *input.ActiveCategoryID, CategoryOrder: *input.CategoryOrder, Categories: categories, AllView: allView, UpdatedAt: updatedAt}, nil
 }
 
 type collectionsDocV5JSON struct {

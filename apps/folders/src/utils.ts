@@ -1,7 +1,7 @@
 import type { CategoryWorkspace, CategoryWorkspaceView, CollectionCategoryId, CollectionItem, CollectionItemFormState, CollectionsDoc, ContainerFormState, FwLaunchInfo, GroupFormState } from './types'
 import { DEFAULT_DESKTOP_ICON_LAYOUT } from './folder-grid/iconLayout'
 import { emptyIconAppearanceState, iconAppearanceStateForItem } from './iconAppearanceModel'
-import { DEFAULT_CATEGORY_ORDER, itemTargetValue } from './categoryRegistry'
+import { DEFAULT_VIEW_CATEGORY_ORDER, itemTargetValue } from './categoryRegistry'
 
 export const DEFAULT_GROUP_ID = 'default'
 export const DEFAULT_CATEGORY_ID: CollectionCategoryId = 'folder'
@@ -9,9 +9,9 @@ export const DEFAULT_LAUNCH_INFO: FwLaunchInfo = { launched: false, standalone: 
 
 export const DEFAULT_DOC: CollectionsDoc = {
   schemaVersion: 1,
-  dataVersion: 6,
+  dataVersion: 8,
   activeCategoryId: DEFAULT_CATEGORY_ID,
-  categoryOrder: DEFAULT_CATEGORY_ORDER,
+  categoryOrder: DEFAULT_VIEW_CATEGORY_ORDER,
   categories: [createDefaultWorkspace('folder'), createDefaultWorkspace('url'), createDefaultWorkspace('file')],
   updatedAt: '',
 }

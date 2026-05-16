@@ -52,7 +52,7 @@ import {
 } from '@mui/material'
 import type { SelectChangeEvent } from '@mui/material/Select'
 import { createDirectClient } from './backendClient'
-import { ALL_VIEW_CATEGORY_ID, categoryDefinition, moveCategoryOrder, orderedCategoryDefinitions, orderedViewCategoryDefinitions, viewCategoryDefinition, type CategoryDefinition, type ViewCategoryDefinition } from './categoryRegistry'
+import { ALL_VIEW_CATEGORY_ID, categoryDefinition, moveViewCategoryOrder, orderedViewCategoryDefinitions, viewCategoryDefinition, type CategoryDefinition, type ViewCategoryDefinition } from './categoryRegistry'
 import { clipboardImageDataUrlFromClipboard, clipboardImageDataUrlFromPasteEvent } from './clipboardImage'
 import { ContainerOverlay } from './ContainerOverlay'
 import type { ContainerItemDragEvent } from './ContainerOverlay'
@@ -140,7 +140,7 @@ const appWindow = getCurrentWindow()
 const ERROR_AUTO_HIDE_MS = 4200
 const CONTAINER_HOVER_OPEN_MS = 520
 
-function reorderWallpaperDeckCategories(categories: CategoryWallpaperEntry[], categoryOrder: CollectionCategoryId[]): CategoryWallpaperEntry[] {
+function reorderWallpaperDeckCategories(categories: CategoryWallpaperEntry[], categoryOrder: CollectionViewCategoryId[]): CategoryWallpaperEntry[] {
   const byId = new Map(categories.map(category => [category.categoryId, category]))
   return categoryOrder.map(categoryId => {
     const category = byId.get(categoryId)
@@ -1115,7 +1115,7 @@ export function App() {
     finally { setBusy(false) }
   }
 
-  async function saveCategoryOrder(categoryOrder: CollectionCategoryId[]) {
+  async function saveCategoryOrder(categoryOrder: CollectionViewCategoryId[]) {
     if (!client) return
     setBusy(true); setError(null)
     try {
@@ -2012,16 +2012,16 @@ function SettingsDialog(props: {
   onPreviewIconLayout(layout: DesktopIconLayout): void
   onRemoveWallpaperPreset(id: string): void
   onRestart(): void
-  onSaveCategoryOrder(categoryOrder: CollectionCategoryId[]): void
+  onSaveCategoryOrder(categoryOrder: CollectionViewCategoryId[]): void
   onSaveIconLayout(layout: DesktopIconLayout): void
   onSaveWallpaperPresetView(id: string, view: DesktopWallpaperView): void
   onSelectWallpaperPreset(id: string): void
 }) {
   const iconLayout = normalizeDesktopIconLayout(props.iconLayout)
-  const categories = orderedCategoryDefinitions(props.doc.categoryOrder)
+  const categories = orderedViewCategoryDefinitions(props.doc.categoryOrder)
   const updateDraftIconLayout = (patch: Partial<DesktopIconLayout>) => props.onPreviewIconLayout(normalizeDesktopIconLayout({ ...iconLayout, ...patch }))
   const saveDraftIconLayout = (patch: Partial<DesktopIconLayout>) => props.onSaveIconLayout(normalizeDesktopIconLayout({ ...iconLayout, ...patch }))
-  const moveCategory = (categoryId: CollectionCategoryId, direction: -1 | 1) => props.onSaveCategoryOrder(moveCategoryOrder(props.doc.categoryOrder, categoryId, direction))
+  const moveCategory = (categoryId: CollectionViewCategoryId, direction: -1 | 1) => props.onSaveCategoryOrder(moveViewCategoryOrder(props.doc.categoryOrder, categoryId, direction))
 
   return (
     <Dialog open={props.open} onClose={props.onClose} fullWidth maxWidth="md">

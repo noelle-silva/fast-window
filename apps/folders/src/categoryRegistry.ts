@@ -102,9 +102,11 @@ export const ALL_VIEW_CATEGORY: ViewCategoryDefinition = {
 }
 
 export const DEFAULT_CATEGORY_ORDER: CollectionCategoryId[] = CATEGORY_DEFINITIONS.map(category => category.id)
+export const DEFAULT_VIEW_CATEGORY_ORDER: CollectionViewCategoryId[] = [ALL_VIEW_CATEGORY_ID, ...DEFAULT_CATEGORY_ORDER]
 
 const CATEGORY_BY_ID = new Map(CATEGORY_DEFINITIONS.map(category => [category.id, category]))
 const CATEGORY_IDS = new Set<CollectionCategoryId>(DEFAULT_CATEGORY_ORDER)
+const VIEW_CATEGORY_IDS = new Set<CollectionViewCategoryId>(DEFAULT_VIEW_CATEGORY_ORDER)
 
 export function categoryDefinition(id: CollectionCategoryId): CategoryDefinition {
   const definition = CATEGORY_BY_ID.get(id)
@@ -118,7 +120,7 @@ export function viewCategoryDefinition(id: CollectionViewCategoryId): ViewCatego
   return { ...category, aggregate: false }
 }
 
-export function orderedCategoryDefinitions(order: CollectionCategoryId[]): CategoryDefinition[] {
+function orderedCategoryDefinitions(order: CollectionCategoryId[]): CategoryDefinition[] {
   const seen = new Set<CollectionCategoryId>()
   if (order.length !== DEFAULT_CATEGORY_ORDER.length) throw new Error('category order length is invalid')
   return order.map(id => {
@@ -128,11 +130,17 @@ export function orderedCategoryDefinitions(order: CollectionCategoryId[]): Categ
   })
 }
 
-export function orderedViewCategoryDefinitions(order: CollectionCategoryId[]): ViewCategoryDefinition[] {
-  return [ALL_VIEW_CATEGORY, ...orderedCategoryDefinitions(order).map(category => ({ ...category, aggregate: false }))]
+export function orderedViewCategoryDefinitions(order: CollectionViewCategoryId[]): ViewCategoryDefinition[] {
+  const seen = new Set<CollectionViewCategoryId>()
+  if (order.length !== DEFAULT_VIEW_CATEGORY_ORDER.length) throw new Error('view category order length is invalid')
+  return order.map(id => {
+    if (!VIEW_CATEGORY_IDS.has(id) || seen.has(id)) throw new Error(`view category order contains invalid category: ${id}`)
+    seen.add(id)
+    return viewCategoryDefinition(id)
+  })
 }
 
-export function moveCategoryOrder(order: CollectionCategoryId[], categoryId: CollectionCategoryId, direction: -1 | 1): CollectionCategoryId[] {
+export function moveViewCategoryOrder(order: CollectionViewCategoryId[], categoryId: CollectionViewCategoryId, direction: -1 | 1): CollectionViewCategoryId[] {
   const index = order.indexOf(categoryId)
   const targetIndex = index + direction
   if (index < 0 || targetIndex < 0 || targetIndex >= order.length) return order

@@ -33,7 +33,7 @@ import (
 
 const (
 	dataSchemaVersion     = 1
-	dataVersion           = 7
+	dataVersion           = 8
 	dataFile              = "data.json"
 	metaFile              = "_meta.json"
 	assetsDir             = "assets"
@@ -70,21 +70,21 @@ type collectionTarget struct {
 }
 
 type collectionItem struct {
-	ID              string            `json:"id"`
-	Name            string            `json:"name"`
-	Target          collectionTarget  `json:"target"`
-	GroupID         string            `json:"groupId"`
-	SourceCategoryID string          `json:"sourceCategoryId,omitempty"`
-	SourceItemID     string          `json:"sourceItemId,omitempty"`
-	PageOrder       int64             `json:"pageOrder"`
-	ContainerID     string            `json:"containerId,omitempty"`
-	CreatedAt       string            `json:"createdAt"`
-	UpdatedAt       string            `json:"updatedAt"`
-	CreatedAtMS     int64             `json:"createdAtMs"`
-	UpdatedAtMS     int64             `json:"updatedAtMs"`
-	Layout          *folderGridLayout `json:"layout,omitempty"`
-	ContainerLayout *folderGridLayout `json:"containerLayout,omitempty"`
-	Icon            *desktopIcon      `json:"icon,omitempty"`
+	ID               string            `json:"id"`
+	Name             string            `json:"name"`
+	Target           collectionTarget  `json:"target"`
+	GroupID          string            `json:"groupId"`
+	SourceCategoryID string            `json:"sourceCategoryId,omitempty"`
+	SourceItemID     string            `json:"sourceItemId,omitempty"`
+	PageOrder        int64             `json:"pageOrder"`
+	ContainerID      string            `json:"containerId,omitempty"`
+	CreatedAt        string            `json:"createdAt"`
+	UpdatedAt        string            `json:"updatedAt"`
+	CreatedAtMS      int64             `json:"createdAtMs"`
+	UpdatedAtMS      int64             `json:"updatedAtMs"`
+	Layout           *folderGridLayout `json:"layout,omitempty"`
+	ContainerLayout  *folderGridLayout `json:"containerLayout,omitempty"`
+	Icon             *desktopIcon      `json:"icon,omitempty"`
 }
 
 type collectionItemInput struct {
@@ -834,7 +834,9 @@ func (svc *service) readAllViewCandidates() ([]allViewItemCandidate, error) {
 	candidates := make([]allViewItemCandidate, 0)
 	for _, workspace := range orderedCategoryWorkspaces(doc) {
 		items := append([]collectionItem(nil), workspace.Items...)
-		sort.SliceStable(items, func(i, j int) bool { return items[i].PageOrder < items[j].PageOrder || (items[i].PageOrder == items[j].PageOrder && items[i].Name < items[j].Name) })
+		sort.SliceStable(items, func(i, j int) bool {
+			return items[i].PageOrder < items[j].PageOrder || (items[i].PageOrder == items[j].PageOrder && items[i].Name < items[j].Name)
+		})
 		for _, item := range items {
 			candidates = append(candidates, allViewItemCandidate{CategoryID: workspace.ID, Item: item})
 		}
@@ -888,15 +890,19 @@ func (svc *service) readDesktopWallpaperDeck() (desktopWallpaperDeck, error) {
 	if err != nil {
 		return desktopWallpaperDeck{}, err
 	}
-	categories := make([]categoryDesktopWallpaper, 0, len(doc.Categories))
-	for _, workspace := range orderedCategoryWorkspaces(doc) {
-		categories = append(categories, categoryDesktopWallpaper{CategoryID: workspace.ID, Wallpaper: workspace.Desktop.Wallpaper})
+	wallpapers := map[string]*desktopWallpaper{"all": doc.AllView.Desktop.Wallpaper}
+	for _, workspace := range doc.Categories {
+		wallpapers[workspace.ID] = workspace.Desktop.Wallpaper
+	}
+	categories := make([]categoryDesktopWallpaper, 0, len(doc.CategoryOrder))
+	for _, categoryID := range doc.CategoryOrder {
+		categories = append(categories, categoryDesktopWallpaper{CategoryID: categoryID, Wallpaper: wallpapers[categoryID]})
 	}
 	return desktopWallpaperDeck{SchemaVersion: doc.SchemaVersion, DataVersion: doc.DataVersion, Categories: categories}, nil
 }
 
 func (svc *service) saveCategoryOrder(rawOrder []string) (categoryWorkspaceView, error) {
-	categoryOrder, err := normalizeCategoryOrder(rawOrder)
+	categoryOrder, err := normalizeViewCategoryOrder(rawOrder)
 	if err != nil {
 		return categoryWorkspaceView{}, err
 	}
@@ -1021,12 +1027,14 @@ func normalizeViewCategoryID(categoryID string) string {
 
 func categoryOrder(categoryID string) int {
 	switch categoryID {
-	case "folder":
+	case "all":
 		return 0
-	case "url":
+	case "folder":
 		return 1
-	case "file":
+	case "url":
 		return 2
+	case "file":
+		return 3
 	default:
 		return 99
 	}
@@ -1036,7 +1044,11 @@ func defaultCategoryOrder() []string {
 	return []string{"folder", "url", "file"}
 }
 
-func normalizeCategoryOrder(rawOrder []string) ([]string, error) {
+func defaultViewCategoryOrder() []string {
+	return []string{"all", "folder", "url", "file"}
+}
+
+func normalizeConcreteCategoryOrder(rawOrder []string) ([]string, error) {
 	if len(rawOrder) != 3 {
 		return nil, errors.New("categoryOrder must include folder, url, and file exactly once")
 	}
@@ -1061,9 +1073,44 @@ func normalizeCategoryOrder(rawOrder []string) ([]string, error) {
 	return order, nil
 }
 
+func normalizeViewCategoryOrder(rawOrder []string) ([]string, error) {
+	if len(rawOrder) != 4 {
+		return nil, errors.New("categoryOrder must include all, folder, url, and file exactly once")
+	}
+	order := make([]string, 0, len(rawOrder))
+	seen := map[string]bool{}
+	for _, raw := range rawOrder {
+		categoryID := normalizeViewCategoryID(raw)
+		if categoryID == "" {
+			return nil, fmt.Errorf("invalid categoryOrder category: %s", strings.TrimSpace(raw))
+		}
+		if seen[categoryID] {
+			return nil, fmt.Errorf("duplicate categoryOrder category: %s", categoryID)
+		}
+		seen[categoryID] = true
+		order = append(order, categoryID)
+	}
+	for _, required := range defaultViewCategoryOrder() {
+		if !seen[required] {
+			return nil, fmt.Errorf("categoryOrder category is required: %s", required)
+		}
+	}
+	return order, nil
+}
+
+func concreteCategoryOrder(viewOrder []string) []string {
+	order := make([]string, 0, len(defaultCategoryOrder()))
+	for _, categoryID := range viewOrder {
+		if normalizeCategoryID(categoryID) != "" {
+			order = append(order, categoryID)
+		}
+	}
+	return order
+}
+
 func orderedCategoryWorkspaces(doc collectionsDoc) []categoryWorkspace {
 	position := map[string]int{}
-	for index, categoryID := range doc.CategoryOrder {
+	for index, categoryID := range concreteCategoryOrder(doc.CategoryOrder) {
 		position[categoryID] = index
 	}
 	workspaces := append([]categoryWorkspace(nil), doc.Categories...)
@@ -2137,7 +2184,7 @@ func defaultCollectionsDoc() collectionsDoc {
 		SchemaVersion:    dataSchemaVersion,
 		DataVersion:      dataVersion,
 		ActiveCategoryID: defaultCategoryID,
-		CategoryOrder:    defaultCategoryOrder(),
+		CategoryOrder:    defaultViewCategoryOrder(),
 		Categories:       categories,
 		AllView:          defaultAllCategoryView(),
 		UpdatedAt:        nowText(),
@@ -2281,7 +2328,7 @@ func decodeDesktopIconLayout(input desktopIconLayoutInput) (desktopIconLayout, e
 }
 
 func normalizeCollectionsDoc(doc collectionsDoc) (collectionsDoc, error) {
-	categoryOrder, err := normalizeCategoryOrder(doc.CategoryOrder)
+	categoryOrder, err := normalizeViewCategoryOrder(doc.CategoryOrder)
 	if err != nil {
 		return collectionsDoc{}, err
 	}
@@ -2319,7 +2366,7 @@ func normalizeCollectionsDocWithOrder(doc collectionsDoc, categoryOrder []string
 		}
 	}
 	position := map[string]int{}
-	for index, categoryID := range categoryOrder {
+	for index, categoryID := range concreteCategoryOrder(categoryOrder) {
 		position[categoryID] = index
 	}
 	sort.SliceStable(categories, func(i, j int) bool { return position[categories[i].ID] < position[categories[j].ID] })
@@ -2346,8 +2393,10 @@ func normalizeCollectionsDocWithOrder(doc collectionsDoc, categoryOrder []string
 		Containers:       active.Containers,
 		Desktop:          active.Desktop,
 	}
-	if version >= 6 {
+	if version >= 8 {
 		normalized.CategoryOrder = categoryOrder
+	} else if version >= 6 {
+		normalized.CategoryOrder = concreteCategoryOrder(categoryOrder)
 	}
 	return normalized, nil
 }

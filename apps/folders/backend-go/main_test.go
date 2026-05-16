@@ -69,7 +69,7 @@ func TestEnsureReadyMigratesLegacyFlatWorkspaceToCategories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.SchemaVersion != dataSchemaVersion || doc.DataVersion != dataVersion || doc.ActiveCategoryID != defaultCategoryID || len(doc.Categories) != 3 || !sameStrings(doc.CategoryOrder, defaultCategoryOrder()) {
+	if doc.SchemaVersion != dataSchemaVersion || doc.DataVersion != dataVersion || doc.ActiveCategoryID != defaultCategoryID || len(doc.Categories) != 3 || !sameStrings(doc.CategoryOrder, defaultViewCategoryOrder()) {
 		t.Fatalf("unexpected migrated doc metadata: %#v", doc)
 	}
 	folder, _, err := workspaceByID(doc, "folder")
@@ -97,8 +97,8 @@ func TestEnsureReadyMigratesLegacyFlatWorkspaceToCategories(t *testing.T) {
 
 	state := readJSONMap(t, filepath.Join(svc.dataDir, migrationStateFile))
 	applied := state["applied"].([]any)
-	if len(applied) != 3 {
-		t.Fatalf("expected three migration records, got %#v", applied)
+	if len(applied) != 4 {
+		t.Fatalf("expected four migration records, got %#v", applied)
 	}
 	entry := applied[0].(map[string]any)
 	if entry["id"] != "2026-05-12-folders-data-v4-to-v5" || int(entry["fromVersion"].(float64)) != 4 || int(entry["toVersion"].(float64)) != 5 {
@@ -109,10 +109,14 @@ func TestEnsureReadyMigratesLegacyFlatWorkspaceToCategories(t *testing.T) {
 		t.Fatalf("unexpected category order migration entry: %#v", entry)
 	}
 	entry = applied[2].(map[string]any)
-	if entry["id"] != "2026-05-16-folders-data-v6-to-v7-all-view" || int(entry["fromVersion"].(float64)) != 6 || int(entry["toVersion"].(float64)) != dataVersion {
+	if entry["id"] != "2026-05-16-folders-data-v6-to-v7-all-view" || int(entry["fromVersion"].(float64)) != 6 || int(entry["toVersion"].(float64)) != 7 {
 		t.Fatalf("unexpected all view migration entry: %#v", entry)
 	}
-	assertRecoveryPackageCount(t, svc, 3)
+	entry = applied[3].(map[string]any)
+	if entry["id"] != "2026-05-16-folders-data-v7-to-v8-view-category-order" || int(entry["fromVersion"].(float64)) != 7 || int(entry["toVersion"].(float64)) != dataVersion {
+		t.Fatalf("unexpected view category order migration entry: %#v", entry)
+	}
+	assertRecoveryPackageCount(t, svc, 4)
 	if health := svc.health(); !health.Data.OK {
 		t.Fatalf("expected healthy migrated data: %#v", health)
 	}
@@ -129,15 +133,15 @@ func TestRunMigrationsIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := readJSONMap(t, filepath.Join(svc.dataDir, migrationStateFile))
-	if applied := state["applied"].([]any); len(applied) != 3 {
+	if applied := state["applied"].([]any); len(applied) != 4 {
 		t.Fatalf("migration should apply once, got %#v", applied)
 	}
-	assertRecoveryPackageCount(t, svc, 3)
+	assertRecoveryPackageCount(t, svc, 4)
 }
 
 func TestEnsureReadyRejectsNewerDataVersion(t *testing.T) {
 	svc := newTestService(t)
-	writeRawData(t, svc, `{"schemaVersion":1,"dataVersion":8,"activeCategoryId":"folder","categories":[],"updatedAt":"2026-01-01T00:00:00Z"}`)
+	writeRawData(t, svc, `{"schemaVersion":1,"dataVersion":9,"activeCategoryId":"folder","categories":[],"updatedAt":"2026-01-01T00:00:00Z"}`)
 	if err := svc.ensureReady(); err == nil || !strings.Contains(err.Error(), "newer than supported") {
 		t.Fatalf("expected newer version error, got %v", err)
 	}
@@ -237,7 +241,7 @@ func TestDefaultCollectionsDocHasIndependentWorkspaces(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if doc.ActiveCategoryID != defaultCategoryID || len(doc.Categories) != 3 || !sameStrings(doc.CategoryOrder, defaultCategoryOrder()) {
+	if doc.ActiveCategoryID != defaultCategoryID || len(doc.Categories) != 3 || !sameStrings(doc.CategoryOrder, defaultViewCategoryOrder()) {
 		t.Fatalf("unexpected default collections doc: %#v", doc)
 	}
 	for _, id := range []string{"folder", "url", "file"} {
@@ -545,7 +549,7 @@ func TestDesktopWallpaperDeckIncludesAllCategories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if deck.SchemaVersion != dataSchemaVersion || deck.DataVersion != dataVersion || len(deck.Categories) != 3 {
+	if deck.SchemaVersion != dataSchemaVersion || deck.DataVersion != dataVersion || len(deck.Categories) != 4 {
 		t.Fatalf("unexpected wallpaper deck metadata: %#v", deck)
 	}
 	wallpapers := map[string]*desktopWallpaper{}
@@ -609,7 +613,7 @@ func TestInvalidPersistedDataIsDiagnosedAfterStartup(t *testing.T) {
 
 func TestMissingCurrentBaselineFieldIsDiagnosedAfterStartup(t *testing.T) {
 	svc := newTestService(t)
-	missingAllView := `{"schemaVersion":1,"dataVersion":7,"activeCategoryId":"folder","categoryOrder":["folder","url","file"],"categories":[{"id":"folder","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}},{"id":"url","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}},{"id":"file","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}}],"updatedAt":"2026-01-01T00:00:00Z"}`
+	missingAllView := `{"schemaVersion":1,"dataVersion":8,"activeCategoryId":"folder","categoryOrder":["all","folder","url","file"],"categories":[{"id":"folder","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}},{"id":"url","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}},{"id":"file","groups":[{"id":"default","name":"默认"}],"items":[],"containers":[],"desktop":{"iconLayout":{"rowGap":0,"columnGap":0,"iconScale":0.75}}}],"updatedAt":"2026-01-01T00:00:00Z"}`
 	writeRawData(t, svc, missingAllView)
 	if err := svc.ensureReady(); err != nil {
 		t.Fatal(err)
@@ -625,24 +629,24 @@ func TestMissingCurrentBaselineFieldIsDiagnosedAfterStartup(t *testing.T) {
 func TestCategoryOrderSavePersistsAndOrdersWorkspaces(t *testing.T) {
 	svc := readyService(t)
 
-	doc, err := svc.saveCategoryOrder([]string{"url", "file", "folder"})
+	doc, err := svc.saveCategoryOrder([]string{"url", "all", "file", "folder"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !sameStrings(doc.CategoryOrder, []string{"url", "file", "folder"}) {
+	if !sameStrings(doc.CategoryOrder, []string{"url", "all", "file", "folder"}) {
 		t.Fatalf("unexpected workspace view category order: %#v", doc.CategoryOrder)
 	}
 	persisted, err := svc.readCollections()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !sameStrings(persisted.CategoryOrder, []string{"url", "file", "folder"}) {
+	if !sameStrings(persisted.CategoryOrder, []string{"url", "all", "file", "folder"}) {
 		t.Fatalf("unexpected persisted category order: %#v", persisted.CategoryOrder)
 	}
-	if got := []string{persisted.Categories[0].ID, persisted.Categories[1].ID, persisted.Categories[2].ID}; !sameStrings(got, persisted.CategoryOrder) {
+	if got := []string{persisted.Categories[0].ID, persisted.Categories[1].ID, persisted.Categories[2].ID}; !sameStrings(got, []string{"url", "file", "folder"}) {
 		t.Fatalf("expected categories to follow categoryOrder, got categories=%#v order=%#v", got, persisted.CategoryOrder)
 	}
-	if _, err := svc.saveCategoryOrder([]string{"url", "url", "folder"}); err == nil || !strings.Contains(err.Error(), "duplicate") {
+	if _, err := svc.saveCategoryOrder([]string{"url", "url", "file", "folder"}); err == nil || !strings.Contains(err.Error(), "duplicate") {
 		t.Fatalf("expected duplicate category order error, got %v", err)
 	}
 }
