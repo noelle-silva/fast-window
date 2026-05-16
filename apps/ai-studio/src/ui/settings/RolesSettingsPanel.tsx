@@ -3,6 +3,7 @@ import { Avatar, Box, Button, Divider, Paper, Stack, Typography } from '@mui/mat
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import type { AiChatController } from '../../controller/types'
+import { formatModelRefDisplayText } from '../../domain/modelRefUtils'
 import { SortHandleButton, SortModeButton } from '../components/SortControls'
 import { SortableItem, SortableRoot, SortableSection, resolveSortMovePosition, type SortMovePosition } from '../components/SortableDnd'
 
@@ -10,12 +11,13 @@ type RolesSettingsPanelProps = {
   controller: AiChatController
   loading: boolean
   roles: any[]
+  providers: any[]
   activeRoleId: string
   topbarHeight: number
 }
 
 export function RolesSettingsPanel(props: RolesSettingsPanelProps) {
-  const { controller, loading, roles, activeRoleId, topbarHeight } = props
+  const { controller, loading, roles, providers, activeRoleId, topbarHeight } = props
   const [sortMode, setSortMode] = React.useState(false)
 
   const roleIds = React.useMemo(() => roles.map((role: any) => String(role?.id || '').trim()).filter(Boolean), [roles])
@@ -49,8 +51,7 @@ export function RolesSettingsPanel(props: RolesSettingsPanelProps) {
                 roles.map((role: any) => {
                   const roleId = String(role?.id || '')
                   const isActive = !!roleId && roleId === activeRoleId
-                  const providerId = String(role?.modelRef?.providerId || '')
-                  const modelId = String(role?.modelRef?.modelId || '')
+                  const modelRefText = formatModelRefDisplayText(role?.modelRef, providers)
 
                   return (
                     <SortableItem key={roleId} id={roleId} disabled={!sortMode}>
@@ -84,8 +85,7 @@ export function RolesSettingsPanel(props: RolesSettingsPanelProps) {
                                   {String(role?.name || '')}
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary" noWrap>
-                                  {providerId}
-                                  {modelId ? ` / ${modelId}` : ''}
+                                  {modelRefText || '未配置模型'}
                                 </Typography>
                               </Box>
                             </Stack>

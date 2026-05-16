@@ -84,6 +84,7 @@ import { StandaloneWindowControls, type WindowControlActions } from './component
 import { RolesSettingsPanel } from './settings/RolesSettingsPanel'
 import { AI_STUDIO_CHAT_ROOT_ID } from '../runtime/aiStudioGlobals'
 import { isAssistantGenerating } from '../domain/assistantRunState'
+import { formatModelRefDisplayText } from '../domain/modelRefUtils'
 
 const MERMAID_COPY_IMAGE_MIN_SCALE = 3
 const MERMAID_COPY_IMAGE_MAX_SCALE = 6
@@ -714,12 +715,9 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
 
   const formatModelRefText = React.useCallback(
     (modelRef: any) => {
-      const providerId = String(modelRef?.providerId || '').trim()
-      const modelId = String(modelRef?.modelId || '').trim()
-      if (!providerId && !modelId) return ''
-      return providerId && modelId ? `${providerId} / ${modelId}` : providerId || modelId
+      return formatModelRefDisplayText(modelRef, providers)
     },
-    [],
+    [providers],
   )
 
   const openCreateFavoriteFolder = useEvent((parentId = '') => {
@@ -4973,8 +4971,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                             const name = String(r?.name || '')
                             const avatar = String(r?.avatar || '🙂')
                             const avatarImage = String(r?.avatarImage || '')
-                            const providerId = String(r?.modelRef?.providerId || '')
-                            const modelId = String(r?.modelRef?.modelId || '')
+                            const modelRefText = formatModelRefText(r?.modelRef)
                             return (
                               <ListItemButton
                                 key={id || name}
@@ -4992,11 +4989,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                                 </ListItemAvatar>
                                 <ListItemText
                                   primary={name || '未命名角色'}
-                                  secondary={
-                                    providerId || modelId
-                                      ? `${providerId || '未选供应商'}${modelId ? ` / ${modelId}` : ''}`
-                                      : '未配置模型'
-                                  }
+                                  secondary={modelRefText || '未配置模型'}
                                 />
                               </ListItemButton>
                             )
@@ -5035,7 +5028,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                 {hasChatOverride ? (
                   <Stack direction="row" spacing={1} alignItems="center" sx={{ px: 0.5 }}>
                     <Typography variant="caption" color="text.secondary" sx={{ flex: 1, minWidth: 0 }} noWrap>
-                      {`临时模型：${overrideProviderId}${overrideModelId ? ` / ${overrideModelId}` : ''}`}
+                      {`临时模型：${formatModelRefText(chatOverride)}`}
                     </Typography>
 
                     <Button size="small" variant="text" onClick={() => controller.actions.clearChatModelOverride?.()} disabled={s.loading}>
@@ -5264,8 +5257,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
               <List dense sx={{ py: 0 }}>
                 {roles.map((r: any) => {
                   const on = String(r?.id || '') === String(s.draft?.activeRoleId || '')
-                  const providerId = String(r?.modelRef?.providerId || '')
-                  const modelId = String(r?.modelRef?.modelId || '')
+                  const modelRefText = formatModelRefText(r?.modelRef)
                   return (
                     <ListItemButton
                       key={String(r?.id || '')}
@@ -5290,8 +5282,7 @@ export function AiChatApp(props: { controller: any; dataDirectory?: AiChatDataDi
                         }
                         secondary={
                           <Typography variant="caption" color="text.secondary" noWrap>
-                            {providerId}
-                            {modelId ? ` / ${modelId}` : ''}
+                            {modelRefText || '未配置模型'}
                           </Typography>
                         }
                       />
@@ -7166,7 +7157,7 @@ function PluginSettingsPage(props: {
   }
 
   if (tab === 'roles') {
-    return <RolesSettingsPanel controller={controller} loading={loading} roles={roles} activeRoleId={activeRoleId} topbarHeight={TOPBAR_H} />
+    return <RolesSettingsPanel controller={controller} loading={loading} roles={roles} providers={providers} activeRoleId={activeRoleId} topbarHeight={TOPBAR_H} />
   }
 
   if (tab === 'stickers') {
