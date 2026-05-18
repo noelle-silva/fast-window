@@ -171,6 +171,19 @@ func (svc *service) readAssetDataURL(scope string, assetID string, ext string) (
 }
 
 func (svc *service) deleteAsset(scope string, assetID string, ext string) error {
+	return svc.permanentlyDeleteAsset(scope, assetID, ext)
+}
+
+func (svc *service) removeAssetFromIndex(scope string, assetID string, ext string) error {
+	idx, err := svc.ensureAssetIndex(scope)
+	if err != nil {
+		return err
+	}
+	delete(idx.Assets, assetKey(assetID, ext))
+	return svc.saveAssetIndex(scope, idx)
+}
+
+func (svc *service) permanentlyDeleteAsset(scope string, assetID string, ext string) error {
 	rel, err := svc.resolveAssetPath(scope, assetID, ext)
 	if err != nil {
 		return err
@@ -185,9 +198,7 @@ func (svc *service) deleteAsset(scope string, assetID string, ext string) error 
 	if err := svc.deleteThumbnailCacheForAsset(scope, assetID, ext); err != nil {
 		return err
 	}
-	idx, _ := svc.ensureAssetIndex(scope)
-	delete(idx.Assets, assetKey(assetID, ext))
-	return svc.saveAssetIndex(scope, idx)
+	return svc.removeAssetFromIndex(scope, assetID, ext)
 }
 
 func (svc *service) updateAssetUserMetadata(scope string, assetID string, ext string, raw json.RawMessage) (assetPoolItem, error) {

@@ -63,7 +63,7 @@ import { AllNotesGridNoteCard, AllNotesIconNoteCard, AllNotesListNoteRow } from 
 import type { NoteCardInfo } from './noteCardInfo'
 import { loadNoteCardInfo, startPrefetchNoteCardInfo } from './noteCardInfoLoader'
 import type { AssetEntry } from '../assetTypes'
-import { assetTabId } from '../assetTypes'
+import { assetRefKey, assetTabId } from '../assetTypes'
 import { assetRefKeyFromTabKey, noteIdFromTabKey, noteTabKey, parseAssetRefKey, tabKind, type TabKey } from '../tabKey'
 import type { DataDirStatus, HyperCortexGateway, LegacyDataImportResult } from '../gateway'
 
@@ -455,6 +455,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   const closeNoteCardMenu = React.useCallback(() => setNoteCardMenu(null), [])
 
   const [noteCardDeleteTarget, setNoteCardDeleteTarget] = React.useState<NoteMeta | null>(null)
+  const [assetEntityDeleteTarget, setAssetEntityDeleteTarget] = React.useState<AssetEntry | null>(null)
+  const [assetEntityDeleting, setAssetEntityDeleting] = React.useState(false)
 
   // ---- 详情页（tab 常驻 Session）
   const [activeNoteId, setActiveNoteId] = React.useState<string>('')
@@ -1556,7 +1558,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       const assetId = String(asset?.assetId || '').trim()
       if (!assetId) return
       try {
-        await gateway.assets.deleteAsset('library', assetId, asset.ext)
+        await gateway.trash.moveAssetToTrash('library', assetId, asset.ext)
         const tabKey = assetTabId(asset)
         closeTabKeysDirectRef.current([tabKey])
         setAssetPoolIndex(prev => {
@@ -1565,13 +1567,34 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           delete assets[asset.ext ? `${assetId}.${asset.ext}` : assetId]
           return { ...(prev as any), assets }
         })
-        void gateway.host.toast('已删除附件实体')
+        void gateway.host.toast('附件已移入回收站')
       } catch (e: any) {
         void gateway.host.toast(String(e?.message || e || '删除附件失败'))
       }
     },
     [gateway],
   )
+
+  const requestDeleteAssetEntity = React.useCallback((asset: AssetEntry) => {
+    setAssetEntityDeleteTarget(asset)
+  }, [])
+
+  const closeAssetEntityDeleteDialog = React.useCallback(() => {
+    if (assetEntityDeleting) return
+    setAssetEntityDeleteTarget(null)
+  }, [assetEntityDeleting])
+
+  const confirmDeleteAssetEntity = React.useCallback(async () => {
+    const target = assetEntityDeleteTarget
+    if (!target || assetEntityDeleting) return
+    setAssetEntityDeleting(true)
+    try {
+      await handleDeleteAssetEntity(target)
+      setAssetEntityDeleteTarget(null)
+    } finally {
+      setAssetEntityDeleting(false)
+    }
+  }, [assetEntityDeleteTarget, assetEntityDeleting, handleDeleteAssetEntity])
 
   const handleDeleteFolderEntity = React.useCallback(
     (folderId: string) => {
@@ -1633,6 +1656,15 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       })
       setAllNotes(prev => sortNotesByUpdatedAtDesc([meta, ...prev.filter(n => n.id !== meta.id)]))
       void gateway.host.toast('已恢复笔记')
+    },
+    [gateway],
+  )
+
+  const handleTrashAssetRestored = React.useCallback(
+    async (asset: AssetEntry) => {
+      const nextAssetIndex = await gateway.assets.ensureAssetsIndex('library').catch(() => null)
+      if (nextAssetIndex) setAssetPoolIndex(nextAssetIndex as any)
+      void gateway.host.toast(`已恢复附件：${assetRefKey(asset)}`)
     },
     [gateway],
   )
@@ -2821,7 +2853,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                   onUploadAssetsInIndex={handleUploadAssetsIntoIndex}
                   onDeleteFolderEntity={handleDeleteFolderEntity}
                   onDeleteNoteEntity={note => void handleDeleteNote({ note, mode: trashEnabled ? 'trash' : 'permanent' })}
-                  onDeleteAssetEntity={asset => void handleDeleteAssetEntity(asset)}
+                  onDeleteAssetEntity={requestDeleteAssetEntity}
                 />
               ) : null}
               {page === 'trash' ? (
@@ -2829,8 +2861,20 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                   gateway={gateway}
                   scope="library"
                   onRestored={handleTrashRestored}
-                  onPermanentlyDeleted={noteId => {
-                    const nid = String(noteId || '').trim()
+                  onAssetRestored={asset => void handleTrashAssetRestored(asset)}
+                  onPermanentlyDeleted={item => {
+                    if (item.kind === 'asset') {
+                      const key = item.ext ? `${item.assetId}.${item.ext}` : item.assetId || item.id
+                      setAssetPoolIndex(prev => {
+                        if (!prev || typeof prev !== 'object') return prev
+                        const assets = { ...((prev as any).assets || {}) }
+                        delete assets[key]
+                        return { ...(prev as any), assets }
+                      })
+                      closeTabKeysDirectRef.current([`asset:${key}`])
+                      return
+                    }
+                    const nid = String(item.id || '').trim()
                     if (!nid) return
                     closeTabKeysDirectRef.current([noteTabKey(nid)])
                     setAllNotes(prev => prev.filter(n => n.id !== nid))
@@ -2932,6 +2976,21 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
               : trashEnabled
                 ? '移入回收站'
                 : '永久删除'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={!!assetEntityDeleteTarget} onClose={closeAssetEntityDeleteDialog} maxWidth="xs" fullWidth>
+        <DialogTitle>移入回收站</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.72)' }}>
+            确定将附件「{assetEntityDeleteTarget ? assetRefKey(assetEntityDeleteTarget) : '未命名附件'}」移入回收站吗？现有页面中的相关卡片会变成失效引用卡片。
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeAssetEntityDeleteDialog} disabled={assetEntityDeleting}>取消</Button>
+          <Button variant="contained" color="error" onClick={() => void confirmDeleteAssetEntity()} disabled={assetEntityDeleting}>
+            {assetEntityDeleting ? '处理中...' : '移入回收站'}
           </Button>
         </DialogActions>
       </Dialog>

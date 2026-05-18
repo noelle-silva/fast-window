@@ -49,5 +49,5 @@ export function folderDeleteHelperText(folderId: string): string {
 export function entityDeleteHelperText(kind: DeleteEntityTarget['kind']): string {
   if (kind === 'folder') return '这是 delete entity，不是 remove ref。删除后，所有页面中指向这个收藏夹的卡片都会被清理。'
   if (kind === 'note') return '这是 delete entity，不是 remove ref。删除后，现有页面中的相关卡片会变成失效引用卡片。'
-  return '这是 delete entity，不是 remove ref。删除后，现有页面中的相关卡片会变成失效引用卡片。'
+  return '这是 delete entity，不是 remove ref。确认后附件会移入回收站，现有页面中的相关卡片会变成失效引用卡片。'
 }

@@ -50,7 +50,9 @@ export const HyperCortexRpc = {
   trash: {
     list: 'hypercortex.trash.list',
     moveNote: 'hypercortex.trash.moveNote',
+    moveAsset: 'hypercortex.trash.moveAsset',
     permanentlyDeleteNoteDir: 'hypercortex.trash.permanentlyDeleteNoteDir',
+    permanentlyDeleteItem: 'hypercortex.trash.permanentlyDeleteItem',
     restore: 'hypercortex.trash.restore',
     maybeAutoCleanup: 'hypercortex.trash.maybeAutoCleanup',
   },

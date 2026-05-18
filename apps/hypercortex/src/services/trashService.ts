@@ -6,7 +6,9 @@ export function createTrashService(background: BackgroundClient): TrashService {
   return {
     listTrashItems: scope => background.invoke(HyperCortexRpc.trash.list, { scope }),
     moveNoteToTrash: (scope, note) => background.invoke(HyperCortexRpc.trash.moveNote, { scope, note }),
+    moveAssetToTrash: (scope, assetId, ext) => background.invoke(HyperCortexRpc.trash.moveAsset, { scope, assetId, ext }),
     permanentlyDeleteNoteDir: (scope, noteId, dir) => background.invoke(HyperCortexRpc.trash.permanentlyDeleteNoteDir, { scope, noteId, dir }),
+    permanentlyDeleteTrashItem: (scope, item) => background.invoke(HyperCortexRpc.trash.permanentlyDeleteItem, { scope, item }),
     restoreTrashItem: (scope, item) => background.invoke(HyperCortexRpc.trash.restore, { scope, item }),
     maybeAutoCleanupTrash: (scope, days) => background.invoke(HyperCortexRpc.trash.maybeAutoCleanup, { scope, days }),
   }

@@ -12,9 +12,12 @@ type TrashMetaV1 = {
 }
 
 export type HyperCortexTrashItem = {
+  kind: 'note' | 'asset'
   id: string
   title: string
   dir: string
+  assetId?: string
+  ext?: string
   createdAtMs: number
   updatedAtMs: number
   deletedAtMs: number
@@ -99,6 +102,7 @@ export async function listTrashItems(api: Api, scope: VaultScope): Promise<Hyper
         const deletedAtMs = meta?.deletedAtMs || entry.modifiedMs || Date.now()
         const originalDir = canonicalOriginalDirForTrashPackage(packageDir, meta?.originalDir, manifest.id)
         out.push({
+          kind: 'note',
           id: manifest.id,
           title: manifest.title || '未命名',
           dir: normalizeVaultPath(packageDir),
@@ -159,6 +163,7 @@ export async function permanentlyDeleteNoteDir(api: Api, scope: VaultScope, note
 
 export async function restoreTrashItem(api: Api, scope: VaultScope, item: HyperCortexTrashItem): Promise<{ meta: NoteMeta }> {
   if (scope !== 'library') throw new Error('回收站仅支持 library scope')
+  if (item.kind !== 'note') throw new Error('此恢复入口仅支持笔记')
   const fromDir = normalizeVaultPath(item.dir)
   const desired = canonicalOriginalDirForTrashPackage(fromDir, item.originalDir, item.id)
 
@@ -184,6 +189,7 @@ export async function maybeAutoCleanupTrash(api: Api, scope: VaultScope, days: n
 
   for (const item of items) {
     if (!(item.deletedAtMs > 0) || item.deletedAtMs > cutoff) continue
+    if (item.kind !== 'note') continue
     try {
       await permanentlyDeleteNoteDir(api, scope, item.id, item.dir)
       deletedCount++

@@ -1,5 +1,8 @@
 import * as React from 'react'
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Typography } from '@mui/material'
+import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Typography } from '@mui/material'
+import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded'
+import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
+import type { AssetEntry } from '../assetTypes'
 import type { NoteMeta, VaultScope } from '../core'
 import type { HyperCortexGateway, HyperCortexTrashItem } from '../gateway'
 
@@ -14,9 +17,10 @@ export function TrashPanel(props: {
   gateway: HyperCortexGateway
   scope: VaultScope
   onRestored?: (meta: NoteMeta) => void
-  onPermanentlyDeleted?: (noteId: string) => void
+  onAssetRestored?: (asset: AssetEntry) => void
+  onPermanentlyDeleted?: (item: HyperCortexTrashItem) => void
 }) {
-  const { gateway, scope, onRestored, onPermanentlyDeleted } = props
+  const { gateway, scope, onRestored, onAssetRestored, onPermanentlyDeleted } = props
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [items, setItems] = React.useState<HyperCortexTrashItem[]>([])
@@ -49,15 +53,16 @@ export function TrashPanel(props: {
       setRestoringId(item.id)
       try {
         const result = await gateway.trash.restoreTrashItem(scope, item)
-        onRestored?.(result.meta)
-        setItems(prev => prev.filter(x => x.id !== item.id))
+        if (result.meta) onRestored?.(result.meta)
+        if (result.asset) onAssetRestored?.(result.asset)
+        setItems(prev => prev.filter(x => x.dir !== item.dir))
       } catch (e: any) {
         setError(String(e?.message || e || '恢复失败'))
       } finally {
         setRestoringId('')
       }
     },
-    [gateway, onRestored, restoringId, scope],
+    [gateway, onAssetRestored, onRestored, restoringId, scope],
   )
 
   const confirmDelete = React.useCallback((item: HyperCortexTrashItem) => setDeleteTarget(item), [])
@@ -68,9 +73,9 @@ export function TrashPanel(props: {
     if (deleting) return
     setDeleting(true)
     try {
-      await gateway.trash.permanentlyDeleteNoteDir(scope, target.id, target.dir)
-      onPermanentlyDeleted?.(target.id)
-      setItems(prev => prev.filter(x => x.id !== target.id))
+      await gateway.trash.permanentlyDeleteTrashItem(scope, target)
+      onPermanentlyDeleted?.(target)
+      setItems(prev => prev.filter(x => x.dir !== target.dir))
       setDeleteTarget(null)
     } catch (e: any) {
       setError(String(e?.message || e || '永久删除失败'))
@@ -114,6 +119,12 @@ export function TrashPanel(props: {
                   <Typography sx={{ fontSize: 14, fontWeight: 800, color: '#111', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {item.title || '未命名'}
                   </Typography>
+                  <Chip
+                    size="small"
+                    icon={item.kind === 'asset' ? <AttachFileRoundedIcon /> : <NotesRoundedIcon />}
+                    label={item.kind === 'asset' ? '附件' : '笔记'}
+                    sx={{ mt: 0.75, height: 22, fontSize: 11, fontWeight: 800 }}
+                  />
                   <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.58)', lineHeight: 1.6 }}>
                     删除时间：{formatDateTime(item.deletedAtMs) || '未知'}
                   </Typography>

@@ -56,7 +56,9 @@ export type SaveMetadataParams = { meta: HyperCortexMetadataV1 }
 export type SaveFavoritesParams = { doc: HyperCortexFavoritesDocV1 }
 
 export type MoveNoteToTrashParams = ScopeParams & { note: NoteMeta }
+export type MoveAssetToTrashParams = ScopeParams & { assetId: string; ext?: string }
 export type PermanentlyDeleteNoteDirParams = ScopeParams & { noteId: string; dir: string }
+export type PermanentlyDeleteTrashItemParams = ScopeParams & { item: HyperCortexTrashItem }
 export type RestoreTrashItemParams = ScopeParams & { item: HyperCortexTrashItem }
 export type MaybeAutoCleanupTrashParams = ScopeParams & { days: number }
 

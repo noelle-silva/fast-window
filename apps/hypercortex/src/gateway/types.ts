@@ -9,6 +9,7 @@ import type {
 import type { HyperCortexNoteManifestV1, HyperCortexNoteResourceRef } from '../noteSchema'
 import type { HyperCortexIndexV1, HyperCortexMetadataV1, HyperCortexNoteDoc, NoteMeta } from '../core'
 import type { HyperCortexTrashItem } from '../trash'
+import type { AssetEntry } from '../assetTypes'
 
 export type HostGateway = {
   toast: (message: string) => Promise<void>
@@ -152,8 +153,10 @@ export type FavoritesService = {
 export type TrashService = {
   listTrashItems: (scope: VaultScope) => Promise<HyperCortexTrashItem[]>
   moveNoteToTrash: (scope: VaultScope, note: NoteMeta) => Promise<{ trashDir: string }>
+  moveAssetToTrash: (scope: VaultScope, assetId: string, ext?: string) => Promise<{ trashDir: string }>
   permanentlyDeleteNoteDir: (scope: VaultScope, noteId: string, dir: string) => Promise<void>
-  restoreTrashItem: (scope: VaultScope, item: HyperCortexTrashItem) => Promise<{ meta: NoteMeta }>
+  permanentlyDeleteTrashItem: (scope: VaultScope, item: HyperCortexTrashItem) => Promise<void>
+  restoreTrashItem: (scope: VaultScope, item: HyperCortexTrashItem) => Promise<{ meta?: NoteMeta; asset?: AssetEntry }>
   maybeAutoCleanupTrash: (scope: VaultScope, days: number) => Promise<{ deletedCount: number }>
 }
 

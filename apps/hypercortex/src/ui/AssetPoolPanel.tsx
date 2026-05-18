@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, Button, CircularProgress, IconButton, Tab, Tabs, Tooltip, Typography } from '@mui/material'
+import { Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Tab, Tabs, Tooltip, Typography } from '@mui/material'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
@@ -298,6 +298,8 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   const [thumbLoadTick, setThumbLoadTick] = React.useState(0)
   const [uploadPanelOpen, setUploadPanelOpen] = React.useState(false)
   const [uploadTaskView, setUploadTaskView] = React.useState<AssetUploadTaskView>('active')
+  const [deleteTarget, setDeleteTarget] = React.useState<AssetEntry | null>(null)
+  const [deleting, setDeleting] = React.useState(false)
   const uploadButtonRef = React.useRef<HTMLButtonElement | null>(null)
 
   /* ---- 加载资源列表 ---- */
@@ -403,15 +405,30 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
   }, [gateway, cancelUploadTask])
 
   /* ---- 删除资源 ---- */
-  const handleDelete = React.useCallback(async (asset: AssetEntry) => {
+  const requestDelete = React.useCallback((asset: AssetEntry) => {
+    setDeleteTarget(asset)
+  }, [])
+
+  const closeDeleteDialog = React.useCallback(() => {
+    if (deleting) return
+    setDeleteTarget(null)
+  }, [deleting])
+
+  const confirmDelete = React.useCallback(async () => {
+    const asset = deleteTarget
+    if (!asset || deleting) return
+    setDeleting(true)
     try {
-      await gateway.assets.deleteAsset(scope, asset.assetId, asset.ext)
-      gateway.host.toast('已删除')
+      await gateway.trash.moveAssetToTrash(scope, asset.assetId, asset.ext)
+      gateway.host.toast('附件已移入回收站')
       setAssets(prev => prev.filter(a => !(a.assetId === asset.assetId && a.ext === asset.ext)))
     } catch (err: any) {
       gateway.host.toast(`删除失败：${String(err?.message || err || '未知错误')}`)
+    } finally {
+      setDeleting(false)
+      setDeleteTarget(null)
     }
-  }, [gateway, scope])
+  }, [deleteTarget, deleting, gateway, scope])
 
   const handleRebuildThumbnail = React.useCallback(async (asset: AssetEntry) => {
     if (!canHaveThumbnail(asset)) return
@@ -639,7 +656,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
                 key={`${asset.assetId}.${asset.ext}`}
                 gateway={gateway}
                 asset={asset}
-                onDelete={a => void handleDelete(a)}
+                onDelete={requestDelete}
                 onRebuildThumbnail={a => void handleRebuildThumbnail(a)}
                 onOpenAsset={onOpenAsset}
               />
@@ -649,6 +666,21 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
           <Typography color="text.secondary">这个分类里还没有附件。</Typography>
         )
       ) : null}
+
+      <Dialog open={!!deleteTarget} onClose={closeDeleteDialog} maxWidth="xs" fullWidth>
+        <DialogTitle>移入回收站</DialogTitle>
+        <DialogContent>
+          <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.72)' }}>
+            确定将附件「{deleteTarget ? pickAssetDisplayName({ indexName: deleteTarget.displayName, ext: deleteTarget.ext }) : '未命名附件'}」移入回收站吗？
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeDeleteDialog} disabled={deleting}>取消</Button>
+          <Button variant="contained" color="error" onClick={() => void confirmDelete()} disabled={deleting}>
+            {deleting ? '处理中...' : '移入回收站'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   )
 }

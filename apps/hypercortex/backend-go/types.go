@@ -178,9 +178,12 @@ type assetPoolItem struct {
 }
 
 type trashItem struct {
+	Kind        string  `json:"kind"`
 	ID          string  `json:"id"`
 	Title       string  `json:"title"`
 	Dir         string  `json:"dir"`
+	AssetID     string  `json:"assetId,omitempty"`
+	Ext         string  `json:"ext,omitempty"`
 	CreatedAtMs float64 `json:"createdAtMs"`
 	UpdatedAtMs float64 `json:"updatedAtMs"`
 	DeletedAtMs float64 `json:"deletedAtMs"`
@@ -188,7 +191,9 @@ type trashItem struct {
 }
 
 type trashMeta struct {
-	Version     int     `json:"version"`
-	DeletedAtMs float64 `json:"deletedAtMs"`
-	OriginalDir string  `json:"originalDir,omitempty"`
+	Version     int             `json:"version"`
+	Kind        string          `json:"kind,omitempty"`
+	DeletedAtMs float64         `json:"deletedAtMs"`
+	OriginalDir string          `json:"originalDir,omitempty"`
+	Asset       assetIndexEntry `json:"asset,omitempty"`
 }
