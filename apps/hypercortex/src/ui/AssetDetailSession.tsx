@@ -1,9 +1,9 @@
 import * as React from 'react'
-import { Box, Button, CircularProgress, TextField, Typography } from '@mui/material'
+import { Box, Button, CircularProgress, IconButton, Tooltip, Typography } from '@mui/material'
+import InfoRoundedIcon from '@mui/icons-material/InfoRounded'
 import type { VaultScope } from '../core'
 import { pickAssetDisplayName } from '../assetDisplayName'
 import type { AssetEntry } from '../assetTypes'
-import { assetRefKey } from '../assetTypes'
 import { buildAssetEntry } from '../assetEntryModel'
 import type { HyperCortexGateway } from '../gateway'
 import { revokeAssetBlobUrl } from '../assetBlobUrl'
@@ -11,6 +11,7 @@ import { AssetPreviewSurface } from './assetPreview/AssetPreviewSurface'
 import { getAssetPreviewDescriptor } from './assetPreview/registry'
 import { ImageDialog } from './preview/ImageDialog'
 import { usePreviewController } from './preview/usePreviewController'
+import { AssetInfoSidebar } from './AssetInfoSidebar'
 
 export function AssetDetailSession({
   gateway,
@@ -26,11 +27,11 @@ export function AssetDetailSession({
   onAssetUpdated?: (asset: AssetEntry) => void
 }) {
   const title = React.useMemo(() => pickAssetDisplayName({ explicitName: asset.displayName, indexName: asset.sourceName || asset.fileName, ext: asset.ext }), [asset.displayName, asset.ext, asset.fileName, asset.sourceName])
-  const refText = React.useMemo(() => assetRefKey(asset), [asset.assetId, asset.ext])
 
   const [blobUrl, setBlobUrl] = React.useState('')
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const [infoSidebarVisible, setInfoSidebarVisible] = React.useState(false)
   const [savingMetadata, setSavingMetadata] = React.useState(false)
   const [editDisplayName, setEditDisplayName] = React.useState(asset.displayName || '')
   const [editRemark, setEditRemark] = React.useState(asset.remark || '')
@@ -109,31 +110,33 @@ export function AssetDetailSession({
               {title}
             </Typography>
           </Box>
-          <Button variant="outlined" size="small" onClick={() => void load()} disabled={loading} sx={{ borderRadius: 2, textTransform: 'none' }}>
-            刷新
-          </Button>
+          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+            <Button variant="outlined" size="small" onClick={() => void load()} disabled={loading} sx={{ borderRadius: 2, textTransform: 'none' }}>
+              刷新
+            </Button>
+            <Tooltip title={infoSidebarVisible ? '隐藏信息侧栏' : '显示信息侧栏'} placement="bottom-end">
+              <IconButton
+                size="small"
+                aria-label="附件信息"
+                onClick={() => setInfoSidebarVisible(prev => !prev)}
+                sx={{
+                  color: infoSidebarVisible ? '#111' : 'rgba(0,0,0,.58)',
+                  bgcolor: infoSidebarVisible ? 'rgba(0,0,0,.06)' : 'transparent',
+                  '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                }}
+              >
+                <InfoRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
         </Box>
 
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'minmax(260px, 340px) 1fr' }, gap: 1.5, minHeight: 0 }}>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25, p: 1.25, borderRadius: 3, bgcolor: 'rgba(255,255,255,.72)', border: '1px solid rgba(15,23,42,.08)' }}>
-            <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.42)', fontFamily: 'monospace', wordBreak: 'break-all' }}>{refText}</Typography>
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0.75 }}>
-              <MetaPill label="大小" value={humanAssetSize(asset.size)} />
-              <MetaPill label="上传" value={formatAssetDate(asset.uploadedAtMs)} />
-              <MetaPill label="类型" value={asset.mime || asset.kind || '未知'} />
-              <MetaPill label="修改" value={formatAssetDate(asset.modifiedMs)} />
-            </Box>
-            <TextField label="显示名" size="small" value={editDisplayName} onChange={e => setEditDisplayName(e.target.value)} inputProps={{ maxLength: 180 }} />
-            <TextField label="备注" multiline minRows={4} value={editRemark} onChange={e => setEditRemark(e.target.value)} inputProps={{ maxLength: 2000 }} />
-            <TextField label="标签" size="small" value={editTags} onChange={e => setEditTags(e.target.value)} placeholder="用逗号分隔" />
-            <Button variant="contained" size="small" onClick={() => void saveMetadata()} disabled={!metadataDirty || savingMetadata} sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 900 }}>
-              {savingMetadata ? '保存中...' : '保存附件信息'}
-            </Button>
-          </Box>
-
+        <Box sx={{ flex: 1, minHeight: 0, display: 'flex', minWidth: 0, gap: 2, alignItems: 'stretch' }}>
           <Box
             sx={{
-              minHeight: 360,
+              flex: 1,
+              minWidth: 0,
+              minHeight: 0,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -159,31 +162,26 @@ export function AssetDetailSession({
               <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.55)' }}>暂不支持预览该类型附件。</Typography>
             )}
           </Box>
+
+          {infoSidebarVisible ? (
+            <Box sx={{ flex: '0 0 280px', width: 280, minWidth: 280, minHeight: 0, overflow: 'auto', overscrollBehavior: 'contain' }}>
+              <AssetInfoSidebar
+                asset={asset}
+                displayName={editDisplayName}
+                remark={editRemark}
+                tagsText={editTags}
+                saving={savingMetadata}
+                dirty={metadataDirty}
+                onDisplayNameChange={setEditDisplayName}
+                onRemarkChange={setEditRemark}
+                onTagsTextChange={setEditTags}
+                onSave={() => void saveMetadata()}
+              />
+            </Box>
+          ) : null}
         </Box>
       </Box>
       <ImageDialog open={imagePreview.modal === 'image'} controller={imagePreview.controller} viewer={imagePreview.imageViewer} />
     </>
   )
-}
-
-function MetaPill({ label, value }: { label: string; value: string }) {
-  return (
-    <Box sx={{ px: 1, py: 0.75, borderRadius: 2, bgcolor: 'rgba(15,23,42,.04)' }}>
-      <Typography sx={{ fontSize: 10, color: 'rgba(15,23,42,.45)', fontWeight: 800 }}>{label}</Typography>
-      <Typography sx={{ mt: 0.25, fontSize: 12, color: '#0f172a', fontWeight: 900, wordBreak: 'break-word' }}>{value}</Typography>
-    </Box>
-  )
-}
-
-function humanAssetSize(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function formatAssetDate(ms: number | undefined): string {
-  const n = Number(ms || 0)
-  if (!Number.isFinite(n) || n <= 0) return '未知'
-  return new Date(n).toLocaleString()
 }
