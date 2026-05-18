@@ -19,6 +19,7 @@ export type HostGateway = {
   importLegacyData: () => Promise<LegacyDataImportResult | null>
   getLibraryDir: () => Promise<string>
   openDir: (dir: string) => Promise<void>
+  openVaultDir: (scope: VaultScope, dir: string) => Promise<void>
 }
 
 export type DataDirStatus = {

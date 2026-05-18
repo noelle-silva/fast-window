@@ -1594,58 +1594,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     await handleDeleteNote({ note: target, mode })
   }, [closeNoteCardMenu, handleDeleteNote, noteCardDeleteTarget, trashEnabled])
 
-  const resolveNoteAbsoluteDir = React.useCallback(
-    async (note: NoteMeta): Promise<string> => {
-      const rawDir = String(note?.dir || '').trim()
-      if (!rawDir) throw new Error('笔记目录为空')
-
-      const detectStyle = (p: string): 'windows' | 'posix' | 'unknown' => {
-        const s = String(p || '').trim()
-        if (/^[a-zA-Z]:[\\/]/.test(s) || s.startsWith('\\\\') || s.startsWith('//')) return 'windows'
-        if (s.startsWith('/')) return 'posix'
-        return 'unknown'
-      }
-
-      const normalizeWindowsAbs = (p: string): string => {
-        const s = String(p || '').trim()
-        if (!s) return ''
-        // 统一用反斜杠，让 explorer 行为更可控；同时支持 //server/share 的 UNC 写法。
-        if (s.startsWith('//')) return `\\\\${s.slice(2).replace(/\//g, '\\')}`
-        return s.replace(/\//g, '\\')
-      }
-
-      const normalizePosixAbs = (p: string): string => {
-        const s = String(p || '').trim()
-        if (!s) return ''
-        return s.replace(/\\/g, '/')
-      }
-
-      const joinWindows = (base: string, rel: string): string => {
-        const b = normalizeWindowsAbs(base).replace(/[\\\/]+$/g, '')
-        const r = String(rel || '').trim().replace(/^[\\\/]+/g, '').replace(/\//g, '\\')
-        return `${b}\\${r}`
-      }
-
-      const joinPosix = (base: string, rel: string): string => {
-        const b = normalizePosixAbs(base).replace(/[\\\/]+$/g, '')
-        const r = String(rel || '').trim().replace(/^[\\\/]+/g, '').replace(/\\/g, '/')
-        return `${b}/${r}`
-      }
-
-      const style = detectStyle(rawDir)
-      if (style === 'windows') return normalizeWindowsAbs(rawDir)
-      if (style === 'posix') return normalizePosixAbs(rawDir)
-
-      const libDir = String(await gateway.host.getLibraryDir()).trim()
-      const libStyle = detectStyle(libDir)
-      if (libStyle === 'windows') return joinWindows(libDir, rawDir)
-      if (libStyle === 'posix') return joinPosix(libDir, rawDir)
-
-      throw new Error('库目录不是绝对路径')
-    },
-    [gateway],
-  )
-
   const requestCopyTitleFromCardMenu = React.useCallback(async () => {
     const note = noteCardMenu?.note
     if (!note) return
@@ -1668,12 +1616,11 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       return
     }
     try {
-      const abs = await resolveNoteAbsoluteDir(note)
-      await gateway.host.openDir(abs)
+      await gateway.host.openVaultDir('library', note.dir)
     } catch (e: any) {
       void gateway.host.toast(String(e?.message || e || '打开目录失败'))
     }
-  }, [gateway, closeNoteCardMenu, noteCardMenu, resolveNoteAbsoluteDir])
+  }, [gateway, closeNoteCardMenu, noteCardMenu])
 
   const handleTrashRestored = React.useCallback(
     (meta: NoteMeta) => {

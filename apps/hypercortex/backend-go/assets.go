@@ -161,3 +161,21 @@ func (svc *service) openDir(dir string) error {
 	}
 	return openSystemDir(abs)
 }
+
+func (svc *service) openVaultDir(scope string, dir string) error {
+	abs, err := svc.resolvePath(scope, dir)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return errors.New("目录不存在")
+		}
+		return err
+	}
+	if !info.IsDir() {
+		return errors.New("目标不是目录")
+	}
+	return openSystemDir(abs)
+}

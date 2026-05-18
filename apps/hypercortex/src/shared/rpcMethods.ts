@@ -56,6 +56,7 @@ export const HyperCortexRpc = {
   host: {
     getLibraryDir: 'hypercortex.host.getLibraryDir',
     openDir: 'hypercortex.host.openDir',
+    openVaultDir: 'hypercortex.host.openVaultDir',
     importLegacyData: 'hypercortex.host.importLegacyData',
   },
 } as const

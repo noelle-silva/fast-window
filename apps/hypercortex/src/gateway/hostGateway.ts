@@ -45,5 +45,10 @@ export function createHostGateway(baseApi: any, background: BackgroundClient): H
       if (!s) throw new Error('dir 不能为空')
       return background.invoke(HyperCortexRpc.host.openDir, { dir: s })
     },
+    async openVaultDir(scope, dir) {
+      const s = String(dir || '').trim()
+      if (!s) throw new Error('dir 不能为空')
+      return background.invoke(HyperCortexRpc.host.openVaultDir, { scope, dir: s })
+    },
   }
 }

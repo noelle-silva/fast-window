@@ -269,6 +269,20 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     setDeleteNoteConfirmOpen(true)
   }, [closeMoreMenu])
 
+  const requestOpenNoteDir = React.useCallback(async () => {
+    closeMoreMenu()
+    const dir = String(note.dir || '').trim()
+    if (isDraft || !dir) {
+      void gateway.host.toast('草稿暂无所在目录（请先保存）')
+      return
+    }
+    try {
+      await gateway.host.openVaultDir(scope, dir)
+    } catch (e: any) {
+      void gateway.host.toast(String(e?.message || e || '打开目录失败'))
+    }
+  }, [closeMoreMenu, gateway, isDraft, note.dir, scope])
+
   const handlePasteFiles = React.useCallback(async (files: File[], insertText: (text: string) => void) => {
     if (pastingAssets) {
       void gateway.host.toast('已有附件正在上传，请稍后再粘贴')
@@ -900,6 +914,13 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
               anchorEl={moreMenuAnchorEl}
               PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}
             >
+              <MenuItem
+                onClick={() => void requestOpenNoteDir()}
+                disabled={isDraft || !String(note.dir || '').trim()}
+              >
+                打开当前笔记文件夹
+              </MenuItem>
+              <Divider />
               <MenuItem
                 onClick={() => requestDeleteNote()}
                 sx={{ color: '#d32f2f' }}

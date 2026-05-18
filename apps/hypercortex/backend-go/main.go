@@ -264,6 +264,8 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return svc.libraryDir, nil
 	case "hypercortex.host.openDir":
 		return nil, svc.openDir(stringField(params, "dir"))
+	case "hypercortex.host.openVaultDir":
+		return nil, svc.openVaultDir(requireScope(params), stringField(params, "dir"))
 	case "hypercortex.host.importLegacyData":
 		return svc.importLegacyData(stringField(params, "dir"))
 	default:
