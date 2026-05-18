@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 2,
+  "id": "ai-studio",
+  "name": "AI Studio",
+  "description": "多供应商与角色系统的 v5 AI Studio 应用",
+  "versionSource": "src-tauri/tauri.conf.json",
+  "profiles": {
+    "release": {
+      "build": { "command": "pnpm", "args": ["tauri", "build", "--no-bundle"] },
+      "stageDir": "dist-app/v5-windows",
+      "files": [
+        { "from": "src-tauri/target/release/ai-studio-app.exe", "to": "ai-studio-app.exe" },
+        { "from": "src-tauri/target/release/ai-studio-backend.exe", "to": "ai-studio-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    },
+    "dev": {
+      "build": { "command": "pnpm", "args": ["build:exe:dev"] },
+      "stageDir": "dist-app/v5-windows-dev",
+      "files": [
+        { "from": "src-tauri/target/debug/ai-studio-app.exe", "to": "ai-studio-app.exe" },
+        { "from": "src-tauri/target/debug/ai-studio-backend.exe", "to": "ai-studio-backend.exe" },
+        { "from": "src-tauri/target/resources/assets", "to": "assets" }
+      ]
+    }
+  },
+  "package": {
+    "windowsExecutable": "ai-studio-app.exe",
+    "icon": "assets/icon.svg"
+  },
+  "displayMode": "default",
+  "commands": [
+    { "id": "new-chat", "title": "新建对话" },
+    { "id": "open-studio", "title": "打开 AI Studio" },
+    { "id": "provider-settings", "title": "模型提供商设置" },
+    { "id": "open-settings", "title": "打开设置" }
+  ]
+}

@@ -1,0 +1,138 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  color: #1f2430;
+  background: #eef1f8;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.appShell,
+.chatHost {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.bootFallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 22px;
+  background:
+    radial-gradient(circle at 18% 8%, rgba(217, 163, 179, 0.38), transparent 32%),
+    radial-gradient(circle at 90% 12%, rgba(126, 152, 255, 0.22), transparent 28%),
+    linear-gradient(135deg, #f8f1f4 0%, #eef3ff 48%, #f5f7fb 100%);
+}
+
+.bootFallbackTopbar {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -10px -10px 18px;
+  padding: 0 10px;
+  color: #1f2430;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(73, 82, 106, 0.12);
+  border-radius: 16px;
+  box-shadow: 0 12px 36px rgba(41, 51, 82, 0.08);
+  backdrop-filter: blur(18px);
+  user-select: none;
+}
+
+.bootFallbackBrand {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.bootFallbackCard {
+  width: min(560px, 100%);
+  margin: auto;
+  padding: 22px;
+  border: 1px solid rgba(73, 82, 106, 0.14);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 24px 70px rgba(41, 51, 82, 0.12);
+  backdrop-filter: blur(22px);
+}
+
+.bootFallbackTitle {
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.bootFallbackText,
+.bootFallbackIssue {
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.bootFallbackText {
+  color: #566073;
+}
+
+.bootFallbackIssue {
+  color: #8d2635;
+  overflow-wrap: anywhere;
+}
+
+.bootFallbackCard button {
+  height: 34px;
+  margin-top: 14px;
+  padding: 0 12px;
+  border: 1px solid rgba(141, 38, 53, 0.22);
+  border-radius: 10px;
+  color: #8d2635;
+  background: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+}
+
+.bootFallbackCard button:hover {
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.toast {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 10000;
+  max-width: min(420px, calc(100vw - 36px));
+  padding: 12px 14px;
+  border: 1px solid rgba(73, 82, 106, 0.16);
+  border-radius: 16px;
+  color: #1f2937;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 18px 44px rgba(41, 51, 82, 0.18);
+  font-size: 13px;
+  line-height: 1.5;
+  backdrop-filter: blur(18px);
+}
+
+@media (max-width: 720px) {
+  .bootFallback {
+    padding: 14px;
+  }
+}
