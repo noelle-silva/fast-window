@@ -3,6 +3,7 @@ import { Box, Menu, MenuItem, Typography } from '@mui/material'
 
 import type { AssetEntry } from '../assetTypes'
 import { kindFromMime, mimeFromExt, type NoteMeta } from '../core'
+import { buildAssetEntry } from '../assetEntryModel'
 import type { HyperCortexGateway } from '../gateway'
 import {
   addRef,
@@ -67,16 +68,23 @@ function buildAssetLookup(assetIndex?: Record<string, any>): {
     if (!assetId || !relPath) continue
     const mime = mimeFromExt(ext)
     const kind = String(raw.kind || '').trim() || (mime ? kindFromMime(mime) : 'document')
-    const asset: AssetEntry = {
+    const asset = buildAssetEntry({
       relPath,
-      fileName: String(raw.fileName || key || (ext ? `${assetId}.${ext}` : assetId)),
-      displayName: String(raw.displayName || '').trim() || undefined,
+      name: String(raw.fileName || key || (ext ? `${assetId}.${ext}` : assetId)),
       assetId,
       ext,
       kind: kind || 'document',
+      mime: String(raw.mime || '').trim() || undefined,
+      sourceName: String(raw.sourceName || '').trim() || undefined,
+      displayName: String(raw.displayName || '').trim() || undefined,
+      remark: String(raw.remark || '').trim() || undefined,
+      tags: Array.isArray(raw.tags) ? raw.tags : [],
       size: Number(raw.size || 0) || 0,
+      createdAtMs: Number(raw.createdAtMs || 0) || 0,
+      uploadedAtMs: Number(raw.uploadedAtMs || 0) || 0,
+      updatedAtMs: Number(raw.updatedAtMs || 0) || 0,
       modifiedMs: Number(raw.modifiedMs || 0) || 0,
-    }
+    })
     const refKey = ext ? `${assetId}.${ext}` : assetId
     byKey[key || refKey] = asset
     byKey[refKey] = asset
@@ -289,8 +297,10 @@ export function IndexPage(props: Props): React.ReactNode {
     const filtered = q
       ? uniq.filter(a => {
           const key = `${a.assetId}.${a.ext}`.toLowerCase()
-          const name = String(a.displayName || a.fileName || '').toLowerCase()
-          return key.includes(q) || name.includes(q)
+          const name = String(a.displayName || a.sourceName || a.fileName || '').toLowerCase()
+          const remark = String(a.remark || '').toLowerCase()
+          const tags = (a.tags || []).join(' ').toLowerCase()
+          return key.includes(q) || name.includes(q) || remark.includes(q) || tags.includes(q)
         })
       : uniq
     return filtered.slice(0, 20)

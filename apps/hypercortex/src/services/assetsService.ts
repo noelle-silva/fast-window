@@ -14,6 +14,7 @@ export function createAssetsService(background: BackgroundClient): AssetsService
     cancelUploadTask: taskId => background.invoke(HyperCortexRpc.assets.uploadCancel, { taskId }),
     readAssetDataUrl: (scope, assetId, ext) => background.invoke(HyperCortexRpc.assets.readDataUrl, { scope, assetId, ext }),
     deleteAsset: (scope, assetId, ext) => background.invoke(HyperCortexRpc.assets.delete, { scope, assetId, ext }),
+    updateAssetMetadata: (scope, assetId, ext, metadata) => background.invoke(HyperCortexRpc.assets.updateMetadata, { scope, assetId, ext, metadata }),
     getThumbnail: (scope, assetId, ext, width = 320, height = 180) => background.invoke(HyperCortexRpc.assets.getThumbnail, { scope, assetId, ext, width, height }),
     rebuildThumbnail: (scope, assetId, ext, width = 320, height = 180) => background.invoke(HyperCortexRpc.assets.rebuildThumbnail, { scope, assetId, ext, width, height }),
     rebuildAllThumbnails: (scope, width = 320, height = 180) => background.invoke(HyperCortexRpc.assets.rebuildAllThumbnails, { scope, width, height }),

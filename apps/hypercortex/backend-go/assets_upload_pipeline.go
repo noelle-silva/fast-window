@@ -42,6 +42,7 @@ type preparedAssetUploadFile struct {
 	ext         string
 	kind        string
 	displayName string
+	sourceName  string
 	size        int64
 	modifiedMs  float64
 	existed     bool
@@ -179,6 +180,7 @@ func (svc *service) runAssetUploadPipeline(scope string, inputs []assetUploadFil
 		cleanupPreparedUploadFiles(prepared)
 		return nil, err
 	}
+	commitMs := nowMs()
 	createdTargets := []string{}
 	committedTargets := map[string]bool{}
 	committed := false
@@ -209,13 +211,23 @@ func (svc *service) runAssetUploadPipeline(scope string, inputs []assetUploadFil
 			}
 		}
 
-		idx.Assets[item.fileName] = assetIndexEntry{
-			Path:        item.relPath,
-			Kind:        item.kind,
-			Size:        item.size,
-			ModifiedMs:  item.modifiedMs,
-			DisplayName: item.displayName,
-		}
+		previous := idx.Assets[item.fileName]
+		idx.Assets[item.fileName] = newAssetMetadata(assetIndexEntry{
+			AssetID:      item.assetID,
+			Ext:          item.ext,
+			Path:         item.relPath,
+			Kind:         item.kind,
+			Mime:         item.mimeType,
+			Size:         item.size,
+			CreatedAtMs:  previous.CreatedAtMs,
+			UploadedAtMs: firstPositiveMs(previous.UploadedAtMs, commitMs),
+			UpdatedAtMs:  commitMs,
+			ModifiedMs:   item.modifiedMs,
+			SourceName:   firstNonEmpty(previous.SourceName, item.sourceName),
+			DisplayName:  firstNonEmpty(previous.DisplayName, item.displayName),
+			Remark:       previous.Remark,
+			Tags:         previous.Tags,
+		})
 		ref := resourceRef{AssetID: item.assetID, Mime: item.mimeType, Ext: item.ext, Kind: item.kind, Name: item.displayName}
 		out = append(out, ref)
 		committedFiles = append(committedFiles, committedAssetUploadFile{fileIndex: item.fileIndex, resource: ref})
@@ -262,7 +274,11 @@ func (svc *service) prepareAssetUploadFile(scope string, stagingDir string, inpu
 	}
 	defer source.Close()
 
-	return svc.prepareAssetUploadStoredFile(scope, stagingDir, source, ext, mimeType, kind, assetUploadDisplayName(input.DisplayName, sourcePath), float64(info.ModTime().UnixMilli()), task, fileIndex)
+	sourceName := strings.TrimSpace(input.Name)
+	if sourceName == "" {
+		sourceName = filepath.Base(sourcePath)
+	}
+	return svc.prepareAssetUploadStoredFile(scope, stagingDir, source, ext, mimeType, kind, assetUploadDisplayName(input.DisplayName, sourcePath), sourceName, float64(info.ModTime().UnixMilli()), task, fileIndex)
 }
 
 func (svc *service) prepareAssetUploadContent(scope string, stagingDir string, input assetUploadFileInput, task *assetUploadTask, fileIndex int) (preparedAssetUploadFile, error) {
@@ -291,10 +307,10 @@ func (svc *service) prepareAssetUploadContent(scope string, stagingDir string, i
 		return preparedAssetUploadFile{}, errors.New("粘贴附件内容为空")
 	}
 
-	return svc.prepareAssetUploadStoredFile(scope, stagingDir, bytes.NewReader(data), ext, mimeType, kind, assetUploadDisplayName(input.DisplayName, name), nowMs(), task, fileIndex)
+	return svc.prepareAssetUploadStoredFile(scope, stagingDir, bytes.NewReader(data), ext, mimeType, kind, assetUploadDisplayName(input.DisplayName, name), name, nowMs(), task, fileIndex)
 }
 
-func (svc *service) prepareAssetUploadStoredFile(scope string, stagingDir string, source io.Reader, ext string, mimeType string, kind string, displayName string, modifiedMs float64, task *assetUploadTask, fileIndex int) (preparedAssetUploadFile, error) {
+func (svc *service) prepareAssetUploadStoredFile(scope string, stagingDir string, source io.Reader, ext string, mimeType string, kind string, displayName string, sourceName string, modifiedMs float64, task *assetUploadTask, fileIndex int) (preparedAssetUploadFile, error) {
 	if task != nil {
 		if err := task.startFile(fileIndex); err != nil {
 			return preparedAssetUploadFile{}, err
@@ -349,10 +365,30 @@ func (svc *service) prepareAssetUploadStoredFile(scope string, stagingDir string
 		ext:         ext,
 		kind:        kind,
 		displayName: displayName,
+		sourceName:  sourceName,
 		size:        size,
 		modifiedMs:  modifiedMs,
 		existed:     existed,
 	}, nil
+}
+
+func firstPositiveMs(values ...float64) float64 {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		text := strings.TrimSpace(value)
+		if text != "" {
+			return text
+		}
+	}
+	return ""
 }
 
 func assetUploadDisplayName(input string, sourcePath string) string {

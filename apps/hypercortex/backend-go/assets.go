@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -15,10 +16,16 @@ func (svc *service) ensureAssetIndex(scope string) (assetIndex, error) {
 		return assetIndex{}, err
 	}
 	var idx assetIndex
-	if err := readJSONFile(path, &idx); err == nil && idx.Version == 1 && idx.Assets != nil {
-		return idx, nil
+	if err := readJSONFile(path, &idx); err == nil && idx.Assets != nil {
+		migrated, changed := svc.migrateAssetIndex(scope, idx)
+		if changed {
+			if err := svc.saveAssetIndex(scope, migrated); err != nil {
+				return assetIndex{}, err
+			}
+		}
+		return migrated, nil
 	}
-	idx = assetIndex{Version: 1, Assets: map[string]assetIndexEntry{}}
+	idx = assetIndex{Version: assetIndexVersion, Assets: map[string]assetIndexEntry{}}
 	_ = writeJSONFile(path, idx)
 	return idx, nil
 }
@@ -31,12 +38,63 @@ func (svc *service) saveAssetIndex(scope string, idx assetIndex) error {
 	if idx.Assets == nil {
 		idx.Assets = map[string]assetIndexEntry{}
 	}
-	idx.Version = 1
+	idx.Version = assetIndexVersion
 	return writeJSONFile(path, idx)
 }
 
+func (svc *service) migrateAssetIndex(scope string, idx assetIndex) (assetIndex, bool) {
+	next := assetIndex{Version: assetIndexVersion, Assets: map[string]assetIndexEntry{}}
+	changed := idx.Version != assetIndexVersion
+	for key, entry := range idx.Assets {
+		cleanKey := strings.TrimSpace(key)
+		if cleanKey == "" {
+			changed = true
+			continue
+		}
+		info := svc.assetFileInfo(scope, entry.Path)
+		migrated := newAssetMetadata(entry)
+		if migrated.MetadataVersion != assetMetadataVersion || strings.TrimSpace(migrated.AssetID) == "" || strings.TrimSpace(migrated.Path) == "" {
+			migrated = migrateAssetIndexEntry(cleanKey, entry, info)
+		}
+		if migrated.AssetID == "" || migrated.Path == "" {
+			changed = true
+			continue
+		}
+		nextKey := assetKey(migrated.AssetID, migrated.Ext)
+		next.Assets[nextKey] = migrated
+		if nextKey != cleanKey || !assetIndexEntriesEqual(entry, migrated) {
+			changed = true
+		}
+	}
+	return next, changed
+}
+
+func (svc *service) assetFileInfo(scope string, relPath string) os.FileInfo {
+	if strings.TrimSpace(relPath) == "" {
+		return nil
+	}
+	target, err := svc.resolvePath(scope, relPath)
+	if err != nil {
+		return nil
+	}
+	info, err := os.Stat(target)
+	if err != nil || info.IsDir() {
+		return nil
+	}
+	return info
+}
+
+func assetIndexEntriesEqual(a assetIndexEntry, b assetIndexEntry) bool {
+	left, _ := json.Marshal(a)
+	right, _ := json.Marshal(b)
+	return string(left) == string(right)
+}
+
 func (svc *service) listAssets(scope string) ([]assetPoolItem, error) {
-	idx, _ := svc.ensureAssetIndex(scope)
+	idx, err := svc.ensureAssetIndex(scope)
+	if err != nil {
+		return nil, err
+	}
 	out := []assetPoolItem{}
 	assetsRoot, err := svc.resolvePath(scope, assetsDir)
 	if err != nil {
@@ -60,18 +118,33 @@ func (svc *service) listAssets(scope string) ([]assetPoolItem, error) {
 				assetID, ext := parseAssetFileName(file.Name())
 				key := assetKey(assetID, ext)
 				entry := idx.Assets[key]
+				mimeType := mimeFromExt(ext)
+				kind := kindFromMime(mimeType)
 				var size int64
 				var modified float64
 				if info != nil {
 					size = info.Size()
 					modified = float64(info.ModTime().UnixMilli())
 				}
-				out = append(out, assetPoolItem{RelPath: rel, Name: file.Name(), DisplayName: entry.DisplayName, Size: size, ModifiedMs: modified})
-				if entry.Path != rel || entry.Size != size || entry.ModifiedMs != modified {
-					entry.Path = rel
-					entry.Size = size
-					entry.ModifiedMs = modified
-					idx.Assets[key] = entry
+				nextEntry := newAssetMetadata(assetIndexEntry{
+					AssetID:      assetID,
+					Ext:          ext,
+					Path:         rel,
+					Kind:         nonEmpty(entry.Kind, kind),
+					Mime:         nonEmpty(entry.Mime, mimeType),
+					Size:         size,
+					CreatedAtMs:  entry.CreatedAtMs,
+					UploadedAtMs: entry.UploadedAtMs,
+					UpdatedAtMs:  entry.UpdatedAtMs,
+					ModifiedMs:   modified,
+					SourceName:   entry.SourceName,
+					DisplayName:  entry.DisplayName,
+					Remark:       entry.Remark,
+					Tags:         entry.Tags,
+				})
+				out = append(out, assetPoolItemFromMetadata(nextEntry))
+				if !assetIndexEntriesEqual(entry, nextEntry) {
+					idx.Assets[key] = nextEntry
 				}
 			}
 		}
@@ -115,6 +188,32 @@ func (svc *service) deleteAsset(scope string, assetID string, ext string) error 
 	idx, _ := svc.ensureAssetIndex(scope)
 	delete(idx.Assets, assetKey(assetID, ext))
 	return svc.saveAssetIndex(scope, idx)
+}
+
+func (svc *service) updateAssetUserMetadata(scope string, assetID string, ext string, raw json.RawMessage) (assetPoolItem, error) {
+	key := assetKey(assetID, ext)
+	idx, err := svc.ensureAssetIndex(scope)
+	if err != nil {
+		return assetPoolItem{}, err
+	}
+	entry, ok := idx.Assets[key]
+	if !ok || strings.TrimSpace(entry.Path) == "" {
+		return assetPoolItem{}, errors.New("附件档案不存在")
+	}
+	var input assetUserMetadataInput
+	if err := json.Unmarshal(raw, &input); err != nil {
+		return assetPoolItem{}, err
+	}
+	entry.DisplayName = normalizeAssetShortText(input.DisplayName, maxAssetDisplayNameLength)
+	entry.Remark = normalizeAssetShortText(input.Remark, maxAssetTextLength)
+	entry.Tags = normalizeAssetTags(input.Tags)
+	entry.UpdatedAtMs = nowMs()
+	entry = newAssetMetadata(entry)
+	idx.Assets[key] = entry
+	if err := svc.saveAssetIndex(scope, idx); err != nil {
+		return assetPoolItem{}, err
+	}
+	return assetPoolItemFromMetadata(entry), nil
 }
 
 func (svc *service) resolveAssetPath(scope string, assetID string, ext string) (string, error) {

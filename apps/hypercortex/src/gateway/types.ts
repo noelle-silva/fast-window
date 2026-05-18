@@ -1,5 +1,5 @@
 import type { VaultScope } from '../core'
-import type { AssetPoolItem, HyperCortexAssetsIndexV1 } from '../assetStore'
+import type { AssetPoolItem, HyperCortexAssetsIndexV2 } from '../assetStore'
 import type { HyperCortexFavoritesDocV1 } from '../favorites'
 import type { NoteRefIndex } from '../noteRefs'
 import type {
@@ -59,7 +59,7 @@ export type NotesService = {
 }
 
 export type AssetsService = {
-  ensureAssetsIndex: (scope: VaultScope) => Promise<HyperCortexAssetsIndexV1>
+  ensureAssetsIndex: (scope: VaultScope) => Promise<HyperCortexAssetsIndexV2>
   listAssets: (scope: VaultScope) => Promise<AssetPoolItem[]>
   startUpload: (scope: VaultScope, files: LocalAssetFile[]) => Promise<AssetUploadTaskSnapshot>
   listUploadTasks: () => Promise<AssetUploadTaskSnapshot[]>
@@ -68,11 +68,18 @@ export type AssetsService = {
   cancelUploadTask: (taskId: string) => Promise<AssetUploadTaskSnapshot>
   readAssetDataUrl: (scope: VaultScope, assetId: string, ext?: string) => Promise<string>
   deleteAsset: (scope: VaultScope, assetId: string, ext?: string) => Promise<void>
+  updateAssetMetadata: (scope: VaultScope, assetId: string, ext: string | undefined, metadata: AssetUserMetadataInput) => Promise<AssetPoolItem>
   getThumbnail: (scope: VaultScope, assetId: string, ext?: string, width?: number, height?: number) => Promise<ThumbnailResult>
   rebuildThumbnail: (scope: VaultScope, assetId: string, ext?: string, width?: number, height?: number) => Promise<ThumbnailResult>
   rebuildAllThumbnails: (scope: VaultScope, width?: number, height?: number) => Promise<ThumbnailRebuildReport>
   getVideoThumbnail: (scope: VaultScope, path: string, width?: number, height?: number) => Promise<string>
   getAssetBlobUrl: (scope: VaultScope, assetId: string, ext: string) => Promise<string>
+}
+
+export type AssetUserMetadataInput = {
+  displayName: string
+  remark: string
+  tags: string[]
 }
 
 export type LocalAssetFile = {

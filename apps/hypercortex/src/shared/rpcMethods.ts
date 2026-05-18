@@ -25,6 +25,7 @@ export const HyperCortexRpc = {
     uploadCancel: 'hypercortex.assets.upload.cancel',
     readDataUrl: 'hypercortex.assets.readDataUrl',
     delete: 'hypercortex.assets.delete',
+    updateMetadata: 'hypercortex.assets.updateMetadata',
     getThumbnail: 'hypercortex.assets.getThumbnail',
     rebuildThumbnail: 'hypercortex.assets.rebuildThumbnail',
     rebuildAllThumbnails: 'hypercortex.assets.rebuildAllThumbnails',

@@ -227,6 +227,8 @@ func (svc *service) dispatch(method string, params json.RawMessage) (any, error)
 		return svc.readAssetDataURL(requireScope(params), stringField(params, "assetId"), optionalStringField(params, "ext"))
 	case "hypercortex.assets.delete":
 		return nil, svc.deleteAsset(requireScope(params), stringField(params, "assetId"), optionalStringField(params, "ext"))
+	case "hypercortex.assets.updateMetadata":
+		return svc.updateAssetUserMetadata(requireScope(params), stringField(params, "assetId"), optionalStringField(params, "ext"), rawField(params, "metadata"))
 	case "hypercortex.assets.getThumbnail":
 		return svc.getAssetThumbnail(requireScope(params), stringField(params, "assetId"), optionalStringField(params, "ext"), intField(params, "width"), intField(params, "height"), false)
 	case "hypercortex.assets.rebuildThumbnail":

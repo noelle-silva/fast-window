@@ -2,11 +2,18 @@ export type AssetEntry = {
   relPath: string
   fileName: string
   displayName?: string
+  sourceName?: string
   assetId: string
   ext: string
   kind: string
+  mime?: string
   size: number
+  createdAtMs?: number
+  uploadedAtMs?: number
+  updatedAtMs?: number
   modifiedMs: number
+  remark?: string
+  tags?: string[]
   thumbnailUrl?: string
 }
 

@@ -46,6 +46,9 @@ func TestRunAssetUploadPipelineCommitsFileAndIndex(t *testing.T) {
 	if entry.DisplayName != "Hello Upload" {
 		t.Fatalf("displayName = %q, want Hello Upload", entry.DisplayName)
 	}
+	if entry.MetadataVersion != assetMetadataVersion || entry.AssetID != expectedID || entry.Ext != "txt" || entry.UploadedAtMs <= 0 || entry.UpdatedAtMs <= 0 {
+		t.Fatalf("metadata entry = %#v, want v2 metadata with upload timestamps", entry)
+	}
 	target, err := svc.resolvePath("library", entry.Path)
 	if err != nil {
 		t.Fatalf("resolve target failed: %v", err)
@@ -103,6 +106,68 @@ func TestRunAssetUploadPipelineCommitsPastedContent(t *testing.T) {
 	}
 	if string(written) != string(content) {
 		t.Fatalf("committed content = %q, want %q", string(written), string(content))
+	}
+}
+
+func TestEnsureAssetIndexMigratesV1ToV2Metadata(t *testing.T) {
+	svc := newTestService(t)
+	rel := filepath.ToSlash(filepath.Join(assetsDir, "docs", "2026-05", "asset.txt"))
+	target, err := svc.resolvePath("library", rel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureParent(target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("legacy asset"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idxPath, err := svc.resolvePath("library", assetsIndexFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeJSONFile(idxPath, map[string]any{"version": 1, "assets": map[string]any{"asset.txt": map[string]any{"path": rel, "kind": "document", "displayName": "Legacy Asset"}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	idx, err := svc.ensureAssetIndex("library")
+	if err != nil {
+		t.Fatalf("ensureAssetIndex failed: %v", err)
+	}
+	entry := idx.Assets["asset.txt"]
+	if idx.Version != assetIndexVersion || entry.MetadataVersion != assetMetadataVersion {
+		t.Fatalf("idx = %#v entry = %#v, want v2 metadata", idx, entry)
+	}
+	if entry.AssetID != "asset" || entry.Ext != "txt" || entry.DisplayName != "Legacy Asset" || entry.UploadedAtMs <= 0 {
+		t.Fatalf("entry = %#v, want migrated v1 fields", entry)
+	}
+}
+
+func TestUpdateAssetUserMetadataPersistsEditableFields(t *testing.T) {
+	svc := newTestService(t)
+	content := []byte("editable metadata")
+	source := filepath.Join(t.TempDir(), "editable.txt")
+	if err := os.WriteFile(source, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.runAssetUploadPipeline("library", []assetUploadFileInput{{Path: source, DisplayName: "Editable"}}, nil)
+	if err != nil {
+		t.Fatalf("runAssetUploadPipeline failed: %v", err)
+	}
+	updated, err := svc.updateAssetUserMetadata("library", result[0].AssetID, result[0].Ext, []byte(`{"displayName":"Renamed","remark":"Important context","tags":["alpha","beta","alpha"]}`))
+	if err != nil {
+		t.Fatalf("updateAssetUserMetadata failed: %v", err)
+	}
+	if updated.DisplayName != "Renamed" || updated.Remark != "Important context" || len(updated.Tags) != 2 {
+		t.Fatalf("updated = %#v, want editable metadata", updated)
+	}
+	idx, err := svc.ensureAssetIndex("library")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := idx.Assets[assetKey(result[0].AssetID, result[0].Ext)]
+	if entry.DisplayName != "Renamed" || entry.Remark != "Important context" || len(entry.Tags) != 2 {
+		t.Fatalf("entry = %#v, want persisted editable metadata", entry)
 	}
 }
 

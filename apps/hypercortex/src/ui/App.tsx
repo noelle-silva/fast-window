@@ -2068,6 +2068,16 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
     [navigatePage, pushNavHistory, updateSidebarItems],
   )
 
+  const handleAssetTabUpdated = React.useCallback((asset: AssetEntry) => {
+    const tabKey = assetTabId(asset)
+    setOpenAssetTabs(prev => prev.map(item => (assetTabId(item) === tabKey ? { ...asset, thumbnailUrl: item.thumbnailUrl } : item)))
+    setAssetPoolIndex(prev => {
+      if (!prev || typeof prev !== 'object') return prev
+      const key = asset.ext ? `${asset.assetId}.${asset.ext}` : asset.assetId
+      return { ...(prev as any), assets: { ...((prev as any).assets || {}), [key]: { ...asset, path: asset.relPath } } }
+    })
+  }, [])
+
   const activateExistingTabKey = React.useCallback(
     (tabKey: string, opts?: { recordHistory?: boolean }) => {
       const key = String(tabKey || '').trim()
@@ -2789,6 +2799,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                       scope="library"
                       asset={asset}
                       visible={page === 'asset-detail' && assetTabId(asset) === activeTabKey}
+                      onAssetUpdated={handleAssetTabUpdated}
                     />
                   ))
                 )}

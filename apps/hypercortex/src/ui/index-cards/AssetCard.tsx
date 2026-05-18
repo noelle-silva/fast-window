@@ -25,7 +25,7 @@ function kindIcon(kind: string): React.ReactNode {
 
 export function AssetCard(props: Props): React.ReactNode {
   const { asset, disabled, compact = false, onClick } = props
-  const name = pickAssetDisplayName({ explicitName: asset.displayName, indexName: asset.fileName, ext: asset.ext })
+  const name = pickAssetDisplayName({ explicitName: asset.displayName, indexName: asset.sourceName || asset.fileName, ext: asset.ext })
   const showThumb = Boolean(asset.thumbnailUrl)
   const icon = showThumb ? (
     <Box component="img" src={asset.thumbnailUrl || ''} alt={name} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -39,7 +39,7 @@ export function AssetCard(props: Props): React.ReactNode {
       accentSoft="rgba(15,118,110,.12)"
       icon={icon}
       title={name}
-      subtitle={asset.relPath || asset.fileName || '没有路径信息'}
+      subtitle={asset.remark || asset.relPath || asset.fileName || '没有路径信息'}
       meta={asset.ext ? `.${asset.ext}` : asset.kind || '文件'}
       onClick={disabled ? undefined : () => onClick(asset)}
     >

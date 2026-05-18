@@ -13,9 +13,10 @@ import {
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded'
 import AttachFileRoundedIcon from '@mui/icons-material/AttachFileRounded'
-import { kindFromMime, mimeFromExt, type NoteMeta, type VaultScope } from '../core'
+import { type NoteMeta, type VaultScope } from '../core'
 import { pickAssetDisplayName } from '../assetDisplayName'
 import type { AssetEntry } from '../assetTypes'
+import { buildAssetEntries } from '../assetEntryModel'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { AllNotesGridNoteCard, AllNotesIconNoteCard, AllNotesListNoteRow } from './AllNotesNoteCard'
 import { startPrefetchNoteCardInfo } from './noteCardInfoLoader'
@@ -56,32 +57,6 @@ function scoreText(haystack: string, tokens: string[]): number {
     score += idx === 0 ? 4 : 1
   }
   return score
-}
-
-function parseAssetFileName(name: string): { assetId: string; ext: string } {
-  const s = String(name || '').trim()
-  const dotIdx = s.lastIndexOf('.')
-  if (dotIdx <= 0) return { assetId: s, ext: '' }
-  return { assetId: s.slice(0, dotIdx), ext: s.slice(dotIdx + 1).toLowerCase() }
-}
-
-function buildAssetEntries(items: { relPath: string; name: string; displayName?: string; size: number; modifiedMs: number }[]): AssetEntry[] {
-  return (Array.isArray(items) ? items : []).map(item => {
-    const { assetId, ext } = parseAssetFileName(item.name)
-    const mime = mimeFromExt(ext)
-    const kind = mime ? kindFromMime(mime) : 'document'
-    return {
-      relPath: String(item.relPath || '').trim(),
-      fileName: String(item.name || '').trim(),
-      displayName: String(item.displayName || '').trim() || undefined,
-      assetId,
-      ext,
-      kind,
-      size: Number(item.size) || 0,
-      modifiedMs: Number(item.modifiedMs) || 0,
-      thumbnailUrl: undefined,
-    }
-  })
 }
 
 export function QuickSearchPopover(props: Props) {
@@ -240,8 +215,9 @@ export function QuickSearchPopover(props: Props) {
     const list = Array.isArray(assets) ? assets : []
     const ranked = list
       .map(a => {
-        const name = pickAssetDisplayName({ explicitName: a.displayName, ext: a.ext })
-        const fallback = `${a.fileName} ${a.assetId}.${a.ext} ${a.assetId}`
+        const name = pickAssetDisplayName({ explicitName: a.displayName, indexName: a.sourceName || a.fileName, ext: a.ext })
+        const metadata = `${a.remark || ''} ${(a.tags || []).join(' ')}`
+        const fallback = `${a.fileName} ${a.sourceName || ''} ${a.assetId}.${a.ext} ${a.assetId} ${metadata}`
         const score = Math.max(scoreText(name, tokens) * 10, scoreText(fallback, tokens))
         return { asset: a, score }
       })

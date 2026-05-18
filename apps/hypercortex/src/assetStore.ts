@@ -1,31 +1,54 @@
-import { ASSETS_DIR, type Api, type VaultScope, monthFolder } from './core'
+import { ASSETS_DIR, kindFromMime, mimeFromExt, type Api, type VaultScope, monthFolder } from './core'
 
 type AssetCategory = 'images' | 'videos' | 'docs'
 
 export const ASSETS_INDEX_FILE = 'hypercortex-assets-index.json'
 
-type AssetsIndexEntryV1 = {
+export type AssetsIndexEntryV2 = {
+  metadataVersion: 2
+  assetId: string
+  ext: string
   path: string
-  kind?: string
-  size?: number
-  modifiedMs?: number
+  kind: string
+  mime?: string
+  size: number
+  createdAtMs: number
+  uploadedAtMs: number
+  updatedAtMs: number
+  modifiedMs: number
+  sourceName?: string
   displayName?: string
+  remark?: string
+  tags: string[]
 }
 
-export type HyperCortexAssetsIndexV1 = {
-  version: 1
-  assets: Record<string, AssetsIndexEntryV1>
+export type HyperCortexAssetsIndexV2 = {
+  version: 2
+  assets: Record<string, AssetsIndexEntryV2>
 }
 
 export type AssetPoolItem = {
   relPath: string
   name: string
+  assetId: string
+  ext: string
+  kind: string
+  mime?: string
+  sourceName?: string
   displayName?: string
+  remark?: string
+  tags: string[]
   size: number
+  createdAtMs: number
+  uploadedAtMs: number
+  updatedAtMs: number
   modifiedMs: number
 }
 
-const __indexCache: Partial<Record<VaultScope, HyperCortexAssetsIndexV1>> = {}
+const ASSET_INDEX_VERSION = 2
+const ASSET_METADATA_VERSION = 2
+
+const __indexCache: Partial<Record<VaultScope, HyperCortexAssetsIndexV2>> = {}
 
 function assetKey(assetId: string, ext?: string): string {
   const id = String(assetId || '').trim()
@@ -73,21 +96,22 @@ async function writeJson(api: Api, scope: VaultScope, path: string, value: any):
   await api.files.writeText({ scope, path, text: JSON.stringify(value, null, 2), overwrite: true })
 }
 
-export async function ensureAssetsIndex(api: Api, scope: VaultScope): Promise<HyperCortexAssetsIndexV1> {
+export async function ensureAssetsIndex(api: Api, scope: VaultScope): Promise<HyperCortexAssetsIndexV2> {
   const cached = __indexCache[scope]
   if (cached) return cached
   const parsed = await readJsonOrNull(api, scope, ASSETS_INDEX_FILE)
-  if (parsed && typeof parsed === 'object' && parsed.version === 1 && parsed.assets && typeof parsed.assets === 'object') {
-    __indexCache[scope] = parsed as HyperCortexAssetsIndexV1
+  if (parsed && typeof parsed === 'object' && parsed.assets && typeof parsed.assets === 'object') {
+    __indexCache[scope] = migrateAssetsIndex(parsed)
+    if (parsed.version !== ASSET_INDEX_VERSION) await writeJson(api, scope, ASSETS_INDEX_FILE, __indexCache[scope]).catch(() => {})
     return __indexCache[scope]!
   }
-  const fresh: HyperCortexAssetsIndexV1 = { version: 1, assets: {} }
+  const fresh: HyperCortexAssetsIndexV2 = { version: ASSET_INDEX_VERSION, assets: {} }
   await writeJson(api, scope, ASSETS_INDEX_FILE, fresh).catch(() => {})
   __indexCache[scope] = fresh
   return fresh
 }
 
-export async function saveAssetsIndex(api: Api, scope: VaultScope, idx: HyperCortexAssetsIndexV1): Promise<void> {
+export async function saveAssetsIndex(api: Api, scope: VaultScope, idx: HyperCortexAssetsIndexV2): Promise<void> {
   __indexCache[scope] = idx
   await writeJson(api, scope, ASSETS_INDEX_FILE, idx)
 }
@@ -97,15 +121,15 @@ async function upsertIndex(
   scope: VaultScope,
   assetId: string,
   ext: string,
-  entry: AssetsIndexEntryV1,
+  entry: Partial<AssetsIndexEntryV2>,
 ): Promise<void> {
   const idx = await ensureAssetsIndex(api, scope)
   const key = assetKey(assetId, ext)
-  const next: HyperCortexAssetsIndexV1 = {
-    version: 1,
+  const next: HyperCortexAssetsIndexV2 = {
+    version: ASSET_INDEX_VERSION,
     assets: {
       ...idx.assets,
-      [key]: { ...(idx.assets[key] || {}), ...entry },
+      [key]: normalizeAssetMetadata(key, { ...(idx.assets[key] || {}), ...entry }),
     },
   }
   await saveAssetsIndex(api, scope, next).catch(() => {})
@@ -117,7 +141,7 @@ async function removeFromIndex(api: Api, scope: VaultScope, assetId: string, ext
   if (!idx.assets[key]) return
   const nextAssets = { ...idx.assets }
   delete nextAssets[key]
-  await saveAssetsIndex(api, scope, { version: 1, assets: nextAssets }).catch(() => {})
+  await saveAssetsIndex(api, scope, { version: ASSET_INDEX_VERSION, assets: nextAssets }).catch(() => {})
 }
 
 async function findAssetPathByScanning(api: Api, scope: VaultScope, fileName: string): Promise<string | null> {
@@ -192,11 +216,20 @@ export async function recordAssetWritten(
   const displayName0 = String(input.displayName || '').trim()
   const displayName = displayName0 ? displayName0.slice(0, 180).trim() : ''
   await upsertIndex(api, scope, assetId, ext, {
+    metadataVersion: ASSET_METADATA_VERSION,
+    assetId,
+    ext,
     path: relPath,
     kind: String(input.kind || '').trim() || undefined,
+    mime: mimeFromExt(ext) || undefined,
     size: Number(input.size) > 0 ? Number(input.size) : undefined,
+    createdAtMs: Number(input.modifiedMs) > 0 ? Number(input.modifiedMs) : Date.now(),
+    uploadedAtMs: Number(input.modifiedMs) > 0 ? Number(input.modifiedMs) : Date.now(),
+    updatedAtMs: Date.now(),
     modifiedMs: Number(input.modifiedMs) > 0 ? Number(input.modifiedMs) : undefined,
+    sourceName: displayName || undefined,
     displayName: displayName || undefined,
+    tags: [],
   }).catch(() => {})
 }
 
@@ -208,8 +241,8 @@ export async function scanAssetPool(api: Api, scope: VaultScope): Promise<AssetP
     if (!name) return
     const { assetId, ext } = assetExtFromFileName(name)
     const key = assetKey(assetId, ext)
-    const displayName = String(idx.assets[key]?.displayName || '').trim() || undefined
-    items.push({ relPath, name, displayName, size: Number(size) || 0, modifiedMs: Number(modifiedMs) || 0 })
+    const entry = normalizeAssetMetadata(key, { ...(idx.assets[key] || {}), path: relPath, size, modifiedMs })
+    items.push(assetPoolItemFromMetadata(entry))
   }
 
   // new: Assets/<category>/<yyyy-mm>/*
@@ -236,11 +269,71 @@ export async function scanAssetPool(api: Api, scope: VaultScope): Promise<AssetP
     const key = assetKey(assetId, ext)
     const prev = nextAssets[key]
     if (!prev || prev.path !== it.relPath || prev.size !== it.size || prev.modifiedMs !== it.modifiedMs) {
-      nextAssets[key] = { ...(prev || {}), path: it.relPath, size: it.size, modifiedMs: it.modifiedMs }
+      nextAssets[key] = normalizeAssetMetadata(key, { ...(prev || {}), path: it.relPath, size: it.size, modifiedMs: it.modifiedMs })
       changed = true
     }
   }
-  if (changed) await saveAssetsIndex(api, scope, { version: 1, assets: nextAssets }).catch(() => {})
+  if (changed) await saveAssetsIndex(api, scope, { version: ASSET_INDEX_VERSION, assets: nextAssets }).catch(() => {})
 
   return items.sort((a, b) => (b.modifiedMs || 0) - (a.modifiedMs || 0))
+}
+
+function migrateAssetsIndex(parsed: any): HyperCortexAssetsIndexV2 {
+  const assets: Record<string, AssetsIndexEntryV2> = {}
+  for (const [key, raw] of Object.entries(parsed.assets || {})) {
+    if (!raw || typeof raw !== 'object') continue
+    const normalized = normalizeAssetMetadata(key, raw as Partial<AssetsIndexEntryV2>)
+    if (!normalized.assetId || !normalized.path) continue
+    assets[assetKey(normalized.assetId, normalized.ext)] = normalized
+  }
+  return { version: ASSET_INDEX_VERSION, assets }
+}
+
+function normalizeAssetMetadata(key: string, raw: Partial<AssetsIndexEntryV2>): AssetsIndexEntryV2 {
+  const parsed = assetExtFromFileName(key)
+  const assetId = String(raw.assetId || parsed.assetId || '').trim()
+  const ext = String(raw.ext || parsed.ext || '').trim().toLowerCase().replace(/^\./, '')
+  const mime = String(raw.mime || (ext ? mimeFromExt(ext) : '') || '').trim()
+  const kind = String(raw.kind || (mime ? kindFromMime(mime) : '') || 'document').trim()
+  const modifiedMs = Number(raw.modifiedMs) > 0 ? Number(raw.modifiedMs) : 0
+  const createdAtMs = Number(raw.createdAtMs) > 0 ? Number(raw.createdAtMs) : modifiedMs
+  const uploadedAtMs = Number(raw.uploadedAtMs) > 0 ? Number(raw.uploadedAtMs) : createdAtMs
+  const updatedAtMs = Number(raw.updatedAtMs) > 0 ? Number(raw.updatedAtMs) : createdAtMs
+  return {
+    metadataVersion: ASSET_METADATA_VERSION,
+    assetId,
+    ext,
+    path: String(raw.path || '').trim(),
+    kind,
+    mime: mime || undefined,
+    size: Number(raw.size) > 0 ? Number(raw.size) : 0,
+    createdAtMs,
+    uploadedAtMs,
+    updatedAtMs,
+    modifiedMs,
+    sourceName: String(raw.sourceName || '').trim() || undefined,
+    displayName: String(raw.displayName || '').trim() || undefined,
+    remark: String(raw.remark || '').trim() || undefined,
+    tags: Array.isArray(raw.tags) ? raw.tags.map(tag => String(tag || '').trim()).filter(Boolean) : [],
+  }
+}
+
+function assetPoolItemFromMetadata(entry: AssetsIndexEntryV2): AssetPoolItem {
+  return {
+    relPath: entry.path,
+    name: assetKey(entry.assetId, entry.ext),
+    assetId: entry.assetId,
+    ext: entry.ext,
+    kind: entry.kind,
+    mime: entry.mime,
+    sourceName: entry.sourceName,
+    displayName: entry.displayName,
+    remark: entry.remark,
+    tags: [...entry.tags],
+    size: entry.size,
+    createdAtMs: entry.createdAtMs,
+    uploadedAtMs: entry.uploadedAtMs,
+    updatedAtMs: entry.updatedAtMs,
+    modifiedMs: entry.modifiedMs,
+  }
 }

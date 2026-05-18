@@ -6,10 +6,11 @@ import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import ImageSearchRoundedIcon from '@mui/icons-material/ImageSearchRounded'
 import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded'
-import { type VaultScope, kindFromMime, mimeFromExt } from '../core'
+import { type VaultScope } from '../core'
 import { pickAssetDisplayName } from '../assetDisplayName'
 import { buildAssetMarker } from '../assetMarker'
 import type { AssetEntry } from '../assetTypes'
+import { buildAssetEntries } from '../assetEntryModel'
 import { getAssetPreviewDescriptor, isAssetOpenableInTab } from './assetPreview/registry'
 import type { HyperCortexGateway } from '../gateway'
 import { startPickedLocalAssetUploadTask } from '../services/localAssetUpload'
@@ -32,13 +33,6 @@ type Props = {
 /* ------------------------------------------------------------------ */
 /*  工具函数                                                           */
 /* ------------------------------------------------------------------ */
-
-function parseAssetFileName(name: string): { assetId: string; ext: string } {
-  const s = String(name || '').trim()
-  const dotIdx = s.lastIndexOf('.')
-  if (dotIdx <= 0) return { assetId: s, ext: '' }
-  return { assetId: s.slice(0, dotIdx), ext: s.slice(dotIdx + 1).toLowerCase() }
-}
 
 function categoryFromKind(kind: string): AssetCategory {
   if (kind === 'image') return 'image'
@@ -266,6 +260,30 @@ function AssetCard({
       >
         {asset.assetId.slice(0, 12)}…
       </Typography>
+      {asset.remark ? (
+        <Typography
+          sx={{
+            mt: 0.5,
+            fontSize: 11,
+            color: 'rgba(15,23,42,.58)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+          title={asset.remark}
+        >
+          {asset.remark}
+        </Typography>
+      ) : null}
+      {asset.tags?.length ? (
+        <Box sx={{ mt: 0.5, display: 'flex', gap: 0.35, flexWrap: 'wrap' }}>
+          {asset.tags.slice(0, 3).map(tag => (
+            <Box key={tag} sx={{ px: 0.65, py: 0.2, borderRadius: 999, bgcolor: 'rgba(79,70,229,.08)', color: '#4f46e5', fontSize: 10, fontWeight: 800 }}>
+              {tag}
+            </Box>
+          ))}
+        </Box>
+      ) : null}
     </Box>
   )
 }
@@ -288,22 +306,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
     setError(null)
     try {
       const items = await gateway.assets.listAssets(scope)
-      const entries: AssetEntry[] = items
-        .map(item => {
-          const { assetId, ext } = parseAssetFileName(item.name)
-          const mime = mimeFromExt(ext)
-          const kind = mime ? kindFromMime(mime) : 'document'
-          return {
-            relPath: item.relPath,
-            fileName: item.name,
-            displayName: item.displayName,
-            assetId,
-            ext,
-            kind,
-            size: item.size,
-            modifiedMs: item.modifiedMs,
-          }
-        })
+      const entries: AssetEntry[] = buildAssetEntries(items)
         .sort((a, b) => b.modifiedMs - a.modifiedMs)
       setAssets(entries)
       setThumbLoadTick(t => t + 1)

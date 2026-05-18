@@ -137,11 +137,21 @@ type htmlFaceDoc struct {
 }
 
 type assetIndexEntry struct {
-	Path        string  `json:"path"`
-	Kind        string  `json:"kind,omitempty"`
-	Size        int64   `json:"size,omitempty"`
-	ModifiedMs  float64 `json:"modifiedMs,omitempty"`
-	DisplayName string  `json:"displayName,omitempty"`
+	MetadataVersion int      `json:"metadataVersion"`
+	AssetID         string   `json:"assetId"`
+	Ext             string   `json:"ext"`
+	Path            string   `json:"path"`
+	Kind            string   `json:"kind"`
+	Mime            string   `json:"mime,omitempty"`
+	Size            int64    `json:"size"`
+	CreatedAtMs     float64  `json:"createdAtMs"`
+	UploadedAtMs    float64  `json:"uploadedAtMs"`
+	UpdatedAtMs     float64  `json:"updatedAtMs"`
+	ModifiedMs      float64  `json:"modifiedMs"`
+	SourceName      string   `json:"sourceName,omitempty"`
+	DisplayName     string   `json:"displayName,omitempty"`
+	Remark          string   `json:"remark,omitempty"`
+	Tags            []string `json:"tags"`
 }
 
 type assetIndex struct {
@@ -150,11 +160,21 @@ type assetIndex struct {
 }
 
 type assetPoolItem struct {
-	RelPath     string  `json:"relPath"`
-	Name        string  `json:"name"`
-	DisplayName string  `json:"displayName,omitempty"`
-	Size        int64   `json:"size"`
-	ModifiedMs  float64 `json:"modifiedMs"`
+	RelPath      string   `json:"relPath"`
+	Name         string   `json:"name"`
+	AssetID      string   `json:"assetId"`
+	Ext          string   `json:"ext"`
+	Kind         string   `json:"kind"`
+	Mime         string   `json:"mime,omitempty"`
+	SourceName   string   `json:"sourceName,omitempty"`
+	DisplayName  string   `json:"displayName,omitempty"`
+	Remark       string   `json:"remark,omitempty"`
+	Tags         []string `json:"tags"`
+	Size         int64    `json:"size"`
+	CreatedAtMs  float64  `json:"createdAtMs"`
+	UploadedAtMs float64  `json:"uploadedAtMs"`
+	UpdatedAtMs  float64  `json:"updatedAtMs"`
+	ModifiedMs   float64  `json:"modifiedMs"`
 }
 
 type trashItem struct {
