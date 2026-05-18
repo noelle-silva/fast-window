@@ -45,13 +45,15 @@ fn write_app_config_map_unlocked(
     map: &Map<String, Value>,
 ) -> Result<(), String> {
     let p = app_config_path(app);
-    crate::write_json_map(&p, map)
+    crate::json_file::write_pretty_unlocked(&p, &Value::Object(map.clone()))
 }
 
 pub(crate) fn read_app_config_map(app: &tauri::AppHandle) -> Map<String, Value> {
     let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
     let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-    read_app_config_map_unlocked(app)
+    let p = app_config_path(app);
+    crate::json_file::with_exclusive_path(&p, || Ok(read_app_config_map_unlocked(app)))
+        .unwrap_or_else(|e| panic!("锁定宿主配置失败: {e}"))
 }
 
 pub(crate) fn update_app_config_map<T>(
@@ -60,11 +62,14 @@ pub(crate) fn update_app_config_map<T>(
 ) -> Result<T, String> {
     let lock = crate::storage_lock_for(crate::APP_STORAGE_ID);
     let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    let p = app_config_path(app);
 
-    let mut map = read_app_config_map_unlocked(app);
-    let result = update(&mut map)?;
-    write_app_config_map_unlocked(app, &map)?;
-    Ok(result)
+    crate::json_file::with_exclusive_path(&p, || {
+        let mut map = read_app_config_map_unlocked(app);
+        let result = update(&mut map)?;
+        write_app_config_map_unlocked(app, &map)?;
+        Ok(result)
+    })
 }
 
 pub(crate) fn read_plugin_auto_update_prefs(app: &tauri::AppHandle) -> BTreeMap<String, bool> {

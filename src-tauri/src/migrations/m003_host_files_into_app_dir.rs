@@ -95,6 +95,15 @@ fn merge_move_dir_no_overwrite(src: &Path, dst: &Path) -> Result<bool, String> {
 
 fn read_json_object_map(path: &Path) -> Option<Map<String, Value>> {
     let v = crate::read_json_value(path).ok()?;
+    json_value_to_object_map(v)
+}
+
+fn read_json_object_map_unlocked(path: &Path) -> Option<Map<String, Value>> {
+    let v = crate::json_file::read_value_unlocked(path).ok()?;
+    json_value_to_object_map(v)
+}
+
+fn json_value_to_object_map(v: Value) -> Option<Map<String, Value>> {
     match v {
         Value::Object(map) => Some(map),
         _ => None,
@@ -119,29 +128,31 @@ fn merge_missing_keys(
 fn migrate_app_config(app: &tauri::AppHandle) -> Result<bool, String> {
     let old_cfg = legacy_app_config_path(app);
     let new_cfg = app_config_path(app);
-    if !old_cfg.is_file() {
-        return Ok(false);
-    }
+    crate::json_file::with_exclusive_path(&new_cfg, || {
+        if !old_cfg.is_file() {
+            return Ok(false);
+        }
 
-    ensure_dir(&app_dir(app))?;
-    if !new_cfg.exists() {
-        return try_move_file(&old_cfg, &new_cfg);
-    }
+        ensure_dir(&app_dir(app))?;
+        if !new_cfg.exists() {
+            return try_move_file(&old_cfg, &new_cfg);
+        }
 
-    let Some(legacy_map) = read_json_object_map(&old_cfg) else {
-        return Ok(false);
-    };
-    let Some(next_map) = read_json_object_map(&new_cfg) else {
-        return Ok(false);
-    };
+        let Some(legacy_map) = read_json_object_map(&old_cfg) else {
+            return Ok(false);
+        };
+        let Some(next_map) = read_json_object_map_unlocked(&new_cfg) else {
+            return Ok(false);
+        };
 
-    let (next_map, changed) = merge_missing_keys(next_map, legacy_map);
+        let (next_map, changed) = merge_missing_keys(next_map, legacy_map);
 
-    if changed {
-        crate::write_json_map(&new_cfg, &next_map)?;
-    }
-    let _ = std::fs::remove_file(&old_cfg);
-    Ok(changed)
+        if changed {
+            crate::json_file::write_pretty_unlocked(&new_cfg, &Value::Object(next_map))?;
+        }
+        let _ = std::fs::remove_file(&old_cfg);
+        Ok(changed)
+    })
 }
 
 #[cfg(test)]

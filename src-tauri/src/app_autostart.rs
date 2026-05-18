@@ -22,7 +22,10 @@ fn auto_start_targets(app: &AppHandle) -> Result<Vec<RegisteredAppLaunchConfig>,
     Ok(targets)
 }
 
-async fn launch_auto_start_app(app: AppHandle, config: RegisteredAppLaunchConfig) -> Result<(), String> {
+async fn launch_auto_start_app(
+    app: AppHandle,
+    config: RegisteredAppLaunchConfig,
+) -> Result<(), String> {
     let launcher = app.state::<Arc<AppLauncherState>>().inner().clone();
     app_launch_inner(
         app,
@@ -51,7 +54,10 @@ pub(crate) fn schedule_registered_app_auto_start(app: &AppHandle) {
             let app_id = config.id.clone();
             if let Err(error) = launch_auto_start_app(app.clone(), config).await {
                 eprintln!("[app-autostart] failed to auto start {app_id}: {error}");
-                crate::host_primitives::emit_toast(&app, format!("自启应用失败：{app_id}，{error}"));
+                crate::host_primitives::emit_toast(
+                    &app,
+                    format!("自启应用失败：{app_id}，{error}"),
+                );
             }
         }
     });

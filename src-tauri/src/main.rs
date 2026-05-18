@@ -31,6 +31,7 @@ mod host_lifecycle;
 mod host_primitives;
 mod http_api;
 mod install_fs;
+pub(crate) mod json_file;
 mod migrations;
 mod os_actions;
 mod plugin_assets;
@@ -620,58 +621,12 @@ fn migrate_legacy_plugin_store_files(app: &tauri::AppHandle) -> Result<(), Strin
     Ok(())
 }
 
-fn write_json_map(path: &Path, map: &Map<String, Value>) -> Result<(), String> {
-    write_json_pretty(path, &Value::Object(map.clone()))
-}
-
-fn write_json_pretty(path: &Path, value: &Value) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("创建配置目录失败: {e}"))?;
-    }
-    let content =
-        serde_json::to_string_pretty(value).map_err(|e| format!("序列化配置失败: {e}"))?;
-
-    let parent = path
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."));
-    let name = path
-        .file_name()
-        .map(|s| s.to_string_lossy().to_string())
-        .unwrap_or_else(|| "config".to_string());
-    let stamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| Duration::from_millis(0))
-        .as_millis();
-    let tmp = parent.join(format!(".tmp-{name}-{stamp}.json"));
-
-    std::fs::write(&tmp, &content).map_err(|e| format!("写入临时配置失败: {e}"))?;
-
-    // 尽量原子替换，避免写入过程中进程退出导致配置文件半写/空文件。
-    match std::fs::rename(&tmp, path) {
-        Ok(_) => {}
-        Err(_) => {
-            // Windows 上 rename 不能覆盖已有文件：先删再试；仍失败则退回 copy。
-            if path.exists() {
-                let _ = std::fs::remove_file(path);
-                if std::fs::rename(&tmp, path).is_ok() {
-                    return Ok(());
-                }
-            }
-            std::fs::copy(&tmp, path).map_err(|e| format!("写入配置失败: {e}"))?;
-            let _ = std::fs::remove_file(&tmp);
-        }
-    }
-    Ok(())
-}
-
 fn read_json_value(path: &Path) -> Result<Value, String> {
-    let content = std::fs::read_to_string(path).map_err(|e| format!("读取配置失败: {e}"))?;
-    serde_json::from_str::<Value>(&content).map_err(|e| format!("解析 JSON 失败: {e}"))
+    json_file::read_value(path)
 }
 
 fn write_json_value(path: &Path, value: &Value) -> Result<(), String> {
-    write_json_pretty(path, value)
+    json_file::write_pretty(path, value)
 }
 
 static STORAGE_LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
