@@ -19,12 +19,14 @@ export function AssetDetailSession({
   asset,
   visible,
   onAssetUpdated,
+  onPlayingChange,
 }: {
   gateway: HyperCortexGateway
   scope: VaultScope
   asset: AssetEntry
   visible: boolean
   onAssetUpdated?: (asset: AssetEntry) => void
+  onPlayingChange?: (playing: boolean) => void
 }) {
   const title = React.useMemo(() => pickAssetDisplayName({ explicitName: asset.displayName, indexName: asset.sourceName || asset.fileName, ext: asset.ext }), [asset.displayName, asset.ext, asset.fileName, asset.sourceName])
 
@@ -157,7 +159,7 @@ export function AssetDetailSession({
             ) : loading && !blobUrl ? (
               <CircularProgress size={20} />
             ) : preview.canOpenInTab && blobUrl ? (
-              <AssetPreviewSurface asset={asset} blobUrl={blobUrl} title={title} previewController={imagePreview.controller} />
+              <AssetPreviewSurface asset={asset} blobUrl={blobUrl} title={title} previewController={imagePreview.controller} onPlayingChange={onPlayingChange} />
             ) : (
               <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.55)' }}>暂不支持预览该类型附件。</Typography>
             )}

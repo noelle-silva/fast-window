@@ -26,7 +26,7 @@ export interface UnifiedEditorProps {
   /** 外部触发一次“重建装饰/预览”的信号（例如 noteIndex 更新后要刷新标题渲染）。 */
   refreshToken?: unknown
   /** widget 渲染完成后的后处理钩子（如资源解析）。第二个参数 requestUpdate 用于异步内容就绪后请求重新布局。 */
-  onBlockRendered?: (el: HTMLElement, requestUpdate: () => void) => void
+  onBlockRendered?: (el: HTMLElement, requestUpdate: () => void) => void | (() => void)
   writeClipboardText?: (text: string) => Promise<void>
   showToast?: (message: string) => Promise<void> | void
   onPasteFiles?: (files: File[], insertText: (text: string) => void) => Promise<void> | void
@@ -662,6 +662,8 @@ const syntaxHighlightPlugin = ViewPlugin.fromClass(
 )
 
 class HyperBlockWidget extends WidgetType {
+  private cleanup?: () => void
+
   constructor(
     readonly kind: LiveBlockKind,
     readonly source: string,
@@ -681,15 +683,22 @@ class HyperBlockWidget extends WidgetType {
     inner.className = 'hc-render'
     wrap.appendChild(inner)
 
+    const runPostRender = () => {
+      this.cleanup?.()
+      this.cleanup = undefined
+      const hook = this.onBlockRendered?.()
+      const cleanup = hook?.(inner, () => requestCmLayout(view))
+      if (typeof cleanup === 'function') this.cleanup = cleanup
+    }
+
     const engine = (window as any).__hcRenderEngine
     if (engine && typeof engine.renderInto === 'function') {
-      engine.renderInto(inner, this.source, { onAsyncLayout: () => requestCmLayout(view) })
+      engine.renderInto(inner, this.source, { onAsyncLayout: () => { requestCmLayout(view); runPostRender() } })
     } else {
       inner.textContent = this.source
     }
 
-    const hook = this.onBlockRendered?.()
-    if (hook) hook(inner, () => requestCmLayout(view))
+    runPostRender()
 
     // 初次渲染也触发一次布局测量，避免某些情况下高度没及时“认领”
     requestCmLayout(view)
@@ -703,9 +712,16 @@ class HyperBlockWidget extends WidgetType {
     // 让点击预览时，光标能落在替换范围边界，从而“翻回源码”进入编辑态
     return false
   }
+
+  destroy() {
+    this.cleanup?.()
+    this.cleanup = undefined
+  }
 }
 
 class AssetPlaceholderWidget extends WidgetType {
+  private cleanup?: () => void
+
   constructor(
     readonly source: string,
     readonly onBlockRendered: (() => UnifiedEditorProps['onBlockRendered']) | undefined,
@@ -725,15 +741,22 @@ class AssetPlaceholderWidget extends WidgetType {
     inner.className = 'hc-render'
     wrap.appendChild(inner)
 
+    const runPostRender = () => {
+      this.cleanup?.()
+      this.cleanup = undefined
+      const hook = this.onBlockRendered?.()
+      const cleanup = hook?.(inner, () => requestCmLayout(view))
+      if (typeof cleanup === 'function') this.cleanup = cleanup
+    }
+
     const engine = (window as any).__hcRenderEngine
     if (engine && typeof engine.renderInto === 'function') {
-      engine.renderInto(inner, this.source, { onAsyncLayout: () => requestCmLayout(view), assetInline: this.inline })
+      engine.renderInto(inner, this.source, { onAsyncLayout: () => { requestCmLayout(view); runPostRender() }, assetInline: this.inline })
     } else {
       inner.textContent = this.source
     }
 
-    const hook = this.onBlockRendered?.()
-    if (hook) hook(inner, () => requestCmLayout(view))
+    runPostRender()
 
     requestCmLayout(view)
 
@@ -744,6 +767,11 @@ class AssetPlaceholderWidget extends WidgetType {
     const target = e.target instanceof Element ? e.target : null
     if (target?.closest?.('button, a, input, textarea, select, audio, video')) return true
     return false
+  }
+
+  destroy() {
+    this.cleanup?.()
+    this.cleanup = undefined
   }
 }
 

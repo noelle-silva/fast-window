@@ -23,6 +23,7 @@ import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
 import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
 import VideoFileRoundedIcon from '@mui/icons-material/VideoFileRounded'
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded'
+import VolumeUpRoundedIcon from '@mui/icons-material/VolumeUpRounded'
 import SyncAltRoundedIcon from '@mui/icons-material/SyncAltRounded'
 import WorkspacesRoundedIcon from '@mui/icons-material/WorkspacesRounded'
 import UnfoldLessRoundedIcon from '@mui/icons-material/UnfoldLessRounded'
@@ -192,6 +193,7 @@ export type OpenTabsPanelProps = {
   activeTabScrollSignal?: number
   openNoteTabs: NoteMeta[]
   openAssetTabs?: AssetEntry[]
+  playingTabKeys?: ReadonlySet<string>
   isNoteDirty?: (noteId: string) => boolean
   workspaces: { id: string; title: string }[]
   activeWorkspaceId: string
@@ -276,6 +278,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
     activeTabScrollSignal = 0,
     openNoteTabs,
     openAssetTabs,
+    playingTabKeys,
     isNoteDirty,
     workspaces,
     activeWorkspaceId,
@@ -391,6 +394,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       const isDragging = opts?.sortable?.isDragging || dnd.draggingKey === `tab_${tabKey}`
       const isSortablePlaceholder = !!opts?.sortable && sortableActiveId === sortableTabId(tabKey)
       const disableTitleTooltip = tabsMode === 'hover'
+      const isPlaying = !!playingTabKeys?.has(tabKey)
       return (
         <Tooltip
           key={tabKey}
@@ -440,7 +444,11 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
             }}
           >
             <SortableIconSlot>
-              <NotesRoundedIcon fontSize="small" sx={{ color: isActive ? '#1976d2' : 'rgba(0,0,0,.48)' }} />
+              {isPlaying ? (
+                <VolumeUpRoundedIcon fontSize="small" sx={{ color: '#16a34a' }} />
+              ) : (
+                <NotesRoundedIcon fontSize="small" sx={{ color: isActive ? '#1976d2' : 'rgba(0,0,0,.48)' }} />
+              )}
               {dirty ? (
                 <Box
                   aria-label="未保存改动"
@@ -496,7 +504,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         </Tooltip>
       )
     },
-    [activeTabKey, dnd, isNoteDirty, onCloseTab, onOpenTab, showTitle, sortableActiveId, tabsMode],
+    [activeTabKey, dnd, isNoteDirty, onCloseTab, onOpenTab, playingTabKeys, showTitle, sortableActiveId, tabsMode],
   )
 
   const renderAssetMetaRow = React.useCallback(
@@ -507,8 +515,11 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       const isDragging = opts?.sortable?.isDragging || dnd.draggingKey === `tab_${tabKey}`
       const isSortablePlaceholder = !!opts?.sortable && sortableActiveId === sortableTabId(tabKey)
       const disableTitleTooltip = tabsMode === 'hover'
+      const isPlaying = !!playingTabKeys?.has(tabKey)
       const iconEl =
-        asset.kind === 'image' ? (
+        isPlaying ? (
+          <VolumeUpRoundedIcon fontSize="small" sx={{ color: '#16a34a' }} />
+        ) : asset.kind === 'image' ? (
           <ImageRoundedIcon fontSize="small" sx={{ color: isActive ? '#1976d2' : 'rgba(0,0,0,.48)' }} />
         ) : asset.kind === 'video' ? (
           <VideoFileRoundedIcon fontSize="small" sx={{ color: isActive ? '#7b1fa2' : 'rgba(0,0,0,.48)' }} />
@@ -604,7 +615,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         </Tooltip>
       )
     },
-    [activeTabKey, dnd, onCloseAssetTab, onOpenAssetTab, showTitle, sortableActiveId, tabsMode],
+    [activeTabKey, dnd, onCloseAssetTab, onOpenAssetTab, playingTabKeys, showTitle, sortableActiveId, tabsMode],
   )
 
   const renderMissingRow = React.useCallback(

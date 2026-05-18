@@ -479,6 +479,35 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   const [activeTabScrollSignal, setActiveTabScrollSignal] = React.useState(0)
 
   const [openAssetTabs, setOpenAssetTabs] = React.useState<AssetEntry[]>([])
+  const [playingTabKeys, setPlayingTabKeys] = React.useState<ReadonlySet<string>>(() => new Set())
+
+  const setTabPlaying = React.useCallback((tabKey: string, playing: boolean) => {
+    const key = String(tabKey || '').trim()
+    if (!key) return
+    setPlayingTabKeys(prev => {
+      if (prev.has(key) === playing) return prev
+      const next = new Set(prev)
+      if (playing) next.add(key)
+      else next.delete(key)
+      return next
+    })
+  }, [])
+
+  React.useEffect(() => {
+    const openKeys = new Set(openTabKeys)
+    setPlayingTabKeys(prev => {
+      let changed = false
+      const next = new Set<string>()
+      for (const key of prev) {
+        if (!openKeys.has(key)) {
+          changed = true
+          continue
+        }
+        next.add(key)
+      }
+      return changed ? next : prev
+    })
+  }, [openTabKeys])
 
   const mainScrollElRef = React.useRef<HTMLDivElement | null>(null)
   const noteScrollTopByIdRef = React.useRef<Record<string, number>>({})
@@ -2626,6 +2655,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                 activeTabScrollSignal={activeTabScrollSignal}
                 openNoteTabs={openNoteTabs}
                 openAssetTabs={openAssetTabs}
+                playingTabKeys={playingTabKeys}
                 isNoteDirty={isNoteDirtyById}
                 workspaces={workspaces.map(w => ({ id: w.id, title: w.title }))}
                 activeWorkspaceId={activeWorkspaceId}
@@ -2812,6 +2842,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                       onSaved={handleNoteSessionSaved}
                       trashEnabled={trashEnabled}
                       onRequestDeleteNote={handleDeleteNote}
+                      onPlayingChange={playing => setTabPlaying(noteTabKey(tab.id), playing)}
                       htmlFaceDisplayMode={htmlFaceDisplayMode}
                       htmlFaceGlobalDefaultScale={htmlFaceFixedScaleDefault}
                     />
@@ -2832,6 +2863,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                       asset={asset}
                       visible={page === 'asset-detail' && assetTabId(asset) === activeTabKey}
                       onAssetUpdated={handleAssetTabUpdated}
+                      onPlayingChange={playing => setTabPlaying(assetTabId(asset), playing)}
                     />
                   ))
                 )}

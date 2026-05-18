@@ -8,6 +8,7 @@
 
 import './vendor'
 import { type VaultScope } from '../core'
+import { bindMediaPlaybackReporterInElement, type MediaPlaybackCleanup } from '../mediaPlayback'
 import { parseNotePlaceholderBody } from '../notePlaceholder'
 import { resolveAssetsInElement } from './attachments'
 import { pickAssetDisplayName } from '../assetDisplayName'
@@ -24,6 +25,7 @@ export type MarkdownRenderEngine = {
     text: unknown,
     options?: { renderSafetyPolicy?: RenderSafetyPolicy; onAsyncLayout?: () => void; assetInline?: boolean },
   ) => void
+  bindPlaybackReporter: (el: unknown, onPlayingChange: (playing: boolean) => void) => MediaPlaybackCleanup
   noteIndex?: Record<string, { title: string }>
 }
 
@@ -803,7 +805,12 @@ export function createMarkdownRenderEngine(init?: { clipboard?: ClipboardGateway
     }
   }
 
-  const self: MarkdownRenderEngine = { ensureRenderer, sanitizeHtml, sanitizeSvg, renderInto }
+  function bindPlaybackReporter(el: unknown, onPlayingChange: (playing: boolean) => void) {
+    if (!(el instanceof HTMLElement)) return () => {}
+    return bindMediaPlaybackReporterInElement(el, onPlayingChange)
+  }
+
+  const self: MarkdownRenderEngine = { ensureRenderer, sanitizeHtml, sanitizeSvg, renderInto, bindPlaybackReporter }
   return self
 }
 

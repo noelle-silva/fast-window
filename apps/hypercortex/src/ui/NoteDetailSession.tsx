@@ -145,6 +145,7 @@ export type NoteDetailSessionProps = {
   }) => void
   trashEnabled: boolean
   onRequestDeleteNote: (payload: { note: NoteMeta; mode: 'trash' | 'permanent' }) => Promise<void> | void
+  onPlayingChange?: (playing: boolean) => void
   htmlFaceDisplayMode?: HyperCortexHtmlFaceDisplayModeV1
   htmlFaceGlobalDefaultScale?: number
 }
@@ -165,6 +166,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     onSaved,
     trashEnabled,
     onRequestDeleteNote,
+    onPlayingChange,
     htmlFaceDisplayMode = 'natural',
     htmlFaceGlobalDefaultScale = 0.95,
   } = props
@@ -236,6 +238,33 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   }, [noteIndexMap])
 
   const textRenderRef = React.useRef<HTMLDivElement>(null)
+  const playbackCleanupRef = React.useRef<(() => void) | null>(null)
+  const onPlayingChangeRef = React.useRef<typeof onPlayingChange>(onPlayingChange)
+  React.useEffect(() => {
+    onPlayingChangeRef.current = onPlayingChange
+  }, [onPlayingChange])
+
+  const bindTextPlaybackReporter = React.useCallback(() => {
+    const el = textRenderRef.current
+    playbackCleanupRef.current?.()
+    playbackCleanupRef.current = null
+    if (!el) return
+    playbackCleanupRef.current = renderEngineRef.current.bindPlaybackReporter(el, playing => onPlayingChangeRef.current?.(playing))
+  }, [])
+
+  React.useEffect(() => {
+    return () => {
+      playbackCleanupRef.current?.()
+      playbackCleanupRef.current = null
+    }
+  }, [])
+
+  React.useEffect(() => {
+    if (face === 'text' && !editing) return
+    playbackCleanupRef.current?.()
+    playbackCleanupRef.current = null
+  }, [editing, face])
+
   const sanitizeSvg = React.useCallback((svg: unknown) => renderEngineRef.current.sanitizeSvg(svg, 'baseline'), [])
   const preview = usePreviewController({ toast: gateway.host.toast, sanitizeSvg })
   const [pastingAssets, setPastingAssets] = React.useState(false)
@@ -481,8 +510,9 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   React.useLayoutEffect(() => {
     if (!visible) return
     if (face !== 'text' || editing || !textRenderRef.current) return
-    renderEngineRef.current.renderInto(textRenderRef.current, editBody || '')
-  }, [editBody, editing, face, noteIndexMap, visible])
+    renderEngineRef.current.renderInto(textRenderRef.current, editBody || '', { onAsyncLayout: bindTextPlaybackReporter })
+    bindTextPlaybackReporter()
+  }, [bindTextPlaybackReporter, editBody, editing, face, noteIndexMap, visible])
 
   React.useEffect(() => {
     if (!visible) return
@@ -552,7 +582,8 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     el.querySelectorAll('video').forEach(vid => {
       if (vid.readyState < 1) pending.push({ el: vid, event: 'loadedmetadata' })
     })
-    if (!pending.length) return
+    const cleanupPlaybackReporter = renderEngineRef.current.bindPlaybackReporter(el, playing => onPlayingChangeRef.current?.(playing))
+    if (!pending.length) return cleanupPlaybackReporter
 
     let remaining = pending.length
     const done = () => { if (--remaining <= 0) requestUpdate() }
@@ -560,6 +591,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       m.addEventListener(event, done, { once: true })
       m.addEventListener('error', done, { once: true })
     })
+    return cleanupPlaybackReporter
   }, [preview.controller])
 
   const handleToggleMode = React.useCallback(() => {
