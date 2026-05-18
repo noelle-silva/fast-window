@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
   "id": "folders",
-  "name": "文件夹收藏",
-  "description": "文件夹收藏 v5 应用，支持收藏文件夹、分组与桌面视图",
+  "name": "收藏集",
+  "description": "收藏集 v5 应用，支持收藏文件夹、网址、文件、分组与桌面视图",
   "versionSource": "src-tauri/tauri.conf.json",
   "profiles": {
     "release": {
@@ -30,8 +30,8 @@
   },
   "displayMode": "default",
   "commands": [
-    { "id": "open-settings", "title": "打开文件夹收藏设置" },
+    { "id": "open-settings", "title": "打开收藏集设置" },
     { "id": "add-folder", "title": "添加收藏文件夹" },
-    { "id": "open-folders", "title": "打开文件夹收藏" }
+    { "id": "open-folders", "title": "打开收藏集" }
   ]
 }

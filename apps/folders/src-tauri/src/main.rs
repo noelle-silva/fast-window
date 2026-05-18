@@ -52,7 +52,7 @@ async fn pick_data_dir(
     state: tauri::State<'_, Arc<BackendState>>,
 ) -> Result<Option<DataDirStatus>, String> {
     let Some(path) = native_dialog::run_file_dialog(&app, |dialog| {
-        dialog.set_title("选择文件夹收藏数据目录").pick_folder()
+        dialog.set_title("选择收藏集数据目录").pick_folder()
     })?
     else {
         return Ok(None);

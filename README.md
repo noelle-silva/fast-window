@@ -96,7 +96,7 @@ pnpm tauri build
 - `bookmarks`：网站收藏
 - `calculator`：计算器
 - `clipboard-history`：剪贴板历史
-- `folders`：文件夹收藏
+- `folders`：收藏集
 - `memo`：快捷备忘录
 - `vscode-workspaces`：VSCode 工作区（收藏目录，一键用 VSCode 打开）
 - `web-view`：Web View（新窗口打开网页）

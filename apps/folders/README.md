@@ -1,6 +1,6 @@
 # folders
 
-文件夹收藏的 Fast Window v5 App 实现。
+收藏集的 Fast Window v5 App 实现。
 
 ## 标准能力
 

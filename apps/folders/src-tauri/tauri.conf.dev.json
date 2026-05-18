@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "文件夹收藏 Dev",
+  "productName": "收藏集 Dev",
   "version": "0.1.5",
   "identifier": "com.fastwindow.folders.dev",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "文件夹收藏 Dev",
+        "title": "收藏集 Dev",
         "width": 920,
         "height": 620,
         "decorations": false,

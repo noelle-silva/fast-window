@@ -51,7 +51,7 @@ pub(crate) fn available_commands() -> Vec<AppCommandDescriptor> {
     vec![
         AppCommandDescriptor {
             id: "open-settings",
-            title: "打开文件夹收藏设置",
+            title: "打开收藏集设置",
         },
         AppCommandDescriptor {
             id: "add-folder",
@@ -59,7 +59,7 @@ pub(crate) fn available_commands() -> Vec<AppCommandDescriptor> {
         },
         AppCommandDescriptor {
             id: "open-folders",
-            title: "打开文件夹收藏",
+            title: "打开收藏集",
         },
     ]
 }

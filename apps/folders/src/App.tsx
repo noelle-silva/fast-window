@@ -302,7 +302,7 @@ export function App() {
       const nextDoc = await nextClient.request<CategoryWorkspaceView>('collections.category.get', { categoryId: activeCategoryId })
       setClient(nextClient); setDoc(nextDoc); setGroupId(resolveGroupSelection(nextDoc, groupIdByCategory[activeCategoryId] || groupId)); setWallpaperDeck(wallpaperDeckFromWorkspace(nextDoc)); setPhase('ready'); await refreshStatus(); void refreshWallpaperDeck(nextClient)
     } catch (e) {
-      setPhase('failed'); setError(errorMessage(e, '启动文件夹收藏后台失败')); await refreshStatus()
+      setPhase('failed'); setError(errorMessage(e, '启动收藏集后台失败')); await refreshStatus()
     } finally { setBusy(false) }
   }, [activeCategoryId, client, groupId, groupIdByCategory, refreshStatus, refreshWallpaperDeck])
 
@@ -1712,7 +1712,7 @@ function WindowControls() {
 
 function StatusNotice(props: { busy: boolean; error: string | null; phase: Phase; status: DataDirStatus | null; onPickDataDir(): void; onRestart(): void }) {
   if (props.phase === 'starting') {
-    return <Alert severity="info" icon={<CircularProgress size={18} />} sx={{ mx: { xs: 1.5, sm: 2 }, mb: 1 }}>正在连接文件夹收藏后台...</Alert>
+    return <Alert severity="info" icon={<CircularProgress size={18} />} sx={{ mx: { xs: 1.5, sm: 2 }, mb: 1 }}>正在连接收藏集后台...</Alert>
   }
   if (props.phase === 'data-error') {
     return (

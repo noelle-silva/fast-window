@@ -49,7 +49,7 @@ impl BackendState {
     }
 
     pub(crate) async fn endpoint(&self) -> Result<BackendEndpoint, String> {
-        self.process.endpoint("文件夹收藏后台未就绪").await
+        self.process.endpoint("收藏集后台未就绪").await
     }
 }
 
@@ -86,11 +86,11 @@ fn spawn_backend_child(
 
     let mut child = cmd
         .spawn()
-        .map_err(|e| format!("启动文件夹收藏后台失败: {e}"))?;
+        .map_err(|e| format!("启动收藏集后台失败: {e}"))?;
     let stdout = child
         .stdout
         .take()
-        .ok_or_else(|| "文件夹收藏后台 stdout 不可用".to_string())?;
+        .ok_or_else(|| "收藏集后台 stdout 不可用".to_string())?;
     Ok((child, stdout))
 }
 
@@ -147,5 +147,5 @@ fn resolve_backend_sidecar(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         }
     }
 
-    Err(format!("文件夹收藏后台 sidecar 不存在: {exe_name}"))
+    Err(format!("收藏集后台 sidecar 不存在: {exe_name}"))
 }
