@@ -2,9 +2,11 @@ import * as React from 'react'
 import { Box, Typography } from '@mui/material'
 import type { AssetEntry } from '../../assetTypes'
 import { enhanceVideoElement } from '../../videoPlayer'
+import type { PreviewController } from '../preview/usePreviewController'
 import { getAssetPreviewDescriptor } from './registry'
 import { WordAssetReader } from './WordAssetReader'
 import { PdfAssetReader } from './PdfAssetReader'
+import { ImageAssetReader } from './ImageAssetReader'
 
 function VideoAssetReader({ blobUrl, title }: { blobUrl: string; title: string }) {
   const videoRef = React.useRef<HTMLVideoElement | null>(null)
@@ -26,13 +28,16 @@ export function AssetPreviewSurface({
   asset,
   blobUrl,
   title,
+  previewController,
 }: {
   asset: AssetEntry
   blobUrl: string
   title: string
+  previewController: PreviewController
 }) {
   const descriptor = getAssetPreviewDescriptor(asset)
 
+  if (descriptor.kind === 'image') return <ImageAssetReader blobUrl={blobUrl} title={title} previewController={previewController} />
   if (descriptor.kind === 'video') return <VideoAssetReader blobUrl={blobUrl} title={title} />
   if (descriptor.kind === 'pdf') return <PdfAssetReader asset={asset} blobUrl={blobUrl} title={title} />
   if (descriptor.kind === 'word') return <WordAssetReader asset={asset} blobUrl={blobUrl} title={title} />

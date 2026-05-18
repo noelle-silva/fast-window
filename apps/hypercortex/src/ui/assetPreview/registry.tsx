@@ -38,16 +38,6 @@ function normalizeExt(ext: unknown): string {
   return String(ext || '').trim().toLowerCase().replace(/^\./, '')
 }
 
-function ImageAssetReader({ blobUrl, title }: AssetPreviewContext) {
-  return (
-    <img
-      src={blobUrl}
-      alt={title}
-      style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }}
-    />
-  )
-}
-
 let assetPreviewRenderEngine: ReturnType<typeof createMarkdownRenderEngine> | null = null
 
 export function sanitizeAssetPreviewHtml(html: unknown): string {
@@ -64,7 +54,6 @@ const ASSET_PREVIEW_RULES: AssetPreviewRule[] = [
     color: '#1976d2',
     icon: ImageRoundedIcon,
     match: asset => asset.kind === 'image',
-    Reader: ImageAssetReader,
   },
   {
     kind: 'video',
