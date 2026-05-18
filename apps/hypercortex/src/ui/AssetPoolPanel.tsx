@@ -8,6 +8,7 @@ import ImageSearchRoundedIcon from '@mui/icons-material/ImageSearchRounded'
 import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded'
 import { type VaultScope, kindFromMime, mimeFromExt } from '../core'
 import { pickAssetDisplayName } from '../assetDisplayName'
+import { buildAssetMarker } from '../assetMarker'
 import type { AssetEntry } from '../assetTypes'
 import { getAssetPreviewDescriptor, isAssetOpenableInTab } from './assetPreview/registry'
 import type { HyperCortexGateway } from '../gateway'
@@ -54,12 +55,6 @@ function humanSize(bytes: number): string {
 /* ------------------------------------------------------------------ */
 /*  组件                                                               */
 /* ------------------------------------------------------------------ */
-
-function buildAssetMarker(asset: Pick<AssetEntry, 'assetId' | 'ext' | 'kind'>): string {
-  const ref = asset.ext ? `${asset.assetId}.${asset.ext}` : asset.assetId
-  const defaultWidth = asset.kind === 'image' ? 320 : asset.kind === 'video' ? 480 : 0
-  return defaultWidth ? `{{asset:${ref}||${defaultWidth}}}` : `{{asset:${ref}}}`
-}
 
 function canHaveThumbnail(asset: Pick<AssetEntry, 'kind'>): boolean {
   return asset.kind === 'image' || asset.kind === 'video'

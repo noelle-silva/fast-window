@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -22,7 +24,11 @@ var allowedAssetExts = map[string]bool{
 
 type assetUploadFileInput struct {
 	Path        string `json:"path"`
+	Name        string `json:"name"`
 	DisplayName string `json:"displayName"`
+	Mime        string `json:"mime"`
+	Size        int64  `json:"size"`
+	DataBase64  string `json:"dataBase64"`
 }
 
 type preparedAssetUploadFile struct {
@@ -228,6 +234,10 @@ func (svc *service) runAssetUploadPipeline(scope string, inputs []assetUploadFil
 }
 
 func (svc *service) prepareAssetUploadFile(scope string, stagingDir string, input assetUploadFileInput, task *assetUploadTask, fileIndex int) (preparedAssetUploadFile, error) {
+	if strings.TrimSpace(input.DataBase64) != "" {
+		return svc.prepareAssetUploadContent(scope, stagingDir, input, task, fileIndex)
+	}
+
 	sourcePath, err := normalizeAssetUploadSourcePath(input.Path)
 	if err != nil {
 		return preparedAssetUploadFile{}, err
@@ -246,6 +256,45 @@ func (svc *service) prepareAssetUploadFile(scope string, stagingDir string, inpu
 	}
 	mimeType := mimeFromExt(ext)
 	kind := kindFromMime(mimeType)
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		return preparedAssetUploadFile{}, err
+	}
+	defer source.Close()
+
+	return svc.prepareAssetUploadStoredFile(scope, stagingDir, source, ext, mimeType, kind, assetUploadDisplayName(input.DisplayName, sourcePath), float64(info.ModTime().UnixMilli()), task, fileIndex)
+}
+
+func (svc *service) prepareAssetUploadContent(scope string, stagingDir string, input assetUploadFileInput, task *assetUploadTask, fileIndex int) (preparedAssetUploadFile, error) {
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		name = strings.TrimSpace(input.DisplayName)
+	}
+	mimeType := strings.TrimSpace(input.Mime)
+	ext := strings.TrimPrefix(strings.ToLower(filepath.Ext(name)), ".")
+	if ext == "" && mimeType != "" {
+		ext = extFromMime(mimeType)
+	}
+	if !allowedAssetExts[ext] {
+		return preparedAssetUploadFile{}, fmt.Errorf("不支持的附件类型：.%s", ext)
+	}
+	if mimeType == "" {
+		mimeType = mimeFromExt(ext)
+	}
+	kind := kindFromMime(mimeType)
+
+	data, err := base64.StdEncoding.DecodeString(strings.TrimSpace(input.DataBase64))
+	if err != nil {
+		return preparedAssetUploadFile{}, fmt.Errorf("解析粘贴附件内容失败：%w", err)
+	}
+	if len(data) == 0 {
+		return preparedAssetUploadFile{}, errors.New("粘贴附件内容为空")
+	}
+
+	return svc.prepareAssetUploadStoredFile(scope, stagingDir, bytes.NewReader(data), ext, mimeType, kind, assetUploadDisplayName(input.DisplayName, name), nowMs(), task, fileIndex)
+}
+
+func (svc *service) prepareAssetUploadStoredFile(scope string, stagingDir string, source io.Reader, ext string, mimeType string, kind string, displayName string, modifiedMs float64, task *assetUploadTask, fileIndex int) (preparedAssetUploadFile, error) {
 	if task != nil {
 		if err := task.startFile(fileIndex); err != nil {
 			return preparedAssetUploadFile{}, err
@@ -257,7 +306,7 @@ func (svc *service) prepareAssetUploadFile(scope string, stagingDir string, inpu
 		return preparedAssetUploadFile{}, err
 	}
 	tempPath := tempFile.Name()
-	assetID, size, copyErr := copyFileAndHash(sourcePath, tempFile, task, fileIndex)
+	assetID, size, copyErr := copyReaderAndHash(source, tempFile, task, fileIndex)
 	closeErr := tempFile.Close()
 	if copyErr != nil {
 		_ = os.Remove(tempPath)
@@ -283,13 +332,9 @@ func (svc *service) prepareAssetUploadFile(scope string, stagingDir string, inpu
 	if existed {
 		_ = os.Remove(tempPath)
 		tempPath = ""
-	}
-
-	modifiedMs := float64(info.ModTime().UnixMilli())
-	if existed {
 		if targetInfo, err := os.Stat(targetPath); err == nil {
-			modifiedMs = float64(targetInfo.ModTime().UnixMilli())
 			size = targetInfo.Size()
+			modifiedMs = float64(targetInfo.ModTime().UnixMilli())
 		}
 	}
 
@@ -303,7 +348,7 @@ func (svc *service) prepareAssetUploadFile(scope string, stagingDir string, inpu
 		mimeType:    mimeType,
 		ext:         ext,
 		kind:        kind,
-		displayName: assetUploadDisplayName(input.DisplayName, sourcePath),
+		displayName: displayName,
 		size:        size,
 		modifiedMs:  modifiedMs,
 		existed:     existed,
@@ -345,13 +390,7 @@ func normalizeAssetUploadSourcePath(input string) (string, error) {
 	return abs, nil
 }
 
-func copyFileAndHash(sourcePath string, target *os.File, task *assetUploadTask, fileIndex int) (string, int64, error) {
-	source, err := os.Open(sourcePath)
-	if err != nil {
-		return "", 0, err
-	}
-	defer source.Close()
-
+func copyReaderAndHash(source io.Reader, target *os.File, task *assetUploadTask, fileIndex int) (string, int64, error) {
 	hasher := sha256.New()
 	writer := io.MultiWriter(target, hasher)
 	buffer := make([]byte, 1024*1024)

@@ -66,6 +66,46 @@ func TestRunAssetUploadPipelineCommitsFileAndIndex(t *testing.T) {
 	}
 }
 
+func TestRunAssetUploadPipelineCommitsPastedContent(t *testing.T) {
+	svc := newTestService(t)
+	content := []byte("hello pasted upload")
+	inputs := []assetUploadFileInput{{Name: "paste.txt", DisplayName: "Pasted Upload", Mime: "text/plain", Size: int64(len(content)), DataBase64: "aGVsbG8gcGFzdGVkIHVwbG9hZA=="}}
+	task := svc.uploadTasks.create("library", newAssetUploadTaskFiles(inputs))
+	if err := task.markRunning(); err != nil {
+		t.Fatalf("markRunning failed: %v", err)
+	}
+
+	result, err := svc.runAssetUploadPipeline("library", inputs, task)
+	if err != nil {
+		t.Fatalf("runAssetUploadPipeline failed: %v", err)
+	}
+	task.markCompleted(result)
+
+	expectedID := fmt.Sprintf("%x", sha256.Sum256(content))
+	if len(result) != 1 || result[0].AssetID != expectedID || result[0].Ext != "txt" || result[0].Name != "Pasted Upload" {
+		t.Fatalf("result = %#v, want pasted txt resource", result)
+	}
+	idx, err := svc.ensureAssetIndex("library")
+	if err != nil {
+		t.Fatalf("ensureAssetIndex failed: %v", err)
+	}
+	entry, ok := idx.Assets[assetKey(expectedID, "txt")]
+	if !ok {
+		t.Fatalf("asset index missing %q", assetKey(expectedID, "txt"))
+	}
+	target, err := svc.resolvePath("library", entry.Path)
+	if err != nil {
+		t.Fatalf("resolve target failed: %v", err)
+	}
+	written, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read committed asset failed: %v", err)
+	}
+	if string(written) != string(content) {
+		t.Fatalf("committed content = %q, want %q", string(written), string(content))
+	}
+}
+
 func TestAssetUploadTaskFailureMarksUnfinishedFilesFailed(t *testing.T) {
 	task := newAssetUploadTaskStore().create("library", []assetUploadTaskFile{
 		{ID: "file-1", Name: "bad.txt", Size: 10, Status: assetUploadFileStatusPending},

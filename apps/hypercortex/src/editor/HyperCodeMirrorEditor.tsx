@@ -1,5 +1,6 @@
 import React from 'react'
 import { ensureHyperCodeMirrorEditorStyles } from './styles'
+import { formatAssetMarkerInsertion } from '../assetMarker'
 import { parseNotePlaceholderBody } from '../notePlaceholder'
 
 // CM6（新一代编辑器核心）
@@ -28,6 +29,7 @@ export interface UnifiedEditorProps {
   onBlockRendered?: (el: HTMLElement, requestUpdate: () => void) => void
   writeClipboardText?: (text: string) => Promise<void>
   showToast?: (message: string) => Promise<void> | void
+  onPasteFiles?: (files: File[], insertText: (text: string) => void) => Promise<void> | void
 }
 
 type LiveBlockKind = 'latex' | 'mermaid' | 'code' | 'table'
@@ -823,6 +825,23 @@ function assetPreviewExtension(opts: { getOnBlockRendered?: () => UnifiedEditorP
   })
 }
 
+function insertTextAtSelection(view: EditorView, text: string) {
+  const insert = String(text || '')
+  if (!insert) return
+  const selection = view.state.selection.main
+  const line = view.state.doc.lineAt(selection.from)
+  const before = view.state.doc.sliceString(line.from, selection.from)
+  const after = view.state.doc.sliceString(selection.to, line.to)
+  const finalText = formatAssetMarkerInsertion(insert, before, after)
+  const head = selection.from + finalText.length
+  view.dispatch({
+    changes: { from: selection.from, to: selection.to, insert: finalText },
+    selection: { anchor: head },
+    scrollIntoView: true,
+  })
+  view.focus()
+}
+
 /**
  * HyperCodeMirrorEditor（新一代编辑器）
  *
@@ -841,15 +860,18 @@ export const HyperCodeMirrorEditor = React.memo(function HyperCodeMirrorEditor({
   onBlockRendered,
   writeClipboardText,
   showToast,
+  onPasteFiles,
 }: UnifiedEditorProps) {
   const hostRef = React.useRef<HTMLDivElement | null>(null)
   const viewRef = React.useRef<EditorView | null>(null)
   const isApplyingExternalRef = React.useRef(false)
   const onChangeRef = React.useRef(onChange)
   const onBlockRenderedRef = React.useRef(onBlockRendered)
+  const onPasteFilesRef = React.useRef(onPasteFiles)
 
   onChangeRef.current = onChange
   onBlockRenderedRef.current = onBlockRendered
+  onPasteFilesRef.current = onPasteFiles
   globalWriteClipboardText = writeClipboardText
   globalShowToast = showToast
 
@@ -873,6 +895,19 @@ export const HyperCodeMirrorEditor = React.memo(function HyperCodeMirrorEditor({
       const next = u.state.doc.toString()
       onChangeRef.current(next)
     })
+    const pasteFilesHandler = EditorView.domEventHandlers({
+      paste(event, view) {
+        const files = Array.from(event.clipboardData?.files || []).filter(file => file.size > 0)
+        const handler = onPasteFilesRef.current
+        if (!files.length || !handler) return false
+        event.preventDefault()
+        const insertText = (text: string) => insertTextAtSelection(view, text)
+        void Promise.resolve(handler(files, insertText)).catch(err => {
+          void globalShowToast?.(String((err as any)?.message || err || '粘贴附件失败'))
+        })
+        return true
+      },
+    })
 
     const state = EditorState.create({
       doc: value ?? '',
@@ -882,6 +917,7 @@ export const HyperCodeMirrorEditor = React.memo(function HyperCodeMirrorEditor({
         EditorView.contentAttributes.of({ spellcheck: 'false', 'aria-multiline': 'true' }),
         placeholder ? cmPlaceholder(placeholder) : [],
         updateListener,
+        pasteFilesHandler,
         syntaxHighlightPlugin,
         assetExt,
         liveExt,

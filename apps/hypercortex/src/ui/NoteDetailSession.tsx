@@ -17,6 +17,9 @@ import { HYPERCORTEX_NOTE_SCHEMA_VERSION } from '../noteSchema'
 import { renderNoteDisplayHtml } from '../noteRender'
 import { extractNoteRefs, getBacklinksFor, type NoteRefIndex } from '../noteRefs'
 import { buildNotePlaceholderForCopy } from '../notePlaceholder'
+import { buildAssetMarkerBlock, formatAssetMarkerInsertion } from '../assetMarker'
+import { mergeNoteResources } from '../noteResources'
+import { filesFromClipboardData, uploadPastedAssetFiles } from '../services/pastedAssetUpload'
 import type { NoteMeta, VaultScope, HyperCortexNoteDoc, HyperCortexHtmlFaceDisplayModeV1 } from '../core'
 import type { HyperCortexGateway, HyperCortexHtmlFaceDoc } from '../gateway'
 import { HTML_FACE_KIND, createDefaultFaceManifest, isHtmlFace, labelForFaceKind, type HyperCortexNoteFaceManifestV2 } from '../noteFaces'
@@ -197,6 +200,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const [editTags, setEditTags] = React.useState<string[]>(init?.editTags ?? [])
   const [tagInput, setTagInput] = React.useState('')
   const [editHtml, setEditHtml] = React.useState(init?.editHtml ?? '')
+  const [editResources, setEditResources] = React.useState(init?.doc?.resources ?? [])
 
   const [addFaceSelectorVisible, setAddFaceSelectorVisible] = React.useState(false)
   const [pendingAddFace, setPendingAddFace] = React.useState<NoteFaceId | null>(null)
@@ -234,6 +238,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
   const textRenderRef = React.useRef<HTMLDivElement>(null)
   const sanitizeSvg = React.useCallback((svg: unknown) => renderEngineRef.current.sanitizeSvg(svg, 'baseline'), [])
   const preview = usePreviewController({ toast: gateway.host.toast, sanitizeSvg })
+  const [pastingAssets, setPastingAssets] = React.useState(false)
 
   const draftNowRef = React.useMemo<NoteContent>(() => {
     return {
@@ -263,6 +268,42 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     closeMoreMenu()
     setDeleteNoteConfirmOpen(true)
   }, [closeMoreMenu])
+
+  const handlePasteFiles = React.useCallback(async (files: File[], insertText: (text: string) => void) => {
+    if (pastingAssets) {
+      void gateway.host.toast('已有附件正在上传，请稍后再粘贴')
+      return
+    }
+    setPastingAssets(true)
+    try {
+      const resources = await uploadPastedAssetFiles(gateway, scope, files)
+      const markerBlock = buildAssetMarkerBlock(resources)
+      if (!markerBlock) throw new Error('附件上传成功，但没有生成可插入的引用占位符')
+      setEditResources(prev => mergeNoteResources(prev, resources))
+      setDoc(prev => prev ? { ...prev, resources: mergeNoteResources(prev.resources || [], resources) } : prev)
+      insertText(markerBlock)
+      void gateway.host.toast(resources.length > 1 ? `已上传 ${resources.length} 个附件并插入占位符` : '已上传附件并插入占位符')
+    } catch (err: any) {
+      void gateway.host.toast(`粘贴附件失败：${String(err?.message || err || '未知错误')}`)
+    } finally {
+      setPastingAssets(false)
+    }
+  }, [gateway, pastingAssets, scope])
+
+  const handleSourcePaste = React.useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = filesFromClipboardData(event.clipboardData)
+    if (!files.length) return
+    event.preventDefault()
+    const target = event.currentTarget
+    const from = target.selectionStart ?? editBody.length
+    const to = target.selectionEnd ?? from
+    const insertText = (text: string) => {
+      const insert = String(text || '')
+      if (!insert) return
+      setEditBody(prev => `${prev.slice(0, from)}${formatAssetMarkerInsertion(insert, prev.slice(0, from), prev.slice(to))}${prev.slice(to)}`)
+    }
+    void handlePasteFiles(files, insertText)
+  }, [editBody.length, handlePasteFiles])
 
   const confirmDeleteNote = React.useCallback(async () => {
     if (deleting) return
@@ -404,6 +445,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
       setEditBody(nextBase.body)
       setEditTags(nextBase.tags.slice())
       setEditHtml(nextBase.html)
+      setEditResources(loadedDoc.resources || [])
       setTagInput('')
     } catch (e: any) {
       setLoadError(String(e?.message || e || '加载笔记失败'))
@@ -518,12 +560,13 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     setEditBody(base.body)
     setEditTags(base.tags.slice())
     setEditHtml(base.html)
+    setEditResources(doc?.resources || [])
     setTagInput('')
     setAddFaceSelectorVisible(false)
     setPendingAddFace(null)
     setTextEditorMode('live')
     setEditing(false)
-  }, [base, saving])
+  }, [base, doc?.resources, saving])
 
   const handleSave = React.useCallback(async () => {
     if (!noteId) return
@@ -550,7 +593,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
           body: doc?.body || '',
           tags,
           createdAtMs: note.createdAtMs,
-          resources: doc?.resources || [],
+          resources: editResources,
           html: editHtml,
         })
         nextMeta = result.meta
@@ -573,13 +616,14 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
           body,
           tags,
           createdAtMs: note.createdAtMs,
-          resources: doc?.resources || [],
+          resources: editResources,
           saveTextFace: true,
         })
         nextMeta = result.meta
         nextDoc = result.doc
         setDoc(nextDoc)
         setEditBody(nextDoc.body)
+        setEditResources(nextDoc.resources || [])
         toastMsg = '笔记已保存'
       }
 
@@ -625,7 +669,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
     } finally {
       setSaving(false)
     }
-  }, [allNotesById, base.body, base.html, doc, editBody, editDescription, editHtml, editTags, editTitle, editing, face, faceManifests, faces, gateway, htmlFace, infoSidebarVisible, isDraft, note.createdAtMs, note.dir, noteId, onSaved, saving, scope, textEditorMode])
+  }, [allNotesById, base.body, base.html, doc, editBody, editDescription, editHtml, editResources, editTags, editTitle, editing, face, faceManifests, faces, gateway, htmlFace, infoSidebarVisible, isDraft, note.createdAtMs, note.dir, noteId, onSaved, saving, scope, textEditorMode])
 
   const handleCycleFace = React.useCallback(() => {
     setFace(prev => {
@@ -1214,11 +1258,12 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                 scaleControlsVisible={htmlScaleControlsVisible}
               />
             ) : editing ? textEditorMode === 'live' ? (
-              <BlockEditor value={editBody} onChange={setEditBody} placeholder="开始编辑正文..." minHeight={400} onBlockRendered={handleBlockRendered} active={visible} refreshToken={noteIndexMap} writeClipboardText={gateway.clipboard.writeText} showToast={gateway.host.toast} />
+              <BlockEditor value={editBody} onChange={setEditBody} placeholder={pastingAssets ? '正在上传粘贴的附件...' : '开始编辑正文...'} minHeight={400} onBlockRendered={handleBlockRendered} active={visible} refreshToken={noteIndexMap} writeClipboardText={gateway.clipboard.writeText} showToast={gateway.host.toast} onPasteFiles={handlePasteFiles} />
             ) : (
               <InputBase
                 value={editBody}
                 onChange={e => setEditBody(e.target.value)}
+                onPaste={handleSourcePaste}
                 placeholder="开始编辑正文..."
                 fullWidth
                 multiline

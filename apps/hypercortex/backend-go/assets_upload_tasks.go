@@ -155,14 +155,21 @@ func newAssetUploadTaskFiles(inputs []assetUploadFileInput) []assetUploadTaskFil
 	for index, input := range inputs {
 		path := strings.TrimSpace(input.Path)
 		name := strings.TrimSpace(input.DisplayName)
+		if name == "" {
+			name = strings.TrimSpace(input.Name)
+		}
 		if name == "" && path != "" {
 			name = strings.TrimSpace(filepath.Base(path))
+		}
+		size := fileSizeOrZero(path)
+		if size == 0 && input.Size > 0 {
+			size = input.Size
 		}
 		files = append(files, assetUploadTaskFile{
 			ID:     fmt.Sprintf("file-%d", index+1),
 			Name:   name,
 			Path:   path,
-			Size:   fileSizeOrZero(path),
+			Size:   size,
 			Status: assetUploadFileStatusPending,
 		})
 	}

@@ -75,8 +75,12 @@ export type AssetsService = {
 }
 
 export type LocalAssetFile = {
-  path: string
+  path?: string
+  name?: string
   displayName?: string
+  mime?: string
+  size?: number
+  dataBase64?: string
 }
 
 export type AssetUploadTaskStatus = 'queued' | 'running' | 'paused' | 'completed' | 'failed' | 'canceled'
