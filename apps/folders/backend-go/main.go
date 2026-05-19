@@ -577,11 +577,19 @@ func (svc *service) dispatch(ctx context.Context, method string, params json.Raw
 		if err := json.Unmarshal(params, &payload); err != nil {
 			return nil, fmt.Errorf("invalid web icon discovery payload: %w", err)
 		}
-		return discoverWebIconsWithProgress(ctx, payload.URL, func(candidate webIconCandidate) error {
-			if progress == nil {
-				return nil
+		return discoverWebIconsWithProgress(ctx, payload.URL, func(candidate webIconCandidate) (webIconCandidate, error) {
+			asset, err := svc.importWebIconCandidate(candidate)
+			if err != nil {
+				return webIconCandidate{}, err
 			}
-			return progress("candidate", candidate)
+			candidate.AssetID = asset.ID
+			candidate.DataURL = ""
+			if progress != nil {
+				if err := progress("candidate", candidate); err != nil {
+					return webIconCandidate{}, err
+				}
+			}
+			return candidate, nil
 		})
 	}
 
@@ -2103,6 +2111,15 @@ func (svc *service) importAsset(kind string, sourcePath string, dataURL string) 
 		return desktopAsset{}, err
 	}
 	return desktopAsset{ID: assetID, Kind: kind}, nil
+}
+
+func (svc *service) importWebIconCandidate(candidate webIconCandidate) (desktopAsset, error) {
+	if strings.TrimSpace(candidate.DataURL) == "" {
+		return desktopAsset{}, errors.New("web icon candidate data URL is required")
+	}
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	return svc.importAsset("icon", "", candidate.DataURL)
 }
 
 func loadAssetImportSource(sourcePath string, dataURL string) (assetImportSource, error) {

@@ -82,7 +82,8 @@ export type WebIconCandidate = {
   sizes?: string
   width?: number
   height?: number
-  dataUrl: string
+  assetId?: string
+  dataUrl?: string
 }
 
 export type WebIconDiscoveryResult = {

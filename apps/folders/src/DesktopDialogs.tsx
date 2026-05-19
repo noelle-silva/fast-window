@@ -65,7 +65,7 @@ export function IconAppearancePanel(props: {
   const iconFetchTitle = iconFetchEnabled ? undefined : props.systemIconDisabledText
   const handleFetchIcon = props.targetKind === 'url' ? props.onFetchWebIcons : props.onFetchSystemIcon
   const webIconProgressText = props.webIconDiscovery.active
-    ? props.webIconDiscovery.found > 0 ? `已发现 ${props.webIconDiscovery.found} 个网页图标，正在继续解析...` : '正在解析网页图标，发现后会立即显示...'
+    ? props.webIconDiscovery.found > 0 ? `已发现并保存 ${props.webIconDiscovery.found} 个网页图标，正在继续解析...` : '正在解析网页图标，发现后会立即保存并显示...'
     : ''
 
   return (
@@ -73,7 +73,7 @@ export function IconAppearancePanel(props: {
       <Stack spacing={1.75}>
         <Box>
           <Typography fontWeight={900}>图标外观</Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>图标会随当前收藏项一起保存；获取失败时会直接提示真实原因。</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.35 }}>网页图标会发现即保存；当前选择会随收藏项一起保存。获取失败时会直接提示真实原因。</Typography>
         </Box>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '132px 1fr' }, gap: 2, alignItems: 'stretch' }}>
           <Box sx={theme => ({ borderRadius: 4, p: 2, display: 'grid', placeItems: 'center', bgcolor: alpha(theme.palette.primary.main, 0.07), border: `1px solid ${alpha(theme.palette.primary.main, 0.14)}` })}>

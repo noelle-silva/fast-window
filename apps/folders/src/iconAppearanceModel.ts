@@ -35,12 +35,8 @@ export function importedIconCandidateId(assetId: string): string {
   return `image-icon:${assetId}`
 }
 
-export function webIconCandidateId(candidate: WebIconCandidate, assetId: string): string {
-  return `web-icon:${candidate.id}:${assetId}`
-}
-
-export function webIconCandidateIdForData(candidate: WebIconCandidate): string {
-  return `web-icon:${candidate.id}`
+export function webIconCandidateId(candidate: WebIconCandidate): string {
+  return candidate.id
 }
 
 export function webIconCandidateLabel(candidate: WebIconCandidate): string {
@@ -51,7 +47,8 @@ export function webIconCandidateLabel(candidate: WebIconCandidate): string {
 
 export function iconAppearanceCandidateFromWebIcon(candidate: unknown): IconAppearanceCandidate {
   if (!isWebIconCandidate(candidate)) throw new Error('网页图标候选数据无效')
-  return { id: webIconCandidateIdForData(candidate), label: webIconCandidateLabel(candidate), dataUrl: candidate.dataUrl }
+  const icon = candidate.assetId ? { kind: 'image' as const, assetId: candidate.assetId } : undefined
+  return { id: webIconCandidateId(candidate), label: webIconCandidateLabel(candidate), icon, dataUrl: candidate.dataUrl }
 }
 
 function isWebIconCandidate(value: unknown): value is WebIconCandidate {
@@ -62,8 +59,7 @@ function isWebIconCandidate(value: unknown): value is WebIconCandidate {
     && typeof candidate.source === 'string'
     && typeof candidate.url === 'string'
     && typeof candidate.mediaType === 'string'
-    && typeof candidate.dataUrl === 'string'
-    && candidate.dataUrl.startsWith('data:image/')
+    && (typeof candidate.assetId === 'string' || (typeof candidate.dataUrl === 'string' && candidate.dataUrl.startsWith('data:image/')))
 }
 
 function webIconSourceLabel(source: string): string {

@@ -51,10 +51,11 @@ type webIconCandidate struct {
 	Sizes     string `json:"sizes,omitempty"`
 	Width     int    `json:"width,omitempty"`
 	Height    int    `json:"height,omitempty"`
-	DataURL   string `json:"dataUrl"`
+	AssetID   string `json:"assetId,omitempty"`
+	DataURL   string `json:"dataUrl,omitempty"`
 }
 
-type webIconCandidateHandler func(candidate webIconCandidate) error
+type webIconCandidateHandler func(candidate webIconCandidate) (webIconCandidate, error)
 
 type webIconRef struct {
 	URL       string
@@ -577,12 +578,13 @@ func fetchWebIconCandidates(ctx context.Context, client *http.Client, refs []web
 			continue
 		}
 		seenPayloads[payloadHash] = true
-		candidates = append(candidates, candidate)
 		if onCandidate != nil {
-			if err := onCandidate(candidate); err != nil {
+			candidate, err = onCandidate(candidate)
+			if err != nil {
 				return nil, warnings, err
 			}
 		}
+		candidates = append(candidates, candidate)
 	}
 	return candidates, warnings, nil
 }

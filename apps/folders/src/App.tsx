@@ -182,6 +182,7 @@ export function App() {
   const [editing, setEditing] = React.useState<CollectionItem | null>(null)
   const [form, setForm] = React.useState<CollectionItemFormState>(EMPTY_ITEM_FORM)
   const webIconDiscovery = useWebIconDiscoverySession()
+  const webIconAutoSelectRef = React.useRef(false)
   const [settingsOpen, setSettingsOpen] = React.useState(false)
   const [groupEditorOpen, setGroupEditorOpen] = React.useState(false)
   const [groupForm, setGroupForm] = React.useState<GroupFormState>(EMPTY_GROUP_FORM)
@@ -212,7 +213,8 @@ export function App() {
   const requestParams = React.useCallback((params?: Record<string, unknown>) => ({ categoryId: activeCategoryId, ...(params || {}) }), [activeCategoryId])
 
   const cancelWebIconDiscovery = React.useCallback(() => {
-    if (webIconDiscovery.cancel()) setBusy(false)
+    webIconAutoSelectRef.current = false
+    webIconDiscovery.cancel()
   }, [webIconDiscovery])
 
   const refreshWallpaperDeck = React.useCallback(async (nextClient = client) => {
@@ -426,6 +428,7 @@ export function App() {
     if (targetError) { setError(targetError); return }
     const name = (form.name.trim() || deriveNameFromTarget(targetValue)).trim()
     if (!name) { setError('名称不能为空'); return }
+    cancelWebIconDiscovery()
     setBusy(true); setError(null)
     try {
       let targetGroupId = groupIdForPage(form.groupId)
@@ -939,10 +942,12 @@ export function App() {
   }
 
   function updateFormIconDraft(icon: DesktopIcon | null) {
+    webIconAutoSelectRef.current = false
     setForm(current => ({ ...current, icon: { ...current.icon, draftIcon: icon, draftCandidateId: undefined, draftDataUrl: undefined } }))
   }
 
   function selectFormIconCandidate(candidate: IconAppearanceCandidate) {
+    webIconAutoSelectRef.current = false
     setForm(current => ({
       ...current,
       icon: {
@@ -955,13 +960,15 @@ export function App() {
   }
 
   async function resolveFormDraftIcon(): Promise<DesktopIcon | null> {
-    if (!client || !form.icon.draftDataUrl) return form.icon.draftIcon
+    if (!form.icon.draftDataUrl) return form.icon.draftIcon
+    if (!client) throw new Error('后台未连接，无法保存图标')
     const asset = await client.request<DesktopAsset>('collections.assets.import', { kind: 'icon', dataUrl: form.icon.draftDataUrl })
     return { kind: 'image', assetId: asset.id }
   }
 
   async function importIconDataUrl(dataUrl: string, label: string) {
     if (!client || !editing) return
+    webIconAutoSelectRef.current = false
     const asset = await client.request<DesktopAsset>('collections.assets.import', { kind: 'icon', dataUrl })
     const icon: DesktopIcon = { kind: 'image', assetId: asset.id }
     setForm(current => ({
@@ -1010,24 +1017,24 @@ export function App() {
     const targetError = activeCategory.validateTarget(target)
     if (targetError) { setError(targetError); return }
     const session = webIconDiscovery.start()
-    setBusy(true); setError(null)
+    webIconAutoSelectRef.current = true
+    setError(null)
     try {
-      let firstCandidateId = ''
       const result = await client.request<WebIconDiscoveryResult>('collections.web-icons.discover', { url: target }, {
         signal: session.abortController.signal,
         onProgress: (event, payload) => {
           if (event !== 'candidate') throw new Error(`未知网页图标进度事件: ${event}`)
           if (!webIconDiscovery.isCurrent(session)) return
           const iconCandidate = iconAppearanceCandidateFromWebIcon(payload)
-          firstCandidateId ||= iconCandidate.id
           setForm(current => {
             const candidates = upsertIconCandidate(current.icon.candidates, iconCandidate)
-            const shouldSelectCandidate = !current.icon.draftCandidateId || current.icon.draftCandidateId === firstCandidateId
+            const shouldSelectCandidate = webIconAutoSelectRef.current
+            if (shouldSelectCandidate) webIconAutoSelectRef.current = false
             return {
               ...current,
               icon: {
                 ...current.icon,
-                draftIcon: shouldSelectCandidate ? null : current.icon.draftIcon,
+                draftIcon: shouldSelectCandidate ? iconCandidate.icon || null : current.icon.draftIcon,
                 draftCandidateId: shouldSelectCandidate ? iconCandidate.id : current.icon.draftCandidateId,
                 draftDataUrl: shouldSelectCandidate ? iconCandidate.dataUrl : current.icon.draftDataUrl,
                 candidates,
@@ -1042,14 +1049,16 @@ export function App() {
       const iconCandidates = result.candidates.map(iconAppearanceCandidateFromWebIcon)
       setForm(current => {
         const candidates = upsertIconCandidates(current.icon.candidates, iconCandidates)
-        const selectedCandidate = iconCandidates.find(candidate => candidate.id === current.icon.draftCandidateId) || iconCandidates[0]
-        return { ...current, icon: { ...current.icon, draftIcon: null, draftCandidateId: selectedCandidate.id, draftDataUrl: selectedCandidate.dataUrl, candidates } }
+        const selectedCandidate = iconCandidates.find(candidate => candidate.id === current.icon.draftCandidateId) || (webIconAutoSelectRef.current ? iconCandidates[0] : null)
+        if (selectedCandidate && webIconAutoSelectRef.current) webIconAutoSelectRef.current = false
+        if (!selectedCandidate) return { ...current, icon: { ...current.icon, candidates } }
+        return { ...current, icon: { ...current.icon, draftIcon: selectedCandidate.icon || null, draftCandidateId: selectedCandidate.id, draftDataUrl: selectedCandidate.dataUrl, candidates } }
       })
     } catch (e) {
       if (webIconDiscovery.isCurrent(session)) setError(errorMessage(e, '获取网页图标失败'))
     }
     finally {
-      if (webIconDiscovery.finish(session)) setBusy(false)
+      if (webIconDiscovery.finish(session)) webIconAutoSelectRef.current = false
     }
   }
 

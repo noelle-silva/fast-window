@@ -809,12 +809,12 @@ func TestWebIconDiscoveryReportsCandidatesAsTheyAreFetched(t *testing.T) {
 	defer server.Close()
 
 	progressCandidates := []webIconCandidate{}
-	result, err := discoverWebIconsWithProgress(context.Background(), server.URL, func(candidate webIconCandidate) error {
+	result, err := discoverWebIconsWithProgress(context.Background(), server.URL, func(candidate webIconCandidate) (webIconCandidate, error) {
 		if candidate.DataURL == "" {
 			t.Fatal("expected progress candidate to be immediately localizable")
 		}
 		progressCandidates = append(progressCandidates, candidate)
-		return nil
+		return candidate, nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -902,6 +902,52 @@ func TestSelectedWebIconCandidateCanBeImportedAsLocalAsset(t *testing.T) {
 	}
 	if string(stored) != string(png) {
 		t.Fatal("expected selected web icon bytes to be stored locally")
+	}
+}
+
+func TestWebIconDiscoveryProgressReturnsStoredAssets(t *testing.T) {
+	svc := readyService(t)
+	png := mustTinyPNG(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/":
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprintf(w, `<link rel="icon" sizes="16x16" href="/favicon.png">`)
+		case "/favicon.png", "/favicon.ico":
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(png)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	progressCandidates := []webIconCandidate{}
+	result, err := discoverWebIconsWithProgress(context.Background(), server.URL, func(candidate webIconCandidate) (webIconCandidate, error) {
+		asset, err := svc.importWebIconCandidate(candidate)
+		if err != nil {
+			return webIconCandidate{}, err
+		}
+		candidate.AssetID = asset.ID
+		candidate.DataURL = ""
+		stored, err := os.ReadFile(filepath.Join(svc.dataDir, assetsDir, filepath.FromSlash(candidate.AssetID)))
+		if err != nil {
+			return webIconCandidate{}, err
+		}
+		if string(stored) != string(png) {
+			return webIconCandidate{}, fmt.Errorf("progress asset bytes were not stored before reporting")
+		}
+		progressCandidates = append(progressCandidates, candidate)
+		return candidate, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(progressCandidates) == 0 {
+		t.Fatal("expected at least one stored progress candidate")
+	}
+	if result.Candidates[0].AssetID == "" || result.Candidates[0].DataURL != "" {
+		t.Fatalf("expected final web icon candidate to reference stored asset only, got %#v", result.Candidates[0])
 	}
 }
 
