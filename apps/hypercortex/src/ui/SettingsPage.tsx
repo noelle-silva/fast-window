@@ -9,14 +9,14 @@ import { ShortcutSettingsPanel } from './ShortcutSettingsPanel'
 import { SidebarSortSettingsPanel } from './SidebarSortSettingsPanel'
 import { TrashSettingsPanel } from './TrashSettingsPanel'
 import { ColorPresetSettingsPanel } from './ColorPresetSettingsPanel'
-import { FEATURE_TONES, type HyperCortexToneId, toneTabSx } from './uiTones'
+import { settingsTabSx } from './settingsUiStyles'
 
 type SettingsCategoryId = 'data' | 'actions' | 'display'
 
-const SETTINGS_CATEGORIES: { id: SettingsCategoryId; label: string; tone: HyperCortexToneId }[] = [
-  { id: 'data', label: '数据', tone: FEATURE_TONES.data },
-  { id: 'actions', label: '操作', tone: FEATURE_TONES.actions },
-  { id: 'display', label: '显示', tone: FEATURE_TONES.display },
+const SETTINGS_CATEGORIES: { id: SettingsCategoryId; label: string }[] = [
+  { id: 'data', label: '数据' },
+  { id: 'actions', label: '操作' },
+  { id: 'display', label: '显示' },
 ]
 
 export type SettingsPageProps = {
@@ -74,7 +74,7 @@ export function SettingsPage(props: SettingsPageProps) {
             key={item.id}
             value={item.id}
             label={item.label}
-            sx={toneTabSx(item.tone)}
+            sx={settingsTabSx()}
             id={`hypercortex-settings-tab-${item.id}`}
             aria-controls={`hypercortex-settings-tabpanel-${item.id}`}
           />

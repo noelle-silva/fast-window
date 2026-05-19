@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Box, FormControlLabel, Radio, RadioGroup, Typography } from '@mui/material'
 import type { HyperCortexSidebarSortModeV1 } from '../core'
-import { FEATURE_TONES, toneSelectedSurfaceSx } from './uiTones'
+import { settingsSelectableSurfaceSx } from './settingsUiStyles'
 
 type SidebarSortSettingsPanelProps = {
   mode: HyperCortexSidebarSortModeV1
@@ -45,7 +45,7 @@ export function SidebarSortSettingsPanel(props: SidebarSortSettingsPanelProps) {
             key={option.value}
             sx={{
               borderRadius: 3,
-              ...toneSelectedSurfaceSx(FEATURE_TONES.display, mode === option.value),
+              ...settingsSelectableSurfaceSx(mode === option.value),
               px: 1.25,
               py: 1,
             }}

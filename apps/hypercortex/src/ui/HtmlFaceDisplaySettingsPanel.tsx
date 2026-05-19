@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Box, Slider, Typography } from '@mui/material'
 import type { HyperCortexHtmlFaceDisplayModeV1 } from '../core'
-import { FEATURE_TONES, toneFgVar, toneSelectedSurfaceSx } from './uiTones'
+import { settingsAccentTextSx, settingsChoiceMarkSx, settingsSelectableSurfaceSx } from './settingsUiStyles'
 
 // 三种模式的元数据：集中管理，避免在多处重复写
 const HTML_FACE_DISPLAY_MODES: {
@@ -68,25 +68,14 @@ export function HtmlFaceDisplaySettingsPanel(props: {
                 px: 1.5,
                 py: 1,
                 borderRadius: 2,
-                ...toneSelectedSurfaceSx(FEATURE_TONES.display, active),
+                ...settingsSelectableSurfaceSx(active),
                 cursor: 'pointer',
                 userSelect: 'none',
                 transition: 'background 120ms, box-shadow 120ms',
               }}
             >
               <Box
-                sx={{
-                  flex: '0 0 18px',
-                  width: 18,
-                  height: 18,
-                  mt: 0.15,
-                  borderRadius: '50%',
-                  bgcolor: active ? toneFgVar(FEATURE_TONES.display) : 'var(--hc-surface-muted)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: active ? '0 8px 18px var(--hc-shadow)' : 'none',
-                }}
+                sx={settingsChoiceMarkSx(active)}
               >
                 {active && (
                   <Box
@@ -132,7 +121,7 @@ export function HtmlFaceDisplaySettingsPanel(props: {
               aria-label="HTML 面全局默认缩放比例"
             />
           </Box>
-          <Typography sx={{ minWidth: 56, fontSize: 12, color: toneFgVar(FEATURE_TONES.display), textAlign: 'right', fontWeight: 900 }}>
+          <Typography sx={{ minWidth: 56, fontSize: 12, textAlign: 'right', ...settingsAccentTextSx() }}>
             {Math.round(fixedScaleDefault * 100)}%
           </Typography>
         </Box>

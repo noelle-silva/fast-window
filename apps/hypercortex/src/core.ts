@@ -1,5 +1,7 @@
 import type { HyperCortexShortcutBindingsV1 } from './shortcuts'
+import type { HyperCortexColorPresetIdV1 } from './colorPresetIds'
 export { ACCEPTED_FILE_EXTENSIONS, extFromMime, kindFromMime, mimeFromExt } from './assetFileTypes'
+export type { HyperCortexColorPresetIdV1 } from './colorPresetIds'
 
 export type VaultScope = 'library' | 'data'
 
@@ -80,8 +82,6 @@ export type HyperCortexWorkspaceV1 = {
 
 export type HyperCortexHtmlFaceDisplayModeV1 = 'natural' | 'fit-window' | 'fixed-fit'
 export type HyperCortexSidebarSortModeV1 = 'precision' | 'sortable'
-export type HyperCortexColorPresetIdV1 = 'dopamine-soft' | 'claude-paper'
-
 export type HyperCortexMetadataV1 = {
   version: 1
   allNotesLayout?: 'list' | 'grid' | 'icon'

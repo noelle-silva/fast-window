@@ -7,7 +7,7 @@ import {
   type HyperCortexShortcutBindingsV1,
   type HyperCortexShortcutId,
 } from '../shortcuts'
-import { FEATURE_TONES, toneFgVar, toneSelectedSurfaceSx } from './uiTones'
+import { settingsSelectableSurfaceSx } from './settingsUiStyles'
 
 type ShortcutKey = Exclude<keyof HyperCortexShortcutBindingsV1, 'version'>
 
@@ -78,14 +78,14 @@ export function ShortcutSettingsPanel(props: {
           px: 1,
           py: 0.75,
           borderRadius: 2,
-          ...toneSelectedSurfaceSx(FEATURE_TONES.actions, isRec),
+          ...settingsSelectableSurfaceSx(isRec),
         }}
       >
         <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'var(--hc-text)' }}>{p.title}</Typography>
         <Typography
           sx={{
             fontSize: 13,
-            color: isRec ? toneFgVar(FEATURE_TONES.actions) : p.value ? 'var(--hc-text-muted)' : 'var(--hc-text-subtle)',
+            color: isRec ? 'var(--hc-primary)' : p.value ? 'var(--hc-text-muted)' : 'var(--hc-text-subtle)',
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
