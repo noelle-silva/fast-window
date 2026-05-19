@@ -80,6 +80,7 @@ export type HyperCortexWorkspaceV1 = {
 
 export type HyperCortexHtmlFaceDisplayModeV1 = 'natural' | 'fit-window' | 'fixed-fit'
 export type HyperCortexSidebarSortModeV1 = 'precision' | 'sortable'
+export type HyperCortexColorPresetIdV1 = 'dopamine-soft'
 
 export type HyperCortexMetadataV1 = {
   version: 1
@@ -99,6 +100,7 @@ export type HyperCortexMetadataV1 = {
   shortcutHintsEnabled?: boolean
   htmlFaceDisplayMode?: HyperCortexHtmlFaceDisplayModeV1
   htmlFaceFixedScaleDefault?: number
+  colorPresetId?: HyperCortexColorPresetIdV1
   trashEnabled?: boolean
   trashAutoDeleteDays?: number
 }

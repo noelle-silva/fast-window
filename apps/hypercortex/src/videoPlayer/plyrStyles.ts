@@ -24,7 +24,7 @@ const customPlyrCss = `
 }
 
 .hc-video-player .plyr--video {
-  --plyr-color-main: #7c3aed;
+  --plyr-color-main: var(--hc-asset-video);
   --plyr-video-background: #050507;
   --plyr-control-radius: 12px;
   --plyr-menu-radius: 14px;
@@ -36,7 +36,9 @@ const customPlyrCss = `
   align-items: center;
   gap: 8px;
   padding: 20px 18px 14px;
-  background: linear-gradient(to top, rgba(0, 0, 0, .78), rgba(0, 0, 0, .28), transparent);
+  background: rgba(5, 5, 7, .72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .hc-video-player .plyr__control,
@@ -48,13 +50,13 @@ const customPlyrCss = `
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(124, 58, 237, .92);
-  box-shadow: 0 18px 38px rgba(124, 58, 237, .34);
+  background: var(--hc-asset-video);
+  box-shadow: 0 18px 38px rgba(47, 51, 45, .24);
 }
 
 .hc-video-player .plyr__control--overlaid:hover,
 .hc-video-player .plyr__control--overlaid:focus-visible {
-  background: #6d28d9;
+  background: var(--hc-primary);
 }
 
 .hc-video-player .hc-plyr-button {

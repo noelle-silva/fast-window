@@ -338,7 +338,7 @@ export function QuickSearchPopover(props: Props) {
 
               {mode === 'assets' && assetsError ? (
                 <Box sx={{ px: 1.5, py: 1.5 }}>
-                  <Typography sx={{ fontSize: 12, color: '#d32f2f', fontWeight: 900 }}>{assetsError}</Typography>
+                  <Typography sx={{ fontSize: 12, color: 'var(--hc-danger)', fontWeight: 900 }}>{assetsError}</Typography>
                 </Box>
               ) : null}
 

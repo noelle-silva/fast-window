@@ -916,9 +916,9 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                   aria-label={htmlScaleControlsVisible ? '收起缩放调节' : '展开缩放调节'}
                   onClick={() => setHtmlScaleControlsVisible(prev => !prev)}
                   sx={{
-                    color: htmlScaleControlsVisible ? '#1976d2' : 'rgba(0,0,0,.58)',
+                    color: htmlScaleControlsVisible ? 'var(--hc-primary)' : 'var(--hc-text-muted)',
                     bgcolor: 'transparent',
-                    '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                    '&:hover': { bgcolor: 'var(--hc-surface-soft)', color: 'var(--hc-text)' },
                   }}
                 >
                   <TuneRoundedIcon fontSize="small" />
@@ -934,7 +934,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                 sx={{
                   color: 'rgba(0,0,0,.58)',
                   bgcolor: 'transparent',
-                  '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                    '&:hover': { bgcolor: 'var(--hc-surface-soft)', color: 'var(--hc-text)' },
                 }}
               >
                 <MoreHorizRoundedIcon fontSize="small" />
@@ -963,7 +963,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                 <>
                   <MenuItem
                     onClick={e => setDeleteFaceMenuAnchorEl(e.currentTarget as HTMLElement)}
-                    sx={{ mt: 0.5, bgcolor: 'rgba(211,47,47,.04)', color: '#9a3412', '&:hover': { bgcolor: 'rgba(211,47,47,.09)' } }}
+                    sx={{ mt: 0.5, bgcolor: 'var(--hc-danger-soft)', color: 'var(--hc-danger)', '&:hover': { bgcolor: 'var(--hc-accent-clay)' } }}
                   >
                     删除当前笔记的其中面…
                   </MenuItem>
@@ -977,7 +977,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
               anchorEl={deleteFaceMenuAnchorEl}
               PaperProps={{ sx: menuPaperSx }}
             >
-              <MenuItem onClick={() => requestDeleteHtmlFace()} sx={{ color: '#d32f2f' }}>
+              <MenuItem onClick={() => requestDeleteHtmlFace()} sx={{ color: 'var(--hc-danger)' }}>
                 HTML 面
               </MenuItem>
             </Menu>

@@ -19,8 +19,7 @@ export function NoteCard(props: Props): React.ReactNode {
 
   return (
     <CardFrame
-      accent="#7c3aed"
-      accentSoft="rgba(124,58,237,.12)"
+      tone="lavender"
       icon={<DescriptionRoundedIcon fontSize="small" />}
       title={note.title || '未命名笔记'}
       subtitle={subtitle}
@@ -29,8 +28,8 @@ export function NoteCard(props: Props): React.ReactNode {
     >
       {compact ? null : (
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
-          <Box sx={{ px: 1, py: 0.55, borderRadius: 2.5, bgcolor: 'rgba(124,58,237,.08)' }}>
-            <Typography sx={{ fontSize: 12, lineHeight: 1.2, fontWeight: 700, color: '#6d28d9' }}>{formatTimeAgo(note.updatedAtMs)}</Typography>
+          <Box sx={{ px: 1, py: 0.55, borderRadius: 2.5, bgcolor: 'var(--hc-surface)' }}>
+            <Typography sx={{ fontSize: 12, lineHeight: 1.2, fontWeight: 700, color: 'var(--hc-tone-lavender-fg)' }}>{formatTimeAgo(note.updatedAtMs)}</Typography>
           </Box>
         </Box>
       )}

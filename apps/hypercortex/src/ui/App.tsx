@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { AppBar, Box, Button, ClickAwayListener, CssBaseline, Dialog, DialogActions, DialogContent, DialogTitle, GlobalStyles, IconButton, InputBase, Menu, MenuItem, Paper, Popper, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
+import { AppBar, Box, Button, ClickAwayListener, CssBaseline, Dialog, DialogActions, DialogContent, DialogTitle, GlobalStyles, IconButton, InputBase, Menu, MenuItem, Paper, Popper, ThemeProvider, Toolbar, Tooltip, Typography } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
@@ -19,6 +19,7 @@ import {
   type HyperCortexIndexV1,
   type HyperCortexMetadataV1,
   type HyperCortexSidebarSortModeV1,
+  type HyperCortexColorPresetIdV1,
   type HyperCortexTabGroupV1,
   type HyperCortexWorkspaceV1,
   type NoteMeta,
@@ -39,7 +40,8 @@ import { SettingsPage } from './SettingsPage'
 import { TrashPanel } from './TrashPanel'
 import { QuickSearchPopover } from './QuickSearchPopover'
 import { StandaloneWindowControls, type WindowControlActions } from './StandaloneWindowControls'
-import { lineFreeComponentOverrides, menuDangerItemSx, menuPaperSx, softButtonSx } from './pluginUiStyles'
+import { menuDangerItemSx, menuPaperSx, softButtonSx } from './pluginUiStyles'
+import { colorPresetCssVars, createHyperCortexTheme, DEFAULT_COLOR_PRESET_ID, getColorPreset, normalizeColorPresetId } from './colorPresets'
 import { startPickedLocalAssetUploadTask } from '../services/localAssetUpload'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
@@ -233,17 +235,6 @@ function sanitizeMetadataForSave(meta: HyperCortexMetadataV1): HyperCortexMetada
   return next
 }
 
-const theme = createTheme({
-  palette: {
-    mode: 'light',
-    background: { default: '#ffffff', paper: '#ffffff' },
-  },
-  typography: {
-    fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif',
-  },
-  components: lineFreeComponentOverrides,
-})
-
 function isInteractiveTarget(target: EventTarget | null): boolean {
   const t = target as any
   if (!t || typeof t.closest !== 'function') return false
@@ -273,8 +264,9 @@ function NavIconButton(props: {
         onClick={onClick}
         sx={{
           borderRadius: 2,
-          bgcolor: active ? 'rgba(25,118,210,.10)' : 'transparent',
-          '&:hover': { bgcolor: active ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
+          color: active ? 'var(--hc-primary)' : 'var(--hc-text-muted)',
+          bgcolor: active ? 'var(--hc-primary-soft)' : 'transparent',
+          '&:hover': { bgcolor: active ? 'var(--hc-primary-hover)' : 'var(--hc-surface-soft)' },
         }}
       >
         {children}
@@ -380,6 +372,10 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
   const [trashAutoDeleteDays, setTrashAutoDeleteDays] = React.useState(30)
   const [htmlFaceDisplayMode, setHtmlFaceDisplayMode] = React.useState<HyperCortexHtmlFaceDisplayModeV1>('natural')
   const [htmlFaceFixedScaleDefault, setHtmlFaceFixedScaleDefault] = React.useState(HTML_FACE_FIXED_SCALE_DEFAULT)
+  const [colorPresetId, setColorPresetId] = React.useState<HyperCortexColorPresetIdV1>(DEFAULT_COLOR_PRESET_ID)
+  const colorPreset = React.useMemo(() => getColorPreset(colorPresetId), [colorPresetId])
+  const theme = React.useMemo(() => createHyperCortexTheme(colorPreset), [colorPreset])
+  const colorPresetVars = React.useMemo(() => colorPresetCssVars(colorPreset), [colorPreset])
   const trashAutoDeleteDaysRef = React.useRef(30)
   React.useEffect(() => {
     trashAutoDeleteDaysRef.current = trashAutoDeleteDays
@@ -810,6 +806,16 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       if (!next) setShortcutHintsOpen(false)
       if (!metaReadyRef.current) return
       void persistMetadataPatch({ shortcutHintsEnabled: next }).catch(() => {})
+    },
+    [persistMetadataPatch],
+  )
+
+  const handleColorPresetChange = React.useCallback(
+    (presetId: HyperCortexColorPresetIdV1) => {
+      const next = normalizeColorPresetId(presetId)
+      setColorPresetId(next)
+      if (!metaReadyRef.current) return
+      void persistMetadataPatch({ colorPresetId: next }).catch(() => {})
     },
     [persistMetadataPatch],
   )
@@ -1333,6 +1339,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         setTrashAutoDeleteDays(normalizedTrashAutoDeleteDays)
         setHtmlFaceDisplayMode(normalizeHtmlFaceDisplayMode(normalizedMeta.htmlFaceDisplayMode))
         setHtmlFaceFixedScaleDefault(normalizeHtmlFaceFixedScaleDefault(normalizedMeta.htmlFaceFixedScaleDefault))
+        const normalizedColorPresetId = normalizeColorPresetId(normalizedMeta.colorPresetId)
+        setColorPresetId(normalizedColorPresetId)
         setIndexEditMode(normalizeIndexEditMode((normalizedMeta as any).indexEditMode))
         setCurrentFolderId(String((normalizedMeta as any).currentFolderId || '').trim() || 'root')
         const activeKey = typeof normalizedMeta.activeTabKey === 'string' ? normalizedMeta.activeTabKey.trim() : ''
@@ -1391,13 +1399,15 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           didMutateActiveWorkspace ||
           (normalizedMeta as any).shortcutHintsEnabled !== normalizedShortcutHintsEnabled ||
           normalizedMeta.trashEnabled !== normalizedTrashEnabled ||
-          normalizedMeta.trashAutoDeleteDays !== normalizedTrashAutoDeleteDays
+          normalizedMeta.trashAutoDeleteDays !== normalizedTrashAutoDeleteDays ||
+          normalizedMeta.colorPresetId !== normalizedColorPresetId
         if (shouldPersistNormalized) {
           void persistMetadataPatch({
             ...buildWorkspacesMetadataSnapshot(nextWorkspaces, nextActiveWorkspaceId),
             shortcutHintsEnabled: normalizedShortcutHintsEnabled,
             trashEnabled: normalizedTrashEnabled,
             trashAutoDeleteDays: normalizedTrashAutoDeleteDays,
+            colorPresetId: normalizedColorPresetId,
           }).catch(() => {})
         }
       } catch {
@@ -2390,7 +2400,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
       <GlobalStyles
         styles={{
           html: { height: '100%' },
-          body: { height: '100%', margin: 0, backgroundColor: '#fff' },
+          body: { height: '100%', margin: 0, backgroundColor: 'var(--hc-app-bg)' },
           '#app': { height: '100%' },
           '*': {
             scrollbarWidth: 'thin',
@@ -2420,10 +2430,11 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           },
         }}
       />
+      <GlobalStyles styles={{ ':root': colorPresetVars }} />
 
       <ErrorBoundary>
-        <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#fff' }}>
-          <AppBar position="static" elevation={0} sx={{ bgcolor: '#fff', color: 'text.primary' }}>
+        <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: 'var(--hc-app-bg)' }}>
+          <AppBar position="static" elevation={0} sx={{ bgcolor: 'var(--hc-surface)', color: 'var(--hc-text)' }}>
             <Toolbar
               variant="dense"
               sx={{
@@ -2472,8 +2483,9 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                     aria-label="搜索"
                     sx={{
                       borderRadius: 2,
-                      bgcolor: quickSearchOpen ? 'rgba(25,118,210,.10)' : 'transparent',
-                      '&:hover': { bgcolor: quickSearchOpen ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
+                      color: quickSearchOpen ? 'var(--hc-primary)' : 'var(--hc-text-muted)',
+                      bgcolor: quickSearchOpen ? 'var(--hc-primary-soft)' : 'transparent',
+                      '&:hover': { bgcolor: quickSearchOpen ? 'var(--hc-primary-hover)' : 'var(--hc-surface-soft)' },
                     }}
                   >
                     <SearchRoundedIcon fontSize="small" />
@@ -2495,8 +2507,9 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                     }}
                     sx={{
                       borderRadius: 2,
-                      bgcolor: shortcutHintsOpen ? 'rgba(25,118,210,.10)' : 'transparent',
-                      '&:hover': { bgcolor: shortcutHintsOpen ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
+                      color: shortcutHintsOpen ? 'var(--hc-primary)' : 'var(--hc-text-muted)',
+                      bgcolor: shortcutHintsOpen ? 'var(--hc-primary-soft)' : 'transparent',
+                      '&:hover': { bgcolor: shortcutHintsOpen ? 'var(--hc-primary-hover)' : 'var(--hc-surface-soft)' },
                     }}
                   >
                     <HelpOutlineRoundedIcon fontSize="small" />
@@ -2623,7 +2636,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
               minWidth: sidebarRailWidth,
               minHeight: 0,
               position: 'relative',
-              bgcolor: 'rgba(248,250,252,.86)',
+              bgcolor: 'var(--hc-surface-soft)',
             }}
           >
             <Box
@@ -2633,7 +2646,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                 height: '100%',
                 display: 'flex',
                 flexDirection: 'column',
-                bgcolor: '#fff',
+                bgcolor: 'var(--hc-surface)',
                 position: isHoverTabsMode && sidebarPanelExpanded ? 'absolute' : 'relative',
                 left: 0,
                 top: 0,
@@ -2944,6 +2957,8 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                   onHtmlFaceDisplayModeChange={handleHtmlFaceDisplayModeChange}
                   htmlFaceFixedScaleDefault={htmlFaceFixedScaleDefault}
                   onHtmlFaceFixedScaleDefaultChange={handleHtmlFaceFixedScaleDefaultChange}
+                  colorPresetId={colorPresetId}
+                  onColorPresetChange={handleColorPresetChange}
                 />
               ) : null}
             </Box>

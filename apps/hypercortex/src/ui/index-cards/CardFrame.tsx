@@ -1,9 +1,10 @@
 import * as React from 'react'
 import { Box, Typography } from '@mui/material'
+import { type HyperCortexToneId, toneBgVar, toneFgVar, toneHoverVar } from '../uiTones'
 
 type Props = {
-  accent: string
-  accentSoft: string
+  tone?: HyperCortexToneId
+  danger?: boolean
   icon: React.ReactNode
   title: string
   subtitle?: string
@@ -13,8 +14,11 @@ type Props = {
 }
 
 export function CardFrame(props: Props): React.ReactNode {
-  const { accent, accentSoft, icon, title, subtitle, meta, onClick, children } = props
+  const { tone = 'sage', danger = false, icon, title, subtitle, meta, onClick, children } = props
   const clickable = typeof onClick === 'function'
+  const surface = danger ? 'var(--hc-danger-soft)' : toneBgVar(tone)
+  const surfaceHover = danger ? 'var(--hc-accent-clay)' : toneHoverVar(tone)
+  const accent = danger ? 'var(--hc-danger)' : toneFgVar(tone)
 
   return (
     <Box
@@ -41,21 +45,21 @@ export function CardFrame(props: Props): React.ReactNode {
         px: 1.6,
         py: 1.45,
         borderRadius: 3.5,
-        bgcolor: '#fff',
-        boxShadow: '0 10px 24px rgba(15,23,42,.05)',
+        bgcolor: surface,
+        boxShadow: '0 10px 24px var(--hc-shadow)',
         cursor: clickable ? 'pointer' : 'default',
         transition: 'transform .18s ease, box-shadow .18s ease, background-color .18s ease',
         '&:hover': clickable
           ? {
               transform: 'translateY(-1px)',
-              boxShadow: '0 16px 32px rgba(15,23,42,.10)',
+              boxShadow: '0 16px 32px var(--hc-shadow-strong)',
             }
           : undefined,
         '&:focus-visible': clickable
           ? {
               outline: 'none',
-              bgcolor: accentSoft,
-              boxShadow: `0 16px 32px rgba(15,23,42,.10)`,
+              bgcolor: surfaceHover,
+              boxShadow: '0 16px 32px var(--hc-shadow-strong)',
             }
           : undefined,
       }}
@@ -67,7 +71,7 @@ export function CardFrame(props: Props): React.ReactNode {
               width: 42,
               height: 42,
               borderRadius: 3,
-              bgcolor: accentSoft,
+              bgcolor: 'var(--hc-surface)',
               color: accent,
               display: 'flex',
               alignItems: 'center',
@@ -85,7 +89,7 @@ export function CardFrame(props: Props): React.ReactNode {
                 fontSize: 14,
                 lineHeight: 1.4,
                 fontWeight: 800,
-                color: '#0f172a',
+                color: 'var(--hc-text)',
                 display: '-webkit-box',
                 WebkitLineClamp: 2,
                 WebkitBoxOrient: 'vertical',
@@ -101,7 +105,7 @@ export function CardFrame(props: Props): React.ReactNode {
                   pt: 0.45,
                   fontSize: 12,
                   lineHeight: 1.5,
-                  color: 'rgba(15,23,42,.62)',
+                  color: 'var(--hc-text-muted)',
                   display: '-webkit-box',
                   WebkitLineClamp: 2,
                   WebkitBoxOrient: 'vertical',
@@ -122,10 +126,10 @@ export function CardFrame(props: Props): React.ReactNode {
               px: 0.85,
               py: 0.4,
               borderRadius: 999,
-              bgcolor: 'rgba(15,23,42,.05)',
+              bgcolor: 'var(--hc-surface)',
             }}
           >
-            <Typography sx={{ fontSize: 11, lineHeight: 1, fontWeight: 800, color: 'rgba(15,23,42,.58)' }}>{meta}</Typography>
+            <Typography sx={{ fontSize: 11, lineHeight: 1, fontWeight: 800, color: 'var(--hc-text-subtle)' }}>{meta}</Typography>
           </Box>
         ) : null}
       </Box>

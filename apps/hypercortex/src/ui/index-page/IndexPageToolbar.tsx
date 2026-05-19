@@ -117,18 +117,18 @@ export function IndexPageToolbar(props: Props): React.ReactNode {
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, pt: 1.25, pointerEvents: 'none' }}>
         <Box sx={{ minWidth: 0 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flexWrap: 'wrap' }}>
-            <Typography sx={{ fontSize: 18, fontWeight: 900, color: '#111', lineHeight: 1.2 }}>{currentTitle}</Typography>
+            <Typography sx={{ fontSize: 18, fontWeight: 900, color: 'var(--hc-text)', lineHeight: 1.2 }}>{currentTitle}</Typography>
             <Box
               aria-label={`当前模式：${modeText}`}
               sx={{
                 px: 1,
                 py: 0.25,
                 borderRadius: 999,
-                bgcolor: editMode ? 'rgba(25,118,210,.08)' : 'rgba(0,0,0,.03)',
-                boxShadow: editMode ? '0 10px 22px rgba(25,118,210,.10)' : 'none',
+                bgcolor: editMode ? 'var(--hc-primary-soft)' : 'var(--hc-surface-soft)',
+                boxShadow: editMode ? '0 10px 22px var(--hc-shadow)' : 'none',
               }}
             >
-              <Typography sx={{ fontSize: 12, fontWeight: 800, color: editMode ? 'rgba(25,118,210,.92)' : 'rgba(0,0,0,.62)' }}>
+              <Typography sx={{ fontSize: 12, fontWeight: 800, color: editMode ? 'var(--hc-primary)' : 'var(--hc-text-muted)' }}>
                 {modeText}
               </Typography>
             </Box>

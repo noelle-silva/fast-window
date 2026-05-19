@@ -134,7 +134,7 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
                     <Box onClick={() => (!reason ? onAddExistingFolder(folder.id) : undefined)} sx={{ cursor: reason ? 'not-allowed' : 'pointer' }}>
                       {renderFolderSuggestionCard(folder)}
                     </Box>
-                    {reason ? <Typography sx={{ fontSize: 11, color: '#d32f2f', pt: 0.5 }}>{reason}</Typography> : null}
+                    {reason ? <Typography sx={{ fontSize: 11, color: 'var(--hc-danger)', pt: 0.5 }}>{reason}</Typography> : null}
                   </Box>
                 )
               })}

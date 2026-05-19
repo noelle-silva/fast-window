@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Box, Slider, Typography } from '@mui/material'
 import type { HyperCortexHtmlFaceDisplayModeV1 } from '../core'
+import { FEATURE_TONES, toneBgVar, toneFgVar, toneHoverVar } from './uiTones'
 
 // 三种模式的元数据：集中管理，避免在多处重复写
 const HTML_FACE_DISPLAY_MODES: {
@@ -36,10 +37,10 @@ export function HtmlFaceDisplaySettingsPanel(props: {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
       <Box>
-        <Typography sx={{ fontSize: 18, lineHeight: 1.25, fontWeight: 900, color: '#111' }}>
+        <Typography sx={{ fontSize: 18, lineHeight: 1.25, fontWeight: 900, color: 'var(--hc-text)' }}>
           HTML 面显示策略
         </Typography>
-        <Typography sx={{ mt: 0.5, fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.62)' }}>
+        <Typography sx={{ mt: 0.5, fontSize: 13, lineHeight: 1.6, color: 'var(--hc-text-muted)' }}>
           控制「HTML 面」的 iframe 在查看（非编辑）状态下的尺寸行为。
         </Typography>
       </Box>
@@ -67,13 +68,13 @@ export function HtmlFaceDisplaySettingsPanel(props: {
                 px: 1.5,
                 py: 1,
                 borderRadius: 2,
-                bgcolor: active ? 'rgba(25,118,210,.08)' : 'rgba(0,0,0,.02)',
-                boxShadow: active ? '0 12px 26px rgba(25,118,210,.12)' : 'none',
+                bgcolor: active ? toneBgVar(FEATURE_TONES.display) : 'var(--hc-surface-soft)',
+                boxShadow: active ? '0 12px 26px var(--hc-shadow)' : 'none',
                 cursor: 'pointer',
                 userSelect: 'none',
                 transition: 'background 120ms, box-shadow 120ms',
                 '&:hover': {
-                  bgcolor: active ? 'rgba(25,118,210,.07)' : 'rgba(0,0,0,.04)',
+                  bgcolor: active ? toneHoverVar(FEATURE_TONES.display) : 'var(--hc-surface-muted)',
                 },
               }}
             >
@@ -84,11 +85,11 @@ export function HtmlFaceDisplaySettingsPanel(props: {
                   height: 18,
                   mt: 0.15,
                   borderRadius: '50%',
-                  bgcolor: active ? '#1976d2' : 'rgba(0,0,0,.16)',
+                  bgcolor: active ? toneFgVar(FEATURE_TONES.display) : 'var(--hc-surface-muted)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  boxShadow: active ? '0 8px 18px rgba(25,118,210,.18)' : 'none',
+                  boxShadow: active ? '0 8px 18px var(--hc-shadow)' : 'none',
                 }}
               >
                 {active && (
@@ -97,17 +98,17 @@ export function HtmlFaceDisplaySettingsPanel(props: {
                       width: 6,
                       height: 6,
                       borderRadius: '50%',
-                      bgcolor: '#fff',
+                      bgcolor: 'var(--hc-surface)',
                     }}
                   />
                 )}
               </Box>
 
               <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography sx={{ fontSize: 14, fontWeight: 700, color: '#111', lineHeight: 1.3 }}>
+                <Typography sx={{ fontSize: 14, fontWeight: 700, color: 'var(--hc-text)', lineHeight: 1.3 }}>
                   {item.label}
                 </Typography>
-                <Typography sx={{ mt: 0.35, fontSize: 12, lineHeight: 1.5, color: 'rgba(0,0,0,.55)' }}>
+                <Typography sx={{ mt: 0.35, fontSize: 12, lineHeight: 1.5, color: 'var(--hc-text-muted)' }}>
                   {item.description}
                 </Typography>
               </Box>
@@ -116,11 +117,11 @@ export function HtmlFaceDisplaySettingsPanel(props: {
         })}
       </Box>
 
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, px: 1.25, py: 1, borderRadius: 2, bgcolor: 'rgba(0,0,0,.02)' }}>
-        <Typography sx={{ fontSize: 14, fontWeight: 700, color: '#111' }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, px: 1.25, py: 1, borderRadius: 2, bgcolor: toneBgVar(FEATURE_TONES.display) }}>
+        <Typography sx={{ fontSize: 14, fontWeight: 700, color: 'var(--hc-text)' }}>
           全局默认缩放比例
         </Typography>
-        <Typography sx={{ fontSize: 12, lineHeight: 1.5, color: 'rgba(0,0,0,.55)' }}>
+        <Typography sx={{ fontSize: 12, lineHeight: 1.5, color: 'var(--hc-text-muted)' }}>
           仅用于“固定视口缩放”模式。默认值为 {Math.round(fixedScaleDefault * 100)}%；如果某篇笔记保存了自己的缩放比例，则优先使用笔记自己的值。
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -135,7 +136,7 @@ export function HtmlFaceDisplaySettingsPanel(props: {
               aria-label="HTML 面全局默认缩放比例"
             />
           </Box>
-          <Typography sx={{ minWidth: 56, fontSize: 12, color: 'rgba(0,0,0,.62)', textAlign: 'right' }}>
+          <Typography sx={{ minWidth: 56, fontSize: 12, color: toneFgVar(FEATURE_TONES.display), textAlign: 'right', fontWeight: 900 }}>
             {Math.round(fixedScaleDefault * 100)}%
           </Typography>
         </Box>

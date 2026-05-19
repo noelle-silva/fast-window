@@ -6,6 +6,7 @@ import type { NoteMeta } from '../core'
 import type { NoteCardInfo } from './noteCardInfo'
 import { noteContainsLabel, shouldShowNoteContains } from './noteCardInfo'
 import { unstyledButtonSurfaceSx } from './pluginUiStyles'
+import { noteToneFromIdentity, tagToneFromText, toneBgVar, toneFgVar, toneHoverVar } from './uiTones'
 
 
 function normalizeTags(tags: unknown): string[] {
@@ -26,28 +27,7 @@ function TagsLine(props: {
   const rest = tags.length - shown.length
   return (
     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-      {shown.map(t => (
-        <Box
-          key={t}
-          component="span"
-          sx={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            px: 0.9,
-            py: 0.25,
-            borderRadius: 999,
-            fontSize,
-            color: 'rgba(0,0,0,.62)',
-            bgcolor: 'rgba(0,0,0,.05)',
-            maxWidth: '100%',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          {t}
-        </Box>
-      ))}
+      {shown.map(t => <TagChip key={t} label={t} fontSize={fontSize} />)}
       {rest > 0 ? (
         <Box
           component="span"
@@ -58,13 +38,38 @@ function TagsLine(props: {
             py: 0.25,
             borderRadius: 999,
             fontSize,
-            color: 'rgba(0,0,0,.52)',
-            bgcolor: 'rgba(0,0,0,.04)',
+            color: 'var(--hc-text-subtle)',
+            bgcolor: 'var(--hc-surface-soft)',
           }}
         >
           +{rest}
         </Box>
       ) : null}
+    </Box>
+  )
+}
+
+function TagChip(props: { label: string; fontSize: number }): React.ReactNode {
+  const tone = tagToneFromText(props.label)
+  return (
+    <Box
+      component="span"
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        px: 0.9,
+        py: 0.25,
+        borderRadius: 999,
+        fontSize: props.fontSize,
+        color: toneFgVar(tone),
+        bgcolor: toneBgVar(tone),
+        maxWidth: '100%',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+      }}
+    >
+      {props.label}
     </Box>
   )
 }
@@ -155,6 +160,7 @@ export function AllNotesGridNoteCard(props: {
 }): React.ReactNode {
   const { note, info, onOpen, onCopyRef, onMore } = props
   const tags = normalizeTags(info?.tags)
+  const tone = noteToneFromIdentity(note.id, note.title)
   const containsText = containsTextFor(info)
   const showContains = showContainsForNote(note)
 
@@ -175,7 +181,7 @@ export function AllNotesGridNoteCard(props: {
         px: 1.5,
         py: 1.5,
         borderRadius: 3,
-        bgcolor: '#fff',
+        bgcolor: toneBgVar(tone),
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'stretch',
@@ -183,7 +189,7 @@ export function AllNotesGridNoteCard(props: {
         cursor: 'pointer',
         transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
         '&:hover': {
-          bgcolor: 'rgba(0,0,0,.02)',
+          bgcolor: toneHoverVar(tone),
           boxShadow: '0 6px 16px rgba(0,0,0,.08)',
           transform: 'translateY(-1px)',
         },
@@ -201,7 +207,7 @@ export function AllNotesGridNoteCard(props: {
           fontSize: 14,
           lineHeight: 1.5,
           fontWeight: 600,
-          color: '#111',
+          color: 'var(--hc-text)',
           display: '-webkit-box',
           WebkitLineClamp: 2,
           WebkitBoxOrient: 'vertical',
@@ -236,6 +242,7 @@ export function AllNotesIconNoteCard(props: {
 }): React.ReactNode {
   const { note, info, onOpen, onCopyRef, onMore } = props
   const tags = normalizeTags(info?.tags)
+  const tone = noteToneFromIdentity(note.id, note.title)
   const containsText = containsTextFor(info)
   const showContains = showContainsForNote(note)
 
@@ -256,7 +263,7 @@ export function AllNotesIconNoteCard(props: {
         px: 1.25,
         py: 1.25,
         borderRadius: 3,
-        bgcolor: '#fff',
+        bgcolor: toneBgVar(tone),
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -265,7 +272,7 @@ export function AllNotesIconNoteCard(props: {
         cursor: 'pointer',
         transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
         '&:hover': {
-          bgcolor: 'rgba(0,0,0,.02)',
+          bgcolor: toneHoverVar(tone),
           boxShadow: '0 6px 16px rgba(0,0,0,.08)',
           transform: 'translateY(-1px)',
         },
@@ -283,7 +290,7 @@ export function AllNotesIconNoteCard(props: {
           fontSize: 13,
           lineHeight: 1.45,
           fontWeight: 600,
-          color: '#111',
+          color: 'var(--hc-text)',
           display: '-webkit-box',
           WebkitLineClamp: 2,
           WebkitBoxOrient: 'vertical',
@@ -319,6 +326,7 @@ export function AllNotesListNoteRow(props: {
 }): React.ReactNode {
   const { note, info, onOpen, onCopyRef, onMore } = props
   const tags = normalizeTags(info?.tags)
+  const tone = noteToneFromIdentity(note.id, note.title)
   const containsText = containsTextFor(info)
   const showContains = showContainsForNote(note)
   const showMetaLine = tags.length > 0 || showContains
@@ -339,12 +347,12 @@ export function AllNotesListNoteRow(props: {
         px: 1.5,
         py: 1.15,
         borderRadius: 3,
-        bgcolor: '#fff',
+        bgcolor: toneBgVar(tone),
         boxShadow: '0 1px 2px rgba(0,0,0,.04)',
         cursor: 'pointer',
         transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
         '&:hover': {
-          bgcolor: 'rgba(0,0,0,.02)',
+          bgcolor: toneHoverVar(tone),
           boxShadow: '0 6px 16px rgba(0,0,0,.08)',
           transform: 'translateY(-1px)',
         },
@@ -363,7 +371,7 @@ export function AllNotesListNoteRow(props: {
             fontSize: 14,
             lineHeight: 1.5,
             fontWeight: 600,
-            color: '#111',
+            color: 'var(--hc-text)',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',

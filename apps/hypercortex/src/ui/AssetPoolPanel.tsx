@@ -18,6 +18,7 @@ import { AssetUploadTaskPanel } from './AssetUploadTaskPanel'
 import { type AssetUploadTaskView, isActiveUploadTask } from './assetUploadTasks'
 import { useAssetUploadTasks } from './useAssetUploadTasks'
 import { softButtonSx } from './pluginUiStyles'
+import { assetToneFromKind, FEATURE_TONES, toneBgVar, toneFgVar, toneHoverVar } from './uiTones'
 
 /* ------------------------------------------------------------------ */
 /*  类型                                                               */
@@ -70,6 +71,7 @@ function AssetCard({
 }) {
   const titleLabel = pickAssetDisplayName({ indexName: asset.displayName, ext: asset.ext })
   const preview = React.useMemo(() => getAssetPreviewDescriptor(asset), [asset])
+  const tone = assetToneFromKind(asset.kind)
   const canOpenPreview = isAssetOpenableInTab(asset)
   const Icon = preview.icon
   const handleCopy = React.useCallback(() => {
@@ -101,16 +103,16 @@ function AssetCard({
         px: 1.5,
         py: 1.5,
         borderRadius: 3,
-        bgcolor: '#fff',
+        bgcolor: toneBgVar(tone),
         boxShadow: '0 1px 2px rgba(0,0,0,.04)',
         transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
         outline: 'none',
         '&:hover': {
-          bgcolor: 'rgba(0,0,0,.02)',
+          bgcolor: toneHoverVar(tone),
           boxShadow: '0 6px 16px rgba(0,0,0,.08)',
           transform: 'translateY(-1px)',
         },
-        '&:focus-visible': canOpenPreview ? { boxShadow: '0 0 0 2px rgba(25,118,210,.32), 0 6px 16px rgba(0,0,0,.08)' } : undefined,
+        '&:focus-visible': canOpenPreview ? { boxShadow: '0 10px 24px var(--hc-shadow)' } : undefined,
         '&:hover .hc-asset-card-actions': { opacity: 1 },
         cursor: canOpenPreview ? 'pointer' : 'default',
       }}
@@ -141,7 +143,7 @@ function AssetCard({
               height: 28,
               bgcolor: 'rgba(0,0,0,.05)',
               color: 'rgba(0,0,0,.45)',
-              '&:hover': { bgcolor: 'rgba(0,0,0,.1)', color: '#1976d2' },
+              '&:hover': { bgcolor: 'var(--hc-primary-soft)', color: 'var(--hc-primary)' },
             }}
           >
             <ContentCopyRoundedIcon sx={{ fontSize: 16 }} />
@@ -162,7 +164,7 @@ function AssetCard({
                 height: 28,
                 bgcolor: 'rgba(0,0,0,.05)',
                 color: 'rgba(0,0,0,.45)',
-                '&:hover': { bgcolor: 'rgba(0,0,0,.1)', color: '#1976d2' },
+                '&:hover': { bgcolor: 'var(--hc-primary-soft)', color: 'var(--hc-primary)' },
               }}
             >
               <ImageSearchRoundedIcon sx={{ fontSize: 16 }} />
@@ -183,7 +185,7 @@ function AssetCard({
               height: 28,
               bgcolor: 'rgba(0,0,0,.05)',
               color: 'rgba(0,0,0,.45)',
-              '&:hover': { bgcolor: 'rgba(0,0,0,.1)', color: '#d32f2f' },
+              '&:hover': { bgcolor: 'var(--hc-danger-soft)', color: 'var(--hc-danger)' },
             }}
           >
             <DeleteOutlineRoundedIcon sx={{ fontSize: 16 }} />
@@ -218,7 +220,7 @@ function AssetCard({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              bgcolor: 'rgba(0,0,0,.03)',
+              bgcolor: 'var(--hc-surface)',
               color: preview.color,
             }}
           >
@@ -232,7 +234,7 @@ function AssetCard({
           sx={{
             fontSize: 13,
             fontWeight: 700,
-            color: '#111',
+            color: 'var(--hc-text)',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
@@ -242,7 +244,7 @@ function AssetCard({
         >
           {titleLabel}
         </Typography>
-        <Typography sx={{ fontSize: 11, color: 'rgba(0,0,0,.38)', flexShrink: 0 }}>
+        <Typography sx={{ fontSize: 11, color: 'var(--hc-text-subtle)', flexShrink: 0 }}>
           {humanSize(asset.size)}
         </Typography>
       </Box>
@@ -251,7 +253,7 @@ function AssetCard({
         sx={{
           mt: 0.25,
           fontSize: 11,
-          color: 'rgba(0,0,0,.42)',
+          color: 'var(--hc-text-subtle)',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
@@ -266,7 +268,7 @@ function AssetCard({
           sx={{
             mt: 0.5,
             fontSize: 11,
-            color: 'rgba(15,23,42,.58)',
+            color: 'var(--hc-text-muted)',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
@@ -279,7 +281,7 @@ function AssetCard({
       {asset.tags?.length ? (
         <Box sx={{ mt: 0.5, display: 'flex', gap: 0.35, flexWrap: 'wrap' }}>
           {asset.tags.slice(0, 3).map(tag => (
-            <Box key={tag} sx={{ px: 0.65, py: 0.2, borderRadius: 999, bgcolor: 'rgba(79,70,229,.08)', color: '#4f46e5', fontSize: 10, fontWeight: 800 }}>
+            <Box key={tag} sx={{ px: 0.65, py: 0.2, borderRadius: 999, bgcolor: toneBgVar(tone), color: toneFgVar(tone), fontSize: 10, fontWeight: 800 }}>
               {tag}
             </Box>
           ))}
@@ -496,12 +498,16 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
     }
     return { counts, sizes, totalSize: assets.reduce((s, a) => s + (a.size || 0), 0) }
   }, [assets])
+  const imageTone = assetToneFromKind('image')
+  const videoTone = assetToneFromKind('video')
+  const documentTone = assetToneFromKind('document')
+  const activeCategoryTone = assetToneFromKind(category)
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       {/* 标题栏 */}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-        <Typography sx={{ fontSize: 24, lineHeight: 1.25, fontWeight: 900, color: '#111' }}>
+        <Typography sx={{ fontSize: 24, lineHeight: 1.25, fontWeight: 900, color: 'var(--hc-text)' }}>
           附件
         </Typography>
         <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center' }}>
@@ -511,11 +517,11 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
               size="small"
               aria-label="上传任务"
               onClick={() => setUploadPanelOpen(open => !open)}
-              sx={{ color: activeUploadCount ? '#4f46e5' : 'rgba(0,0,0,.58)', '&:hover': { bgcolor: 'rgba(79,70,229,.08)', color: '#4f46e5' } }}
+              sx={{ color: activeUploadCount ? toneFgVar(FEATURE_TONES.assets) : 'var(--hc-text-muted)', '&:hover': { bgcolor: toneBgVar(FEATURE_TONES.assets), color: toneFgVar(FEATURE_TONES.assets) } }}
             >
               <CloudUploadRoundedIcon fontSize="small" />
               {activeUploadCount ? (
-                <Box sx={{ position: 'absolute', top: 2, right: 2, minWidth: 14, height: 14, px: 0.25, borderRadius: 999, bgcolor: '#ef4444', color: '#fff', fontSize: 9, fontWeight: 900, lineHeight: '14px', textAlign: 'center' }}>
+                <Box sx={{ position: 'absolute', top: 2, right: 2, minWidth: 14, height: 14, px: 0.25, borderRadius: 999, bgcolor: 'var(--hc-danger)', color: 'var(--hc-surface)', fontSize: 9, fontWeight: 900, lineHeight: '14px', textAlign: 'center' }}>
                   {activeUploadCount > 9 ? '9+' : activeUploadCount}
                 </Box>
               ) : null}
@@ -538,7 +544,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
               aria-label="刷新"
               onClick={() => void loadAssets()}
               disabled={loading}
-              sx={{ color: 'rgba(0,0,0,.58)', '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' } }}
+              sx={{ color: 'var(--hc-text-muted)', '&:hover': { bgcolor: 'var(--hc-surface-soft)', color: 'var(--hc-text)' } }}
             >
               <RefreshRoundedIcon fontSize="small" />
             </IconButton>
@@ -552,7 +558,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
                   aria-label="重建当前分类缩略图缓存"
                   onClick={() => void handleRebuildVisibleThumbnails()}
                   disabled={rebuildingThumbnails || thumbnailTargets.length === 0}
-                  sx={{ color: 'rgba(0,0,0,.58)', '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' } }}
+                  sx={{ color: 'var(--hc-text-muted)', '&:hover': { bgcolor: toneBgVar(activeCategoryTone), color: toneFgVar(activeCategoryTone) } }}
                 >
                   {rebuildingThumbnails ? <CircularProgress size={18} /> : <ImageSearchRoundedIcon fontSize="small" />}
                 </IconButton>
@@ -568,7 +574,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
                 startIcon={rebuildingThumbnails ? <CircularProgress size={14} /> : <ImageSearchRoundedIcon sx={{ fontSize: 16 }} />}
                 disabled={rebuildingThumbnails || assets.filter(canHaveThumbnail).length === 0}
                 onClick={() => void handleRebuildAllThumbnails()}
-                sx={{ minWidth: 0, px: 1, borderRadius: 2, textTransform: 'none', color: 'rgba(0,0,0,.58)', fontWeight: 800 }}
+                sx={{ minWidth: 0, px: 1, borderRadius: 2, textTransform: 'none', color: 'var(--hc-text-muted)', fontWeight: 800, '&:hover': { bgcolor: toneBgVar(FEATURE_TONES.assets), color: toneFgVar(FEATURE_TONES.assets) } }}
               >
                 全部重建
               </Button>
@@ -584,7 +590,9 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
             sx={{
               ...softButtonSx,
               borderRadius: 2,
-              color: '#333',
+              color: toneFgVar(FEATURE_TONES.assets),
+              bgcolor: toneBgVar(FEATURE_TONES.assets),
+              '&:hover': { bgcolor: toneHoverVar(FEATURE_TONES.assets), boxShadow: 'none' },
             }}
           >
             {startingUpload ? '启动中...' : '添加文件'}
@@ -599,7 +607,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
         aria-label="附件分类切换"
         sx={{
           minHeight: 36,
-          bgcolor: 'rgba(0,0,0,.04)',
+          bgcolor: 'var(--hc-surface-soft)',
           borderRadius: 2,
           px: 0.5,
           '& .MuiTabs-indicator': { height: 0 },
@@ -608,25 +616,25 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
             textTransform: 'none',
             fontSize: 13,
             fontWeight: 700,
-            color: 'rgba(0,0,0,.55)',
+            color: 'var(--hc-text-muted)',
             borderRadius: 1.5,
             px: 2,
           },
           '& .MuiTab-root.Mui-selected': {
-            bgcolor: '#fff',
-            color: '#111',
+            bgcolor: 'var(--hc-surface)',
+            color: 'var(--hc-text)',
             boxShadow: '0 1px 2px rgba(0,0,0,.06)',
           },
         }}
       >
-        <Tab value="image" label={`图片 (${statsByCategory.counts.image})`} />
-        <Tab value="video" label={`视频 (${statsByCategory.counts.video})`} />
-        <Tab value="document" label={`文档 (${statsByCategory.counts.document})`} />
+        <Tab value="image" label={`图片 (${statsByCategory.counts.image})`} sx={{ '&.Mui-selected': { bgcolor: toneBgVar(imageTone), color: toneFgVar(imageTone) } }} />
+        <Tab value="video" label={`视频 (${statsByCategory.counts.video})`} sx={{ '&.Mui-selected': { bgcolor: toneBgVar(videoTone), color: toneFgVar(videoTone) } }} />
+        <Tab value="document" label={`文档 (${statsByCategory.counts.document})`} sx={{ '&.Mui-selected': { bgcolor: toneBgVar(documentTone), color: toneFgVar(documentTone) } }} />
       </Tabs>
 
       {/* 概览 */}
       {!loading && assets.length > 0 ? (
-        <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.38)' }}>
+        <Typography sx={{ fontSize: 12, color: 'var(--hc-text-subtle)' }}>
           当前分类 {visibleAssets.length} 个，共 {assets.length} 个，{humanSize(statsByCategory.totalSize)}
         </Typography>
       ) : null}

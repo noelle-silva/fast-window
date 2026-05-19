@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Box, Switch, Tab, Tabs, Typography } from '@mui/material'
-import type { HyperCortexHtmlFaceDisplayModeV1, HyperCortexSidebarSortModeV1 } from '../core'
+import type { HyperCortexColorPresetIdV1, HyperCortexHtmlFaceDisplayModeV1, HyperCortexSidebarSortModeV1 } from '../core'
 import type { DataDirStatus, LegacyDataImportResult } from '../gateway'
 import type { HyperCortexShortcutBindingsV1 } from '../shortcuts'
 import { DataDirSettingsPanel } from './DataDirSettingsPanel'
@@ -8,13 +8,15 @@ import { HtmlFaceDisplaySettingsPanel } from './HtmlFaceDisplaySettingsPanel'
 import { ShortcutSettingsPanel } from './ShortcutSettingsPanel'
 import { SidebarSortSettingsPanel } from './SidebarSortSettingsPanel'
 import { TrashSettingsPanel } from './TrashSettingsPanel'
+import { ColorPresetSettingsPanel } from './ColorPresetSettingsPanel'
+import { FEATURE_TONES, type HyperCortexToneId, toneBgVar, toneFgVar, toneHoverVar } from './uiTones'
 
 type SettingsCategoryId = 'data' | 'actions' | 'display'
 
-const SETTINGS_CATEGORIES: { id: SettingsCategoryId; label: string }[] = [
-  { id: 'data', label: '数据' },
-  { id: 'actions', label: '操作' },
-  { id: 'display', label: '显示' },
+const SETTINGS_CATEGORIES: { id: SettingsCategoryId; label: string; tone: HyperCortexToneId }[] = [
+  { id: 'data', label: '数据', tone: FEATURE_TONES.data },
+  { id: 'actions', label: '操作', tone: FEATURE_TONES.actions },
+  { id: 'display', label: '显示', tone: FEATURE_TONES.display },
 ]
 
 export type SettingsPageProps = {
@@ -38,6 +40,8 @@ export type SettingsPageProps = {
   onHtmlFaceDisplayModeChange: (mode: HyperCortexHtmlFaceDisplayModeV1) => void
   htmlFaceFixedScaleDefault: number
   onHtmlFaceFixedScaleDefaultChange: (scale: number) => void
+  colorPresetId: HyperCortexColorPresetIdV1
+  onColorPresetChange: (presetId: HyperCortexColorPresetIdV1) => void
 }
 
 export function SettingsPage(props: SettingsPageProps) {
@@ -57,12 +61,12 @@ export function SettingsPage(props: SettingsPageProps) {
         aria-label="HyperCortex 设置分类"
         sx={{
           minHeight: 42,
-          bgcolor: 'rgba(15,23,42,.035)',
+          bgcolor: 'var(--hc-surface-soft)',
           borderRadius: 3,
           px: 0.5,
           '& .MuiTabs-indicator': { height: 0 },
-          '& .MuiTab-root': { minHeight: 42, fontSize: 13, fontWeight: 800 },
-          '& .MuiTab-root.Mui-selected': { bgcolor: '#fff', borderRadius: 2.5, boxShadow: '0 8px 20px rgba(15,23,42,.08)' },
+          '& .MuiTab-root': { minHeight: 42, fontSize: 13, fontWeight: 800, color: 'var(--hc-text-muted)' },
+          '& .MuiTab-root.Mui-selected': { color: 'var(--hc-text)', borderRadius: 2.5, boxShadow: '0 8px 20px var(--hc-shadow)' },
         }}
       >
         {SETTINGS_CATEGORIES.map(item => (
@@ -70,6 +74,7 @@ export function SettingsPage(props: SettingsPageProps) {
             key={item.id}
             value={item.id}
             label={item.label}
+            sx={{ '&.Mui-selected': { bgcolor: toneBgVar(item.tone), color: toneFgVar(item.tone) }, '&:hover': { bgcolor: toneHoverVar(item.tone), color: toneFgVar(item.tone) } }}
             id={`hypercortex-settings-tab-${item.id}`}
             aria-controls={`hypercortex-settings-tabpanel-${item.id}`}
           />
@@ -143,6 +148,10 @@ export function SettingsPage(props: SettingsPageProps) {
               fixedScaleDefault={props.htmlFaceFixedScaleDefault}
               onFixedScaleDefaultChange={props.onHtmlFaceFixedScaleDefaultChange}
             />
+            <ColorPresetSettingsPanel
+              value={props.colorPresetId}
+              onChange={props.onColorPresetChange}
+            />
           </SettingsPanelStack>
         ) : null}
       </Box>
@@ -159,12 +168,12 @@ function ShortcutHintsSettingsPanel(props: { enabled: boolean; onEnabledChange: 
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-      <Typography sx={{ fontSize: 18, lineHeight: 1.25, fontWeight: 900, color: '#111' }}>快捷键提示</Typography>
-      <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.62)' }}>
+      <Typography sx={{ fontSize: 18, lineHeight: 1.25, fontWeight: 900, color: 'var(--hc-text)' }}>快捷键提示</Typography>
+      <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'var(--hc-text-muted)' }}>
         启用后，顶部栏会出现一个问号按钮，点击即可查看当前已设置的快捷键。
       </Typography>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1, py: 0.75, borderRadius: 2, bgcolor: 'rgba(0,0,0,.02)' }}>
-        <Typography sx={{ fontSize: 13, fontWeight: 700, color: '#111' }}>显示顶部栏问号</Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1, py: 0.75, borderRadius: 2, bgcolor: toneBgVar(FEATURE_TONES.actions) }}>
+        <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'var(--hc-text)' }}>显示顶部栏问号</Typography>
         <Switch checked={enabled} onChange={(_, checked) => onEnabledChange(checked)} />
       </Box>
     </Box>

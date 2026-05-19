@@ -2,6 +2,7 @@ import * as React from 'react'
 import { Box, Button, IconButton, InputBase, Switch, Tooltip, Typography } from '@mui/material'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import { softButtonSx } from './pluginUiStyles'
+import { FEATURE_TONES, toneBgVar, toneFgVar } from './uiTones'
 
 function clampInt(value: unknown, fallback: number, min: number, max: number): number {
   const n = Math.floor(Number(value))
@@ -33,8 +34,8 @@ export function TrashSettingsPanel(props: {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
-          <Typography sx={{ fontSize: 18, lineHeight: 1.25, fontWeight: 900, color: '#111' }}>回收站</Typography>
-          <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.62)' }}>
+          <Typography sx={{ fontSize: 18, lineHeight: 1.25, fontWeight: 900, color: 'var(--hc-text)' }}>回收站</Typography>
+          <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'var(--hc-text-muted)' }}>
             启用后，删除笔记会先移入回收站；关闭后则直接永久删除（不可恢复）。
           </Typography>
         </Box>
@@ -46,13 +47,13 @@ export function TrashSettingsPanel(props: {
         </Tooltip>
       </Box>
 
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1, py: 0.75, borderRadius: 2, bgcolor: 'rgba(0,0,0,.02)' }}>
-        <Typography sx={{ fontSize: 13, fontWeight: 700, color: '#111' }}>启用回收站</Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1, py: 0.75, borderRadius: 2, bgcolor: toneBgVar(FEATURE_TONES.trash) }}>
+        <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'var(--hc-text)' }}>启用回收站</Typography>
         <Switch checked={enabled} onChange={(_, checked) => onEnabledChange(checked)} />
       </Box>
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: '160px 1fr auto', alignItems: 'center', gap: 1, px: 1, py: 0.75, borderRadius: 2, bgcolor: 'rgba(0,0,0,.02)' }}>
-        <Typography sx={{ fontSize: 13, fontWeight: 700, color: '#111' }}>自动清理（天）</Typography>
+      <Box sx={{ display: 'grid', gridTemplateColumns: '160px 1fr auto', alignItems: 'center', gap: 1, px: 1, py: 0.75, borderRadius: 2, bgcolor: toneBgVar(FEATURE_TONES.trash) }}>
+        <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'var(--hc-text)' }}>自动清理（天）</Typography>
         <InputBase
           value={daysText}
           onChange={e => setDaysText(e.target.value)}
@@ -68,9 +69,10 @@ export function TrashSettingsPanel(props: {
             px: 1,
             py: 0.6,
             borderRadius: 2,
-            bgcolor: 'rgba(255,255,255,.78)',
-            '&:focus-within': { bgcolor: 'rgba(25,118,210,.08)', boxShadow: '0 10px 24px rgba(25,118,210,.12)' },
+            bgcolor: 'var(--hc-surface)',
+            '&:focus-within': { bgcolor: 'var(--hc-surface)', boxShadow: '0 10px 24px var(--hc-shadow)' },
             fontSize: 13,
+            color: toneFgVar(FEATURE_TONES.trash),
           }}
         />
         <Button size="small" variant="text" onClick={commitDays} sx={{ ...softButtonSx, borderRadius: 2 }}>

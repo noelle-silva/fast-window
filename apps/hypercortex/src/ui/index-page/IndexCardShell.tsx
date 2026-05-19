@@ -167,7 +167,7 @@ export function IndexCardShell(props: Props): React.ReactNode {
                 closeMenu()
                 onDeleteEntity()
               }}
-              sx={{ color: '#d32f2f' }}
+              sx={{ color: 'var(--hc-danger)' }}
             >
               <ListItemIcon sx={{ color: 'inherit' }}>
                 <DeleteForeverRoundedIcon fontSize="small" />

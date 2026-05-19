@@ -7,6 +7,7 @@ import {
   type HyperCortexShortcutBindingsV1,
   type HyperCortexShortcutId,
 } from '../shortcuts'
+import { FEATURE_TONES, toneBgVar, toneFgVar, toneHoverVar } from './uiTones'
 
 type ShortcutKey = Exclude<keyof HyperCortexShortcutBindingsV1, 'version'>
 
@@ -77,14 +78,15 @@ export function ShortcutSettingsPanel(props: {
           px: 1,
           py: 0.75,
           borderRadius: 2,
-          bgcolor: isRec ? 'rgba(25,118,210,0.06)' : 'transparent',
+          bgcolor: isRec ? toneBgVar(FEATURE_TONES.actions) : 'var(--hc-surface-soft)',
+          '&:hover': { bgcolor: isRec ? toneHoverVar(FEATURE_TONES.actions) : 'var(--hc-surface-muted)' },
         }}
       >
-        <Typography sx={{ fontSize: 13, fontWeight: 700, color: '#111' }}>{p.title}</Typography>
+        <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'var(--hc-text)' }}>{p.title}</Typography>
         <Typography
           sx={{
             fontSize: 13,
-            color: p.value ? 'rgba(0,0,0,.78)' : 'rgba(0,0,0,.45)',
+            color: isRec ? toneFgVar(FEATURE_TONES.actions) : p.value ? 'var(--hc-text-muted)' : 'var(--hc-text-subtle)',
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
@@ -114,8 +116,8 @@ export function ShortcutSettingsPanel(props: {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-      <Typography sx={{ fontSize: 18, lineHeight: 1.25, fontWeight: 900, color: '#111' }}>快捷键</Typography>
-      <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.62)' }}>
+      <Typography sx={{ fontSize: 18, lineHeight: 1.25, fontWeight: 900, color: 'var(--hc-text)' }}>快捷键</Typography>
+      <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'var(--hc-text-muted)' }}>
         这些快捷键默认都是空的（不启用）。点击「录制」后按下组合键即可保存。
       </Typography>
 

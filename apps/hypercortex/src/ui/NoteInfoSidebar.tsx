@@ -35,11 +35,11 @@ function NoteIdChip(props: {
         py: 0.5,
         borderRadius: 999,
         fontSize: 12,
-        color: clickable ? '#1976d2' : 'rgba(0,0,0,.55)',
-        bgcolor: clickable ? 'rgba(25,118,210,.06)' : 'rgba(0,0,0,.04)',
+        color: clickable ? 'var(--hc-primary)' : 'var(--hc-text-muted)',
+        bgcolor: clickable ? 'var(--hc-primary-soft)' : 'var(--hc-surface-soft)',
         cursor: clickable ? 'pointer' : 'default',
         transition: 'background 120ms',
-        '&:hover': clickable ? { bgcolor: 'rgba(25,118,210,.12)' } : {},
+        '&:hover': clickable ? { bgcolor: 'var(--hc-primary-hover)' } : {},
       }}
     >
       {title || (noteId ? noteId.slice(0, 12) + (noteId.length > 12 ? '…' : '') : '—')}

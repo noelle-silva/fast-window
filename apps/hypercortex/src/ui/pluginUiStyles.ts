@@ -10,11 +10,11 @@ export const lineFreeComponentOverrides = {
       },
       outlined: {
         borderColor: 'transparent',
-        color: 'rgba(15,23,42,.76)',
-        backgroundColor: 'rgba(15,23,42,.06)',
+        color: 'var(--hc-text-muted)',
+        backgroundColor: 'var(--hc-surface-soft)',
         '&:hover': {
           borderColor: 'transparent',
-          backgroundColor: 'rgba(15,23,42,.10)',
+          backgroundColor: 'var(--hc-surface-muted)',
         },
       },
     },
@@ -23,12 +23,12 @@ export const lineFreeComponentOverrides = {
     styleOverrides: {
       root: {
         borderRadius: 14,
-        backgroundColor: 'rgba(15,23,42,.045)',
+        backgroundColor: 'var(--hc-surface-soft)',
         transition: 'background-color 120ms ease, box-shadow 120ms ease',
-        '&:hover': { backgroundColor: 'rgba(15,23,42,.065)' },
+        '&:hover': { backgroundColor: 'var(--hc-surface-muted)' },
         '&.Mui-focused': {
-          backgroundColor: 'rgba(25,118,210,.08)',
-          boxShadow: '0 12px 28px rgba(25,118,210,.13)',
+          backgroundColor: 'var(--hc-primary-soft)',
+          boxShadow: '0 12px 28px var(--hc-shadow)',
         },
       },
       notchedOutline: {
@@ -41,29 +41,30 @@ export const lineFreeComponentOverrides = {
 export const menuPaperSx = {
   borderRadius: 7,
   overflow: 'hidden',
-  boxShadow: '0 18px 46px rgba(15,23,42,.18)',
+  bgcolor: 'var(--hc-surface)',
+  boxShadow: '0 18px 46px var(--hc-shadow-strong)',
 } satisfies SxProps<Theme>
 
 export const menuDangerItemSx = {
   mt: 0.5,
-  color: '#d32f2f',
-  bgcolor: 'rgba(211,47,47,.05)',
-  '&:hover': { bgcolor: 'rgba(211,47,47,.10)' },
+  color: 'var(--hc-danger)',
+  bgcolor: 'var(--hc-danger-soft)',
+  '&:hover': { bgcolor: 'var(--hc-accent-clay)' },
 } satisfies SxProps<Theme>
 
 export const softButtonSx = {
   borderRadius: 999,
   textTransform: 'none',
   fontWeight: 900,
-  color: 'rgba(15,23,42,.76)',
-  bgcolor: 'rgba(15,23,42,.06)',
+  color: 'var(--hc-text-muted)',
+  bgcolor: 'var(--hc-surface-soft)',
   boxShadow: 'none',
   '&:hover': {
-    bgcolor: 'rgba(15,23,42,.10)',
+    bgcolor: 'var(--hc-surface-muted)',
     boxShadow: 'none',
   },
   '&.Mui-disabled': {
-    bgcolor: 'rgba(15,23,42,.035)',
+    bgcolor: 'var(--hc-surface-soft)',
   },
 } satisfies SxProps<Theme>
 
@@ -85,48 +86,48 @@ export const softDangerButtonSx = {
   borderRadius: 999,
   textTransform: 'none',
   fontWeight: 900,
-  color: '#b42318',
-  bgcolor: 'rgba(211,47,47,.08)',
+  color: 'var(--hc-danger)',
+  bgcolor: 'var(--hc-danger-soft)',
   boxShadow: 'none',
   '&:hover': {
-    bgcolor: 'rgba(211,47,47,.14)',
+    bgcolor: 'var(--hc-accent-clay)',
     boxShadow: 'none',
   },
 } satisfies SxProps<Theme>
 
 export const floatingControlSx = {
-  bgcolor: 'rgba(255,255,255,.95)',
-  boxShadow: '0 10px 24px rgba(15,23,42,.12)',
-  color: 'rgba(15,23,42,.66)',
+  bgcolor: 'var(--hc-surface)',
+  boxShadow: '0 10px 24px var(--hc-shadow)',
+  color: 'var(--hc-text-muted)',
   '&:hover': {
-    bgcolor: '#fff',
-    boxShadow: '0 14px 30px rgba(15,23,42,.16)',
+    bgcolor: 'var(--hc-surface)',
+    boxShadow: '0 14px 30px var(--hc-shadow-strong)',
   },
 } satisfies SxProps<Theme>
 
 export const darkFloatingControlSx = {
-  bgcolor: 'rgba(0,0,0,.38)',
-  color: 'rgba(255,255,255,.92)',
-  boxShadow: '0 12px 28px rgba(0,0,0,.28)',
+  bgcolor: 'var(--hc-text)',
+  color: 'var(--hc-surface)',
+  boxShadow: '0 12px 28px var(--hc-shadow-strong)',
   backdropFilter: 'blur(10px)',
   '&:hover': {
-    bgcolor: 'rgba(0,0,0,.54)',
-    boxShadow: '0 16px 34px rgba(0,0,0,.34)',
+    bgcolor: 'var(--hc-text-muted)',
+    boxShadow: '0 16px 34px var(--hc-shadow-strong)',
   },
 } satisfies SxProps<Theme>
 
 export const softCardSx = {
-  bgcolor: '#fff',
-  boxShadow: '0 12px 30px rgba(15,23,42,.07)',
+  bgcolor: 'var(--hc-surface)',
+  boxShadow: '0 12px 30px var(--hc-shadow)',
 } satisfies SxProps<Theme>
 
 export const softPanelSx = {
-  bgcolor: 'rgba(15,23,42,.035)',
-  boxShadow: '0 10px 26px rgba(15,23,42,.05)',
+  bgcolor: 'var(--hc-surface-soft)',
+  boxShadow: '0 10px 26px var(--hc-shadow)',
 } satisfies SxProps<Theme>
 
 export const softFocusSx = {
   outline: 'none',
-  bgcolor: 'rgba(25,118,210,.08)',
-  boxShadow: '0 12px 30px rgba(25,118,210,.14)',
+  bgcolor: 'var(--hc-primary-soft)',
+  boxShadow: '0 12px 30px var(--hc-shadow)',
 } satisfies SxProps<Theme>

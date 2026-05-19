@@ -98,13 +98,13 @@ export function AssetUploadTaskPanel(props: Props) {
 
   return (
     <Popper open={open} anchorEl={anchorEl} placement="bottom-end" sx={{ zIndex: 1400 }} modifiers={[{ name: 'offset', options: { offset: [0, 8] } }]}>
-      <Box sx={{ width: 380, maxWidth: 'calc(100vw - 24px)', borderRadius: 4, overflow: 'hidden', bgcolor: 'rgba(248,250,252,.96)', boxShadow: '0 24px 60px rgba(15,23,42,.20)', backdropFilter: 'blur(18px)' }}>
-        <Box sx={{ px: 1.5, py: 1.25, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, background: 'linear-gradient(135deg,#eef2ff,#ecfeff)' }}>
+      <Box sx={{ width: 380, maxWidth: 'calc(100vw - 24px)', borderRadius: 4, overflow: 'hidden', bgcolor: 'var(--hc-surface)', boxShadow: '0 24px 60px var(--hc-shadow-strong)', backdropFilter: 'blur(18px)' }}>
+        <Box sx={{ px: 1.5, py: 1.25, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, bgcolor: 'var(--hc-surface-soft)' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Box sx={{ width: 30, height: 30, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#eef2ff', color: '#4f46e5' }}>
+            <Box sx={{ width: 30, height: 30, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: 'var(--hc-primary-soft)', color: 'var(--hc-primary)' }}>
               <CloudUploadRoundedIcon sx={{ fontSize: 18 }} />
             </Box>
-            <Typography sx={{ fontSize: 14, fontWeight: 950, color: '#0f172a' }}>上传任务</Typography>
+            <Typography sx={{ fontSize: 14, fontWeight: 950, color: 'var(--hc-text)' }}>上传任务</Typography>
           </Box>
           <IconButton size="small" aria-label="关闭上传任务窗" onClick={onClose} sx={{ width: 28, height: 28 }}>
             <CloseRoundedIcon sx={{ fontSize: 18 }} />
@@ -115,7 +115,7 @@ export function AssetUploadTaskPanel(props: Props) {
           value={view}
           onChange={(_, next) => onViewChange(next as AssetUploadTaskView)}
           aria-label="上传任务分类"
-          sx={{ minHeight: 36, px: 1.25, '& .MuiTabs-indicator': { height: 0 }, '& .MuiTab-root': { minHeight: 34, borderRadius: 2, fontSize: 12, fontWeight: 900, textTransform: 'none' }, '& .Mui-selected': { bgcolor: '#fff', boxShadow: '0 1px 2px rgba(15,23,42,.08)' } }}
+          sx={{ minHeight: 36, px: 1.25, '& .MuiTabs-indicator': { height: 0 }, '& .MuiTab-root': { minHeight: 34, borderRadius: 2, fontSize: 12, fontWeight: 900, textTransform: 'none', color: 'var(--hc-text-muted)' }, '& .Mui-selected': { color: 'var(--hc-text)', bgcolor: 'var(--hc-surface-soft)', boxShadow: '0 8px 18px var(--hc-shadow)' } }}
         >
           <Tab value="active" label={`上传中 (${activeTasks.length})`} />
           <Tab value="completed" label={`已完成 (${completedTasks.length})`} />

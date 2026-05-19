@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Box, FormControlLabel, Radio, RadioGroup, Typography } from '@mui/material'
 import type { HyperCortexSidebarSortModeV1 } from '../core'
+import { FEATURE_TONES, toneBgVar, toneHoverVar } from './uiTones'
 
 type SidebarSortSettingsPanelProps = {
   mode: HyperCortexSidebarSortModeV1
@@ -26,8 +27,8 @@ export function SidebarSortSettingsPanel(props: SidebarSortSettingsPanelProps) {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-        <Typography sx={{ fontSize: 18, lineHeight: 1.25, fontWeight: 900, color: '#111' }}>左侧标签页排序</Typography>
-        <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'rgba(0,0,0,.62)' }}>
+        <Typography sx={{ fontSize: 18, lineHeight: 1.25, fontWeight: 900, color: 'var(--hc-text)' }}>左侧标签页排序</Typography>
+        <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'var(--hc-text-muted)' }}>
           在这里切换左侧标签页的拖拽排序方式；切换只影响交互方式，不改变现有标签页顺序。
         </Typography>
       </Box>
@@ -44,19 +45,20 @@ export function SidebarSortSettingsPanel(props: SidebarSortSettingsPanelProps) {
             key={option.value}
             sx={{
               borderRadius: 3,
-              bgcolor: mode === option.value ? 'rgba(25,118,210,.08)' : 'rgba(0,0,0,.02)',
-              boxShadow: mode === option.value ? '0 12px 26px rgba(25,118,210,.12)' : 'none',
+              bgcolor: mode === option.value ? toneBgVar(FEATURE_TONES.display) : 'var(--hc-surface-soft)',
+              boxShadow: mode === option.value ? '0 12px 26px var(--hc-shadow)' : 'none',
               px: 1.25,
               py: 1,
+              '&:hover': { bgcolor: mode === option.value ? toneHoverVar(FEATURE_TONES.display) : 'var(--hc-surface-muted)' },
             }}
           >
             <FormControlLabel
               value={option.value}
               control={<Radio size="small" />}
-              label={<Typography sx={{ fontSize: 13, fontWeight: 900, color: '#111' }}>{option.title}</Typography>}
+              label={<Typography sx={{ fontSize: 13, fontWeight: 900, color: 'var(--hc-text)' }}>{option.title}</Typography>}
               sx={{ m: 0, alignItems: 'flex-start' }}
             />
-            <Typography sx={{ mt: 0.5, pl: 3.75, fontSize: 12, lineHeight: 1.55, color: 'rgba(0,0,0,.56)' }}>
+            <Typography sx={{ mt: 0.5, pl: 3.75, fontSize: 12, lineHeight: 1.55, color: 'var(--hc-text-muted)' }}>
               {option.description}
             </Typography>
           </Box>

@@ -70,7 +70,7 @@ function DndInsertCursor(props: { pos: 'before' | 'after'; color?: string }) {
         bottom,
         height: 2,
         borderRadius: 999,
-        bgcolor: color || '#1976d2',
+        bgcolor: color || 'var(--hc-primary)',
         boxShadow: '0 0 0 2px rgba(255,255,255,.92)',
         pointerEvents: 'none',
       }}
@@ -89,7 +89,7 @@ function TopLevelDropSlot(props: { index: number; active: boolean }) {
         height: 3,
         mx: 0.5,
         borderRadius: 999,
-        bgcolor: active ? 'rgba(25,118,210,.08)' : 'transparent',
+        bgcolor: active ? 'var(--hc-primary-soft)' : 'transparent',
         transition: 'background-color 120ms ease',
         '&::before': active
           ? {
@@ -100,8 +100,8 @@ function TopLevelDropSlot(props: { index: number; active: boolean }) {
               top: 0.5,
               height: 2,
               borderRadius: 999,
-              bgcolor: '#1976d2',
-              boxShadow: '0 0 0 2px rgba(255,255,255,.92)',
+              bgcolor: 'var(--hc-primary)',
+              boxShadow: '0 0 0 2px var(--hc-surface)',
             }
           : undefined,
       }}
@@ -122,7 +122,7 @@ function GroupDropSlot(props: { groupId: string; index: number; active: boolean;
         ml: showTitle ? 1.5 : 1,
         mr: 0.5,
         borderRadius: 999,
-        bgcolor: active ? 'rgba(25,118,210,.08)' : 'transparent',
+        bgcolor: active ? 'var(--hc-primary-soft)' : 'transparent',
         transition: 'background-color 120ms ease',
         '&::before': active
           ? {
@@ -133,8 +133,8 @@ function GroupDropSlot(props: { groupId: string; index: number; active: boolean;
               top: 0.5,
               height: 2,
               borderRadius: 999,
-              bgcolor: '#1976d2',
-              boxShadow: '0 0 0 2px rgba(255,255,255,.92)',
+              bgcolor: 'var(--hc-primary)',
+              boxShadow: '0 0 0 2px var(--hc-surface)',
             }
           : undefined,
       }}
@@ -158,7 +158,7 @@ function SortableInsertionSlot(props: { id: string; enabled: boolean; indent?: b
               ml: indent ? (showTitle ? 1.5 : 1) : 0.5,
               mr: 0.5,
               borderRadius: 999,
-              bgcolor: active ? 'rgba(25,118,210,.08)' : 'transparent',
+              bgcolor: active ? 'var(--hc-primary-soft)' : 'transparent',
               transition: 'background-color 120ms ease, height 120ms ease',
               '&::before': active
                 ? {
@@ -169,8 +169,8 @@ function SortableInsertionSlot(props: { id: string; enabled: boolean; indent?: b
                     top: '50%',
                     height: 2,
                     borderRadius: 999,
-                    bgcolor: '#1976d2',
-                    boxShadow: '0 0 0 2px rgba(255,255,255,.92)',
+                    bgcolor: 'var(--hc-primary)',
+                    boxShadow: '0 0 0 2px var(--hc-surface)',
                     transform: 'translateY(-50%)',
                   }
                 : undefined,
@@ -437,17 +437,17 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               cursor: isDragging ? 'grabbing' : opts?.sortable ? 'grab' : 'pointer',
               touchAction: opts?.sortable ? 'none' : undefined,
               opacity: isSortablePlaceholder ? 0.44 : isDragging ? 0.72 : 1,
-              boxShadow: isSortablePlaceholder ? '0 10px 24px rgba(25,118,210,.18)' : 'none',
-              bgcolor: isSortablePlaceholder ? 'rgba(25,118,210,.14)' : isDragOver ? 'rgba(25,118,210,.10)' : isActive ? 'rgba(25,118,210,.10)' : 'transparent',
-              '&:hover': { bgcolor: isSortablePlaceholder ? 'rgba(25,118,210,.08)' : isDragOver ? 'rgba(25,118,210,.14)' : isActive ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
-              '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
+              boxShadow: isSortablePlaceholder ? '0 10px 24px var(--hc-shadow)' : 'none',
+              bgcolor: isSortablePlaceholder ? 'var(--hc-primary-soft)' : isDragOver ? 'var(--hc-primary-soft)' : isActive ? 'var(--hc-primary-soft)' : 'transparent',
+              '&:hover': { bgcolor: isSortablePlaceholder ? 'var(--hc-primary-soft)' : isDragOver ? 'var(--hc-primary-hover)' : isActive ? 'var(--hc-primary-hover)' : 'var(--hc-surface-soft)' },
+              '&:focus-visible': { boxShadow: '0 10px 24px var(--hc-shadow)' },
             }}
           >
             <SortableIconSlot>
               {isPlaying ? (
-                <VolumeUpRoundedIcon fontSize="small" sx={{ color: '#16a34a' }} />
+                <VolumeUpRoundedIcon fontSize="small" sx={{ color: 'var(--hc-success)' }} />
               ) : (
-                <NotesRoundedIcon fontSize="small" sx={{ color: isActive ? '#1976d2' : 'rgba(0,0,0,.48)' }} />
+                <NotesRoundedIcon fontSize="small" sx={{ color: isActive ? 'var(--hc-primary)' : 'var(--hc-text-subtle)' }} />
               )}
               {dirty ? (
                 <Box
@@ -459,8 +459,8 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                     width: 8,
                     height: 8,
                     borderRadius: 999,
-                    bgcolor: '#f59e0b',
-                    boxShadow: '0 0 0 2px #fff',
+                    bgcolor: 'var(--hc-accent-butter)',
+                    boxShadow: '0 0 0 2px var(--hc-surface)',
                   }}
                 />
               ) : null}
@@ -474,7 +474,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                   fontSize: 12,
                   lineHeight: 1.2,
                   fontWeight: isActive ? 900 : 600,
-                  color: isActive ? '#111' : 'rgba(0,0,0,.72)',
+                  color: isActive ? 'var(--hc-text)' : 'var(--hc-text-muted)',
                 }}
               >
                 {title}
@@ -493,7 +493,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                   }}
                   sx={{
                     color: 'rgba(0,0,0,.42)',
-                    '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                    '&:hover': { bgcolor: 'var(--hc-surface-soft)', color: 'var(--hc-text)' },
                   }}
                 >
                   <CloseRoundedIcon fontSize="small" />
@@ -518,13 +518,13 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       const isPlaying = !!playingTabKeys?.has(tabKey)
       const iconEl =
         isPlaying ? (
-          <VolumeUpRoundedIcon fontSize="small" sx={{ color: '#16a34a' }} />
+          <VolumeUpRoundedIcon fontSize="small" sx={{ color: 'var(--hc-success)' }} />
         ) : asset.kind === 'image' ? (
-          <ImageRoundedIcon fontSize="small" sx={{ color: isActive ? '#1976d2' : 'rgba(0,0,0,.48)' }} />
+          <ImageRoundedIcon fontSize="small" sx={{ color: isActive ? 'var(--hc-asset-image)' : 'var(--hc-text-subtle)' }} />
         ) : asset.kind === 'video' ? (
-          <VideoFileRoundedIcon fontSize="small" sx={{ color: isActive ? '#7b1fa2' : 'rgba(0,0,0,.48)' }} />
+          <VideoFileRoundedIcon fontSize="small" sx={{ color: isActive ? 'var(--hc-asset-video)' : 'var(--hc-text-subtle)' }} />
         ) : (
-          <InsertDriveFileRoundedIcon fontSize="small" sx={{ color: isActive ? '#546e7a' : 'rgba(0,0,0,.48)' }} />
+          <InsertDriveFileRoundedIcon fontSize="small" sx={{ color: isActive ? 'var(--hc-asset-file)' : 'var(--hc-text-subtle)' }} />
         )
 
       return (
@@ -569,10 +569,10 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               cursor: isDragging ? 'grabbing' : opts?.sortable ? 'grab' : 'pointer',
               touchAction: opts?.sortable ? 'none' : undefined,
               opacity: isSortablePlaceholder ? 0.44 : isDragging ? 0.72 : 1,
-              boxShadow: isSortablePlaceholder ? '0 10px 24px rgba(25,118,210,.18)' : 'none',
-              bgcolor: isSortablePlaceholder ? 'rgba(25,118,210,.14)' : isDragOver ? 'rgba(25,118,210,.10)' : isActive ? 'rgba(25,118,210,.10)' : 'transparent',
-              '&:hover': { bgcolor: isSortablePlaceholder ? 'rgba(25,118,210,.08)' : isDragOver ? 'rgba(25,118,210,.14)' : isActive ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
-              '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
+              boxShadow: isSortablePlaceholder ? '0 10px 24px var(--hc-shadow)' : 'none',
+              bgcolor: isSortablePlaceholder ? 'var(--hc-primary-soft)' : isDragOver ? 'var(--hc-primary-soft)' : isActive ? 'var(--hc-primary-soft)' : 'transparent',
+              '&:hover': { bgcolor: isSortablePlaceholder ? 'var(--hc-primary-soft)' : isDragOver ? 'var(--hc-primary-hover)' : isActive ? 'var(--hc-primary-hover)' : 'var(--hc-surface-soft)' },
+              '&:focus-visible': { boxShadow: '0 10px 24px var(--hc-shadow)' },
             }}
           >
             <SortableIconSlot>{iconEl}</SortableIconSlot>
@@ -585,7 +585,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                   fontSize: 12,
                   lineHeight: 1.2,
                   fontWeight: isActive ? 900 : 600,
-                  color: isActive ? '#111' : 'rgba(0,0,0,.72)',
+                  color: isActive ? 'var(--hc-text)' : 'var(--hc-text-muted)',
                 }}
               >
                 {title}
@@ -604,7 +604,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                   }}
                   sx={{
                     color: 'rgba(0,0,0,.42)',
-                    '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                    '&:hover': { bgcolor: 'var(--hc-surface-soft)', color: 'var(--hc-text)' },
                   }}
                 >
                   <CloseRoundedIcon fontSize="small" />
@@ -628,9 +628,9 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       const disableTitleTooltip = tabsMode === 'hover'
       const iconEl =
         kind === 'note' ? (
-          <NotesRoundedIcon fontSize="small" sx={{ color: isActive ? '#1976d2' : 'rgba(0,0,0,.48)' }} />
+          <NotesRoundedIcon fontSize="small" sx={{ color: isActive ? 'var(--hc-primary)' : 'var(--hc-text-subtle)' }} />
         ) : (
-          <InsertDriveFileRoundedIcon fontSize="small" sx={{ color: isActive ? '#546e7a' : 'rgba(0,0,0,.48)' }} />
+          <InsertDriveFileRoundedIcon fontSize="small" sx={{ color: isActive ? 'var(--hc-asset-file)' : 'var(--hc-text-subtle)' }} />
         )
 
       return (
@@ -671,10 +671,10 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               cursor: isDragging ? 'grabbing' : opts?.sortable ? 'grab' : 'pointer',
               touchAction: opts?.sortable ? 'none' : undefined,
               opacity: isSortablePlaceholder ? 0.44 : isDragging ? 0.72 : 0.86,
-              boxShadow: isSortablePlaceholder ? '0 10px 24px rgba(25,118,210,.18)' : 'none',
-              bgcolor: isSortablePlaceholder ? 'rgba(25,118,210,.14)' : isDragOver ? 'rgba(25,118,210,.10)' : isActive ? 'rgba(25,118,210,.10)' : 'transparent',
-              '&:hover': { bgcolor: isSortablePlaceholder ? 'rgba(25,118,210,.08)' : isDragOver ? 'rgba(25,118,210,.14)' : isActive ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
-              '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
+              boxShadow: isSortablePlaceholder ? '0 10px 24px var(--hc-shadow)' : 'none',
+              bgcolor: isSortablePlaceholder ? 'var(--hc-primary-soft)' : isDragOver ? 'var(--hc-primary-soft)' : isActive ? 'var(--hc-primary-soft)' : 'transparent',
+              '&:hover': { bgcolor: isSortablePlaceholder ? 'var(--hc-primary-soft)' : isDragOver ? 'var(--hc-primary-hover)' : isActive ? 'var(--hc-primary-hover)' : 'var(--hc-surface-soft)' },
+              '&:focus-visible': { boxShadow: '0 10px 24px var(--hc-shadow)' },
             }}
           >
             <SortableIconSlot>{iconEl}</SortableIconSlot>
@@ -707,7 +707,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                   }}
                   sx={{
                     color: 'rgba(0,0,0,.42)',
-                    '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                    '&:hover': { bgcolor: 'var(--hc-surface-soft)', color: 'var(--hc-text)' },
                   }}
                 >
                   <CloseRoundedIcon fontSize="small" />
@@ -852,11 +852,11 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               cursor: isDragging ? 'grabbing' : sortable ? 'grab' : 'pointer',
               touchAction: sortable ? 'none' : undefined,
               opacity: isSortablePlaceholder ? 0.5 : isDragging ? 0.78 : 1,
-              bgcolor: g.color,
-              boxShadow: isSortablePlaceholder ? '0 10px 24px rgba(25,118,210,.18)' : 'none',
-              backgroundImage: isSortablePlaceholder ? 'linear-gradient(0deg, rgba(25,118,210,.16), rgba(25,118,210,.16))' : isDragOver ? 'linear-gradient(0deg, rgba(25,118,210,.10), rgba(25,118,210,.10))' : 'none',
+              boxShadow: isSortablePlaceholder ? '0 10px 24px var(--hc-shadow)' : 'none',
+              backgroundImage: 'none',
+              bgcolor: isSortablePlaceholder || isDragOver ? 'var(--hc-primary-soft)' : g.color,
               '&:hover': { filter: 'brightness(0.985)' },
-              '&:focus-visible': { backgroundImage: 'linear-gradient(0deg, rgba(25,118,210,.14), rgba(25,118,210,.14))' },
+              '&:focus-visible': { bgcolor: 'var(--hc-primary-soft)', boxShadow: '0 10px 24px var(--hc-shadow)' },
             }}
           >
             <SortableIconSlot>
@@ -1099,7 +1099,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           display: 'flex',
           flexDirection: 'column',
           gap: 0.25,
-          bgcolor: dnd.dragOverKey === 'container' ? 'rgba(25,118,210,.06)' : 'transparent',
+          bgcolor: dnd.dragOverKey === 'container' ? 'var(--hc-primary-soft)' : 'transparent',
           transition: 'background-color 120ms ease',
         }}
       >
@@ -1228,7 +1228,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
             setWorkspaceDeleteTarget({ id: wid, title })
           }}
           disabled={workspaces.length <= 1}
-          sx={{ color: '#d32f2f' }}
+          sx={{ color: 'var(--hc-danger)' }}
         >
           删除当前工作区
         </MenuItem>

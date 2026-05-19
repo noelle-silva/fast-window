@@ -42,7 +42,7 @@ function createWordHtmlDocument(bodyHtml: string): string {
     table { width: 100%; border-collapse: separate; border-spacing: 0 6px; margin: 1em 0; }
     td, th { background: rgba(67,50,24,.055); padding: 7px 10px; vertical-align: top; }
     th { background: rgba(67,50,24,.10); font-weight: 700; }
-    a { color: #1565c0; }
+    a { color: #6f8f72; }
     @media (max-width: 720px) {
       body { padding: 14px; font-size: 15px; }
       main { min-height: calc(100vh - 28px); padding: 28px 22px; border-radius: 14px; }

@@ -16,8 +16,7 @@ export function StaleRefCard(props: Props): React.ReactNode {
 
   return (
     <CardFrame
-      accent="#d32f2f"
-      accentSoft="rgba(211,47,47,.12)"
+      danger
       icon={<LinkOffRoundedIcon fontSize="small" />}
       title="已失效的引用"
       subtitle={`目标 ${ref.kind} 已不存在，建议尽快清理这张卡片。`}
@@ -25,8 +24,8 @@ export function StaleRefCard(props: Props): React.ReactNode {
       onClick={disabled ? undefined : () => onClickRemove(ref.id)}
     >
       {compact ? null : (
-        <Box sx={{ px: 1, py: 0.7, borderRadius: 2.5, bgcolor: 'rgba(211,47,47,.08)' }}>
-          <Typography sx={{ fontSize: 12, lineHeight: 1.5, fontWeight: 700, color: '#b71c1c' }}>点击卡片即可从当前收藏夹中移除这条引用。</Typography>
+        <Box sx={{ px: 1, py: 0.7, borderRadius: 2.5, bgcolor: 'var(--hc-danger-soft)' }}>
+          <Typography sx={{ fontSize: 12, lineHeight: 1.5, fontWeight: 700, color: 'var(--hc-danger)' }}>点击卡片即可从当前收藏夹中移除这条引用。</Typography>
         </Box>
       )}
     </CardFrame>

@@ -51,28 +51,28 @@ const ASSET_PREVIEW_RULES: AssetPreviewRule[] = [
   {
     kind: 'image',
     label: '图片',
-    color: '#1976d2',
+    color: 'var(--hc-asset-image)',
     icon: ImageRoundedIcon,
     match: asset => asset.kind === 'image',
   },
   {
     kind: 'video',
     label: '视频',
-    color: '#7b1fa2',
+    color: 'var(--hc-asset-video)',
     icon: VideoFileRoundedIcon,
     match: asset => asset.kind === 'video',
   },
   {
     kind: 'pdf',
     label: 'PDF',
-    color: '#d32f2f',
+    color: 'var(--hc-asset-pdf)',
     icon: PictureAsPdfRoundedIcon,
     match: asset => normalizeExt(asset.ext) === 'pdf',
   },
   {
     kind: 'word',
     label: 'Word',
-    color: '#1565c0',
+    color: 'var(--hc-asset-word)',
     icon: ArticleRoundedIcon,
     match: asset => normalizeExt(asset.ext) === 'docx',
   },
@@ -94,7 +94,7 @@ export function getAssetPreviewDescriptor(asset: AssetEntry): AssetPreviewDescri
   return {
     kind: 'unsupported',
     label: '文件',
-    color: '#546e7a',
+    color: 'var(--hc-asset-file)',
     icon: InsertDriveFileRoundedIcon,
     canOpenInTab: false,
   }
