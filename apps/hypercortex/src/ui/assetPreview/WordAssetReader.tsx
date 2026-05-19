@@ -2,7 +2,7 @@ import * as React from 'react'
 import { Box, CircularProgress, Typography } from '@mui/material'
 import mammoth from 'mammoth'
 import type { AssetPreviewContext } from './registry'
-import { sanitizeAssetPreviewHtml } from './registry'
+import { sanitizeAssetPreviewHtml } from './assetPreviewHtml'
 
 function blobToArrayBuffer(blobUrl: string): Promise<ArrayBuffer> {
   return fetch(blobUrl).then(response => {

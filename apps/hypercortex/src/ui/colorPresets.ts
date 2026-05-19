@@ -63,6 +63,7 @@ export function colorPresetCssVars(preset: HyperCortexColorPreset): Record<strin
     '--hc-asset-video': c.assetVideo,
     '--hc-asset-pdf': c.assetPdf,
     '--hc-asset-word': c.assetWord,
+    '--hc-asset-epub': c.assetEpub,
     '--hc-asset-file': c.assetFile,
     '--hc-code-bg': c.codeBg,
     '--hc-code-text': c.codeText,

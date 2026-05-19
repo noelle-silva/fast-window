@@ -19,8 +19,6 @@ import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
-import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
-import VideoFileRoundedIcon from '@mui/icons-material/VideoFileRounded'
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded'
 import VolumeUpRoundedIcon from '@mui/icons-material/VolumeUpRounded'
 import SyncAltRoundedIcon from '@mui/icons-material/SyncAltRounded'
@@ -39,6 +37,7 @@ import { parseSortableId, sortableGroupId, sortableGroupSlotId, sortableTabId, s
 import { useOpenTabsSortableDnd } from './useOpenTabsSortableDnd'
 import { useOpenTabsSortableOverlay } from './OpenTabsSortableOverlay'
 import { menuDangerItemSx, menuPaperSx } from './pluginUiStyles'
+import { getAssetPreviewDescriptor } from './assetPreview/registry'
 
 const ACTIVE_TAB_SCROLL_PADDING = 16
 
@@ -516,13 +515,13 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
       const isSortablePlaceholder = !!opts?.sortable && sortableActiveId === sortableTabId(tabKey)
       const disableTitleTooltip = tabsMode === 'hover'
       const isPlaying = !!playingTabKeys?.has(tabKey)
+      const preview = getAssetPreviewDescriptor(asset)
+      const PreviewIcon = preview.icon
       const iconEl =
         isPlaying ? (
           <VolumeUpRoundedIcon fontSize="small" sx={{ color: 'var(--hc-success)' }} />
-        ) : asset.kind === 'image' ? (
-          <ImageRoundedIcon fontSize="small" sx={{ color: isActive ? 'var(--hc-asset-image)' : 'var(--hc-text-subtle)' }} />
-        ) : asset.kind === 'video' ? (
-          <VideoFileRoundedIcon fontSize="small" sx={{ color: isActive ? 'var(--hc-asset-video)' : 'var(--hc-text-subtle)' }} />
+        ) : preview.kind !== 'unsupported' ? (
+          <PreviewIcon fontSize="small" sx={{ color: isActive ? preview.color : 'var(--hc-text-subtle)' }} />
         ) : (
           <InsertDriveFileRoundedIcon fontSize="small" sx={{ color: isActive ? 'var(--hc-asset-file)' : 'var(--hc-text-subtle)' }} />
         )

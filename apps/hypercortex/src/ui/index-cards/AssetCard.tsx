@@ -1,14 +1,13 @@
 import * as React from 'react'
 import { Box, Typography } from '@mui/material'
-import ImageRoundedIcon from '@mui/icons-material/ImageRounded'
 import AudioFileRoundedIcon from '@mui/icons-material/AudioFileRounded'
-import VideoFileRoundedIcon from '@mui/icons-material/VideoFileRounded'
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded'
 import type { AssetEntry } from '../../assetTypes'
 import { pickAssetDisplayName } from '../../assetDisplayName'
 import { CardFrame } from './CardFrame'
 import { formatFileSize, formatTimeAgo } from './cardMeta'
 import { assetToneFromKind, toneChipSx, toneFgVar } from '../uiTones'
+import { getAssetPreviewDescriptor } from '../assetPreview/registry'
 
 type Props = {
   asset: AssetEntry
@@ -17,10 +16,14 @@ type Props = {
   onClick: (asset: AssetEntry) => void
 }
 
-function kindIcon(kind: string): React.ReactNode {
-  if (kind === 'image') return <ImageRoundedIcon fontSize="small" />
+function kindIcon(asset: AssetEntry): React.ReactNode {
+  const preview = getAssetPreviewDescriptor(asset)
+  if (preview.kind !== 'unsupported') {
+    const PreviewIcon = preview.icon
+    return <PreviewIcon fontSize="small" sx={{ color: preview.color }} />
+  }
+  const kind = asset.kind
   if (kind === 'audio') return <AudioFileRoundedIcon fontSize="small" />
-  if (kind === 'video') return <VideoFileRoundedIcon fontSize="small" />
   return <InsertDriveFileRoundedIcon fontSize="small" />
 }
 
@@ -32,7 +35,7 @@ export function AssetCard(props: Props): React.ReactNode {
   const icon = showThumb ? (
     <Box component="img" src={asset.thumbnailUrl || ''} alt={name} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} />
   ) : (
-    kindIcon(asset.kind)
+    kindIcon(asset)
   )
 
   return (

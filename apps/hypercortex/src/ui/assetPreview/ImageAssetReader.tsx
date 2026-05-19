@@ -1,17 +1,9 @@
 import * as React from 'react'
 import { Box } from '@mui/material'
-import type { PreviewController } from '../preview/usePreviewController'
 import { unstyledButtonSurfaceSx } from '../pluginUiStyles'
+import type { AssetPreviewContext } from './registry'
 
-export function ImageAssetReader({
-  blobUrl,
-  title,
-  previewController,
-}: {
-  blobUrl: string
-  title: string
-  previewController: PreviewController
-}) {
+export function ImageAssetReader({ blobUrl, title, previewController }: AssetPreviewContext) {
   const rootRef = React.useRef<HTMLDivElement | null>(null)
   const imgRef = React.useRef<HTMLImageElement | null>(null)
 

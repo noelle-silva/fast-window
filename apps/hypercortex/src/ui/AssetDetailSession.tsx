@@ -45,7 +45,7 @@ export function AssetDetailSession({
   const bindPreviewToolbarHost = React.useCallback((node: HTMLDivElement | null) => {
     setPreviewToolbarHost(node)
   }, [])
-  const showPreviewToolbarSlot = preview.kind === 'pdf'
+  const showPreviewToolbarSlot = preview.toolbarSlot === 'header'
 
   const load = React.useCallback(async () => {
     setLoading(true)

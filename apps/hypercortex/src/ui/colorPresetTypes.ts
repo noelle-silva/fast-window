@@ -25,6 +25,7 @@ export type HyperCortexColorPresetColors = {
   assetVideo: string
   assetPdf: string
   assetWord: string
+  assetEpub: string
   assetFile: string
   codeBg: string
   codeText: string

@@ -20,6 +20,7 @@ export function extFromMime(mime: string): string {
   if (m === 'video/ogg') return 'ogv'
 
   if (m === 'application/pdf') return 'pdf'
+  if (m === 'application/epub+zip') return 'epub'
   if (m === 'text/plain') return 'txt'
   if (m === 'text/csv') return 'csv'
   if (m === 'application/zip') return 'zip'
@@ -51,6 +52,7 @@ export function mimeFromExt(ext: string): string {
   if (e === 'ogv') return 'video/ogg'
 
   if (e === 'pdf') return 'application/pdf'
+  if (e === 'epub') return 'application/epub+zip'
   if (e === 'txt') return 'text/plain'
   if (e === 'csv') return 'text/csv'
   if (e === 'zip') return 'application/zip'
@@ -69,5 +71,5 @@ export function kindFromMime(mime: string): string {
 }
 
 export const ACCEPTED_FILE_EXTENSIONS = [
-  'jpg', 'png', 'webp', 'gif', 'svg', 'mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'mp4', 'm4v', 'webm', 'mov', 'ogv', 'pdf', 'txt', 'csv', 'zip', 'docx', 'xlsx', 'pptx',
+  'jpg', 'png', 'webp', 'gif', 'svg', 'mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a', 'mp4', 'm4v', 'webm', 'mov', 'ogv', 'pdf', 'epub', 'txt', 'csv', 'zip', 'docx', 'xlsx', 'pptx',
 ] as const
