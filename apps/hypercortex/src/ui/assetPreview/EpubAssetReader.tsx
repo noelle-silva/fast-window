@@ -7,6 +7,7 @@ import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
 import ePub, { type Book, type Location, type NavItem, type Rendition } from 'epubjs'
 import type { AssetPreviewContext } from './registry'
 import { AssetPreviewToolbarPortal } from './assetPreviewToolbar'
+import { attachEpubWheelNavigation } from './epubWheelNavigation'
 import { softButtonSx } from '../pluginUiStyles'
 
 const EPUB_FONT_SCALE_MIN = 82
@@ -182,6 +183,8 @@ export function EpubAssetReader({ blobUrl, toolbarHost }: AssetPreviewContext) {
   const renditionRef = React.useRef<Rendition | null>(null)
   const tocRef = React.useRef<EpubTocItem[]>([])
   const fontScaleRef = React.useRef(DEFAULT_EPUB_FONT_SCALE)
+  const atStartRef = React.useRef(true)
+  const atEndRef = React.useRef(false)
   const [loading, setLoading] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [toc, setToc] = React.useState<EpubTocItem[]>([])
@@ -196,6 +199,18 @@ export function EpubAssetReader({ blobUrl, toolbarHost }: AssetPreviewContext) {
     renditionRef.current?.themes.fontSize(`${fontScale}%`)
   }, [fontScale])
 
+  const prev = React.useCallback(() => {
+    const rendition = renditionRef.current
+    if (!rendition || atStartRef.current) return Promise.resolve()
+    return rendition.prev().catch((e: any) => setError(String(e?.message || e || 'EPUB 上一页失败')))
+  }, [])
+
+  const next = React.useCallback(() => {
+    const rendition = renditionRef.current
+    if (!rendition || atEndRef.current) return Promise.resolve()
+    return rendition.next().catch((e: any) => setError(String(e?.message || e || 'EPUB 下一页失败')))
+  }, [])
+
   React.useEffect(() => {
     let cancelled = false
     let book: Book | null = null
@@ -209,6 +224,8 @@ export function EpubAssetReader({ blobUrl, toolbarHost }: AssetPreviewContext) {
     tocRef.current = []
     setActiveHref('')
     setProgress(0)
+    atStartRef.current = true
+    atEndRef.current = false
     setAtStart(true)
     setAtEnd(false)
 
@@ -245,8 +262,12 @@ export function EpubAssetReader({ blobUrl, toolbarHost }: AssetPreviewContext) {
 
         const onRelocated = (location: Location) => {
           setProgress(progressPercent(location))
-          setAtStart(Boolean(location.atStart))
-          setAtEnd(Boolean(location.atEnd))
+          const nextAtStart = Boolean(location.atStart)
+          const nextAtEnd = Boolean(location.atEnd)
+          atStartRef.current = nextAtStart
+          atEndRef.current = nextAtEnd
+          setAtStart(nextAtStart)
+          setAtEnd(nextAtEnd)
           setActiveHref(pickCurrentTocHref(tocRef.current, location.start?.href))
         }
         rendition.on('relocated', onRelocated)
@@ -261,7 +282,18 @@ export function EpubAssetReader({ blobUrl, toolbarHost }: AssetPreviewContext) {
         resizeObserver.observe(reader)
 
         await rendition.display()
-        if (!cancelled) setLoading(false)
+        if (cancelled) return
+
+        const wheelNavigation = attachEpubWheelNavigation({
+          rendition,
+          surface: reader,
+          onPreviousPage: prev,
+          onNextPage: next,
+          onError: setError,
+        })
+        cleanupListeners.push(() => wheelNavigation.destroy())
+
+        setLoading(false)
       } catch (e: any) {
         if (!cancelled) {
           setError(String(e?.message || e || 'EPUB 文档读取失败'))
@@ -279,20 +311,12 @@ export function EpubAssetReader({ blobUrl, toolbarHost }: AssetPreviewContext) {
       if (renditionRef.current === rendition) renditionRef.current = null
       readerRef.current?.replaceChildren()
     }
-  }, [blobUrl])
+  }, [blobUrl, next, prev])
 
   const displayTarget = React.useCallback((target: string) => {
     const rendition = renditionRef.current
     if (!rendition || !target) return
     rendition.display(target).catch((e: any) => setError(String(e?.message || e || 'EPUB 章节跳转失败')))
-  }, [])
-
-  const prev = React.useCallback(() => {
-    renditionRef.current?.prev().catch((e: any) => setError(String(e?.message || e || 'EPUB 上一页失败')))
-  }, [])
-
-  const next = React.useCallback(() => {
-    renditionRef.current?.next().catch((e: any) => setError(String(e?.message || e || 'EPUB 下一页失败')))
   }, [])
 
   const decreaseFont = React.useCallback(() => setFontScale(value => clampFontScale(value - EPUB_FONT_SCALE_STEP)), [])
