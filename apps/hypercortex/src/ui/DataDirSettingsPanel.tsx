@@ -2,7 +2,6 @@ import * as React from 'react'
 import { Box, Button, Typography } from '@mui/material'
 import type { DataDirStatus, LegacyDataImportResult } from '../gateway/types'
 import { softButtonSx } from './pluginUiStyles'
-import { FEATURE_TONES, toneBgVar } from './uiTones'
 
 type Props = {
   status: DataDirStatus | null
@@ -38,7 +37,7 @@ export function DataDirSettingsPanel(props: Props) {
   }, [busy, onImportLegacy, onRefresh])
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25, p: 1.5, borderRadius: 2, bgcolor: toneBgVar(FEATURE_TONES.data) }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25, p: 1.5, borderRadius: 2, bgcolor: 'var(--hc-surface-soft)' }}>
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
         <Typography sx={{ fontSize: 18, lineHeight: 1.25, fontWeight: 900, color: 'var(--hc-text)' }}>数据目录</Typography>
         <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'var(--hc-text-muted)' }}>

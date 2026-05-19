@@ -80,7 +80,7 @@ export type HyperCortexWorkspaceV1 = {
 
 export type HyperCortexHtmlFaceDisplayModeV1 = 'natural' | 'fit-window' | 'fixed-fit'
 export type HyperCortexSidebarSortModeV1 = 'precision' | 'sortable'
-export type HyperCortexColorPresetIdV1 = 'dopamine-soft'
+export type HyperCortexColorPresetIdV1 = 'dopamine-soft' | 'claude-paper'
 
 export type HyperCortexMetadataV1 = {
   version: 1

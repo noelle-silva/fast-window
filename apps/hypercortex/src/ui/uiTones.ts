@@ -22,6 +22,9 @@ export const ASSET_KIND_TONES = {
   file: 'sage',
 } satisfies Record<string, HyperCortexToneId>
 
+// Tone colors are emphasis accents. Large surfaces should generally use
+// --hc-surface / --hc-surface-soft so each preset keeps a clear visual hierarchy.
+
 export function toneBgVar(tone: HyperCortexToneId): string {
   return `var(--hc-tone-${tone}-bg)`
 }
@@ -61,5 +64,82 @@ export function toneChipSx(tone: HyperCortexToneId) {
   return {
     bgcolor: toneBgVar(tone),
     color: toneFgVar(tone),
+  }
+}
+
+export function toneSelectedSurfaceSx(tone: HyperCortexToneId, active: boolean) {
+  return {
+    position: 'relative',
+    overflow: 'hidden',
+    bgcolor: active ? 'var(--hc-surface)' : 'var(--hc-surface-soft)',
+    boxShadow: active ? '0 12px 26px var(--hc-shadow)' : 'none',
+    '&:hover': {
+      bgcolor: active ? 'var(--hc-surface-soft)' : 'var(--hc-surface-muted)',
+    },
+    '&::before': active
+      ? {
+          content: '""',
+          position: 'absolute',
+          left: 0,
+          top: 8,
+          bottom: 8,
+          width: 4,
+          borderRadius: 999,
+          bgcolor: toneFgVar(tone),
+        }
+      : undefined,
+  }
+}
+
+export function toneFocusVisibleSx(tone: HyperCortexToneId, shadow = '0 12px 26px var(--hc-shadow)') {
+  return {
+    outline: 'none',
+    position: 'relative',
+    overflow: 'hidden',
+    bgcolor: 'var(--hc-surface-soft)',
+    boxShadow: shadow,
+    '&::after': {
+      content: '""',
+      position: 'absolute',
+      left: 0,
+      top: 8,
+      bottom: 8,
+      width: 4,
+      borderRadius: 999,
+      bgcolor: toneFgVar(tone),
+    },
+  }
+}
+
+export function toneTabSx(tone: HyperCortexToneId) {
+  return {
+    '&.Mui-selected': {
+      bgcolor: toneBgVar(tone),
+      color: toneFgVar(tone),
+    },
+    '&:hover': {
+      bgcolor: toneHoverVar(tone),
+      color: toneFgVar(tone),
+    },
+  }
+}
+
+export function toneHoverActionSx(tone: HyperCortexToneId) {
+  return {
+    '&:hover': {
+      bgcolor: toneBgVar(tone),
+      color: toneFgVar(tone),
+    },
+  }
+}
+
+export function toneEmphasisButtonSx(tone: HyperCortexToneId) {
+  return {
+    color: toneFgVar(tone),
+    bgcolor: toneBgVar(tone),
+    '&:hover': {
+      bgcolor: toneHoverVar(tone),
+      boxShadow: 'none',
+    },
   }
 }

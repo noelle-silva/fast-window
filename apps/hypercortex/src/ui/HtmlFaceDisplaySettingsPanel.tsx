@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Box, Slider, Typography } from '@mui/material'
 import type { HyperCortexHtmlFaceDisplayModeV1 } from '../core'
-import { FEATURE_TONES, toneBgVar, toneFgVar, toneHoverVar } from './uiTones'
+import { FEATURE_TONES, toneFgVar, toneSelectedSurfaceSx } from './uiTones'
 
 // 三种模式的元数据：集中管理，避免在多处重复写
 const HTML_FACE_DISPLAY_MODES: {
@@ -68,14 +68,10 @@ export function HtmlFaceDisplaySettingsPanel(props: {
                 px: 1.5,
                 py: 1,
                 borderRadius: 2,
-                bgcolor: active ? toneBgVar(FEATURE_TONES.display) : 'var(--hc-surface-soft)',
-                boxShadow: active ? '0 12px 26px var(--hc-shadow)' : 'none',
+                ...toneSelectedSurfaceSx(FEATURE_TONES.display, active),
                 cursor: 'pointer',
                 userSelect: 'none',
                 transition: 'background 120ms, box-shadow 120ms',
-                '&:hover': {
-                  bgcolor: active ? toneHoverVar(FEATURE_TONES.display) : 'var(--hc-surface-muted)',
-                },
               }}
             >
               <Box
@@ -117,7 +113,7 @@ export function HtmlFaceDisplaySettingsPanel(props: {
         })}
       </Box>
 
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, px: 1.25, py: 1, borderRadius: 2, bgcolor: toneBgVar(FEATURE_TONES.display) }}>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, px: 1.25, py: 1, borderRadius: 2, bgcolor: 'var(--hc-surface-soft)' }}>
         <Typography sx={{ fontSize: 14, fontWeight: 700, color: 'var(--hc-text)' }}>
           全局默认缩放比例
         </Typography>

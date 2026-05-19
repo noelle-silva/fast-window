@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Box, Typography } from '@mui/material'
-import { type HyperCortexToneId, toneBgVar, toneFgVar, toneHoverVar } from '../uiTones'
+import { type HyperCortexToneId, toneFgVar, toneFocusVisibleSx } from '../uiTones'
 
 type Props = {
   tone?: HyperCortexToneId
@@ -16,8 +16,8 @@ type Props = {
 export function CardFrame(props: Props): React.ReactNode {
   const { tone = 'sage', danger = false, icon, title, subtitle, meta, onClick, children } = props
   const clickable = typeof onClick === 'function'
-  const surface = danger ? 'var(--hc-danger-soft)' : toneBgVar(tone)
-  const surfaceHover = danger ? 'var(--hc-accent-clay)' : toneHoverVar(tone)
+  const surface = danger ? 'var(--hc-danger-soft)' : 'var(--hc-surface)'
+  const surfaceHover = danger ? 'var(--hc-accent-clay)' : 'var(--hc-surface-soft)'
   const accent = danger ? 'var(--hc-danger)' : toneFgVar(tone)
 
   return (
@@ -56,11 +56,9 @@ export function CardFrame(props: Props): React.ReactNode {
             }
           : undefined,
         '&:focus-visible': clickable
-          ? {
-              outline: 'none',
-              bgcolor: surfaceHover,
-              boxShadow: '0 16px 32px var(--hc-shadow-strong)',
-            }
+          ? danger
+            ? { outline: 'none', bgcolor: surfaceHover, boxShadow: '0 16px 32px var(--hc-shadow-strong)' }
+            : toneFocusVisibleSx(tone, '0 16px 32px var(--hc-shadow-strong)')
           : undefined,
       }}
     >

@@ -2,7 +2,6 @@ import * as React from 'react'
 import { Box, Button, IconButton, InputBase, Switch, Tooltip, Typography } from '@mui/material'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import { softButtonSx } from './pluginUiStyles'
-import { FEATURE_TONES, toneBgVar, toneFgVar } from './uiTones'
 
 function clampInt(value: unknown, fallback: number, min: number, max: number): number {
   const n = Math.floor(Number(value))
@@ -47,12 +46,12 @@ export function TrashSettingsPanel(props: {
         </Tooltip>
       </Box>
 
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1, py: 0.75, borderRadius: 2, bgcolor: toneBgVar(FEATURE_TONES.trash) }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1, py: 0.75, borderRadius: 2, bgcolor: 'var(--hc-surface-soft)' }}>
         <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'var(--hc-text)' }}>启用回收站</Typography>
         <Switch checked={enabled} onChange={(_, checked) => onEnabledChange(checked)} />
       </Box>
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: '160px 1fr auto', alignItems: 'center', gap: 1, px: 1, py: 0.75, borderRadius: 2, bgcolor: toneBgVar(FEATURE_TONES.trash) }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: '160px 1fr auto', alignItems: 'center', gap: 1, px: 1, py: 0.75, borderRadius: 2, bgcolor: 'var(--hc-surface-soft)' }}>
         <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'var(--hc-text)' }}>自动清理（天）</Typography>
         <InputBase
           value={daysText}
@@ -72,7 +71,7 @@ export function TrashSettingsPanel(props: {
             bgcolor: 'var(--hc-surface)',
             '&:focus-within': { bgcolor: 'var(--hc-surface)', boxShadow: '0 10px 24px var(--hc-shadow)' },
             fontSize: 13,
-            color: toneFgVar(FEATURE_TONES.trash),
+            color: 'var(--hc-text)',
           }}
         />
         <Button size="small" variant="text" onClick={commitDays} sx={{ ...softButtonSx, borderRadius: 2 }}>

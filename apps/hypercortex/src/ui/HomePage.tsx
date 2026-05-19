@@ -9,7 +9,7 @@ import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import type { NoteMeta } from '../core'
 import { HomeNetworkOrbBackground } from './HomeNetworkOrbBackground'
 import { unstyledButtonSurfaceSx } from './pluginUiStyles'
-import { FEATURE_TONES, type HyperCortexToneId, toneBgVar, toneFgVar, toneHoverVar } from './uiTones'
+import { FEATURE_TONES, type HyperCortexToneId, toneFgVar, toneFocusVisibleSx } from './uiTones'
 
 type HomePageStats = {
   noteCount: number
@@ -44,7 +44,7 @@ function StatTile(props: { label: string; value: number | string; hint: string; 
         px: 1.5,
         py: 1.25,
         borderRadius: 3,
-        bgcolor: toneBgVar(props.tone),
+        bgcolor: 'var(--hc-surface)',
         boxShadow: '0 12px 28px var(--hc-shadow)',
         minWidth: 0,
       }}
@@ -69,7 +69,7 @@ function ActionCard(props: { title: string; body: string; icon: React.ReactNode;
         p: 1.5,
         textAlign: 'left',
         borderRadius: 3,
-        bgcolor: toneBgVar(props.tone),
+        bgcolor: 'var(--hc-surface)',
         cursor: 'pointer',
         boxShadow: '0 10px 26px var(--hc-shadow)',
         display: 'flex',
@@ -79,9 +79,9 @@ function ActionCard(props: { title: string; body: string; icon: React.ReactNode;
         '&:hover': {
           transform: 'translateY(-2px)',
           boxShadow: '0 14px 34px var(--hc-shadow-strong)',
-          bgcolor: toneHoverVar(props.tone),
+          bgcolor: 'var(--hc-surface-soft)',
         },
-        '&:focus-visible': { bgcolor: toneHoverVar(props.tone), boxShadow: '0 14px 34px var(--hc-shadow-strong)' },
+        '&:focus-visible': toneFocusVisibleSx(props.tone, '0 14px 34px var(--hc-shadow-strong)'),
       }}
     >
       <Box sx={{ width: 34, height: 34, borderRadius: 2.5, bgcolor: 'var(--hc-surface)', color: toneFgVar(props.tone), display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 18px var(--hc-shadow)' }}>

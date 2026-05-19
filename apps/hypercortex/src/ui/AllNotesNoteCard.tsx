@@ -6,7 +6,7 @@ import type { NoteMeta } from '../core'
 import type { NoteCardInfo } from './noteCardInfo'
 import { noteContainsLabel, shouldShowNoteContains } from './noteCardInfo'
 import { unstyledButtonSurfaceSx } from './pluginUiStyles'
-import { noteToneFromIdentity, tagToneFromText, toneBgVar, toneFgVar, toneHoverVar } from './uiTones'
+import { noteToneFromIdentity, tagToneFromText, toneChipSx, toneFocusVisibleSx } from './uiTones'
 
 
 function normalizeTags(tags: unknown): string[] {
@@ -61,8 +61,7 @@ function TagChip(props: { label: string; fontSize: number }): React.ReactNode {
         py: 0.25,
         borderRadius: 999,
         fontSize: props.fontSize,
-        color: toneFgVar(tone),
-        bgcolor: toneBgVar(tone),
+        ...toneChipSx(tone),
         maxWidth: '100%',
         whiteSpace: 'nowrap',
         overflow: 'hidden',
@@ -181,7 +180,7 @@ export function AllNotesGridNoteCard(props: {
         px: 1.5,
         py: 1.5,
         borderRadius: 3,
-        bgcolor: toneBgVar(tone),
+        bgcolor: 'var(--hc-surface)',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'stretch',
@@ -189,11 +188,12 @@ export function AllNotesGridNoteCard(props: {
         cursor: 'pointer',
         transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
         '&:hover': {
-          bgcolor: toneHoverVar(tone),
+          bgcolor: 'var(--hc-surface-soft)',
           boxShadow: '0 6px 16px rgba(0,0,0,.08)',
           transform: 'translateY(-1px)',
         },
         '&:hover .hc-note-card-actions': { opacity: 1 },
+        '&:focus-visible': toneFocusVisibleSx(tone, '0 6px 16px rgba(0,0,0,.08)'),
       }}
     >
       {onCopyRef || onMore ? (
@@ -263,7 +263,7 @@ export function AllNotesIconNoteCard(props: {
         px: 1.25,
         py: 1.25,
         borderRadius: 3,
-        bgcolor: toneBgVar(tone),
+        bgcolor: 'var(--hc-surface)',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -272,11 +272,12 @@ export function AllNotesIconNoteCard(props: {
         cursor: 'pointer',
         transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
         '&:hover': {
-          bgcolor: toneHoverVar(tone),
+          bgcolor: 'var(--hc-surface-soft)',
           boxShadow: '0 6px 16px rgba(0,0,0,.08)',
           transform: 'translateY(-1px)',
         },
         '&:hover .hc-note-card-actions': { opacity: 1 },
+        '&:focus-visible': toneFocusVisibleSx(tone, '0 6px 16px rgba(0,0,0,.08)'),
       }}
     >
       {onCopyRef || onMore ? (
@@ -347,16 +348,17 @@ export function AllNotesListNoteRow(props: {
         px: 1.5,
         py: 1.15,
         borderRadius: 3,
-        bgcolor: toneBgVar(tone),
+        bgcolor: 'var(--hc-surface)',
         boxShadow: '0 1px 2px rgba(0,0,0,.04)',
         cursor: 'pointer',
         transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
         '&:hover': {
-          bgcolor: toneHoverVar(tone),
+          bgcolor: 'var(--hc-surface-soft)',
           boxShadow: '0 6px 16px rgba(0,0,0,.08)',
           transform: 'translateY(-1px)',
         },
         '&:hover .hc-note-card-actions': { opacity: 1 },
+        '&:focus-visible': toneFocusVisibleSx(tone, '0 6px 16px rgba(0,0,0,.08)'),
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>

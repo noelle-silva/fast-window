@@ -8,7 +8,7 @@ import type { AssetEntry } from '../../assetTypes'
 import { pickAssetDisplayName } from '../../assetDisplayName'
 import { CardFrame } from './CardFrame'
 import { formatFileSize, formatTimeAgo } from './cardMeta'
-import { assetToneFromKind, toneBgVar, toneFgVar } from '../uiTones'
+import { assetToneFromKind, toneChipSx, toneFgVar } from '../uiTones'
 
 type Props = {
   asset: AssetEntry
@@ -49,7 +49,7 @@ export function AssetCard(props: Props): React.ReactNode {
           <Box sx={{ px: 1, py: 0.55, borderRadius: 2.5, bgcolor: 'var(--hc-surface)' }}>
             <Typography sx={{ fontSize: 12, lineHeight: 1.2, fontWeight: 700, color: toneFgVar(tone) }}>{formatFileSize(asset.size)}</Typography>
           </Box>
-          <Box sx={{ px: 1, py: 0.55, borderRadius: 2.5, bgcolor: toneBgVar(tone) }}>
+          <Box sx={{ px: 1, py: 0.55, borderRadius: 2.5, ...toneChipSx(tone) }}>
             <Typography sx={{ fontSize: 12, lineHeight: 1.2, fontWeight: 700, color: toneFgVar(tone) }}>{formatTimeAgo(asset.modifiedMs)}</Typography>
           </Box>
         </Box>

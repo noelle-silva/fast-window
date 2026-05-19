@@ -2,7 +2,7 @@ import * as React from 'react'
 import { Box, Typography } from '@mui/material'
 import type { HyperCortexColorPresetIdV1 } from '../core'
 import { HYPERCORTEX_COLOR_PRESETS } from './colorPresets'
-import { FEATURE_TONES, toneBgVar, toneHoverVar } from './uiTones'
+import { FEATURE_TONES, toneFocusVisibleSx, toneSelectedSurfaceSx } from './uiTones'
 
 export function ColorPresetSettingsPanel(props: {
   value: HyperCortexColorPresetIdV1
@@ -15,7 +15,7 @@ export function ColorPresetSettingsPanel(props: {
       <Box>
         <Typography sx={{ fontSize: 18, lineHeight: 1.25, fontWeight: 900, color: 'var(--hc-text)' }}>配色预设</Typography>
         <Typography sx={{ mt: 0.5, fontSize: 13, lineHeight: 1.6, color: 'var(--hc-text-muted)' }}>
-          当前阶段先提供一个默认配色；这里保留预设选择入口，后续新增配色会沿用同一套机制。
+          选择一套全局视觉气质；颜色、状态色、附件色和场景 tone 会通过同一套变量机制同步切换。
         </Typography>
       </Box>
 
@@ -42,12 +42,10 @@ export function ColorPresetSettingsPanel(props: {
                 px: 1.25,
                 py: 1,
                 borderRadius: 3,
-                bgcolor: active ? toneBgVar(FEATURE_TONES.display) : 'var(--hc-surface-soft)',
-                boxShadow: active ? '0 12px 26px var(--hc-shadow)' : 'none',
                 cursor: 'pointer',
                 userSelect: 'none',
-                '&:hover': { bgcolor: active ? toneHoverVar(FEATURE_TONES.display) : 'var(--hc-surface-muted)' },
-                '&:focus-visible': { outline: 'none', bgcolor: toneBgVar(FEATURE_TONES.display), boxShadow: '0 12px 26px var(--hc-shadow)' },
+                ...toneSelectedSurfaceSx(FEATURE_TONES.display, active),
+                '&:focus-visible': toneFocusVisibleSx(FEATURE_TONES.display),
               }}
             >
               <Box sx={{ minWidth: 0 }}>

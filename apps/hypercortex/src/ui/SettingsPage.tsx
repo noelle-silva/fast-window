@@ -9,7 +9,7 @@ import { ShortcutSettingsPanel } from './ShortcutSettingsPanel'
 import { SidebarSortSettingsPanel } from './SidebarSortSettingsPanel'
 import { TrashSettingsPanel } from './TrashSettingsPanel'
 import { ColorPresetSettingsPanel } from './ColorPresetSettingsPanel'
-import { FEATURE_TONES, type HyperCortexToneId, toneBgVar, toneFgVar, toneHoverVar } from './uiTones'
+import { FEATURE_TONES, type HyperCortexToneId, toneTabSx } from './uiTones'
 
 type SettingsCategoryId = 'data' | 'actions' | 'display'
 
@@ -74,7 +74,7 @@ export function SettingsPage(props: SettingsPageProps) {
             key={item.id}
             value={item.id}
             label={item.label}
-            sx={{ '&.Mui-selected': { bgcolor: toneBgVar(item.tone), color: toneFgVar(item.tone) }, '&:hover': { bgcolor: toneHoverVar(item.tone), color: toneFgVar(item.tone) } }}
+            sx={toneTabSx(item.tone)}
             id={`hypercortex-settings-tab-${item.id}`}
             aria-controls={`hypercortex-settings-tabpanel-${item.id}`}
           />
@@ -172,7 +172,7 @@ function ShortcutHintsSettingsPanel(props: { enabled: boolean; onEnabledChange: 
       <Typography sx={{ fontSize: 13, lineHeight: 1.6, color: 'var(--hc-text-muted)' }}>
         启用后，顶部栏会出现一个问号按钮，点击即可查看当前已设置的快捷键。
       </Typography>
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1, py: 0.75, borderRadius: 2, bgcolor: toneBgVar(FEATURE_TONES.actions) }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1, py: 0.75, borderRadius: 2, bgcolor: 'var(--hc-surface-soft)' }}>
         <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'var(--hc-text)' }}>显示顶部栏问号</Typography>
         <Switch checked={enabled} onChange={(_, checked) => onEnabledChange(checked)} />
       </Box>

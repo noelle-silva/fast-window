@@ -7,7 +7,7 @@ import {
   type HyperCortexShortcutBindingsV1,
   type HyperCortexShortcutId,
 } from '../shortcuts'
-import { FEATURE_TONES, toneBgVar, toneFgVar, toneHoverVar } from './uiTones'
+import { FEATURE_TONES, toneFgVar, toneSelectedSurfaceSx } from './uiTones'
 
 type ShortcutKey = Exclude<keyof HyperCortexShortcutBindingsV1, 'version'>
 
@@ -78,8 +78,7 @@ export function ShortcutSettingsPanel(props: {
           px: 1,
           py: 0.75,
           borderRadius: 2,
-          bgcolor: isRec ? toneBgVar(FEATURE_TONES.actions) : 'var(--hc-surface-soft)',
-          '&:hover': { bgcolor: isRec ? toneHoverVar(FEATURE_TONES.actions) : 'var(--hc-surface-muted)' },
+          ...toneSelectedSurfaceSx(FEATURE_TONES.actions, isRec),
         }}
       >
         <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'var(--hc-text)' }}>{p.title}</Typography>
@@ -98,7 +97,7 @@ export function ShortcutSettingsPanel(props: {
         </Typography>
         <Button
           size="small"
-          variant={isRec ? 'contained' : 'outlined'}
+          variant={isRec ? 'contained' : 'text'}
           onClick={() => setRecording(prev => (prev === p.id ? null : p.id))}
         >
           {isRec ? '录制中' : '录制'}

@@ -18,7 +18,7 @@ import { AssetUploadTaskPanel } from './AssetUploadTaskPanel'
 import { type AssetUploadTaskView, isActiveUploadTask } from './assetUploadTasks'
 import { useAssetUploadTasks } from './useAssetUploadTasks'
 import { softButtonSx } from './pluginUiStyles'
-import { assetToneFromKind, FEATURE_TONES, toneBgVar, toneFgVar, toneHoverVar } from './uiTones'
+import { assetToneFromKind, FEATURE_TONES, toneChipSx, toneEmphasisButtonSx, toneFgVar, toneHoverActionSx, toneTabSx } from './uiTones'
 
 /* ------------------------------------------------------------------ */
 /*  类型                                                               */
@@ -103,12 +103,12 @@ function AssetCard({
         px: 1.5,
         py: 1.5,
         borderRadius: 3,
-        bgcolor: toneBgVar(tone),
+        bgcolor: 'var(--hc-surface)',
         boxShadow: '0 1px 2px rgba(0,0,0,.04)',
         transition: 'background-color .16s ease, box-shadow .16s ease, transform .16s ease',
         outline: 'none',
         '&:hover': {
-          bgcolor: toneHoverVar(tone),
+          bgcolor: 'var(--hc-surface-soft)',
           boxShadow: '0 6px 16px rgba(0,0,0,.08)',
           transform: 'translateY(-1px)',
         },
@@ -281,7 +281,7 @@ function AssetCard({
       {asset.tags?.length ? (
         <Box sx={{ mt: 0.5, display: 'flex', gap: 0.35, flexWrap: 'wrap' }}>
           {asset.tags.slice(0, 3).map(tag => (
-            <Box key={tag} sx={{ px: 0.65, py: 0.2, borderRadius: 999, bgcolor: toneBgVar(tone), color: toneFgVar(tone), fontSize: 10, fontWeight: 800 }}>
+            <Box key={tag} sx={{ px: 0.65, py: 0.2, borderRadius: 999, ...toneChipSx(tone), fontSize: 10, fontWeight: 800 }}>
               {tag}
             </Box>
           ))}
@@ -517,7 +517,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
               size="small"
               aria-label="上传任务"
               onClick={() => setUploadPanelOpen(open => !open)}
-              sx={{ color: activeUploadCount ? toneFgVar(FEATURE_TONES.assets) : 'var(--hc-text-muted)', '&:hover': { bgcolor: toneBgVar(FEATURE_TONES.assets), color: toneFgVar(FEATURE_TONES.assets) } }}
+              sx={{ color: activeUploadCount ? toneFgVar(FEATURE_TONES.assets) : 'var(--hc-text-muted)', ...toneHoverActionSx(FEATURE_TONES.assets) }}
             >
               <CloudUploadRoundedIcon fontSize="small" />
               {activeUploadCount ? (
@@ -558,7 +558,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
                   aria-label="重建当前分类缩略图缓存"
                   onClick={() => void handleRebuildVisibleThumbnails()}
                   disabled={rebuildingThumbnails || thumbnailTargets.length === 0}
-                  sx={{ color: 'var(--hc-text-muted)', '&:hover': { bgcolor: toneBgVar(activeCategoryTone), color: toneFgVar(activeCategoryTone) } }}
+                  sx={{ color: 'var(--hc-text-muted)', ...toneHoverActionSx(activeCategoryTone) }}
                 >
                   {rebuildingThumbnails ? <CircularProgress size={18} /> : <ImageSearchRoundedIcon fontSize="small" />}
                 </IconButton>
@@ -574,7 +574,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
                 startIcon={rebuildingThumbnails ? <CircularProgress size={14} /> : <ImageSearchRoundedIcon sx={{ fontSize: 16 }} />}
                 disabled={rebuildingThumbnails || assets.filter(canHaveThumbnail).length === 0}
                 onClick={() => void handleRebuildAllThumbnails()}
-                sx={{ minWidth: 0, px: 1, borderRadius: 2, textTransform: 'none', color: 'var(--hc-text-muted)', fontWeight: 800, '&:hover': { bgcolor: toneBgVar(FEATURE_TONES.assets), color: toneFgVar(FEATURE_TONES.assets) } }}
+                sx={{ minWidth: 0, px: 1, borderRadius: 2, textTransform: 'none', color: 'var(--hc-text-muted)', fontWeight: 800, ...toneHoverActionSx(FEATURE_TONES.assets) }}
               >
                 全部重建
               </Button>
@@ -590,9 +590,7 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
             sx={{
               ...softButtonSx,
               borderRadius: 2,
-              color: toneFgVar(FEATURE_TONES.assets),
-              bgcolor: toneBgVar(FEATURE_TONES.assets),
-              '&:hover': { bgcolor: toneHoverVar(FEATURE_TONES.assets), boxShadow: 'none' },
+              ...toneEmphasisButtonSx(FEATURE_TONES.assets),
             }}
           >
             {startingUpload ? '启动中...' : '添加文件'}
@@ -627,9 +625,9 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
           },
         }}
       >
-        <Tab value="image" label={`图片 (${statsByCategory.counts.image})`} sx={{ '&.Mui-selected': { bgcolor: toneBgVar(imageTone), color: toneFgVar(imageTone) } }} />
-        <Tab value="video" label={`视频 (${statsByCategory.counts.video})`} sx={{ '&.Mui-selected': { bgcolor: toneBgVar(videoTone), color: toneFgVar(videoTone) } }} />
-        <Tab value="document" label={`文档 (${statsByCategory.counts.document})`} sx={{ '&.Mui-selected': { bgcolor: toneBgVar(documentTone), color: toneFgVar(documentTone) } }} />
+        <Tab value="image" label={`图片 (${statsByCategory.counts.image})`} sx={toneTabSx(imageTone)} />
+        <Tab value="video" label={`视频 (${statsByCategory.counts.video})`} sx={toneTabSx(videoTone)} />
+        <Tab value="document" label={`文档 (${statsByCategory.counts.document})`} sx={toneTabSx(documentTone)} />
       </Tabs>
 
       {/* 概览 */}

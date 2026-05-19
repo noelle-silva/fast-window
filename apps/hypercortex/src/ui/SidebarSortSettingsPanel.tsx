@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Box, FormControlLabel, Radio, RadioGroup, Typography } from '@mui/material'
 import type { HyperCortexSidebarSortModeV1 } from '../core'
-import { FEATURE_TONES, toneBgVar, toneHoverVar } from './uiTones'
+import { FEATURE_TONES, toneSelectedSurfaceSx } from './uiTones'
 
 type SidebarSortSettingsPanelProps = {
   mode: HyperCortexSidebarSortModeV1
@@ -45,11 +45,9 @@ export function SidebarSortSettingsPanel(props: SidebarSortSettingsPanelProps) {
             key={option.value}
             sx={{
               borderRadius: 3,
-              bgcolor: mode === option.value ? toneBgVar(FEATURE_TONES.display) : 'var(--hc-surface-soft)',
-              boxShadow: mode === option.value ? '0 12px 26px var(--hc-shadow)' : 'none',
+              ...toneSelectedSurfaceSx(FEATURE_TONES.display, mode === option.value),
               px: 1.25,
               py: 1,
-              '&:hover': { bgcolor: mode === option.value ? toneHoverVar(FEATURE_TONES.display) : 'var(--hc-surface-muted)' },
             }}
           >
             <FormControlLabel
