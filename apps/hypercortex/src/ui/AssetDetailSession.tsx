@@ -39,8 +39,13 @@ export function AssetDetailSession({
   const [editDisplayName, setEditDisplayName] = React.useState(asset.displayName || '')
   const [editRemark, setEditRemark] = React.useState(asset.remark || '')
   const [editTags, setEditTags] = React.useState((asset.tags || []).join(', '))
+  const [previewToolbarHost, setPreviewToolbarHost] = React.useState<HTMLDivElement | null>(null)
   const preview = React.useMemo(() => getAssetPreviewDescriptor(asset), [asset])
   const imagePreview = usePreviewController({ toast: gateway.host.toast })
+  const bindPreviewToolbarHost = React.useCallback((node: HTMLDivElement | null) => {
+    setPreviewToolbarHost(node)
+  }, [])
+  const showPreviewToolbarSlot = preview.kind === 'pdf'
 
   const load = React.useCallback(async () => {
     setLoading(true)
@@ -106,31 +111,36 @@ export function AssetDetailSession({
           overflow: 'auto',
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: '1 1 280px' }}>
             <Box sx={{ color: preview.color, display: 'inline-flex', alignItems: 'center' }}><Icon fontSize="small" /></Box>
             <Typography noWrap sx={{ fontSize: 18, fontWeight: 900, color: '#111', minWidth: 0 }}>
               {title}
             </Typography>
           </Box>
-          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-            <Button variant="text" size="small" onClick={() => void load()} disabled={loading} sx={{ ...softButtonSx, borderRadius: 2 }}>
-              刷新
-            </Button>
-            <Tooltip title={infoSidebarVisible ? '隐藏信息侧栏' : '显示信息侧栏'} placement="bottom-end">
-              <IconButton
-                size="small"
-                aria-label="附件信息"
-                onClick={() => setInfoSidebarVisible(prev => !prev)}
-                sx={{
-                  color: infoSidebarVisible ? '#111' : 'rgba(0,0,0,.58)',
-                  bgcolor: infoSidebarVisible ? 'rgba(0,0,0,.06)' : 'transparent',
-                  '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
-                }}
-              >
-                <InfoRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1, minWidth: 0, flex: '1 1 auto', flexWrap: 'wrap' }}>
+            {showPreviewToolbarSlot ? (
+              <Box ref={bindPreviewToolbarHost} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', minWidth: 0, flex: '1 1 440px' }} />
+            ) : null}
+            <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+              <Button variant="text" size="small" onClick={() => void load()} disabled={loading} sx={{ ...softButtonSx, borderRadius: 2 }}>
+                刷新
+              </Button>
+              <Tooltip title={infoSidebarVisible ? '隐藏信息侧栏' : '显示信息侧栏'} placement="bottom-end">
+                <IconButton
+                  size="small"
+                  aria-label="附件信息"
+                  onClick={() => setInfoSidebarVisible(prev => !prev)}
+                  sx={{
+                    color: infoSidebarVisible ? '#111' : 'rgba(0,0,0,.58)',
+                    bgcolor: infoSidebarVisible ? 'rgba(0,0,0,.06)' : 'transparent',
+                    '&:hover': { bgcolor: 'rgba(0,0,0,.06)', color: '#111' },
+                  }}
+                >
+                  <InfoRoundedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Box>
           </Box>
         </Box>
 
@@ -160,7 +170,7 @@ export function AssetDetailSession({
             ) : loading && !blobUrl ? (
               <CircularProgress size={20} />
             ) : preview.canOpenInTab && blobUrl ? (
-              <AssetPreviewSurface asset={asset} blobUrl={blobUrl} title={title} previewController={imagePreview.controller} onPlayingChange={onPlayingChange} />
+              <AssetPreviewSurface asset={asset} blobUrl={blobUrl} title={title} previewController={imagePreview.controller} onPlayingChange={onPlayingChange} toolbarHost={previewToolbarHost} />
             ) : (
               <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.55)' }}>暂不支持预览该类型附件。</Typography>
             )}

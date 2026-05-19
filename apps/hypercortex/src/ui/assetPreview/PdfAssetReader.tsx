@@ -6,6 +6,7 @@ import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import pdfWorkerSource from 'pdfjs-dist/legacy/build/pdf.worker.mjs?raw'
 import type { AssetPreviewContext } from './registry'
+import { AssetPreviewToolbarPortal } from './assetPreviewToolbar'
 import { softButtonSx } from '../pluginUiStyles'
 
 type PdfDocumentProxy = Awaited<ReturnType<typeof pdfjsLib.getDocument>['promise']>
@@ -150,12 +151,95 @@ function PdfPageCanvas({
   )
 }
 
-export function PdfAssetReader({ blobUrl, title }: AssetPreviewContext) {
+function PdfReaderToolbar({
+  pageCount,
+  scale,
+  targetPage,
+  onTargetPageChange,
+  onJumpToTargetPage,
+  onZoomOut,
+  onResetZoom,
+  onZoomIn,
+}: {
+  pageCount: number
+  scale: number
+  targetPage: string
+  onTargetPageChange: (value: string) => void
+  onJumpToTargetPage: (event: React.FormEvent<HTMLFormElement>) => void
+  onZoomOut: () => void
+  onResetZoom: () => void
+  onZoomIn: () => void
+}) {
+  return (
+    <Box
+      aria-label="PDF 阅读控制"
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        gap: 0.75,
+        flexWrap: 'wrap',
+        minWidth: 0,
+      }}
+    >
+      <Typography sx={{ fontSize: 12, fontWeight: 800, color: 'rgba(0,0,0,.62)', whiteSpace: 'nowrap' }}>
+        {pageCount} 页 · {Math.round(scale * 100)}%
+      </Typography>
+      <Box
+        component="form"
+        onSubmit={onJumpToTargetPage}
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.5,
+          minWidth: 0,
+          px: 0.65,
+          py: 0.35,
+          borderRadius: 999,
+          bgcolor: 'rgba(0,0,0,.045)',
+        }}
+      >
+        <TextField
+          value={targetPage}
+          onChange={event => onTargetPageChange(event.target.value)}
+          type="number"
+          size="small"
+          aria-label="跳转到 PDF 页码"
+          inputProps={{ min: 1, max: pageCount, step: 1 }}
+          sx={{
+            width: 68,
+            '& .MuiInputBase-root': { height: 28, fontSize: 12, fontWeight: 800, bgcolor: 'rgba(255,255,255,.72)' },
+            '& .MuiOutlinedInput-notchedOutline': { borderColor: 'transparent' },
+            '& .Mui-focused': { bgcolor: 'rgba(255,255,255,.95)', boxShadow: '0 10px 24px rgba(0,0,0,.08)' },
+            '& input': { textAlign: 'center', px: 1 },
+          }}
+        />
+        <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.48)', whiteSpace: 'nowrap' }}>/ {pageCount}</Typography>
+        <Button type="submit" size="small" variant="text" sx={{ ...softButtonSx, minWidth: 48, height: 28, px: 1, fontSize: 12 }}>
+          跳转
+        </Button>
+      </Box>
+      <IconButton size="small" aria-label="缩小 PDF" onClick={onZoomOut} sx={{ color: 'rgba(0,0,0,.62)', bgcolor: 'rgba(0,0,0,.045)', '&:hover': { bgcolor: 'rgba(0,0,0,.08)', color: '#111' } }}>
+        <ZoomOutRoundedIcon fontSize="small" />
+      </IconButton>
+      <IconButton size="small" aria-label="重置 PDF 缩放" onClick={onResetZoom} sx={{ color: 'rgba(0,0,0,.62)', bgcolor: 'rgba(0,0,0,.045)', '&:hover': { bgcolor: 'rgba(0,0,0,.08)', color: '#111' } }}>
+        <RestartAltRoundedIcon fontSize="small" />
+      </IconButton>
+      <IconButton size="small" aria-label="放大 PDF" onClick={onZoomIn} sx={{ color: 'rgba(0,0,0,.62)', bgcolor: 'rgba(0,0,0,.045)', '&:hover': { bgcolor: 'rgba(0,0,0,.08)', color: '#111' } }}>
+        <ZoomInRoundedIcon fontSize="small" />
+      </IconButton>
+    </Box>
+  )
+}
+
+export function PdfAssetReader({ blobUrl, toolbarHost }: AssetPreviewContext) {
   const [pdf, setPdf] = React.useState<PdfDocumentProxy | null>(null)
   const [scale, setScale] = React.useState(DEFAULT_PDF_SCALE)
   const [targetPage, setTargetPage] = React.useState('1')
   const [error, setError] = React.useState<string | null>(null)
   const scrollRootRef = React.useRef<HTMLDivElement | null>(null)
+
+  const pageCount = pdf?.numPages || 0
 
   React.useEffect(() => {
     let cancelled = false
@@ -189,6 +273,20 @@ export function PdfAssetReader({ blobUrl, title }: AssetPreviewContext) {
     if (pdf) setTargetPage('1')
   }, [pdf])
 
+  const jumpToTargetPage = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!pdf) return
+    const pageNumber = parseTargetPage(targetPage, pdf.numPages)
+    if (!pageNumber) return
+    setTargetPage(String(pageNumber))
+    const target = scrollRootRef.current?.querySelector<HTMLElement>(`[data-pdf-page-number="${pageNumber}"]`)
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [pdf, targetPage])
+
+  const zoomOut = React.useCallback(() => setScale(v => clampScale(v - PDF_SCALE_STEP)), [])
+  const resetZoom = React.useCallback(() => setScale(DEFAULT_PDF_SCALE), [])
+  const zoomIn = React.useCallback(() => setScale(v => clampScale(v + PDF_SCALE_STEP)), [])
+
   if (error) {
     return (
       <Box sx={{ p: 2, textAlign: 'center' }}>
@@ -201,68 +299,25 @@ export function PdfAssetReader({ blobUrl, title }: AssetPreviewContext) {
 
   const pages = Array.from({ length: pdf.numPages }, (_, index) => index + 1)
 
-  function jumpToTargetPage(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const pageNumber = parseTargetPage(targetPage, pdf.numPages)
-    if (!pageNumber) return
-    setTargetPage(String(pageNumber))
-    const target = scrollRootRef.current?.querySelector<HTMLElement>(`[data-pdf-page-number="${pageNumber}"]`)
-    target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  }
-
   return (
-    <Box sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#3f3f46' }}>
-      <Box
-        sx={{
-          flexShrink: 0,
-          height: 42,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 1,
-          px: 1.5,
-          color: '#fff',
-          bgcolor: 'rgba(24,24,27,.92)',
-          boxShadow: '0 14px 30px rgba(0,0,0,.22)',
-        }}
-      >
-        <Typography noWrap title={title} sx={{ fontSize: 13, fontWeight: 700, minWidth: 0 }}>{title}</Typography>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexShrink: 0 }}>
-          <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,.72)', mr: 0.75 }}>{pages.length} 页 · {Math.round(scale * 100)}%</Typography>
-          <Box component="form" onSubmit={jumpToTargetPage} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <TextField
-              value={targetPage}
-              onChange={event => setTargetPage(event.target.value)}
-              type="number"
-              size="small"
-              aria-label="跳转到 PDF 页码"
-              inputProps={{ min: 1, max: pages.length, step: 1 }}
-              sx={{
-                width: 72,
-                '& .MuiInputBase-root': { height: 28, color: '#fff', fontSize: 12, bgcolor: 'rgba(255,255,255,.12)' },
-                '& .MuiOutlinedInput-notchedOutline': { borderColor: 'transparent' },
-                '& .Mui-focused': { bgcolor: 'rgba(255,255,255,.18)', boxShadow: '0 10px 24px rgba(255,255,255,.10)' },
-              }}
-            />
-            <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,.62)' }}>/ {pages.length}</Typography>
-            <Button type="submit" size="small" variant="text" sx={{ ...softButtonSx, minWidth: 48, height: 28, px: 1, color: '#fff', fontSize: 12, bgcolor: 'rgba(255,255,255,.12)', '&:hover': { bgcolor: 'rgba(255,255,255,.18)', boxShadow: 'none' } }}>
-              跳转
-            </Button>
-          </Box>
-          <IconButton size="small" aria-label="缩小 PDF" onClick={() => setScale(v => clampScale(v - PDF_SCALE_STEP))} sx={{ color: '#fff' }}>
-            <ZoomOutRoundedIcon fontSize="small" />
-          </IconButton>
-          <IconButton size="small" aria-label="重置 PDF 缩放" onClick={() => setScale(DEFAULT_PDF_SCALE)} sx={{ color: '#fff' }}>
-            <RestartAltRoundedIcon fontSize="small" />
-          </IconButton>
-          <IconButton size="small" aria-label="放大 PDF" onClick={() => setScale(v => clampScale(v + PDF_SCALE_STEP))} sx={{ color: '#fff' }}>
-            <ZoomInRoundedIcon fontSize="small" />
-          </IconButton>
+    <>
+      <AssetPreviewToolbarPortal host={toolbarHost}>
+        <PdfReaderToolbar
+          pageCount={pageCount}
+          scale={scale}
+          targetPage={targetPage}
+          onTargetPageChange={setTargetPage}
+          onJumpToTargetPage={jumpToTargetPage}
+          onZoomOut={zoomOut}
+          onResetZoom={resetZoom}
+          onZoomIn={zoomIn}
+        />
+      </AssetPreviewToolbarPortal>
+      <Box sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#3f3f46' }}>
+        <Box ref={scrollRootRef} sx={{ flex: 1, minHeight: 0, overflow: 'auto', py: 2 }}>
+          {pages.map(pageNumber => <PdfPageCanvas key={pageNumber} pdf={pdf} pageNumber={pageNumber} scale={scale} scrollRootRef={scrollRootRef} />)}
         </Box>
       </Box>
-      <Box ref={scrollRootRef} sx={{ flex: 1, minHeight: 0, overflow: 'auto', py: 2 }}>
-        {pages.map(pageNumber => <PdfPageCanvas key={pageNumber} pdf={pdf} pageNumber={pageNumber} scale={scale} scrollRootRef={scrollRootRef} />)}
-      </Box>
-    </Box>
+    </>
   )
 }

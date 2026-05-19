@@ -8,6 +8,7 @@ import { getAssetPreviewDescriptor } from './registry'
 import { WordAssetReader } from './WordAssetReader'
 import { PdfAssetReader } from './PdfAssetReader'
 import { ImageAssetReader } from './ImageAssetReader'
+import type { AssetPreviewToolbarHost } from './assetPreviewToolbar'
 
 function VideoAssetReader({ blobUrl, title, onPlayingChange }: { blobUrl: string; title: string; onPlayingChange?: (playing: boolean) => void }) {
   const videoRef = React.useRef<HTMLVideoElement | null>(null)
@@ -41,23 +42,25 @@ export function AssetPreviewSurface({
   title,
   previewController,
   onPlayingChange,
+  toolbarHost,
 }: {
   asset: AssetEntry
   blobUrl: string
   title: string
   previewController: PreviewController
   onPlayingChange?: (playing: boolean) => void
+  toolbarHost?: AssetPreviewToolbarHost
 }) {
   const descriptor = getAssetPreviewDescriptor(asset)
 
   if (descriptor.kind === 'image') return <ImageAssetReader blobUrl={blobUrl} title={title} previewController={previewController} />
   if (descriptor.kind === 'video') return <VideoAssetReader blobUrl={blobUrl} title={title} onPlayingChange={onPlayingChange} />
-  if (descriptor.kind === 'pdf') return <PdfAssetReader asset={asset} blobUrl={blobUrl} title={title} />
-  if (descriptor.kind === 'word') return <WordAssetReader asset={asset} blobUrl={blobUrl} title={title} />
+  if (descriptor.kind === 'pdf') return <PdfAssetReader asset={asset} blobUrl={blobUrl} title={title} toolbarHost={toolbarHost} />
+  if (descriptor.kind === 'word') return <WordAssetReader asset={asset} blobUrl={blobUrl} title={title} toolbarHost={toolbarHost} />
 
   if (descriptor.Reader) {
     const Reader = descriptor.Reader
-    return <Reader asset={asset} blobUrl={blobUrl} title={title} />
+    return <Reader asset={asset} blobUrl={blobUrl} title={title} toolbarHost={toolbarHost} />
   }
 
   return <Typography sx={{ fontSize: 13, color: 'rgba(0,0,0,.55)' }}>暂不支持预览该类型附件。</Typography>

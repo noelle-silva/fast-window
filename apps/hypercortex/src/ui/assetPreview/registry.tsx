@@ -7,6 +7,7 @@ import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRound
 import type { SvgIconProps } from '@mui/material/SvgIcon'
 import { createMarkdownRenderEngine } from '../../render/engine'
 import type { AssetEntry } from '../../assetTypes'
+import type { AssetPreviewToolbarHost } from './assetPreviewToolbar'
 
 export type AssetPreviewKind = 'image' | 'video' | 'pdf' | 'word' | 'unsupported'
 
@@ -14,6 +15,7 @@ export type AssetPreviewContext = {
   asset: AssetEntry
   blobUrl: string
   title: string
+  toolbarHost?: AssetPreviewToolbarHost
 }
 
 export type AssetPreviewDescriptor = {
