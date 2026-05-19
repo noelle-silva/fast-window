@@ -90,7 +90,7 @@ function FitWindowHtmlIframe(props: { html: string; minHeightPx: number }) {
         height: 'clamp(360px, calc(100vh - 260px), 960px)',
         borderRadius: 2,
         overflow: 'hidden',
-        boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.10)',
+        boxShadow: '0 16px 36px rgba(15,23,42,.08)',
         bgcolor: '#fff',
       }}
     >
@@ -164,8 +164,8 @@ function FixedFitHtmlIframe(props: {
             px: 1.25,
             py: 0.75,
             borderRadius: 2,
-            border: '1px solid rgba(0,0,0,.07)',
-            bgcolor: '#fff',
+            bgcolor: 'rgba(15,23,42,.035)',
+            boxShadow: '0 10px 24px rgba(15,23,42,.06)',
           }}
         >
           <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.55)', whiteSpace: 'nowrap' }}>
@@ -227,7 +227,7 @@ function FixedFitHtmlIframe(props: {
           height: 'clamp(360px, calc(100vh - 260px), 960px)',
           borderRadius: 2,
           overflow: 'auto',
-          boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.10)',
+          boxShadow: '0 16px 36px rgba(15,23,42,.08)',
           bgcolor: '#f8fafc',
           p: 1.5,
         }}

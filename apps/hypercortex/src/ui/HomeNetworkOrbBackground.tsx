@@ -137,9 +137,9 @@ function OrbRings(): React.ReactNode {
             ml: `${-(278 - index * 36) / 2}px`,
             mt: `${-(278 - index * 36) / 2}px`,
             borderRadius: '50%',
-            border: '1px solid rgba(126,213,255,.18)',
+            background: 'radial-gradient(circle, rgba(126,213,255,.14), rgba(126,213,255,.05) 46%, transparent 70%)',
             transform: `translateZ(${-index * 28}px) rotateX(${index * 18}deg)`,
-            boxShadow: 'inset 0 0 34px rgba(70,168,255,.12)',
+            filter: 'blur(.2px)',
           }}
         />
       ))}
@@ -180,7 +180,7 @@ export function HomeNetworkOrbBackground(): React.ReactNode {
             position: 'absolute',
             inset: 54,
             borderRadius: '50%',
-            border: '1px solid rgba(177,231,255,.16)',
+            background: 'radial-gradient(circle, rgba(177,231,255,.10), rgba(177,231,255,.04) 42%, transparent 72%)',
             transformStyle: 'preserve-3d',
             animation: `${haloSpin} 62s linear infinite`,
             '@media (prefers-reduced-motion: reduce)': { animation: 'none' },

@@ -8,6 +8,7 @@ import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import type { NoteMeta } from '../core'
 import { HomeNetworkOrbBackground } from './HomeNetworkOrbBackground'
+import { unstyledButtonSurfaceSx } from './pluginUiStyles'
 
 type HomePageStats = {
   noteCount: number
@@ -43,7 +44,6 @@ function StatTile(props: { label: string; value: number | string; hint: string }
         py: 1.25,
         borderRadius: 3,
         bgcolor: 'rgba(255,255,255,.14)',
-        border: '1px solid rgba(212,237,255,.22)',
         boxShadow: '0 14px 34px rgba(0,0,0,.18)',
         backdropFilter: 'blur(14px)',
         minWidth: 0,
@@ -63,23 +63,23 @@ function ActionCard(props: { title: string; body: string; icon: React.ReactNode;
       type="button"
       onClick={props.onClick}
       sx={{
+        ...unstyledButtonSurfaceSx,
         width: '100%',
         minHeight: 116,
         p: 1.5,
         textAlign: 'left',
-        border: '1px solid rgba(0,0,0,.06)',
         borderRadius: 3,
         bgcolor: '#fff',
         cursor: 'pointer',
-        boxShadow: '0 1px 2px rgba(0,0,0,.04)',
+        boxShadow: '0 10px 26px rgba(15,23,42,.06)',
         display: 'flex',
         flexDirection: 'column',
         gap: 1,
-        transition: 'transform .16s ease, box-shadow .16s ease, border-color .16s ease',
+        transition: 'transform .16s ease, box-shadow .16s ease, background-color .16s ease',
         '&:hover': {
           transform: 'translateY(-2px)',
           boxShadow: '0 14px 34px rgba(37,51,91,.12)',
-          borderColor: 'rgba(25,118,210,.18)',
+          bgcolor: 'rgba(255,255,255,.96)',
         },
         '&:focus-visible': { outline: '2px solid rgba(25,118,210,.36)', outlineOffset: 2 },
       }}
@@ -103,8 +103,8 @@ function RecentNoteRow(props: { note: NoteMeta; onOpen: (note: NoteMeta) => void
       type="button"
       onClick={() => onOpen(note)}
       sx={{
+        ...unstyledButtonSurfaceSx,
         width: '100%',
-        border: 0,
         bgcolor: 'transparent',
         cursor: 'pointer',
         textAlign: 'left',
@@ -141,7 +141,6 @@ export function HomePage(props: HomePageProps): React.ReactNode {
           px: { xs: 2, md: 3 },
           py: { xs: 2.25, md: 3 },
           bgcolor: '#07111f',
-          border: '1px solid rgba(122,186,255,.22)',
           boxShadow: '0 24px 70px rgba(4,10,24,.28)',
         }}
       >
@@ -176,8 +175,8 @@ export function HomePage(props: HomePageProps): React.ReactNode {
           <ActionCard title="快速搜索" body="用标题直达笔记或附件；当库变大时，这会比翻列表更稳定。" icon={<SearchRoundedIcon fontSize="small" />} onClick={onOpenSearch} />
         </Box>
 
-        <Box sx={{ borderRadius: 4, bgcolor: '#fff', border: '1px solid rgba(0,0,0,.06)', boxShadow: '0 1px 2px rgba(0,0,0,.04)', overflow: 'hidden' }}>
-          <Box sx={{ px: 1.5, py: 1.25, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, borderBottom: '1px solid rgba(0,0,0,.06)' }}>
+        <Box sx={{ borderRadius: 4, bgcolor: '#fff', boxShadow: '0 10px 26px rgba(15,23,42,.06)', overflow: 'hidden' }}>
+          <Box sx={{ px: 1.5, py: 1.25, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
             <Box>
               <Typography sx={{ fontSize: 14, fontWeight: 950, color: '#111' }}>最近更新</Typography>
               <Typography sx={{ mt: 0.15, fontSize: 11.5, color: 'rgba(0,0,0,.46)' }}>继续刚才的思路，不丢上下文</Typography>

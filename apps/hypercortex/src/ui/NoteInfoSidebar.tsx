@@ -108,13 +108,10 @@ export function NoteInfoSidebar(props: {
         <NoteRefSection title="引用本笔记" ids={props.backlinkIds} resolveTitle={props.resolveTitle} canOpenId={props.canOpenId} onOpenId={props.onOpenId} />
       </Box>
 
-      <Box sx={{ my: 1.5, borderTop: '1px solid rgba(0,0,0,.08)' }} />
-
-      <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'rgba(0,0,0,.55)', mb: 1 }}>
-        笔记信息
-      </Typography>
-
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <Box sx={{ mt: 2.25, display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'rgba(0,0,0,.55)' }}>
+          笔记信息
+        </Typography>
         <Box>
           <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.42)', mb: 0.5 }}>描述</Typography>
           {props.editing ? (

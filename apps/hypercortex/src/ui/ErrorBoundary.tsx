@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { Box, Button, Typography } from '@mui/material'
+import { softButtonSx } from './pluginUiStyles'
 
 export class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { error: Error | null }> {
   state: { error: Error | null } = { error: null }
@@ -29,9 +30,9 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
             刷新
           </Button>
           <Button
-            variant="outlined"
+            variant="text"
             onClick={() => this.setState({ error: null })}
-            sx={{ textTransform: 'none' }}
+            sx={softButtonSx}
           >
             继续尝试
           </Button>

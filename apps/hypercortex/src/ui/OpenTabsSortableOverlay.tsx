@@ -34,7 +34,6 @@ function SortableDragOverlayCard(props: { title: string; icon: React.ReactNode; 
         borderRadius: 2,
         bgcolor: groupColor || '#fff',
         boxShadow: '0 14px 38px rgba(0,0,0,.22)',
-        border: '1px solid rgba(0,0,0,.08)',
         pointerEvents: 'none',
       }}
     >

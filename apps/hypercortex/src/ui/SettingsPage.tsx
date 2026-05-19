@@ -57,8 +57,12 @@ export function SettingsPage(props: SettingsPageProps) {
         aria-label="HyperCortex 设置分类"
         sx={{
           minHeight: 42,
-          borderBottom: '1px solid rgba(0,0,0,.08)',
+          bgcolor: 'rgba(15,23,42,.035)',
+          borderRadius: 3,
+          px: 0.5,
+          '& .MuiTabs-indicator': { height: 0 },
           '& .MuiTab-root': { minHeight: 42, fontSize: 13, fontWeight: 800 },
+          '& .MuiTab-root.Mui-selected': { bgcolor: '#fff', borderRadius: 2.5, boxShadow: '0 8px 20px rgba(15,23,42,.08)' },
         }}
       >
         {SETTINGS_CATEGORIES.map(item => (

@@ -5,6 +5,7 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import { IMAGE_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from './viewerZoom'
 import { useEvent } from './useEvent'
 import { clampOffset } from './clampOffset'
+import { darkFloatingControlSx } from '../pluginUiStyles'
 
 function clampNum(n: number, min: number, max: number) {
   const x = Number(n)
@@ -339,10 +340,7 @@ export function ImageDialog(props: { open: boolean; controller: any; viewer: any
             left: 16,
             top: '50%',
             transform: 'translateY(-50%)',
-            bgcolor: 'rgba(0,0,0,.35)',
-            color: 'rgba(255,255,255,.92)',
-            border: '1px solid rgba(255,255,255,.18)',
-            '&:hover': { bgcolor: 'rgba(0,0,0,.48)' },
+            ...darkFloatingControlSx,
           }}
         >
           <ChevronLeftIcon />
@@ -361,10 +359,7 @@ export function ImageDialog(props: { open: boolean; controller: any; viewer: any
             right: 16,
             top: '50%',
             transform: 'translateY(-50%)',
-            bgcolor: 'rgba(0,0,0,.35)',
-            color: 'rgba(255,255,255,.92)',
-            border: '1px solid rgba(255,255,255,.18)',
-            '&:hover': { bgcolor: 'rgba(0,0,0,.48)' },
+            ...darkFloatingControlSx,
           }}
         >
           <ChevronRightIcon />

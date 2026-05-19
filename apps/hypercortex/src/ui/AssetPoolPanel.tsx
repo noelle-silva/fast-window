@@ -17,6 +17,7 @@ import { startPickedLocalAssetUploadTask } from '../services/localAssetUpload'
 import { AssetUploadTaskPanel } from './AssetUploadTaskPanel'
 import { type AssetUploadTaskView, isActiveUploadTask } from './assetUploadTasks'
 import { useAssetUploadTasks } from './useAssetUploadTasks'
+import { softButtonSx } from './pluginUiStyles'
 
 /* ------------------------------------------------------------------ */
 /*  类型                                                               */
@@ -575,17 +576,15 @@ export function AssetPoolPanel({ gateway, scope, onOpenAsset }: Props) {
           </Tooltip>
 
           <Button
-            variant="outlined"
+            variant="text"
             size="small"
             startIcon={startingUpload ? <CircularProgress size={16} /> : <AddRoundedIcon />}
             disabled={startingUpload}
             onClick={() => void handleStartUploadTask()}
             sx={{
-              textTransform: 'none',
+              ...softButtonSx,
               borderRadius: 2,
-              borderColor: 'rgba(0,0,0,.16)',
               color: '#333',
-              '&:hover': { borderColor: 'rgba(0,0,0,.32)', bgcolor: 'rgba(0,0,0,.02)' },
             }}
           >
             {startingUpload ? '启动中...' : '添加文件'}

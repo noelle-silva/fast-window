@@ -6,7 +6,6 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  Divider,
   IconButton,
   Menu,
   MenuItem,
@@ -39,6 +38,7 @@ import { useOpenTabsPointerDnd } from './useOpenTabsPointerDnd'
 import { parseSortableId, sortableGroupId, sortableGroupSlotId, sortableTabId, sortableTopSlotId } from './openTabsSortableModel'
 import { useOpenTabsSortableDnd } from './useOpenTabsSortableDnd'
 import { useOpenTabsSortableOverlay } from './OpenTabsSortableOverlay'
+import { menuDangerItemSx, menuPaperSx } from './pluginUiStyles'
 
 const ACTIVE_TAB_SCROLL_PADDING = 16
 
@@ -437,8 +437,8 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               cursor: isDragging ? 'grabbing' : opts?.sortable ? 'grab' : 'pointer',
               touchAction: opts?.sortable ? 'none' : undefined,
               opacity: isSortablePlaceholder ? 0.44 : isDragging ? 0.72 : 1,
-              border: isSortablePlaceholder ? '1px dashed rgba(25,118,210,.46)' : '1px solid transparent',
-              bgcolor: isSortablePlaceholder ? 'rgba(25,118,210,.08)' : isDragOver ? 'rgba(25,118,210,.10)' : isActive ? 'rgba(25,118,210,.10)' : 'transparent',
+              boxShadow: isSortablePlaceholder ? '0 10px 24px rgba(25,118,210,.18)' : 'none',
+              bgcolor: isSortablePlaceholder ? 'rgba(25,118,210,.14)' : isDragOver ? 'rgba(25,118,210,.10)' : isActive ? 'rgba(25,118,210,.10)' : 'transparent',
               '&:hover': { bgcolor: isSortablePlaceholder ? 'rgba(25,118,210,.08)' : isDragOver ? 'rgba(25,118,210,.14)' : isActive ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
               '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
             }}
@@ -569,8 +569,8 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               cursor: isDragging ? 'grabbing' : opts?.sortable ? 'grab' : 'pointer',
               touchAction: opts?.sortable ? 'none' : undefined,
               opacity: isSortablePlaceholder ? 0.44 : isDragging ? 0.72 : 1,
-              border: isSortablePlaceholder ? '1px dashed rgba(25,118,210,.46)' : '1px solid transparent',
-              bgcolor: isSortablePlaceholder ? 'rgba(25,118,210,.08)' : isDragOver ? 'rgba(25,118,210,.10)' : isActive ? 'rgba(25,118,210,.10)' : 'transparent',
+              boxShadow: isSortablePlaceholder ? '0 10px 24px rgba(25,118,210,.18)' : 'none',
+              bgcolor: isSortablePlaceholder ? 'rgba(25,118,210,.14)' : isDragOver ? 'rgba(25,118,210,.10)' : isActive ? 'rgba(25,118,210,.10)' : 'transparent',
               '&:hover': { bgcolor: isSortablePlaceholder ? 'rgba(25,118,210,.08)' : isDragOver ? 'rgba(25,118,210,.14)' : isActive ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
               '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
             }}
@@ -671,8 +671,8 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               cursor: isDragging ? 'grabbing' : opts?.sortable ? 'grab' : 'pointer',
               touchAction: opts?.sortable ? 'none' : undefined,
               opacity: isSortablePlaceholder ? 0.44 : isDragging ? 0.72 : 0.86,
-              border: isSortablePlaceholder ? '1px dashed rgba(25,118,210,.46)' : '1px solid transparent',
-              bgcolor: isSortablePlaceholder ? 'rgba(25,118,210,.08)' : isDragOver ? 'rgba(25,118,210,.10)' : isActive ? 'rgba(25,118,210,.10)' : 'transparent',
+              boxShadow: isSortablePlaceholder ? '0 10px 24px rgba(25,118,210,.18)' : 'none',
+              bgcolor: isSortablePlaceholder ? 'rgba(25,118,210,.14)' : isDragOver ? 'rgba(25,118,210,.10)' : isActive ? 'rgba(25,118,210,.10)' : 'transparent',
               '&:hover': { bgcolor: isSortablePlaceholder ? 'rgba(25,118,210,.08)' : isDragOver ? 'rgba(25,118,210,.14)' : isActive ? 'rgba(25,118,210,.14)' : 'rgba(0,0,0,.04)' },
               '&:focus-visible': { boxShadow: '0 0 0 2px rgba(25,118,210,.32)' },
             }}
@@ -852,9 +852,9 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
               cursor: isDragging ? 'grabbing' : sortable ? 'grab' : 'pointer',
               touchAction: sortable ? 'none' : undefined,
               opacity: isSortablePlaceholder ? 0.5 : isDragging ? 0.78 : 1,
-              border: isSortablePlaceholder ? '1px dashed rgba(25,118,210,.50)' : '1px solid transparent',
               bgcolor: g.color,
-              backgroundImage: isSortablePlaceholder ? 'linear-gradient(0deg, rgba(255,255,255,.34), rgba(255,255,255,.34))' : isDragOver ? 'linear-gradient(0deg, rgba(25,118,210,.10), rgba(25,118,210,.10))' : 'none',
+              boxShadow: isSortablePlaceholder ? '0 10px 24px rgba(25,118,210,.18)' : 'none',
+              backgroundImage: isSortablePlaceholder ? 'linear-gradient(0deg, rgba(25,118,210,.16), rgba(25,118,210,.16))' : isDragOver ? 'linear-gradient(0deg, rgba(25,118,210,.10), rgba(25,118,210,.10))' : 'none',
               '&:hover': { filter: 'brightness(0.985)' },
               '&:focus-visible': { backgroundImage: 'linear-gradient(0deg, rgba(25,118,210,.14), rgba(25,118,210,.14))' },
             }}
@@ -954,7 +954,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
           py: 0.5,
           display: 'flex',
           alignItems: 'center',
-          borderBottom: 'none',
         }}
       >
         {panelWidth <= 52 ? (
@@ -1116,7 +1115,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         onClose={closeMenu}
         anchorReference="anchorPosition"
         anchorPosition={groupMenu ? { top: groupMenu.mouseY, left: groupMenu.mouseX } : undefined}
-        PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}
+        PaperProps={{ sx: menuPaperSx }}
       >
         <MenuItem
           onClick={() => {
@@ -1128,7 +1127,6 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         >
           改名…
         </MenuItem>
-        <Divider />
         <Box sx={{ px: 1.25, py: 1, display: 'grid', gridTemplateColumns: 'repeat(5, 20px)', gap: 0.75, alignItems: 'center' }}>
           {TAB_GROUP_PRESET_COLORS.map(c => (
             <Box
@@ -1154,13 +1152,13 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
                 borderRadius: 2,
                 bgcolor: c,
                 cursor: 'pointer',
-                boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.14)',
-                '&:hover': { boxShadow: 'inset 0 0 0 2px rgba(25,118,210,.42)' },
+                boxShadow: '0 6px 14px rgba(15,23,42,.12)',
+                transition: 'transform 120ms ease, filter 120ms ease',
+                '&:hover': { transform: 'translateY(-1px) scale(1.06)', filter: 'brightness(1.06)' },
               }}
             />
           ))}
         </Box>
-        <Divider />
         <MenuItem
           onClick={() => {
             const gid = groupMenu?.groupId
@@ -1168,6 +1166,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
             if (!gid) return
             onDeleteGroupOnly(gid)
           }}
+          sx={{ mt: 0.5, bgcolor: 'rgba(15,23,42,.035)' }}
         >
           仅删除分组标签
         </MenuItem>
@@ -1179,7 +1178,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
             if (!window.confirm('确定删除这个分组，并关闭它下面的所有标签页吗？')) return
             onDeleteGroupAndCloseTabs(gid)
           }}
-          sx={{ color: '#d32f2f' }}
+          sx={menuDangerItemSx}
         >
           删除分组并关闭全部标签页
         </MenuItem>
@@ -1189,7 +1188,7 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
         open={workspaceMenuOpen}
         onClose={closeWorkspaceMenu}
         anchorEl={workspaceMenuAnchorEl}
-        PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}
+        PaperProps={{ sx: menuPaperSx }}
       >
         {workspaces.map(ws => (
           <MenuItem
@@ -1203,12 +1202,12 @@ export function OpenTabsPanel(props: OpenTabsPanelProps) {
             {ws.title || '工作区'}
           </MenuItem>
         ))}
-        <Divider />
         <MenuItem
           onClick={() => {
             closeWorkspaceMenu()
             setWorkspaceEditor({ mode: 'rename', title: activeWorkspaceTitle })
           }}
+          sx={{ mt: 0.5, bgcolor: 'rgba(15,23,42,.035)' }}
         >
           重命名当前工作区…
         </MenuItem>

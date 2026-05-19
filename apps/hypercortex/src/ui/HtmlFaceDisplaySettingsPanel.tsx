@@ -67,19 +67,16 @@ export function HtmlFaceDisplaySettingsPanel(props: {
                 px: 1.5,
                 py: 1,
                 borderRadius: 2,
-                border: '1.5px solid',
-                borderColor: active ? '#1976d2' : 'rgba(0,0,0,.10)',
-                bgcolor: active ? 'rgba(25,118,210,.05)' : 'rgba(0,0,0,.02)',
+                bgcolor: active ? 'rgba(25,118,210,.08)' : 'rgba(0,0,0,.02)',
+                boxShadow: active ? '0 12px 26px rgba(25,118,210,.12)' : 'none',
                 cursor: 'pointer',
                 userSelect: 'none',
-                transition: 'border-color 120ms, background 120ms',
+                transition: 'background 120ms, box-shadow 120ms',
                 '&:hover': {
-                  borderColor: active ? '#1976d2' : 'rgba(0,0,0,.22)',
                   bgcolor: active ? 'rgba(25,118,210,.07)' : 'rgba(0,0,0,.04)',
                 },
               }}
             >
-              {/* 单选圆圈 */}
               <Box
                 sx={{
                   flex: '0 0 18px',
@@ -87,21 +84,20 @@ export function HtmlFaceDisplaySettingsPanel(props: {
                   height: 18,
                   mt: 0.15,
                   borderRadius: '50%',
-                  border: '2px solid',
-                  borderColor: active ? '#1976d2' : 'rgba(0,0,0,.26)',
-                  bgcolor: '#fff',
+                  bgcolor: active ? '#1976d2' : 'rgba(0,0,0,.16)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
+                  boxShadow: active ? '0 8px 18px rgba(25,118,210,.18)' : 'none',
                 }}
               >
                 {active && (
                   <Box
                     sx={{
-                      width: 9,
-                      height: 9,
+                      width: 6,
+                      height: 6,
                       borderRadius: '50%',
-                      bgcolor: '#1976d2',
+                      bgcolor: '#fff',
                     }}
                   />
                 )}

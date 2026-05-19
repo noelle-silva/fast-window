@@ -6,6 +6,7 @@ import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
 import pdfWorkerSource from 'pdfjs-dist/legacy/build/pdf.worker.mjs?raw'
 import type { AssetPreviewContext } from './registry'
+import { softButtonSx } from '../pluginUiStyles'
 
 type PdfDocumentProxy = Awaited<ReturnType<typeof pdfjsLib.getDocument>['promise']>
 
@@ -220,9 +221,9 @@ export function PdfAssetReader({ blobUrl, title }: AssetPreviewContext) {
           justifyContent: 'space-between',
           gap: 1,
           px: 1.5,
-          borderBottom: '1px solid rgba(255,255,255,.12)',
           color: '#fff',
           bgcolor: 'rgba(24,24,27,.92)',
+          boxShadow: '0 14px 30px rgba(0,0,0,.22)',
         }}
       >
         <Typography noWrap title={title} sx={{ fontSize: 13, fontWeight: 700, minWidth: 0 }}>{title}</Typography>
@@ -238,14 +239,13 @@ export function PdfAssetReader({ blobUrl, title }: AssetPreviewContext) {
               inputProps={{ min: 1, max: pages.length, step: 1 }}
               sx={{
                 width: 72,
-                '& .MuiInputBase-root': { height: 28, color: '#fff', fontSize: 12, bgcolor: 'rgba(255,255,255,.08)' },
-                '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,.22)' },
-                '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,.42)' },
-                '& .Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,.72)' },
+                '& .MuiInputBase-root': { height: 28, color: '#fff', fontSize: 12, bgcolor: 'rgba(255,255,255,.12)' },
+                '& .MuiOutlinedInput-notchedOutline': { borderColor: 'transparent' },
+                '& .Mui-focused': { bgcolor: 'rgba(255,255,255,.18)', boxShadow: '0 10px 24px rgba(255,255,255,.10)' },
               }}
             />
             <Typography sx={{ fontSize: 12, color: 'rgba(255,255,255,.62)' }}>/ {pages.length}</Typography>
-            <Button type="submit" size="small" variant="outlined" sx={{ minWidth: 48, height: 28, px: 1, borderColor: 'rgba(255,255,255,.28)', color: '#fff', fontSize: 12, textTransform: 'none' }}>
+            <Button type="submit" size="small" variant="text" sx={{ ...softButtonSx, minWidth: 48, height: 28, px: 1, color: '#fff', fontSize: 12, bgcolor: 'rgba(255,255,255,.12)', '&:hover': { bgcolor: 'rgba(255,255,255,.18)', boxShadow: 'none' } }}>
               跳转
             </Button>
           </Box>

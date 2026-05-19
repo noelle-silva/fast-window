@@ -44,8 +44,8 @@ export function SidebarSortSettingsPanel(props: SidebarSortSettingsPanelProps) {
             key={option.value}
             sx={{
               borderRadius: 3,
-              border: mode === option.value ? '1px solid rgba(25,118,210,.48)' : '1px solid rgba(0,0,0,.08)',
-              bgcolor: mode === option.value ? 'rgba(25,118,210,.06)' : 'rgba(0,0,0,.02)',
+              bgcolor: mode === option.value ? 'rgba(25,118,210,.08)' : 'rgba(0,0,0,.02)',
+              boxShadow: mode === option.value ? '0 12px 26px rgba(25,118,210,.12)' : 'none',
               px: 1.25,
               py: 1,
             }}

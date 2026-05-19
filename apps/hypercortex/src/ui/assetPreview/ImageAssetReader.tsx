@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Box } from '@mui/material'
 import type { PreviewController } from '../preview/usePreviewController'
+import { unstyledButtonSurfaceSx } from '../pluginUiStyles'
 
 export function ImageAssetReader({
   blobUrl,
@@ -40,11 +41,10 @@ export function ImageAssetReader({
         aria-label={`打开大图：${title}`}
         onClick={openImageViewer}
         sx={{
+          ...unstyledButtonSurfaceSx,
           width: '100%',
           height: '100%',
           p: 0,
-          m: 0,
-          border: 0,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',

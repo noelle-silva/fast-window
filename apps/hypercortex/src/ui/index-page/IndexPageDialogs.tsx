@@ -5,6 +5,7 @@ import type { NoteMeta } from '../../core'
 import type { FavoriteFolder, HyperCortexFavoritesDocV1 } from '../../favorites'
 import type { AddKind, AddMode, DeleteEntityTarget, EditFolderTarget } from './types'
 import { entityDeleteHelperText, folderDeleteHelperText, folderTitle } from './helpers'
+import { softButtonSx } from '../pluginUiStyles'
 
 type Props = {
   doc: HyperCortexFavoritesDocV1
@@ -172,7 +173,7 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
               <Box sx={{ pt: 1.5 }}>
                 {noteSuggestions.map(n => (
                   <Box key={n.id} sx={{ pb: 1 }}>
-                    <Button fullWidth variant="outlined" sx={{ justifyContent: 'space-between', borderRadius: 4, textTransform: 'none' }} onClick={() => onConfirmAddNote(n.id)}>
+                    <Button fullWidth variant="text" sx={{ ...softButtonSx, justifyContent: 'space-between', borderRadius: 4 }} onClick={() => onConfirmAddNote(n.id)}>
                       <Box sx={{ minWidth: 0, textAlign: 'left' }}>
                         <Typography sx={{ fontSize: 13, fontWeight: 800, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                           {n.title || '未命名'}
@@ -223,7 +224,7 @@ export function IndexPageDialogs(props: Props): React.ReactNode {
                   const title = String(a.displayName || a.fileName || key)
                   return (
                     <Box key={key} sx={{ pb: 1 }}>
-                      <Button fullWidth variant="outlined" sx={{ justifyContent: 'space-between', borderRadius: 4, textTransform: 'none' }} onClick={() => onConfirmAddAsset(key)}>
+                      <Button fullWidth variant="text" sx={{ ...softButtonSx, justifyContent: 'space-between', borderRadius: 4 }} onClick={() => onConfirmAddAsset(key)}>
                         <Box sx={{ minWidth: 0, textAlign: 'left' }}>
                           <Typography sx={{ fontSize: 13, fontWeight: 800, color: '#111', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {title}

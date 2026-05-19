@@ -5,6 +5,7 @@ import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 import type { ResizeHandleDirection } from './types'
+import { floatingControlSx } from '../pluginUiStyles'
 
 type Props = {
   editMode: boolean
@@ -90,10 +91,7 @@ export function IndexCardShell(props: Props): React.ReactNode {
                     setMenuAnchorEl(e.currentTarget)
                   }}
                   sx={{
-                    bgcolor: 'rgba(255,255,255,.95)',
-                    border: '1px solid rgba(15,23,42,.10)',
-                    boxShadow: '0 8px 18px rgba(15,23,42,.08)',
-                    color: 'rgba(15,23,42,.66)',
+                    ...floatingControlSx,
                   }}
                 >
                   <MoreHorizRoundedIcon fontSize="small" />

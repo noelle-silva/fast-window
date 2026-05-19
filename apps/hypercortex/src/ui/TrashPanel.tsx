@@ -5,6 +5,7 @@ import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
 import type { AssetEntry } from '../assetTypes'
 import type { NoteMeta, VaultScope } from '../core'
 import type { HyperCortexGateway, HyperCortexTrashItem } from '../gateway'
+import { softButtonSx } from './pluginUiStyles'
 
 function formatDateTime(ms: number): string {
   if (!(Number(ms) > 0)) return ''
@@ -88,7 +89,7 @@ export function TrashPanel(props: {
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, maxWidth: 860 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
         <Typography sx={{ fontSize: 24, lineHeight: 1.25, fontWeight: 900, color: '#111' }}>回收站</Typography>
-        <Button variant="outlined" size="small" onClick={() => void load()} disabled={loading}>
+        <Button variant="text" size="small" onClick={() => void load()} disabled={loading} sx={{ ...softButtonSx, borderRadius: 2 }}>
           刷新
         </Button>
       </Box>
@@ -130,7 +131,7 @@ export function TrashPanel(props: {
                   </Typography>
                 </Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Button size="small" variant="outlined" onClick={() => void handleRestore(item)} disabled={restoring || deleting}>
+                  <Button size="small" variant="text" onClick={() => void handleRestore(item)} disabled={restoring || deleting} sx={{ ...softButtonSx, borderRadius: 2 }}>
                     {restoring ? '恢复中…' : '恢复'}
                   </Button>
                   <Button size="small" color="error" variant="contained" onClick={() => confirmDelete(item)} disabled={restoring || deleting}>

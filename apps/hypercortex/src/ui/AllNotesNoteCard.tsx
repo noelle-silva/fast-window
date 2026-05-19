@@ -5,6 +5,7 @@ import type { NoteMeta } from '../core'
 
 import type { NoteCardInfo } from './noteCardInfo'
 import { noteContainsLabel, shouldShowNoteContains } from './noteCardInfo'
+import { unstyledButtonSurfaceSx } from './pluginUiStyles'
 
 
 function normalizeTags(tags: unknown): string[] {
@@ -87,7 +88,7 @@ function Actions(props: {
             onCopyRef(note)
           }}
           sx={{
-            border: 'none',
+            ...unstyledButtonSurfaceSx,
             background: 'rgba(0,0,0,.05)',
             borderRadius: 1.5,
             width: size,
@@ -115,7 +116,7 @@ function Actions(props: {
             onMore(e, note)
           }}
           sx={{
-            border: 'none',
+            ...unstyledButtonSurfaceSx,
             background: 'rgba(0,0,0,.05)',
             borderRadius: 1.5,
             width: size,

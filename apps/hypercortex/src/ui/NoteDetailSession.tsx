@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Divider, IconButton, InputBase, Menu, MenuItem, Tooltip, Typography } from '@mui/material'
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputBase, Menu, MenuItem, Tooltip, Typography } from '@mui/material'
 import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
@@ -34,6 +34,7 @@ import { HtmlFaceFullscreenDialog } from './preview/HtmlFaceFullscreenDialog'
 import { ensurePreviewClickHandlerOnce } from './preview/ensurePreviewClickHandlerOnce'
 import { ensureLiveEditorPreviewButton } from './preview/ensureLiveEditorPreviewButton'
 import { usePreviewController } from './preview/usePreviewController'
+import { menuDangerItemSx, menuPaperSx } from './pluginUiStyles'
 
 type NoteFaceId = string
 type TextEditorMode = 'source' | 'live'
@@ -944,7 +945,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
               open={moreMenuOpen}
               onClose={closeMoreMenu}
               anchorEl={moreMenuAnchorEl}
-              PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}
+              PaperProps={{ sx: menuPaperSx }}
             >
               <MenuItem
                 onClick={() => void requestOpenNoteDir()}
@@ -952,18 +953,17 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
               >
                 打开当前笔记文件夹
               </MenuItem>
-              <Divider />
               <MenuItem
                 onClick={() => requestDeleteNote()}
-                sx={{ color: '#d32f2f' }}
+                sx={menuDangerItemSx}
               >
                 删除当前整个笔记…
               </MenuItem>
               {canDeleteCurrentFace ? (
                 <>
-                  <Divider />
                   <MenuItem
                     onClick={e => setDeleteFaceMenuAnchorEl(e.currentTarget as HTMLElement)}
+                    sx={{ mt: 0.5, bgcolor: 'rgba(211,47,47,.04)', color: '#9a3412', '&:hover': { bgcolor: 'rgba(211,47,47,.09)' } }}
                   >
                     删除当前笔记的其中面…
                   </MenuItem>
@@ -975,7 +975,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
               open={deleteFaceMenuOpen}
               onClose={() => setDeleteFaceMenuAnchorEl(null)}
               anchorEl={deleteFaceMenuAnchorEl}
-              PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}
+              PaperProps={{ sx: menuPaperSx }}
             >
               <MenuItem onClick={() => requestDeleteHtmlFace()} sx={{ color: '#d32f2f' }}>
                 HTML 面
@@ -1155,9 +1155,10 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                   minWidth: 0,
                   width: '100%',
                   mt: 0.5,
-                  pb: 0.5,
-                  borderBottom: '1px solid',
-                  borderColor: 'rgba(0,0,0,.16)',
+                  px: 1,
+                  py: 0.75,
+                  borderRadius: 3,
+                  bgcolor: 'rgba(15,23,42,.035)',
                 }}
               >
                 <InputBase
@@ -1226,8 +1227,7 @@ export const NoteDetailSession = React.forwardRef<NoteDetailSessionHandle, NoteD
                       pl: 1.25,
                       pr: 0.5,
                       borderRadius: 999,
-                      border: '1px solid rgba(0,0,0,.12)',
-                      bgcolor: '#fff',
+                      bgcolor: 'rgba(15,23,42,.045)',
                       gap: 0.25,
                     }}
                   >

@@ -34,13 +34,10 @@ export function AssetInfoSidebar(props: Props) {
         <MetaBlock label="来源名" value={asset.sourceName || asset.fileName || '—'} />
       </Box>
 
-      <Box sx={{ my: 1.5, borderTop: '1px solid rgba(0,0,0,.08)' }} />
-
-      <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'rgba(0,0,0,.55)', mb: 1 }}>
-        可编辑元数据
-      </Typography>
-
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <Box sx={{ mt: 2.25, display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <Typography sx={{ fontSize: 12, fontWeight: 900, color: 'rgba(0,0,0,.55)' }}>
+          可编辑元数据
+        </Typography>
         <TextField
           label="显示名"
           size="small"

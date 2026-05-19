@@ -41,23 +41,21 @@ export function CardFrame(props: Props): React.ReactNode {
         px: 1.6,
         py: 1.45,
         borderRadius: 3.5,
-        border: '1px solid rgba(15,23,42,.08)',
         bgcolor: '#fff',
         boxShadow: '0 10px 24px rgba(15,23,42,.05)',
         cursor: clickable ? 'pointer' : 'default',
-        transition: 'transform .18s ease, box-shadow .18s ease, border-color .18s ease, background-color .18s ease',
+        transition: 'transform .18s ease, box-shadow .18s ease, background-color .18s ease',
         '&:hover': clickable
           ? {
               transform: 'translateY(-1px)',
-              borderColor: 'rgba(15,23,42,.14)',
               boxShadow: '0 16px 32px rgba(15,23,42,.10)',
             }
           : undefined,
         '&:focus-visible': clickable
           ? {
               outline: 'none',
-              borderColor: accent,
-              boxShadow: `0 0 0 3px ${accentSoft}, 0 16px 32px rgba(15,23,42,.10)`,
+              bgcolor: accentSoft,
+              boxShadow: `0 16px 32px rgba(15,23,42,.10)`,
             }
           : undefined,
       }}

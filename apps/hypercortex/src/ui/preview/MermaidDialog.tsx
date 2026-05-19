@@ -11,6 +11,7 @@ import { MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from './viewerZoom'
 import { useEvent } from './useEvent'
 import { clampOffset } from './clampOffset'
 import type { PreviewController } from './usePreviewController'
+import { darkFloatingControlSx } from '../pluginUiStyles'
 
 function clampNum(n: number, min: number, max: number) {
   const x = Number(n)
@@ -459,7 +460,7 @@ export function MermaidDialog(props: { open: boolean; controller: PreviewControl
         <Chip
           size="small"
           label={len ? `${idx + 1}/${len}` : '0/0'}
-          sx={{ position: 'absolute', left: 12, top: 12, bgcolor: 'rgba(0,0,0,.45)', color: 'rgba(255,255,255,.92)', border: '1px solid rgba(255,255,255,.18)' }}
+          sx={{ position: 'absolute', left: 12, top: 12, bgcolor: 'rgba(0,0,0,.45)', color: 'rgba(255,255,255,.92)', boxShadow: '0 12px 28px rgba(0,0,0,.28)', backdropFilter: 'blur(10px)' }}
         />
 
         <Box sx={{ position: 'absolute', right: 12, top: 10, display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -471,7 +472,7 @@ export function MermaidDialog(props: { open: boolean; controller: PreviewControl
                 e.stopPropagation()
                 zoomBy(1 / 1.12)
               }}
-              sx={{ bgcolor: 'rgba(0,0,0,.35)', color: 'rgba(255,255,255,.92)', border: '1px solid rgba(255,255,255,.18)', '&:hover': { bgcolor: 'rgba(0,0,0,.48)' } }}
+              sx={darkFloatingControlSx}
             >
               <ZoomOutIcon />
             </IconButton>
@@ -484,7 +485,7 @@ export function MermaidDialog(props: { open: boolean; controller: PreviewControl
                 e.stopPropagation()
                 zoomBy(1.12)
               }}
-              sx={{ bgcolor: 'rgba(0,0,0,.35)', color: 'rgba(255,255,255,.92)', border: '1px solid rgba(255,255,255,.18)', '&:hover': { bgcolor: 'rgba(0,0,0,.48)' } }}
+              sx={darkFloatingControlSx}
             >
               <ZoomInIcon />
             </IconButton>
@@ -497,7 +498,7 @@ export function MermaidDialog(props: { open: boolean; controller: PreviewControl
                 e.stopPropagation()
                 onReset()
               }}
-              sx={{ bgcolor: 'rgba(0,0,0,.35)', color: 'rgba(255,255,255,.92)', border: '1px solid rgba(255,255,255,.18)', '&:hover': { bgcolor: 'rgba(0,0,0,.48)' } }}
+              sx={darkFloatingControlSx}
             >
               <RestartAltIcon />
             </IconButton>
@@ -512,7 +513,7 @@ export function MermaidDialog(props: { open: boolean; controller: PreviewControl
                   void onCopyImage()
                 }}
                 disabled={!svg}
-                sx={{ bgcolor: 'rgba(0,0,0,.35)', color: 'rgba(255,255,255,.92)', border: '1px solid rgba(255,255,255,.18)', '&:hover': { bgcolor: 'rgba(0,0,0,.48)' } }}
+                sx={darkFloatingControlSx}
               >
                 <ContentCopyIcon />
               </IconButton>
@@ -525,7 +526,7 @@ export function MermaidDialog(props: { open: boolean; controller: PreviewControl
               e.stopPropagation()
               controller.actions.closeModal()
             }}
-            sx={{ bgcolor: 'rgba(0,0,0,.35)', color: 'rgba(255,255,255,.92)', border: '1px solid rgba(255,255,255,.18)', '&:hover': { bgcolor: 'rgba(0,0,0,.48)' } }}
+            sx={darkFloatingControlSx}
           >
             <CloseIcon />
           </IconButton>
@@ -546,8 +547,9 @@ export function MermaidDialog(props: { open: boolean; controller: PreviewControl
             transform: 'translateY(-50%)',
             bgcolor: 'rgba(0,0,0,.35)',
             color: 'rgba(255,255,255,.92)',
-            border: '1px solid rgba(255,255,255,.18)',
-            '&:hover': { bgcolor: 'rgba(0,0,0,.48)' },
+            boxShadow: '0 12px 28px rgba(0,0,0,.28)',
+            backdropFilter: 'blur(10px)',
+            '&:hover': { bgcolor: 'rgba(0,0,0,.54)', boxShadow: '0 16px 34px rgba(0,0,0,.34)' },
           }}
         >
           <ChevronLeftIcon />
@@ -568,8 +570,9 @@ export function MermaidDialog(props: { open: boolean; controller: PreviewControl
             transform: 'translateY(-50%)',
             bgcolor: 'rgba(0,0,0,.35)',
             color: 'rgba(255,255,255,.92)',
-            border: '1px solid rgba(255,255,255,.18)',
-            '&:hover': { bgcolor: 'rgba(0,0,0,.48)' },
+            boxShadow: '0 12px 28px rgba(0,0,0,.28)',
+            backdropFilter: 'blur(10px)',
+            '&:hover': { bgcolor: 'rgba(0,0,0,.54)', boxShadow: '0 16px 34px rgba(0,0,0,.34)' },
           }}
         >
           <ChevronRightIcon />

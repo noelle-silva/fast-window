@@ -21,6 +21,7 @@ import { buildNotePlaceholderForCopy } from '../notePlaceholder'
 import { AllNotesGridNoteCard, AllNotesIconNoteCard, AllNotesListNoteRow } from './AllNotesNoteCard'
 import { startPrefetchNoteCardInfo } from './noteCardInfoLoader'
 import type { HyperCortexGateway } from '../gateway'
+import { unstyledButtonSurfaceSx } from './pluginUiStyles'
 
 type Mode = 'notes' | 'assets'
 
@@ -257,8 +258,7 @@ export function QuickSearchPopover(props: Props) {
               maxWidth: 'min(780px, calc(100vw - 24px))',
               borderRadius: 3,
               overflow: 'hidden',
-              border: '1px solid rgba(0,0,0,.08)',
-              boxShadow: '0 18px 48px rgba(0,0,0,.20)',
+              boxShadow: '0 22px 56px rgba(15,23,42,.22)',
             }}
           >
             <Box sx={{ px: 1.25, py: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -291,7 +291,7 @@ export function QuickSearchPopover(props: Props) {
                   aria-label={allNotesLayout === 'list' ? '切换到网格' : allNotesLayout === 'grid' ? '切换到紧凑' : '切换到列表'}
                   title={allNotesLayout === 'list' ? '切换到网格' : allNotesLayout === 'grid' ? '切换到紧凑' : '切换到列表'}
                   sx={{
-                    border: 0,
+                    ...unstyledButtonSurfaceSx,
                     bgcolor: 'rgba(0,0,0,.04)',
                     px: 1,
                     py: 0.6,

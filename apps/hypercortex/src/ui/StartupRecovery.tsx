@@ -3,9 +3,10 @@ import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded'
 import FolderOpenRoundedIcon from '@mui/icons-material/FolderOpenRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import StorageRoundedIcon from '@mui/icons-material/StorageRounded'
-import { Box, Button, CircularProgress, CssBaseline, Divider, GlobalStyles, Paper, ThemeProvider, Typography, createTheme } from '@mui/material'
+import { Box, Button, CircularProgress, CssBaseline, GlobalStyles, Paper, ThemeProvider, Typography, createTheme } from '@mui/material'
 import type { DataDirStatus } from '../gateway/types'
 import { StandaloneWindowControls, type WindowControlActions } from './StandaloneWindowControls'
+import { lineFreeComponentOverrides, softButtonSx } from './pluginUiStyles'
 
 export type StartupRecoveryPhase = 'starting' | 'failed'
 
@@ -31,6 +32,7 @@ const startupTheme = createTheme({
   typography: {
     fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif',
   },
+  components: lineFreeComponentOverrides,
 })
 
 function isInteractiveTarget(target: EventTarget | null): boolean {
@@ -105,9 +107,8 @@ export function StartupRecovery(props: StartupRecoveryProps) {
             sx={{
               width: 'min(760px, 100%)',
               borderRadius: { xs: 4, sm: 5 },
-              border: '1px solid rgba(91,70,45,.14)',
               overflow: 'hidden',
-              boxShadow: '0 28px 80px rgba(67,48,28,.16)',
+              boxShadow: '0 30px 90px rgba(67,48,28,.18)',
               bgcolor: 'rgba(255,250,242,.92)',
               backdropFilter: 'blur(14px)',
             }}
@@ -140,14 +141,12 @@ export function StartupRecovery(props: StartupRecoveryProps) {
                 </Box>
               </Box>
 
-              <Divider sx={{ borderColor: 'rgba(91,70,45,.12)' }} />
-
               <Box sx={{ display: 'grid', gap: 1.25 }}>
                 <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', color: status?.writable === false ? '#bf360c' : 'rgba(33,27,21,.72)' }}>
                   <StorageRoundedIcon fontSize="small" />
                   <Typography sx={{ fontSize: 13, lineHeight: 1.6, fontWeight: 750 }}>{statusLine(status)}</Typography>
                 </Box>
-                <Box sx={{ display: 'grid', gap: 0.75, p: 1.5, borderRadius: 3, bgcolor: 'rgba(255,255,255,.58)', border: '1px solid rgba(91,70,45,.10)' }}>
+                <Box sx={{ display: 'grid', gap: 0.75, p: 1.5, borderRadius: 3, bgcolor: 'rgba(255,255,255,.64)', boxShadow: '0 12px 26px rgba(91,70,45,.07)' }}>
                   <Typography sx={{ fontSize: 12, color: 'rgba(33,27,21,.58)', lineHeight: 1.55, wordBreak: 'break-all' }}>
                     当前目录：{status?.dataDir || '读取中'}
                   </Typography>
@@ -158,7 +157,7 @@ export function StartupRecovery(props: StartupRecoveryProps) {
               </Box>
 
               {error ? (
-                <Box sx={{ p: 1.5, borderRadius: 3, bgcolor: 'rgba(216,67,21,.08)', color: '#9f2f0a', border: '1px solid rgba(216,67,21,.18)' }}>
+                <Box sx={{ p: 1.5, borderRadius: 3, bgcolor: 'rgba(216,67,21,.10)', color: '#9f2f0a', boxShadow: '0 12px 26px rgba(216,67,21,.10)' }}>
                   <Typography sx={{ fontSize: 12.5, lineHeight: 1.7, wordBreak: 'break-word' }}>{error}</Typography>
                 </Box>
               ) : null}
@@ -174,11 +173,11 @@ export function StartupRecovery(props: StartupRecoveryProps) {
                   {busy ? '处理中...' : '重试启动'}
                 </Button>
                 <Button
-                  variant="outlined"
+                  variant="text"
                   startIcon={<FolderOpenRoundedIcon />}
                   onClick={() => run(onPickDataDir)}
                   disabled={busy}
-                  sx={{ borderRadius: 999, px: 2.25, fontWeight: 900, borderColor: 'rgba(33,27,21,.22)', color: '#211b15' }}
+                  sx={{ ...softButtonSx, px: 2.25, color: '#211b15', bgcolor: 'rgba(33,27,21,.07)', '&:hover': { bgcolor: 'rgba(33,27,21,.11)', boxShadow: 'none' } }}
                 >
                   切换数据目录
                 </Button>

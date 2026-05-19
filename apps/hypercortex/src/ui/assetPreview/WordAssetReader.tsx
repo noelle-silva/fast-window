@@ -32,7 +32,6 @@ function createWordHtmlDocument(bodyHtml: string): string {
       margin: 0 auto;
       padding: 56px 64px;
       background: #fffdf8;
-      border: 1px solid rgba(67, 50, 24, .12);
       border-radius: 18px;
       box-shadow: 0 18px 54px rgba(57, 45, 26, .14);
     }
@@ -40,8 +39,9 @@ function createWordHtmlDocument(bodyHtml: string): string {
     h1:first-child, h2:first-child, h3:first-child { margin-top: 0; }
     p { margin: 0 0 1em; }
     img { max-width: 100%; height: auto; }
-    table { width: 100%; border-collapse: collapse; margin: 1em 0; }
-    td, th { border: 1px solid rgba(0,0,0,.16); padding: 6px 8px; vertical-align: top; }
+    table { width: 100%; border-collapse: separate; border-spacing: 0 6px; margin: 1em 0; }
+    td, th { background: rgba(67,50,24,.055); padding: 7px 10px; vertical-align: top; }
+    th { background: rgba(67,50,24,.10); font-weight: 700; }
     a { color: #1565c0; }
     @media (max-width: 720px) {
       body { padding: 14px; font-size: 15px; }

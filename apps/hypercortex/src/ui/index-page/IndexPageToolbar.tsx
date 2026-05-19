@@ -3,6 +3,7 @@ import { Box, Button, IconButton, Tooltip, Typography } from '@mui/material'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
+import { softButtonSx, softDangerButtonSx } from '../pluginUiStyles'
 
 type BreadcrumbItem = {
   id: string
@@ -123,9 +124,8 @@ export function IndexPageToolbar(props: Props): React.ReactNode {
                 px: 1,
                 py: 0.25,
                 borderRadius: 999,
-                border: '1px solid',
-                borderColor: editMode ? 'rgba(25,118,210,.22)' : 'rgba(0,0,0,.14)',
                 bgcolor: editMode ? 'rgba(25,118,210,.08)' : 'rgba(0,0,0,.03)',
+                boxShadow: editMode ? '0 10px 22px rgba(25,118,210,.10)' : 'none',
               }}
             >
               <Typography sx={{ fontSize: 12, fontWeight: 800, color: editMode ? 'rgba(25,118,210,.92)' : 'rgba(0,0,0,.62)' }}>
@@ -138,13 +138,13 @@ export function IndexPageToolbar(props: Props): React.ReactNode {
 
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end', pointerEvents: 'auto' }}>
           {editMode && currentFolderId !== 'root' ? (
-            <Button variant="outlined" color="error" onClick={onDeleteCurrentFolder} sx={{ borderRadius: 999, whiteSpace: 'nowrap' }}>
+            <Button variant="text" color="error" onClick={onDeleteCurrentFolder} sx={{ ...softDangerButtonSx, whiteSpace: 'nowrap' }}>
               删除当前收藏夹实体
             </Button>
           ) : null}
 
           {editMode ? (
-            <Button variant="outlined" startIcon={<AddRoundedIcon />} onClick={e => onOpenAddExistingMenu(e.currentTarget)} sx={{ borderRadius: 999, whiteSpace: 'nowrap' }}>
+            <Button variant="text" startIcon={<AddRoundedIcon />} onClick={e => onOpenAddExistingMenu(e.currentTarget)} sx={{ ...softButtonSx, whiteSpace: 'nowrap' }}>
               添加已有
             </Button>
           ) : null}
@@ -156,10 +156,10 @@ export function IndexPageToolbar(props: Props): React.ReactNode {
           ) : null}
 
           <Button
-            variant={editMode ? 'outlined' : 'contained'}
+            variant={editMode ? 'text' : 'contained'}
             onClick={onToggleEditMode}
             aria-label={editMode ? '完成布局编辑，返回阅读模式' : '进入布局编辑模式'}
-            sx={{ borderRadius: 999, whiteSpace: 'nowrap' }}
+            sx={editMode ? { ...softButtonSx, whiteSpace: 'nowrap' } : { borderRadius: 999, whiteSpace: 'nowrap' }}
           >
             {editMode ? '完成布局编辑' : '进入布局编辑'}
           </Button>

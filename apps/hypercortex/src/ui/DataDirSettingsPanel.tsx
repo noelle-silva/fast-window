@@ -1,6 +1,7 @@
 import * as React from 'react'
-import { Box, Button, Divider, Typography } from '@mui/material'
+import { Box, Button, Typography } from '@mui/material'
 import type { DataDirStatus, LegacyDataImportResult } from '../gateway/types'
+import { softButtonSx } from './pluginUiStyles'
 
 type Props = {
   status: DataDirStatus | null
@@ -43,19 +44,20 @@ export function DataDirSettingsPanel(props: Props) {
           当前数据会分成状态和知识库两层存放。你可以切换新的数据目录，也可以一次性导入旧目录。
         </Typography>
       </Box>
-      <Divider />
-      <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.56)', lineHeight: 1.6 }}>
-        当前目录：{status?.dataDir || '未就绪'}
-      </Typography>
-      <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.56)', lineHeight: 1.6 }}>
-        默认目录：{status?.defaultDataDir || '未就绪'}
-      </Typography>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, pt: 0.5 }}>
+        <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.56)', lineHeight: 1.6 }}>
+          当前目录：{status?.dataDir || '未就绪'}
+        </Typography>
+        <Typography sx={{ fontSize: 12, color: 'rgba(0,0,0,.56)', lineHeight: 1.6 }}>
+          默认目录：{status?.defaultDataDir || '未就绪'}
+        </Typography>
+      </Box>
       <Typography sx={{ fontSize: 12, color: status?.writable ? '#2e7d32' : '#d32f2f', lineHeight: 1.6 }}>
         {status?.writable ? '目录可写，后端已正常准备就绪。' : `目录不可用：${status?.error || '未知原因'}`}
       </Typography>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-        <Button variant="outlined" onClick={() => void handlePick()} disabled={busy}>切换数据目录</Button>
-        <Button variant="outlined" onClick={() => void handleImport()} disabled={busy}>导入旧数据目录</Button>
+        <Button variant="text" onClick={() => void handlePick()} disabled={busy} sx={softButtonSx}>切换数据目录</Button>
+        <Button variant="text" onClick={() => void handleImport()} disabled={busy} sx={softButtonSx}>导入旧数据目录</Button>
       </Box>
     </Box>
   )

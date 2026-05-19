@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Box, Dialog, IconButton, Tooltip } from '@mui/material'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
+import { darkFloatingControlSx } from '../pluginUiStyles'
 
 type Props = {
   open: boolean
@@ -108,10 +109,7 @@ export function HtmlFaceFullscreenDialog({ open, html, onClose }: Props) {
               position: 'absolute',
               top: 12,
               right: 12,
-              bgcolor: 'rgba(0,0,0,.35)',
-              color: 'rgba(255,255,255,.92)',
-              border: '1px solid rgba(255,255,255,.18)',
-              '&:hover': { bgcolor: 'rgba(0,0,0,.52)' },
+              ...darkFloatingControlSx,
             }}
           >
             <CloseRoundedIcon />

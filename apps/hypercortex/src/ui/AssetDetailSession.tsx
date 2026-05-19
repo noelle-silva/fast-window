@@ -12,6 +12,7 @@ import { getAssetPreviewDescriptor } from './assetPreview/registry'
 import { ImageDialog } from './preview/ImageDialog'
 import { usePreviewController } from './preview/usePreviewController'
 import { AssetInfoSidebar } from './AssetInfoSidebar'
+import { softButtonSx } from './pluginUiStyles'
 
 export function AssetDetailSession({
   gateway,
@@ -113,7 +114,7 @@ export function AssetDetailSession({
             </Typography>
           </Box>
           <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
-            <Button variant="outlined" size="small" onClick={() => void load()} disabled={loading} sx={{ borderRadius: 2, textTransform: 'none' }}>
+            <Button variant="text" size="small" onClick={() => void load()} disabled={loading} sx={{ ...softButtonSx, borderRadius: 2 }}>
               刷新
             </Button>
             <Tooltip title={infoSidebarVisible ? '隐藏信息侧栏' : '显示信息侧栏'} placement="bottom-end">

@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { AppBar, Box, Button, ClickAwayListener, CssBaseline, Dialog, DialogActions, DialogContent, DialogTitle, Divider, GlobalStyles, IconButton, InputBase, Menu, MenuItem, Paper, Popper, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
+import { AppBar, Box, Button, ClickAwayListener, CssBaseline, Dialog, DialogActions, DialogContent, DialogTitle, GlobalStyles, IconButton, InputBase, Menu, MenuItem, Paper, Popper, ThemeProvider, Toolbar, Tooltip, Typography, createTheme } from '@mui/material'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import HomeRoundedIcon from '@mui/icons-material/HomeRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
@@ -39,6 +39,7 @@ import { SettingsPage } from './SettingsPage'
 import { TrashPanel } from './TrashPanel'
 import { QuickSearchPopover } from './QuickSearchPopover'
 import { StandaloneWindowControls, type WindowControlActions } from './StandaloneWindowControls'
+import { lineFreeComponentOverrides, menuDangerItemSx, menuPaperSx, softButtonSx } from './pluginUiStyles'
 import { startPickedLocalAssetUploadTask } from '../services/localAssetUpload'
 import { createTabGroupId, pickNextTabGroupColor, pickNextTabGroupTitle } from './tabGroups'
 import { createWorkspaceId, normalizeActiveWorkspaceId, normalizeWorkspaces, pickNextWorkspaceTitle, updateWorkspaceById } from './workspaces'
@@ -240,6 +241,7 @@ const theme = createTheme({
   typography: {
     fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif',
   },
+  components: lineFreeComponentOverrides,
 })
 
 function isInteractiveTarget(target: EventTarget | null): boolean {
@@ -2409,8 +2411,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
           '*::-webkit-scrollbar-thumb': {
             backgroundColor: 'rgba(0,0,0,.24)',
             borderRadius: 999,
-            border: '2px solid transparent',
-            backgroundClip: 'content-box',
           },
           '*::-webkit-scrollbar-thumb:hover': {
             backgroundColor: 'rgba(0,0,0,.34)',
@@ -2623,8 +2623,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
               minWidth: sidebarRailWidth,
               minHeight: 0,
               position: 'relative',
-              bgcolor: '#fff',
-              borderRight: '1px solid rgba(0,0,0,.08)',
+              bgcolor: 'rgba(248,250,252,.86)',
             }}
           >
             <Box
@@ -2635,13 +2634,12 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
                 display: 'flex',
                 flexDirection: 'column',
                 bgcolor: '#fff',
-                borderRight: sidebarPanelWidth > sidebarRailWidth ? '1px solid rgba(0,0,0,.08)' : 'none',
                 position: isHoverTabsMode && sidebarPanelExpanded ? 'absolute' : 'relative',
                 left: 0,
                 top: 0,
                 bottom: 0,
                 zIndex: isHoverTabsMode && sidebarPanelExpanded ? 20 : 'auto',
-                boxShadow: isHoverTabsMode && sidebarPanelExpanded ? '0 10px 30px rgba(0,0,0,.14)' : 'none',
+                boxShadow: sidebarPanelWidth > sidebarRailWidth ? '12px 0 30px rgba(15,23,42,.07)' : 'none',
               }}
             >
               <OpenTabsPanel
@@ -2958,7 +2956,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         open={!!noteCardMenu}
         onClose={closeNoteCardMenu}
         anchorEl={noteCardMenu?.anchorEl}
-        PaperProps={{ sx: { borderRadius: 7, overflow: 'hidden' } }}
+        PaperProps={{ sx: menuPaperSx }}
       >
         <MenuItem onClick={() => void requestCopyTitleFromCardMenu()}>
           复制标题
@@ -2969,7 +2967,6 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         >
           打开所在目录
         </MenuItem>
-        <Divider />
         <MenuItem
           onClick={() => {
             const target = noteCardMenu?.note
@@ -2977,7 +2974,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
             setNoteCardDeleteTarget(target)
             closeNoteCardMenu()
           }}
-          sx={{ color: '#d32f2f' }}
+          sx={menuDangerItemSx}
         >
           删除此笔记…
         </MenuItem>
@@ -3036,7 +3033,7 @@ export function HyperCortexApp(props: { gateway: HyperCortexGateway; initialComm
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseTabPromptCancel}>取消</Button>
-          <Button variant="outlined" onClick={handleCloseTabPromptGoSave}>去保存</Button>
+          <Button variant="text" onClick={handleCloseTabPromptGoSave} sx={softButtonSx}>去保存</Button>
           <Button variant="contained" color="error" onClick={handleCloseTabPromptDiscardAndClose} disabled={closeTabPromptTargetSaving}>放弃改动并关闭</Button>
         </DialogActions>
       </Dialog>

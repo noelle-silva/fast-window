@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { Box, Button, IconButton, InputBase, Switch, Tooltip, Typography } from '@mui/material'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
+import { softButtonSx } from './pluginUiStyles'
 
 function clampInt(value: unknown, fallback: number, min: number, max: number): number {
   const n = Math.floor(Number(value))
@@ -67,12 +68,12 @@ export function TrashSettingsPanel(props: {
             px: 1,
             py: 0.6,
             borderRadius: 2,
-            bgcolor: '#fff',
-            boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.10)',
+            bgcolor: 'rgba(255,255,255,.78)',
+            '&:focus-within': { bgcolor: 'rgba(25,118,210,.08)', boxShadow: '0 10px 24px rgba(25,118,210,.12)' },
             fontSize: 13,
           }}
         />
-        <Button size="small" variant="outlined" onClick={commitDays}>
+        <Button size="small" variant="text" onClick={commitDays} sx={{ ...softButtonSx, borderRadius: 2 }}>
           保存
         </Button>
       </Box>

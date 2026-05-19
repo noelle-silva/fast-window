@@ -49,7 +49,7 @@ function TaskRow({ task, onPause, onResume, onCancel }: {
   const actionLabel = taskActionLabel(task)
 
   return (
-    <Box sx={{ p: 1.25, borderRadius: 2.5, bgcolor: '#fff', border: '1px solid rgba(15,23,42,.08)', boxShadow: '0 1px 2px rgba(15,23,42,.04)' }}>
+    <Box sx={{ p: 1.25, borderRadius: 2.5, bgcolor: '#fff', boxShadow: '0 10px 24px rgba(15,23,42,.07)' }}>
       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Typography sx={{ fontSize: 13, fontWeight: 900, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={uploadTaskTitle(task)}>
@@ -98,7 +98,7 @@ export function AssetUploadTaskPanel(props: Props) {
 
   return (
     <Popper open={open} anchorEl={anchorEl} placement="bottom-end" sx={{ zIndex: 1400 }} modifiers={[{ name: 'offset', options: { offset: [0, 8] } }]}>
-      <Box sx={{ width: 380, maxWidth: 'calc(100vw - 24px)', borderRadius: 4, overflow: 'hidden', bgcolor: 'rgba(248,250,252,.96)', border: '1px solid rgba(15,23,42,.12)', boxShadow: '0 24px 60px rgba(15,23,42,.20)', backdropFilter: 'blur(18px)' }}>
+      <Box sx={{ width: 380, maxWidth: 'calc(100vw - 24px)', borderRadius: 4, overflow: 'hidden', bgcolor: 'rgba(248,250,252,.96)', boxShadow: '0 24px 60px rgba(15,23,42,.20)', backdropFilter: 'blur(18px)' }}>
         <Box sx={{ px: 1.5, py: 1.25, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, background: 'linear-gradient(135deg,#eef2ff,#ecfeff)' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Box sx={{ width: 30, height: 30, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#eef2ff', color: '#4f46e5' }}>
