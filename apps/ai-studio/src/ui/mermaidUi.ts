@@ -1,6 +1,6 @@
 import { clamp, now } from '../core/utils'
 import { VIEWER_ZOOM_MIN, MERMAID_VIEWER_ZOOM_MAX } from '../core/viewerZoom'
-import { splitChatKey } from '../domain/storageKeys'
+import { splitChatKey, splitGroupChatKey } from '../domain/storageKeys'
 import { isAssistantGenerating } from '../domain/assistantRunState'
 
 export function createMermaidUi(deps: {
@@ -13,7 +13,6 @@ export function createMermaidUi(deps: {
   aiGenerateChatTitle?: (rid: string, cid: string) => Promise<any>
   locateMessageInActiveChat: (mid: string) => any
   chatHasPendingAssistant: (chat: any) => boolean
-  activeRole: () => any
   getStickerRelPath: (cat: string, name: string) => string
   uiStreamCache: Map<string, any>
 }) {
@@ -26,7 +25,6 @@ export function createMermaidUi(deps: {
     storage,
     locateMessageInActiveChat,
     chatHasPendingAssistant,
-    activeRole,
     getStickerRelPath,
     uiStreamCache,
   } = deps
@@ -214,15 +212,15 @@ export function createMermaidUi(deps: {
     await save()
 
     try {
-      const role = activeRole()
-      const rid = String(role?.id || '')
+      const kind = String(found.kind || '') === 'group' ? 'group' : 'role'
+      const targetId = String(found.targetId || '')
       const cid = String(chat?.id || '')
       const mid = String(messageId || '')
-      if (rid && cid && mid) {
+      if (targetId && cid && mid) {
         const meta = await loadSplitMeta()
-        const folder = meta ? String(meta.roleFolders?.[rid] || '') : ''
+        const folder = meta ? (kind === 'group' ? String((meta as any).groupFolders?.[targetId] || '') : String(meta.roleFolders?.[targetId] || '')) : ''
         if (folder) {
-          const raw = await storage.get(splitChatKey(folder, cid))
+          const raw = await storage.get(kind === 'group' ? splitGroupChatKey(folder, cid) : splitChatKey(folder, cid))
           const saved = raw && typeof raw === 'object' ? raw : null
           const msgs = Array.isArray(saved?.messages) ? saved.messages : []
           const m = msgs.find((x: any) => String(x?.id || '') === mid) || null

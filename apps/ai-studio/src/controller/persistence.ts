@@ -1,10 +1,12 @@
+import type { ChatSaveIntent } from '../domain/chatSaveIntent'
+
 export function createPersistence(deps: {
   getState: () => any
   activeChatFromData: () => any
   saveMetaOnly: () => Promise<void>
   saveSplitData: (data: any) => Promise<void>
-  saveRoleChat: (roleId: any, chat: any) => Promise<void>
-  saveGroupChat: (groupId: any, chat: any) => Promise<void>
+  saveRoleChat: (roleId: any, chat: any, intent?: ChatSaveIntent) => Promise<void>
+  saveGroupChat: (groupId: any, chat: any, intent?: ChatSaveIntent) => Promise<void>
 }) {
   const { getState, activeChatFromData, saveMetaOnly, saveSplitData, saveRoleChat, saveGroupChat } = deps
 
@@ -24,7 +26,7 @@ export function createPersistence(deps: {
     await saveMetaOnly()
   }
 
-  async function saveCurrentChat() {
+  async function saveCurrentChat(intent?: ChatSaveIntent) {
     const state = syncDraftUiToData()
     if (!state) return
     await saveMetaOnly()
@@ -33,8 +35,8 @@ export function createPersistence(deps: {
     const targetId = kind === 'group' ? String(state.draft?.activeGroupId || '') : String(state.draft?.activeRoleId || '')
     const chat = activeChatFromData()
     if (!targetId || !chat) return
-    if (kind === 'group') await saveGroupChat(targetId, chat)
-    else await saveRoleChat(targetId, chat)
+    if (kind === 'group') await saveGroupChat(targetId, chat, intent)
+    else await saveRoleChat(targetId, chat, intent)
   }
 
   async function saveDataTree() {

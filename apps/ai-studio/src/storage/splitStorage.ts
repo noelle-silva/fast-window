@@ -4,6 +4,7 @@ import { chatMetaFromChat, chatMetaIds, chatMetaUpdatedAtMap, chatMetasFromBox, 
 import { normalizeData, defaultData } from '../domain/dataNormalizers'
 import { normalizeFavorites } from '../domain/favorites'
 import { resolveAssistantMessageForMerge } from '../domain/assistantRunState'
+import { normalizeChatSaveIntent, type ChatSaveIntent } from '../domain/chatSaveIntent'
 import {
   splitRoleKey,
   splitChatKey,
@@ -25,22 +26,115 @@ import { updateStoredChatIndexEntry, type ChatIndexKind } from './chatIndexUpdat
 let splitMetaCache: any = null
 let splitMetaWriteChain: Promise<void> = Promise.resolve()
 
-function mergeChatForConcurrentWrite(localChat: any, storedChat: any) {
+function normalizeMessageIdSet(raw: any) {
+  const out = new Set<string>()
+  const list = Array.isArray(raw) ? raw : raw instanceof Set ? Array.from(raw) : []
+  for (const item of list) {
+    const id = String(item || '').trim()
+    if (id) out.add(id)
+  }
+  return out
+}
+
+function normalizeDeletedMessageParentMap(raw: any) {
+  const out = new Map<string, string>()
+  const box = raw && typeof raw === 'object' ? raw : {}
+  for (const [idRaw, parentRaw] of Object.entries(box)) {
+    const id = String(idRaw || '').trim()
+    if (!id) continue
+    out.set(id, String(parentRaw || '').trim())
+  }
+  return out
+}
+
+function findExistingParentForDeletedMessage(messageId: string, deletedMessageParentById: Map<string, string>, localIds: Set<string>) {
+  let cur = String(messageId || '').trim()
+  const seen = new Set<string>()
+  let guard = 0
+  while (cur && !seen.has(cur) && guard < 6000) {
+    guard++
+    seen.add(cur)
+    const parent = deletedMessageParentById.get(cur) || ''
+    if (!parent) return ''
+    if (localIds.has(parent)) return parent
+    cur = parent
+  }
+  return ''
+}
+
+function normalizeMessageAfterDeletionIntent(message: any, deletedMessageIds: Set<string>, deletedMessageParentById: Map<string, string>, localIds: Set<string>) {
+  const m = message && typeof message === 'object' ? message : null
+  if (!m || !deletedMessageIds.size) return message
+  const parentMid = String((m as any)?.parentMid || '').trim()
+  if (!parentMid || !deletedMessageIds.has(parentMid)) return message
+  return { ...(m as any), parentMid: findExistingParentForDeletedMessage(parentMid, deletedMessageParentById, localIds) }
+}
+
+function isStoredMessageInDeletedSubtree(messageId: string, storedById: Map<string, any>, subtreeRootIds: Set<string>) {
+  let cur = String(messageId || '').trim()
+  if (!cur || !subtreeRootIds.size) return false
+  const seen = new Set<string>()
+  let guard = 0
+  while (cur && !seen.has(cur) && guard < 6000) {
+    guard++
+    if (subtreeRootIds.has(cur)) return true
+    seen.add(cur)
+    const m = storedById.get(cur) || null
+    cur = m ? String((m as any)?.parentMid || '').trim() : ''
+  }
+  return false
+}
+
+function sanitizeMergedBranchHeads(chat: any) {
+  const c = chat && typeof chat === 'object' ? chat : null
+  if (!c) return
+  const messages = Array.isArray(c.messages) ? c.messages : []
+  const ids = new Set<string>()
+  for (const m of messages) {
+    const id = String((m as any)?.id || '').trim()
+    if (id) ids.add(id)
+  }
+  const fallbackHeadMid = messages.length ? String((messages[messages.length - 1] as any)?.id || '').trim() : ''
+  const branches = Array.isArray(c.branching?.branches) ? c.branching.branches : []
+  for (const b of branches) {
+    if (!b || typeof b !== 'object') continue
+    const headMid = String((b as any).headMid || '').trim()
+    if (headMid && ids.has(headMid)) continue
+    ;(b as any).headMid = fallbackHeadMid
+    ;(b as any).updatedAt = Number(c.updatedAt || now())
+  }
+}
+
+function mergeChatForConcurrentWrite(localChat: any, storedChat: any, intentRaw?: ChatSaveIntent) {
   const local = localChat && typeof localChat === 'object' ? localChat : null
   const stored = storedChat && typeof storedChat === 'object' ? storedChat : null
   if (!local || !stored) return localChat
 
+  const intent = normalizeChatSaveIntent(intentRaw)
+
   const out: any = { ...(local as any) }
   const localMsgs: any[] = Array.isArray(local.messages) ? local.messages.slice() : []
   const storedMsgs: any[] = Array.isArray((stored as any).messages) ? (stored as any).messages : []
+  const deletedMessageIds = normalizeMessageIdSet(intent.deletedMessageIds)
+  const deletedSubtreeRootIds = normalizeMessageIdSet(intent.deletedSubtreeRootIds)
+  const deletedMessageParentById = normalizeDeletedMessageParentMap(intent.deletedMessageParentById)
+  const storedById = new Map<string, any>()
+  for (const sm of storedMsgs) {
+    const sid = String((sm as any)?.id || '').trim()
+    if (!sid || storedById.has(sid)) continue
+    storedById.set(sid, sm)
+  }
 
   const indexById = new Map<string, number>()
+  const localIds = new Set<string>()
   const rebuildIndex = () => {
     indexById.clear()
+    localIds.clear()
     for (let i = 0; i < localMsgs.length; i++) {
       const id = String((localMsgs[i] as any)?.id || '').trim()
       if (!id || indexById.has(id)) continue
       indexById.set(id, i)
+      localIds.add(id)
     }
   }
   rebuildIndex()
@@ -48,11 +142,20 @@ function mergeChatForConcurrentWrite(localChat: any, storedChat: any) {
   for (const sm of storedMsgs) {
     const sid = String((sm as any)?.id || '').trim()
     if (!sid || indexById.has(sid)) continue
-    const pm = String((sm as any)?.parentMid || '').trim()
+    if (deletedMessageIds.has(sid)) continue
+    if (isStoredMessageInDeletedSubtree(sid, storedById, deletedSubtreeRootIds)) continue
+    const groupParentMid = String((sm as any)?.groupParentMid || '').trim()
+    if (groupParentMid && deletedMessageIds.has(groupParentMid)) continue
+    if (groupParentMid && isStoredMessageInDeletedSubtree(groupParentMid, storedById, deletedSubtreeRootIds)) continue
+
+    const pm0 = String((sm as any)?.parentMid || '').trim()
+    const parentWasDeleted = pm0 && deletedMessageIds.has(pm0)
+    const nextMessage = parentWasDeleted ? normalizeMessageAfterDeletionIntent(sm, deletedMessageIds, deletedMessageParentById, localIds) : sm
+    const pm = String((nextMessage as any)?.parentMid || '').trim()
     if (pm && indexById.has(pm)) {
-      localMsgs.splice((indexById.get(pm) as number) + 1, 0, sm)
+      localMsgs.splice((indexById.get(pm) as number) + 1, 0, nextMessage)
     } else {
-      localMsgs.push(sm)
+      localMsgs.push(nextMessage)
     }
     rebuildIndex()
   }
@@ -64,7 +167,7 @@ function mergeChatForConcurrentWrite(localChat: any, storedChat: any) {
     if (typeof i !== 'number') continue
     const lm = localMsgs[i]
     if (!lm || typeof lm !== 'object') continue
-    localMsgs[i] = resolveAssistantMessageForMerge(lm, sm)
+    localMsgs[i] = normalizeMessageAfterDeletionIntent(resolveAssistantMessageForMerge(lm, sm), deletedMessageIds, deletedMessageParentById, localIds)
   }
 
   try {
@@ -104,6 +207,7 @@ function mergeChatForConcurrentWrite(localChat: any, storedChat: any) {
   } catch (_) {}
 
   out.messages = localMsgs
+  sanitizeMergedBranchHeads(out)
   return out
 }
 
@@ -175,7 +279,7 @@ export function createSplitStorage(deps: {
     await updateChatIndexEntry('group', gid, cid, { updatedAt: ua0 > 0 ? ua0 : now() })
   }
 
-  async function saveChatEntry(kind: ChatIndexKind, targetId: any, chat: any) {
+  async function saveChatEntry(kind: ChatIndexKind, targetId: any, chat: any, intent?: ChatSaveIntent) {
     const tid = String(targetId || '').trim()
     const cid = String(chat?.id || '').trim()
     if (!tid || !cid || !chat || typeof chat !== 'object') return
@@ -183,22 +287,24 @@ export function createSplitStorage(deps: {
     const folder = kind === 'group' ? String((meta as any)?.groupFolders?.[tid] || '').trim() : String(meta?.roleFolders?.[tid] || '').trim()
     if (!folder) throw new Error(kind === 'group' ? '群组不存在' : '角色不存在')
     const key = kind === 'group' ? splitGroupChatKey(folder, cid) : splitChatKey(folder, cid)
+    let savedChat = chat
     await withChatWriteLock(kind, tid, cid, async () => {
       const raw0 = await storage.get(key)
       const stored = raw0 && typeof raw0 === 'object' ? raw0 : null
-      const merged = mergeChatForConcurrentWrite(chat, stored)
+      const merged = mergeChatForConcurrentWrite(chat, stored, intent)
+      savedChat = merged
       await storage.set(key, merged)
     })
-    await updateChatIndexEntry(kind, tid, cid, { chat })
-    await writeChatUpdatedNotice(kind, tid, cid, Number(chat.updatedAt || now()))
+    await updateChatIndexEntry(kind, tid, cid, { chat: savedChat })
+    await writeChatUpdatedNotice(kind, tid, cid, Number(savedChat?.updatedAt || chat.updatedAt || now()))
   }
 
-  async function saveRoleChat(roleId: any, chat: any) {
-    await saveChatEntry('role', roleId, chat)
+  async function saveRoleChat(roleId: any, chat: any, intent?: ChatSaveIntent) {
+    await saveChatEntry('role', roleId, chat, intent)
   }
 
-  async function saveGroupChat(groupId: any, chat: any) {
-    await saveChatEntry('group', groupId, chat)
+  async function saveGroupChat(groupId: any, chat: any, intent?: ChatSaveIntent) {
+    await saveChatEntry('group', groupId, chat, intent)
   }
 
   async function renameChatEntry(kind: ChatIndexKind, targetId: any, chatId: any, title: any) {

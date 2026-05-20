@@ -32,6 +32,7 @@ import {
   ASSISTANT_RUNNING_CONTENT,
 } from '../domain/assistantRunState'
 import { hasActiveAssistantMessages, listActiveAssistantMessages } from '../domain/chatRunState'
+import { createDeletedMessagesSaveIntent, type ChatSaveIntent } from '../domain/chatSaveIntent'
 
 type ChatAttachmentItem = {
   id: string
@@ -67,7 +68,7 @@ export function createChatOperations(deps: {
   pickImageFiles?: (maxCount: number) => Promise<any[]>
   loadSplitMeta?: () => Promise<any>
   showToast?: (msg: any) => void
-  save: () => Promise<void>
+  save: (intent?: ChatSaveIntent) => Promise<void>
   ensureActiveChatLoaded?: () => Promise<any>
   emit: () => void
   render: () => void
@@ -124,6 +125,25 @@ export function createChatOperations(deps: {
 
   function chatHasPendingAssistantInBranch(chat: any, branchId: string, excludeMid?: any) {
     return hasActiveAssistantMessages(chat, { branchId, excludeMid })
+  }
+
+  function activeChatOperationTarget() {
+    const state = getState()
+    const kind = sa.activeTargetKind() === 'group' ? 'group' : 'role'
+    const target = kind === 'group' ? sa.activeGroup() : sa.activeRole()
+    const targetId = String((target as any)?.id || '').trim()
+    if (!targetId) return null
+    const pendingChat =
+      kind === 'group'
+        ? state.pendingGroupChat && String(state.pendingGroupChat.groupId || '') === targetId
+          ? state.pendingGroupChat.chat
+          : null
+        : state.pendingChat && String(state.pendingChat.roleId || '') === targetId
+          ? state.pendingChat.chat
+          : null
+    const chat = pendingChat || sa.activeChatFromData()
+    if (!chat) return null
+    return { kind, target, targetId, chat, pendingChat }
   }
 
   // ============ draft image ============
@@ -1714,13 +1734,10 @@ export function createChatOperations(deps: {
     const mid = String(messageId || '').trim()
     if (!mid) return
 
-    const role = sa.activeRole()
-    if (!role) return
+    const opTarget = activeChatOperationTarget()
+    if (!opTarget) return
 
-    const rid = String(role.id || '')
-    const pendingChat = state.pendingChat && String(state.pendingChat.roleId || '') === rid ? state.pendingChat.chat : null
-    const chat = pendingChat || sa.activeChatFromData()
-    if (!chat) return
+    const { chat, pendingChat } = opTarget
     if (chatHasPendingAssistant(chat)) return showToast?.('该会话正在生成中，无法删除消息')
 
     const msgs = Array.isArray(chat.messages) ? chat.messages : []
@@ -1837,8 +1854,17 @@ export function createChatOperations(deps: {
     }
 
     emit()
-    if (!pendingChat) save().catch(() => {})
-    showToast?.('已删除')
+    if (pendingChat) {
+      showToast?.('已删除')
+      return
+    }
+
+    try {
+      await save(createDeletedMessagesSaveIntent(removedIds, { [mid]: targetParentMid }))
+      showToast?.('已删除')
+    } catch (e) {
+      showToast?.(String((e as any)?.message || e || '删除失败'))
+    }
   }
 
   // ============ delete message subtree ============
@@ -1853,13 +1879,10 @@ export function createChatOperations(deps: {
     const mid0 = String(messageId || '').trim()
     if (!mid0) return
 
-    const role = sa.activeRole()
-    if (!role) return
+    const opTarget = activeChatOperationTarget()
+    if (!opTarget) return
 
-    const rid = String(role.id || '')
-    const pendingChat = state.pendingChat && String(state.pendingChat.roleId || '') === rid ? state.pendingChat.chat : null
-    const chat = pendingChat || sa.activeChatFromData()
-    if (!chat) return
+    const { chat, pendingChat } = opTarget
     if (chatHasPendingAssistant(chat)) return showToast?.('该会话正在生成中，无法删除消息')
 
     const msgs = Array.isArray(chat.messages) ? (chat.messages as any[]) : []
@@ -1991,8 +2014,17 @@ export function createChatOperations(deps: {
     }
 
     emit()
-    if (!pendingChat) save().catch(() => {})
-    showToast?.('已删除（含子节点）')
+    if (pendingChat) {
+      showToast?.('已删除（含子节点）')
+      return
+    }
+
+    try {
+      await save(createDeletedMessagesSaveIntent(toDelete, {}, [mid0]))
+      showToast?.('已删除（含子节点）')
+    } catch (e) {
+      showToast?.(String((e as any)?.message || e || '删除失败'))
+    }
   }
 
   // ============ edit message ============
@@ -2007,13 +2039,10 @@ export function createChatOperations(deps: {
     const mid = String(messageId || '').trim()
     if (!mid) return
 
-    const role = sa.activeRole()
-    if (!role) return
+    const opTarget = activeChatOperationTarget()
+    if (!opTarget) return
 
-    const rid = String(role.id || '')
-    const pendingChat = state.pendingChat && String(state.pendingChat.roleId || '') === rid ? state.pendingChat.chat : null
-    const chat = pendingChat || sa.activeChatFromData()
-    if (!chat) return
+    const { chat, pendingChat } = opTarget
     if (chatHasPendingAssistant(chat)) return showToast?.('该会话正在生成中，无法编辑消息')
 
     const msgs = Array.isArray(chat.messages) ? chat.messages : []

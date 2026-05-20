@@ -11,6 +11,7 @@ import type { AiChatCapabilities } from '../gateway/capabilities'
 import { UI_CHAT_UPDATED_NOTICE_KEY } from '../runtime/runtimeKeys'
 import { IMAGE_VIEWER_ZOOM_MAX, MERMAID_VIEWER_ZOOM_MAX, VIEWER_ZOOM_MIN } from '../core/viewerZoom'
 import type { AiChatController } from './types'
+import type { ChatSaveIntent } from '../domain/chatSaveIntent'
 
 // ---- domain ----
 import {
@@ -579,8 +580,8 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     }
   }
 
-  async function save() {
-    await saveCurrentChat()
+  async function save(intent?: ChatSaveIntent) {
+    await saveCurrentChat(intent)
   }
 
   // ============================================================
@@ -626,16 +627,24 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   function locateMessageInActiveChat(messageId: any) {
     const mid = String(messageId || '').trim()
     if (!mid) return null
-    const role = activeRole()
-    if (!role) return null
-    const rid = String(role.id || '')
-    const pendingChat = state.pendingChat && String(state.pendingChat.roleId || '') === rid ? state.pendingChat.chat : null
+    const kind = activeTargetKind()
+    const targetEntity = kind === 'group' ? activeGroup() : activeRole()
+    const targetId = String((targetEntity as any)?.id || '').trim()
+    if (!targetId) return null
+    const pendingChat =
+      kind === 'group'
+        ? state.pendingGroupChat && String(state.pendingGroupChat.groupId || '') === targetId
+          ? state.pendingGroupChat.chat
+          : null
+        : state.pendingChat && String(state.pendingChat.roleId || '') === targetId
+          ? state.pendingChat.chat
+          : null
     const chat = pendingChat || activeChatFromData()
     if (!chat) return null
     const msgs = Array.isArray(chat.messages) ? chat.messages : []
-    const target = msgs.find((m: any) => String(m?.id || '') === mid) || null
-    if (!target) return null
-    return { chat, pendingChat, target }
+    const targetMessage = msgs.find((m: any) => String(m?.id || '') === mid) || null
+    if (!targetMessage) return null
+    return { kind, targetId, chat, pendingChat, target: targetMessage }
   }
 
   // placeholder for aiGenerateChatTitle, filled after aiServices is created
@@ -651,7 +660,6 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     aiGenerateChatTitle: undefined, // filled later
     locateMessageInActiveChat,
     chatHasPendingAssistant,
-    activeRole,
     getStickerRelPath,
     uiStreamCache,
   })
