@@ -7,6 +7,7 @@ import type { DesktopDragState } from '../desktopDragState'
 import { DesktopGridIcon } from './DesktopGridIcon'
 import { ScrollArea } from '../shared/scroll-area'
 import { desktopEntryKey, type DesktopGridLayoutPatch } from './desktopEntries'
+import { isInteractiveTarget } from '../utils'
 import {
   projectExternalItemDrag,
   toDesktopDragEvent,
@@ -31,7 +32,7 @@ type Props = {
   assetUrl?(assetId: string): string
   onAdd(): void
   onOpen(entry: DesktopGridEntry): void
-  onContextMenu(menu: ContextMenuState): void
+  onContextMenu(menu: NonNullable<ContextMenuState>): void
   onLayoutCommit(patches: DesktopGridLayoutPatch[]): void
   onDragCancel?(event: DesktopGridDragEvent): void
   onDragEnd?(event: DesktopGridDragEvent, patches: DesktopGridLayoutPatch[]): FolderGridDragEndResult | void
@@ -83,6 +84,13 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
   const displayLayouts = editor.activeLayouts
   const setProjectedLayouts = editor.setProjectedLayouts
 
+  const openDesktopContextMenu: React.MouseEventHandler<HTMLDivElement> = event => {
+    if (event.defaultPrevented || isInteractiveTarget(event.target)) return
+    event.preventDefault()
+    event.stopPropagation()
+    props.onContextMenu({ kind: 'desktop', x: event.clientX, y: event.clientY })
+  }
+
   React.useLayoutEffect(() => {
     setProjectedLayouts(externalDragProjection?.layouts || null)
   }, [externalDragProjection?.layouts, setProjectedLayouts])
@@ -106,7 +114,7 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
 
   if (!props.entries.length && !props.externalDragPreview) {
     return (
-      <ScrollArea sx={{ flex: 1, minHeight: 0 }} viewportSx={{ p: { xs: 1.5, sm: 2 }, pt: 1 }}>
+      <ScrollArea sx={{ flex: 1, minHeight: 0 }} viewportSx={{ p: { xs: 1.5, sm: 2 }, pt: 1 }} onContextMenu={openDesktopContextMenu}>
         <EmptyState category={props.category} phase={props.phase} search={props.search} onAdd={props.onAdd} />
       </ScrollArea>
     )
@@ -120,6 +128,7 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
       ariaLabel={`${props.category.label}收藏图标布局`}
       sx={{ flex: 1, minHeight: 0 }}
       viewportSx={{ px: { xs: 1, sm: 1.5 }, pb: { xs: 1.5, sm: 2 }, pt: 1 }}
+      onContextMenu={openDesktopContextMenu}
     >
       <Box
         ref={editor.setGridNode}
@@ -161,7 +170,7 @@ export function FolderGridCanvas(props: Props): React.ReactNode {
                 onOpen={() => {
                   if (!editor.consumeSuppressedClick(key)) props.onOpen(entry)
                 }}
-                onContextMenu={(x, y) => props.onContextMenu({ entry: visibleEntryByKey.get(key) || entry, x, y })}
+                onContextMenu={(x, y) => props.onContextMenu({ kind: 'entry', entry: visibleEntryByKey.get(key) || entry, x, y })}
               />
             </Box>
           )

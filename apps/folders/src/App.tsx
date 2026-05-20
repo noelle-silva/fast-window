@@ -7,15 +7,12 @@ import AppsRoundedIcon from '@mui/icons-material/AppsRounded'
 import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded'
 import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
-import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
-import DriveFileMoveRoundedIcon from '@mui/icons-material/DriveFileMoveRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import HorizontalRuleRoundedIcon from '@mui/icons-material/HorizontalRuleRounded'
 import Inventory2RoundedIcon from '@mui/icons-material/Inventory2Rounded'
 import LaunchRoundedIcon from '@mui/icons-material/LaunchRounded'
-import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
@@ -35,9 +32,6 @@ import {
   IconButton,
   InputAdornment,
   InputLabel,
-  ListItemIcon,
-  ListItemText,
-  Menu,
   MenuItem,
   Paper,
   Select,
@@ -57,6 +51,7 @@ import { clipboardImageDataUrlFromClipboard, clipboardImageDataUrlFromPasteEvent
 import { ContainerOverlay } from './ContainerOverlay'
 import type { ContainerItemDragEvent } from './ContainerOverlay'
 import { ContainerDialog, IconAppearancePanel } from './DesktopDialogs'
+import { DesktopContextMenu } from './DesktopContextMenu'
 import { DesktopDragHint } from './DesktopDragHint'
 import { DesktopWallpaper } from './DesktopWallpaper'
 import { DesktopWallpaperSettings } from './DesktopWallpaperSettings'
@@ -1286,12 +1281,17 @@ export function App() {
 
       {error && phase === 'ready' ? <Alert severity="error" sx={{ mx: { xs: 1.5, sm: 2 }, mb: 1.5 }}>{error}</Alert> : null}
 
-      <CollectionContextMenu
+      <DesktopContextMenu
         busy={busy}
+        canCreateContainer={!isAllView && Boolean(selectedGroup)}
+        canEdit={phase === 'ready'}
         menu={contextMenu}
         groups={doc.groups}
         doc={doc}
         onClose={() => setContextMenu(null)}
+        onCreateContainer={openAddContainer}
+        onCreateGroup={() => openGroupEditor()}
+        onCreateItem={openAdd}
         onOpen={openDesktopEntry}
         onEdit={openEdit}
         onEditContainer={openEditContainer}
@@ -1756,96 +1756,6 @@ function StatusNotice(props: { busy: boolean; error: string | null; phase: Phase
       <Typography fontWeight={900}>后台暂不可用</Typography>
       <Typography variant="body2">{props.error || props.status?.error || '请重试或选择新的数据目录。'}</Typography>
     </Alert>
-  )
-}
-
-function CollectionContextMenu(props: {
-  busy: boolean
-  menu: ContextMenuState
-  groups: CollectionGroup[]
-  doc: CategoryWorkspaceView
-  onClose(): void
-  onOpen(entry: DesktopGridEntry): void
-  onEdit(item: CollectionItem): void
-  onEditContainer(container: CollectionContainer): void
-  onCopyToGroup(item: CollectionItem, groupId: string): void
-  onMoveToGroup(item: CollectionItem, groupId: string): void
-  onMoveToContainer(item: CollectionItem, containerId: string): void
-  onDelete(entry: DesktopGridEntry): void
-}) {
-  const entry = props.menu?.entry
-  const item = entry?.kind === 'item' ? props.doc.items.find(current => current.id === entry.id) || entry.item : null
-  const container = entry?.kind === 'container' ? entry.container : null
-  const isAllView = props.doc.id === ALL_VIEW_CATEGORY_ID
-  const targetGroups = item ? props.groups.filter(group => group.id !== item.groupId) : []
-  return (
-    <Menu
-      open={Boolean(props.menu)}
-      onClose={props.onClose}
-      anchorReference="anchorPosition"
-      anchorPosition={props.menu ? { left: props.menu.x, top: props.menu.y } : undefined}
-      onClick={event => event.stopPropagation()}
-    >
-      {entry ? [
-        <MenuItem key="open" onClick={() => props.onOpen(entry)}>
-          <ListItemIcon><OpenInNewRoundedIcon fontSize="small" /></ListItemIcon>
-          <ListItemText>打开</ListItemText>
-        </MenuItem>,
-        item && !isAllView ? <MenuItem key="edit" onClick={() => props.onEdit(item)}>
-          <ListItemIcon><EditRoundedIcon fontSize="small" /></ListItemIcon>
-          <ListItemText>编辑</ListItemText>
-        </MenuItem> : null,
-        container && !isAllView ? <MenuItem key="edit-container" onClick={() => props.onEditContainer(container)}>
-          <ListItemIcon><Inventory2RoundedIcon fontSize="small" /></ListItemIcon>
-          <ListItemText>编辑收纳夹</ListItemText>
-        </MenuItem> : null,
-        item && !isAllView ? <Box key="group-actions" sx={{ px: 2, py: 1, minWidth: 240, display: 'grid', gap: 1 }}>
-          <FormControl variant="filled" fullWidth size="small" disabled={props.busy || !targetGroups.length}>
-            <InputLabel id="context-move-group-label">移动到分类</InputLabel>
-            <Select
-              variant="filled"
-              labelId="context-move-group-label"
-              label="移动到分类"
-              value=""
-              onChange={event => props.onMoveToGroup(item, event.target.value)}
-            >
-              {targetGroups.map(group => <MenuItem key={group.id} value={group.id}><ListItemIcon><DriveFileMoveRoundedIcon fontSize="small" /></ListItemIcon>{group.name}</MenuItem>)}
-            </Select>
-          </FormControl>
-          <FormControl variant="filled" fullWidth size="small" disabled={props.busy || !targetGroups.length}>
-            <InputLabel id="context-copy-group-label">复制到分类</InputLabel>
-            <Select
-              variant="filled"
-              labelId="context-copy-group-label"
-              label="复制到分类"
-              value=""
-              onChange={event => props.onCopyToGroup(item, event.target.value)}
-            >
-              {targetGroups.map(group => <MenuItem key={group.id} value={group.id}><ListItemIcon><ContentCopyRoundedIcon fontSize="small" /></ListItemIcon>{group.name}</MenuItem>)}
-            </Select>
-          </FormControl>
-        </Box> : null,
-        item && !isAllView ? <Box key="container" sx={{ px: 2, py: 1, minWidth: 220 }}>
-          <FormControl variant="filled" fullWidth size="small">
-            <InputLabel id="context-container-label">收纳夹</InputLabel>
-            <Select
-              variant="filled"
-              labelId="context-container-label"
-              label="收纳夹"
-              value={item.containerId || ''}
-              onChange={event => props.onMoveToContainer(item, event.target.value)}
-            >
-              <MenuItem value="">桌面</MenuItem>
-              {props.doc.containers.filter(current => current.groupId === item.groupId).map(current => <MenuItem key={current.id} value={current.id}>{current.name}</MenuItem>)}
-            </Select>
-          </FormControl>
-        </Box> : null,
-        <MenuItem key="delete" onClick={() => props.onDelete(entry)} sx={{ color: 'error.main' }}>
-          <ListItemIcon><DeleteOutlineRoundedIcon fontSize="small" color="error" /></ListItemIcon>
-          <ListItemText>{isAllView ? '从全部移除' : '删除'}</ListItemText>
-        </MenuItem>,
-      ] : null}
-    </Menu>
   )
 }
 

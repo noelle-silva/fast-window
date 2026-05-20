@@ -25,13 +25,14 @@ type ScrollAreaProps = {
   children: React.ReactNode
   component?: React.ElementType
   onClick?: React.MouseEventHandler<HTMLDivElement>
+  onContextMenu?: React.MouseEventHandler<HTMLDivElement>
   onScroll?: React.UIEventHandler<HTMLDivElement>
   sx?: SxProps<Theme>
   viewportSx?: SxProps<Theme>
 }
 
 export const ScrollArea = React.forwardRef<HTMLDivElement, ScrollAreaProps>(function ScrollArea(props, forwardedRef): React.ReactNode {
-  const { ariaLabel, children, component = 'div', onClick, onScroll, sx, viewportSx } = props
+  const { ariaLabel, children, component = 'div', onClick, onContextMenu, onScroll, sx, viewportSx } = props
   const rootRef = React.useRef<HTMLDivElement | null>(null)
   const viewportRef = React.useRef<HTMLDivElement | null>(null)
   const pointerInsideRef = React.useRef(false)
@@ -164,6 +165,7 @@ export const ScrollArea = React.forwardRef<HTMLDivElement, ScrollAreaProps>(func
     >
       <Box
         ref={viewportRef}
+        onContextMenu={onContextMenu}
         onScroll={handleScroll}
         sx={[
           {
