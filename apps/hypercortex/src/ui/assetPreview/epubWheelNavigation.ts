@@ -1,6 +1,7 @@
 import type { Contents as EpubContents, Rendition } from 'epubjs'
 
-const WHEEL_PAGE_DELTA_UNIT = 48
+const WHEEL_PAGE_DELTA_UNIT = 120
+const DISCRETE_PIXEL_WHEEL_MIN_DELTA = 4
 const WHEEL_DELTA_LINE = 1
 const WHEEL_DELTA_PAGE = 2
 const WHEEL_LINE_HEIGHT = 40
@@ -33,12 +34,25 @@ function isInteractiveWheelTarget(target: EventTarget | null): boolean {
   return Boolean(closestWheelTarget(target)?.closest(INTERACTIVE_WHEEL_TARGET_SELECTOR))
 }
 
-function normalizeWheelDelta(event: WheelEvent, surface: HTMLElement): number {
-  const dominantDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
-  if (!Number.isFinite(dominantDelta) || dominantDelta === 0) return 0
-  if (event.deltaMode === WHEEL_DELTA_LINE) return dominantDelta * WHEEL_LINE_HEIGHT
-  if (event.deltaMode === WHEEL_DELTA_PAGE) return dominantDelta * Math.max(surface.clientHeight, 1)
-  return dominantDelta
+function dominantWheelDelta(event: WheelEvent): number {
+  return Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
+}
+
+function normalizeWheelDelta(event: WheelEvent, rawDelta: number, surface: HTMLElement): number {
+  if (!Number.isFinite(rawDelta) || rawDelta === 0) return 0
+  if (event.deltaMode === WHEEL_DELTA_LINE) return rawDelta * WHEEL_LINE_HEIGHT
+  if (event.deltaMode === WHEEL_DELTA_PAGE) return rawDelta * Math.max(surface.clientHeight, 1)
+  return rawDelta
+}
+
+function isDiscreteWheelStep(event: WheelEvent, rawDelta: number, normalizedDelta: number): boolean {
+  if (event.deltaMode !== 0) return true
+  return Number.isInteger(rawDelta) && Math.abs(normalizedDelta) >= DISCRETE_PIXEL_WHEEL_MIN_DELTA
+}
+
+function discreteWheelPageTurnCount(event: WheelEvent, rawDelta: number, normalizedDelta: number): number {
+  if (event.deltaMode === WHEEL_DELTA_PAGE) return Math.max(1, Math.round(Math.abs(rawDelta)))
+  return Math.max(1, Math.round(Math.abs(normalizedDelta) / WHEEL_PAGE_DELTA_UNIT))
 }
 
 function getRenderedContents(rendition: Rendition): EpubContents[] {
@@ -92,11 +106,18 @@ export function attachEpubWheelNavigation({
 
   const onWheel = (event: WheelEvent) => {
     if (event.ctrlKey || event.metaKey || isInteractiveWheelTarget(event.target)) return
-    const delta = normalizeWheelDelta(event, surface)
+    const rawDelta = dominantWheelDelta(event)
+    const delta = normalizeWheelDelta(event, rawDelta, surface)
     if (!delta) return
 
     event.preventDefault()
     event.stopPropagation()
+
+    if (isDiscreteWheelStep(event, rawDelta, delta)) {
+      wheelDeltaRemainder = 0
+      enqueuePageTurns(delta > 0 ? 'next' : 'previous', discreteWheelPageTurnCount(event, rawDelta, delta))
+      return
+    }
 
     wheelDeltaRemainder = Math.sign(wheelDeltaRemainder) === Math.sign(delta) ? wheelDeltaRemainder + delta : delta
     const pageTurnCount = Math.trunc(Math.abs(wheelDeltaRemainder) / WHEEL_PAGE_DELTA_UNIT)
