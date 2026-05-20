@@ -370,6 +370,23 @@ export function App() {
     return () => { window.removeEventListener('resize', close); window.removeEventListener('scroll', close, true) }
   }, [])
   React.useEffect(() => () => clearHoverOpenTimer(), [])
+  React.useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || isAllView) return
+      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+      const groups = doc.groups
+      if (groups.length < 2) return
+      const currentIndex = groups.findIndex(group => group.id === groupId)
+      if (currentIndex < 0) return
+      const nextIndex = event.key === 'ArrowUp'
+        ? (currentIndex - 1 + groups.length) % groups.length
+        : (currentIndex + 1) % groups.length
+      event.preventDefault()
+      selectGroup(groups[nextIndex].id)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [doc.groups, groupId, isAllView, selectGroup])
 
   function handleCommand(command: string) {
     if (command === 'open-settings') setSettingsOpen(true)
