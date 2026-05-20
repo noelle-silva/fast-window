@@ -4,9 +4,9 @@ use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
-use crate::app_launcher::{
+use crate::app_lifecycle::{
     app_launch_inner_with_cold_start_policy, build_registered_app_launch_args, AppColdStartPolicy,
-    AppLauncherState, RegisteredAppLaunchConfig,
+    AppLifecycleManager, RegisteredAppLaunchConfig,
 };
 
 #[derive(Default)]
@@ -135,7 +135,7 @@ async fn activate_registered_app_shortcut_target(
     };
     let config: RegisteredAppLaunchConfig =
         serde_json::from_value(value).map_err(|e| format!("注册应用配置不完整: {e}"))?;
-    let launcher = app.state::<Arc<AppLauncherState>>().inner().clone();
+    let launcher = app.state::<Arc<AppLifecycleManager>>().inner().clone();
     app_launch_inner_with_cold_start_policy(
         app.clone(),
         launcher,

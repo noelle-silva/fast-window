@@ -3,8 +3,9 @@ use std::time::Duration;
 
 use tauri::{AppHandle, Manager};
 
-use crate::app_launcher::{
-    app_launch_inner, build_registered_app_launch_args, AppLauncherState, RegisteredAppLaunchConfig,
+use crate::app_lifecycle::{
+    app_launch_inner, build_registered_app_launch_args, AppLifecycleManager,
+    RegisteredAppLaunchConfig,
 };
 
 fn auto_start_targets(app: &AppHandle) -> Result<Vec<RegisteredAppLaunchConfig>, String> {
@@ -26,7 +27,7 @@ async fn launch_auto_start_app(
     app: AppHandle,
     config: RegisteredAppLaunchConfig,
 ) -> Result<(), String> {
-    let launcher = app.state::<Arc<AppLauncherState>>().inner().clone();
+    let launcher = app.state::<Arc<AppLifecycleManager>>().inner().clone();
     app_launch_inner(
         app,
         launcher,

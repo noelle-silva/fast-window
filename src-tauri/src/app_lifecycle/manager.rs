@@ -8,14 +8,15 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::AppHandle;
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{Child, Command};
 use tokio::sync::Mutex as AsyncMutex;
+
+use super::{ManagedAppChild, ManagedAppCommand, ManagedAppStdout};
 
 const STOP_GRACE_TIMEOUT: Duration = Duration::from_millis(2_500);
 const STOP_GRACE_POLL: Duration = Duration::from_millis(100);
 
 #[derive(Default)]
-pub(crate) struct AppLauncherState {
+pub(crate) struct AppLifecycleManager {
     processes: Mutex<HashMap<String, Arc<AppProcessEntry>>>,
 }
 
@@ -52,7 +53,7 @@ pub(crate) struct RegisteredAppLaunchConfig {
 struct AppProcessEntry {
     pid: u32,
     started_at_ms: u64,
-    child: AsyncMutex<Option<Child>>,
+    child: AsyncMutex<Option<ManagedAppChild>>,
     exit_code: Mutex<Option<i32>>,
     control: Mutex<Option<AppControlEndpoint>>,
 }
@@ -77,7 +78,7 @@ enum AppStopMode {
 
 type AppStopOutcome = Result<AppStopResult, String>;
 
-impl Drop for AppLauncherState {
+impl Drop for AppLifecycleManager {
     fn drop(&mut self) {
         let entries: Vec<Arc<AppProcessEntry>> = self
             .processes
@@ -87,9 +88,7 @@ impl Drop for AppLauncherState {
         for entry in entries {
             if let Ok(mut child) = entry.child.try_lock() {
                 if let Some(ch) = child.as_mut() {
-                    if !kill_process_tree(entry.pid).unwrap_or(false) {
-                        let _ = ch.start_kill();
-                    }
+                    let _ = ch.start_kill();
                 }
             }
         }
@@ -352,35 +351,12 @@ async fn wait_for_process_exit(entry: &Arc<AppProcessEntry>, timeout: Duration) 
 }
 
 async fn kill_process_entry(entry: &Arc<AppProcessEntry>) -> Result<bool, String> {
-    let tree_killed = kill_process_tree(entry.pid)?;
     let mut g = entry.child.lock().await;
     if let Some(ch) = g.as_mut() {
-        if !tree_killed {
-            ch.start_kill().map_err(|e| format!("停止应用失败: {e}"))?;
-        }
+        ch.start_kill()?;
         let _ = g.take();
         return Ok(true);
     }
-    Ok(tree_killed)
-}
-
-#[cfg(target_os = "windows")]
-fn kill_process_tree(pid: u32) -> Result<bool, String> {
-    if pid == 0 {
-        return Ok(false);
-    }
-    let status = std::process::Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map_err(|e| format!("停止应用进程树失败: {e}"))?;
-    Ok(status.success())
-}
-
-#[cfg(not(target_os = "windows"))]
-fn kill_process_tree(_pid: u32) -> Result<bool, String> {
     Ok(false)
 }
 
@@ -496,7 +472,7 @@ impl AppStatusResult {
 #[tauri::command]
 pub(crate) async fn app_launch(
     app_handle: AppHandle,
-    state: tauri::State<'_, Arc<AppLauncherState>>,
+    state: tauri::State<'_, Arc<AppLifecycleManager>>,
     app_id: String,
     exe_path: String,
     args: Vec<String>,
@@ -507,7 +483,7 @@ pub(crate) async fn app_launch(
 #[tauri::command]
 pub(crate) async fn app_restart(
     app_handle: AppHandle,
-    state: tauri::State<'_, Arc<AppLauncherState>>,
+    state: tauri::State<'_, Arc<AppLifecycleManager>>,
     app_id: String,
     exe_path: String,
     args: Vec<String>,
@@ -536,7 +512,7 @@ pub(crate) fn app_open_folder(exe_path: String) -> Result<(), String> {
 
 pub(crate) async fn app_launch_inner(
     app_handle: AppHandle,
-    state: Arc<AppLauncherState>,
+    state: Arc<AppLifecycleManager>,
     app_id: String,
     exe_path: String,
     args: Vec<String>,
@@ -555,7 +531,7 @@ pub(crate) async fn app_launch_inner(
 
 pub(crate) async fn app_launch_inner_with_cold_start_policy(
     app_handle: AppHandle,
-    state: Arc<AppLauncherState>,
+    state: Arc<AppLifecycleManager>,
     app_id: String,
     exe_path: String,
     args: Vec<String>,
@@ -593,19 +569,18 @@ pub(crate) async fn app_launch_inner_with_cold_start_policy(
 
     let path = app_executable_path(exe_path)?;
 
-    let mut cmd = Command::new(&path);
-    cmd.args(&args);
-    cmd.stdin(std::process::Stdio::null());
-    cmd.stdout(std::process::Stdio::piped());
-    cmd.stderr(std::process::Stdio::null());
-
-    let mut child = cmd.spawn().map_err(|e| format!("启动应用失败: {e}"))?;
-    let pid = child.id().unwrap_or(0);
-    if should_allow_foreground(&launch_action(&args)) {
+    let action = launch_action(&args);
+    let mut child = ManagedAppChild::spawn(
+        ManagedAppCommand::new(&path)
+            .args(args)
+            .stdout(ManagedAppStdout::Piped),
+    )?;
+    let pid = child.id();
+    if should_allow_foreground(&action) {
         allow_foreground_for_process(pid);
     }
     let started_at_ms = now_ms();
-    let stdout = child.stdout.take();
+    let stdout = child.stdout();
 
     let entry = Arc::new(AppProcessEntry {
         pid,
@@ -694,7 +669,7 @@ pub(crate) async fn app_launch_inner_with_cold_start_policy(
 
 #[tauri::command]
 pub(crate) async fn app_stop(
-    state: tauri::State<'_, Arc<AppLauncherState>>,
+    state: tauri::State<'_, Arc<AppLifecycleManager>>,
     app_id: String,
 ) -> Result<AppStopResult, String> {
     app_stop_with_mode(state.inner(), app_id, AppStopMode::Graceful).await
@@ -702,14 +677,14 @@ pub(crate) async fn app_stop(
 
 #[tauri::command]
 pub(crate) async fn app_force_stop(
-    state: tauri::State<'_, Arc<AppLauncherState>>,
+    state: tauri::State<'_, Arc<AppLifecycleManager>>,
     app_id: String,
 ) -> Result<AppStopResult, String> {
     app_stop_with_mode(state.inner(), app_id, AppStopMode::Force).await
 }
 
 async fn app_stop_with_mode(
-    state: &Arc<AppLauncherState>,
+    state: &Arc<AppLifecycleManager>,
     app_id: String,
     mode: AppStopMode,
 ) -> Result<AppStopResult, String> {
@@ -754,14 +729,14 @@ async fn app_stop_with_mode(
 }
 
 pub(crate) async fn stop_registered_app_for_update(
-    state: &Arc<AppLauncherState>,
+    state: &Arc<AppLifecycleManager>,
     app_id: &str,
 ) -> Result<AppStopResult, String> {
     app_stop_with_mode(state, app_id.to_string(), AppStopMode::Graceful).await
 }
 
 pub(crate) async fn stop_all_running_apps(
-    state: &Arc<AppLauncherState>,
+    state: &Arc<AppLifecycleManager>,
 ) -> Vec<(String, AppStopOutcome)> {
     let app_ids: Vec<String> = state
         .processes
@@ -789,44 +764,22 @@ pub(crate) async fn stop_all_running_apps(
 
 #[tauri::command]
 pub(crate) fn app_status(
-    state: tauri::State<'_, Arc<AppLauncherState>>,
+    state: tauri::State<'_, Arc<AppLifecycleManager>>,
     app_id: String,
 ) -> Result<AppStatusResult, String> {
     let id = normalize_app_id(&app_id)?;
-
-    let entry = state
-        .processes
-        .lock()
-        .map_err(|_| "进程状态锁定失败".to_string())?
-        .get(&id)
-        .cloned();
-
-    let Some(entry) = entry else {
-        return Ok(AppStatusResult::stopped());
-    };
-
-    let exit_code = entry.exit_code.lock().ok().and_then(|c| *c);
-    if exit_code.is_some() {
-        return Ok(AppStatusResult::stopped());
-    }
-
-    Ok(AppStatusResult {
-        running: true,
-        pid: Some(entry.pid),
-        started_at: Some(entry.started_at_ms),
-        exit_code: None,
-    })
+    app_status_inner(state.inner(), &id)
 }
 
 #[tauri::command]
 pub(crate) fn app_status_many(
-    state: tauri::State<'_, Arc<AppLauncherState>>,
+    state: tauri::State<'_, Arc<AppLifecycleManager>>,
     app_ids: Vec<String>,
 ) -> Result<HashMap<String, AppStatusResult>, String> {
     let mut out = HashMap::new();
     for id in app_ids {
         let id = normalize_app_id(&id)?;
-        let status = app_status_inner(&state, &id)?;
+        let status = app_status_inner(state.inner(), &id)?;
         out.insert(id, status);
     }
     Ok(out)
@@ -866,7 +819,7 @@ fn app_icon_data_url_inner(_path: &Path) -> Result<String, String> {
     Err("当前系统不支持读取应用图标".to_string())
 }
 
-fn app_status_inner(state: &Arc<AppLauncherState>, id: &str) -> Result<AppStatusResult, String> {
+fn app_status_inner(state: &Arc<AppLifecycleManager>, id: &str) -> Result<AppStatusResult, String> {
     let entry = state
         .processes
         .lock()

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, Manager};
 
-use crate::app_launcher::{stop_all_running_apps, AppLauncherState};
+use crate::app_lifecycle::{stop_all_running_apps, AppLifecycleManager};
 use crate::windowing::{
     persist_browser_window_bounds, persist_main_window_bounds, save_bounds_if_valid,
     save_browser_stack_bounds_if_valid, BrowserWindowState, WindowState,
@@ -58,7 +58,7 @@ fn persist_host_window_state(app: &AppHandle) {
 }
 
 async fn stop_host_managed_apps(app: &AppHandle) {
-    let launcher = app.state::<Arc<AppLauncherState>>().inner().clone();
+    let launcher = app.state::<Arc<AppLifecycleManager>>().inner().clone();
     for (app_id, result) in stop_all_running_apps(&launcher).await {
         if let Err(error) = result {
             eprintln!("[host-lifecycle] failed to stop registered app {app_id}: {error}");

@@ -16,8 +16,8 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 mod app;
 mod app_autostart;
 mod app_installer;
-mod app_launcher;
 mod app_layout;
+mod app_lifecycle;
 mod app_registry;
 mod app_shortcuts;
 mod browser_stack;
@@ -2532,14 +2532,14 @@ fn main() {
         process_commands::process_spawn,
         process_commands::process_kill,
         process_commands::process_wait,
-        app_launcher::app_launch,
-        app_launcher::app_restart,
-        app_launcher::app_open_folder,
-        app_launcher::app_force_stop,
-        app_launcher::app_stop,
-        app_launcher::app_status,
-        app_launcher::app_status_many,
-        app_launcher::app_icon_data_url,
+        app_lifecycle::manager::app_launch,
+        app_lifecycle::manager::app_restart,
+        app_lifecycle::manager::app_open_folder,
+        app_lifecycle::manager::app_force_stop,
+        app_lifecycle::manager::app_stop,
+        app_lifecycle::manager::app_status,
+        app_lifecycle::manager::app_status_many,
+        app_lifecycle::manager::app_icon_data_url,
         app_registry::app_registry_load,
         app_registry::app_registry_save,
         app_registry::app_registry_add,

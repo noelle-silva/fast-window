@@ -12,7 +12,7 @@ use tauri::AppHandle;
 use tauri_plugin_global_shortcut::Shortcut;
 use tokio::io::AsyncWriteExt;
 
-use crate::app_launcher::{stop_registered_app_for_update, AppLauncherState};
+use crate::app_lifecycle::{stop_registered_app_for_update, AppLifecycleManager};
 use crate::install_fs::begin_replace_dir_from_tmp;
 use crate::{
     app_apps_dir, ensure_writable_dir, is_https_url, normalize_zip_name, now_ms,
@@ -181,7 +181,7 @@ pub(crate) async fn app_store_install(
 #[tauri::command]
 pub(crate) async fn app_store_update(
     app: AppHandle,
-    state: tauri::State<'_, Arc<AppLauncherState>>,
+    state: tauri::State<'_, Arc<AppLifecycleManager>>,
     req: AppStoreUpdateRequest,
 ) -> Result<AppStoreInstallResult, String> {
     let req = normalize_update_request(req)?;
