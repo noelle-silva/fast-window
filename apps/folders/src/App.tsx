@@ -1796,7 +1796,6 @@ function ItemDialog(props: {
             value={props.form.name}
             onChange={event => props.onChange({ ...props.form, name: event.target.value })}
             placeholder="例如：项目目录"
-            autoFocus
             fullWidth
           />
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
@@ -1805,6 +1804,7 @@ function ItemDialog(props: {
               value={props.form.target}
               onChange={event => props.onChange({ ...props.form, target: event.target.value })}
               placeholder={props.category.targetPlaceholder}
+              autoFocus
               fullWidth
             />
             {props.category.pickCommand ? <Button variant="text" startIcon={<LaunchRoundedIcon />} onClick={props.onPickTarget} sx={{ minWidth: 96 }}>选择</Button> : null}
